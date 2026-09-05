@@ -142,7 +142,6 @@ const props = (overrides: Record<string, unknown> = {}) => ({
   viewByWs: {},
   selectedPaneId: null,
   keyboardFocusEnabled: true,
-  deckLayout: "grid" as const,
   agents: [
     {
       id: "codex",
@@ -243,31 +242,6 @@ describe("DeckStage — exited agents across layouts", () => {
     expect(
       document.querySelector("[data-pane-id='pane-1'] .pane__exit"),
     ).toBeNull();
-  });
-
-  it("keeps an exit while folded and exposes the fresh action when expanded", async () => {
-    render({ deckLayout: "list", viewByWs: { "ws-1": { select: "pane-2" } } });
-    const folded = document.querySelector<HTMLElement>("[data-pane-id='pane-1']")!;
-    expect(folded.classList.contains("pane--folded")).toBe(true);
-    act(() => {
-      sessions.exit("pane-1", 1);
-      terminalProps("pane-1").onExit?.(1, false);
-    });
-
-    render({ deckLayout: "list", viewByWs: { "ws-1": { select: "pane-1" } } });
-    const expanded = document.querySelector<HTMLElement>("[data-pane-id='pane-1']")!;
-    expect(expanded.classList.contains("pane--folded")).toBe(false);
-    const actions = expanded.querySelectorAll<HTMLButtonElement>(
-      ".pane__exit-action",
-    );
-    expect(actions).toHaveLength(2);
-
-    await act(async () => actions[1].click());
-    expect(callbacks.onRestartAgent).toHaveBeenCalledWith(
-      "ws-1",
-      "pane-1",
-      "fresh",
-    );
   });
 
   it("removes a tray popover when a programmatic workspace switch hides its source", () => {
@@ -556,22 +530,6 @@ describe("DeckStage — status frames across layouts", () => {
 
   const reportEdge = (paneId: string, edge: AgentStatusEvent) =>
     act(() => statusTracker.report(paneId, { agent: "codex", edge }));
-
-  it("frames working and done on list rows — an accordion row is not the stage", () => {
-    render({ deckLayout: "list", viewByWs: { "ws-1": { select: "pane-2" } } });
-    reportEdge("pane-1", { kind: "turn-start", at: 1 });
-    reportEdge("pane-2", { kind: "turn-end", at: 1 });
-
-    // Both rows keep the frames a gridded pane wears, and neither wears a
-    // selection border — expansion itself marks the cursor's row.
-    expect(paneEl("pane-1").classList.contains("pane--frame-working")).toBe(
-      true,
-    );
-    expect(paneEl("pane-2").classList.contains("pane--frame-done")).toBe(true);
-    expect(paneEl("pane-2").classList.contains("pane--frame-selected")).toBe(
-      false,
-    );
-  });
 
   it("keeps a stage-filling grid pane's rim for attention alone", () => {
     // Maximized by hand.

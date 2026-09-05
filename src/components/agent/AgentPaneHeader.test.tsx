@@ -18,14 +18,12 @@ const baseProps: AgentPaneHeaderProps = {
   paneId: "pane-1",
   title: "Claude 1",
   keyboardFocusEnabled: true,
-  folded: false,
   focused: false,
   solo: false,
   activityView: null,
   now: NOW,
   ctxPct: undefined,
   paneLive: true,
-  onSelect: () => {},
   onRename: () => {},
   onToggleFocus: () => {},
   onClose: () => {},
@@ -161,15 +159,6 @@ describe("AgentPaneHeader", () => {
     expect(host.querySelector(".pane__action--minimize")).toBeNull();
   });
 
-  it("closing a folded row must not also expand it", () => {
-    const onSelect = vi.fn();
-    const onClose = vi.fn();
-    render({ folded: true, onSelect, onClose });
-    const close = host.querySelector<HTMLButtonElement>(".ui-close")!;
-    act(() => close.click());
-    expect(onClose).toHaveBeenCalledTimes(1);
-    expect(onSelect).not.toHaveBeenCalled();
-  });
   it("opens its own team from the badge, and is a real button doing it", () => {
     // The way IN to an existing team: the bar's control always starts a new
     // one, because a workspace may run several and a single button cannot

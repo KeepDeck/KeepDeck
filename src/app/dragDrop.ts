@@ -23,9 +23,8 @@ function rectOf(el: Element): Rect {
  * Scoped to the non-hidden workspace layer (`.deck__workspace`) so a drop
  * can't resolve to a pane in an inactive workspace stacked at the same
  * coordinates (inactive layers are visibility:hidden — their rects are real).
- * Covers both layouts (the layer holds a grid or a list). Panes that are
- * display:none (minimized, or hidden behind a maximize) yield zero-size rects
- * no drop point can hit.
+ * Panes that are display:none (minimized, or hidden behind a maximize) yield
+ * zero-size rects no drop point can hit.
  */
 function collectPaneRects(doc: Document = document): PaneRect[] {
   return Array.from(

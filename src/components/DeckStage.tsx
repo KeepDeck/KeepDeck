@@ -12,7 +12,6 @@ import {
   idleReadsAsStopped,
   paneIsSuspended,
   paneResumeSessionId,
-  resolveSelectedPaneId,
   resolveFocus,
   visiblePanes,
   type GitPosition,
@@ -21,7 +20,6 @@ import {
   type WorkspaceView,
   paneBody,
 } from "../domain/deck";
-import type { DeckLayout } from "../domain/settings";
 import type { PaneFramePlace } from "../domain/status";
 import { teamNamesIn } from "../domain/mail";
 import { gitBadge } from "../ui/gitBadge";
@@ -83,21 +81,18 @@ function WorkspaceSessionsScreen({
   );
 }
 
-/** The per-pane positioning the two layouts resolve to; the rest of a pane's
- * props (command, spec, cwd, badge) are the same everywhere. */
+/** The per-pane positioning the grid resolves to; the rest of a pane's props
+ * (command, spec, cwd, badge) are the same everywhere. */
 interface PaneLayout {
   colSpan: number;
   visible: boolean;
   focused: boolean;
   /** Hidden (display:none) but mounted — maximized-away, or minimized. */
   hidden: boolean;
-  /** Header-only (list layout, a non-expanded row). */
-  folded: boolean;
   solo: boolean;
   /** The pane's place as the frame ladder sees it — stated HERE, the one
-   * surface that knows which layout is rendering (`solo` is chrome
-   * vocabulary: a list row and a lone grid pane both read it, only one
-   * fills the stage). */
+   * surface that knows what is rendering (`solo` is chrome vocabulary; the
+   * ladder asks whether the pane fills the stage). */
   framePlace: PaneFramePlace;
   onMinimize?: () => void;
 }
@@ -105,15 +100,13 @@ interface PaneLayout {
 interface DeckStageProps {
   workspaces: Workspace[];
   activeId: string;
-  /** Per-workspace view state — read for each workspace's maximized pane, its
-   * minimized set, and (in list layout) its expanded pane. */
+  /** Per-workspace view state — read for each workspace's maximized pane and
+   * its minimized set. */
   viewByWs: Record<string, WorkspaceView>;
   /** The active workspace's highlighted pane (pane ids are app-unique). */
   selectedPaneId: string | null;
   /** Whether a terminal may receive keyboard focus above global UI surfaces. */
   keyboardFocusEnabled: boolean;
-  /** How a workspace's agents are laid out (grid / list) — the [F6] setting. */
-  deckLayout: DeckLayout;
   /** Agent catalog, for pane commands and derived titles. */
   agents: AgentInfo[];
   /** The catalog reflects the booted plugin system — only then can a pane's
@@ -207,24 +200,19 @@ interface DeckStageProps {
 /**
  * The stage: every workspace's panes, stacked, only the active one visible.
  *
- * Every pane stays MOUNTED at all times — across workspace switches, layout
- * switches, maximize, and minimize — so a PTY's terminal is never torn down and
+ * Every pane stays MOUNTED at all times — across workspace switches,
+ * maximize, and minimize — so a PTY's terminal is never torn down and
  * re-attached (which would flicker and replay its scrollback). What changes is
- * only CSS and props: the grid retiles, a pane is hidden (display:none) or
- * folded to its header, the container flips between grid and list. Nothing
- * unmounts, so switching any of it is seamless.
+ * only CSS and props: the grid retiles, a pane is hidden (display:none).
+ * Nothing unmounts, so switching any of it is seamless.
  *
- * - `grid` layout: the square grid. An agent can be minimized out of it (its
- *   tile is hidden and the grid retiles to fill the space); it's shown as a
- *   chip in the tray below, which restores it. Maximize still spotlights one
- *   live tile, and the tiles it hides are listed in that same tray as if
- *   minimized — restoring one of them switches the spotlight to it instead
- *   of exiting maximize.
- * - `list` layout: a vertical accordion — the selected agent expanded to its
- *   terminal, the rest folded to header bars. A display mode, not a minimize:
- *   every running agent stays, one is shown at a time. Under the optional Tray
- *   placement, explicitly suspended agents use the same bottom shelf as they
- *   do in grid. An empty workspace shows its sessions browser instead.
+ * The square grid: an agent can be minimized out of it (its tile is hidden
+ * and the grid retiles to fill the space); it's shown as a chip in the tray
+ * below, which restores it. Maximize still spotlights one live tile, and the
+ * tiles it hides are listed in that same tray as if minimized — restoring
+ * one of them switches the spotlight to it instead of exiting maximize.
+ * Under the optional Tray placement, explicitly suspended agents use the
+ * same bottom shelf. An empty workspace shows its sessions browser instead.
  */
 export function DeckStage({
   workspaces,
@@ -232,7 +220,6 @@ export function DeckStage({
   viewByWs,
   selectedPaneId,
   keyboardFocusEnabled,
-  deckLayout,
   agents,
   agentsReady,
   unavailableAgentReasons,
@@ -267,9 +254,6 @@ export function DeckStage({
   restartEpochs,
   onRetryPlanBuild,
 }: DeckStageProps) {
-  const isList = deckLayout === "list";
-  // Minimizing is a grid-only affordance.
-  const canMinimize = !isList;
   return (
     <>
       {workspaces.map((ws) => {
@@ -312,30 +296,19 @@ export function DeckStage({
         };
 
         // ── Per-pane layout, resolved once per workspace. ─────────────────
-        // Grid: the live (not minimized) panes tile; the minimized ones are
-        // hidden but stay in the grid mounted. List: the selected pane expands,
-        // the rest fold to headers.
-        const minimizedIds = view?.minimized ?? [];
+        // The live (not minimized) panes tile; the minimized ones are hidden
+        // but stay in the grid mounted.
         const suspendedTrayPanes = ws.panes.filter(
           (pane) => view?.suspendedTray?.includes(pane.id),
         );
         const suspendedTrayIds = new Set(
           suspendedTrayPanes.map((pane) => pane.id),
         );
-        const manuallyMinimizedIds = canMinimize
-          ? minimizedIds
-          : [];
-        const manuallyMinimizedSet = new Set(manuallyMinimizedIds);
-        const live = visiblePanes(ws.panes, view, canMinimize);
+        const manuallyMinimizedSet = new Set(view?.minimized ?? []);
+        const live = visiblePanes(ws.panes, view);
         const liveIndex = new Map(live.map((p, i) => [p.id, i] as const));
-        const focusedHere = isList ? null : resolveFocus(live, view?.focus);
+        const focusedHere = resolveFocus(live, view?.focus);
         const soloGrid = live.length === 1;
-        const expandedId = resolveSelectedPaneId(
-          ws.panes,
-          view,
-          deckLayout,
-          canMinimize,
-        );
         const trackColumns =
           live.length === 0 ? 1 : focusedHere ? 1 : paneGridTrackColumns(live.length);
         const rowCount =
@@ -343,14 +316,10 @@ export function DeckStage({
 
         const layoutFor = (pane: Pane): PaneLayout => {
           if (!liveIndex.has(pane.id)) {
-            // Hidden from the chosen layout, but still mounted. In addition
-            // to explicit grid minimizes this includes suspended panes while
-            // the global placement is Tray and its suspend transition put it
-            // in the existing minimized set.
-            // Hidden from the chosen layout, but still mounted. In addition
-            // to explicit grid minimizes this includes suspended panes while
-            // the global placement is Tray and its suspend transition put it
-            // in the existing minimized set. A hidden pane is never the
+            // Hidden from the grid, but still mounted. In addition to
+            // explicit minimizes this includes suspended panes while the
+            // global placement is Tray and its suspend transition put it in
+            // the existing minimized set. A hidden pane is never the
             // selected one — selection resolves to a live, visible pane
             // (the same contract MinimizedItem documents for its chip).
             return {
@@ -358,23 +327,7 @@ export function DeckStage({
               visible: false,
               focused: false,
               hidden: true,
-              folded: false,
               solo: false,
-              framePlace: { selected: false, fullBleed: false },
-            };
-          }
-          if (isList) {
-            const folded = pane.id !== expandedId;
-            return {
-              colSpan: 1,
-              visible: isActive && !folded,
-              focused: false,
-              hidden: false,
-              folded,
-              solo: true, // no maximize / highlight border in list rows
-              // Expansion itself marks the cursor's row — a highlight border
-              // would double it — and an accordion row never fills the
-              // stage, whatever its chrome `solo` says.
               framePlace: { selected: false, fullBleed: false },
             };
           }
@@ -387,7 +340,6 @@ export function DeckStage({
             visible: isActive && !hiddenByMaximize,
             focused: isFocused,
             hidden: hiddenByMaximize,
-            folded: false,
             solo: soloGrid,
             // Only a grid pane can fill the stage: maximized by hand, or the
             // one live pane left. Selection stays truthful — the ladder's
@@ -398,10 +350,9 @@ export function DeckStage({
             },
             // No minimizing the last visible agent — that would leave an empty
             // grid; hide the control until there's more than one live pane.
-            onMinimize:
-              canMinimize && !soloGrid
-                ? () => onToggleMinimize(ws.id, pane.id)
-                : undefined,
+            onMinimize: soloGrid
+              ? undefined
+              : () => onToggleMinimize(ws.id, pane.id),
           };
         };
 
@@ -421,7 +372,7 @@ export function DeckStage({
             );
           }
         }
-        if (canMinimize && focusedHere !== null) {
+        if (focusedHere !== null) {
           for (const pane of live) {
             if (pane.id === focusedHere) continue;
             // Not the minimized-restore (that exits maximize): switch the
@@ -479,20 +430,16 @@ export function DeckStage({
         const suspendedEntryById = new Map(
           suspendedEntries.map((entry) => [entry.id, entry]),
         );
-        // The existing tray and the suspended tray are one physical shelf
-        // when both are applicable. Pane order remains stable and a mixed
-        // shelf is named Hidden rather than mislabeling stopped agents as
-        // merely minimized.
-        const trayEntries = !isList
-          ? ws.panes.flatMap((pane) => {
-              const entry =
-                suspendedEntryById.get(pane.id) ??
-                minimizeEntryById.get(pane.id);
-              return entry ? [entry] : [];
-            })
-          : suspendedEntries;
+        // Minimized and suspended agents share one physical shelf. Pane
+        // order remains stable and a mixed shelf is named Hidden rather than
+        // mislabeling stopped agents as merely minimized.
+        const trayEntries = ws.panes.flatMap((pane) => {
+          const entry =
+            suspendedEntryById.get(pane.id) ?? minimizeEntryById.get(pane.id);
+          return entry ? [entry] : [];
+        });
         const trayStateLabel =
-          !isList && suspendedEntries.length > 0 && minimizeEntries.length > 0
+          suspendedEntries.length > 0 && minimizeEntries.length > 0
             ? "Hidden"
             : suspendedTrayPanes.some((pane) => !paneIsSuspended(pane))
               ? "Hidden"
@@ -558,7 +505,6 @@ export function DeckStage({
               visible={layout.visible}
               focused={layout.focused}
               hidden={layout.hidden}
-              folded={layout.folded}
               selected={pane.id === selectedPaneId}
               keyboardFocusEnabled={keyboardFocusEnabled}
               solo={layout.solo}
@@ -601,15 +547,11 @@ export function DeckStage({
           >
             <div className="deck__gridwrap">
               <div
-                className={isList ? "deck__list-inner" : "deck__grid"}
-                style={
-                  isList
-                    ? undefined
-                    : {
-                        gridTemplateColumns: gridTracks(trackColumns),
-                        gridTemplateRows: gridTracks(rowCount),
-                      }
-                }
+                className="deck__grid"
+                style={{
+                  gridTemplateColumns: gridTracks(trackColumns),
+                  gridTemplateRows: gridTracks(rowCount),
+                }}
               >
                 {ws.panes.map(renderPane)}
               </div>

@@ -42,91 +42,80 @@ describe("paneOnScreen", () => {
     ...panes.slice(1),
   ];
 
-  it("shows every tiled grid pane", () => {
-    expect(paneOnScreen(panes, undefined, "grid", true, "pane-2")).toBe(true);
+  it("shows every tiled pane", () => {
+    expect(paneOnScreen(panes, undefined, "pane-2")).toBe(true);
   });
 
-  it("hides manual minimizes only while grid minimization is enabled", () => {
+  it("hides a minimized pane and keeps its siblings", () => {
     const view = { minimized: ["pane-2"] };
-    expect(paneOnScreen(panes, view, "grid", true, "pane-2")).toBe(false);
-    expect(paneOnScreen(panes, view, "grid", true, "pane-1")).toBe(true);
-    expect(paneOnScreen(panes, view, "grid", false, "pane-2")).toBe(true);
+    expect(paneOnScreen(panes, view, "pane-2")).toBe(false);
+    expect(paneOnScreen(panes, view, "pane-1")).toBe(true);
   });
 
-  it("shows only the maximized grid pane", () => {
+  it("shows only the maximized pane", () => {
     const view = { focus: "pane-1" };
-    expect(paneOnScreen(panes, view, "grid", true, "pane-1")).toBe(true);
-    expect(paneOnScreen(panes, view, "grid", true, "pane-2")).toBe(false);
+    expect(paneOnScreen(panes, view, "pane-1")).toBe(true);
+    expect(paneOnScreen(panes, view, "pane-2")).toBe(false);
   });
 
   it("treats a stale maximize as no maximize", () => {
-    expect(
-      paneOnScreen(panes, { focus: "pane-gone" }, "grid", true, "pane-2"),
-    ).toBe(true);
+    expect(paneOnScreen(panes, { focus: "pane-gone" }, "pane-2")).toBe(true);
   });
 
   it("treats maximize on a solo pane as a no-op", () => {
-    expect(
-      paneOnScreen(seed(1), { focus: "pane-1" }, "grid", true, "pane-1"),
-    ).toBe(true);
+    expect(paneOnScreen(seed(1), { focus: "pane-1" }, "pane-1")).toBe(true);
   });
 
-  it("shows only the expanded List pane and defaults to the first", () => {
-    expect(paneOnScreen(panes, { select: "pane-2" }, "list", false, "pane-2")).toBe(
-      true,
-    );
-    expect(paneOnScreen(panes, { select: "pane-2" }, "list", false, "pane-1")).toBe(
-      false,
-    );
-    expect(paneOnScreen(panes, undefined, "list", false, "pane-1")).toBe(true);
-    expect(paneOnScreen(panes, undefined, "list", false, "pane-2")).toBe(false);
-  });
-
-  it("applies suspended tray placement in either layout", () => {
+  it("applies suspended tray placement", () => {
     const view = { select: "pane-1", suspendedTray: ["pane-1"] };
-    expect(paneOnScreen(withSuspended, view, "grid", true, "pane-1")).toBe(false);
-    expect(paneOnScreen(withSuspended, view, "grid", true, "pane-2")).toBe(true);
-    expect(paneOnScreen(withSuspended, view, "list", false, "pane-1")).toBe(false);
-    expect(paneOnScreen(withSuspended, view, "list", false, "pane-2")).toBe(true);
+    expect(paneOnScreen(withSuspended, view, "pane-1")).toBe(false);
+    expect(paneOnScreen(withSuspended, view, "pane-2")).toBe(true);
     expect(withSuspended[0].idle?.reason).toBe("suspended");
   });
 
   it("shows a suspended pane restored from the tray without waking it", () => {
-    expect(
-      paneOnScreen(
-        withSuspended,
-        { select: "pane-1" },
-        "grid",
-        true,
-        "pane-1",
-      ),
-    ).toBe(true);
+    expect(paneOnScreen(withSuspended, { select: "pane-1" }, "pane-1")).toBe(true);
     expect(withSuspended[0].idle?.reason).toBe("suspended");
   });
 
   it("keeps a suspended pane without tray placement visible", () => {
-    expect(paneOnScreen(withSuspended, undefined, "grid", true, "pane-1")).toBe(
-      true,
-    );
+    expect(paneOnScreen(withSuspended, undefined, "pane-1")).toBe(true);
   });
 
   it("never shows an unknown pane", () => {
-    expect(paneOnScreen(panes, undefined, "grid", true, "pane-99")).toBe(false);
-    expect(paneOnScreen([], undefined, "list", false, "pane-1")).toBe(false);
+    expect(paneOnScreen(panes, undefined, "pane-99")).toBe(false);
+    expect(paneOnScreen([], undefined, "pane-1")).toBe(false);
+  });
+});
+
+describe("resolveSelectedPaneId", () => {
+  const panes = seed(3);
+
+  it("keeps a live selection", () => {
+    expect(resolveSelectedPaneId(panes, { select: "pane-2" })).toBe("pane-2");
   });
 
-  it("resolves List selection from tray placement, not dormant minimizes", () => {
+  it("falls back to the first live pane when the tray hid the selection", () => {
+    // The suspend-to-tray transition is the one that may strand a selection
+    // on a hidden pane; the grid then presents the first pane still on it.
     expect(
-      resolveSelectedPaneId(
-        panes,
-        {
-          select: "pane-2",
-          minimized: ["pane-1"],
-          suspendedTray: ["pane-2"],
-        },
-        "list",
-        false,
-      ),
-    ).toBe("pane-1");
+      resolveSelectedPaneId(panes, {
+        select: "pane-2",
+        minimized: ["pane-1"],
+        suspendedTray: ["pane-2"],
+      }),
+    ).toBe("pane-3");
+  });
+
+  it("falls back to a lone live pane, and to nothing among several", () => {
+    expect(
+      resolveSelectedPaneId(panes, { select: "pane-9", minimized: ["pane-1", "pane-2"] }),
+    ).toBe("pane-3");
+    expect(resolveSelectedPaneId(panes, { select: "pane-9" })).toBeUndefined();
+    // A selection minimized by hand is not repaired here: the reducer moved
+    // it off the pane when it went, so a stale one is stale.
+    expect(
+      resolveSelectedPaneId(panes, { select: "pane-1", minimized: ["pane-1"] }),
+    ).toBeUndefined();
   });
 });

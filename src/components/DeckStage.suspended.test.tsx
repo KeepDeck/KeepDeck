@@ -94,7 +94,6 @@ const props = (overrides: Record<string, unknown> = {}) => ({
   viewByWs: {},
   selectedPaneId: null,
   keyboardFocusEnabled: true,
-  deckLayout: "grid" as const,
   agents: [
     {
       id: "codex",
@@ -253,29 +252,6 @@ describe("DeckStage — suspended agents", () => {
         .classList.contains("pane--hidden"),
     ).toBe(false);
     expect(document.querySelector(".deck__tray")).toBeNull();
-  });
-
-  it("applies suspended tray placement in List and expands the live sibling", () => {
-    render({
-      workspaces: suspended,
-      deckLayout: "list",
-      viewByWs: {
-        "ws-1": { select: "pane-1", suspendedTray: ["pane-1"] },
-      },
-    });
-    expect(
-      document
-        .querySelector<HTMLElement>("[data-pane-id='pane-1']")!
-        .classList.contains("pane--hidden"),
-    ).toBe(true);
-    expect(
-      document
-        .querySelector<HTMLElement>("[data-pane-id='pane-2']")!
-        .classList.contains("pane--folded"),
-    ).toBe(false);
-    expect(document.querySelector(".deck__tray-label")?.textContent).toBe(
-      "Suspended · 1",
-    );
   });
 
   it("uses hidden wording when minimized and suspended agents share the tray", () => {

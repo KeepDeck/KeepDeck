@@ -69,7 +69,6 @@ function renderHeader(): void {
         paneId: "pane-1",
         title: "A deliberately long agent title that has to yield",
         keyboardFocusEnabled: true,
-        folded: false,
         focused: false,
         solo: false,
         activityView: {
@@ -83,7 +82,6 @@ function renderHeader(): void {
         paneLive: true,
         yolo: true,
         gitBadge: { label: LONG_BRANCH, title: LONG_BRANCH },
-        onSelect: () => {},
         onRename: () => {},
         onMinimize: () => {},
         onToggleFocus: () => {},

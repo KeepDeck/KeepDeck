@@ -28,18 +28,11 @@ export function closeHotkeyTarget(
   activeId: string,
   viewByWs: Record<string, WorkspaceView>,
   agents: AgentInfo[],
-  minimizeOn: boolean,
 ): CloseTarget | null {
   const ws = workspaces.find((w) => w.id === activeId);
   if (!ws) return null;
   if (ws.panes.length === 0) return { kind: "workspace", wsId: ws.id };
-  const target = paneHotkeyTarget(
-    workspaces,
-    activeId,
-    viewByWs,
-    agents,
-    minimizeOn,
-  );
+  const target = paneHotkeyTarget(workspaces, activeId, viewByWs, agents);
   return target && { kind: "agent", ...target };
 }
 
@@ -60,12 +53,11 @@ export function paneHotkeyTarget(
   activeId: string,
   viewByWs: Record<string, WorkspaceView>,
   agents: AgentInfo[],
-  minimizeOn: boolean,
 ): { wsId: string; paneId: string; label: string } | null {
   const ws = workspaces.find((w) => w.id === activeId);
   if (!ws) return null;
   const view = viewByWs[ws.id];
-  const visible = visiblePanes(ws.panes, view, minimizeOn);
+  const visible = visiblePanes(ws.panes, view);
   let pane = visible.find((p) => p.id === view?.select);
   // The suspend-to-tray transition can hide the selected pane. Resolve that
   // newly-stranded selection the same way an explicit minimize does, while
@@ -101,12 +93,11 @@ export function maximizeHotkeyTarget(
   workspaces: Workspace[],
   activeId: string,
   viewByWs: Record<string, WorkspaceView>,
-  minimizeOn: boolean,
 ): { wsId: string; paneId: string } | null {
   const ws = workspaces.find((w) => w.id === activeId);
   if (!ws) return null;
   const view = viewByWs[ws.id];
-  const visible = visiblePanes(ws.panes, view, minimizeOn);
+  const visible = visiblePanes(ws.panes, view);
   if (visible.length <= 1) return null;
   const focused = resolveFocus(visible, view?.focus);
   if (focused) return { wsId: ws.id, paneId: focused };

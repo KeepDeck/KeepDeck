@@ -39,42 +39,6 @@
   opacity: 0.55;
 }
 
-/* Folded to its header (a non-expanded row in the list layout): the terminal
-   body is hidden but stays mounted, so expanding it needs no re-attach. Its
-   flex sizing is set by the list container. */
-.pane--folded .pane__body {
-  display: none;
-}
-
-/* The folded header is the expand control — read as clickable. */
-.pane--folded .pane__bar {
-  cursor: pointer;
-}
-
-.pane--folded:hover .pane__bar {
-  background-color: #1a212e;
-}
-
-/* The caret on a folded row — the accessible expand handle (a real button;
-   the header around it is the pointer convenience). */
-.pane__fold-chevron {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 0;
-  background: transparent;
-  padding: 0;
-  color: #6b7280;
-  margin-right: -2px;
-  transform: rotate(-90deg);
-  cursor: pointer;
-}
-
-.pane__fold-chevron:hover {
-  color: #c5c8c6;
-}
-
 /* The reserved border is coloured by the status frame ladder — see
    status.css (.pane--frame-*); the domain's paneFrame() decides which. */
 

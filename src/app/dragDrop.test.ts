@@ -18,11 +18,10 @@ function place(
  * workspace, hidden ones carrying `--hidden`, panes inside the grid wrap.
  * `pane-1` occupies the left half, `pane-2` the right.
  */
-function deck({ layout = "grid" as "grid" | "list", hidden = false } = {}): void {
-  const inner = layout === "grid" ? "deck__grid" : "deck__list-inner";
+function deck({ hidden = false } = {}): void {
   document.body.innerHTML = `
     <main class="deck__workspace">
-      <div class="deck__gridwrap"><div class="${inner}">
+      <div class="deck__gridwrap"><div class="deck__grid">
         <section data-pane-id="pane-1"></section>
         <section data-pane-id="pane-2"></section>
       </div></div>
@@ -183,15 +182,6 @@ describe("deliverPathsToPoint — the whole drop, for both entry points", () => 
     expect(active).toHaveBeenCalled();
     offActive();
     offHidden();
-  });
-
-  it("finds panes in the list layout too — drops must not go dead there", async () => {
-    deck({ layout: "list" });
-    const off = registerPaneInput("pane-2", { write: vi.fn() });
-    expect(await deliverPathsToPoint(["/a"], { x: 150, y: 50 }, noImages)).toBe(
-      "pane-2",
-    );
-    off();
   });
 
   it("treats an image-sniff failure as plain text, not a dropped file", async () => {

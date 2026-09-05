@@ -73,11 +73,7 @@ export function useAppController() {
     [installedPlugins],
   );
   const settings = useSettings();
-  const deckLayout = settings?.deckLayout ?? DEFAULT_SETTINGS.deckLayout;
   const dockMode = settings?.dockMode ?? DEFAULT_SETTINGS.dockMode;
-  // Minimizing is a grid-only affordance: the list layout shows every agent
-  // in place, so a minimized set is ignored there rather than cleared.
-  const minimizeOn = deckLayout === "grid";
   const { restoring, frozen } = usePersistence(runtime.deckPersistence);
   const [frozenAck, setFrozenAck] = useState(false);
   const spawnCtx = useSpawnContext(runtime.spawnContext);
@@ -227,14 +223,7 @@ export function useAppController() {
   const dockOpen = activeView.dock ?? false;
   const showForm = creating || deck.workspaces.length === 0;
   const selectedPaneId =
-    (active &&
-      resolveSelectedPaneId(
-        active.panes,
-        activeView,
-        deckLayout,
-        minimizeOn,
-      )) ??
-    null;
+    (active && resolveSelectedPaneId(active.panes, activeView)) ?? null;
   const dockTabs = buildDockTabs({
     contributions: pluginDockTabs,
     crashes,
@@ -258,8 +247,6 @@ export function useAppController() {
     activeId: deck.activeId,
     workspaces: deck.workspaces,
     viewByWs: deck.viewByWs,
-    deckLayout,
-    minimizeOn,
     modalOpen,
     dockCovers,
     statsOpen: modal.statsOpen,
@@ -270,8 +257,6 @@ export function useAppController() {
     activeId: deck.activeId,
     workspaces: deck.workspaces,
     viewByWs: deck.viewByWs,
-    deckLayout,
-    minimizeOn,
     modalOpen,
     dockCovers,
     statsOpen: modal.statsOpen,
@@ -308,8 +293,6 @@ export function useAppController() {
       return paneOnScreen(
         ws.panes,
         now.viewByWs[source.workspace.id],
-        now.deckLayout,
-        now.minimizeOn,
         source.paneId,
       );
     });
@@ -336,7 +319,6 @@ export function useAppController() {
         deck.activeId,
         deck.viewByWs,
         agents,
-        minimizeOn,
       );
       if (!target) return;
       if (target.kind === "workspace")
@@ -351,7 +333,6 @@ export function useAppController() {
         deck.activeId,
         deck.viewByWs,
         agents,
-        minimizeOn,
       );
       if (!target) return;
       void orchestrator.suspend(target.wsId, target.paneId).then((outcome) => {
@@ -364,12 +345,10 @@ export function useAppController() {
     },
     toggleMaximize: () => {
       if (modalOpen) return;
-      if (deckLayout === "list") return;
       const target = maximizeHotkeyTarget(
         deck.workspaces,
         deck.activeId,
         deck.viewByWs,
-        minimizeOn,
       );
       if (target) paneViewActions.toggleMaximize(target.wsId, target.paneId);
     },
@@ -407,7 +386,6 @@ export function useAppController() {
     canOpenDialog,
     closeFlow,
     deck,
-    deckLayout,
     dismissAlert,
     dockMode,
     dockOpen,

@@ -64,7 +64,6 @@ function App() {
     canCloseDialog,
     closeFlow,
     deck,
-    deckLayout,
     dismissAlert,
     dockMode,
     dockTabs,
@@ -179,7 +178,6 @@ function App() {
             viewByWs={deck.viewByWs}
             selectedPaneId={selectedPaneId}
             keyboardFocusEnabled={keyboardFocusEnabled}
-            deckLayout={deckLayout}
             agents={agents}
             agentsReady={!agentsLoading}
             unavailableAgentReasons={unavailableReasons}

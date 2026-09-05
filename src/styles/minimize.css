@@ -1,8 +1,6 @@
-/* Minimized-agent surfaces (grid layout) and the list layout. Every pane stays
-   mounted throughout — a minimized agent is a hidden-but-mounted tile with a
-   MinimizedItem stand-in; a folded list row is the pane's own header with the
-   terminal body hidden. Restoring / expanding needs no re-attach, so there's no
-   flicker. */
+/* Minimized-agent surfaces. Every pane stays mounted throughout — a minimized
+   agent is a hidden-but-mounted tile with a MinimizedItem stand-in, so
+   restoring needs no re-attach and there's no flicker. */
 
 /* ── Tray: a horizontal strip of chips below the grid ─────────────────── */
 .deck__tray {
@@ -43,29 +41,6 @@
   gap: 8px;
   min-width: 0;
   overflow: hidden;
-}
-
-/* ── List layout: the whole workspace as a vertical accordion ─────────── */
-.deck__list-inner {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  background-color: #1c2230;
-  overflow-y: auto;
-}
-/* The one expanded row fills the remaining height; the folded ones sit flush
-   at their header height. (Both selectors are equally specific — source order
-   makes the folded rule win.) */
-.deck__list-inner > .pane {
-  flex: 1 1 auto;
-  min-height: 240px;
-  min-width: 0;
-}
-.deck__list-inner > .pane--folded {
-  flex: none;
-  min-height: 0;
 }
 
 /* ── MinimizedItem: the minimized stand-in (a tray chip) ──────────────── */
