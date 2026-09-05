@@ -250,7 +250,7 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         viewByWs = setViewField(viewByWs, wsId, "select", (firstLive ?? remaining[0])?.id);
       }
       // Drop the closed pane from the minimized set so it can't linger as a
-      // stale chip/bar (partitionPanes ignores stale ids at render, but the
+      // stale chip/bar (the layout ignores stale ids at render, but the
       // stored set is kept tidy here, mirroring the focus/select cleanup).
       if (view?.minimized?.includes(paneId)) {
         const next = view.minimized.filter((id) => id !== paneId);

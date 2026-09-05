@@ -1,31 +1,55 @@
 import { describe, expect, it } from "vitest";
-import { partitionPanes, type Pane } from "./panes";
-import { paneOnScreen, resolveSelectedPaneId } from "./paneVisibility";
+import type { Pane } from "./panes";
+import {
+  hiddenBy,
+  paneOnScreen,
+  resolveSelectedPaneId,
+  visiblePanes,
+  type PaneVisibilityView,
+} from "./paneVisibility";
 
 const seed = (count: number): Pane[] =>
   Array.from({ length: count }, (_, index) => ({ id: `pane-${index + 1}` }));
 
-describe("partitionPanes", () => {
-  it("keeps the live array reference when nothing is minimized", () => {
+describe("hiddenBy", () => {
+  it("names each reason a pane is off the grid, in a fixed order, and none for a pane on it", () => {
+    expect(hiddenBy(undefined, "pane-1")).toEqual([]);
+    expect(hiddenBy({}, "pane-1")).toEqual([]);
+    expect(hiddenBy({ minimized: ["pane-1"] }, "pane-1")).toEqual(["minimized"]);
+    expect(hiddenBy({ suspendedTray: ["pane-1"] }, "pane-1")).toEqual(["suspendedTray"]);
+    // Both at once — a suspend from the grid leaves a pane in both lists.
+    expect(hiddenBy({ minimized: ["pane-1"], suspendedTray: ["pane-1"] }, "pane-1")).toEqual([
+      "minimized",
+      "suspendedTray",
+    ]);
+    expect(hiddenBy({ minimized: ["pane-2"] }, "pane-1")).toEqual([]);
+  });
+
+  it("does not count the maximize spotlight — a covered pane is still on the grid", () => {
+    const view: PaneVisibilityView = { focus: "pane-1" };
+    expect(hiddenBy(view, "pane-2")).toEqual([]);
+  });
+});
+
+describe("visiblePanes", () => {
+  it("drops a pane for either reason, and both", () => {
     const panes = seed(3);
-    const result = partitionPanes(panes, undefined);
-    expect(result.live).toBe(panes);
-    expect(result.minimized).toEqual([]);
-    expect(partitionPanes(panes, []).live).toBe(panes);
+    const view = { minimized: ["pane-1"], suspendedTray: ["pane-3"] };
+    expect(visiblePanes(panes, view).map((pane) => pane.id)).toEqual(["pane-2"]);
   });
 
-  it("splits by the minimized set while preserving pane order", () => {
+  it("hands the same array back when nothing is hidden, and keeps pane order otherwise", () => {
     const panes = seed(4);
-    const { live, minimized } = partitionPanes(panes, ["pane-3", "pane-1"]);
-    expect(live.map((pane) => pane.id)).toEqual(["pane-2", "pane-4"]);
-    expect(minimized.map((pane) => pane.id)).toEqual(["pane-1", "pane-3"]);
-  });
-
-  it("ignores minimized ids that no longer match a pane", () => {
-    const panes = seed(2);
-    const { live, minimized } = partitionPanes(panes, ["pane-2", "pane-99"]);
-    expect(live.map((pane) => pane.id)).toEqual(["pane-1"]);
-    expect(minimized.map((pane) => pane.id)).toEqual(["pane-2"]);
+    expect(visiblePanes(panes, undefined)).toBe(panes);
+    expect(visiblePanes(panes, { minimized: [] })).toBe(panes);
+    expect(visiblePanes(panes, { focus: "pane-1" })).toBe(panes);
+    // A hidden id that no longer matches a pane is simply ignored: the lists
+    // self-heal over any pane removal without every removal path pruning them.
+    expect(
+      visiblePanes(panes, { minimized: ["pane-3", "pane-99"], suspendedTray: ["pane-1"] }).map(
+        (pane) => pane.id,
+      ),
+    ).toEqual(["pane-2", "pane-4"]);
   });
 });
 
