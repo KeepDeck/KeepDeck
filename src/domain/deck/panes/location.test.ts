@@ -155,3 +155,15 @@ describe("projections", () => {
     expect(paneBranch({ location: { kind: "remote", endpoint: "e" } })).toBeUndefined();
   });
 });
+
+describe("the type", () => {
+  it("holds one placement — a directory and a card cannot share a location", () => {
+    // The state the four fields used to allow. Checked by the compiler:
+    // typecheck fails on an unused expectation the day the union lets it in.
+    // @ts-expect-error — an attached location has no card
+    const landed: PaneLocation = { kind: "attached", cwd: "/repo/wt", card };
+    // @ts-expect-error — a card has no directory beside it
+    const pending: PaneLocation = { kind: "provisioning", card, cwd: "/repo/wt" };
+    expect([landed, pending]).toHaveLength(2);
+  });
+});
