@@ -1,11 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import type { McpServerSpec } from "@keepdeck/plugin-api";
 import type { BundledMcpContributor, McpContributionTarget } from "./bundled";
 import {
   createMcpInjection,
-  NO_MCP_SERVERS,
+  type McpAccess,
+  type McpInjectable,
   type McpInjectionTarget,
-  type McpLibraryServer,
   type McpServerSource,
 } from "./injection";
 
@@ -38,11 +37,11 @@ const silent: BundledMcpContributor = {
   contribute: async () => null,
 };
 
-const library = (...servers: McpLibraryServer[]): McpServerSource => ({
+const library = (...servers: McpInjectable[]): McpServerSource => ({
   serversFor: async () => servers,
 });
 
-const github: McpLibraryServer = {
+const github: McpInjectable = {
   spec: {
     name: "github",
     transport: "http",
@@ -52,7 +51,7 @@ const github: McpLibraryServer = {
   env: [["GH_TOKEN", "ghp_secret"]],
 };
 
-const local = (name: string, env: [string, string][] = []): McpLibraryServer => ({
+const local = (name: string, env: [string, string][] = []): McpInjectable => ({
   spec: { name, transport: "stdio", command: "/usr/bin/npx", args: ["-y", name] },
   env,
 });
@@ -64,7 +63,7 @@ const local = (name: string, env: [string, string][] = []): McpLibraryServer => 
 const ports = {
   panesIn: () => 1,
   plant: async () => ({ armed: [], refused: [] }),
-  library: NO_MCP_SERVERS,
+  library: library(),
 };
 
 /** A claude pane — the argv path. kimi's file path has its own tests. */
@@ -82,7 +81,8 @@ const kimi = (cwd: string): McpInjectionTarget => ({
   client: "pane-secret",
 });
 
-const names = (servers: McpServerSpec[]) => servers.map((server) => server.name);
+const names = (access: McpAccess) => access.entries.map(({ spec }) => spec.name);
+const envOf = (access: McpAccess) => access.entries.flatMap(({ env }) => env);
 
 describe("the MCP injection", () => {
   it("hands out the bundled tier in registry order, then the library", async () => {
@@ -95,11 +95,7 @@ describe("the MCP injection", () => {
       library: library(github, local("fs")),
     });
 
-    expect(names((await injection.access(target)).servers)).toEqual([
-      "keepdeck",
-      "github",
-      "fs",
-    ]);
+    expect(names(await injection.access(target))).toEqual(["keepdeck", "github", "fs"]);
   });
 
   it("serves the library even when no bundled server has anything", async () => {
@@ -111,23 +107,41 @@ describe("the MCP injection", () => {
       library: library(github),
     });
 
-    expect(names((await injection.access(target)).servers)).toEqual(["github"]);
+    expect(names(await injection.access(target))).toEqual(["github"]);
   });
 
-  it("gives a pane NOTHING when neither tier has anything for it", async () => {
+  it("gives an argv pane NOTHING when neither tier has anything for it", async () => {
     const plant = vi.fn(async () => ({ armed: [], refused: [] }));
+    const injection = createMcpInjection({ ...ports, contributors: [silent], plant });
+
+    const access = await injection.access(target);
+    await access.deliver();
+
+    expect(access).toMatchObject({ entries: [], throughArgv: true });
+    expect(plant).not.toHaveBeenCalled();
+  });
+
+  it("still delivers an EMPTY file to a file-fed pane with nothing in it", async () => {
+    // The file IS the delivery. A pane that gets no servers today must not
+    // read yesterday's file and keep serving a server the user has since
+    // deleted — so the empty set is written like any other.
+    const planted: string[] = [];
+    const plant = vi.fn(async (_ws: string, _root: string, content: string) => {
+      planted.push(content);
+      return { armed: ["/repo"], refused: [] };
+    });
     const injection = createMcpInjection({ ...ports, contributors: [silent], plant });
 
     const access = await injection.access(kimi("/repo"));
     await access.deliver();
 
-    expect(access).toMatchObject({ servers: [], env: [] });
-    expect(plant).not.toHaveBeenCalled();
+    expect(access).toMatchObject({ entries: [], throughArgv: false });
+    expect(JSON.parse(planted[0]!)).toEqual({ mcpServers: {} });
   });
 
   it("carries the library's environment — and only for the servers it accepted", async () => {
     // A library entry that lost its name to the bundled tier must not leave
-    // its values in the pane either: the environment follows the spec.
+    // its values in the pane either: spec and env are one entry.
     const shadow = local("keepdeck", [["SHADOW", "1"]]);
     const injection = createMcpInjection({
       ...ports,
@@ -137,10 +151,10 @@ describe("the MCP injection", () => {
 
     const access = await injection.access(target);
 
-    expect(access.env).toEqual([["GH_TOKEN", "ghp_secret"]]);
+    expect(envOf(access)).toEqual([["GH_TOKEN", "ghp_secret"]]);
     // The shipped server kept its name — the library's twin never reached
     // the pane.
-    expect(access.servers.find((server) => server.name === "keepdeck")).toMatchObject({
+    expect(access.entries.find(({ spec }) => spec.name === "keepdeck")?.spec).toMatchObject({
       command: "/bin/keepdeck",
     });
   });
@@ -196,7 +210,7 @@ describe("the MCP injection", () => {
 
     const access = await injection.access(kimi("/repo"));
 
-    expect(access.servers).toEqual([]);
+    expect(access.throughArgv).toBe(false);
     expect(plant).not.toHaveBeenCalled();
   });
 
@@ -225,7 +239,7 @@ describe("the MCP injection", () => {
     ]);
     // The environment rides regardless of the delivery: kimi's children
     // inherit the pane's, file or no file.
-    expect(access.env).toEqual([["GH_TOKEN", "ghp_secret"]]);
+    expect(envOf(access)).toEqual([["GH_TOKEN", "ghp_secret"]]);
   });
 
   it("reports where the config landed", async () => {
@@ -250,7 +264,8 @@ describe("the MCP injection", () => {
     const access = await injection.access(target);
     await access.deliver();
 
-    expect(access.servers).toHaveLength(1);
+    expect(access.entries).toHaveLength(1);
+    expect(access.throughArgv).toBe(true);
     expect(plant).not.toHaveBeenCalled();
   });
 
@@ -261,7 +276,7 @@ describe("the MCP injection", () => {
       library: { serversFor: async () => Promise.reject(new Error("disk")) },
     });
 
-    expect(names((await injection.access(target)).servers)).toEqual(["keepdeck"]);
+    expect(names(await injection.access(target))).toEqual(["keepdeck"]);
   });
 
   it("a contributor that throws costs the pane that server, not the others", async () => {
@@ -275,9 +290,6 @@ describe("the MCP injection", () => {
       library: library(github),
     });
 
-    expect(names((await injection.access(target)).servers)).toEqual([
-      "keepdeck",
-      "github",
-    ]);
+    expect(names(await injection.access(target))).toEqual(["keepdeck", "github"]);
   });
 });

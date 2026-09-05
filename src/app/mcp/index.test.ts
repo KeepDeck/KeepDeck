@@ -7,7 +7,7 @@ vi.mock("../../ipc/log", () => ({
 
 import { createCommandRegistry, type CommandSource } from "../../domain/commands";
 import type { McpRequest } from "../../ipc/mcpBridge";
-import { createMcpService, NO_MCP_SERVERS, type McpServiceDeps } from ".";
+import { createMcpService, type McpServiceDeps } from ".";
 
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
@@ -38,7 +38,7 @@ function harness() {
     pumpPorts,
     panesIn: () => 1,
     plant: async () => ({ armed: [], refused: [] }),
-    library: NO_MCP_SERVERS,
+    library: { serversFor: async () => [] },
     identitySource: () =>
       Promise.resolve({ name: "KeepDeck", version: "9.9.9" }),
     connection: vi.fn(() =>
@@ -450,11 +450,11 @@ describe("createMcpService", () => {
       .mockResolvedValueOnce("/home/mcp.sock");
     const service = createMcpService(h.deps);
     await flush();
-    expect((await service.access(claude)).servers).toEqual([]);
+    expect((await service.access(claude)).entries).toEqual([]);
 
     service.refresh(); // the retry lands
     await flush();
-    expect((await service.access(claude)).servers.map((d) => d.name)).toEqual([
+    expect((await service.access(claude)).entries.map((e) => e.spec.name)).toEqual([
       "keepdeck",
     ]);
   });

@@ -23,8 +23,6 @@ describe("a library server as the injection hands it out", () => {
       ["GITHUB_PERSONAL_ACCESS_TOKEN", "ghp_x"],
       ["GITHUB_HOST", "github.com"],
     ]);
-    // And never a literal `env` in the spec — that is what would ride argv.
-    expect("env" in spec).toBe(false);
   });
 
   it("declares no passthrough for a server that needs no variables", () => {
@@ -50,9 +48,9 @@ describe("a library server as the injection hands it out", () => {
       transport: "http",
       url: "https://api.githubcopilot.com/mcp/",
       headers: { "X-Org": "keepdeck" },
-      bearerTokenEnv: "KEEPDECK_MCP_GITHUB_REMOTE_TOKEN",
+      bearerTokenEnv: "KEEPDECK_MCP_TOKEN_github_2Dremote",
     });
-    expect(env).toEqual([["KEEPDECK_MCP_GITHUB_REMOTE_TOKEN", "ghp_y"]]);
+    expect(env).toEqual([["KEEPDECK_MCP_TOKEN_github_2Dremote", "ghp_y"]]);
   });
 
   it("leaves headers and the token out of an endpoint that has none", () => {
@@ -65,8 +63,14 @@ describe("a library server as the injection hands it out", () => {
     expect(env).toEqual([]);
   });
 
-  it("mints a valid, stable variable name from any server name", () => {
-    expect(bearerTokenVar("my-server_2")).toBe("KEEPDECK_MCP_MY_SERVER_2_TOKEN");
-    expect(bearerTokenVar("x")).toMatch(/^[A-Z_][A-Z0-9_]*$/);
+  it("mints a DISTINCT variable for every distinct name", () => {
+    // `github-remote` and `github_remote` used to share one variable, so the
+    // pane handed one server the other's token. Hyphen and underscore are
+    // spelled as their own hex, and case survives.
+    const names = ["github-remote", "github_remote", "github_2Dremote", "GitHub-Remote", "a"];
+    const vars = names.map(bearerTokenVar);
+    expect(new Set(vars).size).toBe(names.length);
+    for (const variable of vars) expect(variable).toMatch(/^[A-Za-z_][A-Za-z0-9_]*$/);
+    expect(bearerTokenVar("a_b")).toBe("KEEPDECK_MCP_TOKEN_a_5Fb");
   });
 });

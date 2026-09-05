@@ -7,7 +7,7 @@ vi.mock("../../ipc/log", () => ({
 
 import { createCommandRegistry } from "../../domain/commands";
 import type { McpRequest } from "../../ipc/mcpBridge";
-import { createMcpService, NO_MCP_SERVERS } from ".";
+import { createMcpService } from ".";
 
 /**
  * The webview chain assembled through its one front door — createMcpService,
@@ -45,7 +45,7 @@ describe("mcp webview chain", () => {
         },
         panesIn: () => 1,
         plant: async () => ({ armed: [], refused: [] }),
-        library: NO_MCP_SERVERS,
+        library: { serversFor: async () => [] },
         identitySource: () =>
           Promise.resolve({ name: "KeepDeck", version: "1.0.0" }),
       },

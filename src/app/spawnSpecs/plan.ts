@@ -30,10 +30,13 @@ import type { SpawnPluginAccess } from "./index";
  * on purpose: the feature's richer object remains assignable without making
  * this plan builder import the feature module. */
 export interface McpAccess {
-  servers: McpServerSpec[];
-  /** What the pane's environment must carry for those servers — the values
-   * their specs only NAME, kept off argv by design. */
-  env: [string, string][];
+  /** Each server with what the pane's environment must carry for it — the
+   * values its spec only NAMES, kept off argv by design. One entry, so that
+   * dropping a server here drops its values with it. */
+  entries: { spec: McpServerSpec; env: [string, string][] }[];
+  /** Whether the specs ride the hook's argv; false for a CLI the host feeds
+   * by file, whose hook is told nothing. */
+  throughArgv: boolean;
   deliver(): Promise<void>;
 }
 
@@ -104,21 +107,48 @@ export interface BuiltPlan {
  * floor counts as old (the gate fails closed, like the manifest gate does).
  */
 function renderableBy(
-  servers: McpServerSpec[],
+  entries: McpAccess["entries"],
   owner: Pick<InstalledPlugin, "source" | "manifest"> | undefined,
   agentId: string,
-): McpServerSpec[] {
-  if (!owner || owner.source !== "external") return servers;
+): McpAccess["entries"] {
+  if (!owner || owner.source !== "external") return entries;
   const floor = owner.manifest.minApiVersion;
-  if (isApiVersion(floor) && floor >= MCP_HTTP_API) return servers;
-  const withheld = servers.filter((server) => server.transport !== "stdio");
+  if (isApiVersion(floor) && floor >= MCP_HTTP_API) return entries;
+  const withheld = entries.filter(({ spec }) => spec.transport !== "stdio");
   if (withheld.length > 0) {
     log.warn(
       "web:agents",
-      `${agentId}: ${owner.manifest.id} predates API ${MCP_HTTP_API} — remote MCP servers withheld: ${withheld.map((server) => server.name).join(", ")}`,
+      `${agentId}: ${owner.manifest.id} predates API ${MCP_HTTP_API} — remote MCP servers withheld: ${withheld.map(({ spec }) => spec.name).join(", ")}`,
     );
   }
-  return servers.filter((server) => server.transport === "stdio");
+  // The whole entry goes, values included: a server this pane never hears of
+  // must not leave its token in the pane's environment either.
+  return entries.filter(({ spec }) => spec.transport === "stdio");
+}
+
+/**
+ * The pane's environment, assembled in the order of who owns what. A
+ * library server's variables come FIRST so the plugin's own and the host's
+ * bridge variable win over them: those carry the pane's identity and config,
+ * and a server whose file names `PATH` or the plugin's config variable must
+ * not displace them for the whole pane. The PTY applies pairs last-wins.
+ */
+function paneEnv(
+  agentId: string,
+  mcpEnv: [string, string][],
+  pluginEnv: [string, string][],
+  bridge: [string, string][],
+): [string, string][] {
+  const owned = new Set([...pluginEnv, ...bridge].map(([name]) => name));
+  for (const [name] of mcpEnv) {
+    if (owned.has(name)) {
+      log.warn(
+        "web:agents",
+        `${agentId}: an MCP server sets ${name}, which the pane already owns — the pane's value wins`,
+      );
+    }
+  }
+  return [...mcpEnv, ...pluginEnv, ...bridge];
 }
 
 /** What a plan is FOR — fresh spawn, resume, or fork. Resume/fork carry
@@ -184,11 +214,17 @@ export async function buildPlan(
   const owner = plugins.pluginHost
     .getInstalled()
     .find((installed) => installed.manifest.id === pluginId);
-  const mcpServers = renderableBy(access?.servers ?? [], owner, entry.id);
+  // The floor filter is about the PLUGIN's renderer, so it applies only to
+  // what the plugin renders: a file the host wrote carries every server, and
+  // withholding a token from a server that is in the file would break it.
+  const injected = access?.throughArgv
+    ? renderableBy(access.entries, owner, entry.id)
+    : (access?.entries ?? []);
+  const mcpServers = access?.throughArgv ? injected.map((item) => item.spec) : [];
   // Owed by every plan, the bare one included: a file-fed CLI reads its
   // servers from its cwd whatever argv it was given, and their values live
   // nowhere but here.
-  const mcpEnv = access?.env ?? [];
+  const mcpEnv = injected.flatMap((item) => item.env);
   /** Owed by every exit that produces a plan, and by none that throws: a
    * rejected resume or fork must plant nothing. */
   const deliver = () => access?.deliver() ?? Promise.resolve();
@@ -311,7 +347,7 @@ export async function buildPlan(
           ],
         ]
       : [];
-  const env: [string, string][] = [...output.env, ...mcpEnv, ...bridge];
+  const env = paneEnv(entry.id, mcpEnv, output.env, bridge);
   return {
     plan: {
       command: output.command,

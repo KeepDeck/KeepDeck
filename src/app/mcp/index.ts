@@ -28,11 +28,10 @@ import {
 export type {
   McpAccess,
   McpAccessAsk,
+  McpInjectable,
   McpInjectionTarget,
-  McpLibraryServer,
   McpServerSource,
 } from "./injection";
-export { NO_MCP_SERVERS } from "./injection";
 export { KEEPDECK_MCP_SERVER } from "./bundled";
 import { createMcpRequestPump, type McpPumpPorts } from "./pump";
 import {

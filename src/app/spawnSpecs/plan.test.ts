@@ -6,7 +6,6 @@ import {
   MCP_HTTP_API,
   type AgentContribution,
   type Disposable,
-  type McpServerSpec,
   type SpawnMcpInput,
   type SpawnSkillsInput,
   type WorkspaceRef,
@@ -30,6 +29,7 @@ import {
   buildLivePaneSpec,
 } from ".";
 import type { McpAccess } from "./plan";
+import { log } from "../../ipc/log";
 // Straight from the module: the barrel deliberately does not carry it.
 import { resetPaneSpawnSpecs } from "./cache";
 
@@ -52,14 +52,25 @@ const stagedSkills = () => Promise.resolve(skillsState.views);
 // none. `delivered` records when that write actually happened, which is the
 // whole point of it being separate from the answer.
 const mcpState = vi.hoisted(() => ({
-  servers: [] as McpServerSpec[],
-  env: [] as [string, string][],
+  entries: [] as McpAccess["entries"],
+  throughArgv: true,
   delivered: [] as string[],
 }));
+/** A local server with nothing to carry, and a remote one carrying its token. */
+const local = (name: string, command: string, args: string[] = []): McpAccess["entries"][number] => ({
+  spec: { name, transport: "stdio", command, args },
+  env: [],
+});
+const GH_TOKEN: [string, string] = ["GH_TOKEN", "ghp_secret"];
+const github: McpAccess["entries"][number] = {
+  spec: { name: "github", transport: "http", url: "https://mcp.example/", bearerTokenEnv: "GH_TOKEN" },
+  env: [GH_TOKEN],
+};
+const specsOf = (entries: McpAccess["entries"]) => entries.map(({ spec }) => spec);
 const mcpAccess = (target: { paneId?: string; cwd: string }) =>
   Promise.resolve({
-    servers: mcpState.servers,
-    env: mcpState.env,
+    entries: mcpState.entries,
+    throughArgv: mcpState.throughArgv,
     deliver: async () => {
       mcpState.delivered.push(target.cwd);
     },
@@ -127,8 +138,8 @@ describe("building one plan through the agent hook", () => {
     resetPaneSpawnSpecs();
     hostState.installed = [];
     skillsState.views = null;
-    mcpState.servers = [];
-    mcpState.env = [];
+    mcpState.entries = [];
+    mcpState.throughArgv = true;
     mcpState.delivered = [];
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
@@ -322,19 +333,9 @@ describe("building one plan through the agent hook", () => {
   it("MCP servers reach the hook input as a LIST, on spawn AND resume", async () => {
     // A list, not a server: the hook must loop, because the planned bank
     // contributes more members than the built-in transport.
-    mcpState.servers = [
-      {
-        name: "keepdeck",
-        transport: "stdio",
-        command: "/bin/keepdeck",
-        args: ["--mcp-shim", "/sock"],
-      },
-      {
-        name: "mnemo",
-        transport: "stdio",
-        command: "/bin/mnemo",
-        args: [],
-      },
+    mcpState.entries = [
+      local("keepdeck", "/bin/keepdeck", ["--mcp-shim", "/sock"]),
+      local("mnemo", "/bin/mnemo"),
     ];
     const inputs: Array<SpawnMcpInput | undefined> = [];
     register({
@@ -358,18 +359,16 @@ describe("building one plan through the agent hook", () => {
       "old-id",
       "restore",
     );
-    const expected = { servers: mcpState.servers };
+    const expected = { servers: specsOf(mcpState.entries) };
     expect(inputs).toEqual([expected, expected]);
   });
 
   it("withholds remote servers from an external plugin whose floor predates them", async () => {
     // That plugin's renderer throws on the arm, and a throwing spawn hook
     // costs the pane EVERY server — so the local ones still reach it, and
-    // only the remote one is held back.
-    mcpState.servers = [
-      { name: "keepdeck", transport: "stdio", command: "/bin/keepdeck", args: [] },
-      { name: "github", transport: "http", url: "https://mcp.example/" },
-    ];
+    // only the remote one is held back. Held back WHOLE: a server the pane
+    // never hears of must not leave its token in the pane's environment.
+    mcpState.entries = [local("keepdeck", "/bin/keepdeck"), github];
     const inputs: Array<SpawnMcpInput | undefined> = [];
     register({
       ...adopting,
@@ -392,21 +391,73 @@ describe("building one plan through the agent hook", () => {
     hostState.installed = [external(MCP_HTTP_API - 1)];
     await mount(ws([{ id: "pane-1", agentType: "claude" }]));
     await settle();
-    expect(inputs).toEqual([{ servers: [mcpState.servers[0]] }]);
+    expect(inputs).toEqual([{ servers: [mcpState.entries[0]!.spec] }]);
+    expect(seen["pane-1"].env).not.toContainEqual(GH_TOKEN);
 
     // A floor at the arm's revision, and everything reaches the hook.
     dropPaneSpawnSpec("pane-1");
     hostState.installed = [external(MCP_HTTP_API)];
     await mount(ws([{ id: "pane-1", agentType: "claude" }]));
     await settle();
-    expect(inputs[1]).toEqual({ servers: mcpState.servers });
+    expect(inputs[1]).toEqual({ servers: specsOf(mcpState.entries) });
+    expect(seen["pane-1"].env).toContainEqual(GH_TOKEN);
+  });
+
+  it("a file-fed pane's hook hears of no server, and its values still reach the environment", async () => {
+    // The specs are in a file the host planted; the hook has nothing to put on
+    // argv. What the file only NAMES is owed to the pane all the same.
+    mcpState.entries = [github];
+    mcpState.throughArgv = false;
+    const inputs: Array<SpawnMcpInput | undefined> = [];
+    register({
+      ...adopting,
+      hooks: {
+        "spawn.plan": (input) => {
+          inputs.push(input.mcp);
+        },
+      },
+    });
+    await mount(ws([{ id: "pane-1", agentType: "claude" }]));
+    await settle();
+    expect(inputs).toEqual([undefined]);
+    expect(seen["pane-1"].env).toContainEqual(GH_TOKEN);
+  });
+
+  it("the pane's own variables win over a server's, and the clash is logged", async () => {
+    // The plugin's and the host's variables carry the pane's identity and
+    // config. A server whose file happens to name one of them must not
+    // displace it for the whole pane — the PTY applies pairs last-wins, so
+    // the server's pair goes first.
+    const warned = vi.spyOn(log, "warn").mockImplementation(() => {});
+    mcpState.entries = [{ ...github, env: [["CLAUDE_CONFIG_DIR", "/from-server"]] }];
+    register({
+      ...adopting,
+      hooks: {
+        "spawn.plan": (_input, output) => {
+          output.env = [["CLAUDE_CONFIG_DIR", "/from-plugin"]];
+        },
+      },
+    });
+    await mount(ws([{ id: "pane-1", agentType: "claude" }]));
+    await settle();
+    const names = seen["pane-1"].env.map(([name]) => name);
+    expect(names.indexOf("CLAUDE_CONFIG_DIR")).toBeLessThan(
+      names.lastIndexOf("CLAUDE_CONFIG_DIR"),
+    );
+    const dirs = seen["pane-1"].env.filter(([name]) => name === "CLAUDE_CONFIG_DIR");
+    expect(dirs[dirs.length - 1]).toEqual(["CLAUDE_CONFIG_DIR", "/from-plugin"]);
+    expect(warned).toHaveBeenCalledWith(
+      "web:agents",
+      expect.stringContaining("CLAUDE_CONFIG_DIR"),
+    );
+    warned.mockRestore();
   });
 
   it("what the servers need in the environment reaches the plan — even a bare one", async () => {
     // The values a spec only NAMES live nowhere but here, and a file-fed CLI
     // reads its servers from its cwd whatever argv it got: a hook that threw
     // still yields a plan whose environment carries them.
-    mcpState.env = [["GH_TOKEN", "ghp_secret"]];
+    mcpState.entries = [github];
     register(adopting);
     await mount(ws([{ id: "pane-1", agentType: "claude" }]));
     await settle();

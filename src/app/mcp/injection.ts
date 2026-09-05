@@ -45,9 +45,10 @@ export interface McpInjectionTarget {
   client: string;
 }
 
-/** One library server, ready to inject: the spec a hook renders, and what the
- * pane's environment must carry for it — the values the spec only names. */
-export interface McpLibraryServer {
+/** One server ready to inject: the spec a hook renders, and what the pane's
+ * environment must carry for it — the values the spec only names. The two
+ * travel as ONE thing so that whoever drops the spec drops its values too. */
+export interface McpInjectable {
   spec: McpServerSpec;
   env: [string, string][];
 }
@@ -56,14 +57,8 @@ export interface McpLibraryServer {
  * set, already resolved (a workspace entry over a global one by name is the
  * library's rule, not this module's). */
 export interface McpServerSource {
-  serversFor(workspaceId: string): Promise<McpLibraryServer[]>;
+  serversFor(workspaceId: string): Promise<McpInjectable[]>;
 }
-
-/** A library with nothing in it — the tier as it stands before an owner is
- * wired, and the honest stand-in for a test that has no library to speak of. */
-export const NO_MCP_SERVERS: McpServerSource = {
-  serversFor: () => Promise.resolve([]),
-};
 
 /**
  * One pane's access to its MCP servers, in the two forms a CLI can take
@@ -72,14 +67,15 @@ export const NO_MCP_SERVERS: McpServerSource = {
  * spawning pane's working directory with no caller able to see it.
  */
 export interface McpAccess {
-  /** The servers this pane is given THROUGH ITS ARGV — the hook's material.
-   * Empty when neither tier has anything for this pane, and for a CLI that
-   * reads a file instead. */
-  servers: McpServerSpec[];
-  /** What the pane's environment must carry for the injected servers to work
-   * — always, whatever the delivery: a file-fed CLI's children inherit the
-   * pane's environment exactly as an argv-fed one's do. */
-  env: [string, string][];
+  /** The servers this pane gets, each with what its environment must carry.
+   * Every entry's `env` is owed to the pane whatever the delivery: a
+   * file-fed CLI's children inherit the pane's environment exactly as an
+   * argv-fed one's do. */
+  entries: McpInjectable[];
+  /** Whether the specs ride the hook's ARGV. False for a CLI fed by a file
+   * the host plants: its hook is told nothing, and its entries' specs are in
+   * the file instead. */
+  throughArgv: boolean;
   /**
    * Put the file-delivered half on disk. A no-op for the argv CLIs.
    *
@@ -104,8 +100,8 @@ export interface McpInjection {
 export interface McpInjectionDeps {
   /** The bundled tier, in the order its members are filed. */
   contributors: readonly BundledMcpContributor[];
-  /** The user's library. REQUIRED even when empty (`NO_MCP_SERVERS`): a
-   * default here would make "no library" the easy, silent form. */
+  /** The user's library. REQUIRED even when empty: a default here would make
+   * "no library" the easy, silent form. */
   library: McpServerSource;
   /** Plant a config in a pane's cwd. REQUIRED, not defaulted: the write must
    * be ORDERED against worktree teardown, and REFUSED for a directory no live
@@ -131,11 +127,11 @@ export interface McpInjectionDeps {
   onArmed?: (roots: string[]) => void;
 }
 
-/** A pane that gets nothing: no servers on argv, nothing in its environment,
- * and nothing to put on disk. */
+/** An argv-fed pane that gets nothing: no servers, nothing in its
+ * environment, nothing to put on disk. */
 const NO_ACCESS: McpAccess = {
-  servers: [],
-  env: [],
+  entries: [],
+  throughArgv: true,
   deliver: () => Promise.resolve(),
 };
 
@@ -173,7 +169,7 @@ export function createMcpInjection({
   /** The library's servers for one workspace. A library that cannot be read
    * costs the pane its library servers, never its bundled ones and never its
    * process — and says so once, here. */
-  async function libraryFor(workspaceId: string): Promise<McpLibraryServer[]> {
+  async function libraryFor(workspaceId: string): Promise<McpInjectable[]> {
     try {
       return await library.serversFor(workspaceId);
     } catch (e) {
@@ -216,26 +212,32 @@ export function createMcpInjection({
         bundledFor(target, client),
         libraryFor(target.workspaceId),
       ]);
-      const { accepted, rejected } = acceptMcpServers([
-        ...bundled,
-        ...fromLibrary.map((server) => server.spec),
-      ]);
+      // A bundled server carries no values of its own: what it needs, the
+      // shim reads from the pane's bridge variable.
+      const candidates: McpInjectable[] = [
+        ...bundled.map((spec) => ({ spec, env: [] as [string, string][] })),
+        ...fromLibrary,
+      ];
+      const { accepted, rejected } = acceptMcpServers(candidates.map((entry) => entry.spec));
       for (const { name, reason } of rejected) {
         log.warn("web:mcp", `server "${name}" not injected: ${reason}`);
       }
-      if (accepted.length === 0) return NO_ACCESS;
-      // Only what was ACCEPTED gets its environment: a library entry dropped
-      // for its name must not leave its values in the pane either.
-      const env = fromLibrary
-        .filter((server) => accepted.includes(server.spec))
-        .flatMap((server) => server.env);
-      if (!render) return { servers: accepted, env, deliver: () => Promise.resolve() };
+      // Only what was ACCEPTED goes on: an entry dropped for its name takes
+      // its values with it — spec and env are one thing here.
+      const entries = candidates.filter((entry) => accepted.includes(entry.spec));
+      if (!render) {
+        return entries.length === 0
+          ? NO_ACCESS
+          : { entries, throughArgv: true, deliver: () => Promise.resolve() };
+      }
       // A file-fed CLI takes nothing on argv, so its servers ride the delivery
       // instead and the hook is told there is nothing to add. The content is
       // rendered NOW, against the set this pane was answered with, and
-      // written later.
+      // written later — an EMPTY set included: the file is the delivery, and
+      // yesterday's file left in place would keep serving a server the user
+      // has since deleted.
       const content = render(accepted);
-      return { servers: [], env, deliver: () => deliverFile(target, content) };
+      return { entries, throughArgv: false, deliver: () => deliverFile(target, content) };
     },
   };
 }

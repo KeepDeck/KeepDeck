@@ -28,7 +28,7 @@ import {
 } from "../domain/mcp";
 import { log } from "../ipc/log";
 import { injectableOf } from "./mcp/injectable";
-import type { McpLibraryServer, McpServerSource } from "./mcp/injection";
+import type { McpInjectable, McpServerSource } from "./mcp/injection";
 
 /** One stored row, as the storage hands it up: a scope, a name, the file. */
 export interface LibraryMcpServer {
@@ -261,7 +261,7 @@ export function createMcpLibrary(ports: McpLibraryPorts): McpLibrary {
       for (const row of scoped({ kind: "workspace", wsId: workspaceId })) {
         effective.set(row.name, row);
       }
-      const servers: McpLibraryServer[] = [];
+      const servers: McpInjectable[] = [];
       for (const row of effective.values()) {
         const verdict = parseMcpServerFile(row.content);
         if (verdict.kind === "malformed") {
