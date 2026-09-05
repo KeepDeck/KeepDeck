@@ -1,4 +1,5 @@
 import type { ArgSpec, CommandArgs, CommandSource } from "../../domain/commands";
+import { requiredStr } from "./args";
 import { findWorkspace } from "../../domain/deck";
 import type { Deck } from "../useDeck";
 
@@ -39,7 +40,7 @@ export function libraryScopeOf(
 ): LibraryScope {
   // Read ONCE, through the shared reader — and report the value that was
   // judged, not the raw wire value with its whitespace.
-  const scope = requiredScope(args);
+  const scope = requiredStr(args, SCOPE.name);
   if (scope === "global") return { kind: "global" };
   if (scope !== "workspace") {
     throw new Error(`scope must be "global" or "workspace", not "${scope}"`);
@@ -62,14 +63,4 @@ export function libraryScopeOf(
     throw new Error('no workspace is open, so there is no workspace library — use scope "global"');
   }
   return { kind: "workspace", wsId: active.id };
-}
-
-/** The scope argument, trimmed, refusing a blank — the same reading
- * `requiredStr` gives an identifier, inlined so this module does not depend
- * on the readers module for one string. */
-function requiredScope(args: CommandArgs): string {
-  const value = args[SCOPE.name];
-  const trimmed = typeof value === "string" ? value.trim() : "";
-  if (!trimmed) throw new Error(`argument "${SCOPE.name}" must not be blank`);
-  return trimmed;
 }
