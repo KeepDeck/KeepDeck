@@ -68,7 +68,13 @@ export type PaneStopped =
  * the `worktree_create` call, and nothing about how the last attempt went.
  * Kept on the pane while the create runs in the background — and after a
  * failure, so Retry re-issues exactly this. What a document stores of a
- * provisioning pane, verbatim. */
+ * provisioning pane, verbatim.
+ *
+ * The workspace's name used to be stored here and is read live now, so a
+ * document saved mid-create loses its in-flight card to an OLDER build: that
+ * reader required the name and drops the intent without it. Accepted rather
+ * than versioned — an unfinished create was never that build's to finish,
+ * and the pane comes back plain rather than not at all. */
 export interface WorktreeIntent {
   /** The repository (the workspace cwd) the worktree is created in. */
   repo: string;
