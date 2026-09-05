@@ -1,25 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { McpServerSpec } from "@keepdeck/plugin-api";
-import { acceptMcpServers, isValidMcpServerName } from "./servers";
+import { acceptMcpServers } from "./servers";
 
 const def = (name: string): McpServerSpec => ({
   name,
   transport: "stdio",
   command: "/bin/keepdeck",
   args: ["--mcp-shim", "/sock"],
-});
-
-describe("isValidMcpServerName", () => {
-  it("accepts what a tool name can carry, and nothing else", () => {
-    expect(isValidMcpServerName("keepdeck")).toBe(true);
-    expect(isValidMcpServerName("my-server_2")).toBe(true);
-    // A dot is the one that matters: tool names flatten namespaces with
-    // underscores precisely because external grammars refuse dots.
-    expect(isValidMcpServerName("my.server")).toBe(false);
-    expect(isValidMcpServerName("")).toBe(false);
-    expect(isValidMcpServerName("has space")).toBe(false);
-    expect(isValidMcpServerName("x".repeat(65))).toBe(false);
-  });
 });
 
 describe("acceptMcpServers", () => {

@@ -27,7 +27,9 @@ import { createJournalPersistence } from "./journalPersistence";
 import type { CommandRegistry } from "../domain/commands";
 import { commands } from "./commandRegistry";
 import { createMailService, wakePaneForMail } from "./mail";
-import { createMcpService, NO_MCP_SERVERS } from "./mcp";
+import { createMcpService, KEEPDECK_MCP_SERVER } from "./mcp";
+import { createMcpLibrary } from "./mcpLibrary";
+import { ipcMcpStorage } from "../ipc/mcpLibraryStorage";
 import { createPaneIdentity } from "./mcp/paneIdentity";
 import { paneIdBySpawnSecret, peekPaneSpawnSpec } from "./spawnSpecs";
 import { createArtifactsPolicy } from "./artifacts/policy";
@@ -136,6 +138,14 @@ export function createAppRuntime(
     plugins.pluginRegistries.agents
       .list()
       .map(({ entry }) => ({ id: entry.id, label: entry.label }));
+  // The user's servers, one owner for every door (editor, commands, spawn).
+  // Built before the transport because the transport's injection reads it;
+  // the bundled name is reserved here so the library can never author the
+  // deck's own server.
+  const mcpLibrary = createMcpLibrary({
+    storage: ipcMcpStorage,
+    reserved: [KEEPDECK_MCP_SERVER],
+  });
   const mcp = createMcpService({
     registry,
     panesIn: (cwd) => panesRunningIn(deckStore.getSnapshot().workspaces, cwd),
@@ -145,9 +155,7 @@ export function createAppRuntime(
     // not called before a spawn, long after.
     plant: (workspaceId, root, content) =>
       worktrees.plantMcp(workspaceId, root, content),
-    // The user's library has no owner yet — the tier is empty, and saying so
-    // here is what keeps the injection from having to guess.
-    library: NO_MCP_SERVERS,
+    library: mcpLibrary,
     identify: createPaneIdentity({
       workspaces: () => deckStore.getSnapshot().workspaces,
       paneOf: paneIdBySpawnSecret,
@@ -404,6 +412,7 @@ export function createAppRuntime(
     paneInputFocus,
     paneViewActions,
     mcp,
+    mcpLibrary,
     mail,
     usageManager,
     activityWitness,
