@@ -3,6 +3,7 @@ import {
   armDoubles,
   managerFor,
   mcpArming,
+  mcpLibrary,
   ref,
   skills,
   stagedFor,
@@ -338,6 +339,21 @@ describe("sweep", () => {
     await manager.sweep(true);
     await manager.sweep(true);
     expect(skills.pruneSkills).toHaveBeenCalledTimes(1);
+  });
+
+  it("sweeps the MCP library's workspace scopes with the same live set", async () => {
+    // The crash path: a workspace the deck lost without closing it never had
+    // its scope forgotten, and its id will be handed to the next one.
+    deck = [{ id: "ws-1", roots: ["/repo"] }];
+    await manager.sweep(true);
+    expect(mcpLibrary.pruneMcpLibrary).toHaveBeenLastCalledWith(["ws-1"]);
+
+    // Its failure is a failed pass like any other: the next sweep retries.
+    deck = [{ id: "ws-2", roots: ["/repo2"] }];
+    mcpLibrary.pruneMcpLibrary.mockResolvedValueOnce(false);
+    await manager.sweep(true);
+    await manager.sweep(true);
+    expect(mcpLibrary.pruneMcpLibrary).toHaveBeenCalledTimes(3);
   });
 
   it("retries a pass whose housekeeping failed instead of recording it as done", async () => {

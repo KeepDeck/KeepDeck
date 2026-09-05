@@ -9,20 +9,44 @@
 //! under `<home>/mcp`, the directory the transport forces to 0700.
 //!
 //! Mechanical on purpose, and the twin of `skills/library.rs`: list, save,
-//! create, delete, rename — each opening with the shared path wall. The four
-//! commands live HERE, with the bytes they move, for the reason `arming.rs`
-//! gives: the transport's module door wires the socket, the bridge and the
-//! shim, and a second feature parked there is how its predecessor grew.
+//! create, delete, rename, prune — each opening with the shared path wall.
+//! The commands live HERE, with the bytes they move, for the reason
+//! `arming.rs` gives: the transport's module door wires the socket, the
+//! bridge and the shim, and a second feature parked there is how its
+//! predecessor grew.
+//!
+//! Every command runs under ONE lock ([`McpLibraryLock`]): a create's
+//! "does it exist" and its write, a rename's collision check and its move,
+//! are two steps each, and two agents' commands land on the same directory
+//! at once — the webview serializes nothing across doors.
 
 use std::fs;
 use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, MutexGuard};
 
 use crate::state::write_atomic_mode;
 
 const SERVER_FILE_EXT: &str = "json";
 /// Owner-only from the first byte: the file may hold a token.
 const SERVER_FILE_MODE: u32 = 0o600;
+/// The library's directories, like the transport's: nobody else traverses
+/// them. The parent `mcp/` is forced to 0700 by the server, but the server
+/// may not have run yet when the first file is authored.
+const LIBRARY_DIR_MODE: u32 = 0o700;
+
+/// The one lock every library command takes. Tauri managed state, app-scoped
+/// so tests get isolated instances; a poisoned lock (a panicked command) is
+/// recovered — every operation is a single file step and leaves nothing to
+/// unwind.
+#[derive(Default)]
+pub struct McpLibraryLock(Mutex<()>);
+
+impl McpLibraryLock {
+    fn hold(&self) -> MutexGuard<'_, ()> {
+        self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+}
 
 /// One library server on the wire (mirrors the TS `StoredMcpServer`,
 /// camelCase). Content rides along — servers are small and the list IS the
@@ -125,7 +149,22 @@ fn scope_servers(dir: &Path) -> io::Result<Vec<(String, String)>> {
 
 pub(super) fn save(scope_dir: &Path, name: &str, content: &str) -> io::Result<()> {
     require_safe(name, "server name").map_err(io::Error::other)?;
+    ensure_private_dir(scope_dir)?;
     write_atomic_mode(&server_file(scope_dir, name), content.as_bytes(), Some(SERVER_FILE_MODE))
+}
+
+/// Create the scope's directory — and every missing one above it — owner-only.
+/// The atomic writer would create them too, under the process umask; the
+/// mode has to be set at creation, before a file lands.
+fn ensure_private_dir(dir: &Path) -> io::Result<()> {
+    let mut builder = fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        builder.mode(LIBRARY_DIR_MODE);
+    }
+    builder.create(dir)
 }
 
 /// Write a server that must NOT already exist — the guard that holds when the
@@ -149,15 +188,51 @@ pub(super) fn delete(scope_dir: &Path, name: &str) -> io::Result<()> {
     }
 }
 
-/// Rename by moving the file. Refuses to move onto an existing server.
+/// Rename by moving the file. Refuses to move onto an existing server —
+/// unless that "existing" server IS the source under another spelling: on a
+/// case-insensitive filesystem (macOS by default) `Github` → `github` finds
+/// its own file at the target, and a one-step rename there is a no-op. That
+/// case goes through a step-aside name, so the directory ends up holding
+/// exactly the spelling asked for.
 pub(super) fn rename(scope_dir: &Path, from: &str, to: &str) -> io::Result<()> {
     require_safe(from, "server name").map_err(io::Error::other)?;
     require_safe(to, "server name").map_err(io::Error::other)?;
+    let source = server_file(scope_dir, from);
     let target = server_file(scope_dir, to);
-    if target.exists() {
-        return Err(io::Error::other(format!("a server named {to:?} already exists")));
+    if from == to {
+        return if source.exists() {
+            Ok(())
+        } else {
+            Err(io::Error::new(ErrorKind::NotFound, format!("no server named {from:?}")))
+        };
     }
-    fs::rename(server_file(scope_dir, from), target)
+    if target.exists() {
+        if !same_file(&source, &target)? {
+            return Err(io::Error::other(format!("a server named {to:?} already exists")));
+        }
+        let aside = scope_dir.join(format!(".{from}.{SERVER_FILE_EXT}.renaming"));
+        fs::rename(&source, &aside)?;
+        return fs::rename(&aside, &target).inspect_err(|_| {
+            // Put it back under its old name rather than leave it hidden.
+            let _ = fs::rename(&aside, &source);
+        });
+    }
+    fs::rename(source, target)
+}
+
+/// Whether two paths name one inode — the only way to tell a case-only
+/// rename from a collision without knowing the filesystem's rules.
+fn same_file(a: &Path, b: &Path) -> io::Result<bool> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let (ma, mb) = (fs::metadata(a)?, fs::metadata(b)?);
+        Ok(ma.dev() == mb.dev() && ma.ino() == mb.ino())
+    }
+    #[cfg(not(unix))]
+    {
+        Ok(fs::canonicalize(a)? == fs::canonicalize(b)?)
+    }
 }
 
 /// Forget a workspace's whole library scope. Workspace ids are REUSED slots,
@@ -171,13 +246,31 @@ pub(super) fn forget_workspace(root: &Path, ws_id: &str) -> io::Result<()> {
     }
 }
 
+/// Drop the scopes of workspaces that no longer exist — the crash path,
+/// where the deck never got to call [`forget_workspace`] and the next
+/// workspace to take a freed id would inherit the scope. Best-effort per
+/// directory: one stubborn directory must not abort the sweep.
+pub(super) fn prune(root: &Path, live: &[String]) -> io::Result<()> {
+    for dir in crate::fs_names::sorted_dirs(&root.join("ws"))? {
+        let id = dir.file_name().unwrap_or_default().to_string_lossy().into_owned();
+        if live.iter().any(|l| *l == id) {
+            continue;
+        }
+        if let Err(e) = fs::remove_dir_all(&dir) {
+            log::warn!("mcp library: pruning {} failed: {e}", dir.display());
+        }
+    }
+    Ok(())
+}
+
 fn library_root() -> Result<PathBuf, String> {
     crate::paths::mcp_library().ok_or_else(|| "no home directory for the MCP library".to_string())
 }
 
 /// Every server in the library, in the order [`list`] gives.
 #[tauri::command(async)]
-pub fn mcp_library_list() -> Result<Vec<McpServerDto>, String> {
+pub fn mcp_library_list(lock: tauri::State<'_, McpLibraryLock>) -> Result<Vec<McpServerDto>, String> {
+    let _held = lock.hold();
     list(&library_root()?).map_err(|e| e.to_string())
 }
 
@@ -186,12 +279,14 @@ pub fn mcp_library_list() -> Result<Vec<McpServerDto>, String> {
 /// a CREATE, a name that is already taken).
 #[tauri::command(async)]
 pub fn mcp_library_save(
+    lock: tauri::State<'_, McpLibraryLock>,
     scope: String,
     ws_id: Option<String>,
     name: String,
     content: String,
     expect_new: bool,
 ) -> Result<(), String> {
+    let _held = lock.hold();
     let dir = scope_dir(&library_root()?, &scope, ws_id.as_deref())?;
     let written = if expect_new {
         create(&dir, &name, &content)
@@ -203,7 +298,13 @@ pub fn mcp_library_save(
 
 /// Remove one server. Missing is fine.
 #[tauri::command(async)]
-pub fn mcp_library_delete(scope: String, ws_id: Option<String>, name: String) -> Result<(), String> {
+pub fn mcp_library_delete(
+    lock: tauri::State<'_, McpLibraryLock>,
+    scope: String,
+    ws_id: Option<String>,
+    name: String,
+) -> Result<(), String> {
+    let _held = lock.hold();
     let dir = scope_dir(&library_root()?, &scope, ws_id.as_deref())?;
     delete(&dir, &name).map_err(|e| e.to_string())
 }
@@ -211,11 +312,13 @@ pub fn mcp_library_delete(scope: String, ws_id: Option<String>, name: String) ->
 /// Rename one server. Refuses to move onto an existing one.
 #[tauri::command(async)]
 pub fn mcp_library_rename(
+    lock: tauri::State<'_, McpLibraryLock>,
     scope: String,
     ws_id: Option<String>,
     from: String,
     to: String,
 ) -> Result<(), String> {
+    let _held = lock.hold();
     let dir = scope_dir(&library_root()?, &scope, ws_id.as_deref())?;
     rename(&dir, &from, &to).map_err(|e| e.to_string())
 }
@@ -223,8 +326,22 @@ pub fn mcp_library_rename(
 /// Workspace deletion's hook: drop that workspace's library scope. The deck
 /// model is the only knower of the live workspace set; Rust cannot derive it.
 #[tauri::command(async)]
-pub fn mcp_library_forget_workspace(ws_id: String) -> Result<(), String> {
+pub fn mcp_library_forget_workspace(
+    lock: tauri::State<'_, McpLibraryLock>,
+    ws_id: String,
+) -> Result<(), String> {
+    let _held = lock.hold();
     forget_workspace(&library_root()?, &ws_id).map_err(|e| e.to_string())
+}
+
+/// The sweep's hook: drop the scopes of workspaces the deck no longer has.
+#[tauri::command(async)]
+pub fn mcp_library_prune(
+    lock: tauri::State<'_, McpLibraryLock>,
+    live_ws_ids: Vec<String>,
+) -> Result<(), String> {
+    let _held = lock.hold();
+    prune(&library_root()?, &live_ws_ids).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
@@ -308,6 +425,20 @@ mod tests {
         assert_eq!(mode & 0o777, 0o600);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn the_library_directories_are_private_to_their_owner() {
+        // Created by the first save, before the transport ever forced the
+        // parent to 0700 — so the library sets its own walls.
+        use std::os::unix::fs::PermissionsExt;
+        let (_tmp, root) = root();
+        save(&ws(&root, "ws-1"), "github", "{}").unwrap();
+        for dir in [root.clone(), root.join("ws"), ws(&root, "ws-1")] {
+            let mode = fs::metadata(&dir).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o700, "{}", dir.display());
+        }
+    }
+
     #[test]
     fn unsafe_names_are_refused() {
         let (_tmp, root) = root();
@@ -376,5 +507,52 @@ mod tests {
         assert_eq!(list(&root).unwrap()[0].content, "{fs}");
         assert_eq!(list(&root).unwrap()[1].content, "{gh}");
         assert!(rename(&global(&root), "github-remote", "../up").is_err());
+        assert!(rename(&global(&root), "missing", "x").is_err());
+    }
+
+    #[test]
+    fn a_case_only_rename_lands_the_spelling_asked_for() {
+        // On a case-insensitive filesystem the target "exists" — it is the
+        // source — and a one-step rename is a no-op; on a case-sensitive one
+        // it is an ordinary move. Either way the directory ends up holding
+        // exactly `github`, and nothing stepped aside is left behind.
+        let (_tmp, root) = root();
+        save(&global(&root), "Github", "{gh}").unwrap();
+
+        rename(&global(&root), "Github", "github").unwrap();
+        let entries: Vec<String> = fs::read_dir(global(&root))
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(entries, vec!["github.json".to_string()]);
+        assert_eq!(list(&root).unwrap()[0].content, "{gh}");
+
+        // Renaming onto itself is a no-op that still requires the source.
+        rename(&global(&root), "github", "github").unwrap();
+        assert!(rename(&global(&root), "nope", "nope").is_err());
+    }
+
+    #[test]
+    fn pruning_drops_the_scopes_of_workspaces_that_are_gone() {
+        // The crash path: the deck never got to forget the workspace, and its
+        // id will be handed to the next one.
+        let (_tmp, root) = root();
+        save(&ws(&root, "ws-1"), "github", "{token}").unwrap();
+        save(&ws(&root, "ws-2"), "fs", "{}").unwrap();
+        save(&global(&root), "shared", "{}").unwrap();
+
+        prune(&root, &["ws-2".to_string()]).unwrap();
+        let brief: Vec<(String, String)> = list(&root)
+            .unwrap()
+            .into_iter()
+            .map(|s| (s.scope, s.name))
+            .collect();
+        assert_eq!(
+            brief,
+            vec![("global".to_string(), "shared".to_string()), ("workspace".to_string(), "fs".to_string())]
+        );
+        // No workspaces at all is a pass over nothing, not an error.
+        prune(&root.join("elsewhere"), &[]).unwrap();
     }
 }

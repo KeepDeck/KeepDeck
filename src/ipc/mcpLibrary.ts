@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { McpScope } from "../domain/mcp";
+import { describeError, log } from "./log";
 
 /** One stored library server (mirrors the Rust `McpServerDto`). */
 export interface StoredMcpServer {
@@ -51,4 +52,17 @@ export async function renameMcpServer(scope: McpScope, from: string, to: string)
  * model is the only knower of the live workspace set. */
 export async function forgetMcpWorkspace(wsId: string): Promise<void> {
   await invoke("mcp_library_forget_workspace", { wsId });
+}
+
+/** Sweep the scopes of workspaces that are gone — the crash path, where the
+ * deck never got to forget them. Answers whether the pass worked, like the
+ * other sweeps: a failure is logged and retried on the next sweep. */
+export async function pruneMcpLibrary(liveWsIds: string[]): Promise<boolean> {
+  try {
+    await invoke("mcp_library_prune", { liveWsIds });
+    return true;
+  } catch (e) {
+    log.warn("web:mcp", `library prune failed: ${describeError(e)}`);
+    return false;
+  }
 }

@@ -43,7 +43,12 @@ export function mcpFileRenderer(agentType: string): McpFileRenderer | null {
  * on that field — and carries the bearer token as `bearerTokenEnvVar`, kimi's
  * own token-from-env field, so the value stays in the pane's environment. A
  * stdio server's `envPassthrough` renders nothing: kimi hands its MCP children
- * its whole environment (probe-verified on 0.31.1). */
+ * its whole environment.
+ *
+ * ASSUMED LOADER: kimi-code 0.31.1, where every claim above was probed. The
+ * field names are kimi's, not a standard's, and a loader that renames one
+ * does not fail — it silently drops the server, or reads the token from
+ * nowhere. Re-probe against a new kimi before trusting a changed shape. */
 export function kimiMcpConfig(servers: readonly McpServerSpec[]): string {
   const mcpServers = Object.fromEntries(
     mapMcpServers<[string, Record<string, unknown>]>(servers, {
