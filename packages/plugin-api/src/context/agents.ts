@@ -194,15 +194,12 @@ export interface McpStdioServerSpec {
   transport: "stdio";
   command: string;
   args: string[];
-  /** Extra environment for the server process, written INTO the config.
-   * Declared rather than left to inheritance — codex hands its MCP children
-   * a core allowlist only. Not for secrets: several CLIs take their config on
-   * argv, where `ps` reads it. */
-  env?: Record<string, string>;
   /** Names of variables the server process must receive from the PANE's
-   * environment, where the host has already set them. This is how a value
-   * stays off argv. Only the CLI that filters its children's environment
-   * (codex) has anything to render; the others inherit and render nothing. */
+   * environment, where the host has already set them. The ONLY way a server
+   * is given a variable: a literal map written into the config would land on
+   * argv for the CLIs that take their config there, where `ps` reads it.
+   * Only the CLI that filters its children's environment (codex) has
+   * anything to render; the others inherit and render nothing. */
   envPassthrough?: string[];
 }
 
@@ -225,7 +222,8 @@ export type McpServerSpec = McpStdioServerSpec | McpHttpServerSpec;
 /** The contract revision that introduced the `http` arm. A host hands remote
  * servers only to a plugin whose floor reaches it: an older plugin's renderer
  * throws on the arm, and a throwing spawn hook costs the pane every server it
- * DID know how to render. */
+ * DID know how to render. A fact of history, NEVER moved with `API_VERSION`:
+ * it names the revision the arm appeared in, and every later one includes it. */
 export const MCP_HTTP_API = 45;
 
 /**

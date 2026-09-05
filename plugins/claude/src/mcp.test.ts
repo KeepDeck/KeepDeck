@@ -35,15 +35,6 @@ describe("claude --mcp-config", () => {
     );
   });
 
-  it("carries env when a server declares it", () => {
-    const args = mcpArgs({
-      servers: [{ ...server("keepdeck"), env: { KD_PANE: "pane-3" } }],
-    });
-    expect(JSON.parse(args[1]!).mcpServers.keepdeck.env).toEqual({
-      KD_PANE: "pane-3",
-    });
-  });
-
   it("adds nothing when there is nothing to inject", () => {
     expect(mcpArgs(undefined)).toEqual([]);
     expect(mcpArgs({ servers: [] })).toEqual([]);

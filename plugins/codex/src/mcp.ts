@@ -56,20 +56,17 @@ const CODEX_SERVER_NAME = /^[a-zA-Z0-9_-]+$/;
 /**
  * The table for a locally spawned server.
  *
- * `env` is declared explicitly because codex does NOT pass its own
- * environment to MCP children: they get a core allowlist only (HOME, PATH,
- * LANG, USER, SHELL, TMPDIR, TERM, PWD, LOGNAME), so anything the server
- * needs has to be in the table. `env_vars` is the allowlist's own door — the
- * names listed there are forwarded from codex's environment, which is the
- * pane's, so a value the host put there reaches the server without ever
- * appearing on argv.
+ * codex does NOT pass its own environment to MCP children: they get a core
+ * allowlist only (HOME, PATH, LANG, USER, SHELL, TMPDIR, TERM, PWD, LOGNAME).
+ * `env_vars` is the allowlist's own door — the names listed there are
+ * forwarded from codex's environment, which is the pane's, so a value the
+ * host put there reaches the server without ever appearing on argv.
  */
 function stdioTable(server: McpStdioServerSpec): [string, string][] {
   const entries: [string, string][] = [
     ["command", tomlString(server.command)],
     ["args", tomlArray(server.args)],
   ];
-  if (server.env) entries.push(["env", tomlStringTable(server.env)]);
   if (server.envPassthrough?.length) {
     entries.push(["env_vars", tomlArray(server.envPassthrough)]);
   }

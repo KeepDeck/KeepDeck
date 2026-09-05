@@ -46,15 +46,6 @@ describe("kimi's mcp.json", () => {
     });
   });
 
-  it("carries env only when a server declares it", () => {
-    const withEnv = JSON.parse(
-      kimiMcpConfig([{ ...server("keepdeck"), env: { KD_PANE: "pane-3" } }]),
-    );
-    expect(withEnv.mcpServers.keepdeck.env).toEqual({ KD_PANE: "pane-3" });
-    const without = JSON.parse(kimiMcpConfig([server("keepdeck")]));
-    expect("env" in without.mcpServers.keepdeck).toBe(false);
-  });
-
   it("writes a file, not a fragment — parseable and newline-terminated", () => {
     const text = kimiMcpConfig([server("keepdeck")]);
     expect(text.endsWith("\n")).toBe(true);

@@ -31,15 +31,6 @@ describe("the opencode mcp config fragment", () => {
     expect(Object.keys(fragment!.mcp)).toEqual(["keepdeck", "mnemo"]);
   });
 
-  it("uses opencode's name for the environment map", () => {
-    const fragment = mcpConfigFragment({
-      servers: [{ ...server("keepdeck"), env: { KD_PANE: "pane-3" } }],
-    });
-    expect(fragment!.mcp.keepdeck).toMatchObject({
-      environment: { KD_PANE: "pane-3" },
-    });
-  });
-
   it("has no fragment at all when there is nothing to inject", () => {
     expect(mcpConfigFragment(undefined)).toBeNull();
     expect(mcpConfigFragment({ servers: [] })).toBeNull();

@@ -13,7 +13,7 @@ import {
  * door, file or directory is involved.
  *
  * `command` is one array of program + arguments here, which is opencode's own
- * shape for a local server; `environment` is its name for the env map. A
+ * shape for a local server. A
  * remote server is `type: "remote"` with its url and headers; the bearer token
  * is referenced as `{env:VAR}`, opencode's own substitution syntax for a value
  * read from its environment — the pane's — so the token never enters the
@@ -32,12 +32,7 @@ export function mcpConfigFragment(
       mapMcpServers<Entry>(mcp.servers, {
         stdio: (server) => [
           server.name,
-          {
-            type: "local",
-            command: [server.command, ...server.args],
-            enabled: true,
-            ...(server.env ? { environment: server.env } : {}),
-          },
+          { type: "local", command: [server.command, ...server.args], enabled: true },
         ],
         http: (server) => {
           const headers = mcpHttpHeaders(server, (name) => `{env:${name}}`);

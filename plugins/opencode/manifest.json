@@ -1,8 +1,8 @@
 {
   "id": "keepdeck.opencode",
   "name": "OpenCode",
-  "version": "0.9.0",
-  "minApiVersion": 45,
+  "version": "0.9.1",
+  "minApiVersion": 46,
   "category": "cli",
   "description": "Teaches KeepDeck the OpenCode CLI: identity and detection, spawn/resume/fork with session relocation, session-store history, pane usage, and team mail delivered into the session itself.",
   "capabilities": [

@@ -47,14 +47,7 @@ export function mcpFileRenderer(agentType: string): McpFileRenderer | null {
 export function kimiMcpConfig(servers: readonly McpServerSpec[]): string {
   const mcpServers = Object.fromEntries(
     mapMcpServers<[string, Record<string, unknown>]>(servers, {
-      stdio: (server) => [
-        server.name,
-        {
-          command: server.command,
-          args: server.args,
-          ...(server.env ? { env: server.env } : {}),
-        },
-      ],
+      stdio: (server) => [server.name, { command: server.command, args: server.args }],
       http: (server) => [
         server.name,
         {

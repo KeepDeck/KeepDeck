@@ -98,13 +98,6 @@ describe("codex MCP overrides", () => {
     );
   });
 
-  it("declares env explicitly — codex does not pass its own to MCP children", () => {
-    // Probe-verified on 0.146: the child gets a core allowlist only, so a
-    // value left to inheritance reaches three CLIs and not this one.
-    const withEnv = { ...server("keepdeck"), env: { KD_PANE: "pane-3" } };
-    expect(mcpArgs(input(withEnv))[1]).toContain('env={"KD_PANE"="pane-3"}');
-  });
-
   it("adds nothing when there is nothing to inject", () => {
     expect(mcpArgs(undefined)).toEqual([]);
     expect(mcpArgs(input())).toEqual([]);

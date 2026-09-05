@@ -1,10 +1,22 @@
 import { describe, expect, it } from "vitest";
+import { API_VERSION } from "../manifest/version.ts";
 import {
+  MCP_HTTP_API,
   mapMcpServers,
   mcpHttpHeaders,
   type McpHttpServerSpec,
   type McpServerSpec,
 } from "./agents.ts";
+
+describe("MCP_HTTP_API", () => {
+  it("names a revision the current contract includes, and never moves past it", () => {
+    // A fact of history: the revision the arm appeared in. Bumping it with
+    // API_VERSION would withhold remote servers from every plugin built
+    // against a revision that already had them.
+    expect(MCP_HTTP_API).toBe(45);
+    expect(MCP_HTTP_API).toBeLessThanOrEqual(API_VERSION);
+  });
+});
 
 const local: McpServerSpec = {
   name: "keepdeck",

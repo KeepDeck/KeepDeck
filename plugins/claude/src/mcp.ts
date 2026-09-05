@@ -30,14 +30,7 @@ export const mcpArgs = (mcp: SpawnMcpInput | undefined): string[] => {
   if (!mcp || mcp.servers.length === 0) return [];
   const mcpServers = Object.fromEntries(
     mapMcpServers<Entry>(mcp.servers, {
-      stdio: (server) => [
-        server.name,
-        {
-          command: server.command,
-          args: server.args,
-          ...(server.env ? { env: server.env } : {}),
-        },
-      ],
+      stdio: (server) => [server.name, { command: server.command, args: server.args }],
       http: (server) => {
         const headers = mcpHttpHeaders(server, (name) => `\${${name}}`);
         return [
