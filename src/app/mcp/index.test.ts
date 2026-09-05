@@ -7,7 +7,7 @@ vi.mock("../../ipc/log", () => ({
 
 import { createCommandRegistry, type CommandSource } from "../../domain/commands";
 import type { McpRequest } from "../../ipc/mcpBridge";
-import { createMcpService, type McpServiceDeps } from ".";
+import { createMcpService, NO_MCP_SERVERS, type McpServiceDeps } from ".";
 
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
@@ -38,6 +38,7 @@ function harness() {
     pumpPorts,
     panesIn: () => 1,
     plant: async () => ({ armed: [], refused: [] }),
+    library: NO_MCP_SERVERS,
     identitySource: () =>
       Promise.resolve({ name: "KeepDeck", version: "9.9.9" }),
     connection: vi.fn(() =>

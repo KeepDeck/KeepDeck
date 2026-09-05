@@ -14,19 +14,26 @@ import {
 } from "../../ipc/mcp";
 import { commands } from "../commandRegistry";
 import type { McpPaneIdentity } from "./paneIdentity";
+import { keepdeckServer, type KeepdeckServerDeps } from "./bundled";
 import {
   createMcpInjection,
   type McpInjection,
   type McpInjectionDeps,
+  type McpServerSource,
 } from "./injection";
 
-/** What the spawn path asks for and hands to a hook — re-exported here so a
- * consumer depends on the FEATURE, not on the module inside it. */
+/** What the spawn path asks for and hands to a hook, and what the library
+ * answers — re-exported here so a consumer depends on the FEATURE, not on the
+ * module inside it. */
 export type {
   McpAccess,
   McpAccessAsk,
   McpInjectionTarget,
+  McpLibraryServer,
+  McpServerSource,
 } from "./injection";
+export { NO_MCP_SERVERS } from "./injection";
+export { KEEPDECK_MCP_SERVER } from "./bundled";
 import { createMcpRequestPump, type McpPumpPorts } from "./pump";
 import {
   createMcpServerPolicy,
@@ -149,11 +156,17 @@ export interface McpServiceDeps {
   /** Plant kimi's config through the owner of the directories it lands in —
    * see [`McpPlanting`]. */
   plant: McpInjectionDeps["plant"];
+  /** The user's library of servers, resolved per workspace — see
+   * [`McpServerSource`]. Required even when empty, so "no library" is a
+   * statement the composition root makes, never a default it fell into. */
+  library: McpServerSource;
   registry?: CommandRegistry;
   transport?: McpTransportPort;
   pumpPorts?: McpPumpPorts;
   identitySource?: () => Promise<{ name: string; version: string }>;
-  connection?: McpInjectionDeps["connection"];
+  /** How a client reaches the socket — the deck's own bundled server and the
+   * settings page's connect row both ask it. */
+  connection?: KeepdeckServerDeps["connection"];
   /** Resolve a connection's secret to the pane that announced it. Injected:
    * which pane holds which secret is the spawn layer's knowledge, and the
    * deck's — neither belongs to the transport. See [`createPaneIdentity`]. */
@@ -226,10 +239,12 @@ export function createMcpService(deps: McpServiceDeps): McpService {
     list: () => registry.list(),
     execute: (id, args, client) => registry.execute(id, args, sourceFor(client)),
   };
-  // Reads the CONFIRMED status through a closure rather than a snapshot:
-  // `current` moves with every settled transition.
+  // The bundled tier: the deck's own server, reading the CONFIRMED status
+  // through a closure rather than a snapshot — `current` moves with every
+  // settled transition. The user's library rides beside it, ungated.
   const injection = createMcpInjection({
-    socket: () => current.socket,
+    contributors: [keepdeckServer({ socket: () => current.socket, connection })],
+    library: deps.library,
     panesIn: deps.panesIn,
     plant: deps.plant,
     onRefused: (refusals) => {
@@ -270,7 +285,6 @@ export function createMcpService(deps: McpServiceDeps): McpService {
     onArmed: (roots) => {
       for (const root of roots) armedRoots.add(root);
     },
-    connection,
   });
   const pump = createMcpRequestPump(
     (line, client) => handleMcpLine(port, () => identity, line, client),

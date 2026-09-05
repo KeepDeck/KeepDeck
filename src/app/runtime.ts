@@ -27,7 +27,7 @@ import { createJournalPersistence } from "./journalPersistence";
 import type { CommandRegistry } from "../domain/commands";
 import { commands } from "./commandRegistry";
 import { createMailService, wakePaneForMail } from "./mail";
-import { createMcpService } from "./mcp";
+import { createMcpService, NO_MCP_SERVERS } from "./mcp";
 import { createPaneIdentity } from "./mcp/paneIdentity";
 import { paneIdBySpawnSecret, peekPaneSpawnSpec } from "./spawnSpecs";
 import { createArtifactsPolicy } from "./artifacts/policy";
@@ -145,6 +145,9 @@ export function createAppRuntime(
     // not called before a spawn, long after.
     plant: (workspaceId, root, content) =>
       worktrees.plantMcp(workspaceId, root, content),
+    // The user's library has no owner yet — the tier is empty, and saying so
+    // here is what keeps the injection from having to guess.
+    library: NO_MCP_SERVERS,
     identify: createPaneIdentity({
       workspaces: () => deckStore.getSnapshot().workspaces,
       paneOf: paneIdBySpawnSecret,
