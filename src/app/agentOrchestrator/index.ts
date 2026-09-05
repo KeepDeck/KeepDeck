@@ -304,9 +304,9 @@ export interface AgentOrchestratorDeps {
    * delivery for a CLI that takes none. Empty while the transport is down. */
   mcpAccess: McpAccessAsk;
   lifecycle: PaneLifecyclePort;
-  /** Drop a closing workspace's artifact store (Rust cannot derive the
-   * live workspace set). Optional: absent in non-app tests. */
-  dropArtifacts?: (wsId: string) => Promise<void>;
+  /** Forget what the backend keeps per workspace when one closes — Rust
+   * cannot derive the live workspace set. Optional: absent in non-app tests. */
+  forgetWorkspace?: (wsId: string) => Promise<void>;
 }
 
 export function createAgentOrchestrator(

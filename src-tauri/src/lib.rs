@@ -210,6 +210,7 @@ pub fn run() {
             mcp::library::mcp_library_save,
             mcp::library::mcp_library_delete,
             mcp::library::mcp_library_rename,
+            mcp::library::mcp_library_forget_workspace,
             session::session_spawn,
             session::session_write,
             session::session_resize,

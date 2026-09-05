@@ -371,9 +371,20 @@ export function createAppRuntime(
     worktrees,
     mcpAccess: (target) => mcp.access(target),
     lifecycle,
-    // Workspace deletion drops its artifact store — the deck model is the
-    // only knower of the live workspace set (Rust cannot derive it).
-    dropArtifacts: (wsId) => artifactDropWorkspace(wsId),
+    // Workspace deletion forgets what the backend keeps per workspace — its
+    // artifact store, its MCP library scope — the deck model being the only
+    // knower of the live workspace set. Both run whatever the other did; the
+    // first failure is what the closing path logs.
+    forgetWorkspace: async (wsId) => {
+      const outcomes = await Promise.allSettled([
+        artifactDropWorkspace(wsId),
+        mcpLibrary.forgetWorkspace(wsId),
+      ]);
+      const failed = outcomes.find(
+        (outcome): outcome is PromiseRejectedResult => outcome.status === "rejected",
+      );
+      if (failed) throw failed.reason;
+    },
   });
   const application = createApplicationController({
     registry,

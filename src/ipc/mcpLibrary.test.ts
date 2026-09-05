@@ -18,6 +18,7 @@ import { ipcMcpStorage } from "./mcpLibraryStorage";
 import {
   deleteMcpServer,
   fetchMcpServers,
+  forgetMcpWorkspace,
   renameMcpServer,
   saveMcpServer,
 } from "./mcpLibrary";
@@ -64,6 +65,11 @@ describe("the MCP library invoke-key contract", () => {
       wsId: null,
       from: "old",
       to: "new",
+    });
+
+    await forgetMcpWorkspace("ws-2");
+    expect(tauri.invoke).toHaveBeenLastCalledWith("mcp_library_forget_workspace", {
+      wsId: "ws-2",
     });
   });
 

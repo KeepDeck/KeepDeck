@@ -46,3 +46,9 @@ export async function deleteMcpServer(scope: McpScope, name: string): Promise<vo
 export async function renameMcpServer(scope: McpScope, from: string, to: string): Promise<void> {
   await invoke("mcp_library_rename", { ...wire(scope), from, to });
 }
+
+/** Drop a closing workspace's whole library scope. Idempotent; the deck
+ * model is the only knower of the live workspace set. */
+export async function forgetMcpWorkspace(wsId: string): Promise<void> {
+  await invoke("mcp_library_forget_workspace", { wsId });
+}

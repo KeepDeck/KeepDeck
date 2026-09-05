@@ -160,6 +160,17 @@ pub(super) fn rename(scope_dir: &Path, from: &str, to: &str) -> io::Result<()> {
     fs::rename(server_file(scope_dir, from), target)
 }
 
+/// Forget a workspace's whole library scope. Workspace ids are REUSED slots,
+/// so a scope left behind would be inherited — servers, tokens and all — by
+/// the next workspace to take the id. Missing is fine.
+pub(super) fn forget_workspace(root: &Path, ws_id: &str) -> io::Result<()> {
+    require_safe(ws_id, "workspace id").map_err(io::Error::other)?;
+    match fs::remove_dir_all(root.join("ws").join(ws_id)) {
+        Err(e) if e.kind() == ErrorKind::NotFound => Ok(()),
+        other => other,
+    }
+}
+
 fn library_root() -> Result<PathBuf, String> {
     crate::paths::mcp_library().ok_or_else(|| "no home directory for the MCP library".to_string())
 }
@@ -207,6 +218,13 @@ pub fn mcp_library_rename(
 ) -> Result<(), String> {
     let dir = scope_dir(&library_root()?, &scope, ws_id.as_deref())?;
     rename(&dir, &from, &to).map_err(|e| e.to_string())
+}
+
+/// Workspace deletion's hook: drop that workspace's library scope. The deck
+/// model is the only knower of the live workspace set; Rust cannot derive it.
+#[tauri::command(async)]
+pub fn mcp_library_forget_workspace(ws_id: String) -> Result<(), String> {
+    forget_workspace(&library_root()?, &ws_id).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
@@ -320,6 +338,27 @@ mod tests {
         assert!(list(&root).unwrap().is_empty());
         delete(&global(&root), "github").unwrap();
         assert!(delete(&global(&root), "../up").is_err());
+    }
+
+    #[test]
+    fn forgetting_a_workspace_takes_its_scope_and_nothing_else() {
+        // Ids are reused slots: a scope left behind would hand the next
+        // workspace with this id the old one's servers and tokens.
+        let (_tmp, root) = root();
+        save(&ws(&root, "ws-1"), "github", "{token}").unwrap();
+        save(&ws(&root, "ws-2"), "fs", "{}").unwrap();
+        save(&global(&root), "shared", "{}").unwrap();
+
+        forget_workspace(&root, "ws-1").unwrap();
+        let all = list(&root).unwrap();
+        let brief: Vec<(&str, &str)> =
+            all.iter().map(|s| (s.scope.as_str(), s.name.as_str())).collect();
+        assert_eq!(brief, vec![("global", "shared"), ("workspace", "fs")]);
+        assert!(!ws(&root, "ws-1").exists());
+
+        forget_workspace(&root, "ws-1").unwrap(); // absence is fine
+        assert!(forget_workspace(&root, "../global").is_err());
+        assert!(global(&root).join("shared.json").exists());
     }
 
     #[test]

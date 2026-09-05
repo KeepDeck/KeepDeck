@@ -49,6 +49,7 @@ function libraryOver(over: Partial<McpStorage> = {}, reserved: string[] = ["keep
     save: vi.fn<McpStorage["save"]>(async () => {}),
     rename: vi.fn<McpStorage["rename"]>(async () => {}),
     remove: vi.fn<McpStorage["remove"]>(async () => {}),
+    forgetWorkspace: vi.fn<McpStorage["forgetWorkspace"]>(async () => {}),
   };
   // Assigned rather than spread, so the mocks keep their `.mock` typing.
   Object.assign(storage, over);
@@ -157,6 +158,17 @@ describe("authoring", () => {
     await library.remove(GLOBAL, "fs");
     expect(storage.remove).toHaveBeenCalledWith(GLOBAL, "fs");
     await expect(library.remove(WS, "fs")).rejects.toThrow('No server "fs"');
+  });
+
+  it("forgets a closing workspace's scope through the storage, and says the library changed", async () => {
+    // A workspace id is a reused slot; the next workspace with it must not
+    // inherit this one's servers and tokens.
+    const { library, storage } = libraryOver();
+    const listener = vi.fn();
+    library.subscribe(listener);
+    await library.forgetWorkspace("ws-1");
+    expect(storage.forgetWorkspace).toHaveBeenCalledWith("ws-1");
+    expect(listener).toHaveBeenCalledTimes(1);
   });
 
   it("tells its subscribers after every write, a failed one included", async () => {

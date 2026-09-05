@@ -9,6 +9,7 @@ import type { McpStorage } from "../app/mcpLibrary";
 import {
   deleteMcpServer,
   fetchMcpServers,
+  forgetMcpWorkspace,
   renameMcpServer,
   saveMcpServer,
 } from "./mcpLibrary";
@@ -23,4 +24,5 @@ export const ipcMcpStorage: McpStorage = {
   save: saveMcpServer,
   rename: renameMcpServer,
   remove: deleteMcpServer,
+  forgetWorkspace: forgetMcpWorkspace,
 };

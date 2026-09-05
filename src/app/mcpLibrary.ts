@@ -44,6 +44,8 @@ export interface McpStorage {
   save(scope: McpScope, name: string, content: string, expectNew: boolean): Promise<void>;
   rename(scope: McpScope, from: string, to: string): Promise<void>;
   remove(scope: McpScope, name: string): Promise<void>;
+  /** Drop a whole workspace scope. Idempotent on absence. */
+  forgetWorkspace(wsId: string): Promise<void>;
 }
 
 export interface McpLibraryPorts {
@@ -84,6 +86,13 @@ export interface McpLibrary extends McpServerSource {
    * calls a missing file a success, which would answer "done" to a caller
    * that named the wrong server. */
   remove(scope: McpScope, name: string): Promise<void>;
+  /**
+   * Forget a closing workspace's whole scope. Workspace ids are REUSED slots,
+   * so a scope left behind would be inherited — servers, tokens and all — by
+   * the next workspace to take the id. Not a refusal on absence: closing a
+   * workspace that never had servers is the common case.
+   */
+  forgetWorkspace(wsId: string): Promise<void>;
   /** Be told when the library changed, whoever changed it. */
   subscribe(listener: () => void): () => void;
 }
@@ -225,6 +234,8 @@ export function createMcpLibrary(ports: McpLibraryPorts): McpLibrary {
       (await library(scope)).existing(name);
       await writeThenNotify(() => ports.storage.remove(scope, name));
     },
+
+    forgetWorkspace: (wsId) => writeThenNotify(() => ports.storage.forgetWorkspace(wsId)),
 
     subscribe: (listener) => {
       listeners.add(listener);

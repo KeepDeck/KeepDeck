@@ -35,12 +35,13 @@ interface ClosingDeps {
    * to. The question, not the map it is answered from. */
   isBlocked(paneId: string): boolean;
   lifecycle: PaneLifecyclePort;
-  /** Drop the workspace's artifact store when the workspace closes (the
-   * live workspace set is deck-model knowledge Rust cannot derive —
-   * without this call, a deleted workspace's artifacts accumulate
-   * forever). Optional so non-app tests need not stub it; failure only
+  /** Forget what the backend keeps PER WORKSPACE when the workspace closes
+   * — its artifact store, its MCP library scope. The live workspace set is
+   * deck-model knowledge Rust cannot derive; without this call a deleted
+   * workspace's data accumulates forever, and a reused workspace id would
+   * inherit it. Optional so non-app tests need not stub it; failure only
    * logs: the deck teardown must not abort on a store hiccup. */
-  dropArtifacts?: (wsId: string) => Promise<void>;
+  forgetWorkspace?: (wsId: string) => Promise<void>;
 }
 
 export interface AgentOrchestratorClosing {
@@ -93,7 +94,7 @@ export function createAgentOrchestratorClosing({
   worktrees,
   isBlocked,
   lifecycle,
-  dropArtifacts,
+  forgetWorkspace,
 }: ClosingDeps): AgentOrchestratorClosing {
   const suspending = new Set<string>();
   /**
@@ -343,13 +344,13 @@ export function createAgentOrchestratorClosing({
 
       if (now) {
         actions.closeWorkspace(now.id);
-        if (dropArtifacts) {
+        if (forgetWorkspace) {
           try {
-            await dropArtifacts(now.id);
+            await forgetWorkspace(now.id);
           } catch (error) {
             log.warn(
               "web:orchestrator",
-              `artifact store drop failed for ${now.id}: ${error}`,
+              `forgetting ${now.id}'s per-workspace data failed: ${error}`,
             );
           }
         }

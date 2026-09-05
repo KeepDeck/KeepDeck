@@ -20,6 +20,7 @@ export function fakeMcpLibrary(): McpLibrary {
     update: vi.fn(async () => {}),
     rename: vi.fn(async () => {}),
     remove: vi.fn(async () => {}),
+    forgetWorkspace: vi.fn(async () => {}),
     subscribe: vi.fn(() => () => {}),
     serversFor: vi.fn(async () => []),
   };

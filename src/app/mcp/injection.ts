@@ -21,6 +21,12 @@
  * - a value a server needs rides the PANE's environment, never argv (several
  *   CLIs take their config where `ps` reads it): the library hands back what
  *   to set and the spec only NAMES it, and the plan carries the pairs.
+ *
+ * A known boundary: a pane whose agent runs against a REMOTE endpoint gets
+ * these servers rendered like any other, and its CLI ignores them — the
+ * config lands on the local thin client while the agent that would spawn
+ * the server runs on the box. Serving remote panes means provisioning
+ * server-side, which is the remote setup's business, not this module's.
  */
 import type { McpServerSpec } from "@keepdeck/plugin-api";
 import { acceptMcpServers } from "./servers";
