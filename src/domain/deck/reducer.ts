@@ -1,4 +1,5 @@
 import {
+  locationOf,
   paneAgentType,
   paneFrozenTitle,
   resolveFocus,
@@ -89,6 +90,13 @@ export const initialDeckState: DeckState = {
   journal: emptyJournal,
 };
 
+/** The branch a `bound` record carries: the worktree branch of an attached
+ * pane, and nothing for any other placement. */
+function boundBranch(pane: Pane): string | undefined {
+  const location = locationOf(pane);
+  return location.kind === "attached" ? location.branch : undefined;
+}
+
 /** The `bound` journal event for a pane's session — how a pane becomes a
  * journal record, in ONE place: both binding paths (a reporter postback via
  * `setPaneSession`, a resume-minted pane via `addAgentPane`) must record the
@@ -107,7 +115,7 @@ function boundEventFor(
       agent: paneAgentType(pane),
       sessionId: session.id,
       cwd: paneExecutionCwd(ws, pane) ?? ws.cwd,
-      ...(pane.branch !== undefined && { branch: pane.branch }),
+      ...(boundBranch(pane) !== undefined && { branch: boundBranch(pane) }),
       ...(pane.yolo && { yolo: true }),
       ...(transcriptPath !== undefined && { transcriptPath }),
       boundAt: session.boundAt,

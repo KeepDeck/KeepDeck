@@ -8,6 +8,7 @@
  * is exactly how a pane ends up both "stopped" and "waking".
  */
 import type { AgentType, ResumeOrigin } from "../../agents";
+import { locationOf } from "./location";
 import type { Pane, PaneIdle } from "./model";
 
 /** The agent a pane runs — panes minted before the field existed ran claude,
@@ -25,7 +26,7 @@ export function paneAgentType(pane: Pane): AgentType {
  *  case, matching spawnSpecs' own truthy target-builder and the inline checks
  *  this centralized. */
 export function paneIsRemoteFresh(pane: Pane): boolean {
-  return !!pane.remoteEndpoint;
+  return locationOf(pane).kind === "remote";
 }
 
 /** Whether this pane is one that HAS a process — the durable half of the
@@ -41,7 +42,7 @@ export function paneIsRemoteFresh(pane: Pane): boolean {
  *  top bar was deliberately withholding a chip from. One predicate, so the
  *  next reason a pane has no process reaches all five at once. */
 export function paneHasProcess(pane: Pane): boolean {
-  return !pane.idle && !pane.provisioning;
+  return !pane.idle && locationOf(pane).kind !== "provisioning";
 }
 
 /** Whether this pane can be suspended right now — the boolean form of
@@ -89,9 +90,15 @@ export function paneSuspendBlock(
   // waiting on a slow probe would otherwise be unparkable for as long as the
   // probe takes.
   if (idleReadsAsStopped(pane.idle, blocked)) return "stopped";
-  if (pane.provisioning) return "provisioning";
-  if (paneIsRemoteFresh(pane)) return "remote";
-  return null;
+  switch (locationOf(pane).kind) {
+    case "provisioning":
+      return "provisioning";
+    case "remote":
+      return "remote";
+    case "main":
+    case "attached":
+      return null;
+  }
 }
 
 /**
@@ -115,7 +122,7 @@ export type PaneBlock =
   | { kind: "stopped"; by: PaneIdle };
 
 export function paneBlock(pane: Pane, agentAvailable: boolean): PaneBlock | null {
-  if (pane.provisioning) return { kind: "provisioning" };
+  if (locationOf(pane).kind === "provisioning") return { kind: "provisioning" };
   if (!agentAvailable) {
     return { kind: "agent-unavailable", agent: paneAgentType(pane) };
   }

@@ -8,18 +8,27 @@
  * one with workspace membership and pane state transitions, which change for
  * entirely different reasons.
  */
-import type { Pane } from "./panes";
+import { locationOf, type Pane } from "./panes";
 import type { Workspace } from "./workspaces";
 
-/** The directory a pane would run in right now. Provisioning panes without a
- * resolved `cwd` deliberately have none yet: falling back to the workspace cwd
- * would describe the wrong process location. */
+/** The directory a pane would run in right now. A provisioning pane
+ * deliberately has none yet: falling back to the workspace cwd would describe
+ * the wrong process location. A remote pane answers the workspace cwd — that
+ * is where its local thin client runs. */
 export function paneExecutionCwd(
   ws: Pick<Workspace, "cwd">,
   pane: Pane,
 ): string | null {
-  if (pane.provisioning && !pane.cwd) return null;
-  return pane.cwd ?? ws.cwd;
+  const location = locationOf(pane);
+  switch (location.kind) {
+    case "provisioning":
+      return null;
+    case "attached":
+      return location.cwd;
+    case "main":
+    case "remote":
+      return ws.cwd;
+  }
 }
 
 /** How many live panes run in `cwd`, across every workspace.
@@ -41,7 +50,10 @@ export function panesRunningIn(workspaces: Workspace[], cwd: string): number {
 export function skillRootsOf(ws: Workspace): string[] {
   return [
     ...new Set(
-      ws.panes.filter((p) => !p.provisioning).map((p) => p.cwd ?? ws.cwd),
+      ws.panes
+        .map((p) => locationOf(p))
+        .filter((location) => location.kind !== "provisioning")
+        .map((location) => (location.kind === "attached" ? location.cwd : ws.cwd)),
     ),
   ];
 }
