@@ -6,6 +6,7 @@ import {
   mcpScopeOf,
   mcpServerBodyProblem,
   mcpServerNameProblem,
+  mcpServerSummary,
   parseMcpServerFile,
   sameMcpScope,
   type McpServerBody,
@@ -81,6 +82,29 @@ describe("the body rule", () => {
     expect(mcpServerBodyProblem({ ...http, url: "" })).toBe("empty-url");
     expect(mcpServerBodyProblem(stdio)).toBeNull();
     expect(mcpServerBodyProblem(http)).toBeNull();
+  });
+});
+
+describe("the summary a door may hand out", () => {
+  it("names a spawned server's variables and never their values", () => {
+    expect(mcpServerSummary(stdio)).toEqual({
+      transport: "stdio",
+      command: "npx",
+      args: ["-y", "@modelcontextprotocol/server-github"],
+      env: ["GITHUB_PERSONAL_ACCESS_TOKEN"],
+    });
+  });
+
+  it("says whether an endpoint has a token, never what it is", () => {
+    expect(mcpServerSummary(http)).toEqual({
+      transport: "http",
+      url: "https://api.githubcopilot.com/mcp/",
+      headers: { "X-Org": "keepdeck" },
+      bearerToken: true,
+    });
+    expect(mcpServerSummary({ ...http, bearerToken: undefined })).toMatchObject({
+      bearerToken: false,
+    });
   });
 });
 

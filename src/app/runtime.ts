@@ -383,6 +383,7 @@ export function createAppRuntime(
     paneInputFocus,
     paneView: paneViewActions,
     skills,
+    mcpLibrary,
     activityOf: (paneId) => statusTracker.getSnapshot().panes.get(paneId),
   });
   const worktreeSweeper = createWorktreeSweeper(

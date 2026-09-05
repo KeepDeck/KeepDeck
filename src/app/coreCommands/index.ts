@@ -52,11 +52,13 @@ import type {
   ResumeRequest,
 } from "../agentOrchestrator";
 import { resumeRefusalText } from "../resumeOutcome";
+import type { McpLibrary } from "../mcpLibrary";
 import type { SkillsLibrary } from "../skillsLibrary";
 import { suspendRefusalText, type SuspendOutcome } from "../suspendOutcome";
 import type { Deck } from "../useDeck";
 import { requiredStr, str, text } from "./args";
 import { deliverTask } from "./deliverTask";
+import { registerMcpCommands } from "./mcp";
 import { registerSkillsCommands } from "./skills";
 
 /**
@@ -109,6 +111,8 @@ export interface CoreCommandDeps {
   openUsage(): boolean;
   /** The shared skills library, for the `skills.*` set (see `./skills`). */
   skills: SkillsLibrary;
+  /** The MCP-server library, for the `mcp.*` set (see `./mcp`). */
+  mcpLibrary: McpLibrary;
 }
 
 /** The refusal when a command asks for a surface that would stack over one
@@ -868,6 +872,7 @@ export function registerCoreCommands(
     // enough that another area's worth of registrations belongs beside it, not
     // in it.
     ...registerSkillsCommands(registry, { deck: deps.deck, skills: deps.skills }),
+    ...registerMcpCommands(registry, { deck: deps.deck, library: deps.mcpLibrary }),
   ];
 
   return () => {

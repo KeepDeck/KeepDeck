@@ -102,6 +102,29 @@ export function mcpServerBodyProblem(
   return body.url.trim() === "" ? "empty-url" : null;
 }
 
+/** A body as it may leave the app through a door that must not carry a
+ * credential: a spawned server's environment by NAME only, an endpoint's
+ * token as a yes or no. The one statement of which fields are secrets. */
+export type McpServerSummary =
+  | { transport: "stdio"; command: string; args: string[]; env: string[] }
+  | { transport: "http"; url: string; headers: Record<string, string>; bearerToken: boolean };
+
+export function mcpServerSummary(body: McpServerBody): McpServerSummary {
+  return body.transport === "stdio"
+    ? {
+        transport: "stdio",
+        command: body.command,
+        args: body.args,
+        env: Object.keys(body.env),
+      }
+    : {
+        transport: "http",
+        url: body.url,
+        headers: body.headers,
+        bearerToken: body.bearerToken !== undefined,
+      };
+}
+
 /** What a stored file turned out to hold: a body, or the reason it is not one. */
 export type McpServerVerdict =
   | { kind: "ok"; body: McpServerBody }

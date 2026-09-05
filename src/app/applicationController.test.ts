@@ -12,6 +12,7 @@ import type { createPluginManager } from "./pluginManager";
 import type { createAgentOrchestrator } from "./agentOrchestrator";
 import type { PaneInputFocusPort } from "./paneInputFocusPort";
 import type { PaneViewPort } from "./paneViewPort";
+import { fakeMcpLibrary } from "./mcpLibrary.fake";
 import { fakeSkillsLibrary } from "./skillsLibrary.fake";
 import { createPaneViewActions } from "../presentation/paneViewActions";
 
@@ -57,9 +58,11 @@ function paneView(): PaneViewPort {
   return { revealPane: vi.fn() };
 }
 
-/** These cases are about registration and lifetime, not about skills — the
- * library is a conduit here, and the `skills.*` set has its own suite. */
+/** These cases are about registration and lifetime, not about either library
+ * — each is a conduit here, and the `skills.*` / `mcp.*` sets have their own
+ * suites. */
 const noSkills = fakeSkillsLibrary;
+const noMcp = fakeMcpLibrary;
 
 describe("application controller", () => {
   it("owns command registration and plugin bootstrap for its lifetime", async () => {
@@ -73,6 +76,7 @@ describe("application controller", () => {
       paneInputFocus: paneInputFocus(),
       paneView: paneView(),
       skills: noSkills(),
+      mcpLibrary: noMcp(),
       registry,
     });
     const view = ui();
@@ -114,6 +118,7 @@ describe("application controller", () => {
       paneInputFocus: focus,
       paneView,
       skills: noSkills(),
+      mcpLibrary: noMcp(),
       registry,
     });
     controller.bindUi(ui());
@@ -161,6 +166,7 @@ describe("application controller", () => {
       paneInputFocus: focus,
       paneView,
       skills: noSkills(),
+      mcpLibrary: noMcp(),
       registry: createCommandRegistry(),
     });
     const view = ui();
@@ -197,6 +203,7 @@ describe("application controller", () => {
       paneInputFocus: paneInputFocus(),
       paneView: paneView(),
       skills: noSkills(),
+      mcpLibrary: noMcp(),
       registry: createCommandRegistry(),
     });
     const view = ui();

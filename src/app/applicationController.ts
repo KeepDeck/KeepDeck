@@ -10,6 +10,7 @@ import { createDeckActions } from "./deckActions";
 import { readDeck } from "./deckSurface";
 import type { DeckStore } from "./deckStore";
 import type { createPluginManager } from "./pluginManager";
+import type { McpLibrary } from "./mcpLibrary";
 import type { SkillsLibrary } from "./skillsLibrary";
 import { openArtifactFromNotification } from "./artifacts/entryPoints";
 import {
@@ -60,6 +61,7 @@ export interface ApplicationControllerDeps {
   paneInputFocus: PaneInputFocusPort;
   paneView: PaneViewPort;
   skills: SkillsLibrary;
+  mcpLibrary: McpLibrary;
   /** The registry to contribute the core command set to; the process-wide one
    * unless a suite wants its own. */
   registry?: CommandRegistry;
@@ -76,6 +78,7 @@ export function createApplicationController({
   paneInputFocus,
   paneView,
   skills,
+  mcpLibrary,
   registry = commands,
   activityOf = () => undefined,
 }: ApplicationControllerDeps): ApplicationController {
@@ -122,6 +125,7 @@ export function createApplicationController({
           ui?.openSettings(sectionId) ?? false,
         openUsage: () => ui?.openUsage(null) ?? false,
         skills,
+        mcpLibrary,
       });
     },
 
