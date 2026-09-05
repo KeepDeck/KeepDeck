@@ -13,12 +13,11 @@ import {
 } from "../../app/artifacts/enableStatus";
 import { openArtifactByRef } from "../../app/artifacts/entryPoints";
 import { deleteArtifact } from "../../app/artifacts/remove";
-import {
-  artifactList,
-  artifactVersions,
-  type ArtifactMetaRow,
-  type ArtifactVersionRow,
-} from "../../ipc/artifacts";
+import type {
+  ArtifactMetaRow,
+  ArtifactVersionRow,
+  ArtifactsRegistryReadPort,
+} from "../../app/artifacts/registryRead";
 import { describeError } from "../../ipc/log";
 import { fateOf, type RowRef } from "./rowRef";
 import { viewOf, type ArtifactsView } from "./view";
@@ -73,9 +72,15 @@ export interface ArtifactsRegistry {
  *
  * The view renders; every transition lives here (the SkillsDialog /
  * useSkillsEditor split, applied to a much smaller machine).
+ *
+ * `reads` is the store as this surface may read it — handed in, bound to
+ * IPC once at the composition root, and REQUIRED: a default here would be
+ * a second home for that binding. The same object across renders, or the
+ * list effect below re-reads on every paint.
  */
 export function useArtifactsRegistry(
   workspaceId: string | null,
+  reads: ArtifactsRegistryReadPort,
 ): ArtifactsRegistry {
   // The listing carries WHOSE it is. That is what makes "still loading"
   // derivable instead of a state someone has to remember to set: rows are
@@ -132,7 +137,7 @@ export function useArtifactsRegistry(
     // it replaced: a late answer for the previous workspace would paint
     // another workspace's artifacts under this one's name.
     let live = true;
-    void artifactList({ workspaceId })
+    void reads.list({ workspaceId })
       .then((listed) => {
         if (!live) return;
         setListing({ ws: workspaceId, rows: listed });
@@ -156,7 +161,7 @@ export function useArtifactsRegistry(
     return () => {
       live = false;
     };
-  }, [workspaceId, revision]);
+  }, [workspaceId, revision, reads]);
 
   const open = useCallback(
     (id: string) => {
@@ -188,7 +193,7 @@ export function useArtifactsRegistry(
       }
       const ref: RowRef = { workspaceId, id, generation: row.generation };
       setExpanded({ ...ref, versions: null });
-      void artifactVersions({ workspaceId, slug: id })
+      void reads.versions({ workspaceId, slug: id })
         .then((history) => {
           if (ask !== historyAsk.current) return;
           setExpanded({ ...ref, versions: history });
@@ -201,7 +206,7 @@ export function useArtifactsRegistry(
           setError(describeError(e));
         });
     },
-    [workspaceId, expanded, rows],
+    [workspaceId, expanded, rows, reads],
   );
 
   const requestDelete = useCallback(

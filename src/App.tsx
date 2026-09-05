@@ -1,5 +1,6 @@
 import { askForPaneBack } from "./app/resumeOutcome";
 import { ArtifactsDialog } from "./components/artifacts/ArtifactsDialog";
+import { artifactsRegistryReads } from "./app/artifacts/registryRead";
 import { TeamDialog } from "./components/workspace/TeamDialog";
 import { restartToUpdate } from "./app/updateManager";
 import { updateActionView } from "./app/updateAction";
@@ -35,6 +36,10 @@ import { useCallback } from "react";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
 import { ModalOverlay } from "./ui/ModalOverlay";
 import "./styles/index.css";
+
+/** The registry's reads, bound to IPC here and nowhere else — one object for
+ * the life of the process, so the dialog's list effect never sees a new one. */
+const registryReads = artifactsRegistryReads();
 
 function App() {
   const controller = useAppController();
@@ -397,6 +402,7 @@ function App() {
           {artifactsOpen && (
             <ArtifactsDialog
               activeWs={active ? { id: active.id, name: active.name } : null}
+              reads={registryReads}
               onClose={closeArtifacts}
               canClose={canCloseDialog}
             />

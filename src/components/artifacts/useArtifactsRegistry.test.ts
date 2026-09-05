@@ -7,7 +7,8 @@ import { artifactsEnableStatus } from "../../app/artifacts/enableStatus";
 import type {
   ArtifactMetaRow,
   ArtifactVersionRow,
-} from "../../ipc/artifacts";
+  ArtifactsRegistryReadPort,
+} from "../../app/artifacts/registryRead";
 import { useArtifactsRegistry, type ArtifactsRegistry } from "./useArtifactsRegistry";
 
 // React 19 requires this flag for act() outside a test-framework integration.
@@ -15,29 +16,25 @@ import { useArtifactsRegistry, type ArtifactsRegistry } from "./useArtifactsRegi
   globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
-// The IPC edge is doubled, NOT `openArtifactByRef`: the ladder from an
-// identity to a live url is the thing this surface leans on, so the test
-// exercises the real one and doubles only what talks to Rust.
+// The reads are a PORT the hook is handed, so they are doubled as one; the
+// open and delete ladders (identity → live url, confirmed delete → store)
+// are the thing this surface leans on, so the test exercises the real ones
+// and doubles only what talks to Rust underneath them.
 vi.mock("../../ipc/artifacts", () => ({
-  artifactList: vi.fn(),
   artifactResolveUrls: vi.fn(),
   artifactDelete: vi.fn(),
-  artifactVersions: vi.fn(),
 }));
 vi.mock("../../ipc/app", () => ({ openUrl: vi.fn() }));
 
 import { openUrl } from "../../ipc/app";
-import {
-  artifactDelete,
-  artifactList,
-  artifactResolveUrls,
-  artifactVersions,
-} from "../../ipc/artifacts";
+import { artifactDelete, artifactResolveUrls } from "../../ipc/artifacts";
 
-const listed = vi.mocked(artifactList);
+const listed = vi.fn<ArtifactsRegistryReadPort["list"]>();
+const history = vi.fn<ArtifactsRegistryReadPort["versions"]>();
+/** One object for the whole file: the hook keys its list effect on it. */
+const reads: ArtifactsRegistryReadPort = { list: listed, versions: history };
 const resolved = vi.mocked(artifactResolveUrls);
 const removed = vi.mocked(artifactDelete);
-const history = vi.mocked(artifactVersions);
 const opened = vi.mocked(openUrl);
 
 const row = (id: string, over: Partial<ArtifactMetaRow> = {}): ArtifactMetaRow => ({
@@ -64,7 +61,7 @@ let root: Root;
 let workspaceId: string | null;
 
 function Probe() {
-  registry = useArtifactsRegistry(workspaceId);
+  registry = useArtifactsRegistry(workspaceId, reads);
   return null;
 }
 
@@ -127,6 +124,28 @@ afterEach(() => {
 });
 
 describe("useArtifactsRegistry", () => {
+  it("reads the list through the port it is handed, for the workspace it shows", async () => {
+    // Distinguishable rows: only the port could have produced them, and only
+    // for this workspace — the surface names no transport of its own.
+    listed.mockResolvedValueOnce([row("from-the-port")]);
+    mount();
+    await settle();
+    expect(listed).toHaveBeenCalledWith({ workspaceId: "ws-1" });
+    expect(shown()).toEqual(["from-the-port"]);
+  });
+
+  it("reads a history through the port it is handed, by workspace and slug", async () => {
+    history.mockResolvedValueOnce([{ n: 7, at: 7_000, size: 70, message: "from the port" }]);
+    mount();
+    await settle();
+    act(() => registry.toggleVersions("auth-flow"));
+    await settle();
+    expect(history).toHaveBeenCalledWith({ workspaceId: "ws-1", slug: "auth-flow" });
+    expect(registry.expanded?.versions).toEqual([
+      { n: 7, at: 7_000, size: 70, message: "from the port" },
+    ]);
+  });
+
   it("holds `null` until the store answers, so loading never reads as empty", async () => {
     mount();
     expect(shown()).toBe("loading");

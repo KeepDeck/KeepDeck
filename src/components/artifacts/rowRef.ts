@@ -1,4 +1,4 @@
-import type { ArtifactMetaRow } from "../../ipc/artifacts";
+import type { ArtifactMetaRow } from "../../app/artifacts/registryRead";
 
 /**
  * A reference to the row a surface is holding open — a question about it,

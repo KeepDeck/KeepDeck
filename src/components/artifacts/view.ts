@@ -1,4 +1,4 @@
-import type { ArtifactMetaRow } from "../../ipc/artifacts";
+import type { ArtifactMetaRow } from "../../app/artifacts/registryRead";
 
 /**
  * What the registry's body shows — the presentation model, decided away

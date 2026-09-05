@@ -1,7 +1,7 @@
 import { useCallback, type RefObject } from "react";
 import { useVirtualizer, type VirtualItem } from "@tanstack/react-virtual";
 import { useRowAnchoring } from "../../ui/useRowAnchoring";
-import type { ArtifactMetaRow } from "../../ipc/artifacts";
+import type { ArtifactMetaRow } from "../../app/artifacts/registryRead";
 
 /** Rows drawn beyond the visible edge, so a scroll never shows a gap. */
 const OVERSCAN_ROWS = 6;
