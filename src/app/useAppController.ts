@@ -46,6 +46,7 @@ import {
   resolveSelectedPaneId,
 } from "../domain/deck";
 import { fetchAppInfo, type AppInfo } from "../ipc/app";
+import { layering } from "../presentation/layering";
 import { describeError, log } from "../ipc/log";
 import { pluginCrashes, subscribePluginCrashes } from "./pluginHealth";
 
@@ -231,44 +232,36 @@ export function useAppController() {
     selectedPaneId,
     open: dockOpen,
   });
-  const dockCovers = dockMode === "floating" && dockTabs.length > 0 && !!active;
   const activeCount = active?.panes.length ?? 0;
   const atCap = activeCount >= MAX_PANES;
-  // `showForm` has two shapes and only one of them is a modal layer: the
-  // CREATE variant rides a ModalOverlay portaled over the whole window, while
-  // the zero-workspace variant renders in the deck overlay at z 10 and covers
-  // neither the top bar nor the rail. Counting the latter made this flag
-  // claim a modal the user could tab straight past — the same distinction
-  // `statsCovered` below already draws, for the same reason.
-  const formIsModalLayer = showForm && deck.workspaces.length > 0;
-  const modalOpen = formIsModalLayer || dialogOpen || modal.anyDialogOpen;
-  const canAddAgent = !!active && !atCap && !modalOpen;
+  // What is painted over what — decided once, in `layering`, for the render
+  // and for the notification probe alike. The z-order reasoning lives there.
+  const windows = layering({
+    creating,
+    workspaceCount: deck.workspaces.length,
+    dialogOpen,
+    anyDialogOpen: modal.anyDialogOpen,
+    statsOpen: modal.statsOpen,
+    statsTab: modal.statsTab,
+    dockMode,
+    dockTabs: dockTabs.length,
+    hasActive: !!active,
+  });
+  const canAddAgent = !!active && !atCap && !windows.modal;
+  // The probe reads the LAST RENDER's decision, not a copy of its inputs:
+  // `windows` rides the ref whole, so a layer the render learns about is a
+  // layer the probe knows about, with nothing to keep in step by hand.
   const visibilityRef = useRef({
     activeId: deck.activeId,
     workspaces: deck.workspaces,
     viewByWs: deck.viewByWs,
-    modalOpen,
-    dockCovers,
-    statsOpen: modal.statsOpen,
-    statsTab: modal.statsTab,
-    statsCovered: dialogOpen || creating,
+    windows,
   });
   visibilityRef.current = {
     activeId: deck.activeId,
     workspaces: deck.workspaces,
     viewByWs: deck.viewByWs,
-    modalOpen,
-    dockCovers,
-    statsOpen: modal.statsOpen,
-    statsTab: modal.statsTab,
-    // What can paint OVER the Stats dialog: transaction confirms, and the
-    // CREATE-form variant of the workspace form — that one rides a
-    // ModalOverlay portaled after stats at the same z-index, so DOM order
-    // puts it on top. Deliberately NOT modalOpen (it contains statsOpen
-    // itself and would make the stats branch always false) and NOT the
-    // zero-workspace form (that renders in the deck overlay at z 10,
-    // UNDER the portaled dialog).
-    statsCovered: dialogOpen || creating,
+    windows,
   };
   useEffect(() => {
     setSourceVisibilityProbe((source) => {
@@ -276,16 +269,20 @@ export function useAppController() {
         // The Stats dialog counts as "on screen" for its own deep links —
         // no OS banner while the user is looking at the tab that just lit
         // up — unless a confirm dialog is painted over it.
-        const now = visibilityRef.current;
+        const { stats } = visibilityRef.current.windows;
         return (
-          now.statsOpen &&
-          !now.statsCovered &&
-          (source.tab === undefined || now.statsTab === source.tab)
+          stats.open &&
+          !stats.covered &&
+          (source.tab === undefined || stats.tab === source.tab)
         );
       }
       if (source.type !== "pane") return false;
       const now = visibilityRef.current;
-      if (now.modalOpen || now.dockCovers || source.workspace.id !== now.activeId) {
+      if (
+        now.windows.modal ||
+        now.windows.dockCovers ||
+        source.workspace.id !== now.activeId
+      ) {
         return false;
       }
       const ws = workspaceForNotification(now.workspaces, source.workspace);
@@ -305,7 +302,7 @@ export function useAppController() {
   const railFrames = useWorkspaceFrames(deck.workspaces, deck.activeId);
   useMenuHotkeys({
     newWorkspace: () => {
-      if (modalOpen) return;
+      if (windows.modal) return;
       setCreating(true);
     },
     newAgent: () => {
@@ -313,7 +310,7 @@ export function useAppController() {
       void agentFlow.openFor(active);
     },
     closeAgent: () => {
-      if (modalOpen) return;
+      if (windows.modal) return;
       const target = closeHotkeyTarget(
         deck.workspaces,
         deck.activeId,
@@ -327,7 +324,7 @@ export function useAppController() {
         closeFlow.requestCloseAgent(target.wsId, target.paneId, target.label);
     },
     suspendAgent: () => {
-      if (modalOpen) return;
+      if (windows.modal) return;
       const target = paneHotkeyTarget(
         deck.workspaces,
         deck.activeId,
@@ -344,7 +341,7 @@ export function useAppController() {
       });
     },
     toggleMaximize: () => {
-      if (modalOpen) return;
+      if (windows.modal) return;
       const target = maximizeHotkeyTarget(
         deck.workspaces,
         deck.activeId,
@@ -458,6 +455,6 @@ export function useAppController() {
     updateState,
     usageLiveAgents,
     selectedPaneId,
-    keyboardFocusEnabled: !modalOpen && !dockCovers,
+    keyboardFocusEnabled: windows.panesInteractive,
   };
 }
