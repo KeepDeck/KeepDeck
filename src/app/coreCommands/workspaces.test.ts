@@ -52,6 +52,32 @@ describe("workspace commands", () => {
       ]);
   });
 
+  it("reports no cwd for a pane whose worktree is still being created", async () => {
+    // The pane will run in the worktree once it exists. Answering the
+    // workspace cwd meanwhile told a teammate to look for it — and write
+    // beside it — in a directory it never runs in.
+    const { registry } = setup([
+      workspace({
+        panes: [
+          {
+            id: "p1",
+            agentType: "claude",
+            location: {
+              kind: "provisioning",
+              intent: { repo: "/repo", path: "/wt/web-1", branch: "kd/web/1", index: 1 },
+            },
+          },
+        ],
+      }),
+    ]);
+    const result = await registry.execute("workspace.list", {}, HOST);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const rows = result.value as { panes: { id: string; cwd: string | null }[] }[];
+      expect(rows[0].panes[0]).toMatchObject({ id: "p1", cwd: null, branch: null });
+    }
+  });
+
   it("carries what each agent is DOING, so asking a teammate costs nothing", async () => {
     // The deck sees this from outside; a session cannot see it at all. An
     // agent that has to ask "are you done yet?" spends a turn, waits for a

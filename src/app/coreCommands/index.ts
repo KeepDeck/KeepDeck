@@ -18,9 +18,9 @@ import {
   WORKSPACE_GONE_MESSAGE,
   type Pane,
   type Workspace,
-  attachedWorktree,
   locationOf,
   paneBranch,
+  paneExecutionCwd,
 } from "../../domain/deck";
 import { log } from "../../ipc/log";
 import { inspectRepo } from "../../ipc/worktree";
@@ -168,7 +168,10 @@ export function registerCoreCommands(
             title: paneDisplayTitle(p, i, agents),
             agentType: paneAgentType(p),
             branch: paneBranch(p) ?? null,
-            cwd: attachedWorktree(p)?.cwd ?? ws.cwd,
+            // Null while the pane's worktree is still being created: the
+            // workspace cwd would name a directory the agent will never run
+            // in. Absent information, like `activity` below.
+            cwd: paneExecutionCwd(ws, p),
             // Null when nothing reports — a pane that is provisioning,
             // stopped, or running a CLI with no status reporter. Absent
             // information, not an absent pane.
