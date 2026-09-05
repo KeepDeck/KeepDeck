@@ -31,7 +31,6 @@ import { createMcpRequestPump, type McpPumpPorts } from "./pump";
 import {
   createMcpServerPolicy,
   type McpServerPolicy,
-  type McpSettingsPort,
   type McpTransition,
   type McpTransportPort,
 } from "./policy";
@@ -59,12 +58,11 @@ function sameRefusals(
   );
 }
 
-/** What the app knows about the transport as of the LAST SETTLED transition —
- * confirmed by the backend, not wished by the setting, and not re-probed in
- * between. `socket` is the served path the backend last confirmed; `error` is
- * why the last transition failed — and after a failure the socket claim is
- * KEPT, because nothing confirmed a change (a failed disable most likely
- * leaves the socket serving). */
+/** What the app knows about the transport as of the LAST SETTLED enable —
+ * confirmed by the backend, not assumed, and not re-probed in between.
+ * `socket` is the served path the backend confirmed, claimed once for the
+ * page's life (the socket goes down only with the page); `error` is why the
+ * enable failed, until a retry succeeds. */
 export interface McpStatus {
   socket: string | null;
   error: string | null;
@@ -96,31 +94,14 @@ function problem(detail: string | null): string {
   return text ? text : "the transport reported no detail";
 }
 
-/** The status after one settled transition (see [`McpStatus`] for why a
- * failure keeps the previous socket claim). */
+/** The status after one settled enable. */
 function statusAfter(previous: McpStatus, transition: McpTransition): McpStatus {
   const refused = previous.refused;
-  if (!transition.ok) {
-    // The socket CLAIM is kept — nothing confirmed the socket went away — but
-    // the line naming it is not: a failed enable following a failed disable
-    // would otherwise hand the user a copy-pasteable command minted for a
-    // socket two transitions ago. The lookup that follows every transition
-    // re-derives it against whatever is actually claimed now.
-    return {
-      ...previous,
-      error: problem(transition.detail),
-      connect: null,
-      connectError: null,
-      refused,
-    };
-  }
-  // Every settled change to the socket invalidates the line that names it —
-  // the lookup that follows is what fills it back in.
+  // Every settled enable invalidates the line naming the socket — the lookup
+  // that follows is what fills it back in, against what is actually claimed.
   const blank = { connect: null, connectError: null };
-  if (!transition.desired) {
-    // Off takes the refusals with it: nothing is planted any more, so a
-    // directory that once refused is no longer withholding anything.
-    return { socket: null, error: null, refused: [], ...blank };
+  if (!transition.ok) {
+    return { ...previous, error: problem(transition.detail), refused, ...blank };
   }
   return transition.detail !== null
     ? { socket: transition.detail, error: null, refused, ...blank }
@@ -142,16 +123,18 @@ export interface McpService {
    * [`createMcpInjection`]. */
   access: McpInjection["access"];
   /**
-   * Bring the DERIVED parts of the status up to date.
+   * Bring the status up to date with what a user is about to look at.
    *
-   * Two things go stale on their own and nothing else notices: a refusal
-   * whose pane has since closed (the list is keyed by directory, and only a
-   * later successful arming of that same directory cleared it), and a connect
-   * lookup that never landed (it fires once per settled transition, so a
-   * request that got lost stayed lost until the user toggled the transport).
+   * Three things go stale on their own and nothing else notices: a refused
+   * enable (another instance held the socket — a retry is due, and there is
+   * no setting event to carry it), a refusal whose pane has since closed
+   * (the list is keyed by directory, and only a later successful arming of
+   * that same directory cleared it), and a connect lookup that never landed
+   * (it fires once per settled enable, so a request that got lost stayed
+   * lost).
    *
    * Idempotent and cheap. A settings surface calls it when it mounts — which
-   * is the moment both staleness becomes visible — WITHOUT reaching for IPC
+   * is the moment all three become visible — WITHOUT reaching for IPC
    * itself; that is the whole point of it living here.
    */
   refresh(): void;
@@ -182,26 +165,22 @@ export type { McpPaneIdentity } from "./paneIdentity";
 
 /**
  * The MCP feature's one owner in the webview. Everything the feature IS —
- * the request pump, the registry projection, the settings-driven lifecycle
- * policy, the order they come up in, and the resulting status — lives
- * behind this front door; the composition root holds one handle, and the
- * settings UI reads `status()` instead of re-deriving "the server is on"
- * from the setting (the setting is a wish; the status is what the backend
- * confirmed — they differ exactly when the user most needs to know).
+ * the request pump, the registry projection, the lifecycle policy, the
+ * order they come up in, and the resulting status — lives behind this front
+ * door; the composition root holds one handle, and the settings UI reads
+ * `status()`: the transport has no setting, so what the backend confirmed
+ * is the only account of it there is.
  *
  * Ordering is owned here, in both directions. Up: the policy — and with it
- * the first possible enable — is constructed only after the pump's event
- * subscription has REGISTERED on the backend (`pump.ready`), so a socket
- * client's first request cannot land while nothing is listening; dispatch
- * order alone would not give that, both legs being independent async IPC.
- * Down: the final teardown rides the policy's own serialized chain, so a
- * disposed page can never lose the race against its in-flight enable and
- * leave the socket up with nobody answering.
+ * the enable — is constructed only after the pump's event subscription has
+ * REGISTERED on the backend (`pump.ready`), so a socket client's first
+ * request cannot land while nothing is listening; dispatch order alone
+ * would not give that, both legs being independent async IPC. Down: the
+ * final teardown rides the policy's own serialized chain, so a disposed page
+ * can never lose the race against its in-flight enable and leave the socket
+ * up with nobody answering.
  */
-export function createMcpService(
-  settings: McpSettingsPort,
-  deps: McpServiceDeps,
-): McpService {
+export function createMcpService(deps: McpServiceDeps): McpService {
   const registry = deps.registry ?? commands;
   const transport = deps.transport ?? { enable: mcpEnable, disable: mcpDisable };
   const connection = deps.connection ?? mcpConnectionCommand;
@@ -372,21 +351,14 @@ export function createMcpService(
       });
       return;
     }
-    policy = createMcpServerPolicy(settings, transport, (transition) => {
-      // A transition already in flight when the page went away still settles,
+    policy = createMcpServerPolicy(transport, (transition) => {
+      // An enable already in flight when the page went away still settles,
       // and this callback rides the policy's own chain — so without this it
-      // publishes to listeners a disposed page never dropped, issues a fresh
-      // lookup during teardown, and can fire a retract after it.
+      // publishes to listeners a disposed page never dropped and issues a
+      // fresh lookup during teardown.
       if (disposed) return;
       publish(statusAfter(current, transition));
       refreshConnect();
-      // A confirmed Off takes the planted configs with it: the socket they
-      // name is gone, and a kimi pane reading one would spawn a shim that
-      // cannot connect. Fire-and-forget — the backend's armed manifest still
-      // records anything this fails to remove, and the boot sweep reads it.
-      if (transition.ok && !transition.desired) {
-        void injection.retract();
-      }
     });
   });
 
@@ -395,6 +367,11 @@ export function createMcpService(
     access: injection.access,
     refresh() {
       if (disposed) return;
+      // A refused enable is retried here and nowhere else: with no setting
+      // to flip there is no event to ride, and a timer would hammer a socket
+      // another instance legitimately holds. Someone opening a settings
+      // surface bounds it instead.
+      policy?.ensure();
       const refused = stillRunning(current.refused);
       if (!sameRefusals(refused, current.refused)) {
         publish({ ...current, refused });

@@ -127,28 +127,21 @@ export function createAppRuntime(
     minimizeStyle: () => getSettings()?.minimizeStyle ?? null,
     subscribe: subscribeSettings,
   });
-  const mcp = createMcpService(
-    {
-      mcpServer: () => getSettings()?.mcpServer ?? null,
-      subscribe: subscribeSettings,
-    },
-    {
-      panesIn: (cwd) =>
-        panesRunningIn(deckStore.getSnapshot().workspaces, cwd),
-      // kimi's config lands in a pane's cwd, so the owner of those directories
-      // decides when it may. These two exist only to break the construction
-      // cycle between the two owners — `worktrees` is built below and neither
-      // is called before a spawn, long after.
-      plant: (workspaceId, root, content) =>
-        worktrees.plantMcp(workspaceId, root, content),
-      retract: (roots) => worktrees.retractMcp(roots),
-      identify: createPaneIdentity({
-        workspaces: () => deckStore.getSnapshot().workspaces,
-        paneOf: paneIdBySpawnSecret,
-        agents: agentLabels,
-      }),
-    },
-  );
+  const mcp = createMcpService({
+    panesIn: (cwd) => panesRunningIn(deckStore.getSnapshot().workspaces, cwd),
+    // kimi's config lands in a pane's cwd, so the owner of those directories
+    // decides when it may. These two exist only to break the construction
+    // cycle between the two owners — `worktrees` is built below and neither
+    // is called before a spawn, long after.
+    plant: (workspaceId, root, content) =>
+      worktrees.plantMcp(workspaceId, root, content),
+    retract: (roots) => worktrees.retractMcp(roots),
+    identify: createPaneIdentity({
+      workspaces: () => deckStore.getSnapshot().workspaces,
+      paneOf: paneIdBySpawnSecret,
+      agents: agentLabels,
+    }),
+  });
   // Fleet artifacts: the enable policy (store + display server ride the
   // one Rust pair) and the command registration, gated on BOTH edges —
   // the artifacts setting AND the CONFIRMED mcp socket (the registry IS
