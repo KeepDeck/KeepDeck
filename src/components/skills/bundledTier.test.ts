@@ -3,7 +3,7 @@ import { BUNDLED_NOTICE, bundledUnlockHint } from "./bundledTier";
 
 describe("bundledUnlockHint", () => {
   it("explains the dead tier while the feature is off", () => {
-    expect(bundledUnlockHint(false)).toContain("artifacts experiment");
+    expect(bundledUnlockHint(false)).toContain("Fleet artifacts");
   });
 
   it("says nothing while the feature is on — there is nothing to unlock", () => {

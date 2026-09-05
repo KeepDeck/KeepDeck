@@ -95,7 +95,7 @@ export interface DeckBarProps {
   canOpenDialog: boolean;
   onOpenStats(): void;
   onOpenSkills(): void;
-  /** The artifacts registry, or null while the experiment is off — a door
+  /** The artifacts registry, or null while Fleet artifacts are off — a door
    * to a feature that is not running is a door to a refusal. */
   onOpenArtifacts: (() => void) | null;
   onOpenSettings(): void;

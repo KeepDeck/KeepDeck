@@ -260,12 +260,12 @@ describe("ArtifactsDialog", () => {
 
   it("shows a refusal in the store's own words instead of an empty library", async () => {
     listed.mockRejectedValueOnce(
-      new Error("artifact store is off — turn the artifacts experiment on first"),
+      new Error("artifact store is off — turn Fleet artifacts on first"),
     );
     render();
     await settle();
     expect(document.body.textContent).toContain(
-      "artifact store is off — turn the artifacts experiment on first",
+      "artifact store is off — turn Fleet artifacts on first",
     );
     expect(document.body.textContent).not.toContain("Nothing published yet");
   });

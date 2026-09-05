@@ -198,7 +198,7 @@ impl ArtifactsStore {
         let enabled = self.enabled.lock().expect("artifacts store poisoned");
         let Some(state) = enabled.as_ref() else {
             return Err(StoreError::new(
-                "artifact store is off — turn the artifacts experiment on first",
+                "artifact store is off — turn Fleet artifacts on first",
             ));
         };
         run(state._root.root(), &state.data)

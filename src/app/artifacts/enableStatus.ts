@@ -6,8 +6,8 @@ import type { ArtifactsTransition } from "./policy";
  *
  * Why it exists: when the store is not open, the STORE cannot say why.
  * It knows only that it is closed, so it answers every reader with one
- * sentence — "turn the artifacts experiment on first" — which is a lie
- * whenever the experiment IS on and the enable failed for another reason
+ * sentence — "turn Fleet artifacts on first" — which is a lie whenever
+ * the feature IS on and the enable failed for another reason
  * (another KeepDeck process owning the claim, an unwritable home). The
  * reason exists exactly once, in the transition that failed, and dies in
  * a log line unless something keeps it.

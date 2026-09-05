@@ -30,9 +30,9 @@ const settingsIpc = vi.hoisted(() => ({
 }));
 vi.mock("../../ipc/settings", () => settingsIpc);
 
-// The General section's MCP row and the Experimental section read the MCP
-// transport's confirmed status from the app runtime; the dialog tests run
-// without a runtime provider, so the hook is answered directly — socket not
+// The General section's artifacts and MCP rows read the MCP transport's
+// confirmed status from the app runtime; the dialog tests run without a
+// runtime provider, so the hook is answered directly — socket not
 // confirmed, nothing to connect to.
 vi.mock("../../app/mcp/useMcpStatus", () => ({
   useMcpStatus: () => ({

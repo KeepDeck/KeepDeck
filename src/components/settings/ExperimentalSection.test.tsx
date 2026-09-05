@@ -13,18 +13,6 @@ vi.mock("../../app/settingsManager", () => ({
   subscribeSettings: () => () => {},
   updateSettings: settingsManager.updateSettings,
 }));
-// Only the confirmed socket matters to this section; the rest of the
-// status belongs to the MCP row in General.
-const mcpStatus = vi.hoisted(() => ({ socket: null as string | null }));
-vi.mock("../../app/mcp/useMcpStatus", () => ({
-  useMcpStatus: () => ({
-    socket: mcpStatus.socket,
-    error: null,
-    connect: null,
-    connectError: null,
-    refused: [],
-  }),
-}));
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
@@ -36,7 +24,6 @@ describe("ExperimentalSection", () => {
   beforeEach(() => {
     settingsManager.updateSettings.mockReset();
     settings.current = { ...DEFAULT_SETTINGS };
-    mcpStatus.socket = null;
     document.body.innerHTML = "";
     host = document.body.appendChild(document.createElement("div"));
     root = createRoot(host);
@@ -45,66 +32,34 @@ describe("ExperimentalSection", () => {
 
   const mount = () => act(() => root.render(createElement(ExperimentalSection)));
 
-  /** The On/Off pair under the row labelled `label`. Every row carries the
-   * same button captions, so selection must go through the row label. */
-  const rowButtons = (label: string) => {
-    const labels = Array.from(host.querySelectorAll<HTMLElement>(".form__label"));
-    const row = labels.find((el) => el.textContent === label);
-    if (!row?.nextElementSibling) throw new Error(`no row "${label}"`);
-    const buttons = new Map<string, HTMLButtonElement>();
-    for (const b of row.nextElementSibling.querySelectorAll("button")) {
-      buttons.set(b.textContent ?? "", b);
-    }
-    return buttons;
-  };
+  const buttons = () =>
+    new Map(
+      Array.from(host.querySelectorAll<HTMLButtonElement>("button")).map(
+        (b) => [b.textContent ?? "", b] as const,
+      ),
+    );
 
-  it("each toggle writes its own settings key", () => {
+  it("writes the remote-agents key, and marks the stored value active", () => {
     mount();
-    act(() => rowButtons("Remote agents").get("On")!.click());
+    expect(buttons().get("Off")!.className).toContain("form__type--active");
+    act(() => buttons().get("On")!.click());
     expect(settingsManager.updateSettings).toHaveBeenCalledWith({
       remoteAgents: true,
     });
-    act(() => rowButtons("Fleet artifacts").get("On")!.click());
-    expect(settingsManager.updateSettings).toHaveBeenCalledWith({
-      artifacts: true,
-    });
-  });
 
-  it("marks the stored value active per row, not shared across rows", () => {
-    settings.current = { ...DEFAULT_SETTINGS, artifacts: true };
+    settings.current = { ...DEFAULT_SETTINGS, remoteAgents: true };
     mount();
-    const artifacts = rowButtons("Fleet artifacts");
-    expect(artifacts.get("On")!.className).toContain("form__type--active");
-    expect(artifacts.get("Off")!.className).not.toContain("form__type--active");
-    expect(rowButtons("Remote agents").get("Off")!.className).toContain(
-      "form__type--active",
-    );
+    expect(buttons().get("On")!.className).toContain("form__type--active");
+    expect(buttons().get("Off")!.className).not.toContain("form__type--active");
   });
 
   it("lists only what is still an experiment", () => {
-    // The MCP socket and agent teams graduated: neither has a switch here.
+    // The MCP socket, agent teams and fleet artifacts graduated: none of
+    // them has a row here.
     mount();
     const labels = Array.from(host.querySelectorAll(".form__label")).map(
       (label) => label.textContent,
     );
-    expect(labels).toEqual(["Remote agents", "Fleet artifacts"]);
-  });
-
-  it("says the socket is down only while it is, and only while artifacts are on", () => {
-    // The hint and the tool-registration gate key on the same confirmed
-    // status, so they agree on what "down" means.
-    settings.current = { ...DEFAULT_SETTINGS, artifacts: true };
-    mount();
-    expect(host.textContent).toContain("MCP socket is down");
-    expect(host.textContent).toContain("cannot publish");
-
-    mcpStatus.socket = "/home/mcp.sock";
-    mount();
-    expect(host.textContent).not.toContain("MCP socket is down");
-
-    mcpStatus.socket = null;
-    settings.current = { ...DEFAULT_SETTINGS, artifacts: false };
-    mount();
-    expect(host.textContent).not.toContain("cannot publish");
+    expect(labels).toEqual(["Remote agents"]);
   });
 });

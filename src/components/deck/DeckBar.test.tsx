@@ -83,9 +83,8 @@ describe("DeckBar", () => {
     expect(byText("+ Team")).toBeUndefined();
     expect(byLabel("Toggle dock panel")).toBeNull();
     expect(host.querySelector("[data-bell]")).toBeNull();
-    // The artifacts door is one of these: the experiment is off far more
-    // often than it is on, and a door to a feature that is not running
-    // leads to a refusal.
+    // The artifacts door is one of these: the feature is off by default,
+    // and a door to a feature that is not running leads to a refusal.
     expect(byLabel("Open artifacts")).toBeNull();
     expect(byText("+ Agent")).toBeDefined();
   });

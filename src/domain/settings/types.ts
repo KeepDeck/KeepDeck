@@ -104,7 +104,7 @@ export interface Settings {
    * come back parked and each starts on its own card. Applies at launch only:
    * flipping it never touches panes that are already running. */
   parkAgentsOnLaunch: boolean;
-  /** Fleet artifacts ([F6] → Experimental): agents can publish presentation
+  /** Fleet artifacts ([F6] → General): agents can publish presentation
    * pages (HTML/md) to a workspace-scoped store, served on localhost with
    * live refresh, shared as team review objects. A LIVE switch in both
    * directions: On claims the store root and starts the display server;
@@ -114,8 +114,7 @@ export interface Settings {
    *
    * The TOOL half rides the deck's MCP socket (the commands are MCP
    * projections) — while it is down the display server and any published
-   * artifacts keep serving, only new publishes go dark. Default off; opt-in
-   * only while the feature is experimental. */
+   * artifacts keep serving, only new publishes go dark. Default off. */
   artifacts: boolean;
   /** First publish of a NEW artifact opens it in the system browser (the
    * Claude Code artifacts UX; republish never re-opens — the open tab

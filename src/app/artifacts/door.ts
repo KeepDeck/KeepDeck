@@ -18,7 +18,7 @@ import type { Settings } from "../../domain/settings";
  *
  * Unsettled settings (`null`, before the first load) mean no door: the
  * app does not yet know what the user chose, and offering the feature on
- * a guess is how a disabled experiment gets opened.
+ * a guess is how a switched-off feature gets opened.
  */
 export function artifactsDoorOpen(settings: Settings | null): boolean {
   return settings?.artifacts === true;

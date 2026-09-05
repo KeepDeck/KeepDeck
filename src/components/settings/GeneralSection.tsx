@@ -9,6 +9,7 @@ import {
   type SuspendedAgentPlacement,
   type DockMode,
 } from "../../domain/settings";
+import { ArtifactsRows } from "./ArtifactsRows";
 import { McpServerRow } from "./McpServerRow";
 
 /** Label + one-line explanation for each suspended-agent placement. */
@@ -41,9 +42,9 @@ const DOCK_OPTIONS: Record<DockMode, { label: string; hint: string }> = {
 
 /**
  * General preferences: the default agent ([F6]/[F1]), where a suspended
- * agent stays, how the dock occupies the window, and whether a restored deck
- * comes back running or stopped — then
- * the MCP server's row, which is not a preference but a fact about the
+ * agent stays, how the dock occupies the window, whether a restored deck
+ * comes back running or stopped, and fleet artifacts ([`ArtifactsRows`]) —
+ * then the MCP server's row, which is not a preference but a fact about the
  * running transport ([`McpServerRow`]). Fetches the catalog itself (per
  * mount, like WorkspaceForm) — opening settings re-detects a just-installed
  * agent instead of showing the boot-time picture.
@@ -160,6 +161,7 @@ export function GeneralSection() {
           : "Restored agents resume their sessions right away"}
       </span>
 
+      <ArtifactsRows />
       <McpServerRow />
     </>
   );
