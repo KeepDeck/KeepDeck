@@ -4,6 +4,7 @@ import {
   findWorkspaceByRef,
   paneAgentType,
   paneResumeSessionId,
+  attachedWorktree,
 } from "../../domain/deck";
 import type { WorkspaceRef } from "../../domain/workspaceInstance";
 import { decideRejectedResume } from "../../domain/agents";
@@ -128,8 +129,8 @@ export function createAgentOrchestratorRestart({
       workspace: { id: workspace.id, instance: workspace.instance },
       paneId,
       agentType: paneAgentType(pane),
-      cwd: pane.cwd ?? workspace.cwd,
-      branch: pane.branch,
+      cwd: attachedWorktree(pane)?.cwd ?? workspace.cwd,
+      branch: attachedWorktree(pane)?.branch,
       yolo: pane.yolo,
       sessionId: paneResumeSessionId(pane),
     };

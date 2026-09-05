@@ -18,6 +18,8 @@ import {
   WORKSPACE_GONE_MESSAGE,
   type Pane,
   type Workspace,
+  attachedWorktree,
+  locationOf,
 } from "../../domain/deck";
 import { log } from "../../ipc/log";
 import { inspectRepo } from "../../ipc/worktree";
@@ -96,6 +98,15 @@ const DIALOG_BUSY_MESSAGE =
 
 
 /** The workspace a command acts on: the named one, else the active one. */
+/** The worktree a freshly recruited pane is heading for, as the recruit
+ * answer reports it — or null once (or when) there is no create in flight. */
+function worktreeAhead(pane: Pane): { path: string; branch: string | null } | null {
+  const location = locationOf(pane);
+  return location.kind === "provisioning"
+    ? { path: location.card.path, branch: location.card.branch ?? null }
+    : null;
+}
+
 function targetWorkspace(deck: Deck, ref: string | undefined): Workspace {
   if (ref) {
     const resolved = resolveWorkspaceRef(deck.workspaces, ref);
@@ -155,8 +166,8 @@ export function registerCoreCommands(
             id: p.id,
             title: paneDisplayTitle(p, i, agents),
             agentType: paneAgentType(p),
-            branch: p.branch ?? null,
-            cwd: p.cwd ?? ws.cwd,
+            branch: attachedWorktree(p)?.branch ?? null,
+            cwd: attachedWorktree(p)?.cwd ?? ws.cwd,
             // Null when nothing reports — a pane that is provisioning,
             // stopped, or running a CLI with no status reporter. Absent
             // information, not an absent pane.
@@ -343,9 +354,7 @@ export function registerCoreCommands(
           paneId: id,
           workspaceId: workspace.id,
           agentType,
-          worktree: pane.provisioning
-            ? { path: pane.provisioning.path, branch: pane.provisioning.branch ?? null }
-            : null,
+          worktree: worktreeAhead(pane),
           task: task ? "scheduled" : "none",
         };
       },

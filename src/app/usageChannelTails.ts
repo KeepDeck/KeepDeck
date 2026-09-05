@@ -2,6 +2,7 @@ import {
   findWorkspaceOfPane,
   paneAgentType,
   paneHasProcess,
+  attachedWorktree,
 } from "../domain/deck";
 import { tailWatches, type TailWatch } from "@keepdeck/plugin-api";
 import { log } from "../ipc/log";
@@ -94,7 +95,11 @@ export function createUsageTailsLane({
         searching.add(paneId);
         log.debug("web:usage", `${paneId}: asking ${agentId} to find ${sessionId}`);
         void dialect
-          .follow({ sessionId, store: null, cwd: pane.cwd ?? null })
+          // The pane's OWN directory, or null: a bare pane hands the dialect
+          // nothing, not the workspace cwd — following the project root for
+          // a pane that never had a worktree is a search of somebody else's
+          // directory.
+          .follow({ sessionId, store: null, cwd: attachedWorktree(pane)?.cwd ?? null })
           .then((request) => {
             // `delete` answers whether this search was still wanted: a pane
             // that left the deck while the walk was out is dropped from the

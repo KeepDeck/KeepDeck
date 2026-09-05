@@ -11,6 +11,7 @@ import {
   type GitPosition,
   type Pane,
   type WorktreeTarget,
+  locationOf,
 } from "../domain/deck";
 import { probeWorktree } from "../ipc/worktree";
 import { suspendRefusalText, type SuspendOutcome } from "./suspendOutcome";
@@ -327,7 +328,10 @@ export function useCloseFlow(
    */
   const pendingCreates = (panes: readonly Pane[]): string[] =>
     panes
-      .filter((pane) => pane.provisioning && !pane.provisioning.error)
+      .filter((pane) => {
+        const location = locationOf(pane);
+        return location.kind === "provisioning" && !location.card.error;
+      })
       .map((pane) => pane.id);
 
   const requestCloseAgent = (wsId: string, paneId: string, label: string) => {

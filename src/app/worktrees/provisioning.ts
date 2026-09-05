@@ -7,7 +7,7 @@
  * a close racing the create needs the path long before the rest of this
  * finishes (see [`created`]).
  */
-import type { PaneProvisioning } from "../../domain/deck";
+import { locationOf, type PaneProvisioning } from "../../domain/deck";
 import { describeError, log } from "../../ipc/log";
 import { createWorktree, inspectRepo } from "../../ipc/worktree";
 import type { ProvisionCallbacks } from "../provisioning";
@@ -198,12 +198,15 @@ export function createWorktreeProvisioning(
 
   return {
     async provision(panes, cb) {
-      const pending = panes.filter((p) => p.provisioning);
+      const pending = panes.flatMap((p) => {
+        const location = locationOf(p);
+        return location.kind === "provisioning" ? [{ id: p.id, card: location.card }] : [];
+      });
       if (pending.length === 0) return;
 
       let batchBase: { commit?: string; branch?: string } | undefined;
       try {
-        const inspected = await inspectRepo(pending[0].provisioning!.repo);
+        const inspected = await inspectRepo(pending[0].card.repo);
         batchBase = {
           ...(inspected.head && { commit: inspected.head }),
           ...(inspected.branch && { branch: inspected.branch }),
@@ -213,7 +216,7 @@ export function createWorktreeProvisioning(
       }
 
       await Promise.all(
-        pending.map((p) => provisionPane(p.id, p.provisioning!, batchBase, cb)),
+        pending.map((p) => provisionPane(p.id, p.card, batchBase, cb)),
       );
     },
 

@@ -8,6 +8,7 @@ import {
   WORKSPACE_GONE_MESSAGE,
   type Pane,
   type Workspace,
+  locationOf,
 } from "../../domain/deck";
 import { createWorkspaceInstance } from "../../domain/workspaceInstance";
 import { log } from "../../ipc/log";
@@ -41,7 +42,7 @@ export function createAgentOrchestratorCreation({
   worktrees,
 }: CreationDeps): AgentOrchestratorCreation {
   function provisionPanes(wsId: string, panes: Pane[]): void {
-    const cards = panes.filter((pane) => pane.provisioning);
+    const cards = panes.filter((pane) => locationOf(pane).kind === "provisioning");
     if (cards.length === 0) return;
     void worktrees.provision(cards, provisionInto(actions, wsId));
   }

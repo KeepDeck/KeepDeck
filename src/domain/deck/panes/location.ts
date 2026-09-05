@@ -58,6 +58,16 @@ export type PanePlacementFields = Pick<
  *     ignored — the reset transition drops the two together, so a branch
  *     alone is a remnant, not a placement.
  */
+/** The worktree an attached pane runs in, or null for any other placement.
+ * The projection five app-layer readers want — "the pane's own directory,
+ * if it has one" — so none of them spells the match out. */
+export function attachedWorktree(
+  pane: PanePlacementFields,
+): { cwd: string; branch?: string } | null {
+  const location = locationOf(pane);
+  return location.kind === "attached" ? location : null;
+}
+
 export function locationOf(pane: PanePlacementFields): PaneLocation {
   if (pane.remoteEndpoint) return { kind: "remote", endpoint: pane.remoteEndpoint };
   if (pane.cwd !== undefined) {

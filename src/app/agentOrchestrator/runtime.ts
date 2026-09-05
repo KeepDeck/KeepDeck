@@ -10,6 +10,8 @@ import {
   paneWakeOrigin,
   type Pane,
   type Workspace,
+  attachedWorktree,
+  locationOf,
 } from "../../domain/deck";
 import { describeError, log } from "../../ipc/log";
 import { createDeckActions, type DeckActions } from "../deckActions";
@@ -269,7 +271,7 @@ export function createAgentOrchestratorRuntime(
             paneId: pane.id,
             workspace: { id: ws.id, instance: ws.instance },
             cwd: dir,
-            branch: pane.branch,
+            branch: attachedWorktree(pane)?.branch,
             yolo: pane.yolo,
             stagedSkills: skillsAsk({ id: ws.id, instance: ws.instance }),
             mcpAccess,
@@ -443,7 +445,7 @@ export function createAgentOrchestratorRuntime(
           );
           continue;
         }
-        const dir = pane.cwd ?? ws.cwd;
+        const dir = attachedWorktree(pane)?.cwd ?? ws.cwd;
         void probe(dir)
           .then((probed) => {
             if (probed.exists) return wake(ws, pane, dir, sessionId);
@@ -509,7 +511,7 @@ export function createAgentOrchestratorRuntime(
     resume(wsId, paneId) {
       const pane = findPane(deck.getSnapshot().workspaces, wsId, paneId);
       if (!pane) return "gone";
-      if (pane.provisioning) return "provisioning";
+      if (locationOf(pane).kind === "provisioning") return "provisioning";
       if (!pane.idle) return "running";
       if (!agents.commands().has(paneAgentType(pane))) return "unavailable";
       if (runView.clearNotes(paneId)) publish();

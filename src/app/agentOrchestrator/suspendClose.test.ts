@@ -147,7 +147,13 @@ describe("agent orchestrator —suspending an agent", () => {
   it("names the reason it refuses, so every surface can say the same thing", async () => {
     // A bare `false` forced each caller to guess, and one guessed wrong: it
     // told a remote pane's user their running agent had no session to stop.
+    // The seed's base pane is attached to a worktree; a create in flight has
+    // no directory and no session yet, so those go — a card beside a
+    // directory reads as the create having landed, not as one in flight.
     seed({
+      cwd: undefined,
+      branch: undefined,
+      session: undefined,
       provisioning: { repo: "/repo", path: "/wt/a", workspace: "ws", index: 1 },
     });
     expect(await act(async () => agentRun.suspend("ws-1", "pane-1"))).toBe(

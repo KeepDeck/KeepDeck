@@ -12,6 +12,7 @@ import {
   paneHasProcess,
   type Pane,
   type Workspace,
+  locationOf,
 } from "../../domain/deck";
 import { describeError, log } from "../../ipc/log";
 import {
@@ -153,6 +154,7 @@ export async function buildLivePaneSpec(
   }
   const agent = findAgent(plugins, paneAgentType(pane));
   if (!agent) return false;
+  const location = locationOf(pane);
   try {
     return await buildAndCache(pane.id, () =>
       buildPlan(
@@ -161,15 +163,15 @@ export async function buildLivePaneSpec(
         {
           paneId: pane.id,
           workspace: { id: ws.id, instance: ws.instance },
-          cwd: pane.cwd ?? ws.cwd,
-          branch: pane.branch,
+          cwd: location.kind === "attached" ? location.cwd : ws.cwd,
+          branch: location.kind === "attached" ? location.branch : undefined,
           yolo: pane.yolo,
           ...asks,
-          ...(pane.remoteEndpoint
+          ...(location.kind === "remote"
             ? {
                 target: {
                   kind: "nativeServer" as const,
-                  endpoint: pane.remoteEndpoint,
+                  endpoint: location.endpoint,
                 },
               }
             : {}),

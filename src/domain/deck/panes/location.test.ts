@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { locationOf } from "./location";
+import { attachedWorktree, locationOf } from "./location";
 import type { PaneProvisioning } from "./model";
 
 const card: PaneProvisioning = {
@@ -70,6 +70,19 @@ describe("locationOf", () => {
 
     it("ignores a branch with no directory beside it", () => {
       expect(locationOf({ branch: "kd/ws/1" })).toEqual({ kind: "main" });
+    });
+
+    it("projects the worktree of an attached pane and nothing for the rest", () => {
+      expect(attachedWorktree({ cwd: "/repo/wt", branch: "b" })).toMatchObject({
+        cwd: "/repo/wt",
+        branch: "b",
+      });
+      expect(attachedWorktree({})).toBeNull();
+      expect(attachedWorktree({ provisioning: card })).toBeNull();
+      expect(attachedWorktree({ remoteEndpoint: "wss://vps" })).toBeNull();
+      // A branch with no directory is a remnant, so it projects to nothing —
+      // a reader that used to emit the branch alone stops doing so.
+      expect(attachedWorktree({ branch: "b" })).toBeNull();
     });
 
     it("treats an empty endpoint as not remote, like the predicate it replaces", () => {

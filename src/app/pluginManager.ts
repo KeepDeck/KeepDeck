@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { execRunOnce } from "../ipc/exec";
 import { pluginsSqliteQuery } from "../ipc/history";
+import { attachedWorktree } from "../domain/deck";
 import {
   pluginsFsWriteAppend,
   pluginsFsWriteCopy,
@@ -311,7 +312,8 @@ export function createPluginManager(appDownloads: DownloadManager) {
     for (const ws of liveDeckAccess.workspaces()) {
       if (ws.cwd) roots.add(ws.cwd);
       for (const pane of ws.panes) {
-        if (pane.cwd) roots.add(pane.cwd);
+        const worktree = attachedWorktree(pane);
+        if (worktree) roots.add(worktree.cwd);
       }
     }
     return [...roots];
