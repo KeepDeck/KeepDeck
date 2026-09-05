@@ -306,7 +306,7 @@ export interface AgentOrchestratorDeps {
   lifecycle: PaneLifecyclePort;
   /** Forget what the backend keeps per workspace when one closes — Rust
    * cannot derive the live workspace set. Optional: absent in non-app tests. */
-  forgetWorkspace?: (wsId: string) => Promise<void>;
+  workspaceForgetters?: readonly ((wsId: string) => Promise<void>)[];
 }
 
 export function createAgentOrchestrator(

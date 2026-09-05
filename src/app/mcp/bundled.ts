@@ -20,6 +20,7 @@
  * others.
  */
 import type { McpServerSpec } from "@keepdeck/plugin-api";
+import type { McpServerBody } from "../../domain/mcp";
 import { describeError, log } from "../../ipc/log";
 import { mcpConnectionCommand, type McpConnection } from "../../ipc/mcp";
 
@@ -41,6 +42,20 @@ export interface BundledMcpContributor {
    * prefix its tools carry (`mcp__<name>__…`). */
   name: string;
   contribute(target: McpContributionTarget): Promise<McpServerSpec | null>;
+  /**
+   * How the server reads on a surface right now: the body it would hand a
+   * pane today, or null while it has nothing (its gate is closed). The
+   * SAME fact `contribute` acts on, so a panel and a pane never disagree —
+   * without this, the panel rebuilt the body from the transport's status on
+   * its own and was the second place to know what the deck's server runs.
+   */
+  describe(): McpServerBody | null;
+}
+
+/** One bundled server as a surface lists it. */
+export interface BundledMcpDescription {
+  name: string;
+  body: McpServerBody | null;
 }
 
 /** The name KeepDeck's own server is filed under — and therefore the prefix
@@ -54,6 +69,10 @@ export interface KeepdeckServerDeps {
    * claimed for the page's life, so a plan minted against it never outlives
    * its socket. */
   socket: () => string | null;
+  /** The anonymous invocation the transport looked up for the socket that
+   * is up now, or null until it landed. What `describe` shows: a panel names
+   * no pane, so the anonymous form is the honest one. */
+  connect: () => McpConnection | null;
   connection?: (client?: string) => Promise<McpConnection>;
 }
 
@@ -70,10 +89,15 @@ export interface KeepdeckServerDeps {
  */
 export function keepdeckServer({
   socket,
+  connect,
   connection = mcpConnectionCommand,
 }: KeepdeckServerDeps): BundledMcpContributor {
   return {
     name: KEEPDECK_MCP_SERVER,
+    describe() {
+      const invoked = socket() === null ? null : connect();
+      return invoked && { transport: "stdio", command: invoked.command, args: invoked.args, env: {} };
+    },
     async contribute(target) {
       if (socket() === null) return null;
       try {

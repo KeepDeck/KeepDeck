@@ -203,6 +203,11 @@ vi.mock("../liveSessions", () => ({
  *  fake handed in through the orchestrator's lifecycle port — not a module
  *  mock — so these tests never touch the app's live stores. */
 const lifecycle = { retire: vi.fn() };
+/** What the backend keeps per workspace, one forgetter per keeper. */
+const forgetters = {
+  artifacts: vi.fn(async (_wsId: string) => {}),
+  mcp: vi.fn(async (_wsId: string) => {}),
+};
 
 /** What each pane's create has put on disk, as `provisioning` publishes it the
  *  moment `git worktree add` returns. */
@@ -216,6 +221,7 @@ export const gateHarness = gate;
 export const plansHarness = plans;
 export const stepsHarness = steps;
 export const lifecycleHarness = lifecycle;
+export const forgettersHarness = forgetters;
 export const publishedHarness = published;
 export const skillsAskedHarness = skillsAsked;
 export {
@@ -226,6 +232,7 @@ export {
   stepsHarness as steps,
   skillsAskedHarness as skillsAsked,
   lifecycleHarness as lifecycle,
+  forgettersHarness as forgetters,
 };
 export const buildForkSpec = buildForkSpecImpl;
 export const buildResumeSpec = buildResumeSpecImpl;
@@ -421,6 +428,7 @@ export function Probe() {
         probe: ipc.probeWorktree,
         mcpAccess: async () => ({ entries: [], throughArgv: true, deliver: async () => {} }),
         lifecycle,
+        workspaceForgetters: [forgetters.artifacts, forgetters.mcp],
         worktrees: {
           provision: (requests, workspaceName) => {
             asked.push([...requests]);

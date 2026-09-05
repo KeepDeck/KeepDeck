@@ -14,7 +14,12 @@ import {
 } from "../../ipc/mcp";
 import { commands } from "../commandRegistry";
 import type { McpPaneIdentity } from "./paneIdentity";
-import { keepdeckServer, type KeepdeckServerDeps } from "./bundled";
+import {
+  keepdeckServer,
+  type BundledMcpContributor,
+  type BundledMcpDescription,
+  type KeepdeckServerDeps,
+} from "./bundled";
 import {
   createMcpInjection,
   type McpInjection,
@@ -22,17 +27,6 @@ import {
   type McpServerSource,
 } from "./injection";
 
-/** What the spawn path asks for and hands to a hook, and what the library
- * answers — re-exported here so a consumer depends on the FEATURE, not on the
- * module inside it. */
-export type {
-  McpAccess,
-  McpAccessAsk,
-  McpInjectable,
-  McpInjectionTarget,
-  McpServerSource,
-} from "./injection";
-export { KEEPDECK_MCP_SERVER } from "./bundled";
 import { createMcpRequestPump, type McpPumpPorts } from "./pump";
 import {
   createMcpServerPolicy,
@@ -128,6 +122,9 @@ export interface McpService {
    * confirmed up. The injection half of the feature; see
    * [`createMcpInjection`]. */
   access: McpInjection["access"];
+  /** The bundled tier as a surface lists it, read NOW: the set is fixed for
+   * the service's life, what each member shows moves with the status. */
+  bundled(): BundledMcpDescription[];
   /**
    * Bring the status up to date with what a user is about to look at.
    *
@@ -171,8 +168,6 @@ export interface McpServiceDeps {
    * deck's — neither belongs to the transport. See [`createPaneIdentity`]. */
   identify?: (client: string) => McpPaneIdentity | null;
 }
-
-export type { McpPaneIdentity } from "./paneIdentity";
 
 /**
  * The MCP feature's one owner in the webview. Everything the feature IS —
@@ -241,8 +236,15 @@ export function createMcpService(deps: McpServiceDeps): McpService {
   // The bundled tier: the deck's own server, reading the CONFIRMED status
   // through a closure rather than a snapshot — `current` moves with every
   // settled transition. The user's library rides beside it, ungated.
+  const contributors: BundledMcpContributor[] = [
+    keepdeckServer({
+      socket: () => current.socket,
+      connect: () => current.connect,
+      connection,
+    }),
+  ];
   const injection = createMcpInjection({
-    contributors: [keepdeckServer({ socket: () => current.socket, connection })],
+    contributors,
     library: deps.library,
     panesIn: deps.panesIn,
     plant: deps.plant,
@@ -372,6 +374,11 @@ export function createMcpService(deps: McpServiceDeps): McpService {
   return {
     status: () => current,
     access: injection.access,
+    bundled: () =>
+      contributors.map((contributor) => ({
+        name: contributor.name,
+        body: contributor.describe(),
+      })),
     refresh() {
       if (disposed) return;
       // A refused enable is retried here and nowhere else: with no setting

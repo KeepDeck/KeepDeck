@@ -27,8 +27,7 @@ import { createJournalPersistence } from "./journalPersistence";
 import type { CommandRegistry } from "../domain/commands";
 import { commands } from "./commandRegistry";
 import { createMailService, wakePaneForMail } from "./mail";
-import { createMcpService, KEEPDECK_MCP_SERVER } from "./mcp";
-import { createMcpLibrary } from "./mcpLibrary";
+import { createMcp } from "./mcp";
 import { ipcMcpStorage } from "../ipc/mcpLibraryStorage";
 import { createPaneIdentity } from "./mcp/paneIdentity";
 import { paneIdBySpawnSecret, peekPaneSpawnSpec } from "./spawnSpecs";
@@ -138,15 +137,10 @@ export function createAppRuntime(
     plugins.pluginRegistries.agents
       .list()
       .map(({ entry }) => ({ id: entry.id, label: entry.label }));
-  // The user's servers, one owner for every door (editor, commands, spawn).
-  // Built before the transport because the transport's injection reads it;
-  // the bundled name is reserved here so the library can never author the
-  // deck's own server.
-  const mcpLibrary = createMcpLibrary({
+  // The MCP feature: the transport service and the user's library, wired to
+  // each other once behind one door.
+  const mcp = createMcp({
     storage: ipcMcpStorage,
-    reserved: [KEEPDECK_MCP_SERVER],
-  });
-  const mcp = createMcpService({
     registry,
     panesIn: (cwd) => panesRunningIn(deckStore.getSnapshot().workspaces, cwd),
     // kimi's config lands in a pane's cwd, so the owner of those directories
@@ -155,7 +149,6 @@ export function createAppRuntime(
     // not called before a spawn, long after.
     plant: (workspaceId, root, content) =>
       worktrees.plantMcp(workspaceId, root, content),
-    library: mcpLibrary,
     identify: createPaneIdentity({
       workspaces: () => deckStore.getSnapshot().workspaces,
       paneOf: paneIdBySpawnSecret,
@@ -205,7 +198,7 @@ export function createAppRuntime(
     const shouldRun =
       (getSettings()?.artifacts ?? false) &&
       artifactsEnableOk === true &&
-      mcp.status().socket !== null;
+      mcp.service.status().socket !== null;
     if (shouldRun && disposeArtifactCommands === null) {
       disposeArtifactCommands = registerArtifactCommands(
         registry,
@@ -225,7 +218,7 @@ export function createAppRuntime(
   };
   const stopArtifactWiring = [
     subscribeSettings(reconcileArtifactCommands),
-    mcp.subscribe(reconcileArtifactCommands),
+    mcp.service.subscribe(reconcileArtifactCommands),
   ];
   reconcileArtifactCommands();
   const journalPersistence = createJournalPersistence(
@@ -369,22 +362,12 @@ export function createAppRuntime(
     plugins,
     probe: probeWorktree,
     worktrees,
-    mcpAccess: (target) => mcp.access(target),
+    mcpAccess: (target) => mcp.service.access(target),
     lifecycle,
     // Workspace deletion forgets what the backend keeps per workspace — its
     // artifact store, its MCP library scope — the deck model being the only
-    // knower of the live workspace set. Both run whatever the other did; the
-    // first failure is what the closing path logs.
-    forgetWorkspace: async (wsId) => {
-      const outcomes = await Promise.allSettled([
-        artifactDropWorkspace(wsId),
-        mcpLibrary.forgetWorkspace(wsId),
-      ]);
-      const failed = outcomes.find(
-        (outcome): outcome is PromiseRejectedResult => outcome.status === "rejected",
-      );
-      if (failed) throw failed.reason;
-    },
+    // knower of the live workspace set.
+    workspaceForgetters: [artifactDropWorkspace, mcp.forgetWorkspace],
   });
   const application = createApplicationController({
     registry,
@@ -394,7 +377,7 @@ export function createAppRuntime(
     paneInputFocus,
     paneView: paneViewActions,
     skills,
-    mcpLibrary,
+    mcpLibrary: mcp.library,
     activityOf: (paneId) => statusTracker.getSnapshot().panes.get(paneId),
   });
   const worktreeSweeper = createWorktreeSweeper(
@@ -423,8 +406,8 @@ export function createAppRuntime(
     application,
     paneInputFocus,
     paneViewActions,
-    mcp,
-    mcpLibrary,
+    mcp: mcp.service,
+    mcpLibrary: mcp.library,
     mail,
     usageManager,
     activityWitness,

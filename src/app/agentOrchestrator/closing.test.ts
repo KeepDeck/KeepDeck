@@ -18,6 +18,7 @@ import {
   setDiscardFailures,
   steps,
   lifecycle,
+  forgetters,
 } from "./testSupport";
 
 /**
@@ -106,6 +107,8 @@ beforeEach(() => {
   vi.mocked(dropPaneSpawnSpec).mockClear();
   lifecycle.retire.mockClear();
   steps.clear.mockClear();
+  forgetters.artifacts.mockClear().mockResolvedValue(undefined);
+  forgetters.mcp.mockClear().mockResolvedValue(undefined);
   setDiscardFailures([]);
   ipc.probeWorktree.mockReset().mockResolvedValue({
     exists: true,
@@ -644,6 +647,28 @@ describe("agent orchestrator —closing a workspace", () => {
     expect(discards).toEqual([[made]]);
     expect(pty.closed).toEqual(["pane-9"]);
     expect(deck.workspaces.map((ws) => ws.id)).toEqual(["ws-1"]);
+  });
+
+  it("forgets what every keeper holds for the workspace — a failing keeper only logs", async () => {
+    // Each keeper (the artifact store, the MCP library) runs whatever the
+    // others did: a store hiccup must not leave the next keeper's data
+    // behind for the workspace that reuses this id, and must not abort the
+    // teardown.
+    forgetters.artifacts.mockRejectedValueOnce(new Error("store locked"));
+    await act(async () => closeWorkspace(false));
+    expect(forgetters.artifacts).toHaveBeenCalledWith("ws-1");
+    expect(forgetters.mcp).toHaveBeenCalledWith("ws-1");
+    expect(deck.workspaces).toHaveLength(0);
+    expect(pty.closed).toEqual(["pane-1", "pane-2"]);
+  });
+
+  it("forgets nothing for a close that found its workspace gone", async () => {
+    const stale = refOf("ws-1");
+    act(() => deck.closeWorkspace("ws-1"));
+    await act(async () =>
+      agentRun.close({ kind: "workspace", workspace: stale, deleteWorktrees: false, worktrees: [] }),
+    );
+    expect(forgetters.mcp).not.toHaveBeenCalled();
   });
 
   it("a stale confirmation — the slot reused — leaves the new workspace alone", async () => {

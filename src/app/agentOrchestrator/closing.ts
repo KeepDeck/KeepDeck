@@ -36,13 +36,16 @@ interface ClosingDeps {
   isBlocked(paneId: string): boolean;
   lifecycle: PaneLifecyclePort;
   /** Forget what the backend keeps PER WORKSPACE when the workspace closes
-   * — its artifact store, its MCP library scope. The live workspace set is
-   * deck-model knowledge Rust cannot derive; without this call a deleted
-   * workspace's data accumulates forever, and a reused workspace id would
-   * inherit it. Optional so non-app tests need not stub it; failure only
-   * logs: the deck teardown must not abort on a store hiccup. */
-  forgetWorkspace?: (wsId: string) => Promise<void>;
+   * — one forgetter per keeper: the artifact store, the MCP library scope.
+   * The live workspace set is deck-model knowledge Rust cannot derive;
+   * without these a deleted workspace's data accumulates forever, and a
+   * reused workspace id would inherit it. Each runs whatever the others did,
+   * and a failure only logs: the deck teardown must not abort on a store
+   * hiccup. Optional so non-app tests need not stub it. */
+  workspaceForgetters?: readonly WorkspaceForgetter[];
 }
+
+export type WorkspaceForgetter = (wsId: string) => Promise<void>;
 
 export interface AgentOrchestratorClosing {
   suspend: AgentOrchestrator["suspend"];
@@ -94,7 +97,7 @@ export function createAgentOrchestratorClosing({
   worktrees,
   isBlocked,
   lifecycle,
-  forgetWorkspace,
+  workspaceForgetters = [],
 }: ClosingDeps): AgentOrchestratorClosing {
   const suspending = new Set<string>();
   /**
@@ -344,13 +347,14 @@ export function createAgentOrchestratorClosing({
 
       if (now) {
         actions.closeWorkspace(now.id);
-        if (forgetWorkspace) {
-          try {
-            await forgetWorkspace(now.id);
-          } catch (error) {
+        const forgotten = await Promise.allSettled(
+          workspaceForgetters.map((forget) => forget(now.id)),
+        );
+        for (const outcome of forgotten) {
+          if (outcome.status === "rejected") {
             log.warn(
               "web:orchestrator",
-              `forgetting ${now.id}'s per-workspace data failed: ${error}`,
+              `forgetting ${now.id}'s per-workspace data failed: ${outcome.reason}`,
             );
           }
         }

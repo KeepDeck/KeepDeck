@@ -201,7 +201,7 @@ export function createAgentOrchestratorRuntime(
     worktrees,
     isBlocked: runView.isBlocked,
     lifecycle,
-    forgetWorkspace: deps.forgetWorkspace,
+    workspaceForgetters: deps.workspaceForgetters,
   });
   const creation = createAgentOrchestratorCreation({
     deck,
