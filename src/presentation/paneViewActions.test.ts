@@ -64,15 +64,19 @@ describe("PaneViewActions", () => {
     suspendedTray: { select: "pane-1", suspendedTray: ["pane-2"] },
   };
 
-  it.each(Object.entries(hiddenViews))(
+  it.each(Object.keys(hiddenViews) as HideReason[])(
     "reveals a pane hidden by %s, and it is on screen afterwards",
-    (_reason, view) => {
-      const deck = deckWith(view);
+    (reason) => {
+      const deck = deckWith(hiddenViews[reason]);
       const actions = createPaneViewActions(deck, { requestFocus: vi.fn() });
 
       actions.revealPane("ws-1", "pane-2");
 
       const after = deck.getSnapshot();
+      // The RAW marker is gone — checked on the list itself, not through the
+      // reading, so a reading that stopped seeing this reason cannot pass
+      // its own test.
+      expect(after.viewByWs["ws-1"]?.[reason] ?? []).not.toContain("pane-2");
       expect(hiddenBy(after.viewByWs["ws-1"], "pane-2")).toEqual([]);
       expect(paneOnScreen(after.workspaces[0].panes, after.viewByWs["ws-1"], "pane-2")).toBe(
         true,
