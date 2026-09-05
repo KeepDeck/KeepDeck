@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { McpLibraryRow } from "../../app/mcpLibrary";
 import type { McpEditorState } from "../../app/useMcpLibrary";
-import type { McpStatus } from "../../app/mcp";
+import type { BundledMcpDescription } from "../../app/mcp";
 import { sameMcpRef, type McpScope, type McpServerDraft } from "../../domain/mcp";
 import { McpDialog } from "./McpDialog";
 
@@ -50,16 +50,21 @@ const lib = vi.hoisted(
 );
 vi.mock("../../app/useMcpLibrary", () => ({ useMcpLibrary: () => lib }));
 
-const statusState = vi.hoisted(() => ({
-  current: {
-    socket: "/home/mcp.sock",
-    error: null,
-    connect: { command: "/bin/keepdeck", args: ["--mcp-shim", "/home/mcp.sock"] },
-    connectError: null,
-    refused: [],
-  } as McpStatus,
+/** The bundled tier as the service describes it — up, with its invocation. */
+const tierState = vi.hoisted(() => ({
+  current: [
+    {
+      name: "keepdeck",
+      body: {
+        transport: "stdio",
+        command: "/bin/keepdeck",
+        args: ["--mcp-shim", "/home/mcp.sock"],
+        env: {},
+      },
+    },
+  ] as BundledMcpDescription[],
 }));
-vi.mock("../../app/mcp/useMcpStatus", () => ({ useMcpStatus: () => statusState.current }));
+vi.mock("../../app/mcp/useBundledMcp", () => ({ useBundledMcp: () => tierState.current }));
 
 const server = (name: string, scope: McpScope = { kind: "global" }): McpLibraryRow => ({
   scope,
@@ -261,17 +266,24 @@ describe("McpDialog", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("says the deck's server is not up yet when there is no invocation", () => {
-    statusState.current = { ...statusState.current, connect: null };
+  it("says the deck's server is not up yet when there is no invocation — and fills in LIVE", () => {
+    // The panel reads the row on every render: the invocation lands once
+    // the socket is confirmed, and a form captured at click time would keep
+    // saying "not up yet" until the user clicked again.
+    const up = tierState.current;
+    tierState.current = [{ name: "keepdeck", body: null }];
     try {
       render();
       act(() => row("keepdeck")!.click());
       expect(document.body.textContent).toContain("not up yet");
+      expect(input("mcp-command").value).toBe("");
+
+      tierState.current = up;
+      render();
+      expect(document.body.textContent).not.toContain("not up yet");
+      expect(input("mcp-command").value).toBe("/bin/keepdeck");
     } finally {
-      statusState.current = {
-        ...statusState.current,
-        connect: { command: "/bin/keepdeck", args: ["--mcp-shim", "/home/mcp.sock"] },
-      };
+      tierState.current = up;
     }
   });
 });

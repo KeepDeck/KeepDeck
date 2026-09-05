@@ -128,6 +128,9 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
+  /* The server form is taller than a short window: the column scrolls, the
+     nav beside it stays put. */
+  overflow-y: auto;
 }
 
 .library__placeholder {

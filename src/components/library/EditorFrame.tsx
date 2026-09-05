@@ -14,10 +14,11 @@ interface EditorFrameProps {
   readOnly?: boolean;
   /** Guidance for a read-only row, kept outside the fields. */
   readOnlyNotice?: string;
+  /** How the item reads in a sentence: "skill", "server". */
+  noun: string;
   dirty: boolean;
-  /** The item was removed or renamed elsewhere while it was open — the
-   * library's own sentence about it. */
-  vanishedMessage: string | null;
+  /** The item was removed or renamed elsewhere while it was open. */
+  vanished: boolean;
   /** Backend text, not authored copy — selectable so it can be copied into
    * a bug report. */
   error: string | null;
@@ -43,8 +44,9 @@ export function EditorFrame({
   scopeLabel,
   readOnly = false,
   readOnlyNotice,
+  noun,
   dirty,
-  vanishedMessage,
+  vanished,
   error,
   canSave,
   busy,
@@ -67,8 +69,10 @@ export function EditorFrame({
 
       {children}
 
-      {!readOnly && vanishedMessage && (
-        <div className="form__error">{vanishedMessage}</div>
+      {!readOnly && vanished && (
+        <div className="form__error">
+          {`This ${noun} was removed or renamed elsewhere. Copy anything you want to keep — saving it here would recreate a ${noun} someone deleted.`}
+        </div>
       )}
       {!readOnly && error && <div className="form__error kd-selectable">{error}</div>}
       {!readOnly && (

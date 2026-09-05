@@ -79,12 +79,9 @@ export function McpEditor({
       scopeLabel={scopeLabel}
       readOnly={readOnly}
       readOnlyNotice={readOnlyNotice}
+      noun="server"
       dirty={dirty}
-      vanishedMessage={
-        validation.vanished
-          ? "This server was removed or renamed elsewhere. Copy anything you want to keep — saving it here would recreate a server someone deleted."
-          : null
-      }
+      vanished={validation.vanished}
       error={error}
       canSave={canSave}
       busy={busy}

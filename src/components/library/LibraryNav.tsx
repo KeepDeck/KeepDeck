@@ -1,18 +1,20 @@
 import { useMemo } from "react";
 
 /** One group of rows under a heading — a scope's library. */
-export interface LibraryNavGroup<Scope, Row> {
+export interface LibraryNavGroup<Scope, WriteScope extends Scope, Row> {
   label: string;
   scope: Scope;
   items: Row[];
-  /** Whether the group takes a "+ New": a read-only tier does not. */
-  canCreate: boolean;
+  /** The scope a "+ New" creates into — `null` for a read-only tier, which
+   * takes none. The scope rather than a flag, so the nav can only ever ask
+   * for a create where there is a library to create into. */
+  createScope: WriteScope | null;
 }
 
 /** What the nav says, per library — copy is presentation, and it lives in
  * this object rather than in the markup so a second library states its own
  * without touching the component. */
-export interface LibraryNavCopy<Scope, Row> {
+export interface LibraryNavCopy<Scope, WriteScope extends Scope, Row> {
   /** The nav's accessible name: "Skills library". */
   ariaLabel: string;
   /** A stable key for a scope — a React key. */
@@ -20,15 +22,15 @@ export interface LibraryNavCopy<Scope, Row> {
   /** The line under a row's name, or nothing. Called once per row per
    * list, not per render — the projection may read a whole file. */
   describe(row: Row): string | undefined;
-  /** The "+ New" button's title for a scope. */
-  createTitle(scope: Scope): string;
+  /** The "+ New" button's title for a scope it creates into. */
+  createTitle(scope: WriteScope): string;
   /** What an empty group says once the list is known to be empty. */
   emptyCopy(scope: Scope): string;
 }
 
-interface LibraryNavProps<Scope, Row extends { name: string }> {
-  groups: LibraryNavGroup<Scope, Row>[];
-  copy: LibraryNavCopy<Scope, Row>;
+interface LibraryNavProps<Scope, WriteScope extends Scope, Row extends { name: string }> {
+  groups: LibraryNavGroup<Scope, WriteScope, Row>[];
+  copy: LibraryNavCopy<Scope, WriteScope, Row>;
   /** What an EMPTY group means right now. "unknown" covers both the first
    * read and a read that FAILED — with only a loading flag, a failed read let
    * the nav assert "Nothing here yet" beside a placeholder saying the library
@@ -40,13 +42,13 @@ interface LibraryNavProps<Scope, Row extends { name: string }> {
   busy: boolean;
   isActive(row: Row): boolean;
   onOpen(row: Row): void;
-  onCreate(scope: Scope): void;
+  onCreate(scope: WriteScope): void;
 }
 
 /** The library nav: scope groups of rows, each row answering "what is this
  * one" with its description right under the name. Shared by every library
  * dialog; the words are the copy's. */
-export function LibraryNav<Scope, Row extends { name: string }>({
+export function LibraryNav<Scope, WriteScope extends Scope, Row extends { name: string }>({
   groups,
   copy,
   emptyMeans,
@@ -54,7 +56,7 @@ export function LibraryNav<Scope, Row extends { name: string }>({
   isActive,
   onOpen,
   onCreate,
-}: LibraryNavProps<Scope, Row>) {
+}: LibraryNavProps<Scope, WriteScope, Row>) {
   // Described once per list, not once per row per render: every keystroke in
   // the editor beside this nav re-renders it.
   const described = useMemo(() => {
@@ -67,17 +69,17 @@ export function LibraryNav<Scope, Row extends { name: string }>({
 
   return (
     <nav className="library__nav" aria-label={copy.ariaLabel}>
-      {groups.map(({ label, scope, items, canCreate }) => (
+      {groups.map(({ label, scope, items, createScope }) => (
         <div className="library__group" key={copy.scopeKey(scope)}>
           <div className="library__group-head">
             <span className="library__group-label">{label}</span>
-            {canCreate && (
+            {createScope !== null && (
               <button
                 type="button"
                 className="library__new"
-                onClick={() => onCreate(scope)}
+                onClick={() => onCreate(createScope)}
                 disabled={busy}
-                title={copy.createTitle(scope)}
+                title={copy.createTitle(createScope)}
               >
                 + New
               </button>

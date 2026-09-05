@@ -17,7 +17,7 @@
  * within the tick, which state cannot do — see `useLatch`), while `busy` and
  * `deletingNow` are state because buttons have to SHOW them.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { LibraryState } from "../../app/useLibraryState";
 import { useEscape } from "../../ui/useEscape";
 import { useLatch } from "../../ui/useLatch";
@@ -39,8 +39,8 @@ export interface EditorVerdicts {
 }
 
 /** The world a library's verdict function is handed. */
-export interface EditorWorld<Scope, Row, Form> {
-  selection: Selection<Scope> | null;
+export interface EditorWorld<WriteScope, Row, Form> {
+  selection: Selection<WriteScope> | null;
   form: Form;
   rows: Row[] | null;
   listTrusted: boolean;
@@ -54,19 +54,27 @@ export interface EditorWorld<Scope, Row, Form> {
  * setting-rule and clearing-rule are one rule, and splitting them across
  * modules is how a confirm outlives the item it names. The shell owns only
  * the dialogs that render it. */
-export type LibraryConfirm<Scope> =
-  | { kind: "delete"; scope: Scope; name: string }
-  | { kind: "discard"; next: Selection<Scope> | null; closing?: boolean };
+export type LibraryConfirm<WriteScope> =
+  | { kind: "delete"; scope: WriteScope; name: string }
+  | { kind: "discard"; next: Selection<WriteScope> | null; closing?: boolean };
 
+/**
+ * Two scope types, on purpose. `Scope` is what a ROW carries — every group
+ * the nav shows, a read-only tier included. `WriteScope` is what the library
+ * STORES into, and the only scope an edit, a create or a write ever names.
+ * Keeping them one type meant every writer took a scope it had to refuse at
+ * runtime; splitting them makes the tier unwritable by construction.
+ */
 export interface LibraryEditorConfig<
   Scope,
+  WriteScope extends Scope,
   Row extends { scope: Scope; name: string },
   Form extends { name: string },
   Draft,
   Verdicts extends EditorVerdicts,
 > {
   /** The library as view state — see [`useLibraryState`]. */
-  state: LibraryState<Scope, Row, Draft>;
+  state: LibraryState<WriteScope, Row, Draft>;
   emptyForm: Form;
   /** A stored row as the form the editor edits — the ONE hydration home,
    * so the editor and every other surface see one reading of a file. */
@@ -74,15 +82,21 @@ export interface LibraryEditorConfig<
   /** The form as the library takes it. Identity when the two coincide. */
   draftOf(form: Form): Draft;
   /** The listed row at (scope, name). */
-  rowAt(rows: Row[] | null, scope: Scope, name: string): Row | undefined;
-  /** Whether a row opens the read-only panel rather than the edit machine. */
-  isViewRow(row: Row): boolean;
+  rowAt(rows: Row[] | null, scope: WriteScope, name: string): Row | undefined;
+  /** The scope a row can be written back to — `null` for a row of the
+   * read-only tier, which opens the view panel instead of the edit machine.
+   * THE routing decision, and the one narrowing from a row's scope to a
+   * writable one. */
+  writeScopeOf(row: Row): WriteScope | null;
   /** The read-only row at `name` — a view selection carries no scope. */
   viewRowAt(rows: Row[] | null, name: string): Row | undefined;
   /** Whether two references name the SAME item. */
-  sameRef(a: { scope: Scope; name: string }, b: { scope: Scope; name: string }): boolean;
+  sameRef(
+    a: { scope: WriteScope; name: string },
+    b: { scope: WriteScope; name: string },
+  ): boolean;
   /** Every verdict about the draft, from ONE reading of the world. */
-  verdicts(world: EditorWorld<Scope, Row, Form>): Verdicts;
+  verdicts(world: EditorWorld<WriteScope, Row, Form>): Verdicts;
   /** A field's value as the form stores it — a library's chance to fold
    * what its format cannot carry (a pasted newline in a one-line field). */
   normalizeField?(key: StringKeys<Form>, value: string): string;
@@ -92,16 +106,27 @@ export interface LibraryEditorConfig<
 
 export function useLibraryEditor<
   Scope,
+  WriteScope extends Scope,
   Row extends { scope: Scope; name: string },
   Form extends { name: string },
   Draft,
   Verdicts extends EditorVerdicts,
->(config: LibraryEditorConfig<Scope, Row, Form, Draft, Verdicts>) {
-  const { state, emptyForm, formOf, draftOf, rowAt, isViewRow, viewRowAt, sameRef, onClose, canClose } =
-    config;
+>(config: LibraryEditorConfig<Scope, WriteScope, Row, Form, Draft, Verdicts>) {
+  const {
+    state,
+    emptyForm,
+    formOf,
+    draftOf,
+    rowAt,
+    writeScopeOf,
+    viewRowAt,
+    sameRef,
+    onClose,
+    canClose,
+  } = config;
   const { rows, listTrusted, clearError, save, rename, remove } = state;
-  const [selection, setSelection] = useState<Selection<Scope> | null>(null);
-  const [form, setForm] = useState<Form>(emptyForm);
+  const [selection, setSelection] = useState<Selection<WriteScope> | null>(null);
+  const [edited, setForm] = useState<Form>(emptyForm);
   const [dirty, setDirty] = useState(false);
   /** Whether the user has typed in the Name field — see `shownNameProblem`. */
   const [nameTouched, setNameTouched] = useState(false);
@@ -121,12 +146,20 @@ export function useLibraryEditor<
   // compares against it so its completion never clobbers a selection the
   // user moved somewhere else during the awaits.
   const navEpoch = useRef(0);
+  const [confirm, setConfirm] = useState<LibraryConfirm<WriteScope> | null>(null);
+
+  /** The row a view selection shows, read from the LIST on every render:
+   * a read-only row can change under the panel (the deck's own server fills
+   * in its invocation once the socket is up), and a form captured at click
+   * time would keep showing what the row said then. */
+  const viewRow = selection?.mode === "view" ? (viewRowAt(rows, selection.name) ?? null) : null;
+  const viewForm = useMemo(() => (viewRow ? formOf(viewRow) : null), [viewRow, formOf]);
+  const form = viewForm ?? edited;
   // The live form object per render — an in-flight submit compares its
   // captured draft against this to tell whether the user typed during the
   // awaits (identity changes on every keystroke).
   const formRef = useRef(form);
   formRef.current = form;
-  const [confirm, setConfirm] = useState<LibraryConfirm<Scope> | null>(null);
 
   // Every verdict about the draft, from ONE reading of the world.
   const verdicts = config.verdicts({
@@ -146,12 +179,25 @@ export function useLibraryEditor<
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [verdicts.vanished, dirty]);
 
-  /** The ONE read-only-vs-own routing decision: a view row opens the
-   * read-only panel, everything else the edit machine. */
-  const selectionFor = (row: Row): Selection<Scope> =>
-    isViewRow(row)
+  /** The ONE read-only-vs-own routing decision: a row with no scope to
+   * write back to opens the read-only panel, everything else the edit
+   * machine. */
+  const selectionFor = (row: Row): Selection<WriteScope> => {
+    const scope = writeScopeOf(row);
+    return scope === null
       ? { mode: "view", name: row.name }
-      : { mode: "edit", scope: row.scope, name: row.name };
+      : { mode: "edit", scope, name: row.name };
+  };
+
+  /** Whether a listed row is the one the editor shows — the nav's highlight.
+   * Through `selectionFor`, so a row is active exactly when clicking it
+   * would open what is already open. */
+  const isActive = (row: Row): boolean => {
+    if (!selection) return false;
+    const target = selectionFor(row);
+    if (target.mode === "view") return selection.mode === "view" && selection.name === target.name;
+    return target.mode === "edit" && selection.mode === "edit" && sameRef(selection, target);
+  };
 
   const openRow = (row: Row) => {
     // Both selection modes route through here — the one hydration home.
@@ -162,7 +208,7 @@ export function useLibraryEditor<
   };
 
   /** Move the editor elsewhere, guarding unsaved edits behind a confirm. */
-  const navigate = (next: Selection<Scope> | null, closing?: boolean) => {
+  const navigate = (next: Selection<WriteScope> | null, closing?: boolean) => {
     // Clicking the row you are already editing must not raise a discard
     // confirm whose Discard throws the edits away — it is an easy stray
     // click, because that row is the highlighted one. With unsaved edits it
@@ -200,7 +246,7 @@ export function useLibraryEditor<
     return { ok, stale };
   };
 
-  const apply = (next: Selection<Scope> | null, closing?: boolean) => {
+  const apply = (next: Selection<WriteScope> | null, closing?: boolean) => {
     if (closing) {
       onClose();
       return;
@@ -266,7 +312,7 @@ export function useLibraryEditor<
    * opinion about whether the item vanished.
    */
   const performSubmit = async (
-    selection: WritableSelection<Scope>,
+    selection: WritableSelection<WriteScope>,
     captured: Form,
     verdicts: Verdicts,
   ) => {
@@ -338,9 +384,19 @@ export function useLibraryEditor<
     rows,
     error: state.error,
     listTrusted,
+    /** What an EMPTY group means right now — "unknown" for a read that did
+     * not land, the first one or a later one: with a stale list in hand a
+     * scope with no rows must not assert "Nothing here yet" beside a notice
+     * saying the list may be out of date. */
+    emptyMeans: (rows === null ? "loading" : listTrusted ? "empty" : "unknown") as
+      | "loading"
+      | "unknown"
+      | "empty",
     // What the editor is showing, and what may be done to it.
     selection,
     form,
+    /** The read-only row on show, live from the list; null otherwise. */
+    viewRow,
     dirty,
     verdicts,
     creating: selection?.mode === "create",
@@ -349,11 +405,15 @@ export function useLibraryEditor<
     confirm,
     // Transitions.
     selectionFor,
+    isActive,
     navigate,
     submit,
-    /** A field changed in the editor. */
+    /** A field changed in the editor. A value equal to what the field holds
+     * (a focus/blur cycle, a paste of the same text) changes nothing — and
+     * must not mark the draft dirty, or a discard confirm guards nothing. */
     onField(key: StringKeys<Form>, value: string) {
       const next = config.normalizeField ? config.normalizeField(key, value) : value;
+      if (formRef.current[key] === next) return;
       if (key === "name") setNameTouched(true);
       setForm((current) => ({ ...current, [key]: next }));
       setDirty(true);

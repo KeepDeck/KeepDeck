@@ -1,12 +1,21 @@
 import { describe, expect, it } from "vitest";
+import type { BundledMcpDescription } from "../../app/mcp";
 import type { McpLibraryRow } from "../../app/mcpLibrary";
+import { BUNDLED_PENDING, bundledMcpRows } from "./bundledTier";
 import {
   MCP_NAV_COPY,
   buildMcpGroups,
-  bundledMcpRows,
   describeMcpRow,
   labelForMcpScope,
 } from "./mcpGroups";
+
+/** The tier as the service describes it: up, or not yet. */
+const tier = (up: boolean): BundledMcpDescription[] => [
+  {
+    name: "keepdeck",
+    body: up ? { transport: "stdio", command: "/bin/keepdeck", args: ["--mcp-shim", "/s"], env: {} } : null,
+  },
+];
 
 const row = (name: string, scope: McpLibraryRow["scope"] = { kind: "global" }): McpLibraryRow => ({
   scope,
@@ -16,30 +25,32 @@ const row = (name: string, scope: McpLibraryRow["scope"] = { kind: "global" }): 
 
 describe("the server nav's groups", () => {
   it("orders Global, the workspace, then Bundled — always present, never authorable", () => {
-    const bundled = bundledMcpRows({ command: "/bin/keepdeck", args: ["--mcp-shim", "/s"] });
     const groups = buildMcpGroups(
       [row("github"), row("fs", { kind: "workspace", wsId: "ws-1" })],
       { id: "ws-1", name: "KeepDeck" },
-      bundled,
+      bundledMcpRows(tier(true)),
     );
-    expect(groups.map((g) => [g.label, g.items.map((r) => r.name), g.canCreate])).toEqual([
-      ["Global", ["github"], true],
-      ["KeepDeck", ["fs"], true],
-      ["Bundled", ["keepdeck"], false],
+    expect(groups.map((g) => [g.label, g.items.map((r) => r.name), g.createScope])).toEqual([
+      ["Global", ["github"], { kind: "global" }],
+      ["KeepDeck", ["fs"], { kind: "workspace", wsId: "ws-1" }],
+      ["Bundled", ["keepdeck"], null],
     ]);
   });
 
   it("shows only Global and Bundled with no workspace open, and an empty library", () => {
-    const groups = buildMcpGroups(null, null, bundledMcpRows(null));
+    const groups = buildMcpGroups(null, null, bundledMcpRows(tier(false)));
     expect(groups.map((g) => g.label)).toEqual(["Global", "Bundled"]);
     expect(groups[0]!.items).toEqual([]);
   });
 
   it("presents the deck's server with the invocation the backend hands out", () => {
-    const [keepdeck] = bundledMcpRows({ command: "/bin/keepdeck", args: ["--mcp-shim", "/s"] });
+    const [keepdeck] = bundledMcpRows(tier(true));
     expect(describeMcpRow(keepdeck!)).toBe("/bin/keepdeck --mcp-shim /s");
-    // Until the socket is confirmed there is no invocation to show.
-    expect(describeMcpRow(bundledMcpRows(null)[0]!)).toBe("starting up…");
+    // Until the socket is confirmed there is no invocation to show — and the
+    // row says so in the same words the panel does.
+    const [pending] = bundledMcpRows(tier(false));
+    expect(pending!.verdict).toEqual({ kind: "pending" });
+    expect(describeMcpRow(pending!)).toBe(BUNDLED_PENDING);
   });
 
   it("describes a row by what it runs or reaches, or why it cannot be read", () => {
@@ -57,7 +68,7 @@ describe("the server nav's groups", () => {
   });
 
   it("labels a scope from the groups, the bundled tier included", () => {
-    const groups = buildMcpGroups([], { id: "ws-1", name: "KeepDeck" }, bundledMcpRows(null));
+    const groups = buildMcpGroups([], { id: "ws-1", name: "KeepDeck" }, bundledMcpRows(tier(false)));
     expect(labelForMcpScope(groups, { kind: "workspace", wsId: "ws-1" })).toBe("KeepDeck");
     expect(labelForMcpScope(groups, { kind: "bundled" })).toBe("Bundled");
     expect(labelForMcpScope(groups, { kind: "workspace", wsId: "ws-9" })).toBe("Workspace");

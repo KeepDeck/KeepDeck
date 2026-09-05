@@ -7,19 +7,8 @@
  * conversions are pure and live in this one object so the editor renders
  * strings and the machine saves drafts, and neither knows the other's shape.
  */
-import type { McpScope, McpServerDraft, McpServerVerdict } from "../../domain/mcp";
-
-/** The scopes the dialog shows: the two the library stores, and the tier
- * KeepDeck ships — read-only, and not a library at all. */
-export type McpEditorScope = McpScope | { kind: "bundled" };
-
-/** One row as the dialog lists it: a library row, or a bundled server
- * presented the same way so one nav can show both. */
-export interface McpRow {
-  scope: McpEditorScope;
-  name: string;
-  verdict: McpServerVerdict;
-}
+import type { McpServerDraft } from "../../domain/mcp";
+import type { McpRow } from "./mcpRows";
 
 export interface McpForm {
   name: string;
@@ -78,7 +67,8 @@ export function formOfDraft(draft: McpServerDraft): McpForm {
 }
 
 /** The form for a listed row. A file the codec could not read opens with the
- * name alone: what the user types replaces it, which is the repair. */
+ * name alone: what the user types replaces it, which is the repair. So does a
+ * bundled server that is still pending — there is nothing to show yet. */
 export function formOfRow(row: McpRow): McpForm {
   return row.verdict.kind === "ok"
     ? formOfDraft({ name: row.name, body: row.verdict.body })

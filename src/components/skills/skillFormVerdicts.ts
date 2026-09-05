@@ -14,6 +14,7 @@ import {
   skillDescriptionProblem,
   skillNameProblem,
   type SkillDraft,
+  type SkillLibraryScope,
   type SkillScope,
 } from "../../domain/skills";
 import type { LibrarySkill } from "../../app/skillsLibrary";
@@ -27,12 +28,13 @@ import {
 type SkillDescriptionProblem = ReturnType<typeof skillDescriptionProblem>;
 
 /** Which stored skill the editor shows, or the create form for a scope.
- * The view mode is the read-only BUNDLED row. */
-export type Selection = LibrarySelection<SkillScope>;
+ * The view mode is the read-only BUNDLED row; an edit or a create names a
+ * LIBRARY scope only. */
+export type Selection = LibrarySelection<SkillLibraryScope>;
 
 /** A selection the write machine may act on — the bundled tier absent BY
  * TYPE, so no writer needs a guard against it. */
-export type WritableSelection = LibraryWritableSelection<SkillScope>;
+export type WritableSelection = LibraryWritableSelection<SkillLibraryScope>;
 
 /** The world a verdict is reached against. */
 export interface VerdictInput {

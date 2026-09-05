@@ -1,16 +1,18 @@
 import { describe, expect, it } from "vitest";
 import type { EditorWorld } from "../library/useLibraryEditor";
-import { EMPTY_MCP_FORM, type McpEditorScope, type McpForm, type McpRow } from "./mcpForm";
-import { mcpFormVerdicts, mcpRowAt } from "./mcpFormVerdicts";
+import type { McpScope } from "../../domain/mcp";
+import { EMPTY_MCP_FORM, type McpForm } from "./mcpForm";
+import { mcpFormVerdicts } from "./mcpFormVerdicts";
+import { mcpRowAt, type McpEditorScope, type McpRow } from "./mcpRows";
 
-const GLOBAL: McpEditorScope = { kind: "global" };
+const GLOBAL: McpScope = { kind: "global" };
 const row = (name: string, scope: McpEditorScope = GLOBAL): McpRow => ({
   scope,
   name,
   verdict: { kind: "ok", body: { transport: "stdio", command: "x", args: [], env: {} } },
 });
 
-const world = (over: Partial<EditorWorld<McpEditorScope, McpRow, McpForm>> = {}) =>
+const world = (over: Partial<EditorWorld<McpScope, McpRow, McpForm>> = {}) =>
   mcpFormVerdicts({
     selection: { mode: "create", scope: GLOBAL },
     form: { ...EMPTY_MCP_FORM, name: "fresh", command: "npx" },
@@ -59,5 +61,18 @@ describe("the server form's verdicts", () => {
     expect(mcpRowAt(rows, { kind: "bundled" }, "keepdeck")?.name).toBe("keepdeck");
     expect(mcpRowAt(rows, GLOBAL, "keepdeck")).toBeUndefined();
     expect(mcpRowAt(rows, { kind: "workspace", wsId: "ws-1" }, "github")).toBeUndefined();
+  });
+
+  it("names why an open file could not be read — the editor is repairing it", () => {
+    const broken: McpRow = {
+      scope: GLOBAL,
+      name: "broken",
+      verdict: { kind: "malformed", reason: "not valid JSON" },
+    };
+    const open = { mode: "edit" as const, scope: GLOBAL, name: "broken" };
+    expect(world({ selection: open, rows: [broken] }).repairReason).toBe("not valid JSON");
+    // A readable row, a create, a bundled view: nothing to repair.
+    expect(world({ selection: open, rows: [row("broken")] }).repairReason).toBeNull();
+    expect(world().repairReason).toBeNull();
   });
 });

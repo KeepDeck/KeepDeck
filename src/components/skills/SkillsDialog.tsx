@@ -1,13 +1,10 @@
-import { sameSkillRef } from "../../domain/skills";
-import { ConfirmDialog } from "../../ui/ConfirmDialog";
-import { CloseButton } from "../../ui/CloseButton";
-import { ModalOverlay } from "../../ui/ModalOverlay";
 import { SkillEditor } from "./SkillEditor";
 import { SkillsNav } from "./SkillsNav";
 import { BUNDLED_NOTICE } from "./bundledTier";
 import { labelForScope } from "./skillGroups";
 import { useSkillRefusals } from "../../app/useSkillRefusals";
 import { useSkillsEditor } from "./useSkillsEditor";
+import { LibraryDialog } from "../library/LibraryDialog";
 
 interface SkillsDialogProps {
   /** The active workspace, hosting the "This workspace" scope; `null` (no
@@ -24,12 +21,14 @@ interface SkillsDialogProps {
  * The shared-skills manager — a full-screen editor over the library ([skills]):
  * one SKILL.md authored here reaches every CLI at its next spawn.
  *
- * The SHELL: chrome, the placeholder, and the panels. Every transition —
- * selection, dirty tracking, the confirm flows, submit orchestration —
- * belongs to `useSkillsEditor`, and the panels stay CONTROLLED on purpose
- * (unlike SettingsDialog's autonomous sections): the machine owns every
- * transition, so this file decides nothing. Destructive steps confirm
- * in-app, per the no-system-dialogs rule.
+ * The skills HALF of the shell: the nav under the skills copy, the editor's
+ * fields, and the refusal notice. Every transition — selection, dirty
+ * tracking, the confirm flows, submit orchestration — belongs to
+ * `useSkillsEditor`; the chrome, the placeholder and the confirms are the
+ * shared [`LibraryDialog`]'s. The panels stay CONTROLLED on purpose (unlike
+ * SettingsDialog's autonomous sections): the machine owns every transition,
+ * so this file decides nothing. Destructive steps confirm in-app, per the
+ * no-system-dialogs rule.
  */
 export function SkillsDialog({
   activeWs,
@@ -42,31 +41,20 @@ export function SkillsDialog({
   // true until the user moves their own file, and it disappears by
   // itself when they do.
   const refusals = useSkillRefusals();
-  const {
-    skills,
-    error,
-    listTrusted,
-    groups,
-    selection,
-    form,
-    verdicts,
-    busy,
-    deletingNow,
-    confirm,
-  } = editor;
+  const { error, groups, selection, form, verdicts, busy } = editor;
 
   return (
-    <ModalOverlay>
-      <div className="form library" role="dialog" aria-modal="true" aria-label="Skills">
-        <div className="settings__head">
-          <h2 className="form__title settings__title">Skills</h2>
-          <CloseButton
-            label="Close skills"
-            onClick={() => editor.navigate(null, true)}
-          />
-        </div>
-
-        {refusals.length > 0 && (
+    <LibraryDialog
+      title="Skills"
+      closeLabel="Close skills"
+      noun="skill"
+      placeholder={{
+        title: "One skill, every agent",
+        body: "Pick a skill on the left or create one — it reaches Claude Code, Kimi, OpenCode and Codex worktrees at their next session",
+      }}
+      machine={{ ...editor, rows: editor.skills }}
+      banner={
+        refusals.length > 0 && (
           <div className="library__refusals" role="status">
             <span className="library__refusals-title">
               Some directories kept their own <code>.agents</code>, so skills
@@ -80,126 +68,54 @@ export function SkillsDialog({
               ))}
             </ul>
           </div>
-        )}
-
-        <div className="library__body">
-          <SkillsNav
-            groups={groups}
-            // Until the first read lands, an empty group must not claim the
-            // library is empty — that is the reading `skills === null` exists to
-            // keep off the screen, and the nav is what the user looks at.
-            // "unknown" for ANY read that did not land, not only the first: with a
-            // stale list in hand a scope with no rows would otherwise assert
-            // "Nothing here yet" beside a notice saying the list may be out of date.
-            emptyMeans={
-              skills === null ? "loading" : listTrusted ? "empty" : "unknown"
-            }
-            busy={deletingNow}
-            isActive={(skill) =>
-              (selection?.mode === "edit" && sameSkillRef(selection, skill)) ||
-              // View mode names a BUNDLED row: scope-checked, because in the
-              // day-one union (a user-global `artifacts` beside the bundled
-              // one) a name-only match highlights both rows.
-              (selection?.mode === "view" &&
-                skill.scope.kind === "bundled" &&
-                selection.name === skill.name)
-            }
-            onOpen={(skill) => editor.navigate(editor.selectionFor(skill))}
-            onCreate={(scope) => editor.navigate({ mode: "create", scope })}
-          />
-
-          <section className="library__editor">
-            {selection === null ? (
-              <div className="library__placeholder">
-                {skills === null ? (
-                  "Loading…"
-                ) : error !== null ? (
-                  // A library that could not be READ renders as an empty one,
-                  // and with nothing selected the editor — the only other
-                  // place an error appears — is not mounted. Without this the
-                  // dialog claims you simply have no skills.
-                  <span
-                    className="library__placeholder-title kd-selectable"
-                    role="alert"
-                  >
-                    {error}
-                  </span>
-                ) : (
-                  <>
-                    <span className="library__placeholder-title">
-                      One skill, every agent
-                    </span>
-                    <span>
-                      Pick a skill on the left or create one — it reaches
-                      Claude Code, Kimi, OpenCode and Codex worktrees at
-                      their next session
-                    </span>
-                  </>
-                )}
-              </div>
-            ) : (
-              <SkillEditor
-                // NOT keyed per selection. That remounted the editor whenever
-                // `selection` changed — which the submit does mid-flight, on
-                // create→edit and again on a rename — tearing down the fields the
-                // user was typing into and dropping focus, caret and scroll. The
-                // create form's focus is the editor's own business now.
-                creating={editor.creating}
-                savedName={
-                  selection.mode === "create" ? null : selection.name
-                }
-                // A view selection names a BUNDLED row, which carries no
-                // scope of its own — the mode implies the tier.
-                scopeLabel={
-                  selection.mode === "view"
-                    ? "Bundled"
-                    : labelForScope(groups, selection.scope)
-                }
-                readOnly={verdicts.isView}
-                readOnlyNotice={verdicts.isView ? BUNDLED_NOTICE : undefined}
-                readOnlyHint={verdicts.isView ? editor.viewHint : undefined}
-                form={form}
-                dirty={editor.dirty}
-                validation={{
-                  nameProblem: verdicts.shownNameProblem,
-                  nameTaken: verdicts.nameTaken,
-                  descriptionProblem: verdicts.descriptionProblem,
-                  vanished: verdicts.vanished,
-                }}
-                canSave={verdicts.canSave}
-                error={error}
-                onField={editor.onField}
-                onSubmit={() => void editor.submit()}
-                busy={busy}
-                onDelete={editor.requestDelete}
-              />
+        )
+      }
+      nav={
+        <SkillsNav
+          groups={groups}
+          emptyMeans={editor.emptyMeans}
+          busy={editor.deletingNow}
+          isActive={editor.isActive}
+          onOpen={(skill) => editor.navigate(editor.selectionFor(skill))}
+          onCreate={(scope) => editor.navigate({ mode: "create", scope })}
+        />
+      }
+      editor={
+        selection && (
+          <SkillEditor
+            // NOT keyed per selection. That remounted the editor whenever
+            // `selection` changed — which the submit does mid-flight, on
+            // create→edit and again on a rename — tearing down the fields the
+            // user was typing into and dropping focus, caret and scroll. The
+            // create form's focus is the editor's own business now.
+            creating={editor.creating}
+            savedName={selection.mode === "create" ? null : selection.name}
+            // A view selection names a BUNDLED row, which carries no scope of
+            // its own — the mode implies the tier.
+            scopeLabel={labelForScope(
+              groups,
+              selection.mode === "view" ? { kind: "bundled" } : selection.scope,
             )}
-          </section>
-        </div>
-      </div>
-
-      {confirm?.kind === "delete" && (
-        <ConfirmDialog
-          title="Delete skill"
-          message={`Delete "${confirm.name}"? Agents lose it on their next session`}
-          confirmLabel="Delete"
-          cancelLabel="Cancel"
-          destructive
-          onConfirm={editor.confirmDelete}
-          onCancel={editor.cancelConfirm}
-        />
-      )}
-      {confirm?.kind === "discard" && (
-        <ConfirmDialog
-          title="Discard changes"
-          message="This skill has unsaved changes"
-          confirmLabel="Discard"
-          cancelLabel="Keep editing"
-          destructive
-          onConfirm={editor.confirmDiscard}
-          onCancel={editor.cancelConfirm}
-        />
-      )}
-    </ModalOverlay>
+            readOnly={verdicts.isView}
+            readOnlyNotice={verdicts.isView ? BUNDLED_NOTICE : undefined}
+            readOnlyHint={verdicts.isView ? editor.viewHint : undefined}
+            form={form}
+            dirty={editor.dirty}
+            validation={{
+              nameProblem: verdicts.shownNameProblem,
+              nameTaken: verdicts.nameTaken,
+              descriptionProblem: verdicts.descriptionProblem,
+              vanished: verdicts.vanished,
+            }}
+            canSave={verdicts.canSave}
+            error={error}
+            onField={editor.onField}
+            onSubmit={() => void editor.submit()}
+            busy={busy}
+            onDelete={editor.requestDelete}
+          />
+        )
+      }
+    />
   );
 }

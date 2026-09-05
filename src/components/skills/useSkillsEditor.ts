@@ -11,6 +11,7 @@ import {
   sameSkillRef,
   skillDraftOf,
   type SkillDraft,
+  type SkillLibraryScope,
   type SkillScope,
 } from "../../domain/skills";
 import type { LibrarySkill } from "../../app/skillsLibrary";
@@ -29,7 +30,7 @@ const EMPTY_FORM: SkillDraft = {
   extraFrontmatter: [],
 };
 
-export type SkillsConfirm = LibraryConfirm<SkillScope>;
+export type SkillsConfirm = LibraryConfirm<SkillLibraryScope>;
 
 export interface SkillsEditorDeps {
   activeWs: GroupWorkspace | null;
@@ -45,7 +46,14 @@ export function useSkillsEditor({ activeWs, onClose, canClose }: SkillsEditorDep
   const settings = useSettings();
   const viewHint = bundledUnlockHint(settings === null || settings.artifacts);
 
-  const editor = useLibraryEditor<SkillScope, LibrarySkill, SkillDraft, SkillDraft, ReturnType<typeof skillFormVerdicts>>({
+  const editor = useLibraryEditor<
+    SkillScope,
+    SkillLibraryScope,
+    LibrarySkill,
+    SkillDraft,
+    SkillDraft,
+    ReturnType<typeof skillFormVerdicts>
+  >({
     state: { rows: skills, ...state },
     emptyForm: EMPTY_FORM,
     // The same projection the library's `read` uses, WHOLE — so the editor
@@ -53,7 +61,8 @@ export function useSkillsEditor({ activeWs, onClose, canClose }: SkillsEditorDep
     formOf: skillDraftOf,
     draftOf: (form) => form,
     rowAt: skillAt,
-    isViewRow: (row) => row.scope.kind === "bundled",
+    // The bundled tier is read-only: its rows open the view panel.
+    writeScopeOf: (row) => (row.scope.kind === "bundled" ? null : row.scope),
     viewRowAt: bundledRowAt,
     sameRef: sameSkillRef,
     verdicts: ({ rows, ...world }) => skillFormVerdicts({ ...world, skills: rows }),

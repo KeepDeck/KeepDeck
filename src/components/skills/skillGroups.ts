@@ -8,7 +8,7 @@
  * library (user content outranks app content), not about the dialog that
  * happens to render it.
  */
-import { sameSkillScope, type SkillScope } from "../../domain/skills";
+import { sameSkillScope, type SkillLibraryScope, type SkillScope } from "../../domain/skills";
 import type { LibrarySkill } from "../../app/skillsLibrary";
 import type { SkillsNavGroup } from "./SkillsNav";
 
@@ -37,16 +37,16 @@ export function buildSkillGroups(
       label: "Global",
       scope: { kind: "global" },
       items: all.filter((s) => sameSkillScope(s.scope, { kind: "global" })),
-      canCreate: true,
+      createScope: { kind: "global" },
     },
   ];
   if (activeWs) {
-    const scope: SkillScope = { kind: "workspace", wsId: activeWs.id };
+    const scope: SkillLibraryScope = { kind: "workspace", wsId: activeWs.id };
     built.push({
       label: activeWs.name,
       scope,
       items: all.filter((s) => sameSkillScope(s.scope, scope)),
-      canCreate: true,
+      createScope: scope,
     });
   }
   // The bundled tier LAST (user content outranks app content on the
@@ -60,7 +60,7 @@ export function buildSkillGroups(
       label: "Bundled",
       scope: { kind: "bundled" },
       items: bundled,
-      canCreate: false,
+      createScope: null,
     });
   }
   return built;

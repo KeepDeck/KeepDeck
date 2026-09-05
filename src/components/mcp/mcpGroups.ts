@@ -6,45 +6,22 @@
  * bundled tier: no React, no store. The ORDER is a rule about the library
  * (user content outranks app content), not about the dialog that renders it.
  */
-import { KEEPDECK_MCP_SERVER } from "../../app/mcp/bundled";
 import type { McpLibraryRow } from "../../app/mcpLibrary";
 import { mcpScopeKey, sameMcpScope, type McpScope } from "../../domain/mcp";
-import type { McpConnection } from "../../ipc/mcp";
 import type { LibraryNavCopy, LibraryNavGroup } from "../library/LibraryNav";
-import type { McpEditorScope, McpRow } from "./mcpForm";
+import { BUNDLED_PENDING } from "./bundledTier";
+import { sameMcpEditorScope, type McpEditorScope, type McpRow } from "./mcpRows";
 
 export interface GroupWorkspace {
   id: string;
   name: string;
 }
 
-export type McpNavGroup = LibraryNavGroup<McpEditorScope, McpRow>;
-
-/**
- * The bundled tier as rows: the deck's own server, with the invocation the
- * backend hands out — or, until the socket is confirmed, an empty one the
- * panel explains. Always present: the tier ships with the app.
- */
-export function bundledMcpRows(connect: McpConnection | null): McpRow[] {
-  return [
-    {
-      scope: { kind: "bundled" },
-      name: KEEPDECK_MCP_SERVER,
-      verdict: {
-        kind: "ok",
-        body: {
-          transport: "stdio",
-          command: connect?.command ?? "",
-          args: connect?.args ?? [],
-          env: {},
-        },
-      },
-    },
-  ];
-}
+export type McpNavGroup = LibraryNavGroup<McpEditorScope, McpScope, McpRow>;
 
 /** Global, the active workspace when there is one, then Bundled — the tier
- * last because user content outranks app content on the user's machine. */
+ * last because user content outranks app content on the user's machine, and
+ * with no scope to create into: nothing is authored into it. */
 export function buildMcpGroups(
   servers: McpLibraryRow[] | null,
   activeWs: GroupWorkspace | null,
@@ -52,36 +29,35 @@ export function buildMcpGroups(
 ): McpNavGroup[] {
   const all = servers ?? [];
   const inScope = (scope: McpScope) => all.filter((row) => sameMcpScope(row.scope, scope));
+  const global: McpScope = { kind: "global" };
   const groups: McpNavGroup[] = [
-    { label: "Global", scope: { kind: "global" }, items: inScope({ kind: "global" }), canCreate: true },
+    { label: "Global", scope: global, items: inScope(global), createScope: global },
   ];
   if (activeWs) {
     const scope: McpScope = { kind: "workspace", wsId: activeWs.id };
-    groups.push({ label: activeWs.name, scope, items: inScope(scope), canCreate: true });
+    groups.push({ label: activeWs.name, scope, items: inScope(scope), createScope: scope });
   }
-  groups.push({ label: "Bundled", scope: { kind: "bundled" }, items: bundled, canCreate: false });
+  groups.push({ label: "Bundled", scope: { kind: "bundled" }, items: bundled, createScope: null });
   return groups;
 }
 
 /** The heading a scope is shown under, from the GROUPS — the one place that
  * knows which workspace a scope belongs to. */
 export function labelForMcpScope(groups: McpNavGroup[], scope: McpEditorScope): string {
-  return groups.find((group) => sameEditorScope(group.scope, scope))?.label ?? "Workspace";
+  return groups.find((group) => sameMcpEditorScope(group.scope, scope))?.label ?? "Workspace";
 }
 
-const sameEditorScope = (a: McpEditorScope, b: McpEditorScope): boolean =>
-  a.kind === "bundled" || b.kind === "bundled" ? a.kind === b.kind : sameMcpScope(a, b);
-
-/** One line under a row's name: what the server runs or reaches, or why the
- * file could not be read. */
+/** One line under a row's name: what the server runs or reaches, why the
+ * file could not be read — or, for a bundled server, that it is not up yet. */
 export function describeMcpRow(row: McpRow): string {
+  if (row.verdict.kind === "pending") return BUNDLED_PENDING;
   if (row.verdict.kind === "malformed") return `Cannot be read — ${row.verdict.reason}`;
   const { body } = row.verdict;
   if (body.transport === "http") return body.url;
-  return [body.command, ...body.args].join(" ").trim() || "starting up…";
+  return [body.command, ...body.args].join(" ").trim();
 }
 
-export const MCP_NAV_COPY: LibraryNavCopy<McpEditorScope, McpRow> = {
+export const MCP_NAV_COPY: LibraryNavCopy<McpEditorScope, McpScope, McpRow> = {
   ariaLabel: "MCP servers library",
   scopeKey: (scope) => (scope.kind === "bundled" ? "bundled" : mcpScopeKey(scope)),
   describe: describeMcpRow,

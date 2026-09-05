@@ -11,13 +11,19 @@
  * the one verdict the write machine gates on.
  */
 
-/** Which stored item the editor shows, or the create form for a scope. The
- * view mode is a read-only row (skills' bundled tier); a library without
- * such a tier simply never produces one. */
-export type Selection<Scope> =
-  | { mode: "edit"; scope: Scope; name: string }
+/**
+ * Which stored item the editor shows, or the create form for a scope.
+ *
+ * Over the WRITE scope — the scopes a library stores into — and not over
+ * every scope a row can carry: the view mode is a read-only row (a bundled
+ * tier) and names no scope at all, so an edit or a create can only ever name
+ * a scope the library writes to. That is what lets every writer take a
+ * selection without a guard against the tier.
+ */
+export type Selection<WriteScope> =
+  | { mode: "edit"; scope: WriteScope; name: string }
   | { mode: "view"; name: string }
-  | { mode: "create"; scope: Scope };
+  | { mode: "create"; scope: WriteScope };
 
 /**
  * A selection the write machine may act on.
@@ -26,16 +32,16 @@ export type Selection<Scope> =
  * selection cannot be passed to a writer, so no writer needs a guard against
  * one — and a second guard is a second place to forget.
  */
-export type WritableSelection<Scope> = Extract<
-  Selection<Scope>,
+export type WritableSelection<WriteScope> = Extract<
+  Selection<WriteScope>,
   { mode: "edit" } | { mode: "create" }
 >;
 
 export type NameProblem = "empty" | "invalid" | null;
 
 /** The world a verdict is reached against. */
-export interface LibraryVerdictInput<Scope, Row, Form extends { name: string }> {
-  selection: Selection<Scope> | null;
+export interface LibraryVerdictInput<WriteScope, Row, Form extends { name: string }> {
+  selection: Selection<WriteScope> | null;
   form: Form;
   /** The listed library; `null` while no read has landed. */
   rows: Row[] | null;
@@ -47,7 +53,7 @@ export interface LibraryVerdictInput<Scope, Row, Form extends { name: string }> 
   /** Whether the user has typed in the Name field. */
   nameTouched: boolean;
   /** The listed row at (scope, name) — "which row IS this one", asked once. */
-  rowAt(rows: Row[] | null, scope: Scope, name: string): Row | undefined;
+  rowAt(rows: Row[] | null, scope: WriteScope, name: string): Row | undefined;
   /** The library's own name rule. */
   nameProblemOf(name: string): NameProblem;
 }
@@ -73,7 +79,7 @@ export interface LibraryVerdicts {
   retitled: boolean;
 }
 
-export function libraryVerdicts<Scope, Row, Form extends { name: string }>({
+export function libraryVerdicts<WriteScope, Row, Form extends { name: string }>({
   selection,
   form,
   rows,
@@ -83,7 +89,7 @@ export function libraryVerdicts<Scope, Row, Form extends { name: string }>({
   nameTouched,
   rowAt,
   nameProblemOf,
-}: LibraryVerdictInput<Scope, Row, Form>): LibraryVerdicts {
+}: LibraryVerdictInput<WriteScope, Row, Form>): LibraryVerdicts {
   // Named once — every write-adjacent verdict below asks it.
   const isView = selection?.mode === "view";
 
@@ -102,7 +108,7 @@ export function libraryVerdicts<Scope, Row, Form extends { name: string }>({
   // is not a collision. A view row never authors anything, so no name is judged.
   const nameTaken =
     selection !== null &&
-    !isView &&
+    selection.mode !== "view" &&
     !(selection.mode === "edit" && selection.name === form.name) &&
     rowAt(rows, selection.scope, form.name) !== undefined;
 
@@ -111,7 +117,7 @@ export function libraryVerdicts<Scope, Row, Form extends { name: string }>({
   // an update for the same reason, so a hand-made name stays editable.
   const authoringName =
     selection !== null &&
-    !isView &&
+    selection.mode !== "view" &&
     (selection.mode === "create" || selection.name !== form.name);
 
   const nameProblem = authoringName ? nameProblemOf(form.name) : null;

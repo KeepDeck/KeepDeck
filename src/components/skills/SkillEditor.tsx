@@ -80,12 +80,9 @@ export function SkillEditor({
       scopeLabel={scopeLabel}
       readOnly={readOnly}
       readOnlyNotice={readOnlyNotice}
+      noun="skill"
       dirty={dirty}
-      vanishedMessage={
-        validation.vanished
-          ? "This skill was removed or renamed elsewhere. Copy anything you want to keep — saving it here would recreate a skill someone deleted."
-          : null
-      }
+      vanished={validation.vanished}
       error={error}
       canSave={canSave}
       busy={busy}

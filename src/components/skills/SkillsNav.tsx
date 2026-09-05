@@ -1,13 +1,18 @@
-import { skillDraftOf, skillScopeKey, type SkillScope } from "../../domain/skills";
+import {
+  skillDraftOf,
+  skillScopeKey,
+  type SkillLibraryScope,
+  type SkillScope,
+} from "../../domain/skills";
 import type { LibrarySkill } from "../../app/skillsLibrary";
 import { LibraryNav, type LibraryNavCopy, type LibraryNavGroup } from "../library/LibraryNav";
 
-export type SkillsNavGroup = LibraryNavGroup<SkillScope, LibrarySkill>;
+export type SkillsNavGroup = LibraryNavGroup<SkillScope, SkillLibraryScope, LibrarySkill>;
 
 /** What the skills nav says — the words, apart from the component that lays
  * them out. The description under a row is read through the same projection
  * every other surface uses, so the nav and the editor see one skill. */
-export const SKILLS_NAV_COPY: LibraryNavCopy<SkillScope, LibrarySkill> = {
+export const SKILLS_NAV_COPY: LibraryNavCopy<SkillScope, SkillLibraryScope, LibrarySkill> = {
   ariaLabel: "Skills library",
   scopeKey: skillScopeKey,
   describe: (skill) => skillDraftOf(skill).description || undefined,
@@ -29,7 +34,7 @@ interface SkillsNavProps {
   busy: boolean;
   isActive(skill: LibrarySkill): boolean;
   onOpen(skill: LibrarySkill): void;
-  onCreate(scope: SkillScope): void;
+  onCreate(scope: SkillLibraryScope): void;
 }
 
 /** The skills library nav — the shared nav under the skills copy. */

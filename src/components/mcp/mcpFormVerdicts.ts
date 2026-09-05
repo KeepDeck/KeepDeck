@@ -7,7 +7,7 @@
 import {
   mcpServerBodyProblem,
   mcpServerNameProblem,
-  sameMcpScope,
+  type McpScope,
   type McpServerBodyProblem,
 } from "../../domain/mcp";
 import {
@@ -16,24 +16,12 @@ import {
   type Selection as LibrarySelection,
 } from "../library/libraryVerdicts";
 import type { EditorWorld } from "../library/useLibraryEditor";
-import { draftOfForm, keyValueLinesProblem, type McpEditorScope, type McpForm, type McpRow } from "./mcpForm";
+import { draftOfForm, keyValueLinesProblem, type McpForm } from "./mcpForm";
+import { mcpRowAt, type McpRow } from "./mcpRows";
 
-export type Selection = LibrarySelection<McpEditorScope>;
-
-/** Whether two dialog scopes name the same library or tier. */
-export function sameMcpEditorScope(a: McpEditorScope, b: McpEditorScope): boolean {
-  if (a.kind === "bundled" || b.kind === "bundled") return a.kind === b.kind;
-  return sameMcpScope(a, b);
-}
-
-/** The listed row at (scope, name) — "which row IS this one" asked once. */
-export function mcpRowAt(
-  rows: McpRow[] | null,
-  scope: McpEditorScope,
-  name: string,
-): McpRow | undefined {
-  return (rows ?? []).find((row) => row.name === name && sameMcpEditorScope(row.scope, scope));
-}
+/** Which server the editor shows: an edit or a create names a LIBRARY scope;
+ * the view mode is a bundled row and names none. */
+export type Selection = LibrarySelection<McpScope>;
 
 export interface McpFormVerdicts extends Omit<LibraryVerdicts, "retitled"> {
   /** What the body cannot be saved with — a missing field, or two credentials. */
@@ -42,16 +30,21 @@ export interface McpFormVerdicts extends Omit<LibraryVerdicts, "retitled"> {
    * pair, when there is one — the save is refused rather than the line
    * silently dropped. */
   badLine: string | null;
+  /** The open file could not be read, and this is why: the editor holds the
+   * name alone, and what is saved replaces the file. `null` otherwise. */
+  repairReason: string | null;
   canSave: boolean;
 }
 
-export function mcpFormVerdicts(world: EditorWorld<McpEditorScope, McpRow, McpForm>): McpFormVerdicts {
+export function mcpFormVerdicts(world: EditorWorld<McpScope, McpRow, McpForm>): McpFormVerdicts {
   const { retitled, ...shared } = libraryVerdicts({
     ...world,
     rowAt: mcpRowAt,
     nameProblemOf: mcpServerNameProblem,
   });
-  const { form } = world;
+  const { form, selection, rows } = world;
+  const open = selection?.mode === "edit" ? mcpRowAt(rows, selection.scope, selection.name) : undefined;
+  const repairReason = open?.verdict.kind === "malformed" ? open.verdict.reason : null;
   const bodyProblem = mcpServerBodyProblem(draftOfForm(form).body);
   const badLine =
     form.transport === "stdio"
@@ -68,5 +61,5 @@ export function mcpFormVerdicts(world: EditorWorld<McpEditorScope, McpRow, McpFo
     bodyProblem === null &&
     badLine === null;
 
-  return Object.freeze({ ...shared, bodyProblem, badLine, canSave });
+  return Object.freeze({ ...shared, bodyProblem, badLine, repairReason, canSave });
 }
