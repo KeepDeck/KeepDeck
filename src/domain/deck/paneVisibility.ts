@@ -17,7 +17,10 @@ export type PaneVisibilityView = Pick<
  */
 export type HideReason = "minimized" | "suspendedTray";
 
-/** Every reason, in the order they are reported. */
+/** Every reason, in the order they are reported — and removed. Minimized
+ * first on purpose: the tray restore drops the maximize only for a pane that
+ * is no longer minimized, so a reveal that walks this order leaves no stale
+ * spotlight for its re-read to find. */
 const HIDE_REASONS: readonly HideReason[] = ["minimized", "suspendedTray"];
 
 /** Every reason `paneId` is off the grid; empty when it is on it. The one

@@ -43,6 +43,11 @@ describe("visiblePanes", () => {
     expect(visiblePanes(panes, undefined)).toBe(panes);
     expect(visiblePanes(panes, { minimized: [] })).toBe(panes);
     expect(visiblePanes(panes, { focus: "pane-1" })).toBe(panes);
+    // Ids that match nothing hide nothing, so the same array comes back;
+    // and an empty deck is its own empty answer.
+    expect(visiblePanes(panes, { minimized: ["pane-99"] })).toBe(panes);
+    const none: Pane[] = [];
+    expect(visiblePanes(none, { minimized: ["pane-1"] })).toBe(none);
     // A hidden id that no longer matches a pane is simply ignored: the lists
     // self-heal over any pane removal without every removal path pruning them.
     expect(
