@@ -49,6 +49,7 @@ import { fetchAppInfo, type AppInfo } from "../ipc/app";
 import { layering } from "../presentation/layering";
 import { describeError, log } from "../ipc/log";
 import { pluginCrashes, subscribePluginCrashes } from "./pluginHealth";
+import { bellDoorOpen, dockDoorOpen, teamDialogDoorOpen } from "./doors";
 
 /** Shell/application wiring kept separate from the rendered app tree. */
 export function useAppController() {
@@ -356,8 +357,7 @@ export function useAppController() {
   };
   const notificationPrefs =
     settings?.notifications ?? DEFAULT_SETTINGS.notifications;
-  const showBell =
-    notificationPrefs.enabled && notificationPrefs.mode !== "system";
+  const showBell = bellDoorOpen(notificationPrefs);
   const openNotification = runtime.application.openNotification;
   const handleCreateWorkspace = runtime.application.createWorkspace;
   const railWorkspaces = deck.workspaces.map((w) => ({
@@ -424,14 +424,17 @@ export function useAppController() {
      * HERE rather than in the markup: whether a control exists is a
      * policy about the app's state — a setting, a live workspace, a
      * plugin's contribution — and the bar's whole say in it is a null
-     * check. Assembled in a JSX prop, each was a decision standing
-     * between the elements it also laid out. */
+     * check. Each policy is a named door with one home (`doors.ts`, beside
+     * the artifacts door), so a hotkey or a command asking the same
+     * question asks the same function. */
     openArtifacts: artifactsDoorOpen(settings)
       ? () => void modal.openArtifacts()
       : null,
-    openTeamDialog: active ? () => setTeamDialog({ editing: null }) : null,
+    openTeamDialog: teamDialogDoorOpen(active)
+      ? () => setTeamDialog({ editing: null })
+      : null,
     dockControl:
-      pluginDockTabs.length > 0
+      dockDoorOpen(pluginDockTabs.length)
         ? {
             open: dockOpen,
             onToggle: () => active && deck.toggleDock(active.id),
