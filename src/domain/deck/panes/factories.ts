@@ -66,7 +66,7 @@ export function paneFromAgentRequest(
     ...base,
     location: {
       kind: "provisioning",
-      card: {
+      intent: {
         repo: ws.cwd,
         path: location.path,
         ...(location.branch && { branch: location.branch }),

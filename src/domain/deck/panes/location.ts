@@ -8,7 +8,7 @@
  * fields allow but the meaning does not is settled by one written rule,
  * rather than by whichever consumer happened to look first.
  */
-import type { Pane, PaneLocation, PaneProvisioning } from "./model";
+import type { Pane, PaneLocation, PaneProvisioning, WorktreeIntent } from "./model";
 
 const MAIN: PaneLocation = { kind: "main" };
 
@@ -17,12 +17,14 @@ export function locationOf(pane: Pick<Pane, "location">): PaneLocation {
   return pane.location ?? MAIN;
 }
 
-/** The four fields a document carries in place of a location. */
+/** The four fields a document carries in place of a location. The
+ * `provisioning` slot is the create's intent alone: a card's status — the
+ * error it shows, the fork it came from — is runtime and never reaches disk. */
 export interface PlacementFields {
   cwd?: string;
   branch?: string;
   remoteEndpoint?: string;
-  provisioning?: PaneProvisioning;
+  provisioning?: WorktreeIntent;
 }
 
 /**
@@ -52,7 +54,7 @@ export function placementFromFields(fields: PlacementFields): PaneLocation {
       ? { kind: "attached", cwd: fields.cwd, branch: fields.branch }
       : { kind: "attached", cwd: fields.cwd };
   }
-  if (fields.provisioning) return { kind: "provisioning", card: fields.provisioning };
+  if (fields.provisioning) return { kind: "provisioning", intent: fields.provisioning };
   return fields.branch !== undefined ? { kind: "main", branch: fields.branch } : MAIN;
 }
 
@@ -79,8 +81,9 @@ export function placementOfRecorded(
 }
 
 /** The inverse of [`placementFromFields`]: a location as the four fields a
- * document carries. Sparse — only what the location holds lands. Round-trips
- * every location the fold can produce. */
+ * document carries. Sparse — only what the location holds lands, and of a
+ * provisioning pane only the intent: its status is this run's, and hydration
+ * stamps its own. Round-trips every location the fold can produce. */
 export function placementToFields(location: PaneLocation): PlacementFields {
   switch (location.kind) {
     case "main":
@@ -90,7 +93,7 @@ export function placementToFields(location: PaneLocation): PlacementFields {
         ? { cwd: location.cwd, branch: location.branch }
         : { cwd: location.cwd };
     case "provisioning":
-      return { provisioning: location.card };
+      return { provisioning: location.intent };
     case "remote":
       return { remoteEndpoint: location.endpoint };
   }
@@ -106,11 +109,12 @@ export function attachedWorktree(
   return location.kind === "attached" ? location : null;
 }
 
-/** The create card of a provisioning pane, or null for any other placement —
- * what a surface that draws the card asks, in the shape its prop takes. */
+/** The card a provisioning pane wears — its create's intent and the status
+ * the card shows — or null for any other placement: what a surface that
+ * draws the card asks, in the shape its prop takes. */
 export function provisioningCard(pane: Pick<Pane, "location">): PaneProvisioning | null {
   const location = locationOf(pane);
-  return location.kind === "provisioning" ? location.card : null;
+  return location.kind === "provisioning" ? location : null;
 }
 
 /** The branch a pane's work is on, whether it owns a worktree for it or

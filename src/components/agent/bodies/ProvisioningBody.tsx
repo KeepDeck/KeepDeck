@@ -49,7 +49,7 @@ function ProvisionLocation({
 }: {
   provisioning: PaneProvisioning;
 }) {
-  const location = [provisioning.branch, provisioning.path]
+  const location = [provisioning.intent.branch, provisioning.intent.path]
     .filter(Boolean)
     .join(" · ");
   if (!location) return null;

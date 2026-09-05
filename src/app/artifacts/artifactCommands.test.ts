@@ -158,7 +158,7 @@ describe("registerArtifactCommands", () => {
       ...pane({ id: "pane-bare" }),
       location: {
         kind: "provisioning",
-        card: { repo: "/repo", path: "/repo/wt", index: 1 },
+        intent: { repo: "/repo", path: "/repo/wt", index: 1 },
       },
     };
     const { run } = setup([provisioning]);

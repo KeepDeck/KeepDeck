@@ -55,11 +55,9 @@ describe("agent.spawn", () => {
     if (!result.ok) return;
     const pane = deck.workspaces[0].panes[1];
     expect(provisioningCard(pane)).toMatchObject({
-      repo: "/repo",
-      branch: "kd/web/2",
-      index: 2,
+      intent: { repo: "/repo", branch: "kd/web/2", index: 2 },
     });
-    expect(provisioningCard(pane)?.path.endsWith("kd-web-2")).toBe(true);
+    expect(provisioningCard(pane)?.intent.path.endsWith("kd-web-2")).toBe(true);
   });
 
   it("reports a refusal instead of a paneId that was never added", async () => {

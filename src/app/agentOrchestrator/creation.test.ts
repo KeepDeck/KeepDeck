@@ -77,7 +77,7 @@ describe("agent orchestrator —what resume answers", () => {
     only({
       location: {
         kind: "provisioning",
-        card: { repo: "/repo", path: "/wt/a", index: 1 },
+        intent: { repo: "/repo", path: "/wt/a", index: 1 },
       },
     });
     await settle();
@@ -137,7 +137,7 @@ describe("agent orchestrator —a new pane arriving", () => {
     agentType: "claude",
     location: {
       kind: "provisioning",
-      card: { repo: "/repo", path: "/wt/a", index: 1 },
+      intent: { repo: "/repo", path: "/wt/a", index: 1 },
     },
     ...over,
   });
@@ -425,13 +425,8 @@ describe("agent orchestrator —retrying a failed worktree create", () => {
             agentType: "claude",
             location: {
               kind: "provisioning",
-              card: {
-                repo: "/repo",
-                path: "/repo-wt/x",
-                index: 1,
-                error: "boom",
-                ...intent,
-              },
+              intent: { repo: "/repo", path: "/repo-wt/x", index: 1, ...intent },
+              error: "boom",
             },
           },
         ],

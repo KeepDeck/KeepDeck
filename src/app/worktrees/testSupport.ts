@@ -78,7 +78,7 @@ export const provisioningCards = (count: number): Pane[] =>
     agentType: "claude" as const,
     location: {
       kind: "provisioning" as const,
-      card: {
+      intent: {
         repo: "/repo",
         path: `/wt/pane-${i + 1}`,
         index: i + 1,

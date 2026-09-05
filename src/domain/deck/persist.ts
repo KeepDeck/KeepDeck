@@ -1,6 +1,6 @@
 import { emptyJournal } from "../journal";
 import type { DeckState, WorkspaceView } from "./reducer";
-import type { Pane, PaneIdle, PaneProvisioning, PlacementFields } from "./panes";
+import type { Pane, PaneIdle, PlacementFields, WorktreeIntent } from "./panes";
 import {
   locationOf,
   paneIdleIsDurable,
@@ -135,10 +135,10 @@ export function serializeDeck(
           // a launch, so writing them would make every ordinary restart look
           // like a deliberate suspend on the NEXT one.
           ...(paneIdleIsDurable(p.idle) && { idle: p.idle }),
-          // The intent only: the error is runtime state, and hydration stamps
-          // its own ("interrupted") on whatever comes back.
+          // The intent only — the unfold keeps a card's status back, and
+          // hydration stamps its own ("interrupted") on whatever comes back.
           ...(placement.provisioning !== undefined && {
-            provisioning: stripRuntime(placement.provisioning),
+            provisioning: placement.provisioning,
           }),
           };
         }),
@@ -379,10 +379,7 @@ function readPane(value: unknown): Pane | null {
     // powers Retry, and the pane must NOT be idle or the revive flow would
     // spawn a terminal into a directory that may not exist.
     delete pane.idle;
-    pane.location = {
-      kind: "provisioning",
-      card: { ...location.card, error: PROVISIONING_INTERRUPTED },
-    };
+    pane.location = { ...location, error: PROVISIONING_INTERRUPTED };
   } else if (location.kind !== "main" || location.branch !== undefined) {
     // A plain main pane stays sparse: no key, like the fields it replaced.
     pane.location = location;
@@ -460,9 +457,7 @@ function readWorkspacePlugins(value: unknown): Record<string, unknown> | null {
  * create is issued, so nothing on disk is a source for it. The key leaves the
  * file on the next save; it is not kept as an extra, since extras are
  * collected at the pane's top level and never inside a slot. */
-function readProvisioning(
-  value: unknown,
-): Omit<PaneProvisioning, "error"> | null {
+function readProvisioning(value: unknown): WorktreeIntent | null {
   if (!isRecord(value)) return null;
   if (
     typeof value.repo !== "string" ||
@@ -477,24 +472,12 @@ function readProvisioning(
   // Built in the order the factory writes the fields, so a card that
   // round-trips through a restart serializes byte for byte as it was saved.
   // Reading them in another order was harmless JSON and a different file.
-  const intent: Omit<PaneProvisioning, "error" | "fork"> = {
+  const intent: WorktreeIntent = {
     repo: value.repo,
     path: value.path,
     ...(typeof value.branch === "string" && { branch: value.branch }),
     ...(typeof value.base === "string" && { base: value.base }),
     index: value.index,
   };
-  return intent;
-}
-
-/** The provisioning intent without its runtime `error`/`fork` fields. A fork
- * card is dropped whole before this runs (see the serialize filter), so
- * excluding `fork` here is belt-and-suspenders: even if that filter were ever
- * weakened, the marker still never reaches disk — and the type stays honest
- * about the full runtime-only set. */
-function stripRuntime(
-  p: PaneProvisioning,
-): Omit<PaneProvisioning, "error" | "fork"> {
-  const { error: _error, fork: _fork, ...intent } = p;
   return intent;
 }

@@ -104,7 +104,7 @@ const DIALOG_BUSY_MESSAGE =
 function worktreeAhead(pane: Pane): { path: string; branch: string | null } | null {
   const location = locationOf(pane);
   return location.kind === "provisioning"
-    ? { path: location.card.path, branch: location.card.branch ?? null }
+    ? { path: location.intent.path, branch: location.intent.branch ?? null }
     : null;
 }
 
@@ -308,7 +308,7 @@ export function registerCoreCommands(
               ...pane,
               location: {
                 kind: "provisioning",
-                card: {
+                intent: {
                   repo: current.workspace.cwd,
                   path: free.path,
                   branch: free.branch,

@@ -224,14 +224,14 @@ export function createAgentOrchestratorContinuations({
             ...(name && { name }),
             location: {
               kind: "provisioning",
-              card: {
+              intent: {
                 repo: workspace.cwd,
                 path: target.path,
                 branch: target.branch,
                 ...(target.base !== undefined && { base: target.base }),
                 index: workspace.panes.length + 1,
-                fork: true,
               },
+              fork: true,
             },
           },
         }),

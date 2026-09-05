@@ -66,7 +66,7 @@ describe("paneRunIntent — reasons to stay down", () => {
         pane({
           location: {
             kind: "provisioning",
-            card: { repo: "/repo", path: "/wt/a", index: 1 },
+            intent: { repo: "/repo", path: "/wt/a", index: 1 },
           },
         }),
         env(),
@@ -250,7 +250,7 @@ describe("paneRunIntent — precedence", () => {
           idle: { reason: "suspended", at: "2026-07-26T10:00:00.000Z" },
           location: {
             kind: "provisioning",
-            card: { repo: "/repo", path: "/wt/a", index: 1 },
+            intent: { repo: "/repo", path: "/wt/a", index: 1 },
           },
         }),
         env({ agentAvailable: false, missingDir: "/gone" }),

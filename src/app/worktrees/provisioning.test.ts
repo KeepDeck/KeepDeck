@@ -73,7 +73,7 @@ describe("provision", () => {
       }),
     );
     const panes = cards();
-    provisioningCard(panes[0])!.base = "develop";
+    provisioningCard(panes[0])!.intent.base = "develop";
 
     await manager.provision(panes, "ws", {
       onResolved: vi.fn(),

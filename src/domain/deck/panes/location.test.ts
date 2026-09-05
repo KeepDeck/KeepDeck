@@ -7,9 +7,9 @@ import {
   placementToFields,
   provisioningCard,
 } from "./location";
-import type { PaneLocation, PaneProvisioning } from "./model";
+import type { PaneLocation, WorktreeIntent } from "./model";
 
-const card: PaneProvisioning = {
+const intent: WorktreeIntent = {
   repo: "/repo",
   path: "/repo/wt",
   index: 1,
@@ -48,11 +48,12 @@ describe("placementFromFields", () => {
       expect(Object.keys(location)).toEqual(["kind", "cwd"]);
     });
 
-    it("reads a card with no directory as provisioning, card whole", () => {
-      const failed = { ...card, error: "boom", fork: true as const };
-      expect(placementFromFields({ provisioning: failed })).toEqual({
+    it("reads an intent with no directory as provisioning, intent whole and no status", () => {
+      // A document holds the intent alone; whatever status the card had
+      // before the restart is not in it, and hydration stamps its own.
+      expect(placementFromFields({ provisioning: intent })).toEqual({
         kind: "provisioning",
-        card: failed,
+        intent,
       });
     });
 
@@ -79,13 +80,13 @@ describe("placementFromFields", () => {
     });
 
     it("lets the endpoint win over a card", () => {
-      expect(placementFromFields({ remoteEndpoint: "wss://vps", provisioning: card })).toEqual(
+      expect(placementFromFields({ remoteEndpoint: "wss://vps", provisioning: intent })).toEqual(
         { kind: "remote", endpoint: "wss://vps" },
       );
     });
 
     it("reads a directory beside a card as attached — the create landed", () => {
-      expect(placementFromFields({ cwd: "/repo/wt", provisioning: card })).toEqual({
+      expect(placementFromFields({ cwd: "/repo/wt", provisioning: intent })).toEqual({
         kind: "attached",
         cwd: "/repo/wt",
       });
@@ -107,7 +108,7 @@ describe("placementToFields", () => {
     { kind: "main", branch: "kd/ws/1" },
     { kind: "attached", cwd: "/repo/wt" },
     { kind: "attached", cwd: "/repo/wt", branch: "kd/ws/2" },
-    { kind: "provisioning", card },
+    { kind: "provisioning", intent },
     { kind: "remote", endpoint: "wss://vps" },
   ];
 
@@ -122,6 +123,12 @@ describe("placementToFields", () => {
       "remoteEndpoint",
     ]);
   });
+
+  it("keeps a card's status back — the error and the fork marker are this run's", () => {
+    expect(
+      placementToFields({ kind: "provisioning", intent, error: "boom", fork: true }),
+    ).toEqual({ provisioning: intent });
+  });
 });
 
 describe("projections", () => {
@@ -131,12 +138,13 @@ describe("projections", () => {
     ).toMatchObject({ cwd: "/repo/wt", branch: "b" });
     expect(attachedWorktree({})).toBeNull();
     expect(attachedWorktree({ location: { kind: "main", branch: "b" } })).toBeNull();
-    expect(attachedWorktree({ location: { kind: "provisioning", card } })).toBeNull();
+    expect(attachedWorktree({ location: { kind: "provisioning", intent } })).toBeNull();
     expect(attachedWorktree({ location: { kind: "remote", endpoint: "e" } })).toBeNull();
   });
 
   it("projects the card of a provisioning pane and nothing for the rest", () => {
-    expect(provisioningCard({ location: { kind: "provisioning", card } })).toBe(card);
+    const card = { kind: "provisioning" as const, intent, error: "boom" };
+    expect(provisioningCard({ location: card })).toBe(card);
     expect(provisioningCard({})).toBeNull();
     expect(provisioningCard({ location: { kind: "attached", cwd: "/repo/wt" } })).toBeNull();
   });
@@ -149,7 +157,7 @@ describe("projections", () => {
     expect(paneBranch({ location: { kind: "attached", cwd: "/x" } })).toBeUndefined();
     expect(paneBranch({})).toBeUndefined();
     expect(
-      paneBranch({ location: { kind: "provisioning", card: { ...card, branch: "planned" } } }),
+      paneBranch({ location: { kind: "provisioning", intent: { ...intent, branch: "planned" } } }),
     ).toBeUndefined();
     expect(paneBranch({ location: { kind: "remote", endpoint: "e" } })).toBeUndefined();
   });
@@ -159,10 +167,10 @@ describe("the type", () => {
   it("holds one placement — a directory and a card cannot share a location", () => {
     // The state the four fields used to allow. Checked by the compiler:
     // typecheck fails on an unused expectation the day the union lets it in.
-    // @ts-expect-error — an attached location has no card
-    const landed: PaneLocation = { kind: "attached", cwd: "/repo/wt", card };
-    // @ts-expect-error — a card has no directory beside it
-    const pending: PaneLocation = { kind: "provisioning", card, cwd: "/repo/wt" };
+    // @ts-expect-error — an attached location has no create intent
+    const landed: PaneLocation = { kind: "attached", cwd: "/repo/wt", intent };
+    // @ts-expect-error — a create in flight has no directory beside it
+    const pending: PaneLocation = { kind: "provisioning", intent, cwd: "/repo/wt" };
     expect([landed, pending]).toHaveLength(2);
   });
 });

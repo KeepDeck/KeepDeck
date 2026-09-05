@@ -37,7 +37,7 @@ describe("paneHasProcess", () => {
         id: "p",
         location: {
           kind: "provisioning",
-          card: { repo: "/repo", path: "/wt/a", index: 1 },
+          intent: { repo: "/repo", path: "/wt/a", index: 1 },
         },
       }),
     ).toBe(false);
@@ -92,7 +92,7 @@ describe("paneCanSuspend", () => {
           id: "p",
           location: {
             kind: "provisioning",
-            card: { repo: "/r", path: "/wt/a", index: 1 },
+            intent: { repo: "/r", path: "/wt/a", index: 1 },
           },
         },
         false,
@@ -148,7 +148,7 @@ describe("paneCanSuspend", () => {
           id: "p",
           location: {
             kind: "provisioning",
-            card: { repo: "/r", path: "/wt/a", index: 1 },
+            intent: { repo: "/r", path: "/wt/a", index: 1 },
           },
         },
         false,
@@ -272,7 +272,7 @@ describe("paneBlock — the head both ladders share", () => {
           idle: { reason: "parked" },
           location: {
             kind: "provisioning",
-            card: { repo: "/r", path: "/wt/a", index: 1 },
+            intent: { repo: "/r", path: "/wt/a", index: 1 },
           },
         },
         false,

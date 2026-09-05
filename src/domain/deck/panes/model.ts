@@ -65,10 +65,11 @@ export type PaneStopped =
   | { reason: "suspended"; at: string };
 
 /** A pane's worktree create captured as intent: everything needed to (re)issue
- * the `worktree_create` call. Kept on the pane while the create runs in the
- * background — and after a failure, so Retry can re-use it. A pane with this
- * set renders a status card instead of a terminal. */
-export interface PaneProvisioning {
+ * the `worktree_create` call, and nothing about how the last attempt went.
+ * Kept on the pane while the create runs in the background — and after a
+ * failure, so Retry re-issues exactly this. What a document stores of a
+ * provisioning pane, verbatim. */
+export interface WorktreeIntent {
   /** The repository (the workspace cwd) the worktree is created in. */
   repo: string;
   /** Where the worktree goes — resolved before the pane was ever built (the
@@ -89,14 +90,6 @@ export interface PaneProvisioning {
    * create is issued, so a rename between a failure and its Retry names the
    * branch after what the workspace is called now, not what a card remembered. */
   index: number;
-  /** Why the create failed; set flips the card from creating to failed. */
-  error?: string;
-  /** This card originates from a journal FORK — its store surgery runs as a
-   * post-provision step held only in memory. Runtime-only, NEVER persisted: a
-   * fork whose provisioning is interrupted by a restart is dropped rather than
-   * restored as a plain retryable card (which would Retry into a NON-fork
-   * pane, silently losing the fork) — the user re-forks from the journal. */
-  fork?: true;
 }
 
 /**
@@ -122,15 +115,33 @@ export type PaneLocation =
    * ownership and cleanup key off it; the header's branch badge is runtime
    * state read from the directory, not this. */
   | { kind: "attached"; cwd: string; branch?: string }
-  /** The worktree is still being created (or the create failed and waits for
-   * Retry). No terminal mounts until it resolves. */
-  | { kind: "provisioning"; card: PaneProvisioning }
+  /** The worktree is still being created, or the create failed and waits for
+   * Retry. No terminal mounts until it resolves. The intent is what the
+   * create is (re)issued from; beside it sits the status of this attempt,
+   * which never reaches disk — hydration stamps its own. */
+  | {
+      kind: "provisioning";
+      intent: WorktreeIntent;
+      /** Why the create failed; set flips the card from creating to failed. */
+      error?: string;
+      /** This card originates from a journal FORK — its store surgery runs as
+       * a post-provision step held only in memory. Runtime-only, NEVER
+       * persisted: a fork whose provisioning is interrupted by a restart is
+       * dropped rather than restored as a plain retryable card (which would
+       * Retry into a NON-fork pane, silently losing the fork) — the user
+       * re-forks from the journal. */
+      fork?: true;
+    }
   /** The agent runs against a REMOTE native-server endpoint — the local
    * terminal is a thin client attached to a server on a VPS. A local
    * directory would be meaningless, so none is carried. Fixed at creation
    * from the spawn dialog's "Where: Remote" choice and persisted: a revive
    * reconnects the client to the same endpoint. */
   | { kind: "remote"; endpoint: string };
+
+/** The provisioning placement on its own — the card a pane wears while its
+ * worktree is created, in the shape the surfaces that draw it take. */
+export type PaneProvisioning = Extract<PaneLocation, { kind: "provisioning" }>;
 
 /** One agent pane in the grid. Each pane runs its own agent type; the display
  * title comes from `name` / the auto title / the derived "Agent N". */

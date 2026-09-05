@@ -330,7 +330,7 @@ export function useCloseFlow(
     panes
       .filter((pane) => {
         const location = locationOf(pane);
-        return location.kind === "provisioning" && !location.card.error;
+        return location.kind === "provisioning" && !location.error;
       })
       .map((pane) => pane.id);
 

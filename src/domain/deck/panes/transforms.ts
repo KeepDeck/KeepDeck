@@ -338,14 +338,9 @@ export function setPaneProvisioningError(
       if (p.id !== paneId) return p;
       const current = provisioningCard(p);
       if (!current) return p;
-      const { error: _old, ...intent } = current;
-      return {
-        ...p,
-        location: {
-          kind: "provisioning",
-          card: error === null ? intent : { ...intent, error },
-        },
-      };
+      // The status changes; the intent and the fork marker ride along.
+      const { error: _old, ...rest } = current;
+      return { ...p, location: error === null ? rest : { ...rest, error } };
     }),
   );
 }

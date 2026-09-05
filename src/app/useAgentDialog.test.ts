@@ -234,9 +234,7 @@ describe("useAgentDialog suggestions", () => {
 
     expect(createPane).toHaveBeenCalledTimes(1);
     expect(provisioningCard(offered().pane)).toMatchObject({
-      path: "/base/kd-KeepDeck-1",
-      branch: "kd/KeepDeck/1",
-      base: "develop",
+      intent: { path: "/base/kd-KeepDeck-1", branch: "kd/KeepDeck/1", base: "develop" },
     });
   });
 

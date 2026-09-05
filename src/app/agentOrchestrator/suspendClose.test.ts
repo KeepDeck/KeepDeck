@@ -150,7 +150,7 @@ describe("agent orchestrator —suspending an agent", () => {
     seed({
       location: {
         kind: "provisioning",
-        card: { repo: "/repo", path: "/wt/a", index: 1 },
+        intent: { repo: "/repo", path: "/wt/a", index: 1 },
       },
       session: undefined,
     });
@@ -447,7 +447,7 @@ describe("agent orchestrator —closing panes and workspaces", () => {
             agentType: "claude",
             location: {
               kind: "provisioning",
-              card: { repo: "/repo", path: "/wt/two-1", index: 1 },
+              intent: { repo: "/repo", path: "/wt/two-1", index: 1 },
             },
           },
         ],

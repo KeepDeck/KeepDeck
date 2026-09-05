@@ -111,9 +111,7 @@ function PaneUnderTest(
         paneBody(
           {
             id: props.paneId,
-            ...(props.provisioning
-              ? { location: { kind: "provisioning", card: props.provisioning } }
-              : {}),
+            ...(props.provisioning ? { location: props.provisioning } : {}),
             ...(props.idle ? { idle: props.idle } : {}),
           },
           {
@@ -291,7 +289,10 @@ describe("AgentPane — header badges", () => {
       "provisioning",
       {
         body: "provisioning" as PaneBody,
-        provisioning: { repo: "/r", path: "/w/b", branch: "b", index: 1 },
+        provisioning: {
+          kind: "provisioning" as const,
+          intent: { repo: "/r", path: "/w/b", branch: "b", index: 1 },
+        },
       },
     ],
     [
@@ -540,11 +541,9 @@ describe("AgentPane — provisioning cards", () => {
   let host: HTMLElement;
   let root: Root;
 
-  const intent = {
-    repo: "/repo",
-    path: "/wt/deck-2",
-    branch: "kd/deck/2",
-    index: 2,
+  const creating = {
+    kind: "provisioning" as const,
+    intent: { repo: "/repo", path: "/wt/deck-2", branch: "kd/deck/2", index: 2 },
   };
 
   beforeEach(() => {
@@ -562,7 +561,7 @@ describe("AgentPane — provisioning cards", () => {
   it("renders the creating card — location line, animation, and NO terminal", () => {
     act(() =>
       root.render(
-        createElement(PaneUnderTest,{ ...baseProps, provisioning: intent }),
+        createElement(PaneUnderTest,{ ...baseProps, provisioning: creating }),
       ),
     );
 
@@ -581,7 +580,7 @@ describe("AgentPane — provisioning cards", () => {
       root.render(
         createElement(PaneUnderTest,{
           ...baseProps,
-          provisioning: { ...intent, error: "fatal: boom" },
+          provisioning: { ...creating, error: "fatal: boom" },
           onRetryProvision,
         }),
       ),

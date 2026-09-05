@@ -320,7 +320,7 @@ function heldPath(pane: Pane): string | undefined {
     case "attached":
       return location.cwd;
     case "provisioning":
-      return location.card.path;
+      return location.intent.path;
     case "main":
     case "remote":
       return undefined;

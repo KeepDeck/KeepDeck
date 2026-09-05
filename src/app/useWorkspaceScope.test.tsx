@@ -43,7 +43,7 @@ const pane = (over: {
       ? {
           location: {
             kind: "provisioning",
-            card: { repo: "/repo", path: "/wt/a", index: 1 },
+            intent: { repo: "/repo", path: "/wt/a", index: 1 },
           },
         }
       : over.cwd !== null

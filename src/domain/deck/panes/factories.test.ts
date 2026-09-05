@@ -72,7 +72,7 @@ describe("paneFromAgentRequest", () => {
       agentType: "claude",
       location: {
         kind: "provisioning",
-        card: {
+        intent: {
           repo: "/repo",
           path: "/wt/kd-deck-3",
           branch: "kd/deck/3",
@@ -94,7 +94,7 @@ describe("paneFromAgentRequest", () => {
       1,
     );
     expect(Object.keys(pane).sort()).toEqual(["agentType", "id", "location"]);
-    expect(Object.keys(provisioningCard(pane)!).sort()).toEqual(["index", "path", "repo"]);
+    expect(Object.keys(provisioningCard(pane)!.intent).sort()).toEqual(["index", "path", "repo"]);
   });
 
   it("trims the name and arms yolo only when asked", () => {

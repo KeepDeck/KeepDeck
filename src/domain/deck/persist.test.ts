@@ -71,7 +71,7 @@ describe("serializeDeck → hydrateDeck round-trip", () => {
       { kind: "attached", cwd: "/repo/wt-b", branch: "kd/ws/2" },
       {
         kind: "provisioning",
-        card: { repo: "/repo", path: "/repo/wt-c", base: "develop", index: 3 },
+        intent: { repo: "/repo", path: "/repo/wt-c", base: "develop", index: 3 },
       },
       { kind: "remote", endpoint: "ws://vps:4500" },
     ];
@@ -627,13 +627,8 @@ describe("provisioning panes across a restart", () => {
             agentType: "claude",
             location: {
               kind: "provisioning",
-              card: {
-                repo: "/repo",
-                path: "/wt/deck-1",
-                base: "develop",
-                index: 1,
-                error: "fatal: mid-create failure",
-              },
+              intent: { repo: "/repo", path: "/wt/deck-1", base: "develop", index: 1 },
+              error: "fatal: mid-create failure",
             },
           },
         ],
@@ -649,12 +644,10 @@ describe("provisioning panes across a restart", () => {
     expect(json).not.toContain("mid-create failure");
     const pane = okDeck(json).state.workspaces[0].panes[0];
     expect(provisioningCard(pane)).toEqual({
-      repo: "/repo",
-      path: "/wt/deck-1",
+      kind: "provisioning",
       // The picked base survives the restart, so Retry recreates the worktree
       // from the same fork point instead of whatever HEAD moved to.
-      base: "develop",
-      index: 1,
+      intent: { repo: "/repo", path: "/wt/deck-1", base: "develop", index: 1 },
       error: PROVISIONING_INTERRUPTED,
     });
     // NOT idle: the revive flow must leave it alone — there may be no
@@ -687,7 +680,7 @@ describe("provisioning panes across a restart", () => {
     const restored = okDeck(JSON.stringify(doc)).state;
     const pane = restored.workspaces[0].panes[0];
     expect(provisioningCard(pane)).not.toBeNull();
-    expect(provisioningCard(pane)).not.toHaveProperty("workspace");
+    expect(provisioningCard(pane)?.intent).not.toHaveProperty("workspace");
     expect(pane.extras).toBeUndefined();
     expect(serializeDeck(restored)).not.toContain('"workspace":');
   });
@@ -707,13 +700,8 @@ describe("provisioning panes across a restart", () => {
               agentType: "opencode",
               location: {
                 kind: "provisioning",
-                card: {
-                  repo: "/repo",
-                  path: "/wt/fork-1",
-                  branch: "fork/x",
-                  index: 1,
-                  fork: true,
-                },
+                intent: { repo: "/repo", path: "/wt/fork-1", branch: "fork/x", index: 1 },
+                fork: true,
               },
             },
           ],
@@ -737,13 +725,8 @@ describe("provisioning panes across a restart", () => {
               agentType: "opencode",
               location: {
                 kind: "provisioning",
-                card: {
-                  repo: "/repo",
-                  path: "/wt/f2",
-                  branch: "fork/y",
-                  index: 2,
-                  fork: true,
-                },
+                intent: { repo: "/repo", path: "/wt/f2", branch: "fork/y", index: 2 },
+                fork: true,
               },
             },
           ],

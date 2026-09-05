@@ -376,9 +376,7 @@ describe("agent orchestrator —forking a recorded session", () => {
 
     const pane = deck.workspaces[0].panes[0];
     expect(provisioningCard(pane)).toMatchObject({
-      repo: "/repo",
-      path: "/repo-wt/fork-1",
-      branch: "fork/auth",
+      intent: { repo: "/repo", path: "/repo-wt/fork-1", branch: "fork/auth" },
     });
     // The marker the whole restart-safety fix hinges on: serialize drops it.
     expect(provisioningCard(pane)?.fork).toBe(true);
