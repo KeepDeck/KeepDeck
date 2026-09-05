@@ -904,7 +904,7 @@ it("the unlock hint shows while the artifacts setting is off, absent while on", 
       );
     });
     const hint = document.querySelector(".skills__readonly-hint");
-    expect(hint?.textContent).toContain("artifacts experiment");
+    expect(hint?.textContent).toContain("Fleet artifacts");
 
     // Setting ON: absent.
     settingsState.current = { artifacts: true } as Settings;

@@ -14,7 +14,6 @@ export type DeckAction =
   | { type: "closeWorkspace"; id: string; at: string }
   | { type: "toggleFocus"; wsId: string; paneId: string }
   | { type: "toggleMinimize"; wsId: string; paneId: string }
-  | { type: "clearMinimized" }
   | { type: "restoreSuspendedPane"; wsId: string; paneId: string }
   | { type: "selectPane"; wsId: string; paneId: string }
   | { type: "toggleDock"; wsId: string }

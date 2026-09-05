@@ -83,8 +83,7 @@ export interface DeckBarProps {
   addAgentTitle: string;
   onAddAgent(): void;
 
-  /** Opens a NEW team, or null while the teams experiment is off or no
-   *  workspace is active. */
+  /** Opens a NEW team, or null while no workspace is active. */
   onAddTeam: (() => void) | null;
 
   /** The dock toggle, or null when no plugin contributes a dock tab. */
@@ -96,7 +95,7 @@ export interface DeckBarProps {
   canOpenDialog: boolean;
   onOpenStats(): void;
   onOpenSkills(): void;
-  /** The artifacts registry, or null while the experiment is off — a door
+  /** The artifacts registry, or null while Fleet artifacts are off — a door
    * to a feature that is not running is a door to a refusal. */
   onOpenArtifacts: (() => void) | null;
   onOpenSettings(): void;

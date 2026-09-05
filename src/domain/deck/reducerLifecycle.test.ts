@@ -121,7 +121,7 @@ describe("deckReducer restore actions ([F7])", () => {
     });
   });
 
-  it("keeps dormant List minimizes distinct from suspended Tray placement", () => {
+  it("keeps the minimized set distinct from suspended Tray placement", () => {
     const next = deckReducer(
       state({
         workspaces: [idleWs],
@@ -147,7 +147,10 @@ describe("deckReducer restore actions ([F7])", () => {
     });
   });
 
-  it("does not move List selection because of a dormant manual minimize", () => {
+  it("repairs a selection against BOTH hidden sets when a pane joins the tray", () => {
+    // A minimized pane is off the grid as surely as a suspended one, so a
+    // selection stranded on it does not survive the transition; with nothing
+    // left on the grid there is no pane to move it to.
     const next = deckReducer(
       state({
         workspaces: [idleWs],
@@ -165,7 +168,6 @@ describe("deckReducer restore actions ([F7])", () => {
       },
     );
     expect(next.viewByWs["ws-1"]).toEqual({
-      select: "pane-1",
       minimized: ["pane-1"],
       suspendedTray: ["pane-2"],
     });

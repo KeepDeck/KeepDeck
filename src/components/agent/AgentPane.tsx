@@ -67,11 +67,8 @@ export interface AgentPaneProps {
   /** Whether this pane is maximized to fill the grid. */
   focused: boolean;
   /** Whether this pane is hidden (display:none, still mounted) — because
-   * another pane is maximized, or because it's minimized to the tray/strip. */
+   * another pane is maximized, or because it's minimized to the tray. */
   hidden: boolean;
-  /** List layout: render header-only (the terminal body is hidden but stays
-   * mounted), with a chevron; clicking the header expands it (via onSelect). */
-  folded?: boolean;
   /** Whether this is the active pane — drives terminal keyboard focus.
    * The frame's selection rung does NOT read this: it comes from
    * [`framePlace`], which the stage states in layout terms. */
@@ -192,7 +189,6 @@ export function AgentPane({
   visible,
   focused,
   hidden,
-  folded,
   selected,
   keyboardFocusEnabled,
   solo,
@@ -280,23 +276,16 @@ export function AgentPane({
       // A stopped pane is dimmed so a grid of six reads at a glance: which
       // ones are actually running is otherwise only visible by looking into
       // each body.
-      className={`pane${hidden ? " pane--hidden" : ""}${folded ? " pane--folded" : ""}${frame === "none" ? "" : ` pane--frame-${frame}`}${stopped ? " pane--idle" : ""}`}
+      className={`pane${hidden ? " pane--hidden" : ""}${frame === "none" ? "" : ` pane--frame-${frame}`}${stopped ? " pane--idle" : ""}`}
       style={colSpan > 1 ? { gridColumn: `span ${colSpan}` } : undefined}
-      // A folded row expands only from an EXPLICIT header click (below), never
-      // from raw mousedown/focus: descendant focus bubbling would expand rows
-      // as Tab passes through their buttons, and a mousedown-select reflows
-      // the accordion under the pointer before the click completes.
-      onMouseDown={folded ? undefined : onSelect}
-      onFocus={folded ? undefined : onSelect}
+      onMouseDown={onSelect}
+      onFocus={onSelect}
     >
-      {/* Folded: the whole header is the expand control; the action buttons
-          stop propagation so they act WITHOUT expanding. */}
       <AgentPaneHeader
         paneId={paneId}
         title={title}
         agentIcon={agentIcon}
         agentLabel={agentLabel}
-        folded={folded}
         focused={focused}
         solo={solo}
         activityView={activityView}
@@ -309,7 +298,6 @@ export function AgentPane({
         showTeamName={showTeamName}
         onOpenTeam={onOpenTeam}
         gitBadge={gitBadge}
-        onSelect={onSelect}
         onRename={onRename}
         onMinimize={onMinimize}
         onToggleFocus={onToggleFocus}

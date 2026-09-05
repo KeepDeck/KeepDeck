@@ -63,20 +63,20 @@ export interface McpAccess {
 }
 
 /** Ask for one pane's access, at the moment its plan is built — never once
- * per session: the transport toggles, and the answer moves with it. */
+ * per session: the socket is confirmed some time after boot, and the answer
+ * moves with it. */
 export type McpAccessAsk = (target: McpInjectionTarget) => Promise<McpAccess>;
 
 export interface McpInjection {
   access: McpAccessAsk;
-  /** Take back everything planted so far. Off means the socket is gone, so a
-   * config still naming it would point kimi at nothing — and the settings
-   * page promises the toggle tears its clients down. */
-  retract(): Promise<void>;
 }
 
 export interface McpInjectionDeps {
-  /** The CONFIRMED socket, or null. Read per call: the toggle can flip
-   * between two spawns, and a remembered answer would outlive the fact. */
+  /** The CONFIRMED socket, or null. Read per call: it is null until the
+   * transport's enable settles — a pane restored at boot can ask before that
+   * — and a remembered answer would outlive the fact. Once claimed it stays
+   * claimed for the page's life, so a plan minted against it never outlives
+   * its socket. */
   socket: () => string | null;
   connection?: (client?: string) => Promise<McpConnection>;
   /** Plant a config in a pane's cwd. REQUIRED, not defaulted: the write must
@@ -89,9 +89,6 @@ export interface McpInjectionDeps {
     root: string,
     content: string,
   ) => Promise<McpArmReport>;
-  /** Take a planted config back out of these directories. Paired with
-   * `plant`, and ordered the same way. */
-  retract: (roots: string[]) => Promise<boolean>;
   /** How many live panes run in this directory. A config is ONE file, so a
    * directory shared by two panes cannot carry a per-pane secret — see
    * [`McpInjection.access`]. Asked per call: panes come and go between
@@ -104,10 +101,6 @@ export interface McpInjectionDeps {
   /** Where the config DID land — so a refusal that no longer holds (the user
    * moved their file away) stops being reported. */
   onArmed?: (roots: string[]) => void;
-  /** Where our config was TAKEN BACK. Same scrub as `onArmed` — the roots'
-   * standing refusals go with the config that earned them — but a different
-   * fact, and one name for both said a retract had armed something. */
-  onRetracted?: (roots: string[]) => void;
 }
 
 /** A pane that gets nothing: no servers on argv, and nothing to put on disk. */
@@ -122,18 +115,10 @@ export function createMcpInjection({
   socket,
   panesIn,
   plant,
-  retract,
   connection = mcpConnectionCommand,
   onRefused = () => {},
   onArmed = () => {},
-  onRetracted = () => {},
 }: McpInjectionDeps): McpInjection {
-  /** Every directory this session planted in, so Off can take them all back.
-   * Kept here rather than re-derived from the deck: the deck knows where panes
-   * RUN, this knows where a file actually landed — a cwd that refused is in
-   * one and not the other. */
-  const planted = new Set<string>();
-
   /** The invocation is per PANE (it names the pane's secret), so unlike the
    * install-wide parts of it there is nothing to cache. A failure answers
    * null and is not remembered: the backend may serve the next pane, and
@@ -154,47 +139,18 @@ export function createMcpInjection({
 
   /** kimi's half of a delivery: the config into the pane's cwd, and what came
    * back reported. A cwd holding the user's own config refuses, and the
-   * refusal is surfaced rather than silently leaving that pane serverless. */
+   * refusal is surfaced rather than silently leaving that pane serverless.
+   * Not re-gated on the socket: the plan it belongs to was minted against a
+   * confirmed one, and a claimed socket is never given up while the page
+   * lives. */
   async function deliverFile(
     target: McpInjectionTarget,
     content: string,
   ): Promise<void> {
-    // Re-checked here and not only at `access`: the plan is built between the
-    // two, and a toggle that went Off in that window has already run its
-    // retract — a config planted after it would be one nothing takes back.
-    if (socket() === null) return;
     const report = await plant(target.workspaceId, target.cwd, content);
     for (const { root, reason } of report.refused) {
       log.warn("web:mcp", `${root} could not take KeepDeck's MCP config: ${reason}`);
     }
-    // And re-checked AFTER the write, which waited in the worktree owner's
-    // queue and can easily be a whole teardown late. `retract()` reads
-    // `planted` and clears it; a root added here after that read is one it
-    // never saw, so the config would sit in the user's directory naming a
-    // socket that is gone. Take it straight back instead.
-    if (socket() === null) {
-      if (report.armed.length > 0) {
-        try {
-          const removed = await retract(report.armed);
-          if (!removed) {
-            log.warn(
-              "web:mcp",
-              `retracting configs after transport Off reported failure: ${report.armed.join(", ")}`,
-            );
-          }
-        } catch (error) {
-          // Delivery never rejects: the pane may still start without KeepDeck's
-          // servers, while the backend's armed manifest remains the sweep's
-          // recovery record.
-          log.warn(
-            "web:mcp",
-            `retracting configs after transport Off threw: ${describeError(error)}`,
-          );
-        }
-      }
-      return;
-    }
-    for (const root of report.armed) planted.add(root);
     onArmed(report.armed);
     onRefused(report.refused);
   }
@@ -216,10 +172,6 @@ export function createMcpInjection({
       const shared = render !== null && panesIn(target.cwd) > 1;
       const invoked = await resolve(shared ? null : target.client);
       if (!invoked) return NO_ACCESS;
-      // Re-checked after the await: the toggle may have gone Off while the
-      // backend was answering, and a def minted then would be handed to a
-      // pane whose socket no longer exists.
-      if (socket() === null) return NO_ACCESS;
       const { accepted, rejected } = acceptMcpServers([
         {
           name: KEEPDECK_MCP_SERVER,
@@ -238,20 +190,6 @@ export function createMcpInjection({
       // written later.
       const content = render(accepted);
       return { servers: [], deliver: () => deliverFile(target, content) };
-    },
-
-    async retract() {
-      if (planted.size === 0) return;
-      const roots = [...planted];
-      // Cleared up front: a failed retract must not keep re-trying the same
-      // directories on every later Off, and what survives on disk is still
-      // recorded in the backend's own armed manifest, which the boot sweep
-      // reads.
-      planted.clear();
-      await retract(roots);
-      // Both records go: the config and the refusals it stood beside.
-      onRetracted(roots);
-      onRefused([]);
     },
   };
 }

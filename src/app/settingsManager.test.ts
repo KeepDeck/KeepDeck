@@ -67,13 +67,13 @@ describe("reading the stored document", () => {
     const loadSettings = vi
       .fn<() => Promise<string | null>>()
       .mockRejectedValueOnce(new Error("EMFILE"))
-      .mockResolvedValueOnce(stored({ mcpServer: true }));
+      .mockResolvedValueOnce(stored({ remoteAgents: true }));
     const { manager } = managerOver({ loadSettings });
 
     await manager.init();
 
     expect(loadSettings).toHaveBeenCalledTimes(2);
-    expect(manager.get()?.mcpServer).toBe(true);
+    expect(manager.get()?.remoteAgents).toBe(true);
   });
 
   it("quarantines an unusable file, waits for it, then starts from defaults", async () => {
@@ -106,7 +106,7 @@ describe("a file we could not read is never overwritten", () => {
     expect(manager.get()?.scrollback).toBe(20_000); // applied
     expect(ports.saveSettings).not.toHaveBeenCalled(); // but never written
     // And it stays refused — a later change must not sneak past either.
-    manager.update({ mcpServer: true });
+    manager.update({ remoteAgents: true });
     await manager.flush();
     expect(ports.saveSettings).not.toHaveBeenCalled();
   });
@@ -214,13 +214,13 @@ describe("writing", () => {
 
   it("keeps a stored value the user chose at today's default", async () => {
     const { manager, ports } = managerOver({
-      loadSettings: vi.fn(() => Promise.resolve(stored({ mcpServer: false }))),
+      loadSettings: vi.fn(() => Promise.resolve(stored({ remoteAgents: false }))),
     });
     await manager.init();
 
     manager.update({ scrollback: 20_000 });
     await manager.flush();
-    expect(savedBy(ports.saveSettings.mock.calls)[0].mcpServer).toBe(false);
+    expect(savedBy(ports.saveSettings.mock.calls)[0].remoteAgents).toBe(false);
   });
 
   it("notifies subscribers on load and on update; unsubscribing stops", async () => {

@@ -20,6 +20,18 @@ vi.mock("../../app/useAgents", () => ({
   useAgents: () => ({ agents: [], loading: false }),
 }));
 
+// The MCP server row reads the transport's confirmed status from the app
+// runtime, which these tests run without; its own suite drives the states.
+vi.mock("../../app/mcp/useMcpStatus", () => ({
+  useMcpStatus: () => ({
+    socket: null,
+    error: null,
+    connect: null,
+    connectError: null,
+    refused: [],
+  }),
+}));
+
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
 
@@ -131,16 +143,11 @@ describe("GeneralSection — dock mode", () => {
     ).toContain("restoring one keeps it stopped");
   });
 
-  it("gives the two Tray choices distinct accessible names and states", () => {
+  it("carries the MCP server row — a fact, not a preference, but it lives here", () => {
     mount();
-    const minimizedTray = host.querySelector<HTMLButtonElement>(
-      "[aria-label='Minimized agents: Tray']",
-    )!;
-    const suspendedTray = host.querySelector<HTMLButtonElement>(
-      "[aria-label='Suspended agents: Tray']",
-    )!;
-    expect(minimizedTray).not.toBe(suspendedTray);
-    expect(minimizedTray.getAttribute("aria-pressed")).toBe("true");
-    expect(suspendedTray.getAttribute("aria-pressed")).toBe("false");
+    const labels = Array.from(host.querySelectorAll(".form__label")).map(
+      (label) => label.textContent,
+    );
+    expect(labels[labels.length - 1]).toBe("MCP server");
   });
 });

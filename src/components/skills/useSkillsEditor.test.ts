@@ -275,7 +275,7 @@ describe("the unlock hint rides the controller", () => {
       settingsState.current = { artifacts: false } as Settings;
       root.render(createElement(Probe));
     });
-    expect(editor.viewHint).toContain("artifacts experiment");
+    expect(editor.viewHint).toContain("Fleet artifacts");
   });
 
   it("is absent while it is on, and absent while it is unread", () => {

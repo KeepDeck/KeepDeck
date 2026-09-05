@@ -136,15 +136,15 @@ describe("useArtifactsRegistry", () => {
   });
 
   it("renders a refusal as itself, never as a workspace that published nothing", async () => {
-    // The store's own sentence — "turn the artifacts experiment on first"
+    // The store's own sentence — "turn Fleet artifacts on first"
     // — is the only thing that explains an empty screen honestly.
     listed.mockRejectedValueOnce(
-      new Error("artifact store is off — turn the artifacts experiment on first"),
+      new Error("artifact store is off — turn Fleet artifacts on first"),
     );
     mount();
     await settle();
     expect(refusalShown()).toBe(
-      "artifact store is off — turn the artifacts experiment on first",
+      "artifact store is off — turn Fleet artifacts on first",
     );
     // A refusal, NOT an empty workspace — the two are one row apart in
     // the classification and a world apart on screen.
@@ -152,17 +152,17 @@ describe("useArtifactsRegistry", () => {
   });
 
   it("blames the failed enable, not the user's setting, when the store never opened", async () => {
-    // The bug this exists for: the experiment is ON, another KeepDeck
-    // owns the claim, and the only sentence the store has is "turn the
-    // artifacts experiment on first" — which sends the user to a switch
-    // that is already where it should be.
+    // The bug this exists for: the feature is ON, another KeepDeck owns
+    // the claim, and the only sentence the store has is "turn Fleet
+    // artifacts on first" — which sends the user to a switch that is
+    // already where it should be.
     artifactsEnableStatus.record({
       desired: true,
       ok: false,
       detail: "artifact store is owned by another KeepDeck process",
     });
     listed.mockRejectedValueOnce(
-      new Error("artifact store is off — turn the artifacts experiment on first"),
+      new Error("artifact store is off — turn Fleet artifacts on first"),
     );
     mount();
     await settle();

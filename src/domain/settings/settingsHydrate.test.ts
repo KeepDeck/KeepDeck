@@ -37,8 +37,6 @@ describe("hydrateSettings", () => {
       defaultAgent: "codex",
       defaultYolo: true,
       scrollback: 50_000,
-      deckLayout: "list",
-      minimizeStyle: "strip",
       suspendedAgentPlacement: "tray",
       dockMode: "floating",
       plugins: {
@@ -48,15 +46,13 @@ describe("hydrateSettings", () => {
       notifications: { enabled: false, mode: "system" },
       usageDisplay: "left",
       parkAgentsOnLaunch: true,
-      mcpServer: true,
+      artifacts: true,
     };
     const doc = restore(JSON.stringify(stored));
     expect(doc.settings).toEqual({
       defaultAgent: "codex",
       defaultYolo: true,
       scrollback: 50_000,
-      deckLayout: "list",
-      minimizeStyle: "strip",
       suspendedAgentPlacement: "tray",
       dockMode: "floating",
       plugins: { enabled: { git: true }, values: { git: { remote: "origin" } }, consented: {} },
@@ -64,13 +60,11 @@ describe("hydrateSettings", () => {
       usageDisplay: "left",
       remoteAgents: false,
       parkAgentsOnLaunch: true,
-      mcpServer: true,
-      agentTeams: false,
-      artifacts: false,
+      artifacts: true,
       artifactAutoOpen: true,
     });
-    // Everything the file said is a decision; `remoteAgents`, `agentTeams`,
-    // `artifacts` and `artifactAutoOpen`, which it did not mention, are not.
+    // Everything the file said is a decision; `remoteAgents` and
+    // `artifactAutoOpen`, which it did not mention, are not.
     expect(Object.keys(doc.chosen).sort()).toEqual(
       Object.keys(stored)
         .filter((key) => key !== "version")
@@ -110,30 +104,6 @@ describe("hydrateSettings", () => {
     expect(at(Number.NaN)).toBe(DEFAULT_SETTINGS.scrollback);
   });
 
-  it("accepts each known deckLayout and rejects an unknown one", () => {
-    for (const layout of ["grid", "list"]) {
-      expect(restore(JSON.stringify({ deckLayout: layout })).settings.deckLayout).toBe(
-        layout,
-      );
-    }
-    expect(restore('{"deckLayout":"spiral"}').settings.deckLayout).toBe("grid");
-  });
-
-  it("accepts each known minimizeStyle and rejects an unknown one", () => {
-    for (const style of ["tray", "strip", "none"]) {
-      expect(
-        restore(JSON.stringify({ minimizeStyle: style })).settings.minimizeStyle,
-      ).toBe(style);
-    }
-    // A garbage value degrades to the default, on its own, like any other key.
-    // (`list` moved to deckLayout — it's no longer a minimize style.)
-    for (const bad of ["list", "mosaic", 3]) {
-      expect(
-        restore(JSON.stringify({ minimizeStyle: bad })).settings.minimizeStyle,
-      ).toBe("tray");
-    }
-  });
-
   it("accepts tray placement for suspended agents and rejects malformed values", () => {
     expect(
       restore('{"suspendedAgentPlacement":"tray"}').settings.suspendedAgentPlacement,
@@ -165,7 +135,7 @@ describe("hydrateSettings", () => {
     // Asserting `false` against a file that says `"yes"` proves nothing on its
     // own — `false` is the default, so deleting the reader outright would leave
     // it green. Each key is driven ON first, then corrupted.
-    for (const key of ["defaultYolo", "remoteAgents", "parkAgentsOnLaunch", "mcpServer"]) {
+    for (const key of ["defaultYolo", "remoteAgents", "parkAgentsOnLaunch", "artifacts"]) {
       expect(restore(JSON.stringify({ [key]: true })).settings).toMatchObject({
         [key]: true,
       });
@@ -264,6 +234,30 @@ describe("hydrateSettings — the plugins bag", () => {
       ],
     ).toBe(true);
   });
+
+  // A retired key is CONSUMED, whatever it said: neither a decision nor an
+  // extra (an extra would be rewritten forever), and not a degradation either
+  // — the file said nothing wrong, it said something nobody asks any more.
+  for (const [key, values] of [
+    // v18: the MCP transport lost its switch.
+    ["mcpServer", [true, false, "yes"]],
+    // v19: the tray became the only shape for a minimized agent.
+    ["minimizeStyle", ["tray", "strip", "none", "mosaic"]],
+    // v20: the grid became the only deck layout.
+    ["deckLayout", ["grid", "list", "spiral"]],
+    // v21: agent teams graduated from Experimental.
+    ["agentTeams", [true, false, "yes"]],
+  ] as const) {
+    it(`retired ${key} is consumed, whatever it said`, () => {
+      for (const value of values) {
+        const hydrated = hydrateSettings(JSON.stringify({ [key]: value }));
+        expect(hydrated).not.toBeNull();
+        expect(hydrated!.doc.chosen).toEqual({});
+        expect(hydrated!.doc.extras).toEqual({});
+        expect(hydrated!.provenance.degraded).toEqual([]);
+      }
+    });
+  }
 
   it("v5 graduation: an absent flag leaves the Run plugin unset (default off)", () => {
     expect(restore("{}").settings.plugins.enabled["keepdeck.run"]).toBeUndefined();

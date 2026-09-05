@@ -2,12 +2,7 @@ import type { ActivityBadge } from "../../domain/status";
 import { contextLevel, formatAge } from "../../domain/usage";
 import { noAutoCorrect } from "../../ui/inputProps";
 import { useInlineRename } from "../../ui/useInlineRename";
-import {
-  ChevronDownIcon,
-  MaximizeIcon,
-  MinimizeIcon,
-  RestoreIcon,
-} from "../../ui/icons";
+import { MaximizeIcon, MinimizeIcon, RestoreIcon } from "../../ui/icons";
 import { BranchBadge, TeamBadge, YoloBadge } from "../../ui/badges";
 import { CloseButton } from "../../ui/CloseButton";
 import { Chip } from "../../ui/Chip";
@@ -20,7 +15,6 @@ export interface AgentPaneHeaderProps {
   title: string;
   agentIcon?: AgentGlyphIcon | null;
   agentLabel?: string;
-  folded?: boolean;
   focused: boolean;
   solo: boolean;
   /** Badges — every value arrives settled; this header only renders. */
@@ -41,10 +35,9 @@ export interface AgentPaneHeaderProps {
   /** False while a modal or covering dock owns keyboard interaction — an
    * inline rename must not be left in flight underneath one. */
   keyboardFocusEnabled: boolean;
-  onSelect(): void;
   onRename(name: string): void;
-  /** Open the team this pane is on. Absent while the feature is off, which
-   * is also when no badge is rendered — the two travel together. */
+  /** Open the team this pane is on. Optional for a header rendered without
+   * a way in — the badge then names the team without being a door. */
   onOpenTeam?(name: string): void;
   onMinimize?(): void;
   onToggleFocus(): void;
@@ -62,7 +55,6 @@ export function AgentPaneHeader({
   title,
   agentIcon,
   agentLabel,
-  folded,
   focused,
   solo,
   activityView,
@@ -74,7 +66,6 @@ export function AgentPaneHeader({
   showTeamName,
   gitBadge,
   keyboardFocusEnabled,
-  onSelect,
   onRename,
   onOpenTeam,
   onMinimize,
@@ -87,23 +78,7 @@ export function AgentPaneHeader({
     keyboardFocusEnabled,
   );
   return (
-    <header className="pane__bar" onClick={folded ? onSelect : undefined}>
-      {folded && (
-        // The accessible expand handle (the header click is the pointer
-        // convenience around it).
-        <button
-          type="button"
-          className="pane__fold-chevron"
-          aria-expanded={false}
-          aria-label={`Expand ${title}`}
-          onClick={(e) => {
-            e.stopPropagation();
-            onSelect();
-          }}
-        >
-          <ChevronDownIcon />
-        </button>
-      )}
+    <header className="pane__bar">
       <div className="pane__identity">
         <span className="pane__agent" title={agentLabel}>
           <AgentGlyph icon={agentIcon} />
@@ -191,7 +166,7 @@ export function AgentPaneHeader({
             label={gitBadge.label}
           />
         )}
-        {onMinimize && !focused && !folded && (
+        {onMinimize && !focused && (
           <button
             type="button"
             // The modifier is load-bearing: the narrow-header cascade hides
@@ -204,7 +179,7 @@ export function AgentPaneHeader({
             <MinimizeIcon />
           </button>
         )}
-        {!solo && !folded && (
+        {!solo && (
           <button
             type="button"
             className="pane__action"
@@ -215,14 +190,7 @@ export function AgentPaneHeader({
             {focused ? <RestoreIcon /> : <MaximizeIcon />}
           </button>
         )}
-        <CloseButton
-          label={`Close ${title}`}
-          onClick={(e) => {
-            // Own click: closing a folded row must not also expand it.
-            e.stopPropagation();
-            onClose();
-          }}
-        />
+        <CloseButton label={`Close ${title}`} onClick={onClose} />
       </div>
     </header>
   );

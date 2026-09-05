@@ -64,7 +64,6 @@ function App() {
     canCloseDialog,
     closeFlow,
     deck,
-    deckLayout,
     dismissAlert,
     dockMode,
     dockTabs,
@@ -77,7 +76,6 @@ function App() {
     handleCreateWorkspace,
     handleSelectWorkspace,
     info,
-    minimizeStyle,
     openNotification,
     orchestrator,
     paneViewActions,
@@ -180,8 +178,6 @@ function App() {
             viewByWs={deck.viewByWs}
             selectedPaneId={selectedPaneId}
             keyboardFocusEnabled={keyboardFocusEnabled}
-            deckLayout={deckLayout}
-            minimizeStyle={minimizeStyle}
             agents={agents}
             agentsReady={!agentsLoading}
             unavailableAgentReasons={unavailableReasons}
@@ -200,12 +196,7 @@ function App() {
             onRestoreSuspendedPane={deck.restoreSuspendedPane}
             onCloseAgent={closeFlow.requestCloseAgent}
             onRenamePane={deck.renamePane}
-            // Only while the experiment is on — the same gate the bar's
-            // button answers to, and without it no pane wears a badge to
-            // click anyway.
-            {...(settings.agentTeams
-              ? { onOpenTeam: (name: string) => setTeamDialog({ editing: name }) }
-              : {})}
+            onOpenTeam={(name) => setTeamDialog({ editing: name })}
             onPaneTitle={deck.setPaneAutoTitle}
             idleBlocked={runView.blocked}
             wakeFailed={runView.wakeFailed}

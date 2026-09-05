@@ -38,8 +38,6 @@ export const NON_DEFAULT: { [K in SettingsKey]: Settings[K] } = {
   defaultAgent: "opencode",
   defaultYolo: true,
   scrollback: 42_000,
-  deckLayout: "list",
-  minimizeStyle: "none",
   suspendedAgentPlacement: "tray",
   dockMode: "floating",
   plugins: {
@@ -51,8 +49,6 @@ export const NON_DEFAULT: { [K in SettingsKey]: Settings[K] } = {
   usageDisplay: "left",
   remoteAgents: true,
   parkAgentsOnLaunch: true,
-  mcpServer: true,
-  agentTeams: true,
   artifacts: true,
   artifactAutoOpen: false,
 };

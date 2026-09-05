@@ -21,9 +21,10 @@ pub(crate) const LOCK_FILE: &str = "lock";
 /// spawns (a PTY agent, a git child) inherits open descriptors across fork
 /// and keeps our lock alive until it execs, so a claim taken right after a
 /// release can still see the old one — measured at ~3ms under load, which
-/// is exactly the Off→On gap a user produces by flipping the toggle twice.
-/// Waiting costs a genuine refusal a fraction of a second; not waiting costs
-/// a legitimate re-enable a false "another instance owns this".
+/// is exactly the down→up gap a page reload produces (its disable, then the
+/// new page's enable). Waiting costs a genuine refusal a fraction of a
+/// second; not waiting costs a legitimate re-enable a false "another
+/// instance owns this".
 const CLAIM_TIMEOUT: Duration = Duration::from_millis(250);
 const CLAIM_RETRY: Duration = Duration::from_millis(5);
 
@@ -64,8 +65,8 @@ mod tests {
     fn a_claim_waits_out_a_holder_that_lets_go() {
         // Releasing a claim does not free it instantly: a process that
         // forked while we held it keeps it alive until it execs, and this
-        // app forks constantly (PTY agents, git). A user flipping the toggle
-        // Off then On lands in exactly that window.
+        // app forks constantly (PTY agents, git). A page reload's disable
+        // then enable lands in exactly that window.
         let path = temp_sock();
         let lock_path = path.parent().unwrap().join(LOCK_FILE);
         let holder = File::create(&lock_path).expect("lock file");

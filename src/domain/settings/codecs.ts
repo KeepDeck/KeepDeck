@@ -1,9 +1,7 @@
 import type { AgentType } from "../agents";
 import { isRecord } from "../json";
 import {
-  DECK_LAYOUTS,
   DOCK_MODES,
-  MINIMIZE_STYLES,
   NOTIFICATION_MODES,
   SCROLLBACK_MAX,
   SCROLLBACK_MIN,
@@ -191,8 +189,6 @@ const SETTINGS_CODECS: { [K in SettingsKey]: SettingCodec<Settings[K]> } = {
   defaultAgent: { default: "claude", read: readAgentId },
   defaultYolo: { default: false, read: readBoolean },
   scrollback: { default: 10_000, read: readScrollback },
-  deckLayout: { default: "grid", read: readOneOf(DECK_LAYOUTS) },
-  minimizeStyle: { default: "tray", read: readOneOf(MINIMIZE_STYLES) },
   suspendedAgentPlacement: {
     default: "pane",
     read: readOneOf(SUSPENDED_AGENT_PLACEMENTS),
@@ -203,8 +199,6 @@ const SETTINGS_CODECS: { [K in SettingsKey]: SettingCodec<Settings[K]> } = {
   usageDisplay: { default: "used", read: readOneOf(USAGE_DISPLAYS) },
   remoteAgents: { default: false, read: readBoolean },
   parkAgentsOnLaunch: { default: false, read: readBoolean },
-  mcpServer: { default: false, read: readBoolean },
-  agentTeams: { default: false, read: readBoolean },
   artifacts: { default: false, read: readBoolean },
   artifactAutoOpen: { default: true, read: readBoolean },
 };

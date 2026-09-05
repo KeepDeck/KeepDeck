@@ -71,7 +71,6 @@ describe("icon-only chip", () => {
           paneId: "pane-1",
           title: "Claude 1",
           keyboardFocusEnabled: true,
-          folded: false,
           focused: false,
           solo: false,
           activityView: {
@@ -83,7 +82,6 @@ describe("icon-only chip", () => {
           now: 1_754_000_000_000,
           ctxPct: undefined,
           paneLive: true,
-          onSelect: () => {},
           onRename: () => {},
           onToggleFocus: () => {},
           onClose: () => {},

@@ -34,7 +34,7 @@ describe("closeHotkeyTarget", () => {
       ws("ws-1", [{ id: "pane-1" }, { id: "pane-2", agentType: "claude" }]),
     ];
     expect(
-      closeHotkeyTarget(workspaces, "ws-1", { "ws-1": { select: "pane-2" } }, agents, true),
+      closeHotkeyTarget(workspaces, "ws-1", { "ws-1": { select: "pane-2" } }, agents),
     ).toEqual({
       kind: "agent",
       wsId: "ws-1",
@@ -46,13 +46,13 @@ describe("closeHotkeyTarget", () => {
   it("prefers the pane's manual name for the confirm label", () => {
     const workspaces = [ws("ws-1", [{ id: "pane-1", name: "api" }])];
     expect(
-      closeHotkeyTarget(workspaces, "ws-1", { "ws-1": { select: "pane-1" } }, agents, true),
+      closeHotkeyTarget(workspaces, "ws-1", { "ws-1": { select: "pane-1" } }, agents),
     ).toEqual({ kind: "agent", wsId: "ws-1", paneId: "pane-1", label: "api" });
   });
 
   it("falls back to a solo pane when nothing is selected", () => {
     const workspaces = [ws("ws-1", [{ id: "pane-1", agentType: "claude" }])];
-    expect(closeHotkeyTarget(workspaces, "ws-1", {}, agents, true)).toEqual({
+    expect(closeHotkeyTarget(workspaces, "ws-1", {}, agents)).toEqual({
       kind: "agent",
       wsId: "ws-1",
       paneId: "pane-1",
@@ -62,30 +62,30 @@ describe("closeHotkeyTarget", () => {
 
   it("returns null when several panes leave no selection to act on", () => {
     const workspaces = [ws("ws-1", [{ id: "pane-1" }, { id: "pane-2" }])];
-    expect(closeHotkeyTarget(workspaces, "ws-1", {}, agents, true)).toBeNull();
+    expect(closeHotkeyTarget(workspaces, "ws-1", {}, agents)).toBeNull();
   });
 
   it("treats a stale selection as no selection", () => {
     const multi = [ws("ws-1", [{ id: "pane-1" }, { id: "pane-2" }])];
     expect(
-      closeHotkeyTarget(multi, "ws-1", { "ws-1": { select: "pane-9" } }, agents, true),
+      closeHotkeyTarget(multi, "ws-1", { "ws-1": { select: "pane-9" } }, agents),
     ).toBeNull();
     // …but a solo pane is still unambiguous.
     const solo = [ws("ws-1", [{ id: "pane-1" }])];
     expect(
-      closeHotkeyTarget(solo, "ws-1", { "ws-1": { select: "pane-9" } }, agents, true),
+      closeHotkeyTarget(solo, "ws-1", { "ws-1": { select: "pane-9" } }, agents),
     ).toMatchObject({ paneId: "pane-1" });
   });
 
   it("targets the workspace itself when it has no panes", () => {
-    expect(closeHotkeyTarget([ws("ws-1", [])], "ws-1", {}, agents, true)).toEqual({
+    expect(closeHotkeyTarget([ws("ws-1", [])], "ws-1", {}, agents)).toEqual({
       kind: "workspace",
       wsId: "ws-1",
     });
   });
 
   it("returns null for an unknown active workspace", () => {
-    expect(closeHotkeyTarget([], "ws-1", {}, agents, true)).toBeNull();
+    expect(closeHotkeyTarget([], "ws-1", {}, agents)).toBeNull();
   });
 
   it("ignores another workspace's selection", () => {
@@ -94,22 +94,17 @@ describe("closeHotkeyTarget", () => {
       ws("ws-2", [{ id: "pane-3" }]),
     ];
     expect(
-      closeHotkeyTarget(workspaces, "ws-1", { "ws-2": { select: "pane-3" } }, agents, true),
+      closeHotkeyTarget(workspaces, "ws-1", { "ws-2": { select: "pane-3" } }, agents),
     ).toBeNull();
   });
 
   it("never targets a minimized pane — a confirm must not close an off-screen agent", () => {
     const workspaces = [ws("ws-1", [{ id: "pane-1" }, { id: "pane-2" }])];
     const view = { "ws-1": { select: "pane-2", minimized: ["pane-2"] } };
-    expect(closeHotkeyTarget(workspaces, "ws-1", view, agents, true)).toMatchObject({
+    expect(closeHotkeyTarget(workspaces, "ws-1", view, agents)).toMatchObject({
       // The selection sits on the minimized pane; the visible-solo fallback
       // targets what's actually on screen instead.
       paneId: "pane-1",
-    });
-    // With minimize out of force ("none" style / list layout) every pane
-    // shows, so the same selection is a legitimate target.
-    expect(closeHotkeyTarget(workspaces, "ws-1", view, agents, false)).toMatchObject({
-      paneId: "pane-2",
     });
   });
 
@@ -125,7 +120,6 @@ describe("closeHotkeyTarget", () => {
         "ws-1",
         { "ws-1": { minimized: ["pane-1"] } },
         agents,
-        true,
       ),
     ).toEqual({
       kind: "agent",
@@ -143,7 +137,6 @@ describe("closeHotkeyTarget", () => {
         "ws-1",
         { "ws-1": { select: "pane-1", minimized: ["pane-1"] } },
         agents,
-        true,
       ),
     ).toBeNull();
   });
@@ -155,8 +148,8 @@ describe("paneHotkeyTarget", () => {
       ws("ws-1", [{ id: "pane-1" }, { id: "pane-2", agentType: "claude" }]),
     ];
     const viewByWs = { "ws-1": { select: "pane-2" } };
-    const close = closeHotkeyTarget(workspaces, "ws-1", viewByWs, agents, true);
-    expect(paneHotkeyTarget(workspaces, "ws-1", viewByWs, agents, true)).toEqual({
+    const close = closeHotkeyTarget(workspaces, "ws-1", viewByWs, agents);
+    expect(paneHotkeyTarget(workspaces, "ws-1", viewByWs, agents)).toEqual({
       wsId: "ws-1",
       paneId: "pane-2",
       label: "Claude Code 2",
@@ -166,8 +159,8 @@ describe("paneHotkeyTarget", () => {
 
   it("has nothing to act on in an empty workspace — unlike close, which takes the workspace", () => {
     const workspaces = [ws("ws-1", [])];
-    expect(paneHotkeyTarget(workspaces, "ws-1", {}, agents, true)).toBeNull();
-    expect(closeHotkeyTarget(workspaces, "ws-1", {}, agents, true)).toEqual({
+    expect(paneHotkeyTarget(workspaces, "ws-1", {}, agents)).toBeNull();
+    expect(closeHotkeyTarget(workspaces, "ws-1", {}, agents)).toEqual({
       kind: "workspace",
       wsId: "ws-1",
     });
@@ -183,7 +176,6 @@ describe("paneHotkeyTarget", () => {
         "ws-1",
         { "ws-1": { select: "pane-1", minimized: ["pane-1"] } },
         agents,
-        true,
       ),
       // pane-2 is the only visible one, so it becomes the unambiguous target.
     ).toMatchObject({ paneId: "pane-2" });
@@ -191,8 +183,8 @@ describe("paneHotkeyTarget", () => {
 
   it("returns null when several visible panes leave no selection", () => {
     const workspaces = [ws("ws-1", [{ id: "pane-1" }, { id: "pane-2" }])];
-    expect(paneHotkeyTarget(workspaces, "ws-1", {}, agents, true)).toBeNull();
-    expect(paneHotkeyTarget(workspaces, "nope", {}, agents, true)).toBeNull();
+    expect(paneHotkeyTarget(workspaces, "ws-1", {}, agents)).toBeNull();
+    expect(paneHotkeyTarget(workspaces, "nope", {}, agents)).toBeNull();
   });
 
   it("never targets a suspended pane placed in the tray", () => {
@@ -213,7 +205,7 @@ describe("paneHotkeyTarget", () => {
       "ws-1": { select: "pane-1", suspendedTray: ["pane-1"] },
     };
     expect(
-      paneHotkeyTarget(workspaces, "ws-1", view, agents, true),
+      paneHotkeyTarget(workspaces, "ws-1", view, agents),
     ).toMatchObject({ paneId: "pane-2" });
     // Keeping the pane retains the existing behavior: its card is a valid
     // target (the suspend command will then explain that it is stopped).
@@ -223,7 +215,6 @@ describe("paneHotkeyTarget", () => {
         "ws-1",
         { "ws-1": { select: "pane-1" } },
         agents,
-        true,
       ),
     ).toMatchObject({ paneId: "pane-1" });
   });
@@ -234,7 +225,7 @@ describe("maximizeHotkeyTarget", () => {
 
   it("maximizes the selected pane", () => {
     expect(
-      maximizeHotkeyTarget(multi, "ws-1", { "ws-1": { select: "pane-2" } }, true),
+      maximizeHotkeyTarget(multi, "ws-1", { "ws-1": { select: "pane-2" } }),
     ).toEqual({ wsId: "ws-1", paneId: "pane-2" });
   });
 
@@ -242,7 +233,7 @@ describe("maximizeHotkeyTarget", () => {
     expect(
       maximizeHotkeyTarget(multi, "ws-1", {
         "ws-1": { focus: "pane-1", select: "pane-2" },
-      }, true),
+      }),
     ).toEqual({ wsId: "ws-1", paneId: "pane-1" });
   });
 
@@ -250,39 +241,34 @@ describe("maximizeHotkeyTarget", () => {
     expect(
       maximizeHotkeyTarget(multi, "ws-1", {
         "ws-1": { focus: "pane-9", select: "pane-2" },
-      }, true),
+      }),
     ).toEqual({ wsId: "ws-1", paneId: "pane-2" });
   });
 
   it("returns null for a solo pane — it is already full-size", () => {
     const solo = [ws("ws-1", [{ id: "pane-1" }])];
     expect(
-      maximizeHotkeyTarget(solo, "ws-1", { "ws-1": { select: "pane-1" } }, true),
+      maximizeHotkeyTarget(solo, "ws-1", { "ws-1": { select: "pane-1" } }),
     ).toBeNull();
   });
 
   it("returns null when the selection is stale or absent", () => {
-    expect(maximizeHotkeyTarget(multi, "ws-1", {}, true)).toBeNull();
+    expect(maximizeHotkeyTarget(multi, "ws-1", {})).toBeNull();
     expect(
-      maximizeHotkeyTarget(multi, "ws-1", { "ws-1": { select: "pane-9" } }, true),
+      maximizeHotkeyTarget(multi, "ws-1", { "ws-1": { select: "pane-9" } }),
     ).toBeNull();
   });
 
   it("returns null for an unknown active workspace or an empty one", () => {
-    expect(maximizeHotkeyTarget([], "ws-1", {}, true)).toBeNull();
-    expect(maximizeHotkeyTarget([ws("ws-1", [])], "ws-1", {}, true)).toBeNull();
+    expect(maximizeHotkeyTarget([], "ws-1", {})).toBeNull();
+    expect(maximizeHotkeyTarget([ws("ws-1", [])], "ws-1", {})).toBeNull();
   });
 
   it("returns null when minimizing leaves one visible pane — already full-size", () => {
     // Writing a focus here would be masked by the render (visible-solo never
     // maximizes) but spring a surprise maximize on the next restore.
     const view = { "ws-1": { select: "pane-2", minimized: ["pane-1"] } };
-    expect(maximizeHotkeyTarget(multi, "ws-1", view, true)).toBeNull();
-    // With minimize out of force both panes are visible — normal maximize.
-    expect(maximizeHotkeyTarget(multi, "ws-1", view, false)).toEqual({
-      wsId: "ws-1",
-      paneId: "pane-2",
-    });
+    expect(maximizeHotkeyTarget(multi, "ws-1", view)).toBeNull();
   });
 
   it("never picks a minimized pane as the maximize target", () => {
@@ -292,7 +278,6 @@ describe("maximizeHotkeyTarget", () => {
         three,
         "ws-1",
         { "ws-1": { select: "pane-3", minimized: ["pane-3"] } },
-        true,
       ),
     ).toBeNull();
   });
@@ -320,7 +305,6 @@ describe("maximizeHotkeyTarget", () => {
             suspendedTray: ["pane-1"],
           },
         },
-        true,
       ),
     ).toBeNull();
   });

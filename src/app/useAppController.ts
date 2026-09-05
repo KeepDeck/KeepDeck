@@ -18,7 +18,6 @@ import { useDeck } from "./useDeck";
 import { useDragDrop } from "./useDragDrop";
 import { useGitHead } from "./useGitHead";
 import { useMenuHotkeys } from "./useMenuHotkeys";
-import { useMinimizeMode } from "./useMinimizeMode";
 import { useModalRouter } from "./useModalRouter";
 import { setSourceVisibilityProbe } from "./notificationCenter";
 import { useActivityNotifications } from "./useActivityNotifications";
@@ -74,10 +73,7 @@ export function useAppController() {
     [installedPlugins],
   );
   const settings = useSettings();
-  const deckLayout = settings?.deckLayout ?? DEFAULT_SETTINGS.deckLayout;
-  const minimizeStyle = settings?.minimizeStyle ?? DEFAULT_SETTINGS.minimizeStyle;
   const dockMode = settings?.dockMode ?? DEFAULT_SETTINGS.dockMode;
-  const minimizeOn = useMinimizeMode(deckLayout, minimizeStyle);
   const { restoring, frozen } = usePersistence(runtime.deckPersistence);
   const [frozenAck, setFrozenAck] = useState(false);
   const spawnCtx = useSpawnContext(runtime.spawnContext);
@@ -154,8 +150,8 @@ export function useAppController() {
       });
     },
     report: pushAlert,
-    // Looked up per call: mail is an Experimental toggle, and with it off the
-    // roles are still recorded — there is simply nothing running to be told.
+    // Looked up per call: the manager is the service's, and a disposed
+    // service has none to tell.
     announce: (paneId, kind, body) =>
       runtime.mail.current()?.announce(paneId, kind, body),
   });
@@ -227,14 +223,7 @@ export function useAppController() {
   const dockOpen = activeView.dock ?? false;
   const showForm = creating || deck.workspaces.length === 0;
   const selectedPaneId =
-    (active &&
-      resolveSelectedPaneId(
-        active.panes,
-        activeView,
-        deckLayout,
-        minimizeOn,
-      )) ??
-    null;
+    (active && resolveSelectedPaneId(active.panes, activeView)) ?? null;
   const dockTabs = buildDockTabs({
     contributions: pluginDockTabs,
     crashes,
@@ -258,8 +247,6 @@ export function useAppController() {
     activeId: deck.activeId,
     workspaces: deck.workspaces,
     viewByWs: deck.viewByWs,
-    deckLayout,
-    minimizeOn,
     modalOpen,
     dockCovers,
     statsOpen: modal.statsOpen,
@@ -270,8 +257,6 @@ export function useAppController() {
     activeId: deck.activeId,
     workspaces: deck.workspaces,
     viewByWs: deck.viewByWs,
-    deckLayout,
-    minimizeOn,
     modalOpen,
     dockCovers,
     statsOpen: modal.statsOpen,
@@ -308,8 +293,6 @@ export function useAppController() {
       return paneOnScreen(
         ws.panes,
         now.viewByWs[source.workspace.id],
-        now.deckLayout,
-        now.minimizeOn,
         source.paneId,
       );
     });
@@ -336,7 +319,6 @@ export function useAppController() {
         deck.activeId,
         deck.viewByWs,
         agents,
-        minimizeOn,
       );
       if (!target) return;
       if (target.kind === "workspace")
@@ -351,7 +333,6 @@ export function useAppController() {
         deck.activeId,
         deck.viewByWs,
         agents,
-        minimizeOn,
       );
       if (!target) return;
       void orchestrator.suspend(target.wsId, target.paneId).then((outcome) => {
@@ -364,12 +345,10 @@ export function useAppController() {
     },
     toggleMaximize: () => {
       if (modalOpen) return;
-      if (deckLayout === "list") return;
       const target = maximizeHotkeyTarget(
         deck.workspaces,
         deck.activeId,
         deck.viewByWs,
-        minimizeOn,
       );
       if (target) paneViewActions.toggleMaximize(target.wsId, target.paneId);
     },
@@ -407,7 +386,6 @@ export function useAppController() {
     canOpenDialog,
     closeFlow,
     deck,
-    deckLayout,
     dismissAlert,
     dockMode,
     dockOpen,
@@ -426,7 +404,6 @@ export function useAppController() {
     handleCreateWorkspace,
     handleSelectWorkspace,
     info,
-    minimizeStyle,
     openNotification,
     orchestrator,
     paneViewActions,
@@ -455,10 +432,7 @@ export function useAppController() {
     openArtifacts: artifactsDoorOpen(settings)
       ? () => void modal.openArtifacts()
       : null,
-    openTeamDialog:
-      settings?.agentTeams && active
-        ? () => setTeamDialog({ editing: null })
-        : null,
+    openTeamDialog: active ? () => setTeamDialog({ editing: null }) : null,
     dockControl:
       pluginDockTabs.length > 0
         ? {

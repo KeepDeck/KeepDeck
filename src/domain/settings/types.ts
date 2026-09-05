@@ -6,29 +6,6 @@ import type { AgentType } from "../agents";
  * a value is read, stored, or decided.
  */
 
-/** How a workspace's agents are laid out:
- * - `grid` — the square grid (agents can be minimized out of it);
- * - `list` — a vertical list, one agent expanded to its terminal and the rest
- *   folded to bars. A display mode, NOT a way to minimize — every agent stays
- *   in place; the layout just shows one at a time. */
-export type DeckLayout = "grid" | "list";
-
-/** Every deck layout, in picker order; also the allow-list for a stored value. */
-export const DECK_LAYOUTS: readonly DeckLayout[] = ["grid", "list"];
-
-/** How a minimized agent is presented in the GRID layout:
- * - `tray`  — it docks as a chip in a strip along the bottom;
- * - `strip` — it folds to its own header bar, stacked below the grid;
- * - `none`  — minimizing is off (no control, no zone; every agent stays tiled).
- * For tray/strip the other agents stay on the grid and retile to fill the
- * space. The minimized SET is per-workspace runtime state
- * ([`WorkspaceView.minimized`]); this is only the presentation choice. */
-export type MinimizeStyle = "tray" | "strip" | "none";
-
-/** Every minimize style, in the order the settings picker lists them; also the
- * allow-list a stored value is validated against. */
-export const MINIMIZE_STYLES: readonly MinimizeStyle[] = ["tray", "strip", "none"];
-
 /** Where an agent the user suspended stays:
  * - `pane` — keep its tile in the deck and show the existing Resume card;
  * - `tray` — replace the tile with a stand-in in the bottom tray. Restoring
@@ -87,10 +64,6 @@ export interface Settings {
   defaultYolo: boolean;
   /** Scrollback lines kept per terminal pane. */
   scrollback: number;
-  /** How a workspace's agents are laid out (grid / list). */
-  deckLayout: DeckLayout;
-  /** How a minimized agent is presented in the grid layout (tray / strip). */
-  minimizeStyle: MinimizeStyle;
   /** Whether a suspended agent keeps its pane or moves to the bottom tray. */
   suspendedAgentPlacement: SuspendedAgentPlacement;
   /** Whether the dock takes a column beside the deck or floats over it. */
@@ -131,29 +104,7 @@ export interface Settings {
    * come back parked and each starts on its own card. Applies at launch only:
    * flipping it never touches panes that are already running. */
   parkAgentsOnLaunch: boolean;
-  /** MCP server ([F6] → Experimental): expose the command registry to MCP
-   * clients over the local socket. A live switch, not a launch flag: On
-   * brings the socket up, Off tears it down and disconnects its clients.
-   * Default off; opt-in only while the feature is experimental. */
-  mcpServer: boolean;
-  /** Agent teams ([F6] → Experimental): panes can be grouped into a team,
-   * each holding a role, and teammates can write to each other by role.
-   *
-   * Named for the FEATURE rather than for its transport. Messaging is how
-   * teammates reach each other, but this flag also gates roles, addressing
-   * and `team.assign` — calling it "mail" would understate what turning it
-   * off takes away.
-   *
-   * A LIVE switch in both directions, and it gates the whole feature rather
-   * than half of it: Off unregisters the commands (so they stop being MCP
-   * tools) AND stops delivery, or a pane could receive what it has no way
-   * to answer.
-   *
-   * Needs `mcpServer` to be useful: sending is an MCP call, and with the
-   * socket down nothing can make one. Default off; opt-in only while the
-   * feature is experimental. */
-  agentTeams: boolean;
-  /** Fleet artifacts ([F6] → Experimental): agents can publish presentation
+  /** Fleet artifacts ([F6] → General): agents can publish presentation
    * pages (HTML/md) to a workspace-scoped store, served on localhost with
    * live refresh, shared as team review objects. A LIVE switch in both
    * directions: On claims the store root and starts the display server;
@@ -161,10 +112,9 @@ export interface Settings {
    * claim — and unregisters the artifact_* commands, so they stop being
    * MCP tools the same turn.
    *
-   * Needs `mcpServer` to be useful for the TOOL half (the commands are MCP
-   * projections) — the display server and any published artifacts keep
-   * serving with the transport off, only new publishes go dark. Default
-   * off; opt-in only while the feature is experimental. */
+   * The TOOL half rides the deck's MCP socket (the commands are MCP
+   * projections) — while it is down the display server and any published
+   * artifacts keep serving, only new publishes go dark. Default off. */
   artifacts: boolean;
   /** First publish of a NEW artifact opens it in the system browser (the
    * Claude Code artifacts UX; republish never re-opens — the open tab

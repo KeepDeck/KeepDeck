@@ -142,8 +142,6 @@ const props = (overrides: Record<string, unknown> = {}) => ({
   viewByWs: {},
   selectedPaneId: null,
   keyboardFocusEnabled: true,
-  deckLayout: "grid" as const,
-  minimizeStyle: "tray" as const,
   agents: [
     {
       id: "codex",
@@ -246,31 +244,6 @@ describe("DeckStage — exited agents across layouts", () => {
     ).toBeNull();
   });
 
-  it("keeps an exit while folded and exposes the fresh action when expanded", async () => {
-    render({ deckLayout: "list", viewByWs: { "ws-1": { select: "pane-2" } } });
-    const folded = document.querySelector<HTMLElement>("[data-pane-id='pane-1']")!;
-    expect(folded.classList.contains("pane--folded")).toBe(true);
-    act(() => {
-      sessions.exit("pane-1", 1);
-      terminalProps("pane-1").onExit?.(1, false);
-    });
-
-    render({ deckLayout: "list", viewByWs: { "ws-1": { select: "pane-1" } } });
-    const expanded = document.querySelector<HTMLElement>("[data-pane-id='pane-1']")!;
-    expect(expanded.classList.contains("pane--folded")).toBe(false);
-    const actions = expanded.querySelectorAll<HTMLButtonElement>(
-      ".pane__exit-action",
-    );
-    expect(actions).toHaveLength(2);
-
-    await act(async () => actions[1].click());
-    expect(callbacks.onRestartAgent).toHaveBeenCalledWith(
-      "ws-1",
-      "pane-1",
-      "fresh",
-    );
-  });
-
   it("removes a tray popover when a programmatic workspace switch hides its source", () => {
     const viewByWs = { "ws-1": { minimized: ["pane-1"] } };
     render({ workspaces: twoWorkspaces, viewByWs });
@@ -286,23 +259,22 @@ describe("DeckStage — exited agents across layouts", () => {
 
   it("removes a tray tooltip when a programmatic workspace switch hides its source", () => {
     const viewByWs = { "ws-1": { minimized: ["pane-1"] } };
-    render({
-      workspaces: twoWorkspaces,
-      viewByWs,
-      minimizeStyle: "strip",
-    });
+    render({ workspaces: twoWorkspaces, viewByWs });
+    // happy-dom reports zero widths, so the chip lives in the +N popover.
+    act(() =>
+      document
+        .querySelector<HTMLButtonElement>(
+          ".deck__workspace:not(.deck__workspace--hidden) .minimized-overflow__trigger",
+        )!
+        .click(),
+    );
     const item = document.querySelector<HTMLButtonElement>(
-      ".deck__workspace:not(.deck__workspace--hidden) .minimized--bar",
+      "[role='dialog'] .minimized--chip",
     )!;
     act(() => item.focus());
     expect(document.querySelector("[role='tooltip']")).not.toBeNull();
 
-    render({
-      workspaces: twoWorkspaces,
-      viewByWs,
-      minimizeStyle: "strip",
-      activeId: "ws-2",
-    });
+    render({ workspaces: twoWorkspaces, viewByWs, activeId: "ws-2" });
     expect(document.querySelector("[role='tooltip']")).toBeNull();
   });
 });
@@ -487,23 +459,6 @@ describe("DeckStage — a maximized pane minimizes the rest", () => {
     expect(callbacks.onToggleMinimize).not.toHaveBeenCalled();
   });
 
-  it("switches the spotlight when a maximize-hidden entry is restored (strip)", () => {
-    render({
-      minimizeStyle: "strip",
-      viewByWs: { "ws-1": { focus: "pane-1" } },
-    });
-    const bars = document.querySelectorAll<HTMLButtonElement>(
-      ".deck__folds .minimized--bar",
-    );
-    expect(bars).toHaveLength(1);
-    expect(bars[0].textContent).toContain("Codex 2");
-
-    act(() => bars[0].click());
-    expect(callbacks.onSelectPane).toHaveBeenCalledWith("ws-1", "pane-2");
-    expect(callbacks.onToggleFocus).toHaveBeenCalledWith("ws-1", "pane-2");
-    expect(callbacks.onToggleMinimize).not.toHaveBeenCalled();
-  });
-
   it("mixes explicit minimizes and maximize-hidden panes in pane order, each with its own restore", () => {
     render({
       workspaces: [
@@ -545,19 +500,6 @@ describe("DeckStage — a maximized pane minimizes the rest", () => {
     expect(callbacks.onToggleFocus).toHaveBeenCalledWith("ws-1", "pane-3");
   });
 
-  it("leaves the none style without any minimize zone, maximized or not", () => {
-    render({
-      minimizeStyle: "none",
-      viewByWs: { "ws-1": { focus: "pane-1" } },
-    });
-    expect(
-      document
-        .querySelector<HTMLElement>("[data-pane-id='pane-2']")!
-        .classList.contains("pane--hidden"),
-    ).toBe(true);
-    expect(document.querySelector(".deck__tray")).toBeNull();
-    expect(document.querySelector(".deck__folds")).toBeNull();
-  });
 });
 
 describe("DeckStage — status frames across layouts", () => {
@@ -588,22 +530,6 @@ describe("DeckStage — status frames across layouts", () => {
 
   const reportEdge = (paneId: string, edge: AgentStatusEvent) =>
     act(() => statusTracker.report(paneId, { agent: "codex", edge }));
-
-  it("frames working and done on list rows — an accordion row is not the stage", () => {
-    render({ deckLayout: "list", viewByWs: { "ws-1": { select: "pane-2" } } });
-    reportEdge("pane-1", { kind: "turn-start", at: 1 });
-    reportEdge("pane-2", { kind: "turn-end", at: 1 });
-
-    // Both rows keep the frames a gridded pane wears, and neither wears a
-    // selection border — expansion itself marks the cursor's row.
-    expect(paneEl("pane-1").classList.contains("pane--frame-working")).toBe(
-      true,
-    );
-    expect(paneEl("pane-2").classList.contains("pane--frame-done")).toBe(true);
-    expect(paneEl("pane-2").classList.contains("pane--frame-selected")).toBe(
-      false,
-    );
-  });
 
   it("keeps a stage-filling grid pane's rim for attention alone", () => {
     // Maximized by hand.

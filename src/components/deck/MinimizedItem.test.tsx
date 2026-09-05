@@ -44,7 +44,6 @@ describe("MinimizedItem", () => {
     root = createRoot(document.getElementById("host")!);
     onClick.mockClear();
     render({
-      variant: "chip",
       paneId: "pane-1",
       title: "A deliberately long agent title",
       gitBadge: {
@@ -64,7 +63,6 @@ describe("MinimizedItem", () => {
 
   it("places the stopped marker right of the title, before the badges", () => {
     render({
-      variant: "bar",
       paneId: "pane-1",
       title: "Claude 1",
       label: "Restore Claude 1",
@@ -89,7 +87,6 @@ describe("MinimizedItem", () => {
     expect(document.querySelector(".minimized__yolo")).toBeNull();
 
     render({
-      variant: "bar",
       paneId: "pane-1",
       title: "Claude 1",
       label: "Restore Claude 1",
@@ -231,7 +228,6 @@ describe("MinimizedItem", () => {
     );
     act(() => statusTracker.clear("pane-1"));
     render({
-      variant: "chip",
       paneId: "pane-1",
       title: "Claude 1",
       label: "Restore Claude 1",

@@ -5,28 +5,7 @@ vi.mock("../../ipc/log", () => ({
   describeError: (e: unknown) => String(e),
 }));
 
-import {
-  createMcpServerPolicy,
-  type McpSettingsPort,
-  type McpTransportPort,
-} from "./policy";
-
-function settingsPort(initial: boolean | null) {
-  let value = initial;
-  const listeners = new Set<() => void>();
-  const settings: McpSettingsPort = {
-    mcpServer: () => value,
-    subscribe(listener) {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-  };
-  const set = (next: boolean | null) => {
-    value = next;
-    for (const listener of [...listeners]) listener();
-  };
-  return { settings, set };
-}
+import { createMcpServerPolicy, type McpTransportPort } from "./policy";
 
 function transportPort() {
   const enable = vi.fn(() => Promise.resolve("/sock"));
@@ -38,174 +17,107 @@ function transportPort() {
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 describe("createMcpServerPolicy", () => {
-  it("enables at boot when the setting is already on", async () => {
-    const { settings } = settingsPort(true);
-    const { transport, enable } = transportPort();
-    createMcpServerPolicy(settings, transport, () => {});
+  it("enables as soon as it exists — there is no setting to wait for", async () => {
+    const { transport, enable, disable } = transportPort();
+    createMcpServerPolicy(transport, () => {});
     await flush();
     expect(enable).toHaveBeenCalledTimes(1);
-  });
-
-  it("does nothing before the settings load settles, then applies", async () => {
-    const { settings, set } = settingsPort(null);
-    const { transport, enable, disable } = transportPort();
-    createMcpServerPolicy(settings, transport, () => {});
-    await flush();
-    expect(enable).not.toHaveBeenCalled();
     expect(disable).not.toHaveBeenCalled();
-    set(true);
-    await flush();
-    expect(enable).toHaveBeenCalledTimes(1);
   });
 
-  it("follows the toggle both ways and ignores same-value notifications", async () => {
-    const { settings, set } = settingsPort(false);
-    const { transport, enable, disable } = transportPort();
-    createMcpServerPolicy(settings, transport, () => {});
-    await flush();
-    // Off at boot still reconciles: the backend's state is unknown to a
-    // fresh webview (a reload may have left the socket up), and disable is
-    // idempotent — so the policy asserts Off rather than assuming it.
-    expect(disable).toHaveBeenCalledTimes(1);
-    set(true);
-    set(true);
-    await flush();
-    expect(enable).toHaveBeenCalledTimes(1);
-    set(false);
-    await flush();
-    expect(disable).toHaveBeenCalledTimes(2);
-  });
-
-  it("serializes a fast On→Off flip as enable-then-disable", async () => {
-    const { settings, set } = settingsPort(null);
-    let releaseEnable!: () => void;
+  it("ensure is a no-op while the enable is in flight or confirmed", async () => {
+    let release!: () => void;
     const enable = vi.fn(
-      () => new Promise<void>((resolve) => (releaseEnable = resolve)),
+      () => new Promise<void>((resolve) => (release = resolve)),
     );
-    const disable = vi.fn(() => Promise.resolve());
-    createMcpServerPolicy(settings, { enable, disable }, () => {});
-    set(true);
-    set(false);
+    const policy = createMcpServerPolicy(
+      { enable, disable: vi.fn(() => Promise.resolve()) },
+      () => {},
+    );
+    policy.ensure(); // in flight
     await flush();
-    // The disable must WAIT for the in-flight enable — interleaving would
-    // let the backend land in the wrong final state.
     expect(enable).toHaveBeenCalledTimes(1);
-    expect(disable).not.toHaveBeenCalled();
-    releaseEnable();
+    release();
     await flush();
-    expect(disable).toHaveBeenCalledTimes(1);
+    policy.ensure(); // confirmed
+    await flush();
+    expect(enable).toHaveBeenCalledTimes(1);
   });
 
-  it("retries on the next event after a failed call", async () => {
-    const { settings, set } = settingsPort(null);
+  it("retries on ensure after a failed enable", async () => {
     const enable = vi
       .fn<() => Promise<unknown>>()
       .mockRejectedValueOnce(new Error("no home"))
       .mockResolvedValue("/sock");
-    const disable = vi.fn(() => Promise.resolve());
-    createMcpServerPolicy(settings, { enable, disable }, () => {});
-    set(true);
+    const policy = createMcpServerPolicy(
+      { enable, disable: vi.fn(() => Promise.resolve()) },
+      () => {},
+    );
     await flush();
     expect(enable).toHaveBeenCalledTimes(1);
-    // Same value, new event: the failure cleared the applied mark, so the
-    // policy tries again rather than trusting a state the backend never
-    // confirmed.
-    set(true);
+    // The failure cleared the applied mark, so the policy tries again rather
+    // than trusting a state the backend never confirmed.
+    policy.ensure();
     await flush();
     expect(enable).toHaveBeenCalledTimes(2);
   });
 
-  it("an old call's failure cannot clear a mark newer events re-established", async () => {
-    const { settings, set } = settingsPort(null);
-    let failFirst!: (e: Error) => void;
-    const enable = vi
-      .fn<() => Promise<unknown>>()
-      .mockImplementationOnce(
-        () => new Promise((_resolve, reject) => (failFirst = reject)),
-      )
-      .mockResolvedValue("/sock");
-    const disable = vi.fn(() => Promise.resolve());
-    createMcpServerPolicy(settings, { enable, disable }, () => {});
-    set(true); // enable#1, deferred
-    set(false); // disable, queued
-    set(true); // enable#2, queued
-    await flush(); // let the chain reach enable#1 so failFirst exists
-    failFirst(new Error("boom"));
-    await flush();
-    // The stale failure belongs to epoch 1; the mark belongs to epoch 3 —
-    // a same-value event must NOT re-issue a third enable.
-    set(true);
-    await flush();
-    expect(enable).toHaveBeenCalledTimes(2);
-  });
-
-  it("reports each settled transition to the given sink", async () => {
-    const { settings, set } = settingsPort(null);
+  it("reports each settled enable to the given sink", async () => {
     const transitions: unknown[] = [];
     const enable = vi
       .fn<() => Promise<unknown>>()
-      .mockResolvedValueOnce("/sock")
-      .mockRejectedValueOnce(new Error("taken"));
-    createMcpServerPolicy(
-      settings,
+      .mockRejectedValueOnce(new Error("taken"))
+      .mockResolvedValueOnce("/sock");
+    const policy = createMcpServerPolicy(
       { enable, disable: vi.fn(() => Promise.resolve()) },
       (t) => transitions.push(t),
     );
-    set(true);
     await flush();
-    set(false);
-    await flush();
-    set(true); // this enable rejects
+    policy.ensure();
     await flush();
     expect(transitions).toEqual([
-      { desired: true, ok: true, detail: "/sock" },
-      { desired: false, ok: true, detail: null },
       // detail carries this file's describeError mock rendering.
-      { desired: true, ok: false, detail: "Error: taken" },
+      { ok: false, detail: "Error: taken" },
+      { ok: true, detail: "/sock" },
     ]);
   });
 
-  it("stops reacting after dispose", async () => {
-    const { settings, set } = settingsPort(null);
-    const { transport, enable } = transportPort();
-    const policy = createMcpServerPolicy(settings, transport, () => {});
-    policy.dispose();
-    set(true);
+  it("a confirmation without a path is reported as such, not as a socket", async () => {
+    const transitions: unknown[] = [];
+    createMcpServerPolicy(
+      {
+        enable: vi.fn(() => Promise.resolve(undefined)),
+        disable: vi.fn(() => Promise.resolve()),
+      },
+      (t) => transitions.push(t),
+    );
     await flush();
-    expect(enable).not.toHaveBeenCalled();
+    expect(transitions).toEqual([{ ok: true, detail: null }]);
   });
 
-  it("a settings notification that outlives dispose cannot re-enable", async () => {
-    // A notifier iterating a SNAPSHOT of its listeners can still call a
-    // listener disposed earlier in the same pass; queueing an enable then
-    // would undo the final disable.
-    let value: boolean | null = null;
-    let notify!: () => void;
-    const settings: McpSettingsPort = {
-      mcpServer: () => value,
-      subscribe(listener) {
-        notify = listener;
-        return () => {};
-      },
-    };
-    const { transport, enable } = transportPort();
-    const policy = createMcpServerPolicy(settings, transport, () => {});
+  it("ensure after dispose enables nothing — dispose is final", async () => {
+    const enable = vi
+      .fn<() => Promise<unknown>>()
+      .mockRejectedValueOnce(new Error("taken"))
+      .mockResolvedValue("/sock");
+    const policy = createMcpServerPolicy(
+      { enable, disable: vi.fn(() => Promise.resolve()) },
+      () => {},
+    );
+    await flush(); // the first enable failed: a retry WOULD be due
     policy.dispose({ disable: true });
-    value = true;
-    notify();
+    policy.ensure();
     await flush();
-    expect(enable).not.toHaveBeenCalled();
+    expect(enable).toHaveBeenCalledTimes(1);
   });
 
   it("dispose({disable}) queues the final disable BEHIND an in-flight enable", async () => {
-    const { settings, set } = settingsPort(null);
     let releaseEnable!: () => void;
     const enable = vi.fn(
       () => new Promise<void>((resolve) => (releaseEnable = resolve)),
     );
     const disable = vi.fn(() => Promise.resolve());
-    const policy = createMcpServerPolicy(settings, { enable, disable }, () => {});
-    set(true);
+    const policy = createMcpServerPolicy({ enable, disable }, () => {});
     await flush(); // the enable is now in flight
     policy.dispose({ disable: true });
     await flush();
@@ -215,5 +127,14 @@ describe("createMcpServerPolicy", () => {
     releaseEnable();
     await flush();
     expect(disable).toHaveBeenCalledTimes(1);
+  });
+
+  it("dispose without the option leaves the socket alone", async () => {
+    const { transport, disable } = transportPort();
+    const policy = createMcpServerPolicy(transport, () => {});
+    await flush();
+    policy.dispose();
+    await flush();
+    expect(disable).not.toHaveBeenCalled();
   });
 });

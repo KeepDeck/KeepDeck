@@ -10,13 +10,12 @@ const invocation: McpConnection = {
 
 let socket: string | null;
 
-/** The ports every construction needs. `plant`/`retract` are required by
- * design — the guarded form must be the only form — so a test that does not
- * care still has to say what happens when something is planted. */
+/** The ports every construction needs. `plant` is required by design — the
+ * guarded form must be the only form — so a test that does not care still
+ * has to say what happens when something is planted. */
 const ports = {
   panesIn: () => 1,
   plant: async () => ({ armed: [], refused: [] }),
-  retract: async () => true,
 };
 
 /** A claude pane — the argv path. kimi's file path has its own tests. */
@@ -55,30 +54,20 @@ describe("the MCP injection", () => {
     ]);
   });
 
-  it("reports a retract as a RETRACT, never as an arming", async () => {
-    // One name for both said a teardown had armed something. The scrub is
-    // the same — a root's standing refusal goes with the config it stood
-    // beside — but the events are not, and only the caller can tell the
-    // consumer which one happened.
+  it("reports where the config landed", async () => {
+    // A root's standing refusal goes with the config that now stands there
+    // — and only the caller can tell the consumer it happened.
     const onArmed = vi.fn();
-    const onRetracted = vi.fn();
     const injection = createMcpInjection({
       ...ports,
       socket: () => socket,
       connection: async () => invocation,
       plant: async () => ({ armed: ["/repo"], refused: [] }),
       onArmed,
-      onRetracted,
     });
     const access = await injection.access(kimi("/repo"));
     await access.deliver();
     expect(onArmed).toHaveBeenCalledWith(["/repo"]);
-    onArmed.mockClear();
-
-    await injection.retract();
-
-    expect(onRetracted).toHaveBeenCalledWith(["/repo"]);
-    expect(onArmed).not.toHaveBeenCalled();
   });
 
   it("injects NOTHING while the transport is not confirmed up", async () => {
@@ -92,22 +81,6 @@ describe("the MCP injection", () => {
     expect((await injection.access(target)).servers).toEqual([]);
     // And it does not even ask the backend how to connect.
     expect(connection).not.toHaveBeenCalled();
-  });
-
-  it("injects nothing when the toggle goes Off while the backend answers", async () => {
-    // The await is a window: a def minted after the socket went away would be
-    // handed to a pane whose server no longer exists.
-    let release!: (c: McpConnection) => void;
-    const connection = vi.fn(
-      () => new Promise<McpConnection>((resolve) => (release = resolve)),
-    );
-    const injection = createMcpInjection({ ...ports, socket: () => socket, connection });
-
-    const pending = injection.access(target);
-    socket = null;
-    release(invocation);
-
-    expect((await pending).servers).toEqual([]);
   });
 
   it("asks for an invocation that NAMES this pane", async () => {
@@ -166,75 +139,6 @@ describe("the MCP injection", () => {
     });
   });
 
-  it("plants nothing when the transport went down while the plan was built", async () => {
-    // The retract that Off fires has already run by then, so a config planted
-    // after it is one nothing takes back — it would point kimi at a socket
-    // that no longer exists until the next sweep.
-    const plant = vi.fn(async () => ({ armed: ["/repo"], refused: [] }));
-    const injection = createMcpInjection({
-      ...ports,
-      socket: () => socket,
-      connection: async () => invocation,
-      plant,
-    });
-
-    const access = await injection.access(kimi("/repo"));
-    socket = null;
-    await access.deliver();
-
-    expect(plant).not.toHaveBeenCalled();
-  });
-
-  it("waits for the Off cleanup before delivery resolves when the write was queued", async () => {
-    // The write waits in the worktree owner's queue and can be a whole
-    // teardown late. `retract()` reads the planted set and clears it, so a
-    // root recorded after that read is one it never saw — the config would sit
-    // in the user's directory naming a socket that is gone.
-    let releaseRetract!: () => void;
-    let retractStarted!: () => void;
-    const retractReady = new Promise<void>((resolve) => {
-      retractStarted = resolve;
-    });
-    const retractRelease = new Promise<void>((resolve) => {
-      releaseRetract = resolve;
-    });
-    const retract = vi.fn(async (_roots: string[]) => {
-      retractStarted();
-      await retractRelease;
-      return true;
-    });
-    let release!: () => void;
-    const queued = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const injection = createMcpInjection({
-      ...ports,
-      socket: () => socket,
-      connection: async () => invocation,
-      plant: async (_ws, root) => {
-        await queued;
-        return { armed: [root], refused: [] };
-      },
-      retract,
-    });
-
-    const delivering = (await injection.access(kimi("/repo"))).deliver();
-    socket = null;
-    await injection.retract(); // sees nothing planted yet
-    release();
-    let delivered = false;
-    void delivering.then(() => {
-      delivered = true;
-    });
-    await retractReady;
-    await Promise.resolve();
-    expect(delivered).toBe(false);
-    releaseRetract();
-    await delivering;
-
-    expect(retract).toHaveBeenCalledWith(["/repo"]);
-  });
-
   it("plants an ANONYMOUS config when the directory holds more than one pane", async () => {
     // kimi's config is one file per directory. Two panes running there would
     // both announce whichever secret was written last, so the journal would
@@ -269,49 +173,6 @@ describe("the MCP injection", () => {
     await injection.access({ ...target, client: "pane-secret" });
 
     expect(named).toHaveBeenCalledWith("pane-secret");
-  });
-
-  it("takes every planted config back when the transport goes down", async () => {
-    // Off means the socket is gone; a config still naming it would point kimi
-    // at nothing, and the settings page promises the toggle tears it down.
-    const retract = vi.fn(async (_roots: string[]) => true);
-    const injection = createMcpInjection({
-      ...ports,
-      socket: () => socket,
-      connection: async () => invocation,
-      plant: async (_ws, root) => ({ armed: [root], refused: [] }),
-      retract,
-    });
-    await (await injection.access(kimi("/a"))).deliver();
-    await (await injection.access(kimi("/b"))).deliver();
-
-    await injection.retract();
-
-    expect(retract).toHaveBeenCalledWith(["/a", "/b"]);
-    // And a second retract has nothing left to say.
-    await injection.retract();
-    expect(retract).toHaveBeenCalledTimes(1);
-  });
-
-  it("does not claim a root the planting REFUSED", async () => {
-    // A directory holding the user's own config was never ours; retracting it
-    // would take away a file we did not write.
-    const retract = vi.fn(async (_roots: string[]) => true);
-    const injection = createMcpInjection({
-      ...ports,
-      socket: () => socket,
-      connection: async () => invocation,
-      plant: async (_ws, root) => ({
-        armed: [],
-        refused: [{ root, reason: "the directory keeps its own mcp.json" }],
-      }),
-      retract,
-    });
-
-    await (await injection.access(kimi("/repo"))).deliver();
-    await injection.retract();
-
-    expect(retract).not.toHaveBeenCalled();
   });
 
   it("plants nothing for kimi while the transport is down", async () => {

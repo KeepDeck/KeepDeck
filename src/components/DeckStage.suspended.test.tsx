@@ -94,8 +94,6 @@ const props = (overrides: Record<string, unknown> = {}) => ({
   viewByWs: {},
   selectedPaneId: null,
   keyboardFocusEnabled: true,
-  deckLayout: "grid" as const,
-  minimizeStyle: "tray" as const,
   agents: [
     {
       id: "codex",
@@ -256,33 +254,11 @@ describe("DeckStage — suspended agents", () => {
     expect(document.querySelector(".deck__tray")).toBeNull();
   });
 
-  it("applies suspended tray placement in List and expands the live sibling", () => {
+  it("uses hidden wording when minimized and suspended agents share the tray", () => {
+    // One shelf for both: naming it Suspended would call a merely minimized
+    // agent stopped, naming it Minimized would hide that one has no process.
     render({
       workspaces: suspended,
-      deckLayout: "list",
-      viewByWs: {
-        "ws-1": { select: "pane-1", suspendedTray: ["pane-1"] },
-      },
-    });
-    expect(
-      document
-        .querySelector<HTMLElement>("[data-pane-id='pane-1']")!
-        .classList.contains("pane--hidden"),
-    ).toBe(true);
-    expect(
-      document
-        .querySelector<HTMLElement>("[data-pane-id='pane-2']")!
-        .classList.contains("pane--folded"),
-    ).toBe(false);
-    expect(document.querySelector(".deck__tray-label")?.textContent).toBe(
-      "Suspended · 1",
-    );
-  });
-
-  it("uses hidden wording for a mixed Strip and suspended Tray empty state", () => {
-    render({
-      workspaces: suspended,
-      minimizeStyle: "strip",
       viewByWs: {
         "ws-1": {
           minimized: ["pane-2"],
@@ -293,11 +269,8 @@ describe("DeckStage — suspended agents", () => {
     expect(document.querySelector(".deck__grid-empty-title")?.textContent).toBe(
       "Every agent is hidden",
     );
-    expect(document.querySelectorAll(".deck__folds .minimized--bar")).toHaveLength(
-      1,
-    );
     expect(document.querySelector(".deck__tray-label")?.textContent).toBe(
-      "Suspended · 1",
+      "Hidden · 2",
     );
   });
 
@@ -318,18 +291,14 @@ describe("DeckStage — suspended agents", () => {
   it("marks a durable stopped stand-in", () => {
     render({
       workspaces: suspended,
-      minimizeStyle: "strip",
       viewByWs: { "ws-1": { minimized: ["pane-1"] } },
     });
-    expect(document.querySelector(".minimized--bar .minimized__stopped")).not.toBeNull();
+    expect(openOnlyTrayEntry().querySelector(".minimized__stopped")).not.toBeNull();
   });
 
   it("leaves a running stand-in unmarked", () => {
-    render({
-      minimizeStyle: "strip",
-      viewByWs: { "ws-1": { minimized: ["pane-1"] } },
-    });
-    expect(document.querySelector(".minimized--bar .minimized__stopped")).toBeNull();
+    render({ viewByWs: { "ws-1": { minimized: ["pane-1"] } } });
+    expect(openOnlyTrayEntry().querySelector(".minimized__stopped")).toBeNull();
   });
 
   it("does not mark a pane that is still waking", () => {
@@ -347,10 +316,9 @@ describe("DeckStage — suspended agents", () => {
     ];
     render({
       workspaces: waking,
-      minimizeStyle: "strip",
       viewByWs: { "ws-1": { minimized: ["pane-1"] } },
     });
-    expect(document.querySelector(".minimized--bar .minimized__stopped")).toBeNull();
+    expect(openOnlyTrayEntry().querySelector(".minimized__stopped")).toBeNull();
   });
 
   it("marks a waking pane that is blocked on a missing folder", () => {
@@ -369,10 +337,9 @@ describe("DeckStage — suspended agents", () => {
     render({
       workspaces: waking,
       idleBlocked: { "pane-1": "/gone/worktree" },
-      minimizeStyle: "strip",
       viewByWs: { "ws-1": { minimized: ["pane-1"] } },
     });
-    expect(document.querySelector(".minimized--bar .minimized__stopped")).not.toBeNull();
+    expect(openOnlyTrayEntry().querySelector(".minimized__stopped")).not.toBeNull();
   });
 
   it("shows only a local suspended pane's own session id", () => {

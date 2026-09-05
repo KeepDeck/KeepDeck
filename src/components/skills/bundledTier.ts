@@ -37,5 +37,5 @@ export const BUNDLED_NOTICE =
 export function bundledUnlockHint(artifactsOn: boolean): string | undefined {
   return artifactsOn
     ? undefined
-    : "This skill arms agents only while the artifacts experiment is on (Settings → Experimental).";
+    : "This skill arms agents only while Fleet artifacts are on (Settings → General).";
 }

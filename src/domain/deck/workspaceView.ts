@@ -62,15 +62,14 @@ export function hidePaneView(
     result = setViewField(result, wsId, "focus", undefined);
   }
   const selected = view?.select;
-  // A suspended-tray transition applies in both layouts, while manual
-  // minimizes are a Grid-only concern. When adding suspended placement we
-  // therefore repair selection only against that always-hidden set: dormant
-  // Grid minimizes must not move selection off a pane that is visible in List.
-  const hidden = new Set(
-    field === "minimized"
-      ? [...next, ...(view?.suspendedTray ?? [])]
-      : next,
-  );
+  // Both placements hide a pane from the grid, so selection is repaired
+  // against their union — the set this pane just joined, and the other one.
+  const hidden = new Set([
+    ...next,
+    ...(field === "minimized"
+      ? (view?.suspendedTray ?? [])
+      : (view?.minimized ?? [])),
+  ]);
   if (selected !== undefined && hidden.has(selected)) {
     const workspace = workspaces.find((candidate) => candidate.id === wsId);
     const firstVisible = workspace?.panes.find((pane) => !hidden.has(pane.id))?.id;

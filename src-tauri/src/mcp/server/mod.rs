@@ -2,11 +2,12 @@
 //!
 //! The command registry's external transport listens on ONE unix socket at
 //! `<keepdeck_home>/mcp/mcp.sock`. This module owns that socket's life: the
-//! settings toggle maps 1:1 onto [`McpServer::enable`] / [`McpServer::disable`],
-//! so On means "the file exists and accepts connections" and Off means "the
-//! file is gone and every client was disconnected" — while the app keeps
-//! running. A kill leaves the file behind; the next enable clears it (see
-//! [`start_at`]).
+//! webview's MCP service maps 1:1 onto [`McpServer::enable`] /
+//! [`McpServer::disable`] — up means "the file exists and accepts
+//! connections", down means "the file is gone and every client was
+//! disconnected" — while the app keeps running (a page reload is one
+//! disable and one enable). A kill leaves the file behind; the next enable
+//! clears it (see [`start_at`]).
 //!
 //! What travels over a connection is one JSON line per message (the MCP stdio
 //! framing, verbatim — the bundled shim forwards bytes untouched). Each line
@@ -49,7 +50,7 @@ pub(crate) type LineHandler = Arc<dyn Fn() -> ConnectionHandler + Send + Sync>;
 /// removes its own entry when it ends.
 pub(super) type Conns = Arc<Mutex<HashMap<u64, UnixStream>>>;
 
-/// Managed state: the socket server, present while the toggle is on.
+/// Managed state: the socket server, present while a webview holds it up.
 #[derive(Default)]
 pub struct McpServer {
     inner: Mutex<Option<Running>>,
@@ -316,10 +317,10 @@ mod tests {
 
     #[test]
     fn a_claim_held_only_in_passing_does_not_refuse_a_restart() {
-        // The whole start path, not just `claim`: a user flipping the
-        // toggle Off then On lands in the window where a forked child still
-        // holds the released claim, and must not be told another instance
-        // owns the socket.
+        // The whole start path, not just `claim`: a page reload's disable
+        // then enable lands in the window where a forked child still holds
+        // the released claim, and must not be told another instance owns
+        // the socket.
         let path = temp_sock();
         let holder = File::create(path.parent().unwrap().join(LOCK_FILE)).expect("lock file");
         holder.try_lock().expect("hold the claim");
@@ -414,7 +415,7 @@ mod tests {
         let served = server.enable(&path, upper()).expect("re-enable");
         assert_eq!(served, path);
         // A second enable reports the running socket instead of failing —
-        // the toggle's On is a state, not an action counter.
+        // an enable asserts a state, it is not an action counter.
         let again = server.enable(&path, upper()).expect("enable while on");
         assert_eq!(again, path);
         assert_eq!(roundtrip(&path, "back"), "BACK");

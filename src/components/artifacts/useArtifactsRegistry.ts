@@ -110,8 +110,8 @@ export function useArtifactsRegistry(
     artifactChanges.revision,
   );
   // Why the store is shut, when it is. The store cannot say — it knows
-  // only that it is closed, and answers everyone with "turn the
-  // experiment on first", which is exactly wrong for a user who did.
+  // only that it is closed, and answers everyone with "turn Fleet
+  // artifacts on first", which is exactly wrong for a user who did.
   const enableRefusal = refusalOf(
     useSyncExternalStore(
       artifactsEnableStatus.subscribe,

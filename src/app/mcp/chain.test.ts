@@ -30,7 +30,6 @@ describe("mcp webview chain", () => {
     let deliver: ((request: McpRequest) => void) | null = null;
     const respond = vi.fn((_id: number, _reply: string) => Promise.resolve());
     createMcpService(
-      { mcpServer: () => null, subscribe: () => () => {} },
       {
         registry,
         transport: {
@@ -46,7 +45,6 @@ describe("mcp webview chain", () => {
         },
         panesIn: () => 1,
         plant: async () => ({ armed: [], refused: [] }),
-        retract: async () => true,
         identitySource: () =>
           Promise.resolve({ name: "KeepDeck", version: "1.0.0" }),
       },

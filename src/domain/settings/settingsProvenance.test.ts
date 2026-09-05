@@ -25,7 +25,7 @@ describe("a load reports what it discarded", () => {
           version: 9,
           scrollback: "lots", // not a number
           dockMode: "sideways", // outside the allow-list
-          mcpServer: true, // fine
+          artifacts: true, // fine
         }),
       ).degraded,
     ).toEqual(["scrollback", "dockMode"]);

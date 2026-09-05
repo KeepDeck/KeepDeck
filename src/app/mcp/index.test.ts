@@ -19,21 +19,7 @@ const fileFed = {
   client: "s",
 };
 
-function harness(opts: { initial?: boolean | null } = {}) {
-  let value = opts.initial ?? null;
-  const listeners = new Set<() => void>();
-  const settings = {
-    mcpServer: () => value,
-    subscribe(listener: () => void) {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-  };
-  const set = (next: boolean | null) => {
-    value = next;
-    for (const listener of [...listeners]) listener();
-  };
-
+function harness() {
   let deliver: ((request: McpRequest) => void) | null = null;
   const respond = vi.fn((_id: number, _reply: string) => Promise.resolve());
   const pumpPorts = {
@@ -52,7 +38,6 @@ function harness(opts: { initial?: boolean | null } = {}) {
     pumpPorts,
     panesIn: () => 1,
     plant: async () => ({ armed: [], refused: [] }),
-    retract: async () => true,
     identitySource: () =>
       Promise.resolve({ name: "KeepDeck", version: "9.9.9" }),
     connection: vi.fn(() =>
@@ -60,8 +45,6 @@ function harness(opts: { initial?: boolean | null } = {}) {
     ),
   };
   return {
-    settings,
-    set,
     deps,
     registry,
     enable,
@@ -77,14 +60,14 @@ describe("createMcpService", () => {
     // Round 2 proved the old ordering pin vacuous (any construction order
     // passed it). This one discriminates: while the subscription promise is
     // held open, the policy must not exist and no enable may fire — even
-    // with the setting already On.
-    const h = harness({ initial: true });
+    // though the transport is always wanted up.
+    const h = harness();
     let register!: (un: () => void) => void;
     h.deps.pumpPorts = {
       subscribe: () => new Promise((resolve) => (register = resolve)),
       respond: vi.fn((_id: number, _reply: string) => Promise.resolve()),
     };
-    createMcpService(h.settings, h.deps);
+    createMcpService(h.deps);
     await flush();
     expect(h.enable).not.toHaveBeenCalled();
     register(() => {});
@@ -92,39 +75,35 @@ describe("createMcpService", () => {
     expect(h.enable).toHaveBeenCalledTimes(1);
   });
 
-  it("status reflects what the backend CONFIRMED, not the setting", async () => {
+  it("status reflects what the backend CONFIRMED, once it has", async () => {
     const h = harness();
-    const service = createMcpService(h.settings, h.deps);
+    const service = createMcpService(h.deps);
     const socketAndError = () => {
       const { socket, error, refused } = service.status();
       return { socket, error, refused };
     };
+    // Nothing is assumed before the backend answers.
     expect(socketAndError()).toEqual({ socket: null, error: null, refused: [] });
 
     const seen: string[] = [];
     service.subscribe(() => seen.push(service.status().socket ?? "-"));
-    h.set(true);
     await flush();
     expect(socketAndError()).toEqual({
       socket: "/home/mcp.sock",
       error: null,
       refused: [],
     });
-    h.set(false);
-    await flush();
-    expect(socketAndError()).toEqual({ socket: null, error: null, refused: [] });
-    // Two settled transitions, plus the connect lookup that lands under the
-    // first one — the socket it publishes is the same either way.
-    expect(seen).toEqual(["/home/mcp.sock", "/home/mcp.sock", "-"]);
+    // One settled enable, plus the connect lookup that lands under it — the
+    // socket it publishes is the same either way.
+    expect(seen).toEqual(["/home/mcp.sock", "/home/mcp.sock"]);
   });
 
-  it("looks the connect invocation up itself, and drops it on Off", async () => {
+  it("looks the connect invocation up itself, anonymously", async () => {
     // It is a fact about the RUNNING transport, not about whichever settings
     // surface happens to be open: a component that fetched it would re-fetch
     // on every mount and hold a copy nothing else could see.
     const h = harness();
-    const service = createMcpService(h.settings, h.deps);
-    h.set(true);
+    const service = createMcpService(h.deps);
     await flush();
     expect(service.status().connect).toEqual({
       command: "/bin/keepdeck",
@@ -132,24 +111,20 @@ describe("createMcpService", () => {
     });
     // Anonymous: there is no pane behind a client the user wires by hand.
     expect(h.deps.connection).toHaveBeenCalledWith();
-
-    h.set(false);
-    await flush();
-    expect(service.status().connect).toBeNull();
   });
 
   it("re-asks for the connect line when the first attempt left none", async () => {
-    // It fires once per settled transition, so a request that errored or got
-    // lost stayed lost until the user toggled the transport off and on — the
-    // component used to re-fetch on mount and that self-healing was lost when
-    // the lookup moved in here.
-    const h = harness({ initial: true });
+    // It fires once per settled enable, so a request that errored or got
+    // lost would stay lost for the page's life — the component used to
+    // re-fetch on mount and that self-healing was lost when the lookup moved
+    // in here.
+    const h = harness();
     const connection = vi
       .fn<() => Promise<{ command: string; args: string[] }>>()
       .mockRejectedValueOnce(new Error("path contains a symlink"))
       .mockResolvedValue({ command: "/bin/keepdeck", args: ["--mcp-shim", "/s"] });
     h.deps.connection = connection;
-    const service = createMcpService(h.settings, h.deps);
+    const service = createMcpService(h.deps);
     await flush();
     expect(service.status().connect).toBeNull();
     expect(service.status().connectError).toContain("symlink");
@@ -164,18 +139,50 @@ describe("createMcpService", () => {
     expect(service.status().connectError).toBeNull();
   });
 
+  it("retries a refused enable when a settings surface asks", async () => {
+    // With no setting to flip there is no event to carry a retry, and a
+    // timer would hammer a socket another instance legitimately holds. The
+    // user opening a settings surface is what bounds it.
+    const h = harness();
+    h.enable
+      .mockRejectedValueOnce(new Error("already served by another process"))
+      .mockResolvedValueOnce("/home/mcp.sock");
+    const service = createMcpService(h.deps);
+    await flush();
+    expect(service.status().socket).toBeNull();
+    expect(service.status().error).toContain("already served");
+
+    service.refresh();
+    await flush();
+
+    expect(h.enable).toHaveBeenCalledTimes(2);
+    expect(service.status().socket).toBe("/home/mcp.sock");
+    expect(service.status().error).toBeNull();
+    expect(service.status().connect).not.toBeNull();
+  });
+
+  it("refresh on a confirmed transport issues no second enable", async () => {
+    const h = harness();
+    const service = createMcpService(h.deps);
+    await flush();
+    service.refresh();
+    service.refresh();
+    await flush();
+    expect(h.enable).toHaveBeenCalledTimes(1);
+  });
+
   it("drops a refusal once no pane runs in that folder any more", async () => {
     // Keyed by directory and cleared only by a later successful arming of the
     // SAME directory — so without this it names folders whose pane closed
     // hours ago, and grows for the life of the session.
-    const h = harness({ initial: true });
+    const h = harness();
     const live = new Set(["/repo"]);
     h.deps.panesIn = (cwd) => (live.has(cwd) ? 1 : 0);
     h.deps.plant = async (_ws, root) => ({
       armed: [],
       refused: [{ root, reason: "theirs" }],
     });
-    const service = createMcpService(h.settings, h.deps);
+    const service = createMcpService(h.deps);
     await flush();
     const kimi = (cwd: string) => ({ ...fileFed, cwd });
 
@@ -194,13 +201,13 @@ describe("createMcpService", () => {
     // matters most: the pane silently has no servers, and this list is the
     // only place saying so. Pruning by the live count alone dropped it the
     // moment the user opened Settings, or any other pane armed anywhere.
-    const h = harness({ initial: true });
+    const h = harness();
     h.deps.panesIn = () => 0; // the fork's pane has not landed
     h.deps.plant = async (_ws, root) => ({
       armed: [],
       refused: [{ root, reason: "theirs" }],
     });
-    const service = createMcpService(h.settings, h.deps);
+    const service = createMcpService(h.deps);
     await flush();
 
     await (await service.access({ ...fileFed, cwd: "/fork" })).deliver();
@@ -217,22 +224,20 @@ describe("createMcpService", () => {
     ]);
   });
 
-  it("says nothing more once disposed, even for a transition already in flight", async () => {
+  it("says nothing more once disposed, even for an enable already in flight", async () => {
     // The callback rides the policy's own chain, so an enable settling after
     // teardown used to publish to listeners a disposed page never dropped and
     // issue fresh IPC during teardown.
-    const h = harness({ initial: false });
+    const h = harness();
     let release!: (socket: string) => void;
     h.enable.mockImplementation(
       () => new Promise<string>((resolve) => (release = resolve)),
     );
-    const service = createMcpService(h.settings, h.deps);
-    await flush();
+    const service = createMcpService(h.deps);
+    await flush(); // pump registered, the enable is in flight
     const seen: string[] = [];
     service.subscribe(() => seen.push(service.status().socket ?? "-"));
 
-    h.set(true);
-    await flush();
     service.dispose();
     release("/home/mcp.sock");
     await flush();
@@ -246,8 +251,7 @@ describe("createMcpService", () => {
     h.deps.connection = vi.fn(() =>
       Promise.reject(new Error("path contains a symlink")),
     );
-    const service = createMcpService(h.settings, h.deps);
-    h.set(true);
+    const service = createMcpService(h.deps);
     await flush();
 
     expect(service.status().socket).toBe("/home/mcp.sock");
@@ -258,26 +262,10 @@ describe("createMcpService", () => {
   it("a refused enable lands in status.error — the UI's signal", async () => {
     const h = harness();
     h.enable.mockRejectedValueOnce(new Error("already served by another process"));
-    const service = createMcpService(h.settings, h.deps);
-    h.set(true);
+    const service = createMcpService(h.deps);
     await flush();
     expect(service.status().socket).toBeNull();
     expect(service.status().error).toContain("already served");
-  });
-
-  it("a failed disable KEEPS the socket claim — nothing confirmed teardown", async () => {
-    const h = harness();
-    const service = createMcpService(h.settings, h.deps);
-    h.set(true);
-    await flush();
-    expect(service.status().socket).toBe("/home/mcp.sock");
-    h.disable.mockRejectedValueOnce(new Error("ipc failure"));
-    h.set(false);
-    await flush();
-    // Asserting "down" here would hide a socket that is almost certainly
-    // still serving — keep the confirmed claim and carry the error.
-    expect(service.status().socket).toBe("/home/mcp.sock");
-    expect(service.status().error).toContain("ipc failure");
   });
 
   it("serves registry commands as the external mcp source, journaled", async () => {
@@ -292,7 +280,7 @@ describe("createMcpService", () => {
         return [];
       },
     });
-    createMcpService(h.settings, h.deps);
+    createMcpService(h.deps);
     await flush();
     h.request(
       1,
@@ -309,7 +297,7 @@ describe("createMcpService", () => {
 
   it("serves the fetched identity once it lands", async () => {
     const h = harness();
-    createMcpService(h.settings, h.deps);
+    createMcpService(h.deps);
     await flush();
     h.request(2, '{"jsonrpc":"2.0","id":5,"method":"initialize","params":{}}');
     await flush();
@@ -322,7 +310,7 @@ describe("createMcpService", () => {
 
   it("dispose takes the socket down THROUGH the policy's chain", async () => {
     const h = harness();
-    const service = createMcpService(h.settings, h.deps);
+    const service = createMcpService(h.deps);
     await flush(); // pump registered, policy constructed
     service.dispose();
     await flush(); // the final disable rides the chain, one microtask out
@@ -332,21 +320,26 @@ describe("createMcpService", () => {
   it("a pump that could not register keeps the socket DOWN and says why", async () => {
     // Serving behind a pump nothing can reach costs every client the
     // bridge timeout while the UI advertises a working server.
-    const h = harness({ initial: true });
+    const h = harness();
     h.deps.pumpPorts = {
       subscribe: () => Promise.reject(new Error("no event channel")),
       respond: vi.fn((_id: number, _reply: string) => Promise.resolve()),
     };
-    const service = createMcpService(h.settings, h.deps);
+    const service = createMcpService(h.deps);
     await flush();
     expect(h.enable).not.toHaveBeenCalled();
     expect(service.status().socket).toBeNull();
     expect(service.status().error).toContain("cannot receive MCP requests");
+    // And a settings surface asking again cannot bring it up either: there
+    // is no policy to retry, and the pump is still deaf.
+    service.refresh();
+    await flush();
+    expect(h.enable).not.toHaveBeenCalled();
   });
 
   it("dispose is idempotent — extra calls queue no extra teardown", async () => {
     const h = harness();
-    const service = createMcpService(h.settings, h.deps);
+    const service = createMcpService(h.deps);
     await flush();
     service.dispose();
     service.dispose();
@@ -358,20 +351,19 @@ describe("createMcpService", () => {
   it("an errorless failure still reads as a problem, not a blank", async () => {
     const h = harness();
     h.enable.mockRejectedValueOnce(new Error(""));
-    const service = createMcpService(h.settings, h.deps);
-    h.set(true);
+    const service = createMcpService(h.deps);
     await flush();
     expect(service.status().error).toBe("the transport reported no detail");
   });
 
   it("dispose before the subscription registers still takes the socket down", async () => {
-    const h = harness({ initial: true });
+    const h = harness();
     let register!: (un: () => void) => void;
     h.deps.pumpPorts = {
       subscribe: () => new Promise((resolve) => (register = resolve)),
       respond: vi.fn((_id: number, _reply: string) => Promise.resolve()),
     };
-    const service = createMcpService(h.settings, h.deps);
+    const service = createMcpService(h.deps);
     service.dispose();
     register(() => {});
     await flush();
@@ -382,12 +374,12 @@ describe("createMcpService", () => {
   });
 
   it("names the calling pane when its connection proved which one it is", async () => {
-    const h = harness({ initial: true });
+    const h = harness();
     h.deps.identify = (client) =>
       client === "pane-3-secret"
         ? { id: "pane-3", workspaceId: "ws-1", label: "Codex 3" }
         : null;
-    createMcpService(h.settings, h.deps);
+    createMcpService(h.deps);
     await flush();
     const sources: CommandSource[] = [];
     h.registry.register({
@@ -431,10 +423,10 @@ describe("createMcpService", () => {
     // Those panes are the only ones silently lacking what every other pane
     // got, so the status carries them to the settings page rather than the
     // log — and a folder that later accepts must stop being reported.
-    const h = harness({ initial: true });
+    const h = harness();
     let report = { armed: [] as string[], refused: [{ root: "/repo", reason: "theirs" }] };
     h.deps.plant = async () => report;
-    const service = createMcpService(h.settings, h.deps);
+    const service = createMcpService(h.deps);
     await flush();
     const kimi = { ...fileFed, cwd: "/repo" };
 
@@ -446,20 +438,23 @@ describe("createMcpService", () => {
     expect(service.status().refused).toEqual([]);
   });
 
-  it("offers a server def only while the transport is CONFIRMED up", async () => {
+  it("offers a server def only once the transport is CONFIRMED up", async () => {
     // The wiring this pins: the injection reads the SETTLED status through
-    // the service, so a pane asking mid-Off gets nothing — the setting alone
-    // never decides.
+    // the service, so a pane asking while the enable is refused gets nothing
+    // — the transport being wanted up never decides on its own.
     const claude = { agentType: "claude", cwd: "/repo", workspaceId: "ws-1", client: "s" };
-    const h = harness({ initial: true });
-    const service = createMcpService(h.settings, h.deps);
+    const h = harness();
+    h.enable
+      .mockRejectedValueOnce(new Error("already served by another process"))
+      .mockResolvedValueOnce("/home/mcp.sock");
+    const service = createMcpService(h.deps);
+    await flush();
+    expect((await service.access(claude)).servers).toEqual([]);
+
+    service.refresh(); // the retry lands
     await flush();
     expect((await service.access(claude)).servers.map((d) => d.name)).toEqual([
       "keepdeck",
     ]);
-
-    h.set(false);
-    await flush();
-    expect((await service.access(claude)).servers).toEqual([]);
   });
 });

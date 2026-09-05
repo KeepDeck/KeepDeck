@@ -96,9 +96,9 @@ fn bridge_secret() -> Option<String> {
 }
 
 /// Run the pump to completion. Returns the process exit code: 0 once the
-/// server closes the connection (toggle Off, app quit), non-zero when there
-/// is nothing to connect to — with a hint, because "server not enabled" is
-/// the overwhelmingly likely cause.
+/// server closes the connection (page reload, app quit), non-zero when there
+/// is nothing to connect to — with a hint, because "KeepDeck is not running"
+/// is the overwhelmingly likely cause.
 pub fn run(mode: ShimMode) -> i32 {
     let Some(path) = mode.socket.or_else(crate::paths::mcp_socket) else {
         eprintln!("keepdeck-mcp: no home directory and no socket argument");
@@ -108,8 +108,7 @@ pub fn run(mode: ShimMode) -> i32 {
         Ok(socket) => socket,
         Err(e) => {
             eprintln!(
-                "keepdeck-mcp: cannot connect to {} ({e}) — is the MCP server \
-                 enabled in KeepDeck's settings?",
+                "keepdeck-mcp: cannot connect to {} ({e}) — is KeepDeck running?",
                 path.display()
             );
             return 1;

@@ -75,8 +75,8 @@ pub(super) fn serve(
             continue;
         }
         next_id += 1;
-        // No teardown handle, no service: a connection Off could not
-        // disconnect would outlive the toggle and keep driving the deck —
+        // No teardown handle, no service: a connection a disable could not
+        // disconnect would outlive the server and keep driving the deck —
         // the one promise this module makes.
         match stream.try_clone() {
             Ok(clone) => {
