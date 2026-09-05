@@ -4,26 +4,12 @@ import { useSettings } from "../../app/useSettings";
 import { selectableAgents } from "../../domain/agents";
 import {
   SUSPENDED_AGENT_PLACEMENTS,
-  DECK_LAYOUTS,
   DOCK_MODES,
   DEFAULT_SETTINGS,
   type SuspendedAgentPlacement,
-  type DeckLayout,
   type DockMode,
 } from "../../domain/settings";
 import { McpServerRow } from "./McpServerRow";
-
-/** Label + one-line explanation for each deck layout, in picker order. */
-const LAYOUT_OPTIONS: Record<DeckLayout, { label: string; hint: string }> = {
-  grid: {
-    label: "Grid",
-    hint: "Agents tile in a square grid; minimize ones you're not watching.",
-  },
-  list: {
-    label: "List",
-    hint: "Agents stack in a list — open one at a time; the rest fold to bars.",
-  },
-};
 
 /** Label + one-line explanation for each suspended-agent placement. */
 const SUSPENDED_OPTIONS: Record<
@@ -54,9 +40,9 @@ const DOCK_OPTIONS: Record<DockMode, { label: string; hint: string }> = {
 };
 
 /**
- * General preferences: the default agent ([F6]/[F1]), the deck layout, where
- * a suspended agent stays, how the dock occupies the window, and whether a
- * restored deck comes back running or stopped — then
+ * General preferences: the default agent ([F6]/[F1]), where a suspended
+ * agent stays, how the dock occupies the window, and whether a restored deck
+ * comes back running or stopped — then
  * the MCP server's row, which is not a preference but a fact about the
  * running transport ([`McpServerRow`]). Fetches the catalog itself (per
  * mount, like WorkspaceForm) — opening settings re-detects a just-installed
@@ -66,7 +52,6 @@ export function GeneralSection() {
   const settings = useSettings();
   const defaultAgent = settings?.defaultAgent;
   const defaultYolo = settings?.defaultYolo ?? DEFAULT_SETTINGS.defaultYolo;
-  const deckLayout = settings?.deckLayout ?? DEFAULT_SETTINGS.deckLayout;
   const suspendedAgentPlacement =
     settings?.suspendedAgentPlacement ??
     DEFAULT_SETTINGS.suspendedAgentPlacement;
@@ -112,21 +97,6 @@ export function GeneralSection() {
         New agents run without permission prompts — each creation dialog can
         still switch it per agent
       </span>
-
-      <span className="form__label">Deck layout</span>
-      <div className="form__types">
-        {DECK_LAYOUTS.map((layout) => (
-          <button
-            key={layout}
-            type="button"
-            className={`form__type${layout === deckLayout ? " form__type--active" : ""}`}
-            onClick={() => updateSettings({ deckLayout: layout })}
-          >
-            {LAYOUT_OPTIONS[layout].label}
-          </button>
-        ))}
-      </div>
-      <span className="settings__hint">{LAYOUT_OPTIONS[deckLayout].hint}</span>
 
       <span className="form__label">Suspended agents</span>
       <div

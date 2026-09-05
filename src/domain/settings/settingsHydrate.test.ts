@@ -37,7 +37,6 @@ describe("hydrateSettings", () => {
       defaultAgent: "codex",
       defaultYolo: true,
       scrollback: 50_000,
-      deckLayout: "list",
       suspendedAgentPlacement: "tray",
       dockMode: "floating",
       plugins: {
@@ -54,7 +53,6 @@ describe("hydrateSettings", () => {
       defaultAgent: "codex",
       defaultYolo: true,
       scrollback: 50_000,
-      deckLayout: "list",
       suspendedAgentPlacement: "tray",
       dockMode: "floating",
       plugins: { enabled: { git: true }, values: { git: { remote: "origin" } }, consented: {} },
@@ -105,15 +103,6 @@ describe("hydrateSettings", () => {
     // Not even a finite number → the default, not a clamp of garbage.
     expect(at("many")).toBe(DEFAULT_SETTINGS.scrollback);
     expect(at(Number.NaN)).toBe(DEFAULT_SETTINGS.scrollback);
-  });
-
-  it("accepts each known deckLayout and rejects an unknown one", () => {
-    for (const layout of ["grid", "list"]) {
-      expect(restore(JSON.stringify({ deckLayout: layout })).settings.deckLayout).toBe(
-        layout,
-      );
-    }
-    expect(restore('{"deckLayout":"spiral"}').settings.deckLayout).toBe("grid");
   });
 
   it("accepts tray placement for suspended agents and rejects malformed values", () => {
@@ -255,6 +244,8 @@ describe("hydrateSettings — the plugins bag", () => {
     ["mcpServer", [true, false, "yes"]],
     // v19: the tray became the only shape for a minimized agent.
     ["minimizeStyle", ["tray", "strip", "none", "mosaic"]],
+    // v20: the grid became the only deck layout.
+    ["deckLayout", ["grid", "list", "spiral"]],
   ] as const) {
     it(`retired ${key} is consumed, whatever it said`, () => {
       for (const value of values) {

@@ -6,16 +6,6 @@ import type { AgentType } from "../agents";
  * a value is read, stored, or decided.
  */
 
-/** How a workspace's agents are laid out:
- * - `grid` — the square grid (agents can be minimized out of it);
- * - `list` — a vertical list, one agent expanded to its terminal and the rest
- *   folded to bars. A display mode, NOT a way to minimize — every agent stays
- *   in place; the layout just shows one at a time. */
-export type DeckLayout = "grid" | "list";
-
-/** Every deck layout, in picker order; also the allow-list for a stored value. */
-export const DECK_LAYOUTS: readonly DeckLayout[] = ["grid", "list"];
-
 /** Where an agent the user suspended stays:
  * - `pane` — keep its tile in the deck and show the existing Resume card;
  * - `tray` — replace the tile with a stand-in in the bottom tray. Restoring
@@ -74,8 +64,6 @@ export interface Settings {
   defaultYolo: boolean;
   /** Scrollback lines kept per terminal pane. */
   scrollback: number;
-  /** How a workspace's agents are laid out (grid / list). */
-  deckLayout: DeckLayout;
   /** Whether a suspended agent keeps its pane or moves to the bottom tray. */
   suspendedAgentPlacement: SuspendedAgentPlacement;
   /** Whether the dock takes a column beside the deck or floats over it. */

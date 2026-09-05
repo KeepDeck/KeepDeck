@@ -1,7 +1,6 @@
 import type { AgentType } from "../agents";
 import { isRecord } from "../json";
 import {
-  DECK_LAYOUTS,
   DOCK_MODES,
   NOTIFICATION_MODES,
   SCROLLBACK_MAX,
@@ -190,7 +189,6 @@ const SETTINGS_CODECS: { [K in SettingsKey]: SettingCodec<Settings[K]> } = {
   defaultAgent: { default: "claude", read: readAgentId },
   defaultYolo: { default: false, read: readBoolean },
   scrollback: { default: 10_000, read: readScrollback },
-  deckLayout: { default: "grid", read: readOneOf(DECK_LAYOUTS) },
   suspendedAgentPlacement: {
     default: "pane",
     read: readOneOf(SUSPENDED_AGENT_PLACEMENTS),

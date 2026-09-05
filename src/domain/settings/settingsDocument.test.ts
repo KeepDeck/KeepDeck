@@ -20,8 +20,8 @@ describe("withSettings", () => {
     expect(doc.chosen).toEqual({ dockMode: "floating" });
     expect(doc.settings.dockMode).toBe("floating");
     // Everything else still resolves to its default, and stays unchosen.
-    expect(doc.settings.deckLayout).toBe(DEFAULT_SETTINGS.deckLayout);
-    expect(serializeSettings(doc)).not.toContain("deckLayout");
+    expect(doc.settings.usageDisplay).toBe(DEFAULT_SETTINGS.usageDisplay);
+    expect(serializeSettings(doc)).not.toContain("usageDisplay");
   });
 
   it("records a value that equals the default — choosing it IS a decision", () => {

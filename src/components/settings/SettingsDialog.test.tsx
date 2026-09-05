@@ -98,13 +98,6 @@ describe("SettingsDialog", () => {
     expect(button("Claude Code").className).not.toContain("form__type--active");
   });
 
-  it("picking a deck layout writes it through to the store", async () => {
-    await mount({ deckLayout: "grid" });
-    act(() => button("List").click());
-    expect(getSettings()?.deckLayout).toBe("list");
-    expect(button("List").className).toContain("form__type--active");
-  });
-
   it("switching the YOLO default writes it through to the store", async () => {
     await mount();
     // Scoped to its own picker group — other sections have On/Off pairs too.

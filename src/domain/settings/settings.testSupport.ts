@@ -38,7 +38,6 @@ export const NON_DEFAULT: { [K in SettingsKey]: Settings[K] } = {
   defaultAgent: "opencode",
   defaultYolo: true,
   scrollback: 42_000,
-  deckLayout: "list",
   suspendedAgentPlacement: "tray",
   dockMode: "floating",
   plugins: {
