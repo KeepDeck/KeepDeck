@@ -82,8 +82,12 @@ export interface PaneProvisioning {
    * at create time. Part of the intent so Retry — and an interrupted create
    * restored after a restart — recreates from the same base, not a moved HEAD. */
   base?: string;
-  /** Workspace name and agent index — the auto branch-name inputs. */
-  workspace: string;
+  /** The pane's position among the workspace's agents when the dialog opened
+   * — the number in the auto branch name `kd/<workspace>/<index>`. A recorded
+   * decision, kept so a Retry lands on the same number. The workspace's NAME
+   * is the other input and is deliberately not here: it is read live when the
+   * create is issued, so a rename between a failure and its Retry names the
+   * branch after what the workspace is called now, not what a card remembered. */
   index: number;
   /** Why the create failed; set flips the card from creating to failed. */
   error?: string;

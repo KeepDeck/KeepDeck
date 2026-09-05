@@ -57,7 +57,6 @@ describe("agent.spawn", () => {
     expect(provisioningCard(pane)).toMatchObject({
       repo: "/repo",
       branch: "kd/web/2",
-      workspace: "web",
       index: 2,
     });
     expect(provisioningCard(pane)?.path.endsWith("kd-web-2")).toBe(true);

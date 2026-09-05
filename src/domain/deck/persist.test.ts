@@ -71,7 +71,7 @@ describe("serializeDeck → hydrateDeck round-trip", () => {
       { kind: "attached", cwd: "/repo/wt-b", branch: "kd/ws/2" },
       {
         kind: "provisioning",
-        card: { repo: "/repo", path: "/repo/wt-c", base: "develop", workspace: "KeepDeck", index: 3 },
+        card: { repo: "/repo", path: "/repo/wt-c", base: "develop", index: 3 },
       },
       { kind: "remote", endpoint: "ws://vps:4500" },
     ];
@@ -631,7 +631,6 @@ describe("provisioning panes across a restart", () => {
                 repo: "/repo",
                 path: "/wt/deck-1",
                 base: "develop",
-                workspace: "deck",
                 index: 1,
                 error: "fatal: mid-create failure",
               },
@@ -655,7 +654,6 @@ describe("provisioning panes across a restart", () => {
       // The picked base survives the restart, so Retry recreates the worktree
       // from the same fork point instead of whatever HEAD moved to.
       base: "develop",
-      workspace: "deck",
       index: 1,
       error: PROVISIONING_INTERRUPTED,
     });
@@ -678,6 +676,22 @@ describe("provisioning panes across a restart", () => {
     expect(provisioningCard(pane)?.error).toBe(PROVISIONING_INTERRUPTED);
   });
 
+  it("reads an intent an older build saved with the workspace name inside, and drops it on the next save", () => {
+    // Every intent used to carry the workspace's name for the auto branch
+    // name. The name is read live at create time now, so the stored one is
+    // not a source for anything: it must neither reject the card nor come
+    // back as part of it — and it leaves the file the first time this build
+    // saves, rather than riding along as an extra.
+    const doc = JSON.parse(serializeDeck(provisioningState));
+    doc.workspaces[0].panes[0].provisioning.workspace = "deck";
+    const restored = okDeck(JSON.stringify(doc)).state;
+    const pane = restored.workspaces[0].panes[0];
+    expect(provisioningCard(pane)).not.toBeNull();
+    expect(provisioningCard(pane)).not.toHaveProperty("workspace");
+    expect(pane.extras).toBeUndefined();
+    expect(serializeDeck(restored)).not.toContain('"workspace":');
+  });
+
   it("drops a FORK provisioning card entirely — never restores it as a plain retryable pane", () => {
     // A fork's surgery is an in-memory post-provision step that can't survive a
     // restart; restoring the card would Retry into a NON-fork pane, silently
@@ -697,7 +711,6 @@ describe("provisioning panes across a restart", () => {
                   repo: "/repo",
                   path: "/wt/fork-1",
                   branch: "fork/x",
-                  workspace: "deck",
                   index: 1,
                   fork: true,
                 },
@@ -728,7 +741,6 @@ describe("provisioning panes across a restart", () => {
                   repo: "/repo",
                   path: "/wt/f2",
                   branch: "fork/y",
-                  workspace: "deck",
                   index: 2,
                   fork: true,
                 },

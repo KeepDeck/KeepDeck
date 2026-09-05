@@ -71,7 +71,7 @@ describe("workspaceDirectories", () => {
             id: "p1",
             location: {
               kind: "provisioning",
-              card: { repo: "/repo", path: "/wt/a", workspace: "a", index: 1 },
+              card: { repo: "/repo", path: "/wt/a", index: 1 },
             },
           },
         ],

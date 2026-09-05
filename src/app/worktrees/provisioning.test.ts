@@ -42,7 +42,7 @@ describe("provision", () => {
     const onResolved = vi.fn();
     const onFailed = vi.fn();
 
-    await manager.provision(cards(), { onResolved, onFailed, abandoned: stays });
+    await manager.provision(cards(), "ws", { onResolved, onFailed, abandoned: stays });
 
     expect(onResolved).toHaveBeenCalledWith("pane-1", {
       cwd: "/wt/pane-1",
@@ -75,7 +75,7 @@ describe("provision", () => {
     const panes = cards();
     provisioningCard(panes[0])!.base = "develop";
 
-    await manager.provision(panes, {
+    await manager.provision(panes, "ws", {
       onResolved: vi.fn(),
       onFailed: vi.fn(),
       abandoned: stays,
@@ -99,7 +99,7 @@ describe("provision", () => {
     const onResolved = vi.fn();
     const onFailed = vi.fn();
 
-    await manager.provision(cards(), { onResolved, onFailed, abandoned: stays });
+    await manager.provision(cards(), "ws", { onResolved, onFailed, abandoned: stays });
 
     expect(onResolved).toHaveBeenCalledTimes(1);
     expect(onResolved).toHaveBeenCalledWith("pane-1", {
@@ -112,13 +112,31 @@ describe("provision", () => {
   });
 
   it("ignores panes without an intent entirely (a retry passes one card)", async () => {
-    await manager.provision([{ id: "pane-1", agentType: "claude" }], {
+    await manager.provision([{ id: "pane-1", agentType: "claude" }], "ws", {
       onResolved: vi.fn(),
       onFailed: vi.fn(),
       abandoned: stays,
     });
     expect(worktree.inspectRepo).not.toHaveBeenCalled();
     expect(worktree.createWorktree).not.toHaveBeenCalled();
+  });
+
+  it("names the branch after the workspace it is handed — nothing on the card says", async () => {
+    // The auto branch name is `kd/<workspace>/<n>`, and the workspace half
+    // is read by the caller as it calls: a card carries the number it was
+    // born with and no name, so a Retry after a rename lands on the new one.
+    worktree.inspectRepo.mockResolvedValue({ head: "abc" });
+    worktree.createWorktree.mockResolvedValue({ path: "/wt/pane-1", branch: "kd/renamed/1" });
+
+    await manager.provision(cards().slice(0, 1), "renamed", {
+      onResolved: vi.fn(),
+      onFailed: vi.fn(),
+      abandoned: stays,
+    });
+
+    expect(worktree.createWorktree).toHaveBeenCalledWith(
+      expect.objectContaining({ workspace: "renamed", index: 1 }),
+    );
   });
 
   it("resolves the card as soon as the create lands", async () => {
@@ -128,7 +146,7 @@ describe("provision", () => {
       branch: "b1",
     });
     const onResolved = vi.fn();
-    await manager.provision(cards().slice(0, 1), {
+    await manager.provision(cards().slice(0, 1), "ws", {
       onResolved,
       onFailed: vi.fn(),
       abandoned: stays,
@@ -171,7 +189,7 @@ describe("provision — what it publishes for a racing close", () => {
       await held;
     });
 
-    const running = manager.provision(oneCard(), {
+    const running = manager.provision(oneCard(), "ws", {
       onResolved: vi.fn(),
       onFailed: vi.fn(),
       abandoned: stays,
@@ -191,7 +209,7 @@ describe("provision — what it publishes for a racing close", () => {
   it("publishes nothing when the create itself failed", async () => {
     worktree.createWorktree.mockRejectedValueOnce(new Error("boom"));
 
-    await manager.provision(oneCard(), {
+    await manager.provision(oneCard(), "ws", {
       onResolved: vi.fn(),
       onFailed: vi.fn(),
       abandoned: stays,
@@ -204,7 +222,7 @@ describe("provision — what it publishes for a racing close", () => {
   it("hands the entry back once the pane owns its worktree", async () => {
     // Past the handover the pane has a cwd, so the deck names the worktree and
     // this entry would only be a second, staler handle on it.
-    await manager.provision(oneCard(), {
+    await manager.provision(oneCard(), "ws", {
       onResolved: vi.fn(),
       onFailed: vi.fn(),
       abandoned: stays,
@@ -227,7 +245,7 @@ describe("provision — what it publishes for a racing close", () => {
     });
     const onFailed = vi.fn();
 
-    await manager.provision(oneCard(), {
+    await manager.provision(oneCard(), "ws", {
       onResolved: vi.fn(),
       onFailed,
       abandoned: () => gone,
@@ -246,7 +264,7 @@ describe("provision — what it publishes for a racing close", () => {
   it("KEEPS the published entry when the pane left before the handover", async () => {
     // The close is the only party that knows whether the user asked for the
     // directory to go, so the create leaves it for the close to decide.
-    await manager.provision(oneCard(), {
+    await manager.provision(oneCard(), "ws", {
       onResolved: vi.fn(),
       onFailed: vi.fn(),
       abandoned: () => true,
@@ -275,7 +293,7 @@ describe("provision with a post-provision step", () => {
     const onResolved = vi.fn();
     const onFailed = vi.fn();
 
-    await manager.provision(oneCard(), { onResolved, onFailed, abandoned: stays });
+    await manager.provision(oneCard(), "ws", { onResolved, onFailed, abandoned: stays });
 
     expect(step).toHaveBeenCalledWith({ cwd: "/wt/pane-1", branch: "kd/ws/1" });
     expect(onResolved).toHaveBeenCalledWith("pane-1", { cwd: "/wt/pane-1", branch: "kd/ws/1" });
@@ -290,7 +308,7 @@ describe("provision with a post-provision step", () => {
     const onResolved = vi.fn();
     const onFailed = vi.fn();
 
-    await manager.provision(oneCard(), { onResolved, onFailed, abandoned: stays });
+    await manager.provision(oneCard(), "ws", { onResolved, onFailed, abandoned: stays });
 
     // Through the same teardown a close uses — and with the branch sweep OFF:
     // this worktree never became a pane's, so nothing was born in it.
@@ -314,11 +332,11 @@ describe("provision with a post-provision step", () => {
     const onResolved = vi.fn();
     const onFailed = vi.fn();
 
-    await manager.provision(oneCard(), { onResolved, onFailed, abandoned: stays }); // create + fail
+    await manager.provision(oneCard(), "ws", { onResolved, onFailed, abandoned: stays }); // create + fail
     expect(onFailed).toHaveBeenCalledTimes(1);
     expect(onResolved).not.toHaveBeenCalled();
 
-    await manager.provision(oneCard(), { onResolved, onFailed, abandoned: stays }); // Retry
+    await manager.provision(oneCard(), "ws", { onResolved, onFailed, abandoned: stays }); // Retry
     expect(step).toHaveBeenCalledTimes(2); // re-run, not skipped
     expect(onResolved).toHaveBeenCalledWith("pane-1", { cwd: "/wt/pane-1", branch: "kd/ws/1" });
   });
@@ -326,14 +344,14 @@ describe("provision with a post-provision step", () => {
   it("consumes (deletes) the step on success — a later re-provision won't re-run it", async () => {
     const step = vi.fn(async () => {});
     manager.registerPostProvision("pane-1", step);
-    await manager.provision(oneCard(), {
+    await manager.provision(oneCard(), "ws", {
       onResolved: vi.fn(),
       onFailed: vi.fn(),
       abandoned: stays,
     });
     expect(step).toHaveBeenCalledTimes(1);
     // A second provision of the same pane finds NO step → plain resolve, not re-run.
-    await manager.provision(oneCard(), {
+    await manager.provision(oneCard(), "ws", {
       onResolved: vi.fn(),
       onFailed: vi.fn(),
       abandoned: stays,
@@ -349,7 +367,7 @@ describe("provision with a post-provision step", () => {
     manager.registerPostProvision("pane-1", step);
     manager.clearPostProvision("pane-1");
 
-    await manager.provision(oneCard(), {
+    await manager.provision(oneCard(), "ws", {
       onResolved: vi.fn(),
       onFailed: vi.fn(),
       abandoned: stays,
@@ -360,7 +378,7 @@ describe("provision with a post-provision step", () => {
 
   it("a plain (non-fork) pane with no registered step resolves untouched", async () => {
     const onResolved = vi.fn();
-    await manager.provision(oneCard(), { onResolved, onFailed: vi.fn(), abandoned: stays });
+    await manager.provision(oneCard(), "ws", { onResolved, onFailed: vi.fn(), abandoned: stays });
     expect(onResolved).toHaveBeenCalledWith("pane-1", { cwd: "/wt/pane-1", branch: "kd/ws/1" });
     expect(worktree.removeWorktree).not.toHaveBeenCalled();
   });
@@ -371,7 +389,7 @@ describe("provision with a post-provision step", () => {
       throw new Error("surgery boom");
     });
     const onFailed = vi.fn();
-    await manager.provision(oneCard(), {
+    await manager.provision(oneCard(), "ws", {
       onResolved: vi.fn(),
       onFailed,
       abandoned: stays,

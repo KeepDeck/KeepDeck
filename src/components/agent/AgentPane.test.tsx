@@ -291,7 +291,7 @@ describe("AgentPane — header badges", () => {
       "provisioning",
       {
         body: "provisioning" as PaneBody,
-        provisioning: { repo: "/r", path: "/w/b", branch: "b", workspace: "w", index: 1 },
+        provisioning: { repo: "/r", path: "/w/b", branch: "b", index: 1 },
       },
     ],
     [
@@ -544,7 +544,6 @@ describe("AgentPane — provisioning cards", () => {
     repo: "/repo",
     path: "/wt/deck-2",
     branch: "kd/deck/2",
-    workspace: "deck",
     index: 2,
   };
 

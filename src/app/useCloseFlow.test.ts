@@ -318,7 +318,7 @@ describe("useCloseFlow", () => {
             agentType: "claude",
             location: {
               kind: "provisioning",
-              card: { repo: "/repo", path: "/wt/two-1", workspace: "two", index: 1 },
+              card: { repo: "/repo", path: "/wt/two-1", index: 1 },
             },
           },
         ],
@@ -355,7 +355,7 @@ describe("useCloseFlow", () => {
             agentType: "claude",
             location: {
               kind: "provisioning",
-              card: { repo: "/repo", path: "/wt/two-1", workspace: "two", index: 1 },
+              card: { repo: "/repo", path: "/wt/two-1", index: 1 },
             },
           },
         ],
@@ -817,7 +817,7 @@ describe("what the dialog promises is what confirming does", () => {
             agentType: "claude",
             location: {
               kind: "provisioning",
-              card: { repo: "/repo", path: "/wt/ws2-1", workspace: "ws2", index: 1 },
+              card: { repo: "/repo", path: "/wt/ws2-1", index: 1 },
             },
           },
         ],

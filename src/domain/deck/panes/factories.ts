@@ -28,7 +28,7 @@ import type { Pane } from "./model";
 export function paneFromAgentRequest(
   id: string,
   request: AgentDialogResult,
-  ws: { cwd: string; name: string },
+  ws: { cwd: string },
   /** The pane's position for the auto branch name — captured when the dialog
    * opened, not recomputed here: the workspace may have gained panes since. */
   index: number,
@@ -71,7 +71,6 @@ export function paneFromAgentRequest(
         path: location.path,
         ...(location.branch && { branch: location.branch }),
         ...(location.baseBranch && { base: location.baseBranch }),
-        workspace: ws.name,
         index,
       },
     },

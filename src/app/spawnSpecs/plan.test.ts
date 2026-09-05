@@ -513,7 +513,7 @@ describe("building one plan through the agent hook", () => {
           agentType: "claude",
           location: {
             kind: "provisioning",
-            card: { repo: "/r", path: "/b/w-1", workspace: "w", index: 1 },
+            card: { repo: "/r", path: "/b/w-1", index: 1 },
           },
         },
         { id: "pane-u", agentType: "gemini" },

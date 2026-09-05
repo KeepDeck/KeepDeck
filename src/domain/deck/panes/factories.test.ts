@@ -3,7 +3,7 @@ import type { AgentDialogResult } from "../../agents";
 import { paneFromAgentRequest, provisioningCard } from ".";
 
 describe("paneFromAgentRequest", () => {
-  const workspace = { cwd: "/repo", name: "deck" };
+  const workspace = { cwd: "/repo" };
   const request = (over: Partial<AgentDialogResult> = {}): AgentDialogResult => ({
     agentType: "claude",
     name: "",
@@ -77,7 +77,6 @@ describe("paneFromAgentRequest", () => {
           path: "/wt/kd-deck-3",
           branch: "kd/deck/3",
           base: "release",
-          workspace: "deck",
           index: 3,
         },
       },
@@ -95,12 +94,7 @@ describe("paneFromAgentRequest", () => {
       1,
     );
     expect(Object.keys(pane).sort()).toEqual(["agentType", "id", "location"]);
-    expect(Object.keys(provisioningCard(pane)!).sort()).toEqual([
-      "index",
-      "path",
-      "repo",
-      "workspace",
-    ]);
+    expect(Object.keys(provisioningCard(pane)!).sort()).toEqual(["index", "path", "repo"]);
   });
 
   it("trims the name and arms yolo only when asked", () => {

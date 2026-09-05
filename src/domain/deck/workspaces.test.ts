@@ -319,7 +319,7 @@ describe("paneExecutionCwd", () => {
         id: "a-p1",
         location: {
           kind: "provisioning",
-          card: { repo: "/repo", path: "/wt/a-1", workspace: "a", index: 1 },
+          card: { repo: "/repo", path: "/wt/a-1", index: 1 },
         },
       }),
     ).toBeNull();
@@ -354,7 +354,7 @@ describe("gitWatchPaths", () => {
               id: "a-p1",
               location: {
                 kind: "provisioning",
-                card: { repo: "/repo", path: "/wt/a-1", workspace: "a", index: 1 },
+                card: { repo: "/repo", path: "/wt/a-1", index: 1 },
               },
             },
           ],
@@ -376,7 +376,7 @@ describe("pane provisioning transforms", () => {
         id: "a-p1",
         location: {
           kind: "provisioning",
-          card: { repo: "/repo", path: "/wt/a-1", workspace: "a", index: 1 },
+          card: { repo: "/repo", path: "/wt/a-1", index: 1 },
         },
       },
       { id: "a-p2", location: { kind: "attached", cwd: "/wt/live", branch: "kd/a/2" } },
@@ -417,7 +417,6 @@ describe("pane provisioning transforms", () => {
     expect(provisioningCard(retrying[0].panes[0])).toEqual({
       repo: "/repo",
       path: "/wt/a-1",
-      workspace: "a",
       index: 1,
     });
   });
@@ -437,7 +436,6 @@ describe("pane provisioning transforms", () => {
               repo: "/repo",
               path: "/wt/f",
               branch: "fork/x",
-              workspace: "a",
               index: 1,
               fork: true,
             },
@@ -511,7 +509,7 @@ describe("paneOccupyingPath", () => {
             id: "c-p1",
             location: {
               kind: "provisioning",
-              card: { repo: "/repo", path: "/wt/pending", workspace: "c", index: 1 },
+              card: { repo: "/repo", path: "/wt/pending", index: 1 },
             },
           },
         ],
@@ -537,7 +535,7 @@ describe("pathOccupancy", () => {
             id: "a-p2",
             location: {
               kind: "provisioning",
-              card: { repo: "/r", path: "/wt/pending", workspace: "a", index: 2 },
+              card: { repo: "/r", path: "/wt/pending", index: 2 },
             },
           },
         ],
@@ -591,7 +589,7 @@ describe("firstFreeWorktree", () => {
             id: "a-p1",
             location: {
               kind: "provisioning",
-              card: { repo: "/r", path: "/base/kd-a-2", workspace: "a", index: 2 },
+              card: { repo: "/r", path: "/base/kd-a-2", index: 2 },
             },
           },
         ],
@@ -779,7 +777,7 @@ describe("suspendPane", () => {
         id: "a-p1",
         location: {
           kind: "provisioning",
-          card: { repo: "/repo", path: "/wt/a-1", workspace: "a", index: 1 },
+          card: { repo: "/repo", path: "/wt/a-1", index: 1 },
         },
       },
     ]);

@@ -229,7 +229,6 @@ export function createAgentOrchestratorContinuations({
                 path: target.path,
                 branch: target.branch,
                 ...(target.base !== undefined && { base: target.base }),
-                workspace: workspace.name,
                 index: workspace.panes.length + 1,
                 fork: true,
               },

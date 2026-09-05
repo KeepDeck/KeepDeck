@@ -312,7 +312,6 @@ export function registerCoreCommands(
                   repo: current.workspace.cwd,
                   path: free.path,
                   branch: free.branch,
-                  workspace: current.workspace.name,
                   index,
                 },
               },

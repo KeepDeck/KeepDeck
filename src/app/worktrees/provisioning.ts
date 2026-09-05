@@ -100,6 +100,7 @@ export function createWorktreeProvisioning(
     paneId: string,
     intent: PaneProvisioning,
     batchBase: { commit?: string; branch?: string } | undefined,
+    workspaceName: string,
     cb: ProvisionCallbacks,
   ): Promise<void> {
     /**
@@ -143,7 +144,7 @@ export function createWorktreeProvisioning(
           // The intent's own picked base outranks the repo HEAD pinned below.
           base: intent.base ?? batchBase?.commit,
           ...(!intent.base && batchBase?.branch && { baseBranch: batchBase.branch }),
-          workspace: intent.workspace,
+          workspace: workspaceName,
           index: intent.index,
           path: intent.path,
         }),
@@ -197,7 +198,7 @@ export function createWorktreeProvisioning(
   }
 
   return {
-    async provision(panes, cb) {
+    async provision(panes, workspaceName, cb) {
       const pending = panes.flatMap((p) => {
         const location = locationOf(p);
         return location.kind === "provisioning" ? [{ id: p.id, card: location.card }] : [];
@@ -216,7 +217,7 @@ export function createWorktreeProvisioning(
       }
 
       await Promise.all(
-        pending.map((p) => provisionPane(p.id, p.card, batchBase, cb)),
+        pending.map((p) => provisionPane(p.id, p.card, batchBase, workspaceName, cb)),
       );
     },
 

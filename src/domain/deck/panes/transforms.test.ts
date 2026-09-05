@@ -71,7 +71,7 @@ describe("resetPaneLocation", () => {
       id: "pane-1",
       location: {
         kind: "provisioning",
-        card: { repo: "/repo", path: "/repo/wt", workspace: "ws-1", index: 1 },
+        card: { repo: "/repo", path: "/repo/wt", index: 1 },
       },
     };
     const workspaces = [ws([pane])];

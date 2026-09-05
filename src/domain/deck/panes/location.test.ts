@@ -12,7 +12,6 @@ import type { PaneLocation, PaneProvisioning } from "./model";
 const card: PaneProvisioning = {
   repo: "/repo",
   path: "/repo/wt",
-  workspace: "ws",
   index: 1,
 };
 

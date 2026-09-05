@@ -453,7 +453,7 @@ describe("deckReducer provisioning actions", () => {
         id: "pane-1",
         location: {
           kind: "provisioning",
-          card: { repo: "/repo", path: "/wt/ws-1-1", workspace: "ws-1", index: 1 },
+          card: { repo: "/repo", path: "/wt/ws-1-1", index: 1 },
         },
       },
     ],

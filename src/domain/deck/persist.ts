@@ -453,14 +453,19 @@ function readWorkspacePlugins(value: unknown): Record<string, unknown> | null {
 
 /** The persisted worktree-create intent, or `null` when absent/malformed —
  * a bad intent degrades the pane to a plain idle one instead of rejecting
- * the deck (mirrors the agentType degradation above). */
+ * the deck (mirrors the agentType degradation above).
+ *
+ * A `workspace` key — the name an older build wrote into every intent — is
+ * ignored: the branch name is built from the workspace's live name when the
+ * create is issued, so nothing on disk is a source for it. The key leaves the
+ * file on the next save; it is not kept as an extra, since extras are
+ * collected at the pane's top level and never inside a slot. */
 function readProvisioning(
   value: unknown,
 ): Omit<PaneProvisioning, "error"> | null {
   if (!isRecord(value)) return null;
   if (
     typeof value.repo !== "string" ||
-    typeof value.workspace !== "string" ||
     typeof value.index !== "number" ||
     // A document written before agents arrived one at a time may hold a card
     // whose directory was the backend's to assign (`baseDir`, no `path`).
@@ -477,7 +482,6 @@ function readProvisioning(
     path: value.path,
     ...(typeof value.branch === "string" && { branch: value.branch }),
     ...(typeof value.base === "string" && { base: value.base }),
-    workspace: value.workspace,
     index: value.index,
   };
   return intent;

@@ -41,10 +41,14 @@ export function createAgentOrchestratorCreation({
   actions,
   worktrees,
 }: CreationDeps): AgentOrchestratorCreation {
-  function provisionPanes(wsId: string, panes: Pane[]): void {
+  /** Start the creates behind `panes`' cards. The workspace's name goes with
+   * them as it is NOW: an auto branch name follows what the workspace is
+   * called when its create is issued, so a Retry after a rename lands on the
+   * new name rather than on one a card remembered. */
+  function provisionPanes(workspace: Workspace, panes: Pane[]): void {
     const cards = panes.filter((pane) => locationOf(pane).kind === "provisioning");
     if (cards.length === 0) return;
-    void worktrees.provision(cards, provisionInto(actions, wsId));
+    void worktrees.provision(cards, workspace.name, provisionInto(actions, workspace.id));
   }
 
   function refuse(paneId: string, kind: "gone" | "full"): CreatePaneOutcome {
@@ -61,7 +65,7 @@ export function createAgentOrchestratorCreation({
     if (!current) return refuse(pane.id, "gone");
     if (current.panes.length >= MAX_PANES) return refuse(pane.id, "full");
     actions.addAgentPane(current.id, pane);
-    provisionPanes(current.id, [pane]);
+    provisionPanes(current, [pane]);
     return { kind: "created" };
   }
 
@@ -116,7 +120,7 @@ export function createAgentOrchestratorCreation({
     const pane = findPane(workspaces, wsId, paneId);
     if (!workspace || !pane || locationOf(pane).kind !== "provisioning") return;
     actions.setPaneProvisioningError(wsId, paneId, null);
-    provisionPanes(wsId, [pane]);
+    provisionPanes(workspace, [pane]);
   };
 
   return { landPane, landOrThrow, createWorkspace, retryProvisioning };

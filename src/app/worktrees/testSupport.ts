@@ -81,7 +81,6 @@ export const provisioningCards = (count: number): Pane[] =>
       card: {
         repo: "/repo",
         path: `/wt/pane-${i + 1}`,
-        workspace: "ws",
         index: i + 1,
       },
     },

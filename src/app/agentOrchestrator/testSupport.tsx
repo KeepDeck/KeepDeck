@@ -337,6 +337,9 @@ export let agentRun: AgentRunView &
  *  Per mount like the deck beside it, so no `describe` has to remember to
  *  clear it. */
 export let provisions: Pane[][];
+/** The workspace name each of those create batches was issued under — what
+ *  the auto branch name is built from, read live at the call. */
+export let provisionedAs: string[];
 /** The worktree removals a confirmed close asked for, per mount. */
 export let discards: WorktreeTarget[][];
 /** What the removal reports back as un-deletable. */
@@ -372,10 +375,12 @@ export function Probe() {
   const [wiring] = useState(() => {
     const store = createDeckStore();
     const asked: Pane[][] = [];
+    const issuedAs: string[] = [];
     const discarded: WorktreeTarget[][] = [];
     return {
       store,
       asked,
+      issuedAs,
       discarded,
       orchestrator: createAgentOrchestrator({
         deck: store,
@@ -414,8 +419,9 @@ export function Probe() {
         mcpAccess: async () => ({ servers: [], deliver: async () => {} }),
         lifecycle,
         worktrees: {
-          provision: (panes) => {
+          provision: (panes, workspaceName) => {
             asked.push(panes);
+            issuedAs.push(workspaceName);
             return Promise.resolve();
           },
           awaitCreated: (paneId) => {
@@ -437,6 +443,7 @@ export function Probe() {
   });
   deck = useDeck(wiring.store);
   provisions = wiring.asked;
+  provisionedAs = wiring.issuedAs;
   discards = wiring.discarded;
   agentRun = {
     ...useAgentRunView(wiring.orchestrator),
