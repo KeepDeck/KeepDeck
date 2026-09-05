@@ -6,14 +6,16 @@
 //! future second transport (or a per-connection identity handler) edits this
 //! file, not them.
 //!
-//! [`arming`] is a sibling feature, not part of that wiring: it delivers
-//! servers to a CLI with no argv door, and owns its own three commands. It sat
-//! here once, which made this door quietly answer for two features while its
+//! [`arming`] and [`library`] are sibling features, not part of that wiring:
+//! one delivers servers to a CLI with no argv door, the other keeps the user's
+//! server definitions on disk, and each owns its own commands. Arming sat here
+//! once, which made this door quietly answer for two features while its
 //! header invited the next contributor to add a third.
 
 pub mod arming;
 pub(crate) mod bridge;
 mod kimi;
+pub mod library;
 pub(crate) mod server;
 pub(crate) mod shim;
 

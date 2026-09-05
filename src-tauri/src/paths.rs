@@ -104,6 +104,13 @@ pub fn mcp_socket() -> Option<PathBuf> {
     keepdeck_home().map(|home| home.join("mcp").join("mcp.sock"))
 }
 
+/// The user's library of MCP servers: `<keepdeck_home>/mcp/library`. Under
+/// the transport's directory on purpose — that directory is forced to 0700,
+/// and a server's file may hold a credential.
+pub fn mcp_library() -> Option<PathBuf> {
+    keepdeck_home().map(|home| home.join("mcp").join("library"))
+}
+
 /// An explicit `$KEEPDECK_HOME` IS the home; otherwise `dir` goes under
 /// `$XDG_CONFIG_HOME`, else `$HOME/.config`. Relative paths in either
 /// variable are ignored (per the XDG spec), falling through to the next rule.
@@ -206,6 +213,17 @@ mod tests {
         assert_eq!(
             home.join("mcp").join("mcp.sock"),
             PathBuf::from("/xdg/keepdeck/mcp/mcp.sock"),
+        );
+    }
+
+    #[test]
+    fn the_mcp_library_shares_the_socket_directory() {
+        // Under `mcp/`, whose 0700 mode is the transport's permission model
+        // — a server's file may hold a token, and inherits the same wall.
+        let home = home_from("keepdeck", None, os("/xdg"), None).unwrap();
+        assert_eq!(
+            home.join("mcp").join("library"),
+            PathBuf::from("/xdg/keepdeck/mcp/library"),
         );
     }
 
