@@ -66,6 +66,15 @@ export interface TeamCardView {
   actions: readonly TeamCardAction[];
 }
 
+/** The branch a team works on, as every surface says it: the live head's
+ * when one is known, else the one on record, or the one its create is
+ * heading for. Null for a directory with no branch to speak of. */
+export function teamBranchOf(team: Team, head?: GitPosition): string | null {
+  const location = team.location;
+  if (location?.kind === "provisioning") return location.intent.branch ?? null;
+  return head?.branch ?? (location?.kind === "attached" ? location.branch : undefined) ?? null;
+}
+
 export function teamCardView(
   ws: Workspace,
   team: Team,
@@ -90,13 +99,10 @@ export function teamCardView(
           : frame === "selected"
             ? "none"
             : frame;
-  const branch = creating
-    ? (location.intent.branch ?? null)
-    : (head?.branch ?? (location?.kind === "attached" ? location.branch : undefined) ?? null);
   return {
     id: team.id,
     name: team.name,
-    branch,
+    branch: teamBranchOf(team, head),
     cwd: teamHeldPath(team) ?? ws.cwd,
     size: membersOf(ws, team.id).length,
     dot,

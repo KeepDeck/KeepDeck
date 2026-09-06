@@ -20,9 +20,7 @@ import { WorkspacesRail } from "./components/workspace/WorkspacesRail";
 import { WorkspaceForm } from "./components/workspace/WorkspaceForm";
 import {
   DECK_STATE_VERSION,
-  findTeamByName,
   findWorkspace,
-  MAX_PANES,
   pathOccupancy,
 } from "./domain/deck";
 import { pickFolder } from "./ipc/dialogs";
@@ -64,8 +62,7 @@ function App() {
     agents,
     agentsLoading,
     alertSeq,
-    atCap,
-    canAddAgent,
+    barLevel,
     canOpenDialog,
     canCloseDialog,
     closeFlow,
@@ -103,7 +100,6 @@ function App() {
     openSkills,
     closeSkills,
     openArtifacts,
-    openTeamDialog,
     dockControl,
     closeArtifacts,
     openStats,
@@ -145,12 +141,7 @@ function App() {
             openSettings("updates");
           }
         }}
-        canAddAgent={canAddAgent}
-        addAgentTitle={atCap ? `Max ${MAX_PANES} agents` : "Add agent"}
-        onAddAgent={() => {
-          if (canAddAgent && active) void agentFlow.openFor(active);
-        }}
-        onAddTeam={openTeamDialog}
+        level={barLevel}
         dock={dockControl}
         pluginActions={pluginTopBarActions}
         canOpenDialog={canOpenDialog}
@@ -202,12 +193,12 @@ function App() {
             onRestoreSuspendedPane={deck.restoreSuspendedPane}
             onCloseAgent={closeFlow.requestCloseAgent}
             onRenamePane={deck.renamePane}
-            onOpenTeam={(name) => {
-              const team = active && findTeamByName(active, name);
-              if (team) setTeamDialog({ teamId: team.id });
-            }}
+            onOpenTeam={(teamId) => setTeamDialog({ teamId })}
             onEnterTeam={deck.openTeam}
-            onAddTeamMember={(_wsId, teamId) => setTeamDialog({ teamId })}
+            onAddTeamMember={(wsId, teamId) => {
+              const ws = findWorkspace(deck.workspaces, wsId);
+              if (ws) void agentFlow.openFor(ws, { kind: "member", teamId });
+            }}
             onRenameTeam={deck.renameTeam}
             onDisbandTeam={closeFlow.requestDisbandTeam}
             onPaneTitle={deck.setPaneAutoTitle}
@@ -290,6 +281,7 @@ function App() {
             ))}
           {agentFlow.dialog && (
             <AgentDialog
+              target={agentFlow.dialog.target}
               defaultAgentType={agentFlow.dialog.defaultAgentType}
               defaultYolo={agentFlow.dialog.defaultYolo}
               remoteEnabled={agentFlow.dialog.remoteEnabled}

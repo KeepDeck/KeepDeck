@@ -13,6 +13,7 @@
  * learns is never one a reader forgets.
  */
 import type { Pane } from "./panes";
+import { paneOnScreen, type PaneVisibilityView } from "./paneVisibility";
 import { findTeam, membersOf } from "./teams/collection";
 import type { Team } from "./teams/model";
 import type { Workspace } from "./workspaces";
@@ -40,4 +41,17 @@ export function stagePanes(
 ): Pane[] {
   const team = openTeamOf(ws, view);
   return team ? membersOf(ws, team.id) : [];
+}
+
+/** Whether a pane's BODY is in front of the person on this workspace's
+ * stage: its team is the open one, and it is on that team's grid
+ * (`paneOnScreen` over the slice). False at the cards level and for every
+ * pane of a team that is not open — the notification probe's half of "on
+ * screen"; the workspace/modal/overlay half is the caller's. */
+export function paneInFront(
+  ws: Pick<Workspace, "panes" | "teams">,
+  view: (StageLevelView & PaneVisibilityView) | undefined,
+  paneId: string,
+): boolean {
+  return paneOnScreen(stagePanes(ws, view), view, paneId);
 }

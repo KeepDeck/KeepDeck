@@ -22,8 +22,9 @@
  *
  * WHAT IT DOES NOT DECIDE, on purpose: whether a control is worth showing,
  * and what a press ultimately does. Both belong to the composition root —
- * `dock`, `notifications`, `onAddTeam` and `updateAction` arrive null when
- * their control has no business existing, and every action is a callback. So
+ * `dock`, `notifications`, the level's door and `updateAction` arrive null
+ * when their control has no business existing, and every action is a
+ * callback. So
  * the bar itself reaches for no manager, no store and no router; it draws
  * what it is handed. That is the whole seam, and it is what lets a change to
  * the ARRANGEMENT stay inside this file.
@@ -45,7 +46,8 @@ import type { Contribution } from "../../plugins/registries/contributions";
 import type { TopBarActionContribution } from "@keepdeck/plugin-api";
 import { fitBarGroup, PLUGIN_ACTION_SLOTS } from "../../domain/deck/topBar";
 import { Button } from "../../ui/Button";
-import { MenuButton, type MenuAction } from "../../ui/MenuButton";
+import { BranchBadge } from "../../ui/badges";
+import { MenuButton } from "../../ui/MenuButton";
 import { BAR_TIP_DELAY_MS, TipButton } from "../../ui/TipButton";
 import { Tooltip } from "../../ui/Tooltip";
 import {
@@ -58,6 +60,25 @@ import {
 } from "../AppIcons";
 import { NotificationBell } from "../notifications/NotificationBell";
 import { UsageChips } from "../usage/UsageChips";
+
+/**
+ * Where the stage is, as the bar says it. At the teams level the one door is
+ * a new team (null while no workspace is active — nowhere to put it). Inside
+ * a team: the way back, what the team is and where it works, and the door to
+ * another member, with the refusal's words when the team is full.
+ */
+export type BarLevel =
+  | { kind: "teams"; onAddTeam: (() => void) | null }
+  | {
+      kind: "team";
+      name: string;
+      branch: string | null;
+      onBack(): void;
+      canAddMember: boolean;
+      /** The add control's tooltip, which is also where a refusal is explained. */
+      addMemberTitle: string;
+      onAddMember(): void;
+    };
 
 export interface DeckBarProps {
   /** Whether the workspaces rail is hidden — the toggle's own state. */
@@ -78,13 +99,11 @@ export interface DeckBarProps {
   updateAction: UpdateActionView | null;
   onUpdateAction(action: UpdateAction): void;
 
-  canAddAgent: boolean;
-  /** The add control's tooltip, which is also where a refusal is explained. */
-  addAgentTitle: string;
-  onAddAgent(): void;
-
-  /** Opens a NEW team, or null while no workspace is active. */
-  onAddTeam: (() => void) | null;
+  /** The level the stage is on, and the one affirmative act the bar offers
+   * there: at the teams level a new team; inside a team, another member —
+   * with the way back, the team's name and its branch, since the rail
+   * below says nothing about a team. */
+  level: BarLevel;
 
   /** The dock toggle, or null when no plugin contributes a dock tab. */
   dock: { open: boolean; onToggle(): void } | null;
@@ -116,10 +135,7 @@ export function DeckBar({
   usageLiveAgents,
   updateAction,
   onUpdateAction,
-  canAddAgent,
-  addAgentTitle,
-  onAddAgent,
-  onAddTeam,
+  level,
   dock,
   pluginActions,
   canOpenDialog,
@@ -129,20 +145,6 @@ export function DeckBar({
   onOpenSettings,
   notifications,
 }: DeckBarProps) {
-  // The ways to create, in the order they are offered. Adding an agent is
-  // always one of them; starting a team joins it when the deck says so.
-  const createActions: MenuAction[] = [
-    {
-      id: "agent",
-      label: "Agent",
-      onSelect: onAddAgent,
-      disabled: !canAddAgent,
-      refusal: addAgentTitle,
-    },
-  ];
-  if (onAddTeam) {
-    createActions.push({ id: "team", label: "Team", onSelect: onAddTeam });
-  }
   // The plugin group has a ceiling; whatever passes it folds into a menu, so
   // the bar stops growing with the number of plugins installed.
   const { shown: pluginShown, overflow: pluginOverflow } = fitBarGroup(
@@ -167,6 +169,31 @@ export function DeckBar({
             <span className="deck__active-ws">{workspaceName}</span>
           )}
         </div>
+        {level.kind === "team" && (
+          // Inside a team the rail says nothing about it, so this half does:
+          // the way back to the cards, the team's name, the branch it works
+          // on. Its own group, so the workspace's own words keep their seam.
+          <div className="bar__group deck__team-bar">
+            <TipButton
+              variant="ghost"
+              size="sm"
+              tip="Back to the teams"
+              label="Back to teams"
+              onClick={level.onBack}
+            >
+              ←
+            </TipButton>
+            <span className="deck__team-name">{level.name}</span>
+            {level.branch !== null && (
+              <BranchBadge
+                className="deck__team-branch"
+                size="sm"
+                label={level.branch}
+                title={level.branch}
+              />
+            )}
+          </div>
+        )}
       </div>
 
       {/* Quota sits in the MIDDLE, alone in its own zone.
@@ -211,40 +238,38 @@ export function DeckBar({
         )}
 
         {/* CREATE — the bar's one affirmative act, and the only filled control
-            on it. Adding an agent and starting a team are the same kind of
-            thing (deciding who works here), so they are one control with two
-            ways, and a third way later costs a menu line rather than another
-            button in the run. A menu of ONE would only put a click in front
-            of the app's commonest action, so a lone way collapses back to a
-            plain button. */}
-        <div className="bar__group">
-          {createActions.length === 1 ? (
+            on it. ONE door per level: at the teams level a team is the only
+            thing to start (an agent is a team's first member, so the team is
+            born with it); inside a team, a member is the only thing to add.
+            No menu: the level already chose. */}
+        {level.kind === "team" ? (
+          <div className="bar__group">
             <TipButton
               variant="primary"
               size="sm"
-              onClick={createActions[0].onSelect}
-              disabled={createActions[0].disabled}
-              tip={createActions[0].refusal ?? "Add an agent"}
-              label="Add an agent"
+              onClick={level.onAddMember}
+              disabled={!level.canAddMember}
+              tip={level.addMemberTitle}
+              label="Add a member"
             >
-              + {createActions[0].label}
+              + Member
             </TipButton>
-          ) : (
-            <Tooltip
-              tip="Add an agent or start a team"
-              delayMs={BAR_TIP_DELAY_MS}
-            >
-              <MenuButton
+          </div>
+        ) : (
+          level.onAddTeam && (
+            <div className="bar__group">
+              <TipButton
                 variant="primary"
                 size="sm"
-                actions={createActions}
-                ariaLabel="Create"
+                onClick={level.onAddTeam}
+                tip="Start a team — with its first agent and its directory"
+                label="Start a team"
               >
-                + ▾
-              </MenuButton>
-            </Tooltip>
-          )}
-        </div>
+                + Team
+              </TipButton>
+            </div>
+          )
+        )}
 
         {/* PANELS — what to show and hide. Nothing here changes the deck; it
             changes what you can see of it, which is its own kind of act. */}

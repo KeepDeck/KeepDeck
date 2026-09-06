@@ -249,7 +249,7 @@ describe("AgentPane — header badges", () => {
       root.render(
         createElement(PaneUnderTest, {
           ...baseProps,
-          team: { name: "api", role: "impl-1" },
+          team: { id: "team-1", name: "api", role: "impl-1" },
         }),
       ),
     );

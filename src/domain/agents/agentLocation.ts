@@ -208,4 +208,17 @@ export interface AgentDialogResult {
    * in its recorded cwd (`location` is then advisory only), fork copies it
    * into the chosen location. Absent = a fresh conversation. */
   session?: { mode: "resume" | "fork"; handle: SessionHandle };
+  /** The name of the team this agent starts — set only by the "+ Team"
+   * door, where the agent is the team's first. Absent for a member joining
+   * a team that exists, and for a continuation. */
+  teamName?: string;
 }
+
+/**
+ * What the "+ Agent" dialog is opened FOR: a new team, born with this agent
+ * and its directory, or a member joining a team that exists — in that
+ * team's directory, so the dialog has no location to ask about.
+ */
+export type AgentDialogTarget =
+  | { kind: "new-team"; suggestedName: string }
+  | { kind: "member"; teamId: string; teamName: string };

@@ -186,6 +186,7 @@ describe("AgentDialog worktree location flow", () => {
         createElement(AgentDialog, {
           defaultAgentType: "claude" as const,
           remoteEnabled: false,
+          target: { kind: "new-team" as const, suggestedName: "Team 3" },
           defaultYolo: false,
           repo: { cwd: "/repo", branch: "main" },
           suggestedPath: "/base/kd-ws-2",
@@ -246,6 +247,8 @@ describe("AgentDialog worktree location flow", () => {
           baseBranch: "main",
         },
         yolo: false,
+        // The untouched team name carries the deck's suggestion.
+        teamName: "Team 3",
       },
     ]);
   });
@@ -449,6 +452,7 @@ describe("AgentDialog agent picker", () => {
         createElement(AgentDialog, {
           defaultAgentType: "claude" as const,
           remoteEnabled: false,
+          target: { kind: "new-team" as const, suggestedName: "Team 3" },
           defaultYolo: false,
           repo: null,
           suggestedPath: "",
@@ -498,6 +502,7 @@ describe("AgentDialog YOLO toggle", () => {
         createElement(AgentDialog, {
           defaultAgentType: "claude" as const,
           remoteEnabled: false,
+          target: { kind: "new-team" as const, suggestedName: "Team 3" },
           defaultYolo,
           repo: null,
           suggestedPath: "",
@@ -610,6 +615,7 @@ describe("AgentDialog start-from session picker", () => {
         createElement(AgentDialog, {
           defaultAgentType: "claude" as const,
           remoteEnabled: false,
+          target: { kind: "new-team" as const, suggestedName: "Team 3" },
           defaultYolo: false,
           repo: { cwd: "/repo", branch: "main" },
           suggestedPath: "",
@@ -796,7 +802,7 @@ describe("AgentDialog start-from session picker", () => {
     act(() => rows()[0].click());
     act(() => modeBtn("New session").click());
     expect(createBtn().disabled).toBe(false);
-    expect(createBtn().textContent).toBe("Create agent");
+    expect(createBtn().textContent).toBe("Create team");
     submit();
     expect(confirmed).toHaveLength(1);
     expect(confirmed[0].session).toBeUndefined();
@@ -881,6 +887,7 @@ describe("AgentDialog start-from paging", () => {
         createElement(AgentDialog, {
           defaultAgentType: "claude" as const,
           remoteEnabled: false,
+          target: { kind: "new-team" as const, suggestedName: "Team 3" },
           defaultYolo: false,
           repo: { cwd: "/repo", branch: "main" },
           suggestedPath: "",
@@ -935,6 +942,7 @@ describe("AgentDialog start-from paging", () => {
         createElement(AgentDialog, {
           defaultAgentType: "claude" as const,
           remoteEnabled: false,
+          target: { kind: "new-team" as const, suggestedName: "Team 3" },
           defaultYolo: false,
           repo: { cwd: "/repo", branch: "main" },
           suggestedPath: "",
@@ -987,6 +995,7 @@ describe("AgentDialog start-from paging", () => {
         createElement(AgentDialog, {
           defaultAgentType: "claude" as const,
           remoteEnabled: false,
+          target: { kind: "new-team" as const, suggestedName: "Team 3" },
           defaultYolo: false,
           repo: { cwd: "/repo", branch: "main" },
           suggestedPath: "",
@@ -1076,6 +1085,7 @@ describe("AgentDialog cross-agent pick guard", () => {
         createElement(AgentDialog, {
           defaultAgentType: "claude" as const,
           remoteEnabled: false,
+          target: { kind: "new-team" as const, suggestedName: "Team 3" },
           defaultYolo: false,
           repo: { cwd: "/repo", branch: "main" },
           suggestedPath: "",
@@ -1189,6 +1199,7 @@ describe("remote gating (Experimental setting)", () => {
     act(async () =>
       root.render(
         createElement(AgentDialog, {
+          target: { kind: "new-team" as const, suggestedName: "Team 3" },
           defaultAgentType: agent as AgentDialogResult["agentType"],
           defaultYolo: false,
           remoteEnabled,
@@ -1239,6 +1250,7 @@ describe("remote gating (Experimental setting)", () => {
         createElement(AgentDialog, {
           defaultAgentType: "codex" as const,
           remoteEnabled: true,
+          target: { kind: "new-team" as const, suggestedName: "Team 3" },
           defaultYolo: false,
           repo: null,
           suggestedPath: "",
@@ -1371,6 +1383,7 @@ describe("AgentDialog picker ↔ sessionIndexManager (integration)", () => {
         createElement(AgentDialog, {
           defaultAgentType: "claude" as const,
           remoteEnabled: false,
+          target: { kind: "new-team" as const, suggestedName: "Team 3" },
           defaultYolo: false,
           repo: { cwd: "/repo", branch: "main" },
           suggestedPath: "",

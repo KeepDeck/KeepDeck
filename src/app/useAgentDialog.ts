@@ -1,21 +1,26 @@
 import { useRef, useState } from "react";
 import {
   type AgentDialogResult,
+  type AgentDialogTarget,
   type AgentInfo,
   type AgentType,
   forkTargetFor,
   type SessionPickRow,
 } from "../domain/agents";
 import {
+  autoTeamName,
   baseName,
+  findTeam,
   findWorkspaceByRef,
   firstFreeTeamWorktree,
+  nextTeamSeq,
   paneFromAgentRequest,
   paneId,
   parentDir,
   sessionClaimant,
   TEAM_FULL_MESSAGE,
   WORKSPACE_GONE_MESSAGE,
+  WORKTREE_HELD_MESSAGE,
   type Workspace,
 } from "../domain/deck";
 import { handleFromHit } from "../domain/journal";
@@ -47,11 +52,18 @@ export interface AgentDialogNotices {
   onCreateFailed(message: string): void;
 }
 
+/** What the dialog is opened FOR, as the caller says it: a new team, or a
+ * member of the team `teamId`. */
+export type AgentDialogOpening = { kind: "new-team" } | { kind: "member"; teamId: string };
+
 /** Everything the "+ Agent" dialog needs to render, captured at open time. */
 export interface AgentDialogSpec {
   workspace: WorkspaceRef;
   agentId: string;
   index: number;
+  /** What the dialog is for — a new team with a suggested name, or a member
+   * of a team that exists, named so the title can say so. */
+  target: AgentDialogTarget;
   defaultAgentType: AgentType;
   /** The YOLO toggle's starting position ([F6] global preference). */
   defaultYolo: boolean;
@@ -104,11 +116,32 @@ export function useAgentDialog(
    * (= don't filter — the dialog's live hint still guards the create). */
   const probeFor = (path: string) => probeWorktree(path).catch(() => null);
 
-  const openFor = async (ws: Workspace) => {
+  const openFor = async (ws: Workspace, opening: AgentDialogOpening = { kind: "new-team" }) => {
     const workspace = { id: ws.id, instance: ws.instance };
     const seq = mintAgentSeq();
     const index = nextAgentIndex(ws);
     const defaultType = nextAgentType(agents, ws);
+    if (opening.kind === "member") {
+      // A member runs in its team's directory: nothing to inspect, no
+      // location to suggest — the dialog asks for the agent and nothing
+      // about where. A team gone by the time the door is pressed opens no
+      // dialog at all.
+      const team = findTeam(ws, opening.teamId);
+      if (!team) return;
+      setDialog({
+        workspace,
+        agentId: paneId(seq),
+        index,
+        target: { kind: "member", teamId: team.id, teamName: team.name },
+        defaultAgentType: defaultType,
+        defaultYolo: getSettings()?.defaultYolo ?? false,
+        remoteEnabled: getSettings()?.remoteAgents === true,
+        repo: null,
+        suggestedPath: "",
+        suggestedBranch: "",
+      });
+      return;
+    }
     // Offer the worktree location only when the workspace cwd is a git repo.
     const info = await inspectRepo(ws.cwd).catch(() => null);
     const repo = info?.isRepo ? { cwd: ws.cwd, branch: info.branch } : null;
@@ -143,6 +176,12 @@ export function useAgentDialog(
       workspace,
       agentId: paneId(seq),
       index,
+      // Named the way the deck would name it unasked, so the field opens
+      // filled and a person who does not care presses Create.
+      target: {
+        kind: "new-team",
+        suggestedName: autoTeamName(nextTeamSeq(deckRef.current.workspaces)),
+      },
       defaultAgentType: defaultType,
       defaultYolo: getSettings()?.defaultYolo ?? false,
       remoteEnabled: getSettings()?.remoteAgents === true,
@@ -195,17 +234,47 @@ export function useAgentDialog(
     // A fresh conversation: the pane the request describes, handed to the one
     // owner of what arriving in a workspace entails. Whether it lands as a
     // terminal or as a provisioning card is the pane's shape to say, not this
-    // surface's to arrange.
-    const landed = orchestrator.createPane({
-      workspace: dlg.workspace,
-      ...paneFromAgentRequest(dlg.agentId, result, ws, dlg.index),
-    });
+    // surface's to arrange. A member joins its team by id — the location the
+    // request carries is the team's, not the dialog's to choose; a new team
+    // lands at the chosen location under the name the dialog gave it.
+    const request = paneFromAgentRequest(dlg.agentId, result, ws, dlg.index);
+    const landed =
+      dlg.target.kind === "member"
+        ? orchestrator.createPane({
+            workspace: dlg.workspace,
+            pane: request.pane,
+            team: dlg.target.teamId,
+          })
+        : orchestrator.createPane({
+            workspace: dlg.workspace,
+            ...request,
+            ...(result.teamName !== undefined && { teamName: result.teamName }),
+          });
     // `gone` is reachable here too: the guard above reads this render's deck,
     // the landing re-resolves against the live store, and a workspace can
     // close in between.
-    if (landed.kind === "full") notices.onCreateFailed(TEAM_FULL_MESSAGE);
-    else if (landed.kind === "gone") {
-      notices.onCreateFailed(WORKSPACE_GONE_MESSAGE);
+    switch (landed.kind) {
+      case "full":
+        notices.onCreateFailed(TEAM_FULL_MESSAGE);
+        break;
+      case "gone":
+        notices.onCreateFailed(WORKSPACE_GONE_MESSAGE);
+        break;
+      case "held":
+        notices.onCreateFailed(WORKTREE_HELD_MESSAGE);
+        break;
+      case "created":
+        // The team just born is where the person's attention is: the stage
+        // drills into it, so the first agent comes up in front of them
+        // rather than behind a card.
+        if (dlg.target.kind === "new-team") {
+          deckRef.current.openTeam(dlg.workspace.id, landed.teamId);
+        }
+        break;
+      default: {
+        const unhandled: never = landed;
+        throw new Error(`unhandled create outcome: ${JSON.stringify(unhandled)}`);
+      }
     }
   };
 

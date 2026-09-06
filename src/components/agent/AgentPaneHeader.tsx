@@ -25,8 +25,9 @@ export interface AgentPaneHeaderProps {
   paneLive: boolean;
   yolo?: boolean;
   /** The pane's place on a team, when it is on one. Shown as the role,
-   * because the role is the address teammates use. */
-  team?: { name: string; role: string } | null;
+   * because the role is the address teammates use; the id is what the
+   * badge opens. */
+  team?: { id: string; name: string; role: string } | null;
   /** Whether the badge must also name the team — true where this deck runs
    * more than one, which is the only case where a role alone is not an
    * identity. A settled fact about the WHOLE deck: a header sees one pane. */
@@ -36,9 +37,10 @@ export interface AgentPaneHeaderProps {
    * inline rename must not be left in flight underneath one. */
   keyboardFocusEnabled: boolean;
   onRename(name: string): void;
-  /** Open the team this pane is on. Optional for a header rendered without
-   * a way in — the badge then names the team without being a door. */
-  onOpenTeam?(name: string): void;
+  /** Open the roster of the team this pane is on — by id. Optional for a
+   * header rendered without a way in — the badge then names the team
+   * without being a door. */
+  onOpenTeam?(teamId: string): void;
   onMinimize?(): void;
   onToggleFocus(): void;
   onClose(): void;
@@ -129,11 +131,9 @@ export function AgentPaneHeader({
         )}
         {yolo && <YoloBadge className="pane__yolo" />}
         {team && (
-          // The way IN to this pane's team, and the only one that scales: a
-          // workspace may run several, so the bar's button always makes a
-          // new one and each existing team is opened from a member wearing
-          // it — which is where somebody thinking about a team is already
-          // looking.
+          // The way to this pane's team's ROSTER — who is on it and what
+          // each is called — from a member wearing it, which is where
+          // somebody thinking about a team is already looking.
           //
           // It still settles nothing itself. A header can say WHICH teammate
           // this is; it cannot answer "are these roles unique", which is the
@@ -146,7 +146,7 @@ export function AgentPaneHeader({
           <button
             type="button"
             className="pane__team-open"
-            onClick={() => onOpenTeam?.(team.name)}
+            onClick={() => onOpenTeam?.(team.id)}
             title={`Open team “${team.name}” — who is on it and what each is called`}
             aria-label={`Open team ${team.name}`}
           >

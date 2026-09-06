@@ -13,10 +13,9 @@
 import type { Workspace } from "../domain/deck";
 import type { NotificationsMode } from "../domain/settings";
 
-/** A team is built inside a workspace. With none live there is nobody to
- * put on one, and a dialog that opened anyway would offer an empty pool
- * under a name field with nothing to name. */
-export function teamDialogDoorOpen(active: Workspace | null): boolean {
+/** A team is born inside a workspace, with its directory and its first
+ * agent. With none live there is nowhere to put it. */
+export function addTeamDoorOpen(active: Workspace | null): boolean {
   return active !== null;
 }
 

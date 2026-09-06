@@ -42,16 +42,21 @@ import {
   paneAgentType,
   paneHasProcess,
   paneHotkeyTarget,
-  paneOnScreen,
+  membersOf,
+  openTeamOf,
+  paneInFront,
   resolveSelectedPaneId,
   stagePanes,
+  teamHeldPath,
 } from "../domain/deck";
 import type { AppInfo } from "../ipc/app";
 import { readAppInfo } from "./appInfo";
 import { layering, statsDeepLinkOnScreen } from "../presentation/layering";
 import { describeError, log } from "../ipc/log";
 import { pluginCrashes, subscribePluginCrashes } from "./pluginHealth";
-import { bellDoorOpen, dockDoorOpen, teamDialogDoorOpen } from "./doors";
+import { addTeamDoorOpen, bellDoorOpen, dockDoorOpen } from "./doors";
+import type { BarLevel } from "../components/deck/DeckBar";
+import { teamBranchOf } from "../presentation/teamCardView";
 
 /** Shell/application wiring kept separate from the rendered app tree. */
 export function useAppController() {
@@ -230,7 +235,11 @@ export function useAppController() {
     open: dockOpen,
   });
   const activeCount = active?.panes.length ?? 0;
-  const atCap = activeCount >= MAX_PANES;
+  // The stage's level: the team in front of the person, or the cards. The
+  // cap is the TEAM's — the grid its members lay out on.
+  const openTeam = active ? openTeamOf(active, activeView) : undefined;
+  const teamCount = active && openTeam ? membersOf(active, openTeam.id).length : 0;
+  const atCap = teamCount >= MAX_PANES;
   // What is painted over what — decided once, in `layering`, for the render
   // and for the notification probe alike. The z-order reasoning lives there.
   const windows = layering({
@@ -244,7 +253,8 @@ export function useAppController() {
     dockTabs: dockTabs.length,
     hasActive: !!active,
   });
-  const canAddAgent = !!active && !atCap && !windows.modal;
+  const canAddMember = !!openTeam && !atCap && !windows.modal;
+  const canAddTeam = !!active && addTeamDoorOpen(active) && !windows.modal;
   // The probe reads the LAST RENDER's decision, not a copy of its inputs:
   // `windows` rides the ref whole, so a layer the render learns about is a
   // layer the probe knows about, with nothing to keep in step by hand.
@@ -282,8 +292,7 @@ export function useAppController() {
       // On screen = the workspace is active AND its team is the open one AND
       // the pane is on that team's grid: the slice is empty for a team that
       // is not open, so a pane there is never "in front of the person".
-      const view = now.viewByWs[source.workspace.id];
-      return paneOnScreen(stagePanes(ws, view), view, source.paneId);
+      return paneInFront(ws, now.viewByWs[source.workspace.id], source.paneId);
     });
     return () => setSourceVisibilityProbe(null);
   }, []);
@@ -298,8 +307,14 @@ export function useAppController() {
       setCreating(true);
     },
     newAgent: () => {
-      if (!canAddAgent) return;
-      void agentFlow.openFor(active);
+      // The level decides what "new" means: a member inside a team, a team
+      // at the cards — the same two doors the bar offers.
+      if (!active) return;
+      if (openTeam) {
+        if (canAddMember) void agentFlow.openFor(active, { kind: "member", teamId: openTeam.id });
+      } else if (canAddTeam) {
+        void agentFlow.openFor(active, { kind: "new-team" });
+      }
     },
     closeAgent: () => {
       if (windows.modal) return;
@@ -360,6 +375,27 @@ export function useAppController() {
   if (restoring || !spawnCtx || !settings) {
     return { ready: false as const };
   }
+  /** The bar's level, composed HERE like every other door: whether a
+   * control exists is a policy about the app's state, and the bar's whole
+   * say in it is a null check. */
+  const barLevel: BarLevel =
+    active && openTeam
+      ? {
+          kind: "team",
+          name: openTeam.name,
+          branch: teamBranchOf(openTeam, gitHeads.get(teamHeldPath(openTeam) ?? active.cwd)),
+          onBack: () => deck.closeTeam(active.id),
+          canAddMember,
+          addMemberTitle: atCap ? `Max ${MAX_PANES} agents on a team` : "Add a member",
+          onAddMember: () => {
+            if (canAddMember) void agentFlow.openFor(active, { kind: "member", teamId: openTeam.id });
+          },
+        }
+      : {
+          kind: "teams",
+          onAddTeam:
+            active && canAddTeam ? () => void agentFlow.openFor(active, { kind: "new-team" }) : null,
+        };
   return {
     ready: true as const,
     active,
@@ -369,8 +405,7 @@ export function useAppController() {
     agents,
     agentsLoading,
     alertSeq,
-    atCap,
-    canAddAgent,
+    barLevel,
     canOpenDialog,
     closeFlow,
     deck,
@@ -421,10 +456,6 @@ export function useAppController() {
     openArtifacts: artifactsDoorOpen(settings)
       ? () => void modal.openArtifacts()
       : null,
-    // A new team is born with its directory and its first agent: the same
-    // flow as adding an agent, which mints a team of its own around it.
-    openTeamDialog:
-      active && teamDialogDoorOpen(active) ? () => void agentFlow.openFor(active) : null,
     dockControl:
       dockDoorOpen(pluginDockTabs.length)
         ? {

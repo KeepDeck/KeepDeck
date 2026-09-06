@@ -30,10 +30,7 @@ const BASE: DeckBarProps = {
   usageLiveAgents: new Set(),
   updateAction: null,
   onUpdateAction: () => {},
-  canAddAgent: true,
-  addAgentTitle: "Add agent",
-  onAddAgent: () => {},
-  onAddTeam: null,
+  level: { kind: "teams", onAddTeam: () => {} },
   dock: null,
   pluginActions: [],
   canOpenDialog: true,
@@ -64,11 +61,6 @@ describe("DeckBar", () => {
     Array.from(host.querySelectorAll<HTMLButtonElement>("button")).find(
       (button) => button.textContent === text,
     );
-  // Menus are portaled out of the bar's DOM, so they are found on the document.
-  const menuItem = (text: string) =>
-    Array.from(
-      document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
-    ).find((item) => item.textContent === text);
   const pluginRow = (count: number) =>
     Array.from({ length: count }, (_, i) => ({
       pluginId: "keepdeck.demo",
@@ -79,14 +71,15 @@ describe("DeckBar", () => {
     // Presence is the composition root's decision, and the bar's only say in
     // it is a null check — so a bar handed nothing optional shows exactly the
     // controls that are never optional.
-    render();
+    render({ level: { kind: "teams", onAddTeam: null } });
     expect(byText("+ Team")).toBeUndefined();
     expect(byLabel("Toggle dock panel")).toBeNull();
     expect(host.querySelector("[data-bell]")).toBeNull();
     // The artifacts door is one of these: the feature is off by default,
     // and a door to a feature that is not running leads to a refusal.
     expect(byLabel("Open artifacts")).toBeNull();
-    expect(byText("+ Agent")).toBeDefined();
+    render();
+    expect(byText("+ Team")).toBeDefined();
   });
 
   it("carries no pane count and no build number", () => {
@@ -145,11 +138,11 @@ describe("DeckBar", () => {
       (button) => button.textContent,
     );
     expect(order.indexOf("Update available")).toBe(0);
-    expect(order.indexOf("+ Agent")).toBe(1);
+    expect(order.indexOf("+ Team")).toBe(1);
     // Its own group, so Create neither gains nor loses a neighbour when the
     // update comes and goes.
     expect(byText("Update available")!.closest(".bar__group")).not.toBe(
-      byText("+ Agent")!.closest(".bar__group"),
+      byText("+ Team")!.closest(".bar__group"),
     );
   });
 
@@ -159,8 +152,7 @@ describe("DeckBar", () => {
     const calls: string[] = [];
     render({
       onToggleRail: () => calls.push("rail"),
-      onAddAgent: () => calls.push("agent"),
-      onAddTeam: () => calls.push("team"),
+      level: { kind: "teams", onAddTeam: () => calls.push("team") },
       onOpenStats: () => calls.push("stats"),
       onOpenSkills: () => calls.push("skills"),
       onOpenArtifacts: () => calls.push("artifacts"),
@@ -168,10 +160,7 @@ describe("DeckBar", () => {
       dock: { open: false, onToggle: () => calls.push("dock") },
     });
     act(() => byLabel("Toggle workspaces panel")?.click());
-    act(() => byLabel("Create")?.click());
-    act(() => menuItem("Agent")?.click());
-    act(() => byLabel("Create")?.click());
-    act(() => menuItem("Team")?.click());
+    act(() => byLabel("Start a team")?.click());
     act(() => byLabel("Toggle dock panel")?.click());
     act(() => byLabel("Open statistics")?.click());
     act(() => byLabel("Open skills")?.click());
@@ -179,7 +168,6 @@ describe("DeckBar", () => {
     act(() => byLabel("Open settings")?.click());
     expect(calls).toEqual([
       "rail",
-      "agent",
       "team",
       "dock",
       "stats",
@@ -187,14 +175,51 @@ describe("DeckBar", () => {
       "artifacts",
       "settings",
     ]);
+    // And inside a team, the level's own two doors.
+    render({
+      level: {
+        kind: "team",
+        name: "api",
+        branch: "kd/api",
+        onBack: () => calls.push("back"),
+        canAddMember: true,
+        addMemberTitle: "Add a member",
+        onAddMember: () => calls.push("member"),
+      },
+    });
+    act(() => byLabel("Back to teams")?.click());
+    act(() => byLabel("Add a member")?.click());
+    expect(calls.slice(-2)).toEqual(["back", "member"]);
   });
 
-  it("collapses the create control when there is only one way to create", () => {
-    // A menu of one puts a click in front of the app's commonest action and
-    // gives nothing back for it.
-    render({ onAddTeam: null });
+  it("inside a team, says where you are and offers a member — one door per level, no menu", () => {
+    // The rail says nothing about a team, so the bar does: the way back, the
+    // name, the branch. And the create control is a plain button either
+    // way: the level already chose what "new" means.
+    render({
+      level: {
+        kind: "team",
+        name: "api",
+        branch: "kd/api",
+        onBack: () => {},
+        canAddMember: true,
+        addMemberTitle: "Add a member",
+        onAddMember: () => {},
+      },
+    });
+    const left = host.querySelector(".deck__bar-left")!;
+    expect(left.querySelector(".deck__team-name")?.textContent).toBe("api");
+    expect(left.querySelector(".deck__team-branch")?.textContent).toContain("kd/api");
+    expect(byLabel("Back to teams")).not.toBeNull();
+    expect(byText("+ Member")).toBeDefined();
+    expect(byText("+ Team")).toBeUndefined();
     expect(byLabel("Create")).toBeNull();
-    expect(byText("+ Agent")).toBeDefined();
+    // At the teams level none of that is said, and the door is the team's.
+    render();
+    expect(host.querySelector(".deck__team-name")).toBeNull();
+    expect(byLabel("Back to teams")).toBeNull();
+    expect(byText("+ Member")).toBeUndefined();
+    expect(byText("+ Team")).toBeDefined();
   });
 
   it("carries the update control's own words and its own action", () => {
@@ -234,39 +259,36 @@ describe("DeckBar", () => {
     expect(acted).toEqual([]);
   });
 
-  it("says why creating is refused, whichever shape the control takes", () => {
-    // The same refusal used to reach the reader through one path and vanish
-    // down the other: the lone button showed it, the menu item put it in a
-    // native `title` this platform draws nowhere. Whether the deck offers
-    // teams decided whether you could find out why you were being refused.
+  it("says why a member is refused, in the control's own tip", () => {
+    // A full team disables the door; the tip has to SAY why. Asserting that
+    // an anchor exists would pass with any wording at all, this refusal
+    // included by an empty one.
     render({
-      canAddAgent: false,
-      addAgentTitle: "Max 16 agents",
-      onAddTeam: null,
+      level: {
+        kind: "team",
+        name: "api",
+        branch: null,
+        onBack: () => {},
+        canAddMember: false,
+        addMemberTitle: "Max 16 agents on a team",
+        onAddMember: () => {},
+      },
     });
-    expect(byText("+ Agent")?.disabled).toBe(true);
-    // The tip has to SAY it. Asserting that an anchor exists would pass with
-    // any wording at all, this refusal included by an empty one.
+    expect(byText("+ Member")?.disabled).toBe(true);
     vi.useFakeTimers();
     try {
       act(() => {
-        byText("+ Agent")!
+        byText("+ Member")!
           .closest(".kd-tip__anchor")!
           .dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
       });
       act(() => void vi.advanceTimersByTime(BAR_TIP_DELAY_MS));
       expect(document.querySelector('[role="tooltip"]')?.textContent).toBe(
-        "Max 16 agents",
+        "Max 16 agents on a team",
       );
     } finally {
       vi.useRealTimers();
     }
-
-    render({ canAddAgent: false, addAgentTitle: "Max 16 agents", onAddTeam: () => {} });
-    act(() => byLabel("Create")?.click());
-    expect(
-      document.querySelector(".kd-menu__refusal")?.textContent,
-    ).toBe("Max 16 agents");
   });
 
   it("keeps the plugin group from growing with the plugins installed", () => {
@@ -295,7 +317,7 @@ describe("DeckBar", () => {
     expect(byLabel("Open statistics")?.disabled).toBe(true);
     expect(byLabel("Open skills")?.disabled).toBe(true);
     expect(byLabel("Open settings")?.disabled).toBe(true);
-    expect(byText("+ Agent")?.disabled).toBe(false);
+    expect(byText("+ Team")?.disabled).toBe(false);
     expect(byLabel("Toggle workspaces panel")?.disabled).toBe(false);
   });
 

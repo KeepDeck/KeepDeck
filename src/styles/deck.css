@@ -57,6 +57,27 @@
   white-space: nowrap;
 }
 
+/* Inside a team: the way back, the team, its branch — the rail says nothing
+   about a team, so the bar does. The name is brighter than the workspace's:
+   it is what the stage is showing, not merely where it is. */
+.deck__team-bar {
+  min-width: 0;
+}
+
+.deck__team-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e6e9ef;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deck__team-branch {
+  max-width: 200px;
+}
+
 
 /* Groups, not one run. The bar answers two questions — what to do, where to
    go — and the eye needs to see that before it reads any control: inside a

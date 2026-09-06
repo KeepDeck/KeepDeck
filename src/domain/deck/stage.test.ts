@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { openTeamOf, stagePanes } from "./stage";
+import { openTeamOf, paneInFront, stagePanes } from "./stage";
 import { team, teamedWorkspace } from "./reducer.testSupport";
 import type { Workspace } from "./workspaces";
 
@@ -29,5 +29,22 @@ describe("stagePanes", () => {
     const ws = twoTeams();
     expect(openTeamOf(ws, { teamOpen: "team-404" })).toBeUndefined();
     expect(stagePanes(ws, { teamOpen: "team-404" })).toEqual([]);
+  });
+});
+
+describe("paneInFront", () => {
+  it("is true only for a pane of the OPEN team that is on its grid", () => {
+    // The notification probe's half of "on screen": a pane of a team that
+    // is not open is never in front of the person, however unhidden it is
+    // — an OS banner for it is the right thing, not noise.
+    const ws = twoTeams();
+    expect(paneInFront(ws, { teamOpen: "team-2" }, "a-2")).toBe(true);
+    expect(paneInFront(ws, { teamOpen: "team-2" }, "a-1")).toBe(false);
+    expect(paneInFront(ws, { teamOpen: "team-2", minimized: ["a-2"] }, "a-2")).toBe(false);
+    // A spotlight on a teammate covers it.
+    expect(paneInFront(ws, { teamOpen: "team-2", focus: "a-3" }, "a-2")).toBe(false);
+    // At the cards level nobody is in front.
+    expect(paneInFront(ws, {}, "a-2")).toBe(false);
+    expect(paneInFront(ws, undefined, "a-1")).toBe(false);
   });
 });

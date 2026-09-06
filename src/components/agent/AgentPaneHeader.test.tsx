@@ -165,14 +165,15 @@ describe("AgentPaneHeader", () => {
     // mean both. A span with a click on it would leave that gesture off the
     // keyboard entirely.
     const onOpenTeam = vi.fn();
-    render({ team: { name: "api", role: "impl-1" }, onOpenTeam });
+    render({ team: { id: "team-1", name: "api", role: "impl-1" }, onOpenTeam });
     const open = host.querySelector<HTMLButtonElement>(".pane__team-open")!;
     expect(open.tagName).toBe("BUTTON");
     // The role is what it shows — that is the address teammates use — while
-    // the team it belongs to is what the click is about.
+    // the team it belongs to is what the click is about: by id, because the
+    // name is an address a rename can change under the click.
     expect(open.textContent).toContain("impl-1");
     act(() => open.click());
-    expect(onOpenTeam).toHaveBeenCalledWith("api");
+    expect(onOpenTeam).toHaveBeenCalledWith("team-1");
   });
 
   it("shows no team control for a pane on no team", () => {

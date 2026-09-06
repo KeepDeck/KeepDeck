@@ -54,14 +54,13 @@ export interface AgentPaneProps {
    * in, like every other badge here. Teams are formed through the deck's
    * commands (a lead assigns its members), so this is how the person
    * watching learns what the agents arranged among themselves. */
-  team?: { name: string; role: string } | null;
+  team?: { id: string; name: string; role: string } | null;
   /** Whether the team badge must name the team too — true where the deck
    * runs more than one. Settled by the deck, which is the only level that
    * can see the other teams. */
   showTeamName?: boolean;
-  /** Open the team this pane is on — the way in to an existing team, since
-   * the bar's button always starts a new one. */
-  onOpenTeam?(name: string): void;
+  /** Open the roster of the team this pane is on, by id. */
+  onOpenTeam?(teamId: string): void;
   /** Whether this pane is currently on screen. */
   visible: boolean;
   /** Whether this pane is maximized to fill the grid. */

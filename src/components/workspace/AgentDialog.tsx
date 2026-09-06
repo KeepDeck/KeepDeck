@@ -12,6 +12,7 @@ import {
   selectableAgents,
   defaultAgentType as pickDefaultAgentType,
   type AgentDialogResult,
+  type AgentDialogTarget,
   type AgentLocation,
   type AgentType,
   type LocationKind,
@@ -41,6 +42,11 @@ import { dirPresent, useDirPresence } from "../history/useDirPresence";
 export type { AgentDialogResult } from "../../domain/agents";
 
 interface AgentDialogProps {
+  /** What the dialog is opened for: a new team, born with this agent (and
+   * named here), or a member joining a team that exists — in that team's
+   * directory, so no location is asked, and fresh only: a continuation
+   * lands where its session was recorded, which is a team of its own. */
+  target: AgentDialogTarget;
   /** Pre-selected agent type. */
   defaultAgentType: AgentType;
   /** The YOLO toggle's starting position (the global preference); shown only
@@ -124,6 +130,7 @@ interface AgentDialogProps {
  * tied to the workspace; the type list is the detected install catalog ([F1]).
  */
 export function AgentDialog({
+  target,
   defaultAgentType,
   defaultYolo,
   remoteEnabled,
@@ -144,6 +151,12 @@ export function AgentDialog({
 }: AgentDialogProps) {
   const [agentType, setAgentType] = useState<AgentType>(defaultAgentType);
   const [name, setName] = useState("");
+  // The new team's name, seeded with the deck's own suggestion so the field
+  // opens filled rather than empty-and-complaining; cleared, the suggestion
+  // is what lands.
+  const [teamName, setTeamName] = useState(
+    target.kind === "new-team" ? target.suggestedName : "",
+  );
   // The toggle's state survives switching through a non-supporting agent —
   // only the SUBMITTED value is gated (see `supportsYolo` below).
   const [yolo, setYolo] = useState(defaultYolo);
@@ -190,13 +203,16 @@ export function AgentDialog({
     resume: supportsResume,
     fork: supportsFork,
   } = agentSessionCapabilities(agents, agentType);
+  // A member joins the team's directory and nothing else: a continuation
+  // lands where its session was recorded, which is a team of its own.
+  const continuations = target.kind !== "member";
   const startModeOptions: readonly (readonly [
     mode: SessionStartMode,
     label: string,
   ])[] = [
     ...(supportsNew ? ([["new", "New session"]] as const) : []),
-    ...(supportsResume ? ([["resume", "Resume"]] as const) : []),
-    ...(supportsFork ? ([["fork", "Fork"]] as const) : []),
+    ...(continuations && supportsResume ? ([["resume", "Resume"]] as const) : []),
+    ...(continuations && supportsFork ? ([["fork", "Fork"]] as const) : []),
   ];
   useEscape(onCancel);
 
@@ -526,10 +542,29 @@ export function AgentDialog({
                 validPick && {
                   session: { mode: startMode, handle: validPick.handle },
                 }),
+              ...(target.kind === "new-team" && {
+                teamName: teamName.trim() || target.suggestedName,
+              }),
             });
         }}
       >
-        <h2 className="form__title">New agent</h2>
+        <h2 className="form__title">
+          {target.kind === "member" ? `New member of “${target.teamName}”` : "New team"}
+        </h2>
+
+        {target.kind === "new-team" && (
+          <>
+            <span className="form__label">Team name</span>
+            <input
+              {...noAutoCorrect}
+              className="form__input"
+              value={teamName}
+              onChange={(e) => setTeamName(e.target.value)}
+              placeholder={target.suggestedName}
+              aria-label="Team name"
+            />
+          </>
+        )}
 
         <span className="form__label">Name</span>
         <input
@@ -602,7 +637,7 @@ export function AgentDialog({
           </>
         )}
 
-        {!remote && (
+        {!remote && continuations && (
           <>
             <span className="form__label">Start from</span>
             <div className="form__types">
@@ -762,13 +797,13 @@ export function AgentDialog({
             Cancel
           </button>
           <button type="submit" className="form__create" disabled={!valid}>
-            {remote
-              ? "Create agent"
-              : startMode === "resume"
-                ? "Resume session"
-                : startMode === "fork"
-                  ? "Fork session"
-                  : "Create agent"}
+            {startMode === "resume" && !remote
+              ? "Resume session"
+              : startMode === "fork" && !remote
+                ? "Fork session"
+                : target.kind === "member"
+                  ? "Add member"
+                  : "Create team"}
           </button>
         </div>
       </form>
