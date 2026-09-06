@@ -5,7 +5,7 @@ import {
   type CommandRegistry,
   type CommandSource,
 } from "../../domain/commands";
-import { assignPaneTeam, type Pane, type Workspace } from "../../domain/deck";
+import { assignPaneTeam, renameTeam, type Pane, type Workspace } from "../../domain/deck";
 import { createWorkspaceInstance } from "../../domain/workspaceInstance";
 import type { PaneActivity } from "../../domain/status";
 import { registerMailCommands } from "./mailCommands";
@@ -494,6 +494,31 @@ describe("team.assign", () => {
     if (!off.ok) expect(off.error.message).toContain("team.add");
     expect(workspaces[0].panes[1].team).toEqual({ teamId: expect.any(String), role: "impl-1" });
     expect(mail.takeAtTurnEnd("pane-2")).toEqual([]);
+  });
+
+  it("keeps every role reachable through a rename — the name is an address, not a key", async () => {
+    // The roster is held by team id: renaming the team touches no pane, and
+    // a teammate addressed by role a moment later is still found.
+    const { registry, workspaces, mail } = setup();
+    const lead = from("pane-1", "ws-1", "Agent 1");
+    await run(registry, "team.assign", { agent: "pane-1", team: "api", role: "lead" }, lead);
+    await run(registry, "team.assign", { agent: "pane-2", team: "api", role: "impl-1" }, lead);
+    mail.takeAtTurnEnd("pane-2");
+    const teamId = workspaces[0].panes[0].team!.teamId;
+    workspaces.splice(0, workspaces.length, ...renameTeam(workspaces, "ws-1", teamId, "platform"));
+    expect(workspaces[0].panes.map((pane) => pane.team)).toEqual([
+      { teamId, role: "lead" },
+      { teamId, role: "impl-1" },
+    ]);
+
+    const sent = await run(
+      registry,
+      "mail.send",
+      { to: "impl-1", kind: "task", body: "still you" },
+      lead,
+    );
+    expect(sent.ok).toBe(true);
+    expect(mail.takeAtTurnEnd("pane-2").map((message) => message.toPaneId)).toEqual(["pane-2"]);
   });
 
   it("refuses to move an agent to another team, and says how work moves instead", async () => {
