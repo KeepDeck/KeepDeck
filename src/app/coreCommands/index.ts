@@ -22,6 +22,7 @@ import {
   roleTaken,
   teamHeldPath,
   teamNameTaken,
+  teamOccupyingPath,
   teamOfPane,
   teamsOf,
   TEAM_FULL_MESSAGE,
@@ -544,6 +545,19 @@ export function registerCoreCommands(
         if (holder) {
           throw new Error(
             `that directory is already team “${holder.name}”'s (${holder.id}) — team.add puts an agent on it`,
+          );
+        }
+        // A team never spans workspaces, so a directory another workspace's
+        // team holds is refused too — said with WHOSE it is, since team.add
+        // cannot reach it from here. The root is the exception: every
+        // workspace opened on the same repository holds it for itself.
+        const abroad =
+          wanted === undefined || normalizePath(wanted) === normalizePath(current.cwd)
+            ? null
+            : teamOccupyingPath(deps.deck().workspaces, wanted);
+        if (abroad) {
+          throw new Error(
+            `that directory is already team “${abroad.team.name}”'s in workspace “${abroad.ws.name}” — one directory is one team`,
           );
         }
         const made = deps.createTeam({ workspace, name: name ?? "", placement });

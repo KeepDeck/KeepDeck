@@ -113,6 +113,44 @@ describe("team.create", () => {
     expect(message(result)).toContain("team-1");
   });
 
+  it("refuses a directory another workspace's team holds, naming whose — except the root, which every workspace holds for itself", async () => {
+    // team.add cannot reach a team in another workspace, so the refusal
+    // says which workspace to go to instead of a bare "held".
+    const { registry, deck } = setup([
+      workspace({}),
+      workspace({
+        id: "ws-2",
+        name: "site",
+        teams: [{ id: "team-1", name: "shared", location: { kind: "attached", cwd: "/wt/shared" } }],
+      }),
+    ]);
+    const abroad = await registry.execute(
+      "team.create",
+      { workspace: "web", name: "mine", directory: "/wt/shared/" },
+      HOST,
+    );
+    expect(abroad.ok).toBe(false);
+    expect(message(abroad)).toContain("shared");
+    expect(message(abroad)).toContain("site");
+    expect(deck.workspaces[0].teams ?? []).toEqual([]);
+
+    // Both workspaces sit on /repo: a team on the root here is not a
+    // team on the root there.
+    const rootThere = await registry.execute(
+      "team.create",
+      { workspace: "site", name: "root", directory: "root" },
+      HOST,
+    );
+    expect(rootThere.ok).toBe(true);
+    const rootHere = await registry.execute(
+      "team.create",
+      { workspace: "web", name: "root", directory: "root" },
+      HOST,
+    );
+    expect(rootHere.ok).toBe(true);
+    expect(deck.workspaces[0].teams?.[0].location).toEqual({ kind: "attached", cwd: "/repo" });
+  });
+
   it("says so when the workspace is gone by the time the team would be made", async () => {
     // The landing's own refusal, translated: a caller that got a teamId
     // for a team no workspace holds would go on addressing it.
