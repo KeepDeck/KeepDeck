@@ -1,10 +1,11 @@
-/** Max agents the deck grid holds at once — a hard product cap. */
+/** Max agents ONE TEAM holds at once — a hard product cap, measured where
+ * a pane joins a team. A workspace holds as many teams as it likes. */
 export const MAX_PANES = 16;
 
-/** The error thrown when a pane can't be added because the workspace is at
+/** The error thrown when a pane can't join because its team is at
  * `MAX_PANES` — one string for every add/fork/resume seam that guards the cap. */
-export const WORKSPACE_FULL_MESSAGE =
-  "The workspace is full — close a pane first";
+export const TEAM_FULL_MESSAGE =
+  `The team is full — ${MAX_PANES} agents; close one first`;
 
 /** The error when the workspace a pane was headed for is no longer in the
  * deck — every add re-resolves against the live store, and a close can land

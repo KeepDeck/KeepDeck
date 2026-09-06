@@ -343,14 +343,14 @@ function heldPath(pane: Pane): string | undefined {
 }
 
 /** One worktree branch/folder name suggestion (mirrors the Rust
- * `WorktreeSuggestion`); `suggest` in [`firstFreeWorktree`] yields these per
+ * `WorktreeSuggestion`); `suggest` in [`firstFreeTeamWorktree`] yields these per
  * index, `null` when no suggestion could be produced. */
 export interface WorktreeNameSuggestion {
   branch: string;
   folder: string;
 }
 
-/** How many suggestion indices [`firstFreeWorktree`] tries before giving up.
+/** How many suggestion indices [`firstFreeTeamWorktree`] tries before giving up.
  * Occupied paths are bounded by the open pane count, so any real deck resolves
  * in a handful of steps — the cap only backstops a pathological `suggest`. */
 const MAX_SUGGESTION_TRIES = 100;
@@ -366,7 +366,7 @@ const MAX_SUGGESTION_TRIES = 100;
  * keeps the candidate — the dialog's live hint still guards the actual create.
  * `null` when `suggest` yields nothing or every try is taken.
  */
-export async function firstFreeWorktree(
+export async function firstFreeTeamWorktree(
   workspaces: Workspace[],
   baseDir: string,
   suggest: (index: number) => Promise<WorktreeNameSuggestion | null>,

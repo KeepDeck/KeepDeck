@@ -15,7 +15,7 @@ import type { AgentInfo } from "../domain/agents";
 import type { Workspace } from "../domain/deck";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import {
-  firstFreeAgentWorktree,
+  firstFreeTeamWorktreeFor,
   nextAgentIndex,
   nextAgentType,
 } from "./newAgentDefaults";
@@ -103,9 +103,9 @@ describe("nextAgentIndex", () => {
   });
 });
 
-describe("firstFreeAgentWorktree", () => {
+describe("firstFreeTeamWorktreeFor", () => {
   it("suggests nothing when the workspace has no base folder", async () => {
-    expect(await firstFreeAgentWorktree([ws()], ws(), 1)).toBeNull();
+    expect(await firstFreeTeamWorktreeFor([ws()], ws(), 1)).toBeNull();
     expect(ipc.suggestWorktree).not.toHaveBeenCalled();
   });
 
@@ -114,7 +114,7 @@ describe("firstFreeAgentWorktree", () => {
       worktreeBaseDir: "/wt",
       panes: [{ id: "p1", location: { kind: "attached", cwd: "/wt/kd-deck-1" } }],
     });
-    expect(await firstFreeAgentWorktree([workspace], workspace, 1)).toEqual({
+    expect(await firstFreeTeamWorktreeFor([workspace], workspace, 1)).toEqual({
       path: "/wt/kd-deck-2",
       branch: "kd/deck/2",
     });
@@ -130,7 +130,7 @@ describe("firstFreeAgentWorktree", () => {
       branch: null,
     }));
     const workspace = ws({ worktreeBaseDir: "/wt" });
-    expect(await firstFreeAgentWorktree([workspace], workspace, 1)).toEqual({
+    expect(await firstFreeTeamWorktreeFor([workspace], workspace, 1)).toEqual({
       path: "/wt/kd-deck-2",
       branch: "kd/deck/2",
     });
@@ -140,7 +140,7 @@ describe("firstFreeAgentWorktree", () => {
     ipc.suggestWorktree.mockRejectedValue(new Error("ipc down"));
     const workspace = ws({ worktreeBaseDir: "/wt" });
     await expect(
-      firstFreeAgentWorktree([workspace], workspace, 1),
+      firstFreeTeamWorktreeFor([workspace], workspace, 1),
     ).resolves.toBeNull();
   });
 
@@ -149,7 +149,7 @@ describe("firstFreeAgentWorktree", () => {
     // "offer it anyway" keeps the dialog usable.
     ipc.probeWorktree.mockRejectedValue(new Error("ipc down"));
     const workspace = ws({ worktreeBaseDir: "/wt" });
-    expect(await firstFreeAgentWorktree([workspace], workspace, 1)).toEqual({
+    expect(await firstFreeTeamWorktreeFor([workspace], workspace, 1)).toEqual({
       path: "/wt/kd-deck-1",
       branch: "kd/deck/1",
     });

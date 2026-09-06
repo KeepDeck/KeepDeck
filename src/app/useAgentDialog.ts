@@ -9,12 +9,12 @@ import {
 import {
   baseName,
   findWorkspaceByRef,
-  firstFreeWorktree,
+  firstFreeTeamWorktree,
   paneFromAgentRequest,
   paneId,
   parentDir,
   sessionClaimant,
-  WORKSPACE_FULL_MESSAGE,
+  TEAM_FULL_MESSAGE,
   WORKSPACE_GONE_MESSAGE,
   type Workspace,
 } from "../domain/deck";
@@ -27,7 +27,7 @@ import type { WorkspaceRef } from "../domain/workspaceInstance";
 import { mintAgentSeq } from "./ids";
 import { getSettings } from "./settingsManager";
 import {
-  firstFreeAgentWorktree,
+  firstFreeTeamWorktreeFor,
   nextAgentIndex,
   nextAgentType,
 } from "./newAgentDefaults";
@@ -119,7 +119,7 @@ export function useAgentDialog(
         // [F2]: prefill a path ONLY when the workspace has a base folder, so
         // the dialog opens on the first usable suggestion rather than onto an
         // occupied- or blocked-path error.
-        const free = await firstFreeAgentWorktree(
+        const free = await firstFreeTeamWorktreeFor(
           deckRef.current.workspaces,
           ws,
           index,
@@ -203,7 +203,7 @@ export function useAgentDialog(
     // `gone` is reachable here too: the guard above reads this render's deck,
     // the landing re-resolves against the live store, and a workspace can
     // close in between.
-    if (landed.kind === "full") notices.onCreateFailed(WORKSPACE_FULL_MESSAGE);
+    if (landed.kind === "full") notices.onCreateFailed(TEAM_FULL_MESSAGE);
     else if (landed.kind === "gone") {
       notices.onCreateFailed(WORKSPACE_GONE_MESSAGE);
     }
@@ -224,7 +224,7 @@ export function useAgentDialog(
     if (!ws) return null;
     const base = ws.worktreeBaseDir ?? parentDir(currentPath);
     if (!base) return null;
-    const free = await firstFreeWorktree(
+    const free = await firstFreeTeamWorktree(
       currentDeck.workspaces,
       base,
       suggestFor(ws),

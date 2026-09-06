@@ -88,12 +88,12 @@ export const provisioningCards = (count: number): Pane[] =>
   }));
 
 /** The creates behind [`provisioningCards`], as the manager takes them:
- * one request per owner, the pane's id standing in for the owner's. */
+ * one request per owner — a TEAM (`team-N`), the card's intent as its. */
 export const provisionRequests = (count: number): ProvisionRequest[] =>
-  provisioningCards(count).flatMap((pane) => {
+  provisioningCards(count).flatMap((pane, i) => {
     const location = locationOf(pane);
     return location.kind === "provisioning"
-      ? [{ ownerId: pane.id, intent: location.intent }]
+      ? [{ ownerId: `team-${i + 1}`, intent: { ...location.intent, path: `/wt/team-${i + 1}` } }]
       : [];
   });
 

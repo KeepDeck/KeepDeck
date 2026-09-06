@@ -12,7 +12,7 @@ import {
   teamNameTaken,
   teamOccupyingPath,
   teamsOf,
-  WORKSPACE_FULL_MESSAGE,
+  TEAM_FULL_MESSAGE,
   WORKSPACE_GONE_MESSAGE,
   WORKTREE_HELD_MESSAGE,
   type Pane,
@@ -214,7 +214,7 @@ export function createAgentOrchestratorCreation({
       case "created":
         return;
       case "full":
-        throw new Error(WORKSPACE_FULL_MESSAGE);
+        throw new Error(TEAM_FULL_MESSAGE);
       case "gone":
         throw new Error(WORKSPACE_GONE_MESSAGE);
       case "held":

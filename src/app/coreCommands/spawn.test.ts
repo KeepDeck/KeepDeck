@@ -12,7 +12,7 @@ import {
 } from "./testSupport";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  WORKSPACE_FULL_MESSAGE,
+  TEAM_FULL_MESSAGE,
   WORKSPACE_GONE_MESSAGE,
   provisioningCard,
 } from "../../domain/deck";
@@ -69,7 +69,7 @@ describe("agent.spawn", () => {
     createPane.mockReturnValueOnce({ kind: "full" });
     const full = await registry.execute("agent.spawn", { workspace: "web" }, HOST);
     expect(full.ok).toBe(false);
-    if (!full.ok) expect(full.error.message).toBe(WORKSPACE_FULL_MESSAGE);
+    if (!full.ok) expect(full.error.message).toBe(TEAM_FULL_MESSAGE);
 
     createPane.mockReturnValueOnce({ kind: "gone" });
     const gone = await registry.execute("agent.spawn", { workspace: "web" }, HOST);

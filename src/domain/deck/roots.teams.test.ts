@@ -3,7 +3,7 @@ import { createWorkspaceInstance } from "../workspaceInstance";
 import { paneBlock, paneHasProcess, paneSuspendBlock, type Pane } from "./panes";
 import { paneBranch, paneExecutionCwd, paneProvisioning, skillRootsOf } from "./roots";
 import type { Team } from "./teams";
-import { firstFreeWorktree, pathOccupancy, type Workspace } from "./workspaces";
+import { firstFreeTeamWorktree, pathOccupancy, type Workspace } from "./workspaces";
 
 const ws = (over: Partial<Workspace> = {}): Workspace => ({
   id: "ws-1",
@@ -87,7 +87,7 @@ describe("occupancy is the team's", () => {
   it("a team's directory is skipped when the next free worktree is suggested", async () => {
     const deck = [ws({ teams: [owner] })];
     const suggest = async (index: number) => ({ folder: index === 1 ? "team" : `free-${index}` , branch: `kd/${index}` });
-    expect(await firstFreeWorktree(deck, "/wt", suggest, 1)).toEqual({
+    expect(await firstFreeTeamWorktree(deck, "/wt", suggest, 1)).toEqual({
       path: "/wt/free-2",
       branch: "kd/2",
     });

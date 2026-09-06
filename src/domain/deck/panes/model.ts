@@ -205,7 +205,7 @@ export interface PaneTeam {
 }
 
 /** The id for the pane numbered `seq` — the single mint point, since it's the
- * agent↔`WorktreeRecord` join key and every site must agree. */
+ * key every site must agree on. */
 export function paneId(seq: number): string {
   return `pane-${seq}`;
 }

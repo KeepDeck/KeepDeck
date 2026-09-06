@@ -7,7 +7,7 @@ import {
   closeWorkspace,
   findWorkspace,
   findWorkspaceOfPane,
-  firstFreeWorktree,
+  firstFreeTeamWorktree,
   moveWorkspace,
   parentDir,
   renameWorkspace,
@@ -556,7 +556,7 @@ describe("pathOccupancy", () => {
   });
 });
 
-describe("firstFreeWorktree", () => {
+describe("firstFreeTeamWorktree", () => {
   /** Rust-style naming: index i → folder `kd-a-<i>`, branch `kd/a/<i>`. */
   const suggest = async (i: number) => ({
     branch: `kd/a/${i}`,
@@ -576,14 +576,14 @@ describe("firstFreeWorktree", () => {
   ];
 
   it("returns the start index untouched when it's free", async () => {
-    expect(await firstFreeWorktree(holding(1), "/base", suggest, 2)).toEqual({
+    expect(await firstFreeTeamWorktree(holding(1), "/base", suggest, 2)).toEqual({
       path: "/base/kd-a-2",
       branch: "kd/a/2",
     });
   });
 
   it("skips occupied paths — folder and branch advance together", async () => {
-    expect(await firstFreeWorktree(holding(2, 3), "/base", suggest, 2)).toEqual({
+    expect(await firstFreeTeamWorktree(holding(2, 3), "/base", suggest, 2)).toEqual({
       path: "/base/kd-a-4",
       branch: "kd/a/4",
     });
@@ -604,22 +604,22 @@ describe("firstFreeWorktree", () => {
         ],
       },
     ];
-    expect((await firstFreeWorktree(deck, "/base", suggest, 2))?.path).toBe(
+    expect((await firstFreeTeamWorktree(deck, "/base", suggest, 2))?.path).toBe(
       "/base/kd-a-3",
     );
   });
 
   it("normalizes the base dir's trailing slash", async () => {
-    expect((await firstFreeWorktree([], "/base///", suggest, 1))?.path).toBe(
+    expect((await firstFreeTeamWorktree([], "/base///", suggest, 1))?.path).toBe(
       "/base/kd-a-1",
     );
   });
 
   it("gives up when suggestions dry up, or when every try is occupied", async () => {
-    expect(await firstFreeWorktree([], "/base", async () => null, 1)).toBeNull();
+    expect(await firstFreeTeamWorktree([], "/base", async () => null, 1)).toBeNull();
     // A suggest stuck on one occupied name must hit the cap, not spin forever.
     const stuck = async () => ({ branch: "kd/a/2", folder: "kd-a-2" });
-    expect(await firstFreeWorktree(holding(2), "/base", stuck, 2)).toBeNull();
+    expect(await firstFreeTeamWorktree(holding(2), "/base", stuck, 2)).toBeNull();
   });
 
   it("skips a candidate the probe classifies as blocked (leftover dir with files)", async () => {
@@ -629,7 +629,7 @@ describe("firstFreeWorktree", () => {
       empty: false,
       branch: null,
     });
-    expect(await firstFreeWorktree([], "/base", suggest, 1, probe)).toEqual({
+    expect(await firstFreeTeamWorktree([], "/base", suggest, 1, probe)).toEqual({
       path: "/base/kd-a-2",
       branch: "kd/a/2",
     });
@@ -642,14 +642,14 @@ describe("firstFreeWorktree", () => {
       empty: false,
       branch: "kd/a/1",
     });
-    expect((await firstFreeWorktree([], "/base", suggest, 1, probe))?.path).toBe(
+    expect((await firstFreeTeamWorktree([], "/base", suggest, 1, probe))?.path).toBe(
       "/base/kd-a-1",
     );
   });
 
   it("a null probe result (backend down) keeps the candidate", async () => {
     expect(
-      (await firstFreeWorktree([], "/base", suggest, 1, async () => null))?.path,
+      (await firstFreeTeamWorktree([], "/base", suggest, 1, async () => null))?.path,
     ).toBe("/base/kd-a-1");
   });
 });

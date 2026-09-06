@@ -6,7 +6,7 @@ import type { AgentDialogResult } from "../domain/agents";
 import {
   attachedWorktree,
   provisioningCard,
-  WORKSPACE_FULL_MESSAGE,
+  TEAM_FULL_MESSAGE,
   type Workspace,
 } from "../domain/deck";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
@@ -341,7 +341,7 @@ describe("useAgentDialog suggestions", () => {
       }),
     );
     expect(notices.onCreateFailed).toHaveBeenCalledWith(
-      WORKSPACE_FULL_MESSAGE,
+      TEAM_FULL_MESSAGE,
     );
   });
 

@@ -14,7 +14,7 @@ import {
   paneAgentType,
   paneDisplayTitle,
   paneId,
-  WORKSPACE_FULL_MESSAGE,
+  TEAM_FULL_MESSAGE,
   WORKSPACE_GONE_MESSAGE,
   WORKTREE_HELD_MESSAGE,
   type Pane,
@@ -25,7 +25,7 @@ import {
 } from "../../domain/deck";
 import { log } from "../../ipc/log";
 import { inspectRepo } from "../../ipc/worktree";
-import { firstFreeAgentWorktree, nextAgentIndex, nextAgentType } from "../newAgentDefaults";
+import { firstFreeTeamWorktreeFor, nextAgentIndex, nextAgentType } from "../newAgentDefaults";
 import { mintAgentSeq } from "../ids";
 import { teamOf } from "../../domain/mail";
 import type { PaneActivity } from "../../domain/status";
@@ -302,7 +302,7 @@ export function registerCoreCommands(
         const info = await inspectRepo(ws.cwd).catch(() => null);
         let current = currentTarget();
         if (info?.isRepo) {
-          const free = await firstFreeAgentWorktree(
+          const free = await firstFreeTeamWorktreeFor(
             current.deck.workspaces,
             current.workspace,
             index,
@@ -334,7 +334,7 @@ export function registerCoreCommands(
           case "created":
             break;
           case "full":
-            throw new Error(WORKSPACE_FULL_MESSAGE);
+            throw new Error(TEAM_FULL_MESSAGE);
           case "gone":
             throw new Error(WORKSPACE_GONE_MESSAGE);
           case "held":

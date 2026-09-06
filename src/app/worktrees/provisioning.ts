@@ -142,7 +142,7 @@ export function createWorktreeProvisioning(
       rec = await inOrder(() =>
         createWorktree({
           repo: intent.repo,
-          agentId: ownerId,
+          ownerId,
           branch: intent.branch,
           // The intent's own picked base outranks the repo HEAD pinned below.
           base: intent.base ?? batchBase?.commit,

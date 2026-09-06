@@ -3,7 +3,7 @@ import {
   type AgentInfo,
   type AgentType,
 } from "../domain/agents";
-import { firstFreeWorktree, type Workspace } from "../domain/deck";
+import { firstFreeTeamWorktree, type Workspace } from "../domain/deck";
 import { probeWorktree, suggestWorktree } from "../ipc/worktree";
 import { getSettings } from "./settingsManager";
 
@@ -48,13 +48,13 @@ export function nextAgentIndex(ws: Workspace): number {
  * be made is not an error, it just means no prefill. The create itself is
  * guarded elsewhere.
  */
-export function firstFreeAgentWorktree(
+export function firstFreeTeamWorktreeFor(
   workspaces: Workspace[],
   ws: Workspace,
   index: number,
 ): Promise<{ path: string; branch: string } | null> {
   if (!ws.worktreeBaseDir) return Promise.resolve(null);
-  return firstFreeWorktree(
+  return firstFreeTeamWorktree(
     workspaces,
     ws.worktreeBaseDir,
     (i) => suggestWorktree(ws.name, i).catch(() => null),

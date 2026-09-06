@@ -45,13 +45,13 @@ describe("the ordering between arming and teardown", () => {
     });
     worktree.inspectRepo.mockResolvedValue({ head: "abc" });
     worktree.createWorktree.mockResolvedValue({
-      path: "/wt/pane-1",
+      path: "/wt/team-1",
       branch: "kd/ws/1",
     });
     worktree.removeWorktree.mockImplementation(async (_repo, path) => {
       order.push(`remove:${path}`);
     });
-    manager.registerPostProvision("pane-1", async () => {
+    manager.registerPostProvision("team-1", async () => {
       throw new Error("surgery boom");
     });
 
@@ -61,7 +61,7 @@ describe("the ordering between arming and teardown", () => {
       { onResolved: vi.fn(), onFailed: vi.fn(), abandoned: stays },
     );
 
-    expect(order).toEqual(["disarm:/wt/pane-1", "remove:/wt/pane-1"]);
+    expect(order).toEqual(["disarm:/wt/team-1", "remove:/wt/team-1"]);
   });
 
   it("keeps a root a live workspace still claims armed, even while deleting it", async () => {
