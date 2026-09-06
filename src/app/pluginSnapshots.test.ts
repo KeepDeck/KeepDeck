@@ -9,12 +9,9 @@ const ws: Workspace = {
   name: "Deck",
   cwd: "/repo",
   worktreeBaseDir: null,
+  teams: [{ id: "team-1", name: "x", location: { kind: "attached", cwd: "/repo/wt", branch: "kd/x" } }],
   panes: [
-    {
-      id: "p1",
-      agentType: "claude",
-      location: { kind: "attached", cwd: "/repo/wt", branch: "kd/x" },
-    },
+    { id: "p1", agentType: "claude", team: { teamId: "team-1", role: "lead" } },
     { id: "p2", autoTitle: "vitest --watch" },
     { id: "p3", name: "Named", autoTitle: "ignored" },
   ],

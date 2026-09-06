@@ -5,7 +5,7 @@ import {
   idleReadsAsStopped,
   type PaneBody,
   type PaneIdle,
-  type PaneProvisioning,
+  type TeamProvisioning,
 } from "../../domain/deck";
 import {
   activityBadge,
@@ -104,7 +104,7 @@ export interface AgentPaneProps {
   onResume?(): void;
   /** The pane's worktree create in flight or failed — render a status card
    * instead of a terminal until it resolves (optimistic provisioning). */
-  provisioning?: PaneProvisioning | null;
+  provisioning?: TeamProvisioning | null;
   /** The pane's agent can't run — render an explanatory card instead of a
    * terminal; mounting one would spawn the bare id as a command. The union
    * names WHY, because the recovery gestures differ: `no-plugin` means the

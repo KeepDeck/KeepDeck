@@ -7,7 +7,7 @@ import {
 } from "../../domain/agents";
 import type { Pane, Workspace } from "../../domain/deck";
 import {
-  attachedWorktree,
+  paneWorktree,
   baseName,
   paneAgentType,
   paneBranch,
@@ -77,7 +77,7 @@ const suggestAddress = suggestRoleAddress;
 function whereOf(workspace: Workspace, pane: Pane): string {
   const branch = paneBranch(workspace, pane);
   if (branch) return branch;
-  const worktree = attachedWorktree(pane);
+  const worktree = paneWorktree(workspace, pane);
   return worktree ? baseName(worktree.cwd) : "";
 }
 

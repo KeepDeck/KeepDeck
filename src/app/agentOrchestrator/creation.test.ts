@@ -27,6 +27,7 @@ import type {
   SpawnPluginAccess,
   WorkspaceCreationResult,
 } from "./testSupport";
+import type { TeamLocation, Workspace } from "../../domain/deck";
 
 describe("agent orchestrator —what resume answers", () => {
   let root: Root;
@@ -51,7 +52,7 @@ describe("agent orchestrator —what resume answers", () => {
     act(() => root.unmount());
   });
 
-  const only = (pane: object) =>
+  const only = (pane: object, teams?: Workspace["teams"]) =>
     act(() =>
       deck.createWorkspace({
         id: "ws-1",
@@ -60,6 +61,7 @@ describe("agent orchestrator —what resume answers", () => {
         cwd: "/repo",
         worktreeBaseDir: null,
         panes: [{ id: "pane-1", agentType: "claude", ...pane }],
+        ...(teams && { teams }),
       }),
     );
 
@@ -73,12 +75,13 @@ describe("agent orchestrator —what resume answers", () => {
   it("tells a pane mid-create apart from a running one", async () => {
     // Its own doc: telling the user a pane mid-create is already running is
     // simply false — it has never run, so there is no session to come back to.
-    only({
-      location: {
-        kind: "provisioning",
-        intent: { repo: "/repo", path: "/wt/a", index: 1 },
+    only({ team: { teamId: "team-1", role: "lead" } }, [
+      {
+        id: "team-1",
+        name: "a",
+        location: { kind: "provisioning", intent: { repo: "/repo", path: "/wt/a", index: 1 } },
       },
-    });
+    ]);
     await settle();
     expect(agentRun.resume("ws-1", "pane-1")).toBe("provisioning");
   });
@@ -131,14 +134,12 @@ describe("agent orchestrator —a new pane arriving", () => {
     viewByWs: {},
   });
 
-  const card = (over: object = {}): Pane => ({
-    id: "pane-9",
-    agentType: "claude",
-    location: {
-      kind: "provisioning",
-      intent: { repo: "/repo", path: "/wt/a", index: 1 },
-    },
-    ...over,
+  /** The pane every request here asks with. */
+  const plain = (): Pane => ({ id: "pane-9", agentType: "claude" });
+  /** The directory it asks for: a worktree still to be created. */
+  const card = (): TeamLocation => ({
+    kind: "provisioning",
+    intent: { repo: "/repo", path: "/wt/a", index: 1 },
   });
 
   it("lands a plain pane and leaves the worktree runner alone", async () => {
@@ -166,7 +167,8 @@ describe("agent orchestrator —a new pane arriving", () => {
     await act(async () => {
       agentRun.createPane({
         workspace: { id: "ws-1", instance: instance() },
-        pane: card(),
+        pane: plain(),
+        placement: card(),
       });
     });
     // The create is the TEAM's: the card's owner is the team minted for the
@@ -188,7 +190,8 @@ describe("agent orchestrator —a new pane arriving", () => {
     await act(async () => {
       agentRun.createPane({
         workspace: { id: "ws-1", instance: instance() },
-        pane: card(),
+        pane: plain(),
+        placement: card(),
       });
     });
     expect(provisionedAs).toEqual(["renamed"]);
@@ -206,7 +209,8 @@ describe("agent orchestrator —a new pane arriving", () => {
     await act(async () => {
       outcome = agentRun.createPane({
         workspace: { id: "ws-1", instance: stale },
-        pane: card(),
+        pane: plain(),
+        placement: card(),
       });
     });
     expect(outcome).toEqual({ kind: "gone" });
@@ -240,7 +244,8 @@ describe("agent orchestrator —a new pane arriving", () => {
     await act(async () => {
       outcome = agentRun.createPane({
         workspace: { id: "ws-1", instance: instance() },
-        pane: card(),
+        pane: plain(),
+        placement: card(),
       });
     });
     expect(outcome).toEqual({ kind: "full" });
@@ -272,7 +277,8 @@ describe("agent orchestrator —a new pane arriving", () => {
     await act(async () => {
       outcome = agentRun.createPane({
         workspace: { id: "ws-1", instance: instance() },
-        pane: card(),
+        pane: plain(),
+        placement: card(),
       });
     });
     expect(outcome).toEqual({ kind: "held" });
@@ -302,7 +308,8 @@ describe("agent orchestrator —a new pane arriving", () => {
     await act(async () => {
       agentRun.createPane({
         workspace: { id: "ws-1", instance: stale },
-        pane: card(),
+        pane: plain(),
+        placement: card(),
       });
     });
     expect(peekPaneSpawnSpec("pane-9")).toBeUndefined();

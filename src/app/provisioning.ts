@@ -1,8 +1,8 @@
 /**
- * Optimistic provisioning, reporting half: panes land in the deck the moment
- * they're asked for — in worktree mode as status cards carrying their create
- * intent — and nothing here awaits before the user sees them. Performing the
- * actual `git worktree add`s is the worktree manager's job
+ * Optimistic provisioning, reporting half: a team lands in the deck the
+ * moment it is asked for — in worktree mode as a status card carrying its
+ * create intent — and nothing here awaits before the user sees it.
+ * Performing the actual `git worktree add`s is the worktree manager's job
  * ([`app/worktrees`]); this module holds where it reports each result as it
  * settles.
  */
@@ -47,34 +47,5 @@ export function provisionTeamsInto(
     onResolved: (teamId, worktree) => deck.resolveTeamProvisioning(wsId, teamId, worktree),
     onFailed: (teamId, error) => deck.setTeamProvisioningError(wsId, teamId, error),
     abandoned: (teamId) => !deck.hasTeam(wsId, teamId) || closing(teamId),
-  };
-}
-
-/** The runner's usual sinks: the deck's provisioning actions for `wsId`.
- * Both no-op inside the reducer when the pane was closed mid-create. */
-export function provisionInto(
-  deck: {
-    resolvePaneProvisioning(
-      wsId: string,
-      paneId: string,
-      worktree: { cwd: string; branch: string },
-    ): void;
-    setPaneProvisioningError(
-      wsId: string,
-      paneId: string,
-      error: string | null,
-    ): void;
-    /** Is this pane still in the deck? Read live — the create outlives the
-     * render that started it. */
-    hasPane(wsId: string, paneId: string): boolean;
-  },
-  wsId: string,
-): ProvisionCallbacks {
-  return {
-    onResolved: (paneId, worktree) =>
-      deck.resolvePaneProvisioning(wsId, paneId, worktree),
-    onFailed: (paneId, error) =>
-      deck.setPaneProvisioningError(wsId, paneId, error),
-    abandoned: (paneId) => !deck.hasPane(wsId, paneId),
   };
 }

@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { provisioningCard } from "./panes";
 import { createWorkspaceInstance } from "../workspaceInstance";
 import { deckReducer, initialDeckState } from "./reducer";
 import { deckState as state, workspace as ws } from "./reducer.testSupport";
@@ -323,7 +322,7 @@ describe("deckReducer restore actions ([F7])", () => {
     ).toBe(start);
   });
 
-  it("resets pane location while preserving an idle marker", () => {
+  it("resets a pane's session while preserving its idle marker and its team", () => {
     const wtWs: Workspace = {
       ...idleWs,
       cwd: "/repo",
@@ -331,7 +330,7 @@ describe("deckReducer restore actions ([F7])", () => {
         {
           id: "pane-1",
           idle: { reason: "waking", origin: "restore" },
-          location: { kind: "attached", cwd: "/repo/wt", branch: "kd/ws/1" },
+          team: { teamId: "team-1", role: "lead" },
           session: { id: "s", boundAt: "2026-07-02T00:00:00Z" },
         },
         { id: "pane-2" },
@@ -339,17 +338,18 @@ describe("deckReducer restore actions ([F7])", () => {
     };
     const start = state({ workspaces: [wtWs], activeId: "ws-1" });
     const reset = deckReducer(start, {
-      type: "resetPaneLocation",
+      type: "resetPaneSession",
       wsId: "ws-1",
       paneId: "pane-1",
     });
     expect(reset.workspaces[0].panes[0]).toEqual({
       id: "pane-1",
       idle: { reason: "waking", origin: "restore" },
+      team: { teamId: "team-1", role: "lead" },
     });
     expect(
       deckReducer(start, {
-        type: "resetPaneLocation",
+        type: "resetPaneSession",
         wsId: "ws-1",
         paneId: "pane-2",
       }),
@@ -412,16 +412,17 @@ describe("deckReducer restore actions ([F7])", () => {
   });
 });
 
-describe("resetPaneLocation", () => {
-  it("drops durable worktree and session facts so the pane can start fresh", () => {
+describe("resetPaneSession", () => {
+  it("drops the session so the pane can start fresh — where it runs is its team's, and stays", () => {
     const workspace: Workspace = {
       ...ws("ws-1", ["pane-1"]),
       cwd: "/repo",
+      teams: [{ id: "team-1", name: "wt", location: { kind: "attached", cwd: "/repo/wt", branch: "kd/ws/1" } }],
       panes: [
         {
           id: "pane-1",
           idle: { reason: "waking", origin: "restore" },
-          location: { kind: "attached", cwd: "/repo/wt", branch: "kd/ws/1" },
+          team: { teamId: "team-1", role: "lead" },
           session: { id: "s-1", boundAt: "2026-07-07T00:00:00Z" },
         },
       ],
@@ -429,7 +430,7 @@ describe("resetPaneLocation", () => {
     const next = deckReducer(
       state({ workspaces: [workspace], activeId: "ws-1" }),
       {
-        type: "resetPaneLocation",
+        type: "resetPaneSession",
         wsId: "ws-1",
         paneId: "pane-1",
       },
@@ -437,72 +438,79 @@ describe("resetPaneLocation", () => {
     expect(next.workspaces[0].panes[0]).toEqual({
       id: "pane-1",
       idle: { reason: "waking", origin: "restore" },
+      team: { teamId: "team-1", role: "lead" },
     });
+    expect(next.workspaces[0].teams).toBe(workspace.teams);
   });
 });
 
-describe("deckReducer provisioning actions", () => {
+describe("deckReducer team provisioning actions", () => {
   const provisioningWs: Workspace = {
     id: "ws-1",
     instance: createWorkspaceInstance(),
     name: "ws-1",
     cwd: "/repo",
     worktreeBaseDir: "/wt",
-    panes: [
+    teams: [
       {
-        id: "pane-1",
+        id: "team-1",
+        name: "one",
         location: {
           kind: "provisioning",
           intent: { repo: "/repo", path: "/wt/ws-1-1", index: 1 },
         },
       },
     ],
+    panes: [{ id: "pane-1", team: { teamId: "team-1", role: "lead" } }],
   };
+  const location = (s: { workspaces: Workspace[] }) => s.workspaces[0].teams?.[0].location;
 
-  it("resolves provisioning into durable worktree facts", () => {
+  it("resolves a team's provisioning into durable worktree facts", () => {
     const start = state({ workspaces: [provisioningWs], activeId: "ws-1" });
     const next = deckReducer(start, {
-      type: "resolvePaneProvisioning",
+      type: "resolveTeamProvisioning",
       wsId: "ws-1",
-      paneId: "pane-1",
+      teamId: "team-1",
       cwd: "/wt/kd-ws-1",
       branch: "kd/ws-1/1",
     });
-    expect(next.workspaces[0].panes[0]).toEqual({
-      id: "pane-1",
-      location: { kind: "attached", cwd: "/wt/kd-ws-1", branch: "kd/ws-1/1" },
-    });
+    expect(location(next)).toEqual({ kind: "attached", cwd: "/wt/kd-ws-1", branch: "kd/ws-1/1" });
+    // The member is untouched: its directory was always its team's.
+    expect(next.workspaces[0].panes[0]).toBe(provisioningWs.panes[0]);
   });
 
-  it("ignores a late provisioning result for a closed pane", () => {
+  it("ignores a late provisioning result for a team that was dissolved", () => {
     const start = state({ workspaces: [provisioningWs], activeId: "ws-1" });
     expect(
       deckReducer(start, {
-        type: "resolvePaneProvisioning",
+        type: "resolveTeamProvisioning",
         wsId: "ws-1",
-        paneId: "closed-long-ago",
+        teamId: "dissolved-long-ago",
         cwd: "/x",
         branch: "b",
       }),
     ).toBe(start);
   });
 
-  it("records and clears a provisioning error", () => {
+  it("records and clears a team's provisioning error", () => {
     const start = state({ workspaces: [provisioningWs], activeId: "ws-1" });
     const failed = deckReducer(start, {
-      type: "setPaneProvisioningError",
+      type: "setTeamProvisioningError",
       wsId: "ws-1",
-      paneId: "pane-1",
+      teamId: "team-1",
       error: "fatal: oops",
     });
-    expect(provisioningCard(failed.workspaces[0].panes[0])?.error).toBe("fatal: oops");
+    expect(location(failed)).toMatchObject({ kind: "provisioning", error: "fatal: oops" });
     const retrying = deckReducer(failed, {
-      type: "setPaneProvisioningError",
+      type: "setTeamProvisioningError",
       wsId: "ws-1",
-      paneId: "pane-1",
+      teamId: "team-1",
       error: null,
     });
-    expect(provisioningCard(retrying.workspaces[0].panes[0])?.error).toBeUndefined();
+    expect(location(retrying)).toEqual({
+      kind: "provisioning",
+      intent: { repo: "/repo", path: "/wt/ws-1-1", index: 1 },
+    });
   });
 });
 

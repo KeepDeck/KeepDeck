@@ -41,7 +41,7 @@ export type DeckAction =
   | { type: "requestPaneWake"; wsId: string; paneId: string }
   | { type: "failPaneWake"; wsId: string; paneId: string }
   | { type: "parkPane"; wsId: string; paneId: string }
-  | { type: "resetPaneLocation"; wsId: string; paneId: string }
+  | { type: "resetPaneSession"; wsId: string; paneId: string }
   | {
       type: "setPaneSession";
       wsId: string;
@@ -49,19 +49,6 @@ export type DeckAction =
       session: PaneSession | null;
       transcriptPath?: string;
       at: string;
-    }
-  | {
-      type: "resolvePaneProvisioning";
-      wsId: string;
-      paneId: string;
-      cwd: string;
-      branch: string;
-    }
-  | {
-      type: "setPaneProvisioningError";
-      wsId: string;
-      paneId: string;
-      error: string | null;
     }
   | {
       type: "setWorkspacePluginSlot";

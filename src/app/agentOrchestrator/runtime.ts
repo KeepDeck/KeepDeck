@@ -9,9 +9,9 @@ import {
   paneWakeOrigin,
   type Pane,
   type Workspace,
-  locationOf,
   paneBranch,
   paneProvisioning,
+  remoteEndpointOf,
 } from "../../domain/deck";
 import { describeError, log } from "../../ipc/log";
 import { createDeckActions, type DeckActions } from "../deckActions";
@@ -449,7 +449,7 @@ export function createAgentOrchestratorRuntime(
         // working directory to probe (so a gone workspace cwd never blocks it)
         // and no recorded session to resume (fresh-session only). Wake it
         // straight to a fresh remote plan built by the spawn-spec sweep.
-        if (locationOf(pane).kind === "remote") {
+        if (remoteEndpointOf(pane) !== null) {
           void wake(ws, pane, dir, sessionId).finally(() =>
             inFlight.delete(pane.id),
           );
@@ -512,9 +512,19 @@ export function createAgentOrchestratorRuntime(
     resumeSession: continuations.resumeSession,
     forkSession: continuations.forkSession,
     startFresh(wsId, paneId) {
+      const workspace = findWorkspace(deck.getSnapshot().workspaces, wsId);
+      if (!workspace) return;
       if (runView.clearNotes(paneId)) publish();
       startOwed.add(paneId);
-      actions.resetPaneLocation(wsId, paneId);
+      // A directory-bound session cannot resume elsewhere, and the pane's
+      // team's directory is what went missing: the pane moves onto the
+      // workspace root's team and starts a new conversation there.
+      actions.resetPaneSession(wsId, paneId);
+      creation.relocatePane(
+        { id: workspace.id, instance: workspace.instance },
+        paneId,
+        { kind: "attached", cwd: workspace.cwd },
+      );
       actions.requestPaneWake(wsId, paneId);
     },
     resume(wsId, paneId) {

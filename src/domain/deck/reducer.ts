@@ -33,10 +33,8 @@ import {
   parkPane,
   renamePane,
   requestPaneWake,
-  resetPaneLocation,
-  resolvePaneProvisioning,
+  resetPaneSession,
   setPaneAutoTitle,
-  setPaneProvisioningError,
   setPaneSession,
   suspendPane,
 } from "./panes";
@@ -466,10 +464,10 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         state,
         parkPane(state.workspaces, action.wsId, action.paneId),
       );
-    case "resetPaneLocation":
+    case "resetPaneSession":
       return withWorkspaces(
         state,
-        resetPaneLocation(state.workspaces, action.wsId, action.paneId),
+        resetPaneSession(state.workspaces, action.wsId, action.paneId),
       );
     case "setPaneSession": {
       const { wsId, paneId, session } = action;
@@ -512,26 +510,6 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
       }
       return { ...state, workspaces, journal };
     }
-    case "resolvePaneProvisioning":
-      // Same ref when the pane was closed mid-create — the late result of a
-      // background create must not resurrect anything.
-      return withWorkspaces(
-        state,
-        resolvePaneProvisioning(state.workspaces, action.wsId, action.paneId, {
-          cwd: action.cwd,
-          branch: action.branch,
-        }),
-      );
-    case "setPaneProvisioningError":
-      return withWorkspaces(
-        state,
-        setPaneProvisioningError(
-          state.workspaces,
-          action.wsId,
-          action.paneId,
-          action.error,
-        ),
-      );
     case "createTeam":
       return withWorkspaces(state, createTeam(state.workspaces, action.wsId, action.team));
     case "resolveTeamProvisioning":

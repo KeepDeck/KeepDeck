@@ -19,6 +19,7 @@ import type {
   Pane,
   SuspendOutcome,
 } from "./testSupport";
+import type { TeamLocation } from "../../domain/deck";
 
 describe("agent orchestrator —suspending an agent", () => {
   let root: Root;
@@ -46,7 +47,9 @@ describe("agent orchestrator —suspending an agent", () => {
     act(() => root.unmount());
   });
 
-  const seed = (over: Partial<Pane> = {}) =>
+  /** One pane on a team attached to a worktree — or, given `location`, on a
+   * team placed elsewhere (a create still out). */
+  const seed = (over: Partial<Pane> = {}, location: TeamLocation = { kind: "attached", cwd: "/worktree", branch: "feature/x" }) =>
     act(() =>
       deck.createWorkspace({
         id: "ws-1",
@@ -54,11 +57,12 @@ describe("agent orchestrator —suspending an agent", () => {
         name: "ws",
         cwd: "/repo",
         worktreeBaseDir: null,
+        teams: [{ id: "team-1", name: "x", location }],
         panes: [
           {
             id: "pane-1",
             agentType: "codex",
-            location: { kind: "attached", cwd: "/worktree", branch: "feature/x" },
+            team: { teamId: "team-1", role: "lead" },
             session: { id: "s-1", boundAt: "2026-07-25T09:00:00.000Z" },
             ...over,
           },
@@ -68,7 +72,7 @@ describe("agent orchestrator —suspending an agent", () => {
 
   const pane = () => deck.workspaces[0].panes[0];
 
-  it("stops the process but keeps the pane, its worktree and its resume key", async () => {
+  it("stops the process but keeps the pane, its team (and so its worktree) and its resume key", async () => {
     seed();
     await act(async () => agentRun.suspend("ws-1", "pane-1"));
 
@@ -76,9 +80,14 @@ describe("agent orchestrator —suspending an agent", () => {
     expect(pane()).toEqual({
       id: "pane-1",
       agentType: "codex",
-      location: { kind: "attached", cwd: "/worktree", branch: "feature/x" },
+      team: { teamId: "team-1", role: "lead" },
       session: { id: "s-1", boundAt: "2026-07-25T09:00:00.000Z" },
       idle: { reason: "suspended", at: expect.any(String) },
+    });
+    expect(deck.workspaces[0].teams?.[0].location).toEqual({
+      kind: "attached",
+      cwd: "/worktree",
+      branch: "feature/x",
     });
     expect(deck.viewByWs["ws-1"]?.suspendedTray).toBeUndefined();
   });
@@ -142,13 +151,10 @@ describe("agent orchestrator —suspending an agent", () => {
     // A bare `false` forced each caller to guess, and one guessed wrong: it
     // told a remote pane's user their running agent had no session to stop.
     // A create in flight has no session yet, so the seed's goes.
-    seed({
-      location: {
-        kind: "provisioning",
-        intent: { repo: "/repo", path: "/wt/a", index: 1 },
-      },
-      session: undefined,
-    });
+    seed(
+      { session: undefined },
+      { kind: "provisioning", intent: { repo: "/repo", path: "/wt/a", index: 1 } },
+    );
     expect(await act(async () => agentRun.suspend("ws-1", "pane-1"))).toBe(
       "provisioning",
     );

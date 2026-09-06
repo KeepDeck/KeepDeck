@@ -133,15 +133,24 @@ export function setup(workspaces: Workspace[]) {
   const resumeAgent = vi.fn<(wsId: string, paneId: string) => ResumeRequest>(
     () => "resuming",
   );
+  // The landing, as a double: every request mints a team at the directory
+  // it asked for (the root when it asked for none) and the pane joins it —
+  // the shape the real landing leaves, minus the join-an-existing-team rule
+  // the orchestrator's own suite pins.
   const createPane = vi.fn<(request: CreatePaneRequest) => CreatePaneOutcome>(
-    ({ workspace: ref, pane }) => {
+    ({ workspace: ref, pane, placement }) => {
       const ws = workspaces.find(
         (candidate) =>
           candidate.id === ref.id && candidate.instance === ref.instance,
       );
       if (!ws) return { kind: "gone" };
-      ws.panes.push(pane);
-      return { kind: "created", teamId: "team-1" };
+      const teamId = `team-${(ws.teams?.length ?? 0) + 1}`;
+      ws.teams = [
+        ...(ws.teams ?? []),
+        { id: teamId, name: teamId, location: placement ?? { kind: "attached", cwd: ws.cwd } },
+      ];
+      ws.panes.push({ ...pane, team: { teamId, role: "lead" } });
+      return { kind: "created", teamId };
     },
   );
   const openSettings = vi.fn(() => true);

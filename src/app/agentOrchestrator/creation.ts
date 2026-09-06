@@ -3,14 +3,15 @@ import {
   autoWorkspaceName,
   findWorkspace,
   findWorkspaceByRef,
-  locationOf,
   membersOf,
   MAX_PANES,
   nextTeamSeq,
+  normalizePath,
   teamHeldPath,
   teamId,
   teamNameTaken,
   teamOccupyingPath,
+  teamOfPane,
   teamsOf,
   TEAM_FULL_MESSAGE,
   WORKSPACE_GONE_MESSAGE,
@@ -45,58 +46,33 @@ interface CreationDeps {
 
 export interface AgentOrchestratorCreation {
   landPane(request: CreatePaneRequest): CreatePaneOutcome;
-  /** Whether `pane` could land right now, without landing it — the refusal
-   * it would meet, or null. For a caller with an irreversible step to run
-   * BEFORE landing (a fork's store surgery) that must not run for a pane
-   * the team then refuses. */
-  roomFor(workspace: CreatePaneRequest["workspace"], pane: Pane): CreatePaneOutcome | null;
+  /** Whether `pane` could land at `placement` right now, without landing
+   * it — the refusal it would meet, or null. For a caller with an
+   * irreversible step to run BEFORE landing (a fork's store surgery) that
+   * must not run for a pane the team then refuses. */
+  roomFor(
+    workspace: WorkspaceRef,
+    pane: Pane,
+    placement: TeamLocation,
+  ): CreatePaneOutcome | null;
   landOrThrow(outcome: CreatePaneOutcome): void;
+  /** Move a pane already in the deck onto the team holding `placement` —
+   * minting that team when nobody holds it — off whatever team it was on.
+   * What "start fresh" on a pane whose directory is gone does: the pane
+   * comes back in the workspace root. The same refusals as a landing. */
+  relocatePane(
+    workspace: WorkspaceRef,
+    paneId: string,
+    placement: TeamLocation,
+  ): CreatePaneOutcome;
   createWorkspace: AgentOrchestrator["createWorkspace"];
   retryProvisioning: AgentOrchestrator["retryProvisioning"];
 }
 
-/** Path spelling differences that don't change the directory — the same
- * rule occupancy applies. */
-function directoryKey(path: string): string {
-  const trimmed = path.trim();
-  const stripped = trimmed.replace(/\/+$/, "");
-  return stripped === "" ? trimmed : stripped;
-}
-
-/**
- * The directory a pane REQUEST asks for, as a team's placement.
- *
- * A pane's own placement said one of four things; three of them name a
- * directory the team will hold, and the fourth — the workspace root, or a
- * remote endpoint whose thin client runs there — names the root, which is a
- * directory like any other. The branch a root request recorded rides along:
- * it is the branch the session ran on, and the root's team keeps it.
- */
-function requestedPlacement(pane: Pane, workspace: Workspace): TeamLocation {
-  const own = locationOf(pane);
-  switch (own.kind) {
-    case "attached":
-      return own;
-    case "provisioning":
-      // The intent and the fork marker: a fork's card is the team's now,
-      // and the marker is what keeps an in-flight fork off the disk.
-      return { kind: "provisioning", intent: own.intent, ...(own.fork && { fork: true }) };
-    case "main":
-      return own.branch !== undefined
-        ? { kind: "attached", cwd: workspace.cwd, branch: own.branch }
-        : { kind: "attached", cwd: workspace.cwd };
-    case "remote":
-      return { kind: "attached", cwd: workspace.cwd };
-  }
-}
-
-/** The pane as it lands: its placement is the team's now. A remote
- * endpoint is the pane's own — its thin client runs in the team's directory
- * — so that one stays. */
-function withoutPlacement(pane: Pane): Pane {
-  const { location, ...rest } = pane;
-  return location?.kind === "remote" ? { ...rest, location } : rest;
-}
+/** The team a pane would land on, or the refusal it would meet. */
+type Landing =
+  | { team: Team & { location: TeamLocation }; fresh: boolean }
+  | { refusal: "full" | "held" };
 
 export function createAgentOrchestratorCreation({
   deck,
@@ -129,76 +105,62 @@ export function createAgentOrchestratorCreation({
   }
 
   /**
-   * Land a pane on the team that holds the directory it asked for, minting
-   * that team when nobody holds it yet.
+   * The team a pane asking for `wanted` lands on in `current`: the one
+   * holding that directory, or one minted for it — or the refusal.
    *
    * ONE directory is ONE team: a request naming a directory a team in this
-   * workspace already holds JOINS that team (a role minted the way the dialog
-   * would), and a directory a team in another workspace holds is refused —
-   * a team never spans workspaces. A directory nobody holds gets a team of
-   * its own, named after the pane when the person named it and "Team N"
-   * otherwise, and a create heading for a directory is issued for the TEAM.
-   * The pane itself lands without a placement: from here on its directory
-   * is a question about its team.
+   * workspace already holds JOINS that team, and a directory a team in
+   * another workspace holds is refused — a team never spans workspaces,
+   * except at the root, which every workspace opened on the same repository
+   * holds for itself. A directory nobody holds gets a team of its own, named
+   * after the pane when the person named it and "Team N" otherwise.
    */
-  /** The team `pane` would land on in `current` — the one holding the
-   * directory it asked for, or one minted for it — or the refusal. */
   function resolveLanding(
     workspaces: readonly Workspace[],
     current: Workspace,
     pane: Pane,
-  ):
-    | { team: Team & { location: TeamLocation }; fresh: boolean }
-    | { refusal: "full" | "held" } {
-    const wanted = requestedPlacement(pane, current);
-    const wantedKey = directoryKey(teamHeldPath({ location: wanted }) ?? "");
+    wanted: TeamLocation,
+    /** The pane's own membership, when it is relocating: it does not count
+     * toward its own team's cap. */
+    except?: string,
+  ): Landing {
+    const wantedKey = normalizePath(teamHeldPath({ location: wanted }) ?? "");
     const holder = teamsOf(current).find((candidate) => {
       const held = teamHeldPath(candidate);
-      return held !== undefined && directoryKey(held) === wantedKey;
+      return held !== undefined && normalizePath(held) === wantedKey;
     });
     let team: Team & { location: TeamLocation };
     let fresh = false;
     if (holder?.location) {
       team = { ...holder, location: holder.location };
     } else {
-      // Held elsewhere: refused — except the root, which every workspace
-      // opened on the same repository holds for itself.
       const elsewhere = teamOccupyingPath(workspaces, wantedKey);
-      if (elsewhere && wantedKey !== directoryKey(current.cwd)) return { refusal: "held" };
+      if (elsewhere && wantedKey !== normalizePath(current.cwd)) return { refusal: "held" };
       const seq = nextTeamSeq(workspaces);
       const asked = pane.name?.trim();
       const name = asked && !teamNameTaken(current, asked) ? asked : autoTeamName(seq);
       team = { id: teamId(seq), name, location: wanted };
       fresh = true;
     }
-    if (membersOf(current, team.id).length >= MAX_PANES) return { refusal: "full" };
+    const members = membersOf(current, team.id).filter((member) => member.id !== except);
+    if (members.length >= MAX_PANES) return { refusal: "full" };
     return { team, fresh };
   }
 
-  function roomFor(
-    workspace: CreatePaneRequest["workspace"],
+  /** Put `pane` on the landing's team: the team minted when fresh, the
+   * membership written under a role the dialog would suggest, and a fresh
+   * team's create issued. */
+  function join(
+    current: Workspace,
     pane: Pane,
-  ): CreatePaneOutcome | null {
-    const workspaces = deck.getSnapshot().workspaces;
-    const current = findWorkspaceByRef(workspaces, workspace);
-    if (!current) return { kind: "gone" };
-    const landing = resolveLanding(workspaces, current, pane);
-    return "refusal" in landing ? { kind: landing.refusal } : null;
-  }
-
-  function landPane({ workspace, pane, postProvision }: CreatePaneRequest): CreatePaneOutcome {
-    const workspaces = deck.getSnapshot().workspaces;
-    const current = findWorkspaceByRef(workspaces, workspace);
-    if (!current) return refuse(pane.id, "gone");
-    const landing = resolveLanding(workspaces, current, pane);
-    if ("refusal" in landing) return refuse(pane.id, landing.refusal);
+    landing: { team: Team & { location: TeamLocation }; fresh: boolean },
+    postProvision: CreatePaneRequest["postProvision"],
+  ): void {
     const { team, fresh } = landing;
-
     const role = suggestRoleAddress(
       membersOf(current, team.id).flatMap((member) => (member.team ? [member.team.role] : [])),
     );
     if (fresh) actions.createTeam(current.id, team);
-    actions.addAgentPane(current.id, withoutPlacement(pane));
     actions.joinTeam(current.id, pane.id, team.id, role);
     if (fresh && team.location.kind === "provisioning") {
       // The step rides the request and is filed under the team the landing
@@ -206,7 +168,60 @@ export function createAgentOrchestratorCreation({
       if (postProvision) worktrees.registerPostProvision(team.id, postProvision);
       provisionTeams(current, [team]);
     }
-    return { kind: "created", teamId: team.id };
+  }
+
+  const rootOf = (workspace: Workspace): TeamLocation => ({
+    kind: "attached",
+    cwd: workspace.cwd,
+  });
+
+  function roomFor(
+    workspace: WorkspaceRef,
+    pane: Pane,
+    placement: TeamLocation,
+  ): CreatePaneOutcome | null {
+    const workspaces = deck.getSnapshot().workspaces;
+    const current = findWorkspaceByRef(workspaces, workspace);
+    if (!current) return { kind: "gone" };
+    const landing = resolveLanding(workspaces, current, pane, placement);
+    return "refusal" in landing ? { kind: landing.refusal } : null;
+  }
+
+  /**
+   * Land a pane on the team that holds the directory it asked for, minting
+   * that team when nobody holds it yet. The pane itself lands without a
+   * placement of its own: from here on its directory is a question about
+   * its team. A request naming no placement lands in the workspace root.
+   */
+  function landPane({ workspace, pane, placement, postProvision }: CreatePaneRequest): CreatePaneOutcome {
+    const workspaces = deck.getSnapshot().workspaces;
+    const current = findWorkspaceByRef(workspaces, workspace);
+    if (!current) return refuse(pane.id, "gone");
+    const landing = resolveLanding(workspaces, current, pane, placement ?? rootOf(current));
+    if ("refusal" in landing) return refuse(pane.id, landing.refusal);
+    actions.addAgentPane(current.id, pane);
+    join(current, pane, landing, postProvision);
+    return { kind: "created", teamId: landing.team.id };
+  }
+
+  function relocatePane(
+    workspace: WorkspaceRef,
+    paneId: string,
+    placement: TeamLocation,
+  ): CreatePaneOutcome {
+    const workspaces = deck.getSnapshot().workspaces;
+    const current = findWorkspaceByRef(workspaces, workspace);
+    const pane = current?.panes.find((candidate) => candidate.id === paneId);
+    if (!current || !pane) return { kind: "gone" };
+    const landing = resolveLanding(workspaces, current, pane, placement, pane.id);
+    if ("refusal" in landing) return { kind: landing.refusal };
+    // Already there: nothing to move.
+    if (teamOfPane(current, pane)?.id === landing.team.id) {
+      return { kind: "created", teamId: landing.team.id };
+    }
+    actions.leaveTeam(current.id, pane.id);
+    join(current, pane, landing, undefined);
+    return { kind: "created", teamId: landing.team.id };
   }
 
   function landOrThrow(outcome: CreatePaneOutcome): void {
@@ -265,5 +280,5 @@ export function createAgentOrchestratorCreation({
     provisionTeams(workspace, [team]);
   };
 
-  return { landPane, roomFor, landOrThrow, createWorkspace, retryProvisioning };
+  return { landPane, roomFor, relocatePane, landOrThrow, createWorkspace, retryProvisioning };
 }

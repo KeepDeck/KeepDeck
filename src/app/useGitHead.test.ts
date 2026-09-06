@@ -47,10 +47,8 @@ const restored = (): DeckState => ({
       name: "ws",
       cwd: "/repo",
       worktreeBaseDir: null,
-      panes: [
-        { id: "pane-1", location: { kind: "attached", cwd: "/wt/one", branch: "kd/ws/1" } },
-        { id: "pane-2" },
-      ],
+      teams: [{ id: "team-1", name: "one", location: { kind: "attached", cwd: "/wt/one", branch: "kd/ws/1" } }],
+      panes: [{ id: "pane-1", team: { teamId: "team-1", role: "lead" } }, { id: "pane-2" }],
     },
   ],
   activeId: "ws-1",

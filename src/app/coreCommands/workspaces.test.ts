@@ -58,16 +58,17 @@ describe("workspace commands", () => {
     // beside it — in a directory it never runs in.
     const { registry } = setup([
       workspace({
-        panes: [
+        teams: [
           {
-            id: "p1",
-            agentType: "claude",
+            id: "team-1",
+            name: "web-1",
             location: {
               kind: "provisioning",
               intent: { repo: "/repo", path: "/wt/web-1", branch: "kd/web/1", index: 1 },
             },
           },
         ],
+        panes: [{ id: "p1", agentType: "claude", team: { teamId: "team-1", role: "lead" } }],
       }),
     ]);
     const result = await registry.execute("workspace.list", {}, HOST);

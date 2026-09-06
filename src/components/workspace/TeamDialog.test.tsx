@@ -173,21 +173,43 @@ describe("TeamDialog", () => {
     expect(alert.className).not.toContain("form__git");
   });
 
-  it("tells two identically-titled panes apart", () => {
+  it("says where a member runs beside its title — the team's branch, else its folder", () => {
     // Titles come from the terminal, so several panes legitimately read
-    // "Workspace" at once. A row that cannot be told from its neighbour is
-    // a row that cannot be used.
-    const first = pane("pane-1");
-    const second = pane("pane-2");
-    // A pane on the root with a recorded branch names the branch; one on a
-    // worktree with no branch names the folder.
-    first.location = { kind: "main", branch: "kd/api/1" };
-    second.location = { kind: "attached", cwd: "/repo/worktrees/kd-api-2" };
-    open(workspace([first, second]));
+    // "Workspace" at once; the place beside the title is what a person
+    // reads the row by. The place is the TEAM's: a team on the root with a
+    // recorded branch names the branch, a team in a worktree with no
+    // branch names the folder.
+    const onBranch = workspace([
+      pane("pane-1", { name: "api", role: "lead" }),
+      pane("pane-2", { name: "api", role: "impl-1" }),
+    ]);
+    open(
+      {
+        ...onBranch,
+        teams: onBranch.teams?.map((team) => ({
+          ...team,
+          location: { kind: "attached", cwd: "/repo", branch: "kd/api/1" },
+        })),
+      },
+      "api",
+    );
     expect(all(".team__row-where").map((el) => el.textContent)).toEqual([
       "kd/api/1",
-      "kd-api-2",
+      "kd/api/1",
     ]);
+
+    const inFolder = workspace([pane("pane-1", { name: "api", role: "lead" })]);
+    open(
+      {
+        ...inFolder,
+        teams: inFolder.teams?.map((team) => ({
+          ...team,
+          location: { kind: "attached", cwd: "/repo/worktrees/kd-api-2" },
+        })),
+      },
+      "api",
+    );
+    expect(all(".team__row-where").map((el) => el.textContent)).toEqual(["kd-api-2"]);
   });
 
   it("refuses to confirm two members sharing a role, and says which", () => {

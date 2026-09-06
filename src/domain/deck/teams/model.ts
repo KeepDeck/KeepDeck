@@ -15,20 +15,48 @@
  * carries, and a workspace importing a barrel that re-exports the workspace
  * is a cycle waiting for an import order to decide whether the app boots.
  */
-import type { PaneLocation } from "../panes/model";
+import type { WorktreeIntent } from "../panes/model";
 
 /**
- * Where a team runs — the two placements that name a directory: one the
- * team is attached to (a worktree the deck created, an existing folder, or
- * the workspace root itself — any directory, the team does not care which),
- * or one still being created. A team is never `main` (the root is simply a
- * directory it can be attached to) and never remote (that is still the pane's
- * own placement, until remote teams are a decision of their own).
+ * Where a team runs — ONE answer, and the only owner of a directory.
+ *
+ * Two placements name a directory: one the team is attached to (a worktree
+ * the deck created, an existing folder, or the workspace root itself — any
+ * directory, the team does not care which), or one still being created. A
+ * team is never remote: that is a pane's own placement, until remote teams
+ * are a decision of their own. A union cannot hold a directory beside a
+ * create in flight, so neither the transitions nor the readers have to keep
+ * them apart.
  */
-export type TeamLocation = Extract<
-  PaneLocation,
-  { kind: "attached" | "provisioning" }
->;
+export type TeamLocation =
+  /** A directory the team owns or was attached to. `branch` is the worktree
+   * branch when one was created or named; a team attached to a detached
+   * checkout, or made for a session that recorded only a directory, has
+   * none — and no consumer tells those two apart. Durable: worktree
+   * ownership and cleanup key off it; the header's branch badge is runtime
+   * state read from the directory, not this. */
+  | { kind: "attached"; cwd: string; branch?: string }
+  /** The worktree is still being created, or the create failed and waits for
+   * Retry. No member's terminal mounts until it resolves. The intent is what
+   * the create is (re)issued from; beside it sits the status of this
+   * attempt, which never reaches disk — hydration stamps its own. */
+  | {
+      kind: "provisioning";
+      intent: WorktreeIntent;
+      /** Why the create failed; set flips the card from creating to failed. */
+      error?: string;
+      /** This card originates from a journal FORK — its store surgery runs as
+       * a post-provision step held only in memory. Runtime-only, NEVER
+       * persisted: a fork whose provisioning is interrupted by a restart is
+       * dropped rather than restored as a plain retryable card (which would
+       * Retry into a NON-fork team, silently losing the fork) — the user
+       * re-forks from the journal. */
+      fork?: true;
+    };
+
+/** The provisioning placement on its own — the card a team wears while its
+ * worktree is created, in the shape the surfaces that draw it take. */
+export type TeamProvisioning = Extract<TeamLocation, { kind: "provisioning" }>;
 
 export interface Team {
   /** `team-N` — the join key every member holds. Minted by [`teamId`]. */
@@ -41,10 +69,12 @@ export interface Team {
    * The directory the team's agents run in.
    *
    * Optional THROUGH the transition only. A team that exists as a roster
-   * alone — today's named team, whose members still carry directories of
-   * their own — has none; stage C2's migration gives every team one and
-   * stage C3 removes the pane's own placement, after which a team without a
-   * directory is not a team and this field stops being optional.
+   * alone — one the mail's `team.assign` minted by NAME, whose members run
+   * in the workspace root because a pane carries no directory of its own
+   * any more — has none, and its members read as running in the root. Stage
+   * C5 moves the mail onto team ids and creates every team WITH a directory,
+   * after which a team without one is not a team and this field stops being
+   * optional.
    */
   location?: TeamLocation;
   /** Persisted keys this build doesn't know (written by a newer revision) —

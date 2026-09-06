@@ -109,10 +109,11 @@ describe("firstFreeTeamWorktreeFor", () => {
     expect(ipc.suggestWorktree).not.toHaveBeenCalled();
   });
 
-  it("skips a location an open pane already runs in", async () => {
+  it("skips a location a team already runs in", async () => {
     const workspace = ws({
       worktreeBaseDir: "/wt",
-      panes: [{ id: "p1", location: { kind: "attached", cwd: "/wt/kd-deck-1" } }],
+      teams: [{ id: "team-1", name: "one", location: { kind: "attached", cwd: "/wt/kd-deck-1" } }],
+      panes: [{ id: "p1", team: { teamId: "team-1", role: "lead" } }],
     });
     expect(await firstFreeTeamWorktreeFor([workspace], workspace, 1)).toEqual({
       path: "/wt/kd-deck-2",

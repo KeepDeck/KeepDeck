@@ -109,10 +109,14 @@ function PaneUnderTest(
       body:
         props.body ??
         paneBody(
-          {},
+          // The card is the pane's TEAM's: a provisioning prop stands for a
+          // team still creating its directory, with this pane on it.
+          props.provisioning
+            ? { teams: [{ id: "team-1", name: "making", location: props.provisioning }] }
+            : {},
           {
             id: props.paneId,
-            ...(props.provisioning ? { location: props.provisioning } : {}),
+            ...(props.provisioning ? { team: { teamId: "team-1", role: "lead" } } : {}),
             ...(props.idle ? { idle: props.idle } : {}),
           },
           {

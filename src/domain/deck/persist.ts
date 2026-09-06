@@ -1,17 +1,17 @@
 import { emptyJournal } from "../journal";
 import type { DeckState, WorkspaceView } from "./reducer";
-import type { Pane, PaneIdle, PlacementFields, WorktreeIntent } from "./panes";
-import {
-  locationOf,
-  paneIdleIsDurable,
-  placementFromFields,
-  placementToFields,
-  provisioningCard,
-  resolveFocus,
-} from "./panes";
+import type { Pane, PaneIdle, WorktreeIntent } from "./panes";
+import { paneIdleIsDurable, resolveFocus } from "./panes";
 import type { Workspace } from "./workspaces";
 import { resolveActiveId, workspaceIdsAreUnique } from "./workspaces";
-import { findTeam, type Team, type TeamLocation } from "./teams";
+import {
+  findTeam,
+  placementFromFields,
+  placementToFields,
+  type PlacementFields,
+  type Team,
+  type TeamLocation,
+} from "./teams";
 import { nextIdSequence } from "../idSequence";
 import { collectExtras, isRecord } from "../json";
 import { createWorkspaceInstance } from "../workspaceInstance";
@@ -136,17 +136,10 @@ export function serializeDeck(
             };
           }),
         }),
-      // A pane's own fork card (a pane still carrying a placement) is dropped
-      // for the same reason as its team's.
+      // A fork card's members go with the card, for the same reason.
       panes: ws.panes
-        .filter(
-          (p) => !provisioningCard(p)?.fork && !(p.team && forking.has(p.team.teamId)),
-        )
+        .filter((p) => !(p.team && forking.has(p.team.teamId)))
         .map((p) => {
-          // The location goes to disk as the four fields it replaced, in the
-          // slots they always held — so a document a pane round-trips
-          // through is the document it came from, byte for byte.
-          const placement = placementToFields(locationOf(p));
           // Membership goes to disk by ID. A pane whose id names no team
           // here is written as on no team: a membership nobody can resolve
           // is not one worth keeping, and the reader would drop it anyway.
@@ -158,11 +151,9 @@ export function serializeDeck(
           ...(p.agentType !== undefined && { agentType: p.agentType }),
           // Sparse: only the armed mode hits disk.
           ...(p.yolo === true && { yolo: true }),
-          ...(placement.remoteEndpoint !== undefined && {
-            remoteEndpoint: placement.remoteEndpoint,
-          }),
-          ...(placement.cwd !== undefined && { cwd: placement.cwd }),
-          ...(placement.branch !== undefined && { branch: placement.branch }),
+          // The pane's own placement is a remote endpoint or nothing: its
+          // directory is its team's, written on the team above.
+          ...(p.location !== undefined && { remoteEndpoint: p.location.endpoint }),
           ...(p.name !== undefined && { name: p.name }),
           ...(p.autoTitle !== undefined && { autoTitle: p.autoTitle }),
           // A team describes a piece of work in progress, so it outlives a
@@ -175,11 +166,6 @@ export function serializeDeck(
           // a launch, so writing them would make every ordinary restart look
           // like a deliberate suspend on the NEXT one.
           ...(paneIdleIsDurable(p.idle) && { idle: p.idle }),
-          // The intent only — the unfold keeps a card's status back, and
-          // hydration stamps its own ("interrupted") on whatever comes back.
-          ...(placement.provisioning !== undefined && {
-            provisioning: placement.provisioning,
-          }),
           };
         }),
       };
@@ -334,13 +320,15 @@ const PANE_KNOWN_KEYS: ReadonlySet<string> = new Set([
   "agentType",
   "yolo",
   "remoteEndpoint",
-  "cwd",
-  "branch",
   "name",
   "autoTitle",
   "team",
   "session",
   "idle",
+  // The directory fields a pane USED to carry: known so a stale copy in a
+  // hand-edited document is dropped rather than carried as an extra forever.
+  "cwd",
+  "branch",
   "provisioning",
 ]);
 
@@ -423,9 +411,12 @@ function readTeam(value: unknown): Team | null {
   const provisioning = readProvisioning(value.provisioning);
   if (provisioning) placement.provisioning = provisioning;
   const location = placementFromFields(placement);
-  if (location.kind === "attached") {
+  if (location?.kind === "attached") {
     team.location = location;
-  } else if (location.kind === "provisioning") {
+  } else if (location?.kind === "provisioning") {
+    // The app quit mid-create: come back as the failed card — the intent
+    // powers Retry, and no member mounts a terminal into a directory that
+    // may not exist.
     team.location = { ...location, error: PROVISIONING_INTERRUPTED } satisfies TeamLocation;
   }
   const extras = collectExtras(value, TEAM_KNOWN_KEYS);
@@ -453,13 +444,14 @@ function readPane(
   // Strictly `true` — any other value degrades to the safe default (off),
   // matching the sparse write above.
   if (value.yolo === true) pane.yolo = true;
-  // The four placement fields are read as written and folded into ONE
-  // location below, once the card is known — the fold's own rule settles a
-  // document that holds combinations the model cannot.
-  const placement: PlacementFields = {};
-  if (typeof value.remoteEndpoint === "string") placement.remoteEndpoint = value.remoteEndpoint;
-  if (typeof value.cwd === "string") placement.cwd = value.cwd;
-  if (typeof value.branch === "string") placement.branch = value.branch;
+  // The pane's own placement: a truthy endpoint makes it remote, whatever
+  // else the document says. Truthy rather than present, matching the
+  // predicate this replaced: an empty endpoint is the non-remote degenerate
+  // case. A directory written on a pane is not read — the directory is the
+  // team's, and a document from before that only carries a stale copy.
+  if (typeof value.remoteEndpoint === "string" && value.remoteEndpoint) {
+    pane.location = { kind: "remote", endpoint: value.remoteEndpoint };
+  }
   if (typeof value.name === "string") pane.name = value.name;
   if (typeof value.autoTitle === "string") pane.autoTitle = value.autoTitle;
   // BOTH halves or neither: a role with no team cannot be addressed and a
@@ -480,19 +472,6 @@ function readPane(
     typeof session.boundAt === "string"
   ) {
     pane.session = { id: session.id, boundAt: session.boundAt };
-  }
-  const provisioning = readProvisioning(value.provisioning);
-  if (provisioning) placement.provisioning = provisioning;
-  const location = placementFromFields(placement);
-  if (location.kind === "provisioning") {
-    // The app quit mid-create: come back as the failed card — the intent
-    // powers Retry, and the pane must NOT be idle or the revive flow would
-    // spawn a terminal into a directory that may not exist.
-    delete pane.idle;
-    pane.location = { ...location, error: PROVISIONING_INTERRUPTED };
-  } else if (location.kind !== "main" || location.branch !== undefined) {
-    // A plain main pane stays sparse: no key, like the fields it replaced.
-    pane.location = location;
   }
   const extras = collectExtras(value, PANE_KNOWN_KEYS);
   if (Object.keys(extras).length > 0) pane.extras = extras;

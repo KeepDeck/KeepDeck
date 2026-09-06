@@ -198,7 +198,7 @@ export function useAgentDialog(
     // surface's to arrange.
     const landed = orchestrator.createPane({
       workspace: dlg.workspace,
-      pane: paneFromAgentRequest(dlg.agentId, result, ws, dlg.index),
+      ...paneFromAgentRequest(dlg.agentId, result, ws, dlg.index),
     });
     // `gone` is reachable here too: the guard above reads this render's deck,
     // the landing re-resolves against the live store, and a workspace can

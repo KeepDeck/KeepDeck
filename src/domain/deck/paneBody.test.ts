@@ -71,15 +71,25 @@ describe("paneBody", () => {
   });
 
   it("puts provisioning first: nothing else can be acted on without a directory", () => {
-    expect(
-      paneBody(
-        {},
-        pane({
-          idle: { reason: "suspended", at: "2026-07-26" },
+    // The create is the TEAM's; the pane's own record says nothing of it.
+    const creating = {
+      teams: [
+        {
+          id: "team-1",
+          name: "making",
           location: {
-            kind: "provisioning",
+            kind: "provisioning" as const,
             intent: { repo: "/repo", path: "/wt/a", index: 1 },
           },
+        },
+      ],
+    };
+    expect(
+      paneBody(
+        creating,
+        pane({
+          idle: { reason: "suspended", at: "2026-07-26" },
+          team: { teamId: "team-1", role: "lead" },
         }),
         env({ agentAvailable: false, hasPlan: false, planFailed: true }),
       ),

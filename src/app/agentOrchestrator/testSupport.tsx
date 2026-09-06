@@ -7,6 +7,7 @@ import type {
   Pane,
   PaneIdle,
   SpawnConfig,
+  TeamLocation,
   WorktreeTarget,
 } from "../../domain/deck";
 import { MAX_PANES as MAX_PANES_IMPL } from "../../domain/deck";
@@ -466,8 +467,10 @@ export function Probe() {
   return null;
 }
 
-/** A deck with one idle (restored) claude pane; `pane` overrides fields. */
-export const restored = (pane: object): DeckState => ({
+/** A deck with one idle (restored) claude pane; `pane` overrides fields.
+ * Given `location`, the pane is on a team placed there — a directory is
+ * the team's, never the pane's own. */
+export const restored = (pane: object, location?: TeamLocation): DeckState => ({
   workspaces: [
     {
       id: "ws-1",
@@ -475,8 +478,15 @@ export const restored = (pane: object): DeckState => ({
       name: "ws",
       cwd: "/repo",
       worktreeBaseDir: null,
+      ...(location && { teams: [{ id: "team-1", name: "one", location }] }),
       panes: [
-        { id: "pane-1", agentType: "claude", idle: { reason: "waking", origin: "restore" }, ...pane },
+        {
+          id: "pane-1",
+          agentType: "claude",
+          idle: { reason: "waking", origin: "restore" },
+          ...(location && { team: { teamId: "team-1", role: "lead" } }),
+          ...pane,
+        },
       ],
     },
   ],

@@ -4,8 +4,6 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentDialogResult } from "../domain/agents";
 import {
-  attachedWorktree,
-  provisioningCard,
   TEAM_FULL_MESSAGE,
   type Workspace,
 } from "../domain/deck";
@@ -129,16 +127,18 @@ describe("useAgentDialog suggestions", () => {
     return deck;
   };
 
-  it("prefills the first suggestion NOT held by an open pane", async () => {
-    // One pane → the naive suggestion is index 2, but a pane already runs in
+  it("prefills the first suggestion NOT held by a team", async () => {
+    // One pane → the naive suggestion is index 2, but a team already runs in
     // kd-KeepDeck-2 (the reported bug): the prefill must skip to -3.
     const ws = workspace({
-      panes: [
+      teams: [
         {
-          id: "p1",
+          id: "team-1",
+          name: "two",
           location: { kind: "attached", cwd: "/base/kd-KeepDeck-2", branch: "kd/KeepDeck/2" },
         },
       ],
+      panes: [{ id: "p1", team: { teamId: "team-1", role: "lead" } }],
     });
     await mount(ws);
     await act(async () => flow.openFor(ws));
@@ -161,12 +161,14 @@ describe("useAgentDialog suggestions", () => {
   it("nextFree skips blocked dirs too", async () => {
     blockedDirs.add("/base/kd-KeepDeck-2");
     const ws = workspace({
-      panes: [
+      teams: [
         {
-          id: "p1",
+          id: "team-1",
+          name: "one",
           location: { kind: "attached", cwd: "/base/kd-KeepDeck-1", branch: "kd/KeepDeck/1" },
         },
       ],
+      panes: [{ id: "p1", team: { teamId: "team-1", role: "lead" } }],
     });
     await mount(ws);
     await act(async () => flow.openFor(ws));
@@ -201,7 +203,8 @@ describe("useAgentDialog suggestions", () => {
   it("nextFree suggests beside the occupied path when the workspace has no base folder", async () => {
     const ws = workspace({
       worktreeBaseDir: null,
-      panes: [{ id: "p1", location: { kind: "attached", cwd: "/elsewhere/kd-KeepDeck-2" } }],
+      teams: [{ id: "team-1", name: "two", location: { kind: "attached", cwd: "/elsewhere/kd-KeepDeck-2" } }],
+      panes: [{ id: "p1", team: { teamId: "team-1", role: "lead" } }],
     });
     await mount(ws);
     await act(async () => flow.openFor(ws));
@@ -233,7 +236,8 @@ describe("useAgentDialog suggestions", () => {
     });
 
     expect(createPane).toHaveBeenCalledTimes(1);
-    expect(provisioningCard(offered().pane)).toMatchObject({
+    expect(offered().placement).toMatchObject({
+      kind: "provisioning",
       intent: { path: "/base/kd-KeepDeck-1", branch: "kd/KeepDeck/1", base: "develop" },
     });
   });
@@ -285,10 +289,10 @@ describe("useAgentDialog suggestions", () => {
       agentType: "codex",
       location: { kind: "remote", endpoint: "ws://vps:4500" },
     });
-    // Remote is the whole placement — no local directory, no create in
-    // flight (the agent's cwd is on the box).
-    expect(attachedWorktree(pane)).toBeNull();
-    expect(provisioningCard(pane)).toBeNull();
+    // Remote is the pane's own placement; its thin client runs on the
+    // workspace root's team — no create in flight (the agent's cwd is on
+    // the box).
+    expect(offered().placement).toEqual({ kind: "attached", cwd: ws.cwd });
   });
 
   it("does not open after the workspace is replaced during repo inspection", async () => {

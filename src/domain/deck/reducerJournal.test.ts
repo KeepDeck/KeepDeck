@@ -13,8 +13,9 @@ const journalWorkspace = (): Workspace => ({
   worktreeBaseDir: null,
   panes: [
     { id: "pane-1", agentType: "codex", name: "auth bug", yolo: true },
-    { id: "pane-2", location: { kind: "attached", cwd: "/repo/wt", branch: "kd/ws/2" } },
+    { id: "pane-2", team: { teamId: "team-1", role: "lead" } },
   ],
+  teams: [{ id: "team-1", name: "wt", location: { kind: "attached", cwd: "/repo/wt", branch: "kd/ws/2" } }],
 });
 
 const boundState = (): DeckState =>
@@ -305,15 +306,21 @@ describe("deckReducer journal", () => {
 
 describe("deckReducer journal claims on addAgentPane", () => {
   it("claims a live record for a pane that arrives with a session", () => {
+    // The pane's directory is its team's: the record is written from the
+    // team the pane arrives on.
+    const teamed: Workspace = {
+      ...ws("ws-1", []),
+      teams: [{ id: "team-1", name: "x", location: { kind: "attached", cwd: "/repo/wt", branch: "kd/x/9" } }],
+    };
     const added = deckReducer(
-      state({ workspaces: [ws("ws-1", [])], activeId: "ws-1" }),
+      state({ workspaces: [teamed], activeId: "ws-1" }),
       {
         type: "addAgentPane",
         id: "ws-1",
         pane: {
           id: "pane-9",
           agentType: "kimi",
-          location: { kind: "attached", cwd: "/repo/wt", branch: "kd/x/9" },
+          team: { teamId: "team-1", role: "lead" },
           session: { id: "s-res", boundAt: AT },
         },
       },
@@ -330,7 +337,12 @@ describe("deckReducer journal claims on addAgentPane", () => {
 
   it("preserves frozen metadata when reclaiming a sealed record", () => {
     const start = state({
-      workspaces: [ws("ws-1", [])],
+      workspaces: [
+        {
+          ...ws("ws-1", []),
+          teams: [{ id: "team-1", name: "x", location: { kind: "attached", cwd: "/repo/wt" } }],
+        },
+      ],
       activeId: "ws-1",
       journal: {
         records: {
@@ -356,7 +368,7 @@ describe("deckReducer journal claims on addAgentPane", () => {
       pane: {
         id: "pane-9",
         agentType: "kimi",
-        location: { kind: "attached", cwd: "/repo/wt" },
+        team: { teamId: "team-1", role: "lead" },
         session: { id: "s-res", boundAt: AT },
       },
     });

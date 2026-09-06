@@ -12,10 +12,8 @@
  * is what keeps that promise in one place.
  */
 import {
-  locationOf,
   paneCanPark,
   paneCanSuspend,
-  provisioningCard,
   type PaneIdle,
   type PaneSession,
   type PaneStopped,
@@ -267,81 +265,24 @@ export function setPaneSession(
   );
 }
 
-/** Detach a pane from its (gone) worktree so it can start fresh in the
- * workspace cwd ([F7] restore reconcile): drops the directory and branch AND
- * the recorded session — a directory-bound session can't resume somewhere
- * else. A create in flight and a remote endpoint are not places to reset;
- * they stay, and only the session goes. Returns the SAME array when there's
- * nothing to drop. */
-export function resetPaneLocation(
+/** Forget a pane's recorded session so it starts a FRESH conversation next
+ * time it rises ([F7] restore reconcile, and "start fresh" on a pane whose
+ * directory is gone): a directory-bound session cannot resume somewhere
+ * else. Where the pane runs is its team's business and is not touched
+ * here; relocating it is the app layer's, ordered there. Returns the SAME
+ * array when there is no session to drop. */
+export function resetPaneSession(
   workspaces: Workspace[],
   workspaceId: string,
   paneId: string,
 ): Workspace[] {
   const pane = findPane(workspaces, workspaceId, paneId);
-  if (!pane) return workspaces;
-  const location = locationOf(pane);
-  const holdsPlace =
-    location.kind === "attached" ||
-    (location.kind === "main" && location.branch !== undefined);
-  if (!holdsPlace && !pane.session) return workspaces;
+  if (!pane?.session) return workspaces;
   return mapWorkspace(workspaces, workspaceId, (panes) =>
     panes.map((p) => {
       if (p.id !== paneId) return p;
-      const { location: _place, session: _session, ...rest } = p;
-      return holdsPlace || p.location === undefined
-        ? rest
-        : { ...rest, location: p.location };
-    }),
-  );
-}
-
-/** The pane's background worktree create landed: pin the pane to the created
- * worktree and drop the provisioning card so its terminal mounts. Returns the
- * SAME array when the pane is gone (closed mid-create — the stray worktree on
- * disk is accepted; worktrees survive closes anyway) or wasn't provisioning. */
-export function resolvePaneProvisioning(
-  workspaces: Workspace[],
-  workspaceId: string,
-  paneId: string,
-  worktree: { cwd: string; branch: string },
-): Workspace[] {
-  const pane = findPane(workspaces, workspaceId, paneId);
-  if (!pane || locationOf(pane).kind !== "provisioning") return workspaces;
-  return mapWorkspace(workspaces, workspaceId, (panes) =>
-    panes.map((p) =>
-      p.id === paneId
-        ? {
-            ...p,
-            location: { kind: "attached", cwd: worktree.cwd, branch: worktree.branch },
-          }
-        : p,
-    ),
-  );
-}
-
-/** Record why a pane's worktree create failed — the card flips to the failed
- * state showing it — or clear it (`null`) when a Retry starts, flipping back
- * to creating. Returns the SAME array for a gone / non-provisioning pane and
- * when the error already equals the target. */
-export function setPaneProvisioningError(
-  workspaces: Workspace[],
-  workspaceId: string,
-  paneId: string,
-  error: string | null,
-): Workspace[] {
-  const pane = findPane(workspaces, workspaceId, paneId);
-  const card = pane ? provisioningCard(pane) : null;
-  if (!card) return workspaces;
-  if ((card.error ?? null) === error) return workspaces;
-  return mapWorkspace(workspaces, workspaceId, (panes) =>
-    panes.map((p) => {
-      if (p.id !== paneId) return p;
-      const current = provisioningCard(p);
-      if (!current) return p;
-      // The status changes; the intent and the fork marker ride along.
-      const { error: _old, ...rest } = current;
-      return { ...p, location: error === null ? rest : { ...rest, error } };
+      const { session: _session, ...rest } = p;
+      return rest;
     }),
   );
 }

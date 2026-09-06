@@ -1,6 +1,6 @@
 import type { WorkspaceSnapshot } from "@keepdeck/plugin-api";
 import {
-  attachedWorktree,
+  paneWorktree,
   paneBranch,
   type Pane,
   type Workspace,
@@ -26,7 +26,7 @@ function toPaneSnapshot(ws: Workspace, pane: Pane) {
   // Sparse, as the snapshot contract promises: `cwd` is "absent while
   // provisioning", and `branch` names the pane's work whether it owns a
   // worktree for it or recorded it from the root.
-  const worktree = attachedWorktree(pane);
+  const worktree = paneWorktree(ws, pane);
   const branch = paneBranch(ws, pane);
   return {
     id: pane.id,

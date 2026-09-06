@@ -123,7 +123,7 @@ describe("agent orchestrator —session policy", () => {
     // optional): unbound wakes fresh, with no resume spec.
     act(() =>
       deck.hydrate(
-        restored({ agentType: "codex", location: { kind: "attached", cwd: "/repo" } }),
+        restored({ agentType: "codex" }, { kind: "attached", cwd: "/repo" }),
       ),
     );
     await settle();
@@ -162,11 +162,9 @@ describe("agent orchestrator —session policy", () => {
     ipc.probeWorktree.mockClear();
     act(() =>
       deck.hydrate(
-        restored({
-          location: {
-            kind: "provisioning",
-            intent: { repo: "/repo", path: "/repo/wt-1", index: 1 },
-          },
+        restored({}, {
+          kind: "provisioning",
+          intent: { repo: "/repo", path: "/repo/wt-1", index: 1 },
         }),
       ),
     );
@@ -209,7 +207,7 @@ describe("agent orchestrator —session policy", () => {
       branch: null,
     });
     act(() =>
-      deck.hydrate(restored({ location: { kind: "attached", cwd: "/repo/wt-gone" } })),
+      deck.hydrate(restored({}, { kind: "attached", cwd: "/repo/wt-gone" })),
     );
     await settle();
 
@@ -225,7 +223,7 @@ describe("agent orchestrator —session policy", () => {
       branch: null,
     });
     act(() =>
-      deck.hydrate(restored({ location: { kind: "attached", cwd: "/repo/wt-gone" } })),
+      deck.hydrate(restored({}, { kind: "attached", cwd: "/repo/wt-gone" })),
     );
     await settle();
     expect(agentRun.blocked["pane-1"]).toBe("/repo/wt-gone");
@@ -247,11 +245,14 @@ describe("agent orchestrator —resuming a suspended pane", () => {
         name: "ws",
         cwd: "/repo",
         worktreeBaseDir: null,
+        teams: [
+          { id: "team-1", name: "one", location: { kind: "attached", cwd: "/repo/wt-1", branch: "kd/ws/1" } },
+        ],
         panes: [
           {
             id: "pane-1",
             agentType: "claude",
-            location: { kind: "attached", cwd: "/repo/wt-1", branch: "kd/ws/1" },
+            team: { teamId: "team-1", role: "lead" },
             session: { id: "s-1", boundAt: "t" },
             idle: { reason: "suspended", at: "2026-07-25T09:00:00.000Z" },
             ...pane,

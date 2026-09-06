@@ -1,6 +1,6 @@
 import type { AgentRestartMode, ForkTarget } from "../../domain/agents";
 import type { McpAccessAsk, SpawnPlan } from "../spawnSpecs";
-import type { Pane, SpawnConfig, WorktreeTarget } from "../../domain/deck";
+import type { Pane, SpawnConfig, TeamLocation, WorktreeTarget } from "../../domain/deck";
 import type { SessionHandle } from "../../domain/journal";
 import type { WorkspaceRef } from "../../domain/workspaceInstance";
 import type { WorkspaceCreationResult } from "../deckActions";
@@ -75,7 +75,8 @@ export interface AgentOrchestrator {
     target: ForkTarget,
     opts?: { name?: string; branch?: string; yolo?: boolean },
   ): Promise<void>;
-  /** Detach a blocked pane from its missing worktree and start fresh. */
+  /** Take a blocked pane off the team whose directory is gone, onto the
+   * workspace root's, and start a fresh conversation there. */
   startFresh(wsId: string, paneId: string): void;
   /** Ask for a stopped pane back and report whether it can rise. */
   resume(wsId: string, paneId: string): ResumeRequest;
@@ -128,11 +129,14 @@ export interface OccupiedNote {
 export interface CreatePaneRequest {
   /** Exact workspace lifetime, guarding asynchronous creation decisions. */
   workspace: WorkspaceRef;
-  /** The pane as the request describes it — its `location` says which
-   * directory it asked to run in, and the landing turns that into the team
-   * it joins: the team already holding that directory, or a new one made
-   * for it. The pane itself lands without a placement of its own. */
+  /** The pane as the request describes it. A remote endpoint is its own;
+   * a directory never is. */
   pane: Pane;
+  /** The directory the pane asks to run in — an existing one (the workspace
+   * root included) or a create heading for one. The landing turns it into
+   * the team the pane joins: the team already holding that directory, or a
+   * new one made for it. Absent: the workspace root. */
+  placement?: TeamLocation;
   /** A step to run after the team's worktree lands and before its card
    * resolves — a journal fork's store surgery. Filed under the TEAM the
    * landing mints, which is why it rides the request rather than being

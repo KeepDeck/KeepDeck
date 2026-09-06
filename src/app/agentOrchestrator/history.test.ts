@@ -163,14 +163,19 @@ describe("agent orchestrator —continuing a recorded session", () => {
       empty: false,
       branch: null,
     });
-    act(() =>
+    act(() => {
+      deck.createTeam("ws-1", {
+        id: "team-gone",
+        name: "gone",
+        location: { kind: "attached", cwd: "/gone/worktree" },
+      });
       deck.addAgentPane("ws-1", {
         id: "pane-77",
         agentType: "codex",
-        location: { kind: "attached", cwd: "/gone/worktree" },
         session: { id: "s-1", boundAt: "2026-07-19T00:00:00.000Z" },
-      }),
-    );
+      });
+      deck.joinTeam("ws-1", "pane-77", "team-gone", "lead");
+    });
     act(() => deck.suspendPane("ws-1", "pane-77"));
     act(() => deck.requestPaneWake("ws-1", "pane-77"));
     await settle();

@@ -5,14 +5,14 @@
  * mounting a terminal now would spawn the agent into somebody else's
  * directory.
  */
-import type { PaneProvisioning } from "../../../domain/deck";
+import type { TeamProvisioning } from "../../../domain/deck";
 import { LaunchSpinner } from "../../../ui/LaunchSpinner";
 
 export function ProvisioningBody({
   provisioning,
   onRetry,
 }: {
-  provisioning: PaneProvisioning;
+  provisioning: TeamProvisioning;
   onRetry?: () => void;
 }) {
   if (provisioning.error) {
@@ -47,7 +47,7 @@ export function ProvisioningBody({
 function ProvisionLocation({
   provisioning,
 }: {
-  provisioning: PaneProvisioning;
+  provisioning: TeamProvisioning;
 }) {
   const location = [provisioning.intent.branch, provisioning.intent.path]
     .filter(Boolean)

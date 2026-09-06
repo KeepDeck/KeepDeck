@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { execRunOnce } from "../ipc/exec";
 import { pluginsSqliteQuery } from "../ipc/history";
-import { attachedWorktree } from "../domain/deck";
+import { teamsOf } from "../domain/deck";
 import {
   pluginsFsWriteAppend,
   pluginsFsWriteCopy,
@@ -311,9 +311,10 @@ export function createPluginManager(appDownloads: DownloadManager) {
     const roots = new Set<string>();
     for (const ws of liveDeckAccess.workspaces()) {
       if (ws.cwd) roots.add(ws.cwd);
-      for (const pane of ws.panes) {
-        const worktree = attachedWorktree(pane);
-        if (worktree) roots.add(worktree.cwd);
+      // The directories the workspace's TEAMS run in — a worktree is a
+      // team's, and every member runs in it.
+      for (const team of teamsOf(ws)) {
+        if (team.location?.kind === "attached") roots.add(team.location.cwd);
       }
     }
     return [...roots];

@@ -176,11 +176,12 @@ describe("agent orchestrator —a blocked pane can be re-probed", () => {
         name: "ws",
         cwd: "/repo",
         worktreeBaseDir: null,
+        teams: [{ id: "team-1", name: "one", location: { kind: "attached", cwd: "/repo/wt-1" } }],
         panes: [
           {
             id: "pane-1",
             agentType: "claude",
-            location: { kind: "attached", cwd: "/repo/wt-1" },
+            team: { teamId: "team-1", role: "lead" },
             session: { id: "s-1", boundAt: "t" },
             idle: { reason: "suspended", at: "2026-07-25T09:00:00.000Z" },
           },

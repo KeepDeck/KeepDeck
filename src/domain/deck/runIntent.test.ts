@@ -21,6 +21,22 @@ const env = (over: Partial<PaneRunEnv> = {}): PaneRunEnv => ({
 
 const waking = { reason: "waking", origin: "restore" } as const;
 
+/** A workspace whose one team is still creating its directory, and that
+ * team's member. */
+const creating = {
+  teams: [
+    {
+      id: "team-1",
+      name: "making",
+      location: {
+        kind: "provisioning" as const,
+        intent: { repo: "/repo", path: "/wt/a", index: 1 },
+      },
+    },
+  ],
+};
+const member = { team: { teamId: "team-1", role: "lead" } };
+
 describe("paneRunIntent — a process belongs here", () => {
   it("runs a pane with no marker: the deck's record says it is up", () => {
     expect(paneRunIntent({},pane(), env())).toEqual({ kind: "run", resume: null });
@@ -60,18 +76,11 @@ describe("paneRunIntent — a process belongs here", () => {
 });
 
 describe("paneRunIntent — reasons to stay down", () => {
-  it("holds a provisioning pane: it has no directory to run in yet", () => {
-    expect(
-      paneRunIntent({},
-        pane({
-          location: {
-            kind: "provisioning",
-            intent: { repo: "/repo", path: "/wt/a", index: 1 },
-          },
-        }),
-        env(),
-      ),
-    ).toEqual({ kind: "hold", reason: { kind: "provisioning" } });
+  it("holds a member of a team still creating its directory: nowhere to run in yet", () => {
+    expect(paneRunIntent(creating, pane(member), env())).toEqual({
+      kind: "hold",
+      reason: { kind: "provisioning" },
+    });
   });
 
   it("holds when no plugin provides the agent, naming it", () => {
@@ -245,14 +254,9 @@ describe("paneRunIntent — the launch policy", () => {
 describe("paneRunIntent — precedence", () => {
   it("provisioning outranks everything: nothing else can be acted on", () => {
     expect(
-      paneRunIntent({},
-        pane({
-          idle: { reason: "suspended", at: "2026-07-26T10:00:00.000Z" },
-          location: {
-            kind: "provisioning",
-            intent: { repo: "/repo", path: "/wt/a", index: 1 },
-          },
-        }),
+      paneRunIntent(
+        creating,
+        pane({ ...member, idle: { reason: "suspended", at: "2026-07-26T10:00:00.000Z" } }),
         env({ agentAvailable: false, missingDir: "/gone" }),
       ),
     ).toEqual({ kind: "hold", reason: { kind: "provisioning" } });

@@ -18,6 +18,7 @@ import {
   WORKSPACE_GONE_MESSAGE,
   WORKTREE_HELD_MESSAGE,
   type Pane,
+  type TeamLocation,
   type Workspace,
   paneBranch,
   paneExecutionCwd,
@@ -293,12 +294,13 @@ export function registerCoreCommands(
         // with a base folder gets the first FREE worktree suggestion (never a
         // dir an open pane holds, nor one blocked on disk); anything else
         // runs in the workspace cwd.
-        let pane: Pane = {
+        const pane: Pane = {
           id,
           name: str(args, "name"),
           agentType,
           ...(yolo && { yolo: true }),
         };
+        let placement: TeamLocation | undefined;
         const info = await inspectRepo(ws.cwd).catch(() => null);
         let current = currentTarget();
         if (info?.isRepo) {
@@ -309,16 +311,13 @@ export function registerCoreCommands(
           );
           current = currentTarget();
           if (free) {
-            pane = {
-              ...pane,
-              location: {
-                kind: "provisioning",
-                intent: {
-                  repo: current.workspace.cwd,
-                  path: free.path,
-                  branch: free.branch,
-                  index,
-                },
+            placement = {
+              kind: "provisioning",
+              intent: {
+                repo: current.workspace.cwd,
+                path: free.path,
+                branch: free.branch,
+                index,
               },
             };
           }
@@ -329,7 +328,11 @@ export function registerCoreCommands(
         // `never` is what makes a new refusal a compile error here: a bare
         // switch would let an unmatched outcome fall straight through to the
         // success report below.
-        const landed = deps.createPane({ workspace, pane });
+        const landed = deps.createPane({
+          workspace,
+          pane,
+          ...(placement !== undefined && { placement }),
+        });
         switch (landed.kind) {
           case "created":
             break;

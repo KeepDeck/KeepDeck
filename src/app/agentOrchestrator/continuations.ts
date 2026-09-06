@@ -113,13 +113,14 @@ export function createAgentOrchestratorContinuations({
         return;
       }
       const name = opts?.name?.trim();
-      const location = placementOfRecorded(record, workspace.cwd);
       const outcome = creation.landPane({
         workspace: { id: workspace.id, instance: workspace.instance },
+        // The directory the session ran in, with its branch — a resume
+        // lands on the team holding it, or on a team made for it.
+        placement: placementOfRecorded(record),
         pane: {
           id,
           agentType: record.agent,
-          ...(location !== undefined && { location }),
           ...(yolo && { yolo: true }),
           ...(name && { name }),
           session: {
@@ -178,27 +179,26 @@ export function createAgentOrchestratorContinuations({
           },
         );
 
+      const pane: Pane = {
+        id,
+        agentType: record.agent,
+        ...(yolo && { yolo: true }),
+        ...(name && { name }),
+      };
       if (target.kind === "dir") {
-        const location = placementOfRecorded(
-          { cwd: target.cwd, ...(opts?.branch && { branch: opts.branch }) },
-          workspace.cwd,
-        );
-        const pane: Pane = {
-          id,
-          agentType: record.agent,
-          ...(location !== undefined && { location }),
-          ...(yolo && { yolo: true }),
-          ...(name && { name }),
-        };
+        const placement = placementOfRecorded({
+          cwd: target.cwd,
+          ...(opts?.branch && { branch: opts.branch }),
+        });
         // Asked BEFORE the irreversible surgery: a team with no room for
         // the pane refuses now, not after the clone exists.
-        const refused = creation.roomFor(workspaceRef, pane);
+        const refused = creation.roomFor(workspaceRef, pane, placement);
         if (refused) creation.landOrThrow(refused);
         if (!(await surgery(target.cwd))) {
           dropPaneSpawnSpec(id);
           throw new Error("Agent could not prepare a fork plan");
         }
-        creation.landOrThrow(creation.landPane({ workspace: workspaceRef, pane }));
+        creation.landOrThrow(creation.landPane({ workspace: workspaceRef, pane, placement }));
         return;
       }
 
@@ -212,22 +212,17 @@ export function createAgentOrchestratorContinuations({
               throw new Error("Agent could not prepare a fork plan");
             }
           },
-          pane: {
-            id,
-            agentType: record.agent,
-            ...(yolo && { yolo: true }),
-            ...(name && { name }),
-            location: {
-              kind: "provisioning",
-              intent: {
-                repo: workspace.cwd,
-                path: target.path,
-                branch: target.branch,
-                ...(target.base !== undefined && { base: target.base }),
-                index: workspace.panes.length + 1,
-              },
-              fork: true,
+          pane,
+          placement: {
+            kind: "provisioning",
+            intent: {
+              repo: workspace.cwd,
+              path: target.path,
+              branch: target.branch,
+              ...(target.base !== undefined && { base: target.base }),
+              index: workspace.panes.length + 1,
             },
+            fork: true,
           },
         }),
       );

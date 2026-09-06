@@ -123,8 +123,8 @@ function buildDeckActions(store: DeckStore) {
       dispatch({ type: "failPaneWake", wsId, paneId }),
     parkPane: (wsId: string, paneId: string) =>
       dispatch({ type: "parkPane", wsId, paneId }),
-    resetPaneLocation: (wsId: string, paneId: string) =>
-      dispatch({ type: "resetPaneLocation", wsId, paneId }),
+    resetPaneSession: (wsId: string, paneId: string) =>
+      dispatch({ type: "resetPaneSession", wsId, paneId }),
     setPaneSession: (
       wsId: string,
       paneId: string,
@@ -139,20 +139,6 @@ function buildDeckActions(store: DeckStore) {
         ...(transcriptPath !== undefined && { transcriptPath }),
         at: nowIso(),
       }),
-    resolvePaneProvisioning: (
-      wsId: string,
-      paneId: string,
-      worktree: { cwd: string; branch: string },
-    ) =>
-      dispatch({
-        type: "resolvePaneProvisioning",
-        wsId,
-        paneId,
-        cwd: worktree.cwd,
-        branch: worktree.branch,
-      }),
-    setPaneProvisioningError: (wsId: string, paneId: string, error: string | null) =>
-      dispatch({ type: "setPaneProvisioningError", wsId, paneId, error }),
     /** Is this team still in the deck? A read, like `hasPane`, for the
      * background create that outlives the render which started it. */
     hasTeam: (wsId: string, teamId: string): boolean => {

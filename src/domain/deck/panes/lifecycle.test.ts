@@ -14,6 +14,22 @@ import {
   type Pane,
 } from ".";
 
+/** A workspace whose one team is still creating its directory, and that
+ * team's member: the pane's own record says nothing about the create. */
+const creating = {
+  teams: [
+    {
+      id: "team-1",
+      name: "making",
+      location: {
+        kind: "provisioning" as const,
+        intent: { repo: "/repo", path: "/wt/a", index: 1 },
+      },
+    },
+  ],
+};
+const creatingMember: Pane = { id: "p", team: { teamId: "team-1", role: "lead" } };
+
 describe("paneHasProcess", () => {
   it("false for every reason a pane has none, true only for a plain pane", () => {
     expect(paneHasProcess({},{ id: "p" })).toBe(true);
@@ -32,15 +48,7 @@ describe("paneHasProcess", () => {
       paneHasProcess({},{ id: "p", idle: { reason: "waking", origin: "manual" } }),
     ).toBe(false);
     // The half the limits poller used to drop: mid-create, never ran.
-    expect(
-      paneHasProcess({},{
-        id: "p",
-        location: {
-          kind: "provisioning",
-          intent: { repo: "/repo", path: "/wt/a", index: 1 },
-        },
-      }),
-    ).toBe(false);
+    expect(paneHasProcess(creating, creatingMember)).toBe(false);
   });
 });
 
@@ -86,18 +94,7 @@ describe("paneCanSuspend", () => {
     expect(paneSuspendBlock({},{ id: "p", idle: { reason: "parked" } }, false)).toBe(
       "stopped",
     );
-    expect(
-      paneSuspendBlock({},
-        {
-          id: "p",
-          location: {
-            kind: "provisioning",
-            intent: { repo: "/r", path: "/wt/a", index: 1 },
-          },
-        },
-        false,
-      ),
-    ).toBe("provisioning");
+    expect(paneSuspendBlock(creating, creatingMember, false)).toBe("provisioning");
     expect(
       paneSuspendBlock({},
         { id: "p", location: { kind: "remote", endpoint: "ws://vps:4500" } },
@@ -141,19 +138,8 @@ describe("paneCanSuspend", () => {
     }
   });
 
-  it("false while a worktree create is in flight — no process to stop", () => {
-    expect(
-      paneCanSuspend({},
-        {
-          id: "p",
-          location: {
-            kind: "provisioning",
-            intent: { repo: "/r", path: "/wt/a", index: 1 },
-          },
-        },
-        false,
-      ),
-    ).toBe(false);
+  it("false while the team's worktree create is in flight — no process to stop", () => {
+    expect(paneCanSuspend(creating, creatingMember, false)).toBe(false);
   });
 
   it("false for a REMOTE pane — its conversation lives on the server", () => {
@@ -266,17 +252,7 @@ describe("paneBlock — the head both ladders share", () => {
 
   it("puts provisioning first — nothing else can be acted on", () => {
     expect(
-      paneBlock({},
-        {
-          id: "p1",
-          idle: { reason: "parked" },
-          location: {
-            kind: "provisioning",
-            intent: { repo: "/r", path: "/wt/a", index: 1 },
-          },
-        },
-        false,
-      ),
+      paneBlock(creating, { ...creatingMember, id: "p1", idle: { reason: "parked" } }, false),
     ).toEqual({ kind: "provisioning" });
   });
 

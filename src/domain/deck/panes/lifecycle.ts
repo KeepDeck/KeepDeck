@@ -8,14 +8,13 @@
  * is exactly how a pane ends up both "stopped" and "waking".
  */
 import type { AgentType, ResumeOrigin } from "../../agents";
-import { locationOf } from "./location";
 import { panePlacement } from "../roots";
 import type { Workspace } from "../workspaces";
 
 /** The half of the workspace a placement question reads: its teams, whose
  * directory a member pane runs in. Sparse on the model, so `{}` fits. */
 type PlacementOwner = Pick<Workspace, "teams">;
-import type { Pane, PaneIdle } from "./model";
+import { remoteEndpointOf, type Pane, type PaneIdle } from "./model";
 
 /** The agent a pane runs — panes minted before the field existed ran claude,
  *  so the default is part of the persisted format, not a UI convenience. */
@@ -85,15 +84,8 @@ export function paneSuspendBlock(
   // waiting on a slow probe would otherwise be unparkable for as long as the
   // probe takes.
   if (idleReadsAsStopped(pane.idle, blocked)) return "stopped";
-  switch (panePlacement(ws, pane).kind) {
-    case "provisioning":
-      return "provisioning";
-    case "remote":
-      return "remote";
-    case "main":
-    case "attached":
-      return null;
-  }
+  if (remoteEndpointOf(pane) !== null) return "remote";
+  return panePlacement(ws, pane).kind === "provisioning" ? "provisioning" : null;
 }
 
 /**
@@ -258,5 +250,5 @@ export function paneResumeSessionId(pane: Pane): string | null {
   // A remote pane is fresh-session only: its conversation lives on the
   // server, and handing a resume path a local session id would spawn locally
   // and silently drop the endpoint.
-  return locationOf(pane).kind === "remote" ? null : (pane.session?.id ?? null);
+  return remoteEndpointOf(pane) !== null ? null : (pane.session?.id ?? null);
 }
