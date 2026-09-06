@@ -215,6 +215,40 @@ describe("agent orchestrator —continuing a recorded session", () => {
     expect(deck.workspaces[0].panes).toHaveLength(0);
   });
 
+  it("joins the team already on the workspace root when the session ran there — no second team on the root", async () => {
+    act(() => {
+      deck.createTeam("ws-1", {
+        id: "team-root",
+        name: "root",
+        location: { kind: "attached", cwd: "/repo" },
+      });
+      deck.addAgentPane("ws-1", { id: "pane-root", agentType: "claude" });
+      deck.joinTeam("ws-1", "pane-root", "team-root", "lead");
+    });
+    await act(async () => agentRun.resumeSession("ws-1", handle({ cwd: "/repo", branch: "main" })));
+    const ws = deck.workspaces[0];
+    expect(ws.teams?.map((team) => team.id)).toEqual(["team-root"]);
+    expect(ws.panes.map((pane) => pane.team?.teamId)).toEqual(["team-root", "team-root"]);
+  });
+
+  it("lands by the recorded directory, never by a name — a name another team holds is not a way onto it", async () => {
+    act(() => {
+      deck.createTeam("ws-1", {
+        id: "team-1",
+        name: "api",
+        location: { kind: "attached", cwd: "/wt/api" },
+      });
+    });
+    await act(async () => agentRun.resumeSession("ws-1", handle(), { name: "api" }));
+    const ws = deck.workspaces[0];
+    const resumed = ws.panes.find((pane) => pane.session?.id === "s-1")!;
+    expect(resumed.team?.teamId).not.toBe("team-1");
+    expect(paneExecutionCwd(ws, resumed)).toBe("/repo/wt");
+    expect(paneBranch(ws, resumed)).toBe("kd/x/1");
+    // The taken name is not reused for the team minted for the directory.
+    expect(ws.teams?.map((team) => team.name)).toEqual(["api", "Team 2"]);
+  });
+
   it("fails a full team loudly instead of stranding the built plan", async () => {
     // The session ran in a directory whose team has no room: the resume
     // is refused whole rather than landing a seventeenth member.
@@ -479,6 +513,33 @@ describe("agent orchestrator —forking a recorded session", () => {
     // exist again.
     expect(steps.register).not.toHaveBeenCalled();
     expect(deck.workspaces[0].teams ?? []).toEqual([]);
+  });
+
+  it("a worktree fork asked for a directory a team in THIS workspace already holds is refused — no surgery, no second team", async () => {
+    // A worktree cannot be made where one is, and the fork's surgery is
+    // filed under the fresh team's create: joining the holder would land a
+    // plain pane with the fork silently lost.
+    act(() => {
+      deck.createTeam("ws-1", {
+        id: "team-f",
+        name: "f",
+        location: { kind: "attached", cwd: "/repo-wt/f" },
+      });
+    });
+    await expect(
+      act(async () =>
+        agentRun.forkSession("ws-1", forked(), {
+          kind: "worktree",
+          path: "/repo-wt/f",
+          branch: "fork/x",
+        }),
+      ),
+    ).rejects.toThrow("already a team's");
+    expect(vi.mocked(buildForkSpec)).not.toHaveBeenCalled();
+    expect(steps.register).not.toHaveBeenCalled();
+    expect(provisions).toEqual([]);
+    expect(deck.workspaces[0].teams?.map((team) => team.id)).toEqual(["team-f"]);
+    expect(deck.workspaces[0].panes).toEqual([]);
   });
 
   it("a full team fails a DIR fork BEFORE the irreversible surgery", async () => {

@@ -114,6 +114,12 @@ export function createAgentOrchestratorCreation({
    * except at the root, which every workspace opened on the same repository
    * holds for itself. A directory nobody holds gets a team of its own, named
    * after the pane when the person named it and "Team N" otherwise.
+   *
+   * A CREATE heading for a directory a team already holds is refused, not
+   * joined: a worktree cannot be made where one is, and a fork's surgery
+   * (filed under the fresh team's create) would never run on a team that
+   * already has its directory. The dialogs offer attaching to an existing
+   * directory as a choice of its own.
    */
   function resolveLanding(
     workspaces: readonly Workspace[],
@@ -132,6 +138,7 @@ export function createAgentOrchestratorCreation({
     let team: Team & { location: TeamLocation };
     let fresh = false;
     if (holder?.location) {
+      if (wanted.kind === "provisioning") return { refusal: "held" };
       team = { ...holder, location: holder.location };
     } else {
       const elsewhere = teamOccupyingPath(workspaces, wantedKey);

@@ -39,6 +39,7 @@ import {
   suspendPane,
 } from "./panes";
 import { paneBranch, paneExecutionCwd } from "./roots";
+import { teamNameOf } from "./teams/collection";
 import { assignPaneTeam } from "./teams/transforms";
 import {
   createTeam,
@@ -107,6 +108,8 @@ function boundEventFor(
   transcriptPath?: string,
 ): JournalEvent {
   const branch = paneBranch(ws, pane);
+  // The team's NAME, for the row alone: a resume goes by the directory.
+  const team = teamNameOf(ws, pane);
   return {
     e: "bound",
     v: 1,
@@ -123,6 +126,7 @@ function boundEventFor(
       // The directory-formula guard test names this line as its one allowance.
       cwd: paneExecutionCwd(ws, pane) ?? ws.cwd,
       ...(branch !== undefined && { branch }),
+      ...(team !== undefined && { team }),
       ...(pane.yolo && { yolo: true }),
       ...(transcriptPath !== undefined && { transcriptPath }),
       boundAt: session.boundAt,

@@ -23,6 +23,7 @@ const EVENTS: JournalEvent[] = [
       sessionId: "s-1",
       cwd: "/repo",
       branch: "kd/x/1",
+      team: "auth",
       yolo: true,
       transcriptPath: "/t/s-1.jsonl",
       boundAt: T,

@@ -245,12 +245,38 @@ describe("agent orchestrator —a new pane arriving", () => {
       outcome = agentRun.createPane({
         workspace: { id: "ws-1", instance: instance() },
         pane: plain(),
-        placement: card(),
+        placement: { kind: "attached", cwd: "/wt/a" },
       });
     });
     expect(outcome).toEqual({ kind: "full" });
     expect(deck.workspaces[0].panes).toHaveLength(MAX_PANES);
     expect(deck.workspaces[0].teams).toHaveLength(1);
+    expect(provisions).toEqual([]);
+  });
+
+  it("refuses a CREATE heading for a directory a team here already holds — a worktree cannot be made where one is", async () => {
+    const base = seed([{ id: "pane-1", agentType: "claude", team: { teamId: "team-1", role: "lead" } }]);
+    act(() =>
+      deck.hydrate({
+        ...base,
+        workspaces: [
+          {
+            ...base.workspaces[0],
+            teams: [{ id: "team-1", name: "api", location: { kind: "attached", cwd: "/wt/a" } }],
+          },
+        ],
+      }),
+    );
+    let outcome;
+    await act(async () => {
+      outcome = agentRun.createPane({
+        workspace: { id: "ws-1", instance: instance() },
+        pane: plain(),
+        placement: card(),
+      });
+    });
+    expect(outcome).toEqual({ kind: "held" });
+    expect(deck.workspaces[0].panes).toHaveLength(1);
     expect(provisions).toEqual([]);
   });
 

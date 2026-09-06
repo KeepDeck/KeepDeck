@@ -159,6 +159,34 @@ describe("the plan builders — live pane, resume, fork", () => {
     expect(seen).toEqual({});
   });
 
+  it("every member of a team plans in the team's directory — one cwd for the whole team", async () => {
+    // The hook sees the directory the plan is built for; a plugin that
+    // echoes it back into argv makes the directory observable per pane.
+    register({
+      ...adopting,
+      hooks: {
+        ...adopting.hooks,
+        "spawn.plan": (input, output) => {
+          output.args = ["--cwd", input.cwd];
+        },
+      },
+    });
+    await mount(
+      ws(
+        [
+          { id: "pane-1", agentType: "claude", team: { teamId: "team-1", role: "lead" } },
+          { id: "pane-2", agentType: "claude", team: { teamId: "team-1", role: "impl-1" } },
+          { id: "pane-3", agentType: "claude" },
+        ],
+        [{ id: "team-1", name: "one", location: { kind: "attached", cwd: "/wt/one" } }],
+      ),
+    );
+    expect(seen["pane-1"]?.args).toEqual(["--cwd", "/wt/one"]);
+    expect(seen["pane-2"]?.args).toEqual(["--cwd", "/wt/one"]);
+    // A pane on no team starts in the workspace root.
+    expect(seen["pane-3"]?.args).toEqual(["--cwd", "/repo"]);
+  });
+
   it("buildResumeSpec caches a resume plan the wake can read back", async () => {
     register(adopting);
     await buildResumeSpec(

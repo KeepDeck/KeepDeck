@@ -73,7 +73,14 @@ describe("deckReducer journal", () => {
       agent: "claude",
       cwd: "/repo/wt",
       branch: "kd/ws/2",
+      // The team's NAME rides along for the row — never a key a resume
+      // goes by, which is the directory.
+      team: "wt",
     });
+  });
+
+  it("writes no team for a pane on none", () => {
+    expect(boundState().journal.records["ws-1"][0]).not.toHaveProperty("team");
   });
 
   it("seals the previous session on rebind and opens the next one", () => {
