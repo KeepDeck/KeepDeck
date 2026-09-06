@@ -79,25 +79,34 @@ describe("trayView", () => {
 describe("emptyGridMessage", () => {
   const stopped = [pane("a", true), pane("b", true)];
 
-  it("says what every agent is, in the words the stage used", () => {
+  it("says what every agent on the team is, in the words the stage used", () => {
     expect(emptyGridMessage(panes, { minimized: ["a", "b", "c"] }).title).toBe(
-      "Every agent is minimized",
+      "Every agent on this team is minimized",
     );
     expect(emptyGridMessage(stopped, { suspendedTray: ["a", "b"] }).title).toBe(
-      "Every agent is suspended",
+      "Every agent on this team is suspended",
     );
     // Every agent in the tray, but not every one of them stopped.
     expect(emptyGridMessage([pane("a", true), pane("b")], { suspendedTray: ["a", "b"] }).title).toBe(
-      "Every agent is in the tray",
+      "Every agent on this team is in the tray",
     );
     expect(
       emptyGridMessage(panes, { minimized: ["a", "b"], suspendedTray: ["c"] }).title,
-    ).toBe("Every agent is hidden");
+    ).toBe("Every agent on this team is hidden");
     // Some in the tray, the rest minimized by a double mark: nothing is
     // merely minimized, so the tray is what there is to say.
     expect(
       emptyGridMessage(panes, { minimized: ["a"], suspendedTray: ["a", "b", "c"] }).title,
-    ).toBe("Every agent is in the tray");
+    ).toBe("Every agent on this team is in the tray");
+  });
+
+  it("tells an empty team apart from a team that is all off the grid", () => {
+    // "Every agent is suspended" over nobody would be vacuously true and
+    // entirely wrong: nobody is on the team, and that is what it says.
+    expect(emptyGridMessage([], undefined)).toEqual({
+      title: "No agents on this team",
+      sub: "Add one with “+ Member”, or disband the team from its card",
+    });
   });
 
   it("promises 'they keep running' only while nothing is in the tray", () => {

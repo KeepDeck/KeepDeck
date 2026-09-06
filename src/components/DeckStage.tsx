@@ -17,8 +17,10 @@ import {
   type Pane,
   type Workspace,
   type WorkspaceView,
+  openTeamOf,
   paneBody,
   paneProvisioning,
+  stagePanes,
   teamOfPane,
 } from "../domain/deck";
 import type { PaneFramePlace } from "../domain/status";
@@ -298,10 +300,19 @@ export function DeckStage({
           return gitBadge(cwd ? gitHeads.get(cwd) : undefined);
         };
 
+        // ── The slice. ────────────────────────────────────────────────────
+        // The open team's members are what the stage lays out. Every other
+        // team's panes stay MOUNTED — a terminal is never torn down for a
+        // change of level — and merely are not on the grid, the shelf, or
+        // the empty-grid word: each of those reads the slice, never the
+        // workspace.
+        const team = openTeamOf(ws, view);
+        const panes = stagePanes(ws, view);
+
         // ── Per-pane layout, resolved once per workspace. ─────────────────
-        // The live (not minimized) panes tile; the minimized ones are hidden
-        // but stay in the grid mounted.
-        const live = visiblePanes(ws.panes, view);
+        // The live (not minimized) panes tile; the minimized ones — and the
+        // panes of teams that are not open — are hidden but stay mounted.
+        const live = visiblePanes(panes, view);
         const liveIndex = new Map(live.map((p, i) => [p.id, i] as const));
         const focusedHere = resolveFocus(live, view?.focus);
         const soloGrid = live.length === 1;
@@ -315,9 +326,10 @@ export function DeckStage({
             // Hidden from the grid, but still mounted. In addition to
             // explicit minimizes this includes suspended panes while the
             // global placement is Tray and its suspend transition put it in
-            // the existing minimized set. A hidden pane is never the
-            // selected one — selection resolves to a live, visible pane
-            // (the same contract MinimizedItem documents for its chip).
+            // the existing minimized set — and every pane of a team that is
+            // not the open one. A hidden pane is never the selected one —
+            // selection resolves to a live, visible pane (the same contract
+            // MinimizedItem documents for its chip).
             return {
               colSpan: 1,
               visible: false,
@@ -357,7 +369,7 @@ export function DeckStage({
         // reason DOES is this component's, because it owns the callbacks. The
         // switch is exhaustive: a reason the shelf learns to report cannot be
         // one the stage forgets to honour.
-        const shelf = trayView(ws.panes, view, focusedHere);
+        const shelf = trayView(panes, view, focusedHere);
         const restoreFor = (entry: ShelfEntry): (() => void) => {
           switch (entry.reason) {
             case "minimized":
@@ -413,7 +425,9 @@ export function DeckStage({
           entryOf(paneById.get(entry.paneId)!, "Restore", restoreFor(entry)),
         );
         const trayStateLabel = shelf.stateLabel;
-        const emptyGrid = live.length === 0 ? emptyGridMessage(ws.panes, view) : null;
+        // The word for an empty grid is a word about the OPEN team — at the
+        // cards level the grid is empty by construction and says nothing.
+        const emptyGrid = team && live.length === 0 ? emptyGridMessage(panes, view) : null;
 
         // Asked once for the deck, not once per pane: a role is only an
         // identity while ONE team holds it, and with a second team running

@@ -36,6 +36,8 @@ import { DeckStage } from "./DeckStage";
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
 
+// Every pane on the workspace's one team, which the view below keeps open:
+// the stage lays out the open team's members and nothing else.
 const workspaces = [
   {
     id: "ws-1",
@@ -43,16 +45,23 @@ const workspaces = [
     name: "Workspace",
     cwd: "/repo",
     worktreeBaseDir: null,
+    teams: [{ id: "team-1", name: "team-1", location: { kind: "attached" as const, cwd: "/repo" } }],
     panes: [
       {
         id: "pane-1",
         agentType: "codex",
         session: { id: "session-1", boundAt: "2026-07-11T00:00:00Z" },
+        team: { teamId: "team-1", role: "lead" },
       },
-      { id: "pane-2", agentType: "codex" },
+      { id: "pane-2", agentType: "codex", team: { teamId: "team-1", role: "impl-1" } },
     ],
   },
 ];
+
+/** A case's view with team-1 open underneath it. */
+const openView = (viewByWs: Record<string, Record<string, unknown>> = {}) => ({
+  "ws-1": { teamOpen: "team-1", ...viewByWs["ws-1"] },
+});
 
 const callbacks = {
   onResumeSession: vi.fn(),
@@ -91,7 +100,6 @@ const props = (overrides: Record<string, unknown> = {}) => ({
   browserShared: browser,
   workspaces,
   activeId: "ws-1",
-  viewByWs: {},
   selectedPaneId: null,
   keyboardFocusEnabled: true,
   agents: [
@@ -122,6 +130,7 @@ const props = (overrides: Record<string, unknown> = {}) => ({
   restartEpochs: {} as Record<string, number>,
   ...callbacks,
   ...overrides,
+  viewByWs: openView(overrides.viewByWs as Record<string, Record<string, unknown>> | undefined),
 });
 
 describe("DeckStage — suspended agents", () => {
@@ -267,7 +276,7 @@ describe("DeckStage — suspended agents", () => {
       },
     });
     expect(document.querySelector(".deck__grid-empty-title")?.textContent).toBe(
-      "Every agent is hidden",
+      "Every agent on this team is hidden",
     );
     expect(document.querySelector(".deck__tray-label")?.textContent).toBe(
       "Hidden · 2",

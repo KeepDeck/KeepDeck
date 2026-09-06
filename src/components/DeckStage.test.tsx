@@ -69,6 +69,15 @@ import { DeckStage } from "./DeckStage";
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
 
+/** A team on the workspace root: what every fixture pane is on, since the
+ * stage lays out the OPEN team's members and nothing else. */
+const team = (id: string, cwd: string) => ({
+  id,
+  name: id,
+  location: { kind: "attached" as const, cwd },
+});
+const on = (teamId: string, role: string) => ({ team: { teamId, role } });
+
 const workspaces = [
   {
     id: "ws-1",
@@ -76,13 +85,15 @@ const workspaces = [
     name: "Workspace",
     cwd: "/repo",
     worktreeBaseDir: null,
+    teams: [team("team-1", "/repo")],
     panes: [
       {
         id: "pane-1",
         agentType: "codex",
         session: { id: "session-1", boundAt: "2026-07-11T00:00:00Z" },
+        ...on("team-1", "lead"),
       },
-      { id: "pane-2", agentType: "codex" },
+      { id: "pane-2", agentType: "codex", ...on("team-1", "impl-1") },
     ],
   },
 ];
@@ -95,12 +106,29 @@ const twoWorkspaces = [
     name: "Second workspace",
     cwd: "/repo-2",
     worktreeBaseDir: null,
+    teams: [team("team-2", "/repo-2")],
     panes: [
-      { id: "pane-3", agentType: "codex" },
-      { id: "pane-4", agentType: "codex" },
+      { id: "pane-3", agentType: "codex", ...on("team-2", "lead") },
+      { id: "pane-4", agentType: "codex", ...on("team-2", "impl-1") },
     ],
   },
 ];
+
+/** Each fixture workspace with its one team open — the level every case
+ * below plays on unless it says otherwise (`teamOpen: undefined` for the
+ * cards). Merged UNDER a case's own view, so a case that sets a minimize
+ * or a spotlight still has the team open. */
+const OPEN: Record<string, { teamOpen: string }> = {
+  "ws-1": { teamOpen: "team-1" },
+  "ws-2": { teamOpen: "team-2" },
+};
+const openView = (viewByWs: Record<string, Record<string, unknown>> = {}) =>
+  Object.fromEntries(
+    [...new Set([...Object.keys(OPEN), ...Object.keys(viewByWs)])].map((wsId) => [
+      wsId,
+      { ...OPEN[wsId], ...viewByWs[wsId] },
+    ]),
+  );
 
 const callbacks = {
   onResumeSession: vi.fn(),
@@ -139,7 +167,6 @@ const props = (overrides: Record<string, unknown> = {}) => ({
   browserShared: browser,
   workspaces,
   activeId: "ws-1",
-  viewByWs: {},
   selectedPaneId: null,
   keyboardFocusEnabled: true,
   agents: [
@@ -170,6 +197,7 @@ const props = (overrides: Record<string, unknown> = {}) => ({
   restartEpochs: {} as Record<string, number>,
   ...callbacks,
   ...overrides,
+  viewByWs: openView(overrides.viewByWs as Record<string, Record<string, unknown>> | undefined),
 });
 
 function terminalProps(paneId: string) {
@@ -279,6 +307,88 @@ describe("DeckStage — exited agents across layouts", () => {
   });
 });
 
+describe("DeckStage — the open team's slice", () => {
+  let root: Root;
+
+  beforeEach(() => {
+    document.body.innerHTML = "<div id='host'></div>";
+    root = createRoot(document.getElementById("host")!);
+    vi.mocked(TerminalPane).mockClear();
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+  });
+
+  const render = (overrides: Record<string, unknown> = {}) =>
+    act(() => root.render(withRuntime(createElement(DeckStage, props(overrides)))));
+
+  const paneEl = (paneId: string) =>
+    document.querySelector<HTMLElement>(`[data-pane-id='${paneId}']`)!;
+
+  /** pane-1 on team-1; pane-2 and pane-3 on team-2. */
+  const twoTeams = [
+    {
+      ...workspaces[0],
+      teams: [team("team-1", "/repo"), team("team-2", "/repo/wt")],
+      panes: [
+        { id: "pane-1", agentType: "codex", ...on("team-1", "lead") },
+        { id: "pane-2", agentType: "codex", ...on("team-2", "lead") },
+        { id: "pane-3", agentType: "codex", ...on("team-2", "impl-1") },
+      ],
+    },
+  ];
+  const specs = {
+    "pane-1": { command: "codex", args: [], env: [] },
+    "pane-2": { command: "codex", args: [], env: [] },
+    "pane-3": { command: "codex", args: [], env: [] },
+  };
+
+  it("lays out the open team only: the other team's panes stay mounted, off the grid and off the shelf", () => {
+    // pane-1 is minimized AND on the team that is not open. It must be
+    // neither on the grid nor on the shelf — a shelf offering a pane of a
+    // closed team back would restore it into a grid it is not part of —
+    // while its terminal stays mounted through the level change.
+    render({
+      workspaces: twoTeams,
+      specByPane: specs,
+      viewByWs: { "ws-1": { teamOpen: "team-2", minimized: ["pane-1"] } },
+    });
+    expect(paneEl("pane-1").classList.contains("pane--hidden")).toBe(true);
+    expect(paneEl("pane-2").classList.contains("pane--hidden")).toBe(false);
+    expect(paneEl("pane-3").classList.contains("pane--hidden")).toBe(false);
+    expect(document.querySelector(".deck__tray")).toBeNull();
+    expect(terminalProps("pane-1").paneId).toBe("pane-1");
+  });
+
+  it("speaks of the open team when its grid is empty, whatever the other team is doing", () => {
+    // pane-1, the closed team's, is on no hidden list — and still does not
+    // count as "on the grid": the word is about team-2, all of it minimized.
+    render({
+      workspaces: twoTeams,
+      specByPane: specs,
+      viewByWs: { "ws-1": { teamOpen: "team-2", minimized: ["pane-2", "pane-3"] } },
+    });
+    expect(document.querySelector(".deck__grid-empty-title")!.textContent).toBe(
+      "Every agent on this team is minimized",
+    );
+    expect(document.querySelector(".deck__tray-label")!.textContent).toBe("Minimized · 2");
+  });
+
+  it("lays out nothing at the cards level, and says nothing about an empty grid", () => {
+    render({
+      workspaces: twoTeams,
+      specByPane: specs,
+      viewByWs: { "ws-1": { teamOpen: undefined } },
+    });
+    for (const paneId of ["pane-1", "pane-2", "pane-3"]) {
+      expect(paneEl(paneId).classList.contains("pane--hidden")).toBe(true);
+    }
+    expect(document.querySelector(".deck__grid-empty")).toBeNull();
+    expect(document.querySelector(".deck__tray")).toBeNull();
+  });
+});
+
 describe("DeckStage — agent identity on the pane header", () => {
   let root: Root;
 
@@ -333,8 +443,8 @@ describe("DeckStage — agent identity on the pane header", () => {
         {
           ...workspaces[0],
           panes: [
-            { id: "pane-1", agentType: "codex", yolo: true },
-            { id: "pane-2", agentType: "codex" },
+            { id: "pane-1", agentType: "codex", yolo: true, ...on("team-1", "lead") },
+            { id: "pane-2", agentType: "codex", ...on("team-1", "impl-1") },
           ],
         },
       ],
@@ -470,9 +580,9 @@ describe("DeckStage — a maximized pane minimizes the rest", () => {
         {
           ...workspaces[0],
           panes: [
-            { id: "pane-1", agentType: "codex" },
-            { id: "pane-2", agentType: "codex" },
-            { id: "pane-3", agentType: "codex" },
+            { id: "pane-1", agentType: "codex", ...on("team-1", "lead") },
+            { id: "pane-2", agentType: "codex", ...on("team-1", "impl-1") },
+            { id: "pane-3", agentType: "codex", ...on("team-1", "impl-2") },
           ],
         },
       ],
