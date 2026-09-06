@@ -58,16 +58,22 @@ export type MigrationOutcome =
  *       suspended stays suspended across a restart instead of waking).
  *  10 — + `Pane.team` (which team the agent belongs to and under what role,
  *       so messages can be addressed by role instead of by pane).
+ *  11 — a team is an OBJECT: + `Workspace.teams` (id, name, and the one
+ *       directory the team runs in, or the create heading for one), and
+ *       `Pane.team` names it by ID — `{teamId, role}` in place of
+ *       `{name, role}`. The floor rises to 11 with it: a v10 reader takes
+ *       `{teamId, role}` for a half-written `{name, role}` and reads every
+ *       membership as none, then SAVES — silently dismissing every team.
  */
-export const DECK_STATE_VERSION = 10;
-/** The oldest reader that can still make sense of a current document. Held at
- * 1 deliberately: v1→v4, v6 and v7 were additive, and v5's `run` retirement
- * moves data an old reader wouldn't understand INTO keys it preserves as
- * extras — so an old build reading a v5 deck loses the Run panel's state
- * (recoverable, not corrupt) rather than misreading anything. The floor rises
- * only when a change would make an old reader misinterpret data it still
- * consumes. */
-export const DECK_MIN_READER = 1;
+export const DECK_STATE_VERSION = 11;
+/** The oldest reader that can still make sense of a current document. It was
+ * held at 1 while every change was additive (v1→v4, v6→v10) or moved data an
+ * old reader would merely lose rather than misread (v5's `run` retirement).
+ * v11 changes what `Pane.team` MEANS, which is the one kind of change that
+ * raises the floor: a v10 build reading a v11 file would misinterpret data it
+ * still consumes, and its next save would write the misreading back. Parking
+ * is the honest option left. */
+export const DECK_MIN_READER = 11;
 
 /** v1 → v2: `Workspace.run` added — additive, nothing to transform. */
 function migrateDeckFromV1toV2(doc: RawDoc): RawDoc {
@@ -150,6 +156,53 @@ function migrateDeckFromV9toV10(doc: RawDoc): RawDoc {
   return doc;
 }
 
+/**
+ * v10 → v11: a team becomes an object the workspace holds.
+ *
+ * A v10 pane spells its membership as `{name, role}`; every pane holding the
+ * same name (compared trimmed and lower-cased — the rule the dialog and the
+ * plan already applied) was "the team". The hop mints one team per distinct
+ * name in reading order, across the whole document, so a file always comes
+ * back with the same ids, and rewrites each membership as `{teamId, role}`.
+ * A half-written membership — no name, no role, only space — was read as no
+ * membership before and becomes none here too. The rule is spelled out in
+ * this file rather than borrowed from the model: a migration records what a
+ * document went through, and must keep doing exactly that when the model's
+ * rule moves on.
+ */
+function migrateDeckFromV10toV11(doc: RawDoc): RawDoc {
+  const workspaces = doc.workspaces;
+  if (!Array.isArray(workspaces)) return doc;
+  const mint = { next: 1 };
+  return {
+    ...doc,
+    workspaces: workspaces.map((ws) => migrateWorkspaceTeamsToV11(ws, mint)),
+  };
+}
+
+function migrateWorkspaceTeamsToV11(value: unknown, mint: { next: number }): unknown {
+  if (!isRecord(value) || !Array.isArray(value.panes)) return value;
+  const teams: { id: string; name: string }[] = [];
+  const panes = value.panes.map((pane) => {
+    if (!isRecord(pane) || pane.team === undefined) return pane;
+    const { team, ...rest } = pane;
+    if (!isRecord(team) || typeof team.name !== "string" || typeof team.role !== "string") {
+      return rest;
+    }
+    const name = team.name.trim();
+    const role = team.role.trim();
+    if (!name || !role) return rest;
+    const key = name.toLowerCase();
+    let held = teams.find((candidate) => candidate.name.toLowerCase() === key);
+    if (!held) {
+      held = { id: `team-${mint.next++}`, name };
+      teams.push(held);
+    }
+    return { ...rest, team: { teamId: held.id, role } };
+  });
+  return { ...value, panes, ...(teams.length > 0 && { teams }) };
+}
+
 const DECK_MIGRATIONS: Record<number, Migration> = {
   1: migrateDeckFromV1toV2,
   2: migrateDeckFromV2toV3,
@@ -160,6 +213,7 @@ const DECK_MIGRATIONS: Record<number, Migration> = {
   7: migrateDeckFromV7toV8,
   8: migrateDeckFromV8toV9,
   9: migrateDeckFromV9toV10,
+  10: migrateDeckFromV10toV11,
 };
 
 /**

@@ -11,7 +11,7 @@ import {
 } from "./panes";
 import type { Workspace } from "./workspaces";
 import { resolveActiveId, workspaceIdsAreUnique } from "./workspaces";
-import { teamId, teamNameKey, teamNameOf, type Team, type TeamAssignment } from "./teams";
+import { findTeam, type Team, type TeamLocation } from "./teams";
 import { nextIdSequence } from "../idSequence";
 import { collectExtras, isRecord } from "../json";
 import { createWorkspaceInstance } from "../workspaceInstance";
@@ -101,6 +101,26 @@ export function serializeDeck(
       // Sparse: an empty bag (the last slot just got deleted) never hits disk.
       ...(ws.plugins !== undefined &&
         Object.keys(ws.plugins).length > 0 && { plugins: ws.plugins }),
+      // The team objects, sparse like the field: a workspace with none writes
+      // no key. A team's placement goes to disk as the two fields a pane's
+      // did — the directory and branch, or the create's intent alone (its
+      // status is this run's; hydration stamps its own).
+      ...(ws.teams !== undefined &&
+        ws.teams.length > 0 && {
+          teams: ws.teams.map((team) => {
+            const placement = team.location ? placementToFields(team.location) : {};
+            return {
+              ...team.extras,
+              id: team.id,
+              name: team.name,
+              ...(placement.cwd !== undefined && { cwd: placement.cwd }),
+              ...(placement.branch !== undefined && { branch: placement.branch }),
+              ...(placement.provisioning !== undefined && {
+                provisioning: placement.provisioning,
+              }),
+            };
+          }),
+        }),
       // A fork's provisioning card is dropped while still in flight: its store
       // surgery is an in-memory post-provision step that can't survive a
       // restart, so restoring the card would Retry into a non-fork pane (the
@@ -113,15 +133,11 @@ export function serializeDeck(
           // slots they always held — so a document a pane round-trips
           // through is the document it came from, byte for byte.
           const placement = placementToFields(locationOf(p));
-          // Membership goes to disk by NAME — the v10 shape, `{name, role}`
-          // — with the name read off the workspace's team. A pane whose id
-          // names no team here is written as on no team: a membership
-          // nobody can resolve is not one worth keeping.
-          const teamName = teamNameOf(ws, p);
-          const team: TeamAssignment | undefined =
-            p.team !== undefined && teamName !== undefined
-              ? { name: teamName, role: p.team.role }
-              : undefined;
+          // Membership goes to disk by ID. A pane whose id names no team
+          // here is written as on no team: a membership nobody can resolve
+          // is not one worth keeping, and the reader would drop it anyway.
+          const team =
+            p.team !== undefined && findTeam(ws, p.team.teamId) ? p.team : undefined;
           return {
           ...p.extras,
           id: p.id,
@@ -182,11 +198,8 @@ export function hydrateDeck(json: string): HydrateDeckResult {
   if (!Array.isArray(raw.workspaces)) return corrupt;
 
   const workspaces: Workspace[] = [];
-  // Team ids are minted across the whole document in reading order, so the
-  // same file always comes back with the same ids.
-  const teamMint = { next: 1 };
   for (const w of raw.workspaces) {
-    const ws = readWorkspace(w, teamMint);
+    const ws = readWorkspace(w);
     if (!ws) return corrupt;
     workspaces.push(ws);
   }
@@ -283,7 +296,16 @@ const WS_KNOWN_KEYS: ReadonlySet<string> = new Set([
   // routes an older document's value into `extras`, so it survives every save
   // round-trip verbatim instead of being dropped from the user's file.
   "plugins",
+  "teams",
   "panes",
+]);
+
+const TEAM_KNOWN_KEYS: ReadonlySet<string> = new Set([
+  "id",
+  "name",
+  "cwd",
+  "branch",
+  "provisioning",
 ]);
 
 const PANE_KNOWN_KEYS: ReadonlySet<string> = new Set([
@@ -303,44 +325,44 @@ const PANE_KNOWN_KEYS: ReadonlySet<string> = new Set([
 
 /** The object's keys outside `known` — a newer revision's fields, preserved
  * verbatim across our save round-trips. */
-function readWorkspace(
-  value: unknown,
-  teamMint: { next: number },
-): Workspace | null {
+function readWorkspace(value: unknown): Workspace | null {
   if (!isRecord(value)) return null;
   const { id, name, cwd, worktreeBaseDir } = value;
   if (typeof id !== "string" || typeof name !== "string" || typeof cwd !== "string")
     return null;
   if (worktreeBaseDir !== null && typeof worktreeBaseDir !== "string") return null;
   if (!Array.isArray(value.panes)) return null;
-  // Every creation path clamps to MAX_PANES and the grid renderer throws past
-  // it — an oversized (hand-edited) pane list is an unusable document, so it
-  // quarantines like any other malformed shape instead of blanking the app on
-  // every launch.
-  if (value.panes.length > MAX_PANES) return null;
+  if (value.teams !== undefined && !Array.isArray(value.teams)) return null;
+
+  // Teams first: a pane's membership names one by id, and an id that names
+  // no team here reads as no membership.
+  const teams: Team[] = [];
+  const teamIds = new Set<string>();
+  for (const t of value.teams ?? []) {
+    const team = readTeam(t);
+    if (!team || teamIds.has(team.id)) return null;
+    teamIds.add(team.id);
+    teams.push(team);
+  }
 
   const panes: Pane[] = [];
-  const named = new Map<string, TeamAssignment>();
   for (const p of value.panes) {
-    const pane = readPane(p, named);
+    const pane = readPane(p, teamIds);
     if (!pane) return null;
     panes.push(pane);
   }
-  // The document spells membership by NAME; the model holds a team OBJECT
-  // per name. One team per distinct name, in the order the panes appear —
-  // matched by key, so a hand-edited " api " beside "api" comes back as one
-  // team — with each member holding the id.
-  const teams: Team[] = [];
+  // Every creation path clamps a TEAM to MAX_PANES and the grid renderer
+  // throws past it — the grid is the team's. An oversized (hand-edited)
+  // roster, or an oversized pool of panes on no team, is an unusable
+  // document, so it quarantines like any other malformed shape instead of
+  // blanking the app on every launch.
+  const rosterSizes = new Map<string, number>();
   for (const pane of panes) {
-    const assignment = named.get(pane.id);
-    if (!assignment) continue;
-    const key = teamNameKey(assignment.name);
-    let team = teams.find((candidate) => teamNameKey(candidate.name) === key);
-    if (!team) {
-      team = { id: teamId(teamMint.next++), name: assignment.name };
-      teams.push(team);
-    }
-    pane.team = { teamId: team.id, role: assignment.role };
+    const key = pane.team?.teamId ?? "";
+    rosterSizes.set(key, (rosterSizes.get(key) ?? 0) + 1);
+  }
+  for (const size of rosterSizes.values()) {
+    if (size > MAX_PANES) return null;
   }
   const ws: Workspace = {
     id,
@@ -360,11 +382,41 @@ function readWorkspace(
   return ws;
 }
 
+/** One team as the document spells it. `id` and a non-blank `name` are
+ * required; the placement is read from the same two fields a pane's was and
+ * folded by the same rule, of which only a directory or a create in flight
+ * is a team's — anything else (a branch alone, a remote endpoint) leaves the
+ * team without a placement, which is what a roster-only team is. A create in
+ * flight comes back as the failed card, like a pane's: the app quit mid-
+ * create, and Retry is the honest offer. */
+function readTeam(value: unknown): Team | null {
+  if (!isRecord(value)) return null;
+  if (typeof value.id !== "string" || !value.id) return null;
+  if (typeof value.name !== "string") return null;
+  const name = value.name.trim();
+  if (!name) return null;
+  const team: Team = { id: value.id, name };
+  const placement: PlacementFields = {};
+  if (typeof value.cwd === "string") placement.cwd = value.cwd;
+  if (typeof value.branch === "string") placement.branch = value.branch;
+  const provisioning = readProvisioning(value.provisioning);
+  if (provisioning) placement.provisioning = provisioning;
+  const location = placementFromFields(placement);
+  if (location.kind === "attached") {
+    team.location = location;
+  } else if (location.kind === "provisioning") {
+    team.location = { ...location, error: PROVISIONING_INTERRUPTED } satisfies TeamLocation;
+  }
+  const extras = collectExtras(value, TEAM_KNOWN_KEYS);
+  if (Object.keys(extras).length > 0) team.extras = extras;
+  return team;
+}
+
 function readPane(
   value: unknown,
-  /** Where a pane's membership-by-name is left for the workspace reader to
-   * resolve into a team — the pane itself carries only the id. */
-  named: Map<string, TeamAssignment>,
+  /** The ids of the workspace's teams: a membership naming any other id is
+   * read as no membership, never as a member of nothing. */
+  teamIds: ReadonlySet<string>,
 ): Pane | null {
   if (!isRecord(value)) return null;
   if (typeof value.id !== "string") return null;
@@ -391,16 +443,14 @@ function readPane(
   if (typeof value.autoTitle === "string") pane.autoTitle = value.autoTitle;
   // BOTH halves or neither: a role with no team cannot be addressed and a
   // team with no role gives its holder no name, so a half-written entry is
-  // read as no membership rather than as a member nobody can reach. Trimmed
-  // on the way in, as planTeam trims on the way out: a hand-edited " api "
-  // is the team called "api" to every reader, and a name that is only space
-  // is no name. The trimmed form is what is stored, so the next save writes
-  // it — a document holding " api " beside "api" comes back as one team.
+  // read as no membership rather than as a member nobody can reach — and so
+  // is an id that names no team this workspace holds. The role is trimmed
+  // on the way in, as planTeam trims on the way out, and a role that is only
+  // space is no role.
   const team = value.team;
-  if (isRecord(team) && typeof team.name === "string" && typeof team.role === "string") {
-    const name = team.name.trim();
+  if (isRecord(team) && typeof team.teamId === "string" && typeof team.role === "string") {
     const role = team.role.trim();
-    if (name && role) named.set(pane.id, { name, role });
+    if (teamIds.has(team.teamId) && role) pane.team = { teamId: team.teamId, role };
   }
   const session = value.session;
   if (

@@ -47,6 +47,9 @@ export interface Team {
    * directory is not a team and this field stops being optional.
    */
   location?: TeamLocation;
+  /** Persisted keys this build doesn't know (written by a newer revision) —
+   * carried verbatim so a save round-trip never strips them, as on a pane. */
+  extras?: Record<string, unknown>;
 }
 
 /** The id for the team numbered `seq` — the single mint point, like

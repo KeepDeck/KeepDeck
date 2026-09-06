@@ -11,7 +11,7 @@ describe("migrateDeck — revision ladder + compatibility floor", () => {
   it("the deck + settings revisions are the expected values", () => {
     // Pin the bumps so a forgotten version bump (the r3 SETTINGS miss) fails
     // loudly rather than silently shrinking the ladder-loop's coverage.
-    expect(DECK_STATE_VERSION).toBe(10);
+    expect(DECK_STATE_VERSION).toBe(11);
     expect(SETTINGS_VERSION).toBe(21);
   });
 
@@ -173,6 +173,76 @@ describe("migrateDeck — v4 → v5: Workspace.run retirement", () => {
       "keepdeck.run": { presets: [{ id: "run-1", name: "Dev", command: "pnpm dev" }] },
     });
     expect(ws.run).toBeUndefined();
+  });
+});
+
+describe("migrateDeck — v10 → v11: a team becomes an object", () => {
+  const v10 = (workspaces: unknown[]) => ({ version: 10, minVersion: 1, workspaces });
+  const migrated = (workspaces: unknown[]) => {
+    const out = migrateDeck(v10(workspaces));
+    if (out.kind !== "ok") throw new Error(out.kind);
+    return out.doc.workspaces as Record<string, unknown>[];
+  };
+
+  it("mints one team per distinct name key, in reading order, across the document", () => {
+    const [first, second] = migrated([
+      {
+        id: "ws-1",
+        panes: [
+          { id: "pane-1", team: { name: "api", role: "lead" } },
+          { id: "pane-2", team: { name: "web", role: "lead" } },
+          // " API " is the team called "api": the key the dialog compared by.
+          { id: "pane-3", team: { name: " API ", role: "impl-1" } },
+          { id: "pane-4" },
+        ],
+      },
+      { id: "ws-2", panes: [{ id: "pane-5", team: { name: "Api", role: "lead" } }] },
+    ]);
+    expect(first.teams).toEqual([
+      { id: "team-1", name: "api" },
+      { id: "team-2", name: "web" },
+    ]);
+    expect((first.panes as Record<string, unknown>[]).map((pane) => pane.team)).toEqual([
+      { teamId: "team-1", role: "lead" },
+      { teamId: "team-2", role: "lead" },
+      { teamId: "team-1", role: "impl-1" },
+      undefined,
+    ]);
+    // A team never spans workspaces: the second gets its own object even
+    // under a name the first uses, and the mint keeps counting.
+    expect(second.teams).toEqual([{ id: "team-3", name: "Api" }]);
+  });
+
+  it("reads a half-written membership as none, and writes no teams for a workspace with none", () => {
+    const [ws] = migrated([
+      {
+        id: "ws-1",
+        panes: [
+          { id: "pane-1", team: { name: "api" } },
+          { id: "pane-2", team: { role: "lead" } },
+          { id: "pane-3", team: { name: "   ", role: "lead" } },
+          { id: "pane-4", team: { name: "api", role: " " } },
+          { id: "pane-5", team: "api" },
+        ],
+      },
+    ]);
+    expect(ws.teams).toBeUndefined();
+    for (const pane of ws.panes as Record<string, unknown>[]) {
+      expect(pane).not.toHaveProperty("team");
+    }
+  });
+
+  it("leaves a workspace without a pane list, and a pane's other fields, untouched", () => {
+    const [bare, kept] = migrated([
+      { id: "ws-1", marker: "kept" },
+      { id: "ws-2", panes: [{ id: "pane-1", cwd: "/wt", team: { name: "api", role: "lead" } }] },
+    ]);
+    expect(bare).toEqual({ id: "ws-1", marker: "kept" });
+    expect((kept.panes as Record<string, unknown>[])[0]).toEqual({
+      id: "pane-1",
+      cwd: "/wt",
+      team: { teamId: "team-1", role: "lead" },
+    });
   });
 });
 

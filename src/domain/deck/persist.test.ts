@@ -378,53 +378,92 @@ describe("team membership across a restart", () => {
     expect(restored.teams).toEqual([{ id: "team-1", name: "api" }]);
   });
 
-  it("writes membership by NAME, in the document's own shape", () => {
-    // The file spells membership as `{name, role}` and knows no team ids:
-    // the model's object is folded back into the slot the document always
-    // held, so a deck saved by this build is the deck the last one wrote.
+  it("writes the team as an object and the membership by id — the v11 shape", () => {
     const json = serializeDeck(teamState);
-    expect(json).toContain('"team":{"name":"api","role":"lead"}');
-    expect(json).not.toContain("teamId");
-    expect(json).not.toContain('"teams"');
+    expect(json).toContain('"teams":[{"id":"team-1","name":"api"}]');
+    expect(json).toContain('"team":{"teamId":"team-1","role":"lead"}');
     expect(json.match(/"team"/g)).toHaveLength(1);
+    // Round-trips byte for byte: the reader's field order is the writer's.
+    expect(serializeDeck(okDeck(json).state)).toBe(json);
   });
 
-  it("gives each distinct name one team, in reading order, across workspaces", () => {
-    // Ids are minted over the whole document as it is read, so the same
-    // file always comes back with the same ids — and a name spelled two
-    // ways is one team, the way the plan and the dialog already treat it.
+  it("keeps a team's directory, or the create heading for one, across a restart", () => {
+    // The directory is what a team is FOR. A create still in flight comes
+    // back as the failed card, like a pane's: the app quit mid-create, and
+    // the intent powers Retry.
+    const intent = { repo: "/r", path: "/r/.wt/kd-3", branch: "kd/3", index: 3 };
     const json = serializeDeck({
       ...teamState,
       workspaces: [
         {
           ...teamState.workspaces[0],
-          panes: [
-            { id: "pane-1", agentType: "claude", team: { teamId: "team-1", role: "lead" } },
-            { id: "pane-2", agentType: "claude", team: { teamId: "team-2", role: "lead" } },
-            { id: "pane-3", agentType: "claude", team: { teamId: "team-1", role: "impl-1" } },
+          teams: [
+            { id: "team-1", name: "api", location: { kind: "attached", cwd: "/r/.wt/kd-1", branch: "kd/1" } },
+            { id: "team-2", name: "root", location: { kind: "attached", cwd: "/r" } },
+            { id: "team-3", name: "web", location: { kind: "provisioning", intent, error: "this run's" } },
           ],
+        },
+      ],
+    });
+    expect(json).toContain('{"id":"team-1","name":"api","cwd":"/r/.wt/kd-1","branch":"kd/1"}');
+    expect(json).toContain('{"id":"team-2","name":"root","cwd":"/r"}');
+    // The intent only: a card's status is this run's.
+    expect(json).not.toContain("this run's");
+    const restored = okDeck(json).state.workspaces[0];
+    expect(restored.teams?.map((team) => team.location)).toEqual([
+      { kind: "attached", cwd: "/r/.wt/kd-1", branch: "kd/1" },
+      { kind: "attached", cwd: "/r" },
+      { kind: "provisioning", intent, error: PROVISIONING_INTERRUPTED },
+    ]);
+    expect(serializeDeck(okDeck(json).state)).toBe(json);
+  });
+
+  it("carries a team's unknown keys through a save, and quarantines a duplicate id", () => {
+    const json = serializeDeck(teamState).replace(
+      '{"id":"team-1","name":"api"}',
+      '{"id":"team-1","name":"api","future":true}',
+    );
+    const restored = okDeck(json).state;
+    expect(restored.workspaces[0].teams?.[0].extras).toEqual({ future: true });
+    expect(serializeDeck(restored)).toContain('"future":true');
+    const doubled = serializeDeck(teamState).replace(
+      '"teams":[{"id":"team-1","name":"api"}]',
+      '"teams":[{"id":"team-1","name":"api"},{"id":"team-1","name":"web"}]',
+    );
+    expect(hydrateDeck(doubled).kind).toBe("corrupt");
+  });
+
+  it("measures the cap per team, not per workspace", () => {
+    // The grid is the team's: two full teams in one workspace are two
+    // grids of sixteen, not a document to quarantine — while a seventeenth
+    // member on one team is a roster no grid can lay out.
+    const roster = (teamId: string, from: number, count: number): Pane[] =>
+      Array.from({ length: count }, (_, i) => ({
+        id: `pane-${from + i}`,
+        agentType: "claude",
+        team: { teamId, role: `r${from + i}` },
+      }));
+    const twoFull = serializeDeck({
+      ...teamState,
+      workspaces: [
+        {
+          ...teamState.workspaces[0],
+          panes: [...roster("team-1", 1, 16), ...roster("team-2", 17, 16)],
           teams: [
             { id: "team-1", name: "api" },
             { id: "team-2", name: "web" },
           ],
         },
-        {
-          ...teamState.workspaces[0],
-          id: "ws-2",
-          panes: [{ id: "pane-4", agentType: "claude", team: { teamId: "team-7", role: "lead" } }],
-          teams: [{ id: "team-7", name: "Api" }],
-        },
       ],
-    }).replace('{"name":"api","role":"impl-1"}', '{"name":" API ","role":"impl-1"}');
-    const [first, second] = okDeck(json).state.workspaces;
-    expect(first.teams).toEqual([
-      { id: "team-1", name: "api" },
-      { id: "team-2", name: "web" },
-    ]);
-    expect(first.panes.map((pane) => pane.team?.teamId)).toEqual(["team-1", "team-2", "team-1"]);
-    // A second workspace's team is its own object even under a name the
-    // first one uses: a team never spans workspaces.
-    expect(second.teams).toEqual([{ id: "team-3", name: "Api" }]);
+    });
+    expect(okDeck(twoFull).state.workspaces[0].panes).toHaveLength(32);
+    const oneOver = serializeDeck({
+      ...teamState,
+      workspaces: [
+        { ...teamState.workspaces[0], panes: roster("team-1", 1, 17) },
+      ],
+    });
+    expect(hydrateDeck(oneOver).kind).toBe("corrupt");
   });
 
   it("drops a membership whose id names no team here", () => {
@@ -448,15 +487,15 @@ describe("team membership across a restart", () => {
     // gives its holder no name — either way the pane is better off plainly
     // outside than present-but-unreachable.
     for (const broken of [
-      '{"name":"api"}',
+      '{"teamId":"team-1"}',
       '{"role":"lead"}',
-      '{"name":"","role":"x"}',
-      // Only space is no name, and no role: both halves or neither.
-      '{"name":"   ","role":"lead"}',
-      '{"name":"api","role":" "}',
+      // An id that names no team here is a member of nothing — no member.
+      '{"teamId":"team-9","role":"lead"}',
+      // Only space is no role: both halves or neither.
+      '{"teamId":"team-1","role":" "}',
     ]) {
       const json = serializeDeck(teamState).replace(
-        '{"name":"api","role":"lead"}',
+        '{"teamId":"team-1","role":"lead"}',
         broken,
       );
       expect(okDeck(json).state.workspaces[0].panes[0].team).toBeUndefined();
@@ -467,15 +506,56 @@ describe("team membership across a restart", () => {
     // planTeam trims what it stores; a document edited by hand did not go
     // through it. Read trimmed, " api " is the team called "api" to every
     // reader — and the next save writes what was read, so the padding is
-    // gone from the file rather than kept as a second spelling.
-    const json = serializeDeck(teamState).replace(
-      '{"name":"api","role":"lead"}',
-      '{"name":" api ","role":" lead "}',
-    );
+    // gone from the file rather than kept as a second spelling. A team whose
+    // name is only space has no name, and is no team: the file quarantines.
+    const json = serializeDeck(teamState)
+      .replace('{"id":"team-1","name":"api"}', '{"id":"team-1","name":" api "}')
+      .replace('{"teamId":"team-1","role":"lead"}', '{"teamId":"team-1","role":" lead "}');
     const restored = okDeck(json).state;
     expect(restored.workspaces[0].panes[0].team).toEqual({ teamId: "team-1", role: "lead" });
     expect(restored.workspaces[0].teams).toEqual([{ id: "team-1", name: "api" }]);
-    expect(serializeDeck(restored)).toContain('{"name":"api","role":"lead"}');
+    expect(serializeDeck(restored)).toContain('{"id":"team-1","name":"api"}');
+    expect(serializeDeck(restored)).toContain('{"teamId":"team-1","role":"lead"}');
+    const nameless = serializeDeck(teamState).replace(
+      '{"id":"team-1","name":"api"}',
+      '{"id":"team-1","name":"  "}',
+    );
+    expect(hydrateDeck(nameless).kind).toBe("corrupt");
+  });
+
+  it("climbs from a v10 file: membership by name becomes the team object", () => {
+    // The document a v10 build wrote, verbatim, comes back as team objects
+    // with ids minted in reading order — and its next save is v11.
+    const v10 = JSON.stringify({
+      version: 10,
+      minVersion: 1,
+      activeId: "ws-1",
+      focusByWs: {},
+      selectByWs: {},
+      workspaces: [
+        {
+          id: "ws-1",
+          name: "a",
+          cwd: "/r",
+          worktreeBaseDir: null,
+          panes: [
+            { id: "pane-1", agentType: "claude", team: { name: "api", role: "lead" } },
+            { id: "pane-2", agentType: "claude", team: { name: " API ", role: "impl-1" } },
+            { id: "pane-3", agentType: "claude" },
+          ],
+        },
+      ],
+    });
+    const restored = okDeck(v10).state.workspaces[0];
+    expect(restored.teams).toEqual([{ id: "team-1", name: "api" }]);
+    expect(restored.panes.map((pane) => pane.team)).toEqual([
+      { teamId: "team-1", role: "lead" },
+      { teamId: "team-1", role: "impl-1" },
+      undefined,
+    ]);
+    const saved = JSON.parse(serializeDeck(okDeck(v10).state));
+    expect(saved.version).toBe(11);
+    expect(saved.minVersion).toBe(11);
   });
 });
 
@@ -1136,7 +1216,9 @@ describe("schema revisions and the compatibility floor", () => {
   it("writes the current revision and its floor", () => {
     const out = JSON.parse(serializeDeck(state));
     expect(out.version).toBe(DECK_STATE_VERSION);
-    expect(out.minVersion).toBe(1);
+    // The floor rose with v11: a v10 reader would misread membership and
+    // save the misreading back, so it must park instead.
+    expect(out.minVersion).toBe(11);
   });
 
   it("a v1 deck (pre run presets) migrates up on load", () => {
