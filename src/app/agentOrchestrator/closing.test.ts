@@ -323,6 +323,61 @@ describe("agent orchestrator —disbanding a team", () => {
     expect(pty.closed).toEqual(["pane-9"]);
   });
 
+  it("a capture on a reused workspace slot never holds the new workspace's team", async () => {
+    // `ws-N` is reused. A disband still waiting on the OLD instance's create
+    // must not make the NEW instance's team of the same id a loser: the
+    // capture is keyed by the instance, so the new team is taken and ended
+    // on its own, and the old capture — released into a workspace that is
+    // gone — removes only what its own create made.
+    creating();
+    const publishOld = pendingTicket("team-9");
+    let old!: Promise<string[]>;
+    act(() => {
+      old = disband("team-9", true, [], "ws-2");
+    });
+    act(() => deck.closeWorkspace("ws-2"));
+    act(() =>
+      deck.createWorkspace({
+        id: "ws-2",
+        instance: createWorkspaceInstance(),
+        name: "two again",
+        cwd: "/repo",
+        worktreeBaseDir: "/wt",
+        panes: [{ id: "pane-10", agentType: "claude", team: { teamId: "team-9", role: "lead" } }],
+        teams: [
+          {
+            id: "team-9",
+            name: "nine",
+            location: {
+              kind: "provisioning",
+              intent: { repo: "/repo", path: "/wt/two-2", index: 1 },
+            },
+          },
+        ],
+      }),
+    );
+    const publishNew = pendingTicket("team-9");
+    let fresh!: Promise<string[]>;
+    act(() => {
+      fresh = disband("team-9", false, [], "ws-2");
+    });
+    await act(async () => {
+      publishNew(null);
+      await fresh;
+    });
+    expect(teamIds("ws-2")).toEqual([]);
+    expect(paneIds("ws-2")).toEqual([]);
+    expect(pty.closed).toEqual(["pane-10"]);
+
+    await act(async () => {
+      publishOld(made);
+      await old;
+    });
+    expect(discards).toEqual([[made]]);
+    expect(deck.workspaces.map((ws) => ws.id)).toEqual(["ws-1", "ws-2"]);
+    expect([...pty.closed].sort()).toEqual(["pane-10", "pane-9"]);
+  });
+
   it("two confirmations for one team remove once and reap each session once", async () => {
     creating();
     const publish = pendingTicket("team-9");

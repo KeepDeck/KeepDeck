@@ -254,6 +254,43 @@ describe("agent orchestrator —a new pane arriving", () => {
     expect(provisions).toEqual([]);
   });
 
+  it("lands a seventeenth pane in a workspace whose team still has room — the cap is per team", async () => {
+    // Sixteen panes in the workspace, spread over two teams of eight: the
+    // workspace is not what is full, and a request for a directory whose
+    // team has room lands.
+    const members: Pane[] = Array.from({ length: MAX_PANES }, (_, i) => ({
+      id: `pane-${i + 1}`,
+      agentType: "claude" as const,
+      team: { teamId: i < 8 ? "team-1" : "team-2", role: `impl-${i + 1}` },
+    }));
+    const base = seed(members);
+    act(() =>
+      deck.hydrate({
+        ...base,
+        workspaces: [
+          {
+            ...base.workspaces[0],
+            teams: [
+              { id: "team-1", name: "a", location: { kind: "attached", cwd: "/wt/a" } },
+              { id: "team-2", name: "b", location: { kind: "attached", cwd: "/wt/b" } },
+            ],
+          },
+        ],
+      }),
+    );
+    let outcome;
+    await act(async () => {
+      outcome = agentRun.createPane({
+        workspace: { id: "ws-1", instance: instance() },
+        pane: plain(),
+        placement: { kind: "attached", cwd: "/wt/a" },
+      });
+    });
+    expect(outcome).toEqual({ kind: "created", teamId: "team-1" });
+    expect(deck.workspaces[0].panes).toHaveLength(MAX_PANES + 1);
+    expect(deck.workspaces[0].panes[MAX_PANES]?.team).toMatchObject({ teamId: "team-1" });
+  });
+
   it("refuses a directory another workspace's team holds — a team never spans workspaces", async () => {
     const base = seed();
     act(() =>

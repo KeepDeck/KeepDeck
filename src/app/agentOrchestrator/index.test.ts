@@ -20,6 +20,7 @@ import {
   skillsAsked,
 } from "./testSupport";
 import type { DeckState } from "./testSupport";
+import { paneExecutionCwd } from "../../domain/deck";
 
 describe("agent orchestrator —session policy", () => {
   let root: Root;
@@ -230,6 +231,42 @@ describe("agent orchestrator —session policy", () => {
 
     act(() => deck.closeAgent("ws-1", "pane-1"));
     await settle();
+    expect(agentRun.blocked).toEqual({});
+  });
+
+  it("start fresh moves a blocked pane onto the root's team and forgets its session", async () => {
+    // A directory-bound session cannot resume elsewhere, and the pane's
+    // team's directory is what went missing: the pane comes back on the
+    // team holding the workspace root — minted here — with a new
+    // conversation ahead of it. The team whose directory is gone keeps its
+    // card, empty.
+    ipc.probeWorktree.mockResolvedValue({
+      exists: false,
+      isWorktree: false,
+      empty: false,
+      branch: null,
+    });
+    act(() =>
+      deck.hydrate(
+        restored({ session: { id: "s-1", boundAt: "t" } }, { kind: "attached", cwd: "/repo/wt-gone" }),
+      ),
+    );
+    await settle();
+    expect(agentRun.blocked["pane-1"]).toBe("/repo/wt-gone");
+
+    ipc.probeWorktree.mockResolvedValue({ exists: true, isWorktree: false, empty: false, branch: null });
+    act(() => agentRun.startFresh("ws-1", "pane-1"));
+    await settle();
+
+    const ws = deck.workspaces[0];
+    const moved = ws.panes[0];
+    expect(moved.session).toBeUndefined();
+    expect(moved.team?.teamId).not.toBe("team-1");
+    expect(paneExecutionCwd(ws, moved)).toBe("/repo");
+    expect(ws.teams?.map((team) => [team.id, team.location?.kind === "attached" ? team.location.cwd : null])).toEqual([
+      ["team-1", "/repo/wt-gone"],
+      ["team-2", "/repo"],
+    ]);
     expect(agentRun.blocked).toEqual({});
   });
 });
