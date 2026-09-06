@@ -42,10 +42,12 @@ export type TeamCardDot =
   | "done"
   | "none";
 
-export type TeamCardAction = "open" | "add-member" | "rename" | "disband" | "retry";
+export type TeamCardAction = "add-member" | "rename" | "disband" | "retry";
 
-/** The menu every card carries, in the order it is offered. */
-const EVERY_CARD: readonly TeamCardAction[] = ["open", "add-member", "rename", "disband"];
+/** The menu every card carries, in the order it is offered. Opening is not
+ * in it: the whole card is the way in, and a menu line saying so again was
+ * a line the person had to read past. */
+const EVERY_CARD: readonly TeamCardAction[] = ["add-member", "rename", "disband"];
 
 export interface TeamCardView {
   id: string;

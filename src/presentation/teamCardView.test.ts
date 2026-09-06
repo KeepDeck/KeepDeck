@@ -55,7 +55,7 @@ describe("teamCardView", () => {
       size: 3,
       dot: "working",
       pending: false,
-      actions: ["open", "add-member", "rename", "disband"],
+      actions: ["add-member", "rename", "disband"],
     });
   });
 
@@ -77,7 +77,7 @@ describe("teamCardView", () => {
       cwd: "/repo/.wt/web",
       dot: "creating",
       pending: true,
-      actions: ["open", "add-member", "rename", "disband"],
+      actions: ["add-member", "rename", "disband"],
     });
   });
 
@@ -85,7 +85,7 @@ describe("teamCardView", () => {
     const view = teamCardView(ws([failed], { "team-3": 1 }), failed, [undefined]);
     expect(view.dot).toBe("failed");
     expect(view.pending).toBe(true);
-    expect(view.actions).toEqual(["open", "add-member", "rename", "disband", "retry"]);
+    expect(view.actions).toEqual(["add-member", "rename", "disband", "retry"]);
     // The error's words are not the card's: nothing here carries them.
     expect(JSON.stringify(view)).not.toContain("branch exists");
   });

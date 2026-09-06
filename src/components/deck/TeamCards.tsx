@@ -51,8 +51,7 @@ export interface TeamCardsProps {
 
 /** The menu's words, one per described action. */
 const ACTION_LABEL: Record<TeamCardAction, string> = {
-  open: "Open",
-  "add-member": "+ Member",
+  "add-member": "Add member",
   rename: "Rename",
   disband: "Disband",
   retry: "Retry the worktree",
@@ -135,9 +134,6 @@ function TeamCard({
   // forgets to perform.
   const perform = (action: TeamCardAction) => {
     switch (action) {
-      case "open":
-        onEnter(card.id);
-        break;
       case "add-member":
         onAddMember(card.id);
         break;

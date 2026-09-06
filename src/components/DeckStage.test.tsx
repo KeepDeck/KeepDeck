@@ -494,31 +494,31 @@ describe("DeckStage — the teams level", () => {
 
   it("offers one menu on every card, with Retry only where the create failed, and performs each pick", () => {
     render({ workspaces: cards, viewByWs: { "ws-1": { teamOpen: undefined } } });
-    act(() => card("team-1").querySelector<HTMLButtonElement>("button[aria-label='Team api actions']")!.click());
-    expect(menuItems()).toEqual(["Open", "+ Member", "Rename", "Disband"]);
-    // Opening the menu is not entering the team.
+    const menuOf = (label: string) =>
+      act(() => card(label).querySelector<HTMLButtonElement>(`button[aria-label='Team ${label === "team-1" ? "api" : "docs"} actions']`)!.click());
+    menuOf("team-1");
+    // No "Open" line: the whole card is the way in. Opening the menu is not
+    // entering the team either.
+    expect(menuItems()).toEqual(["Add member", "Rename", "Disband"]);
     expect(callbacks.onEnterTeam).not.toHaveBeenCalled();
-    act(() => document.querySelector<HTMLButtonElement>("[role='menuitem']:nth-child(1)")!.click());
+    act(() => [...document.querySelectorAll<HTMLButtonElement>("[role='menuitem']")][2].click());
+    expect(callbacks.onDisbandTeam).toHaveBeenCalledWith("ws-1", "team-1");
 
-    act(() => card("team-2").querySelector<HTMLButtonElement>("button[aria-label='Team docs actions']")!.click());
-    expect(menuItems()).toEqual(["Open", "+ Member", "Rename", "Disband", "Retry the worktree"]);
-    const items = [...document.querySelectorAll<HTMLButtonElement>("[role='menuitem']")];
-    act(() => items[4].click());
+    menuOf("team-2");
+    expect(menuItems()).toEqual(["Add member", "Rename", "Disband", "Retry the worktree"]);
+    act(() => [...document.querySelectorAll<HTMLButtonElement>("[role='menuitem']")][3].click());
     expect(callbacks.onRetryProvision).toHaveBeenCalledWith("ws-1", "team-2");
 
-    act(() => card("team-2").querySelector<HTMLButtonElement>("button[aria-label='Team docs actions']")!.click());
-    act(() => [...document.querySelectorAll<HTMLButtonElement>("[role='menuitem']")][3].click());
-    expect(callbacks.onDisbandTeam).toHaveBeenCalledWith("ws-1", "team-2");
-
-    act(() => card("team-2").querySelector<HTMLButtonElement>("button[aria-label='Team docs actions']")!.click());
-    act(() => [...document.querySelectorAll<HTMLButtonElement>("[role='menuitem']")][1].click());
+    menuOf("team-2");
+    act(() => [...document.querySelectorAll<HTMLButtonElement>("[role='menuitem']")][0].click());
     expect(callbacks.onAddTeamMember).toHaveBeenCalledWith("ws-1", "team-2");
+    expect(callbacks.onEnterTeam).not.toHaveBeenCalled();
   });
 
   it("renames inline from the menu: Enter commits the trimmed draft to the team by id", () => {
     render({ workspaces: cards, viewByWs: { "ws-1": { teamOpen: undefined } } });
     act(() => card("team-1").querySelector<HTMLButtonElement>("button[aria-label='Team api actions']")!.click());
-    act(() => [...document.querySelectorAll<HTMLButtonElement>("[role='menuitem']")][2].click());
+    act(() => [...document.querySelectorAll<HTMLButtonElement>("[role='menuitem']")][1].click());
     const input = card("team-1").querySelector<HTMLInputElement>(".team-card__rename")!;
     expect(input.value).toBe("api");
     act(() => {
