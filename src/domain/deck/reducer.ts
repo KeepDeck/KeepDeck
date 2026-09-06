@@ -1,6 +1,5 @@
 import {
   paneAgentType,
-  paneBranch,
   paneFrozenTitle,
   resolveFocus,
   type Pane,
@@ -41,7 +40,7 @@ import {
   setPaneSession,
   suspendPane,
 } from "./panes";
-import { paneExecutionCwd } from "./roots";
+import { paneBranch, paneExecutionCwd } from "./roots";
 import { assignPaneTeam } from "./teams/transforms";
 import type { DeckAction } from "./reducerActions";
 import {
@@ -100,7 +99,7 @@ function boundEventFor(
   session: PaneSession,
   transcriptPath?: string,
 ): JournalEvent {
-  const branch = paneBranch(pane);
+  const branch = paneBranch(ws, pane);
   return {
     e: "bound",
     v: 1,

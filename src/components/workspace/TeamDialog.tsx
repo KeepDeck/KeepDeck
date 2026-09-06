@@ -77,8 +77,8 @@ function suggestAddress(taken: readonly string[]): string {
 /** What tells one pane from another when their titles do not. The branch
  * first — that is what an agent is actually working on — else the folder it
  * runs in. Empty when the pane has neither and the title is all there is. */
-function whereOf(pane: Pane): string {
-  const branch = paneBranch(pane);
+function whereOf(workspace: Workspace, pane: Pane): string {
+  const branch = paneBranch(workspace, pane);
   if (branch) return branch;
   const worktree = attachedWorktree(pane);
   return worktree ? baseName(worktree.cwd) : "";
@@ -448,7 +448,7 @@ export function TeamDialog({
                     <>
                       <AgentGlyph icon={iconOf(row.pane)} />
                       <span className="team__row-who">{row.label}</span>
-                      <span className="team__row-where">{whereOf(row.pane)}</span>
+                      <span className="team__row-where">{whereOf(workspace, row.pane)}</span>
                       {activity && (
                         <RowActivity source={activity} paneId={row.pane.id} />
                       )}
@@ -574,7 +574,7 @@ export function TeamDialog({
                 <li key={pane.id} className="team__row">
                   <AgentGlyph icon={iconOf(pane)} />
                   <span className="team__row-who">{label}</span>
-                  <span className="team__row-where">{whereOf(pane)}</span>
+                  <span className="team__row-where">{whereOf(workspace, pane)}</span>
                   {activity && <RowActivity source={activity} paneId={pane.id} />}
                   <button
                     type="button"

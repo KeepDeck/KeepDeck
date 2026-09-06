@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   attachedWorktree,
   locationOf,
-  paneBranch,
   placementFromFields,
   placementToFields,
   provisioningCard,
@@ -148,19 +147,8 @@ describe("projections", () => {
     expect(provisioningCard({})).toBeNull();
     expect(provisioningCard({ location: { kind: "attached", cwd: "/repo/wt" } })).toBeNull();
   });
-
-  it("names the branch for a bare or attached pane and nothing otherwise", () => {
-    expect(paneBranch({ location: { kind: "main", branch: "kd/ws/1" } })).toBe("kd/ws/1");
-    expect(paneBranch({ location: { kind: "attached", cwd: "/x", branch: "kd/ws/2" } })).toBe(
-      "kd/ws/2",
-    );
-    expect(paneBranch({ location: { kind: "attached", cwd: "/x" } })).toBeUndefined();
-    expect(paneBranch({})).toBeUndefined();
-    expect(
-      paneBranch({ location: { kind: "provisioning", intent: { ...intent, branch: "planned" } } }),
-    ).toBeUndefined();
-    expect(paneBranch({ location: { kind: "remote", endpoint: "e" } })).toBeUndefined();
-  });
+  // The branch a pane's work is on is read beside its directory, in
+  // roots.test: both answer for the team's placement first.
 });
 
 describe("the type", () => {

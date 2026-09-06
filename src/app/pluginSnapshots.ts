@@ -18,16 +18,16 @@ export function toWorkspaceSnapshot(ws: Workspace): WorkspaceSnapshot {
     instance: ws.instance,
     name: ws.name,
     cwd: ws.cwd,
-    panes: ws.panes.map(toPaneSnapshot),
+    panes: ws.panes.map((pane) => toPaneSnapshot(ws, pane)),
   };
 }
 
-function toPaneSnapshot(pane: Pane) {
+function toPaneSnapshot(ws: Workspace, pane: Pane) {
   // Sparse, as the snapshot contract promises: `cwd` is "absent while
   // provisioning", and `branch` names the pane's work whether it owns a
   // worktree for it or recorded it from the root.
   const worktree = attachedWorktree(pane);
-  const branch = paneBranch(pane);
+  const branch = paneBranch(ws, pane);
   return {
     id: pane.id,
     // The same precedence the pane header renders: manual name, auto title,

@@ -107,7 +107,7 @@ describe("useGitHead", () => {
 
     act(() => emit({ path: "/wt/one", branch: "feature/x", head: null }));
     expect(heads.get("/wt/one")).toEqual({ branch: "feature/x" });
-    expect(paneBranch(pane())).toBe("kd/ws/1");
+    expect(paneBranch(deck.workspaces[0], pane())).toBe("kd/ws/1");
 
     const sha = "a".repeat(40);
     act(() => emit({ path: "/repo", branch: null, head: sha }));

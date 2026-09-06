@@ -117,17 +117,6 @@ export function provisioningCard(pane: Pick<Pane, "location">): PaneProvisioning
   return location.kind === "provisioning" ? location : null;
 }
 
-/** The branch a pane's work is on, whether it owns a worktree for it or
- * recorded it from the workspace root — or nothing, for a pane whose create
- * is in flight or whose agent runs elsewhere. */
-export function paneBranch(pane: Pick<Pane, "location">): string | undefined {
-  const location = locationOf(pane);
-  switch (location.kind) {
-    case "main":
-    case "attached":
-      return location.branch;
-    case "provisioning":
-    case "remote":
-      return undefined;
-  }
-}
+// The branch a pane's work is on is read beside its directory, in
+// [`../roots`]'s `paneBranch`: both answer for the TEAM's placement first,
+// and a pane-only reading here would let the two disagree.

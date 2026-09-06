@@ -9,16 +9,30 @@
  * entirely different reasons.
  */
 import { locationOf, type Pane } from "./panes";
+import { teamOfPane } from "./teams/collection";
 import type { Workspace } from "./workspaces";
 
-/** The directory a pane would run in right now. A provisioning pane
- * deliberately has none yet: falling back to the workspace cwd would describe
- * the wrong process location. A remote pane answers the workspace cwd — that
- * is where its local thin client runs. */
-export function paneExecutionCwd(
-  ws: Pick<Workspace, "cwd">,
-  pane: Pane,
-): string | null {
+/** The workspace half the projections read: its own directory and its
+ * teams. `teams` is sparse on the model, so a bare `{ cwd }` still fits. */
+export type DirectoryOwner = Pick<Workspace, "cwd" | "teams">;
+
+/**
+ * The directory a pane would run in right now — ONE formula.
+ *
+ * A pane on a team runs where its TEAM runs: the team's directory, or
+ * nowhere yet while the team's create is in flight (falling back to the
+ * workspace cwd would describe the wrong process location). A pane on a
+ * team that has no directory of its own yet — the transition's roster-only
+ * team — and a pane on no team answer for their own placement, exactly as
+ * before; stage C3 retires that half when the pane stops carrying one. A
+ * remote pane answers the workspace cwd — that is where its local thin
+ * client runs.
+ */
+export function paneExecutionCwd(ws: DirectoryOwner, pane: Pane): string | null {
+  const team = teamOfPane(ws, pane);
+  if (team?.location) {
+    return team.location.kind === "attached" ? team.location.cwd : null;
+  }
   const location = locationOf(pane);
   switch (location.kind) {
     case "provisioning":
@@ -28,6 +42,28 @@ export function paneExecutionCwd(
     case "main":
     case "remote":
       return ws.cwd;
+  }
+}
+
+/** The branch a pane's work is on: its team's, when the team owns a
+ * directory — or nothing while that directory is still being created —
+ * else whatever the pane's own placement records, whether it owns a
+ * worktree for it or noted it from the workspace root. Read beside
+ * [`paneExecutionCwd`] so the two never disagree about whose placement
+ * counts. */
+export function paneBranch(ws: DirectoryOwner, pane: Pane): string | undefined {
+  const team = teamOfPane(ws, pane);
+  if (team?.location) {
+    return team.location.kind === "attached" ? team.location.branch : undefined;
+  }
+  const location = locationOf(pane);
+  switch (location.kind) {
+    case "main":
+    case "attached":
+      return location.branch;
+    case "provisioning":
+    case "remote":
+      return undefined;
   }
 }
 
@@ -86,7 +122,7 @@ export function gitWatchPaths(workspaces: Workspace[]): Set<string> {
  * are still two different folders.
  */
 export function workspaceDirectories(
-  ws: Pick<Workspace, "cwd"> & { panes: Workspace["panes"] },
+  ws: DirectoryOwner & { panes: Workspace["panes"] },
 ): ReadonlySet<string> {
   const dirs = new Set([ws.cwd]);
   for (const pane of ws.panes) {

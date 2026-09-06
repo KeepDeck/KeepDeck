@@ -167,7 +167,7 @@ export function registerCoreCommands(
             id: p.id,
             title: paneDisplayTitle(p, i, agents),
             agentType: paneAgentType(p),
-            branch: paneBranch(p) ?? null,
+            branch: paneBranch(ws, p) ?? null,
             // Null while the pane's worktree is still being created: the
             // workspace cwd would name a directory the agent will never run
             // in. Absent information, like `activity` below.

@@ -8,6 +8,7 @@ import type {
   WorkspaceRef,
 } from "../workspaceInstance";
 import { appendPane, locationOf, removePane, type Pane } from "./panes";
+import { teamOccupyingPath } from "./teams/lifecycle";
 import type { Team } from "./teams/model";
 
 /** What the create-workspace form submits: the spec a new workspace is
@@ -304,21 +305,28 @@ export function paneOccupyingPath(
   return null;
 }
 
-/** How a pane holds `path` — see [`Occupancy`]: a pane with a `cwd` RUNS in
+/** How `path` is held — see [`Occupancy`]: an occupant with a `cwd` RUNS in
  * the dir (so it provably is a live worktree), a provisioning intent merely
  * targets it. This distinction is what lets the agent dialog offer "attach
- * anyway" instantly, without waiting for a filesystem probe. */
+ * anyway" instantly, without waiting for a filesystem probe. A TEAM holding
+ * the directory answers first — one directory is one team's — and a pane
+ * still carrying a placement of its own answers for itself until stage C3
+ * retires that. */
 export function pathOccupancy(
   workspaces: Workspace[],
   path: string,
 ): Occupancy {
+  const team = teamOccupyingPath(workspaces, path);
+  if (team) return team.team.location?.kind === "attached" ? "worktree" : "provisioning";
   const hit = paneOccupyingPath(workspaces, path);
   if (!hit) return null;
   return locationOf(hit.pane).kind === "attached" ? "worktree" : "provisioning";
 }
 
-/** The path a pane holds for occupancy: the directory it runs in, or the one
- * its create is heading for. A bare or remote pane holds none. */
+/** The path a pane holds for occupancy through its OWN placement: the
+ * directory it runs in, or the one its create is heading for. A bare or
+ * remote pane holds none — and a pane on a team holds its team's directory
+ * through the team, which `teamOccupyingPath` answers for. */
 function heldPath(pane: Pane): string | undefined {
   const location = locationOf(pane);
   switch (location.kind) {
@@ -368,7 +376,7 @@ export async function firstFreeWorktree(
     const s = await suggest(i);
     if (!s) return null;
     const path = `${base}/${s.folder}`;
-    if (paneOccupyingPath(workspaces, path)) continue;
+    if (teamOccupyingPath(workspaces, path) || paneOccupyingPath(workspaces, path)) continue;
     const p = probe ? await probe(path) : null;
     if (p && classifyLocation(path, p) === "blocked") continue;
     return { path, branch: s.branch };

@@ -270,7 +270,7 @@ export function createAgentOrchestratorRuntime(
             paneId: pane.id,
             workspace: { id: ws.id, instance: ws.instance },
             cwd: dir,
-            branch: paneBranch(pane),
+            branch: paneBranch(ws, pane),
             yolo: pane.yolo,
             stagedSkills: skillsAsk({ id: ws.id, instance: ws.instance }),
             mcpAccess,
