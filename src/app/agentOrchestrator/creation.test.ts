@@ -656,3 +656,121 @@ describe("agent orchestrator —retrying a failed worktree create", () => {
     expect(provisions).toEqual([]);
   });
 });
+
+describe("agent orchestrator —a team born empty", () => {
+  let root: Root;
+
+  beforeEach(() => {
+    resetPaneSpawnSpecs();
+    ipc.probeWorktree.mockReset().mockResolvedValue({
+      exists: true,
+      isWorktree: false,
+      empty: false,
+      branch: null,
+    });
+    catalog.ready = true;
+    catalog.parkOnLaunch = false;
+    pty.reset();
+    document.body.innerHTML = "<div id='host'></div>";
+    root = createRoot(document.getElementById("host")!);
+    act(() => root.render(createElement(Probe)));
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+  });
+
+  const seed = (over: Partial<Workspace> = {}): DeckState => ({
+    workspaces: [
+      {
+        id: "ws-1",
+        instance: createWorkspaceInstance(),
+        name: "ws",
+        cwd: "/repo",
+        worktreeBaseDir: "/wt",
+        panes: [],
+        ...over,
+      },
+    ],
+    activeId: "ws-1",
+    journal: emptyJournal,
+    viewByWs: {},
+  });
+  const ref = () => ({ id: "ws-1", instance: deck.workspaces[0].instance });
+  const card = (): TeamLocation => ({
+    kind: "provisioning",
+    intent: { repo: "/repo", path: "/wt/a", index: 1 },
+  });
+
+  it("makes a team with nobody on it, on the root, under the name asked for", async () => {
+    act(() => deck.hydrate(seed()));
+    let outcome;
+    await act(async () => {
+      outcome = agentRun.createTeam({
+        workspace: ref(),
+        name: " api ",
+        placement: { kind: "attached", cwd: "/repo" },
+      });
+    });
+    expect(outcome).toEqual({ kind: "created", teamId: "team-1" });
+    expect(deck.workspaces[0].teams).toEqual([
+      { id: "team-1", name: "api", location: { kind: "attached", cwd: "/repo" } },
+    ]);
+    expect(deck.workspaces[0].panes).toEqual([]);
+    expect(provisions).toEqual([]);
+  });
+
+  it("starts the worktree create behind an empty team's card, and names a blank one itself", async () => {
+    act(() => deck.hydrate(seed()));
+    await act(async () => {
+      agentRun.createTeam({ workspace: ref(), name: "", placement: card() });
+    });
+    expect(deck.workspaces[0].teams?.[0]).toEqual({
+      id: "team-1",
+      name: "Team 1",
+      location: card(),
+    });
+    expect(provisions).toHaveLength(1);
+    expect(provisions[0].map((request) => request.ownerId)).toEqual(["team-1"]);
+  });
+
+  it("refuses a directory a team already holds, a name a team already answers to, and a gone workspace", async () => {
+    act(() =>
+      deck.hydrate(
+        seed({
+          teams: [{ id: "team-1", name: "api", location: { kind: "attached", cwd: "/wt/a" } }],
+        }),
+      ),
+    );
+    const outcomes: unknown[] = [];
+    await act(async () => {
+      // The directory is team-1's: a member joins it instead.
+      outcomes.push(agentRun.createTeam({ workspace: ref(), name: "docs", placement: card() }));
+      outcomes.push(
+        agentRun.createTeam({
+          workspace: ref(),
+          name: "docs",
+          placement: { kind: "attached", cwd: "/wt/a/" },
+        }),
+      );
+      // The name is team-1's.
+      outcomes.push(
+        agentRun.createTeam({
+          workspace: ref(),
+          name: " API ",
+          placement: { kind: "attached", cwd: "/repo" },
+        }),
+      );
+      outcomes.push(
+        agentRun.createTeam({
+          workspace: { id: "ws-1", instance: createWorkspaceInstance() },
+          name: "docs",
+          placement: { kind: "attached", cwd: "/repo" },
+        }),
+      );
+    });
+    expect(outcomes).toEqual([{ kind: "held" }, { kind: "held" }, { kind: "taken" }, { kind: "gone" }]);
+    expect(deck.workspaces[0].teams).toHaveLength(1);
+    expect(provisions).toEqual([]);
+  });
+});

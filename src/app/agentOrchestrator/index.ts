@@ -25,6 +25,9 @@ export interface AgentOrchestrator {
   subscribe(listener: () => void): () => void;
   /** Land and provision a pane through the common creation sequence. */
   createPane(request: CreatePaneRequest): CreatePaneOutcome;
+  /** Make a team that holds a directory and nobody yet — the "+ Team"
+   * door; its worktree create starts behind the card. */
+  createTeam(request: CreateTeamRequest): CreateTeamOutcome;
   /** Register a workspace and optimistically land its agent panes. */
   createWorkspace(config: SpawnConfig): WorkspaceCreationResult;
   /** Re-issue a team's failed worktree create — the card is the team's. */
@@ -62,18 +65,21 @@ export interface AgentOrchestrator {
   /** Stop offering the occupied choice: the pane stays visible and bound,
    * nothing is erased — the ordinary exit card takes over. */
   dismissOccupied(paneId: string): void;
-  /** Continue a journal session in a new pane. */
+  /** Continue a journal session in a new pane. `role` is the address the
+   * pane asks for on the team it lands on — taken when free, else the roster
+   * suggests one. */
   resumeSession(
     wsId: string,
     record: SessionHandle,
-    opts?: { name?: string; yolo?: boolean },
+    opts?: { name?: string; yolo?: boolean; role?: string },
   ): Promise<void>;
-  /** Fork a journal session into a new pane and target directory/worktree. */
+  /** Fork a journal session into a new pane and target directory/worktree.
+   * `role` as for `resumeSession`. */
   forkSession(
     wsId: string,
     record: SessionHandle,
     target: ForkTarget,
-    opts?: { name?: string; branch?: string; yolo?: boolean },
+    opts?: { name?: string; branch?: string; yolo?: boolean; role?: string },
   ): Promise<void>;
   /** Take a blocked pane off the team whose directory is gone, onto the
    * workspace root's, and start a fresh conversation there. */
@@ -166,6 +172,27 @@ export type CreatePaneOutcome =
    * workspace — one directory is one team's, and a team never spans
    * workspaces. */
   | { kind: "held" };
+
+/** A team born with its directory and nobody on it — the "+ Team" door.
+ * Agents come later, each through `createPane` naming the team. */
+export interface CreateTeamRequest {
+  workspace: WorkspaceRef;
+  /** What the team is called; blank takes the deck's auto name. */
+  name: string;
+  /** The directory the team holds — an existing one (the workspace root
+   * included) or a create heading for one. */
+  placement: TeamLocation;
+}
+
+export type CreateTeamOutcome =
+  | { kind: "created"; teamId: string }
+  | { kind: "gone" }
+  /** The directory is a team's already — one here (a member joins that
+   * team instead), one in another workspace, or one a close is still
+   * tearing down. */
+  | { kind: "held" }
+  /** A team here already answers to that name. */
+  | { kind: "taken" };
 
 /** The destructive half of a close that can take worktrees with it. */
 export interface WorktreeTeardown {

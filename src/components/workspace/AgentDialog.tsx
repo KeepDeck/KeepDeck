@@ -23,6 +23,7 @@ import {
   type SessionStartMode,
 } from "../../domain/agents";
 import { baseName } from "../../domain/deck";
+import { defaultRoleFor, mintRoleAddress, roleById, teamRoles } from "../../domain/mail";
 import { rowKeyOf } from "../../domain/journal/sessionRow";
 import { formatAge } from "../../domain/usage/format";
 import { useAgents } from "../../app/useAgents";
@@ -34,6 +35,7 @@ import { noAutoCorrect } from "../../ui/inputProps";
 import { ModalOverlay } from "../../ui/ModalOverlay";
 import { SuggestedInput } from "../../ui/SuggestedInput";
 import { Combobox } from "../../ui/Combobox";
+import { Dropdown } from "../../ui/Dropdown";
 import { AgentGlyph } from "../../ui/AgentGlyph";
 import { YoloField } from "../../ui/YoloField";
 import { AttachIcon, NextIcon } from "../../ui/icons";
@@ -47,6 +49,10 @@ interface AgentDialogProps {
    * directory, so no location is asked, and fresh only: a continuation
    * lands where its session was recorded, which is a team of its own. */
   target: AgentDialogTarget;
+  /** The addresses the target team already holds — what the role picker
+   * mints the new address against, and what tells it a singleton (the
+   * lead) is already taken. Empty for a new team. */
+  heldRoles: readonly string[];
   /** Pre-selected agent type. */
   defaultAgentType: AgentType;
   /** The YOLO toggle's starting position (the global preference); shown only
@@ -131,6 +137,7 @@ interface AgentDialogProps {
  */
 export function AgentDialog({
   target,
+  heldRoles,
   defaultAgentType,
   defaultYolo,
   remoteEnabled,
@@ -157,6 +164,19 @@ export function AgentDialog({
   const [teamName, setTeamName] = useState(
     target.kind === "new-team" ? target.suggestedName : "",
   );
+  // The role — picked, never typed: it carries what the member is FOR, and
+  // that only exists for a role the catalog has. Opens on what the deck
+  // would give unasked: the lead where the team has none, else the next
+  // implementer, or a peer among peers. The ADDRESS is minted from the pick
+  // against the roster (`impl-2` past a held `impl-1`); a singleton the
+  // team already holds mints nothing, and the form says so.
+  const [roleId, setRoleId] = useState(() => defaultRoleFor(heldRoles).id);
+  const roleOptions = useMemo(
+    () => teamRoles().map((role) => ({ value: role.id, label: role.label })),
+    [],
+  );
+  const pickedRole = roleById(roleId);
+  const roleAddress = pickedRole ? mintRoleAddress(pickedRole, heldRoles) : null;
   // The toggle's state survives switching through a non-supporting agent —
   // only the SUBMITTED value is gated (see `supportsYolo` below).
   const [yolo, setYolo] = useState(defaultYolo);
@@ -203,9 +223,14 @@ export function AgentDialog({
     resume: supportsResume,
     fork: supportsFork,
   } = agentSessionCapabilities(agents, agentType);
-  // A member joins the team's directory and nothing else: a continuation
-  // lands where its session was recorded, which is a team of its own.
-  const continuations = target.kind !== "member";
+  // The two things this dialog is for. A NEW TEAM is a name and a directory
+  // and no agent yet — none of the agent fields below exist for it. A
+  // MEMBER joins the team's directory: no location to choose, and a
+  // continuation only while that directory is there (a create still out
+  // has nothing to resume in or fork into).
+  const forTeam = target.kind === "new-team";
+  const member = target.kind === "member" ? target : null;
+  const continuations = member !== null && member.cwd !== null;
   const startModeOptions: readonly (readonly [
     mode: SessionStartMode,
     label: string,
@@ -337,6 +362,9 @@ export function AgentDialog({
     )
       return "busy-outside";
     if (!dirPresent(presence, row.handle.cwd)) return "dir-gone";
+    // A member runs where its team runs: a session recorded anywhere else
+    // resumes into another team. Forking it HERE is what the copy is for.
+    if (member && row.handle.cwd !== member.cwd) return "elsewhere";
     return null;
   };
   const blockReason = (block: ResumeBlock): string | null => {
@@ -349,6 +377,8 @@ export function AgentDialog({
         return "running in the background — fork a copy to continue here";
       case "dir-gone":
         return "directory is gone — fork instead";
+      case "elsewhere":
+        return "recorded in another directory — fork a copy into this team";
       case null:
         return null;
     }
@@ -487,11 +517,18 @@ export function AgentDialog({
   // whole worktree block is hidden); everything else gates on both. Remote
   // ignores the local location too (the agent's cwd is on the box) and only
   // needs a valid endpoint — the Worktree + Start-from sections are hidden.
-  const valid = supportsNew && (remote
-    ? endpointOk
-    : startMode === "resume"
-      ? sessionOk
-      : canCreateAgent(kind, branch, baseOk) && sessionOk);
+  // A member takes a role whatever it starts from — fresh, resumed or
+  // forked, it is on the team under an address teammates can write to.
+  const roleOk = member ? roleAddress !== null : true;
+  const valid = forTeam
+    ? canCreateAgent(kind, branch, baseOk)
+    : supportsNew &&
+      roleOk &&
+      (remote
+        ? endpointOk
+        : startMode === "resume"
+          ? sessionOk
+          : canCreateAgent(kind, branch, baseOk) && sessionOk);
 
   // "Use next available": swap the occupied path (and its branch) for the
   // next free suggestion. A null result (no base, IPC down) leaves the field
@@ -545,11 +582,12 @@ export function AgentDialog({
               ...(target.kind === "new-team" && {
                 teamName: teamName.trim() || target.suggestedName,
               }),
+              ...(member && roleAddress !== null && { role: roleAddress }),
             });
         }}
       >
         <h2 className="form__title">
-          {target.kind === "member" ? `New member of “${target.teamName}”` : "New team"}
+          {member ? `New member of “${member.teamName}”` : "New team"}
         </h2>
 
         {target.kind === "new-team" && (
@@ -562,36 +600,70 @@ export function AgentDialog({
               onChange={(e) => setTeamName(e.target.value)}
               placeholder={target.suggestedName}
               aria-label="Team name"
+              autoFocus
             />
           </>
         )}
 
-        <span className="form__label">Name</span>
-        <input
-          {...noAutoCorrect}
-          className="form__input"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Optional — defaults to the agent number"
-          aria-label="Agent name"
-        />
+        {member && (
+          <>
+            <span className="form__label">Name</span>
+            <input
+              {...noAutoCorrect}
+              className="form__input"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Optional — defaults to the agent number"
+              aria-label="Agent name"
+            />
 
-        <span className="form__label">Agent</span>
-        <div className="form__types">
-          {agentOptions.map((a) => (
-            <button
-              key={a.id}
-              type="button"
-              className={`form__type${a.id === agentType ? " form__type--active" : ""}`}
-              onClick={() => setAgentType(a.id)}
-            >
-              <AgentGlyph icon={a.icon} />
-              {a.label}
-            </button>
-          ))}
-        </div>
+            <span className="form__label">Agent</span>
+            <div className="form__types">
+              {agentOptions.map((a) => (
+                <button
+                  key={a.id}
+                  type="button"
+                  className={`form__type${a.id === agentType ? " form__type--active" : ""}`}
+                  onClick={() => setAgentType(a.id)}
+                >
+                  <AgentGlyph icon={a.icon} />
+                  {a.label}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
 
-        {canRemote && (
+        {member && (
+          <>
+            {/* The ADDRESS in the label row, off the field: the picker names
+                what the member is for; the address is what a teammate types,
+                and only it tells two implementers apart — but its length is
+                not the field's to answer to, so it never resizes the picker. */}
+            <span className="form__label form__label--row">
+              Role
+              {roleAddress !== null && (
+                <span className="form__role-address" title="The address teammates use">
+                  {roleAddress}
+                </span>
+              )}
+            </span>
+            <Dropdown
+              className="form__role-pick"
+              options={roleOptions}
+              value={roleId}
+              onChange={setRoleId}
+              ariaLabel="Role"
+            />
+            {roleAddress === null && (
+              <span className="form__error">
+                {pickedRole?.label ?? roleId} is already on this team — pick another role
+              </span>
+            )}
+          </>
+        )}
+
+        {member && canRemote && (
           <>
             <span className="form__label">Where</span>
             <div className="form__types">
@@ -732,7 +804,7 @@ export function AgentDialog({
           </>
         )}
 
-        {repo && startMode !== "resume" && !remote && (
+        {forTeam && repo && (
           <>
             <span className="form__label">Worktree</span>
             <div className="form__path">
@@ -790,20 +862,20 @@ export function AgentDialog({
           </>
         )}
 
-        {supportsYolo && <YoloField checked={yolo} onChange={setYolo} />}
+        {member && supportsYolo && <YoloField checked={yolo} onChange={setYolo} />}
 
         <div className="form__actions">
           <button type="button" className="form__cancel" onClick={onCancel}>
             Cancel
           </button>
           <button type="submit" className="form__create" disabled={!valid}>
-            {startMode === "resume" && !remote
-              ? "Resume session"
-              : startMode === "fork" && !remote
-                ? "Fork session"
-                : target.kind === "member"
-                  ? "Add member"
-                  : "Create team"}
+            {forTeam
+              ? "Create team"
+              : startMode === "resume" && !remote
+                ? "Resume session"
+                : startMode === "fork" && !remote
+                  ? "Fork session"
+                  : "Add member"}
           </button>
         </div>
       </form>

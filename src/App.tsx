@@ -1,7 +1,6 @@
 import { askForPaneBack } from "./app/resumeOutcome";
 import { ArtifactsDialog } from "./components/artifacts/ArtifactsDialog";
 import { artifactsRegistryReads } from "./app/artifacts/registryRead";
-import { TeamDialog } from "./components/workspace/TeamDialog";
 import { restartToUpdate } from "./app/updateManager";
 import { updateActionView } from "./app/updateAction";
 import { useAppController } from "./app/useAppController";
@@ -42,10 +41,7 @@ const registryReads = artifactsRegistryReads();
 
 function App() {
   const controller = useAppController();
-  // The status tracker feeds the team dialog's live activity column; read
-  // here (before the ready gate — hooks run unconditionally) and passed as
-  // a port, so the dialog stays testable with a literal.
-  const { statusTracker, plugins } = useAppRuntime();
+  const { plugins } = useAppRuntime();
   // The resume picker's advisory live-registry ask — handed to the dialog
   // READY-MADE (the same seam the session search uses; a view never
   // touches a plugin). Stable identity: the dialog re-asks per agent, not
@@ -90,9 +86,6 @@ function App() {
     browserShared,
     setCreating,
     setForkDialog,
-    teamDialog,
-    setTeamDialog,
-    teamFlow,
     setFrozenAck,
     setRailCollapsed,
     openSettings,
@@ -193,7 +186,6 @@ function App() {
             onRestoreSuspendedPane={deck.restoreSuspendedPane}
             onCloseAgent={closeFlow.requestCloseAgent}
             onRenamePane={deck.renamePane}
-            onOpenTeam={(teamId) => setTeamDialog({ teamId })}
             onEnterTeam={deck.openTeam}
             onAddTeamMember={(wsId, teamId) => {
               const ws = findWorkspace(deck.workspaces, wsId);
@@ -282,6 +274,7 @@ function App() {
           {agentFlow.dialog && (
             <AgentDialog
               target={agentFlow.dialog.target}
+              heldRoles={agentFlow.dialog.heldRoles}
               defaultAgentType={agentFlow.dialog.defaultAgentType}
               defaultYolo={agentFlow.dialog.defaultYolo}
               remoteEnabled={agentFlow.dialog.remoteEnabled}
@@ -325,23 +318,6 @@ function App() {
                   );
               }}
               onCancel={() => setForkDialog(null)}
-            />
-          )}
-          {teamDialog && active && (
-            <TeamDialog
-              workspace={active}
-              agents={agents}
-              teamId={teamDialog.teamId}
-              defaultYolo={settings.defaultYolo}
-              activity={{
-                subscribe: statusTracker.subscribe,
-                of: (paneId) => statusTracker.getSnapshot().panes.get(paneId),
-              }}
-              onConfirm={(plan) => {
-                setTeamDialog(null);
-                void teamFlow.apply(active.id, plan);
-              }}
-              onCancel={() => setTeamDialog(null)}
             />
           )}
           {error && (

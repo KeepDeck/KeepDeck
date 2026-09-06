@@ -165,6 +165,9 @@ export type ResumeBlock =
   | "no-cwd"
   | "claimed"
   | "busy-outside"
+  /** Recorded in a directory other than the team's a member is joining —
+   * a resume runs where it was recorded, which would be another team. */
+  | "elsewhere"
   | null;
 
 /** Whether Create is allowed for the "Start from" choice. New sessions
@@ -212,13 +215,20 @@ export interface AgentDialogResult {
    * door, where the agent is the team's first. Absent for a member joining
    * a team that exists, and for a continuation. */
   teamName?: string;
+  /** The role — the address teammates use — the agent takes on its team,
+   * minted free against the team's roster by the dialog. Absent for a
+   * continuation, which lands where its session was recorded and takes the
+   * address that team suggests. */
+  role?: string;
 }
 
 /**
- * What the "+ Agent" dialog is opened FOR: a new team, born with this agent
- * and its directory, or a member joining a team that exists — in that
- * team's directory, so the dialog has no location to ask about.
+ * What the dialog is opened FOR: a new team — a name and a directory, no
+ * agent yet — or a member joining a team that exists, in that team's
+ * directory, so the dialog has no location to ask about. `cwd` is the
+ * team's directory, or null while its create is still out: a continuation
+ * needs a directory to resume in or fork into, so none is offered then.
  */
 export type AgentDialogTarget =
   | { kind: "new-team"; suggestedName: string }
-  | { kind: "member"; teamId: string; teamName: string };
+  | { kind: "member"; teamId: string; teamName: string; cwd: string | null };

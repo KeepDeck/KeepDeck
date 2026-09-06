@@ -100,6 +100,16 @@ vi.mock("../../app/useAgents", () => ({
   resetAgentsCache: () => {},
 }));
 
+/** The member door, as every describe below but the location flow opens
+ * it: a member of "api", whose directory is `/repo/wt` — the directory the
+ * session fixtures were recorded in, so a resume finds its home. */
+const MEMBER = {
+  kind: "member" as const,
+  teamId: "team-1",
+  teamName: "api",
+  cwd: "/repo/wt",
+};
+
 /** Probe results: an attachable worktree, a not-yet-existing dir, and a
  * non-empty non-worktree dir (blocked). */
 const WORKTREE: PathProbe = { exists: true, isWorktree: true, empty: false, branch: "kd/ws/2" };
@@ -187,6 +197,7 @@ describe("AgentDialog worktree location flow", () => {
           defaultAgentType: "claude" as const,
           remoteEnabled: false,
           target: { kind: "new-team" as const, suggestedName: "Team 3" },
+          heldRoles: [] as string[],
           defaultYolo: false,
           repo: { cwd: "/repo", branch: "main" },
           suggestedPath: "/base/kd-ws-2",
@@ -452,7 +463,8 @@ describe("AgentDialog agent picker", () => {
         createElement(AgentDialog, {
           defaultAgentType: "claude" as const,
           remoteEnabled: false,
-          target: { kind: "new-team" as const, suggestedName: "Team 3" },
+          target: MEMBER,
+          heldRoles: [] as string[],
           defaultYolo: false,
           repo: null,
           suggestedPath: "",
@@ -502,7 +514,8 @@ describe("AgentDialog YOLO toggle", () => {
         createElement(AgentDialog, {
           defaultAgentType: "claude" as const,
           remoteEnabled: false,
-          target: { kind: "new-team" as const, suggestedName: "Team 3" },
+          target: MEMBER,
+          heldRoles: [] as string[],
           defaultYolo,
           repo: null,
           suggestedPath: "",
@@ -615,7 +628,8 @@ describe("AgentDialog start-from session picker", () => {
         createElement(AgentDialog, {
           defaultAgentType: "claude" as const,
           remoteEnabled: false,
-          target: { kind: "new-team" as const, suggestedName: "Team 3" },
+          target: MEMBER,
+          heldRoles: [] as string[],
           defaultYolo: false,
           repo: { cwd: "/repo", branch: "main" },
           suggestedPath: "",
@@ -699,6 +713,35 @@ describe("AgentDialog start-from session picker", () => {
     presenceSpy.mockRestore();
   });
 
+  it("a session recorded in another directory resumes nowhere here — it is forked into the team", async () => {
+    // A member runs where its team runs. A resume runs where the session
+    // was recorded, which for this row is another team; the copy is what
+    // brings its work here.
+    await mount({
+      searchSessions: async () => ({
+        rows: [
+          {
+            handle: { agent: "claude", sessionId: "s-away", cwd: "/other/wt", title: "elsewhere" },
+            mtime: 1,
+          },
+        ],
+        total: 1,
+      }),
+    });
+    act(() => modeBtn("Resume").click());
+    await settleSessions();
+    expect(rows()[0].className).toContain("form__session--blocked");
+    expect(rows()[0].textContent).toContain("recorded in another directory");
+    act(() => rows()[0].click());
+    expect(createBtn().disabled).toBe(true);
+
+    act(() => modeBtn("Fork").click());
+    await settleSessions();
+    expect(rows()[0].className).not.toContain("form__session--blocked");
+    act(() => rows()[0].click());
+    expect(createBtn().disabled).toBe(false);
+  });
+
   it("un-resumable rows are dimmed with the reason, and picking one keeps Create gated", async () => {
     await mount();
     act(() => modeBtn("Resume").click());
@@ -774,13 +817,13 @@ describe("AgentDialog start-from session picker", () => {
     expect(names[1]).toBe("auth bug");
   });
 
-  it("Fork keeps the location free and takes exactly the sessions resume refuses", async () => {
+  it("Fork asks for no location — the copy lands in the team's directory — and takes exactly the sessions resume refuses", async () => {
     await mount();
     act(() => modeBtn("Fork").click());
     await settleSessions();
 
-    // The worktree field stays — a fork picks its own home.
-    expect(document.querySelector('input[aria-label="Worktree path"]')).not.toBeNull();
+    // A member runs where its team runs: there is no home to pick.
+    expect(document.querySelector('input[aria-label="Worktree path"]')).toBeNull();
     // No dimming in fork mode: these rows are what forking is FOR.
     expect(rows().every((r) => !r.className.includes("form__session--blocked"))).toBe(true);
 
@@ -802,7 +845,7 @@ describe("AgentDialog start-from session picker", () => {
     act(() => rows()[0].click());
     act(() => modeBtn("New session").click());
     expect(createBtn().disabled).toBe(false);
-    expect(createBtn().textContent).toBe("Create team");
+    expect(createBtn().textContent).toBe("Add member");
     submit();
     expect(confirmed).toHaveLength(1);
     expect(confirmed[0].session).toBeUndefined();
@@ -887,7 +930,8 @@ describe("AgentDialog start-from paging", () => {
         createElement(AgentDialog, {
           defaultAgentType: "claude" as const,
           remoteEnabled: false,
-          target: { kind: "new-team" as const, suggestedName: "Team 3" },
+          target: MEMBER,
+          heldRoles: [] as string[],
           defaultYolo: false,
           repo: { cwd: "/repo", branch: "main" },
           suggestedPath: "",
@@ -942,7 +986,8 @@ describe("AgentDialog start-from paging", () => {
         createElement(AgentDialog, {
           defaultAgentType: "claude" as const,
           remoteEnabled: false,
-          target: { kind: "new-team" as const, suggestedName: "Team 3" },
+          target: MEMBER,
+          heldRoles: [] as string[],
           defaultYolo: false,
           repo: { cwd: "/repo", branch: "main" },
           suggestedPath: "",
@@ -995,7 +1040,8 @@ describe("AgentDialog start-from paging", () => {
         createElement(AgentDialog, {
           defaultAgentType: "claude" as const,
           remoteEnabled: false,
-          target: { kind: "new-team" as const, suggestedName: "Team 3" },
+          target: MEMBER,
+          heldRoles: [] as string[],
           defaultYolo: false,
           repo: { cwd: "/repo", branch: "main" },
           suggestedPath: "",
@@ -1085,7 +1131,8 @@ describe("AgentDialog cross-agent pick guard", () => {
         createElement(AgentDialog, {
           defaultAgentType: "claude" as const,
           remoteEnabled: false,
-          target: { kind: "new-team" as const, suggestedName: "Team 3" },
+          target: MEMBER,
+          heldRoles: [] as string[],
           defaultYolo: false,
           repo: { cwd: "/repo", branch: "main" },
           suggestedPath: "",
@@ -1199,7 +1246,8 @@ describe("remote gating (Experimental setting)", () => {
     act(async () =>
       root.render(
         createElement(AgentDialog, {
-          target: { kind: "new-team" as const, suggestedName: "Team 3" },
+          target: MEMBER,
+          heldRoles: [] as string[],
           defaultAgentType: agent as AgentDialogResult["agentType"],
           defaultYolo: false,
           remoteEnabled,
@@ -1250,7 +1298,8 @@ describe("remote gating (Experimental setting)", () => {
         createElement(AgentDialog, {
           defaultAgentType: "codex" as const,
           remoteEnabled: true,
-          target: { kind: "new-team" as const, suggestedName: "Team 3" },
+          target: MEMBER,
+          heldRoles: [] as string[],
           defaultYolo: false,
           repo: null,
           suggestedPath: "",
@@ -1383,7 +1432,8 @@ describe("AgentDialog picker ↔ sessionIndexManager (integration)", () => {
         createElement(AgentDialog, {
           defaultAgentType: "claude" as const,
           remoteEnabled: false,
-          target: { kind: "new-team" as const, suggestedName: "Team 3" },
+          target: MEMBER,
+          heldRoles: [] as string[],
           defaultYolo: false,
           repo: { cwd: "/repo", branch: "main" },
           suggestedPath: "",

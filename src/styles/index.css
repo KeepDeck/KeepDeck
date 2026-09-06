@@ -26,8 +26,6 @@
 @import "./overlay.css";
 @import "./tooltip.css";
 @import "./form.css";
-/* After form.css: the team roster styles rows built from .form__* chrome. */
-@import "./team.css";
 @import "./confirm.css";
 @import "./settings.css";
 @import "./stats.css";

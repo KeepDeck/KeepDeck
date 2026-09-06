@@ -255,6 +255,32 @@
   margin-bottom: 20px;
 }
 
+/* A member's role: the picker names what the member is for; the ADDRESS a
+   teammate types ("impl-2", not "Implementer") sits at the far end of the
+   label row, OFF the field — an identifier whose length changed with the
+   pick would otherwise resize the picker under the pointer. The picker keeps
+   the field rhythm itself (the dropdown wrapper carries none), and a refusal
+   (the singleton the team already holds) reads under it like any field's
+   error. */
+.form__label--row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.form__role-address {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
+  color: #9aa3af;
+}
+
+.form__role-pick {
+  margin-bottom: 20px;
+}
+
 .form__type {
   display: inline-flex;
   align-items: center;

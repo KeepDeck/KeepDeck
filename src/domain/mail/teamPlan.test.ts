@@ -9,7 +9,6 @@ import {
   planTeam,
   teamBriefing,
   teamNamesIn,
-  teamPlanIsNoop,
   type TeamDraft,
 } from "./teamPlan";
 
@@ -239,30 +238,6 @@ describe("planTeam", () => {
       members: [],
       recruits: [],
     });
-  });
-});
-
-describe("teamPlanIsNoop", () => {
-  it("knows a plan that changes nothing, and one that does", () => {
-    const ws = two();
-    const same = planTeam(ws, draft(), "team-1");
-    expect(same.ok && teamPlanIsNoop(ws, same.value)).toBe(true);
-    const renamed = planTeam(ws, draft({ name: "platform" }), "team-1");
-    expect(renamed.ok && teamPlanIsNoop(ws, renamed.value)).toBe(false);
-    const reroled = planTeam(
-      ws,
-      draft({ members: [both[0], { paneId: "pane-2", role: "impl-2" }] }),
-      "team-1",
-    );
-    expect(reroled.ok && teamPlanIsNoop(ws, reroled.value)).toBe(false);
-    const recruiting = planTeam(
-      ws,
-      draft({ recruits: [{ agentType: "claude", role: "impl-2", yolo: false }] }),
-      "team-1",
-    );
-    expect(recruiting.ok && teamPlanIsNoop(ws, recruiting.value)).toBe(false);
-    // A team that is gone leaves nothing to do.
-    expect(teamPlanIsNoop(ws, { teamId: "team-9", name: "x", members: [], recruits: [] })).toBe(true);
   });
 });
 

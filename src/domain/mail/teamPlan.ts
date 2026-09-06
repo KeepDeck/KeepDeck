@@ -193,20 +193,6 @@ export function teamNamesIn(workspace: Workspace): string[] {
   return names;
 }
 
-/** Whether the plan changes nothing about the team as the workspace holds
- * it: the same name, every member under the role it already has, nobody to
- * start. A dialog confirmed without a change should do nothing rather than
- * dispatch a no-op storm and re-brief everyone about it. */
-export function teamPlanIsNoop(workspace: Workspace, plan: TeamPlan): boolean {
-  const team = findTeam(workspace, plan.teamId);
-  if (!team) return true;
-  if (plan.recruits.length > 0 || plan.name !== team.name) return false;
-  return plan.members.every(
-    (member) =>
-      workspace.panes.find((pane) => pane.id === member.paneId)?.team?.role === member.role,
-  );
-}
-
 const MOVES_WORK = "an agent runs where its team runs; to move work between teams, start an agent on the target team (team.add)";
 
 /**

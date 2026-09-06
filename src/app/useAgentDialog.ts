@@ -4,7 +4,6 @@ import {
   type AgentDialogTarget,
   type AgentInfo,
   type AgentType,
-  forkTargetFor,
   type SessionPickRow,
 } from "../domain/agents";
 import {
@@ -13,6 +12,7 @@ import {
   findTeam,
   findWorkspaceByRef,
   firstFreeTeamWorktree,
+  membersOf,
   nextTeamSeq,
   paneFromAgentRequest,
   paneId,
@@ -50,6 +50,9 @@ export interface AgentDialogNotices {
    * dialog has already closed by then, so without this the agent the user
    * asked for simply never appears. */
   onCreateFailed(message: string): void;
+  /** The workspace refused the team — its directory is a team's already,
+   * its name is taken, or it is gone. Same reason: the dialog is closed. */
+  onTeamFailed(message: string): void;
 }
 
 /** What the dialog is opened FOR, as the caller says it: a new team, or a
@@ -64,6 +67,9 @@ export interface AgentDialogSpec {
   /** What the dialog is for — a new team with a suggested name, or a member
    * of a team that exists, named so the title can say so. */
   target: AgentDialogTarget;
+  /** The addresses the target team already holds — what the role picker
+   * mints against. Empty for a new team. */
+  heldRoles: readonly string[];
   defaultAgentType: AgentType;
   /** The YOLO toggle's starting position ([F6] global preference). */
   defaultYolo: boolean;
@@ -132,7 +138,16 @@ export function useAgentDialog(
         workspace,
         agentId: paneId(seq),
         index,
-        target: { kind: "member", teamId: team.id, teamName: team.name },
+        target: {
+          kind: "member",
+          teamId: team.id,
+          teamName: team.name,
+          // Null while the create is out: nothing to resume in or fork into.
+          cwd: team.location?.kind === "attached" ? team.location.cwd : null,
+        },
+        heldRoles: membersOf(ws, team.id).flatMap((member) =>
+          member.team ? [member.team.role] : [],
+        ),
         defaultAgentType: defaultType,
         defaultYolo: getSettings()?.defaultYolo ?? false,
         remoteEnabled: getSettings()?.remoteAgents === true,
@@ -182,6 +197,8 @@ export function useAgentDialog(
         kind: "new-team",
         suggestedName: autoTeamName(nextTeamSeq(deckRef.current.workspaces)),
       },
+      // A new team holds nothing yet: the picker opens on the lead.
+      heldRoles: [],
       defaultAgentType: defaultType,
       defaultYolo: getSettings()?.defaultYolo ?? false,
       remoteEnabled: getSettings()?.remoteAgents === true,
@@ -192,7 +209,7 @@ export function useAgentDialog(
   };
 
   const confirm = (result: AgentDialogResult) => {
-    const { name, location, yolo, session } = result;
+    const { name, yolo, session } = result;
     const dlg = dialog;
     if (!dlg) return;
     setDialog(null);
@@ -207,49 +224,84 @@ export function useAgentDialog(
       return;
     }
     const paneName = name.trim() || undefined;
+    // The request's directory, as the domain reads the dialog's location: the
+    // root, an existing directory, or a create heading for one.
+    const request = paneFromAgentRequest(dlg.agentId, result, ws, dlg.index);
+
+    if (dlg.target.kind === "new-team") {
+      // A team and nothing else: no agent lands here. The team just born is
+      // where the person's attention is, so the stage drills into it — an
+      // empty grid with the way to its first member.
+      const made = orchestrator.createTeam({
+        workspace: dlg.workspace,
+        name: result.teamName ?? dlg.target.suggestedName,
+        placement: request.placement,
+      });
+      switch (made.kind) {
+        case "created":
+          deckRef.current.openTeam(dlg.workspace.id, made.teamId);
+          break;
+        case "gone":
+          notices.onTeamFailed(WORKSPACE_GONE_MESSAGE);
+          break;
+        case "held":
+          notices.onTeamFailed(WORKTREE_HELD_MESSAGE);
+          break;
+        case "taken":
+          notices.onTeamFailed(
+            `A team called “${(result.teamName ?? dlg.target.suggestedName).trim()}” already exists here.`,
+          );
+          break;
+        default: {
+          const unhandled: never = made;
+          throw new Error(`unhandled team outcome: ${JSON.stringify(unhandled)}`);
+        }
+      }
+      return;
+    }
+
+    const { teamId, cwd } = dlg.target;
     // "Start from" a picked session: a continuation, not a fresh pane. The
-    // orchestrator owns plan-building, the claim re-check and (for a new
-    // worktree) the provisioning. Resume ignores the location by design: the
-    // session runs where it was recorded.
+    // orchestrator owns plan-building, the claim re-check and the landing.
+    // A member runs where its team runs: a resume is offered only for a
+    // session recorded in the team's directory (it runs where it was
+    // recorded), and a fork copies the session INTO that directory.
+    // The role the person picked rides every way in: the landing takes it
+    // while it is free on the team and suggests one otherwise.
+    const role = result.role !== undefined ? { role: result.role } : {};
     if (session) {
       if (session.mode === "resume") {
         void orchestrator
           .resumeSession(dlg.workspace.id, session.handle, {
             name: paneName,
             yolo,
+            ...role,
           })
           .catch((e: unknown) => notices.onResumeFailed(describeError(e)));
         return;
       }
+      if (cwd === null) {
+        notices.onForkFailed("the team's directory is not there yet");
+        return;
+      }
       void orchestrator
-        .forkSession(dlg.workspace.id, session.handle, forkTargetFor(location, ws.cwd), {
+        .forkSession(dlg.workspace.id, session.handle, { kind: "dir", cwd }, {
           name: paneName,
           yolo,
-          ...(location.kind === "existing" &&
-            location.branch && { branch: location.branch }),
+          ...role,
         })
         .catch((e: unknown) => notices.onForkFailed(describeError(e)));
       return;
     }
-    // A fresh conversation: the pane the request describes, handed to the one
-    // owner of what arriving in a workspace entails. Whether it lands as a
-    // terminal or as a provisioning card is the pane's shape to say, not this
-    // surface's to arrange. A member joins its team by id — the location the
-    // request carries is the team's, not the dialog's to choose; a new team
-    // lands at the chosen location under the name the dialog gave it.
-    const request = paneFromAgentRequest(dlg.agentId, result, ws, dlg.index);
-    const landed =
-      dlg.target.kind === "member"
-        ? orchestrator.createPane({
-            workspace: dlg.workspace,
-            pane: request.pane,
-            team: dlg.target.teamId,
-          })
-        : orchestrator.createPane({
-            workspace: dlg.workspace,
-            ...request,
-            ...(result.teamName !== undefined && { teamName: result.teamName }),
-          });
+    // A fresh member: the pane the request describes, handed to the one
+    // owner of what arriving in a workspace entails, joining its team by id
+    // — the directory is the team's, not the dialog's to choose.
+    const landed = orchestrator.createPane({
+      workspace: dlg.workspace,
+      pane: request.pane,
+      team: teamId,
+      ...role,
+    });
     // `gone` is reachable here too: the guard above reads this render's deck,
     // the landing re-resolves against the live store, and a workspace can
     // close in between.
@@ -264,12 +316,6 @@ export function useAgentDialog(
         notices.onCreateFailed(WORKTREE_HELD_MESSAGE);
         break;
       case "created":
-        // The team just born is where the person's attention is: the stage
-        // drills into it, so the first agent comes up in front of them
-        // rather than behind a card.
-        if (dlg.target.kind === "new-team") {
-          deckRef.current.openTeam(dlg.workspace.id, landed.teamId);
-        }
         break;
       default: {
         const unhandled: never = landed;

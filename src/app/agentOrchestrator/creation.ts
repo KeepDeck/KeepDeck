@@ -1,6 +1,7 @@
 import {
   autoTeamName,
   autoWorkspaceName,
+  findTeam,
   findWorkspace,
   findWorkspaceByRef,
   membersOf,
@@ -29,6 +30,8 @@ import type {
   AgentOrchestrator,
   CreatePaneOutcome,
   CreatePaneRequest,
+  CreateTeamOutcome,
+  CreateTeamRequest,
 } from ".";
 import type { DeckActions } from "../deckActions";
 import type { DeckStore } from "../deckStore";
@@ -53,6 +56,7 @@ interface CreationDeps {
 
 export interface AgentOrchestratorCreation {
   landPane(request: CreatePaneRequest): CreatePaneOutcome;
+  createTeam(request: CreateTeamRequest): CreateTeamOutcome;
   /** Whether `pane` could land at `placement` right now, without landing
    * it — the refusal it would meet, or null. For a caller with an
    * irreversible step to run BEFORE landing (a fork's store surgery) that
@@ -118,6 +122,51 @@ export function createAgentOrchestratorCreation({
     return { kind };
   }
 
+  /** The team of THIS workspace holding the directory `wantedKey`, if any. */
+  function holderHere(current: Workspace, wantedKey: string): Team | undefined {
+    return teamsOf(current).find((candidate) => {
+      const held = teamHeldPath(candidate);
+      return held !== undefined && normalizePath(held) === wantedKey;
+    });
+  }
+
+  /**
+   * Make a team that holds `placement` and nobody yet — the "+ Team" door.
+   *
+   * ONE directory is ONE team: a directory a team here already holds is
+   * refused (a member joins that team instead), one another workspace's
+   * team holds is refused — except the root, which every workspace opened
+   * on the same repository holds for itself — and one a confirmed close is
+   * still tearing down is nobody's. A name a team here answers to is
+   * refused. The deck is read back rather than trusted, and the create
+   * behind a card is issued only once the deck holds the team.
+   */
+  function createTeam(request: CreateTeamRequest): CreateTeamOutcome {
+    const workspaces = deck.getSnapshot().workspaces;
+    const current = findWorkspaceByRef(workspaces, request.workspace);
+    if (!current) return { kind: "gone" };
+    const wanted = request.placement;
+    const wantedKey = normalizePath(teamHeldPath({ location: wanted }) ?? "");
+    if (holdsPath(wantedKey) || holderHere(current, wantedKey)) return { kind: "held" };
+    const elsewhere = teamOccupyingPath(workspaces, wantedKey);
+    if (elsewhere && wantedKey !== normalizePath(current.cwd)) return { kind: "held" };
+    const seq = nextTeamSeq(workspaces);
+    const name = request.name.trim() || autoTeamName(seq);
+    if (teamNameTaken(current, name)) return { kind: "taken" };
+    const team: Team & { location: TeamLocation } = { id: teamId(seq), name, location: wanted };
+    actions.createTeam(current.id, team);
+    const settled = findWorkspaceByRef(deck.getSnapshot().workspaces, request.workspace);
+    if (!settled || !findTeam(settled, team.id)) {
+      log.error(
+        "web:orchestrator",
+        `${team.id} (${name}): the deck refused the team at ${wantedKey || "?"} — not made`,
+      );
+      return { kind: "held" };
+    }
+    if (wanted.kind === "provisioning") provisionTeams(current, [team]);
+    return { kind: "created", teamId: team.id };
+  }
+
   /**
    * The team a pane asking for `wanted` lands on in `current`: the one
    * holding that directory, or one minted for it — or the refusal.
@@ -151,10 +200,7 @@ export function createAgentOrchestratorCreation({
     // land on, whatever the deck says: the team left the deck before the
     // `git worktree remove` that is coming for the directory.
     if (holdsPath(wantedKey)) return { refusal: "held" };
-    const holder = teamsOf(current).find((candidate) => {
-      const held = teamHeldPath(candidate);
-      return held !== undefined && normalizePath(held) === wantedKey;
-    });
+    const holder = holderHere(current, wantedKey);
     let team: Team & { location: TeamLocation };
     let fresh = false;
     if (holder?.location) {
@@ -378,5 +424,13 @@ export function createAgentOrchestratorCreation({
     provisionTeams(workspace, [team]);
   };
 
-  return { landPane, roomFor, relocatePane, landOrThrow, createWorkspace, retryProvisioning };
+  return {
+    landPane,
+    createTeam,
+    roomFor,
+    relocatePane,
+    landOrThrow,
+    createWorkspace,
+    retryProvisioning,
+  };
 }

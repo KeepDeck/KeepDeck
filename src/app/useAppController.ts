@@ -11,8 +11,6 @@ import { useAgents } from "./useAgents";
 import { useAppRuntime } from "./runtimeContext";
 import { askBackgroundCarriers } from "./liveSessions";
 import { useCloseFlow } from "./useCloseFlow";
-import { commands } from "./commandRegistry";
-import { createTeamFlow } from "./mail";
 import { useContributions, useInstalledPlugins, unavailableAgentReasons } from "../plugins";
 import { useDeck } from "./useDeck";
 import { useDragDrop } from "./useDragDrop";
@@ -93,11 +91,6 @@ export function useAppController() {
     wsId: string;
     record: SessionHandle;
   } | null>(null);
-  /** The roster surface: the team whose roster and roles are being settled,
-   * by id. A transaction like every other dialog, so the same gate keeps a
-   * second one from stacking over it. A NEW team is not this dialog's — it
-   * is born with its first agent, through the "+ Agent" flow. */
-  const [teamDialog, setTeamDialog] = useState<{ teamId: string } | null>(null);
   const specByPane = runView.specs;
   const failedPanes = runView.planFailed;
   const usageLiveAgents = useMemo(() => {
@@ -127,35 +120,8 @@ export function useAppController() {
       pushAlert("Could not resume the session", message),
     onForkFailed: (message) => pushAlert("Could not fork the session", message),
     onCreateFailed: (message) => pushAlert("Could not add the agent", message),
+    onTeamFailed: (message) => pushAlert("Could not start the team", message),
   }, runView.blocked);
-  /**
-   * Applying a team, with the four ports that takes.
-   *
-   * Beside `agentFlow` and `closeFlow` because it is the same kind of thing:
-   * an operation the app owns, handed the one surface only this level has
-   * (the alert queue). It was assembled inside the dialog's `onConfirm`,
-   * which made the React tree the only place that knew a recruit is started
-   * through `agent.spawn` and that ending a member leaves its worktree alone.
-   */
-  const teamFlow = createTeamFlow({
-    settleRoster: deck.settleRoster,
-    spawn: async (workspaceId, teamId, agentType, yolo, role) => {
-      // Onto the team, by id, in its own directory — the one creation path
-      // a roster has. A team is born elsewhere, with its first agent.
-      const result = await commands.execute(
-        "team.add",
-        { workspace: workspaceId, team: teamId, agentType, yolo, role },
-        { kind: "host" },
-      );
-      if (!result.ok) throw new Error(result.error.message);
-      return (result.value as { paneId?: string }).paneId ?? null;
-    },
-    report: pushAlert,
-    // Looked up per call: the manager is the service's, and a disposed
-    // service has none to tell.
-    announce: (paneId, kind, body) =>
-      runtime.mail.current()?.announce(paneId, kind, body),
-  });
   const closeFlow = useCloseFlow(deck, {
     onError: (message) => pushAlert("Worktree error", message),
     onSuspendRefused: (message) =>
@@ -174,7 +140,6 @@ export function useAppController() {
     agentFlow.dialog,
     closeFlow.closing,
     forkDialog,
-    teamDialog,
     error,
     frozen && !frozenAck ? frozen : null,
   ];
@@ -416,11 +381,6 @@ export function useAppController() {
     error,
     failedPanes,
     forkDialog,
-    teamDialog,
-    setTeamDialog,
-    /** Applying a settled team — the four ports that takes are assembled
-     * here, so the dialog hands over an intent and nothing else. */
-    teamFlow,
     frozen,
     frozenAck,
     gitHeads,

@@ -281,6 +281,31 @@ describe("agent orchestrator —continuing a recorded session", () => {
     expect(ws.teams?.map((team) => team.name)).toEqual(["api", "Team 2"]);
   });
 
+  it("takes the role asked for when the team has it free, and suggests one past a held address", async () => {
+    // The session's directory is a team's, with its lead on it: a resume
+    // joins THAT team, under the address the person picked.
+    act(() => {
+      deck.createTeam("ws-1", {
+        id: "team-1",
+        name: "api",
+        location: { kind: "attached", cwd: "/repo/wt" },
+      });
+      deck.addAgentPane("ws-1", { id: "p-lead", agentType: "claude" });
+      deck.joinTeam("ws-1", "p-lead", "team-1", "lead");
+    });
+    await act(async () => agentRun.resumeSession("ws-1", handle(), { role: "impl-1" }));
+    const first = deck.workspaces[0].panes.find((pane) => pane.session?.id === "s-1")!;
+    expect(first.team).toEqual({ teamId: "team-1", role: "impl-1" });
+
+    // A singleton the team already holds is not written twice: the roster
+    // suggests the next free address instead of a second lead.
+    await act(async () =>
+      agentRun.resumeSession("ws-1", handle({ sessionId: "s-2" }), { role: "lead" }),
+    );
+    const second = deck.workspaces[0].panes.find((pane) => pane.session?.id === "s-2")!;
+    expect(second.team).toEqual({ teamId: "team-1", role: "impl-2" });
+  });
+
   it("fails a full team loudly instead of stranding the built plan", async () => {
     // The session ran in a directory whose team has no room: the resume
     // is refused whole rather than landing a seventeenth member.
@@ -441,6 +466,25 @@ describe("agent orchestrator —forking a recorded session", () => {
       agentRun.forkSession("ws-1", forked(), { kind: "dir", cwd: "/repo" }),
     );
     expect(deck.workspaces[0].panes[0].location).toBeUndefined();
+  });
+
+  it("dir target: the role asked for rides to the team holding the directory", async () => {
+    act(() =>
+      deck.createTeam("ws-1", {
+        id: "team-1",
+        name: "api",
+        location: { kind: "attached", cwd: "/elsewhere" },
+      }),
+    );
+    await act(async () =>
+      agentRun.forkSession(
+        "ws-1",
+        forked(),
+        { kind: "dir", cwd: "/elsewhere" },
+        { role: "reviewer" },
+      ),
+    );
+    expect(deck.workspaces[0].panes[0].team).toEqual({ teamId: "team-1", role: "reviewer" });
   });
 
   it("worktree target: a card first, and the surgery DEFERRED to a step", async () => {

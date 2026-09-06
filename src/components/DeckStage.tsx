@@ -143,8 +143,6 @@ interface DeckStageProps {
   /** Ask to close a pane; `label` is its display title for the confirm. */
   onCloseAgent(wsId: string, paneId: string, label: string): void;
   onRenamePane(wsId: string, paneId: string, name: string): void;
-  /** Open the roster of the team a pane's badge names — by id. */
-  onOpenTeam?(teamId: string): void;
   /** Drill into a team from its card — the stage's level moves. */
   onEnterTeam(wsId: string, teamId: string): void;
   /** Put another agent on a team, from its card's menu. */
@@ -247,7 +245,6 @@ export function DeckStage({
   onRestoreSuspendedPane,
   onCloseAgent,
   onRenamePane,
-  onOpenTeam,
   onEnterTeam,
   onAddTeamMember,
   onRenameTeam,
@@ -497,7 +494,6 @@ export function DeckStage({
               yolo={pane.yolo}
               team={teamOf(ws, pane)}
               showTeamName={teamsHere > 1}
-              onOpenTeam={onOpenTeam}
               visible={layout.visible}
               focused={layout.focused}
               hidden={layout.hidden}

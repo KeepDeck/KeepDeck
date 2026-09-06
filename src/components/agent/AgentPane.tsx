@@ -59,8 +59,6 @@ export interface AgentPaneProps {
    * runs more than one. Settled by the deck, which is the only level that
    * can see the other teams. */
   showTeamName?: boolean;
-  /** Open the roster of the team this pane is on, by id. */
-  onOpenTeam?(teamId: string): void;
   /** Whether this pane is currently on screen. */
   visible: boolean;
   /** Whether this pane is maximized to fill the grid. */
@@ -184,7 +182,6 @@ export function AgentPane({
   yolo,
   team,
   showTeamName,
-  onOpenTeam,
   visible,
   focused,
   hidden,
@@ -295,7 +292,6 @@ export function AgentPane({
         yolo={yolo}
         team={team}
         showTeamName={showTeamName}
-        onOpenTeam={onOpenTeam}
         gitBadge={gitBadge}
         onRename={onRename}
         onMinimize={onMinimize}

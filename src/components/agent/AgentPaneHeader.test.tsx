@@ -159,25 +159,18 @@ describe("AgentPaneHeader", () => {
     expect(host.querySelector(".pane__action--minimize")).toBeNull();
   });
 
-  it("opens its own team from the badge, and is a real button doing it", () => {
-    // The way IN to an existing team: the bar's control always starts a new
-    // one, because a workspace may run several and a single button cannot
-    // mean both. A span with a click on it would leave that gesture off the
-    // keyboard entirely.
-    const onOpenTeam = vi.fn();
-    render({ team: { id: "team-1", name: "api", role: "impl-1" }, onOpenTeam });
-    const open = host.querySelector<HTMLButtonElement>(".pane__team-open")!;
-    expect(open.tagName).toBe("BUTTON");
-    // The role is what it shows — that is the address teammates use — while
-    // the team it belongs to is what the click is about: by id, because the
-    // name is an address a rename can change under the click.
-    expect(open.textContent).toContain("impl-1");
-    act(() => open.click());
-    expect(onOpenTeam).toHaveBeenCalledWith("team-1");
+  it("wears its role as a reading, not a door", () => {
+    // The role is the address teammates use, so the header says it. It
+    // opens nothing: a role is picked when the member is added, and the
+    // pane's team is the one the stage has open.
+    render({ team: { id: "team-1", name: "api", role: "impl-1" } });
+    const badge = host.querySelector<HTMLElement>(".pane__team")!;
+    expect(badge.textContent).toContain("impl-1");
+    expect(badge.closest("button")).toBeNull();
   });
 
-  it("shows no team control for a pane on no team", () => {
+  it("shows no badge for a pane on no team", () => {
     render({ team: null });
-    expect(host.querySelector(".pane__team-open")).toBeNull();
+    expect(host.querySelector(".pane__team")).toBeNull();
   });
 });

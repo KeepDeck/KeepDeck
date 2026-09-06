@@ -503,6 +503,7 @@ export function createAgentOrchestratorRuntime(
     getView: runView.get,
     subscribe: runView.subscribe,
     createPane: creation.landPane,
+    createTeam: creation.createTeam,
     createWorkspace: creation.createWorkspace,
     retryProvisioning: creation.retryProvisioning,
     suspend: closing.suspend,

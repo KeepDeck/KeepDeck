@@ -323,6 +323,7 @@ export let agentRun: AgentRunView &
     | "resume"
     | "startFresh"
     | "createPane"
+    | "createTeam"
     | "createWorkspace"
     | "retryProvisioning"
     | "resumeSession"
@@ -452,6 +453,7 @@ export function Probe() {
     resume: wiring.orchestrator.resume,
     startFresh: wiring.orchestrator.startFresh,
     createPane: wiring.orchestrator.createPane,
+    createTeam: wiring.orchestrator.createTeam,
     createWorkspace: wiring.orchestrator.createWorkspace,
     retryProvisioning: wiring.orchestrator.retryProvisioning,
     resumeSession: wiring.orchestrator.resumeSession,

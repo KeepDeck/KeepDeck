@@ -118,6 +118,7 @@ export function createAgentOrchestratorContinuations({
         // The directory the session ran in, with its branch — a resume
         // lands on the team holding it, or on a team made for it.
         placement: placementOfRecorded(record),
+        ...(opts?.role !== undefined && { role: opts.role }),
         pane: {
           id,
           agentType: record.agent,
@@ -185,6 +186,7 @@ export function createAgentOrchestratorContinuations({
         ...(yolo && { yolo: true }),
         ...(name && { name }),
       };
+      const role = opts?.role !== undefined ? { role: opts.role } : {};
       if (target.kind === "dir") {
         const placement = placementOfRecorded({
           cwd: target.cwd,
@@ -198,13 +200,16 @@ export function createAgentOrchestratorContinuations({
           dropPaneSpawnSpec(id);
           throw new Error("Agent could not prepare a fork plan");
         }
-        creation.landOrThrow(creation.landPane({ workspace: workspaceRef, pane, placement }));
+        creation.landOrThrow(
+          creation.landPane({ workspace: workspaceRef, pane, placement, ...role }),
+        );
         return;
       }
 
       creation.landOrThrow(
         creation.landPane({
           workspace: workspaceRef,
+          ...role,
           // Filed under the team the landing mints for this card — the one
           // id that cannot be known before the landing.
           postProvision: async (worktree) => {

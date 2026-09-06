@@ -37,10 +37,6 @@ export interface AgentPaneHeaderProps {
    * inline rename must not be left in flight underneath one. */
   keyboardFocusEnabled: boolean;
   onRename(name: string): void;
-  /** Open the roster of the team this pane is on — by id. Optional for a
-   * header rendered without a way in — the badge then names the team
-   * without being a door. */
-  onOpenTeam?(teamId: string): void;
   onMinimize?(): void;
   onToggleFocus(): void;
   onClose(): void;
@@ -69,7 +65,6 @@ export function AgentPaneHeader({
   gitBadge,
   keyboardFocusEnabled,
   onRename,
-  onOpenTeam,
   onMinimize,
   onToggleFocus,
   onClose,
@@ -131,33 +126,19 @@ export function AgentPaneHeader({
         )}
         {yolo && <YoloBadge className="pane__yolo" />}
         {team && (
-          // The way to this pane's team's ROSTER — who is on it and what
-          // each is called — from a member wearing it, which is where
-          // somebody thinking about a team is already looking.
-          //
-          // It still settles nothing itself. A header can say WHICH teammate
-          // this is; it cannot answer "are these roles unique", which is the
-          // question that decides whether a team works, and that question
-          // needs the whole roster.
+          // Which teammate this is — the role is the address a teammate
+          // types. A reading, not a door: a role is picked when the member
+          // is added, and the pane's team is the one the stage has open.
           //
           // Before the branch chip: which teammate this is outranks which
           // branch it sits on when reading a deck mid-conversation, and the
           // narrow-header cascade drops from the right.
-          <button
-            type="button"
-            className="pane__team-open"
-            onClick={() => onOpenTeam?.(team.id)}
-            title={`Open team “${team.name}” — who is on it and what each is called`}
-            aria-label={`Open team ${team.name}`}
-          >
-            <TeamBadge
-              className="pane__team"
-              team={team.name}
-              role={team.role}
-              showTeamName={showTeamName}
-              decorative
-            />
-          </button>
+          <TeamBadge
+            className="pane__team"
+            team={team.name}
+            role={team.role}
+            showTeamName={showTeamName}
+          />
         )}
         {gitBadge && (
           <BranchBadge
