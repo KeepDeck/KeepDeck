@@ -139,6 +139,10 @@ const callbacks = {
   onRestoreSuspendedPane: vi.fn(),
   onCloseAgent: vi.fn(),
   onRenamePane: vi.fn(),
+  onEnterTeam: vi.fn(),
+  onAddTeamMember: vi.fn(),
+  onRenameTeam: vi.fn(),
+  onDisbandTeam: vi.fn(),
   onPaneTitle: vi.fn(),
   onStartFresh: vi.fn(),
   onResumeAgent: vi.fn(),
@@ -386,6 +390,163 @@ describe("DeckStage — the open team's slice", () => {
     }
     expect(document.querySelector(".deck__grid-empty")).toBeNull();
     expect(document.querySelector(".deck__tray")).toBeNull();
+  });
+
+  it("keeps a pane's node through the drill-down, the return, and a rename of its team", () => {
+    // The mount contract: a terminal is never torn down for a change of
+    // level. The node is the proof — a layer that unmounted the closed
+    // teams' panes, or keyed its container on the team's name, hands back
+    // a different element here.
+    render({ workspaces: twoTeams, specByPane: specs, viewByWs: { "ws-1": { teamOpen: undefined } } });
+    const node = paneEl("pane-2");
+    expect(node.classList.contains("pane--hidden")).toBe(true);
+
+    render({ workspaces: twoTeams, specByPane: specs, viewByWs: { "ws-1": { teamOpen: "team-2" } } });
+    expect(paneEl("pane-2")).toBe(node);
+    expect(node.classList.contains("pane--hidden")).toBe(false);
+
+    const renamed = [
+      {
+        ...twoTeams[0],
+        teams: [team("team-1", "/repo"), { ...team("team-2", "/repo/wt"), name: "platform" }],
+      },
+    ];
+    render({ workspaces: renamed, specByPane: specs, viewByWs: { "ws-1": { teamOpen: "team-2" } } });
+    expect(paneEl("pane-2")).toBe(node);
+
+    render({ workspaces: renamed, specByPane: specs, viewByWs: { "ws-1": { teamOpen: undefined } } });
+    expect(paneEl("pane-2")).toBe(node);
+    expect(node.classList.contains("pane--hidden")).toBe(true);
+  });
+});
+
+describe("DeckStage — the teams level", () => {
+  let root: Root;
+
+  beforeEach(() => {
+    document.body.innerHTML = "<div id='host'></div>";
+    root = createRoot(document.getElementById("host")!);
+    vi.mocked(TerminalPane).mockClear();
+    for (const callback of Object.values(callbacks)) callback.mockClear();
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+  });
+
+  const render = (overrides: Record<string, unknown> = {}) =>
+    act(() => root.render(withRuntime(createElement(DeckStage, props(overrides)))));
+
+  const card = (teamId: string) =>
+    document.querySelector<HTMLElement>(`[data-team-id='${teamId}']`)!;
+  const menuItems = () =>
+    [...document.querySelectorAll<HTMLButtonElement>("[role='menuitem']")].map(
+      (item) => item.textContent,
+    );
+
+  /** api on its worktree (two agents), and docs whose worktree create failed. */
+  const cards = [
+    {
+      ...workspaces[0],
+      teams: [
+        { id: "team-1", name: "api", location: { kind: "attached" as const, cwd: "/repo/.wt/api", branch: "kd/api" } },
+        {
+          id: "team-2",
+          name: "docs",
+          location: {
+            kind: "provisioning" as const,
+            intent: { repo: "/repo", path: "/repo/.wt/docs", branch: "kd/docs", index: 2 },
+            error: "branch exists",
+          },
+        },
+      ],
+      panes: [
+        { id: "pane-1", agentType: "codex", ...on("team-1", "lead") },
+        { id: "pane-2", agentType: "codex", ...on("team-1", "impl-1") },
+      ],
+    },
+  ];
+
+  it("draws one card per team with its six things, and the whole card is the way in", () => {
+    render({ workspaces: cards, viewByWs: { "ws-1": { teamOpen: undefined } } });
+    const api = card("team-1");
+    expect(api.querySelector(".team-card__name")!.textContent).toBe("api");
+    expect(api.querySelector(".team-card__dot")!.classList.contains("team-card__dot--none")).toBe(true);
+    expect(api.querySelector(".team-card__branch")!.textContent).toContain("kd/api");
+    expect(api.querySelector(".team-card__count")!.textContent).toBe("2 agents");
+    expect(api.querySelector(".team-card__dir")!.textContent).toBe("api");
+    expect(api.querySelector<HTMLElement>(".team-card__dir")!.title).toBe("/repo/.wt/api");
+    expect(api.classList.contains("team-card--pending")).toBe(false);
+    // Nothing on the card but the menu is a control.
+    expect(api.querySelectorAll("button")).toHaveLength(2);
+
+    const docs = card("team-2");
+    expect(docs.classList.contains("team-card--pending")).toBe(true);
+    expect(docs.querySelector(".team-card__dot")!.classList.contains("team-card__dot--failed")).toBe(true);
+    expect(docs.querySelector(".team-card__count")!.textContent).toBe("No agents");
+    expect(docs.textContent).not.toContain("branch exists");
+
+    act(() => api.click());
+    expect(callbacks.onEnterTeam).toHaveBeenCalledWith("ws-1", "team-1");
+    act(() => docs.querySelector<HTMLButtonElement>(".team-card__open")!.click());
+    expect(callbacks.onEnterTeam).toHaveBeenLastCalledWith("ws-1", "team-2");
+  });
+
+  it("offers one menu on every card, with Retry only where the create failed, and performs each pick", () => {
+    render({ workspaces: cards, viewByWs: { "ws-1": { teamOpen: undefined } } });
+    act(() => card("team-1").querySelector<HTMLButtonElement>("button[aria-label='Team api actions']")!.click());
+    expect(menuItems()).toEqual(["Open", "+ Member", "Rename", "Disband"]);
+    // Opening the menu is not entering the team.
+    expect(callbacks.onEnterTeam).not.toHaveBeenCalled();
+    act(() => document.querySelector<HTMLButtonElement>("[role='menuitem']:nth-child(1)")!.click());
+
+    act(() => card("team-2").querySelector<HTMLButtonElement>("button[aria-label='Team docs actions']")!.click());
+    expect(menuItems()).toEqual(["Open", "+ Member", "Rename", "Disband", "Retry the worktree"]);
+    const items = [...document.querySelectorAll<HTMLButtonElement>("[role='menuitem']")];
+    act(() => items[4].click());
+    expect(callbacks.onRetryProvision).toHaveBeenCalledWith("ws-1", "team-2");
+
+    act(() => card("team-2").querySelector<HTMLButtonElement>("button[aria-label='Team docs actions']")!.click());
+    act(() => [...document.querySelectorAll<HTMLButtonElement>("[role='menuitem']")][3].click());
+    expect(callbacks.onDisbandTeam).toHaveBeenCalledWith("ws-1", "team-2");
+
+    act(() => card("team-2").querySelector<HTMLButtonElement>("button[aria-label='Team docs actions']")!.click());
+    act(() => [...document.querySelectorAll<HTMLButtonElement>("[role='menuitem']")][1].click());
+    expect(callbacks.onAddTeamMember).toHaveBeenCalledWith("ws-1", "team-2");
+  });
+
+  it("renames inline from the menu: Enter commits the trimmed draft to the team by id", () => {
+    render({ workspaces: cards, viewByWs: { "ws-1": { teamOpen: undefined } } });
+    act(() => card("team-1").querySelector<HTMLButtonElement>("button[aria-label='Team api actions']")!.click());
+    act(() => [...document.querySelectorAll<HTMLButtonElement>("[role='menuitem']")][2].click());
+    const input = card("team-1").querySelector<HTMLInputElement>(".team-card__rename")!;
+    expect(input.value).toBe("api");
+    act(() => {
+      // Through the prototype's setter: React's value tracker ignores a
+      // value written on the instance, and would see no change to report.
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(
+        input,
+        " platform ",
+      );
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+    expect(callbacks.onRenameTeam).toHaveBeenCalledWith("ws-1", "team-1", "platform");
+  });
+
+  it("shows a workspace with an empty team as its card, not as the sessions screen", () => {
+    render({
+      workspaces: [{ ...workspaces[0], panes: [] }],
+      specByPane: {},
+      viewByWs: { "ws-1": { teamOpen: undefined } },
+    });
+    expect(card("team-1").querySelector(".team-card__count")!.textContent).toBe("No agents");
+    expect(document.querySelector(".deck__setup")).toBeNull();
+  });
+
+  it("hides the cards while a team is open", () => {
+    render({ workspaces: cards, viewByWs: { "ws-1": { teamOpen: "team-1" } } });
+    expect(document.querySelector(".deck__teams")).toBeNull();
   });
 });
 

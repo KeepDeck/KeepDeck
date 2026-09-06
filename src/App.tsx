@@ -20,6 +20,7 @@ import { WorkspacesRail } from "./components/workspace/WorkspacesRail";
 import { WorkspaceForm } from "./components/workspace/WorkspaceForm";
 import {
   DECK_STATE_VERSION,
+  findTeam,
   findWorkspace,
   MAX_PANES,
   pathOccupancy,
@@ -202,6 +203,14 @@ function App() {
             onCloseAgent={closeFlow.requestCloseAgent}
             onRenamePane={deck.renamePane}
             onOpenTeam={(name) => setTeamDialog({ editing: name })}
+            onEnterTeam={deck.openTeam}
+            onAddTeamMember={(wsId, teamId) => {
+              const ws = findWorkspace(deck.workspaces, wsId);
+              const team = ws && findTeam(ws, teamId);
+              if (team) setTeamDialog({ editing: team.name });
+            }}
+            onRenameTeam={deck.renameTeam}
+            onDisbandTeam={closeFlow.requestDisbandTeam}
             onPaneTitle={deck.setPaneAutoTitle}
             idleBlocked={runView.blocked}
             wakeFailed={runView.wakeFailed}

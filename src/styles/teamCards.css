@@ -1,0 +1,168 @@
+/* The teams level of the stage (components/deck/TeamCards.tsx).
+ *
+ * Laid over the pane grid the way the empty-grid word is: the panes of every
+ * team stay mounted underneath, hidden, and this layer covers them while no
+ * team is open. A grid of cards, never a list — one anatomy per card, and
+ * the only thing a state changes is the dot's colour and, for a directory
+ * not there yet, the rim going dashed. Dot hues are the status ladder's
+ * (status.css), the same four names as every other surface. */
+.deck__teams {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  padding: 16px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-auto-rows: max-content;
+  align-content: start;
+  gap: 12px;
+  background-color: #0b0e14;
+}
+
+.team-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid #1c2230;
+  border-radius: 8px;
+  background-color: #0e121a;
+  color: #c5c8c6;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.team-card:hover {
+  border-color: #2a3446;
+}
+
+/* The directory is on its way, or its create failed: the rim says
+   "not there yet", the dot says which. */
+.team-card--pending {
+  border-style: dashed;
+}
+
+.team-card__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.team-card__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #3b4658;
+  flex: none;
+}
+
+.team-card__dot--done {
+  background-color: var(--status-done);
+}
+
+.team-card__dot--working {
+  background-color: var(--status-working);
+  animation: status-dot-working 1.6s ease-in-out infinite;
+}
+
+.team-card__dot--waiting {
+  background-color: var(--status-waiting);
+  animation: status-dot-breathe 2s ease-in-out infinite;
+}
+
+.team-card__dot--failed {
+  background-color: var(--status-failed);
+  animation: status-dot-pulse 1s ease-in-out infinite;
+}
+
+/* A create in flight breathes like a wait — something is being waited
+   for — in the quiet gray, so it never reads as the person's turn. */
+.team-card__dot--creating {
+  animation: status-dot-breathe 2s ease-in-out infinite;
+}
+
+/* The name is the way in: a button drawn as text, so a keyboard reaches
+   the drill-down without a role on the card itself. */
+.team-card__open {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.team-card__open:focus-visible {
+  outline: 2px solid var(--kd-ok);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+.team-card__name {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: #e6e9ef;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Inline rename of the name — the pane title's field, at the card's size. */
+.team-card__rename {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 1px 4px;
+  border: 1px solid #3a4658;
+  border-radius: 4px;
+  background-color: #0b0e14;
+  color: #c5c8c6;
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+
+.team-card__menu {
+  margin-left: auto;
+  flex: none;
+}
+
+.team-card__meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12px;
+  color: #8b93a3;
+}
+
+.team-card__branch {
+  max-width: 100%;
+}
+
+.team-card__count {
+  font-variant-numeric: tabular-nums;
+}
+
+.team-card__dir {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: #6b7280;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .team-card__dot--working,
+  .team-card__dot--waiting,
+  .team-card__dot--failed,
+  .team-card__dot--creating {
+    animation: none;
+  }
+}

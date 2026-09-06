@@ -22,12 +22,14 @@ import {
   paneProvisioning,
   stagePanes,
   teamOfPane,
+  teamsOf,
 } from "../domain/deck";
 import type { PaneFramePlace } from "../domain/status";
 import { teamNamesIn, teamOf } from "../domain/mail";
 import { gitBadge } from "../ui/gitBadge";
 import { AgentPane, type UnavailableAgent } from "./agent/AgentPane";
 import { MinimizedTray, type MinimizedTrayEntry } from "./deck/MinimizedTray";
+import { TeamCards } from "./deck/TeamCards";
 import { emptyGridMessage, trayView, type ShelfEntry } from "../presentation/trayView";
 import {
   journalRows,
@@ -144,6 +146,13 @@ interface DeckStageProps {
   /** Open an existing team by name — the way in to a team a pane's badge
    * names, since the bar's button always starts a new one. */
   onOpenTeam?(name: string): void;
+  /** Drill into a team from its card — the stage's level moves. */
+  onEnterTeam(wsId: string, teamId: string): void;
+  /** Put another agent on a team, from its card's menu. */
+  onAddTeamMember(wsId: string, teamId: string): void;
+  onRenameTeam(wsId: string, teamId: string, name: string): void;
+  /** Ask to disband a team — the close flow's own question. */
+  onDisbandTeam(wsId: string, teamId: string): void;
   /** Terminal title changed (OSC) — feeds auto-naming ([F11]). */
   onPaneTitle(wsId: string, paneId: string, title: string): void;
   /** Idle panes blocked from waking: paneId → the missing directory
@@ -240,6 +249,10 @@ export function DeckStage({
   onCloseAgent,
   onRenamePane,
   onOpenTeam,
+  onEnterTeam,
+  onAddTeamMember,
+  onRenameTeam,
+  onDisbandTeam,
   onPaneTitle,
   idleBlocked,
   wakeFailed,
@@ -264,7 +277,9 @@ export function DeckStage({
       {workspaces.map((ws) => {
         const isActive = ws.id === activeId;
 
-        if (ws.panes.length === 0) {
+        // A workspace with nothing in it — no team, no pane — shows its
+        // sessions; one with a team, however empty, shows the team's card.
+        if (ws.panes.length === 0 && teamsOf(ws).length === 0) {
           return (
             <div
               key={ws.id}
@@ -546,6 +561,24 @@ export function DeckStage({
                   <span className="deck__grid-empty-title">{emptyGrid.title}</span>
                   <span className="deck__grid-empty-sub">{emptyGrid.sub}</span>
                 </div>
+              )}
+              {/* The cards level, laid over the mounted grid while no team
+                  is open — the same place the empty-grid word takes, for
+                  the same reason: the panes underneath never unmount. Its
+                  own component, so ONE status subscription serves every
+                  card, and so the pane nodes above keep their container
+                  (and their identity) through every change of level. */}
+              {team === undefined && (
+                <TeamCards
+                  workspace={ws}
+                  gitHeads={gitHeads}
+                  keyboardFocusEnabled={keyboardFocusEnabled && isActive}
+                  onEnter={(teamId) => onEnterTeam(ws.id, teamId)}
+                  onAddMember={(teamId) => onAddTeamMember(ws.id, teamId)}
+                  onRename={(teamId, name) => onRenameTeam(ws.id, teamId, name)}
+                  onDisband={(teamId) => onDisbandTeam(ws.id, teamId)}
+                  onRetry={(teamId) => onRetryProvision(ws.id, teamId)}
+                />
               )}
             </div>
             {trayEntries.length > 0 && (
