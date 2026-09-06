@@ -104,7 +104,7 @@ describe("the ordering between arming and teardown", () => {
   });
 
   it("makes a create wait for a queued teardown of the same directory", async () => {
-    // The close hands the folder straight back: the "+ Agent" dialog suggests a
+    // The close hands the folder straight back: the "+ Team" dialog suggests a
     // path whose teardown is still queued, because the pane has already left the
     // deck and nothing reads it as occupied. Unqueued, the create could land
     // first and git would then delete a live worktree.
@@ -173,7 +173,7 @@ describe("the ordering between arming and teardown", () => {
   });
 
   it("re-arms a root that left and came back — the memo must not outlive it", async () => {
-    // Deleting a pane frees its folder, and the next "+ Agent" takes the same
+    // Deleting a pane frees its folder, and the next "+ Team" takes the same
     // one back. The memo caches the RESULT of the call that armed it, so unless
     // a teardown forgets that entry the returning worktree hits the cache and
     // `stageSkills` — the only code that arms — never runs for it again.

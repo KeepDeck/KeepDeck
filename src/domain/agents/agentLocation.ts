@@ -15,7 +15,7 @@ export interface PathProbe {
 }
 
 /**
- * How the entered worktree path resolves in the "+ Agent" dialog ([F2] — the
+ * How the entered worktree path resolves in the agent dialog ([F2] — the
  * per-agent worktree/main choice is DERIVED FROM THE PATH, not a toggle):
  * an empty path runs in the workspace's main repo; a free path creates a new
  * worktree; an existing worktree is attached; anything else is unusable.
@@ -92,7 +92,7 @@ export function canCreateAgent(
   }
 }
 
-/** The resolved location for a new agent, chosen in the "+ Agent" dialog. */
+/** The resolved location for a new agent, chosen in the agent dialog. */
 export type AgentLocation =
   | { kind: "main" }
   | {
@@ -107,7 +107,7 @@ export type AgentLocation =
 
 /** Where a FORK lands: a directory that already exists (the workspace folder,
  * or an attached worktree), or a NEW worktree the fork provisions first. The
- * resolved answer, after the "+ Agent" dialog's [`AgentLocation`] or the fork
+ * resolved answer, after the agent dialog's [`AgentLocation`] or the fork
  * dialog's own picker has been read. */
 export type ForkTarget =
   | { kind: "dir"; cwd: string }
@@ -116,7 +116,7 @@ export type ForkTarget =
 /**
  * Where a fork of a session lands, given the location its surface resolved.
  *
- * The mapping is the product's, not either dialog's: the "+ Agent" dialog and
+ * The mapping is the product's, not either dialog's: the agent dialog and
  * the fork dialog both offer the same three choices and both had spelled the
  * translation out, which is how one of them came to carry the picked base
  * branch into a new worktree and the other to fork silently from HEAD.
@@ -193,7 +193,7 @@ export interface SessionPickRow {
   mtime: number;
 }
 
-/** What the "+ Agent" dialog returns for one new agent. */
+/** What the agent dialog returns — for a new team, or for one new member. */
 export interface AgentDialogResult {
   agentType: AgentType;
   /** Optional custom display name; blank falls back to the derived title. */

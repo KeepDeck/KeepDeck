@@ -10,7 +10,7 @@ interface YoloFieldProps {
  * presentational — the owning dialog decides WHETHER to render it at all
  * (gated on the selected agent's declared YOLO capability, the single
  * domain gate in `agentSupportsYolo`) and owns the checked state. One
- * anatomy shared by every spawn surface (the "+ Agent" dialog, the fork
+ * anatomy shared by every spawn surface (the agent dialog, the fork
  * dialog), so the hazard reads identically wherever an agent is born.
  */
 export function YoloField({ checked, onChange }: YoloFieldProps) {

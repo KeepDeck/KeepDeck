@@ -59,7 +59,8 @@ export interface AgentDialogNotices {
  * member of the team `teamId`. */
 export type AgentDialogOpening = { kind: "new-team" } | { kind: "member"; teamId: string };
 
-/** Everything the "+ Agent" dialog needs to render, captured at open time. */
+/** Everything the agent dialog ("+ Team" / "Add member") needs to render,
+ * captured at open time. */
 export interface AgentDialogSpec {
   workspace: WorkspaceRef;
   agentId: string;
@@ -87,7 +88,7 @@ export interface AgentDialogSpec {
 }
 
 /**
- * Owns the "+ Agent" flow: open the dialog with per-workspace suggestions,
+ * Owns the agent dialog flow: open the dialog with per-workspace suggestions,
  * then turn its result into a pane — bare (main repo), attached to an existing
  * worktree, or a fresh worktree created at the chosen path ([F2]). The fresh
  * worktree lands optimistically: the pane joins the grid as a provisioning

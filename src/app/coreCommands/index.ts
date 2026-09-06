@@ -87,7 +87,7 @@ export interface CoreCommandDeps {
    * reporting what it did. */
   resumeAgent(wsId: string, paneId: string): ResumeRequest;
   /** Land a new agent pane, worktree create and all — the same entry point
-   * the "+ Agent" dialog uses, so a spawn asked for by voice or MCP goes
+   * the agent dialog uses, so a spawn asked for by voice or MCP goes
    * through the same sequence as one asked for by hand. */
   createPane(request: CreatePaneRequest): CreatePaneOutcome;
   /** Open the settings dialog; `sectionId` lands it on a specific section
@@ -274,7 +274,7 @@ export function registerCoreCommands(
   /** The directory a pane asks for when nobody named one: a repo workspace
    * with a base folder gets the first FREE worktree suggestion (never a dir
    * a team holds, nor one blocked on disk) — a team of its own; anything
-   * else the workspace root. Mirrors the "+ Agent" dialog's defaults. */
+   * else the workspace root. Mirrors the agent dialog's defaults. */
   async function freshWorktree(
     current: { deck: Deck; workspace: Workspace },
     index: number,

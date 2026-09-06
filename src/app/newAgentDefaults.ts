@@ -11,7 +11,7 @@ import { getSettings } from "./settingsManager";
  * What a NEW agent in a workspace starts out as, before any surface asks the
  * user to change it.
  *
- * The rules are the product's, not any one surface's: the "+ Agent" dialog
+ * The rules are the product's, not any one surface's: the agent dialog
  * prefills them, `agent.spawn` (voice/MCP) applies them unattended, and both
  * had spelled them out character-for-character. A rule with two homes is a
  * rule that changes in one of them.

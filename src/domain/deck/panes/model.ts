@@ -79,7 +79,7 @@ export interface WorktreeIntent {
   /** The repository (the workspace cwd) the worktree is created in. */
   repo: string;
   /** Where the worktree goes — resolved before the pane was ever built (the
-   * "+ Agent" dialog's accepted suggestion, or a fork's target) and used
+   * agent dialog's accepted suggestion, or a fork's target) and used
    * verbatim. Required: backend-assigned placement went with the create-time
    * agent batch, so an intent that cannot name its directory is not one. */
   path: string;

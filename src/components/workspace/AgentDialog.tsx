@@ -126,7 +126,7 @@ interface AgentDialogProps {
 }
 
 /**
- * Modal for the "+ Agent" button. The per-agent worktree/main choice is
+ * Modal behind "+ Team" and "Add member". The per-agent worktree/main choice is
  * DERIVED FROM THE PATH ([F2]), not a toggle: an empty "Worktree" field runs
  * the agent in the workspace's main repo; a path creates a new worktree there
  * (or attaches to an existing one). A live hint — modeled on the create

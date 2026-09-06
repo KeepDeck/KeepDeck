@@ -39,7 +39,7 @@ export interface TeamSetupDeps {
    * answering with its pane id — the `team.add` command, so every creation
    * default stays in one place and the recruit lands on the team in the
    * same step that starts it. `yolo` is passed through rather than left to
-   * the global default: the dialog asked per recruit, and dropping the
+   * the global default: the plan answers it per recruit, and dropping the
    * answer here would silently ignore it. */
   spawn?(
     workspaceId: string,

@@ -18,11 +18,11 @@ export { teamNameKey, type TeamAssignment } from "../deck";
 
 // Whether a pane MAY take a role is not answered here, and deliberately not
 // answered twice anywhere: `planTeam` settles a whole roster, and every path
-// that changes one — the dialog, and an agent driving `team.assign` — goes
+// that changes one — an agent driving `team.assign` or `team.setup` — goes
 // through it. A single-assignment checker lived here once and was the weaker
 // of the two: it knew about blank names and duplicate addresses but not about
 // the lead a team needs, nor about a pane already belonging to another team,
-// so the same change the dialog refused went through over MCP.
+// so a change one door refused went through another.
 //
 // Nor is membership answered by NAME here any more: a pane holds its team's
 // id, the deck's `membersOf`/`teamOfPane` answer by it, and a name reaches a

@@ -64,7 +64,7 @@ export interface MailCommandDeps {
 /**
  * What applying a roster means, from here.
  *
- * The same owner the dialog goes through (`applyTeamPlan`), with the ports an
+ * The one owner of applying a roster (`applyTeamPlan`), with the ports an
  * AGENT-driven settle can honestly supply: it records the roles and
  * re-briefs everyone whose roster changed. It cannot start an agent — a
  * roster settle asks for none, and a plan that did would say so rather than
@@ -364,7 +364,7 @@ export function registerMailCommands(
         },
       ],
       /**
-       * The same settle the dialog performs, from an agent instead.
+       * A roster settle, from an agent — the one way a role is written.
        *
        * It goes through `planTeam` + `applyTeamPlan` rather than writing the
        * role straight in, because everything ELSE that joining a team means
@@ -375,7 +375,7 @@ export function registerMailCommands(
        * be told until a fresh session happened to restate it.
        *
        * The roster it settles is the team AS IT WILL BE: everyone on it,
-       * this pane under what it was asked to become. So the rules the dialog
+       * this pane under what it was asked to become. So the rules a roster
        * obeys — one lead, unique addresses, known roles — are obeyed here by
        * construction rather than by a second, weaker copy. The team is the
        * pane's OWN, by id: an agent runs where its team runs, so there is no

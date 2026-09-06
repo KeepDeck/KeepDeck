@@ -70,7 +70,7 @@ export function probeWorktree(path: string): Promise<PathProbe> {
   return invoke<PathProbe>("worktree_probe", { path });
 }
 
-/** The repo's local branch names — the options behind the "+ Agent" dialog's
+/** The repo's local branch names — the options behind the agent dialog's
  *  base-branch picker. The likeliest base leads (the repo's default branch,
  *  else the checked-out one), the rest alphabetical. Rejects when `repo` isn't
  *  a git repo or git fails; callers flatten that to "no list", which relaxes

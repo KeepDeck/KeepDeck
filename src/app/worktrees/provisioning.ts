@@ -135,7 +135,7 @@ export function createWorktreeProvisioning(
     try {
       // In the queue like every other worktree operation. A create was the one
       // that was not, and the close flow hands the freed folder straight back:
-      // the "+ Agent" dialog suggests a path whose teardown may still be queued
+      // the agent dialog suggests a path whose teardown may still be queued
       // (the owner has already left the deck, so nothing reads it as occupied),
       // and whoever ran first won. Queued, the teardown that was asked for first
       // finishes first, and the create either lands afterwards or fails honestly.

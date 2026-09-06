@@ -1,5 +1,5 @@
 /**
- * Building panes: the "+ Agent" dialog's request, as the landing takes it.
+ * Building panes: the agent dialog's request, as the landing takes it.
  *
  * A factory decides a pane's STARTING state, which is why they sit apart from
  * the questions asked about a pane later.
@@ -12,7 +12,7 @@ import type { AgentDialogResult } from "../../agents";
 import type { TeamLocation } from "../teams/model";
 import type { Pane } from "./model";
 
-/** What one "+ Agent" request asks for: the pane, and the DIRECTORY it
+/** What one agent-dialog request asks for: the pane, and the DIRECTORY it
  * wants — which the landing turns into the team the pane joins (the one
  * already holding that directory) or mints for it. The pane itself never
  * carries the directory: it is the team's. */
@@ -22,7 +22,7 @@ export interface PaneRequest {
 }
 
 /**
- * The pane one "+ Agent" request describes — all four shapes the dialog
+ * The pane one agent-dialog request describes — all four shapes the dialog
  * offers, in one place: a remote pane carrying its endpoint, a pane running
  * in the workspace root, one attached to an existing directory, and one whose
  * worktree does not exist yet (its team lands as a provisioning card and the
