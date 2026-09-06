@@ -16,6 +16,7 @@ import {
   paneId,
   WORKSPACE_FULL_MESSAGE,
   WORKSPACE_GONE_MESSAGE,
+  WORKTREE_HELD_MESSAGE,
   type Pane,
   type Workspace,
   paneBranch,
@@ -336,6 +337,8 @@ export function registerCoreCommands(
             throw new Error(WORKSPACE_FULL_MESSAGE);
           case "gone":
             throw new Error(WORKSPACE_GONE_MESSAGE);
+          case "held":
+            throw new Error(WORKTREE_HELD_MESSAGE);
           default: {
             const unhandled: never = landed;
             throw new Error(

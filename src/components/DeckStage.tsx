@@ -19,6 +19,7 @@ import {
   type WorkspaceView,
   paneBody,
   paneProvisioning,
+  teamOfPane,
 } from "../domain/deck";
 import type { PaneFramePlace } from "../domain/status";
 import { teamNamesIn, teamOf } from "../domain/mail";
@@ -180,7 +181,8 @@ interface DeckStageProps {
   /** Wake a suspended (or parked) pane — the idle card's own gesture. */
   onResumeAgent(wsId: string, paneId: string): void;
   /** Re-issue a failed pane's worktree create (the failed card's Retry). */
-  onRetryProvision(wsId: string, paneId: string): void;
+  /** Re-issue the failed create behind a card — the TEAM's card. */
+  onRetryProvision(wsId: string, teamId: string): void;
   /** A pane's PTY exited (the resume-failure detector lives upstream). */
   onAgentExited(wsId: string, paneId: string, code: number | null): void;
   /** A pane's spawn failed — feeds the notification center. */
@@ -494,7 +496,11 @@ export function DeckStage({
               onTitle={(t) => onPaneTitle(ws.id, pane.id, t)}
               onStartFresh={() => onStartFresh(ws.id, pane.id)}
               onResume={() => onResumeAgent(ws.id, pane.id)}
-              onRetryProvision={() => onRetryProvision(ws.id, pane.id)}
+              onRetryProvision={() => {
+                // The card, and its Retry, are the team's.
+                const team = teamOfPane(ws, pane);
+                if (team) onRetryProvision(ws.id, team.id);
+              }}
               onExited={(code) => onAgentExited(ws.id, pane.id, code)}
               onSpawnFailed={(message) =>
                 onAgentSpawnFailed(ws.id, pane.id, message)

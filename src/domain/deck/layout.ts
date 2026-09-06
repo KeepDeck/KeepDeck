@@ -11,6 +11,10 @@ export const WORKSPACE_FULL_MESSAGE =
  * inside the awaits a worktree create or a fork's surgery needs. One string
  * for the same reason the cap has one: it was already spelled two ways. */
 export const WORKSPACE_GONE_MESSAGE = "That workspace was closed.";
+/** A directory a team in ANOTHER workspace already runs in: one directory is
+ * one team's, and a team never spans workspaces. */
+export const WORKTREE_HELD_MESSAGE =
+  "That directory is already a team's in another workspace.";
 
 /** Geometry of the deck grid: a square-ish column count, filled row by row. */
 export interface GridGeometry {

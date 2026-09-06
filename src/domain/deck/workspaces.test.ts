@@ -54,13 +54,15 @@ describe("addAgentPane", () => {
     expect(after[1].panes).toHaveLength(0); // b untouched
   });
 
-  it("respects the pane cap", () => {
+  it("appends past sixteen — the cap is the team's, not the workspace's", () => {
+    // A workspace holds as many teams as it is given; `joinTeam` is what
+    // refuses a seventeenth member of ONE team.
     const full = ws(
       "a",
       Array.from({ length: MAX_PANES }, (_, i) => i + 1),
     );
     const after = addAgentPane([full], "a", { id: "overflow" });
-    expect(after[0].panes).toHaveLength(MAX_PANES);
+    expect(after[0].panes).toHaveLength(MAX_PANES + 1);
   });
 });
 

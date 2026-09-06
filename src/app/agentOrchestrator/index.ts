@@ -27,8 +27,8 @@ export interface AgentOrchestrator {
   createPane(request: CreatePaneRequest): CreatePaneOutcome;
   /** Register a workspace and optimistically land its agent panes. */
   createWorkspace(config: SpawnConfig): WorkspaceCreationResult;
-  /** Re-issue a failed pane's worktree create. */
-  retryProvisioning(wsId: string, paneId: string): void;
+  /** Re-issue a team's failed worktree create — the card is the team's. */
+  retryProvisioning(wsId: string, teamId: string): void;
   /** Stop an agent while preserving its resumable pane. */
   suspend(wsId: string, paneId: string): Promise<SuspendOutcome>;
   /** Confirmed pane/workspace close, including optional worktree teardown. */
@@ -128,13 +128,29 @@ export interface OccupiedNote {
 export interface CreatePaneRequest {
   /** Exact workspace lifetime, guarding asynchronous creation decisions. */
   workspace: WorkspaceRef;
+  /** The pane as the request describes it — its `location` says which
+   * directory it asked to run in, and the landing turns that into the team
+   * it joins: the team already holding that directory, or a new one made
+   * for it. The pane itself lands without a placement of its own. */
   pane: Pane;
+  /** A step to run after the team's worktree lands and before its card
+   * resolves — a journal fork's store surgery. Filed under the TEAM the
+   * landing mints, which is why it rides the request rather than being
+   * registered ahead of it under an id the caller would have to guess. */
+  postProvision?: (worktree: { cwd: string; branch: string }) => Promise<void>;
 }
 
 export type CreatePaneOutcome =
-  | { kind: "created" }
+  /** Landed, on the team named — the one holding the directory, or freshly
+   * minted for it. */
+  | { kind: "created"; teamId: string }
   | { kind: "gone" }
-  | { kind: "full" };
+  /** The team the pane would join already has MAX_PANES members. */
+  | { kind: "full" }
+  /** The directory the pane asked for is held by a team in ANOTHER
+   * workspace — one directory is one team's, and a team never spans
+   * workspaces. */
+  | { kind: "held" };
 
 export type CloseRequest = {
   /** Destructive choice from the confirmation surface. */

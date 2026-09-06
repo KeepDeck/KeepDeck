@@ -2,7 +2,7 @@ import type { JournalRecords } from "../journal";
 import type { WorkspaceInstance } from "../workspaceInstance";
 import type { Pane, PaneSession } from "./panes";
 import type { DeckState } from "./reducer";
-import type { TeamAssignment } from "./teams/model";
+import type { Team, TeamAssignment, TeamLocation } from "./teams/model";
 import type { Workspace } from "./workspaces";
 
 export type DeckAction =
@@ -71,4 +71,19 @@ export type DeckAction =
       value: unknown;
     }
   | { type: "hydrateJournal"; records: JournalRecords; at: string }
-  | { type: "journalFlushed"; count: number };
+  | { type: "journalFlushed"; count: number }
+  // The team's life — see `teams/lifecycle`. Each is the transform's
+  // arguments and nothing more; the refusals live in the transform.
+  | { type: "createTeam"; wsId: string; team: Team & { location: TeamLocation } }
+  | {
+      type: "resolveTeamProvisioning";
+      wsId: string;
+      teamId: string;
+      cwd: string;
+      branch: string;
+    }
+  | { type: "setTeamProvisioningError"; wsId: string; teamId: string; error: string | null }
+  | { type: "renameTeam"; wsId: string; teamId: string; name: string }
+  | { type: "joinTeam"; wsId: string; paneId: string; teamId: string; role: string }
+  | { type: "leaveTeam"; wsId: string; paneId: string }
+  | { type: "dissolveTeam"; wsId: string; teamId: string };

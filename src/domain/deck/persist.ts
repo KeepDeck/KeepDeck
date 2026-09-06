@@ -96,7 +96,18 @@ export function serializeDeck(
     activeId: state.activeId,
     focusByWs,
     selectByWs,
-    workspaces: state.workspaces.map((ws) => ({
+    workspaces: state.workspaces.map((ws) => {
+      // A fork's card is dropped while still in flight — the team AND its
+      // members: its store surgery is an in-memory post-provision step that
+      // can't survive a restart, so restoring the card would Retry into a
+      // non-fork team (the fork silently lost). The user re-forks from the
+      // journal; a RESOLVED fork team has no card and persists normally.
+      const forking = new Set(
+        (ws.teams ?? [])
+          .filter((team) => team.location?.kind === "provisioning" && team.location.fork)
+          .map((team) => team.id),
+      );
+      return {
       ...ws.extras,
       id: ws.id,
       name: ws.name,
@@ -110,8 +121,8 @@ export function serializeDeck(
       // did — the directory and branch, or the create's intent alone (its
       // status is this run's; hydration stamps its own).
       ...(ws.teams !== undefined &&
-        ws.teams.length > 0 && {
-          teams: ws.teams.map((team) => {
+        ws.teams.some((team) => !forking.has(team.id)) && {
+          teams: ws.teams.filter((team) => !forking.has(team.id)).map((team) => {
             const placement = team.location ? placementToFields(team.location) : {};
             return {
               ...team.extras,
@@ -125,13 +136,12 @@ export function serializeDeck(
             };
           }),
         }),
-      // A fork's provisioning card is dropped while still in flight: its store
-      // surgery is an in-memory post-provision step that can't survive a
-      // restart, so restoring the card would Retry into a non-fork pane (the
-      // fork silently lost). The user re-forks from the journal; a RESOLVED
-      // fork pane has no `provisioning` and persists normally.
+      // A pane's own fork card (a pane still carrying a placement) is dropped
+      // for the same reason as its team's.
       panes: ws.panes
-        .filter((p) => !provisioningCard(p)?.fork)
+        .filter(
+          (p) => !provisioningCard(p)?.fork && !(p.team && forking.has(p.team.teamId)),
+        )
         .map((p) => {
           // The location goes to disk as the four fields it replaced, in the
           // slots they always held — so a document a pane round-trips
@@ -172,7 +182,8 @@ export function serializeDeck(
           }),
           };
         }),
-    })),
+      };
+    }),
   };
   return JSON.stringify(persisted);
 }

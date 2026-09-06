@@ -15,7 +15,6 @@ import {
   teamNameOf,
 } from "../../domain/deck";
 import {
-  defaultRoleFor,
   mintRoleAddress,
   paneIsOnTeam,
   parseRoleAddress,
@@ -24,6 +23,7 @@ import {
   teamMembers,
   teamNameKey,
   roleById,
+  suggestRoleAddress,
   teamBriefing,
   teamPlanIsEmpty,
   teamRoles,
@@ -65,14 +65,11 @@ interface TeamDialogProps {
   onCancel(): void;
 }
 
-/** The address a row gets when nobody has picked one. WHICH role that is, and
- * the numbering, both belong to the catalog — this only says what the roster
- * already holds. A duplicate can only come back for a singleton already
- * taken, and `planTeam` says so in words the person can act on. */
-function suggestAddress(taken: readonly string[]): string {
-  const role = defaultRoleFor(taken);
-  return mintRoleAddress(role, taken) ?? role.id;
-}
+/** The address a row gets when nobody has picked one — the catalog's own
+ * suggestion, shared with the landing that puts an agent on a team without
+ * a dialog. A duplicate can only come back for a singleton already taken,
+ * and `planTeam` says so in words the person can act on. */
+const suggestAddress = suggestRoleAddress;
 
 /** What tells one pane from another when their titles do not. The branch
  * first — that is what an agent is actually working on — else the folder it

@@ -268,14 +268,13 @@ describe("deckReducer selection", () => {
     expect(next.viewByWs).toEqual({ a: { select: "a-2" } });
   });
 
-  it("addAgentPane at the cap appends nothing and selects nothing", () => {
+  it("addAgentPane past sixteen still appends — the cap is the team's", () => {
     const full = Array.from({ length: 16 }, (_, i) => `a-${i}`);
     const next = deckReducer(
       state({ workspaces: [ws("a", full)], activeId: "a" }),
       { type: "addAgentPane", id: "a", pane: { id: "overflow" } },
     );
-    expect(next.workspaces[0].panes).toHaveLength(16);
-    expect(next.viewByWs).toEqual({});
+    expect(next.workspaces[0].panes).toHaveLength(17);
   });
 });
 

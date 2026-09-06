@@ -21,6 +21,30 @@ export interface ProvisionCallbacks {
   abandoned(ownerId: string): boolean;
 }
 
+/** The runner's sinks for creates a TEAM asked for: the deck's team
+ * provisioning actions for `wsId`, keyed by team id. Both no-op inside the
+ * reducer when the team was dissolved mid-create. */
+export function provisionTeamsInto(
+  deck: {
+    resolveTeamProvisioning(
+      wsId: string,
+      teamId: string,
+      worktree: { cwd: string; branch: string },
+    ): void;
+    setTeamProvisioningError(wsId: string, teamId: string, error: string | null): void;
+    /** Is this team still in the deck? Read live — the create outlives the
+     * render that started it. */
+    hasTeam(wsId: string, teamId: string): boolean;
+  },
+  wsId: string,
+): ProvisionCallbacks {
+  return {
+    onResolved: (teamId, worktree) => deck.resolveTeamProvisioning(wsId, teamId, worktree),
+    onFailed: (teamId, error) => deck.setTeamProvisioningError(wsId, teamId, error),
+    abandoned: (teamId) => !deck.hasTeam(wsId, teamId),
+  };
+}
+
 /** The runner's usual sinks: the deck's provisioning actions for `wsId`.
  * Both no-op inside the reducer when the pane was closed mid-create. */
 export function provisionInto(

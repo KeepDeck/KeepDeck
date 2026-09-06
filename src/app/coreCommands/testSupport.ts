@@ -141,7 +141,7 @@ export function setup(workspaces: Workspace[]) {
       );
       if (!ws) return { kind: "gone" };
       ws.panes.push(pane);
-      return { kind: "created" };
+      return { kind: "created", teamId: "team-1" };
     },
   );
   const openSettings = vi.fn(() => true);

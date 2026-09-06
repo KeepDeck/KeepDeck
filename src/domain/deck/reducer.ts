@@ -42,6 +42,15 @@ import {
 } from "./panes";
 import { paneBranch, paneExecutionCwd } from "./roots";
 import { assignPaneTeam } from "./teams/transforms";
+import {
+  createTeam,
+  dissolveTeam,
+  joinTeam,
+  leaveTeam,
+  renameTeam,
+  resolveTeamProvisioning,
+  setTeamProvisioningError,
+} from "./teams/lifecycle";
 import type { DeckAction } from "./reducerActions";
 import {
   hidePaneView,
@@ -523,6 +532,37 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
           action.error,
         ),
       );
+    case "createTeam":
+      return withWorkspaces(state, createTeam(state.workspaces, action.wsId, action.team));
+    case "resolveTeamProvisioning":
+      // Same ref when the team was dissolved mid-create — the late result of
+      // a background create must not resurrect anything.
+      return withWorkspaces(
+        state,
+        resolveTeamProvisioning(state.workspaces, action.wsId, action.teamId, {
+          cwd: action.cwd,
+          branch: action.branch,
+        }),
+      );
+    case "setTeamProvisioningError":
+      return withWorkspaces(
+        state,
+        setTeamProvisioningError(state.workspaces, action.wsId, action.teamId, action.error),
+      );
+    case "renameTeam":
+      return withWorkspaces(
+        state,
+        renameTeam(state.workspaces, action.wsId, action.teamId, action.name),
+      );
+    case "joinTeam":
+      return withWorkspaces(
+        state,
+        joinTeam(state.workspaces, action.wsId, action.paneId, action.teamId, action.role),
+      );
+    case "leaveTeam":
+      return withWorkspaces(state, leaveTeam(state.workspaces, action.wsId, action.paneId));
+    case "dissolveTeam":
+      return withWorkspaces(state, dissolveTeam(state.workspaces, action.wsId, action.teamId));
     case "setWorkspacePluginSlot":
       if (
         state.workspaces.find((workspace) => workspace.id === action.wsId)

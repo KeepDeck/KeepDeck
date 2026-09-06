@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { provisioningCard } from "../../domain/deck";
+import { paneBranch, paneExecutionCwd, paneProvisioning } from "../../domain/deck";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -52,10 +52,13 @@ const handle = (over: Partial<SessionHandle> = {}): SessionHandle =>
     ...over,
   }) as SessionHandle;
 
-const fillWorkspace = () =>
+/** A team in ws-1 holding `cwd` with no room left on it. */
+const fillTeam = (cwd: string) =>
   act(() => {
+    deck.createTeam("ws-1", { id: "team-full", name: "full", location: { kind: "attached", cwd } });
     for (let i = 0; i < MAX_PANES; i++) {
       deck.addAgentPane("ws-1", { id: `p-${i}`, agentType: "claude" });
+      deck.joinTeam("ws-1", `p-${i}`, "team-full", `impl-${i + 1}`);
     }
   });
 
@@ -93,11 +96,14 @@ describe("agent orchestrator —continuing a recorded session", () => {
     expect(panes).toHaveLength(1);
     expect(panes[0]).toMatchObject({
       agentType: "codex",
-      // A foreign dir → pinned to the session's worktree.
-      location: { kind: "attached", cwd: "/repo/wt", branch: "kd/x/1" },
       yolo: true,
       session: { id: "s-1" },
     });
+    // A foreign dir → the pane joins a team pinned to the session's worktree;
+    // the placement is the team's, never the pane's own.
+    expect(panes[0].location).toBeUndefined();
+    expect(paneExecutionCwd(deck.workspaces[0], panes[0])).toBe("/repo/wt");
+    expect(paneBranch(deck.workspaces[0], panes[0])).toBe("kd/x/1");
     // Built for that pane, as a MANUAL resume: a continuation the user asked
     // for must not quietly become a different conversation.
     expect(peekPaneSpawnSpec(panes[0].id)).toMatchObject({
@@ -204,8 +210,10 @@ describe("agent orchestrator —continuing a recorded session", () => {
     expect(deck.workspaces[0].panes).toHaveLength(0);
   });
 
-  it("fails a full workspace loudly instead of stranding the built plan", async () => {
-    fillWorkspace();
+  it("fails a full team loudly instead of stranding the built plan", async () => {
+    // The session ran in a directory whose team has no room: the resume
+    // is refused whole rather than landing a seventeenth member.
+    fillTeam("/repo/wt");
     await expect(
       act(async () => agentRun.resumeSession("ws-1", handle())),
     ).rejects.toThrow("full");
@@ -336,10 +344,9 @@ describe("agent orchestrator —forking a recorded session", () => {
     );
 
     const pane = deck.workspaces[0].panes[0];
-    expect(pane).toMatchObject({
-      agentType: "claude",
-      location: { kind: "attached", cwd: "/elsewhere" },
-    });
+    expect(pane).toMatchObject({ agentType: "claude" });
+    expect(pane.location).toBeUndefined();
+    expect(paneExecutionCwd(deck.workspaces[0], pane)).toBe("/elsewhere");
     // The fork's NEW session id arrives later, via the reporter.
     expect(pane.session).toBeUndefined();
     const call = vi.mocked(buildForkSpec).mock.calls[0];
@@ -375,19 +382,23 @@ describe("agent orchestrator —forking a recorded session", () => {
     );
 
     const pane = deck.workspaces[0].panes[0];
-    expect(provisioningCard(pane)).toMatchObject({
+    const team = deck.workspaces[0].teams![0];
+    // The card is the TEAM's — minted for the fork's directory — and the
+    // pane wears it through its team.
+    expect(paneProvisioning(deck.workspaces[0], pane)).toMatchObject({
       intent: { repo: "/repo", path: "/repo-wt/fork-1", branch: "fork/auth" },
     });
     // The marker the whole restart-safety fix hinges on: serialize drops it.
-    expect(provisioningCard(pane)?.fork).toBe(true);
+    expect(paneProvisioning(deck.workspaces[0], pane)?.fork).toBe(true);
     expect(pane.yolo).toBe(true);
     // The worktree does not exist yet, so no surgery runs up front — a step
-    // is registered and the ordinary create is kicked off behind the card.
+    // is registered under the team and the ordinary create is kicked off
+    // behind the card.
     expect(vi.mocked(buildForkSpec)).not.toHaveBeenCalled();
     expect(steps.register).toHaveBeenCalledTimes(1);
-    expect(steps.register.mock.calls[0][0]).toBe(pane.id);
+    expect(steps.register.mock.calls[0][0]).toBe(team.id);
     expect(provisions).toHaveLength(1);
-    expect(provisions[0].map((request) => request.ownerId)).toEqual([pane.id]);
+    expect(provisions[0].map((request) => request.ownerId)).toEqual([team.id]);
 
     // The step runs the surgery bound to the CREATED worktree's cwd —
     // deliberately DISTINCT from the requested path, proving it uses the
@@ -436,8 +447,18 @@ describe("agent orchestrator —forking a recorded session", () => {
     ).rejects.toThrow("unexpected id layout");
   });
 
-  it("a full workspace fails loudly — no stranded step, no ownerless worktree", async () => {
-    fillWorkspace();
+  it("a worktree another workspace's team holds fails loudly — no stranded step, no ownerless worktree", async () => {
+    act(() =>
+      deck.createWorkspace({
+        id: "ws-2",
+        instance: createWorkspaceInstance(),
+        name: "other",
+        cwd: "/other",
+        worktreeBaseDir: null,
+        panes: [{ id: "pane-2", agentType: "claude", team: { teamId: "team-9", role: "lead" } }],
+        teams: [{ id: "team-9", name: "f", location: { kind: "attached", cwd: "/repo-wt/f" } }],
+      }),
+    );
     await expect(
       act(async () =>
         agentRun.forkSession("ws-1", forked(), {
@@ -446,15 +467,17 @@ describe("agent orchestrator —forking a recorded session", () => {
           branch: "fork/x",
         }),
       ),
-    ).rejects.toThrow("full");
+    ).rejects.toThrow("already a team's");
     expect(provisions).toEqual([]);
-    // The step was registered before the refusal; leaving it in the map would
-    // hold a closure over a pane id that will never exist again.
-    expect(steps.clear).toHaveBeenCalledTimes(1);
+    // The step is filed only under a team the landing minted; a refusal
+    // mints none, so nothing holds a closure over a pane id that will never
+    // exist again.
+    expect(steps.register).not.toHaveBeenCalled();
+    expect(deck.workspaces[0].teams ?? []).toEqual([]);
   });
 
-  it("a full workspace fails a DIR fork BEFORE the irreversible surgery", async () => {
-    fillWorkspace();
+  it("a full team fails a DIR fork BEFORE the irreversible surgery", async () => {
+    fillTeam("/elsewhere");
     await expect(
       act(async () =>
         agentRun.forkSession("ws-1", forked(), { kind: "dir", cwd: "/elsewhere" }),
@@ -462,6 +485,7 @@ describe("agent orchestrator —forking a recorded session", () => {
     ).rejects.toThrow("full");
     // export→rekey→import never runs, so there is no orphan clone.
     expect(vi.mocked(buildForkSpec)).not.toHaveBeenCalled();
+    expect(deck.workspaces[0].panes).toHaveLength(MAX_PANES);
   });
 
   it("reports the closed workspace instead of orphaning the clone it just made", async () => {

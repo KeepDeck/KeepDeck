@@ -1,9 +1,13 @@
 import {
   findPane,
+  findTeam,
+  findWorkspace,
   type DeckState,
   type Pane,
   type PaneSession,
+  type Team,
   type TeamAssignment,
+  type TeamLocation,
   type Workspace,
 } from "../domain/deck";
 import type { JournalRecords } from "../domain/journal";
@@ -149,6 +153,35 @@ function buildDeckActions(store: DeckStore) {
       }),
     setPaneProvisioningError: (wsId: string, paneId: string, error: string | null) =>
       dispatch({ type: "setPaneProvisioningError", wsId, paneId, error }),
+    /** Is this team still in the deck? A read, like `hasPane`, for the
+     * background create that outlives the render which started it. */
+    hasTeam: (wsId: string, teamId: string): boolean => {
+      const ws = findWorkspace(store.getSnapshot().workspaces, wsId);
+      return !!ws && findTeam(ws, teamId) !== undefined;
+    },
+    createTeam: (wsId: string, team: Team & { location: TeamLocation }) =>
+      dispatch({ type: "createTeam", wsId, team }),
+    resolveTeamProvisioning: (
+      wsId: string,
+      teamId: string,
+      worktree: { cwd: string; branch: string },
+    ) =>
+      dispatch({
+        type: "resolveTeamProvisioning",
+        wsId,
+        teamId,
+        cwd: worktree.cwd,
+        branch: worktree.branch,
+      }),
+    setTeamProvisioningError: (wsId: string, teamId: string, error: string | null) =>
+      dispatch({ type: "setTeamProvisioningError", wsId, teamId, error }),
+    renameTeam: (wsId: string, teamId: string, name: string) =>
+      dispatch({ type: "renameTeam", wsId, teamId, name }),
+    joinTeam: (wsId: string, paneId: string, teamId: string, role: string) =>
+      dispatch({ type: "joinTeam", wsId, paneId, teamId, role }),
+    leaveTeam: (wsId: string, paneId: string) => dispatch({ type: "leaveTeam", wsId, paneId }),
+    dissolveTeam: (wsId: string, teamId: string) =>
+      dispatch({ type: "dissolveTeam", wsId, teamId }),
     hydrateJournal: (records: JournalRecords) =>
       dispatch({ type: "hydrateJournal", records, at: nowIso() }),
     journalFlushed: (count: number) => dispatch({ type: "journalFlushed", count }),

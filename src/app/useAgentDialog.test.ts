@@ -67,7 +67,7 @@ const workspace = (over: Partial<Workspace>): Workspace => ({
  * Requests are recorded, not landed: what the dialog OFFERS is this file's
  * subject; what the orchestrator then does with it is its own. */
 const createPane = vi.fn<(request: CreatePaneRequest) => CreatePaneOutcome>(
-  () => ({ kind: "created" }),
+  () => ({ kind: "created", teamId: "team-1" }),
 );
 /** The continuations the dialog's "Start from" routes into. Recorded here
  * too: this file's subject is the ROUTING — which continuation, with which
