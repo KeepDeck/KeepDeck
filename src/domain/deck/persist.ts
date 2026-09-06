@@ -56,6 +56,10 @@ export interface HydratedDeck {
   /** Unknown top-level keys of the stored document (a newer revision's
    * fields) — handed back to `serializeDeck` so saves never strip them. */
   docExtras: Record<string, unknown>;
+  /** What the migration ladder did to the document that the person should
+   * hear about once — a team dissolved, a role re-minted. Consumed: shown
+   * by the app on this launch and never written back. */
+  notices: readonly string[];
 }
 
 /** How reading the stored deck ended. `corrupt` quarantines (evidence kept,
@@ -269,6 +273,9 @@ export function hydrateDeck(json: string): HydrateDeckResult {
       },
       nextAgentSeq,
       docExtras: collectExtras(raw, DOC_KNOWN_KEYS),
+      notices: Array.isArray(raw.migrationNotices)
+        ? raw.migrationNotices.filter((note): note is string => typeof note === "string")
+        : [],
     },
   };
 }
@@ -281,6 +288,9 @@ const DOC_KNOWN_KEYS: ReadonlySet<string> = new Set([
   "focusByWs",
   "selectByWs",
   "workspaces",
+  // The ladder's one-time word to the person — consumed on read, never an
+  // extra, so it cannot be announced again on the next launch.
+  "migrationNotices",
 ]);
 
 const WS_KNOWN_KEYS: ReadonlySet<string> = new Set([

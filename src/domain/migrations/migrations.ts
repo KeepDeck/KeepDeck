@@ -157,50 +157,234 @@ function migrateDeckFromV9toV10(doc: RawDoc): RawDoc {
 }
 
 /**
- * v10 → v11: a team becomes an object the workspace holds.
+ * v10 → v11: a team becomes an object the workspace holds, and the ONE
+ * directory a team runs in moves off its panes onto it.
  *
- * A v10 pane spells its membership as `{name, role}`; every pane holding the
- * same name (compared trimmed and lower-cased — the rule the dialog and the
- * plan already applied) was "the team". The hop mints one team per distinct
- * name in reading order, across the whole document, so a file always comes
- * back with the same ids, and rewrites each membership as `{teamId, role}`.
- * A half-written membership — no name, no role, only space — was read as no
- * membership before and becomes none here too. The rule is spelled out in
- * this file rather than borrowed from the model: a migration records what a
- * document went through, and must keep doing exactly that when the model's
- * rule moves on.
+ * A v10 pane carried its own placement — a worktree it ran in, a create in
+ * flight, or nothing (the workspace root) — and, separately, a membership
+ * spelled `{name, role}`; every pane holding the same name (trimmed,
+ * lower-cased — the rule the dialog and the plan already applied) was "the
+ * team", wherever each member ran. In v11 a team IS a directory's worth of
+ * agents. So the hop groups a workspace's panes by the directory they run in
+ * — the worktree, the create's target path, or the workspace root, which is
+ * a directory like any other — and makes one team per group, in reading
+ * order, with ids minted across the whole document so a file always comes
+ * back with the same ids.
+ *
+ * A named team whose members all sit in one directory survives intact: its
+ * name and roles land on that directory's team. A named team spread over
+ * several directories is DISSOLVED: without a shared directory there is no
+ * team to share mail in, and a suffix-named split would invent teams nobody
+ * formed. Its members keep their directories and sessions and lose only the
+ * name and the roles; the document says so in `migrationNotices`, which the
+ * app announces once and never writes back. Every pane on a team must
+ * answer to an address, so a pane the roster did not name gets one the way
+ * the dialog would mint it: `lead` when the team has none, else the first
+ * free `impl-N`. A directory's team takes the intact named team's name, else
+ * the first member's own name, else "Team N" — unique within the workspace,
+ * by key, with an ordinal when it has to be.
+ *
+ * The rule is spelled out here rather than borrowed from the model: a
+ * migration records what a document went through, and must keep doing
+ * exactly that when the model's rule moves on.
  */
 function migrateDeckFromV10toV11(doc: RawDoc): RawDoc {
   const workspaces = doc.workspaces;
   if (!Array.isArray(workspaces)) return doc;
   const mint = { next: 1 };
+  const notices: string[] = [];
+  const migrated = workspaces.map((ws) => migrateWorkspaceTeamsToV11(ws, mint, notices));
   return {
     ...doc,
-    workspaces: workspaces.map((ws) => migrateWorkspaceTeamsToV11(ws, mint)),
+    workspaces: migrated,
+    ...(notices.length > 0 && { migrationNotices: notices }),
   };
 }
 
-function migrateWorkspaceTeamsToV11(value: unknown, mint: { next: number }): unknown {
+/** Path spelling differences that don't change the directory. The same
+ * rule occupancy applies — surrounding whitespace and trailing slashes. */
+function directoryKey(path: string): string {
+  const trimmed = path.trim();
+  const stripped = trimmed.replace(/\/+$/, "");
+  return stripped === "" ? trimmed : stripped;
+}
+
+/** Where a v10 pane ran, by the fold's own precedence: a remote endpoint
+ * makes the local placement moot (the thin client runs in the root), a
+ * directory wins over a create beside it, a create names its target, and
+ * anything else is the workspace root. */
+function v10PanePlacement(
+  pane: Record<string, unknown>,
+  root: string,
+): { dir: string; branch?: string; provisioning?: Record<string, unknown> } {
+  const branch = typeof pane.branch === "string" ? pane.branch : undefined;
+  if (typeof pane.remoteEndpoint === "string" && pane.remoteEndpoint) return { dir: root };
+  if (typeof pane.cwd === "string") return { dir: pane.cwd, branch };
+  const provisioning = pane.provisioning;
+  if (isRecord(provisioning) && typeof provisioning.path === "string") {
+    return { dir: provisioning.path, provisioning };
+  }
+  return { dir: root, branch };
+}
+
+/** The address a pane the roster did not name gets: `lead` when the team
+ * has none, else the first free `impl-N` — the dialog's own minting rule as
+ * it stood at this hop, compared the way addresses are. */
+function mintMigratedRole(taken: ReadonlySet<string>): string {
+  if (!taken.has("lead")) return "lead";
+  for (let ordinal = 1; ; ordinal += 1) {
+    const address = `impl-${ordinal}`;
+    if (!taken.has(address)) return address;
+  }
+}
+
+function migrateWorkspaceTeamsToV11(
+  value: unknown,
+  mint: { next: number },
+  notices: string[],
+): unknown {
   if (!isRecord(value) || !Array.isArray(value.panes)) return value;
-  const teams: { id: string; name: string }[] = [];
-  const panes = value.panes.map((pane) => {
-    if (!isRecord(pane) || pane.team === undefined) return pane;
-    const { team, ...rest } = pane;
-    if (!isRecord(team) || typeof team.name !== "string" || typeof team.role !== "string") {
-      return rest;
-    }
-    const name = team.name.trim();
-    const role = team.role.trim();
-    if (!name || !role) return rest;
-    const key = name.toLowerCase();
-    let held = teams.find((candidate) => candidate.name.toLowerCase() === key);
-    if (!held) {
-      held = { id: `team-${mint.next++}`, name };
-      teams.push(held);
-    }
-    return { ...rest, team: { teamId: held.id, role } };
+  const root = typeof value.cwd === "string" ? value.cwd : "";
+  const label = typeof value.name === "string" ? value.name : String(value.id ?? "?");
+  const panes = value.panes.filter(isRecord);
+
+  // Every pane's directory and named membership, in reading order.
+  const placed = panes.map((pane) => {
+    const placement = v10PanePlacement(pane, root);
+    const raw = pane.team;
+    const name =
+      isRecord(raw) && typeof raw.name === "string" ? raw.name.trim() : "";
+    const role =
+      isRecord(raw) && typeof raw.role === "string" ? raw.role.trim() : "";
+    return {
+      pane,
+      dirKey: directoryKey(placement.dir),
+      placement,
+      named: name && role ? { name, key: name.toLowerCase(), role } : null,
+    };
   });
-  return { ...value, panes, ...(teams.length > 0 && { teams }) };
+
+  // A named team survives only if every member sits in one directory.
+  const dirsOfName = new Map<string, Set<string>>();
+  for (const entry of placed) {
+    if (!entry.named) continue;
+    const dirs = dirsOfName.get(entry.named.key) ?? new Set<string>();
+    dirs.add(entry.dirKey);
+    dirsOfName.set(entry.named.key, dirs);
+  }
+  const dissolved = new Set<string>();
+  for (const [key, dirs] of dirsOfName) {
+    if (dirs.size > 1) dissolved.add(key);
+  }
+
+  // One team per directory, in the order the directories first appear.
+  interface Group {
+    id: string;
+    seq: number;
+    dirKey: string;
+    placement: ReturnType<typeof v10PanePlacement>;
+    name?: string;
+    nameKey?: string;
+    members: typeof placed;
+  }
+  const groups: Group[] = [];
+  for (const entry of placed) {
+    let group = groups.find((candidate) => candidate.dirKey === entry.dirKey);
+    if (!group) {
+      const seq = mint.next++;
+      group = { id: `team-${seq}`, seq, dirKey: entry.dirKey, placement: entry.placement, members: [] };
+      groups.push(group);
+    }
+    group.members.push(entry);
+    // The first intact named team in a directory names it; a second intact
+    // name in the same directory has nowhere to go — one directory is one
+    // team — and is dissolved like a spread one.
+    if (entry.named && !dissolved.has(entry.named.key)) {
+      if (group.nameKey === undefined) {
+        group.name = entry.named.name;
+        group.nameKey = entry.named.key;
+      } else if (group.nameKey !== entry.named.key) {
+        dissolved.add(entry.named.key);
+      }
+    }
+  }
+  for (const key of dissolved) {
+    const shown = placed.find((entry) => entry.named?.key === key)?.named?.name ?? key;
+    const dirs = dirsOfName.get(key)?.size ?? 1;
+    notices.push(
+      dirs > 1
+        ? `Team “${shown}” in workspace “${label}” ran in ${dirs} directories and was dissolved: its agents keep their directories and sessions, and lost the team name and roles.`
+        : `Team “${shown}” in workspace “${label}” shared a directory with another team and was dissolved: one directory is one team.`,
+    );
+    for (const group of groups) {
+      if (group.nameKey === key) {
+        delete group.name;
+        delete group.nameKey;
+      }
+    }
+  }
+
+  // Names: the intact team's, else the first member's own, else "Team N" —
+  // unique within the workspace by key.
+  const takenNames = new Set<string>();
+  const uniqueName = (wanted: string): string => {
+    const key = wanted.toLowerCase();
+    if (!takenNames.has(key)) {
+      takenNames.add(key);
+      return wanted;
+    }
+    for (let ordinal = 2; ; ordinal += 1) {
+      const candidate = `${wanted} ${ordinal}`;
+      if (!takenNames.has(candidate.toLowerCase())) {
+        takenNames.add(candidate.toLowerCase());
+        return candidate;
+      }
+    }
+  };
+  const teams: Record<string, unknown>[] = [];
+  const membership = new Map<Record<string, unknown>, { teamId: string; role: string }>();
+  for (const group of groups) {
+    const own = group.members.find(
+      (entry) => typeof entry.pane.name === "string" && entry.pane.name.trim(),
+    );
+    const name = uniqueName(
+      group.name ?? (own ? (own.pane.name as string).trim() : `Team ${group.seq}`),
+    );
+    const team: Record<string, unknown> = { id: group.id, name };
+    if (group.placement.provisioning) {
+      team.provisioning = group.placement.provisioning;
+    } else {
+      team.cwd = group.placement.dir;
+      if (group.placement.branch !== undefined) team.branch = group.placement.branch;
+    }
+    teams.push(team);
+    // Roles: the intact roster's own, unique within the team, and a minted
+    // address for everyone the roster did not name.
+    const taken = new Set<string>();
+    for (const entry of group.members) {
+      const kept =
+        entry.named && group.nameKey === entry.named.key && !taken.has(entry.named.role.toLowerCase())
+          ? entry.named.role
+          : null;
+      if (entry.named && group.nameKey === entry.named.key && kept === null) {
+        notices.push(
+          `In team “${name}” (workspace “${label}”) two agents held the role “${entry.named.role}”; the second now answers to a minted one.`,
+        );
+      }
+      const role = kept ?? mintMigratedRole(taken);
+      taken.add(role.toLowerCase());
+      membership.set(entry.pane, { teamId: group.id, role });
+    }
+  }
+
+  // The panes, with their placement moved onto the team. A remote endpoint
+  // stays: it is the pane's own, not a directory.
+  const migratedPanes = panes.map((pane) => {
+    const { cwd: _cwd, branch: _branch, provisioning: _card, team: _named, ...rest } = pane;
+    const team = membership.get(pane);
+    return team ? { ...rest, team } : rest;
+  });
+  return { ...value, panes: migratedPanes, ...(teams.length > 0 && { teams }) };
 }
 
 const DECK_MIGRATIONS: Record<number, Migration> = {

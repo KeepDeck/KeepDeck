@@ -176,73 +176,179 @@ describe("migrateDeck — v4 → v5: Workspace.run retirement", () => {
   });
 });
 
-describe("migrateDeck — v10 → v11: a team becomes an object", () => {
+describe("migrateDeck — v10 → v11: a team is a directory's worth of agents", () => {
+  type Raw = Record<string, unknown>;
   const v10 = (workspaces: unknown[]) => ({ version: 10, minVersion: 1, workspaces });
-  const migrated = (workspaces: unknown[]) => {
+  const migrate = (workspaces: unknown[]) => {
     const out = migrateDeck(v10(workspaces));
     if (out.kind !== "ok") throw new Error(out.kind);
-    return out.doc.workspaces as Record<string, unknown>[];
+    return {
+      workspaces: out.doc.workspaces as Raw[],
+      notices: (out.doc.migrationNotices as string[] | undefined) ?? [],
+    };
   };
+  const ws = (id: string, panes: unknown[], over: Raw = {}): Raw => ({
+    id,
+    name: id,
+    cwd: `/${id}`,
+    worktreeBaseDir: null,
+    panes,
+    ...over,
+  });
+  const teamsOf = (workspace: Raw) => workspace.teams as Raw[] | undefined;
+  const panesOf = (workspace: Raw) => workspace.panes as Raw[];
 
-  it("mints one team per distinct name key, in reading order, across the document", () => {
-    const [first, second] = migrated([
-      {
-        id: "ws-1",
-        panes: [
-          { id: "pane-1", team: { name: "api", role: "lead" } },
-          { id: "pane-2", team: { name: "web", role: "lead" } },
-          // " API " is the team called "api": the key the dialog compared by.
-          { id: "pane-3", team: { name: " API ", role: "impl-1" } },
-          { id: "pane-4" },
-        ],
-      },
-      { id: "ws-2", panes: [{ id: "pane-5", team: { name: "Api", role: "lead" } }] },
+  it("a named team whose members share one directory survives intact, on that directory", () => {
+    // The live deck's own shape: four agents of one team in one worktree.
+    const { workspaces, notices } = migrate([
+      ws("ws-10", [
+        { id: "pane-247", agentType: "claude", cwd: "/wt/kd-1", branch: "kd/1", team: { name: "updates", role: "lead" }, name: "ui update" },
+        { id: "pane-248", agentType: "opencode", cwd: "/wt/kd-1", branch: "kd/1", team: { name: "updates", role: "impl-1" } },
+        { id: "pane-249", agentType: "opencode", cwd: "/wt/kd-1", branch: "kd/1", team: { name: " Updates ", role: "impl-2" } },
+      ]),
     ]);
-    expect(first.teams).toEqual([
-      { id: "team-1", name: "api" },
-      { id: "team-2", name: "web" },
+    expect(teamsOf(workspaces[0])).toEqual([
+      { id: "team-1", name: "updates", cwd: "/wt/kd-1", branch: "kd/1" },
     ]);
-    expect((first.panes as Record<string, unknown>[]).map((pane) => pane.team)).toEqual([
+    expect(panesOf(workspaces[0])).toEqual([
+      { id: "pane-247", agentType: "claude", name: "ui update", team: { teamId: "team-1", role: "lead" } },
+      { id: "pane-248", agentType: "opencode", team: { teamId: "team-1", role: "impl-1" } },
+      { id: "pane-249", agentType: "opencode", team: { teamId: "team-1", role: "impl-2" } },
+    ]);
+    expect(notices).toEqual([]);
+  });
+
+  it("a named team spread over directories is dissolved: directories and sessions stay, name and roles go", () => {
+    const { workspaces, notices } = migrate([
+      ws("ws-1", [
+        { id: "pane-1", cwd: "/wt/1", session: { id: "s1", boundAt: "t" }, team: { name: "api", role: "lead" } },
+        { id: "pane-2", cwd: "/wt/2", session: { id: "s2", boundAt: "t" }, team: { name: "api", role: "impl-1" } },
+      ]),
+    ]);
+    expect(teamsOf(workspaces[0])).toEqual([
+      { id: "team-1", name: "Team 1", cwd: "/wt/1" },
+      { id: "team-2", name: "Team 2", cwd: "/wt/2" },
+    ]);
+    // Each agent keeps its directory and its session, and answers to a
+    // minted address on its own team of one.
+    expect(panesOf(workspaces[0])).toEqual([
+      { id: "pane-1", session: { id: "s1", boundAt: "t" }, team: { teamId: "team-1", role: "lead" } },
+      { id: "pane-2", session: { id: "s2", boundAt: "t" }, team: { teamId: "team-2", role: "lead" } },
+    ]);
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toContain("“api”");
+    expect(notices[0]).toContain("2 directories");
+  });
+
+  it("the workspace root is a directory like any other: its panes form a team, a remote pane joins it", () => {
+    const { workspaces } = migrate([
+      ws("ws-14", [
+        { id: "pane-264", branch: "main", team: { name: "isp team", role: "lead" }, name: "isp lead" },
+        { id: "pane-265", team: { name: "isp team", role: "impl-1" } },
+        { id: "pane-9", remoteEndpoint: "ws://vps:4500", cwd: "/elsewhere" },
+      ]),
+    ]);
+    expect(teamsOf(workspaces[0])).toEqual([
+      { id: "team-1", name: "isp team", cwd: "/ws-14", branch: "main" },
+    ]);
+    // The roster's roles stay; the pane the roster did not name gets the
+    // next free address; a remote endpoint is the pane's own and stays.
+    expect(panesOf(workspaces[0])).toEqual([
+      { id: "pane-264", name: "isp lead", team: { teamId: "team-1", role: "lead" } },
+      { id: "pane-265", team: { teamId: "team-1", role: "impl-1" } },
+      { id: "pane-9", remoteEndpoint: "ws://vps:4500", team: { teamId: "team-1", role: "impl-2" } },
+    ]);
+  });
+
+  it("names a directory's team after its first member's own name, else Team N — unique by key", () => {
+    const { workspaces } = migrate([
+      ws("ws-8", [
+        { id: "pane-1", cwd: "/a", name: "pressroom impl" },
+        { id: "pane-2", cwd: "/b" },
+        { id: "pane-3", cwd: "/c", name: "Pressroom Impl" },
+        { id: "pane-4", cwd: "/c" },
+      ]),
+    ]);
+    expect(teamsOf(workspaces[0])?.map((team) => team.name)).toEqual([
+      "pressroom impl",
+      "Team 2",
+      "Pressroom Impl 2",
+    ]);
+    // A directory of two unnamed agents: a lead, then the first free impl.
+    expect(panesOf(workspaces[0]).map((pane) => pane.team)).toEqual([
       { teamId: "team-1", role: "lead" },
       { teamId: "team-2", role: "lead" },
+      { teamId: "team-3", role: "lead" },
+      { teamId: "team-3", role: "impl-1" },
+    ]);
+  });
+
+  it("mints ids across the document in reading order, and the same file gives the same ids", () => {
+    const doc = [
+      ws("ws-1", [{ id: "pane-1", cwd: "/wt/1" }, { id: "pane-2" }]),
+      ws("ws-2", [{ id: "pane-3", cwd: "/wt/1/" }]),
+    ];
+    const once = migrate(doc);
+    const twice = migrate(doc);
+    expect(once).toEqual(twice);
+    expect(teamsOf(once.workspaces[0])?.map((team) => team.id)).toEqual(["team-1", "team-2"]);
+    // A second workspace's team is its own object even on a directory the
+    // first one uses: a team never spans workspaces — occupancy, not this
+    // hop, is what refuses two teams in one directory.
+    expect(teamsOf(once.workspaces[1])).toEqual([{ id: "team-3", name: "Team 3", cwd: "/wt/1/" }]);
+  });
+
+  it("a create in flight moves onto the team as its intent, and the pane is left plain", () => {
+    const intent = { repo: "/ws-1", path: "/wt/pending", branch: "kd/5", index: 5 };
+    const { workspaces } = migrate([
+      ws("ws-1", [
+        { id: "pane-1", provisioning: intent },
+        { id: "pane-2", provisioning: { ...intent, path: "/wt/pending/" } },
+      ]),
+    ]);
+    expect(teamsOf(workspaces[0])).toEqual([{ id: "team-1", name: "Team 1", provisioning: intent }]);
+    expect(panesOf(workspaces[0])).toEqual([
+      { id: "pane-1", team: { teamId: "team-1", role: "lead" } },
+      { id: "pane-2", team: { teamId: "team-1", role: "impl-1" } },
+    ]);
+  });
+
+  it("one directory is one team: a second intact name there is dissolved, a duplicate role re-minted", () => {
+    const { workspaces, notices } = migrate([
+      ws("ws-1", [
+        { id: "pane-1", cwd: "/wt/1", team: { name: "api", role: "lead" } },
+        { id: "pane-2", cwd: "/wt/1", team: { name: "web", role: "lead" } },
+        { id: "pane-3", cwd: "/wt/1", team: { name: "api", role: "LEAD" } },
+      ]),
+    ]);
+    expect(teamsOf(workspaces[0])).toEqual([{ id: "team-1", name: "api", cwd: "/wt/1" }]);
+    expect(panesOf(workspaces[0]).map((pane) => pane.team)).toEqual([
+      { teamId: "team-1", role: "lead" },
       { teamId: "team-1", role: "impl-1" },
-      undefined,
+      { teamId: "team-1", role: "impl-2" },
     ]);
-    // A team never spans workspaces: the second gets its own object even
-    // under a name the first uses, and the mint keeps counting.
-    expect(second.teams).toEqual([{ id: "team-3", name: "Api" }]);
+    expect(notices.some((note) => note.includes("“web”") && note.includes("shared a directory"))).toBe(true);
+    expect(notices.some((note) => note.includes("“LEAD”"))).toBe(true);
   });
 
-  it("reads a half-written membership as none, and writes no teams for a workspace with none", () => {
-    const [ws] = migrated([
-      {
-        id: "ws-1",
-        panes: [
-          { id: "pane-1", team: { name: "api" } },
-          { id: "pane-2", team: { role: "lead" } },
-          { id: "pane-3", team: { name: "   ", role: "lead" } },
-          { id: "pane-4", team: { name: "api", role: " " } },
-          { id: "pane-5", team: "api" },
-        ],
-      },
+  it("reads a half-written membership as none, and leaves a workspace without panes untouched", () => {
+    const { workspaces } = migrate([
+      { id: "ws-0", marker: "kept" },
+      ws("ws-1", [
+        { id: "pane-1", team: { name: "api" } },
+        { id: "pane-2", team: { role: "lead" }, yolo: true, extra: "kept" },
+        { id: "pane-3", team: { name: "   ", role: "lead" } },
+        { id: "pane-4", team: "api" },
+      ]),
     ]);
-    expect(ws.teams).toBeUndefined();
-    for (const pane of ws.panes as Record<string, unknown>[]) {
-      expect(pane).not.toHaveProperty("team");
-    }
-  });
-
-  it("leaves a workspace without a pane list, and a pane's other fields, untouched", () => {
-    const [bare, kept] = migrated([
-      { id: "ws-1", marker: "kept" },
-      { id: "ws-2", panes: [{ id: "pane-1", cwd: "/wt", team: { name: "api", role: "lead" } }] },
+    expect(workspaces[0]).toEqual({ id: "ws-0", marker: "kept" });
+    expect(teamsOf(workspaces[1])).toEqual([{ id: "team-1", name: "Team 1", cwd: "/ws-1" }]);
+    expect(panesOf(workspaces[1])).toEqual([
+      { id: "pane-1", team: { teamId: "team-1", role: "lead" } },
+      { id: "pane-2", yolo: true, extra: "kept", team: { teamId: "team-1", role: "impl-1" } },
+      { id: "pane-3", team: { teamId: "team-1", role: "impl-2" } },
+      { id: "pane-4", team: { teamId: "team-1", role: "impl-3" } },
     ]);
-    expect(bare).toEqual({ id: "ws-1", marker: "kept" });
-    expect((kept.panes as Record<string, unknown>[])[0]).toEqual({
-      id: "pane-1",
-      cwd: "/wt",
-      team: { teamId: "team-1", role: "lead" },
-    });
   });
 });
 

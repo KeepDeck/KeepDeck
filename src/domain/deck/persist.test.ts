@@ -3,6 +3,7 @@ import { emptyJournal } from "../journal";
 import { createWorkspaceInstance } from "../workspaceInstance";
 import { provisioningCard, type Pane } from "./panes";
 import type { DeckState } from "./reducer";
+import { paneExecutionCwd } from "./roots";
 import {
   DECK_STATE_VERSION,
   PROVISIONING_INTERRUPTED,
@@ -523,9 +524,9 @@ describe("team membership across a restart", () => {
     expect(hydrateDeck(nameless).kind).toBe("corrupt");
   });
 
-  it("climbs from a v10 file: membership by name becomes the team object", () => {
-    // The document a v10 build wrote, verbatim, comes back as team objects
-    // with ids minted in reading order — and its next save is v11.
+  it("climbs from a v10 file: the directory's agents become its team, and nothing carries a placement of its own", () => {
+    // The document a v10 build wrote, verbatim: a named team in the root
+    // beside an agent on no team, and a solo agent in a worktree of its own.
     const v10 = JSON.stringify({
       version: 10,
       minVersion: 1,
@@ -539,23 +540,61 @@ describe("team membership across a restart", () => {
           cwd: "/r",
           worktreeBaseDir: null,
           panes: [
-            { id: "pane-1", agentType: "claude", team: { name: "api", role: "lead" } },
+            { id: "pane-1", agentType: "claude", branch: "main", team: { name: "api", role: "lead" } },
             { id: "pane-2", agentType: "claude", team: { name: " API ", role: "impl-1" } },
             { id: "pane-3", agentType: "claude" },
+            { id: "pane-4", agentType: "codex", cwd: "/r/.wt/kd-4", branch: "kd/4", name: "docs" },
           ],
         },
       ],
     });
-    const restored = okDeck(v10).state.workspaces[0];
-    expect(restored.teams).toEqual([{ id: "team-1", name: "api" }]);
+    const deck = okDeck(v10);
+    const restored = deck.state.workspaces[0];
+    expect(restored.teams).toEqual([
+      { id: "team-1", name: "api", location: { kind: "attached", cwd: "/r", branch: "main" } },
+      { id: "team-2", name: "docs", location: { kind: "attached", cwd: "/r/.wt/kd-4", branch: "kd/4" } },
+    ]);
     expect(restored.panes.map((pane) => pane.team)).toEqual([
       { teamId: "team-1", role: "lead" },
       { teamId: "team-1", role: "impl-1" },
-      undefined,
+      { teamId: "team-1", role: "impl-2" },
+      { teamId: "team-2", role: "lead" },
     ]);
-    const saved = JSON.parse(serializeDeck(okDeck(v10).state));
+    // The placement lives on the team now: the formula answers through it.
+    expect(restored.panes.every((pane) => pane.location === undefined)).toBe(true);
+    expect(paneExecutionCwd(restored, restored.panes[3])).toBe("/r/.wt/kd-4");
+    expect(deck.notices).toEqual([]);
+    const saved = JSON.parse(serializeDeck(deck.state));
     expect(saved.version).toBe(11);
     expect(saved.minVersion).toBe(11);
+  });
+
+  it("surfaces what the ladder did as notices, and never writes them back", () => {
+    const v10 = JSON.stringify({
+      version: 10,
+      minVersion: 1,
+      activeId: "ws-1",
+      focusByWs: {},
+      selectByWs: {},
+      workspaces: [
+        {
+          id: "ws-1",
+          name: "a",
+          cwd: "/r",
+          worktreeBaseDir: null,
+          panes: [
+            { id: "pane-1", cwd: "/r/.wt/1", team: { name: "api", role: "lead" } },
+            { id: "pane-2", cwd: "/r/.wt/2", team: { name: "api", role: "impl-1" } },
+          ],
+        },
+      ],
+    });
+    const deck = okDeck(v10);
+    expect(deck.notices).toHaveLength(1);
+    expect(deck.notices[0]).toContain("dissolved");
+    const saved = serializeDeck(deck.state, deck.docExtras);
+    expect(saved).not.toContain("migrationNotices");
+    expect(okDeck(saved).notices).toEqual([]);
   });
 });
 
