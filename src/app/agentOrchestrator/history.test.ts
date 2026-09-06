@@ -293,9 +293,11 @@ describe("agent orchestrator —continuing a recorded session", () => {
       deck.addAgentPane("ws-1", { id: "p-lead", agentType: "claude" });
       deck.joinTeam("ws-1", "p-lead", "team-1", "lead");
     });
-    await act(async () => agentRun.resumeSession("ws-1", handle(), { role: "impl-1" }));
+    // "reviewer", not the "impl-1" the roster would suggest next: the
+    // person's pick, not the default, is what lands.
+    await act(async () => agentRun.resumeSession("ws-1", handle(), { role: "reviewer" }));
     const first = deck.workspaces[0].panes.find((pane) => pane.session?.id === "s-1")!;
-    expect(first.team).toEqual({ teamId: "team-1", role: "impl-1" });
+    expect(first.team).toEqual({ teamId: "team-1", role: "reviewer" });
 
     // A singleton the team already holds is not written twice: the roster
     // suggests the next free address instead of a second lead.
@@ -303,7 +305,7 @@ describe("agent orchestrator —continuing a recorded session", () => {
       agentRun.resumeSession("ws-1", handle({ sessionId: "s-2" }), { role: "lead" }),
     );
     const second = deck.workspaces[0].panes.find((pane) => pane.session?.id === "s-2")!;
-    expect(second.team).toEqual({ teamId: "team-1", role: "impl-2" });
+    expect(second.team).toEqual({ teamId: "team-1", role: "impl-1" });
   });
 
   it("fails a full team loudly instead of stranding the built plan", async () => {
