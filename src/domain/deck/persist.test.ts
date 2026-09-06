@@ -467,6 +467,26 @@ describe("team membership across a restart", () => {
     expect(hydrateDeck(oneOver).kind).toBe("corrupt");
   });
 
+  it("a membership naming another workspace's team is no membership here", () => {
+    // A team never spans workspaces: an id the OTHER workspace holds is a
+    // dangling id in this one, read as none rather than as a cross-workspace
+    // member nobody could address.
+    const json = serializeDeck({
+      ...teamState,
+      workspaces: [
+        teamState.workspaces[0],
+        {
+          ...teamState.workspaces[0],
+          id: "ws-2",
+          teams: [{ id: "team-2", name: "web" }],
+          panes: [{ id: "pane-9", agentType: "claude", team: { teamId: "team-2", role: "lead" } }],
+        },
+      ],
+    }).replace('"pane-9","agentType":"claude","team":{"teamId":"team-2"', '"pane-9","agentType":"claude","team":{"teamId":"team-1"');
+    const [, second] = okDeck(json).state.workspaces;
+    expect(second.panes[0].team).toBeUndefined();
+  });
+
   it("drops a membership whose id names no team here", () => {
     // A pane pointing at a team the workspace does not hold is on no team
     // to anyone reading it; writing the dangling id would make the next

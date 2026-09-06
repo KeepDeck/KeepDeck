@@ -285,26 +285,39 @@ function migrateWorkspaceTeamsToV11(
     placement: ReturnType<typeof v10PanePlacement>;
     name?: string;
     nameKey?: string;
+    /** Intact named teams that shared this directory with the one that
+     * named it, and were folded into it — their rosters' roles stay. */
+    merged: Set<string>;
     members: typeof placed;
   }
   const groups: Group[] = [];
+  const merges: { name: string; into: Group }[] = [];
   for (const entry of placed) {
     let group = groups.find((candidate) => candidate.dirKey === entry.dirKey);
     if (!group) {
       const seq = mint.next++;
-      group = { id: `team-${seq}`, seq, dirKey: entry.dirKey, placement: entry.placement, members: [] };
+      group = {
+        id: `team-${seq}`,
+        seq,
+        dirKey: entry.dirKey,
+        placement: entry.placement,
+        merged: new Set(),
+        members: [],
+      };
       groups.push(group);
     }
     group.members.push(entry);
-    // The first intact named team in a directory names it; a second intact
-    // name in the same directory has nowhere to go — one directory is one
-    // team — and is dissolved like a spread one.
+    // The first intact named team in a directory names it. A second intact
+    // name in the same directory is MERGED into it — one directory is one
+    // team, and a roster whose members all sat here is consistent, so its
+    // roles are kept rather than thrown away with a dissolution.
     if (entry.named && !dissolved.has(entry.named.key)) {
       if (group.nameKey === undefined) {
         group.name = entry.named.name;
         group.nameKey = entry.named.key;
-      } else if (group.nameKey !== entry.named.key) {
-        dissolved.add(entry.named.key);
+      } else if (group.nameKey !== entry.named.key && !group.merged.has(entry.named.key)) {
+        group.merged.add(entry.named.key);
+        merges.push({ name: entry.named.name, into: group });
       }
     }
   }
@@ -312,16 +325,13 @@ function migrateWorkspaceTeamsToV11(
     const shown = placed.find((entry) => entry.named?.key === key)?.named?.name ?? key;
     const dirs = dirsOfName.get(key)?.size ?? 1;
     notices.push(
-      dirs > 1
-        ? `Team “${shown}” in workspace “${label}” ran in ${dirs} directories and was dissolved: its agents keep their directories and sessions, and lost the team name and roles.`
-        : `Team “${shown}” in workspace “${label}” shared a directory with another team and was dissolved: one directory is one team.`,
+      `Team “${shown}” in workspace “${label}” ran in ${dirs} directories and was dissolved: its agents keep their directories and sessions, and lost the team name and roles.`,
     );
-    for (const group of groups) {
-      if (group.nameKey === key) {
-        delete group.name;
-        delete group.nameKey;
-      }
-    }
+  }
+  for (const { name, into } of merges) {
+    notices.push(
+      `Team “${name}” in workspace “${label}” shared a directory with team “${into.name}” and was merged into it: one directory is one team.`,
+    );
   }
 
   // Names: the intact team's, else the first member's own, else "Team N" —
@@ -355,18 +365,28 @@ function migrateWorkspaceTeamsToV11(
       team.provisioning = group.placement.provisioning;
     } else {
       team.cwd = group.placement.dir;
-      if (group.placement.branch !== undefined) team.branch = group.placement.branch;
+      // A directory has one branch; the team's is the first its members
+      // recorded — a remote pane, or one that never noted a branch, does
+      // not decide it. What other members recorded stays in the journal.
+      const branch = group.members
+        .map((entry) => entry.placement.branch)
+        .find((candidate) => candidate !== undefined);
+      if (branch !== undefined) team.branch = branch;
     }
     teams.push(team);
-    // Roles: the intact roster's own, unique within the team, and a minted
-    // address for everyone the roster did not name.
+    // Roles: the intact roster's own — the naming roster's and any merged
+    // into it — unique within the team, and a minted address for everyone
+    // the rosters did not name.
     const taken = new Set<string>();
     for (const entry of group.members) {
+      const rostered =
+        entry.named !== null &&
+        (group.nameKey === entry.named.key || group.merged.has(entry.named.key));
       const kept =
-        entry.named && group.nameKey === entry.named.key && !taken.has(entry.named.role.toLowerCase())
+        rostered && entry.named && !taken.has(entry.named.role.toLowerCase())
           ? entry.named.role
           : null;
-      if (entry.named && group.nameKey === entry.named.key && kept === null) {
+      if (rostered && entry.named && kept === null) {
         notices.push(
           `In team “${name}” (workspace “${label}”) two agents held the role “${entry.named.role}”; the second now answers to a minted one.`,
         );

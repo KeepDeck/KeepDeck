@@ -313,12 +313,16 @@ describe("migrateDeck — v10 → v11: a team is a directory's worth of agents",
     ]);
   });
 
-  it("one directory is one team: a second intact name there is dissolved, a duplicate role re-minted", () => {
+  it("one directory is one team: a second intact name there is merged in with its roles, a duplicate role re-minted", () => {
+    // "web" is consistent — all its members sit here — so it keeps what it
+    // can: its roles, under the first team's name. Only a collision costs a
+    // role, and the person is told which.
     const { workspaces, notices } = migrate([
       ws("ws-1", [
         { id: "pane-1", cwd: "/wt/1", team: { name: "api", role: "lead" } },
-        { id: "pane-2", cwd: "/wt/1", team: { name: "web", role: "lead" } },
-        { id: "pane-3", cwd: "/wt/1", team: { name: "api", role: "LEAD" } },
+        { id: "pane-2", cwd: "/wt/1", team: { name: "web", role: "impl-1" } },
+        { id: "pane-3", cwd: "/wt/1", team: { name: "web", role: "LEAD" } },
+        { id: "pane-4", cwd: "/wt/1", team: { name: "api", role: "impl-1" } },
       ]),
     ]);
     expect(teamsOf(workspaces[0])).toEqual([{ id: "team-1", name: "api", cwd: "/wt/1" }]);
@@ -326,9 +330,61 @@ describe("migrateDeck — v10 → v11: a team is a directory's worth of agents",
       { teamId: "team-1", role: "lead" },
       { teamId: "team-1", role: "impl-1" },
       { teamId: "team-1", role: "impl-2" },
+      { teamId: "team-1", role: "impl-3" },
     ]);
-    expect(notices.some((note) => note.includes("“web”") && note.includes("shared a directory"))).toBe(true);
-    expect(notices.some((note) => note.includes("“LEAD”"))).toBe(true);
+    expect(notices).toEqual([
+      "Team “web” in workspace “ws-1” shared a directory with team “api” and was merged into it: one directory is one team.",
+      "In team “api” (workspace “ws-1”) two agents held the role “LEAD”; the second now answers to a minted one.",
+      "In team “api” (workspace “ws-1”) two agents held the role “impl-1”; the second now answers to a minted one.",
+    ]);
+  });
+
+  it("a mixed root group: the branch is the first RECORDED one, and every root pane joins", () => {
+    // A remote pane first, then two root panes on different recorded
+    // branches. The directory has one branch: the first anyone recorded.
+    // Every pane in the root joins the root's team — a pane outside a team
+    // does not exist any more, and a remote pane keeps its endpoint.
+    const { workspaces, notices } = migrate([
+      ws("ws-1", [
+        { id: "pane-1", remoteEndpoint: "ws://vps" },
+        { id: "pane-2", branch: "feature/a" },
+        { id: "pane-3", branch: "feature/b" },
+      ]),
+    ]);
+    expect(teamsOf(workspaces[0])).toEqual([{ id: "team-1", name: "Team 1", cwd: "/ws-1", branch: "feature/a" }]);
+    expect(panesOf(workspaces[0])).toEqual([
+      { id: "pane-1", remoteEndpoint: "ws://vps", team: { teamId: "team-1", role: "lead" } },
+      { id: "pane-2", team: { teamId: "team-1", role: "impl-1" } },
+      { id: "pane-3", team: { teamId: "team-1", role: "impl-2" } },
+    ]);
+    expect(notices).toEqual([]);
+  });
+
+  it("a workspace without worktrees: its unrelated root agents become ONE team", () => {
+    // The decided shape — the root is a directory like any other, and a
+    // directory's agents are its team — pinned so it is a decision rather
+    // than a surprise.
+    const { workspaces } = migrate([
+      ws("ws-5", [{ id: "pane-1" }, { id: "pane-2" }, { id: "pane-3" }], { worktreeBaseDir: null }),
+    ]);
+    expect(teamsOf(workspaces[0])).toEqual([{ id: "team-1", name: "Team 1", cwd: "/ws-5" }]);
+    expect(panesOf(workspaces[0]).map((pane) => (pane.team as Raw | undefined)?.role)).toEqual([
+      "lead",
+      "impl-1",
+      "impl-2",
+    ]);
+  });
+
+  it("names its notices in words a person can act on", () => {
+    const { notices } = migrate([
+      ws("ws-1", [
+        { id: "pane-1", cwd: "/wt/1", team: { name: "api", role: "lead" } },
+        { id: "pane-2", cwd: "/wt/2", team: { name: "api", role: "impl-1" } },
+      ]),
+    ]);
+    expect(notices).toEqual([
+      "Team “api” in workspace “ws-1” ran in 2 directories and was dissolved: its agents keep their directories and sessions, and lost the team name and roles.",
+    ]);
   });
 
   it("reads a half-written membership as none, and leaves a workspace without panes untouched", () => {

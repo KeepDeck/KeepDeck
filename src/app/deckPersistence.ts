@@ -207,7 +207,13 @@ export function createDeckPersistence(
       seedAgentSeq(result.deck.nextAgentSeq);
       docExtras = result.deck.docExtras;
       actions.hydrate(result.deck.state);
-      if (result.deck.notices.length > 0) onNotices(result.deck.notices);
+      if (result.deck.notices.length > 0) {
+        // In the log as well as on screen: the notification lives one
+        // launch, and a team that went missing is a question somebody asks
+        // a day later.
+        for (const note of result.deck.notices) log.info("web:persist", `migrated: ${note}`);
+        onNotices(result.deck.notices);
+      }
     })
     .catch((error) => {
       if (disposed) return;
