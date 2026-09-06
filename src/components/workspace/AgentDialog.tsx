@@ -636,18 +636,7 @@ export function AgentDialog({
 
         {member && (
           <>
-            {/* The ADDRESS in the label row, off the field: the picker names
-                what the member is for; the address is what a teammate types,
-                and only it tells two implementers apart — but its length is
-                not the field's to answer to, so it never resizes the picker. */}
-            <span className="form__label form__label--row">
-              Role
-              {roleAddress !== null && (
-                <span className="form__role-address" title="The address teammates use">
-                  {roleAddress}
-                </span>
-              )}
-            </span>
+            <span className="form__label">Role</span>
             <Dropdown
               className="form__role-pick"
               options={roleOptions}
@@ -655,7 +644,16 @@ export function AgentDialog({
               onChange={setRoleId}
               ariaLabel="Role"
             />
-            {roleAddress === null && (
+            {/* The ADDRESS under the field, said in words: the picker names
+                what the member is for; the address is what a teammate types,
+                and only it tells two implementers apart. Bare, it read as a
+                duplicate of the pick ("Lead … lead"); as a sentence it is
+                what it is. The refusal takes the same line. */}
+            {roleAddress !== null ? (
+              <span className="form__role-hint">
+                Teammates write to <code className="form__role-address">{roleAddress}</code>
+              </span>
+            ) : (
               <span className="form__error">
                 {pickedRole?.label ?? roleId} is already on this team — pick another role
               </span>

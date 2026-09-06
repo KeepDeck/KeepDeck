@@ -165,6 +165,9 @@ describe("AgentDialog targets", () => {
     // the address is minted free of what the roster holds.
     expect(rolePicker()!.textContent).toContain(roleById("impl")!.label);
     expect(roleAddress()).toBe("impl-1");
+    // Said as what it is — a bare "impl-1" beside "Implementer" read as a
+    // duplicate of the pick.
+    expect(text()).toContain("Teammates write to impl-1");
     // A continuation is on offer — the team's directory is there.
     expect(text()).toContain("Start from");
     expect(createBtn().textContent).toBe("Add member");
