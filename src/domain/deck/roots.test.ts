@@ -71,6 +71,20 @@ describe("workspaceDirectories", () => {
     expect(pathBelongsTo(set, "")).toBe(false);
   });
 
+  it("a team with nobody on it contributes nothing — no pane runs there", () => {
+    // The set is where panes RUN. A team that kept its directory after its
+    // last member closed holds a folder no process is in, and a scope
+    // built on this set must not reach it.
+    const set = workspaceDirectories(
+      ws({
+        cwd: "/repo",
+        teams: [{ id: "team-empty", name: "empty", location: { kind: "attached", cwd: "/wt/empty" } }],
+        panes: [],
+      }),
+    );
+    expect([...set]).toEqual(["/repo"]);
+  });
+
   it("a pane whose team has no resolved cwd contributes nothing yet", () => {
     // A team still creating its directory has no honest process location —
     // falling back to the workspace cwd would describe the wrong folder.

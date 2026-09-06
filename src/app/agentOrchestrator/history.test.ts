@@ -231,6 +231,38 @@ describe("agent orchestrator —continuing a recorded session", () => {
     expect(ws.panes.map((pane) => pane.team?.teamId)).toEqual(["team-root", "team-root"]);
   });
 
+  it("resumes into the root of a SECOND workspace on the same repository — its own root team, the pane on it", async () => {
+    // Every workspace opened on one repository holds the root for itself:
+    // ws-1's root team must not stop ws-2 from minting its own, and the
+    // pane must land ON it — a pane on no team reported as created is the
+    // failure this pins.
+    act(() => {
+      deck.createTeam("ws-1", {
+        id: "team-1",
+        name: "root",
+        location: { kind: "attached", cwd: "/repo" },
+      });
+      deck.addAgentPane("ws-1", { id: "pane-root", agentType: "claude" });
+      deck.joinTeam("ws-1", "pane-root", "team-1", "lead");
+      deck.createWorkspace({
+        id: "ws-2",
+        instance: createWorkspaceInstance(),
+        name: "ws-2",
+        cwd: "/repo",
+        worktreeBaseDir: null,
+        panes: [],
+      });
+    });
+    await act(async () => agentRun.resumeSession("ws-2", handle({ cwd: "/repo" })));
+    const second = deck.workspaces[1];
+    expect(second.teams?.map((team) => team.location)).toMatchObject([{ kind: "attached", cwd: "/repo" }]);
+    expect(second.panes).toHaveLength(1);
+    expect(second.panes[0].team?.teamId).toBe(second.teams?.[0].id);
+    expect(paneExecutionCwd(second, second.panes[0])).toBe("/repo");
+    // ws-1's root team is untouched.
+    expect(deck.workspaces[0].teams?.map((team) => team.id)).toEqual(["team-1"]);
+  });
+
   it("lands by the recorded directory, never by a name — a name another team holds is not a way onto it", async () => {
     act(() => {
       deck.createTeam("ws-1", {

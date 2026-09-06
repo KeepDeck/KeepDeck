@@ -201,7 +201,14 @@ export function createWorktreeProvisioning(
   }
 
   return {
-    async provision(requests, workspaceName, cb) {
+    async provision(asked, workspaceName, cb) {
+      // ONE create in flight per owner. A second request for an owner whose
+      // ticket is still out — two Retries before the first answers, a
+      // caller that did not check — is dropped here rather than started:
+      // two creates for one directory race each other on disk, and a close
+      // waits on only the latest ticket, so the earlier create's worktree
+      // would be nobody's to name or remove.
+      const requests = asked.filter((request) => !created.has(request.ownerId));
       if (requests.length === 0) return;
       // The tickets, before anything is awaited: from this line a close that
       // asks `awaitCreated` for any of these owners waits for the git call

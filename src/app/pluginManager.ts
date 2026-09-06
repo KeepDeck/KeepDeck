@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { execRunOnce } from "../ipc/exec";
 import { pluginsSqliteQuery } from "../ipc/history";
-import { teamsOf } from "../domain/deck";
+import { workspaceDirectories } from "../domain/deck";
 import {
   pluginsFsWriteAppend,
   pluginsFsWriteCopy,
@@ -302,20 +302,18 @@ export function createPluginManager(appDownloads: DownloadManager) {
   }
 
   /** The folders a `workspace`-scoped `fs` call may reach: every open
-   * workspace's cwd plus each of its panes' worktree cwds — the live "workspace
-   * folder and its panes' worktrees" the capability's scope names, read fresh
-   * per call so a just-opened workspace is reachable at once. `everywhere` needs
-   * none (the Rust side skips containment). */
+   * workspace's cwd plus the folders its panes RUN in — the live "workspace
+   * folder and its panes' worktrees" the capability's scope names, through
+   * the deck's one directory projection, read fresh per call so a
+   * just-opened workspace is reachable at once. A team with nobody on it
+   * contributes nothing: no pane runs there, so no plugin reaches there.
+   * `everywhere` needs none (the Rust side skips containment). */
   function fsRoots(scope: FsScope): string[] {
     if (scope === "everywhere") return [];
     const roots = new Set<string>();
     for (const ws of liveDeckAccess.workspaces()) {
-      if (ws.cwd) roots.add(ws.cwd);
-      // The directories the workspace's TEAMS run in — a worktree is a
-      // team's, and every member runs in it.
-      for (const team of teamsOf(ws)) {
-        if (team.location?.kind === "attached") roots.add(team.location.cwd);
-      }
+      if (!ws.cwd) continue;
+      for (const dir of workspaceDirectories(ws)) roots.add(dir);
     }
     return [...roots];
   }

@@ -90,6 +90,23 @@ describe("createTeam", () => {
     expect(teamOccupyingPath(base, "/wt/1")?.team.id).toBe("team-1");
     expect(createTeam(base, "ws-2", spec({ id: "team-2" }))).toBe(base);
   });
+
+  it("lets every workspace on one repository hold its own root — and never two roots in one workspace", () => {
+    // The root is the one directory two workspaces legitimately share: a
+    // team on it in ws-1 does not hold it for ws-2. A SECOND team on it in
+    // the same workspace is refused like any doubly-held directory.
+    const shared: Workspace[] = [
+      { ...workspace("ws-1", []), cwd: "/repo" },
+      { ...workspace("ws-2", []), cwd: "/repo" },
+    ];
+    const first = createTeam(shared, "ws-1", spec({ location: attached("/repo") }));
+    expect(first).not.toBe(shared);
+    const second = createTeam(first, "ws-2", spec({ id: "team-2", location: attached("/repo") }));
+    expect(second[1].teams?.map((team) => team.id)).toEqual(["team-2"]);
+    expect(
+      createTeam(second, "ws-1", spec({ id: "team-3", name: "again", location: attached("/repo") })),
+    ).toBe(second);
+  });
 });
 
 describe("provisioning on the team", () => {

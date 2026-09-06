@@ -50,8 +50,16 @@ export interface AgentOrchestratorClosing {
    * the confirmation until the team is out of the deck. The create runner
    * asks this after every await: a worktree landing for a captured team is
    * the close's to remove, so nothing past the create runs on the team's
-   * behalf and nothing resolves its card. */
+   * behalf and nothing resolves its card. The landing asks it too: a pane
+   * cannot join a team that is being ended. */
   closing(workspace: WorkspaceRef, teamId: string): boolean;
+  /** Whether a confirmed close still holds `path` — from the capture of the
+   * team that ran there (or whose create was heading there) until the
+   * teardown has finished with the directory: the sessions reaped and, when
+   * the box was ticked, the worktree removed. The team leaves the deck
+   * BEFORE that, so the deck alone would show the directory as free while a
+   * `git worktree remove` is still coming for it. */
+  holdsPath(path: string): boolean;
 }
 
 function dedupeByPath(targets: WorktreeTarget[]): WorktreeTarget[] {
@@ -100,6 +108,34 @@ export function createAgentOrchestratorClosing({
   /** Workspaces a confirmed close holds, by `id#instance` — a second
    * confirmation of the same close, or a member close inside it, backs off. */
   const closingWorkspaces = new Set<string>();
+  /**
+   * Directories a confirmed close is still finishing with, by normalized
+   * path, with how many closes hold each: a team's directory (or the one
+   * its create was heading for) from its capture, and what the ticket says
+   * the create made, until the teardown is done. The deck loses the team
+   * before the directory is gone from disk; this is what keeps a landing
+   * off the directory in between.
+   */
+  const heldPaths = new Map<string, number>();
+
+  function holdPath(path: string | undefined, root: string): void {
+    if (path === undefined) return;
+    const key = normalizePath(path);
+    // The root is never torn down, and every workspace on the repository
+    // holds it for itself.
+    if (key === normalizePath(root)) return;
+    heldPaths.set(key, (heldPaths.get(key) ?? 0) + 1);
+  }
+
+  function letGoPaths(paths: readonly string[], root: string): void {
+    for (const path of paths) {
+      const key = normalizePath(path);
+      if (key === normalizePath(root)) continue;
+      const count = heldPaths.get(key) ?? 0;
+      if (count <= 1) heldPaths.delete(key);
+      else heldPaths.set(key, count - 1);
+    }
+  }
 
   const workspaceKey = (workspace: WorkspaceRef) => `${workspace.id}#${workspace.instance}`;
 
@@ -198,7 +234,8 @@ export function createAgentOrchestratorClosing({
 
   /** Disband ONE team: the capture, then — once its ticket settles — the
    * members and the team out of the deck, the sessions reaped, and the
-   * worktree removed once when the box was ticked. */
+   * worktree removed once when the box was ticked. The team's directory is
+   * held against a landing until the teardown is done with it. */
   async function disband(
     workspace: Workspace,
     ref: WorkspaceRef,
@@ -209,23 +246,37 @@ export function createAgentOrchestratorClosing({
     if (!team) return [];
     const taken = capture(ref, team, membersOf(workspace, team.id));
     if (!taken) return [];
-    const created = await taken.created;
-    const now = live(ref);
-    // Read live: a member that joined while the ticket was out is on the
-    // team the deck is about to lose, and its session goes with the rest.
-    const members = now ? membersOf(now, team.id) : taken.members;
-    for (const member of members) retire(member.id);
-    const doomed = teardown.deleteWorktrees
-      ? doomedFor(now, workspace.cwd, [team.id], teardown.worktrees, [created])
-      : [];
-    if (now) {
-      for (const member of members) actions.closeAgent(now.id, member.id);
-      actions.dissolveTeam(now.id, team.id);
+    const held: string[] = [];
+    const hold = (path: string | undefined) => {
+      if (path === undefined) return;
+      holdPath(path, workspace.cwd);
+      held.push(path);
+    };
+    hold(teamHeldPath(team));
+    try {
+      const created = await taken.created;
+      hold(created?.path);
+      const now = live(ref);
+      // Read live: a member that joined while the ticket was out is on the
+      // team the deck is about to lose, and its session goes with the rest.
+      const members = now ? membersOf(now, team.id) : taken.members;
+      for (const member of members) retire(member.id);
+      const doomed = teardown.deleteWorktrees
+        ? doomedFor(now, workspace.cwd, [team.id], teardown.worktrees, [created])
+        : [];
+      for (const target of doomed) hold(target.path);
+      if (now) {
+        for (const member of members) actions.closeAgent(now.id, member.id);
+        actions.dissolveTeam(now.id, team.id);
+      }
+      release(ref, team.id);
+      await Promise.allSettled(members.map((member) => sessions.close(member.id)));
+      for (const member of members) retired.delete(member.id);
+      return doomed.length === 0 ? [] : await worktrees.remove(doomed);
+    } finally {
+      release(ref, team.id);
+      letGoPaths(held, workspace.cwd);
     }
-    release(ref, team.id);
-    await Promise.allSettled(members.map((member) => sessions.close(member.id)));
-    for (const member of members) retired.delete(member.id);
-    return doomed.length === 0 ? [] : worktrees.remove(doomed);
   }
 
   /**
@@ -248,56 +299,71 @@ export function createAgentOrchestratorClosing({
       const taken = capture(ref, team, membersOf(workspace, team.id));
       return taken ? [taken] : [];
     });
-    const lost = new Set(
-      teams
-        .filter((team) => !captures.some((taken) => taken.team.id === team.id))
-        .flatMap((team) => {
-          const held = teamHeldPath(team);
-          return held === undefined ? [] : [normalizePath(held)];
-        }),
-    );
-    // Panes on no team (a deck from before teams had to hold every pane):
-    // no ticket to wait on, the same reaping.
-    const loose = workspace.panes.filter((pane) => !pane.team);
-    for (const pane of loose) retire(pane.id);
+    const held: string[] = [];
+    const hold = (path: string | undefined) => {
+      if (path === undefined) return;
+      holdPath(path, workspace.cwd);
+      held.push(path);
+    };
+    for (const taken of captures) hold(teamHeldPath(taken.team));
+    try {
+      const lost = new Set(
+        teams
+          .filter((team) => !captures.some((taken) => taken.team.id === team.id))
+          .flatMap((team) => {
+            const held = teamHeldPath(team);
+            return held === undefined ? [] : [normalizePath(held)];
+          }),
+      );
+      // Panes on no team (a deck from before teams had to hold every pane):
+      // no ticket to wait on, the same reaping.
+      const loose = workspace.panes.filter((pane) => !pane.team);
+      for (const pane of loose) retire(pane.id);
 
-    const created = await Promise.all(captures.map((taken) => taken.created));
-    const now = live(ref);
-    const ending = [
-      ...loose,
-      ...captures.flatMap((taken) =>
-        now ? membersOf(now, taken.team.id) : taken.members,
-      ),
-    ];
-    for (const pane of ending) retire(pane.id);
-    const doomed = teardown.deleteWorktrees
-      ? doomedFor(
-          now,
-          workspace.cwd,
-          captures.map((taken) => taken.team.id),
-          teardown.worktrees.filter((target) => !lost.has(normalizePath(target.path))),
-          created,
-        )
-      : [];
+      const created = await Promise.all(captures.map((taken) => taken.created));
+      for (const made of created) hold(made?.path);
+      const now = live(ref);
+      const ending = [
+        ...loose,
+        ...captures.flatMap((taken) =>
+          now ? membersOf(now, taken.team.id) : taken.members,
+        ),
+      ];
+      for (const pane of ending) retire(pane.id);
+      const doomed = teardown.deleteWorktrees
+        ? doomedFor(
+            now,
+            workspace.cwd,
+            captures.map((taken) => taken.team.id),
+            teardown.worktrees.filter((target) => !lost.has(normalizePath(target.path))),
+            created,
+          )
+        : [];
+      for (const target of doomed) hold(target.path);
 
-    if (now) {
-      actions.closeWorkspace(now.id);
-      if (dropArtifacts) {
-        try {
-          await dropArtifacts(now.id);
-        } catch (error) {
-          log.warn(
-            "web:orchestrator",
-            `artifact store drop failed for ${now.id}: ${error}`,
-          );
+      if (now) {
+        actions.closeWorkspace(now.id);
+        if (dropArtifacts) {
+          try {
+            await dropArtifacts(now.id);
+          } catch (error) {
+            log.warn(
+              "web:orchestrator",
+              `artifact store drop failed for ${now.id}: ${error}`,
+            );
+          }
         }
       }
+      for (const taken of captures) release(ref, taken.team.id);
+      closingWorkspaces.delete(key);
+      await Promise.allSettled(ending.map((pane) => sessions.close(pane.id)));
+      for (const pane of ending) retired.delete(pane.id);
+      return doomed.length === 0 ? [] : await worktrees.remove(doomed);
+    } finally {
+      for (const taken of captures) release(ref, taken.team.id);
+      closingWorkspaces.delete(key);
+      letGoPaths(held, workspace.cwd);
     }
-    for (const taken of captures) release(ref, taken.team.id);
-    closingWorkspaces.delete(key);
-    await Promise.allSettled(ending.map((pane) => sessions.close(pane.id)));
-    for (const pane of ending) retired.delete(pane.id);
-    return doomed.length === 0 ? [] : worktrees.remove(doomed);
   }
 
   const close: AgentOrchestrator["close"] = async (request) => {
@@ -319,5 +385,8 @@ export function createAgentOrchestratorClosing({
     captured.has(captureKey(workspace, teamId)) ||
     closingWorkspaces.has(workspaceKey(workspace));
 
-  return { suspend, close, closing };
+  const holdsPath: AgentOrchestratorClosing["holdsPath"] = (path) =>
+    heldPaths.has(normalizePath(path));
+
+  return { suspend, close, closing, holdsPath };
 }

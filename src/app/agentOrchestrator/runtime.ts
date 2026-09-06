@@ -12,6 +12,9 @@ import {
   paneBranch,
   paneProvisioning,
   remoteEndpointOf,
+  TEAM_FULL_MESSAGE,
+  WORKSPACE_GONE_MESSAGE,
+  WORKTREE_HELD_MESSAGE,
 } from "../../domain/deck";
 import { describeError, log } from "../../ipc/log";
 import { createDeckActions, type DeckActions } from "../deckActions";
@@ -205,6 +208,7 @@ export function createAgentOrchestratorRuntime(
     actions,
     worktrees,
     closing: closing.closing,
+    holdsPath: closing.holdsPath,
   });
   const restart = createAgentOrchestratorRestart({
     deck,
@@ -514,17 +518,34 @@ export function createAgentOrchestratorRuntime(
     startFresh(wsId, paneId) {
       const workspace = findWorkspace(deck.getSnapshot().workspaces, wsId);
       if (!workspace) return;
-      if (runView.clearNotes(paneId)) publish();
-      startOwed.add(paneId);
-      // A directory-bound session cannot resume elsewhere, and the pane's
-      // team's directory is what went missing: the pane moves onto the
-      // workspace root's team and starts a new conversation there.
-      actions.resetPaneSession(wsId, paneId);
-      creation.relocatePane(
+      // The move FIRST, and nothing else on a refusal: a directory-bound
+      // session cannot resume elsewhere, and the pane's team's directory is
+      // what went missing, so the pane moves onto the workspace root's team
+      // and starts a new conversation there — but the root's team can be
+      // full. Dropping the session and waking the pane before knowing would
+      // wake it back into the directory that is gone, with its session
+      // thrown away for nothing. The refusal reaches the card instead, and
+      // the pane keeps what it had.
+      const moved = creation.relocatePane(
         { id: workspace.id, instance: workspace.instance },
         paneId,
         { kind: "attached", cwd: workspace.cwd },
       );
+      if (moved.kind !== "created") {
+        const why =
+          moved.kind === "full"
+            ? TEAM_FULL_MESSAGE
+            : moved.kind === "held"
+              ? WORKTREE_HELD_MESSAGE
+              : WORKSPACE_GONE_MESSAGE;
+        log.warn("web:orchestrator", `${paneId}: start fresh refused — ${why}`);
+        runView.markWakeFailed(paneId, why);
+        publish();
+        return;
+      }
+      if (runView.clearNotes(paneId)) publish();
+      startOwed.add(paneId);
+      actions.resetPaneSession(wsId, paneId);
       actions.requestPaneWake(wsId, paneId);
     },
     resume(wsId, paneId) {

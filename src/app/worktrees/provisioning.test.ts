@@ -145,6 +145,30 @@ describe("provision", () => {
     expect(await waiting).toEqual({ repo: "/repo", path: "/wt/team-1", branch: "kd/ws/1" });
   });
 
+  it("starts ONE create for an owner asked twice before the first answers — a second Retry coalesces", async () => {
+    // Two creates for one directory race each other on disk, and a close
+    // waits on only the latest ticket: the earlier create's worktree would
+    // be nobody's to name or remove. The second request finds a ticket out
+    // for its owner and is dropped.
+    let inspected!: (value: { head: string }) => void;
+    worktree.inspectRepo.mockReturnValue(
+      new Promise<{ head: string }>((resolve) => {
+        inspected = resolve;
+      }),
+    );
+    worktree.createWorktree.mockResolvedValue({ path: "/wt/team-1", branch: "kd/ws/1" });
+    const onResolved = vi.fn();
+    const cb = { onResolved, onFailed: vi.fn(), abandoned: stays };
+    const first = manager.provision(cards().slice(0, 1), "ws", cb);
+    const second = manager.provision(cards().slice(0, 1), "ws", cb);
+    const waiting = manager.awaitCreated("team-1");
+    inspected({ head: "abc" });
+    await Promise.all([first, second]);
+    expect(worktree.createWorktree).toHaveBeenCalledTimes(1);
+    expect(onResolved).toHaveBeenCalledTimes(1);
+    expect(await waiting).toEqual({ repo: "/repo", path: "/wt/team-1", branch: "kd/ws/1" });
+  });
+
   it("names the branch after the workspace it is handed EACH time — a Retry after a rename lands on the new name", async () => {
     // The auto branch name is `kd/<workspace>/<n>`, and the workspace half
     // is read by the caller as it calls: a card carries the number it was

@@ -40,8 +40,14 @@ interface CreationDeps {
   actions: DeckActions;
   worktrees: WorktreeProvisioner;
   /** Whether a confirmed close holds the team — the create runner then
-   * stops at the directory it made, which is that close's to remove. */
+   * stops at the directory it made, which is that close's to remove, and
+   * the landing refuses to put a pane on it. */
   closing(workspace: WorkspaceRef, teamId: string): boolean;
+  /** Whether a confirmed close is still finishing with the directory — the
+   * team is out of the deck, the `git worktree remove` is not done. A
+   * landing there would hand the directory to a team the teardown is
+   * about to delete it from under. */
+  holdsPath(path: string): boolean;
 }
 
 export interface AgentOrchestratorCreation {
@@ -79,6 +85,7 @@ export function createAgentOrchestratorCreation({
   actions,
   worktrees,
   closing,
+  holdsPath,
 }: CreationDeps): AgentOrchestratorCreation {
   /** Start the creates behind `teams`' cards. The workspace's name goes with
    * them as it is NOW: an auto branch name follows what the workspace is
@@ -131,6 +138,10 @@ export function createAgentOrchestratorCreation({
     except?: string,
   ): Landing {
     const wantedKey = normalizePath(teamHeldPath({ location: wanted }) ?? "");
+    // A directory a confirmed close is still tearing down is nobody's to
+    // land on, whatever the deck says: the team left the deck before the
+    // `git worktree remove` that is coming for the directory.
+    if (holdsPath(wantedKey)) return { refusal: "held" };
     const holder = teamsOf(current).find((candidate) => {
       const held = teamHeldPath(candidate);
       return held !== undefined && normalizePath(held) === wantedKey;
@@ -139,6 +150,11 @@ export function createAgentOrchestratorCreation({
     let fresh = false;
     if (holder?.location) {
       if (wanted.kind === "provisioning") return { refusal: "held" };
+      // A team a confirmed close holds is being ended: a pane landing on it
+      // now would be reaped by that close a moment later.
+      if (closing({ id: current.id, instance: current.instance }, holder.id)) {
+        return { refusal: "held" };
+      }
       team = { ...holder, location: holder.location };
     } else {
       const elsewhere = teamOccupyingPath(workspaces, wantedKey);
@@ -156,25 +172,42 @@ export function createAgentOrchestratorCreation({
 
   /** Put `pane` on the landing's team: the team minted when fresh, the
    * membership written under a role the dialog would suggest, and a fresh
-   * team's create issued. */
+   * team's create issued — only once the deck confirms the pane is ON the
+   * team. The transforms refuse silently and answer the same array, so the
+   * deck is read back rather than trusted: a create issued for a team the
+   * deck refused would make a worktree nobody could ever name. Answers
+   * whether the pane landed on the team. */
   function join(
     current: Workspace,
     pane: Pane,
     landing: { team: Team & { location: TeamLocation }; fresh: boolean },
     postProvision: CreatePaneRequest["postProvision"],
-  ): void {
+  ): boolean {
     const { team, fresh } = landing;
     const role = suggestRoleAddress(
       membersOf(current, team.id).flatMap((member) => (member.team ? [member.team.role] : [])),
     );
     if (fresh) actions.createTeam(current.id, team);
     actions.joinTeam(current.id, pane.id, team.id, role);
+    const settled = findWorkspaceByRef(deck.getSnapshot().workspaces, {
+      id: current.id,
+      instance: current.instance,
+    });
+    const member = settled?.panes.find((candidate) => candidate.id === pane.id);
+    if (!settled || !member || teamOfPane(settled, member)?.id !== team.id) {
+      log.error(
+        "web:orchestrator",
+        `${pane.id}: the deck refused team ${team.id} (${team.name}) at ${teamHeldPath(team) ?? "?"} — not landed`,
+      );
+      return false;
+    }
     if (fresh && team.location.kind === "provisioning") {
       // The step rides the request and is filed under the team the landing
       // just minted — the only id that could not have been known before.
       if (postProvision) worktrees.registerPostProvision(team.id, postProvision);
       provisionTeams(current, [team]);
     }
+    return true;
   }
 
   const rootOf = (workspace: Workspace): TeamLocation => ({
@@ -207,7 +240,12 @@ export function createAgentOrchestratorCreation({
     const landing = resolveLanding(workspaces, current, pane, placement ?? rootOf(current));
     if ("refusal" in landing) return refuse(pane.id, landing.refusal);
     actions.addAgentPane(current.id, pane);
-    join(current, pane, landing, postProvision);
+    if (!join(current, pane, landing, postProvision)) {
+      // Never a pane on no team reported as created: the pane goes back
+      // out, and the caller hears a refusal.
+      actions.closeAgent(current.id, pane.id);
+      return refuse(pane.id, "held");
+    }
     return { kind: "created", teamId: landing.team.id };
   }
 
@@ -226,8 +264,9 @@ export function createAgentOrchestratorCreation({
     if (teamOfPane(current, pane)?.id === landing.team.id) {
       return { kind: "created", teamId: landing.team.id };
     }
-    actions.leaveTeam(current.id, pane.id);
-    join(current, pane, landing, undefined);
+    // A pane holds ONE team: joining the new one is leaving the old one,
+    // and a roster the old membership alone kept alive is pruned with it.
+    if (!join(current, pane, landing, undefined)) return { kind: "held" };
     return { kind: "created", teamId: landing.team.id };
   }
 
@@ -276,13 +315,17 @@ export function createAgentOrchestratorCreation({
     return created;
   };
 
-  /** Re-issue a team's failed create: the error clears (the card goes back
+  /** Re-issue a team's FAILED create: the error clears (the card goes back
    * to creating) and the same intent goes out again under the workspace's
-   * name as it is now. */
+   * name as it is now. A card that is still creating has nothing to retry
+   * — a second click before the first answers is one create, not two — and
+   * a team a confirmed close holds is being ended, not retried. */
   const retryProvisioning: AgentOrchestrator["retryProvisioning"] = (wsId, teamId) => {
     const workspace = findWorkspace(deck.getSnapshot().workspaces, wsId);
     const team = workspace ? teamsOf(workspace).find((candidate) => candidate.id === teamId) : undefined;
     if (!workspace || !team || team.location?.kind !== "provisioning") return;
+    if (team.location.error === undefined) return;
+    if (closing({ id: workspace.id, instance: workspace.instance }, teamId)) return;
     actions.setTeamProvisioningError(wsId, teamId, null);
     provisionTeams(workspace, [team]);
   };

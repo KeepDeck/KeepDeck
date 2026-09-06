@@ -101,7 +101,9 @@ export interface WorktreeProvisioner {
    * from that instead. A retry passes one request and a caller with several
    * can pass them all. Never throws: a failure lands on its owner's card via
    * `onFailed`. The ticket a racing close waits on is taken out for every
-   * request before the first await.
+   * request before the first await — and ONE per owner: a request for an
+   * owner whose ticket is still out is dropped, so two Retries before the
+   * first answers start one create, not two.
    *
    * `workspaceName` is what an auto branch name (`kd/<name>/<n>`) is built
    * from, and it is read by the caller as it calls — never stored on a card —

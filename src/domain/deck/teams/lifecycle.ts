@@ -74,6 +74,11 @@ export function teamNameTaken(
  * some team holds (by key), a blank name, or a directory some team already
  * holds — the person is told by [`teamNameTaken`] / [`teamOccupyingPath`]
  * before ever reaching this.
+ *
+ * The workspace ROOT is the one directory every workspace opened on the
+ * same repository holds for itself: a team on it in another workspace does
+ * not hold it here. A second team on it in THIS workspace is refused like
+ * any other doubly-held directory.
  */
 export function createTeam(
   workspaces: Workspace[],
@@ -85,7 +90,16 @@ export function createTeam(
   if (!team.name.trim()) return workspaces;
   if (findTeam(ws, team.id) || teamNameTaken(ws, team.name)) return workspaces;
   const path = teamHeldPath(team);
-  if (path && teamOccupyingPath(workspaces, path)) return workspaces;
+  if (path) {
+    const wanted = normalizePath(path);
+    const heldHere = teamsOf(ws).some((candidate) => {
+      const held = teamHeldPath(candidate);
+      return held !== undefined && normalizePath(held) === wanted;
+    });
+    if (heldHere) return workspaces;
+    const ownRoot = wanted === normalizePath(ws.cwd);
+    if (!ownRoot && teamOccupyingPath(workspaces, path)) return workspaces;
+  }
   return mapWorkspaceTeams(workspaces, workspaceId, (teams) => [...teams, team]);
 }
 

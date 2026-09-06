@@ -317,6 +317,39 @@ describe("agent orchestrator —a new pane arriving", () => {
     expect(deck.workspaces[0].panes[MAX_PANES]?.team).toMatchObject({ teamId: "team-1" });
   });
 
+  it("lands a plain pane in the root of a second workspace on the same repository — a root team of its own", async () => {
+    const base = seed();
+    act(() =>
+      deck.hydrate({
+        ...base,
+        workspaces: [
+          base.workspaces[0],
+          {
+            id: "ws-2",
+            instance: createWorkspaceInstance(),
+            name: "other",
+            cwd: "/repo",
+            worktreeBaseDir: null,
+            panes: [{ id: "pane-2", agentType: "claude", team: { teamId: "team-1", role: "lead" } }],
+            teams: [{ id: "team-1", name: "root", location: { kind: "attached", cwd: "/repo" } }],
+          },
+        ],
+      }),
+    );
+    let outcome;
+    await act(async () => {
+      outcome = agentRun.createPane({
+        workspace: { id: "ws-1", instance: instance() },
+        pane: plain(),
+      });
+    });
+    expect(outcome).toEqual({ kind: "created", teamId: "team-2" });
+    expect(deck.workspaces[0].teams).toEqual([
+      { id: "team-2", name: "Team 2", location: { kind: "attached", cwd: "/repo" } },
+    ]);
+    expect(deck.workspaces[0].panes[0].team).toEqual({ teamId: "team-2", role: "lead" });
+  });
+
   it("refuses a directory another workspace's team holds — a team never spans workspaces", async () => {
     const base = seed();
     act(() =>
@@ -577,6 +610,33 @@ describe("agent orchestrator —retrying a failed worktree create", () => {
     act(() => deck.renameWorkspace("ws-1", "renamed"));
     act(() => agentRun.retryProvisioning("ws-1", "team-1"));
     expect(provisionedAs).toEqual(["renamed"]);
+  });
+
+  it("ignores a Retry on a card that is still creating — two clicks are one create", () => {
+    // No error on the card means the create is still out; re-issuing it
+    // would start a second create for one directory.
+    act(() =>
+      deck.createWorkspace({
+        id: "ws-1",
+        instance: createWorkspaceInstance(),
+        name: "ws-1",
+        cwd: "/repo",
+        worktreeBaseDir: null,
+        panes: [{ id: "pane-1", agentType: "claude", team: { teamId: "team-1", role: "lead" } }],
+        teams: [
+          {
+            id: "team-1",
+            name: "x",
+            location: {
+              kind: "provisioning",
+              intent: { repo: "/repo", path: "/repo-wt/x", index: 1 },
+            },
+          },
+        ],
+      }),
+    );
+    act(() => agentRun.retryProvisioning("ws-1", "team-1"));
+    expect(provisions).toEqual([]);
   });
 
   it("ignores a team with no create intent, and one that is not there", () => {

@@ -378,6 +378,101 @@ describe("agent orchestrator —disbanding a team", () => {
     expect([...pty.closed].sort()).toEqual(["pane-10", "pane-9"]);
   });
 
+  it("holds the team's directory against a landing until the teardown is done with it", async () => {
+    // The team leaves the deck before the `git worktree remove` that is
+    // coming for its directory. A landing in between would hand the
+    // directory to a new team the teardown then deletes it from under.
+    let release!: () => void;
+    pty.hold = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let disbanding!: Promise<string[]>;
+    act(() => {
+      disbanding = disband("team-2", true, [target]);
+    });
+    await act(async () => {});
+    // The team is gone from the deck, the reap is still out.
+    expect(teamIds("ws-1")).toEqual(["team-1"]);
+    let outcome;
+    await act(async () => {
+      outcome = agentRun.createPane({
+        workspace: refOf("ws-1"),
+        pane: { id: "pane-late", agentType: "claude" },
+        placement: { kind: "attached", cwd: "/wt/2" },
+      });
+    });
+    expect(outcome).toEqual({ kind: "held" });
+    expect(paneIds("ws-1")).toEqual(["pane-1"]);
+
+    await act(async () => {
+      release();
+      await disbanding;
+    });
+    expect(discards).toEqual([[target]]);
+    // Torn down: the directory is anybody's again.
+    await act(async () => {
+      outcome = agentRun.createPane({
+        workspace: refOf("ws-1"),
+        pane: { id: "pane-late", agentType: "claude" },
+        placement: { kind: "attached", cwd: "/wt/2" },
+      });
+    });
+    expect(outcome).toMatchObject({ kind: "created" });
+  });
+
+  it("holds the directory a captured team's create is heading for, while the disband waits on the ticket", async () => {
+    creating();
+    const publish = pendingTicket("team-9");
+    let disbanding!: Promise<string[]>;
+    act(() => {
+      disbanding = disband("team-9", true, [], "ws-2");
+    });
+    await act(async () => {});
+    let outcome;
+    await act(async () => {
+      outcome = agentRun.createPane({
+        workspace: refOf("ws-2"),
+        pane: { id: "pane-late", agentType: "claude" },
+        placement: { kind: "attached", cwd: "/wt/two-1" },
+      });
+    });
+    expect(outcome).toEqual({ kind: "held" });
+    await act(async () => {
+      publish(made);
+      await disbanding;
+    });
+    expect(discards).toEqual([[made]]);
+  });
+
+  it("refuses a pane joining a team a confirmed close holds", async () => {
+    // Landing on a team that is being ended would be reaped a moment later:
+    // a launch the user sees killed at once.
+    creating();
+    const publish = pendingTicket("team-9");
+    act(() => {
+      deck.resolveTeamProvisioning("ws-2", "team-9", { cwd: "/wt/two-1", branch: "kd/two/1" });
+    });
+    let disbanding!: Promise<string[]>;
+    act(() => {
+      disbanding = disband("team-9", false, [], "ws-2");
+    });
+    await act(async () => {});
+    let outcome;
+    await act(async () => {
+      outcome = agentRun.createPane({
+        workspace: refOf("ws-2"),
+        pane: { id: "pane-late", agentType: "claude" },
+        placement: { kind: "attached", cwd: "/wt/two-1" },
+      });
+    });
+    expect(outcome).toEqual({ kind: "held" });
+    await act(async () => {
+      publish(null);
+      await disbanding;
+    });
+    expect(paneIds("ws-2")).toEqual([]);
+  });
+
   it("two confirmations for one team remove once and reap each session once", async () => {
     creating();
     const publish = pendingTicket("team-9");
@@ -426,6 +521,62 @@ describe("agent orchestrator —closing a workspace", () => {
       await closing;
     });
     expect(discards).toEqual([[target]]);
+  });
+
+  it("holds every team's directory until the teardown is done — a new workspace on the same path waits", async () => {
+    let release!: () => void;
+    pty.hold = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let closing!: Promise<string[]>;
+    act(() => {
+      closing = closeWorkspace(true, [target]);
+    });
+    await act(async () => {});
+    expect(deck.workspaces).toHaveLength(0);
+    // A workspace opened on the same repository, landing on the directory
+    // the old one is still removing.
+    act(() =>
+      deck.createWorkspace({
+        id: "ws-3",
+        instance: createWorkspaceInstance(),
+        name: "again",
+        cwd: "/repo",
+        worktreeBaseDir: null,
+        panes: [],
+      }),
+    );
+    let outcome;
+    await act(async () => {
+      outcome = agentRun.createPane({
+        workspace: refOf("ws-3"),
+        pane: { id: "pane-late", agentType: "claude" },
+        placement: { kind: "attached", cwd: "/wt/2" },
+      });
+    });
+    expect(outcome).toEqual({ kind: "held" });
+    // The root is not held: it is never torn down.
+    await act(async () => {
+      outcome = agentRun.createPane({
+        workspace: refOf("ws-3"),
+        pane: { id: "pane-root", agentType: "claude" },
+      });
+    });
+    expect(outcome).toMatchObject({ kind: "created" });
+
+    await act(async () => {
+      release();
+      await closing;
+    });
+    expect(discards).toEqual([[target]]);
+    await act(async () => {
+      outcome = agentRun.createPane({
+        workspace: refOf("ws-3"),
+        pane: { id: "pane-late", agentType: "claude" },
+        placement: { kind: "attached", cwd: "/wt/2" },
+      });
+    });
+    expect(outcome).toMatchObject({ kind: "created" });
   });
 
   it("still reaps a pane whose reap REJECTS, and the rest with it", async () => {
