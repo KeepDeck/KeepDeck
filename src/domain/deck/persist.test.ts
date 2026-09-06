@@ -62,7 +62,9 @@ const state: DeckState = {
   activeId: "ws-5",
   // Dock open on purpose: the round-trip must NOT carry it (session-only).
   journal: emptyJournal,
-  viewByWs: { "ws-2": { focus: "pane-3", select: "pane-3", dock: true } },
+  viewByWs: {
+    "ws-2": { focus: "pane-3", select: "pane-3", dock: true, teamOpen: "team-1" },
+  },
 };
 
 describe("serializeDeck → hydrateDeck round-trip", () => {
@@ -123,9 +125,10 @@ describe("serializeDeck → hydrateDeck round-trip", () => {
 
   it("restores workspaces, view state and the active id", () => {
     expect(restored.state.activeId).toBe("ws-5");
-    // Only the durable half (focus/select) comes back; dock is session-only.
+    // Only the durable half (focus/select, and the team the stage had
+    // open) comes back; dock is session-only.
     expect(restored.state.viewByWs).toEqual({
-      "ws-2": { focus: "pane-3", select: "pane-3" },
+      "ws-2": { focus: "pane-3", select: "pane-3", teamOpen: "team-1" },
     });
     expect(restored.state.workspaces.map((w) => w.id)).toEqual(["ws-2", "ws-5"]);
     const [pane, remote] = restored.state.workspaces[0].panes;
@@ -784,6 +787,9 @@ describe("hydrateDeck — tolerated degradations", () => {
     activeId: "ws-gone",
     focusByWs: { "ws-1": "pane-gone", "ws-gone": "pane-1" },
     selectByWs: { "ws-1": "pane-1" },
+    // A team the workspace no longer has: read as the cards level, not as
+    // an open nothing.
+    teamOpenByWs: { "ws-1": "team-gone", "ws-gone": "team-1" },
     workspaces: [
       {
         id: "ws-1",
@@ -800,9 +806,9 @@ describe("hydrateDeck — tolerated degradations", () => {
     expect(restored.state.activeId).toBe("ws-1");
   });
 
-  it("drops focus/selection entries pointing at unknown ids", () => {
-    // Both focus entries point at unknown ids and vanish; the valid selection
-    // remains, so ws-1's view is select-only.
+  it("drops focus/selection/open-team entries pointing at unknown ids", () => {
+    // Both focus entries and both open-team entries point at unknown ids
+    // and vanish; the valid selection remains, so ws-1's view is select-only.
     expect(restored.state.viewByWs).toEqual({ "ws-1": { select: "pane-1" } });
   });
 

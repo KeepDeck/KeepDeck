@@ -97,6 +97,10 @@ function buildDeckActions(store: DeckStore) {
       dispatch({ type: "restoreSuspendedPane", wsId, paneId }),
     selectPane: (wsId: string, paneId: string) =>
       dispatch({ type: "selectPane", wsId, paneId }),
+    /** Drill into a team on the stage — from its card, a reveal, a door. */
+    openTeam: (wsId: string, teamId: string) => dispatch({ type: "openTeam", wsId, teamId }),
+    /** Back up to the workspace's team cards. */
+    closeTeam: (wsId: string) => dispatch({ type: "closeTeam", wsId }),
     toggleDock: (wsId: string) => dispatch({ type: "toggleDock", wsId }),
     setDockTab: (wsId: string, tabId: string) =>
       dispatch({ type: "setDockTab", wsId, tabId }),

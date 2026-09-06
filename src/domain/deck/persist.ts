@@ -8,6 +8,7 @@ import {
   findTeam,
   placementFromFields,
   placementToFields,
+  teamsOf,
   type PlacementFields,
   type Team,
   type TeamLocation,
@@ -75,17 +76,21 @@ export type HydrateDeckResult =
  * decision rather than this launch's circumstances; the session binding is
  * kept — it's the resume key. The unified
  * `viewByWs` persists only its durable half — the `focusByWs`/`selectByWs`
- * maps the on-disk schema has always had; `dock`/`dockTab` are session-only
- * and never written, so every launch starts with the dock closed. */
+ * maps the on-disk schema has always had, and `teamOpenByWs`, the team the
+ * stage had open, so a launch returns the person where they were;
+ * `dock`/`dockTab` are session-only and never written, so every launch
+ * starts with the dock closed. */
 export function serializeDeck(
   state: DeckState,
   docExtras: Record<string, unknown> = {},
 ): string {
   const focusByWs: Record<string, string> = {};
   const selectByWs: Record<string, string> = {};
+  const teamOpenByWs: Record<string, string> = {};
   for (const [wsId, view] of Object.entries(state.viewByWs)) {
     if (view.focus !== undefined) focusByWs[wsId] = view.focus;
     if (view.select !== undefined) selectByWs[wsId] = view.select;
+    if (view.teamOpen !== undefined) teamOpenByWs[wsId] = view.teamOpen;
   }
   // Extras spread FIRST at every level, so the keys this build owns always
   // win — a newer revision's fields ride along, never override.
@@ -96,6 +101,7 @@ export function serializeDeck(
     activeId: state.activeId,
     focusByWs,
     selectByWs,
+    teamOpenByWs,
     workspaces: state.workspaces.map((ws) => {
       // A fork's card is dropped while still in flight — the team AND its
       // members: its store surgery is an in-memory post-provision step that
@@ -246,7 +252,23 @@ export function hydrateDeck(json: string): HydrateDeckResult {
     typeof raw.activeId === "string" ? raw.activeId : "",
   );
 
-  // Reassemble the unified per-workspace view from the two flat on-disk maps.
+  // The team the stage had open must still be one the workspace has; a
+  // stale id reads as the cards level rather than as an open nothing.
+  const teamIdsByWs = new Map(
+    workspaces.map((w) => [w.id, new Set(teamsOf(w).map((team) => team.id))]),
+  );
+  const readTeamOpen = (value: unknown): Record<string, string> => {
+    if (!isRecord(value)) return {};
+    const out: Record<string, string> = {};
+    for (const [wsId, teamId] of Object.entries(value)) {
+      if (typeof teamId === "string" && teamIdsByWs.get(wsId)?.has(teamId)) {
+        out[wsId] = teamId;
+      }
+    }
+    return out;
+  };
+
+  // Reassemble the unified per-workspace view from the flat on-disk maps.
   // `dock`/`dockTab` are session-only by decision — never stored, so every
   // launch starts with the dock closed on its default tab.
   const viewByWs: Record<string, WorkspaceView> = {};
@@ -255,6 +277,9 @@ export function hydrateDeck(json: string): HydrateDeckResult {
   }
   for (const [wsId, paneId] of Object.entries(readFocus(raw.focusByWs))) {
     viewByWs[wsId] = { ...viewByWs[wsId], focus: paneId };
+  }
+  for (const [wsId, teamId] of Object.entries(readTeamOpen(raw.teamOpenByWs))) {
+    viewByWs[wsId] = { ...viewByWs[wsId], teamOpen: teamId };
   }
 
   return {
@@ -284,6 +309,7 @@ const DOC_KNOWN_KEYS: ReadonlySet<string> = new Set([
   "activeId",
   "focusByWs",
   "selectByWs",
+  "teamOpenByWs",
   "workspaces",
   // The ladder's one-time word to the person — consumed on read, never an
   // extra, so it cannot be announced again on the next launch.

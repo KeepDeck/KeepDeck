@@ -1,3 +1,4 @@
+import { stagePanes } from "./stage";
 import type { Workspace } from "./workspaces";
 
 /** One workspace's sparse persisted and session-only UI state. */
@@ -10,6 +11,12 @@ export interface WorkspaceView {
   minimized?: string[];
   /** Placement produced by suspend-to-tray. Applies in either layout. */
   suspendedTray?: string[];
+  /** The team the stage has open, by id; absent at the cards level. A
+   * LEVEL, not a hide reason: the panes of every other team stay mounted
+   * and merely are not laid out (`stage.ts`). `select` is always one of
+   * the open team's members, or nothing — every writer that repairs it
+   * repairs it within the slice. */
+  teamOpen?: string;
 }
 
 export type WorkspaceViewMap = Record<string, WorkspaceView>;
@@ -22,7 +29,8 @@ function isEmptyView(view: WorkspaceView): boolean {
     view.dock === undefined &&
     view.dockTab === undefined &&
     view.minimized === undefined &&
-    view.suspendedTray === undefined
+    view.suspendedTray === undefined &&
+    view.teamOpen === undefined
   );
 }
 
@@ -71,19 +79,25 @@ export function hidePaneView(
       : (view?.minimized ?? [])),
   ]);
   if (selected !== undefined && hidden.has(selected)) {
+    // ...and within the open team: a pane of another team is not laid out,
+    // so it can no more carry the highlight than a hidden one can.
     const workspace = workspaces.find((candidate) => candidate.id === wsId);
-    const firstVisible = workspace?.panes.find((pane) => !hidden.has(pane.id))?.id;
+    const firstVisible = workspace
+      ? stagePanes(workspace, view).find((pane) => !hidden.has(pane.id))?.id
+      : undefined;
     result = setViewField(result, wsId, "select", firstVisible);
   }
   return result;
 }
 
+/** Give a workspace with no highlight one: the open team's first member.
+ * Nothing at the cards level — no pane is in front of the person there. */
 export function withDefaultSelection(
   viewByWs: WorkspaceViewMap,
   wsId: string,
   workspace: Workspace | undefined,
 ): WorkspaceViewMap {
-  const first = workspace?.panes[0]?.id;
+  const first = workspace ? stagePanes(workspace, viewByWs[wsId])[0]?.id : undefined;
   if (viewByWs[wsId]?.select || !first) return viewByWs;
   return setViewField(viewByWs, wsId, "select", first);
 }

@@ -11,11 +11,18 @@ describe("deckReducer restore actions ([F7])", () => {
     name: "ws-1",
     cwd: "/tmp",
     worktreeBaseDir: null,
+    teams: [{ id: "team-1", name: "team-1", location: { kind: "attached", cwd: "/tmp" } }],
     panes: [
-      { id: "pane-1", idle: { reason: "waking", origin: "restore" } },
-      { id: "pane-2" },
+      {
+        id: "pane-1",
+        idle: { reason: "waking", origin: "restore" },
+        team: { teamId: "team-1", role: "lead" },
+      },
+      { id: "pane-2", team: { teamId: "team-1", role: "impl-1" } },
     ],
   };
+  /** The view with the team open — a highlight only ever lives inside one. */
+  const open = (view: Record<string, unknown> = {}) => ({ teamOpen: "team-1", ...view });
 
   it("hydrates deck-owned state while preserving the journal", () => {
     const restored = state({ workspaces: [idleWs], activeId: "ws-1" });
@@ -47,7 +54,10 @@ describe("deckReducer restore actions ([F7])", () => {
       wsId: "ws-1",
       paneId: "pane-1",
     });
-    expect(next.workspaces[0].panes[0]).toEqual({ id: "pane-1" });
+    expect(next.workspaces[0].panes[0]).toEqual({
+      id: "pane-1",
+      team: { teamId: "team-1", role: "lead" },
+    });
   });
 
   it("preserves identity when clearing a live or unknown pane", () => {
@@ -77,6 +87,7 @@ describe("deckReducer restore actions ([F7])", () => {
     });
     expect(next.workspaces[0].panes[1]).toEqual({
       id: "pane-2",
+      team: { teamId: "team-1", role: "impl-1" },
       idle: { reason: "suspended", at: "2026-07-25T10:00:00.000Z" },
     });
     expect(next.viewByWs).toEqual({});
@@ -88,7 +99,7 @@ describe("deckReducer restore actions ([F7])", () => {
         workspaces: [idleWs],
         activeId: "ws-1",
         viewByWs: {
-          "ws-1": { focus: "pane-2", select: "pane-2" },
+          "ws-1": open({ focus: "pane-2", select: "pane-2" }),
         },
       }),
       {
@@ -104,7 +115,7 @@ describe("deckReducer restore actions ([F7])", () => {
       at: "2026-07-25T10:00:00.000Z",
     });
     expect(suspended.viewByWs).toEqual({
-      "ws-1": { select: "pane-1", suspendedTray: ["pane-2"] },
+      "ws-1": open({ select: "pane-1", suspendedTray: ["pane-2"] }),
     });
 
     const restored = deckReducer(suspended, {
@@ -113,7 +124,7 @@ describe("deckReducer restore actions ([F7])", () => {
       paneId: "pane-2",
     });
     expect(restored.viewByWs).toEqual({
-      "ws-1": { select: "pane-2" },
+      "ws-1": open({ select: "pane-2" }),
     });
     expect(restored.workspaces[0].panes[1].idle).toEqual({
       reason: "suspended",
@@ -127,7 +138,7 @@ describe("deckReducer restore actions ([F7])", () => {
         workspaces: [idleWs],
         activeId: "ws-1",
         viewByWs: {
-          "ws-1": { select: "pane-2", minimized: ["pane-2"] },
+          "ws-1": open({ select: "pane-2", minimized: ["pane-2"] }),
         },
       }),
       {
@@ -139,11 +150,11 @@ describe("deckReducer restore actions ([F7])", () => {
       },
     );
     expect(next.viewByWs).toEqual({
-      "ws-1": {
+      "ws-1": open({
         select: "pane-1",
         minimized: ["pane-2"],
         suspendedTray: ["pane-2"],
-      },
+      }),
     });
   });
 
@@ -225,6 +236,7 @@ describe("deckReducer restore actions ([F7])", () => {
     });
     expect(woken.workspaces[0].panes[1]).toEqual({
       id: "pane-2",
+      team: { teamId: "team-1", role: "impl-1" },
       idle: {
         reason: "waking",
         origin: "manual",

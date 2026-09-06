@@ -17,6 +17,10 @@ export type DeckAction =
   | { type: "toggleMinimize"; wsId: string; paneId: string }
   | { type: "restoreSuspendedPane"; wsId: string; paneId: string }
   | { type: "selectPane"; wsId: string; paneId: string }
+  /** Drill into a team on the stage; the highlight lands on its members. */
+  | { type: "openTeam"; wsId: string; teamId: string }
+  /** Back to the workspace's team cards; nothing is highlighted there. */
+  | { type: "closeTeam"; wsId: string }
   | { type: "toggleDock"; wsId: string }
   | { type: "setDockTab"; wsId: string; tabId: string }
   | { type: "renamePane"; wsId: string; paneId: string; name: string }
