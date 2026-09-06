@@ -277,8 +277,8 @@ export function createAppRuntime(
       deck: {
         workspaces: () => deckStore.getSnapshot().workspaces,
         subscribe: deckStore.subscribe,
-        setPaneTeam: (workspaceId, paneId, team) =>
-          deckActions.setPaneTeam(workspaceId, paneId, team),
+        settleRoster: (workspaceId, teamId, name, members) =>
+          deckActions.settleRoster(workspaceId, teamId, name, members),
         agentTypeOf: (paneId) => paneAgentTypeOf(deckStore, paneId),
       },
       agents: {

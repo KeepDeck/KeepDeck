@@ -6,7 +6,6 @@ import {
   type Pane,
   type PaneSession,
   type Team,
-  type TeamAssignment,
   type TeamLocation,
   type Workspace,
 } from "../domain/deck";
@@ -108,8 +107,14 @@ function buildDeckActions(store: DeckStore) {
       dispatch({ type: "renamePane", wsId, paneId, name }),
     setPaneAutoTitle: (wsId: string, paneId: string, title: string) =>
       dispatch({ type: "setPaneAutoTitle", wsId, paneId, title }),
-    setPaneTeam: (wsId: string, paneId: string, team: TeamAssignment | null) =>
-      dispatch({ type: "setPaneTeam", wsId, paneId, team }),
+    /** Settle a team's roster — name and every member's role — as one
+     * change: the one write the roster surfaces make. */
+    settleRoster: (
+      wsId: string,
+      teamId: string,
+      name: string,
+      members: readonly { paneId: string; role: string }[],
+    ) => dispatch({ type: "settleRoster", wsId, teamId, name, members }),
     hydrate: (state: DeckState) => dispatch({ type: "hydrate", state }),
     clearPaneIdle: (wsId: string, paneId: string) =>
       dispatch({ type: "clearPaneIdle", wsId, paneId }),

@@ -12,13 +12,7 @@
  * names to decide membership — the deck answers that once, by id.
  */
 import { resolvePaneRef, type Resolved } from "../commands";
-import {
-  findTeamByName,
-  membersOf,
-  teamOfPane,
-  type Pane,
-  type Workspace,
-} from "../deck";
+import { membersOf, teamOfPane, type Pane, type Workspace } from "../deck";
 
 export { teamNameKey, type TeamAssignment } from "../deck";
 
@@ -29,31 +23,10 @@ export { teamNameKey, type TeamAssignment } from "../deck";
 // of the two: it knew about blank names and duplicate addresses but not about
 // the lead a team needs, nor about a pane already belonging to another team,
 // so the same change the dialog refused went through over MCP.
-
-/** The panes making up the team called `name`, in deck order. Empty for a
- * name no team here holds. */
-export function teamMembers(workspace: Workspace, name: string): Pane[] {
-  const team = findTeamByName(workspace, name);
-  return team ? membersOf(workspace, team.id) : [];
-}
-
-/**
- * Whether this pane is on the team called `name`.
- *
- * The name is resolved to the workspace's team and the pane compared by ID —
- * one reading, in one place. The person typing "API" means the team they
- * called "api", which the name lookup settles; a pane is never matched by
- * spelling. The moment membership means something else (a pane on two
- * teams, a folding rule) this is the one site that changes.
- */
-export function paneIsOnTeam(
-  workspace: Workspace,
-  pane: Pane,
-  name: string,
-): boolean {
-  const team = findTeamByName(workspace, name);
-  return team !== undefined && pane.team?.teamId === team.id;
-}
+//
+// Nor is membership answered by NAME here any more: a pane holds its team's
+// id, the deck's `membersOf`/`teamOfPane` answer by it, and a name reaches a
+// team only through `resolveTeamRef`.
 
 /**
  * Resolve who `ref` means, for a message sent by `from`.

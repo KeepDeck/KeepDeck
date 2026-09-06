@@ -173,6 +173,73 @@ export function renameTeam(
   );
 }
 
+/**
+ * Settle a team's roster in ONE step: its name, and each member's role.
+ *
+ * The one write the roster surfaces make — the dialog and `team.assign`
+ * both settle a whole roster through `planTeam` and apply it here — so two
+ * members swapping roles never pass through a moment in which one address
+ * is held twice, and a rename never goes through a pane: the name is an
+ * address, the id is the key, and no member moves for it.
+ *
+ * Refused, with the SAME array: a gone team; a blank name, or one another
+ * team holds; a pane not on this team, listed twice, or one of the team's
+ * members the roster leaves out — an agent runs where its team runs, so
+ * nobody comes off a team here (ending one is the close flow's); a blank
+ * or duplicate role. The roster's SHAPE (one lead, no peers among reports)
+ * is `planTeam`'s question, asked before this is reached. A roster that
+ * changes nothing answers the SAME array too.
+ */
+export function settleRoster(
+  workspaces: Workspace[],
+  workspaceId: string,
+  teamId: string,
+  name: string,
+  members: readonly { paneId: string; role: string }[],
+): Workspace[] {
+  const ws = workspaces.find((candidate) => candidate.id === workspaceId);
+  const team = ws ? findTeam(ws, teamId) : undefined;
+  if (!ws || !team) return workspaces;
+  const next = name.trim();
+  if (!next || teamNameTaken(ws, next, teamId)) return workspaces;
+  const roster = membersOf(ws, teamId);
+  if (roster.length !== members.length) return workspaces;
+  const addresses = new Set<string>();
+  const roleOf = new Map<string, string>();
+  for (const member of members) {
+    const address = member.role.trim();
+    if (!address || addresses.has(address.toLowerCase())) return workspaces;
+    if (roleOf.has(member.paneId)) return workspaces;
+    if (!roster.some((pane) => pane.id === member.paneId)) return workspaces;
+    addresses.add(address.toLowerCase());
+    roleOf.set(member.paneId, address);
+  }
+  const rolesChange = roster.some((pane) => pane.team?.role !== roleOf.get(pane.id));
+  if (next === team.name && !rolesChange) return workspaces;
+  const renamed =
+    next === team.name
+      ? workspaces
+      : mapWorkspaceTeams(workspaces, workspaceId, (teams) =>
+          teams.map((candidate) =>
+            candidate.id === teamId ? { ...candidate, name: next } : candidate,
+          ),
+        );
+  if (!rolesChange) return renamed;
+  return renamed.map((candidate) =>
+    candidate.id !== workspaceId
+      ? candidate
+      : {
+          ...candidate,
+          panes: candidate.panes.map((pane) => {
+            const role = roleOf.get(pane.id);
+            return role === undefined || pane.team?.role === role
+              ? pane
+              : { ...pane, team: { teamId, role } };
+          }),
+        },
+  );
+}
+
 /** Whether `role` is free on team `teamId` — compared the way addresses are,
  * case-insensitively — for anyone but `except`. */
 export function roleTaken(

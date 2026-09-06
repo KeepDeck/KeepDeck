@@ -2,7 +2,7 @@ import type { JournalRecords } from "../journal";
 import type { WorkspaceInstance } from "../workspaceInstance";
 import type { Pane, PaneSession } from "./panes";
 import type { DeckState } from "./reducer";
-import type { Team, TeamAssignment, TeamLocation } from "./teams/model";
+import type { Team, TeamLocation } from "./teams/model";
 import type { Workspace } from "./workspaces";
 
 export type DeckAction =
@@ -25,13 +25,14 @@ export type DeckAction =
   | { type: "setDockTab"; wsId: string; tabId: string }
   | { type: "renamePane"; wsId: string; paneId: string; name: string }
   | { type: "setPaneAutoTitle"; wsId: string; paneId: string; title: string }
+  /** Settle a team's roster — its name and every member's role — as ONE
+   * change, so no address is ever held twice and a rename moves nobody. */
   | {
-      type: "setPaneTeam";
+      type: "settleRoster";
       wsId: string;
-      paneId: string;
-      /** Spoken by name — the deck resolves it to a team, minting one for a
-       * name nobody holds. Null takes the pane off its team. */
-      team: TeamAssignment | null;
+      teamId: string;
+      name: string;
+      members: readonly { paneId: string; role: string }[];
     }
   | { type: "hydrate"; state: DeckState }
   | { type: "clearPaneIdle"; wsId: string; paneId: string }

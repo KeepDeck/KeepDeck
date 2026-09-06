@@ -13,6 +13,7 @@ import {
   resolveTeamProvisioning,
   roleTaken,
   setTeamProvisioningError,
+  settleRoster,
   teamHeldPath,
   teamNameTaken,
   teamOccupyingPath,
@@ -20,6 +21,104 @@ import {
 import type { Team, TeamLocation } from "./model";
 
 const pane = (id: string): Pane => ({ id, agentType: "claude" });
+
+describe("settleRoster", () => {
+  const api: Team = { id: "team-1", name: "api", location: { kind: "attached", cwd: "/wt/api" } };
+  const web: Team = { id: "team-2", name: "web", location: { kind: "attached", cwd: "/wt/web" } };
+  const on = (id: string, teamId: string, role: string): Pane => ({
+    id,
+    agentType: "claude",
+    team: { teamId, role },
+  });
+  const deck = (): Workspace[] => [
+    {
+      id: "ws-1",
+      instance: createWorkspaceInstance(),
+      name: "ws-1",
+      cwd: "/ws-1",
+      worktreeBaseDir: null,
+      teams: [api, web],
+      panes: [on("p1", "team-1", "lead"), on("p2", "team-1", "impl-1"), on("p3", "team-2", "lead")],
+    },
+  ];
+  const rolesOf = (list: Workspace[]) => list[0].panes.map((p) => `${p.id}=${p.team?.role}`);
+
+  it("writes the name and every role in one step — a swap never holds one address twice", () => {
+    // p1 and p2 trade addresses. Done a pane at a time, either order passes
+    // through a moment with two `lead`s or two `impl-1`s — the state every
+    // roster rule exists to make unreachable.
+    const next = settleRoster(deck(), "ws-1", "team-1", "platform", [
+      { paneId: "p1", role: "impl-1" },
+      { paneId: "p2", role: "lead" },
+    ]);
+    expect(findTeam(next[0], "team-1")).toEqual({ ...api, name: "platform" });
+    expect(rolesOf(next)).toEqual(["p1=impl-1", "p2=lead", "p3=lead"]);
+    // The ids and the directory are exactly what they were: a rename and a
+    // re-role move nobody anywhere.
+    expect(next[0].panes.map((p) => p.team?.teamId)).toEqual(["team-1", "team-1", "team-2"]);
+    expect(findTeam(next[0], "team-1")?.location).toBe(api.location);
+  });
+
+  it("renames without touching the panes, and re-roles without touching the name", () => {
+    const start = deck();
+    const renamed = settleRoster(start, "ws-1", "team-1", "  platform ", [
+      { paneId: "p1", role: "lead" },
+      { paneId: "p2", role: "impl-1" },
+    ]);
+    expect(findTeam(renamed[0], "team-1")?.name).toBe("platform");
+    expect(renamed[0].panes[0]).toBe(start[0].panes[0]);
+    expect(renamed[0].panes[1]).toBe(start[0].panes[1]);
+
+    const reroled = settleRoster(start, "ws-1", "team-1", "api", [
+      { paneId: "p1", role: "lead" },
+      { paneId: "p2", role: "impl-2" },
+    ]);
+    expect(findTeam(reroled[0], "team-1")).toBe(api);
+    expect(rolesOf(reroled)).toEqual(["p1=lead", "p2=impl-2", "p3=lead"]);
+  });
+
+  it("refuses, with the same array, anything that is not a roster edit of this team", () => {
+    const start = deck();
+    const both = [
+      { paneId: "p1", role: "lead" },
+      { paneId: "p2", role: "impl-1" },
+    ];
+    const refused: [string, Workspace[]][] = [
+      ["gone team", settleRoster(start, "ws-1", "team-9", "api", [])],
+      ["blank name", settleRoster(start, "ws-1", "team-1", "  ", both)],
+      ["another team's name", settleRoster(start, "ws-1", "team-1", " WEB ", both)],
+      ["a member left out", settleRoster(start, "ws-1", "team-1", "api", [both[0]])],
+      [
+        "another team's pane",
+        settleRoster(start, "ws-1", "team-1", "api", [both[0], { paneId: "p3", role: "impl-1" }]),
+      ],
+      [
+        "a pane that is not here",
+        settleRoster(start, "ws-1", "team-1", "api", [both[0], { paneId: "p9", role: "impl-1" }]),
+      ],
+      [
+        "a pane listed twice",
+        settleRoster(start, "ws-1", "team-1", "api", [both[0], { paneId: "p1", role: "impl-1" }]),
+      ],
+      ["a blank role", settleRoster(start, "ws-1", "team-1", "api", [both[0], { paneId: "p2", role: " " }])],
+      [
+        "a duplicate role, however cased",
+        settleRoster(start, "ws-1", "team-1", "api", [both[0], { paneId: "p2", role: "LEAD" }]),
+      ],
+    ];
+    for (const [why, result] of refused) expect(result, why).toBe(start);
+  });
+
+  it("answers the same array when nothing changes", () => {
+    const start = deck();
+    expect(
+      settleRoster(start, "ws-1", "team-1", "api", [
+        { paneId: "p1", role: "lead" },
+        { paneId: "p2", role: "impl-1" },
+      ]),
+    ).toBe(start);
+  });
+});
 
 const workspace = (id: string, panes: Pane[], teams?: Team[]): Workspace => ({
   id,

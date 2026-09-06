@@ -1,16 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { SENDABLE_KINDS } from "./message";
 import { awaitsAnswer } from "./policy";
-import type { Pane, Workspace } from "../deck";
+import type { Pane, Team, Workspace } from "../deck";
 import { resolveNamedPanes } from "../deck/teams/testSupport";
 import { createWorkspaceInstance } from "../workspaceInstance";
 import { roleById } from "./roles";
 import {
-  planDisband,
   planTeam,
   teamBriefing,
   teamNamesIn,
-  teamPlanIsEmpty,
+  teamPlanIsNoop,
   type TeamDraft,
 } from "./teamPlan";
 
@@ -29,375 +28,241 @@ const workspace = (panes: Pane[]): Workspace =>
     panes,
   } as Workspace);
 
+// Teams as the deck holds them: an id, a name, a directory — and panes that
+// hold the id. A plan names a team by id and never finds one by name.
+const team = (id: string, name: string): Team => ({
+  id,
+  name,
+  location: { kind: "attached", cwd: `/wt/${id}` },
+});
+const on = (id: string, teamId: string, role: string): Pane => ({
+  id,
+  agentType: "claude",
+  team: { teamId, role },
+});
+const deck = (teams: Team[], panes: Pane[]): Workspace => ({
+  id: "ws-1",
+  instance: createWorkspaceInstance(),
+  name: "web",
+  cwd: "/repo",
+  worktreeBaseDir: null,
+  teams,
+  panes,
+});
+/** api (team-1) with a lead and impl-1; web (team-2) with its own lead. */
+const two = () =>
+  deck(
+    [team("team-1", "api"), team("team-2", "web")],
+    [on("pane-1", "team-1", "lead"), on("pane-2", "team-1", "impl-1"), on("pane-3", "team-2", "lead")],
+  );
+const both = [
+  { paneId: "pane-1", role: "lead" },
+  { paneId: "pane-2", role: "impl-1" },
+];
+
 const draft = (over: Partial<TeamDraft> = {}): TeamDraft => ({
   name: "api",
-  members: [],
+  members: both,
   recruits: [],
   ...over,
 });
 
 describe("planTeam", () => {
-  it("settles members and trims what it stores", () => {
-    const ws = workspace([pane("pane-1"), pane("pane-2")]);
-    const result = planTeam(
-      ws,
+  it("settles the roster by team id and trims what it stores", () => {
+    const plan = planTeam(
+      two(),
       draft({
-        name: "  api  ",
+        name: "  platform ",
         members: [
           { paneId: "pane-1", role: " lead " },
           { paneId: "pane-2", role: "impl-1" },
         ],
       }),
+      "team-1",
     );
-    expect(result).toEqual({
+    expect(plan).toEqual({
       ok: true,
       value: {
-        name: "api",
-        members: [
-          { paneId: "pane-1", role: "lead" },
-          { paneId: "pane-2", role: "impl-1" },
-        ],
-        released: [],
+        teamId: "team-1",
+        name: "platform",
+        members: both,
         recruits: [],
       },
     });
   });
 
-  it("names who is being taken OUT of the team", () => {
-    // A team is the set of panes holding its name, so anyone the draft
-    // dropped has left. Saying so here is what stops the caller
-    // re-deriving it — and re-derivation is how a member gets stranded on
-    // a team nobody thinks they are on.
-    const ws = workspace([
-      pane("pane-1", { name: "api", role: "lead" }),
-      pane("pane-2", { name: "api", role: "impl-1" }),
-      pane("pane-3", { name: "web", role: "lead" }),
-    ]);
-    const result = planTeam(
-      ws,
-      draft({ members: [{ paneId: "pane-1", role: "lead" }] }),
-      "api",
-    );
-    expect(result.ok && result.value.released).toEqual(["pane-2"]);
-    // A pane on ANOTHER team is not this team's business.
-    expect(result.ok && result.value.released).not.toContain("pane-3");
+  it("refuses a team that is not here — a team starts with its first agent, never from a roster", () => {
+    const plan = planTeam(two(), draft({ members: [] }), "team-9");
+    expect(plan.ok).toBe(false);
+    if (!plan.ok) expect(plan.message).toContain("team.create");
   });
 
   it("counts a role an unspawned recruit will hold as taken", () => {
-    // Checking only the live half is how a team ends up with two impl-1s
-    // the moment the second one starts.
-    const ws = workspace([pane("pane-1")]);
-    const result = planTeam(
-      ws,
-      draft({
-        members: [{ paneId: "pane-1", role: "impl-1" }],
-        recruits: [{ agentType: "claude", role: "IMPL-1", yolo: false }],
-      }),
+    const plan = planTeam(
+      two(),
+      draft({ recruits: [{ agentType: "claude", role: "impl-1", yolo: false }] }),
+      "team-1",
     );
-    expect(result.ok).toBe(false);
-    // Quoted as the person TYPED it, so they can find it in the form —
-    // echoing a normalised spelling sends them looking for a row that does
-    // not read that way anywhere on screen.
-    if (!result.ok) expect(result.message).toContain("IMPL-1");
+    expect(plan.ok).toBe(false);
+    if (!plan.ok) expect(plan.message).toContain("impl-1");
   });
 
   it("refuses a nameless team and a roleless member", () => {
-    const ws = workspace([pane("pane-1")]);
-    expect(planTeam(ws, draft({ name: "  " })).ok).toBe(false);
-    expect(
-      planTeam(ws, draft({ members: [{ paneId: "pane-1", role: " " }] })).ok,
-    ).toBe(false);
-    expect(
-      planTeam(ws, draft({ recruits: [{ agentType: "claude", role: "", yolo: false }] })).ok,
-    ).toBe(false);
-  });
-
-  it("matches the team name however it was cased", () => {
-    const ws = workspace([pane("pane-1", { name: "api", role: "lead" })]);
-    const result = planTeam(ws, draft({ name: "API", members: [] }), "api");
-    expect(result.ok && result.value.released).toEqual(["pane-1"]);
+    expect(planTeam(two(), draft({ name: "  " }), "team-1").ok).toBe(false);
+    const roleless = planTeam(
+      two(),
+      draft({ members: [both[0], { paneId: "pane-2", role: "  " }] }),
+      "team-1",
+    );
+    expect(roleless.ok).toBe(false);
+    if (!roleless.ok) expect(roleless.message).toContain("role");
   });
 
   it("refuses a roster with no lead, and one with two", () => {
-    // A team answers to someone: with no lead nobody hands out work, and
-    // every member has been briefed to take it from a role that is not
-    // there. With two, one question has two answers.
-    const ws = workspace([pane("pane-1"), pane("pane-2")]);
     const headless = planTeam(
-      ws,
-      draft({ members: [{ paneId: "pane-1", role: "impl-1" }] }),
+      two(),
+      draft({ members: [{ paneId: "pane-1", role: "impl-2" }, both[1]] }),
+      "team-1",
     );
     expect(headless.ok).toBe(false);
     if (!headless.ok) expect(headless.message).toContain("lead");
-    const twoHeads = planTeam(
-      ws,
-      draft({
-        members: [{ paneId: "pane-1", role: "lead" }],
-        recruits: [{ agentType: "claude", role: "lead", yolo: false }],
-      }),
+
+    // A second lead is a second holder of one address before it is anything
+    // else: the singleton's refusal is the duplicate's.
+    const twoHeaded = planTeam(
+      two(),
+      draft({ recruits: [{ agentType: "claude", role: "lead", yolo: false }] }),
+      "team-1",
     );
-    expect(twoHeads.ok).toBe(false);
+    expect(twoHeaded.ok).toBe(false);
+    if (!twoHeaded.ok) expect(twoHeaded.message).toContain('"lead"');
   });
 
   it("accepts a flat team of peers, where nobody leads", () => {
-    // The second team shape: equals only. No lead to demand — the peer
-    // charter names nobody to take direction from.
-    const ws = workspace([pane("pane-1"), pane("pane-2")]);
-    const result = planTeam(
-      ws,
+    const flat = planTeam(
+      two(),
       draft({
         members: [
           { paneId: "pane-1", role: "peer-1" },
           { paneId: "pane-2", role: "peer-2" },
         ],
       }),
+      "team-1",
     );
-    expect(result.ok).toBe(true);
+    expect(flat.ok).toBe(true);
   });
 
   it("refuses to mix peers with led roles, either way around", () => {
-    // "An equal under a boss" is a contradiction in the roster itself: the
-    // peer charter says nobody outranks it, the worker charters name a lead.
-    const ws = workspace([pane("pane-1"), pane("pane-2")]);
-    for (const other of ["lead", "impl-1"]) {
-      const result = planTeam(
-        ws,
-        draft({
-          members: [
-            { paneId: "pane-1", role: "peer-1" },
-            { paneId: "pane-2", role: other },
-          ],
-        }),
-      );
-      expect(result.ok, other).toBe(false);
-      if (!result.ok) expect(result.message).toContain("flat");
-    }
-  });
-
-  it("refuses to take a pane that already belongs to another team", () => {
-    // One team per pane. Poaching strands the team left behind: its members
-    // stay briefed to address a role that reaches nobody. The dialog declines
-    // to OFFER such a pane, but an agent driving `team.assign` reads no
-    // dialog — so the rule lives here, with the teams.
-    const ws = workspace([
-      pane("pane-1"),
-      pane("pane-2", { name: "web", role: "impl-1" }),
-    ]);
-    const result = planTeam(
-      ws,
-      draft({
-        name: "api",
-        members: [
-          { paneId: "pane-1", role: "lead" },
-          { paneId: "pane-2", role: "impl-1" },
-        ],
-      }),
+    const mixed = planTeam(
+      two(),
+      draft({ members: [both[0], { paneId: "pane-2", role: "peer-1" }] }),
+      "team-1",
     );
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.message).toContain("web");
+    expect(mixed.ok).toBe(false);
+    if (!mixed.ok) expect(mixed.message).toContain("led or flat");
+    const other = planTeam(
+      two(),
+      draft({ members: [{ paneId: "pane-1", role: "peer-1" }, { paneId: "pane-2", role: "impl-1" }] }),
+      "team-1",
+    );
+    expect(other.ok).toBe(false);
   });
 
-  it("lets a team keep its own members, and keep them through a rename", () => {
-    // The other side of the same rule: a member already on THIS team is
-    // staying, not moving — including when the team is being renamed, where
-    // what everyone holds is the OLD name.
-    const ws = workspace([
-      pane("pane-1", { name: "api", role: "lead" }),
-      pane("pane-2", { name: "api", role: "impl-1" }),
-    ]);
-    const members = [
-      { paneId: "pane-1", role: "lead" },
-      { paneId: "pane-2", role: "impl-1" },
-    ];
-    expect(planTeam(ws, draft({ name: "api", members }), "api").ok).toBe(true);
-    expect(planTeam(ws, draft({ name: "platform", members }), "api").ok).toBe(true);
+  it("refuses a pane of another team, one that is not here, and one listed twice", () => {
+    // An agent runs where its team runs: the roster is not the way to move
+    // one, and the refusal says what is.
+    const poach = planTeam(
+      two(),
+      draft({ members: [...both, { paneId: "pane-3", role: "impl-2" }] }),
+      "team-1",
+    );
+    expect(poach.ok).toBe(false);
+    if (!poach.ok) {
+      expect(poach.message).toContain('"web"');
+      expect(poach.message).toContain("team.add");
+    }
+    const ghost = planTeam(
+      two(),
+      draft({ members: [...both, { paneId: "pane-9", role: "impl-2" }] }),
+      "team-1",
+    );
+    expect(ghost.ok).toBe(false);
+    const twice = planTeam(
+      two(),
+      draft({ members: [...both, { paneId: "pane-1", role: "impl-2" }] }),
+      "team-1",
+    );
+    expect(twice.ok).toBe(false);
   });
 
-  it("lets the same role live in a different team", () => {
-    // A role is unique per TEAM, not per deck: `lead@api` and `lead@web` are
-    // two members of two teams. The rule settles ONE roster, so another
-    // team's lead is simply not in it.
-    const ws = workspace([
-      pane("pane-1", { name: "api", role: "lead" }),
-      pane("pane-2"),
-    ]);
+  it("refuses a roster that leaves a member out — nobody comes off a team here", () => {
+    const dropped = planTeam(two(), draft({ members: [both[0]] }), "team-1");
+    expect(dropped.ok).toBe(false);
+    if (!dropped.ok) expect(dropped.message).toContain("close it");
+  });
+
+  it("lets a member keep the role it already holds, and the same role live on another team", () => {
+    // pane-3 is web's lead; api keeps its own. Roles are unique per TEAM.
+    expect(planTeam(two(), draft(), "team-1").ok).toBe(true);
     expect(
-      planTeam(ws, draft({ name: "web", members: [{ paneId: "pane-2", role: "lead" }] })).ok,
-    ).toBe(true);
-  });
-
-  it("lets a member keep the role it already holds", () => {
-    // Re-stating a roster unchanged — which every edit of an unrelated field
-    // does — must not read as a pane colliding with itself.
-    const ws = workspace([pane("pane-1", { name: "api", role: "lead" })]);
-    expect(
-      planTeam(ws, draft({ name: "api", members: [{ paneId: "pane-1", role: "lead" }] }), "api")
-        .ok,
+      planTeam(two(), { name: "web", members: [{ paneId: "pane-3", role: "lead" }], recruits: [] }, "team-2").ok,
     ).toBe(true);
   });
 
   it("refuses a role the catalog cannot account for", () => {
-    // An unknown role has no charter, so its holder would be briefed with
-    // nothing said about what it is for — the state roles exist to end.
-    const ws = workspace([pane("pane-1"), pane("pane-2")]);
-    const result = planTeam(
-      ws,
-      draft({
-        members: [
-          { paneId: "pane-1", role: "lead" },
-          { paneId: "pane-2", role: "architect" },
-        ],
-      }),
+    const plan = planTeam(
+      two(),
+      draft({ members: [both[0], { paneId: "pane-2", role: "wizard" }] }),
+      "team-1",
     );
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.message).toContain("architect");
+    expect(plan.ok).toBe(false);
+    if (!plan.ok) expect(plan.message).toContain("wizard");
   });
 
-  it("still names who left when the team is renamed in the same breath", () => {
-    // Who has LEFT is a question about the team as it stands, not about what
-    // it is being renamed to. Answered against the new name, nobody holds it
-    // yet, the released list comes back empty, and the dropped member keeps
-    // a badge for a team it is no longer on. Reproduced live.
-    const ws = workspace([
-      pane("pane-1", { name: "api", role: "lead" }),
-      pane("pane-2", { name: "api", role: "impl-1" }),
-    ]);
-    const result = planTeam(
-      ws,
-      draft({ name: "platform", members: [{ paneId: "pane-1", role: "lead" }] }),
-      "api",
-    );
-    expect(result.ok && result.value.released).toEqual(["pane-2"]);
-    // And the one that stayed moves to the new name.
-    expect(result.ok && result.value.name).toBe("platform");
-    // The plan says what the released member actually HELD, so a farewell
-    // can name the team it was on rather than the name it was changed to.
-    expect(result.ok && result.value.formerName).toBe("api");
+  it("refuses a rename onto a name another team holds, however cased or padded — and keeps its own", () => {
+    for (const taken of ["web", "WEB", " Web "]) {
+      const plan = planTeam(two(), draft({ name: taken }), "team-1");
+      expect(plan.ok, taken).toBe(false);
+      if (!plan.ok) expect(plan.message).toContain("already exists");
+    }
+    // A re-spelling of the team's own name is no other team's.
+    const own = planTeam(two(), draft({ name: " API " }), "team-1");
+    expect(own.ok && own.value.name).toBe("API");
   });
 
-  it("does not call a re-spelling of the same name a rename", () => {
-    // The key decides: " API " is the team called "api", so nobody is
-    // released and no former name is reported — a farewell would otherwise
-    // have named a team that never changed.
-    const ws = workspace([pane("pane-1", { name: "api", role: "lead" })]);
-    const result = planTeam(
-      ws,
-      draft({ name: " API ", members: [{ paneId: "pane-1", role: "lead" }] }),
-      "api",
-    );
-    expect(result.ok && result.value.formerName).toBeUndefined();
-    expect(result.ok && result.value.released).toEqual([]);
-    // The badge keeps the spelling the person chose; only the key folds.
-    expect(result.ok && result.value.name).toBe("API");
-  });
-
-  it("disbands without demanding a lead for the empty roster it leaves", () => {
-    // An empty roster is not a team missing its head — it is a team being
-    // taken apart, and demanding a lead there would make that impossible.
-    const ws = workspace([pane("pane-1", { name: "api", role: "lead" })]);
-    const result = planTeam(ws, draft({ name: "api", members: [] }), "api");
-    expect(result.ok).toBe(true);
-    if (result.ok) expect(result.value.released).toEqual(["pane-1"]);
-  });
-
-  it("refuses to create or rename onto a name another team holds, however cased or padded", () => {
-    // As a create it would read as an edit of that team and evict the
-    // members the draft does not list; as a rename it would merge two teams
-    // under one name. Judged here, not only in the dialog: an agent naming a
-    // team over `team.assign` reads no dialog.
-    const ws = workspace([
-      pane("pane-1", { name: "api", role: "lead" }),
-      pane("pane-2", { name: "web", role: "lead" }),
-      pane("pane-3"),
-    ]);
-    const create = planTeam(
-      ws,
-      draft({ name: " API ", members: [{ paneId: "pane-3", role: "lead" }] }),
-    );
-    expect(create.ok).toBe(false);
-    if (!create.ok) expect(create.message).toContain("already exists");
-    const rename = planTeam(
-      ws,
-      draft({ name: "Web", members: [{ paneId: "pane-1", role: "lead" }] }),
-      "api",
-    );
-    expect(rename.ok).toBe(false);
-    if (!rename.ok) expect(rename.message).toContain("already exists");
-  });
-
-  it("lets the team being edited keep its own name, and be joined under it", () => {
-    // Its own name back — re-spelled or not — is not another team's, and
-    // `team.assign` names the team it joins as the one being edited.
-    const ws = workspace([pane("pane-1", { name: "api", role: "lead" }), pane("pane-2")]);
-    expect(
-      planTeam(ws, draft({ name: "API", members: [{ paneId: "pane-1", role: "lead" }] }), "api")
-        .ok,
-    ).toBe(true);
-    expect(
-      planTeam(
-        ws,
-        draft({
-          name: "api",
-          members: [
-            { paneId: "pane-1", role: "lead" },
-            { paneId: "pane-2", role: "impl-1" },
-          ],
-        }),
-        "api",
-      ).ok,
-    ).toBe(true);
-  });
-
-  it("knows a plan that asks for nothing", () => {
-    const ws = workspace([pane("pane-1")]);
-    const result = planTeam(ws, draft());
-    expect(result.ok && teamPlanIsEmpty(result.value)).toBe(true);
-    const withOne = planTeam(ws, draft({ members: [{ paneId: "pane-1", role: "lead" }] }));
-    expect(withOne.ok && teamPlanIsEmpty(withOne.value)).toBe(false);
-  });
-});
-
-describe("planDisband", () => {
-  it("releases everyone holding the name and leaves nobody on it", () => {
-    const ws = workspace([
-      pane("pane-1", { name: "api", role: "lead" }),
-      pane("pane-2", { name: "api", role: "impl-1" }),
-      pane("pane-3", { name: "web", role: "lead" }),
-      pane("pane-4"),
-    ]);
-    const plan = planDisband(ws, "api");
+  it("renames a team with nobody on it without demanding a lead", () => {
+    const empty = deck([team("team-1", "api")], []);
+    const plan = planTeam(empty, { name: "platform", members: [], recruits: [] }, "team-1");
     expect(plan.ok && plan.value).toEqual({
-      name: "api",
+      teamId: "team-1",
+      name: "platform",
       members: [],
-      // Another team's members and an unaffiliated pane are untouched — a
-      // disband ends ONE team, and releasing a pane it does not own would
-      // strip a role its teammates are still briefed to address.
-      released: ["pane-1", "pane-2"],
       recruits: [],
     });
   });
+});
 
-  it("matches the name the way membership does, not the way a keyboard does", () => {
-    // The same case- and space-insensitive rule `paneIsOnTeam` applies. A
-    // disband that missed on capitalisation would report success and leave
-    // the team running.
-    const ws = workspace([pane("pane-1", { name: "api", role: "lead" })]);
-    const plan = planDisband(ws, "  API ");
-    expect(plan.ok && plan.value.released).toEqual(["pane-1"]);
-    // Trimmed, so the plan names the team rather than what was typed.
-    expect(plan.ok && plan.value.name).toBe("API");
-  });
-
-  it("refuses a name nobody holds instead of answering with an empty plan", () => {
-    // A disband that quietly does nothing is indistinguishable from one that
-    // worked, to whoever asked for it. This was the one destructive gesture
-    // that built its plan by hand and so passed no check at all.
-    const ws = workspace([pane("pane-1", { name: "api", role: "lead" })]);
-    for (const missing of ["web", "", "   "]) {
-      const plan = planDisband(ws, missing);
-      expect(plan.ok, JSON.stringify(missing)).toBe(false);
-      if (!plan.ok) expect(plan.message).toContain("no team called");
-    }
+describe("teamPlanIsNoop", () => {
+  it("knows a plan that changes nothing, and one that does", () => {
+    const ws = two();
+    const same = planTeam(ws, draft(), "team-1");
+    expect(same.ok && teamPlanIsNoop(ws, same.value)).toBe(true);
+    const renamed = planTeam(ws, draft({ name: "platform" }), "team-1");
+    expect(renamed.ok && teamPlanIsNoop(ws, renamed.value)).toBe(false);
+    const reroled = planTeam(
+      ws,
+      draft({ members: [both[0], { paneId: "pane-2", role: "impl-2" }] }),
+      "team-1",
+    );
+    expect(reroled.ok && teamPlanIsNoop(ws, reroled.value)).toBe(false);
+    const recruiting = planTeam(
+      ws,
+      draft({ recruits: [{ agentType: "claude", role: "impl-2", yolo: false }] }),
+      "team-1",
+    );
+    expect(recruiting.ok && teamPlanIsNoop(ws, recruiting.value)).toBe(false);
+    // A team that is gone leaves nothing to do.
+    expect(teamPlanIsNoop(ws, { teamId: "team-9", name: "x", members: [], recruits: [] })).toBe(true);
   });
 });
 

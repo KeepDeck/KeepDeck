@@ -14,13 +14,15 @@
  */
 import {
   resolvePaneRef,
+  resolveTeamRef,
   type CommandArgs,
   type CommandRegistry,
   type CommandSource,
 } from "../../domain/commands";
 import {
   findWorkspaceOfPane,
-  teamNameOf,
+  membersOf,
+  teamOfPane,
   type Pane,
   type Workspace,
 } from "../../domain/deck";
@@ -29,7 +31,6 @@ import {
   isMessageId,
   kindGuidance,
   planTeam,
-  teamMembers,
   leadRole,
   resolveMailTarget,
   senderAddress,
@@ -56,26 +57,22 @@ export interface MailCommandDeps {
   workspaces(): readonly Workspace[];
   /** Just enough to name a pane the way its header does. */
   agents(): readonly { id: string; label: string }[];
-  /** Put a pane on a team, or take it off one. */
-  setPaneTeam(
-    workspaceId: string,
-    paneId: string,
-    team: { name: string; role: string } | null,
-  ): void;
+  /** Write a team's settled roster — name and every role — as one change. */
+  settleRoster: TeamSetupDeps["settleRoster"];
 }
 
 /**
  * What applying a roster means, from here.
  *
  * The same owner the dialog goes through (`applyTeamPlan`), with the ports an
- * AGENT-driven settle can honestly supply: it records the roles, briefs the
- * joiner, re-briefs whoever's roster changed and tells whoever left. It
- * cannot start or end an agent — a roster settle asks for neither, and a plan
- * that did would say so rather than skip it silently.
+ * AGENT-driven settle can honestly supply: it records the roles and
+ * re-briefs everyone whose roster changed. It cannot start an agent — a
+ * roster settle asks for none, and a plan that did would say so rather than
+ * skip it silently.
  */
 function rosterPorts(deps: MailCommandDeps): TeamSetupDeps {
   return {
-    setPaneTeam: deps.setPaneTeam,
+    settleRoster: deps.settleRoster,
     // Always live here: these commands exist only while the feature is on.
     announce: (paneId, kind, body) => deps.mail.announce(paneId, kind, body),
     report: (title, message) => log.warn("web:mail", `${title}: ${message}`),
@@ -352,7 +349,8 @@ export function registerMailCommands(
         {
           name: "team",
           type: "string",
-          description: "Team name; omit to take the agent off its team",
+          description:
+            "The agent's own team, by name or id — optional; an agent runs where its team runs, so it cannot be moved",
         },
         {
           name: "role",
@@ -376,11 +374,13 @@ export function registerMailCommands(
        * one — they held an address nobody had told them about, and could not
        * be told until a fresh session happened to restate it.
        *
-       * The roster it settles is the team AS IT WILL BE: everyone holding
-       * the name, minus this pane, plus what it was asked to become. So the
-       * rules the dialog obeys — one lead, unique addresses, known roles, no
-       * poaching from another team — are obeyed here by construction rather
-       * than by a second, weaker copy.
+       * The roster it settles is the team AS IT WILL BE: everyone on it,
+       * this pane under what it was asked to become. So the rules the dialog
+       * obeys — one lead, unique addresses, known roles — are obeyed here by
+       * construction rather than by a second, weaker copy. The team is the
+       * pane's OWN, by id: an agent runs where its team runs, so there is no
+       * moving it, and no taking it off — ending it is `agent.close`, and
+       * moving work between teams is starting an agent on the target team.
        */
       run: async (args, source) => {
         const caller = requireSender(source);
@@ -388,48 +388,52 @@ export function registerMailCommands(
         const target = resolvePaneRef(workspace, deps.agents(), str(args, "agent") ?? "");
         if (!target.ok) throw new Error(target.message);
         const paneId = target.value.id;
-        const name = str(args, "team");
+        const named = str(args, "team");
         const role = str(args, "role");
-        const held = teamNameOf(workspace, target.value);
-        // An agent runs where its team runs, so there is no taking it OFF a
-        // team: ending it is `agent.close`, and moving work between teams is
-        // starting an agent on the target team. Refused in words, because an
-        // agent cannot see a silent no-op and keeps building on it.
-        if (name === undefined && role === undefined) {
+        const held = teamOfPane(workspace, target.value);
+        // Refused in words, because an agent cannot see a silent no-op and
+        // keeps building on it.
+        if (named === undefined && role === undefined) {
           throw new Error(
             `${str(args, "agent")} runs where its team runs — to end it, close it; to move work to another team, start an agent there (team.add)`,
           );
         }
-        // Which team's roster is being settled: the one named, or the one
-        // the agent is on when only its role changes.
-        const team = name ?? held;
-        if (!team) {
-          // A role with no team to hold it. Answering "done, team: null" here
-          // told the caller its request had been carried out while nothing
-          // happened at all — the failure an agent cannot see and so keeps
-          // building on.
-          if (role) {
+        if (!held) {
+          throw new Error(
+            `${str(args, "agent")} is on no team — an agent joins a team when it starts (team.add, team.create)`,
+          );
+        }
+        if (named !== undefined) {
+          const wanted = resolveTeamRef(workspace, named);
+          if (!wanted.ok) {
             throw new Error(
-              `${str(args, "agent")} is not on a team — name the team to put it on one`,
+              `no team "${named}" is running here — a team starts with its first agent (team.create)`,
             );
           }
-          return { paneId, team: null };
+          if (wanted.value.id !== held.id) {
+            throw new Error(
+              `${str(args, "agent")} is already ${target.value.team?.role} on team "${held.name}" — an agent runs where its team runs; to move work between teams, start an agent on the target team (team.add)`,
+            );
+          }
         }
-        const members = teamMembers(workspace, team)
-          .filter((pane) => pane.id !== paneId)
-          .map((pane) => ({ paneId: pane.id, role: pane.team!.role }));
-        if (name || role) members.push({ paneId, role: role ?? "" });
+        // A member with no address is one no teammate can reach.
+        if (role === undefined) {
+          throw new Error(
+            `${str(args, "agent")} needs a role — it is the address teammates use`,
+          );
+        }
+        const members = membersOf(workspace, held.id).map((pane) => ({
+          paneId: pane.id,
+          role: pane.id === paneId ? role : pane.team!.role,
+        }));
         const planned = planTeam(
           workspace,
-          { name: team, members, recruits: [] },
-          team,
+          { name: held.name, members, recruits: [] },
+          held.id,
         );
         if (!planned.ok) throw new Error(planned.message);
         await applyTeamPlan(rosterPorts(deps), workspace.id, planned.value);
-        return {
-          paneId,
-          team: name || role ? { name: planned.value.name, role: role ?? "" } : null,
-        };
+        return { paneId, team: { id: held.id, name: held.name, role } };
       },
     }),
   ];

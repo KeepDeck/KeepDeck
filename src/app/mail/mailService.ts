@@ -44,7 +44,7 @@ export interface MailServiceDeps {
   deck: {
     workspaces(): readonly Workspace[];
     subscribe(listener: () => void): () => void;
-    setPaneTeam: MailCommandDeps["setPaneTeam"];
+    settleRoster: MailCommandDeps["settleRoster"];
     /** Which CLI a pane runs, or null when the deck no longer holds it. */
     agentTypeOf(paneId: string): string | null;
   };
@@ -248,7 +248,7 @@ export function createMailService(deps: MailServiceDeps): MailService {
   const unregister = registerMailCommands(deps.registry, {
     workspaces: deps.deck.workspaces,
     agents: deps.agents.labels,
-    setPaneTeam: deps.deck.setPaneTeam,
+    settleRoster: deps.deck.settleRoster,
     mail: manager,
   });
   const presence = startPresence();

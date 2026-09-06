@@ -60,7 +60,7 @@ function setup() {
           paneListeners.add(listener);
           return () => paneListeners.delete(listener);
         },
-        setPaneTeam: () => {},
+        settleRoster: () => {},
         agentTypeOf: (paneId: string) => agentTypes[paneId] ?? "claude",
       },
       agents: {

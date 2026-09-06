@@ -36,7 +36,6 @@ import { DEFAULT_SETTINGS } from "../domain/settings";
 import { artifactsDoorOpen } from "./artifacts/door";
 import {
   closeHotkeyTarget,
-  findTeamByName,
   findWorkspace,
   MAX_PANES,
   maximizeHotkeyTarget,
@@ -89,12 +88,11 @@ export function useAppController() {
     wsId: string;
     record: SessionHandle;
   } | null>(null);
-  /** The team surface: `editing` names the team being changed, or is null
-   * for a new one. A transaction like every other dialog, so the same gate
-   * keeps a second one from stacking over it. */
-  const [teamDialog, setTeamDialog] = useState<{ editing: string | null } | null>(
-    null,
-  );
+  /** The roster surface: the team whose roster and roles are being settled,
+   * by id. A transaction like every other dialog, so the same gate keeps a
+   * second one from stacking over it. A NEW team is not this dialog's — it
+   * is born with its first agent, through the "+ Agent" flow. */
+  const [teamDialog, setTeamDialog] = useState<{ teamId: string } | null>(null);
   const specByPane = runView.specs;
   const failedPanes = runView.planFailed;
   const usageLiveAgents = useMemo(() => {
@@ -135,42 +133,17 @@ export function useAppController() {
    * through `agent.spawn` and that ending a member leaves its worktree alone.
    */
   const teamFlow = createTeamFlow({
-    setPaneTeam: deck.setPaneTeam,
-    spawn: async (workspaceId, team, agentType, yolo, role) => {
-      // Onto the team when it exists; its first agent otherwise — born
-      // with its directory: a fresh worktree where the workspace can make
-      // one, the workspace root where it cannot.
-      const workspace = findWorkspace(deck.workspaces, workspaceId);
-      const existing = workspace ? findTeamByName(workspace, team) : undefined;
-      const result = existing
-        ? await commands.execute(
-            "team.add",
-            { workspace: workspaceId, team: existing.id, agentType, yolo, role },
-            { kind: "host" },
-          )
-        : await commands.execute(
-            "team.create",
-            {
-              workspace: workspaceId,
-              name: team,
-              agentType,
-              yolo,
-              role,
-              ...(workspace?.worktreeBaseDir ? {} : { directory: "root" }),
-            },
-            { kind: "host" },
-          );
+    settleRoster: deck.settleRoster,
+    spawn: async (workspaceId, teamId, agentType, yolo, role) => {
+      // Onto the team, by id, in its own directory — the one creation path
+      // a roster has. A team is born elsewhere, with its first agent.
+      const result = await commands.execute(
+        "team.add",
+        { workspace: workspaceId, team: teamId, agentType, yolo, role },
+        { kind: "host" },
+      );
       if (!result.ok) throw new Error(result.error.message);
       return (result.value as { paneId?: string }).paneId ?? null;
-    },
-    close: async (workspaceId, paneId) => {
-      const workspace = findWorkspace(deck.workspaces, workspaceId);
-      if (!workspace) return;
-      await orchestrator.close({
-        kind: "agent",
-        workspace: { id: workspace.id, instance: workspace.instance },
-        paneId,
-      });
     },
     report: pushAlert,
     // Looked up per call: the manager is the service's, and a disposed
@@ -448,9 +421,10 @@ export function useAppController() {
     openArtifacts: artifactsDoorOpen(settings)
       ? () => void modal.openArtifacts()
       : null,
-    openTeamDialog: teamDialogDoorOpen(active)
-      ? () => setTeamDialog({ editing: null })
-      : null,
+    // A new team is born with its directory and its first agent: the same
+    // flow as adding an agent, which mints a team of its own around it.
+    openTeamDialog:
+      active && teamDialogDoorOpen(active) ? () => void agentFlow.openFor(active) : null,
     dockControl:
       dockDoorOpen(pluginDockTabs.length)
         ? {

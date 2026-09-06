@@ -6,17 +6,26 @@
  * whole. Two panes can each be assigned `impl-1` legitimately a second
  * apart, and only a view of the finished roster catches it. So the surface
  * collects a DRAFT, this settles it into a plan, and applying the plan is
- * mechanical.
+ * mechanical — and atomic: the deck writes the whole roster in one step.
  *
- * The plan also carries who LEAVES. A team is the set of panes holding its
- * name, so anyone in it that the draft no longer lists has been taken out —
- * saying so explicitly is what lets the caller apply the result without
- * re-deriving it, and re-derivation at the call site is how a member gets
- * silently stranded on a team nobody thinks they are on.
+ * The team is named by ID throughout. Its name is an address people say
+ * and agents type, and a plan may change it; nothing here ever finds a
+ * team by name, and nothing here ever makes one — a team is born with its
+ * directory and its first agent (`team.create`), never from a roster. An
+ * agent runs where its team runs, so a plan never moves a pane between
+ * teams and never takes one off: every member stays, only its role and
+ * the team's name can change, and recruits join.
  */
 import type { AgentType } from "../agents";
 import type { Resolved } from "../commands";
-import { findTeamByName, teamNameOf, type Workspace } from "../deck";
+import {
+  findTeam,
+  membersOf,
+  teamNameKey,
+  teamNameOf,
+  teamNameTaken,
+  type Workspace,
+} from "../deck";
 import { SENDABLE_KINDS } from "./message";
 import { kindGuidance } from "./policy";
 import {
@@ -26,9 +35,8 @@ import {
   peerRole,
   type RoleStanding,
 } from "./roles";
-import { paneIsOnTeam, teamMembers, teamNameKey } from "./team";
 
-/** An existing pane taking a role. */
+/** An existing member, and the role it takes. */
 export interface TeamMemberDraft {
   paneId: string;
   role: string;
@@ -53,22 +61,17 @@ export interface TeamDraft {
 }
 
 /**
- * A settled team: who is on it, who is leaving it, and who is yet to exist.
+ * A settled team: which team, what it is called, who is on it under which
+ * role, and who is yet to exist.
  *
  * Not an order — the order of applying it belongs to the caller that applies
  * it, and is stated there.
  */
 export interface TeamPlan {
+  /** The team settled — by id. The name below is an address, never a key. */
+  teamId: string;
   name: string;
   members: { paneId: string; role: string }[];
-  /** Panes leaving the team — everyone holding its name that the draft
-   * dropped. */
-  released: string[];
-  /** The name those released members actually HELD, when the plan renames
-   * the team in the same breath — a farewell must name the team somebody
-   * was on, never the name it was being changed to. Absent when the two
-   * agree. */
-  formerName?: string;
   recruits: TeamRecruitDraft[];
 }
 
@@ -163,14 +166,6 @@ export function teamBriefing(
   ].join("\n");
 }
 
-/** What the deck tells an agent that has been taken off a team. Short on
- * purpose: the only thing it changes is that the roles it knew no longer
- * reach anyone, and an agent that keeps writing into a dissolved team would
- * spend turns on messages nobody receives. */
-export function teamFarewell(team: string): string {
-  return `You are no longer on the KeepDeck team "${team}". Its roles no longer reach anyone, and nothing further will arrive from it.`;
-}
-
 /**
  * Every team running in this workspace, in the order its panes appear.
  *
@@ -198,57 +193,56 @@ export function teamNamesIn(workspace: Workspace): string[] {
   return names;
 }
 
-/** Whether the plan asks for anything at all. A dialog confirmed without a
- * change should do nothing rather than dispatch a no-op storm. */
-export function teamPlanIsEmpty(plan: TeamPlan): boolean {
-  return (
-    plan.members.length === 0 &&
-    plan.released.length === 0 &&
-    plan.recruits.length === 0
+/** Whether the plan changes nothing about the team as the workspace holds
+ * it: the same name, every member under the role it already has, nobody to
+ * start. A dialog confirmed without a change should do nothing rather than
+ * dispatch a no-op storm and re-brief everyone about it. */
+export function teamPlanIsNoop(workspace: Workspace, plan: TeamPlan): boolean {
+  const team = findTeam(workspace, plan.teamId);
+  if (!team) return true;
+  if (plan.recruits.length > 0 || plan.name !== team.name) return false;
+  return plan.members.every(
+    (member) =>
+      workspace.panes.find((pane) => pane.id === member.paneId)?.team?.role === member.role,
   );
 }
 
+const MOVES_WORK = "an agent runs where its team runs; to move work between teams, start an agent on the target team (team.add)";
+
 /**
- * Settle a draft against the workspace, or say what is wrong with it.
+ * Settle a draft against the team `teamId` of the workspace, or say what is
+ * wrong with it.
  *
  * Uniqueness is judged across members AND recruits together, because a role
  * an about-to-be-spawned agent will hold is just as taken as one a live pane
  * holds — checking only the live half is how a team ends up with two
  * `impl-1`s the moment the second one starts.
+ *
+ * Enforced HERE and not only where a dialog draws it: an agent driving
+ * `team.assign` reads no dialog, and every rule below is about teams, not
+ * about a form.
  */
 export function planTeam(
   workspace: Workspace,
   draft: TeamDraft,
-  /** The team this draft is EDITING, when it edits one; null means the draft
-   * CREATES a team, and a name some other team holds is then refused rather
-   * than settled as an edit of that team.
-   *
-   * Who has left is a question about the team as it stands, not about what
-   * it is being renamed to. Answered against the draft's new name, a rename
-   * makes the dropped member invisible: nobody holds the new name yet, so
-   * the released list comes back empty and the member keeps a badge for a
-   * team it is no longer on. Reproduced before this argument existed.
-   */
-  editing: string | null = null,
+  teamId: string,
 ): Resolved<TeamPlan> {
-  const name = draft.name.trim();
-  if (!name) return { ok: false, message: "the team needs a name" };
-
-  // A name some OTHER team holds is refused. Settled as a create, the draft
-  // would read as an edit of that team and release every member it does not
-  // list; settled as a rename, it would merge two teams under one name with
-  // duplicate addresses — either way members evicted or mail misdelivered,
-  // with nobody re-briefed. Judged by key, so " API " is the team called
-  // "api"; the team being edited is not "other", so a re-spelling of its own
-  // name is the rename to nowhere it is, and `team.assign` names the team it
-  // joins as the one being edited, so joining is untouched. Enforced here and
-  // not only where the dialog draws it: an agent naming a team reads no dialog.
-  const key = teamNameKey(name);
-  const other = editing === null || teamNameKey(editing) !== key;
-  if (other && findTeamByName(workspace, name) !== undefined) {
+  const team = findTeam(workspace, teamId);
+  if (!team) {
     return {
       ok: false,
-      message: `a team called “${name}” already exists — open it from an agent's badge to edit it`,
+      message: "that team is not here any more — a team starts with its first agent (team.create)",
+    };
+  }
+  const name = draft.name.trim();
+  if (!name) return { ok: false, message: "the team needs a name" };
+  // A name some OTHER team holds is refused: settled, it would leave two
+  // teams answering to one address. Judged by key, so " API " is the team
+  // called "api"; the team's own name, re-spelled, is no other team's.
+  if (teamNameTaken(workspace, name, teamId)) {
+    return {
+      ok: false,
+      message: `a team called “${name}” already exists here — pick another name`,
     };
   }
 
@@ -268,24 +262,36 @@ export function planTeam(
     };
   }
 
-  // A pane holds ONE team. Taking one that already belongs elsewhere would
-  // strand the team it left: its remaining members stay briefed to address a
-  // role that then reaches nobody, and nothing tells them otherwise.
-  //
-  // Enforced HERE and not only where the offer is drawn. A dialog can decline
-  // to list a pane; an agent driving `team.assign` reads no dialog, and the
-  // invariant is about teams, not about a form. `editing ?? name` is the team
-  // as it stands, so a member already on THIS one is staying, not moving.
-  const staying = editing ?? name;
+  // Every member listed is on THIS team, and every member of the team is
+  // listed. A pane holds one team, and the team is where it runs: taking
+  // one from another team would strand that team's roster on an address
+  // that reaches nobody, and taking one OFF this team would leave a pane
+  // running nowhere. Neither is a roster edit.
+  const seenPanes = new Set<string>();
   for (const member of members) {
     const pane = workspace.panes.find((candidate) => candidate.id === member.paneId);
-    const held = pane?.team;
-    if (pane && held && !paneIsOnTeam(workspace, pane, staying)) {
+    if (!pane) {
+      return { ok: false, message: `no agent “${member.paneId}” is running here` };
+    }
+    if (seenPanes.has(pane.id)) {
+      return { ok: false, message: "an agent is listed twice on the roster" };
+    }
+    seenPanes.add(pane.id);
+    const held = pane.team;
+    if (held?.teamId !== teamId) {
       return {
         ok: false,
-        message: `that agent is already ${held.role} on team "${teamNameOf(workspace, pane) ?? held.teamId}" — an agent runs where its team runs; to move work between teams, start an agent on the target team (team.add)`,
+        message: held
+          ? `that agent is already ${held.role} on team "${teamNameOf(workspace, pane) ?? held.teamId}" — ${MOVES_WORK}`
+          : `that agent is not on “${team.name}” — ${MOVES_WORK}`,
       };
     }
+  }
+  if (membersOf(workspace, teamId).some((pane) => !seenPanes.has(pane.id))) {
+    return {
+      ok: false,
+      message: `every member of “${team.name}” stays on its roster — an agent runs where its team runs; to end one, close it`,
+    };
   }
 
   const seen = new Set<string>();
@@ -316,9 +322,9 @@ export function planTeam(
   // peers only, where nobody assigns anything. The three rules below are
   // those shapes; anything they refuse would brief somebody with a lie.
   //
-  // An EMPTY roster is neither — it is a team being disbanded, or a dialog
-  // confirmed with nothing in it. Demanding a shape there would make
-  // disbanding impossible.
+  // An EMPTY roster is neither — a team with nobody on it yet, whose card
+  // stays until someone joins. Demanding a shape there would make an
+  // empty team un-renameable.
   if (standings.peer > 0 && (standings.leads > 0 || standings.reports > 0)) {
     return {
       ok: false,
@@ -337,60 +343,5 @@ export function planTeam(
     };
   }
 
-  // Everyone currently holding the team's name that the draft dropped —
-  // the name it has NOW, which is `editing` whenever one is being edited and
-  // only otherwise the draft's own. Compared case-insensitively for the same
-  // reason the roles are: the person typing "API" means the team they called
-  // "api".
-  const keeping = new Set(members.map((member) => member.paneId));
-  const released = teamMembers(workspace, editing ?? name)
-    .filter((pane) => !keeping.has(pane.id))
-    .map((pane) => pane.id);
-
-  // Never any: settling a roster is an edit. Ending an agent is asked for
-  // separately, by the one gesture that means it.
-  const renamed = editing !== null && teamNameKey(editing) !== teamNameKey(name);
-  return {
-    ok: true,
-    value: {
-      name,
-      members,
-      released,
-      recruits,
-      ...(renamed ? { formerName: editing.trim() } : {}),
-    },
-  };
-}
-
-/**
- * Taking a team apart: everyone holding its name is released, and nobody is
- * left on it.
- *
- * A rule about teams, not about a dialog, which is why it is here and not in
- * the button that offers it. It was in the button once — the destructive
- * gesture was the ONE path that built a plan by hand and so the one path that
- * passed no check at all, while every ordinary edit went through `planTeam`.
- *
- * Refuses a name nobody holds rather than answering with an empty plan: a
- * disband that quietly does nothing is indistinguishable from one that worked
- * to whoever asked for it.
- */
-export function planDisband(
-  workspace: Workspace,
-  team: string,
-): Resolved<TeamPlan> {
-  const name = team.trim();
-  const members = teamMembers(workspace, name);
-  if (!name || members.length === 0) {
-    return { ok: false, message: `no team called "${team}" is running here` };
-  }
-  return {
-    ok: true,
-    value: {
-      name,
-      members: [],
-      released: members.map((pane) => pane.id),
-      recruits: [],
-    },
-  };
+  return { ok: true, value: { teamId, name, members, recruits } };
 }

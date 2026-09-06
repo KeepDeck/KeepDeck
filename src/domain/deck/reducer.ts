@@ -41,7 +41,6 @@ import {
 import { paneBranch, paneExecutionCwd } from "./roots";
 import { stagePanes } from "./stage";
 import { findTeam, teamNameOf } from "./teams/collection";
-import { assignPaneTeam } from "./teams/transforms";
 import {
   createTeam,
   dissolveTeam,
@@ -50,6 +49,7 @@ import {
   renameTeam,
   resolveTeamProvisioning,
   setTeamProvisioningError,
+  settleRoster,
 } from "./teams/lifecycle";
 import type { DeckAction } from "./reducerActions";
 import {
@@ -445,12 +445,12 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         state,
         setPaneAutoTitle(state.workspaces, action.wsId, action.paneId, action.title),
       );
-    case "setPaneTeam":
-      // Same no-op contract. Whether the role was free is decided before the
-      // dispatch — this rung only applies the answer.
+    case "settleRoster":
+      // Same no-op contract. Whether the roster is a valid shape is decided
+      // before the dispatch (`planTeam`) — this rung only applies it, whole.
       return withWorkspaces(
         state,
-        assignPaneTeam(state.workspaces, action.wsId, action.paneId, action.team),
+        settleRoster(state.workspaces, action.wsId, action.teamId, action.name, action.members),
       );
     case "hydrate":
       // deck.json knows nothing of the journal — keep the live slice (its

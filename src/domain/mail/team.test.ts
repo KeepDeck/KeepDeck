@@ -2,11 +2,11 @@ import { describe, expect, it } from "vitest";
 import type { Pane, Workspace } from "../deck";
 import { resolveNamedPanes } from "../deck/teams/testSupport";
 import { createWorkspaceInstance } from "../workspaceInstance";
-import { paneIsOnTeam, resolveMailTarget, teamMembers, teamNameKey, teamOf } from "./team";
+import { resolveMailTarget, teamNameKey, teamOf } from "./team";
 
 const AGENTS = [{ id: "claude", label: "Claude" }];
 
-/** Membership spoken by name, the way the dialog says it; `workspace`
+/** Membership spoken by name, the way a fixture says it; `workspace`
  * resolves it into the team the pane then holds by id. */
 const pane = (id: string, named?: { name: string; role: string }): Pane =>
   ({ id, agentType: "claude", ...(named ? { named } : {}) }) as Pane;
@@ -25,36 +25,11 @@ const workspace = (panes: Pane[]): Workspace =>
  * into a new one, so a test reads it back by id. */
 const held = (ws: Workspace, id: string): Pane => ws.panes.find((p) => p.id === id)!;
 
-describe("teamMembers", () => {
-  it("collects a team across the workspace, ignoring case", () => {
-    const ws = workspace([
-      pane("pane-1", { name: "api", role: "lead" }),
-      pane("pane-2", { name: "API", role: "impl-1" }),
-      pane("pane-3", { name: "web", role: "lead" }),
-      pane("pane-4"),
-    ]);
-    expect(teamMembers(ws, "api").map((p) => p.id)).toEqual(["pane-1", "pane-2"]);
-  });
-});
-
 describe("teamNameKey", () => {
   it("folds case and surrounding space, and nothing else", () => {
     expect(teamNameKey(" API ")).toBe("api");
     expect(teamNameKey("api")).toBe("api");
     expect(teamNameKey("Api Team")).toBe("api team");
-  });
-});
-
-describe("paneIsOnTeam", () => {
-  it("matches a name however it was cased or padded, on either side", () => {
-    // A hand-edited document can hold " API "; the person typing "api"
-    // means that team. Both sides go through the one key.
-    const ws = workspace([pane("pane-1", { name: " API ", role: "lead" }), pane("pane-2")]);
-    const member = held(ws, "pane-1");
-    expect(paneIsOnTeam(ws, member, "api")).toBe(true);
-    expect(paneIsOnTeam(ws, member, "  Api")).toBe(true);
-    expect(paneIsOnTeam(ws, member, "web")).toBe(false);
-    expect(paneIsOnTeam(ws, held(ws, "pane-2"), "api")).toBe(false);
   });
 });
 
@@ -122,6 +97,5 @@ describe("teamOf", () => {
     const ws = workspace([pane("pane-1", { name: "api", role: "lead" })]);
     const orphan = { ...held(ws, "pane-1"), team: { teamId: "team-404", role: "lead" } };
     expect(teamOf(ws, orphan)).toBeNull();
-    expect(teamMembers(ws, "api").map((p) => p.id)).toEqual(["pane-1"]);
   });
 });

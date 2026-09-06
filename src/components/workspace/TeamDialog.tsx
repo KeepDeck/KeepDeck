@@ -1,31 +1,29 @@
-import { useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import {
   agentSupportsNew,
   agentSupportsYolo,
   selectableAgents,
   type AgentInfo,
 } from "../../domain/agents";
-import type { Pane, Workspace } from "../../domain/deck";
 import {
-  paneWorktree,
   baseName,
+  findTeam,
+  membersOf,
   paneAgentType,
   paneBranch,
   paneDisplayTitle,
-  teamNameOf,
+  paneWorktree,
+  type Pane,
+  type Workspace,
 } from "../../domain/deck";
 import {
   mintRoleAddress,
-  paneIsOnTeam,
   parseRoleAddress,
-  planDisband,
   planTeam,
-  teamMembers,
-  teamNameKey,
   roleById,
   suggestRoleAddress,
   teamBriefing,
-  teamPlanIsEmpty,
+  teamPlanIsNoop,
   teamRoles,
   type TeamPlan,
   type TeamRecruitDraft,
@@ -41,9 +39,9 @@ import { noAutoCorrect } from "../../ui/inputProps";
 interface TeamDialogProps {
   workspace: Workspace;
   agents: AgentInfo[];
-  /** The team to edit, or null to start a new one. Editing an existing team
-   * opens with its members already on the roster and their roles filled. */
-  editing: string | null;
+  /** The team whose roster and roles are settled here — by id. Its name is
+   * an address the form can change; the id is what the plan carries. */
+  teamId: string;
   /** The YOLO toggle's starting position for a new recruit — the global
    * preference, the same seed the "+ Agent" and fork dialogs use. */
   defaultYolo: boolean;
@@ -57,11 +55,8 @@ interface TeamDialogProps {
     subscribe(listener: () => void): () => void;
     of(paneId: string): PaneActivity | undefined;
   };
-  /** Apply a settled roster. `closing` names the panes to END as well as
-   * release — only the disband gesture asks for that, and only when the
-   * person ticked it in the same breath, which is why it travels beside the
-   * plan instead of inside it. */
-  onConfirm(plan: TeamPlan, closing?: readonly string[]): void;
+  /** Apply a settled roster. */
+  onConfirm(plan: TeamPlan): void;
   onCancel(): void;
 }
 
@@ -106,8 +101,8 @@ function RowActivity({
 }
 
 /**
- * The whole team in one place: its name, who is on it, what each is called,
- * and any agents to start alongside them.
+ * The team's roster in one place: its name, who is on it, what each is
+ * called, and any agents to start alongside them.
  *
  * A team is a workspace-level structure, so it is settled at that level
  * rather than a pane at a time. Editing membership one pane at a time can
@@ -115,57 +110,52 @@ function RowActivity({
  * roles unique?" — because it never sees the whole roster; two panes can
  * each take `impl-1` a second apart and nothing is there to notice.
  *
- * The dialog decides nothing itself. It collects a draft and hands it to
- * `planTeam`, which settles it or says what is wrong — including who is
- * being taken OFF the team, which the caller must not have to work out
- * again.
+ * What the roster is NOT: a way in or out of the team. An agent runs where
+ * its team runs, so a member is never taken off here (closing it is the
+ * close flow's), nobody is taken from another team, and the team itself
+ * is born elsewhere, with its directory and its first agent. Disbanding is
+ * the card's, through the same close flow. The dialog decides nothing
+ * itself: it collects a draft and hands it to `planTeam`, which settles it
+ * or says what is wrong.
  */
 export function TeamDialog({
   workspace,
   agents,
-  editing,
+  teamId,
   defaultYolo,
   activity,
   onConfirm,
   onCancel,
 }: TeamDialogProps) {
-  const [name, setName] = useState(editing ?? "");
-  const startingMembers = useMemo(() => {
-    const seeded = new Map<string, string>();
-    if (editing) {
-      for (const pane of teamMembers(workspace, editing)) {
-        seeded.set(pane.id, pane.team!.role);
-      }
-    }
-    return seeded;
-  }, [editing, workspace.panes]);
-  /** Ticked panes and the role each is to hold. A pane absent from the map
-   * is simply not on the team. */
-  const [roles, setRoles] = useState<Map<string, string>>(startingMembers);
+  const team = findTeam(workspace, teamId);
+  // The team can vanish under an open dialog (a disband over MCP). A form
+  // over a team that is gone would settle nothing; closing it says the
+  // moment passed.
+  useEffect(() => {
+    if (!team) onCancel();
+  }, [team, onCancel]);
+
+  const [name, setName] = useState(team?.name ?? "");
+  /** The roles the person has PICKED, by pane. A member absent from the
+   * map keeps the role it holds — so a member that joins while the dialog
+   * is open (an agent's team.add) appears with its own role, not blank. */
+  const [picked, setPicked] = useState<Map<string, string>>(() => new Map());
   const [recruits, setRecruits] = useState<TeamRecruitDraft[]>([]);
   /** Whether the person has done anything yet. A form that greets you with
-   * "the team needs a name" is scolding you for not having typed — the
-   * complaint is only true, and only useful, once something was attempted. */
+   * a refusal is scolding you for not having typed — the complaint is only
+   * true, and only useful, once something was attempted. */
   const [touched, setTouched] = useState(false);
-  /** Whether disbanding should also end the agents. Off every time the
-   * dialog opens: the destructive reading of a control has to be chosen
-   * again each time, never inherited from the last team somebody ended. */
-  const [closeOnDisband, setCloseOnDisband] = useState(false);
   /** The roster row whose briefing is open in a notice over this dialog —
    * null when none is. */
   const [briefFor, setBriefFor] = useState<string | null>(null);
-  /** Whether the disband confirm is up. Ending a team is not an edit, so
-   * the question is asked in its own dialog, not by a control in the
-   * footer. */
-  const [disbanding, setDisbanding] = useState(false);
 
   const canRecruit = useMemo(
     () => selectableAgents(agents).filter((agent) => agentSupportsNew(agents, agent.id)),
     [agents],
   );
   /** The catalog, as the picker takes it. Roles are chosen, never typed —
-   * a role now carries what a member is FOR, and that only exists for one
-   * the catalog has. */
+   * a role carries what a member is FOR, and that only exists for one the
+   * catalog has. */
   const roleOptions = useMemo(
     () => teamRoles().map((role) => ({ value: role.id, label: role.label })),
     [],
@@ -175,53 +165,29 @@ export function TeamDialog({
    * it, and an empty picker is the honest rendering of "no role yet". */
   const roleIdOf = (address: string) => parseRoleAddress(address)?.role.id ?? "";
 
-  // Entries whose pane left the WORKSPACE while the dialog was open (an
-  // agent closed over MCP) are dropped from the draft and the roster both.
-  // Carried with `pane: null`, they wore the recruit branch — a dashed
-  // card with a dead agent picker, claiming an agent was about to start.
-  const liveRoles = [...roles].filter(([paneId]) =>
-    workspace.panes.some((candidate) => candidate.id === paneId),
-  );
-  const draft = {
-    name,
-    members: liveRoles.map(([paneId, role]) => ({ paneId, role })),
-    recruits,
-  };
-  // `editing` matters beyond seeding the form: who has LEFT is a question
-  // about the team as it stands, so a rename must not make the members it
-  // dropped invisible.
-  // A name some OTHER team holds is planTeam's refusal, not this form's:
-  // "+ Team" passes no `editing`, which is what tells it a create from an
-  // edit, and the refusal below is rendered from its words like every other.
-  const planned = planTeam(workspace, draft, editing);
-  // Nothing to do is not an error, but it is not a confirmable form either:
-  // a dialog that dispatches a no-op teaches people it did something.
-  const valid = planned.ok && !teamPlanIsEmpty(planned.value);
+  // The roster as the workspace holds it NOW, each member under the role
+  // picked here or the one it already has. Read per render, so a member
+  // closed while the dialog is open leaves the roster, and one that joined
+  // appears on it.
+  const members = membersOf(workspace, teamId).map((pane) => ({
+    pane,
+    role: picked.get(pane.id) ?? pane.team?.role ?? "",
+  }));
 
-  /** Whether a roles-map entry still names a pane the workspace holds. */
-  const paneLives = (paneId: string) =>
-    workspace.panes.some((candidate) => candidate.id === paneId);
-
-  /** The live entries' addresses out of a roles map. Dead panes' entries
-   * are dropped from the roster and the draft, so a ghost must not keep
-   * its address "taken" for the minting paths either. */
-  const liveRoleValues = (held: ReadonlyMap<string, string>): string[] =>
-    [...held].filter(([paneId]) => paneLives(paneId)).map(([, role]) => role);
-
-  /** Every address the roster holds — the live members' and the recruits'.
-   * ONE list, because two paths mint against it: a role picked for a row,
-   * and a fresh recruit. Takes the recruits explicitly rather than closing
-   * over state, so a functional update can hand it the rows it is about to
+  /** Every address the roster holds — the members' and the recruits'. ONE
+   * list, because two paths mint against it: a role picked for a row, and
+   * a fresh recruit. Takes the recruits explicitly rather than closing over
+   * state, so a functional update can hand it the rows it is about to
    * commit rather than the ones of the last render. */
-  const heldAddresses = (
-    held: ReadonlyMap<string, string>,
-    rows: readonly TeamRecruitDraft[],
-  ): string[] => [...liveRoleValues(held), ...rows.map((row) => row.role)];
+  const heldAddresses = (rows: readonly TeamRecruitDraft[]): string[] => [
+    ...members.map((member) => member.role),
+    ...rows.map((row) => row.role),
+  ];
 
   /** Every address the roster holds, apart from one row's own — what a fresh
    * address has to avoid. */
   const addressesBesides = (mine: string): string[] =>
-    heldAddresses(roles, recruits).filter((address) => address !== mine);
+    heldAddresses(recruits).filter((address) => address !== mine);
 
   /** The address for a chosen ROLE. The picker answers with a catalog id; the
    * roster stores an address, because two implementers need telling apart.
@@ -233,26 +199,11 @@ export function TeamDialog({
     return mintRoleAddress(role, addressesBesides(mine)) ?? role.id;
   };
 
-  const take = (pane: Pane) =>
-    setRoles((current) => {
-      const next = new Map(current);
-      // Its EXISTING role when it has one — re-adding a member of the team
-      // being edited must not silently rename it — else the next suggestion.
-      next.set(pane.id, pane.team?.role ?? suggestAddress(heldAddresses(next, recruits)));
-      return next;
-    });
-
-  const drop = (paneId: string) =>
-    setRoles((current) => {
-      const next = new Map(current);
-      next.delete(paneId);
-      return next;
-    });
-
-  const setRole = (paneId: string, roleId: string) =>
-    setRoles((current) =>
-      new Map(current).set(paneId, addressFor(roleId, current.get(paneId) ?? "")),
-    );
+  const setRole = (paneId: string, roleId: string) => {
+    setTouched(true);
+    const mine = members.find((member) => member.pane.id === paneId)?.role ?? "";
+    setPicked((current) => new Map(current).set(paneId, addressFor(roleId, mine)));
+  };
 
   const iconOf = (pane: Pane) =>
     agents.find((agent) => agent.id === paneAgentType(pane))?.icon;
@@ -260,26 +211,32 @@ export function TeamDialog({
   const titleOf = (pane: Pane) =>
     paneDisplayTitle(pane, workspace.panes.indexOf(pane), agents);
 
-  /** The team as it currently stands: taken panes first, in the order they
-   * were taken, then the agents to start. One list, because to the person
-   * reading it they are all members — the difference is only that some do
-   * not exist yet. */
+  const draft = {
+    name,
+    members: members.map(({ pane, role }) => ({ paneId: pane.id, role })),
+    recruits,
+  };
+  const planned = planTeam(workspace, draft, teamId);
+  // Nothing to do is not an error, but it is not a confirmable form either:
+  // a dialog that dispatches a no-op teaches people it did something.
+  const valid = planned.ok && !teamPlanIsNoop(workspace, planned.value);
+
+  /** The team as it currently stands: the members in deck order, then the
+   * agents to start. One list, because to the person reading it they are
+   * all members — the difference is only that some do not exist yet. */
   const roster = [
-    ...liveRoles.map(([paneId, role]) => {
-      const pane = workspace.panes.find((candidate) => candidate.id === paneId)!;
-      return {
-        key: paneId,
-        role,
-        pane: pane as Pane | null,
-        label: titleOf(pane),
-        agentType: "",
-        yolo: false,
-        setRole: (next: string) => setRole(paneId, next),
-        setAgentType: () => {},
-        setYolo: () => {},
-        remove: () => drop(paneId),
-      };
-    }),
+    ...members.map(({ pane, role }) => ({
+      key: pane.id,
+      role,
+      pane: pane as Pane | null,
+      label: titleOf(pane),
+      agentType: "",
+      yolo: false,
+      setRole: (next: string) => setRole(pane.id, next),
+      setAgentType: () => {},
+      setYolo: () => {},
+      remove: null as (() => void) | null,
+    })),
     ...recruits.map((recruit, index) => ({
       key: `new-${index}`,
       role: recruit.role,
@@ -301,42 +258,12 @@ export function TeamDialog({
         setRecruits((current) =>
           current.map((row, i) => (i === index ? { ...row, yolo: next } : row)),
         ),
-      remove: () =>
-        setRecruits((current) => current.filter((_, i) => i !== index)),
+      // Only an agent that does not exist yet can be dropped from the
+      // roster: a member runs where its team runs, and ending it is the
+      // close flow's own question.
+      remove: () => setRecruits((current) => current.filter((_, i) => i !== index)),
     })),
   ];
-
-  /** Everyone in the workspace who is NOT on the team. */
-  const available = workspace.panes
-    .filter((pane) => !roles.has(pane.id))
-    .map((pane) => ({ pane, label: titleOf(pane) }));
-
-  // A pane holds ONE team, so a pooled pane that already has a different
-  // one cannot be taken — it would be pulled out of a team whose remaining
-  // members are still briefed to address its role. Membership is compared
-  // against the team being EDITED, never the name box: typing renames the
-  // team, and compared to the box every own member read as another team's
-  // from a rename's first keystroke.
-  //
-  // The takeable lead the pool; the spoken-for sink below it, folded to a
-  // line per TEAM — a row each repeated one fact as many times as that
-  // team has members, and pushed the panes that can actually be added out
-  // of first sight.
-  const currentTeam = editing ?? name;
-  const takeable = available.filter(
-    ({ pane }) => !pane.team || paneIsOnTeam(workspace, pane, currentTeam),
-  );
-  const spokenFor: { team: string; members: typeof available }[] = [];
-  for (const entry of available) {
-    if (!entry.pane.team || paneIsOnTeam(workspace, entry.pane, currentTeam)) continue;
-    const team = teamNameOf(workspace, entry.pane);
-    if (team === undefined) continue;
-    const group = spokenFor.find(
-      (candidate) => teamNameKey(candidate.team) === teamNameKey(team),
-    );
-    if (group) group.members.push(entry);
-    else spokenFor.push({ team, members: [entry] });
-  }
 
   // The row whose briefing the notice quotes — re-found per render, so the
   // words stay live while the roster is edited under it, and a dropped row
@@ -345,11 +272,11 @@ export function TeamDialog({
 
   // Escape closes the dialog, like every other one here — nothing has
   // happened yet, since settling a team as one plan is what makes leaving
-  // mid-edit free. While anything is STACKED over it, Escape is the top
+  // mid-edit free. While a notice is STACKED over it, Escape is the top
   // surface's to claim, and the guard reads the same value the notice
   // renders from (briefRow, never the raw key) — so a stale key can never
   // leave the dialog deaf with nothing on screen.
-  useEscape(onCancel, briefRow === null && !disbanding);
+  useEscape(onCancel, briefRow === null);
 
   // What the roster itself says the team's shape is. The label reads it
   // back, so a person assembling a flat team watches the deck agree — and
@@ -363,6 +290,8 @@ export function TeamDialog({
         ? "The team — led"
         : "The team";
 
+  if (!team) return null;
+
   return (
     <ModalOverlay>
       <form
@@ -372,7 +301,7 @@ export function TeamDialog({
           if (planned.ok && valid) onConfirm(planned.value);
         }}
       >
-        <h2 className="form__title">{editing ? "Edit team" : "New team"}</h2>
+        <h2 className="form__title">Team “{team.name}”</h2>
         <p className="form__desc team__desc">
           Agents on a team can write to each other by role — “ask impl-1”,
           “report to lead”. The role is the address, so it has to be unique.
@@ -387,9 +316,6 @@ export function TeamDialog({
             setTouched(true);
             setName(e.target.value);
           }}
-          // "e.g." on purpose: a bare "api" reads as a value already in the
-          // field, which is exactly how an empty form comes to look filled
-          // in while complaining that it is empty.
           placeholder="e.g. api"
           aria-label="Team name"
           autoFocus
@@ -402,7 +328,7 @@ export function TeamDialog({
         <span className="form__label">{shapeLabel}</span>
         {roster.length === 0 ? (
           <p className="form__desc team__empty">
-            Nobody yet — take an agent from below, or start a new one.
+            Nobody yet — start an agent below.
           </p>
         ) : (
           <ul className="team__roster">
@@ -471,10 +397,8 @@ export function TeamDialog({
                           refactor want different answers, so the question
                           belongs in every row — but its two-line rationale
                           repeated six times turns a roster into a wall of
-                          warnings, which is what the shared field did here.
-                          The header carries the meaning, the cells carry the
-                          answers. Gated on the agent's own declaration, the
-                          same check every spawn surface applies. */}
+                          warnings. Gated on the agent's own declaration,
+                          the same check every spawn surface applies. */}
                       {agentSupportsYolo(agents, row.agentType) && (
                         <label
                           className={`team__row-yolo${
@@ -492,11 +416,9 @@ export function TeamDialog({
                     </>
                   )}
                   {/* The role's briefing, ON DEMAND — beside the row's other
-                      meta control (×), not between the address and the
-                      member it names: the left half of a row is identity,
-                      the right edge is what can be done to it. Assembling a
-                      team is frequent and reading a charter is rare, so the
-                      words sit behind this ask rather than in a panel. */}
+                      meta control, not between the address and the member
+                      it names: the left half of a row is identity, the
+                      right edge is what can be done to it. */}
                   <button
                     type="button"
                     className="team__row-info"
@@ -506,15 +428,17 @@ export function TeamDialog({
                   >
                     ⓘ
                   </button>
-                  <button
-                    type="button"
-                    className="team__row-drop"
-                    aria-label={`Take ${row.label} off the team`}
-                    title="Take off the team"
-                    onClick={row.remove}
-                  >
-                    ×
-                  </button>
+                  {row.remove && (
+                    <button
+                      type="button"
+                      className="team__row-drop"
+                      aria-label={`Do not start ${row.label}`}
+                      title="Do not start this agent"
+                      onClick={row.remove}
+                    >
+                      ×
+                    </button>
+                  )}
                 </div>
               </li>
             ))}
@@ -531,13 +455,9 @@ export function TeamDialog({
         )}
 
         {canRecruit.length > 0 && (
-          // Above the pool, because it is the one way of adding a member
-          // that ALWAYS works. The pool can be entirely unusable — every
-          // agent in the workspace already spoken for by another team — and
-          // then this button was the only live control on the form, sitting
-          // under a list of rows that offer nothing. Still styled secondary:
-          // starting an agent is a step ON THE WAY to a team, never the
-          // thing that finishes one.
+          // The one way of adding a member: an agent started ON the team,
+          // in its directory. Still styled secondary — starting an agent is
+          // a step on the way to a roster, never the thing that settles one.
           <button
             type="button"
             className="team__add"
@@ -547,7 +467,7 @@ export function TeamDialog({
                 ...current,
                 {
                   agentType: canRecruit[0].id,
-                  role: suggestAddress(heldAddresses(roles, current)),
+                  role: suggestAddress(heldAddresses(current)),
                   // Seeded from the global preference, like every other
                   // spawn surface, and changeable per row from there.
                   yolo: defaultYolo,
@@ -557,72 +477,6 @@ export function TeamDialog({
           >
             + Start a new agent
           </button>
-        )}
-
-        {/* THE POOL — only what is NOT on the team. A pane that has been
-            taken leaves this list, so the two together always read as one
-            answer to "who is where" instead of a field of checkboxes that
-            has to be decoded. */}
-        {available.length > 0 && (
-          <>
-            <span className="form__label">Also running here</span>
-            <ul className="team__pool">
-              {takeable.map(({ pane, label }) => (
-                <li key={pane.id} className="team__row">
-                  <AgentGlyph icon={iconOf(pane)} />
-                  <span className="team__row-who">{label}</span>
-                  <span className="team__row-where">{whereOf(workspace, pane)}</span>
-                  {activity && <RowActivity source={activity} paneId={pane.id} />}
-                  <button
-                    type="button"
-                    className="team__row-take"
-                    onClick={() => {
-                      setTouched(true);
-                      take(pane);
-                    }}
-                  >
-                    Add
-                  </button>
-                </li>
-              ))}
-              {/* Shown, not hidden: these agents have not vanished, they
-                  are spoken for — and saying so once per TEAM answers it,
-                  with the word "Team" naming what the quotes hold. One
-                  compact card per team: a head with the name and the
-                  count, then the members in a dense grid whose cells
-                  truncate — a large team grows in rows of a grid, never
-                  into a ragged inline paragraph. */}
-              {spokenFor.map((group) => (
-                <li
-                  key={group.team}
-                  className="team__pool-team"
-                  title={`Already on “${group.team}” — open that team from an agent's badge to take one off first`}
-                >
-                  <div className="team__pool-team-head">
-                    <span className="team__pool-team-name">
-                      Team “{group.team}”
-                    </span>
-                    <span className="team__pool-team-count">
-                      {group.members.length}{" "}
-                      {group.members.length === 1 ? "agent" : "agents"}
-                    </span>
-                  </div>
-                  <div className="team__pool-team-grid">
-                    {group.members.map(({ pane, label }) => (
-                      <span
-                        key={pane.id}
-                        className="team__pool-member"
-                        title={label}
-                      >
-                        <AgentGlyph icon={iconOf(pane)} />
-                        <span className="team__pool-member-name">{label}</span>
-                      </span>
-                    ))}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </>
         )}
 
         {touched && !planned.ok && (
@@ -636,34 +490,11 @@ export function TeamDialog({
         )}
 
         <div className="form__actions">
-          {editing && (
-            // Disbanding was possible before this — take everyone off the
-            // roster and confirm — but only as a side effect of emptying a
-            // list, which is not a thing anyone would think to try. Ending
-            // a team is a deliberate act and deserves to be sayable.
-            <button
-              // Ending the team is not an edit, so it is not one of the
-              // form's verdict buttons: one quiet door at the far left,
-              // and the decision itself happens in the app's destructive
-              // confirm — its own words, its own moment, its own Escape.
-              type="button"
-              className="team__end"
-              onClick={() => {
-                // The destructive reading is chosen again each time the
-                // question is asked, never inherited from the last team
-                // somebody ended.
-                setCloseOnDisband(false);
-                setDisbanding(true);
-              }}
-            >
-              Disband team
-            </button>
-          )}
           <button type="button" className="form__cancel" onClick={onCancel}>
             Cancel
           </button>
           <button type="submit" className="form__create" disabled={!valid}>
-            {editing ? "Save team" : "Create team"}
+            Save team
           </button>
         </div>
       </form>
@@ -675,61 +506,13 @@ export function TeamDialog({
         <ConfirmDialog
           title={`${parseRoleAddress(briefRow.role)?.role.label ?? briefRow.role} — ${briefRow.role}`}
           message={teamBriefing(
-            name.trim() || "…",
+            name.trim() || team.name,
             briefRow.role,
             roster.map((row) => row.role),
           )}
           confirmLabel="OK"
           onConfirm={() => setBriefFor(null)}
         />
-      )}
-      {disbanding && editing && (
-        // The destructive act gets the destructive dialog: Cancel holds
-        // focus so Enter cannot disband, and the tick that ends the agents
-        // too is read HERE, beside the button it changes. By default the
-        // roles come off and nothing else.
-        <ConfirmDialog
-          title={`Disband “${editing}”?`}
-          message={`Every agent comes off “${editing}” and its roles stop reaching anyone. Unless you also close them below, the agents keep running and keep their work.`}
-          confirmLabel="Disband"
-          cancelLabel="Cancel"
-          destructive
-          onConfirm={() => {
-            // Through the domain, like every other change to a team. This
-            // gesture used to build its plan by hand, which made the
-            // destructive path the one path that passed no check.
-            const disband = planDisband(workspace, editing);
-            if (!disband.ok) {
-              // The team can vanish under an open dialog (an agent-driven
-              // disband over MCP). A dead red button is the one thing this
-              // confirm must not be — closing it says the moment passed.
-              setDisbanding(false);
-              return;
-            }
-            setDisbanding(false);
-            onConfirm(disband.value, closeOnDisband ? disband.value.released : []);
-          }}
-          onCancel={() => setDisbanding(false)}
-        >
-          <label
-            className={`team__disband-close${
-              closeOnDisband ? " team__disband-close--on" : ""
-            }`}
-            title="Keeps their worktrees — deleting one of those is its own decision"
-          >
-            <input
-              type="checkbox"
-              checked={closeOnDisband}
-              onChange={(e) => setCloseOnDisband(e.target.checked)}
-            />
-            {/* The app draws its own box — the OS control is the one
-                element no stylesheet reaches, and it showed. */}
-            <span className="team__disband-box" aria-hidden="true">
-              ✓
-            </span>
-            close the agents too
-          </label>
-        </ConfirmDialog>
       )}
     </ModalOverlay>
   );

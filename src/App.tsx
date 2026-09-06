@@ -20,7 +20,7 @@ import { WorkspacesRail } from "./components/workspace/WorkspacesRail";
 import { WorkspaceForm } from "./components/workspace/WorkspaceForm";
 import {
   DECK_STATE_VERSION,
-  findTeam,
+  findTeamByName,
   findWorkspace,
   MAX_PANES,
   pathOccupancy,
@@ -202,13 +202,12 @@ function App() {
             onRestoreSuspendedPane={deck.restoreSuspendedPane}
             onCloseAgent={closeFlow.requestCloseAgent}
             onRenamePane={deck.renamePane}
-            onOpenTeam={(name) => setTeamDialog({ editing: name })}
-            onEnterTeam={deck.openTeam}
-            onAddTeamMember={(wsId, teamId) => {
-              const ws = findWorkspace(deck.workspaces, wsId);
-              const team = ws && findTeam(ws, teamId);
-              if (team) setTeamDialog({ editing: team.name });
+            onOpenTeam={(name) => {
+              const team = active && findTeamByName(active, name);
+              if (team) setTeamDialog({ teamId: team.id });
             }}
+            onEnterTeam={deck.openTeam}
+            onAddTeamMember={(_wsId, teamId) => setTeamDialog({ teamId })}
             onRenameTeam={deck.renameTeam}
             onDisbandTeam={closeFlow.requestDisbandTeam}
             onPaneTitle={deck.setPaneAutoTitle}
@@ -340,15 +339,15 @@ function App() {
             <TeamDialog
               workspace={active}
               agents={agents}
-              editing={teamDialog.editing}
+              teamId={teamDialog.teamId}
               defaultYolo={settings.defaultYolo}
               activity={{
                 subscribe: statusTracker.subscribe,
                 of: (paneId) => statusTracker.getSnapshot().panes.get(paneId),
               }}
-              onConfirm={(plan, closing) => {
+              onConfirm={(plan) => {
                 setTeamDialog(null);
-                void teamFlow.apply(active.id, plan, closing);
+                void teamFlow.apply(active.id, plan);
               }}
               onCancel={() => setTeamDialog(null)}
             />
