@@ -257,12 +257,16 @@ export function registerCoreCommands(
       `${id}: ${agentType} in ${workspace.id} on ${landed.teamId}, task ${task ? "scheduled" : "none"}`,
     );
     if (task) void deliverTask(id, task);
+    // The worktree ahead is the TEAM's, read off the pane as the deck now
+    // holds it — the local literal above never learned which team it
+    // landed on, and read through it every create answered "no worktree".
+    const held = current.workspace.panes.find((candidate) => candidate.id === id) ?? pane;
     return {
       paneId: id,
       workspaceId: workspace.id,
       teamId: landed.teamId,
       agentType,
-      worktree: worktreeAhead(current.workspace, pane),
+      worktree: worktreeAhead(current.workspace, held),
       task: task ? "scheduled" : "none",
     };
   }
@@ -449,8 +453,14 @@ export function registerCoreCommands(
             const role = askedRole(current.workspace, team.id, str(args, "role"));
             return { team: team.id, ...(role !== undefined && { role }) };
           }
-          const placement = await freshWorktree(current, index);
+          // A new team has no roster to clash with, but the role still has
+          // to be one the deck knows — the same contract `team.create`
+          // holds, so the facade cannot mint a member no roster reads.
           const role = str(args, "role");
+          if (role !== undefined && !parseRoleAddress(role)) {
+            throw new Error(`"${role}" is not a role this deck knows`);
+          }
+          const placement = await freshWorktree(current, index);
           return {
             ...(placement !== undefined && { placement }),
             ...(role !== undefined && { role }),

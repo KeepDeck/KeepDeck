@@ -36,7 +36,13 @@ describe("team.create", () => {
       HOST,
     );
     expect(result.ok).toBe(true);
-    expect(value(result)).toMatchObject({ teamId: "team-1", workspaceId: "ws-1", agentType: "claude" });
+    expect(value(result)).toMatchObject({
+      teamId: "team-1",
+      workspaceId: "ws-1",
+      agentType: "claude",
+      // The worktree ahead is the team's, and the answer says so.
+      worktree: { path: "/wt/kd-web-1", branch: "kd/web/1" },
+    });
     const ws = deck.workspaces[0];
     expect(ws.teams?.[0]).toMatchObject({
       name: "api",

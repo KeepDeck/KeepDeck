@@ -59,6 +59,26 @@ describe("agent.spawn", () => {
       intent: { repo: "/repo", branch: "kd/web/2", index: 2 },
     });
     expect(card?.intent.path.endsWith("kd-web-2")).toBe(true);
+    // The answer names the worktree ahead — read off the pane as the deck
+    // holds it, not off the literal the command built before landing it.
+    expect((result.value as { worktree: unknown }).worktree).toEqual({
+      path: card?.intent.path,
+      branch: "kd/web/2",
+    });
+  });
+
+  it("refuses a role the deck does not know, even for a team of its own", async () => {
+    // The facade holds team.create's contract: a role is an address some
+    // roster reads, and "wizard" is one nobody would.
+    const { registry, deck } = setup([workspace({})]);
+    const result = await registry.execute(
+      "agent.spawn",
+      { workspace: "web", role: "wizard" },
+      HOST,
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.message).toContain("wizard");
+    expect(deck.workspaces[0].panes).toHaveLength(0);
   });
 
   it("reports a refusal instead of a paneId that was never added", async () => {
