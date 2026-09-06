@@ -18,18 +18,22 @@ interface ConfirmDialogProps {
    * checkbox); optional so plain confirm/notice dialogs stay unchanged. */
   children?: ReactNode;
   /** A third, softer action beside cancel and confirm — the alternative worth
-   * offering at the moment of the decision ("suspend instead of closing").
-   * Rendered as an ordinary button between the two, so the destructive
-   * confirm keeps its position and its weight. A disabled one states `hint`
-   * as its tooltip: an action that silently does nothing reads as broken. */
-  secondaryAction?: {
-    label: string;
-    disabled?: boolean;
-    hint?: string;
-    onClick(): void;
-  };
+   * offering at the moment of the decision ("suspend instead of closing") —
+   * or several, when the decision has more than one softer way out ("close
+   * the agent alone" beside "disband the team"). Rendered as ordinary
+   * buttons between the two, in the order given, so the destructive confirm
+   * keeps its position and its weight. A disabled one states `hint` as its
+   * tooltip: an action that silently does nothing reads as broken. */
+  secondaryAction?: SecondaryAction | SecondaryAction[];
   onConfirm(): void;
   onCancel?(): void;
+}
+
+export interface SecondaryAction {
+  label: string;
+  disabled?: boolean;
+  hint?: string;
+  onClick(): void;
 }
 
 /**
@@ -58,6 +62,12 @@ export function ConfirmDialog({
   // a queue of notices gets dismissed unread.
   useHeldEnterGuard();
   const hasCancel = Boolean(cancelLabel && onCancel);
+  const secondaryActions =
+    secondaryAction === undefined
+      ? []
+      : Array.isArray(secondaryAction)
+        ? secondaryAction
+        : [secondaryAction];
 
   return (
     <ModalOverlay>
@@ -72,9 +82,13 @@ export function ConfirmDialog({
             shipping runtimes suppress pointer events on disabled controls, so
             a tooltip there is never shown — which is the "reads as broken"
             outcome this hint exists to prevent. */}
-        {secondaryAction?.disabled && secondaryAction.hint && (
-          <p className="confirm__hint">{secondaryAction.hint}</p>
-        )}
+        {secondaryActions
+          .filter((action) => action.disabled && action.hint)
+          .map((action) => (
+            <p key={action.label} className="confirm__hint">
+              {action.hint}
+            </p>
+          ))}
         <div className="confirm__actions">
           {hasCancel && (
             <button
@@ -86,16 +100,17 @@ export function ConfirmDialog({
               {cancelLabel}
             </button>
           )}
-          {secondaryAction && (
+          {secondaryActions.map((action) => (
             <button
+              key={action.label}
               type="button"
               className="form__cancel"
-              onClick={secondaryAction.onClick}
-              disabled={secondaryAction.disabled}
+              onClick={action.onClick}
+              disabled={action.disabled}
             >
-              {secondaryAction.label}
+              {action.label}
             </button>
-          )}
+          ))}
           {destructive ? (
             <DestructiveButton onClick={onConfirm} autoFocus={!hasCancel}>
               {confirmLabel}

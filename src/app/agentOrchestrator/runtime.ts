@@ -190,11 +190,6 @@ export function createAgentOrchestratorRuntime(
     actions.failPaneWake(wsId, pane.id);
   }
 
-  const creation = createAgentOrchestratorCreation({
-    deck,
-    actions,
-    worktrees,
-  });
   const closing = createAgentOrchestratorClosing({
     deck,
     actions,
@@ -204,6 +199,12 @@ export function createAgentOrchestratorRuntime(
     isBlocked: runView.isBlocked,
     lifecycle,
     dropArtifacts: deps.dropArtifacts,
+  });
+  const creation = createAgentOrchestratorCreation({
+    deck,
+    actions,
+    worktrees,
+    closing: closing.closing,
   });
   const restart = createAgentOrchestratorRestart({
     deck,

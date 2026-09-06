@@ -28,8 +28,10 @@ export function teamHeldPath(team: Pick<Team, "location">): string | undefined {
 }
 
 /** Path spelling differences that don't change the directory: surrounding
- * whitespace and trailing slashes. NOT a canonicalizer (no fs access). */
-function normalizePath(path: string): string {
+ * whitespace and trailing slashes. NOT a canonicalizer (no fs access). The
+ * ONE rule every "is this the same directory" question asks — occupancy,
+ * landing, and the root guard on a deletion target. */
+export function normalizePath(path: string): string {
   const trimmed = path.trim();
   const stripped = trimmed.replace(/\/+$/, "");
   return stripped === "" ? trimmed : stripped;

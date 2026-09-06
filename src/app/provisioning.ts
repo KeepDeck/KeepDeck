@@ -23,7 +23,11 @@ export interface ProvisionCallbacks {
 
 /** The runner's sinks for creates a TEAM asked for: the deck's team
  * provisioning actions for `wsId`, keyed by team id. Both no-op inside the
- * reducer when the team was dissolved mid-create. */
+ * reducer when the team was dissolved mid-create. A team is abandoned
+ * once it is out of the deck — or once a confirmed close HOLDS it
+ * (`closing`): the team is still there while that close waits for this
+ * very create, and what the create makes is the close's to remove, so
+ * nothing past the directory runs on the team's behalf. */
 export function provisionTeamsInto(
   deck: {
     resolveTeamProvisioning(
@@ -37,11 +41,12 @@ export function provisionTeamsInto(
     hasTeam(wsId: string, teamId: string): boolean;
   },
   wsId: string,
+  closing: (teamId: string) => boolean = () => false,
 ): ProvisionCallbacks {
   return {
     onResolved: (teamId, worktree) => deck.resolveTeamProvisioning(wsId, teamId, worktree),
     onFailed: (teamId, error) => deck.setTeamProvisioningError(wsId, teamId, error),
-    abandoned: (teamId) => !deck.hasTeam(wsId, teamId),
+    abandoned: (teamId) => !deck.hasTeam(wsId, teamId) || closing(teamId),
   };
 }
 

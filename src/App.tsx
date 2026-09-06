@@ -412,22 +412,34 @@ function App() {
               title={
                 closeFlow.closing.kind === "agent"
                   ? `Close agent "${closeFlow.closing.label}"?`
-                  : `Close workspace "${closeFlow.closing.name}"?`
+                  : closeFlow.closing.kind === "team"
+                    ? `Disband team "${closeFlow.closing.name}"?`
+                    : `Close workspace "${closeFlow.closing.name}"?`
               }
               message={closeFlow.closeMessage}
-              confirmLabel="Close"
+              // The last member's primary verb is the team's: disbanding.
+              confirmLabel={
+                closeFlow.closing.kind === "team" || closeFlow.canCloseAgentOnly
+                  ? "Disband team"
+                  : "Close"
+              }
               cancelLabel="Cancel"
               destructive
-              secondaryAction={
-                closeFlow.canSuspendInstead
-                  ? {
-                      label: "Suspend",
-                      onClick: closeFlow.suspendInstead,
-                      disabled: closeFlow.deleteWorktree,
-                      hint: "A suspended agent comes back to its worktree — untick the delete to suspend it",
-                    }
-                  : undefined
-              }
+              secondaryAction={[
+                ...(closeFlow.canSuspendInstead
+                  ? [
+                      {
+                        label: "Suspend",
+                        onClick: closeFlow.suspendInstead,
+                        disabled: closeFlow.deleteWorktree,
+                        hint: "A suspended agent comes back to its worktree — untick the delete to suspend it",
+                      },
+                    ]
+                  : []),
+                ...(closeFlow.canCloseAgentOnly
+                  ? [{ label: "Close agent only", onClick: closeFlow.closeAgentOnly }]
+                  : []),
+              ]}
               onConfirm={closeFlow.confirmClose}
               onCancel={closeFlow.cancelClose}
             >

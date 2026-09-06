@@ -21,7 +21,7 @@ import {
   type Workspace,
 } from "../../domain/deck";
 import { suggestRoleAddress } from "../../domain/mail";
-import { createWorkspaceInstance } from "../../domain/workspaceInstance";
+import { createWorkspaceInstance, type WorkspaceRef } from "../../domain/workspaceInstance";
 import { log } from "../../ipc/log";
 import type {
   AgentOrchestrator,
@@ -38,6 +38,9 @@ interface CreationDeps {
   deck: DeckStore;
   actions: DeckActions;
   worktrees: WorktreeProvisioner;
+  /** Whether a confirmed close holds the team — the create runner then
+   * stops at the directory it made, which is that close's to remove. */
+  closing(workspace: WorkspaceRef, teamId: string): boolean;
 }
 
 export interface AgentOrchestratorCreation {
@@ -99,6 +102,7 @@ export function createAgentOrchestratorCreation({
   deck,
   actions,
   worktrees,
+  closing,
 }: CreationDeps): AgentOrchestratorCreation {
   /** Start the creates behind `teams`' cards. The workspace's name goes with
    * them as it is NOW: an auto branch name follows what the workspace is
@@ -111,7 +115,12 @@ export function createAgentOrchestratorCreation({
         : [],
     );
     if (requests.length === 0) return;
-    void worktrees.provision(requests, workspace.name, provisionTeamsInto(actions, workspace.id));
+    const ref = { id: workspace.id, instance: workspace.instance };
+    void worktrees.provision(
+      requests,
+      workspace.name,
+      provisionTeamsInto(actions, workspace.id, (teamId) => closing(ref, teamId)),
+    );
   }
 
   function refuse(paneId: string, kind: "gone" | "full" | "held"): CreatePaneOutcome {

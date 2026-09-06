@@ -170,8 +170,9 @@ describe("renamePane", () => {
 });
 
 describe("worktreeTargets", () => {
-  // A worktree-mode workspace: repo cwd + two worktree panes and one that fell
-  // back to the cwd (no worktree of its own).
+  // A worktree-mode workspace: two teams on worktrees of their own, one on
+  // the repo root, and one whose create is still out. Members are beside
+  // the point — the directory is the team's.
   const wtWs: Workspace = {
     id: "a",
     instance: createWorkspaceInstance(),
@@ -179,55 +180,81 @@ describe("worktreeTargets", () => {
     cwd: "/repo",
     worktreeBaseDir: "/wt",
     panes: [
-      { id: "a-p1", location: { kind: "attached", cwd: "/wt/kd-a-1", branch: "kd/a/1" } },
-      { id: "a-p2", location: { kind: "attached", cwd: "/wt/kd-a-2", branch: "kd/a/2" } },
-      { id: "a-p3" } as Pane, // create failed → runs in the cwd, nothing to delete
+      { id: "a-p1", team: { teamId: "team-1", role: "lead" } },
+      { id: "a-p2", team: { teamId: "team-2", role: "lead" } },
+      { id: "a-p3", team: { teamId: "team-3", role: "lead" } },
+      { id: "a-p4", team: { teamId: "team-4", role: "lead" } },
+    ],
+    teams: [
+      { id: "team-1", name: "one", location: { kind: "attached", cwd: "/wt/kd-a-1", branch: "kd/a/1" } },
+      { id: "team-2", name: "two", location: { kind: "attached", cwd: "/wt/kd-a-2", branch: "kd/a/2" } },
+      { id: "team-3", name: "root", location: { kind: "attached", cwd: "/repo", branch: "main" } },
+      {
+        id: "team-4",
+        name: "making",
+        location: {
+          kind: "provisioning",
+          intent: { repo: "/repo", path: "/wt/kd-a-4", index: 4 },
+        },
+      },
     ],
   };
 
-  it("collects every worktree pane for a workspace close", () => {
+  it("collects every team's worktree for a workspace close", () => {
     expect(worktreeTargets(wtWs)).toEqual([
       { repo: "/repo", path: "/wt/kd-a-1", branch: "kd/a/1" },
       { repo: "/repo", path: "/wt/kd-a-2", branch: "kd/a/2" },
     ]);
   });
 
-  it("collects only the named pane for an agent close", () => {
-    expect(worktreeTargets(wtWs, "a-p2")).toEqual([
+  it("collects only the named team for a disband", () => {
+    expect(worktreeTargets(wtWs, "team-2")).toEqual([
       { repo: "/repo", path: "/wt/kd-a-2", branch: "kd/a/2" },
     ]);
   });
 
-  it("returns nothing for a cwd-fallback pane (no worktree to delete)", () => {
-    expect(worktreeTargets(wtWs, "a-p3")).toEqual([]);
+  it("never targets the workspace root — a team there disbands without deleting", () => {
+    expect(worktreeTargets(wtWs, "team-3")).toEqual([]);
+    // However the root is spelled: the same directory is the same directory.
+    const trailing: Workspace = { ...wtWs, cwd: "/repo/" };
+    expect(worktreeTargets(trailing, "team-3")).toEqual([]);
+    expect(
+      worktreeTargets(wtWs, "team-3", new Map([["/repo", { branch: "main" }]])),
+    ).toEqual([]);
   });
 
-  it("collects a detached-HEAD worktree pane (cwd, no branch)", () => {
+  it("has nothing to name for a team whose create is still out", () => {
+    // The close flow covers that worktree by the create's ticket, not by
+    // a directory the team does not hold yet.
+    expect(worktreeTargets(wtWs, "team-4")).toEqual([]);
+  });
+
+  it("collects a detached-HEAD worktree (cwd, no branch)", () => {
     const detached: Workspace = {
-      id: "a",
-      instance: createWorkspaceInstance(),
-      name: "a",
-      cwd: "/repo",
-      worktreeBaseDir: "/wt",
-      panes: [{ id: "a-p1", location: { kind: "attached", cwd: "/wt/kd-a-1" } }],
+      ...wtWs,
+      teams: [{ id: "team-1", name: "one", location: { kind: "attached", cwd: "/wt/kd-a-1" } }],
     };
-    const targets = worktreeTargets(detached, "a-p1");
+    const targets = worktreeTargets(detached, "team-1");
     expect(targets).toHaveLength(1);
     expect(targets[0]).toMatchObject({ repo: "/repo", path: "/wt/kd-a-1" });
     expect(targets[0].branch).toBeUndefined();
   });
 
-  it("returns nothing for a non-worktree workspace", () => {
+  it("returns nothing for a non-worktree workspace — every team runs in the root", () => {
     const plain: Workspace = {
       id: "b",
       instance: createWorkspaceInstance(),
       name: "b",
       cwd: "/repo",
       worktreeBaseDir: null,
-      panes: [{ id: "b-p1" }, { id: "b-p2" }],
+      panes: [{ id: "b-p1", team: { teamId: "team-1", role: "lead" } }],
+      teams: [{ id: "team-1", name: "root", location: { kind: "attached", cwd: "/repo" } }],
     };
     expect(worktreeTargets(plain)).toEqual([]);
-    expect(worktreeTargets(plain, "b-p1")).toEqual([]);
+    expect(worktreeTargets(plain, "team-1")).toEqual([]);
+    expect(
+      worktreeTargets(plain, undefined, new Map([["/repo", { branch: "main" }]])),
+    ).toEqual([]);
   });
 
   it("uses runtime current branch for owned worktrees; a detached head offers the dir alone", () => {
@@ -236,7 +263,7 @@ describe("worktreeTargets", () => {
       ["/wt/kd-a-2", { head: "a".repeat(40) }],
     ]);
 
-    // The detached pane's target carries NO branch — not even the pane's
+    // The detached team's target carries NO branch — not even the team's
     // durable one, which the observed bare commit has superseded. Deleting a
     // branch would be ambiguous there; skipping the whole target (as this
     // once did) stranded the directory with the delete checkbox gone, against
@@ -245,20 +272,6 @@ describe("worktreeTargets", () => {
       { repo: "/repo", path: "/wt/kd-a-1", branch: "feature/x" },
       { repo: "/repo", path: "/wt/kd-a-2", branch: undefined },
     ]);
-  });
-
-  it("does not target cwd-fallback panes even when their repo branch is observed", () => {
-    const plain: Workspace = {
-      id: "b",
-      instance: createWorkspaceInstance(),
-      name: "b",
-      cwd: "/repo",
-      worktreeBaseDir: null,
-      panes: [{ id: "b-p1" }],
-    };
-    expect(
-      worktreeTargets(plain, undefined, new Map([["/repo", { branch: "main" }]])),
-    ).toEqual([]);
   });
 });
 

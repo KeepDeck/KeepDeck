@@ -144,12 +144,12 @@ export function useAppController() {
       return (result.value as { paneId?: string }).paneId ?? null;
     },
     close: async (workspaceId, paneId) => {
+      const workspace = findWorkspace(deck.workspaces, workspaceId);
+      if (!workspace) return;
       await orchestrator.close({
         kind: "agent",
-        wsId: workspaceId,
+        workspace: { id: workspace.id, instance: workspace.instance },
         paneId,
-        deleteWorktrees: false,
-        worktrees: [],
       });
     },
     report: pushAlert,

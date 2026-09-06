@@ -8,7 +8,8 @@ import type {
   WorkspaceRef,
 } from "../workspaceInstance";
 import { appendPane, locationOf, removePane, type Pane } from "./panes";
-import { teamOccupyingPath } from "./teams/lifecycle";
+import { teamsOf } from "./teams/collection";
+import { normalizePath, teamOccupyingPath } from "./teams/lifecycle";
 import type { Team } from "./teams/model";
 
 /** What the create-workspace form submits: the spec a new workspace is
@@ -164,10 +165,16 @@ export interface GitPosition {
 }
 
 /**
- * The worktrees owned by a workspace's panes — just the one pane when `paneId`
- * is given (agent close), else every pane (workspace close). A cwd-fallback pane
- * (the main repo) has no worktree of its own, and a non-worktree workspace owns
- * nothing — an empty result is the signal that there's nothing to offer deleting.
+ * The worktrees a workspace's TEAMS hold — just the one team when `teamId`
+ * is given (a disband), else every team (a workspace close). A directory is
+ * a team's, never a pane's, so a member closing is never asked about one.
+ *
+ * A team on the workspace root holds no worktree of its own: the root is
+ * never a deletion target, structurally — a team there disbands without
+ * the offer. A team whose create is still out has no directory yet to
+ * name (the close flow covers it by its ticket), and a non-worktree
+ * workspace's teams all run in the root — an empty result is the signal
+ * that there's nothing to offer deleting.
  *
  * The directory is ALWAYS offered; only the NAMED branch varies with what's
  * known about the worktree's HEAD:
@@ -175,7 +182,7 @@ export interface GitPosition {
  * - runtime HEAD observed but DETACHED → none named (naming one would be
  *   ambiguous on a bare commit — the dir is not: skipping it, as this once
  *   did, stranded the directory on disk with the delete checkbox gone);
- * - HEAD not observed → the pane's durable owned branch, when it has one.
+ * - HEAD not observed → the team's durable owned branch, when it has one.
  *
  * Naming is only the explicit half: the delete flow additionally reaps
  * branches born in the worktree (`reapCreatedBranches`) — see
@@ -183,22 +190,26 @@ export interface GitPosition {
  */
 export function worktreeTargets(
   ws: Workspace,
-  paneId?: string,
+  teamId?: string,
   gitPositions?: ReadonlyMap<string, GitPosition>,
 ): WorktreeTarget[] {
-  const panes = paneId ? ws.panes.filter((p) => p.id === paneId) : ws.panes;
-  return panes.flatMap((p) => {
-    const location = locationOf(p);
-    if (location.kind !== "attached") return [];
-    const observed = gitPositions?.get(location.cwd);
-    return [
-      {
-        repo: ws.cwd,
-        path: location.cwd,
-        branch: observed ? observed.branch : location.branch,
-      },
-    ];
-  });
+  const root = normalizePath(ws.cwd);
+  return teamsOf(ws)
+    .filter((team) => teamId === undefined || team.id === teamId)
+    .flatMap((team) => {
+      const location = team.location;
+      if (location?.kind !== "attached" || normalizePath(location.cwd) === root) {
+        return [];
+      }
+      const observed = gitPositions?.get(location.cwd);
+      return [
+        {
+          repo: ws.cwd,
+          path: location.cwd,
+          branch: observed ? observed.branch : location.branch,
+        },
+      ];
+    });
 }
 
 /** Set (or, via `undefined`, delete) one plugin's opaque persisted slot in a
@@ -268,15 +279,6 @@ export interface PathOccupant {
   pane: Pane;
   /** The pane's index in its workspace (feeds the display-title derivation). */
   index: number;
-}
-
-/** Path spelling differences that don't change the directory: surrounding
- * whitespace and trailing slashes. NOT a canonicalizer (no fs access) — two
- * genuinely different spellings of one dir (symlinks, `..`) stay distinct. */
-function normalizePath(path: string): string {
-  const trimmed = path.trim();
-  const stripped = trimmed.replace(/\/+$/, "");
-  return stripped === "" ? trimmed : stripped;
 }
 
 /**

@@ -152,15 +152,32 @@ export type CreatePaneOutcome =
    * workspaces. */
   | { kind: "held" };
 
-export type CloseRequest = {
+/** The destructive half of a close that can take worktrees with it. */
+export interface WorktreeTeardown {
   /** Destructive choice from the confirmation surface. */
   deleteWorktrees: boolean;
   /** Worktrees probed when the confirmation surface opened. */
   worktrees: WorktreeTarget[];
-} & (
-  | { kind: "agent"; wsId: string; paneId: string }
-  | { kind: "workspace"; wsId: string }
-);
+}
+
+/**
+ * A confirmed close. Addressed by `WorkspaceRef`, never by id alone: a
+ * `ws-N` slot is reused, and a confirmation that outlived its workspace
+ * must not touch the one now living in its place.
+ *
+ * Three verbs, because they end three different things:
+ * - `agent` ends ONE agent — its process, its session, its place on its
+ *   team. Never a worktree: the directory is the team's, and a member
+ *   leaving does not take it, so there is no teardown to ask about.
+ * - `team` disbands: ends every member, removes the team, and — on the
+ *   opt-in — its worktree.
+ * - `workspace` disbands every team the workspace holds, then the
+ *   workspace.
+ */
+export type CloseRequest =
+  | { kind: "agent"; workspace: WorkspaceRef; paneId: string }
+  | ({ kind: "team"; workspace: WorkspaceRef; teamId: string } & WorktreeTeardown)
+  | ({ kind: "workspace"; workspace: WorkspaceRef } & WorktreeTeardown);
 
 export type RestartOutcome =
   | "restarted"
