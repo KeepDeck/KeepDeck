@@ -107,7 +107,13 @@ describe("teamOf", () => {
   it("reports null rather than dropping the field", () => {
     const ws = workspace([pane("pane-1"), pane("pane-2", { name: "api", role: "lead" })]);
     expect(teamOf(ws, held(ws, "pane-1"))).toBeNull();
-    expect(teamOf(ws, held(ws, "pane-2"))).toEqual({ name: "api", role: "lead" });
+    // The id is what a caller hands back to `team.add`; the name is what it
+    // says out loud.
+    expect(teamOf(ws, held(ws, "pane-2"))).toEqual({
+      id: expect.stringMatching(/^team-\d+$/),
+      name: "api",
+      role: "lead",
+    });
   });
 
   it("reads the NAME off the team, not off the pane", () => {

@@ -15,8 +15,8 @@ function setup() {
   const flow = createTeamFlow({
     setPaneTeam: (_ws, paneId, team) =>
       calls.push(`${paneId}=${team ? team.role : "off"}`),
-    spawn: async (_ws, agentType) => {
-      calls.push(`spawned ${agentType}`);
+    spawn: async (_ws, team, agentType, _yolo, role) => {
+      calls.push(`spawned ${agentType} as ${role} on ${team}`);
       return "pane-new";
     },
     close: async (_ws, paneId) => void calls.push(`${paneId}=closed`),
@@ -36,10 +36,11 @@ describe("createTeamFlow", () => {
         recruits: [{ agentType: "claude", role: "impl-1", yolo: false }],
       }),
     );
+    // The recruit lands on the team by the start itself — no membership
+    // written after the fact.
     expect(h.calls).toEqual([
       "pane-1=lead",
-      "spawned claude",
-      "pane-new=impl-1",
+      "spawned claude as impl-1 on api",
       "told pane-1",
       "told pane-new",
     ]);

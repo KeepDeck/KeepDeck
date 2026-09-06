@@ -283,7 +283,7 @@ export function planTeam(
     if (pane && held && !paneIsOnTeam(workspace, pane, staying)) {
       return {
         ok: false,
-        message: `that agent is already ${held.role} on team "${teamNameOf(workspace, pane) ?? held.teamId}" — take it off that team first`,
+        message: `that agent is already ${held.role} on team "${teamNameOf(workspace, pane) ?? held.teamId}" — an agent runs where its team runs; to move work between teams, start an agent on the target team (team.add)`,
       };
     }
   }

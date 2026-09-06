@@ -30,8 +30,10 @@ function setup(
 
 type TeamSetupSpawn = (
   workspaceId: string,
+  team: string,
   agentType: string,
   yolo: boolean,
+  role: string,
 ) => Promise<string | null>;
 
 const plan = (over: Partial<TeamPlan> = {}): TeamPlan => ({
@@ -56,7 +58,10 @@ describe("applyTeamPlan", () => {
     });
   });
 
-  it("starts each recruit and puts it straight on the team", async () => {
+  it("starts each recruit ON the team under its role — the start is the placement", async () => {
+    // No second step writes the membership: the recruit lands on the team
+    // in the same step that starts it, so there is no moment in which the
+    // pane exists on no team.
     const spawn = vi.fn(async () => "pane-9");
     const h = setup(spawn);
     await applyTeamPlan(
@@ -64,8 +69,9 @@ describe("applyTeamPlan", () => {
       "ws-1",
       plan({ recruits: [{ agentType: "claude", role: "impl-1", yolo: false }] }),
     );
-    expect(spawn).toHaveBeenCalledWith("ws-1", "claude", false);
-    expect(h.calls).toEqual(["pane-9=impl-1@api"]);
+    expect(spawn).toHaveBeenCalledWith("ws-1", "api", "claude", false, "impl-1");
+    expect(h.calls).toEqual([]);
+    expect(h.told.map((entry) => entry.paneId)).toEqual(["pane-9"]);
   });
 
   it("carries each recruit's OWN yolo answer, not the global default", async () => {
@@ -73,7 +79,7 @@ describe("applyTeamPlan", () => {
     // different answers. Dropping it here would silently ignore what the
     // person just chose.
     const asked: boolean[] = [];
-    const h = setup(async (_ws, _agent, yolo) => {
+    const h = setup(async (_ws, _team, _agent, yolo) => {
       asked.push(yolo);
       return "pane-9";
     });
@@ -206,7 +212,8 @@ describe("applyTeamPlan", () => {
         ],
       }),
     );
-    expect(h.calls).toEqual(["pane-9=impl-2@api"]);
+    expect(attempt).toBe(2);
+    expect(h.told.map((entry) => entry.paneId)).toEqual(["pane-9"]);
     expect(h.reports).toHaveLength(1);
   });
 

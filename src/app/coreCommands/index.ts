@@ -5,19 +5,29 @@ import {
 } from "../../domain/agents";
 import {
   resolvePaneRef,
+  resolveTeamRef,
   resolveWorkspaceRef,
+  type CommandArgs,
   type CommandRegistry,
 } from "../../domain/commands";
 import {
   findWorkspace,
   findWorkspaceByRef,
+  membersOf,
+  normalizePath,
   paneAgentType,
   paneDisplayTitle,
   paneId,
+  roleTaken,
+  teamHeldPath,
+  teamNameTaken,
+  teamOfPane,
+  teamsOf,
   TEAM_FULL_MESSAGE,
   WORKSPACE_GONE_MESSAGE,
   WORKTREE_HELD_MESSAGE,
   type Pane,
+  type Team,
   type TeamLocation,
   type Workspace,
   paneBranch,
@@ -28,7 +38,7 @@ import { log } from "../../ipc/log";
 import { inspectRepo } from "../../ipc/worktree";
 import { firstFreeTeamWorktreeFor, nextAgentIndex, nextAgentType } from "../newAgentDefaults";
 import { mintAgentSeq } from "../ids";
-import { teamOf } from "../../domain/mail";
+import { parseRoleAddress, teamOf } from "../../domain/mail";
 import type { PaneActivity } from "../../domain/status";
 import { paneInputReady, pasteToPane, writeRawToPane } from "../paneInput";
 import { getSettings } from "../settingsManager";
@@ -111,6 +121,13 @@ function worktreeAhead(
   return card ? { path: card.intent.path, branch: card.intent.branch ?? null } : null;
 }
 
+/** A team's state, folded to one word for a roster reader: its worktree
+ * still being created, the create failed (Retry is on offer), or ready. */
+function teamStatus(team: Team): "creating" | "failed" | "ready" {
+  if (team.location?.kind !== "provisioning") return "ready";
+  return team.location.error !== undefined ? "failed" : "creating";
+}
+
 function targetWorkspace(deck: Deck, ref: string | undefined): Workspace {
   if (ref) {
     const resolved = resolveWorkspaceRef(deck.workspaces, ref);
@@ -153,6 +170,143 @@ export function registerCoreCommands(
   registry: CommandRegistry,
   deps: CoreCommandDeps,
 ): () => void {
+  /**
+   * What every create shares — the agent and its mode, the pane and its
+   * name, the task, the landing and its refusals, the selection — so the
+   * three doors (`agent.spawn`, `team.create`, `team.add`) differ only in
+   * WHERE the pane asks to land. `where` answers that against the LIVE
+   * workspace, since a repo inspect or a worktree suggestion is an await
+   * the workspace can close across.
+   */
+  async function recruit(
+    args: CommandArgs,
+    where: (
+      current: { deck: Deck; workspace: Workspace },
+      index: number,
+    ) => Promise<Pick<CreatePaneRequest, "placement" | "team" | "role" | "teamName">>,
+  ) {
+    const deck = deps.deck();
+    const agents = deps.agents();
+    // Declared required — read as required, so a blank one is refused
+    // instead of quietly meaning "the active workspace".
+    const ws = targetWorkspace(deck, requiredStr(args, "workspace"));
+    const workspace = { id: ws.id, instance: ws.instance };
+    const currentTarget = (): { deck: Deck; workspace: Workspace } => {
+      const currentDeck = deps.deck();
+      const currentWorkspace = findWorkspaceByRef(currentDeck.workspaces, workspace);
+      if (!currentWorkspace) throw new Error(WORKSPACE_GONE_MESSAGE);
+      return { deck: currentDeck, workspace: currentWorkspace };
+    };
+    const requested = str(args, "agentType");
+    if (requested && !agents.some((a) => a.id === requested))
+      throw new Error(`unknown agent type "${requested}"`);
+    const agentType = requested ?? nextAgentType(agents, ws);
+    if (!agentSupportsNew(agents, agentType)) {
+      throw new Error(`agent type "${agentType}" does not support new sessions`);
+    }
+    const id = paneId(mintAgentSeq());
+    const index = nextAgentIndex(ws);
+
+    // An explicit answer wins; without one the global default reaches
+    // this surface like every other creation path. Either way it is
+    // gated on the resolved agent's support, so a caller cannot turn on
+    // a mode the agent does not have.
+    const asked = args.yolo;
+    const yolo =
+      (typeof asked === "boolean" ? asked : (getSettings()?.defaultYolo ?? false)) &&
+      agentSupportsYolo(agents, agentType);
+    const pane: Pane = {
+      id,
+      name: str(args, "name"),
+      agentType,
+      ...(yolo && { yolo: true }),
+    };
+    const ask = await where(currentTarget(), index);
+    let current = currentTarget();
+
+    // A full team used to swallow the add and then report a paneId that was
+    // never in the deck — with the worktree already created. The `never` is
+    // what makes a new refusal a compile error here: a bare switch would let
+    // an unmatched outcome fall straight through to the success report.
+    const landed = deps.createPane({ workspace, pane, ...ask });
+    switch (landed.kind) {
+      case "created":
+        break;
+      case "full":
+        throw new Error(TEAM_FULL_MESSAGE);
+      case "gone":
+        throw new Error(WORKSPACE_GONE_MESSAGE);
+      case "held":
+        throw new Error(WORKTREE_HELD_MESSAGE);
+      default: {
+        const unhandled: never = landed;
+        throw new Error(`unhandled create outcome: ${JSON.stringify(unhandled)}`);
+      }
+    }
+    current = currentTarget();
+    current.deck.selectWorkspace(workspace.id);
+    current.deck.selectPane(workspace.id, id);
+
+    const task = str(args, "task");
+    // The pane's whole starting story on one line: which agent, where,
+    // and — the part that matters for teams — whether anything will
+    // open a turn on it. A recruit spawned with no task never has one,
+    // so nothing it is told can ride a turn boundary.
+    log.info(
+      "web:spawn",
+      `${id}: ${agentType} in ${workspace.id} on ${landed.teamId}, task ${task ? "scheduled" : "none"}`,
+    );
+    if (task) void deliverTask(id, task);
+    return {
+      paneId: id,
+      workspaceId: workspace.id,
+      teamId: landed.teamId,
+      agentType,
+      worktree: worktreeAhead(current.workspace, pane),
+      task: task ? "scheduled" : "none",
+    };
+  }
+
+  /** The directory a pane asks for when nobody named one: a repo workspace
+   * with a base folder gets the first FREE worktree suggestion (never a dir
+   * a team holds, nor one blocked on disk) — a team of its own; anything
+   * else the workspace root. Mirrors the "+ Agent" dialog's defaults. */
+  async function freshWorktree(
+    current: { deck: Deck; workspace: Workspace },
+    index: number,
+  ): Promise<TeamLocation | undefined> {
+    const info = await inspectRepo(current.workspace.cwd).catch(() => null);
+    if (!info?.isRepo) return undefined;
+    const free = await firstFreeTeamWorktreeFor(
+      current.deck.workspaces,
+      current.workspace,
+      index,
+    );
+    if (!free) return undefined;
+    return {
+      kind: "provisioning",
+      intent: { repo: current.workspace.cwd, path: free.path, branch: free.branch, index },
+    };
+  }
+
+  /** The team a command named, by id or name, in the workspace it acts on. */
+  function teamRef(workspace: Workspace, ref: string) {
+    const resolved = resolveTeamRef(workspace, ref);
+    if (!resolved.ok) throw new Error(resolved.message);
+    return resolved.value;
+  }
+
+  /** The role a recruit is asked to take — a role this deck knows, free on
+   * the team — or the refusal in words. */
+  function askedRole(workspace: Workspace, teamId: string, role: string | undefined) {
+    if (role === undefined) return undefined;
+    if (!parseRoleAddress(role)) throw new Error(`"${role}" is not a role this deck knows`);
+    if (roleTaken(workspace, teamId, role)) {
+      throw new Error(`role "${role}" is taken on that team — a role is an address, so it has to be unique`);
+    }
+    return role;
+  }
+
   const disposers = [
     registry.register({
       id: "workspace.list",
@@ -166,6 +320,20 @@ export function registerCoreCommands(
           name: ws.name,
           cwd: ws.cwd,
           active: ws.id === deck.activeId,
+          // The teams and where each runs. `cwd` is null while the team's
+          // worktree is still being created — never the workspace root,
+          // which is a directory the team will not run in.
+          teams: teamsOf(ws).map((team) => ({
+            id: team.id,
+            name: team.name,
+            status: teamStatus(team),
+            cwd: team.location?.kind === "attached" ? team.location.cwd : null,
+            branch:
+              team.location?.kind === "attached"
+                ? (team.location.branch ?? null)
+                : (team.location?.intent.branch ?? null),
+            members: membersOf(ws, team.id).map((pane) => pane.id),
+          })),
           panes: ws.panes.map((p, i) => ({
             id: p.id,
             title: paneDisplayTitle(p, i, agents),
@@ -196,7 +364,13 @@ export function registerCoreCommands(
         const deck = deps.deck();
         const workspace = targetWorkspace(deck, undefined);
         const pane = targetPane(deck, deps.agents(), workspace, undefined);
-        return { workspaceId: workspace.id, paneId: pane.id };
+        // The pane's team rides along for a caller that wants to add to it;
+        // this is not a choice of "the active team".
+        return {
+          workspaceId: workspace.id,
+          paneId: pane.id,
+          teamId: teamOfPane(workspace, pane)?.id ?? null,
+        };
       },
     }),
 
@@ -235,11 +409,22 @@ export function registerCoreCommands(
           description: "Workspace name or id",
         },
         {
+          name: "team",
+          type: "string",
+          description:
+            "Team id or name to join (see workspace.list teams); omitted, the agent gets a team of its own — a new worktree in a repo workspace with a base folder, else the workspace root",
+        },
+        {
           name: "agentType",
           type: "string",
           description: "Agent id from the catalog (claude, codex, opencode)",
         },
         { name: "name", type: "string", description: "Pane name" },
+        {
+          name: "role",
+          type: "string",
+          description: "The role it takes on its team — how teammates address it; suggested when omitted",
+        },
         {
           name: "yolo",
           type: "boolean",
@@ -252,125 +437,145 @@ export function registerCoreCommands(
           description: "Initial prompt, typed into the agent once it starts",
         },
       ],
-      run: async (args) => {
-        const deck = deps.deck();
-        const agents = deps.agents();
-        // Declared required — read as required, so a blank one is refused
-        // instead of quietly meaning "the active workspace".
-        const ws = targetWorkspace(deck, requiredStr(args, "workspace"));
-        const workspace = { id: ws.id, instance: ws.instance };
-        const currentTarget = (): { deck: Deck; workspace: Workspace } => {
-          const currentDeck = deps.deck();
-          const currentWorkspace = findWorkspaceByRef(
-            currentDeck.workspaces,
-            workspace,
-          );
-          if (!currentWorkspace) {
-            throw new Error(WORKSPACE_GONE_MESSAGE);
+      /** The compatibility door: with a `team`, the same as `team.add`;
+       * without, the same as `team.create` under an auto name — a
+       * worktree of its own when the workspace can make one, else the
+       * root. Answers the team the agent landed on either way. */
+      run: (args) =>
+        recruit(args, async (current, index) => {
+          const ref = str(args, "team");
+          if (ref !== undefined) {
+            const team = teamRef(current.workspace, ref);
+            const role = askedRole(current.workspace, team.id, str(args, "role"));
+            return { team: team.id, ...(role !== undefined && { role }) };
           }
-          return { deck: currentDeck, workspace: currentWorkspace };
-        };
-        const requested = str(args, "agentType");
-        if (requested && !agents.some((a) => a.id === requested))
-          throw new Error(`unknown agent type "${requested}"`);
-        const agentType = requested ?? nextAgentType(agents, ws);
-        if (!agentSupportsNew(agents, agentType)) {
-          throw new Error(
-            `agent type "${agentType}" does not support new sessions`,
-          );
-        }
-        const id = paneId(mintAgentSeq());
-        const index = nextAgentIndex(ws);
+          const placement = await freshWorktree(current, index);
+          const role = str(args, "role");
+          return {
+            ...(placement !== undefined && { placement }),
+            ...(role !== undefined && { role }),
+          };
+        }),
+    }),
 
-        // An explicit answer wins; without one the global default reaches
-        // this surface like every other creation path. Either way it is
-        // gated on the resolved agent's support, so a caller cannot turn on
-        // a mode the agent does not have.
-        const asked = args.yolo;
-        const yolo =
-          (typeof asked === "boolean" ? asked : (getSettings()?.defaultYolo ?? false)) &&
-          agentSupportsYolo(agents, agentType);
-        // Location mirrors the "+ Agent" dialog's defaults: a repo workspace
-        // with a base folder gets the first FREE worktree suggestion (never a
-        // dir an open pane holds, nor one blocked on disk); anything else
-        // runs in the workspace cwd.
-        const pane: Pane = {
-          id,
-          name: str(args, "name"),
-          agentType,
-          ...(yolo && { yolo: true }),
-        };
-        let placement: TeamLocation | undefined;
-        const info = await inspectRepo(ws.cwd).catch(() => null);
-        let current = currentTarget();
-        if (info?.isRepo) {
-          const free = await firstFreeTeamWorktreeFor(
-            current.deck.workspaces,
-            current.workspace,
-            index,
-          );
-          current = currentTarget();
-          if (free) {
-            placement = {
-              kind: "provisioning",
-              intent: {
-                repo: current.workspace.cwd,
-                path: free.path,
-                branch: free.branch,
-                index,
-              },
-            };
+    registry.register({
+      id: "team.create",
+      title: "Create a team with its first agent",
+      args: [
+        {
+          name: "workspace",
+          type: "string",
+          required: true,
+          description: "Workspace name or id",
+        },
+        {
+          name: "name",
+          type: "string",
+          description: "The team's name — how people and teammates address it; \"Team N\" when omitted",
+        },
+        {
+          name: "directory",
+          type: "string",
+          description:
+            "Where the team runs: omitted, a NEW git worktree (needs a repo workspace with a worktree base folder); \"root\", the workspace folder itself; else an existing directory's path",
+        },
+        {
+          name: "agentType",
+          type: "string",
+          description: "The first agent's type (claude, codex, opencode)",
+        },
+        { name: "role", type: "string", description: "The first agent's role; \"lead\" when omitted" },
+        {
+          name: "yolo",
+          type: "boolean",
+          description: "Run without permission prompts; omitted follows the global default",
+        },
+        { name: "task", type: "string", description: "Initial prompt for the first agent" },
+      ],
+      /** One directory is one team: a team is born WITH its directory and
+       * its first agent, in one step — never a roster first and a
+       * directory later. A directory some team already holds is refused;
+       * `team.add` is the door onto that team. */
+      run: (args) =>
+        recruit(args, async (current, index) => {
+          const name = str(args, "name");
+          if (name && teamNameTaken(current.workspace, name)) {
+            throw new Error(`a team called “${name}” already exists — team.add puts an agent on it`);
           }
-        }
-
-        // A full workspace used to swallow the add and then report a paneId
-        // that was never in the deck — with the worktree already created. The
-        // `never` is what makes a new refusal a compile error here: a bare
-        // switch would let an unmatched outcome fall straight through to the
-        // success report below.
-        const landed = deps.createPane({
-          workspace,
-          pane,
-          ...(placement !== undefined && { placement }),
-        });
-        switch (landed.kind) {
-          case "created":
-            break;
-          case "full":
-            throw new Error(TEAM_FULL_MESSAGE);
-          case "gone":
-            throw new Error(WORKSPACE_GONE_MESSAGE);
-          case "held":
-            throw new Error(WORKTREE_HELD_MESSAGE);
-          default: {
-            const unhandled: never = landed;
+          const role = str(args, "role");
+          if (role && !parseRoleAddress(role)) {
+            throw new Error(`"${role}" is not a role this deck knows`);
+          }
+          const base = {
+            ...(name !== undefined && { teamName: name }),
+            ...(role !== undefined && { role }),
+          };
+          const directory = str(args, "directory");
+          if (directory === undefined) {
+            const placement = await freshWorktree(current, index);
+            if (!placement) {
+              throw new Error(
+                "a new worktree needs a git repository with a worktree base folder — pass directory: \"root\" or an existing directory",
+              );
+            }
+            return { ...base, placement };
+          }
+          const cwd = directory === "root" ? current.workspace.cwd : directory;
+          const holder = teamsOf(current.workspace).find((team) => {
+            const held = teamHeldPath(team);
+            return held !== undefined && normalizePath(held) === normalizePath(cwd);
+          });
+          if (holder) {
             throw new Error(
-              `unhandled create outcome: ${JSON.stringify(unhandled)}`,
+              `that directory is already team “${holder.name}”'s (${holder.id}) — team.add puts an agent on it`,
             );
           }
-        }
-        current = currentTarget();
-        current.deck.selectWorkspace(workspace.id);
-        current.deck.selectPane(workspace.id, id);
+          return { ...base, placement: { kind: "attached", cwd } };
+        }),
+    }),
 
-        const task = str(args, "task");
-        // The pane's whole starting story on one line: which agent, where,
-        // and — the part that matters for teams — whether anything will
-        // open a turn on it. A recruit spawned with no task never has one,
-        // so nothing it is told can ride a turn boundary.
-        log.info(
-          "web:spawn",
-          `${id}: ${agentType} in ${workspace.id}, task ${task ? "scheduled" : "none"}`,
-        );
-        if (task) void deliverTask(id, task);
-        return {
-          paneId: id,
-          workspaceId: workspace.id,
-          agentType,
-          worktree: worktreeAhead(ws, pane),
-          task: task ? "scheduled" : "none",
-        };
-      },
+    registry.register({
+      id: "team.add",
+      title: "Add an agent to a team",
+      args: [
+        {
+          name: "workspace",
+          type: "string",
+          required: true,
+          description: "Workspace name or id",
+        },
+        {
+          name: "team",
+          type: "string",
+          required: true,
+          description: "Team id or name (see workspace.list teams)",
+        },
+        {
+          name: "agentType",
+          type: "string",
+          description: "Agent id from the catalog (claude, codex, opencode)",
+        },
+        { name: "name", type: "string", description: "Pane name" },
+        {
+          name: "role",
+          type: "string",
+          description: "The role it takes — how teammates address it; suggested when omitted",
+        },
+        {
+          name: "yolo",
+          type: "boolean",
+          description: "Run without permission prompts; omitted follows the global default",
+        },
+        { name: "task", type: "string", description: "Initial prompt, typed into the agent once it starts" },
+      ],
+      /** The agent runs where its team runs — a create still out included.
+       * Sixteen on one team is the cap. */
+      run: (args) =>
+        recruit(args, async (current) => {
+          const team = teamRef(current.workspace, requiredStr(args, "team"));
+          const role = askedRole(current.workspace, team.id, str(args, "role"));
+          return { team: team.id, ...(role !== undefined && { role }) };
+        }),
     }),
 
     registry.register({

@@ -10,7 +10,8 @@
 import { vi } from "vitest";
 import type { AgentInfo } from "../../domain/agents";
 import { createCommandRegistry } from "../../domain/commands";
-import type { Workspace } from "../../domain/deck";
+import { MAX_PANES, type Workspace } from "../../domain/deck";
+import { suggestRoleAddress } from "../../domain/mail";
 import type { PaneActivity } from "../../domain/status";
 import { createWorkspaceInstance } from "../../domain/workspaceInstance";
 import type {
@@ -133,23 +134,40 @@ export function setup(workspaces: Workspace[]) {
   const resumeAgent = vi.fn<(wsId: string, paneId: string) => ResumeRequest>(
     () => "resuming",
   );
-  // The landing, as a double: every request mints a team at the directory
-  // it asked for (the root when it asked for none) and the pane joins it —
-  // the shape the real landing leaves, minus the join-an-existing-team rule
-  // the orchestrator's own suite pins.
+  // The landing, as a double: a request naming a team joins it (a team not
+  // here refuses, a full one refuses), any other request mints a team at
+  // the directory it asked for (the root when it asked for none) under the
+  // name it gave, and the pane joins under the role it asked for when free
+  // — the shape the real landing leaves, minus the join-the-holder rule the
+  // orchestrator's own suite pins.
   const createPane = vi.fn<(request: CreatePaneRequest) => CreatePaneOutcome>(
-    ({ workspace: ref, pane, placement }) => {
+    ({ workspace: ref, pane, placement, team, role, teamName }) => {
       const ws = workspaces.find(
         (candidate) =>
           candidate.id === ref.id && candidate.instance === ref.instance,
       );
       if (!ws) return { kind: "gone" };
-      const teamId = `team-${(ws.teams?.length ?? 0) + 1}`;
-      ws.teams = [
-        ...(ws.teams ?? []),
-        { id: teamId, name: teamId, location: placement ?? { kind: "attached", cwd: ws.cwd } },
-      ];
-      ws.panes.push({ ...pane, team: { teamId, role: "lead" } });
+      let teamId: string;
+      if (team !== undefined) {
+        if (!ws.teams?.some((candidate) => candidate.id === team)) return { kind: "held" };
+        teamId = team;
+      } else {
+        teamId = `team-${(ws.teams?.length ?? 0) + 1}`;
+        ws.teams = [
+          ...(ws.teams ?? []),
+          {
+            id: teamId,
+            name: teamName ?? teamId,
+            location: placement ?? { kind: "attached", cwd: ws.cwd },
+          },
+        ];
+      }
+      const taken = ws.panes
+        .filter((candidate) => candidate.team?.teamId === teamId)
+        .map((candidate) => candidate.team!.role);
+      if (taken.length >= MAX_PANES) return { kind: "full" };
+      const chosen = role && !taken.includes(role) ? role : suggestRoleAddress(taken);
+      ws.panes.push({ ...pane, team: { teamId, role: chosen } });
       return { kind: "created", teamId };
     },
   );

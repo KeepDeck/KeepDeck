@@ -17,4 +17,4 @@ export type {
 } from "./registry";
 export { createCommandRegistry } from "./registry";
 export type { Resolved } from "./resolve";
-export { resolvePaneRef, resolveWorkspaceRef } from "./resolve";
+export { resolvePaneRef, resolveTeamRef, resolveWorkspaceRef } from "./resolve";

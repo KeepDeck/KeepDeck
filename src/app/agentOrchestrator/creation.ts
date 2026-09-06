@@ -7,6 +7,7 @@ import {
   MAX_PANES,
   nextTeamSeq,
   normalizePath,
+  roleTaken,
   teamHeldPath,
   teamId,
   teamNameTaken,
@@ -75,6 +76,12 @@ export interface AgentOrchestratorCreation {
   retryProvisioning: AgentOrchestrator["retryProvisioning"];
 }
 
+/** The workspace root as a placement: a directory like any other. */
+const rootOf = (workspace: Workspace): TeamLocation => ({
+  kind: "attached",
+  cwd: workspace.cwd,
+});
+
 /** The team a pane would land on, or the refusal it would meet. */
 type Landing =
   | { team: Team & { location: TeamLocation }; fresh: boolean }
@@ -136,6 +143,8 @@ export function createAgentOrchestratorCreation({
     /** The pane's own membership, when it is relocating: it does not count
      * toward its own team's cap. */
     except?: string,
+    /** The name for a team minted here, when the caller named one. */
+    teamName?: string,
   ): Landing {
     const wantedKey = normalizePath(teamHeldPath({ location: wanted }) ?? "");
     // A directory a confirmed close is still tearing down is nobody's to
@@ -160,7 +169,7 @@ export function createAgentOrchestratorCreation({
       const elsewhere = teamOccupyingPath(workspaces, wantedKey);
       if (elsewhere && wantedKey !== normalizePath(current.cwd)) return { refusal: "held" };
       const seq = nextTeamSeq(workspaces);
-      const asked = pane.name?.trim();
+      const asked = (teamName ?? pane.name)?.trim();
       const name = asked && !teamNameTaken(current, asked) ? asked : autoTeamName(seq);
       team = { id: teamId(seq), name, location: wanted };
       fresh = true;
@@ -168,6 +177,40 @@ export function createAgentOrchestratorCreation({
     const members = membersOf(current, team.id).filter((member) => member.id !== except);
     if (members.length >= MAX_PANES) return { refusal: "full" };
     return { team, fresh };
+  }
+
+  /** The team a pane asked to JOIN by id — whatever its placement, a
+   * create still out included — or the refusal: a team that is not here or
+   * holds no directory is nothing to join (`held`), one a close holds is
+   * being ended, and one at the cap is full. */
+  function resolveJoin(current: Workspace, teamId: string, except?: string): Landing {
+    const team = teamsOf(current).find((candidate) => candidate.id === teamId);
+    if (!team?.location) return { refusal: "held" };
+    if (closing({ id: current.id, instance: current.instance }, team.id)) {
+      return { refusal: "held" };
+    }
+    const members = membersOf(current, team.id).filter((member) => member.id !== except);
+    if (members.length >= MAX_PANES) return { refusal: "full" };
+    return { team: { ...team, location: team.location }, fresh: false };
+  }
+
+  /** Where a request lands: the team it named, else the team of the
+   * directory it asked for (the root when it asked for none). */
+  function resolveRequest(
+    workspaces: readonly Workspace[],
+    current: Workspace,
+    request: Pick<CreatePaneRequest, "pane" | "placement" | "team" | "teamName">,
+  ): Landing {
+    return request.team !== undefined
+      ? resolveJoin(current, request.team)
+      : resolveLanding(
+          workspaces,
+          current,
+          request.pane,
+          request.placement ?? rootOf(current),
+          undefined,
+          request.teamName,
+        );
   }
 
   /** Put `pane` on the landing's team: the team minted when fresh, the
@@ -182,11 +225,19 @@ export function createAgentOrchestratorCreation({
     pane: Pane,
     landing: { team: Team & { location: TeamLocation }; fresh: boolean },
     postProvision: CreatePaneRequest["postProvision"],
+    /** The role the caller had in mind; taken when free on the team. */
+    asked?: string,
   ): boolean {
     const { team, fresh } = landing;
-    const role = suggestRoleAddress(
-      membersOf(current, team.id).flatMap((member) => (member.team ? [member.team.role] : [])),
-    );
+    const wanted = asked?.trim();
+    const role =
+      wanted && !roleTaken(current, team.id, wanted)
+        ? wanted
+        : suggestRoleAddress(
+            membersOf(current, team.id).flatMap((member) =>
+              member.team ? [member.team.role] : [],
+            ),
+          );
     if (fresh) actions.createTeam(current.id, team);
     actions.joinTeam(current.id, pane.id, team.id, role);
     const settled = findWorkspaceByRef(deck.getSnapshot().workspaces, {
@@ -210,11 +261,6 @@ export function createAgentOrchestratorCreation({
     return true;
   }
 
-  const rootOf = (workspace: Workspace): TeamLocation => ({
-    kind: "attached",
-    cwd: workspace.cwd,
-  });
-
   function roomFor(
     workspace: WorkspaceRef,
     pane: Pane,
@@ -228,19 +274,21 @@ export function createAgentOrchestratorCreation({
   }
 
   /**
-   * Land a pane on the team that holds the directory it asked for, minting
-   * that team when nobody holds it yet. The pane itself lands without a
-   * placement of its own: from here on its directory is a question about
-   * its team. A request naming no placement lands in the workspace root.
+   * Land a pane on the team it named, or on the team that holds the
+   * directory it asked for — minting that team when nobody holds it yet.
+   * The pane itself lands without a placement of its own: from here on its
+   * directory is a question about its team. A request naming neither lands
+   * in the workspace root.
    */
-  function landPane({ workspace, pane, placement, postProvision }: CreatePaneRequest): CreatePaneOutcome {
+  function landPane(request: CreatePaneRequest): CreatePaneOutcome {
+    const { workspace, pane, postProvision } = request;
     const workspaces = deck.getSnapshot().workspaces;
     const current = findWorkspaceByRef(workspaces, workspace);
     if (!current) return refuse(pane.id, "gone");
-    const landing = resolveLanding(workspaces, current, pane, placement ?? rootOf(current));
+    const landing = resolveRequest(workspaces, current, request);
     if ("refusal" in landing) return refuse(pane.id, landing.refusal);
     actions.addAgentPane(current.id, pane);
-    if (!join(current, pane, landing, postProvision)) {
+    if (!join(current, pane, landing, postProvision, request.role)) {
       // Never a pane on no team reported as created: the pane goes back
       // out, and the caller hears a refusal.
       actions.closeAgent(current.id, pane.id);

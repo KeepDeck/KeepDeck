@@ -36,6 +36,7 @@ import { DEFAULT_SETTINGS } from "../domain/settings";
 import { artifactsDoorOpen } from "./artifacts/door";
 import {
   closeHotkeyTarget,
+  findTeamByName,
   findWorkspace,
   MAX_PANES,
   maximizeHotkeyTarget,
@@ -134,12 +135,30 @@ export function useAppController() {
    */
   const teamFlow = createTeamFlow({
     setPaneTeam: deck.setPaneTeam,
-    spawn: async (workspaceId, agentType, yolo) => {
-      const result = await commands.execute(
-        "agent.spawn",
-        { workspace: workspaceId, agentType, yolo },
-        { kind: "host" },
-      );
+    spawn: async (workspaceId, team, agentType, yolo, role) => {
+      // Onto the team when it exists; its first agent otherwise — born
+      // with its directory: a fresh worktree where the workspace can make
+      // one, the workspace root where it cannot.
+      const workspace = findWorkspace(deck.workspaces, workspaceId);
+      const existing = workspace ? findTeamByName(workspace, team) : undefined;
+      const result = existing
+        ? await commands.execute(
+            "team.add",
+            { workspace: workspaceId, team: existing.id, agentType, yolo, role },
+            { kind: "host" },
+          )
+        : await commands.execute(
+            "team.create",
+            {
+              workspace: workspaceId,
+              name: team,
+              agentType,
+              yolo,
+              role,
+              ...(workspace?.worktreeBaseDir ? {} : { directory: "root" }),
+            },
+            { kind: "host" },
+          );
       if (!result.ok) throw new Error(result.error.message);
       return (result.value as { paneId?: string }).paneId ?? null;
     },

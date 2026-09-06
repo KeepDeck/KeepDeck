@@ -391,9 +391,17 @@ export function registerMailCommands(
         const name = str(args, "team");
         const role = str(args, "role");
         const held = teamNameOf(workspace, target.value);
-        // Which team's roster is being settled: the one named, or — when the
-        // agent is being taken off — the one it is on. A pane on no team
-        // that is asked to leave one has nothing to settle.
+        // An agent runs where its team runs, so there is no taking it OFF a
+        // team: ending it is `agent.close`, and moving work between teams is
+        // starting an agent on the target team. Refused in words, because an
+        // agent cannot see a silent no-op and keeps building on it.
+        if (name === undefined && role === undefined) {
+          throw new Error(
+            `${str(args, "agent")} runs where its team runs — to end it, close it; to move work to another team, start an agent there (team.add)`,
+          );
+        }
+        // Which team's roster is being settled: the one named, or the one
+        // the agent is on when only its role changes.
         const team = name ?? held;
         if (!team) {
           // A role with no team to hold it. Answering "done, team: null" here

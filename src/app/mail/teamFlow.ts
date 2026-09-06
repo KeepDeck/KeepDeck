@@ -18,10 +18,17 @@ import { applyTeamPlan, type TeamSetupDeps } from "./teamSetup";
 export interface TeamFlowDeps {
   /** Record a pane's place on a team, or take it off one. */
   setPaneTeam: TeamSetupDeps["setPaneTeam"];
-  /** Start an agent and answer with its pane id. Through the command, so
-   * every creation default — worktree, YOLO, the full-workspace refusal —
-   * stays decided in one place. */
-  spawn(workspaceId: string, agentType: string, yolo: boolean): Promise<string | null>;
+  /** Start an agent ON the named team under a role and answer with its
+   * pane id. Through the commands (`team.add`, or `team.create` for a
+   * team's first agent), so every creation default — worktree, YOLO, the
+   * full-team refusal — stays decided in one place. */
+  spawn(
+    workspaceId: string,
+    team: string,
+    agentType: string,
+    yolo: boolean,
+    role: string,
+  ): Promise<string | null>;
   /** End an agent. Worktrees are deliberately untouched: deleting one is its
    * own destructive decision and has no business riding an organisational
    * act. */

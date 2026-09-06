@@ -479,20 +479,36 @@ describe("team.assign", () => {
     expect(result.ok).toBe(false);
   });
 
-  it("takes an agent off its team when neither field is given, and says so", async () => {
+  it("refuses to take an agent OFF its team — an agent runs where its team runs", async () => {
+    // There is no pane outside a team: ending an agent is `agent.close`, and
+    // moving work between teams is starting an agent on the target team.
+    // Refused in words, because an agent cannot see a silent no-op.
     const { registry, workspaces, mail } = setup();
     const lead = from("pane-1", "ws-1", "Agent 1");
     await run(registry, "team.assign", { agent: "pane-1", team: "api", role: "lead" }, lead);
     await run(registry, "team.assign", { agent: "pane-2", team: "api", role: "impl-1" }, lead);
-    expect(workspaces[0].panes[1].team).toBeDefined();
     mail.takeAtTurnEnd("pane-2");
 
-    await run(registry, "team.assign", { agent: "pane-2" }, lead);
-    expect(workspaces[0].panes[1].team).toBeUndefined();
-    // Told once, so it stops addressing roles that no longer reach anyone.
-    const farewell = mail.takeAtTurnEnd("pane-2");
-    expect(farewell.map((message) => message.kind)).toEqual(["team"]);
-    expect(farewell[0].body).toContain("api");
+    const off = await run(registry, "team.assign", { agent: "pane-2" }, lead);
+    expect(off.ok).toBe(false);
+    if (!off.ok) expect(off.error.message).toContain("team.add");
+    expect(workspaces[0].panes[1].team).toEqual({ teamId: expect.any(String), role: "impl-1" });
+    expect(mail.takeAtTurnEnd("pane-2")).toEqual([]);
+  });
+
+  it("refuses to move an agent to another team, and says how work moves instead", async () => {
+    const { registry } = setup();
+    const lead = from("pane-1", "ws-1", "Agent 1");
+    await run(registry, "team.assign", { agent: "pane-1", team: "api", role: "lead" }, lead);
+    await run(registry, "team.assign", { agent: "pane-2", team: "api", role: "impl-1" }, lead);
+    const moved = await run(
+      registry,
+      "team.assign",
+      { agent: "pane-2", team: "web", role: "lead" },
+      lead,
+    );
+    expect(moved.ok).toBe(false);
+    if (!moved.ok) expect(moved.error.message).toContain("team.add");
   });
 });
 

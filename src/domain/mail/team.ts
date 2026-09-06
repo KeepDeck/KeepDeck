@@ -99,14 +99,15 @@ export function resolveMailTarget(
   };
 }
 
-/** How a pane's team reads in the roster: the team's name and the pane's
- * role. Null rather than absent, so the shape does not change with
+/** How a pane's team reads in the roster: the team's id and name, and the
+ * pane's role. Null rather than absent, so the shape does not change with
  * membership — and null for a pane whose id names no team here, which is
- * no membership to anyone reading it. */
+ * no membership to anyone reading it. The id is what a caller hands back
+ * to `team.add`; the name is what it says out loud. */
 export function teamOf(
   workspace: Workspace,
   pane: Pane,
-): { name: string; role: string } | null {
+): { id: string; name: string; role: string } | null {
   const team = teamOfPane(workspace, pane);
-  return team && pane.team ? { name: team.name, role: pane.team.role } : null;
+  return team && pane.team ? { id: team.id, name: team.name, role: pane.team.role } : null;
 }

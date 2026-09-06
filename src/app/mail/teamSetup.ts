@@ -29,15 +29,19 @@ export interface TeamSetupDeps {
     paneId: string,
     team: { name: string; role: string } | null,
   ): void;
-  /** Start an agent in this workspace, answering with its pane id — the
-   * `agent.spawn` command, so every creation default stays in one place.
-   * `yolo` is passed through rather than left to the global default: the
-   * dialog asked per recruit, and dropping the answer here would silently
-   * ignore it. */
+  /** Start an agent ON the team called `team` in this workspace, under
+   * `role`, answering with its pane id — the `team.add` command when the
+   * team exists and `team.create` when this recruit is its first agent, so
+   * every creation default stays in one place and the recruit lands on the
+   * team in the same step that starts it. `yolo` is passed through rather
+   * than left to the global default: the dialog asked per recruit, and
+   * dropping the answer here would silently ignore it. */
   spawn?(
     workspaceId: string,
+    team: string,
     agentType: string,
     yolo: boolean,
+    role: string,
   ): Promise<string | null>;
   /** End an agent — the same close the confirmation surface performs, minus
    * the confirmation, because the person already gave it once for the whole
@@ -90,7 +94,13 @@ export async function applyTeamPlan(
     let paneId: string | null = null;
     try {
       if (!deps.spawn) throw new Error("this deck cannot start agents here");
-      paneId = await deps.spawn(workspaceId, recruit.agentType, recruit.yolo);
+      paneId = await deps.spawn(
+        workspaceId,
+        plan.name,
+        recruit.agentType,
+        recruit.yolo,
+        recruit.role,
+      );
     } catch (error) {
       paneId = null;
       deps.report(
@@ -106,7 +116,8 @@ export async function applyTeamPlan(
       );
       continue;
     }
-    deps.setPaneTeam(workspaceId, paneId, { name: plan.name, role: recruit.role });
+    // Landed ON the team, under its role, by the start itself — there is
+    // no second step in which the pane could be found on no team.
     landed.push({ paneId, role: recruit.role });
   }
 

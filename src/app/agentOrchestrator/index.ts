@@ -137,6 +137,17 @@ export interface CreatePaneRequest {
    * the team the pane joins: the team already holding that directory, or a
    * new one made for it. Absent: the workspace root. */
   placement?: TeamLocation;
+  /** The team to JOIN, by id — whatever its placement, a create still out
+   * included. Wins over `placement`. A team that is not here, holds no
+   * directory, or is being closed refuses `held`. */
+  team?: string;
+  /** The role the pane takes on its team, when the caller has one in mind;
+   * used when free on the team, else the roster suggests one. */
+  role?: string;
+  /** The name for a team the landing MINTS — when the caller is creating
+   * one and named it; the pane's own name otherwise. Ignored when the pane
+   * joins a team that already holds the directory. */
+  teamName?: string;
   /** A step to run after the team's worktree lands and before its card
    * resolves — a journal fork's store surgery. Filed under the TEAM the
    * landing mints, which is why it rides the request rather than being
