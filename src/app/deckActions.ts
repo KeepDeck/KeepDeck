@@ -174,7 +174,6 @@ function buildDeckActions(store: DeckStore) {
       dispatch({ type: "renameTeam", wsId, teamId, name }),
     joinTeam: (wsId: string, paneId: string, teamId: string, role: string) =>
       dispatch({ type: "joinTeam", wsId, paneId, teamId, role }),
-    leaveTeam: (wsId: string, paneId: string) => dispatch({ type: "leaveTeam", wsId, paneId }),
     dissolveTeam: (wsId: string, teamId: string) =>
       dispatch({ type: "dissolveTeam", wsId, teamId }),
     hydrateJournal: (records: JournalRecords) =>

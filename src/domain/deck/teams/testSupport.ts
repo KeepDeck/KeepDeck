@@ -1,15 +1,19 @@
 /**
- * Fixture help for tests that speak of membership by NAME — the way the
- * dialog and the document do — against a model where a pane holds a team id.
+ * Fixture help for tests that speak of membership by NAME — the way a
+ * fixture reads best — against a model where a pane holds a team id and a
+ * team is an object with a directory.
  *
  * A fixture writes `named: { name, role }` on a pane; [`resolveNamedPanes`]
- * turns those into the workspace's teams and the panes' ids through the
- * same transform the deck uses, so a test never hand-mints a team id.
+ * turns those into the workspace's teams and the panes' ids. A team the
+ * fixture names for the first time is minted HERE, on the workspace root —
+ * the fixture's own doing, never the deck's: the deck has no way from a
+ * name to a team, and never makes one from a name.
  */
 import type { Pane } from "../panes/model";
 import type { Workspace } from "../workspaces";
-import type { TeamAssignment } from "./model";
-import { assignPaneTeam } from "./transforms";
+import { findTeamByName, nextTeamSeq } from "./collection";
+import { teamId, type Team, type TeamAssignment } from "./model";
+import { mapWorkspaceTeams, setMembership } from "./transforms";
 
 /** A pane as a fixture spells it: membership by name, resolved later. */
 export type NamedPane = Pane & { named?: TeamAssignment };
@@ -25,7 +29,17 @@ export function resolveNamedPanes(ws: Workspace): Workspace {
   });
   let list: Workspace[] = [{ ...ws, panes }];
   for (const [paneId, assignment] of memberships) {
-    list = assignPaneTeam(list, ws.id, paneId, assignment);
+    let team = findTeamByName(list[0], assignment.name);
+    if (!team) {
+      const minted: Team = {
+        id: teamId(nextTeamSeq(list)),
+        name: assignment.name,
+        location: { kind: "attached", cwd: ws.cwd },
+      };
+      list = mapWorkspaceTeams(list, ws.id, (teams) => [...teams, minted]);
+      team = minted;
+    }
+    list = setMembership(list, ws.id, paneId, { teamId: team.id, role: assignment.role });
   }
   return list[0];
 }

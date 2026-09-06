@@ -45,7 +45,6 @@ import {
   createTeam,
   dissolveTeam,
   joinTeam,
-  leaveTeam,
   renameTeam,
   resolveTeamProvisioning,
   setTeamProvisioningError,
@@ -585,8 +584,6 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         state,
         joinTeam(state.workspaces, action.wsId, action.paneId, action.teamId, action.role),
       );
-    case "leaveTeam":
-      return withWorkspaces(state, leaveTeam(state.workspaces, action.wsId, action.paneId));
     case "dissolveTeam": {
       const workspaces = dissolveTeam(state.workspaces, action.wsId, action.teamId);
       if (workspaces === state.workspaces) return state;

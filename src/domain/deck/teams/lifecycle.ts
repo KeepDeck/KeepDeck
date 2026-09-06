@@ -17,7 +17,7 @@ import { MAX_PANES } from "../layout";
 import type { Workspace } from "../workspaces";
 import { findTeam, findTeamByName, membersOf, teamsOf } from "./collection";
 import { autoTeamName, type Team, type TeamLocation } from "./model";
-import { assignPaneTeam, mapWorkspaceTeams } from "./transforms";
+import { mapWorkspaceTeams, setMembership } from "./transforms";
 
 /** The path a team holds for occupancy: the directory it runs in, or the one
  * its create is heading for. A team with no directory yet holds none. */
@@ -255,11 +255,12 @@ export function roleTaken(
 }
 
 /**
- * Put a pane on team `teamId` under `role`. Refused, with the SAME array: a
- * gone team, a blank role, a role somebody else on the team holds, or a
- * team already at the cap — the cap is the team's, because the grid the
- * team's panes lay out on is `paneGrid`'s 1..=MAX_PANES. A pane moving from
- * another team leaves it as [`assignPaneTeam`] would.
+ * Put a pane on team `teamId` under `role` — the landing's write, when a
+ * pane arrives on a team. Refused, with the SAME array: a gone team, a
+ * blank role, a role somebody else on the team holds, or a team already at
+ * the cap — the cap is the team's, because the grid the team's panes lay
+ * out on is `paneGrid`'s 1..=MAX_PANES. There is no leaving: an agent runs
+ * where its team runs, so a pane comes off a team only by closing.
  */
 export function joinTeam(
   workspaces: Workspace[],
@@ -276,20 +277,7 @@ export function joinTeam(
   if (!address || roleTaken(ws, teamId, address, paneId)) return workspaces;
   const alreadyOn = pane.team?.teamId === teamId;
   if (!alreadyOn && membersOf(ws, teamId).length >= MAX_PANES) return workspaces;
-  return assignPaneTeam(workspaces, workspaceId, paneId, { name: team.name, role: address });
-}
-
-/** Take a pane off its team. What leaving MEANS for the pane's directory —
- * a member runs in the team's directory, so leaving is leaving it, and a
- * session bound there cannot resume elsewhere — arrives with stage C3, when
- * the pane stops carrying a placement of its own; until then the pane keeps
- * the directory it still holds. */
-export function leaveTeam(
-  workspaces: Workspace[],
-  workspaceId: string,
-  paneId: string,
-): Workspace[] {
-  return assignPaneTeam(workspaces, workspaceId, paneId, null);
+  return setMembership(workspaces, workspaceId, paneId, { teamId, role: address });
 }
 
 /**

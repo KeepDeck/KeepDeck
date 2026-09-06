@@ -8,7 +8,6 @@ import {
   createTeam,
   dissolveTeam,
   joinTeam,
-  leaveTeam,
   renameTeam,
   resolveTeamProvisioning,
   roleTaken,
@@ -257,7 +256,7 @@ describe("renameTeam", () => {
   });
 });
 
-describe("joinTeam and leaveTeam", () => {
+describe("joinTeam", () => {
   const base = () =>
     createTeam([workspace("ws-1", [pane("pane-1"), pane("pane-2")])], "ws-1", {
       id: "team-1",
@@ -295,16 +294,17 @@ describe("joinTeam and leaveTeam", () => {
     expect(joinTeam(list, "ws-1", `pane-${MAX_PANES + 1}`, "team-1", "extra")).toBe(list);
   });
 
-  it("leaving keeps a team that owns a directory", () => {
+  it("writes the membership by id, and the team keeps its directory whatever the roster does", () => {
     const on = joinTeam(base(), "ws-1", "pane-1", "team-1", "lead");
-    const off = leaveTeam(on, "ws-1", "pane-1");
-    expect(off[0].panes[0].team).toBeUndefined();
-    expect(findTeam(off[0], "team-1")).toBeDefined();
+    expect(on[0].panes[0].team).toEqual({ teamId: "team-1", role: "lead" });
+    expect(findTeam(on[0], "team-1")?.location).toEqual(attached("/wt/1"));
   });
 });
 
 describe("dissolveTeam", () => {
   it("removes a team with nobody on it, and refuses one with members", () => {
+    // A team is dissolved empty: its members come off it only by closing,
+    // which is the close flow's, not a transform here.
     const base = createTeam([workspace("ws-1", [pane("pane-1")])], "ws-1", {
       id: "team-1",
       name: "api",
@@ -312,8 +312,7 @@ describe("dissolveTeam", () => {
     });
     const on = joinTeam(base, "ws-1", "pane-1", "team-1", "lead");
     expect(dissolveTeam(on, "ws-1", "team-1")).toBe(on);
-    const off = leaveTeam(on, "ws-1", "pane-1");
-    expect(dissolveTeam(off, "ws-1", "team-1")[0].teams).toBeUndefined();
-    expect(dissolveTeam(off, "ws-1", "team-9")).toBe(off);
+    expect(dissolveTeam(base, "ws-1", "team-1")[0].teams).toBeUndefined();
+    expect(dissolveTeam(base, "ws-1", "team-9")).toBe(base);
   });
 });

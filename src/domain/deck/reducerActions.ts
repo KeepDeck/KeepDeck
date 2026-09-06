@@ -77,5 +77,4 @@ export type DeckAction =
   | { type: "setTeamProvisioningError"; wsId: string; teamId: string; error: string | null }
   | { type: "renameTeam"; wsId: string; teamId: string; name: string }
   | { type: "joinTeam"; wsId: string; paneId: string; teamId: string; role: string }
-  | { type: "leaveTeam"; wsId: string; paneId: string }
   | { type: "dissolveTeam"; wsId: string; teamId: string };

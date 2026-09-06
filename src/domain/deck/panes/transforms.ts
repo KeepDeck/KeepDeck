@@ -17,7 +17,6 @@ import {
   type PaneIdle,
   type PaneSession,
   type PaneStopped,
-  type PaneTeam,
 } from "./index";
 import { findPane, mapWorkspace, type Workspace } from "../workspaces";
 
@@ -49,35 +48,6 @@ export function setPaneAutoTitle(
   if (!pane || pane.autoTitle === next) return workspaces;
   return mapWorkspace(workspaces, workspaceId, (panes) =>
     panes.map((p) => (p.id === paneId ? { ...p, autoTitle: next } : p)),
-  );
-}
-
-/** Put a pane on a team under a role, or take it off one (`null`).
- *
- * Validation is NOT here: whether a role is free is a question about the
- * whole workspace and belongs to `checkTeamAssignment`, which the caller
- * runs first. This applies a settled decision, and returns the SAME array
- * for a no-op like its sibling pane transforms. */
-export function setPaneTeam(
-  workspaces: Workspace[],
-  workspaceId: string,
-  paneId: string,
-  team: PaneTeam | null,
-): Workspace[] {
-  const pane = findPane(workspaces, workspaceId, paneId);
-  if (!pane) return workspaces;
-  const next = team ?? undefined;
-  if (pane.team?.teamId === next?.teamId && pane.team?.role === next?.role) {
-    return workspaces;
-  }
-  return mapWorkspace(workspaces, workspaceId, (panes) =>
-    panes.map((p) => {
-      if (p.id !== paneId) return p;
-      // Deleted rather than set to undefined: the pane is serialized, and a
-      // key holding `undefined` is a key the round-trip has to think about.
-      const { team: _dropped, ...rest } = p;
-      return next ? { ...rest, team: next } : rest;
-    }),
   );
 }
 
