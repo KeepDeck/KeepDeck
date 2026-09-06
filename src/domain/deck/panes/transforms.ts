@@ -69,7 +69,7 @@ export function setPaneTeam(
   const pane = findPane(workspaces, workspaceId, paneId);
   if (!pane) return workspaces;
   const next = team ?? undefined;
-  if (pane.team?.name === next?.name && pane.team?.role === next?.role) {
+  if (pane.team?.teamId === next?.teamId && pane.team?.role === next?.role) {
     return workspaces;
   }
   return mapWorkspace(workspaces, workspaceId, (panes) =>

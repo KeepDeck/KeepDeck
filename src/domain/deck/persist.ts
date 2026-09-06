@@ -11,6 +11,7 @@ import {
 } from "./panes";
 import type { Workspace } from "./workspaces";
 import { resolveActiveId, workspaceIdsAreUnique } from "./workspaces";
+import { teamId, teamNameKey, teamNameOf, type Team, type TeamAssignment } from "./teams";
 import { nextIdSequence } from "../idSequence";
 import { collectExtras, isRecord } from "../json";
 import { createWorkspaceInstance } from "../workspaceInstance";
@@ -112,6 +113,15 @@ export function serializeDeck(
           // slots they always held — so a document a pane round-trips
           // through is the document it came from, byte for byte.
           const placement = placementToFields(locationOf(p));
+          // Membership goes to disk by NAME — the v10 shape, `{name, role}`
+          // — with the name read off the workspace's team. A pane whose id
+          // names no team here is written as on no team: a membership
+          // nobody can resolve is not one worth keeping.
+          const teamName = teamNameOf(ws, p);
+          const team: TeamAssignment | undefined =
+            p.team !== undefined && teamName !== undefined
+              ? { name: teamName, role: p.team.role }
+              : undefined;
           return {
           ...p.extras,
           id: p.id,
@@ -129,7 +139,7 @@ export function serializeDeck(
           // restart: a deck that came back with everyone anonymous would
           // have silently disbanded a team nobody dismissed, and the roles
           // teammates address each other by would be gone with it.
-          ...(p.team !== undefined && { team: p.team }),
+          ...(team !== undefined && { team }),
           ...(p.session !== undefined && { session: p.session }),
           // Sparse, and only the durable reason: `waking`/`parked` describe
           // a launch, so writing them would make every ordinary restart look
@@ -172,8 +182,11 @@ export function hydrateDeck(json: string): HydrateDeckResult {
   if (!Array.isArray(raw.workspaces)) return corrupt;
 
   const workspaces: Workspace[] = [];
+  // Team ids are minted across the whole document in reading order, so the
+  // same file always comes back with the same ids.
+  const teamMint = { next: 1 };
   for (const w of raw.workspaces) {
-    const ws = readWorkspace(w);
+    const ws = readWorkspace(w, teamMint);
     if (!ws) return corrupt;
     workspaces.push(ws);
   }
@@ -290,7 +303,10 @@ const PANE_KNOWN_KEYS: ReadonlySet<string> = new Set([
 
 /** The object's keys outside `known` — a newer revision's fields, preserved
  * verbatim across our save round-trips. */
-function readWorkspace(value: unknown): Workspace | null {
+function readWorkspace(
+  value: unknown,
+  teamMint: { next: number },
+): Workspace | null {
   if (!isRecord(value)) return null;
   const { id, name, cwd, worktreeBaseDir } = value;
   if (typeof id !== "string" || typeof name !== "string" || typeof cwd !== "string")
@@ -304,10 +320,27 @@ function readWorkspace(value: unknown): Workspace | null {
   if (value.panes.length > MAX_PANES) return null;
 
   const panes: Pane[] = [];
+  const named = new Map<string, TeamAssignment>();
   for (const p of value.panes) {
-    const pane = readPane(p);
+    const pane = readPane(p, named);
     if (!pane) return null;
     panes.push(pane);
+  }
+  // The document spells membership by NAME; the model holds a team OBJECT
+  // per name. One team per distinct name, in the order the panes appear —
+  // matched by key, so a hand-edited " api " beside "api" comes back as one
+  // team — with each member holding the id.
+  const teams: Team[] = [];
+  for (const pane of panes) {
+    const assignment = named.get(pane.id);
+    if (!assignment) continue;
+    const key = teamNameKey(assignment.name);
+    let team = teams.find((candidate) => teamNameKey(candidate.name) === key);
+    if (!team) {
+      team = { id: teamId(teamMint.next++), name: assignment.name };
+      teams.push(team);
+    }
+    pane.team = { teamId: team.id, role: assignment.role };
   }
   const ws: Workspace = {
     id,
@@ -316,6 +349,7 @@ function readWorkspace(value: unknown): Workspace | null {
     cwd,
     worktreeBaseDir,
     panes,
+    ...(teams.length > 0 && { teams }),
   };
   // Parsed unconditionally, like `run` — a plugin's slot must survive a
   // load-and-save even while the plugin system experiment is off.
@@ -326,7 +360,12 @@ function readWorkspace(value: unknown): Workspace | null {
   return ws;
 }
 
-function readPane(value: unknown): Pane | null {
+function readPane(
+  value: unknown,
+  /** Where a pane's membership-by-name is left for the workspace reader to
+   * resolve into a team — the pane itself carries only the id. */
+  named: Map<string, TeamAssignment>,
+): Pane | null {
   if (!isRecord(value)) return null;
   if (typeof value.id !== "string") return null;
   const pane: Pane = { id: value.id, idle: readIdle(value.idle) };
@@ -361,7 +400,7 @@ function readPane(value: unknown): Pane | null {
   if (isRecord(team) && typeof team.name === "string" && typeof team.role === "string") {
     const name = team.name.trim();
     const role = team.role.trim();
-    if (name && role) pane.team = { name, role };
+    if (name && role) named.set(pane.id, { name, role });
   }
   const session = value.session;
   if (

@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AgentInfo } from "../../domain/agents";
 import type { Pane, Workspace } from "../../domain/deck";
+import { resolveNamedPanes } from "../../domain/deck/teams/testSupport";
 import type { TeamPlan } from "../../domain/mail";
 import type { PaneActivity } from "../../domain/status";
 import { createWorkspaceInstance } from "../../domain/workspaceInstance";
@@ -27,18 +28,20 @@ const AGENTS: AgentInfo[] = [
   },
 ];
 
-const pane = (id: string, team?: { name: string; role: string }): Pane =>
-  ({ id, agentType: "claude", ...(team ? { team } : {}) }) as Pane;
+/** Membership spoken by name, the way the dialog says it; `workspace`
+ * resolves it into the team the pane then holds by id. */
+const pane = (id: string, named?: { name: string; role: string }): Pane =>
+  ({ id, agentType: "claude", ...(named ? { named } : {}) }) as Pane;
 
 const workspace = (panes: Pane[]): Workspace =>
-  ({
+  resolveNamedPanes({
     id: "ws-1",
     instance: createWorkspaceInstance(),
     name: "web",
     cwd: "/repo",
     worktreeBaseDir: null,
     panes,
-  }) as Workspace;
+  } as Workspace);
 
 const setValue = Object.getOwnPropertyDescriptor(
   HTMLInputElement.prototype,

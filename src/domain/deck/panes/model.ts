@@ -189,14 +189,18 @@ export interface Pane {
 /**
  * A pane's place in a team.
  *
- * `role` is an ADDRESS, not a job title: it is how teammates name each other
- * ("ask impl-1"), which is why it has to be unique inside its team and why
- * `lead` is simply the role the lead happens to hold rather than a separate
- * flag. One team per pane, because two would make "who is the lead here"
- * a question with more than one answer.
+ * `teamId` names the team — the workspace's [`Team`] object — so the team's
+ * NAME is not written here: a name is an address people type, and keeping a
+ * copy on every member is how renaming a team came to mean rewriting each of
+ * them. `role` is an ADDRESS too, not a job title: it is how teammates name
+ * each other ("ask impl-1"), which is why it has to be unique inside its team
+ * and why `lead` is simply the role the lead happens to hold rather than a
+ * separate flag. One team per pane, because two would make "who is the lead
+ * here" a question with more than one answer — structurally now, since a pane
+ * has one field to hold one id.
  */
 export interface PaneTeam {
-  name: string;
+  teamId: string;
   role: string;
 }
 

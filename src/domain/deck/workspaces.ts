@@ -8,6 +8,7 @@ import type {
   WorkspaceRef,
 } from "../workspaceInstance";
 import { appendPane, locationOf, removePane, type Pane } from "./panes";
+import type { Team } from "./teams/model";
 
 /** What the create-workspace form submits: the spec a new workspace is
  * provisioned from. A workspace is born EMPTY, so nothing per-agent belongs
@@ -50,6 +51,10 @@ export interface Workspace {
    * the value stops meaning anything and stays on disk untouched. */
   extras?: Record<string, unknown>;
   panes: Pane[];
+  /** The teams running here — the objects; who is ON one is read off the
+   * panes, which hold the id. Sparse: a workspace with no teams carries no
+   * key, like `plugins`. Read through `teamsOf`. */
+  teams?: Team[];
 }
 
 /** Apply a pane transform to the workspace with `id`, leaving the rest as-is.

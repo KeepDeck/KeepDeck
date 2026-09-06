@@ -179,7 +179,7 @@ export function registerCoreCommands(
             // Who this agent is on the team, when it is on one. The roster
             // is where an agent learns the roles it may write to, so the
             // field is here rather than behind a command of its own.
-            team: teamOf(p),
+            team: teamOf(ws, p),
           })),
         }));
       },

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { SENDABLE_KINDS } from "./message";
 import { awaitsAnswer } from "./policy";
 import type { Pane, Workspace } from "../deck";
+import { resolveNamedPanes } from "../deck/teams/testSupport";
 import { createWorkspaceInstance } from "../workspaceInstance";
 import { roleById } from "./roles";
 import {
@@ -13,18 +14,20 @@ import {
   type TeamDraft,
 } from "./teamPlan";
 
-const pane = (id: string, team?: { name: string; role: string }): Pane =>
-  ({ id, agentType: "claude", ...(team ? { team } : {}) }) as Pane;
+/** Membership spoken by name, the way the dialog says it; `workspace`
+ * resolves it into the team the pane then holds by id. */
+const pane = (id: string, named?: { name: string; role: string }): Pane =>
+  ({ id, agentType: "claude", ...(named ? { named } : {}) }) as Pane;
 
 const workspace = (panes: Pane[]): Workspace =>
-  ({
+  resolveNamedPanes({
     id: "ws-1",
     instance: createWorkspaceInstance(),
     name: "web",
     cwd: "/repo",
     worktreeBaseDir: null,
     panes,
-  }) as Workspace;
+  } as Workspace);
 
 const draft = (over: Partial<TeamDraft> = {}): TeamDraft => ({
   name: "api",

@@ -16,7 +16,7 @@
  */
 import type { AgentType } from "../agents";
 import type { Resolved } from "../commands";
-import type { Workspace } from "../deck";
+import { findTeamByName, teamNameOf, type Workspace } from "../deck";
 import { SENDABLE_KINDS } from "./message";
 import { kindGuidance } from "./policy";
 import {
@@ -188,7 +188,7 @@ export function teamNamesIn(workspace: Workspace): string[] {
   const seen = new Set<string>();
   const names: string[] = [];
   for (const pane of workspace.panes) {
-    const name = pane.team?.name;
+    const name = teamNameOf(workspace, pane);
     if (!name) continue;
     const key = teamNameKey(name);
     if (seen.has(key)) continue;
@@ -245,10 +245,7 @@ export function planTeam(
   // not only where the dialog draws it: an agent naming a team reads no dialog.
   const key = teamNameKey(name);
   const other = editing === null || teamNameKey(editing) !== key;
-  if (
-    other &&
-    workspace.panes.some((pane) => pane.team !== undefined && teamNameKey(pane.team.name) === key)
-  ) {
+  if (other && findTeamByName(workspace, name) !== undefined) {
     return {
       ok: false,
       message: `a team called “${name}” already exists — open it from an agent's badge to edit it`,
@@ -283,10 +280,10 @@ export function planTeam(
   for (const member of members) {
     const pane = workspace.panes.find((candidate) => candidate.id === member.paneId);
     const held = pane?.team;
-    if (pane && held && !paneIsOnTeam(pane, staying)) {
+    if (pane && held && !paneIsOnTeam(workspace, pane, staying)) {
       return {
         ok: false,
-        message: `that agent is already ${held.role} on team "${held.name}" — take it off that team first`,
+        message: `that agent is already ${held.role} on team "${teamNameOf(workspace, pane) ?? held.teamId}" — take it off that team first`,
       };
     }
   }

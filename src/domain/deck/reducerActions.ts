@@ -1,7 +1,8 @@
 import type { JournalRecords } from "../journal";
 import type { WorkspaceInstance } from "../workspaceInstance";
-import type { Pane, PaneSession, PaneTeam } from "./panes";
+import type { Pane, PaneSession } from "./panes";
 import type { DeckState } from "./reducer";
+import type { TeamAssignment } from "./teams/model";
 import type { Workspace } from "./workspaces";
 
 export type DeckAction =
@@ -24,8 +25,9 @@ export type DeckAction =
       type: "setPaneTeam";
       wsId: string;
       paneId: string;
-      /** Null takes the pane off its team. */
-      team: PaneTeam | null;
+      /** Spoken by name — the deck resolves it to a team, minting one for a
+       * name nobody holds. Null takes the pane off its team. */
+      team: TeamAssignment | null;
     }
   | { type: "hydrate"; state: DeckState }
   | { type: "clearPaneIdle"; wsId: string; paneId: string }

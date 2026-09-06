@@ -356,9 +356,10 @@ describe("team membership across a restart", () => {
         cwd: "/r",
         worktreeBaseDir: null,
         panes: [
-          { id: "pane-1", agentType: "claude", team: { name: "api", role: "lead" } },
+          { id: "pane-1", agentType: "claude", team: { teamId: "team-1", role: "lead" } },
           { id: "pane-2", agentType: "claude" },
         ],
+        teams: [{ id: "team-1", name: "api" }],
       },
     ],
     activeId: "ws-1",
@@ -370,14 +371,76 @@ describe("team membership across a restart", () => {
     // A deck that returned with everyone anonymous would have silently
     // disbanded a team the user never disbanded — and taken the roles
     // teammates address each other by with it.
-    const [member, outsider] = okDeck(serializeDeck(teamState)).state.workspaces[0]
-      .panes;
-    expect(member.team).toEqual({ name: "api", role: "lead" });
+    const restored = okDeck(serializeDeck(teamState)).state.workspaces[0];
+    const [member, outsider] = restored.panes;
+    expect(member.team).toEqual({ teamId: "team-1", role: "lead" });
     expect(outsider.team).toBeUndefined();
+    expect(restored.teams).toEqual([{ id: "team-1", name: "api" }]);
   });
 
-  it("writes nothing for a pane on no team", () => {
-    expect(serializeDeck(teamState).match(/"team"/g)).toHaveLength(1);
+  it("writes membership by NAME, in the document's own shape", () => {
+    // The file spells membership as `{name, role}` and knows no team ids:
+    // the model's object is folded back into the slot the document always
+    // held, so a deck saved by this build is the deck the last one wrote.
+    const json = serializeDeck(teamState);
+    expect(json).toContain('"team":{"name":"api","role":"lead"}');
+    expect(json).not.toContain("teamId");
+    expect(json).not.toContain('"teams"');
+    expect(json.match(/"team"/g)).toHaveLength(1);
+  });
+
+  it("gives each distinct name one team, in reading order, across workspaces", () => {
+    // Ids are minted over the whole document as it is read, so the same
+    // file always comes back with the same ids — and a name spelled two
+    // ways is one team, the way the plan and the dialog already treat it.
+    const json = serializeDeck({
+      ...teamState,
+      workspaces: [
+        {
+          ...teamState.workspaces[0],
+          panes: [
+            { id: "pane-1", agentType: "claude", team: { teamId: "team-1", role: "lead" } },
+            { id: "pane-2", agentType: "claude", team: { teamId: "team-2", role: "lead" } },
+            { id: "pane-3", agentType: "claude", team: { teamId: "team-1", role: "impl-1" } },
+          ],
+          teams: [
+            { id: "team-1", name: "api" },
+            { id: "team-2", name: "web" },
+          ],
+        },
+        {
+          ...teamState.workspaces[0],
+          id: "ws-2",
+          panes: [{ id: "pane-4", agentType: "claude", team: { teamId: "team-7", role: "lead" } }],
+          teams: [{ id: "team-7", name: "Api" }],
+        },
+      ],
+    }).replace('{"name":"api","role":"impl-1"}', '{"name":" API ","role":"impl-1"}');
+    const [first, second] = okDeck(json).state.workspaces;
+    expect(first.teams).toEqual([
+      { id: "team-1", name: "api" },
+      { id: "team-2", name: "web" },
+    ]);
+    expect(first.panes.map((pane) => pane.team?.teamId)).toEqual(["team-1", "team-2", "team-1"]);
+    // A second workspace's team is its own object even under a name the
+    // first one uses: a team never spans workspaces.
+    expect(second.teams).toEqual([{ id: "team-3", name: "Api" }]);
+  });
+
+  it("drops a membership whose id names no team here", () => {
+    // A pane pointing at a team the workspace does not hold is on no team
+    // to anyone reading it; writing the dangling id would make the next
+    // launch invent a member of nothing.
+    const json = serializeDeck({
+      ...teamState,
+      workspaces: [
+        {
+          ...teamState.workspaces[0],
+          panes: [{ id: "pane-1", agentType: "claude", team: { teamId: "team-9", role: "lead" } }],
+        },
+      ],
+    });
+    expect(json).not.toContain('"team"');
   });
 
   it("reads a half-written entry as no membership at all", () => {
@@ -410,7 +473,8 @@ describe("team membership across a restart", () => {
       '{"name":" api ","role":" lead "}',
     );
     const restored = okDeck(json).state;
-    expect(restored.workspaces[0].panes[0].team).toEqual({ name: "api", role: "lead" });
+    expect(restored.workspaces[0].panes[0].team).toEqual({ teamId: "team-1", role: "lead" });
+    expect(restored.workspaces[0].teams).toEqual([{ id: "team-1", name: "api" }]);
     expect(serializeDeck(restored)).toContain('{"name":"api","role":"lead"}');
   });
 });

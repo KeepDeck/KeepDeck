@@ -12,6 +12,7 @@ import {
   paneAgentType,
   paneBranch,
   paneDisplayTitle,
+  teamNameOf,
 } from "../../domain/deck";
 import {
   defaultRoleFor,
@@ -326,12 +327,13 @@ export function TeamDialog({
   // of first sight.
   const currentTeam = editing ?? name;
   const takeable = available.filter(
-    ({ pane }) => !pane.team || paneIsOnTeam(pane, currentTeam),
+    ({ pane }) => !pane.team || paneIsOnTeam(workspace, pane, currentTeam),
   );
   const spokenFor: { team: string; members: typeof available }[] = [];
   for (const entry of available) {
-    if (!entry.pane.team || paneIsOnTeam(entry.pane, currentTeam)) continue;
-    const team = entry.pane.team.name;
+    if (!entry.pane.team || paneIsOnTeam(workspace, entry.pane, currentTeam)) continue;
+    const team = teamNameOf(workspace, entry.pane);
+    if (team === undefined) continue;
     const group = spokenFor.find(
       (candidate) => teamNameKey(candidate.team) === teamNameKey(team),
     );

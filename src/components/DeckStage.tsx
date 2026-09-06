@@ -21,7 +21,7 @@ import {
   provisioningCard,
 } from "../domain/deck";
 import type { PaneFramePlace } from "../domain/status";
-import { teamNamesIn } from "../domain/mail";
+import { teamNamesIn, teamOf } from "../domain/mail";
 import { gitBadge } from "../ui/gitBadge";
 import { AgentPane, type UnavailableAgent } from "./agent/AgentPane";
 import { MinimizedTray, type MinimizedTrayEntry } from "./deck/MinimizedTray";
@@ -465,7 +465,7 @@ export function DeckStage({
               cwd={executionCwd}
               gitBadge={badge}
               yolo={pane.yolo}
-              team={pane.team ?? null}
+              team={teamOf(ws, pane)}
               showTeamName={teamsHere > 1}
               onOpenTeam={onOpenTeam}
               visible={layout.visible}

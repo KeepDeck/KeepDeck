@@ -5,7 +5,7 @@ import {
   type CommandRegistry,
   type CommandSource,
 } from "../../domain/commands";
-import type { Pane, Workspace } from "../../domain/deck";
+import { assignPaneTeam, type Pane, type Workspace } from "../../domain/deck";
 import { createWorkspaceInstance } from "../../domain/workspaceInstance";
 import type { PaneActivity } from "../../domain/status";
 import { registerMailCommands } from "./mailCommands";
@@ -57,13 +57,13 @@ function setup() {
     paneId: string,
     team: { name: string; role: string } | null,
   ) => {
-    const target = workspaces
-      .find((ws) => ws.id === workspaceId)
-      ?.panes.find((p) => p.id === paneId);
-    if (target) {
-      if (team) target.team = team;
-      else delete target.team;
-    }
+    // The deck's own transform, in place: the array keeps its identity so
+    // the `workspaces` closure below reads what was just written.
+    workspaces.splice(
+      0,
+      workspaces.length,
+      ...assignPaneTeam(workspaces, workspaceId, paneId, team),
+    );
   };
   const dispose = registerMailCommands(registry, {
     mail,
@@ -71,7 +71,7 @@ function setup() {
     agents: () => [{ id: "claude", label: "Claude" }],
     setPaneTeam,
   });
-  return { registry, mail, dispose, workspaces };
+  return { registry, mail, dispose, workspaces, setPaneTeam };
 }
 
 async function run(
@@ -223,9 +223,9 @@ describe("mail.inbox", () => {
     // address. Shown a pane title, an agent sent to the title and was
     // refused — it got through only on a second try after being told the
     // roles.
-    const { registry, workspaces, mail } = setup();
+    const { registry, mail, setPaneTeam } = setup();
     const lead = from("pane-1", "ws-1", "Team structure and the number of direct reports");
-    workspaces[0].panes[0].team = { name: "test", role: "lead" };
+    setPaneTeam("ws-1", "pane-1", { name: "test", role: "lead" });
     await run(
       registry,
       "mail.send",

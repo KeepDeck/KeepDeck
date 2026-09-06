@@ -367,8 +367,12 @@ describe("DeckStage — agent identity on the pane header", () => {
         {
           ...workspaces[0],
           panes: [
-            { id: "pane-1", agentType: "codex", team: { name: "api", role: "lead" } },
-            { id: "pane-2", agentType: "codex", team: { name: "web", role: "lead" } },
+            { id: "pane-1", agentType: "codex", team: { teamId: "team-1", role: "lead" } },
+            { id: "pane-2", agentType: "codex", team: { teamId: "team-2", role: "lead" } },
+          ],
+          teams: [
+            { id: "team-1", name: "api" },
+            { id: "team-2", name: "web" },
           ],
         },
       ],
@@ -386,9 +390,10 @@ describe("DeckStage — agent identity on the pane header", () => {
         {
           ...workspaces[0],
           panes: [
-            { id: "pane-1", agentType: "codex", team: { name: "api", role: "lead" } },
-            { id: "pane-2", agentType: "codex", team: { name: "api", role: "impl-1" } },
+            { id: "pane-1", agentType: "codex", team: { teamId: "team-1", role: "lead" } },
+            { id: "pane-2", agentType: "codex", team: { teamId: "team-1", role: "impl-1" } },
           ],
+          teams: [{ id: "team-1", name: "api" }],
         },
       ],
     });

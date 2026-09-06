@@ -39,10 +39,10 @@ import {
   setPaneAutoTitle,
   setPaneProvisioningError,
   setPaneSession,
-  setPaneTeam,
   suspendPane,
 } from "./panes";
 import { paneExecutionCwd } from "./roots";
+import { assignPaneTeam } from "./teams/transforms";
 import type { DeckAction } from "./reducerActions";
 import {
   hidePaneView,
@@ -396,7 +396,7 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
       // dispatch — this rung only applies the answer.
       return withWorkspaces(
         state,
-        setPaneTeam(state.workspaces, action.wsId, action.paneId, action.team),
+        assignPaneTeam(state.workspaces, action.wsId, action.paneId, action.team),
       );
     case "hydrate":
       // deck.json knows nothing of the journal — keep the live slice (its

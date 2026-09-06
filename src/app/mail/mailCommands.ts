@@ -18,7 +18,12 @@ import {
   type CommandRegistry,
   type CommandSource,
 } from "../../domain/commands";
-import { findWorkspaceOfPane, type Pane, type Workspace } from "../../domain/deck";
+import {
+  findWorkspaceOfPane,
+  teamNameOf,
+  type Pane,
+  type Workspace,
+} from "../../domain/deck";
 import {
   SENDABLE_KINDS,
   isMessageId,
@@ -385,11 +390,11 @@ export function registerMailCommands(
         const paneId = target.value.id;
         const name = str(args, "team");
         const role = str(args, "role");
-        const held = target.value.team;
+        const held = teamNameOf(workspace, target.value);
         // Which team's roster is being settled: the one named, or — when the
         // agent is being taken off — the one it is on. A pane on no team
         // that is asked to leave one has nothing to settle.
-        const team = name ?? held?.name;
+        const team = name ?? held;
         if (!team) {
           // A role with no team to hold it. Answering "done, team: null" here
           // told the caller its request had been carried out while nothing
