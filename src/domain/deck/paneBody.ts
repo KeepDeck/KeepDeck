@@ -1,4 +1,5 @@
 import { paneBlock, type Pane } from "./panes";
+import type { Workspace } from "./workspaces";
 
 /**
  * What a pane's BODY shows — one answer to "is this thing running", for every
@@ -45,11 +46,15 @@ export interface PaneBodyEnv {
   planFailed: boolean;
 }
 
-export function paneBody(pane: Pane, env: PaneBodyEnv): PaneBody {
+export function paneBody(
+  ws: Pick<Workspace, "teams">,
+  pane: Pane,
+  env: PaneBodyEnv,
+): PaneBody {
   // The shared head, asked once rather than restated: provisioning makes
   // everything else moot, an absent agent explains the pane whatever else is
   // true, and a marker means someone put it down.
-  const block = paneBlock(pane, env.agentAvailable);
+  const block = paneBlock(ws, pane, env.agentAvailable);
   if (block) return block.kind === "stopped" ? "stopped" : block.kind;
   // A plan outranks a past failure: a rebuild that succeeded is the newer
   // answer, and leaving the error tile up would offer a retry for something

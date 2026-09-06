@@ -18,7 +18,7 @@ import {
   type Workspace,
   type WorkspaceView,
   paneBody,
-  provisioningCard,
+  paneProvisioning,
 } from "../domain/deck";
 import type { PaneFramePlace } from "../domain/status";
 import { teamNamesIn, teamOf } from "../domain/mail";
@@ -441,7 +441,7 @@ export function DeckStage({
               : null;
           // One question, one answer — the conjunction used to be spelled
           // out here and again inside the pane.
-          const body = paneBody(pane, {
+          const body = paneBody(ws, pane, {
             agentAvailable: !unavailableAgent,
             hasPlan: !!spec,
             planFailed: failedPanes.has(pane.id),
@@ -483,7 +483,7 @@ export function DeckStage({
               onDismissOccupied={() => onDismissOccupied(pane.id)}
               startup={startupPanes[pane.id] ?? null}
               onForkStalled={() => onForkStalled(ws.id, pane.id)}
-              provisioning={provisioningCard(pane)}
+              provisioning={paneProvisioning(ws, pane)}
               unavailableAgent={unavailableAgent}
               colSpan={layout.colSpan}
               onSelect={() => onSelectPane(ws.id, pane.id)}

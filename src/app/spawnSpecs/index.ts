@@ -150,7 +150,7 @@ export async function buildLivePaneSpec(
   ctx: SpawnPlanContext,
   asks: Pick<PaneSpawnFacts, "stagedSkills" | "mcpAccess">,
 ): Promise<boolean> {
-  if (!paneHasProcess(pane)) return false;
+  if (!paneHasProcess(ws, pane)) return false;
   if (hasPaneSpawnSpec(pane.id) || isPaneSpawnSpecPending(pane.id) || peekPanePlanError(pane.id)) {
     return false;
   }

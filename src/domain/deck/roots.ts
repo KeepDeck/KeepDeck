@@ -8,7 +8,11 @@
  * one with workspace membership and pane state transitions, which change for
  * entirely different reasons.
  */
-import { locationOf, type Pane } from "./panes";
+// Leaves only, never the panes barrel: the lifecycle predicates read
+// `panePlacement` from here, and a barrel that re-exports them would close
+// the loop.
+import { locationOf } from "./panes/location";
+import type { Pane, PaneLocation, PaneProvisioning } from "./panes/model";
 import { teamOfPane } from "./teams/collection";
 import type { Workspace } from "./workspaces";
 
@@ -17,23 +21,31 @@ import type { Workspace } from "./workspaces";
 export type DirectoryOwner = Pick<Workspace, "cwd" | "teams">;
 
 /**
+ * Where a pane runs — ONE reading of its placement.
+ *
+ * A pane on a team runs where its TEAM runs: the team's directory, or a
+ * create still in flight. A pane on a team that has no directory of its own
+ * yet — the transition's roster-only team — and a pane on no team answer for
+ * their own placement, exactly as before; stage C3 retires that half when the
+ * pane stops carrying one. Every question about where a pane runs — its
+ * directory, its branch, whether it has a process yet, whether it can be
+ * suspended — reads this, so no two of them can disagree about whose
+ * placement counts.
+ */
+export function panePlacement(ws: Pick<DirectoryOwner, "teams">, pane: Pane): PaneLocation {
+  const team = teamOfPane(ws, pane);
+  return team?.location ?? locationOf(pane);
+}
+
+/**
  * The directory a pane would run in right now — ONE formula.
  *
- * A pane on a team runs where its TEAM runs: the team's directory, or
- * nowhere yet while the team's create is in flight (falling back to the
- * workspace cwd would describe the wrong process location). A pane on a
- * team that has no directory of its own yet — the transition's roster-only
- * team — and a pane on no team answer for their own placement, exactly as
- * before; stage C3 retires that half when the pane stops carrying one. A
- * remote pane answers the workspace cwd — that is where its local thin
- * client runs.
+ * Nowhere yet while its create is in flight: falling back to the workspace
+ * cwd would describe the wrong process location. A remote pane answers the
+ * workspace cwd — that is where its local thin client runs.
  */
 export function paneExecutionCwd(ws: DirectoryOwner, pane: Pane): string | null {
-  const team = teamOfPane(ws, pane);
-  if (team?.location) {
-    return team.location.kind === "attached" ? team.location.cwd : null;
-  }
-  const location = locationOf(pane);
+  const location = panePlacement(ws, pane);
   switch (location.kind) {
     case "provisioning":
       return null;
@@ -45,18 +57,12 @@ export function paneExecutionCwd(ws: DirectoryOwner, pane: Pane): string | null 
   }
 }
 
-/** The branch a pane's work is on: its team's, when the team owns a
- * directory — or nothing while that directory is still being created —
- * else whatever the pane's own placement records, whether it owns a
- * worktree for it or noted it from the workspace root. Read beside
- * [`paneExecutionCwd`] so the two never disagree about whose placement
- * counts. */
+/** The branch a pane's work is on — its placement's, whether the team owns
+ * a worktree for it or the placement noted it from the workspace root — or
+ * nothing while the directory is still being created or the agent runs
+ * elsewhere. */
 export function paneBranch(ws: DirectoryOwner, pane: Pane): string | undefined {
-  const team = teamOfPane(ws, pane);
-  if (team?.location) {
-    return team.location.kind === "attached" ? team.location.branch : undefined;
-  }
-  const location = locationOf(pane);
+  const location = panePlacement(ws, pane);
   switch (location.kind) {
     case "main":
     case "attached":
@@ -65,6 +71,17 @@ export function paneBranch(ws: DirectoryOwner, pane: Pane): string | undefined {
     case "remote":
       return undefined;
   }
+}
+
+/** The card a pane wears while its directory is being created — its team's
+ * card, or its own while a pane still carries a placement — or null when
+ * there is no create in flight. What a surface that draws the card asks. */
+export function paneProvisioning(
+  ws: Pick<DirectoryOwner, "teams">,
+  pane: Pane,
+): PaneProvisioning | null {
+  const location = panePlacement(ws, pane);
+  return location.kind === "provisioning" ? location : null;
 }
 
 /** How many live panes run in `cwd`, across every workspace.

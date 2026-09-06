@@ -137,7 +137,7 @@ export function createUsageLimitsLane({
       workspaces.some((workspace) =>
         workspace.panes.some(
           (pane) =>
-            paneAgentType(pane) === agentId && paneHasProcess(pane),
+            paneAgentType(pane) === agentId && paneHasProcess(workspace, pane),
         ),
       ),
     );

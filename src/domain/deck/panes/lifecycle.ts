@@ -9,6 +9,12 @@
  */
 import type { AgentType, ResumeOrigin } from "../../agents";
 import { locationOf } from "./location";
+import { panePlacement } from "../roots";
+import type { Workspace } from "../workspaces";
+
+/** The half of the workspace a placement question reads: its teams, whose
+ * directory a member pane runs in. Sparse on the model, so `{}` fits. */
+type PlacementOwner = Pick<Workspace, "teams">;
 import type { Pane, PaneIdle } from "./model";
 
 /** The agent a pane runs — panes minted before the field existed ran claude,
@@ -29,8 +35,8 @@ export function paneAgentType(pane: Pane): AgentType {
  *  the `provisioning` half, so it fired real provider requests for panes the
  *  top bar was deliberately withholding a chip from. One predicate, so the
  *  next reason a pane has no process reaches all five at once. */
-export function paneHasProcess(pane: Pane): boolean {
-  return !pane.idle && locationOf(pane).kind !== "provisioning";
+export function paneHasProcess(ws: PlacementOwner, pane: Pane): boolean {
+  return !pane.idle && panePlacement(ws, pane).kind !== "provisioning";
 }
 
 /** Whether this pane can be suspended right now — the boolean form of
@@ -46,8 +52,8 @@ export function paneHasProcess(pane: Pane): boolean {
  *  parking a dead agent is meaningful (its card becomes the honest "stopped"
  *  one, and resuming rebuilds its resume plan), and the exit is runtime state
  *  this durable model deliberately doesn't carry. */
-export function paneCanSuspend(pane: Pane, blocked: boolean): boolean {
-  return paneSuspendBlock(pane, blocked) === null;
+export function paneCanSuspend(ws: PlacementOwner, pane: Pane, blocked: boolean): boolean {
+  return paneSuspendBlock(ws, pane, blocked) === null;
 }
 
 /** WHY a pane can't be suspended, or null when it can. A reason rather than a
@@ -70,6 +76,7 @@ export type PaneSuspendBlock = "stopped" | "provisioning" | "remote";
  *  pane whose folder is gone. A caller with no sweep verdict to hand (the
  *  domain's own reducer guard) passes `false` and says so. */
 export function paneSuspendBlock(
+  ws: PlacementOwner,
   pane: Pane,
   blocked: boolean,
 ): PaneSuspendBlock | null {
@@ -78,7 +85,7 @@ export function paneSuspendBlock(
   // waiting on a slow probe would otherwise be unparkable for as long as the
   // probe takes.
   if (idleReadsAsStopped(pane.idle, blocked)) return "stopped";
-  switch (locationOf(pane).kind) {
+  switch (panePlacement(ws, pane).kind) {
     case "provisioning":
       return "provisioning";
     case "remote":
@@ -109,8 +116,12 @@ export type PaneBlock =
   | { kind: "agent-unavailable"; agent: AgentType }
   | { kind: "stopped"; by: PaneIdle };
 
-export function paneBlock(pane: Pane, agentAvailable: boolean): PaneBlock | null {
-  if (locationOf(pane).kind === "provisioning") return { kind: "provisioning" };
+export function paneBlock(
+  ws: PlacementOwner,
+  pane: Pane,
+  agentAvailable: boolean,
+): PaneBlock | null {
+  if (panePlacement(ws, pane).kind === "provisioning") return { kind: "provisioning" };
   if (!agentAvailable) {
     return { kind: "agent-unavailable", agent: paneAgentType(pane) };
   }

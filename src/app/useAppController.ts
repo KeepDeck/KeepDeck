@@ -99,7 +99,7 @@ export function useAppController() {
     const ids = new Set<string>();
     for (const ws of deck.workspaces) {
       for (const pane of ws.panes) {
-        if (!paneHasProcess(pane)) continue;
+        if (!paneHasProcess(ws, pane)) continue;
         ids.add(paneAgentType(pane));
       }
     }

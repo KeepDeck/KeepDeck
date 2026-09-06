@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createWorkspaceInstance } from "../workspaceInstance";
-import type { Pane } from "./panes";
-import { paneBranch, paneExecutionCwd, skillRootsOf } from "./roots";
+import { paneBlock, paneHasProcess, paneSuspendBlock, type Pane } from "./panes";
+import { paneBranch, paneExecutionCwd, paneProvisioning, skillRootsOf } from "./roots";
 import type { Team } from "./teams";
 import { firstFreeWorktree, pathOccupancy, type Workspace } from "./workspaces";
 
@@ -91,5 +91,24 @@ describe("occupancy is the team's", () => {
       path: "/wt/free-2",
       branch: "kd/2",
     });
+  });
+});
+
+describe("every placement question reads the team first", () => {
+  it("a member of a team whose create is in flight has no process, cannot be suspended, and wears the card", () => {
+    // The pane's own record says nothing about a create; its team's does.
+    // Every surface that asks "is this pane still being created" must get
+    // the same answer from the same reading.
+    const workspace = ws({ teams: [creating] });
+    const pane = member("team-2");
+    expect(paneProvisioning(workspace, pane)).toEqual(creating.location);
+    expect(paneHasProcess(workspace, pane)).toBe(false);
+    expect(paneSuspendBlock(workspace, pane, false)).toBe("provisioning");
+    expect(paneBlock(workspace, pane, true)).toEqual({ kind: "provisioning" });
+    // The same pane on a team that owns its directory is an ordinary pane.
+    const landed = ws({ teams: [owner] });
+    expect(paneProvisioning(landed, member("team-1"))).toBeNull();
+    expect(paneHasProcess(landed, member("team-1"))).toBe(true);
+    expect(paneSuspendBlock(landed, member("team-1"), false)).toBeNull();
   });
 });

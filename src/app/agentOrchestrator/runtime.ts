@@ -11,6 +11,7 @@ import {
   type Workspace,
   locationOf,
   paneBranch,
+  paneProvisioning,
 } from "../../domain/deck";
 import { describeError, log } from "../../ipc/log";
 import { createDeckActions, type DeckActions } from "../deckActions";
@@ -376,7 +377,7 @@ export function createAgentOrchestratorRuntime(
         // drops, and replaces with a fresh conversation. The restart schedules
         // another pass when it is done.
         if (restart.owns(pane.id)) continue;
-        const intent = paneRunIntent(pane, {
+        const intent = paneRunIntent(ws, pane, {
           agentAvailable: commands.has(agentType),
           missingDir: runView.blockedDir(pane.id),
           workspaceActive: ws.id === active.id,
@@ -516,9 +517,10 @@ export function createAgentOrchestratorRuntime(
       actions.requestPaneWake(wsId, paneId);
     },
     resume(wsId, paneId) {
-      const pane = findPane(deck.getSnapshot().workspaces, wsId, paneId);
-      if (!pane) return "gone";
-      if (locationOf(pane).kind === "provisioning") return "provisioning";
+      const workspace = findWorkspace(deck.getSnapshot().workspaces, wsId);
+      const pane = workspace?.panes.find((candidate) => candidate.id === paneId);
+      if (!workspace || !pane) return "gone";
+      if (paneProvisioning(workspace, pane)) return "provisioning";
       if (!pane.idle) return "running";
       if (!agents.commands().has(paneAgentType(pane))) return "unavailable";
       if (runView.clearNotes(paneId)) publish();

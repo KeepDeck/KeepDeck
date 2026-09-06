@@ -1,7 +1,7 @@
 import {
   hydrateDeck,
-  locationOf,
   paneIdleIsDurable,
+  paneProvisioning,
   serializeDeck,
 } from "../domain/deck";
 import { emptyJournal } from "../domain/journal";
@@ -91,7 +91,7 @@ export function createDeckPersistence(
             .map(
               (pane) =>
                 `${pane.id}=${pane.session?.id ?? ""}${
-                  locationOf(pane).kind === "provisioning" ? "+wip" : ""
+                  paneProvisioning(workspace, pane) ? "+wip" : ""
                 }${paneIdleIsDurable(pane.idle) ? "+susp" : ""}`,
             )
             .join(",")}`,

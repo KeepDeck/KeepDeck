@@ -11,7 +11,8 @@ import {
   type GitPosition,
   type Pane,
   type WorktreeTarget,
-  locationOf,
+  paneProvisioning,
+  type Workspace,
 } from "../domain/deck";
 import { probeWorktree } from "../ipc/worktree";
 import { suspendRefusalText, type SuspendOutcome } from "./suspendOutcome";
@@ -100,12 +101,17 @@ export interface ClosingPaneFacts {
 }
 
 /** Read the pane's facts as one set, so no caller can take half of them. */
-function paneFactsOf(pane: Pane | undefined, blocked: boolean): ClosingPaneFacts {
+function paneFactsOf(
+  ws: Workspace | undefined,
+  pane: Pane | undefined,
+  blocked: boolean,
+): ClosingPaneFacts {
+  const placed = ws && pane;
   return {
-    provisioning: !!pane && locationOf(pane).kind === "provisioning",
+    provisioning: !!placed && paneProvisioning(ws, pane) !== null,
     rising: !!pane && paneWakesAutomatically(pane),
     stopped: !!pane && idleReadsAsStopped(pane.idle, blocked),
-    canSuspend: !!pane && paneSuspendBlock(pane, blocked) === null,
+    canSuspend: !!placed && paneSuspendBlock(ws, pane, blocked) === null,
   };
 }
 
@@ -326,17 +332,18 @@ export function useCloseFlow(
    * card. Counting those made the checkbox promise to delete worktrees that do
    * not exist.
    */
-  const pendingCreates = (panes: readonly Pane[]): string[] =>
+  const pendingCreates = (ws: Workspace, panes: readonly Pane[]): string[] =>
     panes
       .filter((pane) => {
-        const location = locationOf(pane);
-        return location.kind === "provisioning" && !location.error;
+        const card = paneProvisioning(ws, pane);
+        return card !== null && !card.error;
       })
       .map((pane) => pane.id);
 
   const requestCloseAgent = (wsId: string, paneId: string, label: string) => {
     const ws = findWorkspace(deck.workspaces, wsId);
     const pendingPanes = pendingCreates(
+      ws ?? { panes: [] } as unknown as Workspace,
       ws?.panes.filter((pane) => pane.id === paneId) ?? [],
     );
     // The registry ask fires in flight and its answer PAINTS the carrier
@@ -353,6 +360,7 @@ export function useCloseFlow(
         paneId,
         label,
         pane: paneFactsOf(
+          findWorkspace(deckRef.current.workspaces, wsId),
           findPane(deckRef.current.workspaces, wsId, paneId),
           paneId in blockedRef.current,
         ),
@@ -372,7 +380,7 @@ export function useCloseFlow(
   const requestCloseWorkspace = (id: string) => {
     const ws = findWorkspace(deck.workspaces, id);
     if (!ws) return;
-    const pendingPanes = pendingCreates(ws.panes);
+    const pendingPanes = pendingCreates(ws, ws.panes);
     // One carrier ask per DISTINCT agent over the workspace's BOUND panes
     // (a stopped pane's conversation can be carried too — the same rule as
     // the agent branch), folded by `askCarriers` per the asymmetry rule:
@@ -466,7 +474,7 @@ export function useCloseFlow(
     // "does it read as stopped" instead counted every rising pane as holding
     // a session it has not opened yet, which is what a just-launched
     // workspace is entirely made of.
-    return (ws?.panes ?? []).filter(paneHasProcess).length;
+    return ws ? ws.panes.filter((pane) => paneHasProcess(ws, pane)).length : 0;
   };
 
   const closeMessage = closeMessageFor(

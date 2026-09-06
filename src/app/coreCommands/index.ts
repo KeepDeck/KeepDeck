@@ -18,9 +18,9 @@ import {
   WORKSPACE_GONE_MESSAGE,
   type Pane,
   type Workspace,
-  locationOf,
   paneBranch,
   paneExecutionCwd,
+  paneProvisioning,
 } from "../../domain/deck";
 import { log } from "../../ipc/log";
 import { inspectRepo } from "../../ipc/worktree";
@@ -101,11 +101,12 @@ const DIALOG_BUSY_MESSAGE =
 /** The workspace a command acts on: the named one, else the active one. */
 /** The worktree a freshly recruited pane is heading for, as the recruit
  * answer reports it — or null once (or when) there is no create in flight. */
-function worktreeAhead(pane: Pane): { path: string; branch: string | null } | null {
-  const location = locationOf(pane);
-  return location.kind === "provisioning"
-    ? { path: location.intent.path, branch: location.intent.branch ?? null }
-    : null;
+function worktreeAhead(
+  ws: Workspace,
+  pane: Pane,
+): { path: string; branch: string | null } | null {
+  const card = paneProvisioning(ws, pane);
+  return card ? { path: card.intent.path, branch: card.intent.branch ?? null } : null;
 }
 
 function targetWorkspace(deck: Deck, ref: string | undefined): Workspace {
@@ -360,7 +361,7 @@ export function registerCoreCommands(
           paneId: id,
           workspaceId: workspace.id,
           agentType,
-          worktree: worktreeAhead(pane),
+          worktree: worktreeAhead(ws, pane),
           task: task ? "scheduled" : "none",
         };
       },

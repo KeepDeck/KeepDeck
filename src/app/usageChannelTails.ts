@@ -53,7 +53,7 @@ export function createUsageTailsLane({
     for (const workspace of deck.getSnapshot().workspaces) {
       for (const pane of workspace.panes) {
         if (
-          paneHasProcess(pane) &&
+          paneHasProcess(workspace, pane) &&
           usage.get(paneAgentType(pane))?.tail
         ) {
           desired.add(pane.id);
@@ -68,7 +68,7 @@ export function createUsageTailsLane({
     const usage = declarations.current();
     for (const workspace of deck.getSnapshot().workspaces) {
       for (const pane of workspace.panes) {
-        if (!paneHasProcess(pane)) continue;
+        if (!paneHasProcess(workspace, pane)) continue;
         const sessionId = pane.session?.id;
         if (!sessionId || tailed.has(pane.id) || searching.has(pane.id)) {
           continue;

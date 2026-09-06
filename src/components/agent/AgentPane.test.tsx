@@ -109,6 +109,7 @@ function PaneUnderTest(
       body:
         props.body ??
         paneBody(
+          {},
           {
             id: props.paneId,
             ...(props.provisioning ? { location: props.provisioning } : {}),

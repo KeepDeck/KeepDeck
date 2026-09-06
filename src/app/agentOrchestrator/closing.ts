@@ -1,5 +1,4 @@
 import {
-  findPane,
   findWorkspace,
   paneSuspendBlock,
   worktreeTargets,
@@ -62,9 +61,10 @@ export function createAgentOrchestratorClosing({
 
   const suspend: AgentOrchestrator["suspend"] = async (wsId, paneId) => {
     if (suspending.has(paneId)) return "in-flight";
-    const pane = findPane(deck.getSnapshot().workspaces, wsId, paneId);
-    if (!pane) return "gone";
-    const refusal = paneSuspendBlock(pane, isBlocked(paneId));
+    const workspace = findWorkspace(deck.getSnapshot().workspaces, wsId);
+    const pane = workspace?.panes.find((candidate) => candidate.id === paneId);
+    if (!workspace || !pane) return "gone";
+    const refusal = paneSuspendBlock(workspace, pane, isBlocked(paneId));
     if (refusal) return refusal;
     suspending.add(paneId);
     try {

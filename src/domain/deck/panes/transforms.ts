@@ -233,8 +233,9 @@ export function suspendPane(
   paneId: string,
   at: string,
 ): Workspace[] {
+  const ws = workspaces.find((candidate) => candidate.id === workspaceId);
   const pane = findPane(workspaces, workspaceId, paneId);
-  if (!pane || !paneCanSuspend(pane, false)) return workspaces;
+  if (!ws || !pane || !paneCanSuspend(ws, pane, false)) return workspaces;
   return mapWorkspace(workspaces, workspaceId, (panes) =>
     panes.map((p) =>
       p.id === paneId ? { ...p, idle: { reason: "suspended", at } } : p,
