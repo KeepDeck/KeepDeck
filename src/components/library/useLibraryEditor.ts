@@ -233,13 +233,19 @@ export function useLibraryEditor<
    * Run an async step of the current user action and say whether its outcome
    * is still THEIRS to see: an outcome that arrives after the user moved on
    * belongs to the item it happened to, not to whatever is on screen now.
+   *
+   * Judged against `since` — the epoch when the ACTION began, not when this
+   * step did. A submit is two steps (rename, then save): measured per step,
+   * a save that started after the user had already moved on during the
+   * rename counted as theirs, re-anchored the editor to the renamed item and
+   * yanked them back.
    */
   const stillOurs = async (
     step: () => Promise<boolean>,
+    since: number,
   ): Promise<{ ok: boolean; stale: boolean }> => {
-    const nav = navEpoch.current;
     const ok = await step();
-    const stale = navEpoch.current !== nav;
+    const stale = navEpoch.current !== since;
     // Only the REPORT is stale — the write itself ran, and the two facts have
     // to stay separate: collapsing them made a stale RENAME abort the submit.
     if (stale && !ok) clearError();
@@ -317,12 +323,13 @@ export function useLibraryEditor<
     verdicts: Verdicts,
   ) => {
     const scope = selection.scope;
+    const since = navEpoch.current;
     // An edited name moves the item first, then the ordinary save lands the
     // content under the new name. NOT when the item vanished: there is
     // nothing on disk to move, and failing here would shut the retitle hatch
     // one step further along than the gate did.
     if (selection.mode === "edit" && !verdicts.vanished && captured.name !== selection.name) {
-      const renamed = await stillOurs(() => rename(scope, selection.name, captured.name));
+      const renamed = await stillOurs(() => rename(scope, selection.name, captured.name), since);
       if (!renamed.ok) return;
       // The save below runs whether or not the user moved on: the item is
       // already renamed, and a rename deliberately does not re-read.
@@ -338,7 +345,7 @@ export function useLibraryEditor<
     // `vanished` means the item is not on disk any more, so what lands is a
     // create: the retitle hatch.
     const mode = selection.mode === "create" || verdicts.vanished ? "create" : "update";
-    const saved = await stillOurs(() => save(scope, draftOf(captured), mode));
+    const saved = await stillOurs(() => save(scope, draftOf(captured), mode), since);
     if (saved.stale) return;
     if (saved.ok) {
       setSelection({ mode: "edit", scope, name: captured.name });
@@ -360,7 +367,7 @@ export function useLibraryEditor<
     if (!deletingLatch.acquire()) return;
     setBusy(true);
     setDeletingNow(true);
-    void stillOurs(() => remove(target.scope, target.name))
+    void stillOurs(() => remove(target.scope, target.name), navEpoch.current)
       .then(({ ok, stale }) => {
         if (ok && !stale) apply(null);
       })
