@@ -121,7 +121,14 @@ export function createAppRuntime(
   const deckStore = createDeckStore();
   const paneInputFocus = createPaneInputFocusController();
   const paneViewActions = createPaneViewActions(deckStore, paneInputFocus);
-  const deckPersistence = createDeckPersistence(deckStore);
+  // What the migration ladder did to the deck file is said once, here, on
+  // the launch that did it — a team dissolved is not something to find out
+  // from an empty badge.
+  const deckPersistence = createDeckPersistence(deckStore, (notices) => {
+    for (const body of notices) {
+      notify({ title: "Deck migrated", body, source: { type: "app" } });
+    }
+  });
   const deckActions = createDeckActions(deckStore);
   /** How a pane reads, for anything that has to name one. Read per call — a
    * plugin can be installed or removed while the deck is up. */
