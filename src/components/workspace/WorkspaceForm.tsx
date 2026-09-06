@@ -28,7 +28,7 @@ interface WorkspaceFormProps {
  * the form also had to ask which agent type to run, whether to run it in YOLO
  * mode, and — because those agents were about to start — whether the user
  * really meant to run them all in one working tree. Nothing spawns at create
- * time now, so all three questions moved to the "+ Agent" dialog that actually
+ * time now, so all three questions moved to the agent dialog that actually
  * starts an agent and shows it the directory it will run in. What is left is
  * only what the workspace itself is made of — none of it per-agent.
  */

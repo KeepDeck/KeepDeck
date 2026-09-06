@@ -5,7 +5,7 @@ import {
   idleReadsAsStopped,
   type PaneBody,
   type PaneIdle,
-  type PaneProvisioning,
+  type TeamProvisioning,
 } from "../../domain/deck";
 import {
   activityBadge,
@@ -54,14 +54,11 @@ export interface AgentPaneProps {
    * in, like every other badge here. Teams are formed through the deck's
    * commands (a lead assigns its members), so this is how the person
    * watching learns what the agents arranged among themselves. */
-  team?: { name: string; role: string } | null;
+  team?: { id: string; name: string; role: string } | null;
   /** Whether the team badge must name the team too — true where the deck
    * runs more than one. Settled by the deck, which is the only level that
    * can see the other teams. */
   showTeamName?: boolean;
-  /** Open the team this pane is on — the way in to an existing team, since
-   * the bar's button always starts a new one. */
-  onOpenTeam?(name: string): void;
   /** Whether this pane is currently on screen. */
   visible: boolean;
   /** Whether this pane is maximized to fill the grid. */
@@ -104,7 +101,7 @@ export interface AgentPaneProps {
   onResume?(): void;
   /** The pane's worktree create in flight or failed — render a status card
    * instead of a terminal until it resolves (optimistic provisioning). */
-  provisioning?: PaneProvisioning | null;
+  provisioning?: TeamProvisioning | null;
   /** The pane's agent can't run — render an explanatory card instead of a
    * terminal; mounting one would spawn the bare id as a command. The union
    * names WHY, because the recovery gestures differ: `no-plugin` means the
@@ -185,7 +182,6 @@ export function AgentPane({
   yolo,
   team,
   showTeamName,
-  onOpenTeam,
   visible,
   focused,
   hidden,
@@ -296,7 +292,6 @@ export function AgentPane({
         yolo={yolo}
         team={team}
         showTeamName={showTeamName}
-        onOpenTeam={onOpenTeam}
         gitBadge={gitBadge}
         onRename={onRename}
         onMinimize={onMinimize}

@@ -48,7 +48,8 @@ export const skills = skillsIpc;
 export const mcpArming = mcpArmingIpc;
 
 import type { WorkspaceRef } from "@keepdeck/plugin-api";
-import type { Pane, Workspace } from "../../domain/deck";
+import type { Workspace } from "../../domain/deck";
+import type { ProvisionRequest } from "./index";
 import {
   createMcpPlanting,
   createSkillsStaging,
@@ -65,25 +66,17 @@ import {
 
 export type { WorktreeManager };
 
-/** `count` panes waiting on their worktrees — the shape `provision` is handed,
- * as production builds it: each intent carries the exact path its create will
- * land at.
+/** `count` teams waiting on their worktrees — the shape `provision` is
+ * handed, as production builds it: one request per owner (a TEAM,
+ * `team-N`), each intent carrying the exact path its create will land at.
  *
  * More than one because the runner still fans out over whatever it is given,
  * and only a set makes that fan-out — and the base commit pinned across it —
  * observable. */
-export const provisioningCards = (count: number): Pane[] =>
+export const provisionRequests = (count: number): ProvisionRequest[] =>
   Array.from({ length: count }, (_, i) => ({
-    id: `pane-${i + 1}`,
-    agentType: "claude" as const,
-    location: {
-      kind: "provisioning" as const,
-      intent: {
-        repo: "/repo",
-        path: `/wt/pane-${i + 1}`,
-        index: i + 1,
-      },
-    },
+    ownerId: `team-${i + 1}`,
+    intent: { repo: "/repo", path: `/wt/team-${i + 1}`, index: i + 1 },
   }));
 
 /** The deck the manager reads, as a test double: what `live()` returns IS the
@@ -128,10 +121,16 @@ function deckView(read: () => DeckEntry[]): WorktreeDeckView {
       cwd: "/repo",
       worktreeBaseDir: null,
       // The entries carry ROOTS, which is what `skillRootsOf` derives from
-      // panes — so one non-provisioning pane per root reproduces them exactly.
-      panes: ws.roots.map((root, i) => ({
+      // panes through their teams — so one team per root, with one member
+      // each, reproduces them exactly.
+      panes: ws.roots.map((_root, i) => ({
         id: `${ws.id}-p${i}`,
         agentType: "claude",
+        team: { teamId: `${ws.id}-t${i}`, role: "lead" },
+      })),
+      teams: ws.roots.map((root, i) => ({
+        id: `${ws.id}-t${i}`,
+        name: `t${i}`,
         location: { kind: "attached" as const, cwd: root },
       })),
     })),

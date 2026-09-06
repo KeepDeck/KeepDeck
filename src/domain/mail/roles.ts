@@ -275,6 +275,16 @@ export function defaultRoleFor(taken: Iterable<string>): TeamRole {
  * do bookkeeping the deck can see and they cannot. Null when a singleton role
  * is already held — the caller says so rather than minting a second `lead`.
  */
+/** The address a newcomer gets when nobody has picked one: the default
+ * role for the roster as it stands, minted to the first free address — the
+ * lead when the team has none, else the next `impl-N`, or a peer among
+ * peers. WHICH role that is, and the numbering, both belong to the catalog;
+ * this only says what the roster already holds. */
+export function suggestRoleAddress(taken: readonly string[]): string {
+  const role = defaultRoleFor(taken);
+  return mintRoleAddress(role, taken) ?? role.id;
+}
+
 export function mintRoleAddress(
   role: TeamRole,
   taken: Iterable<string>,

@@ -864,9 +864,11 @@ describe("SessionsBrowser journal section", () => {
     );
   });
 
-  it("empty journal and no hits shows the + Agent hint; hits without a journal need no divider", async () => {
+  it("empty journal and no hits names the live door (“Add member”); hits without a journal need no divider", async () => {
     await mount(api([], { scanning: false }), []);
-    expect(document.body.textContent).toContain("+ Agent");
+    // The door that exists: "+ Agent" went with the solo pane, and a hint
+    // naming it would send the person looking for a button that is not there.
+    expect(document.body.textContent).toContain("“Add member”");
     expect(document.querySelector(".browser__section")).toBeNull();
 
     await act(async () => root.unmount());

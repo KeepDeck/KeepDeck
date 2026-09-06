@@ -19,6 +19,11 @@ export interface SessionRecordBase {
   cwd: string;
   /** The pane's owned worktree branch, when it ran in one. */
   branch?: string;
+  /** The NAME of the team the pane was on when the session was bound — for
+   * the row to show, and nothing else: a resume goes by `cwd`, never by
+   * this, since a team can be renamed, dissolved, or spelled the same in
+   * two workspaces. Absent for a pane on no team. */
+  team?: string;
   /** The pane ran with permission prompts disabled — a resume must too. */
   yolo?: boolean;
   /** Human name for the row: the pane's display title, frozen when the

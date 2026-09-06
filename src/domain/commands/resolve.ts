@@ -1,5 +1,5 @@
-import type { Pane, Workspace } from "../deck";
-import { paneDisplayTitle } from "../deck";
+import type { Pane, Team, Workspace } from "../deck";
+import { findTeam, findTeamByName, paneDisplayTitle } from "../deck";
 
 /** Command-layer resolution outcome: a value or a human-readable refusal.
  * Refusals become `failed` command errors verbatim, so they are written for
@@ -29,6 +29,19 @@ export function resolveWorkspaceRef(
         ? `no workspace "${ref}"`
         : `workspace name "${ref}" is ambiguous`,
   };
+}
+
+/**
+ * Resolve a team inside `ws` — an exact team id first, else its name by the
+ * key every name question uses (trimmed, case-insensitive). A name is an
+ * address people type; ids serve programmatic callers reading
+ * `workspace.list`. Pure.
+ */
+export function resolveTeamRef(ws: Workspace, ref: string): Resolved<Team> {
+  const team = findTeam(ws, ref) ?? findTeamByName(ws, ref);
+  return team
+    ? { ok: true, value: team }
+    : { ok: false, message: `no team "${ref}" in workspace "${ws.name}"` };
 }
 
 /**

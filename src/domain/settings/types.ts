@@ -94,8 +94,8 @@ export interface Settings {
   };
   /** How the usage chips present window percentages ("42%" vs "58% left"). */
   usageDisplay: UsageDisplay;
-  /** Remote agents experiment ([F6] → Experimental): when off, the "+ Agent"
-   *  dialog never offers "Where: Remote", even for agents that declare a
+  /** Remote agents experiment ([F6] → Experimental): when off, the "Add
+   *  member" dialog never offers "Where: Remote", even for agents that declare a
    *  native-server target — the whole remote-launch/connect surface stays
    *  hidden. Default off; opt-in only while the feature is experimental. */
   remoteAgents: boolean;

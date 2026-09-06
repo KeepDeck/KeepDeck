@@ -7,6 +7,7 @@ import {
   type PaneStopped,
 } from "./panes";
 import type { AgentType } from "../agents";
+import type { Workspace } from "./workspaces";
 
 /**
  * Whether a pane MAY have a process behind it right now, and when it may not,
@@ -105,11 +106,15 @@ export interface PaneRunEnv {
   startOwed: boolean;
 }
 
-export function paneRunIntent(pane: Pane, env: PaneRunEnv): PaneRunIntent {
+export function paneRunIntent(
+  ws: Pick<Workspace, "teams">,
+  pane: Pane,
+  env: PaneRunEnv,
+): PaneRunIntent {
   // The shared head — see [`paneBlock`]. Ordered by what makes the others
   // moot, and asked in one place because the card ladder needs the same three
   // answers in the same order.
-  const block = paneBlock(pane, env.agentAvailable);
+  const block = paneBlock(ws, pane, env.agentAvailable);
   // A `stopped` block is NOT a refusal on its own: a pane on its way up
   // carries a marker too, and the rest of this decision is about that case.
   if (block && block.kind !== "stopped") return hold(block);

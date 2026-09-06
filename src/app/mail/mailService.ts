@@ -24,8 +24,7 @@
  */
 import type { AgentStatus } from "@keepdeck/plugin-api";
 import type { CommandRegistry } from "../../domain/commands";
-import type { Workspace } from "../../domain/deck";
-import { teamMembers } from "../../domain/mail";
+import { membersOf, teamOfPane, type Workspace } from "../../domain/deck";
 import type { PaneActivity } from "../../domain/status";
 import { correlationOf, createHookReplies, type HookReplies } from "./hookReply";
 import { registerMailCommands, type MailCommandDeps } from "./mailCommands";
@@ -45,7 +44,7 @@ export interface MailServiceDeps {
   deck: {
     workspaces(): readonly Workspace[];
     subscribe(listener: () => void): () => void;
-    setPaneTeam: MailCommandDeps["setPaneTeam"];
+    settleRoster: MailCommandDeps["settleRoster"];
     /** Which CLI a pane runs, or null when the deck no longer holds it. */
     agentTypeOf(paneId: string): string | null;
   };
@@ -202,12 +201,12 @@ export function createMailService(deps: MailServiceDeps): MailService {
           const pane = workspace.panes.find(
             (candidate) => candidate.id === paneId,
           );
-          if (!pane?.team) continue;
-          const name = pane.team.name;
+          const team = pane ? teamOfPane(workspace, pane) : undefined;
+          if (!pane?.team || !team) continue;
           return {
-            team: name,
+            team: team.name,
             role: pane.team.role,
-            everyRole: teamMembers(workspace, name)
+            everyRole: membersOf(workspace, team.id)
               .map((member) => member.team?.role)
               .filter((role): role is string => Boolean(role)),
           };
@@ -249,7 +248,7 @@ export function createMailService(deps: MailServiceDeps): MailService {
   const unregister = registerMailCommands(deps.registry, {
     workspaces: deps.deck.workspaces,
     agents: deps.agents.labels,
-    setPaneTeam: deps.deck.setPaneTeam,
+    settleRoster: deps.deck.settleRoster,
     mail: manager,
   });
   const presence = startPresence();

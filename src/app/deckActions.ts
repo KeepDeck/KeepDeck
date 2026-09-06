@@ -1,9 +1,12 @@
 import {
   findPane,
+  findTeam,
+  findWorkspace,
   type DeckState,
   type Pane,
   type PaneSession,
-  type PaneTeam,
+  type Team,
+  type TeamLocation,
   type Workspace,
 } from "../domain/deck";
 import type { JournalRecords } from "../domain/journal";
@@ -93,6 +96,10 @@ function buildDeckActions(store: DeckStore) {
       dispatch({ type: "restoreSuspendedPane", wsId, paneId }),
     selectPane: (wsId: string, paneId: string) =>
       dispatch({ type: "selectPane", wsId, paneId }),
+    /** Drill into a team on the stage — from its card, a reveal, a door. */
+    openTeam: (wsId: string, teamId: string) => dispatch({ type: "openTeam", wsId, teamId }),
+    /** Back up to the workspace's team cards. */
+    closeTeam: (wsId: string) => dispatch({ type: "closeTeam", wsId }),
     toggleDock: (wsId: string) => dispatch({ type: "toggleDock", wsId }),
     setDockTab: (wsId: string, tabId: string) =>
       dispatch({ type: "setDockTab", wsId, tabId }),
@@ -100,8 +107,14 @@ function buildDeckActions(store: DeckStore) {
       dispatch({ type: "renamePane", wsId, paneId, name }),
     setPaneAutoTitle: (wsId: string, paneId: string, title: string) =>
       dispatch({ type: "setPaneAutoTitle", wsId, paneId, title }),
-    setPaneTeam: (wsId: string, paneId: string, team: PaneTeam | null) =>
-      dispatch({ type: "setPaneTeam", wsId, paneId, team }),
+    /** Settle a team's roster — name and every member's role — as one
+     * change: the one write the roster surfaces make. */
+    settleRoster: (
+      wsId: string,
+      teamId: string,
+      name: string,
+      members: readonly { paneId: string; role: string }[],
+    ) => dispatch({ type: "settleRoster", wsId, teamId, name, members }),
     hydrate: (state: DeckState) => dispatch({ type: "hydrate", state }),
     clearPaneIdle: (wsId: string, paneId: string) =>
       dispatch({ type: "clearPaneIdle", wsId, paneId }),
@@ -119,8 +132,8 @@ function buildDeckActions(store: DeckStore) {
       dispatch({ type: "failPaneWake", wsId, paneId }),
     parkPane: (wsId: string, paneId: string) =>
       dispatch({ type: "parkPane", wsId, paneId }),
-    resetPaneLocation: (wsId: string, paneId: string) =>
-      dispatch({ type: "resetPaneLocation", wsId, paneId }),
+    resetPaneSession: (wsId: string, paneId: string) =>
+      dispatch({ type: "resetPaneSession", wsId, paneId }),
     setPaneSession: (
       wsId: string,
       paneId: string,
@@ -135,20 +148,34 @@ function buildDeckActions(store: DeckStore) {
         ...(transcriptPath !== undefined && { transcriptPath }),
         at: nowIso(),
       }),
-    resolvePaneProvisioning: (
+    /** Is this team still in the deck? A read, like `hasPane`, for the
+     * background create that outlives the render which started it. */
+    hasTeam: (wsId: string, teamId: string): boolean => {
+      const ws = findWorkspace(store.getSnapshot().workspaces, wsId);
+      return !!ws && findTeam(ws, teamId) !== undefined;
+    },
+    createTeam: (wsId: string, team: Team & { location: TeamLocation }) =>
+      dispatch({ type: "createTeam", wsId, team }),
+    resolveTeamProvisioning: (
       wsId: string,
-      paneId: string,
+      teamId: string,
       worktree: { cwd: string; branch: string },
     ) =>
       dispatch({
-        type: "resolvePaneProvisioning",
+        type: "resolveTeamProvisioning",
         wsId,
-        paneId,
+        teamId,
         cwd: worktree.cwd,
         branch: worktree.branch,
       }),
-    setPaneProvisioningError: (wsId: string, paneId: string, error: string | null) =>
-      dispatch({ type: "setPaneProvisioningError", wsId, paneId, error }),
+    setTeamProvisioningError: (wsId: string, teamId: string, error: string | null) =>
+      dispatch({ type: "setTeamProvisioningError", wsId, teamId, error }),
+    renameTeam: (wsId: string, teamId: string, name: string) =>
+      dispatch({ type: "renameTeam", wsId, teamId, name }),
+    joinTeam: (wsId: string, paneId: string, teamId: string, role: string) =>
+      dispatch({ type: "joinTeam", wsId, paneId, teamId, role }),
+    dissolveTeam: (wsId: string, teamId: string) =>
+      dispatch({ type: "dissolveTeam", wsId, teamId }),
     hydrateJournal: (records: JournalRecords) =>
       dispatch({ type: "hydrateJournal", records, at: nowIso() }),
     journalFlushed: (count: number) => dispatch({ type: "journalFlushed", count }),

@@ -5,7 +5,7 @@ import {
   type CommandRegistry,
   type CommandSource,
 } from "../../domain/commands";
-import type { Pane, Workspace } from "../../domain/deck";
+import { renameTeam, settleRoster, type Pane, type Team, type Workspace } from "../../domain/deck";
 import { createWorkspaceInstance } from "../../domain/workspaceInstance";
 import type { PaneActivity } from "../../domain/status";
 import { registerMailCommands } from "./mailCommands";
@@ -13,9 +13,13 @@ import { createMailManager } from "./mailManager";
 
 const READY: PaneActivity = { state: "done", at: 1, interrupted: false };
 
-const pane = (id: string): Pane => ({ id, agentType: "claude" });
+const pane = (id: string, team?: { teamId: string; role: string }): Pane => ({
+  id,
+  agentType: "claude",
+  ...(team && { team }),
+});
 
-const workspace = (id: string, name: string, panes: Pane[]): Workspace =>
+const workspace = (id: string, name: string, panes: Pane[], teams?: Team[]): Workspace =>
   ({
     id,
     instance: createWorkspaceInstance(),
@@ -23,7 +27,15 @@ const workspace = (id: string, name: string, panes: Pane[]): Workspace =>
     cwd: "/repo",
     worktreeBaseDir: null,
     panes,
+    ...(teams && { teams }),
   }) as Workspace;
+
+/** ws-1's teams, when a case asks for them: api (team-1) with pane-1 as
+ * lead and pane-2 as impl-1, and web (team-2) with nobody on it yet. */
+const TEAMED: Team[] = [
+  { id: "team-1", name: "api", location: { kind: "attached", cwd: "/repo/.wt/api" } },
+  { id: "team-2", name: "web", location: { kind: "attached", cwd: "/repo/.wt/web" } },
+];
 
 /** A caller identified as a pane, the way the MCP transport mints it. */
 function from(paneId: string, workspaceId: string, label: string): CommandSource {
@@ -36,11 +48,24 @@ function from(paneId: string, workspaceId: string, label: string): CommandSource
 
 const ANONYMOUS: CommandSource = { kind: "external", client: "mcp" };
 
-function setup() {
-  const workspaces = [
-    workspace("ws-1", "web", [pane("pane-1"), pane("pane-2")]),
-    workspace("ws-2", "api", [pane("pane-9")]),
-  ];
+function setup(teamed = false) {
+  const workspaces = teamed
+    ? [
+        workspace(
+          "ws-1",
+          "web",
+          [
+            pane("pane-1", { teamId: "team-1", role: "lead" }),
+            pane("pane-2", { teamId: "team-1", role: "impl-1" }),
+          ],
+          TEAMED,
+        ),
+        workspace("ws-2", "api", [pane("pane-9")]),
+      ]
+    : [
+        workspace("ws-1", "web", [pane("pane-1"), pane("pane-2")]),
+        workspace("ws-2", "api", [pane("pane-9")]),
+      ];
   const mail = createMailManager({
     activityOf: () => READY,
     subscribeActivity: () => () => {},
@@ -50,26 +75,27 @@ function setup() {
     schedule: () => () => {},
   });
   const registry: CommandRegistry = createCommandRegistry();
-  // Applies the assignment to the live fixture, the way the deck store would
-  // — so a `team.assign` followed by a `mail.send` reads what it just wrote.
-  const setPaneTeam = (
+  // Applies the roster to the live fixture, the way the deck store would —
+  // so a `team.assign` followed by a `mail.send` reads what it just wrote.
+  // The deck's own transform, in place: the array keeps its identity so the
+  // `workspaces` closure below reads what was just written.
+  const settle = (
     workspaceId: string,
-    paneId: string,
-    team: { name: string; role: string } | null,
+    teamId: string,
+    name: string,
+    members: readonly { paneId: string; role: string }[],
   ) => {
-    const target = workspaces
-      .find((ws) => ws.id === workspaceId)
-      ?.panes.find((p) => p.id === paneId);
-    if (target) {
-      if (team) target.team = team;
-      else delete target.team;
-    }
+    workspaces.splice(
+      0,
+      workspaces.length,
+      ...settleRoster(workspaces, workspaceId, teamId, name, members),
+    );
   };
   const dispose = registerMailCommands(registry, {
     mail,
     workspaces: () => workspaces,
     agents: () => [{ id: "claude", label: "Claude" }],
-    setPaneTeam,
+    settleRoster: settle,
   });
   return { registry, mail, dispose, workspaces };
 }
@@ -223,9 +249,8 @@ describe("mail.inbox", () => {
     // address. Shown a pane title, an agent sent to the title and was
     // refused — it got through only on a second try after being told the
     // roles.
-    const { registry, workspaces, mail } = setup();
+    const { registry, mail } = setup(true);
     const lead = from("pane-1", "ws-1", "Team structure and the number of direct reports");
-    workspaces[0].panes[0].team = { name: "test", role: "lead" };
     await run(
       registry,
       "mail.send",
@@ -317,16 +342,30 @@ describe("mail.inbox", () => {
 });
 
 describe("team.assign", () => {
-  it("puts an agent on a team, and lets a teammate address it by role", async () => {
-    const { registry, mail } = setup();
+  // Every case runs on a workspace where api (team-1) already holds pane-1
+  // as lead and pane-2 as impl-1: a team is born empty (team.create) and
+  // takes agents by team.add, never by this command, which only settles a role on the
+  // team the agent is already on.
+  it("changes an agent's role on its own team, and a teammate reaches it by the new address", async () => {
+    const { registry, mail, workspaces } = setup(true);
     const lead = from("pane-1", "ws-1", "Agent 1");
-    await run(registry, "team.assign", { agent: "pane-1", team: "api", role: "lead" }, lead);
-    await run(registry, "team.assign", { agent: "pane-2", team: "api", role: "impl-1" }, lead);
+    const reroled = await run(
+      registry,
+      "team.assign",
+      { agent: "pane-2", team: "api", role: "impl-2" },
+      lead,
+    );
+    expect(reroled.ok && reroled.value).toEqual({
+      paneId: "pane-2",
+      team: { id: "team-1", name: "api", role: "impl-2" },
+    });
+    expect(workspaces[0].panes[1].team).toEqual({ teamId: "team-1", role: "impl-2" });
+    mail.takeAtTurnEnd("pane-2");
     // The address a lead can actually be told to use.
     const sent = await run(
       registry,
       "mail.send",
-      { to: "impl-1", kind: "task", body: "take the parser" },
+      { to: "impl-2", kind: "task", body: "take the parser" },
       lead,
     );
     expect(sent.ok).toBe(true);
@@ -334,38 +373,32 @@ describe("team.assign", () => {
     expect(m.toPaneId).toBe("pane-2");
   });
 
-  it("joins a team by its name however it is cased or padded — one team, not a second", async () => {
-    // The name an agent types is compared by the same key the roster uses,
-    // and the team it joins is the one being settled — so a taken name is
-    // the team to join here, never a collision.
-    const { registry, mail } = setup();
+  it("names the team by name however cased, or by id — and only the agent's own", async () => {
+    const { registry } = setup(true);
     const lead = from("pane-1", "ws-1", "Agent 1");
-    await run(registry, "team.assign", { agent: "pane-1", team: "api", role: "lead" }, lead);
-    const joined = await run(
+    for (const ref of [" API ", "team-1", undefined]) {
+      const result = await run(
+        registry,
+        "team.assign",
+        { agent: "pane-2", ...(ref !== undefined && { team: ref }), role: "impl-3" },
+        lead,
+      );
+      expect(result.ok, String(ref)).toBe(true);
+    }
+    // A team that is not here is not made here.
+    const nowhere = await run(
       registry,
       "team.assign",
-      { agent: "pane-2", team: " API ", role: "impl-1" },
+      { agent: "pane-2", team: "docs", role: "impl-1" },
       lead,
     );
-    expect(joined.ok).toBe(true);
-    const sent = await run(
-      registry,
-      "mail.send",
-      { to: "impl-1", kind: "task", body: "take the parser" },
-      lead,
-    );
-    expect(sent.ok).toBe(true);
-    // The briefing and the task both land on pane-2 — the role resolved
-    // across the two spellings.
-    const delivered = mail.takeAtTurnEnd("pane-2");
-    expect(delivered.length).toBeGreaterThan(0);
-    expect(delivered.every((m) => m.toPaneId === "pane-2")).toBe(true);
+    expect(nowhere.ok).toBe(false);
+    if (!nowhere.ok) expect(nowhere.error.message).toContain("team.create");
   });
 
-  it("refuses a role another pane already answers to", async () => {
-    const { registry } = setup();
+  it("refuses a role another member already answers to", async () => {
+    const { registry } = setup(true);
     const lead = from("pane-1", "ws-1", "Agent 1");
-    await run(registry, "team.assign", { agent: "pane-1", team: "api", role: "lead" }, lead);
     const clash = await run(
       registry,
       "team.assign",
@@ -376,100 +409,80 @@ describe("team.assign", () => {
     if (!clash.ok) expect(clash.error.message).toContain("a role is an address");
   });
 
-  it("briefs the agent it puts on a team, and re-briefs the ones already on it", async () => {
-    // The finding this whole path was rebuilt for. Recording the role alone
-    // built teams whose members never learned they were on one: they held an
-    // address nobody had told them about, and nothing would tell them until a
-    // fresh session happened to restate it.
-    const { registry, mail } = setup();
+  it("briefs the agent whose role changed, and re-briefs the rest of the roster", async () => {
+    // Recording the role alone built teams whose members never learned they
+    // were on one: they held an address nobody had told them about, and
+    // nothing would tell them until a fresh session happened to restate it.
+    const { registry, mail } = setup(true);
     const lead = from("pane-1", "ws-1", "Agent 1");
-    await run(registry, "team.assign", { agent: "pane-1", team: "api", role: "lead" }, lead);
-    await run(registry, "team.assign", { agent: "pane-2", team: "api", role: "impl-1" }, lead);
+    await run(registry, "team.assign", { agent: "pane-2", role: "impl-2" }, lead);
 
-    const joiner = mail.takeAtTurnEnd("pane-2");
-    expect(joiner.map((message) => message.kind)).toEqual(["team"]);
-    expect(joiner[0].body).toContain("impl-1");
-    // And the lead hears the roster it now leads — its first brief named
-    // only itself. One message, not two: standing context supersedes itself,
-    // so what waits is always the current roster and never a history of it.
+    const reroled = mail.takeAtTurnEnd("pane-2");
+    expect(reroled.map((message) => message.kind)).toEqual(["team"]);
+    expect(reroled[0].body).toContain('as "impl-2"');
+    // And the lead hears the roster it now leads. One message, not two:
+    // standing context supersedes itself, so what waits is always the
+    // current roster and never a history of it.
     const leadBriefs = mail.takeAtTurnEnd("pane-1");
     expect(leadBriefs).toHaveLength(1);
-    expect(leadBriefs[0].body).toContain("impl-1");
+    expect(leadBriefs[0].body).toContain("impl-2");
+    expect(leadBriefs[0].body).not.toContain("impl-1");
   });
 
-  it("handles each field arriving without the other", async () => {
-    // Three shapes an agent will produce, and none of them may end in a
-    // silent no-op: an agent cannot see that nothing happened, so it keeps
-    // building on a team that does not exist.
-    const { registry, mail } = setup();
+  it("refuses a member with no role, and an agent asked for nothing", async () => {
+    // Neither may end in a silent no-op: an agent cannot see that nothing
+    // happened, so it keeps building on a change that was never made.
+    const { registry, mail, workspaces } = setup(true);
     const lead = from("pane-1", "ws-1", "Agent 1");
-
-    // A role with no team, for a pane on NO team: refused. It used to answer
-    // "done, team: null" while doing nothing whatsoever.
-    const nowhere = await run(registry, "team.assign", { agent: "pane-2", role: "impl-3" }, lead);
-    expect(nowhere.ok).toBe(false);
-    if (!nowhere.ok) expect(nowhere.error.message).toContain("not on a team");
-
-    await run(registry, "team.assign", { agent: "pane-1", team: "api", role: "lead" }, lead);
-
-    // A team with no role: refused, because a member with no address is one
-    // no teammate can reach.
-    const nameless = await run(
-      registry,
-      "team.assign",
-      { agent: "pane-2", team: "api" },
-      lead,
-    );
+    const nameless = await run(registry, "team.assign", { agent: "pane-2", team: "api" }, lead);
     expect(nameless.ok).toBe(false);
+    if (!nameless.ok) expect(nameless.error.message).toContain("role");
 
-    // A role with no team, for a pane that is on one: settles onto the team
-    // it already holds. The obvious reading, and the only one that does
-    // anything.
-    await run(registry, "team.assign", { agent: "pane-2", team: "api", role: "impl-1" }, lead);
-    mail.takeAtTurnEnd("pane-2");
-    const rerole = await run(registry, "team.assign", { agent: "pane-2", role: "impl-2" }, lead);
-    expect(rerole.ok && rerole.value).toEqual({
-      paneId: "pane-2",
-      team: { name: "api", role: "impl-2" },
-    });
-    // And it is TOLD, like any other roster change.
-    expect(mail.takeAtTurnEnd("pane-2")[0]?.body).toContain("impl-2");
+    const nothing = await run(registry, "team.assign", { agent: "pane-2" }, lead);
+    expect(nothing.ok).toBe(false);
+    if (!nothing.ok) expect(nothing.error.message).toContain("team.add");
+    expect(workspaces[0].panes[1].team).toEqual({ teamId: "team-1", role: "impl-1" });
+    expect(mail.takeAtTurnEnd("pane-2")).toEqual([]);
   });
 
   it("refuses to leave a team without the member that hands out work", async () => {
     // The same rule the dialog obeys, on the path an agent drives. Without
     // it, `team.assign` could build a leaderless team — one where sendRefusal
     // then refuses every task with nobody able to explain why.
-    const { registry } = setup();
+    const { registry } = setup(true);
     const lead = from("pane-1", "ws-1", "Agent 1");
     const headless = await run(
       registry,
       "team.assign",
-      { agent: "pane-2", team: "api", role: "impl-1" },
+      { agent: "pane-1", role: "impl-2" },
       lead,
     );
     expect(headless.ok).toBe(false);
     if (!headless.ok) expect(headless.error.message).toContain("lead");
   });
 
-  it("refuses to take a pane that is already on another team", async () => {
-    const { registry } = setup();
+  it("refuses to move an agent to another team, and says how work moves instead", async () => {
+    // An agent runs where its team runs: moving work between teams is
+    // starting an agent on the target team.
+    const { registry, workspaces } = setup(true);
     const lead = from("pane-1", "ws-1", "Agent 1");
-    await run(registry, "team.assign", { agent: "pane-1", team: "api", role: "lead" }, lead);
-    await run(registry, "team.assign", { agent: "pane-2", team: "api", role: "impl-1" }, lead);
-    const poach = await run(
+    const moved = await run(
       registry,
       "team.assign",
       { agent: "pane-2", team: "web", role: "lead" },
       lead,
     );
-    expect(poach.ok).toBe(false);
-    if (!poach.ok) expect(poach.error.message).toContain("api");
+    expect(moved.ok).toBe(false);
+    if (!moved.ok) {
+      expect(moved.error.message).toContain('"api"');
+      expect(moved.error.message).toContain("team.add");
+    }
+    expect(workspaces[0].panes[1].team).toEqual({ teamId: "team-1", role: "impl-1" });
   });
 
-  it("cannot put a pane from another workspace on a team", async () => {
+  it("cannot reach a pane in another workspace", async () => {
     // The same boundary the messages themselves obey.
-    const { registry } = setup();
+    const { registry } = setup(true);
     const result = await run(
       registry,
       "team.assign",
@@ -479,20 +492,33 @@ describe("team.assign", () => {
     expect(result.ok).toBe(false);
   });
 
-  it("takes an agent off its team when neither field is given, and says so", async () => {
-    const { registry, workspaces, mail } = setup();
+  it("keeps every role reachable through a rename — the name is an address, not a key", async () => {
+    // The roster is held by team id: renaming the team touches no pane, and
+    // a teammate addressed by role a moment later is still found.
+    const { registry, workspaces, mail } = setup(true);
     const lead = from("pane-1", "ws-1", "Agent 1");
-    await run(registry, "team.assign", { agent: "pane-1", team: "api", role: "lead" }, lead);
-    await run(registry, "team.assign", { agent: "pane-2", team: "api", role: "impl-1" }, lead);
-    expect(workspaces[0].panes[1].team).toBeDefined();
-    mail.takeAtTurnEnd("pane-2");
+    workspaces.splice(0, workspaces.length, ...renameTeam(workspaces, "ws-1", "team-1", "platform"));
+    expect(workspaces[0].panes.map((pane) => pane.team)).toEqual([
+      { teamId: "team-1", role: "lead" },
+      { teamId: "team-1", role: "impl-1" },
+    ]);
 
-    await run(registry, "team.assign", { agent: "pane-2" }, lead);
-    expect(workspaces[0].panes[1].team).toBeUndefined();
-    // Told once, so it stops addressing roles that no longer reach anyone.
-    const farewell = mail.takeAtTurnEnd("pane-2");
-    expect(farewell.map((message) => message.kind)).toEqual(["team"]);
-    expect(farewell[0].body).toContain("api");
+    const sent = await run(
+      registry,
+      "mail.send",
+      { to: "impl-1", kind: "task", body: "still you" },
+      lead,
+    );
+    expect(sent.ok).toBe(true);
+    expect(mail.takeAtTurnEnd("pane-2").map((message) => message.toPaneId)).toEqual(["pane-2"]);
+    // And a role settled under the new name lands on the same team.
+    const reroled = await run(
+      registry,
+      "team.assign",
+      { agent: "pane-2", team: "platform", role: "impl-2" },
+      lead,
+    );
+    expect(reroled.ok && reroled.value).toMatchObject({ team: { id: "team-1", name: "platform" } });
   });
 });
 

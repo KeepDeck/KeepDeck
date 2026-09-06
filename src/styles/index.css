@@ -19,13 +19,13 @@
 /* After pane.css AND minimize.css: the frame classes recolour borders those
    files declare, at equal specificity — source order is the tiebreak. */
 @import "./status.css";
+/* After status.css: the team cards' dots ride the ladder's tokens and rhythms. */
+@import "./teamCards.css";
 @import "./terminal.css";
 @import "./history.css";
 @import "./overlay.css";
 @import "./tooltip.css";
 @import "./form.css";
-/* After form.css: the team roster styles rows built from .form__* chrome. */
-@import "./team.css";
 @import "./confirm.css";
 @import "./settings.css";
 @import "./stats.css";

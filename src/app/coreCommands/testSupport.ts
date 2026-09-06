@@ -10,12 +10,22 @@
 import { vi } from "vitest";
 import type { AgentInfo } from "../../domain/agents";
 import { createCommandRegistry } from "../../domain/commands";
-import type { Workspace } from "../../domain/deck";
+import {
+  MAX_PANES,
+  normalizePath,
+  teamHeldPath,
+  teamNameTaken,
+  teamsOf,
+  type Workspace,
+} from "../../domain/deck";
+import { suggestRoleAddress } from "../../domain/mail";
 import type { PaneActivity } from "../../domain/status";
 import { createWorkspaceInstance } from "../../domain/workspaceInstance";
 import type {
   CreatePaneOutcome,
   CreatePaneRequest,
+  CreateTeamOutcome,
+  CreateTeamRequest,
   ResumeRequest,
 } from "../agentOrchestrator";
 import { fakeSkillsLibrary } from "../skillsLibrary.fake";
@@ -133,15 +143,66 @@ export function setup(workspaces: Workspace[]) {
   const resumeAgent = vi.fn<(wsId: string, paneId: string) => ResumeRequest>(
     () => "resuming",
   );
+  // The landing, as a double: a request naming a team joins it (a team not
+  // here refuses, a full one refuses), any other request mints a team at
+  // the directory it asked for (the root when it asked for none) under the
+  // name it gave, and the pane joins under the role it asked for when free
+  // — the shape the real landing leaves, minus the join-the-holder rule the
+  // orchestrator's own suite pins.
   const createPane = vi.fn<(request: CreatePaneRequest) => CreatePaneOutcome>(
-    ({ workspace: ref, pane }) => {
+    ({ workspace: ref, pane, placement, team, role, teamName }) => {
       const ws = workspaces.find(
         (candidate) =>
           candidate.id === ref.id && candidate.instance === ref.instance,
       );
       if (!ws) return { kind: "gone" };
-      ws.panes.push(pane);
-      return { kind: "created" };
+      let teamId: string;
+      if (team !== undefined) {
+        if (!ws.teams?.some((candidate) => candidate.id === team)) return { kind: "held" };
+        teamId = team;
+      } else {
+        teamId = `team-${(ws.teams?.length ?? 0) + 1}`;
+        ws.teams = [
+          ...(ws.teams ?? []),
+          {
+            id: teamId,
+            name: teamName ?? teamId,
+            location: placement ?? { kind: "attached", cwd: ws.cwd },
+          },
+        ];
+      }
+      const taken = ws.panes
+        .filter((candidate) => candidate.team?.teamId === teamId)
+        .map((candidate) => candidate.team!.role);
+      if (taken.length >= MAX_PANES) return { kind: "full" };
+      const chosen = role && !taken.includes(role) ? role : suggestRoleAddress(taken);
+      ws.panes.push({ ...pane, team: { teamId, role: chosen } });
+      return { kind: "created", teamId };
+    },
+  );
+  // The team door, as a double: a team minted EMPTY at the directory it
+  // asked for under the name it gave ("Team N" for none) — refusing a
+  // directory a team here holds and a name a team here answers to, the
+  // shape the real door leaves.
+  const createTeam = vi.fn<(request: CreateTeamRequest) => CreateTeamOutcome>(
+    ({ workspace: ref, name, placement }) => {
+      const ws = workspaces.find(
+        (candidate) =>
+          candidate.id === ref.id && candidate.instance === ref.instance,
+      );
+      if (!ws) return { kind: "gone" };
+      const wanted = teamHeldPath({ location: placement });
+      const held = teamsOf(ws).some((team) => {
+        const path = teamHeldPath(team);
+        return path !== undefined && wanted !== undefined && normalizePath(path) === normalizePath(wanted);
+      });
+      if (held) return { kind: "held" };
+      const seq = (ws.teams?.length ?? 0) + 1;
+      const teamName = name.trim() || `Team ${seq}`;
+      if (teamNameTaken(ws, teamName)) return { kind: "taken" };
+      const teamId = `team-${seq}`;
+      ws.teams = [...(ws.teams ?? []), { id: teamId, name: teamName, location: placement }];
+      return { kind: "created", teamId };
     },
   );
   const openSettings = vi.fn(() => true);
@@ -163,6 +224,7 @@ export function setup(workspaces: Workspace[]) {
     suspendAgent,
     resumeAgent,
     createPane,
+    createTeam,
     openSettings,
     openUsage,
     skills,
@@ -177,6 +239,7 @@ export function setup(workspaces: Workspace[]) {
     suspendAgent,
     resumeAgent,
     createPane,
+    createTeam,
     openSettings,
     openUsage,
     dispose,

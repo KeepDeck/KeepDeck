@@ -9,8 +9,12 @@ import {
   paneWakeOrigin,
   type Pane,
   type Workspace,
-  locationOf,
   paneBranch,
+  paneProvisioning,
+  remoteEndpointOf,
+  TEAM_FULL_MESSAGE,
+  WORKSPACE_GONE_MESSAGE,
+  WORKTREE_HELD_MESSAGE,
 } from "../../domain/deck";
 import { describeError, log } from "../../ipc/log";
 import { createDeckActions, type DeckActions } from "../deckActions";
@@ -189,11 +193,6 @@ export function createAgentOrchestratorRuntime(
     actions.failPaneWake(wsId, pane.id);
   }
 
-  const creation = createAgentOrchestratorCreation({
-    deck,
-    actions,
-    worktrees,
-  });
   const closing = createAgentOrchestratorClosing({
     deck,
     actions,
@@ -203,6 +202,13 @@ export function createAgentOrchestratorRuntime(
     isBlocked: runView.isBlocked,
     lifecycle,
     dropArtifacts: deps.dropArtifacts,
+  });
+  const creation = createAgentOrchestratorCreation({
+    deck,
+    actions,
+    worktrees,
+    closing: closing.closing,
+    holdsPath: closing.holdsPath,
   });
   const restart = createAgentOrchestratorRestart({
     deck,
@@ -270,7 +276,7 @@ export function createAgentOrchestratorRuntime(
             paneId: pane.id,
             workspace: { id: ws.id, instance: ws.instance },
             cwd: dir,
-            branch: paneBranch(pane),
+            branch: paneBranch(ws, pane),
             yolo: pane.yolo,
             stagedSkills: skillsAsk({ id: ws.id, instance: ws.instance }),
             mcpAccess,
@@ -376,7 +382,7 @@ export function createAgentOrchestratorRuntime(
         // drops, and replaces with a fresh conversation. The restart schedules
         // another pass when it is done.
         if (restart.owns(pane.id)) continue;
-        const intent = paneRunIntent(pane, {
+        const intent = paneRunIntent(ws, pane, {
           agentAvailable: commands.has(agentType),
           missingDir: runView.blockedDir(pane.id),
           workspaceActive: ws.id === active.id,
@@ -447,7 +453,7 @@ export function createAgentOrchestratorRuntime(
         // working directory to probe (so a gone workspace cwd never blocks it)
         // and no recorded session to resume (fresh-session only). Wake it
         // straight to a fresh remote plan built by the spawn-spec sweep.
-        if (locationOf(pane).kind === "remote") {
+        if (remoteEndpointOf(pane) !== null) {
           void wake(ws, pane, dir, sessionId).finally(() =>
             inFlight.delete(pane.id),
           );
@@ -497,6 +503,7 @@ export function createAgentOrchestratorRuntime(
     getView: runView.get,
     subscribe: runView.subscribe,
     createPane: creation.landPane,
+    createTeam: creation.createTeam,
     createWorkspace: creation.createWorkspace,
     retryProvisioning: creation.retryProvisioning,
     suspend: closing.suspend,
@@ -510,15 +517,43 @@ export function createAgentOrchestratorRuntime(
     resumeSession: continuations.resumeSession,
     forkSession: continuations.forkSession,
     startFresh(wsId, paneId) {
+      const workspace = findWorkspace(deck.getSnapshot().workspaces, wsId);
+      if (!workspace) return;
+      // The move FIRST, and nothing else on a refusal: a directory-bound
+      // session cannot resume elsewhere, and the pane's team's directory is
+      // what went missing, so the pane moves onto the workspace root's team
+      // and starts a new conversation there — but the root's team can be
+      // full. Dropping the session and waking the pane before knowing would
+      // wake it back into the directory that is gone, with its session
+      // thrown away for nothing. The refusal reaches the card instead, and
+      // the pane keeps what it had.
+      const moved = creation.relocatePane(
+        { id: workspace.id, instance: workspace.instance },
+        paneId,
+        { kind: "attached", cwd: workspace.cwd },
+      );
+      if (moved.kind !== "created") {
+        const why =
+          moved.kind === "full"
+            ? TEAM_FULL_MESSAGE
+            : moved.kind === "held"
+              ? WORKTREE_HELD_MESSAGE
+              : WORKSPACE_GONE_MESSAGE;
+        log.warn("web:orchestrator", `${paneId}: start fresh refused — ${why}`);
+        runView.markWakeFailed(paneId, why);
+        publish();
+        return;
+      }
       if (runView.clearNotes(paneId)) publish();
       startOwed.add(paneId);
-      actions.resetPaneLocation(wsId, paneId);
+      actions.resetPaneSession(wsId, paneId);
       actions.requestPaneWake(wsId, paneId);
     },
     resume(wsId, paneId) {
-      const pane = findPane(deck.getSnapshot().workspaces, wsId, paneId);
-      if (!pane) return "gone";
-      if (locationOf(pane).kind === "provisioning") return "provisioning";
+      const workspace = findWorkspace(deck.getSnapshot().workspaces, wsId);
+      const pane = workspace?.panes.find((candidate) => candidate.id === paneId);
+      if (!workspace || !pane) return "gone";
+      if (paneProvisioning(workspace, pane)) return "provisioning";
       if (!pane.idle) return "running";
       if (!agents.commands().has(paneAgentType(pane))) return "unavailable";
       if (runView.clearNotes(paneId)) publish();

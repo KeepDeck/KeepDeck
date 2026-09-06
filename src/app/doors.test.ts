@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Workspace } from "../domain/deck";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
-import { bellDoorOpen, dockDoorOpen, teamDialogDoorOpen } from "./doors";
+import { addTeamDoorOpen, bellDoorOpen, dockDoorOpen } from "./doors";
 
 const workspace: Workspace = {
   id: "ws-1",
@@ -13,9 +13,9 @@ const workspace: Workspace = {
 };
 
 describe("the top bar's doors", () => {
-  it("offers the team dialog only with a live workspace to build a team in", () => {
-    expect(teamDialogDoorOpen(workspace)).toBe(true);
-    expect(teamDialogDoorOpen(null)).toBe(false);
+  it("offers a new team only with a live workspace to put it in", () => {
+    expect(addTeamDoorOpen(workspace)).toBe(true);
+    expect(addTeamDoorOpen(null)).toBe(false);
   });
 
   it("offers the dock toggle only when a plugin contributed a tab to open onto", () => {

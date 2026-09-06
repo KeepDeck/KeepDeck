@@ -1,7 +1,6 @@
 import { askForPaneBack } from "./app/resumeOutcome";
 import { ArtifactsDialog } from "./components/artifacts/ArtifactsDialog";
 import { artifactsRegistryReads } from "./app/artifacts/registryRead";
-import { TeamDialog } from "./components/workspace/TeamDialog";
 import { restartToUpdate } from "./app/updateManager";
 import { updateActionView } from "./app/updateAction";
 import { useAppController } from "./app/useAppController";
@@ -21,7 +20,6 @@ import { WorkspaceForm } from "./components/workspace/WorkspaceForm";
 import {
   DECK_STATE_VERSION,
   findWorkspace,
-  MAX_PANES,
   pathOccupancy,
 } from "./domain/deck";
 import { pickFolder } from "./ipc/dialogs";
@@ -43,10 +41,7 @@ const registryReads = artifactsRegistryReads();
 
 function App() {
   const controller = useAppController();
-  // The status tracker feeds the team dialog's live activity column; read
-  // here (before the ready gate — hooks run unconditionally) and passed as
-  // a port, so the dialog stays testable with a literal.
-  const { statusTracker, plugins } = useAppRuntime();
+  const { plugins } = useAppRuntime();
   // The resume picker's advisory live-registry ask — handed to the dialog
   // READY-MADE (the same seam the session search uses; a view never
   // touches a plugin). Stable identity: the dialog re-asks per agent, not
@@ -63,8 +58,7 @@ function App() {
     agents,
     agentsLoading,
     alertSeq,
-    atCap,
-    canAddAgent,
+    barLevel,
     canOpenDialog,
     canCloseDialog,
     closeFlow,
@@ -92,9 +86,6 @@ function App() {
     browserShared,
     setCreating,
     setForkDialog,
-    teamDialog,
-    setTeamDialog,
-    teamFlow,
     setFrozenAck,
     setRailCollapsed,
     openSettings,
@@ -102,7 +93,6 @@ function App() {
     openSkills,
     closeSkills,
     openArtifacts,
-    openTeamDialog,
     dockControl,
     closeArtifacts,
     openStats,
@@ -144,12 +134,7 @@ function App() {
             openSettings("updates");
           }
         }}
-        canAddAgent={canAddAgent}
-        addAgentTitle={atCap ? `Max ${MAX_PANES} agents` : "Add agent"}
-        onAddAgent={() => {
-          if (canAddAgent && active) void agentFlow.openFor(active);
-        }}
-        onAddTeam={openTeamDialog}
+        level={barLevel}
         dock={dockControl}
         pluginActions={pluginTopBarActions}
         canOpenDialog={canOpenDialog}
@@ -201,7 +186,13 @@ function App() {
             onRestoreSuspendedPane={deck.restoreSuspendedPane}
             onCloseAgent={closeFlow.requestCloseAgent}
             onRenamePane={deck.renamePane}
-            onOpenTeam={(name) => setTeamDialog({ editing: name })}
+            onEnterTeam={deck.openTeam}
+            onAddTeamMember={(wsId, teamId) => {
+              const ws = findWorkspace(deck.workspaces, wsId);
+              if (ws) void agentFlow.openFor(ws, { kind: "member", teamId });
+            }}
+            onRenameTeam={deck.renameTeam}
+            onDisbandTeam={closeFlow.requestDisbandTeam}
             onPaneTitle={deck.setPaneAutoTitle}
             idleBlocked={runView.blocked}
             wakeFailed={runView.wakeFailed}
@@ -282,6 +273,8 @@ function App() {
             ))}
           {agentFlow.dialog && (
             <AgentDialog
+              target={agentFlow.dialog.target}
+              heldRoles={agentFlow.dialog.heldRoles}
               defaultAgentType={agentFlow.dialog.defaultAgentType}
               defaultYolo={agentFlow.dialog.defaultYolo}
               remoteEnabled={agentFlow.dialog.remoteEnabled}
@@ -325,23 +318,6 @@ function App() {
                   );
               }}
               onCancel={() => setForkDialog(null)}
-            />
-          )}
-          {teamDialog && active && (
-            <TeamDialog
-              workspace={active}
-              agents={agents}
-              editing={teamDialog.editing}
-              defaultYolo={settings.defaultYolo}
-              activity={{
-                subscribe: statusTracker.subscribe,
-                of: (paneId) => statusTracker.getSnapshot().panes.get(paneId),
-              }}
-              onConfirm={(plan, closing) => {
-                setTeamDialog(null);
-                void teamFlow.apply(active.id, plan, closing);
-              }}
-              onCancel={() => setTeamDialog(null)}
             />
           )}
           {error && (
@@ -412,22 +388,34 @@ function App() {
               title={
                 closeFlow.closing.kind === "agent"
                   ? `Close agent "${closeFlow.closing.label}"?`
-                  : `Close workspace "${closeFlow.closing.name}"?`
+                  : closeFlow.closing.kind === "team"
+                    ? `Disband team "${closeFlow.closing.name}"?`
+                    : `Close workspace "${closeFlow.closing.name}"?`
               }
               message={closeFlow.closeMessage}
-              confirmLabel="Close"
+              // The last member's primary verb is the team's: disbanding.
+              confirmLabel={
+                closeFlow.closing.kind === "team" || closeFlow.canCloseAgentOnly
+                  ? "Disband team"
+                  : "Close"
+              }
               cancelLabel="Cancel"
               destructive
-              secondaryAction={
-                closeFlow.canSuspendInstead
-                  ? {
-                      label: "Suspend",
-                      onClick: closeFlow.suspendInstead,
-                      disabled: closeFlow.deleteWorktree,
-                      hint: "A suspended agent comes back to its worktree — untick the delete to suspend it",
-                    }
-                  : undefined
-              }
+              secondaryAction={[
+                ...(closeFlow.canSuspendInstead
+                  ? [
+                      {
+                        label: "Suspend",
+                        onClick: closeFlow.suspendInstead,
+                        disabled: closeFlow.deleteWorktree,
+                        hint: "A suspended agent comes back to its worktree — untick the delete to suspend it",
+                      },
+                    ]
+                  : []),
+                ...(closeFlow.canCloseAgentOnly
+                  ? [{ label: "Close agent only", onClick: closeFlow.closeAgentOnly }]
+                  : []),
+              ]}
               onConfirm={closeFlow.confirmClose}
               onCancel={closeFlow.cancelClose}
             >

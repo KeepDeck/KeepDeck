@@ -17,14 +17,19 @@ import {
   type Pane,
   type Workspace,
   type WorkspaceView,
+  openTeamOf,
   paneBody,
-  provisioningCard,
+  paneProvisioning,
+  stagePanes,
+  teamOfPane,
+  teamsOf,
 } from "../domain/deck";
 import type { PaneFramePlace } from "../domain/status";
-import { teamNamesIn } from "../domain/mail";
+import { teamNamesIn, teamOf } from "../domain/mail";
 import { gitBadge } from "../ui/gitBadge";
 import { AgentPane, type UnavailableAgent } from "./agent/AgentPane";
 import { MinimizedTray, type MinimizedTrayEntry } from "./deck/MinimizedTray";
+import { TeamCards } from "./deck/TeamCards";
 import { emptyGridMessage, trayView, type ShelfEntry } from "../presentation/trayView";
 import {
   journalRows,
@@ -138,9 +143,13 @@ interface DeckStageProps {
   /** Ask to close a pane; `label` is its display title for the confirm. */
   onCloseAgent(wsId: string, paneId: string, label: string): void;
   onRenamePane(wsId: string, paneId: string, name: string): void;
-  /** Open an existing team by name — the way in to a team a pane's badge
-   * names, since the bar's button always starts a new one. */
-  onOpenTeam?(name: string): void;
+  /** Drill into a team from its card — the stage's level moves. */
+  onEnterTeam(wsId: string, teamId: string): void;
+  /** Put another agent on a team, from its card's menu. */
+  onAddTeamMember(wsId: string, teamId: string): void;
+  onRenameTeam(wsId: string, teamId: string, name: string): void;
+  /** Ask to disband a team — the close flow's own question. */
+  onDisbandTeam(wsId: string, teamId: string): void;
   /** Terminal title changed (OSC) — feeds auto-naming ([F11]). */
   onPaneTitle(wsId: string, paneId: string, title: string): void;
   /** Idle panes blocked from waking: paneId → the missing directory
@@ -180,7 +189,8 @@ interface DeckStageProps {
   /** Wake a suspended (or parked) pane — the idle card's own gesture. */
   onResumeAgent(wsId: string, paneId: string): void;
   /** Re-issue a failed pane's worktree create (the failed card's Retry). */
-  onRetryProvision(wsId: string, paneId: string): void;
+  /** Re-issue the failed create behind a card — the TEAM's card. */
+  onRetryProvision(wsId: string, teamId: string): void;
   /** A pane's PTY exited (the resume-failure detector lives upstream). */
   onAgentExited(wsId: string, paneId: string, code: number | null): void;
   /** A pane's spawn failed — feeds the notification center. */
@@ -235,7 +245,10 @@ export function DeckStage({
   onRestoreSuspendedPane,
   onCloseAgent,
   onRenamePane,
-  onOpenTeam,
+  onEnterTeam,
+  onAddTeamMember,
+  onRenameTeam,
+  onDisbandTeam,
   onPaneTitle,
   idleBlocked,
   wakeFailed,
@@ -260,7 +273,9 @@ export function DeckStage({
       {workspaces.map((ws) => {
         const isActive = ws.id === activeId;
 
-        if (ws.panes.length === 0) {
+        // A workspace with nothing in it — no team, no pane — shows its
+        // sessions; one with a team, however empty, shows the team's card.
+        if (ws.panes.length === 0 && teamsOf(ws).length === 0) {
           return (
             <div
               key={ws.id}
@@ -296,10 +311,19 @@ export function DeckStage({
           return gitBadge(cwd ? gitHeads.get(cwd) : undefined);
         };
 
+        // ── The slice. ────────────────────────────────────────────────────
+        // The open team's members are what the stage lays out. Every other
+        // team's panes stay MOUNTED — a terminal is never torn down for a
+        // change of level — and merely are not on the grid, the shelf, or
+        // the empty-grid word: each of those reads the slice, never the
+        // workspace.
+        const team = openTeamOf(ws, view);
+        const panes = stagePanes(ws, view);
+
         // ── Per-pane layout, resolved once per workspace. ─────────────────
-        // The live (not minimized) panes tile; the minimized ones are hidden
-        // but stay in the grid mounted.
-        const live = visiblePanes(ws.panes, view);
+        // The live (not minimized) panes tile; the minimized ones — and the
+        // panes of teams that are not open — are hidden but stay mounted.
+        const live = visiblePanes(panes, view);
         const liveIndex = new Map(live.map((p, i) => [p.id, i] as const));
         const focusedHere = resolveFocus(live, view?.focus);
         const soloGrid = live.length === 1;
@@ -313,9 +337,10 @@ export function DeckStage({
             // Hidden from the grid, but still mounted. In addition to
             // explicit minimizes this includes suspended panes while the
             // global placement is Tray and its suspend transition put it in
-            // the existing minimized set. A hidden pane is never the
-            // selected one — selection resolves to a live, visible pane
-            // (the same contract MinimizedItem documents for its chip).
+            // the existing minimized set — and every pane of a team that is
+            // not the open one. A hidden pane is never the selected one —
+            // selection resolves to a live, visible pane (the same contract
+            // MinimizedItem documents for its chip).
             return {
               colSpan: 1,
               visible: false,
@@ -355,7 +380,7 @@ export function DeckStage({
         // reason DOES is this component's, because it owns the callbacks. The
         // switch is exhaustive: a reason the shelf learns to report cannot be
         // one the stage forgets to honour.
-        const shelf = trayView(ws.panes, view, focusedHere);
+        const shelf = trayView(panes, view, focusedHere);
         const restoreFor = (entry: ShelfEntry): (() => void) => {
           switch (entry.reason) {
             case "minimized":
@@ -411,7 +436,9 @@ export function DeckStage({
           entryOf(paneById.get(entry.paneId)!, "Restore", restoreFor(entry)),
         );
         const trayStateLabel = shelf.stateLabel;
-        const emptyGrid = live.length === 0 ? emptyGridMessage(ws.panes, view) : null;
+        // The word for an empty grid is a word about the OPEN team — at the
+        // cards level the grid is empty by construction and says nothing.
+        const emptyGrid = team && live.length === 0 ? emptyGridMessage(panes, view) : null;
 
         // Asked once for the deck, not once per pane: a role is only an
         // identity while ONE team holds it, and with a second team running
@@ -441,7 +468,7 @@ export function DeckStage({
               : null;
           // One question, one answer — the conjunction used to be spelled
           // out here and again inside the pane.
-          const body = paneBody(pane, {
+          const body = paneBody(ws, pane, {
             agentAvailable: !unavailableAgent,
             hasPlan: !!spec,
             planFailed: failedPanes.has(pane.id),
@@ -465,9 +492,8 @@ export function DeckStage({
               cwd={executionCwd}
               gitBadge={badge}
               yolo={pane.yolo}
-              team={pane.team ?? null}
+              team={teamOf(ws, pane)}
               showTeamName={teamsHere > 1}
-              onOpenTeam={onOpenTeam}
               visible={layout.visible}
               focused={layout.focused}
               hidden={layout.hidden}
@@ -483,7 +509,7 @@ export function DeckStage({
               onDismissOccupied={() => onDismissOccupied(pane.id)}
               startup={startupPanes[pane.id] ?? null}
               onForkStalled={() => onForkStalled(ws.id, pane.id)}
-              provisioning={provisioningCard(pane)}
+              provisioning={paneProvisioning(ws, pane)}
               unavailableAgent={unavailableAgent}
               colSpan={layout.colSpan}
               onSelect={() => onSelectPane(ws.id, pane.id)}
@@ -494,7 +520,11 @@ export function DeckStage({
               onTitle={(t) => onPaneTitle(ws.id, pane.id, t)}
               onStartFresh={() => onStartFresh(ws.id, pane.id)}
               onResume={() => onResumeAgent(ws.id, pane.id)}
-              onRetryProvision={() => onRetryProvision(ws.id, pane.id)}
+              onRetryProvision={() => {
+                // The card, and its Retry, are the team's.
+                const team = teamOfPane(ws, pane);
+                if (team) onRetryProvision(ws.id, team.id);
+              }}
               onExited={(code) => onAgentExited(ws.id, pane.id, code)}
               onSpawnFailed={(message) =>
                 onAgentSpawnFailed(ws.id, pane.id, message)
@@ -526,6 +556,24 @@ export function DeckStage({
                   <span className="deck__grid-empty-title">{emptyGrid.title}</span>
                   <span className="deck__grid-empty-sub">{emptyGrid.sub}</span>
                 </div>
+              )}
+              {/* The cards level, laid over the mounted grid while no team
+                  is open — the same place the empty-grid word takes, for
+                  the same reason: the panes underneath never unmount. Its
+                  own component, so ONE status subscription serves every
+                  card, and so the pane nodes above keep their container
+                  (and their identity) through every change of level. */}
+              {team === undefined && (
+                <TeamCards
+                  workspace={ws}
+                  gitHeads={gitHeads}
+                  keyboardFocusEnabled={keyboardFocusEnabled && isActive}
+                  onEnter={(teamId) => onEnterTeam(ws.id, teamId)}
+                  onAddMember={(teamId) => onAddTeamMember(ws.id, teamId)}
+                  onRename={(teamId, name) => onRenameTeam(ws.id, teamId, name)}
+                  onDisband={(teamId) => onDisbandTeam(ws.id, teamId)}
+                  onRetry={(teamId) => onRetryProvision(ws.id, teamId)}
+                />
               )}
             </div>
             {trayEntries.length > 0 && (

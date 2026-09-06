@@ -279,7 +279,7 @@ export function SessionsBrowser({
               ? "Indexing the stores…"
               : api.query.trim() !== "" || rows.length > 0
                 ? "No sessions match"
-                : 'No sessions yet — add an agent with "+ Agent"'}
+                : "No sessions yet — add an agent to a team with “Add member”"}
           </li>
         )}
       </ul>

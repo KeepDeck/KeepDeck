@@ -50,10 +50,20 @@
   color: #9aa3af;
 }
 
+/* Up to four verbs on the last member's close (Cancel · Suspend · Close agent
+   only · Disband team) in a dialog sized for its message: the ROW breaks, a
+   label never does — a button whose words wrap onto two lines reads as a
+   different, broken control beside its whole-line siblings. */
 .confirm__actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.confirm__actions > button {
+  flex: none;
+  white-space: nowrap;
 }
 
 /* Why a secondary action is unavailable right now. Text rather than a

@@ -17,9 +17,9 @@ describe("appendPane", () => {
     expect(appendPane(seed(1), pane)).toEqual([{ id: "pane-1" }, pane]);
   });
 
-  it("is a no-op at MAX_PANES (returns the same array)", () => {
+  it("appends past MAX_PANES — the cap is the team's, enforced where a pane joins one", () => {
     const full = seed(MAX_PANES);
-    expect(appendPane(full, { id: "overflow" })).toBe(full);
+    expect(appendPane(full, { id: "overflow" })).toHaveLength(MAX_PANES + 1);
   });
 });
 

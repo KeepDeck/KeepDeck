@@ -106,6 +106,7 @@ function readRecordBase(value: unknown): SessionRecordBase | null {
     cwd,
     boundAt,
     ...(typeof value.branch === "string" && { branch: value.branch }),
+    ...(typeof value.team === "string" && value.team && { team: value.team }),
     ...(value.yolo === true && { yolo: true }),
     ...(typeof value.title === "string" && { title: value.title }),
     ...(typeof value.transcriptPath === "string" && {

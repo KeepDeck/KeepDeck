@@ -7,7 +7,10 @@ import type {
   WorkspaceInstance,
   WorkspaceRef,
 } from "../workspaceInstance";
-import { appendPane, locationOf, removePane, type Pane } from "./panes";
+import { appendPane, removePane, type Pane } from "./panes";
+import { teamsOf } from "./teams/collection";
+import { normalizePath, teamOccupyingPath } from "./teams/lifecycle";
+import type { Team } from "./teams/model";
 
 /** What the create-workspace form submits: the spec a new workspace is
  * provisioned from. A workspace is born EMPTY, so nothing per-agent belongs
@@ -50,6 +53,10 @@ export interface Workspace {
    * the value stops meaning anything and stays on disk untouched. */
   extras?: Record<string, unknown>;
   panes: Pane[];
+  /** The teams running here — the objects; who is ON one is read off the
+   * panes, which hold the id. Sparse: a workspace with no teams carries no
+   * key, like `plugins`. Read through `teamsOf`. */
+  teams?: Team[];
 }
 
 /** Apply a pane transform to the workspace with `id`, leaving the rest as-is.
@@ -158,10 +165,16 @@ export interface GitPosition {
 }
 
 /**
- * The worktrees owned by a workspace's panes — just the one pane when `paneId`
- * is given (agent close), else every pane (workspace close). A cwd-fallback pane
- * (the main repo) has no worktree of its own, and a non-worktree workspace owns
- * nothing — an empty result is the signal that there's nothing to offer deleting.
+ * The worktrees a workspace's TEAMS hold — just the one team when `teamId`
+ * is given (a disband), else every team (a workspace close). A directory is
+ * a team's, never a pane's, so a member closing is never asked about one.
+ *
+ * A team on the workspace root holds no worktree of its own: the root is
+ * never a deletion target, structurally — a team there disbands without
+ * the offer. A team whose create is still out has no directory yet to
+ * name (the close flow covers it by its ticket), and a non-worktree
+ * workspace's teams all run in the root — an empty result is the signal
+ * that there's nothing to offer deleting.
  *
  * The directory is ALWAYS offered; only the NAMED branch varies with what's
  * known about the worktree's HEAD:
@@ -169,7 +182,7 @@ export interface GitPosition {
  * - runtime HEAD observed but DETACHED → none named (naming one would be
  *   ambiguous on a bare commit — the dir is not: skipping it, as this once
  *   did, stranded the directory on disk with the delete checkbox gone);
- * - HEAD not observed → the pane's durable owned branch, when it has one.
+ * - HEAD not observed → the team's durable owned branch, when it has one.
  *
  * Naming is only the explicit half: the delete flow additionally reaps
  * branches born in the worktree (`reapCreatedBranches`) — see
@@ -177,22 +190,26 @@ export interface GitPosition {
  */
 export function worktreeTargets(
   ws: Workspace,
-  paneId?: string,
+  teamId?: string,
   gitPositions?: ReadonlyMap<string, GitPosition>,
 ): WorktreeTarget[] {
-  const panes = paneId ? ws.panes.filter((p) => p.id === paneId) : ws.panes;
-  return panes.flatMap((p) => {
-    const location = locationOf(p);
-    if (location.kind !== "attached") return [];
-    const observed = gitPositions?.get(location.cwd);
-    return [
-      {
-        repo: ws.cwd,
-        path: location.cwd,
-        branch: observed ? observed.branch : location.branch,
-      },
-    ];
-  });
+  const root = normalizePath(ws.cwd);
+  return teamsOf(ws)
+    .filter((team) => teamId === undefined || team.id === teamId)
+    .flatMap((team) => {
+      const location = team.location;
+      if (location?.kind !== "attached" || normalizePath(location.cwd) === root) {
+        return [];
+      }
+      const observed = gitPositions?.get(location.cwd);
+      return [
+        {
+          repo: ws.cwd,
+          path: location.cwd,
+          branch: observed ? observed.branch : location.branch,
+        },
+      ];
+    });
 }
 
 /** Set (or, via `undefined`, delete) one plugin's opaque persisted slot in a
@@ -255,87 +272,29 @@ export function renameWorkspace(
 
 /** Set a pane's manual display name; an empty name clears it, reverting to the
  * auto title / derived label ([F11]). */
-/** A pane already running in a directory, and where it lives — the reason a
- * candidate worktree path can't take a second agent. */
-export interface PathOccupant {
-  ws: Workspace;
-  pane: Pane;
-  /** The pane's index in its workspace (feeds the display-title derivation). */
-  index: number;
-}
-
-/** Path spelling differences that don't change the directory: surrounding
- * whitespace and trailing slashes. NOT a canonicalizer (no fs access) — two
- * genuinely different spellings of one dir (symlinks, `..`) stay distinct. */
-function normalizePath(path: string): string {
-  const trimmed = path.trim();
-  const stripped = trimmed.replace(/\/+$/, "");
-  return stripped === "" ? trimmed : stripped;
-}
-
-/**
- * The pane already occupying `path`, or `null` when it's free. Scans EVERY
- * workspace's panes: a pane's worktree can live anywhere — `worktreeBaseDir`
- * is only a suggestion source, so workspace-level paths predict nothing.
- * Dormant panes count (they revive right back into their directory), and so
- * does a provisioning pane: it has no `cwd` yet but holds the target `path`
- * its create will land at.
- * This is what blocks the "+ Agent" dialog from attaching a second agent to a
- * worktree one pane already runs in (two agents in one dir stomp each other's
- * files and git state).
- */
-export function paneOccupyingPath(
-  workspaces: Workspace[],
-  path: string,
-): PathOccupant | null {
-  const wanted = normalizePath(path);
-  if (!wanted) return null;
-  for (const ws of workspaces) {
-    for (const [index, pane] of ws.panes.entries()) {
-      const held = heldPath(pane);
-      if (held && normalizePath(held) === wanted) return { ws, pane, index };
-    }
-  }
-  return null;
-}
-
-/** How a pane holds `path` — see [`Occupancy`]: a pane with a `cwd` RUNS in
- * the dir (so it provably is a live worktree), a provisioning intent merely
+/** How `path` is held — see [`Occupancy`]: a team with a `cwd` RUNS in the
+ * dir (so it provably is a live worktree), a provisioning intent merely
  * targets it. This distinction is what lets the agent dialog offer "attach
- * anyway" instantly, without waiting for a filesystem probe. */
+ * anyway" instantly, without waiting for a filesystem probe. One directory
+ * is one team's, so the team holding it is the whole answer. */
 export function pathOccupancy(
   workspaces: Workspace[],
   path: string,
 ): Occupancy {
-  const hit = paneOccupyingPath(workspaces, path);
-  if (!hit) return null;
-  return locationOf(hit.pane).kind === "attached" ? "worktree" : "provisioning";
-}
-
-/** The path a pane holds for occupancy: the directory it runs in, or the one
- * its create is heading for. A bare or remote pane holds none. */
-function heldPath(pane: Pane): string | undefined {
-  const location = locationOf(pane);
-  switch (location.kind) {
-    case "attached":
-      return location.cwd;
-    case "provisioning":
-      return location.intent.path;
-    case "main":
-    case "remote":
-      return undefined;
-  }
+  const team = teamOccupyingPath(workspaces, path);
+  if (!team) return null;
+  return team.team.location?.kind === "attached" ? "worktree" : "provisioning";
 }
 
 /** One worktree branch/folder name suggestion (mirrors the Rust
- * `WorktreeSuggestion`); `suggest` in [`firstFreeWorktree`] yields these per
+ * `WorktreeSuggestion`); `suggest` in [`firstFreeTeamWorktree`] yields these per
  * index, `null` when no suggestion could be produced. */
 export interface WorktreeNameSuggestion {
   branch: string;
   folder: string;
 }
 
-/** How many suggestion indices [`firstFreeWorktree`] tries before giving up.
+/** How many suggestion indices [`firstFreeTeamWorktree`] tries before giving up.
  * Occupied paths are bounded by the open pane count, so any real deck resolves
  * in a handful of steps — the cap only backstops a pathological `suggest`. */
 const MAX_SUGGESTION_TRIES = 100;
@@ -351,7 +310,7 @@ const MAX_SUGGESTION_TRIES = 100;
  * keeps the candidate — the dialog's live hint still guards the actual create.
  * `null` when `suggest` yields nothing or every try is taken.
  */
-export async function firstFreeWorktree(
+export async function firstFreeTeamWorktree(
   workspaces: Workspace[],
   baseDir: string,
   suggest: (index: number) => Promise<WorktreeNameSuggestion | null>,
@@ -363,7 +322,7 @@ export async function firstFreeWorktree(
     const s = await suggest(i);
     if (!s) return null;
     const path = `${base}/${s.folder}`;
-    if (paneOccupyingPath(workspaces, path)) continue;
+    if (teamOccupyingPath(workspaces, path)) continue;
     const p = probe ? await probe(path) : null;
     if (p && classifyLocation(path, p) === "blocked") continue;
     return { path, branch: s.branch };

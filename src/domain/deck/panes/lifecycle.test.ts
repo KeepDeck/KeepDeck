@@ -14,33 +14,41 @@ import {
   type Pane,
 } from ".";
 
+/** A workspace whose one team is still creating its directory, and that
+ * team's member: the pane's own record says nothing about the create. */
+const creating = {
+  teams: [
+    {
+      id: "team-1",
+      name: "making",
+      location: {
+        kind: "provisioning" as const,
+        intent: { repo: "/repo", path: "/wt/a", index: 1 },
+      },
+    },
+  ],
+};
+const creatingMember: Pane = { id: "p", team: { teamId: "team-1", role: "lead" } };
+
 describe("paneHasProcess", () => {
   it("false for every reason a pane has none, true only for a plain pane", () => {
-    expect(paneHasProcess({ id: "p" })).toBe(true);
+    expect(paneHasProcess({},{ id: "p" })).toBe(true);
     // Exited is still "has a process" to the model: the marker is runtime
     // state the durable shape deliberately doesn't carry.
-    expect(paneHasProcess({ id: "p", session: { id: "s", boundAt: "t" } })).toBe(
+    expect(paneHasProcess({},{ id: "p", session: { id: "s", boundAt: "t" } })).toBe(
       true,
     );
     // Every idle reason, including the one on its way UP — a rising pane has
     // no session YET, which is what the telemetry lanes need to know.
-    expect(paneHasProcess({ id: "p", idle: { reason: "parked" } })).toBe(false);
+    expect(paneHasProcess({},{ id: "p", idle: { reason: "parked" } })).toBe(false);
     expect(
-      paneHasProcess({ id: "p", idle: { reason: "suspended", at: "t" } }),
+      paneHasProcess({},{ id: "p", idle: { reason: "suspended", at: "t" } }),
     ).toBe(false);
     expect(
-      paneHasProcess({ id: "p", idle: { reason: "waking", origin: "manual" } }),
+      paneHasProcess({},{ id: "p", idle: { reason: "waking", origin: "manual" } }),
     ).toBe(false);
     // The half the limits poller used to drop: mid-create, never ran.
-    expect(
-      paneHasProcess({
-        id: "p",
-        location: {
-          kind: "provisioning",
-          intent: { repo: "/repo", path: "/wt/a", index: 1 },
-        },
-      }),
-    ).toBe(false);
+    expect(paneHasProcess(creating, creatingMember)).toBe(false);
   });
 });
 
@@ -49,18 +57,18 @@ describe("paneCanSuspend", () => {
     // Exit is runtime state the durable model doesn't carry, so an exited pane
     // is indistinguishable here — deliberately: parking a dead agent is
     // meaningful, its card just becomes the honest stopped one.
-    expect(paneCanSuspend({ id: "p" }, false)).toBe(true);
+    expect(paneCanSuspend({},{ id: "p" }, false)).toBe(true);
     expect(
-      paneCanSuspend({ id: "p", session: { id: "s", boundAt: "t" } }, false),
+      paneCanSuspend({},{ id: "p", session: { id: "s", boundAt: "t" } }, false),
     ).toBe(true);
   });
 
   it("false only for a pane already STAYING down", () => {
-    expect(paneCanSuspend({ id: "p", idle: { reason: "parked" } }, false)).toBe(
+    expect(paneCanSuspend({},{ id: "p", idle: { reason: "parked" } }, false)).toBe(
       false,
     );
     expect(
-      paneCanSuspend({ id: "p", idle: { reason: "suspended", at: "t" } }, false),
+      paneCanSuspend({},{ id: "p", idle: { reason: "suspended", at: "t" } }, false),
     ).toBe(false);
   });
 
@@ -68,13 +76,13 @@ describe("paneCanSuspend", () => {
     // Panes in a workspace the user isn't looking at stay `waking` until it is
     // activated; refusing them made those agents impossible to park.
     expect(
-      paneCanSuspend(
+      paneCanSuspend({},
         { id: "p", idle: { reason: "waking", origin: "restore" } },
         false,
       ),
     ).toBe(true);
     expect(
-      paneCanSuspend(
+      paneCanSuspend({},
         { id: "p", idle: { reason: "waking", origin: "manual" } },
         false,
       ),
@@ -82,31 +90,20 @@ describe("paneCanSuspend", () => {
   });
 
   it("names the reason it refuses, so every surface says the same thing", () => {
-    expect(paneSuspendBlock({ id: "p" }, false)).toBeNull();
-    expect(paneSuspendBlock({ id: "p", idle: { reason: "parked" } }, false)).toBe(
+    expect(paneSuspendBlock({},{ id: "p" }, false)).toBeNull();
+    expect(paneSuspendBlock({},{ id: "p", idle: { reason: "parked" } }, false)).toBe(
       "stopped",
     );
+    expect(paneSuspendBlock(creating, creatingMember, false)).toBe("provisioning");
     expect(
-      paneSuspendBlock(
-        {
-          id: "p",
-          location: {
-            kind: "provisioning",
-            intent: { repo: "/r", path: "/wt/a", index: 1 },
-          },
-        },
-        false,
-      ),
-    ).toBe("provisioning");
-    expect(
-      paneSuspendBlock(
+      paneSuspendBlock({},
         { id: "p", location: { kind: "remote", endpoint: "ws://vps:4500" } },
         false,
       ),
     ).toBe("remote");
     // Precedence matters: it decides which sentence the user reads.
     expect(
-      paneSuspendBlock(
+      paneSuspendBlock({},
         {
           id: "p",
           idle: { reason: "parked" },
@@ -125,40 +122,29 @@ describe("paneCanSuspend", () => {
       id: "p",
       idle: { reason: "waking", origin: "restore" },
     } as const;
-    expect(paneSuspendBlock(rising, false)).toBeNull();
-    expect(paneSuspendBlock(rising, true)).toBe("stopped");
+    expect(paneSuspendBlock({},rising, false)).toBeNull();
+    expect(paneSuspendBlock({},rising, true)).toBe("stopped");
     // A LIVE pane is never stopped by a stale entry: it has no idle marker,
     // and a running agent is not "already stopped" whatever the map says.
-    expect(paneSuspendBlock({ id: "p" }, true)).toBeNull();
+    expect(paneSuspendBlock({},{ id: "p" }, true)).toBeNull();
     // Already-down panes answer the same with or without a block — the
     // argument can only ADD a reason to refuse, never remove one.
     for (const idle of [
       { reason: "parked" },
       { reason: "suspended", at: "t" },
     ] as const) {
-      expect(paneSuspendBlock({ id: "p", idle }, false)).toBe("stopped");
-      expect(paneSuspendBlock({ id: "p", idle }, true)).toBe("stopped");
+      expect(paneSuspendBlock({},{ id: "p", idle }, false)).toBe("stopped");
+      expect(paneSuspendBlock({},{ id: "p", idle }, true)).toBe("stopped");
     }
   });
 
-  it("false while a worktree create is in flight — no process to stop", () => {
-    expect(
-      paneCanSuspend(
-        {
-          id: "p",
-          location: {
-            kind: "provisioning",
-            intent: { repo: "/r", path: "/wt/a", index: 1 },
-          },
-        },
-        false,
-      ),
-    ).toBe(false);
+  it("false while the team's worktree create is in flight — no process to stop", () => {
+    expect(paneCanSuspend(creating, creatingMember, false)).toBe(false);
   });
 
   it("false for a REMOTE pane — its conversation lives on the server", () => {
     expect(
-      paneCanSuspend({ id: "p", location: { kind: "remote", endpoint: "ws://vps:4500" } }, false),
+      paneCanSuspend({},{ id: "p", location: { kind: "remote", endpoint: "ws://vps:4500" } }, false),
     ).toBe(false);
   });
 });
@@ -261,34 +247,24 @@ describe("paneResumeSessionId", () => {
 
 describe("paneBlock — the head both ladders share", () => {
   it("answers nothing for an ordinary pane", () => {
-    expect(paneBlock({ id: "p1", agentType: "claude" }, true)).toBeNull();
+    expect(paneBlock({},{ id: "p1", agentType: "claude" }, true)).toBeNull();
   });
 
   it("puts provisioning first — nothing else can be acted on", () => {
     expect(
-      paneBlock(
-        {
-          id: "p1",
-          idle: { reason: "parked" },
-          location: {
-            kind: "provisioning",
-            intent: { repo: "/r", path: "/wt/a", index: 1 },
-          },
-        },
-        false,
-      ),
+      paneBlock(creating, { ...creatingMember, id: "p1", idle: { reason: "parked" } }, false),
     ).toEqual({ kind: "provisioning" });
   });
 
   it("names an absent agent over a stopped marker", () => {
     expect(
-      paneBlock({ id: "p1", agentType: "codex", idle: { reason: "parked" } }, false),
+      paneBlock({},{ id: "p1", agentType: "codex", idle: { reason: "parked" } }, false),
     ).toEqual({ kind: "agent-unavailable", agent: "codex" });
   });
 
   it("carries the idle marker WHOLE, so a caller can put it back", () => {
     const idle = { reason: "suspended", at: "2026-07-27T10:00:00.000Z" } as const;
-    expect(paneBlock({ id: "p1", idle }, true)).toEqual({
+    expect(paneBlock({},{ id: "p1", idle }, true)).toEqual({
       kind: "stopped",
       by: idle,
     });

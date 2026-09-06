@@ -32,7 +32,6 @@ const pane = (over: Partial<Workspace["panes"][number]> = {}) =>
   ({
     id: "pane-1",
     title: "support 1",
-    location: { kind: "attached", cwd: "/repo" },
     ...over,
   }) as Workspace["panes"][number];
 
@@ -46,10 +45,10 @@ const paneSource = (id = "pane-1"): CommandSource =>
 
 const anonymous: CommandSource = { kind: "external", client: "mcp" };
 
-function setup(panes: Workspace["panes"]) {
+function setup(panes: Workspace["panes"], teams?: Workspace["teams"]) {
   const registry = createCommandRegistry();
   const dispose = registerArtifactCommands(registry, {
-    deck: () => ({ workspaces: [ws(panes)] }),
+    deck: () => ({ workspaces: [{ ...ws(panes), ...(teams && { teams }) }] }),
     changed: () => {},
   });
   const run = async (
@@ -156,12 +155,18 @@ describe("registerArtifactCommands", () => {
     // rung-2 population.
     const provisioning: Workspace["panes"][number] = {
       ...pane({ id: "pane-bare" }),
-      location: {
-        kind: "provisioning",
-        intent: { repo: "/repo", path: "/repo/wt", index: 1 },
-      },
+      team: { teamId: "team-1", role: "lead" },
     };
-    const { run } = setup([provisioning]);
+    const { run } = setup(
+      [provisioning],
+      [
+        {
+          id: "team-1",
+          name: "making",
+          location: { kind: "provisioning", intent: { repo: "/repo", path: "/repo/wt", index: 1 } },
+        },
+      ],
+    );
     await expect(
       run(
         "artifact.publish",

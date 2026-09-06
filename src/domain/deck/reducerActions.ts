@@ -1,7 +1,8 @@
 import type { JournalRecords } from "../journal";
 import type { WorkspaceInstance } from "../workspaceInstance";
-import type { Pane, PaneSession, PaneTeam } from "./panes";
+import type { Pane, PaneSession } from "./panes";
 import type { DeckState } from "./reducer";
+import type { Team, TeamLocation } from "./teams/model";
 import type { Workspace } from "./workspaces";
 
 export type DeckAction =
@@ -16,16 +17,22 @@ export type DeckAction =
   | { type: "toggleMinimize"; wsId: string; paneId: string }
   | { type: "restoreSuspendedPane"; wsId: string; paneId: string }
   | { type: "selectPane"; wsId: string; paneId: string }
+  /** Drill into a team on the stage; the highlight lands on its members. */
+  | { type: "openTeam"; wsId: string; teamId: string }
+  /** Back to the workspace's team cards; nothing is highlighted there. */
+  | { type: "closeTeam"; wsId: string }
   | { type: "toggleDock"; wsId: string }
   | { type: "setDockTab"; wsId: string; tabId: string }
   | { type: "renamePane"; wsId: string; paneId: string; name: string }
   | { type: "setPaneAutoTitle"; wsId: string; paneId: string; title: string }
+  /** Settle a team's roster — its name and every member's role — as ONE
+   * change, so no address is ever held twice and a rename moves nobody. */
   | {
-      type: "setPaneTeam";
+      type: "settleRoster";
       wsId: string;
-      paneId: string;
-      /** Null takes the pane off its team. */
-      team: PaneTeam | null;
+      teamId: string;
+      name: string;
+      members: readonly { paneId: string; role: string }[];
     }
   | { type: "hydrate"; state: DeckState }
   | { type: "clearPaneIdle"; wsId: string; paneId: string }
@@ -39,7 +46,7 @@ export type DeckAction =
   | { type: "requestPaneWake"; wsId: string; paneId: string }
   | { type: "failPaneWake"; wsId: string; paneId: string }
   | { type: "parkPane"; wsId: string; paneId: string }
-  | { type: "resetPaneLocation"; wsId: string; paneId: string }
+  | { type: "resetPaneSession"; wsId: string; paneId: string }
   | {
       type: "setPaneSession";
       wsId: string;
@@ -49,19 +56,6 @@ export type DeckAction =
       at: string;
     }
   | {
-      type: "resolvePaneProvisioning";
-      wsId: string;
-      paneId: string;
-      cwd: string;
-      branch: string;
-    }
-  | {
-      type: "setPaneProvisioningError";
-      wsId: string;
-      paneId: string;
-      error: string | null;
-    }
-  | {
       type: "setWorkspacePluginSlot";
       wsId: string;
       workspaceInstance: WorkspaceInstance;
@@ -69,4 +63,18 @@ export type DeckAction =
       value: unknown;
     }
   | { type: "hydrateJournal"; records: JournalRecords; at: string }
-  | { type: "journalFlushed"; count: number };
+  | { type: "journalFlushed"; count: number }
+  // The team's life — see `teams/lifecycle`. Each is the transform's
+  // arguments and nothing more; the refusals live in the transform.
+  | { type: "createTeam"; wsId: string; team: Team & { location: TeamLocation } }
+  | {
+      type: "resolveTeamProvisioning";
+      wsId: string;
+      teamId: string;
+      cwd: string;
+      branch: string;
+    }
+  | { type: "setTeamProvisioningError"; wsId: string; teamId: string; error: string | null }
+  | { type: "renameTeam"; wsId: string; teamId: string; name: string }
+  | { type: "joinTeam"; wsId: string; paneId: string; teamId: string; role: string }
+  | { type: "dissolveTeam"; wsId: string; teamId: string };

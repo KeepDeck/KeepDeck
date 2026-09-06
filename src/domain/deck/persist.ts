@@ -1,16 +1,18 @@
 import { emptyJournal } from "../journal";
 import type { DeckState, WorkspaceView } from "./reducer";
-import type { Pane, PaneIdle, PlacementFields, WorktreeIntent } from "./panes";
-import {
-  locationOf,
-  paneIdleIsDurable,
-  placementFromFields,
-  placementToFields,
-  provisioningCard,
-  resolveFocus,
-} from "./panes";
+import type { Pane, PaneIdle, WorktreeIntent } from "./panes";
+import { paneIdleIsDurable, resolveFocus } from "./panes";
 import type { Workspace } from "./workspaces";
 import { resolveActiveId, workspaceIdsAreUnique } from "./workspaces";
+import {
+  findTeam,
+  placementFromFields,
+  placementToFields,
+  teamsOf,
+  type PlacementFields,
+  type Team,
+  type TeamLocation,
+} from "./teams";
 import { nextIdSequence } from "../idSequence";
 import { collectExtras, isRecord } from "../json";
 import { createWorkspaceInstance } from "../workspaceInstance";
@@ -55,6 +57,10 @@ export interface HydratedDeck {
   /** Unknown top-level keys of the stored document (a newer revision's
    * fields) — handed back to `serializeDeck` so saves never strip them. */
   docExtras: Record<string, unknown>;
+  /** What the migration ladder did to the document that the person should
+   * hear about once — a team dissolved, a role re-minted. Consumed: shown
+   * by the app on this launch and never written back. */
+  notices: readonly string[];
 }
 
 /** How reading the stored deck ended. `corrupt` quarantines (evidence kept,
@@ -70,17 +76,21 @@ export type HydrateDeckResult =
  * decision rather than this launch's circumstances; the session binding is
  * kept — it's the resume key. The unified
  * `viewByWs` persists only its durable half — the `focusByWs`/`selectByWs`
- * maps the on-disk schema has always had; `dock`/`dockTab` are session-only
- * and never written, so every launch starts with the dock closed. */
+ * maps the on-disk schema has always had, and `teamOpenByWs`, the team the
+ * stage had open, so a launch returns the person where they were;
+ * `dock`/`dockTab` are session-only and never written, so every launch
+ * starts with the dock closed. */
 export function serializeDeck(
   state: DeckState,
   docExtras: Record<string, unknown> = {},
 ): string {
   const focusByWs: Record<string, string> = {};
   const selectByWs: Record<string, string> = {};
+  const teamOpenByWs: Record<string, string> = {};
   for (const [wsId, view] of Object.entries(state.viewByWs)) {
     if (view.focus !== undefined) focusByWs[wsId] = view.focus;
     if (view.select !== undefined) selectByWs[wsId] = view.select;
+    if (view.teamOpen !== undefined) teamOpenByWs[wsId] = view.teamOpen;
   }
   // Extras spread FIRST at every level, so the keys this build owns always
   // win — a newer revision's fields ride along, never override.
@@ -91,7 +101,19 @@ export function serializeDeck(
     activeId: state.activeId,
     focusByWs,
     selectByWs,
-    workspaces: state.workspaces.map((ws) => ({
+    teamOpenByWs,
+    workspaces: state.workspaces.map((ws) => {
+      // A fork's card is dropped while still in flight — the team AND its
+      // members: its store surgery is an in-memory post-provision step that
+      // can't survive a restart, so restoring the card would Retry into a
+      // non-fork team (the fork silently lost). The user re-forks from the
+      // journal; a RESOLVED fork team has no card and persists normally.
+      const forking = new Set(
+        (ws.teams ?? [])
+          .filter((team) => team.location?.kind === "provisioning" && team.location.fork)
+          .map((team) => team.id),
+      );
+      return {
       ...ws.extras,
       id: ws.id,
       name: ws.name,
@@ -100,49 +122,60 @@ export function serializeDeck(
       // Sparse: an empty bag (the last slot just got deleted) never hits disk.
       ...(ws.plugins !== undefined &&
         Object.keys(ws.plugins).length > 0 && { plugins: ws.plugins }),
-      // A fork's provisioning card is dropped while still in flight: its store
-      // surgery is an in-memory post-provision step that can't survive a
-      // restart, so restoring the card would Retry into a non-fork pane (the
-      // fork silently lost). The user re-forks from the journal; a RESOLVED
-      // fork pane has no `provisioning` and persists normally.
+      // The team objects, sparse like the field: a workspace with none writes
+      // no key. A team's placement goes to disk as the two fields a pane's
+      // did — the directory and branch, or the create's intent alone (its
+      // status is this run's; hydration stamps its own).
+      ...(ws.teams !== undefined &&
+        ws.teams.some((team) => !forking.has(team.id)) && {
+          teams: ws.teams.filter((team) => !forking.has(team.id)).map((team) => {
+            const placement = team.location ? placementToFields(team.location) : {};
+            return {
+              ...team.extras,
+              id: team.id,
+              name: team.name,
+              ...(placement.cwd !== undefined && { cwd: placement.cwd }),
+              ...(placement.branch !== undefined && { branch: placement.branch }),
+              ...(placement.provisioning !== undefined && {
+                provisioning: placement.provisioning,
+              }),
+            };
+          }),
+        }),
+      // A fork card's members go with the card, for the same reason.
       panes: ws.panes
-        .filter((p) => !provisioningCard(p)?.fork)
+        .filter((p) => !(p.team && forking.has(p.team.teamId)))
         .map((p) => {
-          // The location goes to disk as the four fields it replaced, in the
-          // slots they always held — so a document a pane round-trips
-          // through is the document it came from, byte for byte.
-          const placement = placementToFields(locationOf(p));
+          // Membership goes to disk by ID. A pane whose id names no team
+          // here is written as on no team: a membership nobody can resolve
+          // is not one worth keeping, and the reader would drop it anyway.
+          const team =
+            p.team !== undefined && findTeam(ws, p.team.teamId) ? p.team : undefined;
           return {
           ...p.extras,
           id: p.id,
           ...(p.agentType !== undefined && { agentType: p.agentType }),
           // Sparse: only the armed mode hits disk.
           ...(p.yolo === true && { yolo: true }),
-          ...(placement.remoteEndpoint !== undefined && {
-            remoteEndpoint: placement.remoteEndpoint,
-          }),
-          ...(placement.cwd !== undefined && { cwd: placement.cwd }),
-          ...(placement.branch !== undefined && { branch: placement.branch }),
+          // The pane's own placement is a remote endpoint or nothing: its
+          // directory is its team's, written on the team above.
+          ...(p.location !== undefined && { remoteEndpoint: p.location.endpoint }),
           ...(p.name !== undefined && { name: p.name }),
           ...(p.autoTitle !== undefined && { autoTitle: p.autoTitle }),
           // A team describes a piece of work in progress, so it outlives a
           // restart: a deck that came back with everyone anonymous would
           // have silently disbanded a team nobody dismissed, and the roles
           // teammates address each other by would be gone with it.
-          ...(p.team !== undefined && { team: p.team }),
+          ...(team !== undefined && { team }),
           ...(p.session !== undefined && { session: p.session }),
           // Sparse, and only the durable reason: `waking`/`parked` describe
           // a launch, so writing them would make every ordinary restart look
           // like a deliberate suspend on the NEXT one.
           ...(paneIdleIsDurable(p.idle) && { idle: p.idle }),
-          // The intent only — the unfold keeps a card's status back, and
-          // hydration stamps its own ("interrupted") on whatever comes back.
-          ...(placement.provisioning !== undefined && {
-            provisioning: placement.provisioning,
-          }),
           };
         }),
-    })),
+      };
+    }),
   };
   return JSON.stringify(persisted);
 }
@@ -219,7 +252,23 @@ export function hydrateDeck(json: string): HydrateDeckResult {
     typeof raw.activeId === "string" ? raw.activeId : "",
   );
 
-  // Reassemble the unified per-workspace view from the two flat on-disk maps.
+  // The team the stage had open must still be one the workspace has; a
+  // stale id reads as the cards level rather than as an open nothing.
+  const teamIdsByWs = new Map(
+    workspaces.map((w) => [w.id, new Set(teamsOf(w).map((team) => team.id))]),
+  );
+  const readTeamOpen = (value: unknown): Record<string, string> => {
+    if (!isRecord(value)) return {};
+    const out: Record<string, string> = {};
+    for (const [wsId, teamId] of Object.entries(value)) {
+      if (typeof teamId === "string" && teamIdsByWs.get(wsId)?.has(teamId)) {
+        out[wsId] = teamId;
+      }
+    }
+    return out;
+  };
+
+  // Reassemble the unified per-workspace view from the flat on-disk maps.
   // `dock`/`dockTab` are session-only by decision — never stored, so every
   // launch starts with the dock closed on its default tab.
   const viewByWs: Record<string, WorkspaceView> = {};
@@ -228,6 +277,9 @@ export function hydrateDeck(json: string): HydrateDeckResult {
   }
   for (const [wsId, paneId] of Object.entries(readFocus(raw.focusByWs))) {
     viewByWs[wsId] = { ...viewByWs[wsId], focus: paneId };
+  }
+  for (const [wsId, teamId] of Object.entries(readTeamOpen(raw.teamOpenByWs))) {
+    viewByWs[wsId] = { ...viewByWs[wsId], teamOpen: teamId };
   }
 
   return {
@@ -243,6 +295,9 @@ export function hydrateDeck(json: string): HydrateDeckResult {
       },
       nextAgentSeq,
       docExtras: collectExtras(raw, DOC_KNOWN_KEYS),
+      notices: Array.isArray(raw.migrationNotices)
+        ? raw.migrationNotices.filter((note): note is string => typeof note === "string")
+        : [],
     },
   };
 }
@@ -254,7 +309,11 @@ const DOC_KNOWN_KEYS: ReadonlySet<string> = new Set([
   "activeId",
   "focusByWs",
   "selectByWs",
+  "teamOpenByWs",
   "workspaces",
+  // The ladder's one-time word to the person — consumed on read, never an
+  // extra, so it cannot be announced again on the next launch.
+  "migrationNotices",
 ]);
 
 const WS_KNOWN_KEYS: ReadonlySet<string> = new Set([
@@ -270,7 +329,16 @@ const WS_KNOWN_KEYS: ReadonlySet<string> = new Set([
   // routes an older document's value into `extras`, so it survives every save
   // round-trip verbatim instead of being dropped from the user's file.
   "plugins",
+  "teams",
   "panes",
+]);
+
+const TEAM_KNOWN_KEYS: ReadonlySet<string> = new Set([
+  "id",
+  "name",
+  "cwd",
+  "branch",
+  "provisioning",
 ]);
 
 const PANE_KNOWN_KEYS: ReadonlySet<string> = new Set([
@@ -278,13 +346,15 @@ const PANE_KNOWN_KEYS: ReadonlySet<string> = new Set([
   "agentType",
   "yolo",
   "remoteEndpoint",
-  "cwd",
-  "branch",
   "name",
   "autoTitle",
   "team",
   "session",
   "idle",
+  // The directory fields a pane USED to carry: known so a stale copy in a
+  // hand-edited document is dropped rather than carried as an extra forever.
+  "cwd",
+  "branch",
   "provisioning",
 ]);
 
@@ -297,17 +367,37 @@ function readWorkspace(value: unknown): Workspace | null {
     return null;
   if (worktreeBaseDir !== null && typeof worktreeBaseDir !== "string") return null;
   if (!Array.isArray(value.panes)) return null;
-  // Every creation path clamps to MAX_PANES and the grid renderer throws past
-  // it — an oversized (hand-edited) pane list is an unusable document, so it
-  // quarantines like any other malformed shape instead of blanking the app on
-  // every launch.
-  if (value.panes.length > MAX_PANES) return null;
+  if (value.teams !== undefined && !Array.isArray(value.teams)) return null;
+
+  // Teams first: a pane's membership names one by id, and an id that names
+  // no team here reads as no membership.
+  const teams: Team[] = [];
+  const teamIds = new Set<string>();
+  for (const t of value.teams ?? []) {
+    const team = readTeam(t);
+    if (!team || teamIds.has(team.id)) return null;
+    teamIds.add(team.id);
+    teams.push(team);
+  }
 
   const panes: Pane[] = [];
   for (const p of value.panes) {
-    const pane = readPane(p);
+    const pane = readPane(p, teamIds);
     if (!pane) return null;
     panes.push(pane);
+  }
+  // Every creation path clamps a TEAM to MAX_PANES and the grid renderer
+  // throws past it — the grid is the team's. An oversized (hand-edited)
+  // roster, or an oversized pool of panes on no team, is an unusable
+  // document, so it quarantines like any other malformed shape instead of
+  // blanking the app on every launch.
+  const rosterSizes = new Map<string, number>();
+  for (const pane of panes) {
+    const key = pane.team?.teamId ?? "";
+    rosterSizes.set(key, (rosterSizes.get(key) ?? 0) + 1);
+  }
+  for (const size of rosterSizes.values()) {
+    if (size > MAX_PANES) return null;
   }
   const ws: Workspace = {
     id,
@@ -316,6 +406,7 @@ function readWorkspace(value: unknown): Workspace | null {
     cwd,
     worktreeBaseDir,
     panes,
+    ...(teams.length > 0 && { teams }),
   };
   // Parsed unconditionally, like `run` — a plugin's slot must survive a
   // load-and-save even while the plugin system experiment is off.
@@ -326,7 +417,45 @@ function readWorkspace(value: unknown): Workspace | null {
   return ws;
 }
 
-function readPane(value: unknown): Pane | null {
+/** One team as the document spells it. `id` and a non-blank `name` are
+ * required; the placement is read from the same two fields a pane's was and
+ * folded by the same rule, of which only a directory or a create in flight
+ * is a team's — anything else (a branch alone, a remote endpoint) leaves the
+ * team without a placement, which is what a roster-only team is. A create in
+ * flight comes back as the failed card, like a pane's: the app quit mid-
+ * create, and Retry is the honest offer. */
+function readTeam(value: unknown): Team | null {
+  if (!isRecord(value)) return null;
+  if (typeof value.id !== "string" || !value.id) return null;
+  if (typeof value.name !== "string") return null;
+  const name = value.name.trim();
+  if (!name) return null;
+  const team: Team = { id: value.id, name };
+  const placement: PlacementFields = {};
+  if (typeof value.cwd === "string") placement.cwd = value.cwd;
+  if (typeof value.branch === "string") placement.branch = value.branch;
+  const provisioning = readProvisioning(value.provisioning);
+  if (provisioning) placement.provisioning = provisioning;
+  const location = placementFromFields(placement);
+  if (location?.kind === "attached") {
+    team.location = location;
+  } else if (location?.kind === "provisioning") {
+    // The app quit mid-create: come back as the failed card — the intent
+    // powers Retry, and no member mounts a terminal into a directory that
+    // may not exist.
+    team.location = { ...location, error: PROVISIONING_INTERRUPTED } satisfies TeamLocation;
+  }
+  const extras = collectExtras(value, TEAM_KNOWN_KEYS);
+  if (Object.keys(extras).length > 0) team.extras = extras;
+  return team;
+}
+
+function readPane(
+  value: unknown,
+  /** The ids of the workspace's teams: a membership naming any other id is
+   * read as no membership, never as a member of nothing. */
+  teamIds: ReadonlySet<string>,
+): Pane | null {
   if (!isRecord(value)) return null;
   if (typeof value.id !== "string") return null;
   const pane: Pane = { id: value.id, idle: readIdle(value.idle) };
@@ -341,27 +470,26 @@ function readPane(value: unknown): Pane | null {
   // Strictly `true` — any other value degrades to the safe default (off),
   // matching the sparse write above.
   if (value.yolo === true) pane.yolo = true;
-  // The four placement fields are read as written and folded into ONE
-  // location below, once the card is known — the fold's own rule settles a
-  // document that holds combinations the model cannot.
-  const placement: PlacementFields = {};
-  if (typeof value.remoteEndpoint === "string") placement.remoteEndpoint = value.remoteEndpoint;
-  if (typeof value.cwd === "string") placement.cwd = value.cwd;
-  if (typeof value.branch === "string") placement.branch = value.branch;
+  // The pane's own placement: a truthy endpoint makes it remote, whatever
+  // else the document says. Truthy rather than present, matching the
+  // predicate this replaced: an empty endpoint is the non-remote degenerate
+  // case. A directory written on a pane is not read — the directory is the
+  // team's, and a document from before that only carries a stale copy.
+  if (typeof value.remoteEndpoint === "string" && value.remoteEndpoint) {
+    pane.location = { kind: "remote", endpoint: value.remoteEndpoint };
+  }
   if (typeof value.name === "string") pane.name = value.name;
   if (typeof value.autoTitle === "string") pane.autoTitle = value.autoTitle;
   // BOTH halves or neither: a role with no team cannot be addressed and a
   // team with no role gives its holder no name, so a half-written entry is
-  // read as no membership rather than as a member nobody can reach. Trimmed
-  // on the way in, as planTeam trims on the way out: a hand-edited " api "
-  // is the team called "api" to every reader, and a name that is only space
-  // is no name. The trimmed form is what is stored, so the next save writes
-  // it — a document holding " api " beside "api" comes back as one team.
+  // read as no membership rather than as a member nobody can reach — and so
+  // is an id that names no team this workspace holds. The role is trimmed
+  // on the way in, as planTeam trims on the way out, and a role that is only
+  // space is no role.
   const team = value.team;
-  if (isRecord(team) && typeof team.name === "string" && typeof team.role === "string") {
-    const name = team.name.trim();
+  if (isRecord(team) && typeof team.teamId === "string" && typeof team.role === "string") {
     const role = team.role.trim();
-    if (name && role) pane.team = { name, role };
+    if (teamIds.has(team.teamId) && role) pane.team = { teamId: team.teamId, role };
   }
   const session = value.session;
   if (
@@ -370,19 +498,6 @@ function readPane(value: unknown): Pane | null {
     typeof session.boundAt === "string"
   ) {
     pane.session = { id: session.id, boundAt: session.boundAt };
-  }
-  const provisioning = readProvisioning(value.provisioning);
-  if (provisioning) placement.provisioning = provisioning;
-  const location = placementFromFields(placement);
-  if (location.kind === "provisioning") {
-    // The app quit mid-create: come back as the failed card — the intent
-    // powers Retry, and the pane must NOT be idle or the revive flow would
-    // spawn a terminal into a directory that may not exist.
-    delete pane.idle;
-    pane.location = { ...location, error: PROVISIONING_INTERRUPTED };
-  } else if (location.kind !== "main" || location.branch !== undefined) {
-    // A plain main pane stays sparse: no key, like the fields it replaced.
-    pane.location = location;
   }
   const extras = collectExtras(value, PANE_KNOWN_KEYS);
   if (Object.keys(extras).length > 0) pane.extras = extras;

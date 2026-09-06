@@ -1,5 +1,4 @@
 // @vitest-environment happy-dom
-import { provisioningCard } from "../../domain/deck";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -28,6 +27,7 @@ import type {
   SpawnPluginAccess,
   WorkspaceCreationResult,
 } from "./testSupport";
+import type { TeamLocation, Workspace } from "../../domain/deck";
 
 describe("agent orchestrator —what resume answers", () => {
   let root: Root;
@@ -52,7 +52,7 @@ describe("agent orchestrator —what resume answers", () => {
     act(() => root.unmount());
   });
 
-  const only = (pane: object) =>
+  const only = (pane: object, teams?: Workspace["teams"]) =>
     act(() =>
       deck.createWorkspace({
         id: "ws-1",
@@ -61,6 +61,7 @@ describe("agent orchestrator —what resume answers", () => {
         cwd: "/repo",
         worktreeBaseDir: null,
         panes: [{ id: "pane-1", agentType: "claude", ...pane }],
+        ...(teams && { teams }),
       }),
     );
 
@@ -74,12 +75,13 @@ describe("agent orchestrator —what resume answers", () => {
   it("tells a pane mid-create apart from a running one", async () => {
     // Its own doc: telling the user a pane mid-create is already running is
     // simply false — it has never run, so there is no session to come back to.
-    only({
-      location: {
-        kind: "provisioning",
-        intent: { repo: "/repo", path: "/wt/a", index: 1 },
+    only({ team: { teamId: "team-1", role: "lead" } }, [
+      {
+        id: "team-1",
+        name: "a",
+        location: { kind: "provisioning", intent: { repo: "/repo", path: "/wt/a", index: 1 } },
       },
-    });
+    ]);
     await settle();
     expect(agentRun.resume("ws-1", "pane-1")).toBe("provisioning");
   });
@@ -132,14 +134,12 @@ describe("agent orchestrator —a new pane arriving", () => {
     viewByWs: {},
   });
 
-  const card = (over: object = {}): Pane => ({
-    id: "pane-9",
-    agentType: "claude",
-    location: {
-      kind: "provisioning",
-      intent: { repo: "/repo", path: "/wt/a", index: 1 },
-    },
-    ...over,
+  /** The pane every request here asks with. */
+  const plain = (): Pane => ({ id: "pane-9", agentType: "claude" });
+  /** The directory it asks for: a worktree still to be created. */
+  const card = (): TeamLocation => ({
+    kind: "provisioning",
+    intent: { repo: "/repo", path: "/wt/a", index: 1 },
   });
 
   it("lands a plain pane and leaves the worktree runner alone", async () => {
@@ -151,8 +151,14 @@ describe("agent orchestrator —a new pane arriving", () => {
         pane: { id: "pane-9", agentType: "claude" },
       });
     });
-    expect(outcome).toEqual({ kind: "created" });
+    expect(outcome).toEqual({ kind: "created", teamId: "team-1" });
     expect(deck.workspaces[0].panes.map((p) => p.id)).toEqual(["pane-9"]);
+    // A plain pane runs in the root — a directory like any other, so the
+    // root's team is minted for it, attached to the workspace cwd.
+    expect(deck.workspaces[0].teams).toEqual([
+      { id: "team-1", name: "Team 1", location: { kind: "attached", cwd: "/repo" } },
+    ]);
+    expect(deck.workspaces[0].panes[0].team).toEqual({ teamId: "team-1", role: "lead" });
     expect(provisions).toEqual([]);
   });
 
@@ -161,11 +167,19 @@ describe("agent orchestrator —a new pane arriving", () => {
     await act(async () => {
       agentRun.createPane({
         workspace: { id: "ws-1", instance: instance() },
-        pane: card(),
+        pane: plain(),
+        placement: card(),
       });
     });
+    // The create is the TEAM's: the card's owner is the team minted for the
+    // directory, and the pane lands without a placement of its own.
     expect(provisions).toHaveLength(1);
-    expect(provisions[0].map((p) => p.id)).toEqual(["pane-9"]);
+    expect(provisions[0].map((request) => request.ownerId)).toEqual(["team-1"]);
+    expect(deck.workspaces[0].teams?.[0].location).toEqual({
+      kind: "provisioning",
+      intent: { repo: "/repo", path: "/wt/a", index: 1 },
+    });
+    expect(deck.workspaces[0].panes[0].location).toBeUndefined();
   });
 
   it("issues the create under the workspace's name, read from the deck as it lands", async () => {
@@ -176,7 +190,8 @@ describe("agent orchestrator —a new pane arriving", () => {
     await act(async () => {
       agentRun.createPane({
         workspace: { id: "ws-1", instance: instance() },
-        pane: card(),
+        pane: plain(),
+        placement: card(),
       });
     });
     expect(provisionedAs).toEqual(["renamed"]);
@@ -194,7 +209,8 @@ describe("agent orchestrator —a new pane arriving", () => {
     await act(async () => {
       outcome = agentRun.createPane({
         workspace: { id: "ws-1", instance: stale },
-        pane: card(),
+        pane: plain(),
+        placement: card(),
       });
     });
     expect(outcome).toEqual({ kind: "gone" });
@@ -203,29 +219,167 @@ describe("agent orchestrator —a new pane arriving", () => {
     expect(provisions).toEqual([]);
   });
 
-  it("refuses a full workspace rather than provisioning an ownerless worktree", async () => {
-    // The add is a silent no-op once the workspace is full. Kicking the
-    // create off anyway would leave a git worktree on disk with no pane to
-    // own it, and nothing that would ever clean it up.
+  it("refuses a full TEAM rather than landing a seventeenth member on it", async () => {
+    // The cap is the team's, not the workspace's: a request for a directory
+    // whose team is full is refused whole — no pane, and no create issued
+    // for a worktree nobody would own.
+    const members: Pane[] = Array.from({ length: MAX_PANES }, (_, i) => ({
+      id: `pane-${i + 1}`,
+      agentType: "claude" as const,
+      team: { teamId: "team-1", role: `impl-${i + 1}` },
+    }));
+    const base = seed(members);
     act(() =>
-      deck.hydrate(
-        seed(
-          Array.from({ length: MAX_PANES }, (_, i) => ({
-            id: `pane-${i + 1}`,
-            agentType: "claude" as const,
-          })),
-        ),
-      ),
+      deck.hydrate({
+        ...base,
+        workspaces: [
+          {
+            ...base.workspaces[0],
+            teams: [{ id: "team-1", name: "api", location: { kind: "attached", cwd: "/wt/a" } }],
+          },
+        ],
+      }),
     );
     let outcome;
     await act(async () => {
       outcome = agentRun.createPane({
         workspace: { id: "ws-1", instance: instance() },
-        pane: card(),
+        pane: plain(),
+        placement: { kind: "attached", cwd: "/wt/a" },
       });
     });
     expect(outcome).toEqual({ kind: "full" });
     expect(deck.workspaces[0].panes).toHaveLength(MAX_PANES);
+    expect(deck.workspaces[0].teams).toHaveLength(1);
+    expect(provisions).toEqual([]);
+  });
+
+  it("refuses a CREATE heading for a directory a team here already holds — a worktree cannot be made where one is", async () => {
+    const base = seed([{ id: "pane-1", agentType: "claude", team: { teamId: "team-1", role: "lead" } }]);
+    act(() =>
+      deck.hydrate({
+        ...base,
+        workspaces: [
+          {
+            ...base.workspaces[0],
+            teams: [{ id: "team-1", name: "api", location: { kind: "attached", cwd: "/wt/a" } }],
+          },
+        ],
+      }),
+    );
+    let outcome;
+    await act(async () => {
+      outcome = agentRun.createPane({
+        workspace: { id: "ws-1", instance: instance() },
+        pane: plain(),
+        placement: card(),
+      });
+    });
+    expect(outcome).toEqual({ kind: "held" });
+    expect(deck.workspaces[0].panes).toHaveLength(1);
+    expect(provisions).toEqual([]);
+  });
+
+  it("lands a seventeenth pane in a workspace whose team still has room — the cap is per team", async () => {
+    // Sixteen panes in the workspace, spread over two teams of eight: the
+    // workspace is not what is full, and a request for a directory whose
+    // team has room lands.
+    const members: Pane[] = Array.from({ length: MAX_PANES }, (_, i) => ({
+      id: `pane-${i + 1}`,
+      agentType: "claude" as const,
+      team: { teamId: i < 8 ? "team-1" : "team-2", role: `impl-${i + 1}` },
+    }));
+    const base = seed(members);
+    act(() =>
+      deck.hydrate({
+        ...base,
+        workspaces: [
+          {
+            ...base.workspaces[0],
+            teams: [
+              { id: "team-1", name: "a", location: { kind: "attached", cwd: "/wt/a" } },
+              { id: "team-2", name: "b", location: { kind: "attached", cwd: "/wt/b" } },
+            ],
+          },
+        ],
+      }),
+    );
+    let outcome;
+    await act(async () => {
+      outcome = agentRun.createPane({
+        workspace: { id: "ws-1", instance: instance() },
+        pane: plain(),
+        placement: { kind: "attached", cwd: "/wt/a" },
+      });
+    });
+    expect(outcome).toEqual({ kind: "created", teamId: "team-1" });
+    expect(deck.workspaces[0].panes).toHaveLength(MAX_PANES + 1);
+    expect(deck.workspaces[0].panes[MAX_PANES]?.team).toMatchObject({ teamId: "team-1" });
+  });
+
+  it("lands a plain pane in the root of a second workspace on the same repository — a root team of its own", async () => {
+    const base = seed();
+    act(() =>
+      deck.hydrate({
+        ...base,
+        workspaces: [
+          base.workspaces[0],
+          {
+            id: "ws-2",
+            instance: createWorkspaceInstance(),
+            name: "other",
+            cwd: "/repo",
+            worktreeBaseDir: null,
+            panes: [{ id: "pane-2", agentType: "claude", team: { teamId: "team-1", role: "lead" } }],
+            teams: [{ id: "team-1", name: "root", location: { kind: "attached", cwd: "/repo" } }],
+          },
+        ],
+      }),
+    );
+    let outcome;
+    await act(async () => {
+      outcome = agentRun.createPane({
+        workspace: { id: "ws-1", instance: instance() },
+        pane: plain(),
+      });
+    });
+    expect(outcome).toEqual({ kind: "created", teamId: "team-2" });
+    expect(deck.workspaces[0].teams).toEqual([
+      { id: "team-2", name: "Team 2", location: { kind: "attached", cwd: "/repo" } },
+    ]);
+    expect(deck.workspaces[0].panes[0].team).toEqual({ teamId: "team-2", role: "lead" });
+  });
+
+  it("refuses a directory another workspace's team holds — a team never spans workspaces", async () => {
+    const base = seed();
+    act(() =>
+      deck.hydrate({
+        ...base,
+        workspaces: [
+          base.workspaces[0],
+          {
+            id: "ws-2",
+            instance: createWorkspaceInstance(),
+            name: "other",
+            cwd: "/other",
+            worktreeBaseDir: "/wt",
+            panes: [{ id: "pane-2", agentType: "claude", team: { teamId: "team-1", role: "lead" } }],
+            teams: [{ id: "team-1", name: "api", location: { kind: "attached", cwd: "/wt/a" } }],
+          },
+        ],
+      }),
+    );
+    let outcome;
+    await act(async () => {
+      outcome = agentRun.createPane({
+        workspace: { id: "ws-1", instance: instance() },
+        pane: plain(),
+        placement: card(),
+      });
+    });
+    expect(outcome).toEqual({ kind: "held" });
+    expect(deck.workspaces[0].panes).toEqual([]);
+    expect(deck.workspaces[0].teams ?? []).toEqual([]);
     expect(provisions).toEqual([]);
   });
 
@@ -250,7 +404,8 @@ describe("agent orchestrator —a new pane arriving", () => {
     await act(async () => {
       agentRun.createPane({
         workspace: { id: "ws-1", instance: stale },
-        pane: card(),
+        pane: plain(),
+        placement: card(),
       });
     });
     expect(peekPaneSpawnSpec("pane-9")).toBeUndefined();
@@ -410,7 +565,7 @@ describe("agent orchestrator —retrying a failed worktree create", () => {
     act(() => root.unmount());
   });
 
-  /** A workspace with one FAILED provisioning card. */
+  /** A workspace with one team whose create FAILED, and its one member. */
   const failedCard = (intent: object) =>
     act(() =>
       deck.createWorkspace({
@@ -419,10 +574,11 @@ describe("agent orchestrator —retrying a failed worktree create", () => {
         name: "ws-1",
         cwd: "/repo",
         worktreeBaseDir: null,
-        panes: [
+        panes: [{ id: "pane-1", agentType: "claude", team: { teamId: "team-1", role: "lead" } }],
+        teams: [
           {
-            id: "pane-1",
-            agentType: "claude",
+            id: "team-1",
+            name: "x",
             location: {
               kind: "provisioning",
               intent: { repo: "/repo", path: "/repo-wt/x", index: 1, ...intent },
@@ -432,12 +588,17 @@ describe("agent orchestrator —retrying a failed worktree create", () => {
         ],
       }),
     );
+  const teamCard = () => {
+    const location = deck.workspaces[0].teams?.[0]?.location;
+    return location?.kind === "provisioning" ? location : undefined;
+  };
 
   it("clears the error before re-issuing, so the card goes back to creating", () => {
     failedCard({ path: "/repo-wt/x", branch: "kd/x" });
-    act(() => agentRun.retryProvisioning("ws-1", "pane-1"));
-    expect(provisioningCard(deck.workspaces[0].panes[0])?.error).toBeUndefined();
+    act(() => agentRun.retryProvisioning("ws-1", "team-1"));
+    expect(teamCard()?.error).toBeUndefined();
     expect(provisions).toHaveLength(1);
+    expect(provisions[0]?.[0]?.ownerId).toBe("team-1");
   });
 
   it("issues the Retry under the name the workspace has NOW, not the one the card was born with", () => {
@@ -447,11 +608,13 @@ describe("agent orchestrator —retrying a failed worktree create", () => {
     // after a workspace that no longer exists by that name.
     failedCard({ path: "/repo-wt/x" });
     act(() => deck.renameWorkspace("ws-1", "renamed"));
-    act(() => agentRun.retryProvisioning("ws-1", "pane-1"));
+    act(() => agentRun.retryProvisioning("ws-1", "team-1"));
     expect(provisionedAs).toEqual(["renamed"]);
   });
 
-  it("ignores a pane with no create intent, and one that is not there", () => {
+  it("ignores a Retry on a card that is still creating — two clicks are one create", () => {
+    // No error on the card means the create is still out; re-issuing it
+    // would start a second create for one directory.
     act(() =>
       deck.createWorkspace({
         id: "ws-1",
@@ -459,11 +622,155 @@ describe("agent orchestrator —retrying a failed worktree create", () => {
         name: "ws-1",
         cwd: "/repo",
         worktreeBaseDir: null,
-        panes: [{ id: "pane-1", agentType: "claude" }],
+        panes: [{ id: "pane-1", agentType: "claude", team: { teamId: "team-1", role: "lead" } }],
+        teams: [
+          {
+            id: "team-1",
+            name: "x",
+            location: {
+              kind: "provisioning",
+              intent: { repo: "/repo", path: "/repo-wt/x", index: 1 },
+            },
+          },
+        ],
       }),
     );
-    act(() => agentRun.retryProvisioning("ws-1", "pane-1"));
+    act(() => agentRun.retryProvisioning("ws-1", "team-1"));
+    expect(provisions).toEqual([]);
+  });
+
+  it("ignores a team with no create intent, and one that is not there", () => {
+    act(() =>
+      deck.createWorkspace({
+        id: "ws-1",
+        instance: createWorkspaceInstance(),
+        name: "ws-1",
+        cwd: "/repo",
+        worktreeBaseDir: null,
+        panes: [{ id: "pane-1", agentType: "claude", team: { teamId: "team-1", role: "lead" } }],
+        teams: [{ id: "team-1", name: "x", location: { kind: "attached", cwd: "/repo-wt/x" } }],
+      }),
+    );
+    act(() => agentRun.retryProvisioning("ws-1", "team-1"));
     act(() => agentRun.retryProvisioning("ws-1", "nope"));
+    expect(provisions).toEqual([]);
+  });
+});
+
+describe("agent orchestrator —a team born empty", () => {
+  let root: Root;
+
+  beforeEach(() => {
+    resetPaneSpawnSpecs();
+    ipc.probeWorktree.mockReset().mockResolvedValue({
+      exists: true,
+      isWorktree: false,
+      empty: false,
+      branch: null,
+    });
+    catalog.ready = true;
+    catalog.parkOnLaunch = false;
+    pty.reset();
+    document.body.innerHTML = "<div id='host'></div>";
+    root = createRoot(document.getElementById("host")!);
+    act(() => root.render(createElement(Probe)));
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+  });
+
+  const seed = (over: Partial<Workspace> = {}): DeckState => ({
+    workspaces: [
+      {
+        id: "ws-1",
+        instance: createWorkspaceInstance(),
+        name: "ws",
+        cwd: "/repo",
+        worktreeBaseDir: "/wt",
+        panes: [],
+        ...over,
+      },
+    ],
+    activeId: "ws-1",
+    journal: emptyJournal,
+    viewByWs: {},
+  });
+  const ref = () => ({ id: "ws-1", instance: deck.workspaces[0].instance });
+  const card = (): TeamLocation => ({
+    kind: "provisioning",
+    intent: { repo: "/repo", path: "/wt/a", index: 1 },
+  });
+
+  it("makes a team with nobody on it, on the root, under the name asked for", async () => {
+    act(() => deck.hydrate(seed()));
+    let outcome;
+    await act(async () => {
+      outcome = agentRun.createTeam({
+        workspace: ref(),
+        name: " api ",
+        placement: { kind: "attached", cwd: "/repo" },
+      });
+    });
+    expect(outcome).toEqual({ kind: "created", teamId: "team-1" });
+    expect(deck.workspaces[0].teams).toEqual([
+      { id: "team-1", name: "api", location: { kind: "attached", cwd: "/repo" } },
+    ]);
+    expect(deck.workspaces[0].panes).toEqual([]);
+    expect(provisions).toEqual([]);
+  });
+
+  it("starts the worktree create behind an empty team's card, and names a blank one itself", async () => {
+    act(() => deck.hydrate(seed()));
+    await act(async () => {
+      agentRun.createTeam({ workspace: ref(), name: "", placement: card() });
+    });
+    expect(deck.workspaces[0].teams?.[0]).toEqual({
+      id: "team-1",
+      name: "Team 1",
+      location: card(),
+    });
+    expect(provisions).toHaveLength(1);
+    expect(provisions[0].map((request) => request.ownerId)).toEqual(["team-1"]);
+  });
+
+  it("refuses a directory a team already holds, a name a team already answers to, and a gone workspace", async () => {
+    act(() =>
+      deck.hydrate(
+        seed({
+          teams: [{ id: "team-1", name: "api", location: { kind: "attached", cwd: "/wt/a" } }],
+        }),
+      ),
+    );
+    const outcomes: unknown[] = [];
+    await act(async () => {
+      // The directory is team-1's: a member joins it instead.
+      outcomes.push(agentRun.createTeam({ workspace: ref(), name: "docs", placement: card() }));
+      outcomes.push(
+        agentRun.createTeam({
+          workspace: ref(),
+          name: "docs",
+          placement: { kind: "attached", cwd: "/wt/a/" },
+        }),
+      );
+      // The name is team-1's.
+      outcomes.push(
+        agentRun.createTeam({
+          workspace: ref(),
+          name: " API ",
+          placement: { kind: "attached", cwd: "/repo" },
+        }),
+      );
+      outcomes.push(
+        agentRun.createTeam({
+          workspace: { id: "ws-1", instance: createWorkspaceInstance() },
+          name: "docs",
+          placement: { kind: "attached", cwd: "/repo" },
+        }),
+      );
+    });
+    expect(outcomes).toEqual([{ kind: "held" }, { kind: "held" }, { kind: "taken" }, { kind: "gone" }]);
+    expect(deck.workspaces[0].teams).toHaveLength(1);
     expect(provisions).toEqual([]);
   });
 });

@@ -93,7 +93,7 @@ const adopting: AgentContribution = {
   },
 };
 
-const ws = (panes: Workspace["panes"]): Workspace[] => [
+const ws = (panes: Workspace["panes"], teams?: Workspace["teams"]): Workspace[] => [
   {
     id: "ws-1",
     instance: createWorkspaceInstance(),
@@ -101,6 +101,7 @@ const ws = (panes: Workspace["panes"]): Workspace[] => [
     cwd: "/repo",
     worktreeBaseDir: null,
     panes,
+    ...(teams && { teams }),
   },
 ];
 
@@ -508,15 +509,14 @@ describe("building one plan through the agent hook", () => {
           agentType: "claude",
           idle: { reason: "waking", origin: "restore" },
         },
-        {
-          id: "pane-p",
-          agentType: "claude",
-          location: {
-            kind: "provisioning",
-            intent: { repo: "/r", path: "/b/w-1", index: 1 },
-          },
-        },
+        { id: "pane-p", agentType: "claude", team: { teamId: "team-p", role: "lead" } },
         { id: "pane-u", agentType: "gemini" },
+      ], [
+        {
+          id: "team-p",
+          name: "making",
+          location: { kind: "provisioning", intent: { repo: "/r", path: "/b/w-1", index: 1 } },
+        },
       ]),
     );
     await settle();

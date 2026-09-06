@@ -20,6 +20,7 @@ import {
   skillsAsked,
 } from "./testSupport";
 import type { DeckState } from "./testSupport";
+import { paneExecutionCwd } from "../../domain/deck";
 
 describe("agent orchestrator —session policy", () => {
   let root: Root;
@@ -123,7 +124,7 @@ describe("agent orchestrator —session policy", () => {
     // optional): unbound wakes fresh, with no resume spec.
     act(() =>
       deck.hydrate(
-        restored({ agentType: "codex", location: { kind: "attached", cwd: "/repo" } }),
+        restored({ agentType: "codex" }, { kind: "attached", cwd: "/repo" }),
       ),
     );
     await settle();
@@ -162,11 +163,9 @@ describe("agent orchestrator —session policy", () => {
     ipc.probeWorktree.mockClear();
     act(() =>
       deck.hydrate(
-        restored({
-          location: {
-            kind: "provisioning",
-            intent: { repo: "/repo", path: "/repo/wt-1", index: 1 },
-          },
+        restored({}, {
+          kind: "provisioning",
+          intent: { repo: "/repo", path: "/repo/wt-1", index: 1 },
         }),
       ),
     );
@@ -209,7 +208,7 @@ describe("agent orchestrator —session policy", () => {
       branch: null,
     });
     act(() =>
-      deck.hydrate(restored({ location: { kind: "attached", cwd: "/repo/wt-gone" } })),
+      deck.hydrate(restored({}, { kind: "attached", cwd: "/repo/wt-gone" })),
     );
     await settle();
 
@@ -225,7 +224,7 @@ describe("agent orchestrator —session policy", () => {
       branch: null,
     });
     act(() =>
-      deck.hydrate(restored({ location: { kind: "attached", cwd: "/repo/wt-gone" } })),
+      deck.hydrate(restored({}, { kind: "attached", cwd: "/repo/wt-gone" })),
     );
     await settle();
     expect(agentRun.blocked["pane-1"]).toBe("/repo/wt-gone");
@@ -233,6 +232,89 @@ describe("agent orchestrator —session policy", () => {
     act(() => deck.closeAgent("ws-1", "pane-1"));
     await settle();
     expect(agentRun.blocked).toEqual({});
+  });
+
+  it("start fresh moves a blocked pane onto the root's team and forgets its session", async () => {
+    // A directory-bound session cannot resume elsewhere, and the pane's
+    // team's directory is what went missing: the pane comes back on the
+    // team holding the workspace root — minted here — with a new
+    // conversation ahead of it. The team whose directory is gone keeps its
+    // card, empty.
+    ipc.probeWorktree.mockResolvedValue({
+      exists: false,
+      isWorktree: false,
+      empty: false,
+      branch: null,
+    });
+    act(() =>
+      deck.hydrate(
+        restored({ session: { id: "s-1", boundAt: "t" } }, { kind: "attached", cwd: "/repo/wt-gone" }),
+      ),
+    );
+    await settle();
+    expect(agentRun.blocked["pane-1"]).toBe("/repo/wt-gone");
+
+    ipc.probeWorktree.mockResolvedValue({ exists: true, isWorktree: false, empty: false, branch: null });
+    act(() => agentRun.startFresh("ws-1", "pane-1"));
+    await settle();
+
+    const ws = deck.workspaces[0];
+    const moved = ws.panes[0];
+    expect(moved.session).toBeUndefined();
+    expect(moved.team?.teamId).not.toBe("team-1");
+    expect(paneExecutionCwd(ws, moved)).toBe("/repo");
+    expect(ws.teams?.map((team) => [team.id, team.location?.kind === "attached" ? team.location.cwd : null])).toEqual([
+      ["team-1", "/repo/wt-gone"],
+      ["team-2", "/repo"],
+    ]);
+    expect(agentRun.blocked).toEqual({});
+  });
+
+  it("start fresh refuses when the root's team is full: the pane keeps its session and its place, and the card says why", async () => {
+    // Sixteen on the root already. Dropping the session and waking the
+    // pane before knowing would wake it back into the directory that is
+    // gone, its session thrown away for nothing.
+    ipc.probeWorktree.mockResolvedValue({
+      exists: false,
+      isWorktree: false,
+      empty: false,
+      branch: null,
+    });
+    const base = restored(
+      { session: { id: "s-1", boundAt: "t" } },
+      { kind: "attached", cwd: "/repo/wt-gone" },
+    );
+    const crowd = Array.from({ length: 16 }, (_, i) => ({
+      id: `crowd-${i}`,
+      agentType: "claude" as const,
+      team: { teamId: "team-root", role: `impl-${i + 1}` },
+    }));
+    act(() =>
+      deck.hydrate({
+        ...base,
+        workspaces: [
+          {
+            ...base.workspaces[0],
+            teams: [
+              ...(base.workspaces[0].teams ?? []),
+              { id: "team-root", name: "root", location: { kind: "attached", cwd: "/repo" } },
+            ],
+            panes: [...base.workspaces[0].panes, ...crowd],
+          },
+        ],
+      }),
+    );
+    await settle();
+    expect(agentRun.blocked["pane-1"]).toBe("/repo/wt-gone");
+
+    act(() => agentRun.startFresh("ws-1", "pane-1"));
+    await settle();
+
+    const moved = deck.workspaces[0].panes[0];
+    expect(moved.team).toEqual({ teamId: "team-1", role: "lead" });
+    expect(moved.session).toEqual({ id: "s-1", boundAt: "t" });
+    expect(agentRun.blocked["pane-1"]).toBe("/repo/wt-gone");
+    expect(agentRun.wakeFailed["pane-1"]).toContain("team is full");
   });
 });
 
@@ -247,11 +329,14 @@ describe("agent orchestrator —resuming a suspended pane", () => {
         name: "ws",
         cwd: "/repo",
         worktreeBaseDir: null,
+        teams: [
+          { id: "team-1", name: "one", location: { kind: "attached", cwd: "/repo/wt-1", branch: "kd/ws/1" } },
+        ],
         panes: [
           {
             id: "pane-1",
             agentType: "claude",
-            location: { kind: "attached", cwd: "/repo/wt-1", branch: "kd/ws/1" },
+            team: { teamId: "team-1", role: "lead" },
             session: { id: "s-1", boundAt: "t" },
             idle: { reason: "suspended", at: "2026-07-25T09:00:00.000Z" },
             ...pane,

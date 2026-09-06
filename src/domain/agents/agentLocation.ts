@@ -15,7 +15,7 @@ export interface PathProbe {
 }
 
 /**
- * How the entered worktree path resolves in the "+ Agent" dialog ([F2] — the
+ * How the entered worktree path resolves in the agent dialog ([F2] — the
  * per-agent worktree/main choice is DERIVED FROM THE PATH, not a toggle):
  * an empty path runs in the workspace's main repo; a free path creates a new
  * worktree; an existing worktree is attached; anything else is unusable.
@@ -92,7 +92,7 @@ export function canCreateAgent(
   }
 }
 
-/** The resolved location for a new agent, chosen in the "+ Agent" dialog. */
+/** The resolved location for a new agent, chosen in the agent dialog. */
 export type AgentLocation =
   | { kind: "main" }
   | {
@@ -107,7 +107,7 @@ export type AgentLocation =
 
 /** Where a FORK lands: a directory that already exists (the workspace folder,
  * or an attached worktree), or a NEW worktree the fork provisions first. The
- * resolved answer, after the "+ Agent" dialog's [`AgentLocation`] or the fork
+ * resolved answer, after the agent dialog's [`AgentLocation`] or the fork
  * dialog's own picker has been read. */
 export type ForkTarget =
   | { kind: "dir"; cwd: string }
@@ -116,7 +116,7 @@ export type ForkTarget =
 /**
  * Where a fork of a session lands, given the location its surface resolved.
  *
- * The mapping is the product's, not either dialog's: the "+ Agent" dialog and
+ * The mapping is the product's, not either dialog's: the agent dialog and
  * the fork dialog both offer the same three choices and both had spelled the
  * translation out, which is how one of them came to carry the picked base
  * branch into a new worktree and the other to fork silently from HEAD.
@@ -165,6 +165,9 @@ export type ResumeBlock =
   | "no-cwd"
   | "claimed"
   | "busy-outside"
+  /** Recorded in a directory other than the team's a member is joining —
+   * a resume runs where it was recorded, which would be another team. */
+  | "elsewhere"
   | null;
 
 /** Whether Create is allowed for the "Start from" choice. New sessions
@@ -190,7 +193,7 @@ export interface SessionPickRow {
   mtime: number;
 }
 
-/** What the "+ Agent" dialog returns for one new agent. */
+/** What the agent dialog returns — for a new team, or for one new member. */
 export interface AgentDialogResult {
   agentType: AgentType;
   /** Optional custom display name; blank falls back to the derived title. */
@@ -208,4 +211,24 @@ export interface AgentDialogResult {
    * in its recorded cwd (`location` is then advisory only), fork copies it
    * into the chosen location. Absent = a fresh conversation. */
   session?: { mode: "resume" | "fork"; handle: SessionHandle };
+  /** The name of the team this agent starts — set only by the "+ Team"
+   * door, where the agent is the team's first. Absent for a member joining
+   * a team that exists, and for a continuation. */
+  teamName?: string;
+  /** The role — the address teammates use — the agent takes on its team,
+   * minted free against the team's roster by the dialog. Absent for a
+   * continuation, which lands where its session was recorded and takes the
+   * address that team suggests. */
+  role?: string;
 }
+
+/**
+ * What the dialog is opened FOR: a new team — a name and a directory, no
+ * agent yet — or a member joining a team that exists, in that team's
+ * directory, so the dialog has no location to ask about. `cwd` is the
+ * team's directory, or null while its create is still out: a continuation
+ * needs a directory to resume in or fork into, so none is offered then.
+ */
+export type AgentDialogTarget =
+  | { kind: "new-team"; suggestedName: string }
+  | { kind: "member"; teamId: string; teamName: string; cwd: string | null };

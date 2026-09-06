@@ -5,6 +5,8 @@ import {
 } from "./panes";
 import { visiblePanes } from "./paneVisibility";
 import type { WorkspaceView } from "./reducer";
+import { stagePanes } from "./stage";
+import { teamsOf } from "./teams/collection";
 import type { Workspace } from "./workspaces";
 
 /** What the close hotkey should close: an agent pane (with its confirm-dialog
@@ -18,10 +20,13 @@ export type CloseTarget =
  * pane when nothing is selected (an unambiguous target — a solo pane never
  * even carries the selection highlight, [U2]). Minimized panes are never
  * targeted: a habituated confirm must not close an agent that isn't on
- * screen, including a suspended pane represented only in the tray. An empty
- * workspace has nothing but itself to close, so ⌘W targets the workspace —
- * same as the rail's close button. Null when there is no active workspace or
- * a stale/absent selection leaves several candidates. Pure.
+ * screen, including a suspended pane represented only in the tray, nor a
+ * pane of a team that is not open. An empty workspace — no team, no pane —
+ * has nothing but itself to close, so ⌘W targets the workspace — same as
+ * the rail's close button. At the cards level, or inside a team with nobody
+ * on it, there is nothing in front of the person to close: null, the same
+ * as a stale selection. Null too when there is no active workspace or a
+ * stale/absent selection leaves several candidates. Pure.
  */
 export function closeHotkeyTarget(
   workspaces: Workspace[],
@@ -31,7 +36,9 @@ export function closeHotkeyTarget(
 ): CloseTarget | null {
   const ws = workspaces.find((w) => w.id === activeId);
   if (!ws) return null;
-  if (ws.panes.length === 0) return { kind: "workspace", wsId: ws.id };
+  if (ws.panes.length === 0 && teamsOf(ws).length === 0) {
+    return { kind: "workspace", wsId: ws.id };
+  }
   const target = paneHotkeyTarget(workspaces, activeId, viewByWs, agents);
   return target && { kind: "agent", ...target };
 }
@@ -46,7 +53,8 @@ export function closeHotkeyTarget(
  *
  * Shared by ⌘W and ⇧⌘W so the two can never disagree about WHICH agent the
  * user meant — only about what to do with it. Suspended panes placed in the
- * tray are excluded for the same reason minimized panes are.
+ * tray are excluded for the same reason minimized panes are, and so is every
+ * pane of a team that is not open: the candidates are the stage's slice.
  */
 export function paneHotkeyTarget(
   workspaces: Workspace[],
@@ -57,7 +65,7 @@ export function paneHotkeyTarget(
   const ws = workspaces.find((w) => w.id === activeId);
   if (!ws) return null;
   const view = viewByWs[ws.id];
-  const visible = visiblePanes(ws.panes, view);
+  const visible = visiblePanes(stagePanes(ws, view), view);
   let pane = visible.find((p) => p.id === view?.select);
   // The suspend-to-tray transition can hide the selected pane. Resolve that
   // newly-stranded selection the same way an explicit minimize does, while
@@ -87,7 +95,7 @@ export function paneHotkeyTarget(
  * the survivor is already full-size, and writing a focus the render masks
  * would spring a surprise maximize on the next restore. Null for a
  * visible-solo pane, a stale/absent selection among several panes, or no
- * active workspace. Pure.
+ * active workspace — and at the cards level, where the slice is empty. Pure.
  */
 export function maximizeHotkeyTarget(
   workspaces: Workspace[],
@@ -97,7 +105,7 @@ export function maximizeHotkeyTarget(
   const ws = workspaces.find((w) => w.id === activeId);
   if (!ws) return null;
   const view = viewByWs[ws.id];
-  const visible = visiblePanes(ws.panes, view);
+  const visible = visiblePanes(stagePanes(ws, view), view);
   if (visible.length <= 1) return null;
   const focused = resolveFocus(visible, view?.focus);
   if (focused) return { wsId: ws.id, paneId: focused };

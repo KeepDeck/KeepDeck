@@ -9,9 +9,10 @@ export interface RepoInfo {
   branch: string | null;
 }
 
-/** Mirrors the Rust `WorktreeRecord`. */
+/** Mirrors the Rust `WorktreeRecord`: what the create made. It carries no
+ * owner id — the caller asked under one and files the answer under it; the
+ * wire has no second copy to disagree with. */
 export interface WorktreeRecord {
-  agentId: string;
   path: string;
   branch: string;
 }
@@ -25,7 +26,9 @@ export interface WorktreeSuggestion {
 /** Args for `worktree_create` (mirrors the Rust `CreateSpec`). */
 export interface CreateWorktreeArgs {
   repo: string;
-  agentId: string;
+  /** Who the worktree is created FOR — the team's id. Rust only logs it;
+   * the record comes back without it. */
+  ownerId: string;
   /** Explicit branch; auto-generated (`kd/<ws>/<n>`) when omitted/blank. */
   branch?: string | null;
   /** Base commit/rev — a branch NAME is fine: Rust pins its current commit and
@@ -67,7 +70,7 @@ export function probeWorktree(path: string): Promise<PathProbe> {
   return invoke<PathProbe>("worktree_probe", { path });
 }
 
-/** The repo's local branch names — the options behind the "+ Agent" dialog's
+/** The repo's local branch names — the options behind the agent dialog's
  *  base-branch picker. The likeliest base leads (the repo's default branch,
  *  else the checked-out one), the rest alphabetical. Rejects when `repo` isn't
  *  a git repo or git fails; callers flatten that to "no list", which relaxes
@@ -76,7 +79,7 @@ export function listBranches(repo: string): Promise<string[]> {
   return invoke<string[]>("worktree_branches", { repo });
 }
 
-/** Provision one agent's git worktree; returns its path + branch. */
+/** Provision one team's git worktree; returns its path + branch. */
 export function createWorktree(spec: CreateWorktreeArgs): Promise<WorktreeRecord> {
   return invoke<WorktreeRecord>("worktree_create", { spec });
 }

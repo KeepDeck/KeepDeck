@@ -1,11 +1,10 @@
 import type { ForkTarget } from "../../domain/agents";
 import {
   findWorkspace,
-  MAX_PANES,
   paneId,
   placementOfRecorded,
   sessionClaimant,
-  WORKSPACE_FULL_MESSAGE,
+  type Pane,
 } from "../../domain/deck";
 import { describeError, log } from "../../ipc/log";
 import type {
@@ -52,7 +51,6 @@ export function createAgentOrchestratorContinuations({
   creation,
   skillsAsk,
   mcpAccess,
-  worktrees,
 }: ContinuationDeps): AgentOrchestratorContinuations {
   const resuming = new Set<string>();
   const forking = new Set<string>();
@@ -115,13 +113,15 @@ export function createAgentOrchestratorContinuations({
         return;
       }
       const name = opts?.name?.trim();
-      const location = placementOfRecorded(record, workspace.cwd);
       const outcome = creation.landPane({
         workspace: { id: workspace.id, instance: workspace.instance },
+        // The directory the session ran in, with its branch — a resume
+        // lands on the team holding it, or on a team made for it.
+        placement: placementOfRecorded(record),
+        ...(opts?.role !== undefined && { role: opts.role }),
         pane: {
           id,
           agentType: record.agent,
-          ...(location !== undefined && { location }),
           ...(yolo && { yolo: true }),
           ...(name && { name }),
           session: {
@@ -180,59 +180,54 @@ export function createAgentOrchestratorContinuations({
           },
         );
 
+      const pane: Pane = {
+        id,
+        agentType: record.agent,
+        ...(yolo && { yolo: true }),
+        ...(name && { name }),
+      };
+      const role = opts?.role !== undefined ? { role: opts.role } : {};
       if (target.kind === "dir") {
-        if (workspace.panes.length >= MAX_PANES) {
-          throw new Error(WORKSPACE_FULL_MESSAGE);
-        }
+        const placement = placementOfRecorded({
+          cwd: target.cwd,
+          ...(opts?.branch && { branch: opts.branch }),
+        });
+        // Asked BEFORE the irreversible surgery: a team with no room for
+        // the pane refuses now, not after the clone exists.
+        const refused = creation.roomFor(workspaceRef, pane, placement);
+        if (refused) creation.landOrThrow(refused);
         if (!(await surgery(target.cwd))) {
           dropPaneSpawnSpec(id);
           throw new Error("Agent could not prepare a fork plan");
         }
         creation.landOrThrow(
-          creation.landPane({
-            workspace: workspaceRef,
-            pane: {
-              id,
-              agentType: record.agent,
-              ...(() => {
-                const location = placementOfRecorded(
-                  { cwd: target.cwd, ...(opts?.branch && { branch: opts.branch }) },
-                  workspace.cwd,
-                );
-                return location !== undefined && { location };
-              })(),
-              ...(yolo && { yolo: true }),
-              ...(name && { name }),
-            },
-          }),
+          creation.landPane({ workspace: workspaceRef, pane, placement, ...role }),
         );
         return;
       }
 
-      worktrees.registerPostProvision(id, async (worktree) => {
-        if (!(await surgery(worktree.cwd))) {
-          throw new Error("Agent could not prepare a fork plan");
-        }
-      });
       creation.landOrThrow(
         creation.landPane({
           workspace: workspaceRef,
-          pane: {
-            id,
-            agentType: record.agent,
-            ...(yolo && { yolo: true }),
-            ...(name && { name }),
-            location: {
-              kind: "provisioning",
-              intent: {
-                repo: workspace.cwd,
-                path: target.path,
-                branch: target.branch,
-                ...(target.base !== undefined && { base: target.base }),
-                index: workspace.panes.length + 1,
-              },
-              fork: true,
+          ...role,
+          // Filed under the team the landing mints for this card — the one
+          // id that cannot be known before the landing.
+          postProvision: async (worktree) => {
+            if (!(await surgery(worktree.cwd))) {
+              throw new Error("Agent could not prepare a fork plan");
+            }
+          },
+          pane,
+          placement: {
+            kind: "provisioning",
+            intent: {
+              repo: workspace.cwd,
+              path: target.path,
+              branch: target.branch,
+              ...(target.base !== undefined && { base: target.base }),
+              index: workspace.panes.length + 1,
             },
+            fork: true,
           },
         }),
       );

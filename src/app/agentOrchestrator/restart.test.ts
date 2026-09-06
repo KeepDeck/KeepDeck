@@ -64,11 +64,18 @@ describe("agent orchestrator —restarting an exited agent", () => {
         name: "ws",
         cwd: "/repo",
         worktreeBaseDir: null,
+        teams: [
+          {
+            id: "team-1",
+            name: "restart",
+            location: { kind: "attached", cwd: "/worktree", branch: "feature/restart" },
+          },
+        ],
         panes: [
           {
             id: "pane-1",
             agentType: "codex",
-            location: { kind: "attached", cwd: "/worktree", branch: "feature/restart" },
+            team: { teamId: "team-1", role: "lead" },
             yolo: true,
             ...(sessionId
               ? { session: { id: sessionId, boundAt: "2026-07-11T00:00:00Z" } }
@@ -111,7 +118,7 @@ describe("agent orchestrator —restarting an exited agent", () => {
     expect(lifecycle.retire).toHaveBeenCalledWith("pane-1");
     expect(epoch()).toBe(1);
     expect(pane()).toMatchObject({
-      location: { kind: "attached", cwd: "/worktree", branch: "feature/restart" },
+      team: { teamId: "team-1", role: "lead" },
       session: { id: "session-old" },
     });
     const calls = vi.mocked(buildResumeSpec).mock.calls;
@@ -127,8 +134,11 @@ describe("agent orchestrator —restarting an exited agent", () => {
     expect(vi.mocked(buildResumeSpec)).not.toHaveBeenCalled();
     expect(pty.closed).toEqual(["pane-1"]);
     expect(lifecycle.retire).toHaveBeenCalledWith("pane-1");
-    expect(pane()).toMatchObject({
-      location: { kind: "attached", cwd: "/worktree", branch: "feature/restart" },
+    expect(pane()).toMatchObject({ team: { teamId: "team-1", role: "lead" } });
+    expect(deck.workspaces[0].teams?.[0].location).toEqual({
+      kind: "attached",
+      cwd: "/worktree",
+      branch: "feature/restart",
     });
     expect(pane().session).toBeUndefined();
     expect(epoch()).toBe(1);
@@ -480,16 +490,17 @@ describe("agent orchestrator —restarting an exited agent", () => {
         name: "ws",
         cwd: "/repo",
         worktreeBaseDir: null,
-        panes: [
+        teams: [
           {
-            id: "pane-1",
-            agentType: "codex",
+            id: "team-1",
+            name: "making",
             location: {
               kind: "provisioning",
               intent: { repo: "/repo", path: "/wt/ws-1", index: 1 },
             },
           },
         ],
+        panes: [{ id: "pane-1", agentType: "codex", team: { teamId: "team-1", role: "lead" } }],
       }),
     );
     await settle();

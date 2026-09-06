@@ -17,27 +17,27 @@ const env = (over: Partial<PaneBodyEnv> = {}): PaneBodyEnv => ({
 
 describe("paneBody", () => {
   it("mounts a terminal once a plan exists", () => {
-    expect(paneBody(pane(), env())).toBe("terminal");
+    expect(paneBody({}, pane(), env())).toBe("terminal");
   });
 
   it("waits when there is no plan yet — the honest reading of not knowing", () => {
-    expect(paneBody(pane(), env({ hasPlan: false }))).toBe("waiting");
+    expect(paneBody({}, pane(), env({ hasPlan: false }))).toBe("waiting");
   });
 
   it("shows the error tile when the build FAILED, not the waiting card", () => {
     // A permanent "Waking up…" hides a retry the user needs.
-    expect(paneBody(pane(), env({ hasPlan: false, planFailed: true }))).toBe(
+    expect(paneBody({}, pane(), env({ hasPlan: false, planFailed: true }))).toBe(
       "plan-failed",
     );
   });
 
   it("lets a rebuilt plan outrank the failure it replaced", () => {
     // Otherwise a successful retry keeps offering to retry.
-    expect(paneBody(pane(), env({ planFailed: true }))).toBe("terminal");
+    expect(paneBody({}, pane(), env({ planFailed: true }))).toBe("terminal");
   });
 
   it("reads a stopped pane by its marker, whatever its plan says", () => {
-    expect(paneBody(pane({ idle: { reason: "parked" } }), env())).toBe(
+    expect(paneBody({}, pane({ idle: { reason: "parked" } }), env())).toBe(
       "stopped",
     );
   });
@@ -45,6 +45,7 @@ describe("paneBody", () => {
   it("names an absent agent over a stopped marker — the same order the run decision uses", () => {
     expect(
       paneBody(
+        {},
         pane({ idle: { reason: "suspended", at: "2026-07-26" } }),
         env({ agentAvailable: false }),
       ),
@@ -56,6 +57,7 @@ describe("paneBody", () => {
     // marker, whatever its plan did.
     expect(
       paneBody(
+        {},
         pane({ idle: { reason: "parked" } }),
         env({ hasPlan: false, planFailed: true }),
       ),
@@ -64,19 +66,30 @@ describe("paneBody", () => {
 
   it("reads a WAKING pane as stopped — the commonest marker there is", () => {
     expect(
-      paneBody(pane({ idle: { reason: "waking", origin: "restore" } }), env()),
+      paneBody({}, pane({ idle: { reason: "waking", origin: "restore" } }), env()),
     ).toBe("stopped");
   });
 
   it("puts provisioning first: nothing else can be acted on without a directory", () => {
-    expect(
-      paneBody(
-        pane({
-          idle: { reason: "suspended", at: "2026-07-26" },
+    // The create is the TEAM's; the pane's own record says nothing of it.
+    const creating = {
+      teams: [
+        {
+          id: "team-1",
+          name: "making",
           location: {
-            kind: "provisioning",
+            kind: "provisioning" as const,
             intent: { repo: "/repo", path: "/wt/a", index: 1 },
           },
+        },
+      ],
+    };
+    expect(
+      paneBody(
+        creating,
+        pane({
+          idle: { reason: "suspended", at: "2026-07-26" },
+          team: { teamId: "team-1", role: "lead" },
         }),
         env({ agentAvailable: false, hasPlan: false, planFailed: true }),
       ),

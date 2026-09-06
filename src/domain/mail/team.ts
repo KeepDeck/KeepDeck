@@ -5,55 +5,28 @@
  * stays the hard boundary, and a team only narrows addressing within it. It
  * exists because "ask impl-1" is what an agent can usefully be told, while
  * "ask the pane titled Claude 3" is a fact about a window.
+ *
+ * The team itself is the deck's object (`domain/deck/teams`): a pane holds
+ * its id, the name lives on the team. Everything here that takes a NAME
+ * resolves it through the workspace's teams first, so no two sites compare
+ * names to decide membership — the deck answers that once, by id.
  */
 import { resolvePaneRef, type Resolved } from "../commands";
-import type { Pane, Workspace } from "../deck";
+import { membersOf, teamOfPane, type Pane, type Workspace } from "../deck";
 
-export interface TeamAssignment {
-  name: string;
-  role: string;
-}
+export { teamNameKey, type TeamAssignment } from "../deck";
 
 // Whether a pane MAY take a role is not answered here, and deliberately not
 // answered twice anywhere: `planTeam` settles a whole roster, and every path
-// that changes one — the dialog, and an agent driving `team.assign` — goes
+// that changes one — an agent driving `team.assign` or `team.setup` — goes
 // through it. A single-assignment checker lived here once and was the weaker
 // of the two: it knew about blank names and duplicate addresses but not about
 // the lead a team needs, nor about a pane already belonging to another team,
-// so the same change the dialog refused went through over MCP.
-
-/** The panes making up a team, in deck order. */
-export function teamMembers(workspace: Workspace, name: string): Pane[] {
-  return workspace.panes.filter((pane) => paneIsOnTeam(pane, name));
-}
-
-/**
- * The key two team names are compared by: trimmed, lower-cased.
- *
- * A name is a badge, stored as the person wrote it; the KEY is how every
- * question about it — membership, uniqueness, "is this a rename" — is
- * answered, and it is answered here once. Comparison and storage are
- * different questions: the sites that spelled the comparison inline had
- * already drifted (one trimmed, one did not) by the time this was named, and
- * a hand-edited document with " api " beside "api" read as two teams to one
- * of them and one team to the other.
- */
-export function teamNameKey(name: string): string {
-  return name.trim().toLowerCase();
-}
-
-/**
- * Whether this pane holds that team's name.
- *
- * One comparison, in one place. Membership is "the pane claims the name",
- * matched by [`teamNameKey`] for the same reason roles are: the person typing
- * "API" means the team they called "api". The moment membership stops being
- * a name comparison (an id, a pane on two teams, a folding rule) this is the
- * one site that changes.
- */
-export function paneIsOnTeam(pane: Pane, name: string): boolean {
-  return pane.team !== undefined && teamNameKey(pane.team.name) === teamNameKey(name);
-}
+// so a change one door refused went through another.
+//
+// Nor is membership answered by NAME here any more: a pane holds its team's
+// id, the deck's `membersOf`/`teamOfPane` answer by it, and a name reaches a
+// team only through `resolveTeamRef`.
 
 /**
  * Resolve who `ref` means, for a message sent by `from`.
@@ -74,10 +47,10 @@ export function resolveMailTarget(
   from: Pane,
   ref: string,
 ): Resolved<Pane> {
-  const team = from.team;
+  const team = teamOfPane(workspace, from);
   if (team) {
     const needle = ref.trim().toLowerCase();
-    const mate = teamMembers(workspace, team.name).find(
+    const mate = membersOf(workspace, team.id).find(
       (pane) => pane.team?.role.toLowerCase() === needle,
     );
     if (mate) return { ok: true, value: mate };
@@ -87,7 +60,7 @@ export function resolveMailTarget(
   // Inside a team the refusal should say what the sender could have said,
   // because "no agent X" sends an agent looking for a window title it was
   // never given.
-  const roles = teamMembers(workspace, team.name)
+  const roles = membersOf(workspace, team.id)
     .filter((pane) => pane.id !== from.id)
     .map((pane) => pane.team?.role)
     .filter((role): role is string => Boolean(role));
@@ -99,8 +72,15 @@ export function resolveMailTarget(
   };
 }
 
-/** How a pane's team reads in the roster. Null rather than absent, so the
- * shape does not change with membership. */
-export function teamOf(pane: Pane): { name: string; role: string } | null {
-  return pane.team ? { name: pane.team.name, role: pane.team.role } : null;
+/** How a pane's team reads in the roster: the team's id and name, and the
+ * pane's role. Null rather than absent, so the shape does not change with
+ * membership — and null for a pane whose id names no team here, which is
+ * no membership to anyone reading it. The id is what a caller hands back
+ * to `team.add`; the name is what it says out loud. */
+export function teamOf(
+  workspace: Workspace,
+  pane: Pane,
+): { id: string; name: string; role: string } | null {
+  const team = teamOfPane(workspace, pane);
+  return team && pane.team ? { id: team.id, name: team.name, role: pane.team.role } : null;
 }

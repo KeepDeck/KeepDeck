@@ -6,7 +6,6 @@
  * operations free of "may this pane…" questions. What a pane is CALLED is
  * [`./titles`] — a different reason to change entirely.
  */
-import { MAX_PANES } from "../layout";
 import type { Pane } from "./model";
 
 /**
@@ -15,7 +14,9 @@ import type { Pane } from "./model";
  * (unchanged) when at the cap.
  */
 export function appendPane(panes: Pane[], pane: Pane): Pane[] {
-  if (panes.length >= MAX_PANES) return panes;
+  // No cap here: the cap is the TEAM's — its panes are what the grid lays
+  // out — and `joinTeam` refuses a seventeenth member. A workspace holds as
+  // many teams as it is given.
   return [...panes, pane];
 }
 

@@ -1,9 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { provisioningCard } from "../../domain/deck";
 import {
   armDoubles,
   managerFor,
-  provisioningCards,
+  provisionRequests,
   worktree,
   type DeckEntry,
   type WorktreeManager,
@@ -24,7 +23,7 @@ beforeEach(() => {
 });
 
 describe("provision", () => {
-  const cards = () => provisioningCards(2);
+  const cards = () => provisionRequests(2);
 
   it("resolves each pane as its create lands, all pinned to ONE base commit", async () => {
     worktree.inspectRepo.mockResolvedValue({
@@ -33,10 +32,9 @@ describe("provision", () => {
       branch: "main",
     });
     worktree.createWorktree.mockImplementation(
-      async ({ agentId }: { agentId: string }) => ({
-        agentId,
-        path: `/wt/${agentId}`,
-        branch: `kd/ws/${agentId}`,
+      async ({ ownerId }: { ownerId: string }) => ({
+        path: `/wt/${ownerId}`,
+        branch: `kd/ws/${ownerId}`,
       }),
     );
     const onResolved = vi.fn();
@@ -44,18 +42,21 @@ describe("provision", () => {
 
     await manager.provision(cards(), "ws", { onResolved, onFailed, abandoned: stays });
 
-    expect(onResolved).toHaveBeenCalledWith("pane-1", {
-      cwd: "/wt/pane-1",
-      branch: "kd/ws/pane-1",
+    expect(onResolved).toHaveBeenCalledWith("team-1", {
+      cwd: "/wt/team-1",
+      branch: "kd/ws/team-1",
     });
-    expect(onResolved).toHaveBeenCalledWith("pane-2", {
-      cwd: "/wt/pane-2",
-      branch: "kd/ws/pane-2",
+    expect(onResolved).toHaveBeenCalledWith("team-2", {
+      cwd: "/wt/team-2",
+      branch: "kd/ws/team-2",
     });
     expect(onFailed).not.toHaveBeenCalled();
-    // A concurrent batch must not straddle a moving HEAD.
+    // A concurrent batch must not straddle a moving HEAD — and each create
+    // is asked under the TEAM's id, never a member's.
     for (const call of worktree.createWorktree.mock.calls) {
       expect(call[0]).toMatchObject({ base: "abc123", baseBranch: "main" });
+      expect(call[0].ownerId).toMatch(/^team-\d+$/);
+      expect(call[0]).not.toHaveProperty("agentId");
     }
   });
 
@@ -66,16 +67,15 @@ describe("provision", () => {
       branch: "main",
     });
     worktree.createWorktree.mockImplementation(
-      async ({ agentId }: { agentId: string }) => ({
-        agentId,
-        path: `/wt/${agentId}`,
-        branch: `kd/ws/${agentId}`,
+      async ({ ownerId }: { ownerId: string }) => ({
+        path: `/wt/${ownerId}`,
+        branch: `kd/ws/${ownerId}`,
       }),
     );
-    const panes = cards();
-    provisioningCard(panes[0])!.intent.base = "develop";
+    const requests = cards();
+    requests[0].intent.base = "develop";
 
-    await manager.provision(panes, "ws", {
+    await manager.provision(requests, "ws", {
       onResolved: vi.fn(),
       onFailed: vi.fn(),
       abandoned: stays,
@@ -94,7 +94,7 @@ describe("provision", () => {
   it("a failed create lands on ITS pane's card; the rest still resolve — no cwd fallback", async () => {
     worktree.inspectRepo.mockRejectedValue(new Error("no repo"));
     worktree.createWorktree
-      .mockResolvedValueOnce({ agentId: "pane-1", path: "/wt/1", branch: "b1" })
+      .mockResolvedValueOnce({ path: "/wt/1", branch: "b1" })
       .mockRejectedValueOnce(new Error("boom"));
     const onResolved = vi.fn();
     const onFailed = vi.fn();
@@ -102,23 +102,71 @@ describe("provision", () => {
     await manager.provision(cards(), "ws", { onResolved, onFailed, abandoned: stays });
 
     expect(onResolved).toHaveBeenCalledTimes(1);
-    expect(onResolved).toHaveBeenCalledWith("pane-1", {
+    expect(onResolved).toHaveBeenCalledWith("team-1", {
       cwd: "/wt/1",
       branch: "b1",
     });
     expect(onFailed).toHaveBeenCalledTimes(1);
-    expect(onFailed.mock.calls[0][0]).toBe("pane-2");
+    expect(onFailed.mock.calls[0][0]).toBe("team-2");
     expect(onFailed.mock.calls[0][1]).toContain("boom");
   });
 
-  it("ignores panes without an intent entirely (a retry passes one card)", async () => {
-    await manager.provision([{ id: "pane-1", agentType: "claude" }], "ws", {
+  it("does nothing for an empty batch", async () => {
+    await manager.provision([], "ws", {
       onResolved: vi.fn(),
       onFailed: vi.fn(),
       abandoned: stays,
     });
     expect(worktree.inspectRepo).not.toHaveBeenCalled();
     expect(worktree.createWorktree).not.toHaveBeenCalled();
+  });
+
+  it("takes out the ticket BEFORE the repo is inspected, so a close in that window has something to wait for", async () => {
+    // The orphan: a close confirmed while `inspectRepo` was still pending
+    // used to find no entry, delete the owner, and leave the directory the
+    // create then made with nobody to name it. The ticket exists from the
+    // moment the create is asked for.
+    let inspected!: (value: { head: string }) => void;
+    worktree.inspectRepo.mockReturnValue(
+      new Promise<{ head: string }>((resolve) => {
+        inspected = resolve;
+      }),
+    );
+    worktree.createWorktree.mockResolvedValue({ path: "/wt/team-1", branch: "kd/ws/1" });
+    const running = manager.provision(cards().slice(0, 1), "ws", {
+      onResolved: vi.fn(),
+      onFailed: vi.fn(),
+      abandoned: stays,
+    });
+    // Asked while the inspect is still pending: a ticket, not null.
+    const waiting = manager.awaitCreated("team-1");
+    inspected({ head: "abc" });
+    await running;
+    expect(await waiting).toEqual({ repo: "/repo", path: "/wt/team-1", branch: "kd/ws/1" });
+  });
+
+  it("starts ONE create for an owner asked twice before the first answers — a second Retry coalesces", async () => {
+    // Two creates for one directory race each other on disk, and a close
+    // waits on only the latest ticket: the earlier create's worktree would
+    // be nobody's to name or remove. The second request finds a ticket out
+    // for its owner and is dropped.
+    let inspected!: (value: { head: string }) => void;
+    worktree.inspectRepo.mockReturnValue(
+      new Promise<{ head: string }>((resolve) => {
+        inspected = resolve;
+      }),
+    );
+    worktree.createWorktree.mockResolvedValue({ path: "/wt/team-1", branch: "kd/ws/1" });
+    const onResolved = vi.fn();
+    const cb = { onResolved, onFailed: vi.fn(), abandoned: stays };
+    const first = manager.provision(cards().slice(0, 1), "ws", cb);
+    const second = manager.provision(cards().slice(0, 1), "ws", cb);
+    const waiting = manager.awaitCreated("team-1");
+    inspected({ head: "abc" });
+    await Promise.all([first, second]);
+    expect(worktree.createWorktree).toHaveBeenCalledTimes(1);
+    expect(onResolved).toHaveBeenCalledTimes(1);
+    expect(await waiting).toEqual({ repo: "/repo", path: "/wt/team-1", branch: "kd/ws/1" });
   });
 
   it("names the branch after the workspace it is handed EACH time — a Retry after a rename lands on the new name", async () => {
@@ -129,7 +177,7 @@ describe("provision", () => {
     worktree.inspectRepo.mockResolvedValue({ head: "abc" });
     worktree.createWorktree
       .mockRejectedValueOnce(new Error("boom"))
-      .mockResolvedValueOnce({ path: "/wt/pane-1", branch: "kd/renamed/1" });
+      .mockResolvedValueOnce({ path: "/wt/team-1", branch: "kd/renamed/1" });
     const cb = { onResolved: vi.fn(), onFailed: vi.fn(), abandoned: stays };
 
     await manager.provision(cards().slice(0, 1), "ws", cb); // create + fail
@@ -144,7 +192,7 @@ describe("provision", () => {
   it("resolves the card as soon as the create lands", async () => {
     worktree.inspectRepo.mockResolvedValue({ head: "abc" });
     worktree.createWorktree.mockResolvedValue({
-      path: "/wt/pane-1",
+      path: "/wt/team-1",
       branch: "b1",
     });
     const onResolved = vi.fn();
@@ -153,20 +201,20 @@ describe("provision", () => {
       onFailed: vi.fn(),
       abandoned: stays,
     });
-    expect(onResolved).toHaveBeenCalledWith("pane-1", {
-      cwd: "/wt/pane-1",
+    expect(onResolved).toHaveBeenCalledWith("team-1", {
+      cwd: "/wt/team-1",
       branch: "b1",
     });
   });
 });
 
 describe("provision — what it publishes for a racing close", () => {
-  const oneCard = () => provisioningCards(1);
+  const oneCard = () => provisionRequests(1);
 
   beforeEach(() => {
     worktree.inspectRepo.mockResolvedValue({ head: "abc" });
     worktree.createWorktree.mockResolvedValue({
-      path: "/wt/pane-1",
+      path: "/wt/team-1",
       branch: "kd/ws/1",
     });
   });
@@ -186,7 +234,7 @@ describe("provision — what it publishes for a racing close", () => {
     const reachedStep = new Promise<void>((resolve) => {
       entered = resolve;
     });
-    manager.registerPostProvision("pane-1", async () => {
+    manager.registerPostProvision("team-1", async () => {
       entered();
       await held;
     });
@@ -198,9 +246,9 @@ describe("provision — what it publishes for a racing close", () => {
     });
     await reachedStep;
     // Still inside the step, and the worktree is already nameable.
-    await expect(manager.awaitCreated("pane-1")).resolves.toEqual({
+    await expect(manager.awaitCreated("team-1")).resolves.toEqual({
       repo: "/repo",
-      path: "/wt/pane-1",
+      path: "/wt/team-1",
       branch: "kd/ws/1",
     });
 
@@ -218,7 +266,7 @@ describe("provision — what it publishes for a racing close", () => {
     });
 
     // Nothing landed, so a close has nothing to remove.
-    await expect(manager.awaitCreated("pane-1")).resolves.toBeNull();
+    await expect(manager.awaitCreated("team-1")).resolves.toBeNull();
   });
 
   it("hands the entry back once the pane owns its worktree", async () => {
@@ -230,7 +278,7 @@ describe("provision — what it publishes for a racing close", () => {
       abandoned: stays,
     });
 
-    await expect(manager.awaitCreated("pane-1")).resolves.toBeNull();
+    await expect(manager.awaitCreated("team-1")).resolves.toBeNull();
   });
 
   it("never deletes on a close's behalf — that ordering is the close's", async () => {
@@ -241,7 +289,7 @@ describe("provision — what it publishes for a racing close", () => {
     // directory's fate belongs to the party that knows what the user ticked.
     worktree.removeWorktree.mockResolvedValue(undefined);
     let gone = false;
-    manager.registerPostProvision("pane-1", async () => {
+    manager.registerPostProvision("team-1", async () => {
       gone = true;
       throw new Error("the pane was closed");
     });
@@ -256,9 +304,9 @@ describe("provision — what it publishes for a racing close", () => {
     expect(worktree.removeWorktree).not.toHaveBeenCalled();
     expect(onFailed).not.toHaveBeenCalled();
     // Still nameable, so the close can remove it in the order it needs.
-    await expect(manager.awaitCreated("pane-1")).resolves.toEqual({
+    await expect(manager.awaitCreated("team-1")).resolves.toEqual({
       repo: "/repo",
-      path: "/wt/pane-1",
+      path: "/wt/team-1",
       branch: "kd/ws/1",
     });
   });
@@ -272,39 +320,39 @@ describe("provision — what it publishes for a racing close", () => {
       abandoned: () => true,
     });
 
-    await expect(manager.awaitCreated("pane-1")).resolves.toEqual({
+    await expect(manager.awaitCreated("team-1")).resolves.toEqual({
       repo: "/repo",
-      path: "/wt/pane-1",
+      path: "/wt/team-1",
       branch: "kd/ws/1",
     });
   });
 });
 
 describe("provision with a post-provision step", () => {
-  const oneCard = () => provisioningCards(1);
+  const oneCard = () => provisionRequests(1);
 
   beforeEach(() => {
     worktree.inspectRepo.mockResolvedValue({ head: "abc" });
-    worktree.createWorktree.mockResolvedValue({ path: "/wt/pane-1", branch: "kd/ws/1" });
+    worktree.createWorktree.mockResolvedValue({ path: "/wt/team-1", branch: "kd/ws/1" });
     worktree.removeWorktree.mockResolvedValue(undefined);
   });
 
   it("runs the registered step bound to the CREATED worktree, then resolves", async () => {
     const step = vi.fn(async () => {});
-    manager.registerPostProvision("pane-1", step);
+    manager.registerPostProvision("team-1", step);
     const onResolved = vi.fn();
     const onFailed = vi.fn();
 
     await manager.provision(oneCard(), "ws", { onResolved, onFailed, abandoned: stays });
 
-    expect(step).toHaveBeenCalledWith({ cwd: "/wt/pane-1", branch: "kd/ws/1" });
-    expect(onResolved).toHaveBeenCalledWith("pane-1", { cwd: "/wt/pane-1", branch: "kd/ws/1" });
+    expect(step).toHaveBeenCalledWith({ cwd: "/wt/team-1", branch: "kd/ws/1" });
+    expect(onResolved).toHaveBeenCalledWith("team-1", { cwd: "/wt/team-1", branch: "kd/ws/1" });
     expect(onFailed).not.toHaveBeenCalled();
     expect(worktree.removeWorktree).not.toHaveBeenCalled();
   });
 
   it("a step failure rolls the worktree back and fails the card — never resolves", async () => {
-    manager.registerPostProvision("pane-1", async () => {
+    manager.registerPostProvision("team-1", async () => {
       throw new Error("Agent could not prepare a fork plan");
     });
     const onResolved = vi.fn();
@@ -314,12 +362,12 @@ describe("provision with a post-provision step", () => {
 
     // Through the same teardown a close uses — and with the branch sweep OFF:
     // this worktree never became a pane's, so nothing was born in it.
-    expect(worktree.removeWorktree).toHaveBeenCalledWith("/repo", "/wt/pane-1", {
+    expect(worktree.removeWorktree).toHaveBeenCalledWith("/repo", "/wt/team-1", {
       force: true,
       branch: "kd/ws/1",
       reapCreatedBranches: false,
     });
-    expect(onFailed).toHaveBeenCalledWith("pane-1", "Agent could not prepare a fork plan");
+    expect(onFailed).toHaveBeenCalledWith("team-1", "Agent could not prepare a fork plan");
     expect(onResolved).not.toHaveBeenCalled();
   });
 
@@ -330,7 +378,7 @@ describe("provision with a post-provision step", () => {
     const step = vi.fn(async () => {
       if (attempt++ === 0) throw new Error("transient");
     });
-    manager.registerPostProvision("pane-1", step);
+    manager.registerPostProvision("team-1", step);
     const onResolved = vi.fn();
     const onFailed = vi.fn();
 
@@ -340,12 +388,12 @@ describe("provision with a post-provision step", () => {
 
     await manager.provision(oneCard(), "ws", { onResolved, onFailed, abandoned: stays }); // Retry
     expect(step).toHaveBeenCalledTimes(2); // re-run, not skipped
-    expect(onResolved).toHaveBeenCalledWith("pane-1", { cwd: "/wt/pane-1", branch: "kd/ws/1" });
+    expect(onResolved).toHaveBeenCalledWith("team-1", { cwd: "/wt/team-1", branch: "kd/ws/1" });
   });
 
   it("consumes (deletes) the step on success — a later re-provision won't re-run it", async () => {
     const step = vi.fn(async () => {});
-    manager.registerPostProvision("pane-1", step);
+    manager.registerPostProvision("team-1", step);
     await manager.provision(oneCard(), "ws", {
       onResolved: vi.fn(),
       onFailed: vi.fn(),
@@ -366,8 +414,8 @@ describe("provision with a post-provision step", () => {
     // across failures on purpose), and a pane id is never reused, so the close
     // drops it explicitly.
     const step = vi.fn(async () => {});
-    manager.registerPostProvision("pane-1", step);
-    manager.clearPostProvision("pane-1");
+    manager.registerPostProvision("team-1", step);
+    manager.clearPostProvision("team-1");
 
     await manager.provision(oneCard(), "ws", {
       onResolved: vi.fn(),
@@ -381,13 +429,13 @@ describe("provision with a post-provision step", () => {
   it("a plain (non-fork) pane with no registered step resolves untouched", async () => {
     const onResolved = vi.fn();
     await manager.provision(oneCard(), "ws", { onResolved, onFailed: vi.fn(), abandoned: stays });
-    expect(onResolved).toHaveBeenCalledWith("pane-1", { cwd: "/wt/pane-1", branch: "kd/ws/1" });
+    expect(onResolved).toHaveBeenCalledWith("team-1", { cwd: "/wt/team-1", branch: "kd/ws/1" });
     expect(worktree.removeWorktree).not.toHaveBeenCalled();
   });
 
   it("a rollback whose removeWorktree itself rejects still fails the card (swallowed)", async () => {
     worktree.removeWorktree.mockRejectedValue(new Error("worktree locked"));
-    manager.registerPostProvision("pane-1", async () => {
+    manager.registerPostProvision("team-1", async () => {
       throw new Error("surgery boom");
     });
     const onFailed = vi.fn();
@@ -396,6 +444,6 @@ describe("provision with a post-provision step", () => {
       onFailed,
       abandoned: stays,
     });
-    expect(onFailed).toHaveBeenCalledWith("pane-1", "surgery boom");
+    expect(onFailed).toHaveBeenCalledWith("team-1", "surgery boom");
   });
 });

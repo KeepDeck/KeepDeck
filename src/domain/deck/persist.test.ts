@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { emptyJournal } from "../journal";
 import { createWorkspaceInstance } from "../workspaceInstance";
-import { provisioningCard, type Pane } from "./panes";
+import type { Pane } from "./panes";
 import type { DeckState } from "./reducer";
+import { paneExecutionCwd, paneProvisioning } from "./roots";
+import type { Team } from "./teams";
 import {
   DECK_STATE_VERSION,
   PROVISIONING_INTERRUPTED,
@@ -26,11 +28,18 @@ const state: DeckState = {
       name: "KeepDeck",
       cwd: "/repo",
       worktreeBaseDir: "/repo/.wt",
+      teams: [
+        {
+          id: "team-1",
+          name: "auth",
+          location: { kind: "attached", cwd: "/repo/wt-3", branch: "kd/ws/3" },
+        },
+      ],
       panes: [
         {
           id: "pane-3",
           agentType: "claude",
-          location: { kind: "attached", cwd: "/repo/wt-3", branch: "kd/ws/3" },
+          team: { teamId: "team-1", role: "lead" },
           autoTitle: "fixing auth",
           session: { id: "abc-123", boundAt: "2026-07-02T00:00:00Z" },
         },
@@ -53,26 +62,30 @@ const state: DeckState = {
   activeId: "ws-5",
   // Dock open on purpose: the round-trip must NOT carry it (session-only).
   journal: emptyJournal,
-  viewByWs: { "ws-2": { focus: "pane-3", select: "pane-3", dock: true } },
+  viewByWs: {
+    "ws-2": { focus: "pane-3", select: "pane-3", dock: true, teamOpen: "team-1" },
+  },
 };
 
 describe("serializeDeck → hydrateDeck round-trip", () => {
   const restored = okDeck(serializeDeck(state));
 
   it("gives back the document it was given, byte for byte, for every placement", () => {
-    // The location goes to disk as the four fields it replaced, in the
-    // slots they always held. A second serialize of the hydrated deck must
-    // therefore reproduce the first — key for key, in order — or the shape
-    // of somebody's deck.json would change the first time this build saved.
-    const placements: (Pane["location"] | undefined)[] = [
-      undefined,
-      { kind: "main", branch: "kd/root/1" },
+    // A team's location goes to disk as the fields it replaced, in the
+    // slots they always held; a pane's own placement is its endpoint or
+    // nothing. A second serialize of the hydrated deck must therefore
+    // reproduce the first — key for key, in order — or the shape of
+    // somebody's deck.json would change the first time this build saved.
+    const placements: Team["location"][] = [
       { kind: "attached", cwd: "/repo/wt-a" },
       { kind: "attached", cwd: "/repo/wt-b", branch: "kd/ws/2" },
       {
         kind: "provisioning",
         intent: { repo: "/repo", path: "/repo/wt-c", base: "develop", index: 3 },
       },
+    ];
+    const own: (Pane["location"] | undefined)[] = [
+      undefined,
       { kind: "remote", endpoint: "ws://vps:4500" },
     ];
     const doc: DeckState = {
@@ -80,11 +93,19 @@ describe("serializeDeck → hydrateDeck round-trip", () => {
       workspaces: [
         {
           ...state.workspaces[0],
-          panes: placements.map((location, i) => ({
-            id: `pane-${i}`,
-            agentType: "claude",
-            ...(location !== undefined && { location }),
-          })),
+          teams: placements.map((location, i) => ({ id: `team-${i}`, name: `t${i}`, location })),
+          panes: [
+            ...placements.map((_location, i) => ({
+              id: `pane-${i}`,
+              agentType: "claude",
+              team: { teamId: `team-${i}`, role: "lead" },
+            })),
+            ...own.map((location, i) => ({
+              id: `pane-own-${i}`,
+              agentType: "claude",
+              ...(location !== undefined && { location }),
+            })),
+          ],
         },
       ],
       // Only the durable half of the view survives a round-trip, and the
@@ -104,13 +125,15 @@ describe("serializeDeck → hydrateDeck round-trip", () => {
 
   it("restores workspaces, view state and the active id", () => {
     expect(restored.state.activeId).toBe("ws-5");
-    // Only the durable half (focus/select) comes back; dock is session-only.
+    // Only the durable half (focus/select, and the team the stage had
+    // open) comes back; dock is session-only.
     expect(restored.state.viewByWs).toEqual({
-      "ws-2": { focus: "pane-3", select: "pane-3" },
+      "ws-2": { focus: "pane-3", select: "pane-3", teamOpen: "team-1" },
     });
     expect(restored.state.workspaces.map((w) => w.id)).toEqual(["ws-2", "ws-5"]);
     const [pane, remote] = restored.state.workspaces[0].panes;
-    expect(pane.location).toEqual({ kind: "attached", cwd: "/repo/wt-3", branch: "kd/ws/3" });
+    expect(pane.team).toEqual({ teamId: "team-1", role: "lead" });
+    expect(paneExecutionCwd(restored.state.workspaces[0], pane)).toBe("/repo/wt-3");
     expect(pane.autoTitle).toBe("fixing auth");
     expect(remote.location).toEqual({ kind: "remote", endpoint: "ws://vps:4500" });
     expect(pane.session).toEqual({ id: "abc-123", boundAt: "2026-07-02T00:00:00Z" });
@@ -356,9 +379,10 @@ describe("team membership across a restart", () => {
         cwd: "/r",
         worktreeBaseDir: null,
         panes: [
-          { id: "pane-1", agentType: "claude", team: { name: "api", role: "lead" } },
+          { id: "pane-1", agentType: "claude", team: { teamId: "team-1", role: "lead" } },
           { id: "pane-2", agentType: "claude" },
         ],
+        teams: [{ id: "team-1", name: "api" }],
       },
     ],
     activeId: "ws-1",
@@ -370,14 +394,135 @@ describe("team membership across a restart", () => {
     // A deck that returned with everyone anonymous would have silently
     // disbanded a team the user never disbanded — and taken the roles
     // teammates address each other by with it.
-    const [member, outsider] = okDeck(serializeDeck(teamState)).state.workspaces[0]
-      .panes;
-    expect(member.team).toEqual({ name: "api", role: "lead" });
+    const restored = okDeck(serializeDeck(teamState)).state.workspaces[0];
+    const [member, outsider] = restored.panes;
+    expect(member.team).toEqual({ teamId: "team-1", role: "lead" });
     expect(outsider.team).toBeUndefined();
+    expect(restored.teams).toEqual([{ id: "team-1", name: "api" }]);
   });
 
-  it("writes nothing for a pane on no team", () => {
-    expect(serializeDeck(teamState).match(/"team"/g)).toHaveLength(1);
+  it("writes the team as an object and the membership by id — the v11 shape", () => {
+    const json = serializeDeck(teamState);
+    expect(json).toContain('"teams":[{"id":"team-1","name":"api"}]');
+    expect(json).toContain('"team":{"teamId":"team-1","role":"lead"}');
+    expect(json.match(/"team"/g)).toHaveLength(1);
+    // Round-trips byte for byte: the reader's field order is the writer's.
+    expect(serializeDeck(okDeck(json).state)).toBe(json);
+  });
+
+  it("keeps a team's directory, or the create heading for one, across a restart", () => {
+    // The directory is what a team is FOR. A create still in flight comes
+    // back as the failed card, like a pane's: the app quit mid-create, and
+    // the intent powers Retry.
+    const intent = { repo: "/r", path: "/r/.wt/kd-3", branch: "kd/3", index: 3 };
+    const json = serializeDeck({
+      ...teamState,
+      workspaces: [
+        {
+          ...teamState.workspaces[0],
+          teams: [
+            { id: "team-1", name: "api", location: { kind: "attached", cwd: "/r/.wt/kd-1", branch: "kd/1" } },
+            { id: "team-2", name: "root", location: { kind: "attached", cwd: "/r" } },
+            { id: "team-3", name: "web", location: { kind: "provisioning", intent, error: "this run's" } },
+          ],
+        },
+      ],
+    });
+    expect(json).toContain('{"id":"team-1","name":"api","cwd":"/r/.wt/kd-1","branch":"kd/1"}');
+    expect(json).toContain('{"id":"team-2","name":"root","cwd":"/r"}');
+    // The intent only: a card's status is this run's.
+    expect(json).not.toContain("this run's");
+    const restored = okDeck(json).state.workspaces[0];
+    expect(restored.teams?.map((team) => team.location)).toEqual([
+      { kind: "attached", cwd: "/r/.wt/kd-1", branch: "kd/1" },
+      { kind: "attached", cwd: "/r" },
+      { kind: "provisioning", intent, error: PROVISIONING_INTERRUPTED },
+    ]);
+    expect(serializeDeck(okDeck(json).state)).toBe(json);
+  });
+
+  it("carries a team's unknown keys through a save, and quarantines a duplicate id", () => {
+    const json = serializeDeck(teamState).replace(
+      '{"id":"team-1","name":"api"}',
+      '{"id":"team-1","name":"api","future":true}',
+    );
+    const restored = okDeck(json).state;
+    expect(restored.workspaces[0].teams?.[0].extras).toEqual({ future: true });
+    expect(serializeDeck(restored)).toContain('"future":true');
+    const doubled = serializeDeck(teamState).replace(
+      '"teams":[{"id":"team-1","name":"api"}]',
+      '"teams":[{"id":"team-1","name":"api"},{"id":"team-1","name":"web"}]',
+    );
+    expect(hydrateDeck(doubled).kind).toBe("corrupt");
+  });
+
+  it("measures the cap per team, not per workspace", () => {
+    // The grid is the team's: two full teams in one workspace are two
+    // grids of sixteen, not a document to quarantine — while a seventeenth
+    // member on one team is a roster no grid can lay out.
+    const roster = (teamId: string, from: number, count: number): Pane[] =>
+      Array.from({ length: count }, (_, i) => ({
+        id: `pane-${from + i}`,
+        agentType: "claude",
+        team: { teamId, role: `r${from + i}` },
+      }));
+    const twoFull = serializeDeck({
+      ...teamState,
+      workspaces: [
+        {
+          ...teamState.workspaces[0],
+          panes: [...roster("team-1", 1, 16), ...roster("team-2", 17, 16)],
+          teams: [
+            { id: "team-1", name: "api" },
+            { id: "team-2", name: "web" },
+          ],
+        },
+      ],
+    });
+    expect(okDeck(twoFull).state.workspaces[0].panes).toHaveLength(32);
+    const oneOver = serializeDeck({
+      ...teamState,
+      workspaces: [
+        { ...teamState.workspaces[0], panes: roster("team-1", 1, 17) },
+      ],
+    });
+    expect(hydrateDeck(oneOver).kind).toBe("corrupt");
+  });
+
+  it("a membership naming another workspace's team is no membership here", () => {
+    // A team never spans workspaces: an id the OTHER workspace holds is a
+    // dangling id in this one, read as none rather than as a cross-workspace
+    // member nobody could address.
+    const json = serializeDeck({
+      ...teamState,
+      workspaces: [
+        teamState.workspaces[0],
+        {
+          ...teamState.workspaces[0],
+          id: "ws-2",
+          teams: [{ id: "team-2", name: "web" }],
+          panes: [{ id: "pane-9", agentType: "claude", team: { teamId: "team-2", role: "lead" } }],
+        },
+      ],
+    }).replace('"pane-9","agentType":"claude","team":{"teamId":"team-2"', '"pane-9","agentType":"claude","team":{"teamId":"team-1"');
+    const [, second] = okDeck(json).state.workspaces;
+    expect(second.panes[0].team).toBeUndefined();
+  });
+
+  it("drops a membership whose id names no team here", () => {
+    // A pane pointing at a team the workspace does not hold is on no team
+    // to anyone reading it; writing the dangling id would make the next
+    // launch invent a member of nothing.
+    const json = serializeDeck({
+      ...teamState,
+      workspaces: [
+        {
+          ...teamState.workspaces[0],
+          panes: [{ id: "pane-1", agentType: "claude", team: { teamId: "team-9", role: "lead" } }],
+        },
+      ],
+    });
+    expect(json).not.toContain('"team"');
   });
 
   it("reads a half-written entry as no membership at all", () => {
@@ -385,15 +530,15 @@ describe("team membership across a restart", () => {
     // gives its holder no name — either way the pane is better off plainly
     // outside than present-but-unreachable.
     for (const broken of [
-      '{"name":"api"}',
+      '{"teamId":"team-1"}',
       '{"role":"lead"}',
-      '{"name":"","role":"x"}',
-      // Only space is no name, and no role: both halves or neither.
-      '{"name":"   ","role":"lead"}',
-      '{"name":"api","role":" "}',
+      // An id that names no team here is a member of nothing — no member.
+      '{"teamId":"team-9","role":"lead"}',
+      // Only space is no role: both halves or neither.
+      '{"teamId":"team-1","role":" "}',
     ]) {
       const json = serializeDeck(teamState).replace(
-        '{"name":"api","role":"lead"}',
+        '{"teamId":"team-1","role":"lead"}',
         broken,
       );
       expect(okDeck(json).state.workspaces[0].panes[0].team).toBeUndefined();
@@ -404,14 +549,94 @@ describe("team membership across a restart", () => {
     // planTeam trims what it stores; a document edited by hand did not go
     // through it. Read trimmed, " api " is the team called "api" to every
     // reader — and the next save writes what was read, so the padding is
-    // gone from the file rather than kept as a second spelling.
-    const json = serializeDeck(teamState).replace(
-      '{"name":"api","role":"lead"}',
-      '{"name":" api ","role":" lead "}',
-    );
+    // gone from the file rather than kept as a second spelling. A team whose
+    // name is only space has no name, and is no team: the file quarantines.
+    const json = serializeDeck(teamState)
+      .replace('{"id":"team-1","name":"api"}', '{"id":"team-1","name":" api "}')
+      .replace('{"teamId":"team-1","role":"lead"}', '{"teamId":"team-1","role":" lead "}');
     const restored = okDeck(json).state;
-    expect(restored.workspaces[0].panes[0].team).toEqual({ name: "api", role: "lead" });
-    expect(serializeDeck(restored)).toContain('{"name":"api","role":"lead"}');
+    expect(restored.workspaces[0].panes[0].team).toEqual({ teamId: "team-1", role: "lead" });
+    expect(restored.workspaces[0].teams).toEqual([{ id: "team-1", name: "api" }]);
+    expect(serializeDeck(restored)).toContain('{"id":"team-1","name":"api"}');
+    expect(serializeDeck(restored)).toContain('{"teamId":"team-1","role":"lead"}');
+    const nameless = serializeDeck(teamState).replace(
+      '{"id":"team-1","name":"api"}',
+      '{"id":"team-1","name":"  "}',
+    );
+    expect(hydrateDeck(nameless).kind).toBe("corrupt");
+  });
+
+  it("climbs from a v10 file: the directory's agents become its team, and nothing carries a placement of its own", () => {
+    // The document a v10 build wrote, verbatim: a named team in the root
+    // beside an agent on no team, and a solo agent in a worktree of its own.
+    const v10 = JSON.stringify({
+      version: 10,
+      minVersion: 1,
+      activeId: "ws-1",
+      focusByWs: {},
+      selectByWs: {},
+      workspaces: [
+        {
+          id: "ws-1",
+          name: "a",
+          cwd: "/r",
+          worktreeBaseDir: null,
+          panes: [
+            { id: "pane-1", agentType: "claude", branch: "main", team: { name: "api", role: "lead" } },
+            { id: "pane-2", agentType: "claude", team: { name: " API ", role: "impl-1" } },
+            { id: "pane-3", agentType: "claude" },
+            { id: "pane-4", agentType: "codex", cwd: "/r/.wt/kd-4", branch: "kd/4", name: "docs" },
+          ],
+        },
+      ],
+    });
+    const deck = okDeck(v10);
+    const restored = deck.state.workspaces[0];
+    expect(restored.teams).toEqual([
+      { id: "team-1", name: "api", location: { kind: "attached", cwd: "/r", branch: "main" } },
+      { id: "team-2", name: "docs", location: { kind: "attached", cwd: "/r/.wt/kd-4", branch: "kd/4" } },
+    ]);
+    expect(restored.panes.map((pane) => pane.team)).toEqual([
+      { teamId: "team-1", role: "lead" },
+      { teamId: "team-1", role: "impl-1" },
+      { teamId: "team-1", role: "impl-2" },
+      { teamId: "team-2", role: "lead" },
+    ]);
+    // The placement lives on the team now: the formula answers through it.
+    expect(restored.panes.every((pane) => pane.location === undefined)).toBe(true);
+    expect(paneExecutionCwd(restored, restored.panes[3])).toBe("/r/.wt/kd-4");
+    expect(deck.notices).toEqual([]);
+    const saved = JSON.parse(serializeDeck(deck.state));
+    expect(saved.version).toBe(11);
+    expect(saved.minVersion).toBe(11);
+  });
+
+  it("surfaces what the ladder did as notices, and never writes them back", () => {
+    const v10 = JSON.stringify({
+      version: 10,
+      minVersion: 1,
+      activeId: "ws-1",
+      focusByWs: {},
+      selectByWs: {},
+      workspaces: [
+        {
+          id: "ws-1",
+          name: "a",
+          cwd: "/r",
+          worktreeBaseDir: null,
+          panes: [
+            { id: "pane-1", cwd: "/r/.wt/1", team: { name: "api", role: "lead" } },
+            { id: "pane-2", cwd: "/r/.wt/2", team: { name: "api", role: "impl-1" } },
+          ],
+        },
+      ],
+    });
+    const deck = okDeck(v10);
+    expect(deck.notices).toHaveLength(1);
+    expect(deck.notices[0]).toContain("dissolved");
+    const saved = serializeDeck(deck.state, deck.docExtras);
+    expect(saved).not.toContain("migrationNotices");
+    expect(okDeck(saved).notices).toEqual([]);
   });
 });
 
@@ -562,6 +787,9 @@ describe("hydrateDeck — tolerated degradations", () => {
     activeId: "ws-gone",
     focusByWs: { "ws-1": "pane-gone", "ws-gone": "pane-1" },
     selectByWs: { "ws-1": "pane-1" },
+    // A team the workspace no longer has: read as the cards level, not as
+    // an open nothing.
+    teamOpenByWs: { "ws-1": "team-gone", "ws-gone": "team-1" },
     workspaces: [
       {
         id: "ws-1",
@@ -578,9 +806,9 @@ describe("hydrateDeck — tolerated degradations", () => {
     expect(restored.state.activeId).toBe("ws-1");
   });
 
-  it("drops focus/selection entries pointing at unknown ids", () => {
-    // Both focus entries point at unknown ids and vanish; the valid selection
-    // remains, so ws-1's view is select-only.
+  it("drops focus/selection/open-team entries pointing at unknown ids", () => {
+    // Both focus entries and both open-team entries point at unknown ids
+    // and vanish; the valid selection remains, so ws-1's view is select-only.
     expect(restored.state.viewByWs).toEqual({ "ws-1": { select: "pane-1" } });
   });
 
@@ -642,10 +870,10 @@ describe("provisioning panes across a restart", () => {
         name: "deck",
         cwd: "/repo",
         worktreeBaseDir: "/wt",
-        panes: [
+        teams: [
           {
-            id: "pane-1",
-            agentType: "claude",
+            id: "team-1",
+            name: "deck",
             location: {
               kind: "provisioning",
               intent: { repo: "/repo", path: "/wt/deck-1", base: "develop", index: 1 },
@@ -653,41 +881,43 @@ describe("provisioning panes across a restart", () => {
             },
           },
         ],
+        panes: [{ id: "pane-1", agentType: "claude", team: { teamId: "team-1", role: "lead" } }],
       },
     ],
     activeId: "ws-1",
     journal: emptyJournal,
     viewByWs: {},
   };
+  const teamCard = (deck: HydratedDeck) => {
+    const ws = deck.state.workspaces[0];
+    return paneProvisioning(ws, ws.panes[0]);
+  };
 
   it("persists the intent, never the runtime error, and restores an interrupted failed card", () => {
     const json = serializeDeck(provisioningState);
     expect(json).not.toContain("mid-create failure");
-    const pane = okDeck(json).state.workspaces[0].panes[0];
-    expect(provisioningCard(pane)).toEqual({
+    const deck = okDeck(json);
+    expect(teamCard(deck)).toEqual({
       kind: "provisioning",
       // The picked base survives the restart, so Retry recreates the worktree
       // from the same fork point instead of whatever HEAD moved to.
       intent: { repo: "/repo", path: "/wt/deck-1", base: "develop", index: 1 },
       error: PROVISIONING_INTERRUPTED,
     });
-    // NOT idle: the revive flow must leave it alone — there may be no
-    // directory to spawn a terminal into.
-    expect(pane.idle).toBeUndefined();
+    // The member comes back like every restored pane; its team's card is
+    // what holds the revive flow off a directory that may not exist.
+    expect(deck.state.workspaces[0].panes[0].idle).toEqual({ reason: "waking", origin: "restore" });
   });
 
   it("an interrupted create outranks a stored suspend — the card must offer Retry", () => {
-    // Both markers on one pane is only reachable by a hand edit, but the
-    // outcome matters: an idle pane here would send the revive flow into a
-    // directory the create never finished making.
+    // A suspended member of a team whose create never finished: the card is
+    // the team's and outranks the pane's marker on every surface.
     const doc = JSON.parse(serializeDeck(provisioningState));
     doc.workspaces[0].panes[0].idle = {
       reason: "suspended",
       at: "2026-07-25T09:00:00.000Z",
     };
-    const pane = okDeck(JSON.stringify(doc)).state.workspaces[0].panes[0];
-    expect(pane.idle).toBeUndefined();
-    expect(provisioningCard(pane)?.error).toBe(PROVISIONING_INTERRUPTED);
+    expect(teamCard(okDeck(JSON.stringify(doc)))?.error).toBe(PROVISIONING_INTERRUPTED);
   });
 
   it("reads an intent an older build saved with the workspace name inside, and drops it on the next save", () => {
@@ -697,13 +927,12 @@ describe("provisioning panes across a restart", () => {
     // back as part of it — and it leaves the file the first time this build
     // saves, rather than riding along as an extra.
     const doc = JSON.parse(serializeDeck(provisioningState));
-    doc.workspaces[0].panes[0].provisioning.workspace = "deck";
-    const restored = okDeck(JSON.stringify(doc)).state;
-    const pane = restored.workspaces[0].panes[0];
-    expect(provisioningCard(pane)).not.toBeNull();
-    expect(provisioningCard(pane)?.intent).not.toHaveProperty("workspace");
-    expect(pane.extras).toBeUndefined();
-    expect(serializeDeck(restored)).not.toContain('"workspace":');
+    doc.workspaces[0].teams[0].provisioning.workspace = "deck";
+    const deck = okDeck(JSON.stringify(doc));
+    expect(teamCard(deck)).not.toBeNull();
+    expect(teamCard(deck)?.intent).not.toHaveProperty("workspace");
+    expect(deck.state.workspaces[0].teams?.[0].extras).toBeUndefined();
+    expect(serializeDeck(deck.state)).not.toContain('"workspace":');
   });
 
   it("drops a FORK provisioning card entirely — never restores it as a plain retryable pane", () => {
@@ -715,10 +944,10 @@ describe("provisioning panes across a restart", () => {
       workspaces: [
         {
           ...provisioningState.workspaces[0],
-          panes: [
+          teams: [
             {
-              id: "pane-1",
-              agentType: "opencode",
+              id: "team-1",
+              name: "fork",
               location: {
                 kind: "provisioning",
                 intent: { repo: "/repo", path: "/wt/fork-1", branch: "fork/x", index: 1 },
@@ -726,11 +955,14 @@ describe("provisioning panes across a restart", () => {
               },
             },
           ],
+          panes: [{ id: "pane-1", agentType: "opencode", team: { teamId: "team-1", role: "lead" } }],
         },
       ],
     };
     expect(serializeDeck(forkState)).not.toContain("fork-1");
-    expect(okDeck(serializeDeck(forkState)).state.workspaces[0].panes).toHaveLength(0);
+    const restored = okDeck(serializeDeck(forkState)).state.workspaces[0];
+    expect(restored.panes).toHaveLength(0);
+    expect(restored.teams ?? []).toHaveLength(0);
   });
 
   it("in a MIXED workspace, drops ONLY the fork card — normal panes survive", () => {
@@ -739,11 +971,11 @@ describe("provisioning panes across a restart", () => {
       workspaces: [
         {
           ...provisioningState.workspaces[0],
-          panes: [
-            { id: "pane-1", agentType: "claude", location: { kind: "attached", cwd: "/repo" } },
+          teams: [
+            { id: "team-1", name: "root", location: { kind: "attached", cwd: "/repo" } },
             {
-              id: "pane-2",
-              agentType: "opencode",
+              id: "team-2",
+              name: "fork",
               location: {
                 kind: "provisioning",
                 intent: { repo: "/repo", path: "/wt/f2", branch: "fork/y", index: 2 },
@@ -751,46 +983,65 @@ describe("provisioning panes across a restart", () => {
               },
             },
           ],
+          panes: [
+            { id: "pane-1", agentType: "claude", team: { teamId: "team-1", role: "lead" } },
+            { id: "pane-2", agentType: "opencode", team: { teamId: "team-2", role: "lead" } },
+          ],
         },
       ],
     };
-    const panes = okDeck(serializeDeck(mixed)).state.workspaces[0].panes;
-    expect(panes.map((p) => p.id)).toEqual(["pane-1"]); // only the fork card is gone
+    const restored = okDeck(serializeDeck(mixed)).state.workspaces[0];
+    const panes = restored.panes;
+    expect(panes.map((p) => p.id)).toEqual(["pane-1"]); // only the fork card's member is gone
+    expect(restored.teams?.map((team) => team.id)).toEqual(["team-1"]);
     expect(panes[0]).toMatchObject({
       agentType: "claude",
-      location: { kind: "attached", cwd: "/repo" },
+      team: { teamId: "team-1", role: "lead" },
     });
   });
 
-  it("a RESOLVED fork pane (no provisioning) persists normally — the filter isn't over-broad", () => {
+  it("a RESOLVED fork team (no provisioning) persists normally — the filter isn't over-broad", () => {
     const resolved: DeckState = {
       ...provisioningState,
       workspaces: [
         {
           ...provisioningState.workspaces[0],
-          panes: [
-            {
-              id: "pane-1",
-              agentType: "opencode",
-              location: { kind: "attached", cwd: "/wt/fork-1", branch: "fork/z" },
-            },
+          teams: [
+            { id: "team-1", name: "fork", location: { kind: "attached", cwd: "/wt/fork-1", branch: "fork/z" } },
           ],
+          panes: [{ id: "pane-1", agentType: "opencode", team: { teamId: "team-1", role: "lead" } }],
         },
       ],
     };
-    const pane = okDeck(serializeDeck(resolved)).state.workspaces[0].panes[0];
-    expect(pane).toMatchObject({
+    const restored = okDeck(serializeDeck(resolved)).state.workspaces[0];
+    expect(restored.panes[0]).toMatchObject({
       agentType: "opencode",
-      location: { kind: "attached", cwd: "/wt/fork-1", branch: "fork/z" },
+      team: { teamId: "team-1", role: "lead" },
     });
+    expect(restored.teams?.[0].location).toEqual({ kind: "attached", cwd: "/wt/fork-1", branch: "fork/z" });
   });
 
-  it("degrades a malformed intent to a plain idle pane instead of rejecting the deck", () => {
+  it("degrades a malformed intent to a team with no directory instead of rejecting the deck", () => {
     const doc = JSON.parse(serializeDeck(provisioningState));
-    doc.workspaces[0].panes[0].provisioning = { repo: 42 };
-    const pane = okDeck(JSON.stringify(doc)).state.workspaces[0].panes[0];
-    expect(pane.location).toBeUndefined();
-    expect(pane.idle).toEqual({ reason: "waking", origin: "restore" });
+    doc.workspaces[0].teams[0].provisioning = { repo: 42 };
+    const restored = okDeck(JSON.stringify(doc)).state.workspaces[0];
+    expect(restored.teams?.[0].location).toBeUndefined();
+    expect(restored.panes[0].idle).toEqual({ reason: "waking", origin: "restore" });
+  });
+
+  it("does not read a directory written on a PANE — the directory is the team's", () => {
+    // A document from before the team owned the directory, or a hand edit:
+    // the fields are dropped on read, not carried as extras, and the pane
+    // runs where its team runs.
+    const doc = JSON.parse(serializeDeck(state));
+    doc.workspaces[0].panes[0].cwd = "/stale/dir";
+    doc.workspaces[0].panes[0].branch = "stale";
+    doc.workspaces[0].panes[0].provisioning = { repo: "/repo", path: "/stale", index: 9 };
+    const restored = okDeck(JSON.stringify(doc)).state.workspaces[0];
+    expect(restored.panes[0].location).toBeUndefined();
+    expect(restored.panes[0].extras).toBeUndefined();
+    expect(paneExecutionCwd(restored, restored.panes[0])).toBe("/repo/wt-3");
+    expect(serializeDeck({ ...state, workspaces: [restored] })).not.toContain("/stale");
   });
 });
 
@@ -1072,7 +1323,9 @@ describe("schema revisions and the compatibility floor", () => {
   it("writes the current revision and its floor", () => {
     const out = JSON.parse(serializeDeck(state));
     expect(out.version).toBe(DECK_STATE_VERSION);
-    expect(out.minVersion).toBe(1);
+    // The floor rose with v11: a v10 reader would misread membership and
+    // save the misreading back, so it must park instead.
+    expect(out.minVersion).toBe(11);
   });
 
   it("a v1 deck (pre run presets) migrates up on load", () => {

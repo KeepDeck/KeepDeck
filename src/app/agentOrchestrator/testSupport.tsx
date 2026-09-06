@@ -7,6 +7,7 @@ import type {
   Pane,
   PaneIdle,
   SpawnConfig,
+  TeamLocation,
   WorktreeTarget,
 } from "../../domain/deck";
 import { MAX_PANES as MAX_PANES_IMPL } from "../../domain/deck";
@@ -39,6 +40,7 @@ import {
 } from ".";
 import { useAgentRunView } from "../useAgentRunView";
 import type { SpawnPluginAccess } from "../spawnSpecs";
+import type { ProvisionRequest } from "../worktrees";
 
 // React 19 requires this flag for act() outside a test-framework integration.
 (
@@ -321,6 +323,7 @@ export let agentRun: AgentRunView &
     | "resume"
     | "startFresh"
     | "createPane"
+    | "createTeam"
     | "createWorkspace"
     | "retryProvisioning"
     | "resumeSession"
@@ -336,7 +339,7 @@ export let agentRun: AgentRunView &
 /** The worktree creates the orchestrator asked for, recorded instead of run.
  *  Per mount like the deck beside it, so no `describe` has to remember to
  *  clear it. */
-export let provisions: Pane[][];
+export let provisions: ProvisionRequest[][];
 /** The workspace name each of those create batches was issued under — what
  *  the auto branch name is built from, read live at the call. */
 export let provisionedAs: string[];
@@ -374,7 +377,7 @@ export const catalog = {
 export function Probe() {
   const [wiring] = useState(() => {
     const store = createDeckStore();
-    const asked: Pane[][] = [];
+    const asked: ProvisionRequest[][] = [];
     const issuedAs: string[] = [];
     const discarded: WorktreeTarget[][] = [];
     return {
@@ -419,8 +422,8 @@ export function Probe() {
         mcpAccess: async () => ({ servers: [], deliver: async () => {} }),
         lifecycle,
         worktrees: {
-          provision: (panes, workspaceName) => {
-            asked.push(panes);
+          provision: (requests, workspaceName) => {
+            asked.push([...requests]);
             issuedAs.push(workspaceName);
             return Promise.resolve();
           },
@@ -450,6 +453,7 @@ export function Probe() {
     resume: wiring.orchestrator.resume,
     startFresh: wiring.orchestrator.startFresh,
     createPane: wiring.orchestrator.createPane,
+    createTeam: wiring.orchestrator.createTeam,
     createWorkspace: wiring.orchestrator.createWorkspace,
     retryProvisioning: wiring.orchestrator.retryProvisioning,
     resumeSession: wiring.orchestrator.resumeSession,
@@ -465,8 +469,10 @@ export function Probe() {
   return null;
 }
 
-/** A deck with one idle (restored) claude pane; `pane` overrides fields. */
-export const restored = (pane: object): DeckState => ({
+/** A deck with one idle (restored) claude pane; `pane` overrides fields.
+ * Given `location`, the pane is on a team placed there — a directory is
+ * the team's, never the pane's own. */
+export const restored = (pane: object, location?: TeamLocation): DeckState => ({
   workspaces: [
     {
       id: "ws-1",
@@ -474,8 +480,15 @@ export const restored = (pane: object): DeckState => ({
       name: "ws",
       cwd: "/repo",
       worktreeBaseDir: null,
+      ...(location && { teams: [{ id: "team-1", name: "one", location }] }),
       panes: [
-        { id: "pane-1", agentType: "claude", idle: { reason: "waking", origin: "restore" }, ...pane },
+        {
+          id: "pane-1",
+          agentType: "claude",
+          idle: { reason: "waking", origin: "restore" },
+          ...(location && { team: { teamId: "team-1", role: "lead" } }),
+          ...pane,
+        },
       ],
     },
   ],

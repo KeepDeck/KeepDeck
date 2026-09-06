@@ -2,12 +2,20 @@
  * Creating the worktrees behind provisioning cards, and publishing what
  * landed.
  *
+ * Keyed by OWNER, not by pane: whatever asked for the directory — the team
+ * whose card it is — is what the result, the early publish and any
+ * post-provision step are filed under. The manager does not know what an
+ * owner is; it knows an id and an intent.
+ *
  * The one subtlety worth carrying in your head: what a create puts on disk is
  * published the instant `git worktree add` returns, BEFORE the card resolves —
  * a close racing the create needs the path long before the rest of this
- * finishes (see [`created`]).
+ * finishes (see [`created`]). And the TICKET for that publish is taken out
+ * synchronously, before the first await: a close confirmed in the window
+ * between "asked" and "git ran" used to find nothing to wait for, delete the
+ * owner, and leave the directory the create then made as an orphan.
  */
-import { locationOf, type WorktreeIntent } from "../../domain/deck";
+import type { WorktreeIntent } from "../../domain/deck";
 import { describeError, log } from "../../ipc/log";
 import { createWorktree, inspectRepo } from "../../ipc/worktree";
 import type { ProvisionCallbacks } from "../provisioning";
@@ -27,19 +35,19 @@ export function createWorktreeProvisioning(
   ) => Promise<void>,
 ): WorktreeProvisioning {
   /**
-   * Post-provision steps, keyed by pane id: a JS step run AFTER a pane's
+   * Post-provision steps, keyed by owner id: a JS step run AFTER an owner's
    * worktree is created but BEFORE its card resolves — the
    * seam where a journal fork runs its store surgery bound to the CREATED
    * worktree. It runs on the initial create AND on every Retry (both go through
-   * `provisionPane`), so a retried fork re-runs its surgery instead of silently
-   * resolving into a plain (non-fork) pane. A step THROWS to fail (the worktree
+   * `provisionOwner`), so a retried fork re-runs its surgery instead of silently
+   * resolving into a plain (non-fork) card. A step THROWS to fail (the worktree
    * is rolled back and the card fails); it is consumed once it succeeds, and
    * kept across a failed attempt so the retry re-runs it.
    *
    * PERSISTENCE COUPLING (don't miss this): a step lives ONLY in this in-memory
-   * map — it cannot survive an app restart. So ANY pane that registers a step
+   * map — it cannot survive an app restart. So ANY owner that registers a step
    * MUST also be excluded from persistence, or its card restores as a plain
-   * retryable card and Retry resolves a NON-fork pane. The journal fork does
+   * retryable card and Retry resolves a NON-fork card. The journal fork does
    * this via the location's `fork` marker, which `serializeDeck` drops; a future
    * second user of this map must add the equivalent.
    */
@@ -49,39 +57,41 @@ export function createWorktreeProvisioning(
   >();
 
   /**
-   * What each pane's worktree create has put on disk, published the moment
+   * What each owner's worktree create has put on disk, published the moment
    * `git worktree add` returns and BEFORE anything else the create does.
    *
    * Published early on purpose. The close needs two things a create cannot give
    * it at the same moment: the path, and permission to delete only after the
-   * pane's process is reaped. Waiting for the whole create supplies neither —
-   * a post-provision step runs on the pane's behalf, so waiting behind it races
-   * the close — and letting the CREATE delete supplies the path but loses the
-   * ordering, removing a directory a step is still writing into.
+   * owner's processes are reaped. Waiting for the whole create supplies neither
+   * — a post-provision step runs on the owner's behalf, so waiting behind it
+   * races the close — and letting the CREATE delete supplies the path but loses
+   * the ordering, removing a directory a step is still writing into.
    *
    * Publishing at the git call splits those apart: this promise always settles
    * promptly (nothing but the git call is in front of it), so the close can
    * await it, then reap, then delete — in that order, with `remove` doing the
    * removal and reporting its failures like any other.
    *
-   * Kept until READ, then dropped. The pane also drops its own entry once it
-   * takes ownership (`onResolved`), because from then on it has a `cwd` and the
-   * close can name the worktree without help.
+   * The entry — the TICKET — is taken out in `provision` itself, before its
+   * first await, so a close confirmed while the repo is still being inspected
+   * finds something to wait for. Kept until READ, then dropped. The owner also
+   * drops its own entry once it takes ownership (`onResolved`), because from
+   * then on it has a `cwd` and the close can name the worktree without help.
    */
   const created = new Map<string, Promise<CreatedWorktree | null>>();
 
   /** Run the registered step, if any. Returns null on success (or when none is
-   * registered — a plain pane) and the failure message otherwise; a successful
+   * registered — a plain owner) and the failure message otherwise; a successful
    * step is consumed, a failed one is KEPT so a Retry re-runs it. */
   async function runPostProvision(
-    paneId: string,
+    ownerId: string,
     worktree: { cwd: string; branch: string },
   ): Promise<string | null> {
-    const step = postProvisionSteps.get(paneId);
+    const step = postProvisionSteps.get(ownerId);
     if (!step) return null;
     try {
       await step(worktree);
-      postProvisionSteps.delete(paneId);
+      postProvisionSteps.delete(ownerId);
       return null;
     } catch (e) {
       return describeError(e);
@@ -89,57 +99,50 @@ export function createWorktreeProvisioning(
   }
 
   /**
-   * One pane's create → its card resolves or fails.
+   * One owner's create → its card resolves or fails.
    *
    * What it puts on disk is published the instant `git worktree add` returns
-   * (see [`created`]), so a close can name the directory without waiting for
-   * the rest of this. Nothing here deletes on a close's behalf: this function
-   * only stops early, and the close does the removing in the order it needs.
+   * (see [`created`]) through `publish`, the ticket `provision` took out for it.
+   * Nothing here deletes on a close's behalf: this function only stops early,
+   * and the close does the removing in the order it needs.
    */
-  async function provisionPane(
-    paneId: string,
+  async function provisionOwner(
+    ownerId: string,
     intent: WorktreeIntent,
+    publish: (made: CreatedWorktree | null) => void,
     batchBase: { commit?: string; branch?: string } | undefined,
     workspaceName: string,
     cb: ProvisionCallbacks,
   ): Promise<void> {
     /**
-     * The pane left while we were working. Asked after every await that could
+     * The owner left while we were working. Asked after every await that could
      * outlive it, because everything past the create is done ON ITS BEHALF: a
-     * post-provision step would run for a pane that is gone, and `onResolved`
-     * would hand a worktree to a pane that cannot take it.
+     * post-provision step would run for an owner that is gone, and `onResolved`
+     * would hand a worktree to one that cannot take it.
      * Whether that worktree then goes is the close's decision, not ours — it is
      * the only party that knows what the user ticked and when the process died.
      */
     const abandoned = (): boolean => {
-      if (!cb.abandoned(paneId)) return false;
+      if (!cb.abandoned(ownerId)) return false;
       log.info(
         "web:worktrees",
-        `${paneId} left while its worktree was being created — stopping here`,
+        `${ownerId} left while its worktree was being created — stopping here`,
       );
       return true;
     };
-
-    let publish!: (made: CreatedWorktree | null) => void;
-    created.set(
-      paneId,
-      new Promise<CreatedWorktree | null>((resolve) => {
-        publish = resolve;
-      }),
-    );
 
     let rec: { path: string; branch: string };
     try {
       // In the queue like every other worktree operation. A create was the one
       // that was not, and the close flow hands the freed folder straight back:
-      // the "+ Agent" dialog suggests a path whose teardown may still be queued
-      // (the pane has already left the deck, so nothing reads it as occupied),
+      // the agent dialog suggests a path whose teardown may still be queued
+      // (the owner has already left the deck, so nothing reads it as occupied),
       // and whoever ran first won. Queued, the teardown that was asked for first
       // finishes first, and the create either lands afterwards or fails honestly.
       rec = await inOrder(() =>
         createWorktree({
           repo: intent.repo,
-          agentId: paneId,
+          ownerId,
           branch: intent.branch,
           // The intent's own picked base outranks the repo HEAD pinned below.
           base: intent.base ?? batchBase?.commit,
@@ -152,62 +155,78 @@ export function createWorktreeProvisioning(
     } catch (e) {
       log.error(
         "web:worktrees",
-        `worktree create failed for ${paneId}: ${describeError(e)}`,
+        `worktree create failed for ${ownerId}: ${describeError(e)}`,
       );
       // Nothing landed, so a close has nothing to remove.
       publish(null);
-      created.delete(paneId);
-      cb.onFailed(paneId, describeError(e));
+      created.delete(ownerId);
+      cb.onFailed(ownerId, describeError(e));
       return;
     }
     // The directory exists: say so before anything else can delay it. A close
     // racing this is the case the early publish is for.
     publish({ repo: intent.repo, path: rec.path, branch: rec.branch });
-    // Before the post-provision step, not only after: it runs on the pane's
-    // behalf, and there is no behalf left once the pane is gone.
+    // Before the post-provision step, not only after: it runs on the owner's
+    // behalf, and there is no behalf left once the owner is gone.
     if (abandoned()) return;
 
     // The worktree is on disk — run any registered post-provision step (a
     // journal fork's store surgery, bound to the CREATED worktree). A failure
     // rolls the worktree back and fails the card; the step stays registered, so
-    // Retry re-runs it rather than resolving into a plain (non-fork) pane.
-    const stepError = await runPostProvision(paneId, {
+    // Retry re-runs it rather than resolving into a plain (non-fork) card.
+    const stepError = await runPostProvision(ownerId, {
       cwd: rec.path,
       branch: rec.branch,
     });
-    // The last gate, and it comes BEFORE the step's result is judged. A pane
+    // The last gate, and it comes BEFORE the step's result is judged. An owner
     // closed mid-step is often WHY the step failed, and the failure branch
     // below would then roll back a worktree whose fate is the close's to
     // decide — the one thing this function must never do. Past this line the
-    // pane owns the worktree and an ordinary close can name it by its `cwd`,
+    // owner holds the worktree and an ordinary close can name it by its `cwd`,
     // so the published entry stops being anyone's only handle on it.
     if (abandoned()) return;
     if (stepError !== null) {
       log.error(
         "web:worktrees",
-        `post-provision step failed for ${paneId} in ${rec.path}: ${stepError}`,
+        `post-provision step failed for ${ownerId} in ${rec.path}: ${stepError}`,
       );
       await rollbackWorktree(intent.repo, rec);
-      created.delete(paneId);
-      cb.onFailed(paneId, stepError);
+      created.delete(ownerId);
+      cb.onFailed(ownerId, stepError);
       return;
     }
-    created.delete(paneId);
+    created.delete(ownerId);
 
-    cb.onResolved(paneId, { cwd: rec.path, branch: rec.branch });
+    cb.onResolved(ownerId, { cwd: rec.path, branch: rec.branch });
   }
 
   return {
-    async provision(panes, workspaceName, cb) {
-      const pending = panes.flatMap((p) => {
-        const location = locationOf(p);
-        return location.kind === "provisioning" ? [{ id: p.id, intent: location.intent }] : [];
+    async provision(asked, workspaceName, cb) {
+      // ONE create in flight per owner. A second request for an owner whose
+      // ticket is still out — two Retries before the first answers, a
+      // caller that did not check — is dropped here rather than started:
+      // two creates for one directory race each other on disk, and a close
+      // waits on only the latest ticket, so the earlier create's worktree
+      // would be nobody's to name or remove.
+      const requests = asked.filter((request) => !created.has(request.ownerId));
+      if (requests.length === 0) return;
+      // The tickets, before anything is awaited: from this line a close that
+      // asks `awaitCreated` for any of these owners waits for the git call
+      // instead of finding nothing and deleting under it.
+      const tickets = requests.map((request) => {
+        let publish!: (made: CreatedWorktree | null) => void;
+        created.set(
+          request.ownerId,
+          new Promise<CreatedWorktree | null>((resolve) => {
+            publish = resolve;
+          }),
+        );
+        return { request, publish };
       });
-      if (pending.length === 0) return;
 
       let batchBase: { commit?: string; branch?: string } | undefined;
       try {
-        const inspected = await inspectRepo(pending[0].intent.repo);
+        const inspected = await inspectRepo(requests[0].intent.repo);
         batchBase = {
           ...(inspected.head && { commit: inspected.head }),
           ...(inspected.branch && { branch: inspected.branch }),
@@ -217,23 +236,25 @@ export function createWorktreeProvisioning(
       }
 
       await Promise.all(
-        pending.map((p) => provisionPane(p.id, p.intent, batchBase, workspaceName, cb)),
+        tickets.map(({ request, publish }) =>
+          provisionOwner(request.ownerId, request.intent, publish, batchBase, workspaceName, cb),
+        ),
       );
     },
 
-    awaitCreated(paneId) {
-      const pending = created.get(paneId);
+    awaitCreated(ownerId) {
+      const pending = created.get(ownerId);
       if (!pending) return Promise.resolve(null);
-      created.delete(paneId);
+      created.delete(ownerId);
       return pending;
     },
 
-    registerPostProvision(paneId, step) {
-      postProvisionSteps.set(paneId, step);
+    registerPostProvision(ownerId, step) {
+      postProvisionSteps.set(ownerId, step);
     },
 
-    clearPostProvision(paneId) {
-      postProvisionSteps.delete(paneId);
+    clearPostProvision(ownerId) {
+      postProvisionSteps.delete(ownerId);
     },
   };
 }

@@ -30,6 +30,7 @@ describe("workspace commands", () => {
           name: "web",
           cwd: "/repo",
           active: true,
+          teams: [],
           panes: [
             {
               id: "p1",
@@ -47,9 +48,53 @@ describe("workspace commands", () => {
           name: "site",
           cwd: "/site",
           active: false,
+          teams: [],
           panes: [],
         },
       ]);
+  });
+
+  it("lists the teams — where each runs, its state, its members — and each pane's team by id", async () => {
+    const { registry } = setup([
+      workspace({
+        teams: [
+          { id: "team-1", name: "api", location: { kind: "attached", cwd: "/wt/api", branch: "kd/api" } },
+          {
+            id: "team-2",
+            name: "web",
+            location: {
+              kind: "provisioning",
+              intent: { repo: "/repo", path: "/wt/web", branch: "kd/web", index: 2 },
+              error: "boom",
+            },
+          },
+        ],
+        panes: [
+          { id: "p1", agentType: "claude", team: { teamId: "team-1", role: "lead" } },
+          { id: "p2", agentType: "claude", team: { teamId: "team-1", role: "impl-1" } },
+          { id: "p3", agentType: "claude", team: { teamId: "team-2", role: "lead" } },
+        ],
+      }),
+    ]);
+    const result = await registry.execute("workspace.list", {}, HOST);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const [row] = result.value as {
+      teams: unknown[];
+      panes: { id: string; team: unknown; cwd: string | null }[];
+    }[];
+    expect(row.teams).toEqual([
+      { id: "team-1", name: "api", status: "ready", cwd: "/wt/api", branch: "kd/api", members: ["p1", "p2"] },
+      // A create that failed: no directory to name, the branch it was
+      // heading for, Retry on offer.
+      { id: "team-2", name: "web", status: "failed", cwd: null, branch: "kd/web", members: ["p3"] },
+    ]);
+    expect(row.panes.map((pane) => pane.team)).toEqual([
+      { id: "team-1", name: "api", role: "lead" },
+      { id: "team-1", name: "api", role: "impl-1" },
+      { id: "team-2", name: "web", role: "lead" },
+    ]);
+    expect(row.panes[2].cwd).toBeNull();
   });
 
   it("reports no cwd for a pane whose worktree is still being created", async () => {
@@ -58,16 +103,17 @@ describe("workspace commands", () => {
     // beside it — in a directory it never runs in.
     const { registry } = setup([
       workspace({
-        panes: [
+        teams: [
           {
-            id: "p1",
-            agentType: "claude",
+            id: "team-1",
+            name: "web-1",
             location: {
               kind: "provisioning",
               intent: { repo: "/repo", path: "/wt/web-1", branch: "kd/web/1", index: 1 },
             },
           },
         ],
+        panes: [{ id: "p1", agentType: "claude", team: { teamId: "team-1", role: "lead" } }],
       }),
     ]);
     const result = await registry.execute("workspace.list", {}, HOST);
@@ -139,7 +185,7 @@ describe("workspace commands", () => {
     const selected = await registry.execute("pane.target", {}, HOST);
     expect(selected).toEqual({
       ok: true,
-      value: { workspaceId: "ws-1", paneId: "p2" },
+      value: { workspaceId: "ws-1", paneId: "p2", teamId: null },
     });
 
     vi.mocked(deck.viewOf).mockReturnValue({});

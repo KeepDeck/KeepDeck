@@ -81,15 +81,25 @@ function stateLabelOf(panes: readonly Pane[], entries: readonly ShelfEntry[]): T
 }
 
 /**
- * What the grid says when every pane is off it. Meaningful only then — the
- * stage gates the render on the grid being empty, and so should any other
+ * What the grid says when every pane of the open team is off it — or when
+ * the team has nobody on it at all. Meaningful only inside an open team with
+ * an empty grid: the stage gates the render on that, and so should any other
  * caller. "They keep running" is only true while none of them is stopped: a
- * deck of suspended agents would otherwise be told the opposite of what it is.
+ * team of suspended agents would otherwise be told the opposite of what it
+ * is.
  */
 export function emptyGridMessage(
   panes: readonly Pane[],
   view: PaneVisibilityView | undefined,
 ): { title: string; sub: string } {
+  // Nobody on the team: not "every agent is…" over an empty set. The team
+  // and its directory stay; the person adds someone or lets the card go.
+  if (panes.length === 0) {
+    return {
+      title: "No agents on this team",
+      sub: "Add one with “+ Member”, or disband the team from its card",
+    };
+  }
   // No spotlight on an empty grid: nothing is live to be covered.
   const { entries } = trayView(panes, view, null);
   const inTray = entries.filter((entry) => entry.reason === "suspendedTray");
@@ -98,13 +108,13 @@ export function emptyGridMessage(
   const title =
     inTray.length === panes.length
       ? inTray.every((entry) => paneIsSuspended(byId.get(entry.paneId)!))
-        ? "Every agent is suspended"
-        : "Every agent is in the tray"
+        ? "Every agent on this team is suspended"
+        : "Every agent on this team is in the tray"
       : inTray.length > 0 && minimized > 0
-        ? "Every agent is hidden"
+        ? "Every agent on this team is hidden"
         : inTray.length > 0
-          ? "Every agent is in the tray"
-          : "Every agent is minimized";
+          ? "Every agent on this team is in the tray"
+          : "Every agent on this team is minimized";
   const sub =
     inTray.length > 0
       ? "Restore one below to inspect it"

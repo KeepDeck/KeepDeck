@@ -73,14 +73,15 @@ pub struct RepoInfo {
     pub branch: Option<String>,
 }
 
-/// Request to create one agent's worktree.
+/// Request to create one team's worktree.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateSpec {
     /// The repository (the workspace's working directory).
     pub repo: String,
-    /// Stable agent id — the record key tying the worktree back to its agent.
-    pub agent_id: String,
+    /// Who the worktree is created FOR — the team's id. Logged, never
+    /// stored: the caller asked under it and files the answer under it.
+    pub owner_id: String,
     /// Explicit branch name to create; auto-generated when absent/blank.
     pub branch: Option<String>,
     /// Base commit/rev; ALWAYS resolved to a commit sha at create time
@@ -107,11 +108,13 @@ pub struct CreateSpec {
     pub path: String,
 }
 
-/// The created worktree, returned to the UI to store on the agent.
+/// The created worktree, returned to the UI to store on the team: the
+/// directory and the branch actually used. No owner id rides back — the
+/// UI keyed the request and files the answer under that key, so the wire
+/// carries no second copy to disagree with.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorktreeRecord {
-    pub agent_id: String,
     pub path: String,
     pub branch: String,
 }
@@ -372,8 +375,12 @@ fn create_worktree(locks: &RepoLocks, spec: CreateSpec) -> Result<WorktreeRecord
         base_branch_ref.as_deref(),
     )?;
 
+    log::info!(
+        "worktree created for {} at {}",
+        spec.owner_id,
+        target.display()
+    );
     Ok(WorktreeRecord {
-        agent_id: spec.agent_id,
         path: target.to_string_lossy().into_owned(),
         branch,
     })
@@ -731,6 +738,43 @@ mod tests {
     use super::*;
 
     #[test]
+    fn create_spec_is_keyed_by_owner_id_on_the_wire() {
+        // The UI sends `ownerId` — the team's. The old `agentId` is not an
+        // alias: a build that still sends it must fail here, not create a
+        // worktree nobody files.
+        let spec: CreateSpec = serde_json::from_value(serde_json::json!({
+            "repo": "/repo",
+            "ownerId": "team-1",
+            "path": "/wt/1",
+        }))
+        .expect("ownerId is the owner field");
+        assert_eq!(spec.owner_id, "team-1");
+        assert_eq!(spec.branch, None);
+
+        let stale = serde_json::from_value::<CreateSpec>(serde_json::json!({
+            "repo": "/repo",
+            "agentId": "pane-1",
+            "path": "/wt/1",
+        }));
+        assert!(stale.is_err(), "agentId must not deserialize as the owner");
+    }
+
+    #[test]
+    fn record_carries_no_owner_id() {
+        // The caller asked under an owner and files the answer under it;
+        // the wire has no second copy to disagree with.
+        let value = serde_json::to_value(WorktreeRecord {
+            path: "/wt/1".to_string(),
+            branch: "kd/ws/1".to_string(),
+        })
+        .unwrap();
+        assert_eq!(
+            value,
+            serde_json::json!({ "path": "/wt/1", "branch": "kd/ws/1" })
+        );
+    }
+
+    #[test]
     fn explicit_branch_is_sanitized_and_wins() {
         assert_eq!(choose_branch(Some("feat/my login"), "ws", 2), "feat/my-login");
     }
@@ -902,9 +946,9 @@ mod tests {
         };
         let _ = std::fs::remove_dir_all(wt(1));
         let _ = std::fs::remove_dir_all(wt(2));
-        let spec = |agent: &str, n: u32| CreateSpec {
+        let spec = |owner: &str, n: u32| CreateSpec {
             repo: repo.to_string_lossy().into_owned(),
-            agent_id: agent.to_string(),
+            owner_id: owner.to_string(),
             branch: None,
             base: None,
             base_branch: None,
@@ -1154,7 +1198,7 @@ mod tests {
             &RepoLocks::default(),
             CreateSpec {
                 repo: repo.to_string_lossy().into_owned(),
-                agent_id: "pane-1".to_string(),
+                owner_id: "team-1".to_string(),
                 branch: None,
                 base: Some(current.clone()),
                 base_branch: None,
@@ -1232,7 +1276,7 @@ mod tests {
             &RepoLocks::default(),
             CreateSpec {
                 repo: repo.to_string_lossy().into_owned(),
-                agent_id: "pane-1".to_string(),
+                owner_id: "team-1".to_string(),
                 branch: Some("kd/batch/1".to_string()),
                 base: Some(base_sha.clone()),
                 base_branch: Some(current.clone()),
@@ -1286,7 +1330,7 @@ mod tests {
             &RepoLocks::default(),
             CreateSpec {
                 repo: repo.to_string_lossy().into_owned(),
-                agent_id: "pane-exact".to_string(),
+                owner_id: "team-exact".to_string(),
                 branch: Some("kd/exact/1".to_string()),
                 base: Some(current.clone()),
                 base_branch: None,

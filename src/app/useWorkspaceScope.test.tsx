@@ -32,24 +32,21 @@ const record = (cwd: string): SessionRecord =>
 
 /** A pane for the workspace fixture — the provisioning shape carries no
  * resolved cwd; a real one may. */
-const pane = (over: {
-  provisioning: boolean;
-  cwd: string | null;
-}): Workspace["panes"][number] =>
-  ({
-    id: "pane-1",
-    agentType: "claude",
-    ...(over.provisioning
-      ? {
-          location: {
-            kind: "provisioning",
-            intent: { repo: "/repo", path: "/wt/a", index: 1 },
-          },
-        }
-      : over.cwd !== null
-        ? { location: { kind: "attached", cwd: over.cwd } }
-        : {}),
-  }) as Workspace["panes"][number];
+/** One pane on a team placed as asked: still creating its directory, or
+ * attached to `cwd`. The directory is the TEAM's, which is why this yields
+ * the workspace half rather than a pane. */
+const placed = (over: { provisioning: boolean; cwd: string | null }): Partial<Workspace> => ({
+  teams: [
+    {
+      id: "team-1",
+      name: "one",
+      location: over.provisioning
+        ? { kind: "provisioning", intent: { repo: "/repo", path: "/wt/a", index: 1 } }
+        : { kind: "attached", cwd: over.cwd ?? "/repo" },
+    },
+  ],
+  panes: [{ id: "pane-1", agentType: "claude", team: { teamId: "team-1", role: "lead" } }],
+});
 
 let dirs: ReadonlySet<string>;
 
@@ -115,10 +112,7 @@ describe("useWorkspaceScope — a SEMANTIC version of the scope", () => {
     // the identity holds.
     await render(ws({ panes: [] }), [record("/hist")]);
     const first = dirs;
-    await render(
-      ws({ panes: [pane({ provisioning: true, cwd: null })] }),
-      [record("/hist")],
-    );
+    await render(ws(placed({ provisioning: true, cwd: null })), [record("/hist")]);
     expect(dirs).toBe(first);
     expect([...dirs].sort()).toEqual(["/hist", "/repo"]);
   });
@@ -126,10 +120,7 @@ describe("useWorkspaceScope — a SEMANTIC version of the scope", () => {
   it("row 4: a REAL pane cwd DOES move the identity", async () => {
     await render(ws({ panes: [] }), [record("/hist")]);
     const first = dirs;
-    await render(
-      ws({ panes: [pane({ provisioning: false, cwd: "/wt/pane-root" })] }),
-      [record("/hist")],
-    );
+    await render(ws(placed({ provisioning: false, cwd: "/wt/pane-root" })), [record("/hist")]);
     expect(dirs).not.toBe(first);
     expect([...dirs].sort()).toEqual(["/hist", "/repo", "/wt/pane-root"]);
   });

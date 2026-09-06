@@ -1,18 +1,24 @@
 import { useRef, useState } from "react";
 import {
   findPane,
+  findTeam,
   findWorkspace,
   idleReadsAsStopped,
+  membersOf,
   paneAgentType,
   paneHasProcess,
   paneSuspendBlock,
   paneWakesAutomatically,
+  teamOfPane,
+  teamsOf,
   worktreeTargets,
   type GitPosition,
   type Pane,
+  type Team,
   type WorktreeTarget,
-  locationOf,
+  type Workspace,
 } from "../domain/deck";
+import type { WorkspaceRef } from "../domain/workspaceInstance";
 import { probeWorktree } from "../ipc/worktree";
 import { suspendRefusalText, type SuspendOutcome } from "./suspendOutcome";
 import type { BackgroundCarrier } from "./liveSessions";
@@ -25,24 +31,28 @@ import type { Deck } from "./useDeck";
  * character and the dialog does not even re-render. */
 export type CarrierNote = { kind: "background" } | { kind: "unknown" };
 
-/** A pending close awaiting confirmation ([U6]) — an agent pane or a whole
- * workspace. Closing tears down live PTY session(s) immediately, so both are
- * confirmed before they run. `targets` is the worktrees the close could also
- * delete (empty in non-worktree mode), snapshotted — and probed for
- * existence — at open time; the modal blocks all mutation, so it can't go
- * stale. */
-export type ClosingTarget = {
+/** A team's worktree, as a close could take it: the directories that
+ * exist, snapshotted — and probed for existence — at open time, and
+ * whether the team's create is still genuinely OUT. A team mid-create has
+ * no directory yet, so `targets` cannot describe it — but a create that
+ * lands after the close leaves a directory and branch nothing will ever
+ * name again, so the offer has to cover it; what it actually made is only
+ * known once it settles. */
+export interface TeamTeardownOffer {
   targets: WorktreeTarget[];
-  /** Closing panes whose worktree create is still in flight. They have no
-   * `cwd` yet, so `worktreeTargets` cannot describe them and they are absent
-   * from `targets` — but a create that lands after the close leaves a
-   * directory and branch nothing will ever name again, so the offer has to
-   * cover them. What each one actually made is only known once it settles. */
-  pendingPanes: string[];
-} & (
+  /** How many of the teams' creates are still out — each one a worktree
+   * the offer covers without being able to name. */
+  pending: number;
+}
+
+/** A pending close awaiting confirmation ([U6]) — an agent, a team, or a
+ * whole workspace. Closing tears down live PTY session(s) immediately, so
+ * all three are confirmed before they run. The modal blocks all mutation,
+ * so what it snapshotted can't go stale. */
+export type ClosingTarget =
   | {
       kind: "agent";
-      wsId: string;
+      workspace: WorkspaceRef;
       paneId: string;
       label: string;
       /** Everything the dialog says or offers about the pane, read at the
@@ -59,14 +69,26 @@ export type ClosingTarget = {
        * So they travel together, and the actions re-check rather than the
        * text: the suspend refuses a stale offer at the click, and says so. */
       pane: ClosingPaneFacts;
+      /** The team this pane is the LAST member of, when it is. The dialog
+       * then speaks two verbs: disbanding the team (the primary — with its
+       * worktree on offer) and closing the agent alone (the team and its
+       * directory stay). Null for a member with company, or a pane on no
+       * team: closing one of those is never asked about a directory. */
+      last: (TeamTeardownOffer & { teamId: string; name: string }) | null;
     }
-  | {
-      kind: "workspace";
-      id: string;
+  | ({
+      kind: "team";
+      workspace: WorkspaceRef;
+      teamId: string;
       name: string;
       count: number;
-    }
-);
+    } & TeamTeardownOffer)
+  | ({
+      kind: "workspace";
+      workspace: WorkspaceRef;
+      name: string;
+      count: number;
+    } & TeamTeardownOffer);
 
 /** Keep only targets whose directory is still there: offering to delete a
  * worktree that's already gone is noise, and taking the offer can only fail
@@ -89,7 +111,7 @@ async function liveTargets(
 
 /** The pane as the dialog found it, frozen when the dialog opened. */
 export interface ClosingPaneFacts {
-  /** The pane's worktree create is still in flight — it has never run. */
+  /** The pane's team's worktree create is still in flight — it has never run. */
   provisioning: boolean;
   /** On its way up: no session YET, as opposed to none any more. */
   rising: boolean;
@@ -100,13 +122,53 @@ export interface ClosingPaneFacts {
 }
 
 /** Read the pane's facts as one set, so no caller can take half of them. */
-function paneFactsOf(pane: Pane | undefined, blocked: boolean): ClosingPaneFacts {
+function paneFactsOf(
+  ws: Workspace | undefined,
+  pane: Pane | undefined,
+  blocked: boolean,
+): ClosingPaneFacts {
+  const placed = ws && pane;
   return {
-    provisioning: !!pane && locationOf(pane).kind === "provisioning",
+    provisioning: !!placed && teamOfPane(ws, pane)?.location?.kind === "provisioning",
     rising: !!pane && paneWakesAutomatically(pane),
     stopped: !!pane && idleReadsAsStopped(pane.idle, blocked),
-    canSuspend: !!pane && paneSuspendBlock(pane, blocked) === null,
+    canSuspend: !!placed && paneSuspendBlock(ws, pane, blocked) === null,
   };
+}
+
+/**
+ * The teams whose worktree create is genuinely STILL OUT — no directory
+ * yet, so `worktreeTargets` cannot see them, but one that lands after the
+ * close would leave a directory behind.
+ *
+ * `error` is what separates them from the two look-alikes that also keep a
+ * `provisioning` intent: a create that already failed (and rolled its own
+ * directory back), and one interrupted by a quit and restored as a failed
+ * card. Counting those made the checkbox promise to delete worktrees that do
+ * not exist.
+ */
+function pendingCreates(teams: readonly Team[]): number {
+  return teams.filter(
+    (team) => team.location?.kind === "provisioning" && !team.location.error,
+  ).length;
+}
+
+/** The sentence about the sessions a close of `count` agents ends, of
+ * which `running` still hold one. Only the agents that actually HOLD a
+ * session are counted as losing one. "Stopped" is not the word for all of
+ * the rest — a pane on its way up has no session YET, and one mid-create
+ * has never had one — so the none-running case says what is true of every
+ * way of having none, rather than branching on a distinction this sentence
+ * does not need. */
+function sessionsEnded(count: number, running: number, removes: string): string {
+  if (running === 0) {
+    return count === 1
+      ? `This ends no session; ${removes} removes 1 agent.`
+      : `This ends no sessions; ${removes} removes ${count} agents.`;
+  }
+  return running === 1
+    ? "This ends 1 agent and its session."
+    : `This ends ${running} agents and their sessions.`;
 }
 
 /**
@@ -121,9 +183,9 @@ function paneFactsOf(pane: Pane | undefined, blocked: boolean): ClosingPaneFacts
  */
 export function closeMessageFor(
   closing: ClosingTarget | null,
-  /** For a workspace close: how many of its agents still hold a session.
-   * The only fact this cannot take from the snapshot, because a workspace
-   * close is about panes it does not name individually. */
+  /** For a team or workspace close: how many of its agents still hold a
+   * session. The only fact this cannot take from the snapshot, because
+   * such a close is about panes it does not name individually. */
   runningAgents: number,
   /** The late-arriving carrier line, painted when the registry answers —
    * null until then (and forever, on an ordinary "none"). */
@@ -145,36 +207,34 @@ export function closeMessageFor(
           : "\nAt least one conversation may still be carried by a background agent (the live registry could not be reached) — closing removes the panes, not any work in progress.";
   if (closing.kind === "workspace") {
     if (closing.count === 0) return "This workspace has no agents." + note;
-    // Only the agents that actually HOLD a session are counted as losing one.
-    // "Stopped" is not the word for all of them — a pane on its way up has no
-    // session YET, and one mid-create has never had one — so the none-running
-    // case says what is true of every way of having none, rather than
-    // branching on a distinction this sentence does not need.
-    if (runningAgents === 0) {
-      return (
-        (closing.count === 1
-          ? "This ends no session; closing removes 1 agent."
-          : `This ends no sessions; closing removes ${closing.count} agents.`) +
-        note
-      );
+    return sessionsEnded(closing.count, runningAgents, "closing") + note;
+  }
+  if (closing.kind === "team") {
+    if (closing.count === 0) {
+      return "This team has no agents; disbanding removes the team." + note;
     }
     return (
-      (runningAgents === 1
-        ? "This ends 1 agent and its session."
-        : `This ends ${runningAgents} agents and their sessions.`) + note
+      sessionsEnded(closing.count, runningAgents, "disbanding") +
+      " The team is removed." +
+      note
     );
   }
   const facts = closing.pane;
+  // The last member's dialog says what each verb does to the team — once,
+  // ahead of the pane's own sentence, whatever state the pane is in.
+  const verbs = closing.last
+    ? `It is the last agent on “${closing.last.name}”. Disbanding removes the team as well; closing the agent alone keeps the team and its directory.\n`
+    : "";
   // Never ran: no session to end, and nothing to suspend.
-  if (facts.provisioning) return "Its worktree is still being created.";
+  if (facts.provisioning) return verbs + "Its worktree is still being created.";
   // A stopped pane has no session to end, and saying so would contradict the
   // card the user is looking at. Whether the worktree survives is the
   // checkbox's business, not this sentence's.
-  if (facts.stopped) return "It is stopped; closing removes the pane." + note;
+  if (facts.stopped) return verbs + "It is stopped; closing removes the pane." + note;
   // Mutually exclusive with the branch above by construction: a stopped pane
   // is exactly the one `paneSuspendBlock` refuses.
   const alternative = facts.canSuspend
-    ? closing.targets.length > 0
+    ? closing.last && closing.last.targets.length > 0
       ? "\nSuspending stops the agent instead, keeping the pane, its worktree and its session."
       : "\nSuspending stops the agent instead, keeping the pane and its session."
     : "";
@@ -184,17 +244,22 @@ export function closeMessageFor(
   const opening = facts.rising
     ? "It is starting up; closing removes the pane."
     : "Its terminal session will be ended.";
-  return opening + alternative + note;
+  return verbs + opening + alternative + note;
 }
 
 /**
- * Owns the confirmed-close flow: both close paths ([U6]) park a ClosingTarget
- * for the confirm dialog — once its candidate worktrees are probed, so a
- * directory that's already gone is never offered for deletion; confirming
- * removes the pane(s) from the deck AND ends their PTY sessions through the
- * ptyManager (unmounting alone no longer kills a process), then optionally
- * tears the worktrees down per the delete checkbox — after the closes settle,
- * so no worktree dir is a live cwd.
+ * Owns the confirmed-close flow: all three close paths ([U6]) park a
+ * ClosingTarget for the confirm dialog — once its candidate worktrees are
+ * probed, so a directory that's already gone is never offered for deletion;
+ * confirming removes the pane(s) from the deck AND ends their PTY sessions
+ * through the ptyManager (unmounting alone no longer kills a process), then
+ * optionally tears the worktrees down per the delete checkbox — after the
+ * closes settle, so no worktree dir is a live cwd.
+ *
+ * A directory is a TEAM's: closing one agent is never asked about one, and
+ * only a disband (or a workspace close, which disbands every team) carries
+ * the offer. The last member of a team is the one pane whose close dialog
+ * speaks both verbs.
  */
 export function useCloseFlow(
   deck: Deck,
@@ -315,126 +380,157 @@ export function useCloseFlow(
     });
   };
 
-  /**
-   * The closing panes whose worktree create is genuinely STILL OUT — no `cwd`
-   * yet, so `worktreeTargets` cannot see them, but one that lands after the
-   * close would leave a directory behind.
-   *
-   * `error` is what separates them from the two look-alikes that also keep a
-   * `provisioning` intent: a create that already failed (and rolled its own
-   * directory back), and one interrupted by a quit and restored as a failed
-   * card. Counting those made the checkbox promise to delete worktrees that do
-   * not exist.
-   */
-  const pendingCreates = (panes: readonly Pane[]): string[] =>
+  /** One carrier ask per BOUND pane among `panes` (a stopped pane's
+   * conversation can be carried too), folded by `askCarriers` per the
+   * asymmetry rule: any "background" wins, then any "unknown", else nothing
+   * at all. */
+  const carrierEntries = (panes: readonly Pane[]) =>
     panes
-      .filter((pane) => {
-        const location = locationOf(pane);
-        return location.kind === "provisioning" && !location.error;
-      })
-      .map((pane) => pane.id);
+      .filter((pane) => pane.session?.id)
+      .map((pane) => ({
+        agentType: paneAgentType(pane),
+        sessionId: pane.session!.id,
+      }));
+
+  const refOf = (ws: Workspace): WorkspaceRef => ({ id: ws.id, instance: ws.instance });
 
   const requestCloseAgent = (wsId: string, paneId: string, label: string) => {
     const ws = findWorkspace(deck.workspaces, wsId);
-    const pendingPanes = pendingCreates(
-      ws?.panes.filter((pane) => pane.id === paneId) ?? [],
-    );
+    const pane = ws?.panes.find((candidate) => candidate.id === paneId);
+    if (!ws || !pane) return;
+    const workspace = refOf(ws);
+    // The last member of its team: the dialog offers the team's worktree,
+    // because the primary verb there is disbanding.
+    const team = teamOfPane(ws, pane);
+    const last = team && membersOf(ws, team.id).length === 1 ? team : null;
     // The registry ask fires in flight and its answer PAINTS the carrier
     // line when it lands; the dialog does not wait for it (the standing
     // rule: opens stay instant). A pane with no session binding has
     // nothing to ask about.
-    const paneNow = findPane(deckRef.current.workspaces, wsId, paneId);
-    const sessionId = paneNow?.session?.id ?? null;
     park(
-      ws ? worktreeTargets(ws, paneId, gitPositions) : [],
+      last ? worktreeTargets(ws, last.id, gitPositions) : [],
       (targets) => ({
         kind: "agent",
-        wsId,
+        workspace,
         paneId,
         label,
         pane: paneFactsOf(
+          findWorkspace(deckRef.current.workspaces, wsId),
           findPane(deckRef.current.workspaces, wsId, paneId),
           paneId in blockedRef.current,
         ),
-        targets,
-        pendingPanes,
+        last: last
+          ? { teamId: last.id, name: last.name, targets, pending: pendingCreates([last]) }
+          : null,
       }),
-      (seq) => {
-        if (paneNow && sessionId) {
-          askCarriers(seq, [
-            { agentType: paneAgentType(paneNow), sessionId },
-          ]);
-        }
-      },
+      (seq) => askCarriers(seq, carrierEntries([pane])),
+    );
+  };
+
+  const requestDisbandTeam = (wsId: string, teamId: string) => {
+    const ws = findWorkspace(deck.workspaces, wsId);
+    const team = ws ? findTeam(ws, teamId) : undefined;
+    if (!ws || !team) return;
+    const members = membersOf(ws, team.id);
+    park(
+      worktreeTargets(ws, team.id, gitPositions),
+      (targets) => ({
+        kind: "team",
+        workspace: refOf(ws),
+        teamId: team.id,
+        name: team.name,
+        count: members.length,
+        targets,
+        pending: pendingCreates([team]),
+      }),
+      (seq) => askCarriers(seq, carrierEntries(members)),
     );
   };
 
   const requestCloseWorkspace = (id: string) => {
     const ws = findWorkspace(deck.workspaces, id);
     if (!ws) return;
-    const pendingPanes = pendingCreates(ws.panes);
-    // One carrier ask per DISTINCT agent over the workspace's BOUND panes
-    // (a stopped pane's conversation can be carried too — the same rule as
-    // the agent branch), folded by `askCarriers` per the asymmetry rule:
-    // any "background" wins, then any "unknown", else nothing at all.
-    const entries = ws.panes
-      .filter((pane) => pane.session?.id)
-      .map((pane) => ({
-        agentType: paneAgentType(pane),
-        sessionId: pane.session!.id,
-      }));
     park(
       worktreeTargets(ws, undefined, gitPositions),
       (targets) => ({
         kind: "workspace",
-        id,
+        workspace: refOf(ws),
         name: ws.name,
         count: ws.panes.length,
         targets,
-        pendingPanes,
+        pending: pendingCreates(teamsOf(ws)),
       }),
-      (seq) => askCarriers(seq, entries),
+      (seq) => askCarriers(seq, carrierEntries(ws.panes)),
     );
+  };
+
+  /** The dialog is gone: retire its generation so a straggling registry
+   * answer cannot paint into whatever opens next, and hand the close off. */
+  const dismissWith = (request: CloseRequest) => {
+    requestSeq.current++;
+    setCarrier(null);
+    setClosing(null);
+    setDeleteWorktree(false);
+    void closeAgents(request).then((failures) => {
+      if (failures.length > 0)
+        onError(
+          `Failed to delete worktree${failures.length === 1 ? "" : "s"}:\n${failures.join("\n")}`,
+        );
+    });
   };
 
   const confirmClose = () => {
     if (!closing) return;
-    // The dialog is gone: retire its generation so a straggling registry
-    // answer cannot paint into whatever opens next.
-    requestSeq.current++;
-    setCarrier(null);
     // The destructive choice is settled here and nowhere later: what the
     // dialog offered, against the box the user actually ticked.
     // The DECISION travels separately from the list. This list was frozen when
     // the dialog opened and cannot be complete — a create landing while the
     // user reads it owns a worktree nothing here has ever seen — so the close
     // finishes it against the live deck. What this list still contributes is
-    // the observed branch per pane, which a bare pane read cannot give.
-    const deleteWorktrees = deleteWorktree;
-    const worktrees = deleteWorktree ? closing.targets : [];
-    setClosing(null);
-    setDeleteWorktree(false);
-    void closeAgents(
-      closing.kind === "agent"
-        ? {
-            kind: "agent",
-            wsId: closing.wsId,
-            paneId: closing.paneId,
-            deleteWorktrees,
-            worktrees,
-          }
-        : {
-            kind: "workspace",
-            wsId: closing.id,
-            deleteWorktrees,
-            worktrees,
-          },
-    ).then((failures) => {
-      if (failures.length > 0)
-        onError(
-          `Failed to delete worktree${failures.length === 1 ? "" : "s"}:\n${failures.join("\n")}`,
-        );
+    // the observed branch per team, which a bare team read cannot give.
+    const teardown = (offer: TeamTeardownOffer) => ({
+      deleteWorktrees: deleteWorktree,
+      worktrees: deleteWorktree ? offer.targets : [],
     });
+    switch (closing.kind) {
+      case "agent":
+        // The last member's primary verb is disbanding: the pane goes, the
+        // team with it, and the box decides the directory.
+        dismissWith(
+          closing.last
+            ? {
+                kind: "team",
+                workspace: closing.workspace,
+                teamId: closing.last.teamId,
+                ...teardown(closing.last),
+              }
+            : { kind: "agent", workspace: closing.workspace, paneId: closing.paneId },
+        );
+        return;
+      case "team":
+        dismissWith({
+          kind: "team",
+          workspace: closing.workspace,
+          teamId: closing.teamId,
+          ...teardown(closing),
+        });
+        return;
+      case "workspace":
+        dismissWith({
+          kind: "workspace",
+          workspace: closing.workspace,
+          ...teardown(closing),
+        });
+        return;
+    }
+  };
+
+  /** The last member's second verb: end the agent alone. The team and its
+   * directory stay, whatever the box says — a ticked box belongs to the
+   * disband, and this is not one. */
+  const closeAgentOnly = () => {
+    if (closing?.kind !== "agent" || !closing.last) return;
+    dismissWith({ kind: "agent", workspace: closing.workspace, paneId: closing.paneId });
   };
 
   const cancelClose = () => {
@@ -448,25 +544,30 @@ export function useCloseFlow(
 
   /** Whether the dialog offers suspending instead of closing at all — from
    * the snapshot it opened with, so the button row cannot reshuffle
-   * mid-gesture (see `ClosingTarget.pane`). A workspace close is deliberately
-   * never offered it: "suspend" there would mean "don't close, park all N
-   * agents" — a different verb on a different object, which a button sitting
-   * inside "Close workspace?" cannot honestly say. */
+   * mid-gesture (see `ClosingTarget.pane`). A team or workspace close is
+   * deliberately never offered it: "suspend" there would mean "don't close,
+   * park all N agents" — a different verb on a different object, which a
+   * button sitting inside "Disband team?" cannot honestly say. */
   const canSuspendInstead = closing?.kind === "agent" && closing.pane.canSuspend;
 
-  /** How many of a closing workspace's agents still hold a session. Live: a
-   * workspace close names no pane, so there is nothing to have frozen, and
-   * the count only ever shrinks toward the truth. */
+  /** Whether the dialog speaks the last member's two verbs. */
+  const canCloseAgentOnly = closing?.kind === "agent" && closing.last !== null;
+
+  /** How many of a closing team's or workspace's agents still hold a
+   * session. Live: such a close names no pane, so there is nothing to have
+   * frozen, and the count only ever shrinks toward the truth. */
   const runningAgentsOf = (target: ClosingTarget | null): number => {
-    if (target?.kind !== "workspace") return 0;
-    const ws = findWorkspace(deck.workspaces, target.id);
+    if (!target || target.kind === "agent") return 0;
+    const ws = findWorkspace(deck.workspaces, target.workspace.id);
+    if (!ws) return 0;
+    const panes = target.kind === "team" ? membersOf(ws, target.teamId) : ws.panes;
     // A session exists only behind a live process. `idle` of ANY reason means
     // there is none — including `waking`, which is a pane whose session is
     // still ahead of it — and a pane mid-create has never had one. Asking
     // "does it read as stopped" instead counted every rising pane as holding
     // a session it has not opened yet, which is what a just-launched
     // workspace is entirely made of.
-    return (ws?.panes ?? []).filter(paneHasProcess).length;
+    return panes.filter((pane) => paneHasProcess(ws, pane)).length;
   };
 
   const closeMessage = closeMessageFor(
@@ -477,10 +578,11 @@ export function useCloseFlow(
 
   /** How many worktrees the delete offer covers — the ones that exist plus the
    * creates still out. The dialog gates its checkbox on this rather than on
-   * `targets`, which cannot see a pane mid-create. */
-  const worktreeCount = closing
-    ? closing.targets.length + closing.pendingPanes.length
-    : 0;
+   * `targets`, which cannot see a team mid-create. Zero for a member with
+   * company: its close is never asked about a directory. */
+  const offer: TeamTeardownOffer | null =
+    closing === null ? null : closing.kind === "agent" ? closing.last : closing;
+  const worktreeCount = offer ? offer.targets.length + offer.pending : 0;
 
   /**
    * Take the alternative: dismiss the dialog and park the agent.
@@ -493,14 +595,14 @@ export function useCloseFlow(
    */
   const suspendInstead = () => {
     if (!canSuspendInstead || closing?.kind !== "agent" || deleteWorktree) return;
-    const { wsId, paneId } = closing;
+    const { workspace, paneId } = closing;
     setClosing(null);
     setDeleteWorktree(false);
     // The dialog is already gone by the time this settles, so a refusal has
     // nowhere to appear unless it is surfaced here — this was the one caller
     // that dropped the outcome the other two turn into a sentence.
     const label = closing.label;
-    void Promise.resolve(suspendAgent(wsId, paneId)).then((outcome) => {
+    void Promise.resolve(suspendAgent(workspace.id, paneId)).then((outcome) => {
       if (outcome !== "suspended")
         onSuspendRefused(suspendRefusalText(outcome, label));
     });
@@ -513,8 +615,11 @@ export function useCloseFlow(
     deleteWorktree,
     setDeleteWorktree,
     requestCloseAgent,
+    requestDisbandTeam,
     requestCloseWorkspace,
     confirmClose,
+    closeAgentOnly,
+    canCloseAgentOnly,
     cancelClose,
     canSuspendInstead,
     suspendInstead,

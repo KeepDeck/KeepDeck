@@ -1,5 +1,5 @@
 import type { TailWatch, UsageNormalizer } from "@keepdeck/plugin-api";
-import { attachedWorktree, paneAgentType } from "../domain/deck";
+import { paneAgentType, paneWorktree } from "../domain/deck";
 import { describeError, log } from "../ipc/log";
 import { readStoreCold } from "../ipc/usage";
 import { paneMembership, paneMembershipKey } from "./paneMembership";
@@ -128,7 +128,7 @@ export function createUsageMaintenanceLane({
           ? "fresh"
           : "unknown";
       const index = workspace.panes.indexOf(pane);
-      const worktree = attachedWorktree(pane);
+      const worktree = paneWorktree(workspace, pane);
       void recordPaneUsage(paneUsage, {
         workspaceId: workspace.id,
         workspaceName: workspace.name,

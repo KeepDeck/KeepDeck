@@ -69,6 +69,15 @@ import { DeckStage } from "./DeckStage";
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
 
+/** A team on the workspace root: what every fixture pane is on, since the
+ * stage lays out the OPEN team's members and nothing else. */
+const team = (id: string, cwd: string) => ({
+  id,
+  name: id,
+  location: { kind: "attached" as const, cwd },
+});
+const on = (teamId: string, role: string) => ({ team: { teamId, role } });
+
 const workspaces = [
   {
     id: "ws-1",
@@ -76,13 +85,15 @@ const workspaces = [
     name: "Workspace",
     cwd: "/repo",
     worktreeBaseDir: null,
+    teams: [team("team-1", "/repo")],
     panes: [
       {
         id: "pane-1",
         agentType: "codex",
         session: { id: "session-1", boundAt: "2026-07-11T00:00:00Z" },
+        ...on("team-1", "lead"),
       },
-      { id: "pane-2", agentType: "codex" },
+      { id: "pane-2", agentType: "codex", ...on("team-1", "impl-1") },
     ],
   },
 ];
@@ -95,12 +106,29 @@ const twoWorkspaces = [
     name: "Second workspace",
     cwd: "/repo-2",
     worktreeBaseDir: null,
+    teams: [team("team-2", "/repo-2")],
     panes: [
-      { id: "pane-3", agentType: "codex" },
-      { id: "pane-4", agentType: "codex" },
+      { id: "pane-3", agentType: "codex", ...on("team-2", "lead") },
+      { id: "pane-4", agentType: "codex", ...on("team-2", "impl-1") },
     ],
   },
 ];
+
+/** Each fixture workspace with its one team open — the level every case
+ * below plays on unless it says otherwise (`teamOpen: undefined` for the
+ * cards). Merged UNDER a case's own view, so a case that sets a minimize
+ * or a spotlight still has the team open. */
+const OPEN: Record<string, { teamOpen: string }> = {
+  "ws-1": { teamOpen: "team-1" },
+  "ws-2": { teamOpen: "team-2" },
+};
+const openView = (viewByWs: Record<string, Record<string, unknown>> = {}) =>
+  Object.fromEntries(
+    [...new Set([...Object.keys(OPEN), ...Object.keys(viewByWs)])].map((wsId) => [
+      wsId,
+      { ...OPEN[wsId], ...viewByWs[wsId] },
+    ]),
+  );
 
 const callbacks = {
   onResumeSession: vi.fn(),
@@ -111,6 +139,10 @@ const callbacks = {
   onRestoreSuspendedPane: vi.fn(),
   onCloseAgent: vi.fn(),
   onRenamePane: vi.fn(),
+  onEnterTeam: vi.fn(),
+  onAddTeamMember: vi.fn(),
+  onRenameTeam: vi.fn(),
+  onDisbandTeam: vi.fn(),
   onPaneTitle: vi.fn(),
   onStartFresh: vi.fn(),
   onResumeAgent: vi.fn(),
@@ -139,7 +171,6 @@ const props = (overrides: Record<string, unknown> = {}) => ({
   browserShared: browser,
   workspaces,
   activeId: "ws-1",
-  viewByWs: {},
   selectedPaneId: null,
   keyboardFocusEnabled: true,
   agents: [
@@ -170,6 +201,7 @@ const props = (overrides: Record<string, unknown> = {}) => ({
   restartEpochs: {} as Record<string, number>,
   ...callbacks,
   ...overrides,
+  viewByWs: openView(overrides.viewByWs as Record<string, Record<string, unknown>> | undefined),
 });
 
 function terminalProps(paneId: string) {
@@ -279,6 +311,245 @@ describe("DeckStage — exited agents across layouts", () => {
   });
 });
 
+describe("DeckStage — the open team's slice", () => {
+  let root: Root;
+
+  beforeEach(() => {
+    document.body.innerHTML = "<div id='host'></div>";
+    root = createRoot(document.getElementById("host")!);
+    vi.mocked(TerminalPane).mockClear();
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+  });
+
+  const render = (overrides: Record<string, unknown> = {}) =>
+    act(() => root.render(withRuntime(createElement(DeckStage, props(overrides)))));
+
+  const paneEl = (paneId: string) =>
+    document.querySelector<HTMLElement>(`[data-pane-id='${paneId}']`)!;
+
+  /** pane-1 on team-1; pane-2 and pane-3 on team-2. */
+  const twoTeams = [
+    {
+      ...workspaces[0],
+      teams: [team("team-1", "/repo"), team("team-2", "/repo/wt")],
+      panes: [
+        { id: "pane-1", agentType: "codex", ...on("team-1", "lead") },
+        { id: "pane-2", agentType: "codex", ...on("team-2", "lead") },
+        { id: "pane-3", agentType: "codex", ...on("team-2", "impl-1") },
+      ],
+    },
+  ];
+  const specs = {
+    "pane-1": { command: "codex", args: [], env: [] },
+    "pane-2": { command: "codex", args: [], env: [] },
+    "pane-3": { command: "codex", args: [], env: [] },
+  };
+
+  it("lays out the open team only: the other team's panes stay mounted, off the grid and off the shelf", () => {
+    // pane-1 is minimized AND on the team that is not open. It must be
+    // neither on the grid nor on the shelf — a shelf offering a pane of a
+    // closed team back would restore it into a grid it is not part of —
+    // while its terminal stays mounted through the level change.
+    render({
+      workspaces: twoTeams,
+      specByPane: specs,
+      viewByWs: { "ws-1": { teamOpen: "team-2", minimized: ["pane-1"] } },
+    });
+    expect(paneEl("pane-1").classList.contains("pane--hidden")).toBe(true);
+    expect(paneEl("pane-2").classList.contains("pane--hidden")).toBe(false);
+    expect(paneEl("pane-3").classList.contains("pane--hidden")).toBe(false);
+    expect(document.querySelector(".deck__tray")).toBeNull();
+    expect(terminalProps("pane-1").paneId).toBe("pane-1");
+  });
+
+  it("speaks of the open team when its grid is empty, whatever the other team is doing", () => {
+    // pane-1, the closed team's, is on no hidden list — and still does not
+    // count as "on the grid": the word is about team-2, all of it minimized.
+    render({
+      workspaces: twoTeams,
+      specByPane: specs,
+      viewByWs: { "ws-1": { teamOpen: "team-2", minimized: ["pane-2", "pane-3"] } },
+    });
+    expect(document.querySelector(".deck__grid-empty-title")!.textContent).toBe(
+      "Every agent on this team is minimized",
+    );
+    expect(document.querySelector(".deck__tray-label")!.textContent).toBe("Minimized · 2");
+  });
+
+  it("lays out nothing at the cards level, and says nothing about an empty grid", () => {
+    render({
+      workspaces: twoTeams,
+      specByPane: specs,
+      viewByWs: { "ws-1": { teamOpen: undefined } },
+    });
+    for (const paneId of ["pane-1", "pane-2", "pane-3"]) {
+      expect(paneEl(paneId).classList.contains("pane--hidden")).toBe(true);
+    }
+    expect(document.querySelector(".deck__grid-empty")).toBeNull();
+    expect(document.querySelector(".deck__tray")).toBeNull();
+  });
+
+  it("keeps a pane's node through the drill-down, the return, and a rename of its team", () => {
+    // The mount contract: a terminal is never torn down for a change of
+    // level. The node is the proof — a layer that unmounted the closed
+    // teams' panes, or keyed its container on the team's name, hands back
+    // a different element here.
+    render({ workspaces: twoTeams, specByPane: specs, viewByWs: { "ws-1": { teamOpen: undefined } } });
+    const node = paneEl("pane-2");
+    expect(node.classList.contains("pane--hidden")).toBe(true);
+
+    render({ workspaces: twoTeams, specByPane: specs, viewByWs: { "ws-1": { teamOpen: "team-2" } } });
+    expect(paneEl("pane-2")).toBe(node);
+    expect(node.classList.contains("pane--hidden")).toBe(false);
+
+    const renamed = [
+      {
+        ...twoTeams[0],
+        teams: [team("team-1", "/repo"), { ...team("team-2", "/repo/wt"), name: "platform" }],
+      },
+    ];
+    render({ workspaces: renamed, specByPane: specs, viewByWs: { "ws-1": { teamOpen: "team-2" } } });
+    expect(paneEl("pane-2")).toBe(node);
+
+    render({ workspaces: renamed, specByPane: specs, viewByWs: { "ws-1": { teamOpen: undefined } } });
+    expect(paneEl("pane-2")).toBe(node);
+    expect(node.classList.contains("pane--hidden")).toBe(true);
+  });
+});
+
+describe("DeckStage — the teams level", () => {
+  let root: Root;
+
+  beforeEach(() => {
+    document.body.innerHTML = "<div id='host'></div>";
+    root = createRoot(document.getElementById("host")!);
+    vi.mocked(TerminalPane).mockClear();
+    for (const callback of Object.values(callbacks)) callback.mockClear();
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+  });
+
+  const render = (overrides: Record<string, unknown> = {}) =>
+    act(() => root.render(withRuntime(createElement(DeckStage, props(overrides)))));
+
+  const card = (teamId: string) =>
+    document.querySelector<HTMLElement>(`[data-team-id='${teamId}']`)!;
+  const menuItems = () =>
+    [...document.querySelectorAll<HTMLButtonElement>("[role='menuitem']")].map(
+      (item) => item.textContent,
+    );
+
+  /** api on its worktree (two agents), and docs whose worktree create failed. */
+  const cards = [
+    {
+      ...workspaces[0],
+      teams: [
+        { id: "team-1", name: "api", location: { kind: "attached" as const, cwd: "/repo/.wt/api", branch: "kd/api" } },
+        {
+          id: "team-2",
+          name: "docs",
+          location: {
+            kind: "provisioning" as const,
+            intent: { repo: "/repo", path: "/repo/.wt/docs", branch: "kd/docs", index: 2 },
+            error: "branch exists",
+          },
+        },
+      ],
+      panes: [
+        { id: "pane-1", agentType: "codex", ...on("team-1", "lead") },
+        { id: "pane-2", agentType: "codex", ...on("team-1", "impl-1") },
+      ],
+    },
+  ];
+
+  it("draws one card per team with its six things, and the whole card is the way in", () => {
+    render({ workspaces: cards, viewByWs: { "ws-1": { teamOpen: undefined } } });
+    const api = card("team-1");
+    expect(api.querySelector(".team-card__name")!.textContent).toBe("api");
+    expect(api.querySelector(".team-card__dot")!.classList.contains("team-card__dot--none")).toBe(true);
+    expect(api.querySelector(".team-card__branch")!.textContent).toContain("kd/api");
+    expect(api.querySelector(".team-card__count")!.textContent).toBe("2 agents");
+    expect(api.querySelector(".team-card__dir")!.textContent).toBe("api");
+    expect(api.querySelector<HTMLElement>(".team-card__dir")!.title).toBe("/repo/.wt/api");
+    expect(api.classList.contains("team-card--pending")).toBe(false);
+    // Nothing on the card but the menu is a control.
+    expect(api.querySelectorAll("button")).toHaveLength(2);
+
+    const docs = card("team-2");
+    expect(docs.classList.contains("team-card--pending")).toBe(true);
+    expect(docs.querySelector(".team-card__dot")!.classList.contains("team-card__dot--failed")).toBe(true);
+    expect(docs.querySelector(".team-card__count")!.textContent).toBe("No agents");
+    expect(docs.textContent).not.toContain("branch exists");
+
+    act(() => api.click());
+    expect(callbacks.onEnterTeam).toHaveBeenCalledWith("ws-1", "team-1");
+    act(() => docs.querySelector<HTMLButtonElement>(".team-card__open")!.click());
+    expect(callbacks.onEnterTeam).toHaveBeenLastCalledWith("ws-1", "team-2");
+  });
+
+  it("offers one menu on every card, with Retry only where the create failed, and performs each pick", () => {
+    render({ workspaces: cards, viewByWs: { "ws-1": { teamOpen: undefined } } });
+    const menuOf = (label: string) =>
+      act(() => card(label).querySelector<HTMLButtonElement>(`button[aria-label='Team ${label === "team-1" ? "api" : "docs"} actions']`)!.click());
+    menuOf("team-1");
+    // No "Open" line: the whole card is the way in. Opening the menu is not
+    // entering the team either.
+    expect(menuItems()).toEqual(["Add member", "Rename", "Disband"]);
+    expect(callbacks.onEnterTeam).not.toHaveBeenCalled();
+    act(() => [...document.querySelectorAll<HTMLButtonElement>("[role='menuitem']")][2].click());
+    expect(callbacks.onDisbandTeam).toHaveBeenCalledWith("ws-1", "team-1");
+
+    menuOf("team-2");
+    expect(menuItems()).toEqual(["Add member", "Rename", "Disband", "Retry the worktree"]);
+    act(() => [...document.querySelectorAll<HTMLButtonElement>("[role='menuitem']")][3].click());
+    expect(callbacks.onRetryProvision).toHaveBeenCalledWith("ws-1", "team-2");
+
+    menuOf("team-2");
+    act(() => [...document.querySelectorAll<HTMLButtonElement>("[role='menuitem']")][0].click());
+    expect(callbacks.onAddTeamMember).toHaveBeenCalledWith("ws-1", "team-2");
+    expect(callbacks.onEnterTeam).not.toHaveBeenCalled();
+  });
+
+  it("renames inline from the menu: Enter commits the trimmed draft to the team by id", () => {
+    render({ workspaces: cards, viewByWs: { "ws-1": { teamOpen: undefined } } });
+    act(() => card("team-1").querySelector<HTMLButtonElement>("button[aria-label='Team api actions']")!.click());
+    act(() => [...document.querySelectorAll<HTMLButtonElement>("[role='menuitem']")][1].click());
+    const input = card("team-1").querySelector<HTMLInputElement>(".team-card__rename")!;
+    expect(input.value).toBe("api");
+    act(() => {
+      // Through the prototype's setter: React's value tracker ignores a
+      // value written on the instance, and would see no change to report.
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(
+        input,
+        " platform ",
+      );
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+    expect(callbacks.onRenameTeam).toHaveBeenCalledWith("ws-1", "team-1", "platform");
+  });
+
+  it("shows a workspace with an empty team as its card, not as the sessions screen", () => {
+    render({
+      workspaces: [{ ...workspaces[0], panes: [] }],
+      specByPane: {},
+      viewByWs: { "ws-1": { teamOpen: undefined } },
+    });
+    expect(card("team-1").querySelector(".team-card__count")!.textContent).toBe("No agents");
+    expect(document.querySelector(".deck__setup")).toBeNull();
+  });
+
+  it("hides the cards while a team is open", () => {
+    render({ workspaces: cards, viewByWs: { "ws-1": { teamOpen: "team-1" } } });
+    expect(document.querySelector(".deck__teams")).toBeNull();
+  });
+});
+
 describe("DeckStage — agent identity on the pane header", () => {
   let root: Root;
 
@@ -333,8 +604,8 @@ describe("DeckStage — agent identity on the pane header", () => {
         {
           ...workspaces[0],
           panes: [
-            { id: "pane-1", agentType: "codex", yolo: true },
-            { id: "pane-2", agentType: "codex" },
+            { id: "pane-1", agentType: "codex", yolo: true, ...on("team-1", "lead") },
+            { id: "pane-2", agentType: "codex", ...on("team-1", "impl-1") },
           ],
         },
       ],
@@ -367,8 +638,12 @@ describe("DeckStage — agent identity on the pane header", () => {
         {
           ...workspaces[0],
           panes: [
-            { id: "pane-1", agentType: "codex", team: { name: "api", role: "lead" } },
-            { id: "pane-2", agentType: "codex", team: { name: "web", role: "lead" } },
+            { id: "pane-1", agentType: "codex", team: { teamId: "team-1", role: "lead" } },
+            { id: "pane-2", agentType: "codex", team: { teamId: "team-2", role: "lead" } },
+          ],
+          teams: [
+            { id: "team-1", name: "api" },
+            { id: "team-2", name: "web" },
           ],
         },
       ],
@@ -386,9 +661,10 @@ describe("DeckStage — agent identity on the pane header", () => {
         {
           ...workspaces[0],
           panes: [
-            { id: "pane-1", agentType: "codex", team: { name: "api", role: "lead" } },
-            { id: "pane-2", agentType: "codex", team: { name: "api", role: "impl-1" } },
+            { id: "pane-1", agentType: "codex", team: { teamId: "team-1", role: "lead" } },
+            { id: "pane-2", agentType: "codex", team: { teamId: "team-1", role: "impl-1" } },
           ],
+          teams: [{ id: "team-1", name: "api" }],
         },
       ],
     });
@@ -465,9 +741,9 @@ describe("DeckStage — a maximized pane minimizes the rest", () => {
         {
           ...workspaces[0],
           panes: [
-            { id: "pane-1", agentType: "codex" },
-            { id: "pane-2", agentType: "codex" },
-            { id: "pane-3", agentType: "codex" },
+            { id: "pane-1", agentType: "codex", ...on("team-1", "lead") },
+            { id: "pane-2", agentType: "codex", ...on("team-1", "impl-1") },
+            { id: "pane-3", agentType: "codex", ...on("team-1", "impl-2") },
           ],
         },
       ],

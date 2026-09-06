@@ -79,7 +79,7 @@ export interface WorktreeIntent {
   /** The repository (the workspace cwd) the worktree is created in. */
   repo: string;
   /** Where the worktree goes — resolved before the pane was ever built (the
-   * "+ Agent" dialog's accepted suggestion, or a fork's target) and used
+   * agent dialog's accepted suggestion, or a fork's target) and used
    * verbatim. Required: backend-assigned placement went with the create-time
    * agent batch, so an intent that cannot name its directory is not one. */
   path: string;
@@ -99,55 +99,27 @@ export interface WorktreeIntent {
 }
 
 /**
- * Where a pane runs — ONE answer.
+ * The one placement a pane still carries of its OWN: the agent runs against
+ * a REMOTE native-server endpoint — the local terminal is a thin client
+ * attached to a server on a VPS. A local directory would be meaningless to
+ * it, so none is carried; the thin client runs in the pane's team's
+ * directory like any other member. Fixed at creation from the spawn
+ * dialog's "Where: Remote" choice and persisted: a revive reconnects the
+ * client to the same endpoint.
  *
- * Four optional fields used to say this (`cwd`, `branch`, `remoteEndpoint`,
- * `provisioning`), and nothing in that shape said which combinations meant
- * something; the invariant lived in the order transforms wrote them and in a
- * guard at each reader. A union cannot hold a directory beside a create in
- * flight, or an endpoint beside a directory, so neither the transitions nor
- * the readers have to keep them apart.
+ * Where a pane RUNS is not here any more. A directory — a worktree the deck
+ * created, an existing folder, the workspace root, or a create still in
+ * flight — is a TEAM's ([`TeamLocation`]), and a pane runs where its team
+ * runs. Three placements used to sit beside this one on the pane, and the
+ * app answered "which directory" twice, once per owner; now it answers once.
  */
-export type PaneLocation =
-  /** No directory of its own: the pane runs in the workspace cwd. `branch`
-   * is the branch the root checkout was on when this pane's session was
-   * recorded — a resumed session carries it — and nothing owns it: it names
-   * where the work was, not a worktree to clean up. */
-  | { kind: "main"; branch?: string }
-  /** A directory the pane owns or was attached to. `branch` is the worktree
-   * branch when one was created or named; a pane attached to a detached
-   * checkout, or resumed from a session that recorded only a directory, has
-   * none — and no consumer tells those two apart. Durable: worktree
-   * ownership and cleanup key off it; the header's branch badge is runtime
-   * state read from the directory, not this. */
-  | { kind: "attached"; cwd: string; branch?: string }
-  /** The worktree is still being created, or the create failed and waits for
-   * Retry. No terminal mounts until it resolves. The intent is what the
-   * create is (re)issued from; beside it sits the status of this attempt,
-   * which never reaches disk — hydration stamps its own. */
-  | {
-      kind: "provisioning";
-      intent: WorktreeIntent;
-      /** Why the create failed; set flips the card from creating to failed. */
-      error?: string;
-      /** This card originates from a journal FORK — its store surgery runs as
-       * a post-provision step held only in memory. Runtime-only, NEVER
-       * persisted: a fork whose provisioning is interrupted by a restart is
-       * dropped rather than restored as a plain retryable card (which would
-       * Retry into a NON-fork pane, silently losing the fork) — the user
-       * re-forks from the journal. */
-      fork?: true;
-    }
-  /** The agent runs against a REMOTE native-server endpoint — the local
-   * terminal is a thin client attached to a server on a VPS. A local
-   * directory would be meaningless, so none is carried. Fixed at creation
-   * from the spawn dialog's "Where: Remote" choice and persisted: a revive
-   * reconnects the client to the same endpoint. */
-  | { kind: "remote"; endpoint: string };
+export type PaneLocation = { kind: "remote"; endpoint: string };
 
-/** The provisioning placement on its own — the card a pane wears while its
- * worktree is created, in the shape the surfaces that draw it take. */
-export type PaneProvisioning = Extract<PaneLocation, { kind: "provisioning" }>;
+/** The endpoint a remote pane runs against, or null for a local pane — the
+ * one question a pane's own placement still answers. */
+export function remoteEndpointOf(pane: Pick<Pane, "location">): string | null {
+  return pane.location?.endpoint ?? null;
+}
 
 /** One agent pane in the grid. Each pane runs its own agent type; the display
  * title comes from `name` / the auto title / the derived "Agent N". */
@@ -155,10 +127,9 @@ export interface Pane {
   id: string;
   /** The coding agent this pane runs — per pane, NOT tied to the workspace. */
   agentType?: AgentType;
-  /** Where the pane runs — see [`PaneLocation`]. Absent means `main`: the
-   * pane runs in the workspace cwd, sparse like every other field here. On
-   * disk this is the four fields the union replaced, folded on the way in and
-   * unfolded on the way out, so no document changed shape. */
+  /** The pane's own placement — a remote endpoint, see [`PaneLocation`].
+   * Absent means local: the pane runs in its team's directory, sparse like
+   * every other field here. */
   location?: PaneLocation;
   /** The agent runs with its permission prompts disabled (YOLO mode). Fixed
    * at creation from the dialog/form choice and persisted: a revive or resume
@@ -189,19 +160,23 @@ export interface Pane {
 /**
  * A pane's place in a team.
  *
- * `role` is an ADDRESS, not a job title: it is how teammates name each other
- * ("ask impl-1"), which is why it has to be unique inside its team and why
- * `lead` is simply the role the lead happens to hold rather than a separate
- * flag. One team per pane, because two would make "who is the lead here"
- * a question with more than one answer.
+ * `teamId` names the team — the workspace's [`Team`] object — so the team's
+ * NAME is not written here: a name is an address people type, and keeping a
+ * copy on every member is how renaming a team came to mean rewriting each of
+ * them. `role` is an ADDRESS too, not a job title: it is how teammates name
+ * each other ("ask impl-1"), which is why it has to be unique inside its team
+ * and why `lead` is simply the role the lead happens to hold rather than a
+ * separate flag. One team per pane, because two would make "who is the lead
+ * here" a question with more than one answer — structurally now, since a pane
+ * has one field to hold one id.
  */
 export interface PaneTeam {
-  name: string;
+  teamId: string;
   role: string;
 }
 
 /** The id for the pane numbered `seq` — the single mint point, since it's the
- * agent↔`WorktreeRecord` join key and every site must agree. */
+ * key every site must agree on. */
 export function paneId(seq: number): string {
   return `pane-${seq}`;
 }

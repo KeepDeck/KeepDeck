@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentDialogResult } from "../../agents";
-import { paneFromAgentRequest, provisioningCard } from ".";
+import { paneFromAgentRequest } from ".";
 
 describe("paneFromAgentRequest", () => {
   const workspace = { cwd: "/repo" };
@@ -12,14 +12,14 @@ describe("paneFromAgentRequest", () => {
     ...over,
   });
 
-  it("shapes a bare pane for the main repo", () => {
+  it("shapes a bare pane headed for the workspace root", () => {
     expect(paneFromAgentRequest("pane-1", request(), workspace, 1)).toEqual({
-      id: "pane-1",
-      agentType: "claude",
+      pane: { id: "pane-1", agentType: "claude" },
+      placement: { kind: "attached", cwd: "/repo" },
     });
   });
 
-  it("carries the endpoint and nothing local for a remote agent", () => {
+  it("carries the endpoint on the pane and nothing local — the thin client runs in the root", () => {
     expect(
       paneFromAgentRequest(
         "pane-1",
@@ -31,13 +31,16 @@ describe("paneFromAgentRequest", () => {
         1,
       ),
     ).toEqual({
-      id: "pane-1",
-      agentType: "claude",
-      location: { kind: "remote", endpoint: "wss://vps" },
+      pane: {
+        id: "pane-1",
+        agentType: "claude",
+        location: { kind: "remote", endpoint: "wss://vps" },
+      },
+      placement: { kind: "attached", cwd: "/repo" },
     });
   });
 
-  it("pins an existing worktree by cwd and branch", () => {
+  it("asks for an existing worktree by cwd and branch", () => {
     expect(
       paneFromAgentRequest(
         "pane-2",
@@ -46,9 +49,8 @@ describe("paneFromAgentRequest", () => {
         3,
       ),
     ).toEqual({
-      id: "pane-2",
-      agentType: "claude",
-      location: { kind: "attached", cwd: "/wt/a", branch: "kd/a" },
+      pane: { id: "pane-2", agentType: "claude" },
+      placement: { kind: "attached", cwd: "/wt/a", branch: "kd/a" },
     });
   });
 
@@ -68,9 +70,8 @@ describe("paneFromAgentRequest", () => {
         3,
       ),
     ).toEqual({
-      id: "pane-3",
-      agentType: "claude",
-      location: {
+      pane: { id: "pane-3", agentType: "claude" },
+      placement: {
         kind: "provisioning",
         intent: {
           repo: "/repo",
@@ -83,8 +84,8 @@ describe("paneFromAgentRequest", () => {
     });
   });
 
-  it("keeps unset fields off the pane", () => {
-    const pane = paneFromAgentRequest(
+  it("keeps unset fields off the pane and the intent", () => {
+    const { pane, placement } = paneFromAgentRequest(
       "pane-4",
       request({
         name: "   ",
@@ -93,8 +94,9 @@ describe("paneFromAgentRequest", () => {
       workspace,
       1,
     );
-    expect(Object.keys(pane).sort()).toEqual(["agentType", "id", "location"]);
-    expect(Object.keys(provisioningCard(pane)!.intent).sort()).toEqual(["index", "path", "repo"]);
+    expect(Object.keys(pane).sort()).toEqual(["agentType", "id"]);
+    if (placement.kind !== "provisioning") throw new Error("expected a create");
+    expect(Object.keys(placement.intent).sort()).toEqual(["index", "path", "repo"]);
   });
 
   it("trims the name and arms yolo only when asked", () => {
@@ -104,7 +106,7 @@ describe("paneFromAgentRequest", () => {
         request({ name: "  planner  ", yolo: true }),
         workspace,
         1,
-      ),
+      ).pane,
     ).toEqual({
       id: "pane-5",
       name: "planner",

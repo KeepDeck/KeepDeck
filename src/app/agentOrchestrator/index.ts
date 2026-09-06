@@ -1,6 +1,6 @@
 import type { AgentRestartMode, ForkTarget } from "../../domain/agents";
 import type { McpAccessAsk, SpawnPlan } from "../spawnSpecs";
-import type { Pane, SpawnConfig, WorktreeTarget } from "../../domain/deck";
+import type { Pane, SpawnConfig, TeamLocation, WorktreeTarget } from "../../domain/deck";
 import type { SessionHandle } from "../../domain/journal";
 import type { WorkspaceRef } from "../../domain/workspaceInstance";
 import type { WorkspaceCreationResult } from "../deckActions";
@@ -25,10 +25,13 @@ export interface AgentOrchestrator {
   subscribe(listener: () => void): () => void;
   /** Land and provision a pane through the common creation sequence. */
   createPane(request: CreatePaneRequest): CreatePaneOutcome;
+  /** Make a team that holds a directory and nobody yet — the "+ Team"
+   * door; its worktree create starts behind the card. */
+  createTeam(request: CreateTeamRequest): CreateTeamOutcome;
   /** Register a workspace and optimistically land its agent panes. */
   createWorkspace(config: SpawnConfig): WorkspaceCreationResult;
-  /** Re-issue a failed pane's worktree create. */
-  retryProvisioning(wsId: string, paneId: string): void;
+  /** Re-issue a team's failed worktree create — the card is the team's. */
+  retryProvisioning(wsId: string, teamId: string): void;
   /** Stop an agent while preserving its resumable pane. */
   suspend(wsId: string, paneId: string): Promise<SuspendOutcome>;
   /** Confirmed pane/workspace close, including optional worktree teardown. */
@@ -62,20 +65,24 @@ export interface AgentOrchestrator {
   /** Stop offering the occupied choice: the pane stays visible and bound,
    * nothing is erased — the ordinary exit card takes over. */
   dismissOccupied(paneId: string): void;
-  /** Continue a journal session in a new pane. */
+  /** Continue a journal session in a new pane. `role` is the address the
+   * pane asks for on the team it lands on — taken when free, else the roster
+   * suggests one. */
   resumeSession(
     wsId: string,
     record: SessionHandle,
-    opts?: { name?: string; yolo?: boolean },
+    opts?: { name?: string; yolo?: boolean; role?: string },
   ): Promise<void>;
-  /** Fork a journal session into a new pane and target directory/worktree. */
+  /** Fork a journal session into a new pane and target directory/worktree.
+   * `role` as for `resumeSession`. */
   forkSession(
     wsId: string,
     record: SessionHandle,
     target: ForkTarget,
-    opts?: { name?: string; branch?: string; yolo?: boolean },
+    opts?: { name?: string; branch?: string; yolo?: boolean; role?: string },
   ): Promise<void>;
-  /** Detach a blocked pane from its missing worktree and start fresh. */
+  /** Take a blocked pane off the team whose directory is gone, onto the
+   * workspace root's, and start a fresh conversation there. */
   startFresh(wsId: string, paneId: string): void;
   /** Ask for a stopped pane back and report whether it can rise. */
   resume(wsId: string, paneId: string): ResumeRequest;
@@ -128,23 +135,91 @@ export interface OccupiedNote {
 export interface CreatePaneRequest {
   /** Exact workspace lifetime, guarding asynchronous creation decisions. */
   workspace: WorkspaceRef;
+  /** The pane as the request describes it. A remote endpoint is its own;
+   * a directory never is. */
   pane: Pane;
+  /** The directory the pane asks to run in — an existing one (the workspace
+   * root included) or a create heading for one. The landing turns it into
+   * the team the pane joins: the team already holding that directory, or a
+   * new one made for it. Absent: the workspace root. */
+  placement?: TeamLocation;
+  /** The team to JOIN, by id — whatever its placement, a create still out
+   * included. Wins over `placement`. A team that is not here, holds no
+   * directory, or is being closed refuses `held`. */
+  team?: string;
+  /** The role the pane takes on its team, when the caller has one in mind;
+   * used when free on the team, else the roster suggests one. */
+  role?: string;
+  /** The name for a team the landing MINTS — when the caller is creating
+   * one and named it; the pane's own name otherwise. Ignored when the pane
+   * joins a team that already holds the directory. */
+  teamName?: string;
+  /** A step to run after the team's worktree lands and before its card
+   * resolves — a journal fork's store surgery. Filed under the TEAM the
+   * landing mints, which is why it rides the request rather than being
+   * registered ahead of it under an id the caller would have to guess. */
+  postProvision?: (worktree: { cwd: string; branch: string }) => Promise<void>;
 }
 
 export type CreatePaneOutcome =
-  | { kind: "created" }
+  /** Landed, on the team named — the one holding the directory, or freshly
+   * minted for it. */
+  | { kind: "created"; teamId: string }
   | { kind: "gone" }
-  | { kind: "full" };
+  /** The team the pane would join already has MAX_PANES members. */
+  | { kind: "full" }
+  /** The directory the pane asked for is held by a team in ANOTHER
+   * workspace — one directory is one team's, and a team never spans
+   * workspaces. */
+  | { kind: "held" };
 
-export type CloseRequest = {
+/** A team born with its directory and nobody on it — the "+ Team" door.
+ * Agents come later, each through `createPane` naming the team. */
+export interface CreateTeamRequest {
+  workspace: WorkspaceRef;
+  /** What the team is called; blank takes the deck's auto name. */
+  name: string;
+  /** The directory the team holds — an existing one (the workspace root
+   * included) or a create heading for one. */
+  placement: TeamLocation;
+}
+
+export type CreateTeamOutcome =
+  | { kind: "created"; teamId: string }
+  | { kind: "gone" }
+  /** The directory is a team's already — one here (a member joins that
+   * team instead), one in another workspace, or one a close is still
+   * tearing down. */
+  | { kind: "held" }
+  /** A team here already answers to that name. */
+  | { kind: "taken" };
+
+/** The destructive half of a close that can take worktrees with it. */
+export interface WorktreeTeardown {
   /** Destructive choice from the confirmation surface. */
   deleteWorktrees: boolean;
   /** Worktrees probed when the confirmation surface opened. */
   worktrees: WorktreeTarget[];
-} & (
-  | { kind: "agent"; wsId: string; paneId: string }
-  | { kind: "workspace"; wsId: string }
-);
+}
+
+/**
+ * A confirmed close. Addressed by `WorkspaceRef`, never by id alone: a
+ * `ws-N` slot is reused, and a confirmation that outlived its workspace
+ * must not touch the one now living in its place.
+ *
+ * Three verbs, because they end three different things:
+ * - `agent` ends ONE agent — its process, its session, its place on its
+ *   team. Never a worktree: the directory is the team's, and a member
+ *   leaving does not take it, so there is no teardown to ask about.
+ * - `team` disbands: ends every member, removes the team, and — on the
+ *   opt-in — its worktree.
+ * - `workspace` disbands every team the workspace holds, then the
+ *   workspace.
+ */
+export type CloseRequest =
+  | { kind: "agent"; workspace: WorkspaceRef; paneId: string }
+  | ({ kind: "team"; workspace: WorkspaceRef; teamId: string } & WorktreeTeardown)
+  | ({ kind: "workspace"; workspace: WorkspaceRef } & WorktreeTeardown);
 
 export type RestartOutcome =
   | "restarted"

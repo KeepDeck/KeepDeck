@@ -37,7 +37,7 @@ interface ForkTargetDialogProps {
   onCancel(): void;
 }
 
-/** The same path-driven location UX as the "+ Agent" dialog, reduced to the
+/** The same path-driven location UX as the agent dialog, reduced to the
  * fork's question: WHERE does the copy live? Empty → the workspace folder;
  * a new path → create a worktree there (branch required); an existing
  * worktree → attach the fork to it. */
@@ -83,7 +83,7 @@ export function ForkTargetDialog({
   // The branch suggestion follows the path's folder name until the user edits
   // the branch: while `branch === derived` it is untouched and keeps
   // following, an edit detaches it, the ↺ reset re-attaches — SuggestedInput's
-  // own state machine (the same one the "+ Agent" dialog hand-rolls).
+  // own state machine (the same one the agent dialog hand-rolls).
   const derived = baseName(trimmed);
   const derivedRef = useRef(derived);
   useEffect(() => {

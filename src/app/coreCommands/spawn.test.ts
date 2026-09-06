@@ -12,9 +12,9 @@ import {
 } from "./testSupport";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  WORKSPACE_FULL_MESSAGE,
+  TEAM_FULL_MESSAGE,
   WORKSPACE_GONE_MESSAGE,
-  provisioningCard,
+  paneProvisioning,
 } from "../../domain/deck";
 import { deliverTask } from "./deliverTask";
 import { registerPaneInput } from "../paneInput";
@@ -54,10 +54,31 @@ describe("agent.spawn", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const pane = deck.workspaces[0].panes[1];
-    expect(provisioningCard(pane)).toMatchObject({
+    const card = paneProvisioning(deck.workspaces[0], pane);
+    expect(card).toMatchObject({
       intent: { repo: "/repo", branch: "kd/web/2", index: 2 },
     });
-    expect(provisioningCard(pane)?.intent.path.endsWith("kd-web-2")).toBe(true);
+    expect(card?.intent.path.endsWith("kd-web-2")).toBe(true);
+    // The answer names the worktree ahead — read off the pane as the deck
+    // holds it, not off the literal the command built before landing it.
+    expect((result.value as { worktree: unknown }).worktree).toEqual({
+      path: card?.intent.path,
+      branch: "kd/web/2",
+    });
+  });
+
+  it("refuses a role the deck does not know, even for a team of its own", async () => {
+    // The facade holds team.add's contract: a role is an address some
+    // roster reads, and "wizard" is one nobody would.
+    const { registry, deck } = setup([workspace({})]);
+    const result = await registry.execute(
+      "agent.spawn",
+      { workspace: "web", role: "wizard" },
+      HOST,
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.message).toContain("wizard");
+    expect(deck.workspaces[0].panes).toHaveLength(0);
   });
 
   it("reports a refusal instead of a paneId that was never added", async () => {
@@ -69,7 +90,7 @@ describe("agent.spawn", () => {
     createPane.mockReturnValueOnce({ kind: "full" });
     const full = await registry.execute("agent.spawn", { workspace: "web" }, HOST);
     expect(full.ok).toBe(false);
-    if (!full.ok) expect(full.error.message).toBe(WORKSPACE_FULL_MESSAGE);
+    if (!full.ok) expect(full.error.message).toBe(TEAM_FULL_MESSAGE);
 
     createPane.mockReturnValueOnce({ kind: "gone" });
     const gone = await registry.execute("agent.spawn", { workspace: "web" }, HOST);

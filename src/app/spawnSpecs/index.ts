@@ -12,7 +12,7 @@ import {
   paneHasProcess,
   type Pane,
   type Workspace,
-  locationOf,
+  remoteEndpointOf,
   paneBranch,
   paneExecutionCwd,
 } from "../../domain/deck";
@@ -150,13 +150,13 @@ export async function buildLivePaneSpec(
   ctx: SpawnPlanContext,
   asks: Pick<PaneSpawnFacts, "stagedSkills" | "mcpAccess">,
 ): Promise<boolean> {
-  if (!paneHasProcess(pane)) return false;
+  if (!paneHasProcess(ws, pane)) return false;
   if (hasPaneSpawnSpec(pane.id) || isPaneSpawnSpecPending(pane.id) || peekPanePlanError(pane.id)) {
     return false;
   }
   const agent = findAgent(plugins, paneAgentType(pane));
   if (!agent) return false;
-  const location = locationOf(pane);
+  const endpoint = remoteEndpointOf(pane);
   // Where the pane runs, through the deck's one formula — null while its
   // worktree is still being created. `paneHasProcess` already keeps such a
   // pane out of here; the null makes that a fact the compiler holds rather
@@ -173,16 +173,11 @@ export async function buildLivePaneSpec(
           paneId: pane.id,
           workspace: { id: ws.id, instance: ws.instance },
           cwd,
-          branch: paneBranch(pane),
+          branch: paneBranch(ws, pane),
           yolo: pane.yolo,
           ...asks,
-          ...(location.kind === "remote"
-            ? {
-                target: {
-                  kind: "nativeServer" as const,
-                  endpoint: location.endpoint,
-                },
-              }
+          ...(endpoint !== null
+            ? { target: { kind: "nativeServer" as const, endpoint } }
             : {}),
         },
         ctx,

@@ -136,7 +136,7 @@ export function createAgentOrchestratorRestart({
       paneId,
       agentType: paneAgentType(pane),
       cwd,
-      branch: paneBranch(pane),
+      branch: paneBranch(workspace, pane),
       yolo: pane.yolo,
       sessionId: paneResumeSessionId(pane),
     };

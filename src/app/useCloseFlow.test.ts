@@ -3,8 +3,8 @@ import { act, createElement, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PathProbe } from "../domain/agents";
-import type { GitPosition, Pane } from "../domain/deck";
-import { createWorkspaceInstance } from "../domain/workspaceInstance";
+import type { GitPosition, Pane, Team } from "../domain/deck";
+import { createWorkspaceInstance, type WorkspaceRef } from "../domain/workspaceInstance";
 import type { Deck } from "./useDeck";
 import { useDeck } from "./useDeck";
 import { createDeckStore } from "./deckStore";
@@ -63,6 +63,12 @@ function deferredCarriers() {
 }
 /** The last close this test asked for. */
 const requested = () => closeAgents.mock.calls[0][0];
+/** The last close, which must be one that carries a teardown. */
+const requestedTeardown = () => {
+  const request = requested();
+  if (request.kind === "agent") throw new Error("an agent close carries no teardown");
+  return request;
+};
 
 const probes = vi.hoisted(() => ({
   probeWorktree: vi.fn<(path: string) => Promise<PathProbe>>(),
@@ -95,6 +101,13 @@ const agentSnapshot = () => {
   if (closing?.kind !== "agent") throw new Error("no agent dialog is open");
   return closing.pane;
 };
+/** The last-member offer the open agent dialog carries. */
+const lastOffer = () => {
+  const closing = flow.closing;
+  if (closing?.kind !== "agent") throw new Error("no agent dialog is open");
+  if (!closing.last) throw new Error("the pane is not its team's last member");
+  return closing.last;
+};
 
 function Probe() {
   // Fresh per mount (a bare call would rebuild it on every render).
@@ -112,8 +125,18 @@ function Probe() {
   return null;
 }
 
-/** A workspace with two panes, one on its own worktree (a discard target),
- * plus any extra worktree panes a test needs. */
+/** The live ref of ws-1. */
+const ref = (): WorkspaceRef => {
+  const ws = deck.workspaces.find((candidate) => candidate.id === "ws-1")!;
+  return { id: ws.id, instance: ws.instance };
+};
+
+/**
+ * A workspace with two teams: "root" on the repo root with two members
+ * (pane-1 and its company pane-0), and "wt" on a worktree of its own with
+ * pane-2 as its LAST member — the one pane whose close speaks two verbs.
+ * Extra worktree teams, one member each, as a test needs.
+ */
 function seed(extra: { id: string; cwd: string; branch: string }[] = []) {
   act(() => {
     deck.createWorkspace({
@@ -123,16 +146,24 @@ function seed(extra: { id: string; cwd: string; branch: string }[] = []) {
       cwd: "/repo",
       worktreeBaseDir: null,
       panes: [
-        { id: "pane-1", agentType: "claude" },
-        {
-          id: "pane-2",
-          agentType: "claude",
-          location: { kind: "attached", cwd: "/wt/2", branch: "kd/ws/2" },
-        },
+        { id: "pane-1", agentType: "claude", team: { teamId: "team-1", role: "lead" } },
+        { id: "pane-0", agentType: "claude", team: { teamId: "team-1", role: "impl-1" } },
+        { id: "pane-2", agentType: "claude", team: { teamId: "team-2", role: "lead" } },
         ...extra.map(
-          (p): Pane => ({
+          (p, i): Pane => ({
             id: p.id,
             agentType: "claude",
+            team: { teamId: `team-${i + 3}`, role: "lead" },
+          }),
+        ),
+      ],
+      teams: [
+        { id: "team-1", name: "root", location: { kind: "attached", cwd: "/repo" } },
+        { id: "team-2", name: "wt", location: { kind: "attached", cwd: "/wt/2", branch: "kd/ws/2" } },
+        ...extra.map(
+          (p, i): Team => ({
+            id: `team-${i + 3}`,
+            name: p.id,
             location: { kind: "attached", cwd: p.cwd, branch: p.branch },
           }),
         ),
@@ -140,6 +171,32 @@ function seed(extra: { id: string; cwd: string; branch: string }[] = []) {
     });
   });
   return "ws-1";
+}
+
+/** A second workspace whose one team is still creating its worktree, with
+ * pane-9 as its only member. */
+function creating() {
+  act(() => {
+    deck.createWorkspace({
+      id: "ws-2",
+      instance: createWorkspaceInstance(),
+      name: "two",
+      cwd: "/repo",
+      worktreeBaseDir: "/wt",
+      panes: [{ id: "pane-9", agentType: "claude", team: { teamId: "team-9", role: "lead" } }],
+      teams: [
+        {
+          id: "team-9",
+          name: "nine",
+          location: {
+            kind: "provisioning",
+            intent: { repo: "/repo", path: "/wt/two-1", index: 1 },
+          },
+        },
+      ],
+    });
+  });
+  return "ws-2";
 }
 
 /** Bind pane-1 to a session — the registry ask keys off the binding, and a
@@ -173,16 +230,16 @@ describe("useCloseFlow", () => {
     act(() => root.unmount());
   });
 
-  it("closing an agent names exactly that pane", async () => {
+  it("closing an agent with company names exactly that pane, by workspace ref", async () => {
     const wsId = seed();
     await act(async () => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
+    expect(flow.canCloseAgentOnly).toBe(false);
+    expect(flow.worktreeCount).toBe(0);
     act(() => flow.confirmClose());
     expect(requested()).toEqual({
       kind: "agent",
-      wsId,
+      workspace: ref(),
       paneId: "pane-1",
-      deleteWorktrees: false,
-      worktrees: [],
     });
   });
 
@@ -301,33 +358,102 @@ describe("useCloseFlow", () => {
     expect(flow.closeMessage).not.toContain("background");
   });
 
-  it("offers to delete a worktree that is still being created", async () => {
-    // A pane mid-create has no cwd, so `worktreeTargets` cannot describe it
-    // and the checkbox was never rendered — the create then landed a
-    // directory and branch that no surface would ever name again.
-    act(() => {
-      deck.createWorkspace({
-        id: "ws-2",
-        instance: createWorkspaceInstance(),
-        name: "two",
-        cwd: "/repo",
-        worktreeBaseDir: "/wt",
-        panes: [
-          {
-            id: "pane-9",
-            agentType: "claude",
-            location: {
-              kind: "provisioning",
-              intent: { repo: "/repo", path: "/wt/two-1", index: 1 },
-            },
-          },
-        ],
+  describe("the last member of a team", () => {
+    it("is offered its team's worktree, and confirming DISBANDS the team", async () => {
+      const wsId = seed();
+      await act(async () => flow.requestCloseAgent(wsId, "pane-2", "Agent 2"));
+      expect(flow.canCloseAgentOnly).toBe(true);
+      expect(lastOffer()).toEqual({
+        teamId: "team-2",
+        name: "wt",
+        targets: [{ repo: "/repo", path: "/wt/2", branch: "kd/ws/2" }],
+        pending: 0,
+      });
+      expect(flow.worktreeCount).toBe(1);
+      expect(flow.closeMessage).toContain("It is the last agent on “wt”");
+
+      act(() => flow.setDeleteWorktree(true));
+      act(() => flow.confirmClose());
+      expect(requested()).toEqual({
+        kind: "team",
+        workspace: ref(),
+        teamId: "team-2",
+        deleteWorktrees: true,
+        worktrees: [{ repo: "/repo", path: "/wt/2", branch: "kd/ws/2" }],
       });
     });
-    await act(async () => flow.requestCloseAgent("ws-2", "pane-9", "Agent 1"));
+
+    it("can close the agent alone — the team and its directory stay, whatever the box says", async () => {
+      const wsId = seed();
+      await act(async () => flow.requestCloseAgent(wsId, "pane-2", "Agent 2"));
+      // A ticked box belongs to the disband; this is not one.
+      act(() => flow.setDeleteWorktree(true));
+      act(() => flow.closeAgentOnly());
+      expect(requested()).toEqual({
+        kind: "agent",
+        workspace: ref(),
+        paneId: "pane-2",
+      });
+      expect(flow.closing).toBeNull();
+    });
+
+    it("on the workspace root has no worktree to offer, and still speaks both verbs", async () => {
+      const wsId = seed();
+      act(() => deck.closeAgent(wsId, "pane-0"));
+      await act(async () => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
+      expect(flow.canCloseAgentOnly).toBe(true);
+      expect(lastOffer().targets).toEqual([]);
+      expect(flow.worktreeCount).toBe(0);
+      act(() => flow.confirmClose());
+      expect(requested()).toMatchObject({ kind: "team", teamId: "team-1" });
+    });
+
+    it("a member with company speaks one verb, and is never asked about a directory", async () => {
+      const wsId = seed();
+      await act(async () => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
+      expect(flow.canCloseAgentOnly).toBe(false);
+      expect(flow.worktreeCount).toBe(0);
+      expect(flow.closeMessage).not.toContain("last agent");
+      act(() => flow.closeAgentOnly());
+      expect(closeAgents).not.toHaveBeenCalled();
+    });
+  });
+
+  it("disbanding a team names the team, counts its members and offers its worktree", async () => {
+    const wsId = seed();
+    await act(async () => flow.requestDisbandTeam(wsId, "team-2"));
+    expect(flow.closing).toMatchObject({
+      kind: "team",
+      teamId: "team-2",
+      name: "wt",
+      count: 1,
+      targets: [{ repo: "/repo", path: "/wt/2", branch: "kd/ws/2" }],
+    });
+    expect(flow.closeMessage).toBe(
+      "This ends 1 agent and its session. The team is removed.",
+    );
+    expect(flow.canSuspendInstead).toBe(false);
+    act(() => flow.setDeleteWorktree(true));
+    act(() => flow.confirmClose());
+    expect(requested()).toEqual({
+      kind: "team",
+      workspace: ref(),
+      teamId: "team-2",
+      deleteWorktrees: true,
+      worktrees: [{ repo: "/repo", path: "/wt/2", branch: "kd/ws/2" }],
+    });
+  });
+
+  it("offers to delete a worktree that is still being created", async () => {
+    // A team mid-create has no cwd, so `worktreeTargets` cannot describe it
+    // and the checkbox was never rendered — the create then landed a
+    // directory and branch that no surface would ever name again.
+    const wsId = creating();
+    await act(async () => flow.requestCloseAgent(wsId, "pane-9", "Agent 1"));
 
     // No target — there is no directory to name yet — but the offer stands.
-    expect(flow.closing?.targets).toEqual([]);
+    expect(lastOffer().targets).toEqual([]);
+    expect(lastOffer().pending).toBe(1);
     expect(flow.worktreeCount).toBe(1);
 
     act(() => flow.setDeleteWorktree(true));
@@ -335,36 +461,26 @@ describe("useCloseFlow", () => {
     // The decision travels; the list does not have to be complete, because
     // the close finishes it against the live deck.
     expect(requested()).toMatchObject({
-      kind: "agent",
-      paneId: "pane-9",
+      kind: "team",
+      teamId: "team-9",
       deleteWorktrees: true,
+      worktrees: [],
     });
   });
 
   it("does not ask to delete an in-flight create the user left unticked", async () => {
-    act(() => {
-      deck.createWorkspace({
-        id: "ws-2",
-        instance: createWorkspaceInstance(),
-        name: "two",
-        cwd: "/repo",
-        worktreeBaseDir: "/wt",
-        panes: [
-          {
-            id: "pane-9",
-            agentType: "claude",
-            location: {
-              kind: "provisioning",
-              intent: { repo: "/repo", path: "/wt/two-1", index: 1 },
-            },
-          },
-        ],
-      });
-    });
-    await act(async () => flow.requestCloseAgent("ws-2", "pane-9", "Agent 1"));
+    const wsId = creating();
+    await act(async () => flow.requestCloseAgent(wsId, "pane-9", "Agent 1"));
     act(() => flow.confirmClose());
 
-    expect(requested()).toMatchObject({ deleteWorktrees: false });
+    expect(requested()).toMatchObject({ kind: "team", deleteWorktrees: false });
+  });
+
+  it("a create that already FAILED is not counted as a worktree to delete", async () => {
+    const wsId = creating();
+    act(() => deck.setTeamProvisioningError(wsId, "team-9", "boom"));
+    await act(async () => flow.requestCloseAgent(wsId, "pane-9", "Agent 1"));
+    expect(flow.worktreeCount).toBe(0);
   });
 
   it("closing a workspace names the workspace, not its panes", async () => {
@@ -376,7 +492,7 @@ describe("useCloseFlow", () => {
     act(() => flow.confirmClose());
     expect(requested()).toEqual({
       kind: "workspace",
-      wsId,
+      workspace: ref(),
       deleteWorktrees: false,
       worktrees: [],
     });
@@ -389,9 +505,9 @@ describe("useCloseFlow", () => {
     const wsId = seed();
     bindSession();
     await act(async () => flow.requestCloseWorkspace(wsId));
-    // Two panes hold sessions by seed + binding here; the exact old text.
+    // Three panes hold sessions by seed + binding here; the exact old text.
     expect(flow.closeMessage).toBe(
-      "This ends 2 agents and their sessions.",
+      "This ends 3 agents and their sessions.",
     );
   });
 
@@ -411,7 +527,7 @@ describe("useCloseFlow", () => {
     );
     expect(flow.closeMessage).toContain("not the work");
     // The ordinary sentence still carries its count.
-    expect(flow.closeMessage).toContain("This ends 2 agents");
+    expect(flow.closeMessage).toContain("This ends 3 agents");
   });
 
   it("a workspace where any ask failed warns too — the asymmetry holds per pane", async () => {
@@ -430,7 +546,7 @@ describe("useCloseFlow", () => {
     act(() => flow.confirmClose());
     await act(async () => {});
 
-    expect(requested().worktrees).toEqual([
+    expect(requestedTeardown().worktrees).toEqual([
       { repo: "/repo", path: "/wt/2", branch: "feature/current" },
     ]);
   });
@@ -442,13 +558,13 @@ describe("useCloseFlow", () => {
 
     expect(probes.probeWorktree).toHaveBeenCalledWith("/wt/2");
     expect(flow.closing).not.toBeNull();
-    expect(flow.closing!.targets).toEqual([]);
+    expect(lastOffer().targets).toEqual([]);
 
     // Even a forced checkbox can't discard: the snapshot holds no targets.
     act(() => flow.setDeleteWorktree(true));
     act(() => flow.confirmClose());
     await act(async () => {});
-    expect(requested().worktrees).toEqual([]);
+    expect(requestedTeardown().worktrees).toEqual([]);
   });
 
   it("a workspace close keeps only the worktrees that still exist", async () => {
@@ -461,7 +577,7 @@ describe("useCloseFlow", () => {
     act(() => flow.confirmClose());
     await act(async () => {});
 
-    expect(requested().worktrees).toEqual([
+    expect(requestedTeardown().worktrees).toEqual([
       { repo: "/repo", path: "/wt/3", branch: "kd/ws/3" },
     ]);
   });
@@ -471,7 +587,7 @@ describe("useCloseFlow", () => {
     const wsId = seed();
     await act(async () => flow.requestCloseAgent(wsId, "pane-2", "Agent 2"));
 
-    expect(flow.closing!.targets).toEqual([
+    expect(lastOffer().targets).toEqual([
       { repo: "/repo", path: "/wt/2", branch: "kd/ws/2" },
     ]);
   });
@@ -482,7 +598,7 @@ describe("useCloseFlow", () => {
       () => new Promise((resolve) => (answer = resolve)),
     );
     const wsId = seed();
-    // The worktree pane's request hangs on its probe... The plain pane's
+    // The worktree team's request hangs on its probe... The plain pane's
     // request only owes the registry ask (a microtask), so it opens first.
     act(() => flow.requestCloseAgent(wsId, "pane-2", "Agent 2"));
     await act(async () => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
@@ -497,7 +613,7 @@ describe("useCloseFlow", () => {
     await act(async () => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
     act(() => flow.cancelClose());
     expect(closeAgents).not.toHaveBeenCalled();
-    expect(deck.workspaces[0].panes).toHaveLength(2);
+    expect(deck.workspaces[0].panes).toHaveLength(3);
   });
 
   describe("suspending instead of closing", () => {
@@ -513,7 +629,7 @@ describe("useCloseFlow", () => {
       // The pane stays in the deck and its session is not torn down here —
       // that is the whole difference from confirming.
       expect(closeAgents).not.toHaveBeenCalled();
-      expect(deck.workspaces[0].panes).toHaveLength(2);
+      expect(deck.workspaces[0].panes).toHaveLength(3);
     });
 
     it("refuses while the worktree delete is ticked — the two contradict", async () => {
@@ -532,7 +648,7 @@ describe("useCloseFlow", () => {
 
     it("is not offered for a workspace close — a different verb on a different object", async () => {
       const wsId = seed();
-      // Awaited: the workspace's worktree pane makes this dialog probe first.
+      // Awaited: the workspace's worktree team makes this dialog probe first.
       await act(async () => flow.requestCloseWorkspace(wsId));
       expect(flow.canSuspendInstead).toBe(false);
 
@@ -671,12 +787,12 @@ describe("what the dialog promises is what confirming does", () => {
     act(() => deck.suspendPane(wsId, "pane-2"));
     await act(async () => flow.requestCloseAgent(wsId, "pane-2", "Agent 2"));
 
-    expect(flow.closing!.targets).toHaveLength(1); // it does own one
+    expect(lastOffer().targets).toHaveLength(1); // its team does own one
     expect(flow.closeMessage).not.toContain("worktree");
 
     act(() => flow.confirmClose());
     await act(async () => {});
-    expect(requested().worktrees).toEqual([]);
+    expect(requestedTeardown().worktrees).toEqual([]);
   });
 
   it("offers the alternative only when it is really on offer", async () => {
@@ -761,7 +877,7 @@ describe("what the dialog promises is what confirming does", () => {
     await act(async () => release());
 
     expect(flow.closing).not.toBeNull();
-    expect(flow.closeMessage).toBe("It is stopped; closing removes the pane.");
+    expect(flow.closeMessage).toContain("It is stopped; closing removes the pane.");
     expect(flow.canSuspendInstead).toBe(false);
   });
 
@@ -771,19 +887,19 @@ describe("what the dialog promises is what confirming does", () => {
     // close ends none — the same distinction the agent branch draws with "It
     // is starting up", missing from the branch that counts.
     const wsId = seed();
-    act(() => deck.suspendPane(wsId, "pane-1"));
-    act(() => deck.requestPaneWake(wsId, "pane-1"));
-    act(() => deck.suspendPane(wsId, "pane-2"));
-    act(() => deck.requestPaneWake(wsId, "pane-2"));
+    for (const paneId of ["pane-1", "pane-0", "pane-2"]) {
+      act(() => deck.suspendPane(wsId, paneId));
+      act(() => deck.requestPaneWake(wsId, paneId));
+    }
 
     await act(async () => flow.requestCloseWorkspace(wsId));
-    expect(flow.closeMessage).toBe("This ends no sessions; closing removes 2 agents.");
+    expect(flow.closeMessage).toBe("This ends no sessions; closing removes 3 agents.");
   });
 
   it("counts the agents a workspace close ends", async () => {
     const wsId = seed();
     await act(async () => flow.requestCloseWorkspace(wsId));
-    expect(flow.closeMessage).toBe("This ends 2 agents and their sessions.");
+    expect(flow.closeMessage).toBe("This ends 3 agents and their sessions.");
   });
 
   it("does not count a stopped agent's session among the ones it ends", async () => {
@@ -793,38 +909,31 @@ describe("what the dialog promises is what confirming does", () => {
     const wsId = seed();
     act(() => deck.suspendPane(wsId, "pane-1"));
     await act(async () => flow.requestCloseWorkspace(wsId));
-    expect(flow.closeMessage).toBe("This ends 1 agent and its session.");
+    expect(flow.closeMessage).toBe("This ends 2 agents and their sessions.");
 
+    act(() => deck.suspendPane(wsId, "pane-0"));
     act(() => deck.suspendPane(wsId, "pane-2"));
     await act(async () => flow.requestCloseWorkspace(wsId));
-    expect(flow.closeMessage).toBe("This ends no sessions; closing removes 2 agents.");
+    expect(flow.closeMessage).toBe("This ends no sessions; closing removes 3 agents.");
+  });
+
+  it("counts only a team's own members for a disband", async () => {
+    const wsId = seed();
+    act(() => deck.suspendPane(wsId, "pane-0"));
+    await act(async () => flow.requestDisbandTeam(wsId, "team-1"));
+    expect(flow.closeMessage).toBe(
+      "This ends 1 agent and its session. The team is removed.",
+    );
   });
 
   it("does not promise to end a session a pane never had", async () => {
     // A pane still creating its worktree has never run, and one on its way up
     // has not started yet. Neither has a terminal session to end, and the
     // second was being offered "keep its session" in the same breath.
-    act(() => {
-      deck.createWorkspace({
-        id: "ws-2",
-        instance: createWorkspaceInstance(),
-        name: "ws2",
-        cwd: "/repo",
-        worktreeBaseDir: null,
-        panes: [
-          {
-            id: "pane-9",
-            agentType: "claude",
-            location: {
-              kind: "provisioning",
-              intent: { repo: "/repo", path: "/wt/ws2-1", index: 1 },
-            },
-          },
-        ],
-      });
-    });
-    await act(async () => flow.requestCloseAgent("ws-2", "pane-9", "Agent 1"));
-    expect(flow.closeMessage).toBe("Its worktree is still being created.");
+    const creatingWs = creating();
+    await act(async () => flow.requestCloseAgent(creatingWs, "pane-9", "Agent 1"));
+    expect(flow.closeMessage).toContain("Its worktree is still being created.");
+    expect(flow.closeMessage).not.toContain("will be ended");
 
     const wsId = seed();
     act(() => deck.suspendPane(wsId, "pane-1"));
@@ -836,12 +945,13 @@ describe("what the dialog promises is what confirming does", () => {
 });
 
 describe("closeMessageFor", () => {
+  const workspace: WorkspaceRef = { id: "ws-1", instance: createWorkspaceInstance() };
   const agent = (
     pane: Partial<ClosingPaneFacts> = {},
     targets = 0,
   ): ClosingTarget => ({
     kind: "agent",
-    wsId: "ws-1",
+    workspace,
     paneId: "pane-1",
     label: "Agent 1",
     pane: {
@@ -851,20 +961,38 @@ describe("closeMessageFor", () => {
       canSuspend: false,
       ...pane,
     },
-    targets: Array.from({ length: targets }, (_, i) => ({
-      repo: "/repo",
-      path: `/wt/${i}`,
-      branch: `kd/ws/${i}`,
-    })),
-    pendingPanes: [],
+    // A last member exactly when there is a worktree to offer: the offer
+    // is the team's, and only the last member's dialog carries it.
+    last:
+      targets > 0
+        ? {
+            teamId: "team-1",
+            name: "wt",
+            targets: Array.from({ length: targets }, (_, i) => ({
+              repo: "/repo",
+              path: `/wt/${i}`,
+              branch: `kd/ws/${i}`,
+            })),
+            pending: 0,
+          }
+        : null,
   });
-  const workspace = (count: number): ClosingTarget => ({
+  const team = (count: number): ClosingTarget => ({
+    kind: "team",
+    workspace,
+    teamId: "team-1",
+    name: "wt",
+    count,
+    targets: [],
+    pending: 0,
+  });
+  const whole = (count: number): ClosingTarget => ({
     kind: "workspace",
-    id: "ws-1",
+    workspace,
     name: "ws",
     count,
     targets: [],
-    pendingPanes: [],
+    pending: 0,
   });
 
   it("says nothing without a target", () => {
@@ -885,6 +1013,14 @@ describe("closeMessageFor", () => {
     expect(closeMessageFor(agent({ provisioning: true }), 0)).toBe(
       "Its worktree is still being created.",
     );
+  });
+
+  it("tells the last member what each verb does to its team, ahead of the pane's own sentence", () => {
+    const message = closeMessageFor(agent({}, 1), 0);
+    expect(message.startsWith("It is the last agent on “wt”.")).toBe(true);
+    expect(message).toContain("Disbanding removes the team as well");
+    expect(message).toContain("closing the agent alone keeps the team");
+    expect(message.endsWith("Its terminal session will be ended.")).toBe(true);
   });
 
   it("never mentions a worktree the confirm would not delete", () => {
@@ -914,20 +1050,37 @@ describe("closeMessageFor", () => {
   });
 
   it("counts only a workspace's agents that still hold a session", () => {
-    expect(closeMessageFor(workspace(0), 0)).toBe("This workspace has no agents.");
-    expect(closeMessageFor(workspace(3), 3)).toBe(
+    expect(closeMessageFor(whole(0), 0)).toBe("This workspace has no agents.");
+    expect(closeMessageFor(whole(3), 3)).toBe(
       "This ends 3 agents and their sessions.",
     );
-    expect(closeMessageFor(workspace(2), 1)).toBe(
+    expect(closeMessageFor(whole(2), 1)).toBe(
       "This ends 1 agent and its session.",
     );
     // None running says so in the one way that is true of every reason for
     // having no session — stopped, still rising, or mid-create.
-    expect(closeMessageFor(workspace(2), 0)).toBe(
+    expect(closeMessageFor(whole(2), 0)).toBe(
       "This ends no sessions; closing removes 2 agents.",
     );
-    expect(closeMessageFor(workspace(1), 0)).toBe(
+    expect(closeMessageFor(whole(1), 0)).toBe(
       "This ends no session; closing removes 1 agent.",
+    );
+  });
+
+  it("says a disband removes the team, and counts its members the same way", () => {
+    expect(closeMessageFor(team(0), 0)).toBe(
+      "This team has no agents; disbanding removes the team.",
+    );
+    expect(closeMessageFor(team(3), 3)).toBe(
+      "This ends 3 agents and their sessions. The team is removed.",
+    );
+    expect(closeMessageFor(team(2), 0)).toBe(
+      "This ends no sessions; disbanding removes 2 agents. The team is removed.",
+    );
+    // The carrier line rides a disband too — a team's conversations can be
+    // carried like a workspace's.
+    expect(closeMessageFor(team(2), 2, { kind: "background" })).toContain(
+      "At least one conversation is carried",
     );
   });
 });

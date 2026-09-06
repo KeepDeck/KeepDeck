@@ -17,7 +17,7 @@ const SENDER = {
 function setup() {
   // pane-1 is on a team, so the standing-presence has something to re-state.
   let panes: Pane[] = [
-    { id: "pane-1", team: { name: "api", role: "lead" } },
+    { id: "pane-1", team: { teamId: "team-1", role: "lead" } },
     { id: "pane-2" },
   ] as Pane[];
   const agentTypes: Record<string, string> = {
@@ -47,6 +47,7 @@ function setup() {
       cwd: "/repo",
       worktreeBaseDir: null,
       panes,
+      teams: [{ id: "team-1", name: "api" }],
     } as Workspace,
   ];
 
@@ -59,7 +60,7 @@ function setup() {
           paneListeners.add(listener);
           return () => paneListeners.delete(listener);
         },
-        setPaneTeam: () => {},
+        settleRoster: () => {},
         agentTypeOf: (paneId: string) => agentTypes[paneId] ?? "claude",
       },
       agents: {

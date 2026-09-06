@@ -1,62 +1,80 @@
 import { describe, expect, it, vi } from "vitest";
-import type { TeamPlan } from "../../domain/mail";
+import {
+  initialDeckState,
+  paneExecutionCwd,
+  type Workspace,
+} from "../../domain/deck";
+import { planTeam, type TeamPlan } from "../../domain/mail";
+import { createWorkspaceInstance } from "../../domain/workspaceInstance";
+import { createDeckActions } from "../deckActions";
+import { createDeckStore } from "../deckStore";
 import { applyTeamPlan } from "./teamSetup";
 
-function setup(
-  spawn?: TeamSetupSpawn,
-  close?: (workspaceId: string, paneId: string) => Promise<void>,
-) {
+type Spawn = (
+  workspaceId: string,
+  teamId: string,
+  agentType: string,
+  yolo: boolean,
+  role: string,
+) => Promise<string | null>;
+
+function setup(spawn?: Spawn) {
   const calls: string[] = [];
   const reports: string[] = [];
   const told: { paneId: string; body: string }[] = [];
   const deps = {
     announce: (paneId: string, _kind: "team", body: string) =>
       told.push({ paneId, body }),
-    setPaneTeam: (
+    settleRoster: (
       _ws: string,
-      paneId: string,
-      team: { name: string; role: string } | null,
-    ) => calls.push(team ? `${paneId}=${team.role}@${team.name}` : `${paneId}=off`),
+      teamId: string,
+      name: string,
+      members: readonly { paneId: string; role: string }[],
+    ) =>
+      calls.push(
+        `settle ${teamId} "${name}" ${members.map((m) => `${m.paneId}=${m.role}`).join(",")}`,
+      ),
     spawn: spawn ?? (async () => "pane-new"),
-    close:
-      close ??
-      (async (_ws: string, paneId: string) => {
-        calls.push(`${paneId}=closed`);
-      }),
     report: (title: string) => reports.push(title),
   };
   return { deps, calls, reports, told };
 }
 
-type TeamSetupSpawn = (
-  workspaceId: string,
-  agentType: string,
-  yolo: boolean,
-) => Promise<string | null>;
-
 const plan = (over: Partial<TeamPlan> = {}): TeamPlan => ({
+  teamId: "team-1",
   name: "api",
   members: [],
-  released: [],
   recruits: [],
   ...over,
 });
 
 describe("applyTeamPlan", () => {
-  it("releases before it places, so a handed-over role is free when taken", () => {
-    // pane-1 gives up `lead` and pane-2 takes it. Placing first would mean
-    // two panes hold one address for the width of a dispatch.
-    const h = setup();
-    return applyTeamPlan(
+  it("writes the roster whole, before anything else", async () => {
+    // One deck change for the name and every role: a swap never passes
+    // through a moment in which one address is held twice, and the recruits
+    // that follow find every handed-over address already free.
+    const spawn = vi.fn(async () => "pane-9");
+    const h = setup(spawn);
+    await applyTeamPlan(
       h.deps,
       "ws-1",
-      plan({ released: ["pane-1"], members: [{ paneId: "pane-2", role: "lead" }] }),
-    ).then(() => {
-      expect(h.calls).toEqual(["pane-1=off", "pane-2=lead@api"]);
-    });
+      plan({
+        name: "platform",
+        members: [
+          { paneId: "pane-1", role: "impl-1" },
+          { paneId: "pane-2", role: "lead" },
+        ],
+        recruits: [{ agentType: "claude", role: "impl-2", yolo: false }],
+      }),
+    );
+    expect(h.calls).toEqual(['settle team-1 "platform" pane-1=impl-1,pane-2=lead']);
+    expect(spawn.mock.invocationCallOrder[0]).toBeGreaterThan(0);
   });
 
-  it("starts each recruit and puts it straight on the team", async () => {
+  it("starts each recruit ON the team, by id, under its role — the start is the placement", async () => {
+    // No second step writes the membership: the recruit lands on the team
+    // in the same step that starts it, so there is no moment in which the
+    // pane exists on no team.
     const spawn = vi.fn(async () => "pane-9");
     const h = setup(spawn);
     await applyTeamPlan(
@@ -64,8 +82,8 @@ describe("applyTeamPlan", () => {
       "ws-1",
       plan({ recruits: [{ agentType: "claude", role: "impl-1", yolo: false }] }),
     );
-    expect(spawn).toHaveBeenCalledWith("ws-1", "claude", false);
-    expect(h.calls).toEqual(["pane-9=impl-1@api"]);
+    expect(spawn).toHaveBeenCalledWith("ws-1", "team-1", "claude", false, "impl-1");
+    expect(h.told.map((entry) => entry.paneId)).toEqual(["pane-9"]);
   });
 
   it("carries each recruit's OWN yolo answer, not the global default", async () => {
@@ -73,7 +91,7 @@ describe("applyTeamPlan", () => {
     // different answers. Dropping it here would silently ignore what the
     // person just chose.
     const asked: boolean[] = [];
-    const h = setup(async (_ws, _agent, yolo) => {
+    const h = setup(async (_ws, _team, _agent, yolo) => {
       asked.push(yolo);
       return "pane-9";
     });
@@ -90,11 +108,11 @@ describe("applyTeamPlan", () => {
     expect(asked).toEqual([false, true]);
   });
 
-  it("keeps the team that DID form when a recruit will not start", async () => {
-    // Undoing the members because a fourth agent failed to launch would
+  it("keeps the roster that DID settle when a recruit will not start", async () => {
+    // Undoing the roster because a fourth agent failed to launch would
     // take away the part that worked.
     const h = setup(async () => {
-      throw new Error("workspace is full");
+      throw new Error("the team is full");
     });
     await applyTeamPlan(
       h.deps,
@@ -104,7 +122,7 @@ describe("applyTeamPlan", () => {
         recruits: [{ agentType: "claude", role: "impl-1", yolo: false }],
       }),
     );
-    expect(h.calls).toEqual(["pane-1=lead@api"]);
+    expect(h.calls).toEqual(['settle team-1 "api" pane-1=lead']);
     expect(h.reports).toEqual(['Could not start claude as “impl-1”']);
   });
 
@@ -141,7 +159,7 @@ describe("applyTeamPlan", () => {
     // A briefing naming an agent whose spawn failed would send someone
     // writing into nothing.
     const h = setup(async () => {
-      throw new Error("workspace is full");
+      throw new Error("the team is full");
     });
     await applyTeamPlan(
       h.deps,
@@ -156,37 +174,37 @@ describe("applyTeamPlan", () => {
     expect(h.told[0].body).toContain("only member");
   });
 
-  it("tells whoever left, so it stops writing to roles that reach nobody", async () => {
-    const h = setup();
-    await applyTeamPlan(h.deps, "ws-1", plan({ released: ["pane-9"] }));
-    expect(h.told).toEqual([
-      {
-        paneId: "pane-9",
-        body: expect.stringContaining("no longer on the KeepDeck team"),
-      },
-    ]);
-  });
-
   it("records the roles even with nothing running to tell", async () => {
     // The feature's toggle can be off; membership is still deck state.
     const h = setup();
     const deps = { ...h.deps, announce: undefined };
     await applyTeamPlan(deps, "ws-1", plan({ members: [{ paneId: "pane-1", role: "lead" }] }));
-    expect(h.calls).toEqual(["pane-1=lead@api"]);
+    expect(h.calls).toEqual(['settle team-1 "api" pane-1=lead']);
     expect(h.told).toEqual([]);
   });
 
   it("reports a refusal that answered with no pane", async () => {
-    // A full workspace answers without throwing; treating that as success
-    // would put a role on a pane that does not exist.
+    // A full team answers without throwing; treating that as success would
+    // put a role on a pane that does not exist.
     const h = setup(async () => null);
     await applyTeamPlan(
       h.deps,
       "ws-1",
       plan({ recruits: [{ agentType: "claude", role: "impl-1", yolo: false }] }),
     );
-    expect(h.calls).toEqual([]);
+    expect(h.told).toEqual([]);
     expect(h.reports).toHaveLength(1);
+  });
+
+  it("reports every recruit when the deck cannot start agents here", async () => {
+    const h = setup();
+    const deps = { ...h.deps, spawn: undefined };
+    await applyTeamPlan(
+      deps,
+      "ws-1",
+      plan({ recruits: [{ agentType: "claude", role: "impl-1", yolo: false }] }),
+    );
+    expect(h.reports).toEqual(['Could not start claude as “impl-1”']);
   });
 
   it("carries on to the next recruit after one fails", async () => {
@@ -206,83 +224,81 @@ describe("applyTeamPlan", () => {
         ],
       }),
     );
-    expect(h.calls).toEqual(["pane-9=impl-2@api"]);
+    expect(attempt).toBe(2);
+    expect(h.told.map((entry) => entry.paneId)).toEqual(["pane-9"]);
     expect(h.reports).toHaveLength(1);
   });
+});
 
-  it("closes LAST, after every pane is off the team", async () => {
-    // A close that fails then leaves an agent that is merely off the team,
-    // which is the disband the person asked for either way. Closing first
-    // would leave a failed close holding a role on a team that no longer
-    // exists.
-    const h = setup();
-    await applyTeamPlan(
-      h.deps,
-      "ws-1",
-      plan({ released: ["pane-1", "pane-2"] }),
-      ["pane-1", "pane-2"],
+describe("applyTeamPlan against the deck", () => {
+  // The scenario the review reproduced: a rename through the roster path
+  // minted a second, directory-less team and moved the members onto it —
+  // their ids changed and their cwd fell back to the workspace root.
+  const api = (): Workspace => ({
+    id: "ws-1",
+    instance: createWorkspaceInstance(),
+    name: "web",
+    cwd: "/repo",
+    worktreeBaseDir: "/wt",
+    teams: [{ id: "team-1", name: "api", location: { kind: "attached", cwd: "/wt/api", branch: "kd/api" } }],
+    panes: [
+      { id: "p1", agentType: "claude", team: { teamId: "team-1", role: "lead" } },
+      { id: "p2", agentType: "claude", team: { teamId: "team-1", role: "impl-1" } },
+    ],
+  });
+  const store = () =>
+    createDeckStore({ ...initialDeckState, workspaces: [api()], activeId: "ws-1" });
+
+  it("renames api → platform and swaps the roles in place: the ids and the directory stay", async () => {
+    const deck = store();
+    const before = deck.getSnapshot().workspaces[0];
+    const settled = planTeam(
+      before,
+      {
+        name: "platform",
+        members: [
+          { paneId: "p1", role: "impl-1" },
+          { paneId: "p2", role: "lead" },
+        ],
+        recruits: [],
+      },
+      "team-1",
     );
-    expect(h.calls).toEqual([
-      "pane-1=off",
-      "pane-2=off",
-      "pane-1=closed",
-      "pane-2=closed",
+    expect(settled.ok).toBe(true);
+    if (!settled.ok) return;
+    await applyTeamPlan(
+      { settleRoster: createDeckActions(deck).settleRoster, report: () => {} },
+      "ws-1",
+      settled.value,
+    );
+    const after = deck.getSnapshot().workspaces[0];
+    expect(after.teams).toEqual([
+      { id: "team-1", name: "platform", location: { kind: "attached", cwd: "/wt/api", branch: "kd/api" } },
     ]);
+    expect(after.panes.map((pane) => pane.team)).toEqual([
+      { teamId: "team-1", role: "impl-1" },
+      { teamId: "team-1", role: "lead" },
+    ]);
+    expect(after.panes.map((pane) => paneExecutionCwd(after, pane))).toEqual(["/wt/api", "/wt/api"]);
   });
 
-  it("bids farewell in the name the member actually HELD through a rename", async () => {
-    // Renamed in the same breath, the plan's own name is a team the
-    // dropped member was never on — the farewell must not claim it was.
-    const h = setup();
-    await applyTeamPlan(h.deps, "ws-1", {
-      name: "webapp",
-      formerName: "web",
-      members: [{ paneId: "pane-1", role: "lead" }],
-      released: ["pane-2"],
-      recruits: [],
-    });
-    const farewell = h.told.find((entry) => entry.paneId === "pane-2")!;
-    expect(farewell.body).toContain('"web"');
-    expect(farewell.body).not.toContain("webapp");
-  });
-
-  it("says no goodbye to an agent it is about to close", async () => {
-    // A farewell exists so a member stops writing to roles that no longer
-    // reach anyone. One being closed has nothing left to stop doing, and
-    // the message would cost it a turn it does not have.
-    const h = setup();
-    await applyTeamPlan(
-      h.deps,
-      "ws-1",
-      plan({ released: ["pane-1", "pane-2"] }),
-      ["pane-2"],
+  it("never makes a team: a plan for a team that is not here is refused, and the deck settles nothing for it", async () => {
+    const deck = store();
+    const before = deck.getSnapshot();
+    const planned = planTeam(
+      before.workspaces[0],
+      { name: "ghost", members: [], recruits: [] },
+      "team-9",
     );
-    expect(h.told.map((t) => t.paneId)).toEqual(["pane-1"]);
-  });
-
-  it("keeps closing after one refuses, and reports the one that did", async () => {
-    // The person asked to end three agents. The two that ended must not be
-    // undone by the third, and the failure must not be silent either.
-    const h = setup(undefined, async (_ws, paneId) => {
-      if (paneId === "pane-2") throw new Error("busy");
-      h.calls.push(`${paneId}=closed`);
-    });
+    expect(planned.ok).toBe(false);
+    if (!planned.ok) expect(planned.message).toContain("team.create");
+    // Even a plan forged by hand writes nothing: the deck knows no such team.
     await applyTeamPlan(
-      h.deps,
+      { settleRoster: createDeckActions(deck).settleRoster, report: () => {} },
       "ws-1",
-      plan(),
-      ["pane-1", "pane-2", "pane-3"],
+      { teamId: "team-9", name: "ghost", members: [], recruits: [] },
     );
-    expect(h.calls).toEqual(["pane-1=closed", "pane-3=closed"]);
-    expect(h.reports).toEqual(["Could not close an agent"]);
-  });
-
-  it("closes nobody for an ordinary edit", async () => {
-    // Dropping one member from the roster is organisational and reversible.
-    // Naming the panes to close, rather than flagging the released ones, is
-    // what keeps it that way.
-    const h = setup();
-    await applyTeamPlan(h.deps, "ws-1", plan({ released: ["pane-1"] }));
-    expect(h.calls).toEqual(["pane-1=off"]);
+    expect(deck.getSnapshot().workspaces).toBe(before.workspaces);
+    expect(deck.getSnapshot().workspaces[0].teams?.every((team) => team.location)).toBe(true);
   });
 });

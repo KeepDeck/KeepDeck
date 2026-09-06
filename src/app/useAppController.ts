@@ -11,8 +11,6 @@ import { useAgents } from "./useAgents";
 import { useAppRuntime } from "./runtimeContext";
 import { askBackgroundCarriers } from "./liveSessions";
 import { useCloseFlow } from "./useCloseFlow";
-import { commands } from "./commandRegistry";
-import { createTeamFlow } from "./mail";
 import { useContributions, useInstalledPlugins, unavailableAgentReasons } from "../plugins";
 import { useDeck } from "./useDeck";
 import { useDragDrop } from "./useDragDrop";
@@ -42,15 +40,21 @@ import {
   paneAgentType,
   paneHasProcess,
   paneHotkeyTarget,
-  paneOnScreen,
+  membersOf,
+  openTeamOf,
+  paneInFront,
   resolveSelectedPaneId,
+  stagePanes,
+  teamHeldPath,
 } from "../domain/deck";
 import type { AppInfo } from "../ipc/app";
 import { readAppInfo } from "./appInfo";
 import { layering, statsDeepLinkOnScreen } from "../presentation/layering";
 import { describeError, log } from "../ipc/log";
 import { pluginCrashes, subscribePluginCrashes } from "./pluginHealth";
-import { bellDoorOpen, dockDoorOpen, teamDialogDoorOpen } from "./doors";
+import { addTeamDoorOpen, bellDoorOpen, dockDoorOpen } from "./doors";
+import type { BarLevel } from "../components/deck/DeckBar";
+import { teamBranchOf } from "../presentation/teamCardView";
 
 /** Shell/application wiring kept separate from the rendered app tree. */
 export function useAppController() {
@@ -87,19 +91,13 @@ export function useAppController() {
     wsId: string;
     record: SessionHandle;
   } | null>(null);
-  /** The team surface: `editing` names the team being changed, or is null
-   * for a new one. A transaction like every other dialog, so the same gate
-   * keeps a second one from stacking over it. */
-  const [teamDialog, setTeamDialog] = useState<{ editing: string | null } | null>(
-    null,
-  );
   const specByPane = runView.specs;
   const failedPanes = runView.planFailed;
   const usageLiveAgents = useMemo(() => {
     const ids = new Set<string>();
     for (const ws of deck.workspaces) {
       for (const pane of ws.panes) {
-        if (!paneHasProcess(pane)) continue;
+        if (!paneHasProcess(ws, pane)) continue;
         ids.add(paneAgentType(pane));
       }
     }
@@ -122,42 +120,8 @@ export function useAppController() {
       pushAlert("Could not resume the session", message),
     onForkFailed: (message) => pushAlert("Could not fork the session", message),
     onCreateFailed: (message) => pushAlert("Could not add the agent", message),
+    onTeamFailed: (message) => pushAlert("Could not start the team", message),
   }, runView.blocked);
-  /**
-   * Applying a team, with the four ports that takes.
-   *
-   * Beside `agentFlow` and `closeFlow` because it is the same kind of thing:
-   * an operation the app owns, handed the one surface only this level has
-   * (the alert queue). It was assembled inside the dialog's `onConfirm`,
-   * which made the React tree the only place that knew a recruit is started
-   * through `agent.spawn` and that ending a member leaves its worktree alone.
-   */
-  const teamFlow = createTeamFlow({
-    setPaneTeam: deck.setPaneTeam,
-    spawn: async (workspaceId, agentType, yolo) => {
-      const result = await commands.execute(
-        "agent.spawn",
-        { workspace: workspaceId, agentType, yolo },
-        { kind: "host" },
-      );
-      if (!result.ok) throw new Error(result.error.message);
-      return (result.value as { paneId?: string }).paneId ?? null;
-    },
-    close: async (workspaceId, paneId) => {
-      await orchestrator.close({
-        kind: "agent",
-        wsId: workspaceId,
-        paneId,
-        deleteWorktrees: false,
-        worktrees: [],
-      });
-    },
-    report: pushAlert,
-    // Looked up per call: the manager is the service's, and a disposed
-    // service has none to tell.
-    announce: (paneId, kind, body) =>
-      runtime.mail.current()?.announce(paneId, kind, body),
-  });
   const closeFlow = useCloseFlow(deck, {
     onError: (message) => pushAlert("Worktree error", message),
     onSuspendRefused: (message) =>
@@ -176,7 +140,6 @@ export function useAppController() {
     agentFlow.dialog,
     closeFlow.closing,
     forkDialog,
-    teamDialog,
     error,
     frozen && !frozenAck ? frozen : null,
   ];
@@ -225,8 +188,10 @@ export function useAppController() {
   const activeView = deck.viewOf(deck.activeId);
   const dockOpen = activeView.dock ?? false;
   const showForm = creating || deck.workspaces.length === 0;
+  // Resolved over the stage's slice: a highlight is only ever on a pane of
+  // the open team, and at the cards level there is none.
   const selectedPaneId =
-    (active && resolveSelectedPaneId(active.panes, activeView)) ?? null;
+    (active && resolveSelectedPaneId(stagePanes(active, activeView), activeView)) ?? null;
   const dockTabs = buildDockTabs({
     contributions: pluginDockTabs,
     crashes,
@@ -235,7 +200,11 @@ export function useAppController() {
     open: dockOpen,
   });
   const activeCount = active?.panes.length ?? 0;
-  const atCap = activeCount >= MAX_PANES;
+  // The stage's level: the team in front of the person, or the cards. The
+  // cap is the TEAM's — the grid its members lay out on.
+  const openTeam = active ? openTeamOf(active, activeView) : undefined;
+  const teamCount = active && openTeam ? membersOf(active, openTeam.id).length : 0;
+  const atCap = teamCount >= MAX_PANES;
   // What is painted over what — decided once, in `layering`, for the render
   // and for the notification probe alike. The z-order reasoning lives there.
   const windows = layering({
@@ -249,7 +218,8 @@ export function useAppController() {
     dockTabs: dockTabs.length,
     hasActive: !!active,
   });
-  const canAddAgent = !!active && !atCap && !windows.modal;
+  const canAddMember = !!openTeam && !atCap && !windows.modal;
+  const canAddTeam = !!active && addTeamDoorOpen(active) && !windows.modal;
   // The probe reads the LAST RENDER's decision, not a copy of its inputs:
   // `windows` rides the ref whole, so a layer the render learns about is a
   // layer the probe knows about, with nothing to keep in step by hand.
@@ -284,11 +254,10 @@ export function useAppController() {
       }
       const ws = workspaceForNotification(now.workspaces, source.workspace);
       if (!ws) return false;
-      return paneOnScreen(
-        ws.panes,
-        now.viewByWs[source.workspace.id],
-        source.paneId,
-      );
+      // On screen = the workspace is active AND its team is the open one AND
+      // the pane is on that team's grid: the slice is empty for a team that
+      // is not open, so a pane there is never "in front of the person".
+      return paneInFront(ws, now.viewByWs[source.workspace.id], source.paneId);
     });
     return () => setSourceVisibilityProbe(null);
   }, []);
@@ -303,8 +272,14 @@ export function useAppController() {
       setCreating(true);
     },
     newAgent: () => {
-      if (!canAddAgent) return;
-      void agentFlow.openFor(active);
+      // The level decides what "new" means: a member inside a team, a team
+      // at the cards — the same two doors the bar offers.
+      if (!active) return;
+      if (openTeam) {
+        if (canAddMember) void agentFlow.openFor(active, { kind: "member", teamId: openTeam.id });
+      } else if (canAddTeam) {
+        void agentFlow.openFor(active, { kind: "new-team" });
+      }
     },
     closeAgent: () => {
       if (windows.modal) return;
@@ -365,6 +340,27 @@ export function useAppController() {
   if (restoring || !spawnCtx || !settings) {
     return { ready: false as const };
   }
+  /** The bar's level, composed HERE like every other door: whether a
+   * control exists is a policy about the app's state, and the bar's whole
+   * say in it is a null check. */
+  const barLevel: BarLevel =
+    active && openTeam
+      ? {
+          kind: "team",
+          name: openTeam.name,
+          branch: teamBranchOf(openTeam, gitHeads.get(teamHeldPath(openTeam) ?? active.cwd)),
+          onBack: () => deck.closeTeam(active.id),
+          canAddMember,
+          addMemberTitle: atCap ? `Max ${MAX_PANES} agents on a team` : "Add a member",
+          onAddMember: () => {
+            if (canAddMember) void agentFlow.openFor(active, { kind: "member", teamId: openTeam.id });
+          },
+        }
+      : {
+          kind: "teams",
+          onAddTeam:
+            active && canAddTeam ? () => void agentFlow.openFor(active, { kind: "new-team" }) : null,
+        };
   return {
     ready: true as const,
     active,
@@ -374,8 +370,7 @@ export function useAppController() {
     agents,
     agentsLoading,
     alertSeq,
-    atCap,
-    canAddAgent,
+    barLevel,
     canOpenDialog,
     closeFlow,
     deck,
@@ -386,11 +381,6 @@ export function useAppController() {
     error,
     failedPanes,
     forkDialog,
-    teamDialog,
-    setTeamDialog,
-    /** Applying a settled team — the four ports that takes are assembled
-     * here, so the dialog hands over an intent and nothing else. */
-    teamFlow,
     frozen,
     frozenAck,
     gitHeads,
@@ -425,9 +415,6 @@ export function useAppController() {
      * question asks the same function. */
     openArtifacts: artifactsDoorOpen(settings)
       ? () => void modal.openArtifacts()
-      : null,
-    openTeamDialog: teamDialogDoorOpen(active)
-      ? () => setTeamDialog({ editing: null })
       : null,
     dockControl:
       dockDoorOpen(pluginDockTabs.length)

@@ -1,7 +1,7 @@
 import {
   hydrateDeck,
-  locationOf,
   paneIdleIsDurable,
+  paneProvisioning,
   serializeDeck,
 } from "../domain/deck";
 import { emptyJournal } from "../domain/journal";
@@ -34,8 +34,15 @@ export interface DeckPersistence {
   dispose(): void;
 }
 
-/** App-lifetime owner of deck loading, hydration and ordered durable writes. */
-export function createDeckPersistence(deck: DeckStore): DeckPersistence {
+/** App-lifetime owner of deck loading, hydration and ordered durable writes.
+ *
+ * `onNotices` hears what the migration ladder did to the file that the
+ * person should know about — once, on the launch that did it: hydration
+ * hands the notices over and never writes them back. */
+export function createDeckPersistence(
+  deck: DeckStore,
+  onNotices: (notices: readonly string[]) => void = () => {},
+): DeckPersistence {
   const actions = createDeckActions(deck);
   const listeners = new Set<() => void>();
   let snapshot: DeckPersistenceSnapshot = { restoring: true, frozen: null };
@@ -84,7 +91,7 @@ export function createDeckPersistence(deck: DeckStore): DeckPersistence {
             .map(
               (pane) =>
                 `${pane.id}=${pane.session?.id ?? ""}${
-                  locationOf(pane).kind === "provisioning" ? "+wip" : ""
+                  paneProvisioning(workspace, pane) ? "+wip" : ""
                 }${paneIdleIsDurable(pane.idle) ? "+susp" : ""}`,
             )
             .join(",")}`,
@@ -200,6 +207,13 @@ export function createDeckPersistence(deck: DeckStore): DeckPersistence {
       seedAgentSeq(result.deck.nextAgentSeq);
       docExtras = result.deck.docExtras;
       actions.hydrate(result.deck.state);
+      if (result.deck.notices.length > 0) {
+        // In the log as well as on screen: the notification lives one
+        // launch, and a team that went missing is a question somebody asks
+        // a day later.
+        for (const note of result.deck.notices) log.info("web:persist", `migrated: ${note}`);
+        onNotices(result.deck.notices);
+      }
     })
     .catch((error) => {
       if (disposed) return;

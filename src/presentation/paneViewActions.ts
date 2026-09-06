@@ -2,7 +2,7 @@ import type { PaneInputFocusPort } from "../app/paneInputFocusPort";
 import { createDeckActions } from "../app/deckActions";
 import type { DeckStore } from "../app/deckStore";
 import type { PaneViewPort } from "../app/paneViewPort";
-import { hiddenBy } from "../domain/deck";
+import { findPane, hiddenBy } from "../domain/deck";
 
 export interface PaneViewActions extends PaneViewPort {
   toggleMaximize(workspaceId: string, paneId: string): void;
@@ -17,6 +17,13 @@ export function createPaneViewActions(
 
   return {
     revealPane(workspaceId, paneId) {
+      // The pane's team first: a pane is only ever in front of the person
+      // inside its own team, so the level moves before any marker comes
+      // off — the restore below highlights the pane, and a highlight has
+      // to land on the slice that is then in view.
+      const team = findPane(deck.getSnapshot().workspaces, workspaceId, paneId)?.team;
+      if (team) actions.openTeam(workspaceId, team.teamId);
+
       // Every reason the pane is off the grid comes off by that reason's own
       // action — a pane can carry both after a suspend from the grid — and
       // the switch is exhaustive, so a reason the layout learns to honour

@@ -6,6 +6,7 @@ import {
   askLiveRegistry,
 } from "./liveSessions";
 import { decideRejectedResume } from "../domain/agents";
+import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import { closeMessageFor } from "./useCloseFlow";
 import type { SpawnPluginAccess } from "./spawnSpecs";
 
@@ -137,7 +138,7 @@ describe("the refused-resume return path (real plugin, real seam, real rule)", (
     const message = closeMessageFor(
       {
         kind: "agent",
-        wsId: "ws-1",
+        workspace: { id: "ws-1", instance: createWorkspaceInstance() },
         paneId: "pane-1",
         label: "Agent 1",
         pane: {
@@ -146,8 +147,7 @@ describe("the refused-resume return path (real plugin, real seam, real rule)", (
           stopped: false,
           canSuspend: true,
         },
-        targets: [],
-        pendingPanes: [],
+        last: null,
       },
       0,
       carried === "background" ? { kind: "background" } : null,

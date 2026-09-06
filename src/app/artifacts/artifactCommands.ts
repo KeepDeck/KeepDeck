@@ -21,7 +21,7 @@ import type {
   CommandSpec,
 } from "../../domain/commands";
 import type { Workspace } from "../../domain/deck";
-import { findWorkspaceOfPane, locationOf } from "../../domain/deck";
+import { findWorkspaceOfPane, remoteEndpointOf } from "../../domain/deck";
 import { paneExecutionCwd } from "../../domain/deck/roots";
 import {
   isArtifactFormat,
@@ -115,7 +115,7 @@ function callerContext(
       paneId: found.id,
       label: pane.label,
       cwd: paneExecutionCwd(owner, found),
-      remote: locationOf(found).kind === "remote",
+      remote: remoteEndpointOf(found) !== null,
     };
   }
   throw anonymousRefusal();

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   armDoubles,
   managerFor,
-  provisioningCards,
+  provisionRequests,
   ref,
   skills,
   stagedFor,
@@ -45,23 +45,23 @@ describe("the ordering between arming and teardown", () => {
     });
     worktree.inspectRepo.mockResolvedValue({ head: "abc" });
     worktree.createWorktree.mockResolvedValue({
-      path: "/wt/pane-1",
+      path: "/wt/team-1",
       branch: "kd/ws/1",
     });
     worktree.removeWorktree.mockImplementation(async (_repo, path) => {
       order.push(`remove:${path}`);
     });
-    manager.registerPostProvision("pane-1", async () => {
+    manager.registerPostProvision("team-1", async () => {
       throw new Error("surgery boom");
     });
 
     await manager.provision(
-      provisioningCards(1),
+      provisionRequests(1),
       "ws",
       { onResolved: vi.fn(), onFailed: vi.fn(), abandoned: stays },
     );
 
-    expect(order).toEqual(["disarm:/wt/pane-1", "remove:/wt/pane-1"]);
+    expect(order).toEqual(["disarm:/wt/team-1", "remove:/wt/team-1"]);
   });
 
   it("keeps a root a live workspace still claims armed, even while deleting it", async () => {
@@ -104,7 +104,7 @@ describe("the ordering between arming and teardown", () => {
   });
 
   it("makes a create wait for a queued teardown of the same directory", async () => {
-    // The close hands the folder straight back: the "+ Agent" dialog suggests a
+    // The close hands the folder straight back: the "+ Team" dialog suggests a
     // path whose teardown is still queued, because the pane has already left the
     // deck and nothing reads it as occupied. Unqueued, the create could land
     // first and git would then delete a live worktree.
@@ -127,7 +127,7 @@ describe("the ordering between arming and teardown", () => {
       { repo: "/repo", path: "/wt/pane-1", branch: "old" },
     ]);
     const provisioning = manager.provision(
-      provisioningCards(1),
+      provisionRequests(1),
       "ws",
       { onResolved: vi.fn(), onFailed: vi.fn(), abandoned: stays },
     );
@@ -173,7 +173,7 @@ describe("the ordering between arming and teardown", () => {
   });
 
   it("re-arms a root that left and came back — the memo must not outlive it", async () => {
-    // Deleting a pane frees its folder, and the next "+ Agent" takes the same
+    // Deleting a pane frees its folder, and the next "+ Team" takes the same
     // one back. The memo caches the RESULT of the call that armed it, so unless
     // a teardown forgets that entry the returning worktree hits the cache and
     // `stageSkills` — the only code that arms — never runs for it again.

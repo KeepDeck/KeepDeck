@@ -47,10 +47,8 @@ const restored = (): DeckState => ({
       name: "ws",
       cwd: "/repo",
       worktreeBaseDir: null,
-      panes: [
-        { id: "pane-1", location: { kind: "attached", cwd: "/wt/one", branch: "kd/ws/1" } },
-        { id: "pane-2" },
-      ],
+      teams: [{ id: "team-1", name: "one", location: { kind: "attached", cwd: "/wt/one", branch: "kd/ws/1" } }],
+      panes: [{ id: "pane-1", team: { teamId: "team-1", role: "lead" } }, { id: "pane-2" }],
     },
   ],
   activeId: "ws-1",
@@ -107,7 +105,7 @@ describe("useGitHead", () => {
 
     act(() => emit({ path: "/wt/one", branch: "feature/x", head: null }));
     expect(heads.get("/wt/one")).toEqual({ branch: "feature/x" });
-    expect(paneBranch(pane())).toBe("kd/ws/1");
+    expect(paneBranch(deck.workspaces[0], pane())).toBe("kd/ws/1");
 
     const sha = "a".repeat(40);
     act(() => emit({ path: "/repo", branch: null, head: sha }));

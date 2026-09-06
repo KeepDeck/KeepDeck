@@ -25,8 +25,8 @@
 import type { WorkspaceRef } from "@keepdeck/plugin-api";
 import {
   skillRootsOf,
-  type Pane,
   type Workspace,
+  type WorktreeIntent,
   type WorktreeTarget,
 } from "../../domain/deck";
 import type { ProvisionCallbacks } from "../provisioning";
@@ -39,6 +39,15 @@ export interface CreatedWorktree {
   repo: string;
   path: string;
   branch: string;
+}
+
+/** One create to issue: WHO asked for the directory — the id the result, the
+ * early publish and any post-provision step are filed under — and what to
+ * create. The manager does not know what an owner is: a team's card, or
+ * whatever else holds an intent. */
+export interface ProvisionRequest {
+  ownerId: string;
+  intent: WorktreeIntent;
 }
 
 /** One workspace as the sweep sees it: its durable id (the key its staged dirs
@@ -84,35 +93,43 @@ export interface McpPlantingReport {
  */
 export interface WorktreeProvisioner {
   /**
-   * Create the worktrees behind `panes`' provisioning cards, reporting each
-   * result as it lands (completion order is whatever the per-repo lock hands
-   * out — the deck shows panes coming alive as they're ready). One base commit
-   * is pinned for the whole batch so concurrent creates don't straddle a moving
-   * HEAD; a pane whose intent carries its own picked `base` forks from that
-   * instead. Panes without an intent are ignored, so a retry can pass one pane
-   * and a caller with several can pass them all. Never throws: a failure lands
-   * on its pane's card via `onFailed`.
+   * Create the worktrees behind `requests`' cards, reporting each result as
+   * it lands under its owner's id (completion order is whatever the per-repo
+   * lock hands out — the deck shows cards coming alive as they're ready). One
+   * base commit is pinned for the whole batch so concurrent creates don't
+   * straddle a moving HEAD; an intent carrying its own picked `base` forks
+   * from that instead. A retry passes one request and a caller with several
+   * can pass them all. Never throws: a failure lands on its owner's card via
+   * `onFailed`. The ticket a racing close waits on is taken out for every
+   * request before the first await — and ONE per owner: a request for an
+   * owner whose ticket is still out is dropped, so two Retries before the
+   * first answers start one create, not two.
    *
    * `workspaceName` is what an auto branch name (`kd/<name>/<n>`) is built
    * from, and it is read by the caller as it calls — never stored on a card —
    * so a create issued after a rename, a Retry included, lands on the name
    * the workspace has now.
    */
-  provision(panes: Pane[], workspaceName: string, report: ProvisionCallbacks): Promise<void>;
+  provision(
+    requests: readonly ProvisionRequest[],
+    workspaceName: string,
+    report: ProvisionCallbacks,
+  ): Promise<void>;
   /**
-   * What `paneId`'s create made, waiting for the `git worktree add` to return
-   * if it has not yet. Null when there is nothing outstanding — the pane
-   * already owns its worktree (so it has a `cwd` to be named by), or its create
-   * failed and rolled back, or it never had one.
+   * What `ownerId`'s create made, waiting for the `git worktree add` to return
+   * if it has not yet — from the moment the create was ASKED for, not merely
+   * issued. Null when there is nothing outstanding — the owner already holds
+   * its worktree (so it has a `cwd` to be named by), or its create failed and
+   * rolled back, or it never had one.
    */
-  awaitCreated(paneId: string): Promise<CreatedWorktree | null>;
-  /** Register a step to run after `paneId`'s worktree lands (see the map doc). */
+  awaitCreated(ownerId: string): Promise<CreatedWorktree | null>;
+  /** Register a step to run after `ownerId`'s worktree lands (see the map doc). */
   registerPostProvision(
-    paneId: string,
+    ownerId: string,
     step: (worktree: { cwd: string; branch: string }) => Promise<void>,
   ): void;
-  /** Forget a pane's post-provision step (the fork was abandoned before it ran). */
-  clearPostProvision(paneId: string): void;
+  /** Forget an owner's post-provision step (the fork was abandoned before it ran). */
+  clearPostProvision(ownerId: string): void;
   /**
    * The workspace's staged shared skills, ready for a spawn plan — and, as a
    * side effect, its live spawn roots armed with the codex-facing
