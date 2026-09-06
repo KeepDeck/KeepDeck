@@ -10,8 +10,8 @@
  *
  * The team is named by ID throughout. Its name is an address people say
  * and agents type, and a plan may change it; nothing here ever finds a
- * team by name, and nothing here ever makes one — a team is born with its
- * directory and its first agent (`team.create`), never from a roster. An
+ * team by name, and nothing here ever makes one — a team is born empty,
+ * with its directory (`team.create`, "+ Team"), never from a roster. An
  * agent runs where its team runs, so a plan never moves a pane between
  * teams and never takes one off: every member stays, only its role and
  * the team's name can change, and recruits join.
@@ -217,7 +217,7 @@ export function planTeam(
   if (!team) {
     return {
       ok: false,
-      message: "that team is not here any more — a team starts with its first agent (team.create)",
+      message: "that team is not here any more — make one with team.create",
     };
   }
   const name = draft.name.trim();

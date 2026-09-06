@@ -9,7 +9,7 @@ import {
   workspace,
 } from "./testSupport";
 import { beforeEach, describe, expect, it } from "vitest";
-import type { Workspace } from "../../domain/deck";
+import { WORKSPACE_GONE_MESSAGE, type Workspace } from "../../domain/deck";
 
 beforeEach(() => {
   resetCoreCommandTestState();
@@ -27,19 +27,19 @@ const value = (result: { ok: boolean; value?: unknown }) => result.value as Reco
 const message = (result: { ok: boolean; error?: { message: string } }) => result.error?.message ?? "";
 
 describe("team.create", () => {
-  it("is born with its directory and its first agent — a new worktree in a repo workspace", async () => {
+  it("is born EMPTY with its directory — a new worktree in a repo workspace, nobody on it", async () => {
     repoMode.isRepo = true;
-    const { registry, deck } = setup([workspace({ worktreeBaseDir: "/wt" })]);
+    const { registry, deck, createTeam } = setup([workspace({ worktreeBaseDir: "/wt" })]);
     const result = await registry.execute(
       "team.create",
-      { workspace: "web", name: "api", agentType: "claude" },
+      { workspace: "web", name: "api" },
       HOST,
     );
     expect(result.ok).toBe(true);
     expect(value(result)).toMatchObject({
       teamId: "team-1",
       workspaceId: "ws-1",
-      agentType: "claude",
+      name: "api",
       // The worktree ahead is the team's, and the answer says so.
       worktree: { path: "/wt/kd-web-1", branch: "kd/web/1" },
     });
@@ -48,35 +48,47 @@ describe("team.create", () => {
       name: "api",
       location: { kind: "provisioning", intent: { repo: "/repo", branch: "kd/web/1", index: 1 } },
     });
-    expect(ws.panes[0].team).toEqual({ teamId: "team-1", role: "lead" });
+    // The same door "+ Team" goes through, and no agent behind it: the
+    // agents come through team.add, one at a time, each under its role.
+    expect(createTeam).toHaveBeenCalledExactlyOnceWith({
+      workspace: { id: "ws-1", instance: ws.instance },
+      name: "api",
+      placement: ws.teams?.[0].location,
+    });
+    expect(ws.panes).toEqual([]);
   });
 
-  it("runs in the workspace root, or in an existing directory, when told to", async () => {
+  it("runs in the workspace root, or in an existing directory, when told to — under an auto name when none is given", async () => {
     const { registry, deck } = setup([workspace({})]);
     const root = await registry.execute(
       "team.create",
-      { workspace: "web", name: "root", directory: "root" },
+      { workspace: "web", directory: "root" },
       HOST,
     );
     expect(root.ok).toBe(true);
-    expect(deck.workspaces[0].teams?.[0].location).toEqual({ kind: "attached", cwd: "/repo" });
+    expect(value(root)).toMatchObject({ teamId: "team-1", name: "Team 1", worktree: null });
+    expect(deck.workspaces[0].teams?.[0]).toMatchObject({
+      name: "Team 1",
+      location: { kind: "attached", cwd: "/repo" },
+    });
 
     const elsewhere = await registry.execute(
       "team.create",
-      { workspace: "web", name: "docs", directory: "/elsewhere/docs", role: "lead" },
+      { workspace: "web", name: "docs", directory: "/elsewhere/docs" },
       HOST,
     );
     expect(elsewhere.ok).toBe(true);
     expect(deck.workspaces[0].teams?.[1].location).toEqual({ kind: "attached", cwd: "/elsewhere/docs" });
-    expect(deck.workspaces[0].panes[1].team).toEqual({ teamId: "team-2", role: "lead" });
+    expect(deck.workspaces[0].panes).toEqual([]);
   });
 
   it("refuses a new worktree where none can be made, and says what to pass instead", async () => {
-    const { registry, deck } = setup([workspace({ worktreeBaseDir: null })]);
+    const { registry, deck, createTeam } = setup([workspace({ worktreeBaseDir: null })]);
     const result = await registry.execute("team.create", { workspace: "web", name: "api" }, HOST);
     expect(result.ok).toBe(false);
     expect(message(result)).toContain('directory: "root"');
-    expect(deck.workspaces[0].panes).toEqual([]);
+    expect(createTeam).not.toHaveBeenCalled();
+    expect(deck.workspaces[0].teams ?? []).toEqual([]);
   });
 
   it("refuses a name a team here already holds, pointing at team.add", async () => {
@@ -101,15 +113,18 @@ describe("team.create", () => {
     expect(message(result)).toContain("team-1");
   });
 
-  it("refuses a role the deck does not know", async () => {
-    const { registry } = setup([workspace({})]);
+  it("says so when the workspace is gone by the time the team would be made", async () => {
+    // The landing's own refusal, translated: a caller that got a teamId
+    // for a team no workspace holds would go on addressing it.
+    const { registry, createTeam } = setup([workspace({})]);
+    createTeam.mockReturnValueOnce({ kind: "gone" });
     const result = await registry.execute(
       "team.create",
-      { workspace: "web", directory: "root", role: "wizard" },
+      { workspace: "web", directory: "root" },
       HOST,
     );
     expect(result.ok).toBe(false);
-    expect(message(result)).toContain("wizard");
+    expect(message(result)).toBe(WORKSPACE_GONE_MESSAGE);
   });
 });
 

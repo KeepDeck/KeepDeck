@@ -343,8 +343,8 @@ describe("mail.inbox", () => {
 
 describe("team.assign", () => {
   // Every case runs on a workspace where api (team-1) already holds pane-1
-  // as lead and pane-2 as impl-1: a team is born with its first agent
-  // (team.create), never by this command, which only settles a role on the
+  // as lead and pane-2 as impl-1: a team is born empty (team.create) and
+  // takes agents by team.add, never by this command, which only settles a role on the
   // team the agent is already on.
   it("changes an agent's role on its own team, and a teammate reaches it by the new address", async () => {
     const { registry, mail, workspaces } = setup(true);

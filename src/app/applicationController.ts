@@ -117,6 +117,7 @@ export function createApplicationController({
         suspendAgent: orchestrator.suspend,
         resumeAgent: orchestrator.resume,
         createPane: orchestrator.createPane,
+        createTeam: orchestrator.createTeam,
         openSettings: (sectionId) =>
           ui?.openSettings(sectionId) ?? false,
         openUsage: () => ui?.openUsage(null) ?? false,

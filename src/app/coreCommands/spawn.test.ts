@@ -68,7 +68,7 @@ describe("agent.spawn", () => {
   });
 
   it("refuses a role the deck does not know, even for a team of its own", async () => {
-    // The facade holds team.create's contract: a role is an address some
+    // The facade holds team.add's contract: a role is an address some
     // roster reads, and "wizard" is one nobody would.
     const { registry, deck } = setup([workspace({})]);
     const result = await registry.execute(

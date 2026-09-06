@@ -195,7 +195,7 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
       // hidden and invisible behind the old maximized pane (resolveFocus
       // still points at the old pane) — the mirror of closeAgent's guard.
       // Only when it lands on the OPEN team: a pane arriving on another
-      // team (an agent's team.create, a resume) is not laid out, and the
+      // team (an agent's team.add, a resume) is not laid out, and the
       // person's view of the team in front of them must not move for it.
       let viewByWs = state.viewByWs;
       const onStage =

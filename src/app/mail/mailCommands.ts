@@ -400,14 +400,14 @@ export function registerMailCommands(
         }
         if (!held) {
           throw new Error(
-            `${str(args, "agent")} is on no team — an agent joins a team when it starts (team.add, team.create)`,
+            `${str(args, "agent")} is on no team — an agent joins a team when it starts (team.add)`,
           );
         }
         if (named !== undefined) {
           const wanted = resolveTeamRef(workspace, named);
           if (!wanted.ok) {
             throw new Error(
-              `no team "${named}" is running here — a team starts with its first agent (team.create)`,
+              `no team "${named}" is running here — make one with team.create, then team.add puts agents on it`,
             );
           }
           if (wanted.value.id !== held.id) {

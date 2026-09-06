@@ -10,13 +10,22 @@
 import { vi } from "vitest";
 import type { AgentInfo } from "../../domain/agents";
 import { createCommandRegistry } from "../../domain/commands";
-import { MAX_PANES, type Workspace } from "../../domain/deck";
+import {
+  MAX_PANES,
+  normalizePath,
+  teamHeldPath,
+  teamNameTaken,
+  teamsOf,
+  type Workspace,
+} from "../../domain/deck";
 import { suggestRoleAddress } from "../../domain/mail";
 import type { PaneActivity } from "../../domain/status";
 import { createWorkspaceInstance } from "../../domain/workspaceInstance";
 import type {
   CreatePaneOutcome,
   CreatePaneRequest,
+  CreateTeamOutcome,
+  CreateTeamRequest,
   ResumeRequest,
 } from "../agentOrchestrator";
 import { fakeSkillsLibrary } from "../skillsLibrary.fake";
@@ -171,6 +180,31 @@ export function setup(workspaces: Workspace[]) {
       return { kind: "created", teamId };
     },
   );
+  // The team door, as a double: a team minted EMPTY at the directory it
+  // asked for under the name it gave ("Team N" for none) — refusing a
+  // directory a team here holds and a name a team here answers to, the
+  // shape the real door leaves.
+  const createTeam = vi.fn<(request: CreateTeamRequest) => CreateTeamOutcome>(
+    ({ workspace: ref, name, placement }) => {
+      const ws = workspaces.find(
+        (candidate) =>
+          candidate.id === ref.id && candidate.instance === ref.instance,
+      );
+      if (!ws) return { kind: "gone" };
+      const wanted = teamHeldPath({ location: placement });
+      const held = teamsOf(ws).some((team) => {
+        const path = teamHeldPath(team);
+        return path !== undefined && wanted !== undefined && normalizePath(path) === normalizePath(wanted);
+      });
+      if (held) return { kind: "held" };
+      const seq = (ws.teams?.length ?? 0) + 1;
+      const teamName = name.trim() || `Team ${seq}`;
+      if (teamNameTaken(ws, teamName)) return { kind: "taken" };
+      const teamId = `team-${seq}`;
+      ws.teams = [...(ws.teams ?? []), { id: teamId, name: teamName, location: placement }];
+      return { kind: "created", teamId };
+    },
+  );
   const openSettings = vi.fn(() => true);
   const openUsage = vi.fn(() => true);
   // A fake library, not the real one over a mocked IPC: the library's own rules
@@ -190,6 +224,7 @@ export function setup(workspaces: Workspace[]) {
     suspendAgent,
     resumeAgent,
     createPane,
+    createTeam,
     openSettings,
     openUsage,
     skills,
@@ -204,6 +239,7 @@ export function setup(workspaces: Workspace[]) {
     suspendAgent,
     resumeAgent,
     createPane,
+    createTeam,
     openSettings,
     openUsage,
     dispose,
