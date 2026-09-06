@@ -45,6 +45,7 @@ import {
   paneHotkeyTarget,
   paneOnScreen,
   resolveSelectedPaneId,
+  stagePanes,
 } from "../domain/deck";
 import type { AppInfo } from "../ipc/app";
 import { readAppInfo } from "./appInfo";
@@ -244,8 +245,10 @@ export function useAppController() {
   const activeView = deck.viewOf(deck.activeId);
   const dockOpen = activeView.dock ?? false;
   const showForm = creating || deck.workspaces.length === 0;
+  // Resolved over the stage's slice: a highlight is only ever on a pane of
+  // the open team, and at the cards level there is none.
   const selectedPaneId =
-    (active && resolveSelectedPaneId(active.panes, activeView)) ?? null;
+    (active && resolveSelectedPaneId(stagePanes(active, activeView), activeView)) ?? null;
   const dockTabs = buildDockTabs({
     contributions: pluginDockTabs,
     crashes,
@@ -303,11 +306,11 @@ export function useAppController() {
       }
       const ws = workspaceForNotification(now.workspaces, source.workspace);
       if (!ws) return false;
-      return paneOnScreen(
-        ws.panes,
-        now.viewByWs[source.workspace.id],
-        source.paneId,
-      );
+      // On screen = the workspace is active AND its team is the open one AND
+      // the pane is on that team's grid: the slice is empty for a team that
+      // is not open, so a pane there is never "in front of the person".
+      const view = now.viewByWs[source.workspace.id];
+      return paneOnScreen(stagePanes(ws, view), view, source.paneId);
     });
     return () => setSourceVisibilityProbe(null);
   }, []);
