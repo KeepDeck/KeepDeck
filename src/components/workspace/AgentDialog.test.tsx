@@ -742,6 +742,28 @@ describe("AgentDialog start-from session picker", () => {
     expect(createBtn().disabled).toBe(false);
   });
 
+  it("a session recorded with a trailing slash is still the team's directory — the deck's key, not the raw string", async () => {
+    // The journal spells "/repo/wt/" where the team holds "/repo/wt"; the
+    // landing puts that resume on THIS team, so the gate must not call it
+    // elsewhere.
+    await mount({
+      searchSessions: async () => ({
+        rows: [
+          {
+            handle: { agent: "claude", sessionId: "s-slash", cwd: "/repo/wt/", title: "same dir" },
+            mtime: 1,
+          },
+        ],
+        total: 1,
+      }),
+    });
+    act(() => modeBtn("Resume").click());
+    await settleSessions();
+    expect(rows()[0].className).not.toContain("form__session--blocked");
+    act(() => rows()[0].click());
+    expect(createBtn().disabled).toBe(false);
+  });
+
   it("un-resumable rows are dimmed with the reason, and picking one keeps Create gated", async () => {
     await mount();
     act(() => modeBtn("Resume").click());

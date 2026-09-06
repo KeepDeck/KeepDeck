@@ -22,7 +22,7 @@ import {
   type SessionPickRow,
   type SessionStartMode,
 } from "../../domain/agents";
-import { baseName } from "../../domain/deck";
+import { baseName, normalizePath } from "../../domain/deck";
 import { defaultRoleFor, mintRoleAddress, roleById, teamRoles } from "../../domain/mail";
 import { rowKeyOf } from "../../domain/journal/sessionRow";
 import { formatAge } from "../../domain/usage/format";
@@ -364,7 +364,15 @@ export function AgentDialog({
     if (!dirPresent(presence, row.handle.cwd)) return "dir-gone";
     // A member runs where its team runs: a session recorded anywhere else
     // resumes into another team. Forking it HERE is what the copy is for.
-    if (member && row.handle.cwd !== member.cwd) return "elsewhere";
+    // "The same directory" is the deck's key, not the raw strings: the
+    // journal records "/repo/wt/" where the team holds "/repo/wt", and the
+    // landing would put that resume on this team.
+    if (
+      member &&
+      member.cwd !== null &&
+      normalizePath(row.handle.cwd) !== normalizePath(member.cwd)
+    )
+      return "elsewhere";
     return null;
   };
   const blockReason = (block: ResumeBlock): string | null => {
