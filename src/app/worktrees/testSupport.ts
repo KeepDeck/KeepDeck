@@ -48,7 +48,8 @@ export const skills = skillsIpc;
 export const mcpArming = mcpArmingIpc;
 
 import type { WorkspaceRef } from "@keepdeck/plugin-api";
-import type { Pane, Workspace } from "../../domain/deck";
+import { locationOf, type Pane, type Workspace } from "../../domain/deck";
+import type { ProvisionRequest } from "./index";
 import {
   createMcpPlanting,
   createSkillsStaging,
@@ -85,6 +86,16 @@ export const provisioningCards = (count: number): Pane[] =>
       },
     },
   }));
+
+/** The creates behind [`provisioningCards`], as the manager takes them:
+ * one request per owner, the pane's id standing in for the owner's. */
+export const provisionRequests = (count: number): ProvisionRequest[] =>
+  provisioningCards(count).flatMap((pane) => {
+    const location = locationOf(pane);
+    return location.kind === "provisioning"
+      ? [{ ownerId: pane.id, intent: location.intent }]
+      : [];
+  });
 
 /** The deck the manager reads, as a test double: what `live()` returns IS the
  * app's answer to which roots are claimed, and `rootsOf` answers from it.

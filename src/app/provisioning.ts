@@ -7,17 +7,18 @@
  * settles.
  */
 
-/** Where the background runner reports as each pane's create settles. */
+/** Where the background runner reports as each owner's create settles —
+ * under the id the create was asked for by. */
 export interface ProvisionCallbacks {
-  onResolved(paneId: string, worktree: { cwd: string; branch: string }): void;
-  onFailed(paneId: string, error: string): void;
+  onResolved(ownerId: string, worktree: { cwd: string; branch: string }): void;
+  onFailed(ownerId: string, error: string): void;
   /**
-   * Has the pane left the deck? A no-op sink is not enough to answer this:
+   * Has the owner left the deck? A no-op sink is not enough to answer this:
    * `onResolved` silently doing nothing looks exactly like success from here,
    * and the create needs to KNOW, because everything it does after the
-   * directory exists is done on that pane's behalf.
+   * directory exists is done on that owner's behalf.
    */
-  abandoned(paneId: string): boolean;
+  abandoned(ownerId: string): boolean;
 }
 
 /** The runner's usual sinks: the deck's provisioning actions for `wsId`.

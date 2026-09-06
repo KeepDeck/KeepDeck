@@ -1,9 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { provisioningCard } from "../../domain/deck";
 import {
   armDoubles,
   managerFor,
-  provisioningCards,
+  provisionRequests,
   worktree,
   type DeckEntry,
   type WorktreeManager,
@@ -24,7 +23,7 @@ beforeEach(() => {
 });
 
 describe("provision", () => {
-  const cards = () => provisioningCards(2);
+  const cards = () => provisionRequests(2);
 
   it("resolves each pane as its create lands, all pinned to ONE base commit", async () => {
     worktree.inspectRepo.mockResolvedValue({
@@ -72,10 +71,10 @@ describe("provision", () => {
         branch: `kd/ws/${agentId}`,
       }),
     );
-    const panes = cards();
-    provisioningCard(panes[0])!.intent.base = "develop";
+    const requests = cards();
+    requests[0].intent.base = "develop";
 
-    await manager.provision(panes, "ws", {
+    await manager.provision(requests, "ws", {
       onResolved: vi.fn(),
       onFailed: vi.fn(),
       abandoned: stays,
@@ -111,14 +110,38 @@ describe("provision", () => {
     expect(onFailed.mock.calls[0][1]).toContain("boom");
   });
 
-  it("ignores panes without an intent entirely (a retry passes one card)", async () => {
-    await manager.provision([{ id: "pane-1", agentType: "claude" }], "ws", {
+  it("does nothing for an empty batch", async () => {
+    await manager.provision([], "ws", {
       onResolved: vi.fn(),
       onFailed: vi.fn(),
       abandoned: stays,
     });
     expect(worktree.inspectRepo).not.toHaveBeenCalled();
     expect(worktree.createWorktree).not.toHaveBeenCalled();
+  });
+
+  it("takes out the ticket BEFORE the repo is inspected, so a close in that window has something to wait for", async () => {
+    // The orphan: a close confirmed while `inspectRepo` was still pending
+    // used to find no entry, delete the owner, and leave the directory the
+    // create then made with nobody to name it. The ticket exists from the
+    // moment the create is asked for.
+    let inspected!: (value: { head: string }) => void;
+    worktree.inspectRepo.mockReturnValue(
+      new Promise<{ head: string }>((resolve) => {
+        inspected = resolve;
+      }),
+    );
+    worktree.createWorktree.mockResolvedValue({ path: "/wt/pane-1", branch: "kd/ws/1" });
+    const running = manager.provision(cards().slice(0, 1), "ws", {
+      onResolved: vi.fn(),
+      onFailed: vi.fn(),
+      abandoned: stays,
+    });
+    // Asked while the inspect is still pending: a ticket, not null.
+    const waiting = manager.awaitCreated("pane-1");
+    inspected({ head: "abc" });
+    await running;
+    expect(await waiting).toEqual({ repo: "/repo", path: "/wt/pane-1", branch: "kd/ws/1" });
   });
 
   it("names the branch after the workspace it is handed EACH time — a Retry after a rename lands on the new name", async () => {
@@ -161,7 +184,7 @@ describe("provision", () => {
 });
 
 describe("provision — what it publishes for a racing close", () => {
-  const oneCard = () => provisioningCards(1);
+  const oneCard = () => provisionRequests(1);
 
   beforeEach(() => {
     worktree.inspectRepo.mockResolvedValue({ head: "abc" });
@@ -281,7 +304,7 @@ describe("provision — what it publishes for a racing close", () => {
 });
 
 describe("provision with a post-provision step", () => {
-  const oneCard = () => provisioningCards(1);
+  const oneCard = () => provisionRequests(1);
 
   beforeEach(() => {
     worktree.inspectRepo.mockResolvedValue({ head: "abc" });

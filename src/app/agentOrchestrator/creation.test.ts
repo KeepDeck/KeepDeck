@@ -165,7 +165,7 @@ describe("agent orchestrator —a new pane arriving", () => {
       });
     });
     expect(provisions).toHaveLength(1);
-    expect(provisions[0].map((p) => p.id)).toEqual(["pane-9"]);
+    expect(provisions[0].map((request) => request.ownerId)).toEqual(["pane-9"]);
   });
 
   it("issues the create under the workspace's name, read from the deck as it lands", async () => {

@@ -46,9 +46,14 @@ export function createAgentOrchestratorCreation({
    * called when its create is issued, so a Retry after a rename lands on the
    * new name rather than on one a card remembered. */
   function provisionPanes(workspace: Workspace, panes: Pane[]): void {
-    const cards = panes.filter((pane) => locationOf(pane).kind === "provisioning");
-    if (cards.length === 0) return;
-    void worktrees.provision(cards, workspace.name, provisionInto(actions, workspace.id));
+    const requests = panes.flatMap((pane) => {
+      const location = locationOf(pane);
+      return location.kind === "provisioning"
+        ? [{ ownerId: pane.id, intent: location.intent }]
+        : [];
+    });
+    if (requests.length === 0) return;
+    void worktrees.provision(requests, workspace.name, provisionInto(actions, workspace.id));
   }
 
   function refuse(paneId: string, kind: "gone" | "full"): CreatePaneOutcome {

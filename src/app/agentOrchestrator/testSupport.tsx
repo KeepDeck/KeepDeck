@@ -39,6 +39,7 @@ import {
 } from ".";
 import { useAgentRunView } from "../useAgentRunView";
 import type { SpawnPluginAccess } from "../spawnSpecs";
+import type { ProvisionRequest } from "../worktrees";
 
 // React 19 requires this flag for act() outside a test-framework integration.
 (
@@ -336,7 +337,7 @@ export let agentRun: AgentRunView &
 /** The worktree creates the orchestrator asked for, recorded instead of run.
  *  Per mount like the deck beside it, so no `describe` has to remember to
  *  clear it. */
-export let provisions: Pane[][];
+export let provisions: ProvisionRequest[][];
 /** The workspace name each of those create batches was issued under — what
  *  the auto branch name is built from, read live at the call. */
 export let provisionedAs: string[];
@@ -374,7 +375,7 @@ export const catalog = {
 export function Probe() {
   const [wiring] = useState(() => {
     const store = createDeckStore();
-    const asked: Pane[][] = [];
+    const asked: ProvisionRequest[][] = [];
     const issuedAs: string[] = [];
     const discarded: WorktreeTarget[][] = [];
     return {
@@ -419,8 +420,8 @@ export function Probe() {
         mcpAccess: async () => ({ servers: [], deliver: async () => {} }),
         lifecycle,
         worktrees: {
-          provision: (panes, workspaceName) => {
-            asked.push(panes);
+          provision: (requests, workspaceName) => {
+            asked.push([...requests]);
             issuedAs.push(workspaceName);
             return Promise.resolve();
           },
