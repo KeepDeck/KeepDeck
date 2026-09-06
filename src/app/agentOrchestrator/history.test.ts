@@ -293,11 +293,11 @@ describe("agent orchestrator —continuing a recorded session", () => {
       deck.addAgentPane("ws-1", { id: "p-lead", agentType: "claude" });
       deck.joinTeam("ws-1", "p-lead", "team-1", "lead");
     });
-    // "reviewer", not the "impl-1" the roster would suggest next: the
+    // "reviewer-1", not the "impl-1" the roster would suggest next: the
     // person's pick, not the default, is what lands.
-    await act(async () => agentRun.resumeSession("ws-1", handle(), { role: "reviewer" }));
+    await act(async () => agentRun.resumeSession("ws-1", handle(), { role: "reviewer-1" }));
     const first = deck.workspaces[0].panes.find((pane) => pane.session?.id === "s-1")!;
-    expect(first.team).toEqual({ teamId: "team-1", role: "reviewer" });
+    expect(first.team).toEqual({ teamId: "team-1", role: "reviewer-1" });
 
     // A singleton the team already holds is not written twice: the roster
     // suggests the next free address instead of a second lead.
@@ -483,10 +483,10 @@ describe("agent orchestrator —forking a recorded session", () => {
         "ws-1",
         forked(),
         { kind: "dir", cwd: "/elsewhere" },
-        { role: "reviewer" },
+        { role: "reviewer-1" },
       ),
     );
-    expect(deck.workspaces[0].panes[0].team).toEqual({ teamId: "team-1", role: "reviewer" });
+    expect(deck.workspaces[0].panes[0].team).toEqual({ teamId: "team-1", role: "reviewer-1" });
   });
 
   it("worktree target: a card first, and the surgery DEFERRED to a step", async () => {

@@ -90,7 +90,7 @@ describe("planTeam", () => {
     });
   });
 
-  it("refuses a team that is not here — a team starts with its first agent, never from a roster", () => {
+  it("refuses to settle a roster for a team that is not here — a roster names a team, it never makes one", () => {
     const plan = planTeam(two(), draft({ members: [] }), "team-9");
     expect(plan.ok).toBe(false);
     if (!plan.ok) expect(plan.message).toContain("team.create");

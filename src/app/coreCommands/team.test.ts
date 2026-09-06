@@ -116,9 +116,11 @@ describe("team.create", () => {
 describe("team.add", () => {
   it("puts a new agent on the team — by id or by name — under the role asked for", async () => {
     const { registry, deck } = setup([teamed()]);
+    // "reviewer-1", not the "impl-1" the roster would suggest beside a lone
+    // lead: the role ASKED for has to be the one that lands.
     const byId = await registry.execute(
       "team.add",
-      { workspace: "web", team: "team-1", agentType: "codex", role: "impl-1" },
+      { workspace: "web", team: "team-1", agentType: "codex", role: "reviewer-1" },
       HOST,
     );
     expect(byId.ok).toBe(true);
@@ -130,9 +132,9 @@ describe("team.add", () => {
     );
     expect(byName.ok).toBe(true);
     const members = deck.workspaces[0].panes.map((pane) => pane.team);
-    expect(members[1]).toEqual({ teamId: "team-1", role: "impl-1" });
+    expect(members[1]).toEqual({ teamId: "team-1", role: "reviewer-1" });
     // No role asked: the roster suggests the next free one.
-    expect(members[2]).toEqual({ teamId: "team-1", role: "impl-2" });
+    expect(members[2]).toEqual({ teamId: "team-1", role: "impl-1" });
     expect(deck.workspaces[0].teams).toHaveLength(1);
   });
 
@@ -173,14 +175,16 @@ describe("team.add", () => {
 describe("agent.spawn as the compatibility door", () => {
   it("with a team, is team.add; without, a team of its own — and answers the team either way", async () => {
     const { registry, deck } = setup([teamed()]);
+    // A role the roster would not have suggested, so a door that dropped it
+    // could not pass by luck.
     const joined = await registry.execute(
       "agent.spawn",
-      { workspace: "web", team: "api", role: "impl-1" },
+      { workspace: "web", team: "api", role: "reviewer-1" },
       HOST,
     );
     expect(joined.ok).toBe(true);
     expect(value(joined)).toMatchObject({ teamId: "team-1" });
-    expect(deck.workspaces[0].panes[1].team).toEqual({ teamId: "team-1", role: "impl-1" });
+    expect(deck.workspaces[0].panes[1].team).toEqual({ teamId: "team-1", role: "reviewer-1" });
 
     const alone = await registry.execute("agent.spawn", { workspace: "web" }, HOST);
     expect(alone.ok).toBe(true);

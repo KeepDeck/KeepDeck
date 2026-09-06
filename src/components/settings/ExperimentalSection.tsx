@@ -9,7 +9,7 @@ import { DEFAULT_SETTINGS } from "../../domain/settings";
  * typography match every other section, and each choice persists across
  * restarts like every other setting.
  *
- * Remote agents gates the CREATION surface (the "+ Agent" dialog) only, so
+ * Remote agents gates the CREATION surface (the agent dialog) only, so
  * turning it off hides the option going forward while existing remote panes
  * keep their endpoint until closed.
  */
@@ -35,7 +35,7 @@ export function ExperimentalSection() {
       </div>
       <span className="settings__hint">
         Lets an agent that speaks a client/server protocol (Codex, OpenCode)
-        run against a remote endpoint from the “+ Agent” dialog’s Where option.
+        run against a remote endpoint from the “Add member” dialog’s Where option.
         Off by default — the feature is experimental.
       </span>
     </>

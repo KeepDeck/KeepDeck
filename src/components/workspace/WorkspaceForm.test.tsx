@@ -92,7 +92,7 @@ describe("WorkspaceForm", () => {
   it("submits the workspace and nothing per-agent", async () => {
     // The form describes a workspace, which is born EMPTY: an agent type, a
     // YOLO tick or a count here would be a second answer to questions the
-    // "+ Agent" dialog owns.
+    // "Add member" dialog owns.
     await mount(false);
     submit();
     expect(created).toEqual([
@@ -151,8 +151,8 @@ describe("WorkspaceForm", () => {
   it("treats a whitespace-only path as empty, and asks nothing extra for a git repo", async () => {
     // The isolation question belonged to the batch this form used to spawn.
     // Nothing runs at create time now, so a blank path in a git repo is just a
-    // blank path — the "+ Agent" dialog asks where each agent goes, and it can
-    // answer for the agent it is actually starting.
+    // blank path — the "+ Team" dialog asks where a team works, and it can
+    // answer for the team it is actually making.
     await mount(true);
     type(worktreeInput(), "   ");
     submit();
