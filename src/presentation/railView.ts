@@ -14,14 +14,18 @@
  * holds the rail's one subscription), and a projection that took the tracker
  * would carry it into every test that only wanted to know what a row says.
  */
-import type { Workspace } from "../domain/deck";
+import { teamsOf, type Workspace } from "../domain/deck";
 import type { StatusFrame } from "../domain/status";
 
 /** One row of the rail. */
 export interface WorkspaceItem {
   id: string;
   name: string;
-  agentCount: number;
+  /** How many teams the workspace holds — what the row's number says.
+   * A team is the deck's unit of placement, so "how much is in there" is
+   * answered in teams; how many agents are on one is the team's own row
+   * to say. */
+  teamCount: number;
   /** The workspace's status frame, folded by the domain ladder — the dot
    * paints it verbatim. Absent = the plain gray dot. */
   dot?: StatusFrame;
@@ -43,7 +47,7 @@ export function railView(
   return workspaces.map((ws) => ({
     id: ws.id,
     name: ws.name,
-    agentCount: ws.panes.length,
+    teamCount: teamsOf(ws).length,
     dot: frames.get(ws.id) ?? "none",
   }));
 }

@@ -48,12 +48,18 @@ describe("railView", () => {
     expect(row.dot).toBe("none");
   });
 
-  it("counts the agents in a workspace, however its teams divide them", () => {
+  it("counts the teams in a workspace, not the agents on them", () => {
     const [oneTeam, threeTeams] = railView(
       [ONE_TEAM_OF_THREE, THREE_TEAMS_OF_ONE],
       frames({}),
     );
-    expect(oneTeam.agentCount).toBe(3);
-    expect(threeTeams.agentCount).toBe(3);
+    expect(oneTeam.teamCount).toBe(1);
+    expect(threeTeams.teamCount).toBe(3);
+  });
+
+  it("counts a team with nobody on it — it is still a team", () => {
+    const bornEmpty: Workspace = { ...workspace("ws-new", []), teams: [team("team-9")] };
+    const [row] = railView([bornEmpty], frames({}));
+    expect(row.teamCount).toBe(1);
   });
 });

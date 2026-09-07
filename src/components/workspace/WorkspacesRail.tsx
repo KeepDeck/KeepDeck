@@ -69,7 +69,7 @@ interface DragGhost {
   top: number;
 }
 
-/** Left rail listing workspaces with their agent counts. The active one is
+/** Left rail listing workspaces with how many teams each holds. The active one is
  * highlighted and shows a × (also on hover); double-clicking a name renames it;
  * press-and-hold an item to drag it into a new position. */
 export function WorkspacesRail({
@@ -244,8 +244,8 @@ export function WorkspacesRail({
                 <span className={railDotClass(ws.dot)} />
                 <span className="rail__name">{ws.name}</span>
               </button>
-              {ws.agentCount > 0 && (
-                <span className="rail__count">{ws.agentCount}</span>
+              {ws.teamCount > 0 && (
+                <span className="rail__count">{ws.teamCount}</span>
               )}
               <button
                 type="button"

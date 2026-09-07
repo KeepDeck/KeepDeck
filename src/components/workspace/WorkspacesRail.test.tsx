@@ -10,10 +10,10 @@ import { WorkspacesRail, type WorkspaceItem } from "./WorkspacesRail";
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
 const START: WorkspaceItem[] = [
-  { id: "a", name: "Alpha", agentCount: 1 },
-  { id: "b", name: "Beta", agentCount: 2, dot: "waiting" },
-  { id: "c", name: "Gamma", agentCount: 3 },
-  { id: "d", name: "Delta", agentCount: 4 },
+  { id: "a", name: "Alpha", teamCount: 1 },
+  { id: "b", name: "Beta", teamCount: 2, dot: "waiting" },
+  { id: "c", name: "Gamma", teamCount: 3 },
+  { id: "d", name: "Delta", teamCount: 4 },
 ];
 
 function pointerEvent(
@@ -211,7 +211,7 @@ describe("WorkspacesRail workspace metadata", () => {
     host.remove();
   });
 
-  it("shows only the numeric agent count, without a model-icon cluster", () => {
+  it("shows only the numeric team count, without a model-icon cluster", () => {
     const item = host.querySelector(`[data-ws-id="b"]`)!;
     expect(item.querySelector(".rail__count")?.textContent).toBe("2");
     expect(item.querySelector(".rail__agents")).toBeNull();
@@ -222,10 +222,10 @@ describe("WorkspacesRail workspace metadata", () => {
       root.render(
         createElement(WorkspacesRail, {
           workspaces: [
-            { id: "a", name: "Alpha", agentCount: 1, dot: "selected" },
-            { id: "b", name: "Beta", agentCount: 2, dot: "failed" },
-            { id: "c", name: "Gamma", agentCount: 1, dot: "none" },
-            { id: "d", name: "Delta", agentCount: 1 },
+            { id: "a", name: "Alpha", teamCount: 1, dot: "selected" },
+            { id: "b", name: "Beta", teamCount: 2, dot: "failed" },
+            { id: "c", name: "Gamma", teamCount: 1, dot: "none" },
+            { id: "d", name: "Delta", teamCount: 1 },
           ],
           activeId: "a",
           onSelect: () => {},
@@ -254,7 +254,7 @@ describe("WorkspacesRail workspace metadata", () => {
       act(() =>
         root.render(
           createElement(WorkspacesRail, {
-            workspaces: [{ id: "a", name: "Alpha", agentCount: 1 }],
+            workspaces: [{ id: "a", name: "Alpha", teamCount: 1 }],
             activeId: "a",
             onSelect: () => {},
             onAdd: () => {},
