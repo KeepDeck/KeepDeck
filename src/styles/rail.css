@@ -159,7 +159,7 @@
   background: transparent;
   color: #4b5362;
   font: inherit;
-  font-size: 9px;
+  font-size: 13px;
   line-height: 1;
 }
 
@@ -246,9 +246,10 @@
   display: inline-flex;
 }
 
-/* The teams under a workspace. A thread down the left ties them to the name
-   above; the last one's thread stops at its own row so the group reads as
-   ending rather than running on. */
+/* The teams under a workspace. Indent alone ties them to the name above —
+   they only ever appear directly under it, and the chevron above says the
+   group is open, so a thread drawn down the left was a second answer to a
+   question already answered. */
 .rail__teams {
   list-style: none;
   margin: 0 0 2px;
@@ -258,14 +259,16 @@
   gap: 1px;
 }
 
+/* Unpositioned like everything else inside the item: the list stays the one
+   `offsetParent`, which both the hit-test and the ghost's landing measure
+   through. */
 .rail__team {
-  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
   width: calc(100% - 4px);
   margin-left: 4px;
-  padding: 5px 8px 5px 26px;
+  padding: 5px 8px 5px 24px;
   border: 0;
   border-radius: 6px;
   background: transparent;
@@ -273,20 +276,6 @@
   font: inherit;
   font-size: 12.5px;
   text-align: left;
-}
-
-.rail__team::before {
-  content: "";
-  position: absolute;
-  left: 15px;
-  top: 0;
-  bottom: 0;
-  width: 1px;
-  background-color: #202838;
-}
-
-.rail__teams li:last-child .rail__team::before {
-  bottom: 50%;
 }
 
 .rail__team:hover {
@@ -357,7 +346,7 @@
 
 .rail__team-rename {
   width: calc(100% - 8px);
-  margin: 1px 4px 1px 26px;
+  margin: 1px 4px 1px 24px;
   padding: 4px 6px;
   border: 1px solid #3a4658;
   border-radius: 5px;
