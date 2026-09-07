@@ -222,6 +222,36 @@ describe("DeckBar", () => {
     expect(byText("+ Team")).toBeDefined();
   });
 
+  it("seams the team group to the rail's edge only while the rail is showing", () => {
+    // The seam exists to stand the team's name in the STAGE's column instead
+    // of over the rail's. With the rail hidden there is no rail column to
+    // clear — the stage starts at the window edge — so the offset would be
+    // an indent to nothing. Hence the modifier tracks the rail, not the level
+    // alone, and it is derived from the prop the bar already has rather than
+    // asked for a second time.
+    const team = {
+      kind: "team" as const,
+      name: "api",
+      branch: "kd/api",
+      onBack: () => {},
+      canAddMember: true,
+      addMemberTitle: "Add a member",
+      onAddMember: () => {},
+    };
+    const group = () => host.querySelector(".deck__team-bar");
+
+    render({ level: team, railCollapsed: false });
+    expect(group()?.classList.contains("deck__team-bar--seamed")).toBe(true);
+
+    render({ level: team, railCollapsed: true });
+    expect(group()?.classList.contains("deck__team-bar--seamed")).toBe(false);
+
+    // And with no team open there is nothing to seam either way: the group
+    // itself is what the level decides.
+    render({ railCollapsed: false });
+    expect(group()).toBeNull();
+  });
+
   it("keeps the open team's name recoverable when it does not fit", () => {
     // This is the one place the deck names the open team — the rail says
     // nothing about it, and a role badge answers "which teammate", not

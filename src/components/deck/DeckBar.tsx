@@ -173,7 +173,21 @@ export function DeckBar({
           // Inside a team the rail says nothing about it, so this half does:
           // the way back to the cards, the team's name, the branch it works
           // on. Its own group, so the workspace's own words keep their seam.
-          <div className="bar__group deck__team-bar">
+          //
+          // SEAMED while the rail is open: the group then starts at the rail's
+          // own right border, so what names the STAGE stands in the stage's
+          // column rather than over the rail's. The modifier is derived here
+          // rather than asked for, because the fact it needs — whether the
+          // rail is showing — is already handed to the bar, and a second prop
+          // saying the same thing would be a second answer to one question.
+          // Which is also why this is the bar's call and not the root's: the
+          // root decides whether a control is WORTH SHOWING; where a group
+          // sits is arrangement, and arrangement stays in this file.
+          <div
+            className={`bar__group deck__team-bar${
+              railCollapsed ? "" : " deck__team-bar--seamed"
+            }`}
+          >
             <TipButton
               variant="ghost"
               size="sm"
