@@ -14,7 +14,12 @@
  * holds the rail's one subscription), and a projection that took the tracker
  * would carry it into every test that only wanted to know what a row says.
  */
-import { membersOf, teamsOf, type Workspace } from "../domain/deck";
+import {
+  membersOf,
+  teamsOf,
+  type Workspace,
+  type WorkspaceViewMap,
+} from "../domain/deck";
 import type { StatusFrame } from "../domain/status";
 
 /** One team under its workspace: the name people address it by and how
@@ -38,8 +43,12 @@ export interface WorkspaceItem {
   teamCount: number;
   /** The workspace's teams in deck order — the rows under its name. Same
    * order the cards level lays them out in, so the two surfaces never
-   * disagree about which team is which. */
+   * disagree about which team is which. Carried whether or not they are
+   * shown: whether to show them is the row's own question, and a row that
+   * had to be re-derived to answer it would answer it differently. */
   teams: readonly TeamRow[];
+  /** Whether the rail is listing this workspace's teams right now. */
+  expanded: boolean;
   /** The workspace's status frame, folded by the domain ladder — the dot
    * paints it verbatim. Absent = the plain gray dot. */
   dot?: StatusFrame;
@@ -57,6 +66,7 @@ export interface WorkspaceItem {
 export function railView(
   workspaces: readonly Workspace[],
   frames: ReadonlyMap<string, StatusFrame>,
+  viewByWs: WorkspaceViewMap,
 ): WorkspaceItem[] {
   return workspaces.map((ws) => {
     const teams = teamsOf(ws).map((team) => ({
@@ -69,6 +79,10 @@ export function railView(
       name: ws.name,
       teamCount: teams.length,
       teams,
+      // A workspace with nothing to list is never "expanded": the chevron
+      // has nothing to turn, and a row that claimed to be open while
+      // showing nothing would be a promise it cannot keep.
+      expanded: teams.length > 0 && (viewByWs[ws.id]?.railExpanded ?? false),
       dot: frames.get(ws.id) ?? "none",
     };
   });

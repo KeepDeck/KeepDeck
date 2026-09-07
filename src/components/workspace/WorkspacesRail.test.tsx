@@ -10,10 +10,10 @@ import { WorkspacesRail, type WorkspaceItem } from "./WorkspacesRail";
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
 const START: WorkspaceItem[] = [
-  { id: "a", name: "Alpha", teamCount: 1, teams: [] },
-  { id: "b", name: "Beta", teamCount: 2, teams: [], dot: "waiting" },
-  { id: "c", name: "Gamma", teamCount: 3, teams: [] },
-  { id: "d", name: "Delta", teamCount: 4, teams: [] },
+  { id: "a", name: "Alpha", teamCount: 1, teams: [], expanded: false },
+  { id: "b", name: "Beta", teamCount: 2, teams: [], expanded: false, dot: "waiting" },
+  { id: "c", name: "Gamma", teamCount: 3, teams: [], expanded: false },
+  { id: "d", name: "Delta", teamCount: 4, teams: [], expanded: false },
 ];
 
 function pointerEvent(
@@ -66,6 +66,7 @@ function Harness() {
     onClose: () => {},
     onRename: () => {},
     onEnterTeam: () => {},
+    onToggleTeams: () => {},
     onRenameTeam: () => {},
     onReorder: (id: string, toIndex: number) =>
       setItems((current) => move(current, id, toIndex)),
@@ -224,10 +225,10 @@ describe("WorkspacesRail workspace metadata", () => {
       root.render(
         createElement(WorkspacesRail, {
           workspaces: [
-            { id: "a", name: "Alpha", teamCount: 1, teams: [], dot: "selected" },
-            { id: "b", name: "Beta", teamCount: 2, teams: [], dot: "failed" },
-            { id: "c", name: "Gamma", teamCount: 1, teams: [], dot: "none" },
-            { id: "d", name: "Delta", teamCount: 1, teams: [] },
+            { id: "a", name: "Alpha", teamCount: 1, teams: [], expanded: false, dot: "selected" },
+            { id: "b", name: "Beta", teamCount: 2, teams: [], expanded: false, dot: "failed" },
+            { id: "c", name: "Gamma", teamCount: 1, teams: [], expanded: false, dot: "none" },
+            { id: "d", name: "Delta", teamCount: 1, teams: [], expanded: false },
           ],
           activeId: "a",
           onSelect: () => {},
@@ -235,6 +236,7 @@ describe("WorkspacesRail workspace metadata", () => {
           onClose: () => {},
           onRename: () => {},
           onEnterTeam: () => {},
+          onToggleTeams: () => {},
           onRenameTeam: () => {},
           onReorder: () => {},
           version: null,
@@ -258,13 +260,14 @@ describe("WorkspacesRail workspace metadata", () => {
       act(() =>
         root.render(
           createElement(WorkspacesRail, {
-            workspaces: [{ id: "a", name: "Alpha", teamCount: 1, teams: [] }],
+            workspaces: [{ id: "a", name: "Alpha", teamCount: 1, teams: [], expanded: false }],
             activeId: "a",
             onSelect: () => {},
             onAdd: () => {},
             onClose: () => {},
             onRename: () => {},
             onEnterTeam: () => {},
+            onToggleTeams: () => {},
             onRenameTeam: () => {},
             onReorder: () => {},
             version,
@@ -297,8 +300,9 @@ describe("WorkspacesRail team rows", () => {
         { id: "team-1", name: "api", size: 3 },
         { id: "team-2", name: "web", size: 0 },
       ],
+      expanded: true,
     },
-    { id: "b", name: "Beta", teamCount: 0, teams: [] },
+    { id: "b", name: "Beta", teamCount: 0, teams: [], expanded: false },
   ];
 
   const render = (props: Partial<Parameters<typeof WorkspacesRail>[0]> = {}) =>
@@ -312,6 +316,7 @@ describe("WorkspacesRail team rows", () => {
           onClose: () => {},
           onRename: () => {},
           onEnterTeam: () => {},
+          onToggleTeams: () => {},
           onRenameTeam: () => {},
           onReorder: () => {},
           version: null,

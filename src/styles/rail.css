@@ -144,13 +144,40 @@
   white-space: nowrap;
 }
 
+/* The chevron keeps its width when there is nothing to turn, so names stay
+   on one left edge whether or not a workspace has teams. */
+.rail__chevron {
+  flex: none;
+  width: 16px;
+  align-self: stretch;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #4b5362;
+  font: inherit;
+  font-size: 9px;
+  line-height: 1;
+}
+
+.rail__chevron:hover:not(:disabled) {
+  color: #c5c8c6;
+}
+
+.rail__chevron--empty {
+  visibility: hidden;
+}
+
 .rail__select {
   display: flex;
   align-items: center;
   gap: 8px;
   flex: 1;
   min-width: 0;
-  padding: 7px 8px;
+  padding: 7px 8px 7px 2px;
   border: 0;
   background: transparent;
   color: #c5c8c6;

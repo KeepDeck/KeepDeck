@@ -25,6 +25,8 @@ interface WorkspacesRailProps {
   onRename(id: string, name: string): void;
   /** Go into a team from its row: its workspace on screen, the team open. */
   onEnterTeam(wsId: string, teamId: string): void;
+  /** Show or hide a workspace's teams under its name. */
+  onToggleTeams(wsId: string): void;
   onRenameTeam(wsId: string, teamId: string, name: string): void;
   /** Move workspace `id` to `toIndex` (long-press drag reorder). */
   onReorder(id: string, toIndex: number): void;
@@ -93,6 +95,7 @@ export function WorkspacesRail({
   onClose,
   onRename,
   onEnterTeam,
+  onToggleTeams,
   onRenameTeam,
   onReorder,
   version,
@@ -204,7 +207,13 @@ export function WorkspacesRail({
     // workspace out from under the finger that meant to open it.
     if (e.button !== 0 || rename.editing !== null) return;
     const from = e.target as HTMLElement;
-    if (from.closest(".rail__close") || from.closest(".rail__teams")) return;
+    if (
+      from.closest(".rail__close") ||
+      from.closest(".rail__chevron") ||
+      from.closest(".rail__teams")
+    ) {
+      return;
+    }
     // The ghost is the workspace's own row, not the item: a drag of an
     // expanded workspace must not lift a block the height of its teams.
     const r = (
@@ -262,6 +271,20 @@ export function WorkspacesRail({
                   <>
                     <button
                       type="button"
+                      className={`rail__chevron${
+                        ws.teams.length === 0 ? " rail__chevron--empty" : ""
+                      }`}
+                      onClick={() => onToggleTeams(ws.id)}
+                      disabled={ws.teams.length === 0}
+                      aria-expanded={ws.expanded}
+                      aria-label={
+                        ws.expanded ? `Hide ${ws.name} teams` : `Show ${ws.name} teams`
+                      }
+                    >
+                      {ws.expanded ? "▾" : "›"}
+                    </button>
+                    <button
+                      type="button"
                       className="rail__select"
                       onClick={() => onSelect(ws.id)}
                       onDoubleClick={() => rename.start(workspaceKey(ws.id), ws.name)}
@@ -285,7 +308,7 @@ export function WorkspacesRail({
                   </>
                 )}
               </div>
-              {ws.teams.length > 0 && (
+              {ws.expanded && (
                 <ul className="rail__teams">
                   {ws.teams.map((team) => (
                     <li key={team.id}>

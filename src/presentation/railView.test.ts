@@ -29,6 +29,7 @@ describe("railView", () => {
     const rows = railView(
       [THREE_TEAMS_OF_ONE, workspace("ws-empty", []), ONE_TEAM_OF_THREE],
       frames({}),
+      {},
     );
     expect(rows.map((row) => row.id)).toEqual(["ws-b", "ws-empty", "ws-a"]);
   });
@@ -37,6 +38,7 @@ describe("railView", () => {
     const rows = railView(
       [ONE_TEAM_OF_THREE, THREE_TEAMS_OF_ONE],
       frames({ "ws-a": "selected", "ws-b": "failed" }),
+      {},
     );
     expect(rows[0].name).toBe("ws-a");
     expect(rows[0].dot).toBe("selected");
@@ -44,7 +46,7 @@ describe("railView", () => {
   });
 
   it("wears the bare gray dot for a workspace the tracker has not folded", () => {
-    const [row] = railView([ONE_TEAM_OF_THREE], frames({ "ws-other": "working" }));
+    const [row] = railView([ONE_TEAM_OF_THREE], frames({ "ws-other": "working" }), {});
     expect(row.dot).toBe("none");
   });
 
@@ -52,6 +54,7 @@ describe("railView", () => {
     const [oneTeam, threeTeams] = railView(
       [ONE_TEAM_OF_THREE, THREE_TEAMS_OF_ONE],
       frames({}),
+      {},
     );
     expect(oneTeam.teamCount).toBe(1);
     expect(threeTeams.teamCount).toBe(3);
@@ -59,7 +62,31 @@ describe("railView", () => {
 
   it("counts a team with nobody on it — it is still a team", () => {
     const bornEmpty: Workspace = { ...workspace("ws-new", []), teams: [team("team-9")] };
-    const [row] = railView([bornEmpty], frames({}));
+    const [row] = railView([bornEmpty], frames({}), {});
     expect(row.teamCount).toBe(1);
+  });
+});
+
+describe("railView expansion", () => {
+  it("lists a workspace's teams only when the person opened it", () => {
+    const collapsed = railView([ONE_TEAM_OF_THREE], frames({}), {});
+    const opened = railView([ONE_TEAM_OF_THREE], frames({}), {
+      "ws-a": { railExpanded: true },
+    });
+    expect(collapsed[0].expanded).toBe(false);
+    expect(opened[0].expanded).toBe(true);
+    // The teams ride either way: whether to SHOW them is the row's own
+    // question, and a row that had to be re-derived to answer it would
+    // answer it differently.
+    expect(collapsed[0].teams).toHaveLength(1);
+  });
+
+  it("is never open with nothing to list", () => {
+    // The chevron has nothing to turn, so a row claiming to be open would
+    // be making a promise it cannot keep.
+    const [row] = railView([workspace("ws-bare", [])], frames({}), {
+      "ws-bare": { railExpanded: true },
+    });
+    expect(row.expanded).toBe(false);
   });
 });

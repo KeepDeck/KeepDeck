@@ -335,7 +335,7 @@ export function useAppController() {
   const showBell = bellDoorOpen(notificationPrefs);
   const openNotification = runtime.application.openNotification;
   const handleCreateWorkspace = runtime.application.createWorkspace;
-  const railWorkspaces = railView(deck.workspaces, railFrames);
+  const railWorkspaces = railView(deck.workspaces, railFrames, deck.viewByWs);
   if (restoring || !spawnCtx || !settings) {
     return { ready: false as const };
   }

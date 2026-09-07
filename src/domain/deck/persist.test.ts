@@ -1472,3 +1472,37 @@ describe("what reaches disk is decided by the REASON, not by the stamp", () => {
     );
   });
 });
+
+describe("the rail's open workspaces across a restart", () => {
+  const expanded = (railExpanded: boolean | undefined): DeckState => ({
+    ...state,
+    viewByWs: {
+      ...state.viewByWs,
+      [state.workspaces[0].id]: { ...state.viewByWs[state.workspaces[0].id], railExpanded },
+    },
+  });
+
+  it("comes back with the teams the person had listed", () => {
+    // The durable half is about whose answer it is: the level someone chose
+    // to have open survives the launch, the way `teamOpen` does — only a
+    // run's own circumstances start over.
+    const restored = okDeck(serializeDeck(expanded(true)));
+    expect(restored.state.viewByWs[state.workspaces[0].id]?.railExpanded).toBe(true);
+  });
+
+  it("writes nothing for a workspace nobody expanded", () => {
+    // Collapsed is the ABSENCE of the key, so an untouched deck's file is
+    // the same bytes it was before the rail learned to expand at all.
+    expect(serializeDeck(expanded(undefined))).not.toContain('"ws-2":true');
+  });
+
+  it("drops a key naming a workspace the deck no longer has", () => {
+    const doc = JSON.parse(serializeDeck(expanded(true))) as Record<string, unknown>;
+    doc.railExpandedByWs = { ...(doc.railExpandedByWs as object), "ws-gone": true };
+    const restored = okDeck(JSON.stringify(doc));
+    expect(restored.state.viewByWs["ws-gone"]).toBeUndefined();
+    // And the next save carries no trace of it — the file cleans itself
+    // rather than needing a migration to sweep stale view keys.
+    expect(serializeDeck(restored.state)).not.toContain("ws-gone");
+  });
+});
