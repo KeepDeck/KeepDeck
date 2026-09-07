@@ -121,8 +121,10 @@ export function teamCreateRefusal(request: {
   const { claim, placement, homeWsId, directory, shared } = request;
   const refusal = birthRefusal(claim, placement, shared);
   if (refusal === null) return null;
-  if (refusal === "busy" || claim.kind === "free") {
-    return { kind: "held", why: claim.kind === "free" ? "refused" : "creating" };
+  if (refusal !== "unshared" || claim.kind === "free") {
+    // Which half of the worktree rule refused: a create still out there
+    // (wait), or ours onto a directory a team works in (never).
+    return { kind: "held", why: claim.kind === "held" && claim.creating ? "creating" : "occupied" };
   }
   return {
     kind: "shared",
@@ -275,7 +277,9 @@ export function createAgentOrchestratorCreation({
       // that rule does not apply to a landing: a pane joins a team whose own
       // create is still out and waits for it, which is how "+ Team" then
       // "+ Member" has always worked.
-      if (wanted.kind === "provisioning") return { refusal: "held", why: "creating" };
+      if (wanted.kind === "provisioning") {
+        return { refusal: "held", why: claim.creating ? "creating" : "occupied" };
+      }
       // A team a confirmed close holds is being ended: a pane landing on it
       // now would be reaped by that close a moment later.
       if (closing({ id: current.id, instance: current.instance }, claim.team.id)) {

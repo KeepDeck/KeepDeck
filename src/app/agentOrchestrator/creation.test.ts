@@ -829,7 +829,9 @@ describe("agent orchestrator —a team born empty", () => {
       );
     });
     expect(outcomes).toEqual([
-      { kind: "held", why: "creating" },
+      // OUR create onto a directory a team works in: never, and the words
+      // must not tell anyone to wait.
+      { kind: "held", why: "occupied" },
       {
         kind: "shared",
         directory: "/wt/a",
@@ -969,6 +971,7 @@ describe("agent orchestrator —a team born empty", () => {
       );
     });
     // Nothing is there to share yet, and the create is still out.
+    // Their create is still out on both attempts — here waiting IS the answer.
     expect(outcomes).toEqual([
       { kind: "held", why: "creating" },
       { kind: "held", why: "creating" },

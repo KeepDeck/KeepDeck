@@ -584,7 +584,7 @@ describe("agent orchestrator —forking a recorded session", () => {
           branch: "fork/x",
         }),
       ),
-    ).rejects.toThrow("already a team's");
+    ).rejects.toThrow("another workspace's team's");
     expect(provisions).toEqual([]);
     // The step is filed only under a team the landing minted; a refusal
     // mints none, so nothing holds a closure over a pane id that will never
@@ -612,7 +612,7 @@ describe("agent orchestrator —forking a recorded session", () => {
           branch: "fork/x",
         }),
       ),
-    ).rejects.toThrow("already a team's");
+    ).rejects.toThrow("a worktree cannot be created in it");
     expect(vi.mocked(buildForkSpec)).not.toHaveBeenCalled();
     expect(steps.register).not.toHaveBeenCalled();
     expect(provisions).toEqual([]);
