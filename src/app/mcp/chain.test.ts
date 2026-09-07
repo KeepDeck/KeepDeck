@@ -45,6 +45,7 @@ describe("mcp webview chain", () => {
         },
         panesIn: () => 1,
         plant: async () => ({ armed: [], refused: [] }),
+        library: { serversFor: async () => [] },
         identitySource: () =>
           Promise.resolve({ name: "KeepDeck", version: "1.0.0" }),
       },

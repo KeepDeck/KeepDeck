@@ -175,11 +175,13 @@ export interface SpawnSkillsInput {
 /** The MCP servers to declare to one spawning agent.
  *
  * A LIST, never one server: KeepDeck's own transport is the first member and
- * a user-managed set follows, so a hook RENDERS EACH — a dialect that
+ * the user's library follows, so a hook RENDERS EACH — a dialect that
  * hardcodes one entry silently drops the rest.
  *
- * The server union has one arm today. When remote (http) servers arrive, a
- * hook that does not handle them stops compiling instead of dropping them. */
+ * Two arms: a process the CLI spawns (`stdio`) and an endpoint it reaches
+ * (`http`). A hook renders both through [`mapMcpServers`], which is what
+ * makes a third arm a compile error in every dialect rather than a server
+ * silently missing from one of them. */
 export interface SpawnMcpInput {
   servers: McpServerSpec[];
 }
@@ -192,35 +194,91 @@ export interface McpStdioServerSpec {
   transport: "stdio";
   command: string;
   args: string[];
-  /** Extra environment for the server process. Declared rather than left to
-   * inheritance — codex hands its MCP children a core allowlist only. */
-  env?: Record<string, string>;
+  /** Names of variables the server process must receive from the PANE's
+   * environment, where the host has already set them. The ONLY way a server
+   * is given a variable: a literal map written into the config would land on
+   * argv for the CLIs that take their config there, where `ps` reads it.
+   * Only the CLI that filters its children's environment (codex) has
+   * anything to render; the others inherit and render nothing. */
+  envPassthrough?: string[];
 }
 
-export type McpServerSpec = McpStdioServerSpec;
+/** One remote (streamable http) MCP server, as the host declares it. */
+export interface McpHttpServerSpec {
+  name: string;
+  transport: "http";
+  url: string;
+  /** Literal request headers. Not for secrets, for the reason `env` is not. */
+  headers?: Record<string, string>;
+  /** The variable in the pane's environment holding the bearer token. Sent as
+   * `Authorization: Bearer …`, in whatever env-reference syntax the CLI
+   * resolves itself (see [`mcpHttpHeaders`]) or through its native
+   * token-from-env field; it wins over a literal `Authorization` header. */
+  bearerTokenEnv?: string;
+}
+
+export type McpServerSpec = McpStdioServerSpec | McpHttpServerSpec;
+
+/** The contract revision that introduced the `http` arm. A host hands remote
+ * servers only to a plugin whose floor reaches it: an older plugin's renderer
+ * throws on the arm, and a throwing spawn hook costs the pane every server it
+ * DID know how to render. A fact of history, NEVER moved with `API_VERSION`:
+ * it names the revision the arm appeared in, and every later one includes it. */
+export const MCP_HTTP_API = 45;
 
 /**
  * Render each injected server by transport, in order.
  *
- * The one place a CLI dialect fans out over transports: when a second arm
- * (remote servers) lands, every renderer that has not been taught it stops
- * compiling here instead of quietly emitting a config with the server
- * missing.
+ * The one place a CLI dialect fans out over transports: a renderer that has
+ * not been taught an arm stops compiling here instead of quietly emitting a
+ * config with the server missing.
  */
 export function mapMcpServers<T>(
   servers: readonly McpServerSpec[],
-  visit: { stdio(server: McpStdioServerSpec): T },
+  visit: {
+    stdio(server: McpStdioServerSpec): T;
+    http(server: McpHttpServerSpec): T;
+  },
 ): T[] {
   return servers.map((server) => {
     switch (server.transport) {
       case "stdio":
         return visit.stdio(server);
+      case "http":
+        return visit.http(server);
       default: {
-        const unsupported: never = server.transport;
-        throw new Error(`unsupported MCP transport: ${String(unsupported)}`);
+        const unsupported: never = server;
+        throw new Error(
+          `unsupported MCP transport: ${String((unsupported as { transport: unknown }).transport)}`,
+        );
       }
     }
   });
+}
+
+/**
+ * The headers a remote server is sent, with its bearer token folded in as
+ * `Authorization` — spelled with `envRef`, the CLI's own syntax for "read
+ * this from my environment", because the token's VALUE lives in the pane's
+ * environment and never in a config. For a CLI with a native token-from-env
+ * field the renderer uses that instead and passes only the literal headers.
+ *
+ * The bearer wins over a literal `Authorization` header: two spellings of one
+ * credential would otherwise reach the CLI in whichever order the map keeps.
+ * `undefined` when there is nothing to send, so a renderer can leave the key
+ * out rather than emit an empty map.
+ */
+export function mcpHttpHeaders(
+  server: Pick<McpHttpServerSpec, "headers" | "bearerTokenEnv">,
+  envRef: (name: string) => string,
+): Record<string, string> | undefined {
+  const headers = {
+    ...server.headers,
+    ...(server.bearerTokenEnv
+      ? { Authorization: `Bearer ${envRef(server.bearerTokenEnv)}` }
+      : {}),
+  };
+  return Object.keys(headers).length > 0 ? headers : undefined;
 }
 
 export interface ResumePlanInput extends SpawnPlanInput {

@@ -1,21 +1,71 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createMcpInjection, KEEPDECK_MCP_SERVER } from "./injection";
-import type { McpInjectionTarget } from "./injection";
-import type { McpConnection } from "../../ipc/mcp";
+import { describe, expect, it, vi } from "vitest";
+import type { BundledMcpContributor, McpContributionTarget } from "./bundled";
+import {
+  createMcpInjection,
+  type McpAccess,
+  type McpInjectable,
+  type McpInjectionTarget,
+  type McpServerSource,
+} from "./injection";
 
-const invocation: McpConnection = {
-  command: "/Applications/KeepDeck.app/Contents/MacOS/keepdeck",
-  args: ["--mcp-shim", "/home/.config/keepdeck/mcp/mcp.sock"],
+/** A shipped server that answers for every pane, and shows what it was asked
+ * with — the invocation names the client when there is one. */
+function shipped(name = "keepdeck"): BundledMcpContributor & {
+  asked: McpContributionTarget[];
+} {
+  const asked: McpContributionTarget[] = [];
+  return {
+    name,
+    asked,
+    describe: () => null,
+    contribute: async (target) => {
+      asked.push(target);
+      return {
+        name,
+        transport: "stdio",
+        command: "/bin/keepdeck",
+        args: target.client
+          ? ["--mcp-shim", "/s", "--client", target.client]
+          : ["--mcp-shim", "/s"],
+      };
+    },
+  };
+}
+
+/** A shipped server with nothing for anyone today. */
+const silent: BundledMcpContributor = {
+  name: "mnemo",
+  describe: () => null,
+  contribute: async () => null,
 };
 
-let socket: string | null;
+const library = (...servers: McpInjectable[]): McpServerSource => ({
+  serversFor: async () => servers,
+});
 
-/** The ports every construction needs. `plant` is required by design — the
- * guarded form must be the only form — so a test that does not care still
- * has to say what happens when something is planted. */
+const github: McpInjectable = {
+  spec: {
+    name: "github",
+    transport: "http",
+    url: "https://api.githubcopilot.com/mcp/",
+    bearerTokenEnv: "GH_TOKEN",
+  },
+  env: [["GH_TOKEN", "ghp_secret"]],
+};
+
+const local = (name: string, env: [string, string][] = []): McpInjectable => ({
+  spec: { name, transport: "stdio", command: "/usr/bin/npx", args: ["-y", name] },
+  env,
+});
+
+/** The ports every construction needs. `plant` and `library` are required by
+ * design — the guarded form must be the only form — so a test that does not
+ * care still has to say what happens when something is planted, and what the
+ * library holds. */
 const ports = {
   panesIn: () => 1,
   plant: async () => ({ armed: [], refused: [] }),
+  library: library(),
 };
 
 /** A claude pane — the argv path. kimi's file path has its own tests. */
@@ -33,66 +83,123 @@ const kimi = (cwd: string): McpInjectionTarget => ({
   client: "pane-secret",
 });
 
-beforeEach(() => {
-  socket = "/home/.config/keepdeck/mcp/mcp.sock";
-});
+const names = (access: McpAccess) => access.entries.map(({ spec }) => spec.name);
+const envOf = (access: McpAccess) => access.entries.flatMap(({ env }) => env);
 
 describe("the MCP injection", () => {
-  it("renders the backend's invocation verbatim — it never rebuilds one", async () => {
-    // The shim flag and the socket path have one home, on the Rust side. A
-    // second derivation here would drift the day either changes.
-    const connection = vi.fn(async () => invocation);
-    const injection = createMcpInjection({ ...ports, socket: () => socket, connection });
-
-    expect((await injection.access(target)).servers).toEqual([
-      {
-        name: KEEPDECK_MCP_SERVER,
-        transport: "stdio",
-        command: invocation.command,
-        args: invocation.args,
-      },
-    ]);
-  });
-
-  it("reports where the config landed", async () => {
-    // A root's standing refusal goes with the config that now stands there
-    // — and only the caller can tell the consumer it happened.
-    const onArmed = vi.fn();
+  it("hands out the bundled tier in registry order, then the library", async () => {
+    // Order is the precedence: every CLI keys its servers by name and the
+    // first claim wins, so a shipped server must be filed before anything the
+    // user could name the same.
     const injection = createMcpInjection({
       ...ports,
-      socket: () => socket,
-      connection: async () => invocation,
-      plant: async () => ({ armed: ["/repo"], refused: [] }),
-      onArmed,
+      contributors: [shipped(), silent],
+      library: library(github, local("fs")),
     });
+
+    expect(names(await injection.access(target))).toEqual(["keepdeck", "github", "fs"]);
+  });
+
+  it("serves the library even when no bundled server has anything", async () => {
+    // The deck's transport being down must not cost the user the servers
+    // they configured themselves — the library knows nothing of the socket.
+    const injection = createMcpInjection({
+      ...ports,
+      contributors: [silent],
+      library: library(github),
+    });
+
+    expect(names(await injection.access(target))).toEqual(["github"]);
+  });
+
+  it("gives an argv pane NOTHING when neither tier has anything for it", async () => {
+    const plant = vi.fn(async () => ({ armed: [], refused: [] }));
+    const injection = createMcpInjection({ ...ports, contributors: [silent], plant });
+
+    const access = await injection.access(target);
+    await access.deliver();
+
+    expect(access).toMatchObject({ entries: [], throughArgv: true });
+    expect(plant).not.toHaveBeenCalled();
+  });
+
+  it("still delivers an EMPTY file to a file-fed pane with nothing in it", async () => {
+    // The file IS the delivery. A pane that gets no servers today must not
+    // read yesterday's file and keep serving a server the user has since
+    // deleted — so the empty set is written like any other.
+    const planted: string[] = [];
+    const plant = vi.fn(async (_ws: string, _root: string, content: string) => {
+      planted.push(content);
+      return { armed: ["/repo"], refused: [] };
+    });
+    const injection = createMcpInjection({ ...ports, contributors: [silent], plant });
+
     const access = await injection.access(kimi("/repo"));
     await access.deliver();
-    expect(onArmed).toHaveBeenCalledWith(["/repo"]);
+
+    expect(access).toMatchObject({ entries: [], throughArgv: false });
+    expect(JSON.parse(planted[0]!)).toEqual({ mcpServers: {} });
   });
 
-  it("injects NOTHING while the transport is not confirmed up", async () => {
-    // The gate is the confirmed socket, not the setting: a pane handed a def
-    // for a socket that is down spends its startup failing to connect and
-    // shows a broken server instead of no server.
-    socket = null;
-    const connection = vi.fn(async () => invocation);
-    const injection = createMcpInjection({ ...ports, socket: () => socket, connection });
+  it("carries the library's environment — and only for the servers it accepted", async () => {
+    // A library entry that lost its name to the bundled tier must not leave
+    // its values in the pane either: spec and env are one entry.
+    const shadow = local("keepdeck", [["SHADOW", "1"]]);
+    const injection = createMcpInjection({
+      ...ports,
+      contributors: [shipped()],
+      library: library(github, shadow),
+    });
 
-    expect((await injection.access(target)).servers).toEqual([]);
-    // And it does not even ask the backend how to connect.
-    expect(connection).not.toHaveBeenCalled();
+    const access = await injection.access(target);
+
+    expect(envOf(access)).toEqual([["GH_TOKEN", "ghp_secret"]]);
+    // The shipped server kept its name — the library's twin never reached
+    // the pane.
+    expect(access.entries.find(({ spec }) => spec.name === "keepdeck")?.spec).toMatchObject({
+      command: "/bin/keepdeck",
+    });
   });
 
-  it("asks for an invocation that NAMES this pane", async () => {
-    // The secret is what lets a call be attributed to the pane that made it,
-    // and it is the backend that spells the shim's flags — asking without it
-    // would hand every pane the same anonymous command.
-    const connection = vi.fn(async () => invocation);
-    const injection = createMcpInjection({ ...ports, socket: () => socket, connection });
+  it("asks the bundled tier with the pane's secret", async () => {
+    // The secret is what lets a call be attributed to the pane that made it.
+    const keepdeck = shipped();
+    const injection = createMcpInjection({ ...ports, contributors: [keepdeck] });
 
     await injection.access({ ...target, client: "pane-3-secret" });
 
-    expect(connection).toHaveBeenCalledWith("pane-3-secret");
+    expect(keepdeck.asked[0]).toMatchObject({ client: "pane-3-secret", cwd: "/repo" });
+  });
+
+  it("asks with NO secret where a file-fed pane shares its directory", async () => {
+    // kimi's config is one file per directory. Two panes running there would
+    // both announce whichever secret was written last, so the journal would
+    // name the wrong pane — worse than naming none.
+    const keepdeck = shipped();
+    const injection = createMcpInjection({
+      ...ports,
+      contributors: [keepdeck],
+      panesIn: () => 2,
+    });
+
+    await injection.access(kimi("/repo"));
+
+    expect(keepdeck.asked[0]?.client).toBeNull();
+  });
+
+  it("keeps the secret for an argv agent even where panes share a directory", async () => {
+    // Only the FILE is shared. claude/codex/opencode carry their own argv, so
+    // a shared cwd costs them nothing.
+    const keepdeck = shipped();
+    const injection = createMcpInjection({
+      ...ports,
+      contributors: [keepdeck],
+      panesIn: () => 3,
+    });
+
+    await injection.access({ ...target, client: "pane-secret" });
+
+    expect(keepdeck.asked[0]?.client).toBe("pane-secret");
   });
 
   it("keeps kimi's servers OFF the argv and out of the plan's way until asked", async () => {
@@ -101,20 +208,15 @@ describe("the MCP injection", () => {
     // feeds may still be rejected, and a config for a pane that never spawns
     // is a file the user never asked for.
     const plant = vi.fn(async () => ({ armed: ["/repo"], refused: [] }));
-    const injection = createMcpInjection({
-      ...ports,
-      socket: () => socket,
-      connection: async () => invocation,
-      plant,
-    });
+    const injection = createMcpInjection({ ...ports, contributors: [shipped()], plant });
 
     const access = await injection.access(kimi("/repo"));
 
-    expect(access.servers).toEqual([]);
+    expect(access.throughArgv).toBe(false);
     expect(plant).not.toHaveBeenCalled();
   });
 
-  it("plants a FILE for kimi when the delivery is taken", async () => {
+  it("plants a FILE for kimi when the delivery is taken, both tiers in it", async () => {
     const planted: { root: string; content: string }[] = [];
     const plant = vi.fn(
       async (_workspaceId: string, root: string, content: string) => {
@@ -124,100 +226,73 @@ describe("the MCP injection", () => {
     );
     const injection = createMcpInjection({
       ...ports,
-      socket: () => socket,
-      connection: async () => invocation,
+      contributors: [shipped()],
+      library: library(github),
       plant,
     });
 
-    await (await injection.access(kimi("/repo"))).deliver();
+    const access = await injection.access(kimi("/repo"));
+    await access.deliver();
 
     expect(plant).toHaveBeenCalledWith("ws-1", "/repo", expect.any(String));
-    expect(JSON.parse(planted[0]!.content)).toEqual({
-      mcpServers: {
-        keepdeck: { command: invocation.command, args: invocation.args },
-      },
-    });
+    expect(Object.keys(JSON.parse(planted[0]!.content).mcpServers)).toEqual([
+      "keepdeck",
+      "github",
+    ]);
+    // The environment rides regardless of the delivery: kimi's children
+    // inherit the pane's, file or no file.
+    expect(envOf(access)).toEqual([["GH_TOKEN", "ghp_secret"]]);
   });
 
-  it("plants an ANONYMOUS config when the directory holds more than one pane", async () => {
-    // kimi's config is one file per directory. Two panes running there would
-    // both announce whichever secret was written last, so the journal would
-    // name the wrong pane — worse than naming none.
-    const named = vi.fn(async (client?: string) => ({
-      command: "/bin/keepdeck",
-      args: client ? ["--mcp-shim", "/s", "--client", client] : ["--mcp-shim", "/s"],
-    }));
+  it("reports where the config landed", async () => {
+    // A root's standing refusal goes with the config that now stands there
+    // — and only the caller can tell the consumer it happened.
+    const onArmed = vi.fn();
     const injection = createMcpInjection({
       ...ports,
-      socket: () => socket,
-      panesIn: () => 2,
-      connection: named,
+      contributors: [shipped()],
+      plant: async () => ({ armed: ["/repo"], refused: [] }),
+      onArmed,
     });
-
-    await injection.access(kimi("/repo"));
-
-    expect(named).toHaveBeenCalledWith(undefined);
-  });
-
-  it("keeps the secret for an argv agent even where panes share a directory", async () => {
-    // Only the FILE is shared. claude/codex/opencode carry their own argv, so
-    // a shared cwd costs them nothing.
-    const named = vi.fn(async () => invocation);
-    const injection = createMcpInjection({
-      ...ports,
-      socket: () => socket,
-      panesIn: () => 3,
-      connection: named,
-    });
-
-    await injection.access({ ...target, client: "pane-secret" });
-
-    expect(named).toHaveBeenCalledWith("pane-secret");
-  });
-
-  it("plants nothing for kimi while the transport is down", async () => {
-    socket = null;
-    const plant = vi.fn(async () => ({ armed: [], refused: [] }));
-    const injection = createMcpInjection({
-      ...ports,
-      socket: () => socket,
-      connection: async () => invocation,
-      plant,
-    });
-
-    await (await injection.access(kimi("/repo"))).deliver();
-
-    expect(plant).not.toHaveBeenCalled();
+    const access = await injection.access(kimi("/repo"));
+    await access.deliver();
+    expect(onArmed).toHaveBeenCalledWith(["/repo"]);
   });
 
   it("leaves the argv agents' servers alone — nothing is planted for them", async () => {
     const plant = vi.fn(async () => ({ armed: [], refused: [] }));
-    const injection = createMcpInjection({
-      ...ports,
-      socket: () => socket,
-      connection: async () => invocation,
-      plant,
-    });
+    const injection = createMcpInjection({ ...ports, contributors: [shipped()], plant });
 
     const access = await injection.access(target);
     await access.deliver();
 
-    expect(access.servers).toHaveLength(1);
+    expect(access.entries).toHaveLength(1);
+    expect(access.throughArgv).toBe(true);
     expect(plant).not.toHaveBeenCalled();
   });
 
-  it("does not remember a failure — the next pane may still get served", async () => {
-    // Refusing forever because one call failed would need an app restart to
-    // recover, for a transport that is otherwise perfectly up.
-    const connection = vi
-      .fn<() => Promise<McpConnection>>()
-      .mockRejectedValueOnce(new Error("no home directory"))
-      .mockResolvedValue(invocation);
-    const injection = createMcpInjection({ ...ports, socket: () => socket, connection });
+  it("a library that cannot be read costs the pane its library servers, not its bundled ones", async () => {
+    const injection = createMcpInjection({
+      ...ports,
+      contributors: [shipped()],
+      library: { serversFor: async () => Promise.reject(new Error("disk")) },
+    });
 
-    expect((await injection.access(target)).servers).toEqual([]);
-    expect((await injection.access(target)).servers.map((d) => d.name)).toEqual([
-      KEEPDECK_MCP_SERVER,
-    ]);
+    expect(names(await injection.access(target))).toEqual(["keepdeck"]);
+  });
+
+  it("a contributor that throws costs the pane that server, not the others", async () => {
+    const broken: BundledMcpContributor = {
+      name: "broken",
+      describe: () => null,
+      contribute: async () => Promise.reject(new Error("boom")),
+    };
+    const injection = createMcpInjection({
+      ...ports,
+      contributors: [broken, shipped()],
+      library: library(github),
+    });
+
+    expect(names(await injection.access(target))).toEqual(["keepdeck", "github"]);
   });
 });

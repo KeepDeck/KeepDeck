@@ -1,32 +1,39 @@
 /**
- * What a spawning pane must be told in order to reach KeepDeck's MCP server.
+ * What a spawning pane must be told in order to reach its MCP servers.
  *
  * The one home for "which MCP servers does an agent get, and how are they
- * addressed". Two rules live here and nowhere else:
+ * addressed". The set is assembled from two tiers, in this order:
  *
- * - the gate is the CONFIRMED transport status, never the setting. A pane
- *   handed a def for a socket that is down would spend its startup connecting
- *   to nothing and show a failed server instead of no server;
- * - the gate is read at plan mint: an argv definition is frozen for that
- *   spawn and cannot be repaired after the hook returns;
- * - the invocation is whatever the backend says it is
- *   ([`mcpConnectionCommand`]), never rebuilt here. The shim flag and the
- *   socket path have exactly one home, on the Rust side, and a second
- *   derivation would drift the day either changes.
+ * - the BUNDLED tier — servers KeepDeck ships, each a contributor that
+ *   decides for itself whether it has anything for this pane (see
+ *   [`BundledMcpContributor`]);
+ * - the user's LIBRARY for this pane's workspace, which knows nothing of the
+ *   deck's transport and is never gated on it — a socket that has not come up
+ *   must not cost the user the servers they configured themselves.
  *
- * It answers with a LIST because the planned server bank contributes more
- * members later; today the built-in transport is the only one.
+ * Bundled entries come first and `acceptMcpServers` lets the first claim on a
+ * name win, so a library entry can never shadow a shipped one — the library
+ * refuses to author such a name, and this is the backstop.
+ *
+ * Two rules live here and nowhere else:
+ * - the set is read at plan mint: an argv definition is frozen for that spawn
+ *   and cannot be repaired after the hook returns;
+ * - a value a server needs rides the PANE's environment, never argv (several
+ *   CLIs take their config where `ps` reads it): the library hands back what
+ *   to set and the spec only NAMES it, and the plan carries the pairs.
+ *
+ * A known boundary: a pane whose agent runs against a REMOTE endpoint gets
+ * these servers rendered like any other, and its CLI ignores them — the
+ * config lands on the local thin client while the agent that would spawn
+ * the server runs on the box. Serving remote panes means provisioning
+ * server-side, which is the remote setup's business, not this module's.
  */
 import type { McpServerSpec } from "@keepdeck/plugin-api";
 import { acceptMcpServers } from "./servers";
 import { describeError, log } from "../../ipc/log";
-import { mcpConnectionCommand, type McpConnection } from "../../ipc/mcp";
 import type { McpArmReport } from "../../ipc/mcpArming";
+import type { BundledMcpContributor } from "./bundled";
 import { mcpFileRenderer } from "./kimi";
-
-/** The name KeepDeck's own server is filed under in every client config —
- * and therefore the prefix its tools carry (`mcp__keepdeck__…`). */
-export const KEEPDECK_MCP_SERVER = "keepdeck";
 
 /** The pane an injection is for: which CLI, and where it will run. */
 export interface McpInjectionTarget {
@@ -38,18 +45,37 @@ export interface McpInjectionTarget {
   client: string;
 }
 
+/** One server ready to inject: the spec a hook renders, and what the pane's
+ * environment must carry for it — the values the spec only names. The two
+ * travel as ONE thing so that whoever drops the spec drops its values too. */
+export interface McpInjectable {
+  spec: McpServerSpec;
+  env: [string, string][];
+}
+
+/** The user's library, as this consumer needs it: one workspace's effective
+ * set, already resolved (a workspace entry over a global one by name is the
+ * library's rule, not this module's). */
+export interface McpServerSource {
+  serversFor(workspaceId: string): Promise<McpInjectable[]>;
+}
+
 /**
- * One pane's access to KeepDeck's MCP servers, in the two forms a CLI can
- * take delivery of them — and deliberately BOTH: a single answer that hid the
+ * One pane's access to its MCP servers, in the two forms a CLI can take
+ * delivery of them — and deliberately BOTH: a single answer that hid the
  * on-disk half behind a list of argv defs is what let a query write to a
  * spawning pane's working directory with no caller able to see it.
  */
 export interface McpAccess {
-  /** The servers this pane is given THROUGH ITS ARGV — the hook's material.
-   * Empty when the transport is not confirmed up, when the backend cannot say
-   * how to reach it (in both cases the pane spawns with no KeepDeck server
-   * rather than a broken one), and for a CLI that reads a file instead. */
-  servers: McpServerSpec[];
+  /** The servers this pane gets, each with what its environment must carry.
+   * Every entry's `env` is owed to the pane whatever the delivery: a
+   * file-fed CLI's children inherit the pane's environment exactly as an
+   * argv-fed one's do. */
+  entries: McpInjectable[];
+  /** Whether the specs ride the hook's ARGV. False for a CLI fed by a file
+   * the host plants: its hook is told nothing, and its entries' specs are in
+   * the file instead. */
+  throughArgv: boolean;
   /**
    * Put the file-delivered half on disk. A no-op for the argv CLIs.
    *
@@ -63,8 +89,8 @@ export interface McpAccess {
 }
 
 /** Ask for one pane's access, at the moment its plan is built — never once
- * per session: the socket is confirmed some time after boot, and the answer
- * moves with it. */
+ * per session: the bundled tier's answers move (the socket is confirmed some
+ * time after boot) and so does the library. */
 export type McpAccessAsk = (target: McpInjectionTarget) => Promise<McpAccess>;
 
 export interface McpInjection {
@@ -72,13 +98,11 @@ export interface McpInjection {
 }
 
 export interface McpInjectionDeps {
-  /** The CONFIRMED socket, or null. Read per call: it is null until the
-   * transport's enable settles — a pane restored at boot can ask before that
-   * — and a remembered answer would outlive the fact. Once claimed it stays
-   * claimed for the page's life, so a plan minted against it never outlives
-   * its socket. */
-  socket: () => string | null;
-  connection?: (client?: string) => Promise<McpConnection>;
+  /** The bundled tier, in the order its members are filed. */
+  contributors: readonly BundledMcpContributor[];
+  /** The user's library. REQUIRED even when empty: a default here would make
+   * "no library" the easy, silent form. */
+  library: McpServerSource;
   /** Plant a config in a pane's cwd. REQUIRED, not defaulted: the write must
    * be ORDERED against worktree teardown, and REFUSED for a directory no live
    * pane claims any more — both of which are the worktree owner's knowledge,
@@ -103,46 +127,60 @@ export interface McpInjectionDeps {
   onArmed?: (roots: string[]) => void;
 }
 
-/** A pane that gets nothing: no servers on argv, and nothing to put on disk. */
-const NO_ACCESS: McpAccess = { servers: [], deliver: () => Promise.resolve() };
-
-/** A pane served entirely through its argv — every CLI but kimi. */
-function argvOnly(servers: McpServerSpec[]): McpAccess {
-  return { servers, deliver: () => Promise.resolve() };
-}
+/** An argv-fed pane that gets nothing: no servers, nothing in its
+ * environment, nothing to put on disk. */
+const NO_ACCESS: McpAccess = {
+  entries: [],
+  throughArgv: true,
+  deliver: () => Promise.resolve(),
+};
 
 export function createMcpInjection({
-  socket,
+  contributors,
+  library,
   panesIn,
   plant,
-  connection = mcpConnectionCommand,
   onRefused = () => {},
   onArmed = () => {},
 }: McpInjectionDeps): McpInjection {
-  /** The invocation is per PANE (it names the pane's secret), so unlike the
-   * install-wide parts of it there is nothing to cache. A failure answers
-   * null and is not remembered: the backend may serve the next pane, and
-   * refusing forever because one call failed would need a restart. */
-  async function resolve(
+  /** The bundled tier's answers for one pane, in registry order. A member
+   * that throws costs the pane that server, never the others — and never the
+   * spawn: the contributor's own failure is logged, and the tier goes on. */
+  async function bundledFor(
+    target: McpInjectionTarget,
     client: string | null,
-  ): Promise<McpConnection | null> {
+  ): Promise<McpServerSpec[]> {
+    const answers = await Promise.all(
+      contributors.map(async (contributor) => {
+        try {
+          return await contributor.contribute({ ...target, client });
+        } catch (e) {
+          log.warn(
+            "web:mcp",
+            `bundled server "${contributor.name}" not injected: ${describeError(e)}`,
+          );
+          return null;
+        }
+      }),
+    );
+    return answers.filter((spec): spec is McpServerSpec => spec !== null);
+  }
+
+  /** The library's servers for one workspace. A library that cannot be read
+   * costs the pane its library servers, never its bundled ones and never its
+   * process — and says so once, here. */
+  async function libraryFor(workspaceId: string): Promise<McpInjectable[]> {
     try {
-      return await connection(client ?? undefined);
+      return await library.serversFor(workspaceId);
     } catch (e) {
-      log.warn(
-        "web:mcp",
-        `no connect invocation for injection: ${describeError(e)}`,
-      );
-      return null;
+      log.warn("web:mcp", `MCP library unreadable — pane spawns without it: ${describeError(e)}`);
+      return [];
     }
   }
 
   /** kimi's half of a delivery: the config into the pane's cwd, and what came
    * back reported. A cwd holding the user's own config refuses, and the
-   * refusal is surfaced rather than silently leaving that pane serverless.
-   * Not re-gated on the socket: the plan it belongs to was minted against a
-   * confirmed one, and a claimed socket is never given up while the page
-   * lives. */
+   * refusal is surfaced rather than silently leaving that pane serverless. */
   async function deliverFile(
     target: McpInjectionTarget,
     content: string,
@@ -157,7 +195,6 @@ export function createMcpInjection({
 
   return {
     async access(target) {
-      if (socket() === null) return NO_ACCESS;
       const render = mcpFileRenderer(target.agentType);
       // A shared directory gets no secret ON THE INVOCATION. File delivery is
       // one file per directory, so two panes running there would both announce
@@ -170,26 +207,37 @@ export function createMcpInjection({
       // directory could not use a pane-scoped tool at all — mail refused it
       // with "this connection is not attached to a pane".
       const shared = render !== null && panesIn(target.cwd) > 1;
-      const invoked = await resolve(shared ? null : target.client);
-      if (!invoked) return NO_ACCESS;
-      const { accepted, rejected } = acceptMcpServers([
-        {
-          name: KEEPDECK_MCP_SERVER,
-          transport: "stdio",
-          command: invoked.command,
-          args: invoked.args,
-        },
+      const client = shared ? null : target.client;
+      const [bundled, fromLibrary] = await Promise.all([
+        bundledFor(target, client),
+        libraryFor(target.workspaceId),
       ]);
+      // A bundled server carries no values of its own: what it needs, the
+      // shim reads from the pane's bridge variable.
+      const candidates: McpInjectable[] = [
+        ...bundled.map((spec) => ({ spec, env: [] as [string, string][] })),
+        ...fromLibrary,
+      ];
+      const { accepted, rejected } = acceptMcpServers(candidates.map((entry) => entry.spec));
       for (const { name, reason } of rejected) {
         log.warn("web:mcp", `server "${name}" not injected: ${reason}`);
       }
-      if (!render) return argvOnly(accepted);
+      // Only what was ACCEPTED goes on: an entry dropped for its name takes
+      // its values with it — spec and env are one thing here.
+      const entries = candidates.filter((entry) => accepted.includes(entry.spec));
+      if (!render) {
+        return entries.length === 0
+          ? NO_ACCESS
+          : { entries, throughArgv: true, deliver: () => Promise.resolve() };
+      }
       // A file-fed CLI takes nothing on argv, so its servers ride the delivery
       // instead and the hook is told there is nothing to add. The content is
-      // rendered NOW, against the invocation this pane was answered with, and
-      // written later.
+      // rendered NOW, against the set this pane was answered with, and
+      // written later — an EMPTY set included: the file is the delivery, and
+      // yesterday's file left in place would keep serving a server the user
+      // has since deleted.
       const content = render(accepted);
-      return { servers: [], deliver: () => deliverFile(target, content) };
+      return { entries, throughArgv: false, deliver: () => deliverFile(target, content) };
     },
   };
 }

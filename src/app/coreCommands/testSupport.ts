@@ -28,6 +28,7 @@ import type {
   CreateTeamRequest,
   ResumeRequest,
 } from "../agentOrchestrator";
+import { fakeMcpLibrary } from "../mcpLibrary.fake";
 import { fakeSkillsLibrary } from "../skillsLibrary.fake";
 import { registerCoreCommands } from ".";
 import type { SuspendOutcome } from "../suspendOutcome";
@@ -212,6 +213,7 @@ export function setup(workspaces: Workspace[]) {
   // views) are pinned in its suite, and what the commands owe is the calls they
   // make.
   const skills = fakeSkillsLibrary();
+  const mcpLibrary = fakeMcpLibrary();
   const activityOf = vi.fn<(paneId: string) => PaneActivity | undefined>(
     () => undefined,
   );
@@ -228,11 +230,13 @@ export function setup(workspaces: Workspace[]) {
     openSettings,
     openUsage,
     skills,
+    mcpLibrary,
   });
   return {
     registry,
     deck,
     skills,
+    mcpLibrary,
     activityOf,
     activatePane,
     requestCloseAgent,

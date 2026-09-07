@@ -153,7 +153,7 @@ pub(crate) fn write_atomic_mode(
     let mut name = path.file_name().unwrap_or_default().to_os_string();
     name.push(".tmp");
     let tmp = path.with_file_name(name);
-    {
+    let written = (|| {
         let mut file = fs::File::create(&tmp)?;
         #[cfg(unix)]
         if let Some(mode) = mode {
@@ -164,8 +164,16 @@ pub(crate) fn write_atomic_mode(
         let _ = mode;
         file.write_all(bytes)?;
         file.sync_all()?;
+        drop(file);
+        fs::rename(&tmp, path)
+    })();
+    // A write that failed must not leave its half in place: the `.tmp` may
+    // hold the bytes — a credential, for the MCP library — under a name no
+    // reader looks for and no later write cleans up.
+    if written.is_err() {
+        let _ = fs::remove_file(&tmp);
     }
-    fs::rename(&tmp, path)
+    written
 }
 
 /// The two kinds of kept generation, each with its OWN filename lane and its
@@ -421,6 +429,17 @@ mod tests {
         assert_eq!(kept.len(), PRE_UPDATE.keep);
         // The newest copy always survives — it is the one a restore wants.
         assert!(contents_of(&kept).contains(&format!("gen-{}", PRE_UPDATE.keep + 1)));
+    }
+
+    #[test]
+    fn a_failed_atomic_write_leaves_no_tmp_behind() {
+        // The rename fails (the target is a non-empty directory), so the
+        // bytes already sitting in the `.tmp` sibling must go with it.
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("doc.json");
+        std::fs::create_dir_all(target.join("occupied")).unwrap();
+        assert!(super::write_atomic(&target, b"{\"token\":\"x\"}").is_err());
+        assert!(!dir.path().join("doc.json.tmp").exists());
     }
 
     #[test]

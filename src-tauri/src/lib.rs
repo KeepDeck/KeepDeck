@@ -118,6 +118,7 @@ pub fn run() {
         .manage(voice::VoiceState::default())
         .manage(mcp::server::McpServer::default())
         .manage(mcp::bridge::McpBridge::default())
+        .manage(mcp::library::McpLibraryLock::default())
         .setup(move |app| {
             logging::install_panic_hook();
             logging::banner();
@@ -206,6 +207,12 @@ pub fn run() {
             mcp::arming::mcp_arm,
             mcp::arming::mcp_disarm,
             mcp::arming::mcp_prune,
+            mcp::library::mcp_library_list,
+            mcp::library::mcp_library_save,
+            mcp::library::mcp_library_delete,
+            mcp::library::mcp_library_rename,
+            mcp::library::mcp_library_forget_workspace,
+            mcp::library::mcp_library_prune,
             session::session_spawn,
             session::session_write,
             session::session_resize,

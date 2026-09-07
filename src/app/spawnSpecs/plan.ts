@@ -3,14 +3,17 @@
  * facts that are not the hook's to decide (staged skills in, bridge arming
  * out).
  */
-import type {
-  AgentContribution,
-  ForkPlanInput,
-  McpServerSpec,
-  SpawnPlanInput,
-  SpawnPlanOutput,
+import {
+  isApiVersion,
+  MCP_HTTP_API,
+  type AgentContribution,
+  type ForkPlanInput,
+  type McpServerSpec,
+  type SpawnPlanInput,
+  type SpawnPlanOutput,
 } from "@keepdeck/plugin-api";
 import type { ResumeOrigin } from "../../domain/agents";
+import type { InstalledPlugin } from "../../plugins/model/installed";
 import {
   BRIDGE_PROTOCOL_VERSION,
   type SpawnPlan,
@@ -27,7 +30,13 @@ import type { SpawnPluginAccess } from "./index";
  * on purpose: the feature's richer object remains assignable without making
  * this plan builder import the feature module. */
 export interface McpAccess {
-  servers: McpServerSpec[];
+  /** Each server with what the pane's environment must carry for it — the
+   * values its spec only NAMES, kept off argv by design. One entry, so that
+   * dropping a server here drops its values with it. */
+  entries: { spec: McpServerSpec; env: [string, string][] }[];
+  /** Whether the specs ride the hook's argv; false for a CLI the host feeds
+   * by file, whose hook is told nothing. */
+  throughArgv: boolean;
   deliver(): Promise<void>;
 }
 
@@ -87,6 +96,61 @@ export interface BuiltPlan {
   deliver(): Promise<void>;
 }
 
+/**
+ * The servers a plugin can be trusted to render.
+ *
+ * A plugin built against a contract older than the remote arm has a
+ * `mapMcpServers` that throws on it, and a throwing spawn hook degrades the
+ * pane to a bare spawn — so one remote server would cost an older plugin
+ * every server it DID know how to render. A built-in moves with the host; an
+ * external plugin is judged by its declared floor, and one with no usable
+ * floor counts as old (the gate fails closed, like the manifest gate does).
+ */
+function renderableBy(
+  entries: McpAccess["entries"],
+  owner: Pick<InstalledPlugin, "source" | "manifest"> | undefined,
+  agentId: string,
+): McpAccess["entries"] {
+  if (!owner || owner.source !== "external") return entries;
+  const floor = owner.manifest.minApiVersion;
+  if (isApiVersion(floor) && floor >= MCP_HTTP_API) return entries;
+  const withheld = entries.filter(({ spec }) => spec.transport !== "stdio");
+  if (withheld.length > 0) {
+    log.warn(
+      "web:agents",
+      `${agentId}: ${owner.manifest.id} predates API ${MCP_HTTP_API} — remote MCP servers withheld: ${withheld.map(({ spec }) => spec.name).join(", ")}`,
+    );
+  }
+  // The whole entry goes, values included: a server this pane never hears of
+  // must not leave its token in the pane's environment either.
+  return entries.filter(({ spec }) => spec.transport === "stdio");
+}
+
+/**
+ * The pane's environment, assembled in the order of who owns what. A
+ * library server's variables come FIRST so the plugin's own and the host's
+ * bridge variable win over them: those carry the pane's identity and config,
+ * and a server whose file names `PATH` or the plugin's config variable must
+ * not displace them for the whole pane. The PTY applies pairs last-wins.
+ */
+function paneEnv(
+  agentId: string,
+  mcpEnv: [string, string][],
+  pluginEnv: [string, string][],
+  bridge: [string, string][],
+): [string, string][] {
+  const owned = new Set([...pluginEnv, ...bridge].map(([name]) => name));
+  for (const [name] of mcpEnv) {
+    if (owned.has(name)) {
+      log.warn(
+        "web:agents",
+        `${agentId}: an MCP server sets ${name}, which the pane already owns — the pane's value wins`,
+      );
+    }
+  }
+  return [...mcpEnv, ...pluginEnv, ...bridge];
+}
+
 /** What a plan is FOR — fresh spawn, resume, or fork. Resume/fork carry
  * their session facts; the hook that runs is the variant's. */
 type PlanVariant =
@@ -144,7 +208,23 @@ export async function buildPlan(
         client: mcpToken,
       })
     : null;
-  const mcpServers = access?.servers ?? [];
+  // The hook's owner, looked up BEFORE the hook runs: its manifest bounds
+  // what the hook may be handed (the servers it can render) as well as what
+  // it may answer (the command clamp below).
+  const owner = plugins.pluginHost
+    .getInstalled()
+    .find((installed) => installed.manifest.id === pluginId);
+  // The floor filter is about the PLUGIN's renderer, so it applies only to
+  // what the plugin renders: a file the host wrote carries every server, and
+  // withholding a token from a server that is in the file would break it.
+  const injected = access?.throughArgv
+    ? renderableBy(access.entries, owner, entry.id)
+    : (access?.entries ?? []);
+  const mcpServers = access?.throughArgv ? injected.map((item) => item.spec) : [];
+  // Owed by every plan, the bare one included: a file-fed CLI reads its
+  // servers from its cwd whatever argv it was given, and their values live
+  // nowhere but here.
+  const mcpEnv = injected.flatMap((item) => item.env);
   /** Owed by every exit that produces a plan, and by none that throws: a
    * rejected resume or fork must plant nothing. */
   const deliver = () => access?.deliver() ?? Promise.resolve();
@@ -202,7 +282,7 @@ export async function buildPlan(
     // secret rides along for the same reason — the planted config names it,
     // and dropping it would resolve that pane's every call to nobody.
     return {
-      plan: { command: entry.detect.bin, args: [], env: [], mcpToken },
+      plan: { command: entry.detect.bin, args: [], env: mcpEnv, mcpToken },
       deliver,
     };
   }
@@ -210,9 +290,6 @@ export async function buildPlan(
   // warn for a trusted built-in (a bug to fix), CLAMP for an external
   // (falling back to the agent's own binary, which the registration gate
   // proved covered): a sandboxed plugin must not pick the program.
-  const owner = plugins.pluginHost
-    .getInstalled()
-    .find((installed) => installed.manifest.id === pluginId);
   if (
     owner &&
     !execCovers(owner.manifest.capabilities, output.command ?? "$SHELL")
@@ -255,10 +332,9 @@ export async function buildPlan(
   //
   // Whole, not a port: assembling an address means knowing the route, and a
   // reporter that knew it would have to be told when the route moves.
-  const env: [string, string][] =
+  const bridge: [string, string][] =
     token && paneDir && ctx.bridgeUrl
       ? [
-          ...output.env,
           [
             "KEEPDECK_BRIDGE",
             JSON.stringify({
@@ -270,7 +346,8 @@ export async function buildPlan(
             }),
           ],
         ]
-      : output.env;
+      : [];
+  const env = paneEnv(entry.id, mcpEnv, output.env, bridge);
   return {
     plan: {
       command: output.command,

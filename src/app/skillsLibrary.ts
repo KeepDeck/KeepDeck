@@ -1,3 +1,4 @@
+import { createLibraryNotifier } from "./libraryNotifier";
 import {
   composeSkillFile,
   frontmatterObstacle,
@@ -163,8 +164,7 @@ const beyondUs = (what: string, obstacle: string): string =>
   `${what} — ${obstacle}. Edit its SKILL.md directly.`;
 
 export function createSkillsLibrary(ports: SkillsLibraryPorts): SkillsLibrary {
-  const listeners = new Set<() => void>();
-  let notifying = false;
+  const notifier = createLibraryNotifier();
 
   /** THE scope filter — "which stored rows belong to this library" is asked by
    * every read, so it is answered once here rather than at each caller. */
@@ -229,22 +229,8 @@ export function createSkillsLibrary(ports: SkillsLibraryPorts): SkillsLibrary {
         // Staging's own problem; the write still happened.
       }
       // Same reasoning, same moment, for the readers that are on SCREEN rather
-      // than staged. Not re-entrant: a listener that writes would be notified by
-      // its own write, and nothing would bound the chain.
-      if (!notifying) {
-        notifying = true;
-        try {
-          for (const listener of [...listeners]) {
-            try {
-              listener();
-            } catch {
-              // A view's refresh is not this write's problem.
-            }
-          }
-        } finally {
-          notifying = false;
-        }
-      }
+      // than staged.
+      notifier.notify();
     }
   }
 
@@ -354,9 +340,6 @@ export function createSkillsLibrary(ports: SkillsLibraryPorts): SkillsLibrary {
       await writeThenRestage(() => ports.storage.remove(scope, name));
     },
 
-    subscribe: (listener) => {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
+    subscribe: notifier.subscribe,
   };
 }

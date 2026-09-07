@@ -89,3 +89,30 @@ describe("useModalRouter", () => {
     expect(router().statsTab).toBe("providers");
   });
 });
+
+describe("the MCP servers dialog", () => {
+  it("opens and closes under the same gate as every other dialog", () => {
+    const { render, router } = mount();
+    let opened = false;
+    act(() => {
+      opened = router().openMcp();
+    });
+    expect(opened).toBe(true);
+    expect(router().mcpOpen).toBe(true);
+    expect(router().canOpenDialog).toBe(false);
+
+    // Exclusive with its siblings.
+    act(() => {
+      opened = router().openSkills();
+    });
+    expect(opened).toBe(false);
+
+    // A close verb no-ops while a transaction is up, then works.
+    render(true);
+    act(() => router().closeMcp());
+    expect(router().mcpOpen).toBe(true);
+    render(false);
+    act(() => router().closeMcp());
+    expect(router().mcpOpen).toBe(false);
+  });
+});

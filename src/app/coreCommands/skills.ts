@@ -1,9 +1,9 @@
 import type { ArgSpec, CommandArgs, CommandRegistry, CommandSource } from "../../domain/commands";
-import { findWorkspace } from "../../domain/deck";
-import { skillDraftOf, type SkillScope } from "../../domain/skills";
+import { skillDraftOf } from "../../domain/skills";
 import type { SkillsLibrary } from "../skillsLibrary";
 import type { Deck } from "../useDeck";
 import { requiredStr, text } from "./args";
+import { SCOPE, libraryScopeOf } from "./scope";
 
 /**
  * The skills library as commands — the CRUD half of the deck's control surface
@@ -26,14 +26,6 @@ export interface SkillsCommandDeps {
   deck(): Deck;
   skills: SkillsLibrary;
 }
-
-const SCOPE: ArgSpec = {
-  name: "scope",
-  type: "string",
-  required: true,
-  description:
-    'Which library to touch: "global" for every workspace, or "workspace" for the caller\'s own workspace',
-};
 
 const NAME: ArgSpec = {
   name: "name",
@@ -58,52 +50,15 @@ const BODY: ArgSpec = {
     "The Markdown instructions an agent reads when the skill triggers, without frontmatter",
 };
 
-/** Read `scope` as a library.
- *
- * The workspace arm deliberately takes NO id argument. An external caller is a
- * pane, and a pane belongs to exactly one workspace — letting it name an
- * arbitrary id would let an agent in one workspace write into another's
- * library. A host or plugin caller has no pane, so for them the workspace on
- * screen is the only thing "this workspace" can mean.
- */
-function scopeOf(args: CommandArgs, source: CommandSource, deck: () => Deck): SkillScope {
-  // Read ONCE, through the shared reader — and report the value that was
-  // judged. Quoting `args.scope` here instead described an input this handler
-  // never looked at: the raw wire value, whitespace and all.
-  const scope = requiredStr(args, "scope");
-  if (scope === "global") return { kind: "global" };
-  if (scope !== "workspace") {
-    throw new Error(`scope must be "global" or "workspace", not "${scope}"`);
-  }
-  if (source.kind === "external") {
-    if (!source.pane) {
-      throw new Error(
-        'this client is not tied to a pane, so it has no workspace — use scope "global"',
-      );
-    }
-    return { kind: "workspace", wsId: source.pane.workspaceId };
-  }
-  // Resolve the workspace, not just its id, through the DOMAIN's by-id selector
-  // — the same one `targetWorkspace` uses for every other command in this set,
-  // rather than a second copy of its `find`. `activeId` is a plain string whose
-  // "none" is `""`, and it can also outlive the workspace it names, so a null
-  // check would be dead code and an id check would still let a stale id build a
-  // scope pointing at a library that is gone.
-  const current = deck();
-  const active = findWorkspace(current.workspaces, current.activeId);
-  if (!active) {
-    throw new Error('no workspace is open, so there is no workspace library — use scope "global"');
-  }
-  return { kind: "workspace", wsId: active.id };
-}
-
 export function registerSkillsCommands(
   registry: CommandRegistry,
   deps: SkillsCommandDeps,
 ): (() => void)[] {
   const library = deps.skills;
+  // Which library — the rule shared with every other library the deck
+  // exposes (see `./scope`).
   const scope = (args: CommandArgs, source: CommandSource) =>
-    scopeOf(args, source, deps.deck);
+    libraryScopeOf(args, source, deps.deck);
 
   return [
     registry.register({

@@ -12,6 +12,7 @@ import { notificationCenter } from "./app/notificationCenter";
 import { PluginOverlays } from "./components/PluginOverlays";
 import { SettingsDialog } from "./components/settings/SettingsDialog";
 import { SkillsDialog } from "./components/skills/SkillsDialog";
+import { McpDialog } from "./components/mcp/McpDialog";
 import { StatsDialog } from "./components/stats/StatsDialog";
 import { AgentDialog } from "./components/workspace/AgentDialog";
 import { ForkTargetDialog } from "./components/workspace/ForkTargetDialog";
@@ -92,6 +93,8 @@ function App() {
     closeSettings,
     openSkills,
     closeSkills,
+    openMcp,
+    closeMcp,
     openArtifacts,
     dockControl,
     closeArtifacts,
@@ -104,6 +107,7 @@ function App() {
     showBell,
     showForm,
     skillsOpen,
+    mcpOpen,
     artifactsOpen,
     specByPane,
     statsOpen,
@@ -140,6 +144,7 @@ function App() {
         canOpenDialog={canOpenDialog}
         onOpenStats={() => void openStats()}
         onOpenSkills={() => void openSkills()}
+        onOpenMcp={() => void openMcp()}
         onOpenArtifacts={openArtifacts}
         onOpenSettings={() => void openSettings()}
         notifications={
@@ -372,6 +377,13 @@ function App() {
             <SkillsDialog
               activeWs={active ? { id: active.id, name: active.name } : null}
               onClose={closeSkills}
+              canClose={canCloseDialog}
+            />
+          )}
+          {mcpOpen && (
+            <McpDialog
+              activeWs={active ? { id: active.id, name: active.name } : null}
+              onClose={closeMcp}
               canClose={canCloseDialog}
             />
           )}

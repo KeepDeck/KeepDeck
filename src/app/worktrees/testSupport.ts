@@ -41,11 +41,18 @@ const mcpArmingIpc = vi.hoisted(() => ({
 }));
 vi.mock("../../ipc/mcpArming", () => mcpArmingIpc);
 
+// The library's own sweep rides the same pass.
+const mcpLibraryIpc = vi.hoisted(() => ({
+  pruneMcpLibrary: vi.fn(async (_liveWsIds: string[]) => true),
+}));
+vi.mock("../../ipc/mcpLibrary", () => mcpLibraryIpc);
+
 // Re-exported through a binding of their own: a hoisted declaration cannot be
 // an export itself, and the suites need the doubles they assert on.
 export const worktree = worktreeIpc;
 export const skills = skillsIpc;
 export const mcpArming = mcpArmingIpc;
+export const mcpLibrary = mcpLibraryIpc;
 
 import type { WorkspaceRef } from "@keepdeck/plugin-api";
 import type { Workspace } from "../../domain/deck";
@@ -163,4 +170,5 @@ export function armDoubles(): void {
   mcpArming.mcpArm.mockResolvedValue({ armed: [], refused: [] });
   mcpArming.mcpDisarm.mockResolvedValue(true);
   mcpArming.mcpPrune.mockResolvedValue(true);
+  mcpLibrary.pruneMcpLibrary.mockResolvedValue(true);
 }

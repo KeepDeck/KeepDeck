@@ -1,6 +1,7 @@
 /** The feature cleanup pass, composed beside the two planting adapters. */
 import { pruneSkills } from "../../ipc/skills";
 import { mcpPrune } from "../../ipc/mcpArming";
+import { pruneMcpLibrary } from "../../ipc/mcpLibrary";
 import type {
   LiveWorkspace,
   WorktreeDeckView,
@@ -31,7 +32,11 @@ export function createSweep(
         const departed = unclaimed(swept?.flatMap((ws) => ws.roots) ?? [], live);
         const disarmed = await disarm(departed);
         const liveIds = deck.live().map((ws) => ws.id).sort();
-        const sweeps = await Promise.all([pruneSkills(liveIds), mcpPrune(liveIds)]);
+        const sweeps = await Promise.all([
+          pruneSkills(liveIds),
+          mcpPrune(liveIds),
+          pruneMcpLibrary(liveIds),
+        ]);
         const pruned = sweeps.every(Boolean);
         if (disarmed && pruned) swept = live;
       });

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { McpServerSpec } from "@keepdeck/plugin-api";
+import type { McpStdioServerSpec } from "@keepdeck/plugin-api";
 import { kimiMcpConfig, mcpFileRenderer } from "./kimi";
 
-const server = (name: string): McpServerSpec => ({
+const server = (name: string): McpStdioServerSpec => ({
   name,
   transport: "stdio",
   command: "/bin/keepdeck",
@@ -46,15 +46,6 @@ describe("kimi's mcp.json", () => {
     });
   });
 
-  it("carries env only when a server declares it", () => {
-    const withEnv = JSON.parse(
-      kimiMcpConfig([{ ...server("keepdeck"), env: { KD_PANE: "pane-3" } }]),
-    );
-    expect(withEnv.mcpServers.keepdeck.env).toEqual({ KD_PANE: "pane-3" });
-    const without = JSON.parse(kimiMcpConfig([server("keepdeck")]));
-    expect("env" in without.mcpServers.keepdeck).toBe(false);
-  });
-
   it("writes a file, not a fragment — parseable and newline-terminated", () => {
     const text = kimiMcpConfig([server("keepdeck")]);
     expect(text.endsWith("\n")).toBe(true);
@@ -65,5 +56,48 @@ describe("kimi's mcp.json", () => {
     // Not "no file": the arming path only reaches here with an accepted set,
     // and an empty map is still valid config kimi reads as no servers.
     expect(JSON.parse(kimiMcpConfig([]))).toEqual({ mcpServers: {} });
+  });
+
+  it("keeps a passthrough name out of the file — kimi inherits", () => {
+    const written = JSON.parse(
+      kimiMcpConfig([{ ...server("gh"), envPassthrough: ["GH_TOKEN"] }]),
+    );
+    expect(written.mcpServers.gh).toEqual({
+      command: "/bin/keepdeck",
+      args: ["--mcp-shim", "/home/mcp.sock"],
+    });
+  });
+
+  it("declares a remote server by transport, token through kimi's own field", () => {
+    // kimi's loader discriminates on `transport` and reads the token from the
+    // variable `bearerTokenEnvVar` names — its native way to keep a secret
+    // out of a file on disk.
+    const written = JSON.parse(
+      kimiMcpConfig([
+        {
+          name: "github",
+          transport: "http",
+          url: "https://api.githubcopilot.com/mcp/",
+          headers: { "X-Org": "keepdeck" },
+          bearerTokenEnv: "GH_TOKEN",
+        },
+      ]),
+    );
+    expect(written.mcpServers.github).toEqual({
+      transport: "http",
+      url: "https://api.githubcopilot.com/mcp/",
+      headers: { "X-Org": "keepdeck" },
+      bearerTokenEnvVar: "GH_TOKEN",
+    });
+  });
+
+  it("writes only what a remote server declares", () => {
+    const written = JSON.parse(
+      kimiMcpConfig([{ name: "plain", transport: "http", url: "https://mcp.example/" }]),
+    );
+    expect(written.mcpServers.plain).toEqual({
+      transport: "http",
+      url: "https://mcp.example/",
+    });
   });
 });

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { SpawnMcpInput } from "@keepdeck/plugin-api";
+import type { McpStdioServerSpec } from "@keepdeck/plugin-api";
 import { mcpConfigFragment } from "./mcp";
 
-const server = (name: string): SpawnMcpInput["servers"][number] => ({
+const server = (name: string): McpStdioServerSpec => ({
   name,
   transport: "stdio",
   command: "/bin/keepdeck",
@@ -31,17 +31,54 @@ describe("the opencode mcp config fragment", () => {
     expect(Object.keys(fragment!.mcp)).toEqual(["keepdeck", "mnemo"]);
   });
 
-  it("uses opencode's name for the environment map", () => {
-    const fragment = mcpConfigFragment({
-      servers: [{ ...server("keepdeck"), env: { KD_PANE: "pane-3" } }],
-    });
-    expect(fragment!.mcp.keepdeck).toMatchObject({
-      environment: { KD_PANE: "pane-3" },
-    });
-  });
-
   it("has no fragment at all when there is nothing to inject", () => {
     expect(mcpConfigFragment(undefined)).toBeNull();
     expect(mcpConfigFragment({ servers: [] })).toBeNull();
+  });
+
+  it("keeps a passthrough name out of the fragment — opencode inherits", () => {
+    const fragment = mcpConfigFragment({
+      servers: [{ ...server("gh"), envPassthrough: ["GH_TOKEN"] }],
+    });
+    expect(fragment!.mcp.gh).toEqual({
+      type: "local",
+      command: ["/bin/keepdeck", "--mcp-shim", "/home/mcp.sock"],
+      enabled: true,
+    });
+  });
+
+  it("declares a remote server in opencode's remote shape, token as {env:VAR}", () => {
+    // `{env:NAME}` is opencode's own substitution for a value read from its
+    // environment — the pane's — so the token never enters the config.
+    const fragment = mcpConfigFragment({
+      servers: [
+        {
+          name: "github",
+          transport: "http",
+          url: "https://api.githubcopilot.com/mcp/",
+          headers: { "X-Org": "keepdeck" },
+          bearerTokenEnv: "GH_TOKEN",
+        },
+      ],
+    });
+    expect(fragment!.mcp.github).toEqual({
+      type: "remote",
+      url: "https://api.githubcopilot.com/mcp/",
+      enabled: true,
+      headers: { "X-Org": "keepdeck", Authorization: "Bearer {env:GH_TOKEN}" },
+    });
+  });
+
+  it("leaves headers out of a remote server that sends none", () => {
+    // opencode's config schema is strict; an empty map is a key it did not
+    // ask for.
+    const fragment = mcpConfigFragment({
+      servers: [{ name: "plain", transport: "http", url: "https://mcp.example/" }],
+    });
+    expect(fragment!.mcp.plain).toEqual({
+      type: "remote",
+      url: "https://mcp.example/",
+      enabled: true,
+    });
   });
 });

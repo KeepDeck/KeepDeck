@@ -17,3 +17,26 @@ export {
   type McpServerIdentity,
 } from "./protocol";
 export { shellLine } from "./shellLine";
+export {
+  MCP_SERVER_NAME_RULE,
+  MCP_SPEC_SHAPE,
+  composeMcpServerFile,
+  isValidMcpServerName,
+  mcpScopeKey,
+  mcpScopeOf,
+  mcpServerBodyProblem,
+  mcpServerNameProblem,
+  mcpServerSummary,
+  parseMcpServerFile,
+  sameMcpRef,
+  sameMcpScope,
+  type McpHttpBody,
+  type McpScope,
+  type McpServerBody,
+  type McpServerBodyProblem,
+  type McpServerDraft,
+  type McpServerRef,
+  type McpServerSummary,
+  type McpServerVerdict,
+  type McpStdioBody,
+} from "./library";

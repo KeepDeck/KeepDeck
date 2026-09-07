@@ -27,7 +27,8 @@ import { createJournalPersistence } from "./journalPersistence";
 import type { CommandRegistry } from "../domain/commands";
 import { commands } from "./commandRegistry";
 import { createMailService, wakePaneForMail } from "./mail";
-import { createMcpService } from "./mcp";
+import { createMcp } from "./mcp";
+import { ipcMcpStorage } from "../ipc/mcpLibraryStorage";
 import { createPaneIdentity } from "./mcp/paneIdentity";
 import { paneIdBySpawnSecret, peekPaneSpawnSpec } from "./spawnSpecs";
 import { createArtifactsPolicy } from "./artifacts/policy";
@@ -136,7 +137,10 @@ export function createAppRuntime(
     plugins.pluginRegistries.agents
       .list()
       .map(({ entry }) => ({ id: entry.id, label: entry.label }));
-  const mcp = createMcpService({
+  // The MCP feature: the transport service and the user's library, wired to
+  // each other once behind one door.
+  const mcp = createMcp({
+    storage: ipcMcpStorage,
     registry,
     panesIn: (cwd) => panesRunningIn(deckStore.getSnapshot().workspaces, cwd),
     // kimi's config lands in a pane's cwd, so the owner of those directories
@@ -194,7 +198,7 @@ export function createAppRuntime(
     const shouldRun =
       (getSettings()?.artifacts ?? false) &&
       artifactsEnableOk === true &&
-      mcp.status().socket !== null;
+      mcp.service.status().socket !== null;
     if (shouldRun && disposeArtifactCommands === null) {
       disposeArtifactCommands = registerArtifactCommands(
         registry,
@@ -214,7 +218,7 @@ export function createAppRuntime(
   };
   const stopArtifactWiring = [
     subscribeSettings(reconcileArtifactCommands),
-    mcp.subscribe(reconcileArtifactCommands),
+    mcp.service.subscribe(reconcileArtifactCommands),
   ];
   reconcileArtifactCommands();
   const journalPersistence = createJournalPersistence(
@@ -358,11 +362,12 @@ export function createAppRuntime(
     plugins,
     probe: probeWorktree,
     worktrees,
-    mcpAccess: (target) => mcp.access(target),
+    mcpAccess: (target) => mcp.service.access(target),
     lifecycle,
-    // Workspace deletion drops its artifact store — the deck model is the
-    // only knower of the live workspace set (Rust cannot derive it).
-    dropArtifacts: (wsId) => artifactDropWorkspace(wsId),
+    // Workspace deletion forgets what the backend keeps per workspace — its
+    // artifact store, its MCP library scope — the deck model being the only
+    // knower of the live workspace set.
+    workspaceForgetters: [artifactDropWorkspace, mcp.forgetWorkspace],
   });
   const application = createApplicationController({
     registry,
@@ -372,6 +377,7 @@ export function createAppRuntime(
     paneInputFocus,
     paneView: paneViewActions,
     skills,
+    mcpLibrary: mcp.library,
     activityOf: (paneId) => statusTracker.getSnapshot().panes.get(paneId),
   });
   const worktreeSweeper = createWorktreeSweeper(
@@ -400,7 +406,8 @@ export function createAppRuntime(
     application,
     paneInputFocus,
     paneViewActions,
-    mcp,
+    mcp: mcp.service,
+    mcpLibrary: mcp.library,
     mail,
     usageManager,
     activityWitness,

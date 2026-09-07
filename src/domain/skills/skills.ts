@@ -22,6 +22,10 @@ export type SkillScope =
   | { kind: "workspace"; wsId: string }
   | { kind: "bundled" };
 
+/** The scopes a skill can be AUTHORED into — every scope but the bundled
+ * tier, which is read-only by construction. What a write names. */
+export type SkillLibraryScope = Exclude<SkillScope, { kind: "bundled" }>;
+
 /** Whether two scopes name the SAME library. Here rather than at a call site
  * because every surface that groups, filters or looks a skill up asks it, and
  * two copies of the workspace-id comparison would drift. */

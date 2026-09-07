@@ -1,14 +1,13 @@
 /**
- * The rules a set of MCP server declarations must satisfy before it can be
- * rendered into any client config.
+ * The rule a set of MCP server declarations must satisfy before it can be
+ * rendered into any client config: every CLI keys its servers by name, so
+ * the set may hold each name once, and only names every client accepts.
  *
- * Adapter policy, not domain: every rule here is about a FOREIGN format. The
- * name grammar is what external tool-name conventions accept, and the
- * duplicate rule exists because every CLI's config keys its servers by name.
- * Neither sentence contains any KeepDeck vocabulary, and both change when an
- * agent CLI changes — an outermost-ring event, which is why this sits beside
- * the renderers it guards rather than in the innermost ring. (Pure, tested and
- * framework-free are not what makes something domain.)
+ * Adapter policy, not domain — it is about a FOREIGN format, and changes when
+ * an agent CLI changes — which is why it sits beside the renderers it guards.
+ * The name grammar itself is the domain's (`isValidMcpServerName`): the
+ * library authors names against the same rule, and two homes for it had
+ * already drifted once.
  *
  * The SHAPE it works on is `McpServerSpec` from the plugin API — the same type
  * the hooks receive. A second structurally-identical declaration here would
@@ -16,14 +15,7 @@
  * of them knew about.
  */
 import type { McpServerSpec } from "@keepdeck/plugin-api";
-
-/** External tool-name grammars are `[a-zA-Z0-9_-]` (no dots), and the name
- * becomes part of every tool this server exposes. */
-const SERVER_NAME = /^[A-Za-z0-9_-]{1,64}$/;
-
-export function isValidMcpServerName(name: string): boolean {
-  return SERVER_NAME.test(name);
-}
+import { isValidMcpServerName } from "../../domain/mcp";
 
 export type McpServerRejection =
   /** The name would not survive a tool-name grammar. */

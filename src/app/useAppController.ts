@@ -406,6 +406,8 @@ export function useAppController() {
     closeSettings: modal.closeSettings,
     openSkills: modal.openSkills,
     closeSkills: modal.closeSkills,
+    openMcp: modal.openMcp,
+    closeMcp: modal.closeMcp,
     /** Three controls the top bar offers only sometimes, each composed
      * HERE rather than in the markup: whether a control exists is a
      * policy about the app's state — a setting, a live workspace, a
@@ -433,6 +435,7 @@ export function useAppController() {
     showBell,
     showForm,
     skillsOpen: modal.skillsOpen,
+    mcpOpen: modal.mcpOpen,
     artifactsOpen: modal.artifactsOpen,
     specByPane,
     statsOpen: modal.statsOpen,

@@ -38,6 +38,7 @@ function harness() {
     pumpPorts,
     panesIn: () => 1,
     plant: async () => ({ armed: [], refused: [] }),
+    library: { serversFor: async () => [] },
     identitySource: () =>
       Promise.resolve({ name: "KeepDeck", version: "9.9.9" }),
     connection: vi.fn(() =>
@@ -449,12 +450,34 @@ describe("createMcpService", () => {
       .mockResolvedValueOnce("/home/mcp.sock");
     const service = createMcpService(h.deps);
     await flush();
-    expect((await service.access(claude)).servers).toEqual([]);
+    expect((await service.access(claude)).entries).toEqual([]);
 
     service.refresh(); // the retry lands
     await flush();
-    expect((await service.access(claude)).servers.map((d) => d.name)).toEqual([
+    expect((await service.access(claude)).entries.map((e) => e.spec.name)).toEqual([
       "keepdeck",
+    ]);
+  });
+
+  it("lists the bundled tier for a surface — the name always, the body once confirmed", async () => {
+    // The set is fixed for the service's life (a library reserves those
+    // names at construction); what each member shows follows the status.
+    const h = harness();
+    h.enable
+      .mockRejectedValueOnce(new Error("already served by another process"))
+      .mockResolvedValueOnce("/home/mcp.sock");
+    const service = createMcpService(h.deps);
+    await flush();
+    expect(service.bundled()).toEqual([{ name: "keepdeck", body: null }]);
+
+    service.refresh();
+    await flush();
+    await flush(); // the connect lookup lands after the enable
+    expect(service.bundled()).toEqual([
+      {
+        name: "keepdeck",
+        body: { transport: "stdio", command: "/bin/keepdeck", args: ["--mcp-shim", "/s"], env: {} },
+      },
     ]);
   });
 });
