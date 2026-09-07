@@ -1,11 +1,11 @@
 import {
+  directoriesStillHeld,
   findWorkspaceByRef,
   membersOf,
   normalizePath,
   paneSuspendBlock,
   teamHeldPath,
   teamsOf,
-  worktreeTargets,
   type Pane,
   type Team,
   type Workspace,
@@ -22,6 +22,7 @@ import type {
 } from ".";
 import type { DeckActions } from "../deckActions";
 import type { DeckStore } from "../deckStore";
+import { deletableWorktrees } from "../closing/teardownTargets";
 import { dropPaneSpawnSpec } from "../spawnSpecs";
 import type { CreatedWorktree, WorktreeProvisioner } from "../worktrees";
 
@@ -60,15 +61,6 @@ export interface AgentOrchestratorClosing {
    * BEFORE that, so the deck alone would show the directory as free while a
    * `git worktree remove` is still coming for it. */
   holdsPath(path: string): boolean;
-}
-
-function dedupeByPath(targets: WorktreeTarget[]): WorktreeTarget[] {
-  const byPath = new Map<string, WorktreeTarget>();
-  for (const target of targets) {
-    const key = normalizePath(target.path);
-    if (!byPath.has(key)) byPath.set(key, target);
-  }
-  return [...byPath.values()];
 }
 
 /** One key per {workspace INSTANCE, team}: a `ws-N` slot is reused, and a
@@ -180,6 +172,16 @@ export function createAgentOrchestratorClosing({
    * entry per directory. Never the workspace root: a team there disbands
    * without deleting, structurally, whatever any list says.
    */
+  /** The teams other in-flight closes have taken in this workspace: they are
+   * leaving too, so they keep no directory alive for this one. */
+  function alsoLeaving(workspace: Workspace | undefined): string[] {
+    if (!workspace) return [];
+    const ref = { id: workspace.id, instance: workspace.instance };
+    return teamsOf(workspace)
+      .filter((team) => captured.has(captureKey(ref, team.id)))
+      .map((team) => team.id);
+  }
+
   function doomedFor(
     workspace: Workspace | undefined,
     root: string,
@@ -187,12 +189,24 @@ export function createAgentOrchestratorClosing({
     frozen: readonly WorktreeTarget[],
     created: readonly (CreatedWorktree | null)[],
   ): WorktreeTarget[] {
-    const rootKey = normalizePath(root);
-    return dedupeByPath([
-      ...frozen,
-      ...teamIds.flatMap((teamId) => (workspace ? worktreeTargets(workspace, teamId) : [])),
-      ...created.filter((made): made is CreatedWorktree => made !== null),
-    ]).filter((target) => normalizePath(target.path) !== rootKey);
+    return deletableWorktrees({
+      workspaces: deck.getSnapshot().workspaces,
+      workspace,
+      root,
+      ending: teamIds,
+      alsoLeaving: alsoLeaving(workspace),
+      frozen,
+      created,
+    });
+  }
+
+  /** Whether a team that OUTLIVES this close still works in `path` — the one
+   * reason its directory is not this close's to freeze. */
+  function sparedFor(workspace: Workspace, ending: readonly string[], path: string): boolean {
+    return directoriesStillHeld(deck.getSnapshot().workspaces, workspace.id, [
+      ...ending,
+      ...alsoLeaving(live({ id: workspace.id, instance: workspace.instance })),
+    ]).has(normalizePath(path));
   }
 
   const suspend: AgentOrchestrator["suspend"] = async (wsId, paneId) => {
@@ -247,8 +261,12 @@ export function createAgentOrchestratorClosing({
     const taken = capture(ref, team, membersOf(workspace, team.id));
     if (!taken) return [];
     const held: string[] = [];
+    // A directory a team that OUTLIVES this close still works in is not this
+    // close's to freeze: `doomedFor` will spare it, so holding it only shuts
+    // the live team's directory to landings and creates — with a "being
+    // created or removed" message, while nothing is being removed.
     const hold = (path: string | undefined) => {
-      if (path === undefined) return;
+      if (path === undefined || sparedFor(workspace, [team.id], path)) return;
       holdPath(path, workspace.cwd);
       held.push(path);
     };
@@ -300,8 +318,11 @@ export function createAgentOrchestratorClosing({
       return taken ? [taken] : [];
     });
     const held: string[] = [];
+    const ending = captures.map((taken) => taken.team.id);
+    // Same rule as a disband: a directory another workspace's team still
+    // works in outlives this close, so it is not frozen by it.
     const hold = (path: string | undefined) => {
-      if (path === undefined) return;
+      if (path === undefined || sparedFor(workspace, ending, path)) return;
       holdPath(path, workspace.cwd);
       held.push(path);
     };

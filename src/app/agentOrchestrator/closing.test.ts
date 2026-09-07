@@ -241,6 +241,99 @@ describe("agent orchestrator —disbanding a team", () => {
     expect(discards).toEqual([[target]]);
   });
 
+  it("leaves the worktree alone while a team that SHARES the directory still works there", async () => {
+    // Teams share a directory by consent, so a disband is not always the
+    // last one out — and the one still there would lose its files.
+    act(() =>
+      deck.createTeam("ws-1", {
+        id: "team-3",
+        name: "alongside",
+        location: { kind: "attached", cwd: "/wt/2" },
+      }, { shared: true }),
+    );
+    published.set("team-2", Promise.resolve(target));
+    // Every source still names /wt/2, the dialog's frozen list included.
+    const failures = await act(async () => disband("team-2", true, [target]));
+    expect(discards).toEqual([]);
+    expect(failures).toEqual([]);
+    expect(teamIds("ws-1")).toEqual(["team-1", "team-3"]);
+  });
+
+  it("does not FREEZE a shared directory it is not going to remove", async () => {
+    // The hold exists to keep a landing off a directory the teardown is
+    // about to delete. A directory a live team still works in is not that,
+    // and holding it shut the neighbour's directory to landings and creates
+    // for the whole close — with a "being created or removed" message.
+    act(() =>
+      deck.createTeam("ws-1", {
+        id: "team-3",
+        name: "alongside",
+        location: { kind: "attached", cwd: "/wt/2" },
+      }, { shared: true }),
+    );
+    let release!: () => void;
+    pty.hold = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let disbanding!: Promise<string[]>;
+    act(() => {
+      disbanding = disband("team-2", true, [target]);
+    });
+    await act(async () => {});
+    // Mid-close: team-2 is out of the deck, its reap still out — and team-3
+    // is working in /wt/2 the whole time.
+    expect(teamIds("ws-1")).toEqual(["team-1", "team-3"]);
+    let outcome;
+    await act(async () => {
+      outcome = agentRun.createPane({
+        workspace: refOf("ws-1"),
+        pane: { id: "pane-late", agentType: "claude" },
+        placement: { kind: "attached", cwd: "/wt/2" },
+      });
+    });
+    // It lands — on team-3, which is right there.
+    expect(outcome).toEqual({ kind: "created", teamId: "team-3" });
+    release();
+    await act(async () => {
+      await disbanding;
+    });
+    // And nothing was removed: somebody still works there.
+    expect(discards).toEqual([]);
+  });
+
+  it("leaves a directory another WORKSPACE's team works in", async () => {
+    // Sharing crosses workspaces, and so must the rule that spares a
+    // directory somebody is still in.
+    act(() =>
+      deck.createWorkspace({
+        id: "ws-2",
+        instance: createWorkspaceInstance(),
+        name: "two",
+        cwd: "/repo",
+        worktreeBaseDir: null,
+        panes: [],
+        teams: [{ id: "team-9", name: "next door", location: { kind: "attached", cwd: "/wt/2" } }],
+      }),
+    );
+    published.set("team-2", Promise.resolve(target));
+    const failures = await act(async () => disband("team-2", true, [target]));
+    expect(discards).toEqual([]);
+    expect(failures).toEqual([]);
+  });
+
+  it("deletes the shared directory once the LAST team in it goes", async () => {
+    act(() =>
+      deck.createTeam("ws-1", {
+        id: "team-3",
+        name: "alongside",
+        location: { kind: "attached", cwd: "/wt/2" },
+      }, { shared: true }),
+    );
+    await act(async () => disband("team-2", true, [target]));
+    await act(async () => disband("team-3", true, [target]));
+    expect(discards).toEqual([[target]]);
+  });
+
   it("deletes nothing when the box was left unticked — and still consumes the ticket", async () => {
     published.set("team-2", Promise.resolve(target));
     await act(async () => disband("team-2", false));
@@ -401,7 +494,7 @@ describe("agent orchestrator —disbanding a team", () => {
         placement: { kind: "attached", cwd: "/wt/2" },
       });
     });
-    expect(outcome).toEqual({ kind: "held" });
+    expect(outcome).toMatchObject({ kind: "held" });
     expect(paneIds("ws-1")).toEqual(["pane-1"]);
 
     await act(async () => {
@@ -436,7 +529,7 @@ describe("agent orchestrator —disbanding a team", () => {
         placement: { kind: "attached", cwd: "/wt/two-1" },
       });
     });
-    expect(outcome).toEqual({ kind: "held" });
+    expect(outcome).toMatchObject({ kind: "held" });
     await act(async () => {
       publish(made);
       await disbanding;
@@ -465,7 +558,7 @@ describe("agent orchestrator —disbanding a team", () => {
         placement: { kind: "attached", cwd: "/wt/two-1" },
       });
     });
-    expect(outcome).toEqual({ kind: "held" });
+    expect(outcome).toMatchObject({ kind: "held" });
     await act(async () => {
       publish(null);
       await disbanding;
@@ -554,7 +647,7 @@ describe("agent orchestrator —closing a workspace", () => {
         placement: { kind: "attached", cwd: "/wt/2" },
       });
     });
-    expect(outcome).toEqual({ kind: "held" });
+    expect(outcome).toMatchObject({ kind: "held" });
     // The root is not held: it is never torn down.
     await act(async () => {
       outcome = agentRun.createPane({

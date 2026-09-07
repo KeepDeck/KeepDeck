@@ -54,6 +54,128 @@ export function teamOccupyingPath(
   return null;
 }
 
+/** Whether a team's own worktree create is still RUNNING — the single
+ * question behind "nothing is in that directory yet" and "this card will
+ * leave a directory the close cannot name". A card carrying an `error` is
+ * NOT still out: it is parked waiting for Retry (or restored that way after
+ * a quit), so counting it promises a directory that does not exist and tells
+ * the person to wait for something that will never happen. */
+export function createIsOut(location: TeamLocation | undefined): boolean {
+  return location?.kind === "provisioning" && !location.error;
+}
+
+/**
+ * Who is in a directory — the FACT, not the verdict.
+ *
+ * The verdict differs by door, and belongs to the door: a team asking to be
+ * BORN here may share the directory when the person says so ([`birthRefusal`]),
+ * while a pane asking to LAND here simply joins the team that is in it. One
+ * fact, two policies — merging them cost a release the ability to put a pane
+ * on a team whose worktree was still being created.
+ *
+ * `team`/`ws` name the FIRST holder, this workspace's before any other — the
+ * one a pane would join. `creating` is true when ANY holder at that path has
+ * a create still out, because that fact is about the directory rather than
+ * about whichever team happens to sit first in the list.
+ *
+ * The workspace ROOT is the one directory every workspace opened on the same
+ * repository holds for itself, so a team on it in ANOTHER workspace is not a
+ * claim here. A team on it in this one is, like any other directory.
+ */
+export type DirectoryClaim =
+  | { kind: "free" }
+  | { kind: "held"; ws: Workspace; team: Team; creating: boolean };
+
+export function claimDirectory(
+  workspaces: readonly Workspace[],
+  /** The workspace asking — its own teams answer first, and its root is its
+   * own however many other workspaces hold the same repository. */
+  ws: Workspace,
+  placement: TeamLocation,
+): DirectoryClaim {
+  return claimPath(workspaces, ws, teamHeldPath({ location: placement }) ?? "");
+}
+
+/** The same fact for a bare PATH — what a surface holding a directory and no
+ * placement yet asks. The placement never changed the answer: [`claimDirectory`]
+ * only ever read the path out of it, and inventing a placement to ask this
+ * question is how a form came to ask about one thing and submit another. */
+export function claimPath(
+  workspaces: readonly Workspace[],
+  ws: Workspace,
+  path: string,
+): DirectoryClaim {
+  const wanted = normalizePath(path);
+  if (!wanted) return { kind: "free" };
+  const holds = (candidate: Team): boolean => {
+    const held = teamHeldPath(candidate);
+    return held !== undefined && normalizePath(held) === wanted;
+  };
+  const claimants = (from: Workspace) =>
+    teamsOf(from)
+      .filter(holds)
+      .map((team) => ({ ws: from, team }));
+  const holders = [
+    ...claimants(ws),
+    ...(wanted === normalizePath(ws.cwd)
+      ? []
+      : workspaces.filter((other) => other.id !== ws.id).flatMap(claimants)),
+  ];
+  const first = holders[0];
+  if (!first) return { kind: "free" };
+  return {
+    kind: "held",
+    ...first,
+    creating: holders.some((held) => createIsOut(held.team.location)),
+  };
+}
+
+/**
+ * Whether a team may be BORN at `placement` — the birth policy, one home,
+ * asked by the transform below and by the app's outcome builder alike.
+ *
+ * `"busy"` — nothing consent can buy: a create is heading for the directory
+ * on one side of the question or the other, and git makes no second worktree
+ * on one path. `"unshared"` — a team works there and nobody has said to share
+ * it yet; the surfaces turn this into a question. `null` — go ahead.
+ */
+export function birthRefusal(
+  claim: DirectoryClaim,
+  placement: TeamLocation,
+  /** The person (or agent) has answered "create anyway". */
+  shared: boolean,
+): "busy" | "unshared" | null {
+  if (claim.kind === "free") return null;
+  if (placement.kind === "provisioning" || claim.creating) return "busy";
+  return shared ? null : "unshared";
+}
+
+/**
+ * The directories teams are STILL working in once `ending` — teams of the
+ * workspace `wsId` — are gone. What a close must leave alone: teams share a
+ * directory, so a close is not always the last one out, and a worktree
+ * somebody still works in outlives it. Read across every workspace, since
+ * sharing crosses them too.
+ */
+export function directoriesStillHeld(
+  workspaces: readonly Workspace[],
+  wsId: string,
+  ending: readonly string[],
+): Set<string> {
+  const leaving = new Set(ending);
+  const kept = new Set<string>();
+  for (const ws of workspaces) {
+    for (const team of teamsOf(ws)) {
+      // Only that workspace's teams are ending; the same id elsewhere is a
+      // different team, and it keeps its directory.
+      if (ws.id === wsId && leaving.has(team.id)) continue;
+      const held = teamHeldPath(team);
+      if (held !== undefined) kept.add(normalizePath(held));
+    }
+  }
+  return kept;
+}
+
 /** Whether `name` is held by a team in the workspace other than `except`. */
 export function teamNameTaken(
   ws: Workspace,
@@ -78,28 +200,25 @@ export function teamNameTaken(
  * The workspace ROOT is the one directory every workspace opened on the
  * same repository holds for itself: a team on it in another workspace does
  * not hold it here. A second team on it in THIS workspace is refused like
- * any other doubly-held directory.
+ * any other doubly-held directory — UNLESS the caller passes `shared`.
+ *
+ * `shared` is the person's answered consent ("create anyway"), and it lifts
+ * exactly one refusal — [`birthRefusal`]'s `"unshared"`, a directory teams
+ * already WORK in. What that function calls `"busy"` refuses whatever the
+ * caller says.
  */
 export function createTeam(
   workspaces: Workspace[],
   workspaceId: string,
   team: Team & { location: TeamLocation },
+  options: { shared?: boolean } = {},
 ): Workspace[] {
   const ws = workspaces.find((candidate) => candidate.id === workspaceId);
   if (!ws) return workspaces;
   if (!team.name.trim()) return workspaces;
   if (findTeam(ws, team.id) || teamNameTaken(ws, team.name)) return workspaces;
-  const path = teamHeldPath(team);
-  if (path) {
-    const wanted = normalizePath(path);
-    const heldHere = teamsOf(ws).some((candidate) => {
-      const held = teamHeldPath(candidate);
-      return held !== undefined && normalizePath(held) === wanted;
-    });
-    if (heldHere) return workspaces;
-    const ownRoot = wanted === normalizePath(ws.cwd);
-    if (!ownRoot && teamOccupyingPath(workspaces, path)) return workspaces;
-  }
+  const claim = claimDirectory(workspaces, ws, team.location);
+  if (birthRefusal(claim, team.location, options.shared === true)) return workspaces;
   return mapWorkspaceTeams(workspaces, workspaceId, (teams) => [...teams, team]);
 }
 

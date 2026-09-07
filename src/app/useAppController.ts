@@ -138,6 +138,10 @@ export function useAppController() {
   });
   const transactions = [
     agentFlow.dialog,
+    // The "another team works here — create anyway?" question is a
+    // transaction like any other: it holds the keyboard and blocks the
+    // settings layer while it stands.
+    agentFlow.sharedAsk,
     closeFlow.closing,
     forkDialog,
     error,

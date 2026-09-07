@@ -4,11 +4,13 @@ import {
   type AgentDialogTarget,
   type AgentInfo,
   type AgentType,
+  type DirectoryState,
   type SessionPickRow,
 } from "../domain/agents";
 import {
   autoTeamName,
   baseName,
+  directoryState,
   findTeam,
   findWorkspaceByRef,
   firstFreeTeamWorktree,
@@ -20,7 +22,7 @@ import {
   sessionClaimant,
   TEAM_FULL_MESSAGE,
   WORKSPACE_GONE_MESSAGE,
-  WORKTREE_HELD_MESSAGE,
+  placementRefusalMessage,
   type Workspace,
 } from "../domain/deck";
 import { handleFromHit } from "../domain/journal";
@@ -37,6 +39,7 @@ import {
   nextAgentType,
 } from "./newAgentDefaults";
 import { useAppRuntime } from "./runtimeContext";
+import type { DirectoryHolder } from "./agentOrchestrator";
 import type { Deck } from "./useDeck";
 
 /** Where a "Start from" continuation reports its failure. A continuation the
@@ -53,6 +56,22 @@ export interface AgentDialogNotices {
   /** The workspace refused the team — its directory is a team's already,
    * its name is taken, or it is gone. Same reason: the dialog is closed. */
   onTeamFailed(message: string): void;
+}
+
+/**
+ * The consent a team asks for when its directory is another team's already.
+ *
+ * Teams sharing a directory is a way of working, not a mistake — so the door
+ * does not refuse, it names who is there and asks. `confirm` re-issues the
+ * SAME create carrying the answer; `cancel` drops it. The "+ Team" dialog is
+ * already closed by then, exactly as it is for any other outcome.
+ */
+export interface SharedDirectoryAsk {
+  holder: DirectoryHolder;
+  /** The directory both teams would work in, as the request spelled it. */
+  path: string;
+  confirm(): void;
+  cancel(): void;
 }
 
 /** What the dialog is opened FOR, as the caller says it: a new team, or a
@@ -112,6 +131,13 @@ export function useAgentDialog(
 ) {
   const { orchestrator } = useAppRuntime();
   const [dialog, setDialog] = useState<AgentDialogSpec | null>(null);
+  /** The open "create anyway?" question, if one is standing. */
+  const [sharedAsk, setSharedAsk] = useState<SharedDirectoryAsk | null>(null);
+  /** The standing question as the LATE half of `openFor` sees it: that half
+   * runs after its IPC awaits, by which time a form opened before the
+   * question could otherwise mount on top of it. */
+  const askRef = useRef<SharedDirectoryAsk | null>(null);
+  askRef.current = sharedAsk;
   const deckRef = useRef(deck);
   deckRef.current = deck;
 
@@ -188,6 +214,9 @@ export function useAgentDialog(
     // public id can already name a replacement, so only the exact lifetime is
     // allowed to open this dialog.
     if (!findWorkspaceByRef(deckRef.current.workspaces, workspace)) return;
+    // A question about a directory is standing: it was asked for a create
+    // this door would replace, and the person answers it first.
+    if (askRef.current) return;
     setDialog({
       workspace,
       agentId: paneId(seq),
@@ -233,31 +262,53 @@ export function useAgentDialog(
       // A team and nothing else: no agent lands here. The team just born is
       // where the person's attention is, so the stage drills into it — an
       // empty grid with the way to its first member.
-      const made = orchestrator.createTeam({
-        workspace: dlg.workspace,
-        name: result.teamName ?? dlg.target.suggestedName,
-        placement: request.placement,
-      });
-      switch (made.kind) {
-        case "created":
-          deckRef.current.openTeam(dlg.workspace.id, made.teamId);
-          break;
-        case "gone":
-          notices.onTeamFailed(WORKSPACE_GONE_MESSAGE);
-          break;
-        case "held":
-          notices.onTeamFailed(WORKTREE_HELD_MESSAGE);
-          break;
-        case "taken":
-          notices.onTeamFailed(
-            `A team called “${(result.teamName ?? dlg.target.suggestedName).trim()}” already exists here.`,
-          );
-          break;
-        default: {
-          const unhandled: never = made;
-          throw new Error(`unhandled team outcome: ${JSON.stringify(unhandled)}`);
+      const teamName = result.teamName ?? dlg.target.suggestedName;
+      // Issued twice at most: once as asked, and once more carrying the
+      // answer to "another team works here — create anyway?".
+      const make = (shared?: true) => {
+        const made = orchestrator.createTeam({
+          workspace: dlg.workspace,
+          name: teamName,
+          placement: request.placement,
+          ...(shared && { shared }),
+        });
+        switch (made.kind) {
+          case "created":
+            deckRef.current.openTeam(dlg.workspace.id, made.teamId);
+            break;
+          case "gone":
+            notices.onTeamFailed(WORKSPACE_GONE_MESSAGE);
+            break;
+          case "shared":
+            // Not a failure: the person has not been asked yet. Asked here
+            // rather than guarded in the form, because only the create knows
+            // WHOSE the directory is — and the answer is a decision, not a
+            // correction to make in a field.
+            setSharedAsk({
+              holder: made.holder,
+              path: made.directory,
+              confirm: () => {
+                setSharedAsk(null);
+                make(true);
+              },
+              cancel: () => setSharedAsk(null),
+            });
+            break;
+          case "held":
+            notices.onTeamFailed(placementRefusalMessage(made.why));
+            break;
+          case "taken":
+            notices.onTeamFailed(
+              `A team called “${teamName.trim()}” already exists here.`,
+            );
+            break;
+          default: {
+            const unhandled: never = made;
+            throw new Error(`unhandled team outcome: ${JSON.stringify(unhandled)}`);
+          }
         }
-      }
+      };
+      make();
       return;
     }
 
@@ -314,7 +365,7 @@ export function useAgentDialog(
         notices.onCreateFailed(WORKSPACE_GONE_MESSAGE);
         break;
       case "held":
-        notices.onCreateFailed(WORKTREE_HELD_MESSAGE);
+        notices.onCreateFailed(placementRefusalMessage(landed.why));
         break;
       case "created":
         break;
@@ -411,10 +462,26 @@ export function useAgentDialog(
       (paneId) => paneId in blockedPanes,
     )?.reads ?? null;
 
+  /**
+   * What the deck says about a candidate directory for THIS dialog — the
+   * location field's one deck question, owned here beside every other one
+   * (`nextFree`, `branchFor`, `sessionClaim`) rather than assembled in JSX
+   * from a workspace a view would have to guess at.
+   */
+  const directoryAt = (path: string): DirectoryState => {
+    const dlg = dialog;
+    if (!dlg) return "free";
+    const workspaces = deckRef.current.workspaces;
+    const ws = findWorkspaceByRef(workspaces, dlg.workspace);
+    return ws ? directoryState(workspaces, ws, path) : "free";
+  };
+
   const cancel = () => setDialog(null);
 
   return {
     dialog,
+    sharedAsk,
+    directoryAt,
     openFor,
     confirm,
     cancel,

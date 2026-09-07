@@ -5,7 +5,10 @@ import type { Pane } from "../panes/model";
 import type { Workspace } from "../workspaces";
 import { findTeam, membersOf } from "./collection";
 import {
+  birthRefusal,
+  claimDirectory,
   createTeam,
+  directoriesStillHeld,
   dissolveTeam,
   joinTeam,
   renameTeam,
@@ -167,32 +170,66 @@ describe("createTeam", () => {
     expect(teamHeldPath(next[0].teams![0])).toBe("/ws-1");
   });
 
-  it("refuses a name some team holds, a blank name, a used id and a held directory", () => {
+  it("refuses a name some team holds, a blank name, a used id and an unasked-for directory", () => {
     const base = createTeam([workspace("ws-1", [])], "ws-1", spec());
     expect(createTeam(base, "ws-1", spec({ id: "team-2", name: " API " }))).toBe(base);
     expect(createTeam(base, "ws-1", spec({ id: "team-2", name: "  " }))).toBe(base);
     expect(createTeam(base, "ws-1", spec({ name: "web" }))).toBe(base);
+    // A directory a team works in: refused UNTIL the caller says it means it.
     expect(
       createTeam(base, "ws-1", spec({ id: "team-2", name: "web", location: attached("/wt/1/") })),
     ).toBe(base);
-    // A directory a create is HEADING for is held just as firmly.
+    // A directory a create is HEADING for is refused whatever the caller says.
     expect(
       createTeam(base, "ws-1", spec({ id: "team-2", name: "web", location: creating("/wt/1") })),
+    ).toBe(base);
+    expect(
+      createTeam(
+        base,
+        "ws-1",
+        spec({ id: "team-2", name: "web", location: creating("/wt/1") }),
+        { shared: true },
+      ),
     ).toBe(base);
     expect(teamNameTaken(base[0], "Api")).toBe(true);
     expect(teamNameTaken(base[0], "Api", "team-1")).toBe(false);
   });
 
-  it("holds a directory across workspaces: one directory is one team's", () => {
+  it("takes a second team into a directory the caller asked to share", () => {
+    const base = createTeam([workspace("ws-1", [])], "ws-1", spec());
+    const shared = createTeam(
+      base,
+      "ws-1",
+      spec({ id: "team-2", name: "web", location: attached("/wt/1/") }),
+      { shared: true },
+    );
+    expect(shared[0].teams?.map((team) => team.id)).toEqual(["team-1", "team-2"]);
+    // Both work in the one directory, spelled as each asked for it.
+    expect(shared[0].teams?.map((team) => teamHeldPath(team))).toEqual(["/wt/1", "/wt/1/"]);
+  });
+
+  it("never shares a directory a create is still heading for — on either side of the question", () => {
+    const heading = createTeam([workspace("ws-1", [])], "ws-1", spec({ location: creating("/wt/1") }));
+    expect(
+      createTeam(heading, "ws-1", spec({ id: "team-2", name: "web", location: attached("/wt/1") }), {
+        shared: true,
+      }),
+    ).toBe(heading);
+  });
+
+  it("asks the same of another workspace's directory — refused unasked, taken when meant", () => {
     const base = createTeam([workspace("ws-1", []), workspace("ws-2", [])], "ws-1", spec());
     expect(teamOccupyingPath(base, "/wt/1")?.team.id).toBe("team-1");
     expect(createTeam(base, "ws-2", spec({ id: "team-2" }))).toBe(base);
+    const shared = createTeam(base, "ws-2", spec({ id: "team-2" }), { shared: true });
+    expect(shared[1].teams?.map((team) => team.id)).toEqual(["team-2"]);
   });
 
-  it("lets every workspace on one repository hold its own root — and never two roots in one workspace", () => {
+  it("lets every workspace on one repository hold its own root, and asks before a second root team", () => {
     // The root is the one directory two workspaces legitimately share: a
-    // team on it in ws-1 does not hold it for ws-2. A SECOND team on it in
-    // the same workspace is refused like any doubly-held directory.
+    // team on it in ws-1 does not hold it for ws-2, so ws-2 is never asked.
+    // A SECOND team on it in the SAME workspace is asked for like any other
+    // shared directory.
     const shared: Workspace[] = [
       { ...workspace("ws-1", []), cwd: "/repo" },
       { ...workspace("ws-2", []), cwd: "/repo" },
@@ -201,9 +238,119 @@ describe("createTeam", () => {
     expect(first).not.toBe(shared);
     const second = createTeam(first, "ws-2", spec({ id: "team-2", location: attached("/repo") }));
     expect(second[1].teams?.map((team) => team.id)).toEqual(["team-2"]);
+    const third = spec({ id: "team-3", name: "again", location: attached("/repo") });
+    expect(createTeam(second, "ws-1", third)).toBe(second);
     expect(
-      createTeam(second, "ws-1", spec({ id: "team-3", name: "again", location: attached("/repo") })),
-    ).toBe(second);
+      createTeam(second, "ws-1", third, { shared: true })[0].teams?.map((team) => team.id),
+    ).toEqual(["team-1", "team-3"]);
+  });
+});
+
+describe("claimDirectory", () => {
+  const ws = (id: string, cwd: string, teams: Team[]): Workspace => ({
+    ...workspace(id, []),
+    cwd,
+    teams,
+  });
+  const team = (id: string, location: TeamLocation): Team => ({ id, name: id, location });
+
+  it("calls a directory nobody is in free — and one with no path at all", () => {
+    const one = ws("ws-1", "/repo", []);
+    expect(claimDirectory([one], one, attached("/wt/1")).kind).toBe("free");
+    expect(claimDirectory([one], one, attached("   ")).kind).toBe("free");
+  });
+
+  it("names who is in a directory a team WORKS in, and says their create is done", () => {
+    const one = ws("ws-1", "/repo", [team("team-1", attached("/wt/1"))]);
+    expect(claimDirectory([one], one, attached("/wt/1/"))).toMatchObject({
+      kind: "held",
+      team: { id: "team-1" },
+      creating: false,
+    });
+  });
+
+  it("reports a create still OUT as the fact it is — the policy is the caller's", () => {
+    const heading = ws("ws-1", "/repo", [team("team-1", creating("/wt/1"))]);
+    expect(claimDirectory([heading], heading, attached("/wt/1"))).toMatchObject({
+      kind: "held",
+      creating: true,
+    });
+    // A create that FAILED is not one still running: its card waits for Retry.
+    const failed = ws("ws-1", "/repo", [
+      {
+        id: "team-1",
+        name: "team-1",
+        location: { kind: "provisioning", intent: { repo: "/repo", path: "/wt/1", index: 1 }, error: "boom" },
+      },
+    ]);
+    expect(claimDirectory([failed], failed, attached("/wt/1"))).toMatchObject({
+      creating: false,
+    });
+  });
+
+  it("reports the directory's create, not the first team's, whatever order they sit in", () => {
+    const both = ws("ws-1", "/repo", [
+      team("team-1", attached("/wt/1")),
+      team("team-2", creating("/wt/1")),
+    ]);
+    expect(claimDirectory([both], both, attached("/wt/1"))).toMatchObject({
+      kind: "held",
+      // The team a pane would JOIN is the first one …
+      team: { id: "team-1" },
+      // … and the directory still has a create out.
+      creating: true,
+    });
+  });
+
+  it("reaches across workspaces, and names the workspace the holder is in", () => {
+    const here = ws("ws-1", "/repo-a", []);
+    const there = ws("ws-2", "/repo-b", [team("team-1", attached("/wt/1"))]);
+    expect(claimDirectory([here, there], here, attached("/wt/1"))).toMatchObject({
+      kind: "held",
+      ws: { id: "ws-2" },
+      team: { id: "team-1" },
+    });
+  });
+
+  it("keeps the root exception: a team on another workspace's root is no claim here", () => {
+    const here = ws("ws-1", "/repo", []);
+    const there = ws("ws-2", "/repo", [team("team-1", attached("/repo"))]);
+    expect(claimDirectory([here, there], here, attached("/repo")).kind).toBe("free");
+    // The same root in the SAME workspace is a claim like any other.
+    const taken = ws("ws-1", "/repo", [team("team-1", attached("/repo"))]);
+    expect(claimDirectory([taken, there], taken, attached("/repo")).kind).toBe("held");
+  });
+
+  it("birthRefusal turns the fact into the birth policy — and nothing else does", () => {
+    const one = ws("ws-1", "/repo", [team("team-1", attached("/wt/1"))]);
+    const held = claimDirectory([one], one, attached("/wt/1"));
+    expect(birthRefusal(held, attached("/wt/1"), false)).toBe("unshared");
+    expect(birthRefusal(held, attached("/wt/1"), true)).toBeNull();
+    // A create of our own onto it: git makes no second worktree on one path.
+    expect(birthRefusal(held, creating("/wt/1"), true)).toBe("busy");
+    expect(birthRefusal({ kind: "free" }, attached("/wt/1"), false)).toBeNull();
+  });
+});
+
+describe("directoriesStillHeld", () => {
+  const team = (id: string, cwd: string): Team => ({ id, name: id, location: attached(cwd) });
+
+  it("keeps a directory a surviving team shares, and lets go of one nobody is left in", () => {
+    const one: Workspace = {
+      ...workspace("ws-1", []),
+      teams: [team("team-1", "/wt/1"), team("team-2", "/wt/1"), team("team-3", "/wt/3")],
+    };
+    const kept = directoriesStillHeld([one], "ws-1", ["team-1", "team-3"]);
+    // team-2 still works in /wt/1; nobody is left in /wt/3.
+    expect([...kept]).toEqual(["/wt/1"]);
+  });
+
+  it("counts teams in other workspaces — sharing crosses them", () => {
+    const here: Workspace = { ...workspace("ws-1", []), teams: [team("team-1", "/wt/1")] };
+    const there: Workspace = { ...workspace("ws-2", []), teams: [team("team-1", "/wt/1")] };
+    // The same id elsewhere is a DIFFERENT team, and it keeps the directory.
+    expect([...directoriesStillHeld([here, there], "ws-1", ["team-1"])]).toEqual(["/wt/1"]);
+    expect([...directoriesStillHeld([here], "ws-1", ["team-1"])]).toEqual([]);
   });
 });
 

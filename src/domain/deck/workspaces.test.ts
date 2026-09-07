@@ -12,7 +12,7 @@ import {
   parentDir,
   renameWorkspace,
   resolveActiveId,
-  pathOccupancy,
+  directoryState,
   setWorkspacePluginSlot,
   worktreeTargets,
   type Workspace,
@@ -368,8 +368,8 @@ describe("gitWatchPaths", () => {
   });
 });
 
-describe("pathOccupancy", () => {
-  it("a team's directory is worktree occupancy; a provisioning target isn't; a pane holds nothing of its own", () => {
+describe("directoryState", () => {
+  it("says what a location field needs: worked in, being created, or free", () => {
     const deck: Workspace[] = [
       {
         ...ws("a", []),
@@ -377,11 +377,29 @@ describe("pathOccupancy", () => {
         panes: [memberOf("a-p1", "team-1"), memberOf("a-p2", "team-2"), { id: "a-p3" }],
       },
     ];
-    expect(pathOccupancy(deck, "/wt/live")).toBe("worktree");
-    expect(pathOccupancy(deck, "  /wt/live/ ")).toBe("worktree");
-    expect(pathOccupancy(deck, "/wt/pending")).toBe("provisioning");
-    expect(pathOccupancy(deck, "/wt/free")).toBeNull();
-    expect(pathOccupancy(deck, "   ")).toBeNull();
+    const here = deck[0];
+    // A team WORKS there — not a refusal: the field offers the attach, and
+    // the create asks the person whose directory it is.
+    expect(directoryState(deck, here, "/wt/live")).toBe("worked-in");
+    expect(directoryState(deck, here, "  /wt/live/ ")).toBe("worked-in");
+    // A create is heading there: nothing to attach to, and no second one.
+    expect(directoryState(deck, here, "/wt/pending")).toBe("being-created");
+    expect(directoryState(deck, here, "/wt/free")).toBe("free");
+    expect(directoryState(deck, here, "   ")).toBe("free");
+  });
+
+  it("a create that FAILED is not one still running", () => {
+    // Its card waits for Retry; telling the person to "try again in a
+    // moment" would be a wait that never ends.
+    const failed = creatingTeam("team-2", "/wt/pending");
+    const deck: Workspace[] = [
+      {
+        ...ws("a", []),
+        teams: [{ ...failed, location: { ...failed.location!, error: "boom" } as never }],
+        panes: [],
+      },
+    ];
+    expect(directoryState(deck, deck[0], "/wt/pending")).toBe("worked-in");
   });
 });
 

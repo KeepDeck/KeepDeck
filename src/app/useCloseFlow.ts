@@ -3,23 +3,36 @@ import {
   findPane,
   findTeam,
   findWorkspace,
-  idleReadsAsStopped,
   membersOf,
   paneAgentType,
   paneHasProcess,
-  paneSuspendBlock,
-  paneWakesAutomatically,
   teamOfPane,
   teamsOf,
-  worktreeTargets,
   type GitPosition,
   type Pane,
-  type Team,
   type WorktreeTarget,
   type Workspace,
 } from "../domain/deck";
 import type { WorkspaceRef } from "../domain/workspaceInstance";
 import { probeWorktree } from "../ipc/worktree";
+import { closeMessageFor } from "./closing/closeMessage";
+// The model and the copy moved to modules of their own; they are still part
+// of what this flow IS, so its consumers keep taking them from here.
+export { closeMessageFor } from "./closing/closeMessage";
+export type {
+  CarrierNote,
+  ClosingPaneFacts,
+  ClosingTarget,
+  TeamTeardownOffer,
+} from "./closing/closingTarget";
+import {
+  paneFactsOf,
+  pendingCreates,
+  type CarrierNote,
+  type ClosingTarget,
+  type TeamTeardownOffer,
+} from "./closing/closingTarget";
+import { deletableWorktrees, existingTargets } from "./closing/teardownTargets";
 import { suspendRefusalText, type SuspendOutcome } from "./suspendOutcome";
 import type { BackgroundCarrier } from "./liveSessions";
 import type { CloseRequest } from "./agentOrchestrator";
@@ -29,238 +42,6 @@ import type { Deck } from "./useDeck";
  * WARNS ("background" proven, or the ask failed = "unknown"). A "none"
  * answer never sets it — the ordinary close's text stays untouched to the
  * character and the dialog does not even re-render. */
-export type CarrierNote = { kind: "background" } | { kind: "unknown" };
-
-/** A team's worktree, as a close could take it: the directories that
- * exist, snapshotted — and probed for existence — at open time, and
- * whether the team's create is still genuinely OUT. A team mid-create has
- * no directory yet, so `targets` cannot describe it — but a create that
- * lands after the close leaves a directory and branch nothing will ever
- * name again, so the offer has to cover it; what it actually made is only
- * known once it settles. */
-export interface TeamTeardownOffer {
-  targets: WorktreeTarget[];
-  /** How many of the teams' creates are still out — each one a worktree
-   * the offer covers without being able to name. */
-  pending: number;
-}
-
-/** A pending close awaiting confirmation ([U6]) — an agent, a team, or a
- * whole workspace. Closing tears down live PTY session(s) immediately, so
- * all three are confirmed before they run. The modal blocks all mutation,
- * so what it snapshotted can't go stale. */
-export type ClosingTarget =
-  | {
-      kind: "agent";
-      workspace: WorkspaceRef;
-      paneId: string;
-      label: string;
-      /** Everything the dialog says or offers about the pane, read at the
-       * moment it opened — ALL of it, deliberately.
-       *
-       * Derived live, the offer vanished under the pointer: the revive sweep
-       * reporting a gone folder mid-dialog removed the middle button and slid
-       * the destructive Close into the slot the user was aiming at. Splitting
-       * the facts was worse than either: with `stopped` frozen and `rising`
-       * live, a pane that stopped while the dialog was up produced a sentence
-       * neither rule would give — "Its terminal session will be ended" about
-       * a pane with no process.
-       *
-       * So they travel together, and the actions re-check rather than the
-       * text: the suspend refuses a stale offer at the click, and says so. */
-      pane: ClosingPaneFacts;
-      /** The team this pane is the LAST member of, when it is. The dialog
-       * then speaks two verbs: disbanding the team (the primary — with its
-       * worktree on offer) and closing the agent alone (the team and its
-       * directory stay). Null for a member with company, or a pane on no
-       * team: closing one of those is never asked about a directory. */
-      last: (TeamTeardownOffer & { teamId: string; name: string }) | null;
-    }
-  | ({
-      kind: "team";
-      workspace: WorkspaceRef;
-      teamId: string;
-      name: string;
-      count: number;
-    } & TeamTeardownOffer)
-  | ({
-      kind: "workspace";
-      workspace: WorkspaceRef;
-      name: string;
-      count: number;
-    } & TeamTeardownOffer);
-
-/** Keep only targets whose directory is still there: offering to delete a
- * worktree that's already gone is noise, and taking the offer can only fail
- * (the "Folder is gone" tile, or a worktree removed under a live pane). Only
- * a positive "not there" drops a target — a probe that REJECTS (IPC trouble,
- * not a missing path) keeps it, degrading to the old always-offer behavior. */
-async function liveTargets(
-  candidates: WorktreeTarget[],
-): Promise<WorktreeTarget[]> {
-  const checked = await Promise.all(
-    candidates.map((target) =>
-      probeWorktree(target.path).then(
-        (probe) => (probe.exists ? [target] : []),
-        () => [target],
-      ),
-    ),
-  );
-  return checked.flat();
-}
-
-/** The pane as the dialog found it, frozen when the dialog opened. */
-export interface ClosingPaneFacts {
-  /** The pane's team's worktree create is still in flight — it has never run. */
-  provisioning: boolean;
-  /** On its way up: no session YET, as opposed to none any more. */
-  rising: boolean;
-  /** Reads as stopped to the user (see `idleReadsAsStopped`). */
-  stopped: boolean;
-  /** Suspend is on offer. */
-  canSuspend: boolean;
-}
-
-/** Read the pane's facts as one set, so no caller can take half of them. */
-function paneFactsOf(
-  ws: Workspace | undefined,
-  pane: Pane | undefined,
-  blocked: boolean,
-): ClosingPaneFacts {
-  const placed = ws && pane;
-  return {
-    provisioning: !!placed && teamOfPane(ws, pane)?.location?.kind === "provisioning",
-    rising: !!pane && paneWakesAutomatically(pane),
-    stopped: !!pane && idleReadsAsStopped(pane.idle, blocked),
-    canSuspend: !!placed && paneSuspendBlock(ws, pane, blocked) === null,
-  };
-}
-
-/**
- * The teams whose worktree create is genuinely STILL OUT — no directory
- * yet, so `worktreeTargets` cannot see them, but one that lands after the
- * close would leave a directory behind.
- *
- * `error` is what separates them from the two look-alikes that also keep a
- * `provisioning` intent: a create that already failed (and rolled its own
- * directory back), and one interrupted by a quit and restored as a failed
- * card. Counting those made the checkbox promise to delete worktrees that do
- * not exist.
- */
-function pendingCreates(teams: readonly Team[]): number {
-  return teams.filter(
-    (team) => team.location?.kind === "provisioning" && !team.location.error,
-  ).length;
-}
-
-/** The sentence about the sessions a close of `count` agents ends, of
- * which `running` still hold one. Only the agents that actually HOLD a
- * session are counted as losing one. "Stopped" is not the word for all of
- * the rest — a pane on its way up has no session YET, and one mid-create
- * has never had one — so the none-running case says what is true of every
- * way of having none, rather than branching on a distinction this sentence
- * does not need. */
-function sessionsEnded(count: number, running: number, removes: string): string {
-  if (running === 0) {
-    return count === 1
-      ? `This ends no session; ${removes} removes 1 agent.`
-      : `This ends no sessions; ${removes} removes ${count} agents.`;
-  }
-  return running === 1
-    ? "This ends 1 agent and its session."
-    : `This ends ${running} agents and their sessions.`;
-}
-
-/**
- * What closing will actually do, in the dialog's own words.
- *
- * A pure function rather than a hook-body expression: the sentence has been
- * wrong three times — it promised to delete a worktree the default path
- * keeps, to end sessions of agents that were already stopped, and to end one
- * a pane had never opened — and every correction was verified only by driving
- * the whole hook. Here the table is addressable on its own, so a case can be
- * pinned without a workspace, a probe and a render.
- */
-export function closeMessageFor(
-  closing: ClosingTarget | null,
-  /** For a team or workspace close: how many of its agents still hold a
-   * session. The only fact this cannot take from the snapshot, because
-   * such a close is about panes it does not name individually. */
-  runningAgents: number,
-  /** The late-arriving carrier line, painted when the registry answers —
-   * null until then (and forever, on an ordinary "none"). */
-  carrier: CarrierNote | null = null,
-): string {
-  if (!closing) return "";
-  // The carrier note's text, per branch: one conversation vs at least one.
-  // An unreachable registry warns too — skipping the warning on a failed
-  // question returns the harm whole.
-  const note =
-    carrier === null
-      ? ""
-      : carrier.kind === "background"
-        ? closing.kind === "agent"
-          ? "\nIts conversation is carried by a background agent — closing removes the pane, not the work. To stop the work, use the CLI's own agents screen."
-          : "\nAt least one conversation is carried by a background agent — closing removes the panes, not the work. To stop it, use the CLI's own agents screen."
-        : closing.kind === "agent"
-          ? "\nIts conversation may still be carried by a background agent (the live registry could not be reached) — closing removes the pane, not any work in progress."
-          : "\nAt least one conversation may still be carried by a background agent (the live registry could not be reached) — closing removes the panes, not any work in progress.";
-  if (closing.kind === "workspace") {
-    if (closing.count === 0) return "This workspace has no agents." + note;
-    return sessionsEnded(closing.count, runningAgents, "closing") + note;
-  }
-  if (closing.kind === "team") {
-    if (closing.count === 0) {
-      return "This team has no agents; disbanding removes the team." + note;
-    }
-    return (
-      sessionsEnded(closing.count, runningAgents, "disbanding") +
-      " The team is removed." +
-      note
-    );
-  }
-  const facts = closing.pane;
-  // The last member's dialog says what each verb does to the team — once,
-  // ahead of the pane's own sentence, whatever state the pane is in.
-  const verbs = closing.last
-    ? `It is the last agent on “${closing.last.name}”. Disbanding removes the team as well; closing the agent alone keeps the team and its directory.\n`
-    : "";
-  // Never ran: no session to end, and nothing to suspend.
-  if (facts.provisioning) return verbs + "Its worktree is still being created.";
-  // A stopped pane has no session to end, and saying so would contradict the
-  // card the user is looking at. Whether the worktree survives is the
-  // checkbox's business, not this sentence's.
-  if (facts.stopped) return verbs + "It is stopped; closing removes the pane." + note;
-  // Mutually exclusive with the branch above by construction: a stopped pane
-  // is exactly the one `paneSuspendBlock` refuses.
-  const alternative = facts.canSuspend
-    ? closing.last && closing.last.targets.length > 0
-      ? "\nSuspending stops the agent instead, keeping the pane, its worktree and its session."
-      : "\nSuspending stops the agent instead, keeping the pane and its session."
-    : "";
-  // A pane on its way up has no session YET — promising to end one, while the
-  // line below offers to keep "its session", described a pane that does not
-  // exist in either direction.
-  const opening = facts.rising
-    ? "It is starting up; closing removes the pane."
-    : "Its terminal session will be ended.";
-  return verbs + opening + alternative + note;
-}
-
-/**
- * Owns the confirmed-close flow: all three close paths ([U6]) park a
- * ClosingTarget for the confirm dialog — once its candidate worktrees are
- * probed, so a directory that's already gone is never offered for deletion;
- * confirming removes the pane(s) from the deck AND ends their PTY sessions
- * through the ptyManager (unmounting alone no longer kills a process), then
- * optionally tears the worktrees down per the delete checkbox — after the
- * closes settle, so no worktree dir is a live cwd.
- *
- * A directory is a TEAM's: closing one agent is never asked about one, and
- * only a disband (or a workspace close, which disbands every team) carries
- * the offer. The last member of a team is the one pane whose close dialog
- * speaks both verbs.
- */
 export function useCloseFlow(
   deck: Deck,
   /** The hook's collaborators, named rather than positional: the list grew to
@@ -375,7 +156,7 @@ export function useCloseFlow(
       open([]);
       return;
     }
-    void liveTargets(candidates).then((targets) => {
+    void existingTargets(candidates, probeWorktree).then((targets) => {
       if (seq === requestSeq.current) open(targets);
     });
   };
@@ -391,6 +172,17 @@ export function useCloseFlow(
         agentType: paneAgentType(pane),
         sessionId: pane.session!.id,
       }));
+
+  /** What this close would delete, as the dialog must say it — the same
+   * decision the teardown runs, asked here for the sentence. */
+  const offerFor = (ws: Workspace, ending: readonly string[]): WorktreeTarget[] =>
+    deletableWorktrees({
+      workspaces: deck.workspaces,
+      workspace: ws,
+      root: ws.cwd,
+      ending,
+      gitPositions,
+    });
 
   const refOf = (ws: Workspace): WorkspaceRef => ({ id: ws.id, instance: ws.instance });
 
@@ -408,7 +200,7 @@ export function useCloseFlow(
     // rule: opens stay instant). A pane with no session binding has
     // nothing to ask about.
     park(
-      last ? worktreeTargets(ws, last.id, gitPositions) : [],
+      last ? offerFor(ws, [last.id]) : [],
       (targets) => ({
         kind: "agent",
         workspace,
@@ -433,7 +225,7 @@ export function useCloseFlow(
     if (!ws || !team) return;
     const members = membersOf(ws, team.id);
     park(
-      worktreeTargets(ws, team.id, gitPositions),
+      offerFor(ws, [team.id]),
       (targets) => ({
         kind: "team",
         workspace: refOf(ws),
@@ -451,7 +243,7 @@ export function useCloseFlow(
     const ws = findWorkspace(deck.workspaces, id);
     if (!ws) return;
     park(
-      worktreeTargets(ws, undefined, gitPositions),
+      offerFor(ws, teamsOf(ws).map((team) => team.id)),
       (targets) => ({
         kind: "workspace",
         workspace: refOf(ws),

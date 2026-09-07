@@ -10,7 +10,7 @@ import {
   skillRootsOf,
 } from "./roots";
 import type { Team } from "./teams";
-import { firstFreeTeamWorktree, pathOccupancy, type Workspace } from "./workspaces";
+import { directoryState, firstFreeTeamWorktree, type Workspace } from "./workspaces";
 
 const ws = (over: Partial<Workspace> = {}): Workspace => ({
   id: "ws-1",
@@ -89,12 +89,12 @@ describe("panePlacement is the team's", () => {
 });
 
 describe("occupancy is the team's", () => {
-  it("a directory a team holds is occupied, however the path is spelled", () => {
+  it("a directory a team holds is the team's, however the path is spelled", () => {
     const deck = [ws({ teams: [owner, creating] })];
-    expect(pathOccupancy(deck, "/wt/team")).toBe("worktree");
-    expect(pathOccupancy(deck, " /wt/team/ ")).toBe("worktree");
-    expect(pathOccupancy(deck, "/wt/pending")).toBe("provisioning");
-    expect(pathOccupancy(deck, "/wt/free")).toBeNull();
+    expect(directoryState(deck, deck[0], "/wt/team")).toBe("worked-in");
+    expect(directoryState(deck, deck[0], " /wt/team/ ")).toBe("worked-in");
+    expect(directoryState(deck, deck[0], "/wt/pending")).toBe("being-created");
+    expect(directoryState(deck, deck[0], "/wt/free")).toBe("free");
   });
 
   it("a team's directory is skipped when the next free worktree is suggested", async () => {

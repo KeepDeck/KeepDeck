@@ -99,41 +99,52 @@ describe("isKnownBaseBranch", () => {
   it("a missing list validates everything — degrade, don't block the dialog", () => {
     expect(isKnownBaseBranch("anything", null)).toBe(true);
   });
-});;
+});
 
-describe("occupied locations", () => {
-  it("an occupied path outranks every probe outcome, even mid-probe", () => {
-    expect(classifyLocation("/wt/a", null, "worktree")).toBe("occupied");
-    expect(
-      classifyLocation("/wt/a", probe({ exists: true, isWorktree: true }), "worktree"),
-    ).toBe("occupied");
-    expect(classifyLocation("/wt/a", probe({ exists: false }), "provisioning")).toBe(
-      "occupied",
+describe("what the deck says outranks the probe", () => {
+  it("a directory a team WORKS in reads as an attach, whatever the disk says", () => {
+    // The deck is the truer answer here: the team is the thing being joined,
+    // and the disk may be lying — a worktree removed behind the app's back, or
+    // a plain folder a `team.create` was pointed at. Asking the probe there is
+    // how a path a team held came to be offered as a NEW worktree and then
+    // refused on submit.
+    expect(classifyLocation("/wt/a", probe({ exists: true, isWorktree: true }), "worked-in")).toBe(
+      "existing",
     );
+    expect(classifyLocation("/wt/a", probe({ exists: false }), "worked-in")).toBe("existing");
+    expect(
+      classifyLocation("/wt/a", probe({ exists: true, isWorktree: false, empty: true }), "worked-in"),
+    ).toBe("existing");
+    // Answered synchronously — no probe needed, and none waited for.
+    expect(classifyLocation("/wt/a", null, "worked-in")).toBe("existing");
   });
 
-  it("an empty path stays main — bare panes legitimately share the workspace cwd", () => {
-    expect(classifyLocation("", null, "worktree")).toBe("main");
+  it("a directory a create is heading for is occupied for everyone", () => {
+    expect(classifyLocation("/wt/a", null, "being-created")).toBe("occupied");
+    expect(classifyLocation("/wt/a", probe({ exists: false }), "being-created")).toBe("occupied");
+    expect(
+      classifyLocation("/wt/a", probe({ exists: true, isWorktree: true }), "being-created"),
+    ).toBe("occupied");
+  });
+
+  it("with the deck silent, the probe decides", () => {
+    expect(classifyLocation("/wt/a", null, "free")).toBe("checking");
+    expect(classifyLocation("/wt/a", probe({ exists: false }), "free")).toBe("new");
+    expect(classifyLocation("/wt/a", probe({ exists: true, isWorktree: true }), "free")).toBe(
+      "existing",
+    );
+    expect(
+      classifyLocation("/wt/a", probe({ exists: true, isWorktree: false, empty: false }), "free"),
+    ).toBe("blocked");
+  });
+
+  it("an empty path stays main — the workspace root is a directory like any other", () => {
+    expect(classifyLocation("", null, "worked-in")).toBe("main");
+    expect(classifyLocation("", null, "being-created")).toBe("main");
   });
 
   it("an occupied path can never be created", () => {
     expect(canCreateAgent("occupied", "some-branch")).toBe(false);
-  });
-
-  it("attach-anyway turns worktree occupancy into a plain attach — instantly, no probe needed", () => {
-    // The occupancy itself proves the dir is a worktree (a pane runs in it):
-    // the override applies even while the probe is still in flight.
-    expect(classifyLocation("/wt/a", null, "worktree", true)).toBe("existing");
-    expect(
-      classifyLocation("/wt/a", probe({ exists: true, isWorktree: true }), "worktree", true),
-    ).toBe("existing");
-  });
-
-  it("attach-anyway never applies to a provisioning target — nothing exists to attach to", () => {
-    expect(classifyLocation("/wt/a", null, "provisioning", true)).toBe("occupied");
-    expect(
-      classifyLocation("/wt/a", probe({ exists: false }), "provisioning", true),
-    ).toBe("occupied");
   });
 });
 

@@ -154,8 +154,19 @@ function buildDeckActions(store: DeckStore) {
       const ws = findWorkspace(store.getSnapshot().workspaces, wsId);
       return !!ws && findTeam(ws, teamId) !== undefined;
     },
-    createTeam: (wsId: string, team: Team & { location: TeamLocation }) =>
-      dispatch({ type: "createTeam", wsId, team }),
+    createTeam: (
+      wsId: string,
+      team: Team & { location: TeamLocation },
+      /** Named, not a bare positional `true` at the call site — and spread
+       * only when set, like every other optional field dispatched here. */
+      options: { shared?: boolean } = {},
+    ) =>
+      dispatch({
+        type: "createTeam",
+        wsId,
+        team,
+        ...(options.shared !== undefined && { shared: options.shared }),
+      }),
     resolveTeamProvisioning: (
       wsId: string,
       teamId: string,

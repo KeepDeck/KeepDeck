@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentDialogResult } from "../domain/agents";
 import {
   TEAM_FULL_MESSAGE,
-  WORKTREE_HELD_MESSAGE,
+  placementRefusalMessage,
   type Workspace,
 } from "../domain/deck";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
@@ -795,9 +795,9 @@ describe("useAgentDialog targets", () => {
     expect(notices.onCreateFailed).toHaveBeenLastCalledWith(TEAM_FULL_MESSAGE);
 
     await act(async () => flow.openFor(ws));
-    createTeam.mockReturnValueOnce({ kind: "held" });
+    createTeam.mockReturnValueOnce({ kind: "held", why: "creating" });
     await act(async () => flow.confirm({ ...fresh(), teamName: "docs" }));
-    expect(notices.onTeamFailed).toHaveBeenLastCalledWith(WORKTREE_HELD_MESSAGE);
+    expect(notices.onTeamFailed).toHaveBeenLastCalledWith(placementRefusalMessage("creating"));
 
     await act(async () => flow.openFor(ws));
     createTeam.mockReturnValueOnce({ kind: "taken" });
@@ -805,6 +805,54 @@ describe("useAgentDialog targets", () => {
     expect(notices.onTeamFailed).toHaveBeenLastCalledWith(
       expect.stringContaining("“api” already exists"),
     );
+    expect(deck.openTeam).not.toHaveBeenCalled();
+  });
+
+  it("asks instead of failing when the directory is another team's, and re-issues the create with the answer", async () => {
+    const ws = teamed();
+    const deck = { workspaces: [ws], openTeam: vi.fn() } as unknown as Deck;
+    await act(async () => mountHost(root, Host, deck));
+    await act(async () => flow.openFor(ws));
+    createTeam.mockReturnValueOnce({
+      kind: "shared",
+      directory: "/repo",
+      holder: { teamId: "team-1", teamName: "api" },
+    });
+    await act(async () => flow.confirm({ ...fresh(), teamName: "docs" }));
+    // Not a failure — nobody has been asked yet.
+    expect(notices.onTeamFailed).not.toHaveBeenCalled();
+    expect(flow.sharedAsk).toMatchObject({
+      path: "/repo",
+      holder: { teamId: "team-1", teamName: "api" },
+    });
+    // The "+ Team" dialog is closed while the question stands.
+    expect(flow.dialog).toBeNull();
+
+    createTeam.mockReturnValueOnce({ kind: "created", teamId: "team-2" });
+    await act(async () => flow.sharedAsk!.confirm());
+    // The SAME create, now carrying the answer.
+    expect(createTeam).toHaveBeenLastCalledWith(
+      expect.objectContaining({ name: "docs", shared: true }),
+    );
+    expect(deck.openTeam).toHaveBeenCalledWith("ws-1", "team-2");
+    expect(flow.sharedAsk).toBeNull();
+  });
+
+  it("drops the create when the question is cancelled", async () => {
+    const ws = teamed();
+    const deck = { workspaces: [ws], openTeam: vi.fn() } as unknown as Deck;
+    await act(async () => mountHost(root, Host, deck));
+    await act(async () => flow.openFor(ws));
+    createTeam.mockReturnValueOnce({
+      kind: "shared",
+      directory: "/repo",
+      holder: { teamId: "team-1", teamName: "api" },
+    });
+    await act(async () => flow.confirm({ ...fresh(), teamName: "docs" }));
+    createTeam.mockClear();
+    await act(async () => flow.sharedAsk!.cancel());
+    expect(flow.sharedAsk).toBeNull();
+    expect(createTeam).not.toHaveBeenCalled();
     expect(deck.openTeam).not.toHaveBeenCalled();
   });
 });
