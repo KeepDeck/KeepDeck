@@ -64,6 +64,39 @@
   min-width: 0;
 }
 
+/* The SEAM. While the rail is showing, this group starts exactly at the rail's
+   own right border, so the line already parting the rail from the stage runs
+   on through the bar: what names the STAGE then stands in the stage's column,
+   and the left half stops reading as one L-shaped surface with the rail under
+   it. The bar and the rail share a background (#0e121a here, rail.css) and the
+   same 1px seam colour, which is why nothing but a shared VERTICAL parted them
+   before, and why the fix is geometry rather than another colour.
+   The deck has met this before, from the other side: the quota chips were
+   pinned left once and "read as the rail's own heading" (see the middle zone
+   below). Same mechanism, a different occupant.
+
+   No line is drawn here. `.bar__group + .bar__group` below already gives this
+   group a left border, and a margin moves a border box whole — the line simply
+   arrives where the group is put. Which also means the seam lives exactly as
+   long as the group does: at the teams level there is no group and no line,
+   and none is wanted — nothing in the left half names the stage there, so the
+   toggle standing over WORKSPACES is the reading that belongs.
+
+   157 = 200 − (12 + 23 + 8), and every term is someone else's number:
+     200  the rail's content width, and with it the column 200..201 its
+          border-right paints in (rail.css; the rail is content-box, so its
+          border sits OUTSIDE the 200).
+     12   this bar's own padding-left, above.
+     23   the rail toggle: a ghost button's 4px padding either side around a
+          15px icon (button.css, AppIcons).
+     8    the gap between groups in this zone, below.
+   Nothing here can be checked by looking at the page — happy-dom lays nothing
+   out — so the sum is pinned as ARITHMETIC in deck.test.ts instead, term by
+   term, and any of the four drifting fails there rather than on screen. */
+.deck__team-bar--seamed {
+  margin-left: 157px;
+}
+
 .deck__team-name {
   font-size: 13px;
   font-weight: 600;
@@ -76,6 +109,31 @@
 
 .deck__team-branch {
   max-width: 200px;
+}
+
+/* Narrow window: the branch goes, the name stays. The NAME outlasts its
+   qualifiers — text yields by ellipsis, chips shed whole — which is the order
+   the pane header sheds in too, though not the sense its own comment gives
+   "identity" (there the identity BADGES are what goes first). And the branch
+   is the qualifier here twice over: inside a team every pane header that has
+   one is already wearing it, so this is the copy the deck can spare.
+
+   It has to go rather than shrink: a chip does not yield (chip.css says so
+   once for all of them), so with the chip in the row it is the NAME that
+   absorbs every pixel — and past the seam the name has 157px less to give.
+   At the 800px floor the window guarantees (tauri.conf.json), the row would
+   otherwise run past its zone into the quota with the name already at nothing.
+
+   1100 is not a fresh number: it is where the quota sheds its second window
+   (usage.css), which is also where this zone's width jumps, since the middle
+   zone getting narrower is what widens the two outer ones. Shedding where the
+   space actually changes is the rung the pane header's ladder asks for; a
+   fourth threshold on one strip would only make the bar twitch in four
+   places instead of two. */
+@media (max-width: 1100px) {
+  .deck__team-branch {
+    display: none;
+  }
 }
 
 

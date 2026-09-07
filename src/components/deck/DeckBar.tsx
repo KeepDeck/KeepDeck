@@ -176,7 +176,21 @@ export function DeckBar({
           // Inside a team the rail says nothing about it, so this half does:
           // the way back to the cards, the team's name, the branch it works
           // on. Its own group, so the workspace's own words keep their seam.
-          <div className="bar__group deck__team-bar">
+          //
+          // SEAMED while the rail is open: the group then starts at the rail's
+          // own right border, so what names the STAGE stands in the stage's
+          // column rather than over the rail's. The modifier is derived here
+          // rather than asked for, because the fact it needs — whether the
+          // rail is showing — is already handed to the bar, and a second prop
+          // saying the same thing would be a second answer to one question.
+          // Which is also why this is the bar's call and not the root's: the
+          // root decides whether a control is WORTH SHOWING; where a group
+          // sits is arrangement, and arrangement stays in this file.
+          <div
+            className={`bar__group deck__team-bar${
+              railCollapsed ? "" : " deck__team-bar--seamed"
+            }`}
+          >
             <TipButton
               variant="ghost"
               size="sm"
@@ -186,7 +200,20 @@ export function DeckBar({
             >
               ←
             </TipButton>
-            <span className="deck__team-name">{level.name}</span>
+            {/* The app's own tip, not a `title`. This is the one place that
+                names the open team ON ITS OWN — the rail says nothing about
+                it, and a role badge names a team only where the deck runs
+                more than one, dimmed, as the tail of an address and the first
+                thing a narrow header clips. So an ellipsized name here is
+                recoverable nowhere worth calling a place. A `title` does not
+                recover it either:
+                this WebView draws no native tooltip (see TipButton), which is
+                exactly the trap that file was written about. The anchor
+                carries `min-width: 0`, so wrapping the name costs it none of
+                its room to ellipsize. */}
+            <Tooltip tip={level.name} delayMs={BAR_TIP_DELAY_MS}>
+              <span className="deck__team-name">{level.name}</span>
+            </Tooltip>
             {level.branch !== null && (
               <BranchBadge
                 className="deck__team-branch"

@@ -226,6 +226,71 @@ describe("DeckBar", () => {
     expect(byText("+ Team")).toBeDefined();
   });
 
+  it("seams the team group to the rail's edge only while the rail is showing", () => {
+    // The seam exists to stand the team's name in the STAGE's column instead
+    // of over the rail's. With the rail hidden there is no rail column to
+    // clear — the stage starts at the window edge — so the offset would be
+    // an indent to nothing. Hence the modifier tracks the rail, not the level
+    // alone, and it is derived from the prop the bar already has rather than
+    // asked for a second time.
+    const team = {
+      kind: "team" as const,
+      name: "api",
+      branch: "kd/api",
+      onBack: () => {},
+      canAddMember: true,
+      addMemberTitle: "Add a member",
+      onAddMember: () => {},
+    };
+    const group = () => host.querySelector(".deck__team-bar");
+
+    render({ level: team, railCollapsed: false });
+    expect(group()?.classList.contains("deck__team-bar--seamed")).toBe(true);
+
+    render({ level: team, railCollapsed: true });
+    expect(group()?.classList.contains("deck__team-bar--seamed")).toBe(false);
+
+    // And with no team open there is nothing to seam either way: the group
+    // itself is what the level decides.
+    render({ railCollapsed: false });
+    expect(group()).toBeNull();
+  });
+
+  it("keeps the open team's name recoverable when it does not fit", () => {
+    // This is the one place the deck names the open team — the rail says
+    // nothing about it, and a role badge answers "which teammate", not
+    // "which team". So an ellipsized name here is recoverable nowhere else.
+    // Asserted through the app's own tip rather than a `title` attribute,
+    // because a `title` is what this WebView draws nothing for: the check has
+    // to be that something SHOWS, or it pins the very trap TipButton exists
+    // to document.
+    const name = "a team whose name is far too long for two hundred and forty pixels";
+    render({
+      level: {
+        kind: "team",
+        name,
+        branch: "kd/api",
+        onBack: () => {},
+        canAddMember: true,
+        addMemberTitle: "Add a member",
+        onAddMember: () => {},
+      },
+    });
+    vi.useFakeTimers();
+    try {
+      act(() => {
+        host
+          .querySelector(".deck__team-name")!
+          .closest(".kd-tip__anchor")!
+          .dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+      });
+      act(() => void vi.advanceTimersByTime(BAR_TIP_DELAY_MS));
+      expect(document.querySelector('[role="tooltip"]')?.textContent).toBe(name);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("carries the update control's own words and its own action", () => {
     // The bar decides nothing about updates — it is handed a view and hands
     // back the action by name. Which means the whole seam is: does the label
