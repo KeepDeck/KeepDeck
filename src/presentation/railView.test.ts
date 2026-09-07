@@ -148,6 +148,15 @@ describe("railView dots", () => {
     expect(row.dot).toBe("none");
   });
 
+  it("keeps an empty workspace's dot answering — green while active, gray behind", () => {
+    // Older than teams and still true: a workspace with nothing in it is
+    // still somewhere the person can be, so its dot says where they are
+    // rather than going blank.
+    const empty = workspace("ws-empty", []);
+    expect(railView([empty], frames({}), {}, "ws-empty")[0].dot).toBe("selected");
+    expect(railView([empty], frames({}), {}, "elsewhere")[0].dot).toBe("none");
+  });
+
   it("gives a workspace whose teams are quiet the bare gray dot", () => {
     const [row] = railView([ONE_TEAM_OF_THREE], frames({}), {}, "");
     expect(row.dot).toBe("none");

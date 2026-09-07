@@ -404,6 +404,101 @@ describe("WorkspacesRail team rows", () => {
     expect(renamedWorkspaces).toEqual([]);
   });
 
+  it("shows and hides the teams the chevron points at", () => {
+    const toggled: string[] = [];
+    render({ onToggleTeams: (wsId) => toggled.push(wsId) });
+    const chevron = host.querySelector<HTMLButtonElement>('[data-ws-id="a"] .rail__chevron')!;
+    expect(chevron.getAttribute("aria-expanded")).toBe("true");
+    act(() => chevron.dispatchEvent(new Event("click", { bubbles: true })));
+    expect(toggled).toEqual(["a"]);
+  });
+
+  it("offers no chevron to turn on a workspace with no teams", () => {
+    render();
+    const chevron = host.querySelector<HTMLButtonElement>('[data-ws-id="b"] .rail__chevron')!;
+    expect(chevron.disabled).toBe(true);
+    expect(chevron.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("lifts and lands the workspace's own row, not its whole group", () => {
+    // Geometry the drag suite's index stub cannot express: an EXPANDED item
+    // is taller than the row inside it, and the ghost is the row. Stubbing
+    // them apart is the only way a regression to measuring the item shows.
+    const ROW = 30;
+    const ITEM = ROW + 2 * 26;
+    const boxes = new Map<HTMLElement, { top: number; height: number }>();
+    const spread = () => {
+      const items = [...host.querySelectorAll<HTMLElement>("[data-ws-id]")];
+      let top = 0;
+      for (const item of items) {
+        const row = item.querySelector<HTMLElement>(".rail__row")!;
+        const height = item.querySelector(".rail__teams") ? ITEM : ROW;
+        boxes.set(item, { top, height });
+        boxes.set(row, { top, height: ROW });
+        top += height;
+      }
+    };
+    const original = {
+      top: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetTop"),
+      height: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight"),
+    };
+    Object.defineProperty(HTMLElement.prototype, "offsetTop", {
+      configurable: true,
+      get() {
+        return boxes.get(this as HTMLElement)?.top ?? 0;
+      },
+    });
+    Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+      configurable: true,
+      get() {
+        return boxes.get(this as HTMLElement)?.height ?? 0;
+      },
+    });
+    try {
+      render();
+      spread();
+      const item = host.querySelector<HTMLElement>('[data-ws-id="a"]')!;
+      const row = item.querySelector<HTMLElement>(".rail__row")!;
+      item.getBoundingClientRect = () =>
+        ({ left: 0, top: 0, width: 200, height: ITEM }) as DOMRect;
+      row.getBoundingClientRect = () =>
+        ({ left: 0, top: 0, width: 200, height: ROW }) as DOMRect;
+      act(() => {
+        item
+          .querySelector(".rail__name")!
+          .dispatchEvent(pointerEvent("pointerdown", { clientY: 10 }));
+        vi.advanceTimersByTime(400);
+      });
+      const ghost = document.querySelector<HTMLElement>(".rail__ghost")!;
+      // Lifted at the row's height — an expanded workspace must not come up
+      // as a block the height of its teams.
+      expect(ghost.style.height).toBe(`${ROW}px`);
+      act(() => document.dispatchEvent(pointerEvent("pointerup", { clientY: 10 })));
+      // And landed on the row's box, not the item's.
+      expect(ghost.style.height).toBe(`${ROW}px`);
+    } finally {
+      if (original.top) Object.defineProperty(HTMLElement.prototype, "offsetTop", original.top);
+      if (original.height)
+        Object.defineProperty(HTMLElement.prototype, "offsetHeight", original.height);
+    }
+  });
+
+  it("does not drag the workspace off a held chevron either", () => {
+    // The chevron sits in the workspace's own row, where a press IS meant
+    // to start a drag — so it needs the same exemption the team rows have,
+    // or holding it to open a list would carry the workspace away instead.
+    const reordered: string[] = [];
+    render({ onReorder: (id) => reordered.push(id) });
+    const chevron = host.querySelector<HTMLElement>('[data-ws-id="a"] .rail__chevron')!;
+    act(() => {
+      chevron.dispatchEvent(pointerEvent("pointerdown", { clientY: 10 }));
+      vi.advanceTimersByTime(400);
+    });
+    act(() => document.dispatchEvent(pointerEvent("pointermove", { clientY: 200 })));
+    expect(document.querySelector(".rail__ghost")).toBeNull();
+    expect(reordered).toEqual([]);
+  });
+
   it("does not drag the workspace out from under a held team row", () => {
     const reordered: string[] = [];
     render({ onReorder: (id) => reordered.push(id) });
