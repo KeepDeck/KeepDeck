@@ -142,6 +142,62 @@ describe("agent orchestrator —a new pane arriving", () => {
     intent: { repo: "/repo", path: "/wt/a", index: 1 },
   });
 
+  it("joins a team whose worktree create is still OUT — its member waits for the card", async () => {
+    // The pane's directory is a question about its TEAM, and a team mid-create
+    // is a team: "+ Team" then "+ Member" is exactly this, and so is a resume
+    // recorded at the path a card is heading for. Folding the create rule and
+    // the landing rule into one answer once refused this.
+    act(() =>
+      deck.hydrate({
+        ...seed(),
+        workspaces: [
+          { ...seed().workspaces[0], teams: [{ id: "team-1", name: "api", location: card() }] },
+        ],
+      }),
+    );
+    let outcome;
+    await act(async () => {
+      outcome = agentRun.createPane({
+        workspace: { id: "ws-1", instance: instance() },
+        pane: plain(),
+        placement: { kind: "attached", cwd: "/wt/a" },
+      });
+    });
+    expect(outcome).toEqual({ kind: "created", teamId: "team-1" });
+    expect(deck.workspaces[0].panes[0].team?.teamId).toBe("team-1");
+    // No second team was minted for the directory the card is heading for.
+    expect(deck.workspaces[0].teams).toHaveLength(1);
+  });
+
+  it("joins the FIRST team when two share the directory it asked for", async () => {
+    act(() =>
+      deck.hydrate({
+        ...seed(),
+        workspaces: [
+          {
+            ...seed().workspaces[0],
+            teams: [
+              { id: "team-1", name: "api", location: { kind: "attached", cwd: "/wt/a" } },
+              { id: "team-2", name: "web", location: { kind: "attached", cwd: "/wt/a" } },
+            ],
+          },
+        ],
+      }),
+    );
+    let outcome;
+    await act(async () => {
+      outcome = agentRun.createPane({
+        workspace: { id: "ws-1", instance: instance() },
+        pane: plain(),
+        placement: { kind: "attached", cwd: "/wt/a/" },
+      });
+    });
+    // A pane arriving with a bare path has nobody to ask which team it meant;
+    // it takes the one that has been there longest. Naming a team by id is
+    // how a caller says otherwise.
+    expect(outcome).toEqual({ kind: "created", teamId: "team-1" });
+  });
+
   it("lands a plain pane and leaves the worktree runner alone", async () => {
     act(() => deck.hydrate(seed()));
     let outcome;
@@ -275,7 +331,7 @@ describe("agent orchestrator —a new pane arriving", () => {
         placement: card(),
       });
     });
-    expect(outcome).toEqual({ kind: "held" });
+    expect(outcome).toMatchObject({ kind: "held" });
     expect(deck.workspaces[0].panes).toHaveLength(1);
     expect(provisions).toEqual([]);
   });
@@ -377,7 +433,7 @@ describe("agent orchestrator —a new pane arriving", () => {
         placement: card(),
       });
     });
-    expect(outcome).toEqual({ kind: "held" });
+    expect(outcome).toMatchObject({ kind: "held" });
     expect(deck.workspaces[0].panes).toEqual([]);
     expect(deck.workspaces[0].teams ?? []).toEqual([]);
     expect(provisions).toEqual([]);
@@ -734,7 +790,7 @@ describe("agent orchestrator —a team born empty", () => {
     expect(provisions[0].map((request) => request.ownerId)).toEqual(["team-1"]);
   });
 
-  it("refuses a directory a team already holds, a name a team already answers to, and a gone workspace", async () => {
+  it("asks before a second team in one directory, and refuses a worktree create onto it, a taken name and a gone workspace", async () => {
     act(() =>
       deck.hydrate(
         seed({
@@ -744,8 +800,11 @@ describe("agent orchestrator —a team born empty", () => {
     );
     const outcomes: unknown[] = [];
     await act(async () => {
-      // The directory is team-1's: a member joins it instead.
+      // A worktree CREATE heading for a directory a team works in: no
+      // consent buys that — git makes no second worktree on one path.
       outcomes.push(agentRun.createTeam({ workspace: ref(), name: "docs", placement: card() }));
+      // Attaching to it is a question, not a refusal — asked with whose the
+      // directory is, spelled as the deck keys it.
       outcomes.push(
         agentRun.createTeam({
           workspace: ref(),
@@ -769,8 +828,151 @@ describe("agent orchestrator —a team born empty", () => {
         }),
       );
     });
-    expect(outcomes).toEqual([{ kind: "held" }, { kind: "held" }, { kind: "taken" }, { kind: "gone" }]);
+    expect(outcomes).toEqual([
+      { kind: "held", why: "creating" },
+      {
+        kind: "shared",
+        directory: "/wt/a",
+        holder: { teamId: "team-1", teamName: "api" },
+      },
+      { kind: "taken" },
+      { kind: "gone" },
+    ]);
     expect(deck.workspaces[0].teams).toHaveLength(1);
     expect(provisions).toEqual([]);
+  });
+
+  it("makes the second team in the directory once the answer comes back", async () => {
+    act(() =>
+      deck.hydrate(
+        seed({
+          teams: [{ id: "team-1", name: "api", location: { kind: "attached", cwd: "/wt/a" } }],
+        }),
+      ),
+    );
+    let outcome;
+    await act(async () => {
+      outcome = agentRun.createTeam({
+        workspace: ref(),
+        name: "docs",
+        placement: { kind: "attached", cwd: "/wt/a" },
+        shared: true,
+      });
+    });
+    expect(outcome).toEqual({ kind: "created", teamId: expect.any(String) });
+    const teams = deck.workspaces[0].teams ?? [];
+    expect(teams).toHaveLength(2);
+    // Both work in the one directory, and neither lost its name.
+    expect(teams.map((team) => team.name)).toEqual(["api", "docs"]);
+    expect(
+      teams.every(
+        (team) => team.location?.kind === "attached" && team.location.cwd === "/wt/a",
+      ),
+    ).toBe(true);
+    // Nothing is provisioned: the directory is already there.
+    expect(provisions).toEqual([]);
+  });
+
+  it("shares the workspace root the same way — the second team is asked for, not refused", async () => {
+    act(() =>
+      deck.hydrate(
+        seed({
+          teams: [{ id: "team-1", name: "api", location: { kind: "attached", cwd: "/repo" } }],
+        }),
+      ),
+    );
+    let asked;
+    let made;
+    await act(async () => {
+      asked = agentRun.createTeam({
+        workspace: ref(),
+        name: "docs",
+        placement: { kind: "attached", cwd: "/repo" },
+      });
+      made = agentRun.createTeam({
+        workspace: ref(),
+        name: "docs",
+        placement: { kind: "attached", cwd: "/repo" },
+        shared: true,
+      });
+    });
+    expect(asked).toEqual({
+      kind: "shared",
+      directory: "/repo",
+      holder: { teamId: "team-1", teamName: "api" },
+    });
+    expect(made).toEqual({ kind: "created", teamId: expect.any(String) });
+    expect(deck.workspaces[0].teams).toHaveLength(2);
+  });
+
+  it("asks about a directory ANOTHER workspace's team works in, and takes the answer", async () => {
+    act(() =>
+      deck.hydrate({
+        ...seed(),
+        workspaces: [
+          seed().workspaces[0],
+          {
+            id: "ws-2",
+            instance: createWorkspaceInstance(),
+            name: "next door",
+            cwd: "/other",
+            worktreeBaseDir: null,
+            panes: [],
+            teams: [{ id: "team-1", name: "api", location: { kind: "attached", cwd: "/wt/a" } }],
+          },
+        ],
+      }),
+    );
+    let asked;
+    let made;
+    await act(async () => {
+      asked = agentRun.createTeam({
+        workspace: ref(),
+        name: "docs",
+        placement: { kind: "attached", cwd: "/wt/a" },
+      });
+      made = agentRun.createTeam({
+        workspace: ref(),
+        name: "docs",
+        placement: { kind: "attached", cwd: "/wt/a" },
+        shared: true,
+      });
+    });
+    // Named with the workspace, since no team.add here can reach that team.
+    expect(asked).toEqual({
+      kind: "shared",
+      directory: "/wt/a",
+      holder: { teamId: "team-1", teamName: "api", workspace: "next door" },
+    });
+    expect(made).toEqual({ kind: "created", teamId: expect.any(String) });
+    expect(deck.workspaces[0].teams).toHaveLength(1);
+  });
+
+  it("never shares a directory a team's create is still heading for, whatever the answer", async () => {
+    act(() => deck.hydrate(seed({ teams: [{ id: "team-1", name: "api", location: card() }] })));
+    const outcomes: unknown[] = [];
+    await act(async () => {
+      outcomes.push(
+        agentRun.createTeam({
+          workspace: ref(),
+          name: "docs",
+          placement: { kind: "attached", cwd: "/wt/a" },
+        }),
+      );
+      outcomes.push(
+        agentRun.createTeam({
+          workspace: ref(),
+          name: "docs",
+          placement: { kind: "attached", cwd: "/wt/a" },
+          shared: true,
+        }),
+      );
+    });
+    // Nothing is there to share yet, and the create is still out.
+    expect(outcomes).toEqual([
+      { kind: "held", why: "creating" },
+      { kind: "held", why: "creating" },
+    ]);
+    expect(deck.workspaces[0].teams).toHaveLength(1);
   });
 });

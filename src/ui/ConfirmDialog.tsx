@@ -1,4 +1,4 @@
-import { type ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import { useEscape, useHeldEnterGuard } from "./useEscape";
 import { DestructiveButton } from "./DestructiveButton";
 import { ModalOverlay } from "./ModalOverlay";
@@ -55,8 +55,10 @@ export function ConfirmDialog({
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
-  // Esc cancels a yes/no prompt, or dismisses a one-button notice.
-  useEscape(onCancel ?? onConfirm);
+  const surface = useRef<HTMLDivElement>(null);
+  // Esc cancels a yes/no prompt, or dismisses a one-button notice — unless
+  // another dialog is stacked over this one, whose press it is.
+  useEscape(onCancel ?? onConfirm, true, surface);
   // The dialog auto-focuses a button, so it INVITES a held Enter — and a hold
   // that outlives one dialog would run the next one's button too, which is how
   // a queue of notices gets dismissed unread.
@@ -71,7 +73,7 @@ export function ConfirmDialog({
 
   return (
     <ModalOverlay>
-      <div className="confirm" role="dialog" aria-modal="true">
+      <div ref={surface} className="confirm" role="dialog" aria-modal="true">
         <h2 className="confirm__title">{title}</h2>
         {/* Alerts route describeError() here (App.tsx's pushAlert), and this
             dialog has no Copy button — so the body stays selectable, as it was

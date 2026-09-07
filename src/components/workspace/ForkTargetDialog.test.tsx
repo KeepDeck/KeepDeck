@@ -3,7 +3,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ForkTargetDialog } from "./ForkTargetDialog";
-import type { AgentInfo, Occupancy, PathProbe } from "../../domain/agents";
+import type { AgentInfo, DirectoryState, PathProbe } from "../../domain/agents";
 import type { SessionHandle } from "../../domain/journal";
 import type { ForkTarget, ForkTargetDialogResult } from "../../domain/agents";
 
@@ -76,7 +76,7 @@ describe("ForkTargetDialog", () => {
   let root: Root;
   let confirmed: ForkTarget[];
   let probeResult: PathProbe;
-  let occupied: Occupancy;
+  let occupied: DirectoryState;
 
   beforeEach(() => {
     vi.useFakeTimers();
@@ -85,7 +85,7 @@ describe("ForkTargetDialog", () => {
     root = createRoot(host);
     confirmed = [];
     probeResult = MISSING;
-    occupied = null;
+    occupied = "free";
     act(() => {
       root.render(
         createElement(ForkTargetDialog, {
@@ -97,7 +97,7 @@ describe("ForkTargetDialog", () => {
             void path;
             return Promise.resolve(probeResult);
           },
-          occupancy: () => occupied,
+          directoryAt: () => occupied,
           pickFolder: () => Promise.resolve(null),
           onConfirm: ({ target }) => confirmed.push(target),
           onCancel: () => {},
@@ -191,19 +191,33 @@ describe("ForkTargetDialog", () => {
     expect(confirmed).toEqual([{ kind: "dir", cwd: "/tmp/live-wt" }]);
   });
 
-  it("disables Fork for blocked and occupied paths", async () => {
+  it("disables Fork for a blocked path and for one a worktree create is heading for", async () => {
     probeResult = BLOCKED;
     type(pathInput(), "/tmp/taken-dir");
     await settleProbe();
     expect(forkBtn().disabled).toBe(true);
 
-    occupied = "worktree";
-    probeResult = WORKTREE;
-    type(pathInput(), "/tmp/held-wt");
+    // Nothing is there to attach to yet, and git makes no second worktree
+    // on one path.
+    occupied = "being-created";
+    probeResult = MISSING;
+    type(pathInput(), "/tmp/pending-wt");
     await settleProbe();
     expect(forkBtn().disabled).toBe(true);
     submit();
     expect(confirmed).toEqual([]);
+  });
+
+  it("forks INTO a directory another team works in — the pane joins that team", async () => {
+    // The landing would put the fork on the team already there, so blocking
+    // it in the field only refused what the app was going to allow.
+    occupied = "worked-in";
+    probeResult = WORKTREE;
+    type(pathInput(), "/tmp/held-wt");
+    await settleProbe();
+    expect(forkBtn().disabled).toBe(false);
+    submit();
+    expect(confirmed[0]).toMatchObject({ kind: "dir", cwd: "/tmp/held-wt" });
   });
 });
 
@@ -248,7 +262,7 @@ describe("ForkTargetDialog YOLO toggle", () => {
           defaultYolo,
           // An empty path is valid (the workspace folder) — enough to submit.
           probe: () => Promise.resolve(MISSING),
-          occupancy: () => null,
+          directoryAt: (): DirectoryState => "free",
           pickFolder: () => Promise.resolve(null),
           onConfirm: ({ target, yolo }) => confirmed.push({ target, yolo }),
           onCancel: () => {},

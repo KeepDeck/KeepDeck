@@ -1,6 +1,7 @@
 import { agentSupportsNew, agentSupportsYolo } from "../../domain/agents";
 import { resolveTeamRef, type CommandArgs, type CommandRegistry } from "../../domain/commands";
-import { findTeam, findWorkspaceByRef, normalizePath, paneId, roleTaken, teamHeldPath, teamNameTaken, teamOccupyingPath, teamsOf, TEAM_FULL_MESSAGE, WORKSPACE_GONE_MESSAGE, WORKTREE_HELD_MESSAGE, type Pane, type TeamLocation, type Workspace } from "../../domain/deck";
+import { findTeam, findWorkspaceByRef, paneId, placementRefusalMessage, roleTaken, teamNameTaken, TEAM_FULL_MESSAGE, WORKSPACE_GONE_MESSAGE, type Pane, type TeamLocation, type Workspace } from "../../domain/deck";
+import { sharedDirectoryRefusal } from "../sharedDirectoryMessage";
 import { log } from "../../ipc/log";
 import { inspectRepo } from "../../ipc/worktree";
 import { firstFreeTeamWorktreeFor, nextAgentIndex, nextAgentType } from "../newAgentDefaults";
@@ -91,7 +92,7 @@ export function registerSpawnCommands(
       case "gone":
         throw new Error(WORKSPACE_GONE_MESSAGE);
       case "held":
-        throw new Error(WORKTREE_HELD_MESSAGE);
+        throw new Error(placementRefusalMessage(landed.why));
       default: {
         const unhandled: never = landed;
         throw new Error(`unhandled create outcome: ${JSON.stringify(unhandled)}`);
@@ -252,12 +253,22 @@ export function registerSpawnCommands(
           description:
             "Where the team runs: omitted, a NEW git worktree (needs a repo workspace with a worktree base folder); \"root\", the workspace folder itself; else an existing directory's path",
         },
+        {
+          name: "shared",
+          type: "boolean",
+          description:
+            "Make the team even though another team already works in that directory — both run on the same files and branch. Without it, an occupied directory is refused and names its team",
+        },
       ],
-      /** One directory is one team, and a team is born EMPTY: a name and
-       * a directory, nobody on it yet — `team.add` puts agents on it one at
-       * a time, each under its role. A directory some team already holds
-       * is refused (`team.add` is the door onto that team), as is a name a
-       * team here answers to. The same door "+ Team" goes through. */
+      /** A team is born EMPTY: a name and a directory, nobody on it yet —
+       * `team.add` puts agents on it one at a time, each under its role.
+       *
+       * A directory a team already works in is refused by DEFAULT, naming
+       * that team, because joining it (`team.add`) is what an agent usually
+       * means. Teams may still share a directory — the "+ Team" door asks
+       * the person and takes "create anyway" — so an agent that means it
+       * says so with `shared`. A name a team here answers to is refused
+       * either way. */
       run: async (args) => {
         const ws = targetWorkspace(deps.deck(), requiredStr(args, "workspace"));
         const workspace = { id: ws.id, instance: ws.instance };
@@ -286,43 +297,27 @@ export function registerSpawnCommands(
         const taken = () =>
           new Error(`a team called “${name}” already exists — team.add puts an agent on it`);
         if (name && teamNameTaken(current, name)) throw taken();
-        // Said with the holder's name, which the landing's bare `held`
-        // cannot: an agent told WHICH team holds the directory knows what
-        // to call in team.add.
-        const wanted = teamHeldPath({ location: placement });
-        const holder =
-          wanted === undefined
-            ? undefined
-            : teamsOf(current).find((team) => {
-                const held = teamHeldPath(team);
-                return held !== undefined && normalizePath(held) === normalizePath(wanted);
-              });
-        if (holder) {
-          throw new Error(
-            `that directory is already team “${holder.name}”'s (${holder.id}) — team.add puts an agent on it`,
-          );
-        }
-        // A team never spans workspaces, so a directory another workspace's
-        // team holds is refused too — said with WHOSE it is, since team.add
-        // cannot reach it from here. The root is the exception: every
-        // workspace opened on the same repository holds it for itself.
-        const abroad =
-          wanted === undefined || normalizePath(wanted) === normalizePath(current.cwd)
-            ? null
-            : teamOccupyingPath(deps.deck().workspaces, wanted);
-        if (abroad) {
-          throw new Error(
-            `that directory is already team “${abroad.team.name}”'s in workspace “${abroad.ws.name}” — one directory is one team`,
-          );
-        }
-        const made = deps.createTeam({ workspace, name: name ?? "", placement });
+        // The create settles whose the directory is — one answer, the same
+        // one the "+ Team" door gets — and says so with the holder's name,
+        // which a bare refusal could not: an agent told WHICH team is there
+        // knows what to call in team.add. `shared` is that agent saying what
+        // the dialog asks the person: both teams work in the one directory,
+        // deliberately.
+        const made = deps.createTeam({
+          workspace,
+          name: name ?? "",
+          placement,
+          ...(args.shared === true && { shared: true as const }),
+        });
         switch (made.kind) {
           case "created":
             break;
           case "gone":
             throw new Error(WORKSPACE_GONE_MESSAGE);
+          case "shared":
+            throw new Error(sharedDirectoryRefusal(made.holder));
           case "held":
-            throw new Error(WORKTREE_HELD_MESSAGE);
+            throw new Error(placementRefusalMessage(made.why));
           case "taken":
             throw taken();
           default: {

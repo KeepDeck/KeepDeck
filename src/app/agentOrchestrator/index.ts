@@ -1,6 +1,12 @@
 import type { AgentRestartMode, ForkTarget } from "../../domain/agents";
 import type { McpAccessAsk, SpawnPlan } from "../spawnSpecs";
-import type { Pane, SpawnConfig, TeamLocation, WorktreeTarget } from "../../domain/deck";
+import type {
+  Pane,
+  PlacementRefusal,
+  SpawnConfig,
+  TeamLocation,
+  WorktreeTarget,
+} from "../../domain/deck";
 import type { SessionHandle } from "../../domain/journal";
 import type { WorkspaceRef } from "../../domain/workspaceInstance";
 import type { WorkspaceCreationResult } from "../deckActions";
@@ -168,10 +174,10 @@ export type CreatePaneOutcome =
   | { kind: "gone" }
   /** The team the pane would join already has MAX_PANES members. */
   | { kind: "full" }
-  /** The directory the pane asked for is held by a team in ANOTHER
-   * workspace — one directory is one team's, and a team never spans
-   * workspaces. */
-  | { kind: "held" };
+  /** The directory the pane asked for is nothing it can land on — `why`
+   * says which of the reasons it was, so every door tells the truth in the
+   * same words ([`placementRefusalMessage`]). */
+  | { kind: "held"; why: PlacementRefusal };
 
 /** A team born with its directory and nobody on it — the "+ Team" door.
  * Agents come later, each through `createPane` naming the team. */
@@ -182,15 +188,34 @@ export interface CreateTeamRequest {
   /** The directory the team holds — an existing one (the workspace root
    * included) or a create heading for one. */
   placement: TeamLocation;
+  /** The person has SEEN whose directory this is and asked for the team
+   * anyway. Only ever answers a `shared` outcome — it lets a second team
+   * onto a directory a team already works in, and nothing else: a create
+   * still heading for a worktree, and a directory a teardown is removing,
+   * refuse with or without it. */
+  shared?: true;
+}
+
+/** The team already working in a directory a create asked for. Named so the
+ * surface can say WHOSE it is before asking for consent; `workspace` is set
+ * only when the holder is in another one. */
+export interface DirectoryHolder {
+  teamId: string;
+  teamName: string;
+  workspace?: string;
 }
 
 export type CreateTeamOutcome =
   | { kind: "created"; teamId: string }
   | { kind: "gone" }
-  /** The directory is a team's already — one here (a member joins that
-   * team instead), one in another workspace, or one a close is still
-   * tearing down. */
-  | { kind: "held" }
+  /** The directory is a team's already, and consent CAN place a second team
+   * on it: teams share a directory when the person says so. Carries who is
+   * there, and the directory as the create read it, so the surface can name
+   * both and re-issue with `shared` — never deriving either itself. */
+  | { kind: "shared"; holder: DirectoryHolder; directory: string }
+  /** The directory cannot take this team however willing the person is —
+   * `why` says which reason, in the vocabulary every door shares. */
+  | { kind: "held"; why: PlacementRefusal }
   /** A team here already answers to that name. */
   | { kind: "taken" };
 

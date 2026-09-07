@@ -1,22 +1,14 @@
+import { teamFullMessage } from "./placementRefusals";
+
 /** Max agents ONE TEAM holds at once — a hard product cap, measured where
  * a pane joins a team. A workspace holds as many teams as it likes. */
 export const MAX_PANES = 16;
 
 /** The error thrown when a pane can't join because its team is at
- * `MAX_PANES` — one string for every add/fork/resume seam that guards the cap. */
-export const TEAM_FULL_MESSAGE =
-  `The team is full — ${MAX_PANES} agents; close one first`;
-
-/** The error when the workspace a pane was headed for is no longer in the
- * deck — every add re-resolves against the live store, and a close can land
- * inside the awaits a worktree create or a fork's surgery needs. One string
- * for the same reason the cap has one: it was already spelled two ways. */
-export const WORKSPACE_GONE_MESSAGE = "That workspace was closed.";
-/** A directory a team already holds, where the request cannot join it: a
- * create heading for a directory some team runs in (a worktree cannot be
- * made where one is), or a directory a team in ANOTHER workspace holds —
- * one directory is one team's, and a team never spans workspaces. */
-export const WORKTREE_HELD_MESSAGE = "That directory is already a team's.";
+ * `MAX_PANES` — one string for every add/fork/resume seam that guards the
+ * cap. The wording lives with the other refusals; the cap lives here, with
+ * the grid it is a property of. */
+export const TEAM_FULL_MESSAGE = teamFullMessage(MAX_PANES);
 
 /** Geometry of the deck grid: a square-ish column count, filled row by row. */
 export interface GridGeometry {

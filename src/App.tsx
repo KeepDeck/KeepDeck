@@ -21,7 +21,7 @@ import { WorkspaceForm } from "./components/workspace/WorkspaceForm";
 import {
   DECK_STATE_VERSION,
   findWorkspace,
-  pathOccupancy,
+  directoryState,
 } from "./domain/deck";
 import { pickFolder } from "./ipc/dialogs";
 import { describeError } from "./ipc/log";
@@ -32,6 +32,7 @@ import {
 } from "./app/notificationProducers";
 import { liveOutsideSessions } from "./app/liveSessions";
 import { useCallback } from "react";
+import { sharedDirectoryAsk } from "./app/sharedDirectoryMessage";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
 import { ModalOverlay } from "./ui/ModalOverlay";
 import "./styles/index.css";
@@ -289,7 +290,7 @@ function App() {
               probePath={probeWorktree}
               listBranches={listBranches}
               branchForPath={agentFlow.branchFor}
-              occupancyAt={(path) => pathOccupancy(deck.workspaces, path)}
+              directoryAt={agentFlow.directoryAt}
               nextFreeLocation={agentFlow.nextFree}
               pickFolder={pickFolder}
               searchSessions={agentFlow.searchSessions}
@@ -297,6 +298,18 @@ function App() {
               liveOutside={liveOutside}
               onConfirm={agentFlow.confirm}
               onCancel={agentFlow.cancel}
+            />
+          )}
+          {agentFlow.sharedAsk && (
+            <ConfirmDialog
+              {...sharedDirectoryAsk(
+                agentFlow.sharedAsk.holder,
+                agentFlow.sharedAsk.path,
+              )}
+              confirmLabel="Create anyway"
+              cancelLabel="Cancel"
+              onConfirm={agentFlow.sharedAsk.confirm}
+              onCancel={agentFlow.sharedAsk.cancel}
             />
           )}
           {forkDialog && (
@@ -308,7 +321,10 @@ function App() {
               }
               defaultYolo={settings.defaultYolo}
               probe={probeWorktree}
-              occupancy={(path) => pathOccupancy(deck.workspaces, path)}
+              directoryAt={(path) => {
+                const ws = findWorkspace(deck.workspaces, forkDialog.wsId);
+                return ws ? directoryState(deck.workspaces, ws, path) : "free";
+              }}
               pickFolder={pickFolder}
               onConfirm={({ target, yolo }) => {
                 const { wsId, record } = forkDialog;

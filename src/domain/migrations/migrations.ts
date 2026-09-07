@@ -285,15 +285,25 @@ function migrateWorkspaceTeamsToV11(
     placement: ReturnType<typeof v10PanePlacement>;
     name?: string;
     nameKey?: string;
-    /** Intact named teams that shared this directory with the one that
-     * named it, and were folded into it — their rosters' roles stay. */
-    merged: Set<string>;
     members: typeof placed;
   }
   const groups: Group[] = [];
-  const merges: { name: string; into: Group }[] = [];
   for (const entry of placed) {
-    let group = groups.find((candidate) => candidate.dirKey === entry.dirKey);
+    // An intact named team keeps its OWN group, even where another team
+    // works in the same directory: teams share a directory, so a second name
+    // there is a second team, not a merge. (It was a merge while one
+    // directory meant one team; folding them lost a name and a roster the
+    // product now supports.) A member with no intact name joins whatever
+    // team the directory already has.
+    const nameKey =
+      entry.named && !dissolved.has(entry.named.key) ? entry.named.key : undefined;
+    let group =
+      nameKey === undefined
+        ? groups.find((candidate) => candidate.dirKey === entry.dirKey)
+        : groups.find(
+            (candidate) =>
+              candidate.dirKey === entry.dirKey && candidate.nameKey === nameKey,
+          );
     if (!group) {
       const seq = mint.next++;
       group = {
@@ -301,25 +311,12 @@ function migrateWorkspaceTeamsToV11(
         seq,
         dirKey: entry.dirKey,
         placement: entry.placement,
-        merged: new Set(),
         members: [],
+        ...(nameKey !== undefined && { name: entry.named!.name, nameKey }),
       };
       groups.push(group);
     }
     group.members.push(entry);
-    // The first intact named team in a directory names it. A second intact
-    // name in the same directory is MERGED into it — one directory is one
-    // team, and a roster whose members all sat here is consistent, so its
-    // roles are kept rather than thrown away with a dissolution.
-    if (entry.named && !dissolved.has(entry.named.key)) {
-      if (group.nameKey === undefined) {
-        group.name = entry.named.name;
-        group.nameKey = entry.named.key;
-      } else if (group.nameKey !== entry.named.key && !group.merged.has(entry.named.key)) {
-        group.merged.add(entry.named.key);
-        merges.push({ name: entry.named.name, into: group });
-      }
-    }
   }
   for (const key of dissolved) {
     const shown = placed.find((entry) => entry.named?.key === key)?.named?.name ?? key;
@@ -328,12 +325,6 @@ function migrateWorkspaceTeamsToV11(
       `Team “${shown}” in workspace “${label}” ran in ${dirs} directories and was dissolved: its agents keep their directories and sessions, and lost the team name and roles.`,
     );
   }
-  for (const { name, into } of merges) {
-    notices.push(
-      `Team “${name}” in workspace “${label}” shared a directory with team “${into.name}” and was merged into it: one directory is one team.`,
-    );
-  }
-
   // Names: the intact team's, else the first member's own, else "Team N" —
   // unique within the workspace by key.
   const takenNames = new Set<string>();
@@ -374,14 +365,13 @@ function migrateWorkspaceTeamsToV11(
       if (branch !== undefined) team.branch = branch;
     }
     teams.push(team);
-    // Roles: the intact roster's own — the naming roster's and any merged
-    // into it — unique within the team, and a minted address for everyone
-    // the rosters did not name.
+    // Roles: the intact roster's own, unique within the team, and a minted
+    // address for everyone the roster did not name. A team here is one
+    // roster now — a second name in the directory got a team of its own —
+    // so membership of it is exactly "this entry's name is this team's".
     const taken = new Set<string>();
     for (const entry of group.members) {
-      const rostered =
-        entry.named !== null &&
-        (group.nameKey === entry.named.key || group.merged.has(entry.named.key));
+      const rostered = entry.named !== null && group.nameKey === entry.named.key;
       const kept =
         rostered && entry.named && !taken.has(entry.named.role.toLowerCase())
           ? entry.named.role

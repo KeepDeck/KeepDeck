@@ -33,6 +33,55 @@ function productionSources(area: "app" | "domain"): string[] {
     .map((name) => `${area}/${name}`);
 }
 
+/**
+ * Whose a DIRECTORY is has one home too: [`claimPath`] in `teams/lifecycle.ts`.
+ *
+ * The same guard shape, for the rule this branch spent its effort
+ * consolidating — five hand-rolled copies of "does this team hold that
+ * path" answered the question independently, and two of them had drifted by
+ * the time anyone counted. It catches the shape every one of them had: a
+ * normalized `teamHeldPath` compared against a candidate. Narrow on purpose,
+ * like its sibling — what it buys is that the sixth copy has to be made
+ * deliberately and named here.
+ */
+const CLAIM_HOME = "domain/deck/teams/lifecycle.ts";
+
+/** The copies allowed to stand, with the reason each may. */
+const CLAIM_ALLOWED = new Map([
+  [
+    // The occupancy question asked ACROSS workspaces with no workspace
+    // asking — a suggester skipping taken paths, not a claim.
+    "domain/deck/teams/lifecycle.ts",
+    "teamOccupyingPath",
+  ],
+]);
+
+const CLAIM_COPIES = [
+  /normalizePath\((?:held|path)\)\s*===\s*(?:wanted|normalizePath)/,
+  /teamHeldPath\([^)]*\)[^\n]*normalizePath\([^)]*\)\s*===/,
+];
+
+describe("whose a directory is has one home", () => {
+  const files = [...productionSources("app"), ...productionSources("domain")];
+
+  it("scans a tree that is actually there", () => {
+    expect(files).toContain(CLAIM_HOME);
+  });
+
+  it.each(files)("%s spells no copy of the claim", (file) => {
+    if (CLAIM_ALLOWED.has(file)) return;
+    const source = readFileSync(`${SRC}${file}`, "utf8");
+    for (const [number, line] of source.split("\n").entries()) {
+      for (const copy of CLAIM_COPIES) {
+        expect(
+          line,
+          `${file}:${number + 1} answers "whose is this directory" itself — ask claimPath / claimDirectory instead`,
+        ).not.toMatch(copy);
+      }
+    }
+  });
+});
+
 describe("a pane's directory has one formula", () => {
   const files = [...productionSources("app"), ...productionSources("domain")];
 

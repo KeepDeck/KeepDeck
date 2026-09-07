@@ -313,10 +313,11 @@ describe("migrateDeck — v10 → v11: a team is a directory's worth of agents",
     ]);
   });
 
-  it("one directory is one team: a second intact name there is merged in with its roles, a duplicate role re-minted", () => {
-    // "web" is consistent — all its members sit here — so it keeps what it
-    // can: its roles, under the first team's name. Only a collision costs a
-    // role, and the person is told which.
+  it("two intact names in one directory stay two teams — sharing a directory is a thing now", () => {
+    // Both rosters are consistent (all their members sit here), so both keep
+    // their name AND their roles, in the one directory. This used to fold
+    // "web" into "api", losing a name and a roster the product now supports:
+    // the "+ Team" door asks the person for exactly this arrangement.
     const { workspaces, notices } = migrate([
       ws("ws-1", [
         { id: "pane-1", cwd: "/wt/1", team: { name: "api", role: "lead" } },
@@ -325,18 +326,19 @@ describe("migrateDeck — v10 → v11: a team is a directory's worth of agents",
         { id: "pane-4", cwd: "/wt/1", team: { name: "api", role: "impl-1" } },
       ]),
     ]);
-    expect(teamsOf(workspaces[0])).toEqual([{ id: "team-1", name: "api", cwd: "/wt/1" }]);
+    expect(teamsOf(workspaces[0])).toEqual([
+      { id: "team-1", name: "api", cwd: "/wt/1" },
+      { id: "team-2", name: "web", cwd: "/wt/1" },
+    ]);
     expect(panesOf(workspaces[0]).map((pane) => pane.team)).toEqual([
       { teamId: "team-1", role: "lead" },
+      { teamId: "team-2", role: "impl-1" },
+      { teamId: "team-2", role: "LEAD" },
       { teamId: "team-1", role: "impl-1" },
-      { teamId: "team-1", role: "impl-2" },
-      { teamId: "team-1", role: "impl-3" },
     ]);
-    expect(notices).toEqual([
-      "Team “web” in workspace “ws-1” shared a directory with team “api” and was merged into it: one directory is one team.",
-      "In team “api” (workspace “ws-1”) two agents held the role “LEAD”; the second now answers to a minted one.",
-      "In team “api” (workspace “ws-1”) two agents held the role “impl-1”; the second now answers to a minted one.",
-    ]);
+    // Nothing collided once the rosters stayed apart, so nobody is told
+    // anything: the roles that used to clash belonged to different teams.
+    expect(notices).toEqual([]);
   });
 
   it("a mixed root group: the branch is the first RECORDED one, and every root pane joins", () => {

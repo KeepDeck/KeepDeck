@@ -14,7 +14,7 @@ import {
   remoteEndpointOf,
   TEAM_FULL_MESSAGE,
   WORKSPACE_GONE_MESSAGE,
-  WORKTREE_HELD_MESSAGE,
+  placementRefusalMessage,
 } from "../../domain/deck";
 import { describeError, log } from "../../ipc/log";
 import { createDeckActions, type DeckActions } from "../deckActions";
@@ -537,7 +537,7 @@ export function createAgentOrchestratorRuntime(
           moved.kind === "full"
             ? TEAM_FULL_MESSAGE
             : moved.kind === "held"
-              ? WORKTREE_HELD_MESSAGE
+              ? placementRefusalMessage(moved.why)
               : WORKSPACE_GONE_MESSAGE;
         log.warn("web:orchestrator", `${paneId}: start fresh refused — ${why}`);
         runView.markWakeFailed(paneId, why);

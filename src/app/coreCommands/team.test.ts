@@ -102,7 +102,7 @@ describe("team.create", () => {
     expect(message(result)).toContain("team.add");
   });
 
-  it("refuses a directory a team here already holds — one directory is one team", async () => {
+  it("refuses a directory a team here works in unasked — naming the team, and the way to mean it", async () => {
     const { registry } = setup([teamed()]);
     const result = await registry.execute(
       "team.create",
@@ -110,7 +110,62 @@ describe("team.create", () => {
       HOST,
     );
     expect(result.ok).toBe(false);
+    // Joining is what an agent usually means, so the refusal names the team
+    // team.add would put it on — and the flag for when it meant the other.
     expect(message(result)).toContain("team-1");
+    expect(message(result)).toContain("shared: true");
+  });
+
+  it("says a worktree create is heading there, which no flag can overrule", async () => {
+    const { registry, createTeam } = setup([teamed()]);
+    createTeam.mockReturnValueOnce({ kind: "held", why: "creating" });
+    const result = await registry.execute(
+      "team.create",
+      { workspace: "web", name: "second", directory: "/wt/pending", shared: true },
+      HOST,
+    );
+    expect(result.ok).toBe(false);
+    expect(message(result)).toContain("still being created");
+  });
+
+  it("never points an agent at a team.add it cannot reach — a holder abroad is named as such", async () => {
+    // team.add resolves a team inside the CALLING workspace only. Saying
+    // "team.add puts an agent on it" about a team in another workspace sends
+    // the agent to an error; the two cases were two messages for that reason.
+    const { registry, createTeam } = setup([teamed()]);
+    createTeam.mockReturnValueOnce({
+      kind: "shared",
+      directory: "/wt/api",
+      holder: { teamId: "team-1", teamName: "api", workspace: "site" },
+    });
+    const result = await registry.execute(
+      "team.create",
+      { workspace: "web", name: "second", directory: "/wt/api" },
+      HOST,
+    );
+    expect(result.ok).toBe(false);
+    expect(message(result)).toContain("workspace “site”");
+    expect(message(result)).not.toContain("team.add puts an agent on it");
+    // It still says the way to mean it.
+    expect(message(result)).toContain("shared: true");
+  });
+
+  it("makes the second team in the directory when the agent says it means it", async () => {
+    const { registry, deck } = setup([teamed()]);
+    const result = await registry.execute(
+      "team.create",
+      { workspace: "web", name: "second", directory: "/wt/api/", shared: true },
+      HOST,
+    );
+    expect(result.ok).toBe(true);
+    const teams = deck.workspaces[0].teams ?? [];
+    expect(teams).toHaveLength(2);
+    expect(teams.map((team) => team.name)).toEqual(["api", "second"]);
+    expect(
+      teams.every(
+        (team) => team.location?.kind === "attached" && team.location.cwd.startsWith("/wt/api"),
+      ),
+    ).toBe(true);
   });
 
   it("refuses a directory another workspace's team holds, naming whose — except the root, which every workspace holds for itself", async () => {

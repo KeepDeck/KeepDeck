@@ -7,7 +7,7 @@ import * as dirPresenceModule from "../history/useDirPresence";
 import { createSessionIndexManager } from "../../app/sessionIndexManager";
 import type {
   AgentDialogResult,
-  Occupancy,
+  DirectoryState,
   PathProbe,
   SessionPickRow,
 } from "../../domain/agents";
@@ -177,19 +177,22 @@ describe("AgentDialog worktree location flow", () => {
       vi.advanceTimersByTime(250);
     });
 
-  /** Mount prefilled with `/base/kd-ws-2`, held by an open pane running in a
-   * live worktree unless overridden; other paths probe as new/missing. The
+  /** Mount prefilled with `/base/kd-ws-2`, which probes as a live worktree
+   * and which the deck reports as blocked unless overridden; other paths
+   * probe as new/missing. `occupancyOf` is the deck's answer to "does this
+   * path pause the form" — a directory another team merely works in is NOT
+   * one, so a shared directory is spelled here as no entry at all. The
    * base-branch options default to a small local list; `branches: null`
    * simulates an unavailable listing (the IPC rejected). */
   const mount = async (
     opts: {
       probeOf?: Record<string, PathProbe>;
-      occupancyOf?: Record<string, Occupancy>;
+      occupancyOf?: Record<string, DirectoryState>;
       branches?: string[] | null;
     } = {},
   ) => {
     const probeOf = opts.probeOf ?? { "/base/kd-ws-2": WORKTREE };
-    const occupancyOf = opts.occupancyOf ?? { "/base/kd-ws-2": "worktree" as const };
+    const occupancyOf = opts.occupancyOf ?? { "/base/kd-ws-2": "being-created" as const };
     const branches = opts.branches === undefined ? ["develop", "main"] : opts.branches;
     return act(async () =>
       root.render(
@@ -215,7 +218,7 @@ describe("AgentDialog worktree location flow", () => {
             const m = /^kd-ws-(\d+)$/.exec(folder);
             return m ? `kd/ws/${m[1]}` : folder || null;
           },
-          occupancyAt: (p: string) => occupancyOf[p] ?? null,
+          directoryAt: (p: string): DirectoryState => occupancyOf[p] ?? "free",
           nextFreeLocation: async () => ({ path: "/base/kd-ws-3", branch: "kd/ws/3" }),
           pickFolder: async () => null,
           searchSessions: async () => ({ rows: [], total: 0 }),
@@ -228,18 +231,56 @@ describe("AgentDialog worktree location flow", () => {
     );
   };
 
-  it("an occupied path blocks Create and offers both choices at once — no probe wait", async () => {
-    await mount();
-    // Occupancy is known synchronously, and worktree occupancy itself proves
-    // there is a worktree to attach to: both actions render immediately.
-    expect(errorText()).toBe("Already in use by another agent");
+  it("a directory another team works in does not block a team — it reads as a plain attach", async () => {
+    // The deck answers no block for a directory a team merely works in
+    // (`teamPathBlock`, pinned in the domain): teams share directories, and
+    // the create asks the person whose it is. The form says what the path IS.
+    await mount({ probeOf: { "/base/kd-ws-2": WORKTREE }, occupancyOf: {} });
+    await settleProbe();
+    expect(errorText()).toBeUndefined();
+    expect(choiceBtn("Use next available")).toBeNull();
+    expect(createBtn().disabled).toBe(false);
+    submit();
+    expect(confirmed[0]?.location).toEqual({
+      kind: "existing",
+      path: "/base/kd-ws-2",
+      branch: "kd/ws/2",
+    });
+  });
+
+  it("a directory a team works in reads as an ATTACH even when the disk says it is gone", async () => {
+    // The deck is the truer answer: the team is the thing being joined, and
+    // the directory may be missing behind the app's back (or a plain folder a
+    // `team.create` was pointed at). Asking the probe here offered the path
+    // as a NEW worktree and then had the create refuse it — a dead end with a
+    // message about a create that was not running.
+    await mount({ probeOf: {}, occupancyOf: { "/base/kd-ws-2": "worked-in" } });
+    await settleProbe();
+    expect(errorText()).toBeUndefined();
+    expect(createBtn().disabled).toBe(false);
+    submit();
+    expect(confirmed[0]?.location).toMatchObject({
+      kind: "existing",
+      path: "/base/kd-ws-2",
+    });
+  });
+
+  it("a directory a worktree create is heading for blocks Create — no consent buys a second create", async () => {
+    await mount({
+      probeOf: {},
+      occupancyOf: { "/base/kd-ws-2": "being-created" },
+    });
+    // Known synchronously, before any probe: nothing is there to attach to,
+    // and git makes no second worktree on the path.
+    expect(errorText()).toBe("A worktree is still being created there");
     expect(choiceBtn("Use next available")).toBeTruthy();
-    expect(choiceBtn("Attach anyway")).toBeTruthy();
     expect(createBtn().disabled).toBe(true);
   });
 
   it("Use next available swaps in the free path and its branch", async () => {
-    await mount();
+    // Offered where the path is genuinely unusable — here a worktree create
+    // is still heading for it.
+    await mount({ probeOf: {}, occupancyOf: { "/base/kd-ws-2": "being-created" } });
     await act(async () => choiceBtn("Use next available")!.click());
     expect(pathInput().value).toBe("/base/kd-ws-3");
     await settleProbe(); // free path probes as new → branch field appears
@@ -264,31 +305,22 @@ describe("AgentDialog worktree location flow", () => {
     ]);
   });
 
-  it("Attach anyway unblocks Create instantly; the probe then fills the branch", async () => {
-    await mount();
-    await act(async () => choiceBtn("Attach anyway")!.click());
-    expect(errorText()).toBeUndefined();
-    expect(createBtn().disabled).toBe(false); // before the probe lands
-    await settleProbe();
-    submit();
-    expect(confirmed[0]?.location).toEqual({
-      kind: "existing",
-      path: "/base/kd-ws-2",
-      branch: "kd/ws/2",
-    });
-  });
-
-  it("editing the path revokes an earlier Attach anyway", async () => {
+  it("a second shared directory is as usable as the first — nothing to re-consent to in the form", async () => {
     await mount({
       probeOf: { "/base/kd-ws-2": WORKTREE, "/base/kd-ws-4": WORKTREE },
-      occupancyOf: { "/base/kd-ws-2": "worktree", "/base/kd-ws-4": "worktree" },
+      occupancyOf: {},
     });
-    await act(async () => choiceBtn("Attach anyway")!.click());
+    await settleProbe();
     expect(createBtn().disabled).toBe(false);
-    // Consent covered kd-ws-2; a different occupied path must block again.
     type(pathInput(), "/base/kd-ws-4");
-    expect(errorText()).toBe("Already in use by another agent");
-    expect(createBtn().disabled).toBe(true);
+    await settleProbe();
+    expect(errorText()).toBeUndefined();
+    expect(createBtn().disabled).toBe(false);
+    submit();
+    expect(confirmed[0]?.location).toMatchObject({
+      kind: "existing",
+      path: "/base/kd-ws-4",
+    });
   });
 
   it("a blocked path offers Use next available — an error, but not a dead end", async () => {
@@ -310,17 +342,6 @@ describe("AgentDialog worktree location flow", () => {
     await settleProbe(); // free path probes as new → branch field appears
     expect(branchInput()?.value).toBe("kd/ws/3");
     expect(createBtn().disabled).toBe(false);
-  });
-
-  it("a provisioning target offers no Attach anyway — nothing exists to attach to", async () => {
-    await mount({
-      probeOf: {},
-      occupancyOf: { "/base/kd-ws-2": "provisioning" },
-    });
-    await settleProbe();
-    expect(choiceBtn("Use next available")).toBeTruthy();
-    expect(choiceBtn("Attach anyway")).toBeNull();
-    expect(createBtn().disabled).toBe(true);
   });
 
   it("the branch follows the path's folder name while untouched", async () => {
@@ -472,7 +493,7 @@ describe("AgentDialog agent picker", () => {
           probePath: async () => MISSING,
           listBranches: async () => [],
           branchForPath: async () => null,
-          occupancyAt: () => null,
+          directoryAt: () => "free" as const,
           nextFreeLocation: async () => null,
           pickFolder: async () => null,
           searchSessions: async () => ({ rows: [], total: 0 }),
@@ -523,7 +544,7 @@ describe("AgentDialog YOLO toggle", () => {
           probePath: async () => MISSING,
           listBranches: async () => [],
           branchForPath: async () => null,
-          occupancyAt: () => null,
+          directoryAt: () => "free" as const,
           nextFreeLocation: async () => null,
           pickFolder: async () => null,
           searchSessions: async () => ({ rows: [], total: 0 }),
@@ -637,7 +658,7 @@ describe("AgentDialog start-from session picker", () => {
           probePath: async () => MISSING,
           listBranches: async () => ["main"],
           branchForPath: async () => null,
-          occupancyAt: () => null,
+          directoryAt: () => "free" as const,
           nextFreeLocation: async () => null,
           pickFolder: async () => null,
           searchSessions: async () => ({ rows: SESSIONS, total: SESSIONS.length }),
@@ -961,7 +982,7 @@ describe("AgentDialog start-from paging", () => {
           probePath: async () => MISSING,
           listBranches: async () => ["main"],
           branchForPath: async () => null,
-          occupancyAt: () => null,
+          directoryAt: () => "free" as const,
           nextFreeLocation: async () => null,
           pickFolder: async () => null,
           searchSessions,
@@ -1017,7 +1038,7 @@ describe("AgentDialog start-from paging", () => {
           probePath: async () => MISSING,
           listBranches: async () => ["main"],
           branchForPath: async () => null,
-          occupancyAt: () => null,
+          directoryAt: () => "free" as const,
           nextFreeLocation: async () => null,
           pickFolder: async () => null,
           searchSessions,
@@ -1071,7 +1092,7 @@ describe("AgentDialog start-from paging", () => {
           probePath: async () => MISSING,
           listBranches: async () => ["main"],
           branchForPath: async () => null,
-          occupancyAt: () => null,
+          directoryAt: () => "free" as const,
           nextFreeLocation: async () => null,
           pickFolder: async () => null,
           searchSessions,
@@ -1162,7 +1183,7 @@ describe("AgentDialog cross-agent pick guard", () => {
           probePath: async () => MISSING,
           listBranches: async () => ["main"],
           branchForPath: async () => null,
-          occupancyAt: () => null,
+          directoryAt: () => "free" as const,
           nextFreeLocation: async () => null,
           pickFolder: async () => null,
           searchSessions: async () => ({
@@ -1279,7 +1300,7 @@ describe("remote gating (Experimental setting)", () => {
           probePath: async () => MISSING,
           listBranches: async () => ["main"],
           branchForPath: async () => null,
-          occupancyAt: () => null,
+          directoryAt: () => "free" as const,
           nextFreeLocation: async () => null,
           pickFolder: async () => null,
           searchSessions: async () => ({ rows: [], total: 0 }),
@@ -1329,7 +1350,7 @@ describe("remote gating (Experimental setting)", () => {
           probePath: async () => MISSING,
           listBranches: async () => [],
           branchForPath: async () => null,
-          occupancyAt: () => null,
+          directoryAt: () => "free" as const,
           nextFreeLocation: async () => null,
           pickFolder: async () => null,
           searchSessions: async () => ({ rows: [], total: 0 }),
@@ -1463,7 +1484,7 @@ describe("AgentDialog picker ↔ sessionIndexManager (integration)", () => {
           probePath: async () => MISSING,
           listBranches: async () => ["main"],
           branchForPath: async () => null,
-          occupancyAt: () => null,
+          directoryAt: () => "free" as const,
           nextFreeLocation: async () => null,
           pickFolder: async () => null,
           searchSessions,

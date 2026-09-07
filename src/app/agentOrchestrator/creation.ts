@@ -1,6 +1,8 @@
 import {
   autoTeamName,
   autoWorkspaceName,
+  birthRefusal,
+  claimDirectory,
   findTeam,
   findWorkspace,
   findWorkspaceByRef,
@@ -12,13 +14,14 @@ import {
   teamHeldPath,
   teamId,
   teamNameTaken,
-  teamOccupyingPath,
   teamOfPane,
   teamsOf,
+  placementRefusalMessage,
   TEAM_FULL_MESSAGE,
   WORKSPACE_GONE_MESSAGE,
-  WORKTREE_HELD_MESSAGE,
+  type DirectoryClaim,
   type Pane,
+  type PlacementRefusal,
   type Team,
   type TeamLocation,
   type Workspace,
@@ -89,7 +92,48 @@ const rootOf = (workspace: Workspace): TeamLocation => ({
 /** The team a pane would land on, or the refusal it would meet. */
 type Landing =
   | { team: Team & { location: TeamLocation }; fresh: boolean }
-  | { refusal: "full" | "held" };
+  | { refusal: "full" }
+  | { refusal: "held"; why: PlacementRefusal };
+
+/**
+ * The birth policy ([`birthRefusal`]) said in the outcomes a door answers
+ * with, minus the runtime facts only a running deck holds (a teardown still
+ * removing the directory). `null` = go ahead.
+ *
+ * The door, the `team.create` command and the command double all answer
+ * through this — one spelling, so no second implementation can drift from it
+ * while its tests still pass. The POLICY itself is the domain's; this only
+ * dresses it, and names the holder so the asker can say whose directory it is.
+ */
+export function teamCreateRefusal(request: {
+  claim: DirectoryClaim;
+  /** What the team asked for — a create heading for a directory is refused
+   * on this side of the question too. */
+  placement: TeamLocation;
+  /** The workspace the team would be born in — a holder anywhere else is
+   * named with its workspace, since no `team.add` here can reach it. */
+  homeWsId: string;
+  /** The directory as the deck keys it, for the asker to name. */
+  directory: string;
+  /** The person (or agent) has already answered "create anyway". */
+  shared: boolean;
+}): Extract<CreateTeamOutcome, { kind: "held" | "shared" }> | null {
+  const { claim, placement, homeWsId, directory, shared } = request;
+  const refusal = birthRefusal(claim, placement, shared);
+  if (refusal === null) return null;
+  if (refusal === "busy" || claim.kind === "free") {
+    return { kind: "held", why: claim.kind === "free" ? "refused" : "creating" };
+  }
+  return {
+    kind: "shared",
+    directory,
+    holder: {
+      teamId: claim.team.id,
+      teamName: claim.team.name,
+      ...(claim.ws.id !== homeWsId && { workspace: claim.ws.name }),
+    },
+  };
+}
 
 export function createAgentOrchestratorCreation({
   deck,
@@ -117,29 +161,36 @@ export function createAgentOrchestratorCreation({
     );
   }
 
-  function refuse(paneId: string, kind: "gone" | "full" | "held"): CreatePaneOutcome {
+  function refuse(paneId: string, outcome: CreatePaneOutcome): CreatePaneOutcome {
     dropPaneSpawnSpec(paneId);
-    return { kind };
+    return outcome;
   }
 
-  /** The team of THIS workspace holding the directory `wantedKey`, if any. */
-  function holderHere(current: Workspace, wantedKey: string): Team | undefined {
-    return teamsOf(current).find((candidate) => {
-      const held = teamHeldPath(candidate);
-      return held !== undefined && normalizePath(held) === wantedKey;
-    });
+  /** A landing's refusal as the outcome a caller answers with — the `why`
+   * rides along so the door can say which refusal it was. */
+  function refusalOutcome(landing: Extract<Landing, { refusal: string }>): CreatePaneOutcome {
+    return landing.refusal === "full"
+      ? { kind: "full" }
+      : { kind: "held", why: landing.why };
   }
 
   /**
    * Make a team that holds `placement` and nobody yet — the "+ Team" door.
    *
-   * ONE directory is ONE team: a directory a team here already holds is
-   * refused (a member joins that team instead), one another workspace's
-   * team holds is refused — except the root, which every workspace opened
-   * on the same repository holds for itself — and one a confirmed close is
-   * still tearing down is nobody's. A name a team here answers to is
-   * refused. The deck is read back rather than trusted, and the create
-   * behind a card is issued only once the deck holds the team.
+   * A directory teams already WORK in takes another team when the person
+   * says so: the create answers `shared` naming who is there, and the same
+   * request carrying `shared` goes through. Teams sharing a directory is a
+   * real way of working — several teams on one checkout — not an accident
+   * to be prevented, so the door asks instead of refusing.
+   *
+   * Two things consent cannot buy, and both answer `held`: a directory a
+   * create is still heading for (a worktree cannot be made where one is
+   * being made, on either side of the question), and one a confirmed close
+   * is still tearing down — that team would lose its directory seconds
+   * later. A name a team here answers to is `taken`.
+   *
+   * The deck is read back rather than trusted, and the create behind a card
+   * is issued only once the deck holds the team.
    */
   function createTeam(request: CreateTeamRequest): CreateTeamOutcome {
     const workspaces = deck.getSnapshot().workspaces;
@@ -147,21 +198,30 @@ export function createAgentOrchestratorCreation({
     if (!current) return { kind: "gone" };
     const wanted = request.placement;
     const wantedKey = normalizePath(teamHeldPath({ location: wanted }) ?? "");
-    if (holdsPath(wantedKey) || holderHere(current, wantedKey)) return { kind: "held" };
-    const elsewhere = teamOccupyingPath(workspaces, wantedKey);
-    if (elsewhere && wantedKey !== normalizePath(current.cwd)) return { kind: "held" };
+    // A teardown owns the directory until its `git worktree remove` is done
+    // — runtime state the deck cannot see, and the one refusal this layer
+    // adds to the claim.
+    if (holdsPath(wantedKey)) return { kind: "held", why: "removing" };
+    const refusal = teamCreateRefusal({
+      claim: claimDirectory(workspaces, current, wanted),
+      placement: wanted,
+      homeWsId: current.id,
+      directory: wantedKey,
+      shared: request.shared === true,
+    });
+    if (refusal) return refusal;
     const seq = nextTeamSeq(workspaces);
     const name = request.name.trim() || autoTeamName(seq);
     if (teamNameTaken(current, name)) return { kind: "taken" };
     const team: Team & { location: TeamLocation } = { id: teamId(seq), name, location: wanted };
-    actions.createTeam(current.id, team);
+    actions.createTeam(current.id, team, { shared: request.shared });
     const settled = findWorkspaceByRef(deck.getSnapshot().workspaces, request.workspace);
     if (!settled || !findTeam(settled, team.id)) {
       log.error(
         "web:orchestrator",
         `${team.id} (${name}): the deck refused the team at ${wantedKey || "?"} — not made`,
       );
-      return { kind: "held" };
+      return { kind: "held", why: "refused" };
     }
     if (wanted.kind === "provisioning") provisionTeams(current, [team]);
     return { kind: "created", teamId: team.id };
@@ -171,12 +231,16 @@ export function createAgentOrchestratorCreation({
    * The team a pane asking for `wanted` lands on in `current`: the one
    * holding that directory, or one minted for it — or the refusal.
    *
-   * ONE directory is ONE team: a request naming a directory a team in this
-   * workspace already holds JOINS that team, and a directory a team in
-   * another workspace holds is refused — a team never spans workspaces,
-   * except at the root, which every workspace opened on the same repository
-   * holds for itself. A directory nobody holds gets a team of its own, named
-   * after the pane when the person named it and "Team N" otherwise.
+   * A pane JOINS rather than shares: a request naming a directory a team in
+   * this workspace works in lands on that team. Sharing a directory is a
+   * decision about TEAMS, taken at the "+ Team" door where the person can be
+   * asked; a pane arriving with a bare path has nobody to ask, so it takes
+   * the team that is there — the first of them, should several share the
+   * directory. A directory a team in another workspace holds is refused: a
+   * team never spans workspaces, so there is nothing here to join. The root
+   * is the exception, held by every workspace opened on the same repository.
+   * A directory nobody is in gets a team of its own, named after the pane
+   * when the person named it and "Team N" otherwise.
    *
    * A CREATE heading for a directory a team already holds is refused, not
    * joined: a worktree cannot be made where one is, and a fork's surgery
@@ -199,21 +263,28 @@ export function createAgentOrchestratorCreation({
     // A directory a confirmed close is still tearing down is nobody's to
     // land on, whatever the deck says: the team left the deck before the
     // `git worktree remove` that is coming for the directory.
-    if (holdsPath(wantedKey)) return { refusal: "held" };
-    const holder = holderHere(current, wantedKey);
+    if (holdsPath(wantedKey)) return { refusal: "held", why: "removing" };
+    const claim = claimDirectory(workspaces, current, wanted);
     let team: Team & { location: TeamLocation };
     let fresh = false;
-    if (holder?.location) {
-      if (wanted.kind === "provisioning") return { refusal: "held" };
+    if (claim.kind === "held") {
+      // A team never spans workspaces, so a team abroad is not a membership
+      // this pane can take — there is nothing here to join.
+      if (claim.ws.id !== current.id) return { refusal: "held", why: "abroad" };
+      // A worktree cannot be MADE where a team already is. The other half of
+      // that rule does not apply to a landing: a pane joins a team whose own
+      // create is still out and waits for it, which is how "+ Team" then
+      // "+ Member" has always worked.
+      if (wanted.kind === "provisioning") return { refusal: "held", why: "creating" };
       // A team a confirmed close holds is being ended: a pane landing on it
       // now would be reaped by that close a moment later.
-      if (closing({ id: current.id, instance: current.instance }, holder.id)) {
-        return { refusal: "held" };
+      if (closing({ id: current.id, instance: current.instance }, claim.team.id)) {
+        return { refusal: "held", why: "ending" };
       }
-      team = { ...holder, location: holder.location };
+      const location = claim.team.location;
+      if (!location) return { refusal: "held", why: "refused" };
+      team = { ...claim.team, location };
     } else {
-      const elsewhere = teamOccupyingPath(workspaces, wantedKey);
-      if (elsewhere && wantedKey !== normalizePath(current.cwd)) return { refusal: "held" };
       const seq = nextTeamSeq(workspaces);
       const asked = (teamName ?? pane.name)?.trim();
       const name = asked && !teamNameTaken(current, asked) ? asked : autoTeamName(seq);
@@ -231,9 +302,9 @@ export function createAgentOrchestratorCreation({
    * being ended, and one at the cap is full. */
   function resolveJoin(current: Workspace, teamId: string, except?: string): Landing {
     const team = teamsOf(current).find((candidate) => candidate.id === teamId);
-    if (!team?.location) return { refusal: "held" };
+    if (!team?.location) return { refusal: "held", why: "refused" };
     if (closing({ id: current.id, instance: current.instance }, team.id)) {
-      return { refusal: "held" };
+      return { refusal: "held", why: "ending" };
     }
     const members = membersOf(current, team.id).filter((member) => member.id !== except);
     if (members.length >= MAX_PANES) return { refusal: "full" };
@@ -316,7 +387,7 @@ export function createAgentOrchestratorCreation({
     const current = findWorkspaceByRef(workspaces, workspace);
     if (!current) return { kind: "gone" };
     const landing = resolveLanding(workspaces, current, pane, placement);
-    return "refusal" in landing ? { kind: landing.refusal } : null;
+    return "refusal" in landing ? refusalOutcome(landing) : null;
   }
 
   /**
@@ -330,15 +401,15 @@ export function createAgentOrchestratorCreation({
     const { workspace, pane, postProvision } = request;
     const workspaces = deck.getSnapshot().workspaces;
     const current = findWorkspaceByRef(workspaces, workspace);
-    if (!current) return refuse(pane.id, "gone");
+    if (!current) return refuse(pane.id, { kind: "gone" });
     const landing = resolveRequest(workspaces, current, request);
-    if ("refusal" in landing) return refuse(pane.id, landing.refusal);
+    if ("refusal" in landing) return refuse(pane.id, refusalOutcome(landing));
     actions.addAgentPane(current.id, pane);
     if (!join(current, pane, landing, postProvision, request.role)) {
       // Never a pane on no team reported as created: the pane goes back
       // out, and the caller hears a refusal.
       actions.closeAgent(current.id, pane.id);
-      return refuse(pane.id, "held");
+      return refuse(pane.id, { kind: "held", why: "refused" });
     }
     return { kind: "created", teamId: landing.team.id };
   }
@@ -353,14 +424,14 @@ export function createAgentOrchestratorCreation({
     const pane = current?.panes.find((candidate) => candidate.id === paneId);
     if (!current || !pane) return { kind: "gone" };
     const landing = resolveLanding(workspaces, current, pane, placement, pane.id);
-    if ("refusal" in landing) return { kind: landing.refusal };
+    if ("refusal" in landing) return refusalOutcome(landing);
     // Already there: nothing to move.
     if (teamOfPane(current, pane)?.id === landing.team.id) {
       return { kind: "created", teamId: landing.team.id };
     }
     // A pane holds ONE team: joining the new one is leaving the old one,
     // and a roster the old membership alone kept alive is pruned with it.
-    if (!join(current, pane, landing, undefined)) return { kind: "held" };
+    if (!join(current, pane, landing, undefined)) return { kind: "held", why: "refused" };
     return { kind: "created", teamId: landing.team.id };
   }
 
@@ -373,7 +444,7 @@ export function createAgentOrchestratorCreation({
       case "gone":
         throw new Error(WORKSPACE_GONE_MESSAGE);
       case "held":
-        throw new Error(WORKTREE_HELD_MESSAGE);
+        throw new Error(placementRefusalMessage(outcome.why));
       default: {
         const unhandled: never = outcome;
         throw new Error(`unhandled create outcome: ${JSON.stringify(unhandled)}`);

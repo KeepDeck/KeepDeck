@@ -1,6 +1,6 @@
 import {
   classifyLocation,
-  type Occupancy,
+  type DirectoryState,
   type PathProbe,
 } from "../agents";
 import type {
@@ -9,7 +9,7 @@ import type {
 } from "../workspaceInstance";
 import { appendPane, removePane, type Pane } from "./panes";
 import { teamsOf } from "./teams/collection";
-import { normalizePath, teamOccupyingPath } from "./teams/lifecycle";
+import { claimPath, normalizePath, teamOccupyingPath } from "./teams/lifecycle";
 import type { Team } from "./teams/model";
 
 /** What the create-workspace form submits: the spec a new workspace is
@@ -272,18 +272,22 @@ export function renameWorkspace(
 
 /** Set a pane's manual display name; an empty name clears it, reverting to the
  * auto title / derived label ([F11]). */
-/** How `path` is held — see [`Occupancy`]: a team with a `cwd` RUNS in the
- * dir (so it provably is a live worktree), a provisioning intent merely
- * targets it. This distinction is what lets the agent dialog offer "attach
- * anyway" instantly, without waiting for a filesystem probe. One directory
- * is one team's, so the team holding it is the whole answer. */
-export function pathOccupancy(
-  workspaces: Workspace[],
+/**
+ * What the deck says about `path` for a location field — see
+ * [`DirectoryState`]. The ONE deck reader behind every such field: the agent
+ * dialog's worktree path and the fork target's alike, so the two cannot
+ * answer the same directory differently.
+ */
+export function directoryState(
+  workspaces: readonly Workspace[],
+  /** The workspace the field belongs to — its root is its own, and a team
+   * abroad on it is not a claim here. */
+  ws: Workspace,
   path: string,
-): Occupancy {
-  const team = teamOccupyingPath(workspaces, path);
-  if (!team) return null;
-  return team.team.location?.kind === "attached" ? "worktree" : "provisioning";
+): DirectoryState {
+  const claim = claimPath(workspaces, ws, path);
+  if (claim.kind === "free") return "free";
+  return claim.creating ? "being-created" : "worked-in";
 }
 
 /** One worktree branch/folder name suggestion (mirrors the Rust

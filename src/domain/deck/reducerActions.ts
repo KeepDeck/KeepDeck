@@ -66,7 +66,14 @@ export type DeckAction =
   | { type: "journalFlushed"; count: number }
   // The team's life — see `teams/lifecycle`. Each is the transform's
   // arguments and nothing more; the refusals live in the transform.
-  | { type: "createTeam"; wsId: string; team: Team & { location: TeamLocation } }
+  | {
+      type: "createTeam";
+      wsId: string;
+      team: Team & { location: TeamLocation };
+      /** The person answered "create anyway" to a directory teams
+       * already work in — see [`createTeam`]. */
+      shared?: boolean;
+    }
   | {
       type: "resolveTeamProvisioning";
       wsId: string;

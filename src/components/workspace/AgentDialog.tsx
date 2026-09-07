@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   agentRemoteSchemes,
   agentSessionCapabilities,
@@ -7,39 +7,31 @@ import {
   canCreateAgent,
   remoteValid,
   canStartFromSession,
-  classifyLocation,
-  isKnownBaseBranch,
   selectableAgents,
   defaultAgentType as pickDefaultAgentType,
   type AgentDialogResult,
   type AgentDialogTarget,
-  type AgentLocation,
   type AgentType,
-  type LocationKind,
-  type Occupancy,
+  type DirectoryState,
   type PathProbe,
-  type ResumeBlock,
   type SessionPickRow,
   type SessionStartMode,
 } from "../../domain/agents";
-import { baseName, normalizePath } from "../../domain/deck";
 import { defaultRoleFor, mintRoleAddress, roleById, teamRoles } from "../../domain/mail";
 import { rowKeyOf } from "../../domain/journal/sessionRow";
 import { formatAge } from "../../domain/usage/format";
 import { useAgents } from "../../app/useAgents";
-import { useAppRuntime } from "../../app/runtimeContext";
-import { usePagedSessionSearch, type Page } from "../../app/usePagedSessionSearch";
 import { useEscape } from "../../ui/useEscape";
-import { useScrollPaging } from "../../ui/useScrollPaging";
 import { noAutoCorrect } from "../../ui/inputProps";
 import { ModalOverlay } from "../../ui/ModalOverlay";
-import { SuggestedInput } from "../../ui/SuggestedInput";
-import { Combobox } from "../../ui/Combobox";
+import { baseName } from "../../domain/deck";
+import type { Page } from "../../app/usePagedSessionSearch";
+import { useSessionPicker } from "./useSessionPicker";
+import { WorktreeLocationField } from "./WorktreeLocationField";
+import { useWorktreeLocation } from "./useWorktreeLocation";
 import { Dropdown } from "../../ui/Dropdown";
 import { AgentGlyph } from "../../ui/AgentGlyph";
 import { YoloField } from "../../ui/YoloField";
-import { AttachIcon, NextIcon } from "../../ui/icons";
-import { dirPresent, useDirPresence } from "../history/useDirPresence";
 
 export type { AgentDialogResult } from "../../domain/agents";
 
@@ -86,12 +78,10 @@ interface AgentDialogProps {
    * worktree name while the user hasn't edited it. Null = no usable name
    * (the previous suggestion stays). */
   branchForPath(path: string): Promise<string | null>;
-  /** How a pane of this deck already holds a candidate path, if one does.
-   * Injected (the dialog stays free of deck state). An occupied path pauses
-   * Create and offers the user the choice: jump to the next free path, or —
-   * for `"worktree"` occupancy, which itself proves the dir is a live
-   * worktree — knowingly attach alongside the other agent, instantly. */
-  occupancyAt(path: string): Occupancy;
+  /** What the deck says about a candidate path — see [`DirectoryState`].
+   * Injected (the dialog stays free of deck state) and owned by the dialog's
+   * hook, which knows which workspace is asking. */
+  directoryAt(path: string): DirectoryState;
   /** The next suggested location not held by an open pane — the "Use next
    * available" action for an occupied or blocked path; null when none can be
    * offered. */
@@ -147,7 +137,7 @@ export function AgentDialog({
   probePath,
   listBranches,
   branchForPath,
-  occupancyAt,
+  directoryAt,
   nextFreeLocation,
   pickFolder,
   searchSessions,
@@ -180,26 +170,19 @@ export function AgentDialog({
   // The toggle's state survives switching through a non-supporting agent —
   // only the SUBMITTED value is gated (see `supportsYolo` below).
   const [yolo, setYolo] = useState(defaultYolo);
-  const [path, setPath] = useState(suggestedPath);
-  const [branch, setBranch] = useState(suggestedBranch);
-  // The base the new worktree branch forks from. Prefilled with the repo's
-  // current branch, so the field always NAMES its base instead of implying
-  // one through a placeholder. Cleared — or opened on a detached HEAD — it
-  // falls back to the repo HEAD, the default since before the picker existed.
-  const [baseBranch, setBaseBranch] = useState(repo?.branch ?? "");
-  // Null until (unless) the listing lands: validation is off without a list,
-  // so a dead IPC degrades the picker to free text instead of blocking.
-  const [branches, setBranches] = useState<string[] | null>(null);
-  // The live branch suggestion, following the path's folder name. Equality is
-  // the whole edit-tracking: while `branch === derivedBranch` the branch is
-  // untouched and keeps following; an edit detaches it; the ↺ reset restores
-  // equality and re-attaches — exactly SuggestedInput's own state machine.
-  const [derivedBranch, setDerivedBranch] = useState(suggestedBranch);
-  const derivedRef = useRef(suggestedBranch);
-  const [probe, setProbe] = useState<PathProbe | null>(null);
-  // The user's explicit "Attach anyway" on an occupied path; any path edit
-  // voids it — consent covers the path it was given for, not the next one.
-  const [attachAnyway, setAttachAnyway] = useState(false);
+  // WHERE the team runs — its own feature, with its own mind and its own
+  // four async collaborators ([`useWorktreeLocation`]).
+  const location = useWorktreeLocation({
+    repo,
+    suggestedPath,
+    suggestedBranch,
+    probePath,
+    listBranches,
+    branchForPath,
+    directoryAt,
+    nextFreeLocation,
+    pickFolder,
+  });
   // "Start from" ([F8] spawn-time continuation): fresh conversation, resume,
   // or fork of one of the SELECTED agent's indexed sessions.
   const [startMode, setStartMode] = useState<SessionStartMode>("new");
@@ -210,8 +193,6 @@ export function AgentDialog({
   // the box, so the Worktree + Start-from sections hide while it's on.
   const [where, setWhere] = useState<"local" | "remote">("local");
   const [endpoint, setEndpoint] = useState("");
-  const [sessionQuery, setSessionQuery] = useState("");
-  const [picked, setPicked] = useState<SessionPickRow | null>(null);
   // What the Name field was last prefilled with (a picked session's title):
   // while name === prefill the field is untouched and follows the picks,
   // an edit detaches it — SuggestedInput's state machine, hand-rolled.
@@ -253,61 +234,6 @@ export function AgentDialog({
     }
   }, [startMode, supportsResume, supportsFork]);
 
-  // The picker's options, paged through the SAME engine as the global browser
-  // ([[usePagedSessionSearch]]) — the fetcher is scoped to the selected agent
-  // and re-scopes when the user switches. Virtualization/paging were missing
-  // here before: the list was capped at one page.
-  const pagedSessions = usePagedSessionSearch<SessionPickRow>(
-    useCallback(
-      (query, limit, offset) =>
-        searchSessions(agentType, query, limit, offset),
-      [searchSessions, agentType],
-    ),
-  );
-  const sessions = pagedSessions.rows;
-  const listRef = useRef<HTMLUListElement | null>(null);
-  const onSessionsScroll = useScrollPaging(
-    listRef,
-    pagedSessions,
-    sessions.length,
-  );
-
-  // Re-query as the user types, switches agent, or opens resume/fork. Skipped
-  // for "new" (no picker shown); the shared engine debounces and pages.
-  const { search: searchSessionsPage } = pagedSessions;
-  useEffect(() => {
-    if (startMode === "new") return;
-    searchSessionsPage(sessionQuery);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startMode, agentType, sessionQuery]);
-
-  // The picker reads the INDEX, which nothing refreshed unless the history
-  // browser was visited. DECLARE the need for the selected agent's store —
-  // when the scan runs is the sessionIndexManager's call (it waits for
-  // plugin registration on its own). Fires on open and on every agent
-  // switch; typing never rescans.
-  const { sessionIndex } = useAppRuntime();
-  useEffect(() => {
-    sessionIndex.ensureFresh(agentType);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionIndex, agentType]);
-
-  // The declared scan lands in BATCHES — the picker's listing re-reads its
-  // page-zero span on every revision bump so a long first catch-up fills
-  // the list while it runs (the browser's twin, same snapshot). The FIRST
-  // observation only records the baseline: the mount query above already
-  // lists, and a re-fetch before any rows landed would be a duplicate.
-  const index = useSyncExternalStore(sessionIndex.subscribe, sessionIndex.snapshot);
-  const lastRevision = useRef<number | null>(null);
-  const { refresh: refreshSessions } = pagedSessions;
-  useEffect(() => {
-    const first = lastRevision.current === null;
-    lastRevision.current = index.revision;
-    if (first || startMode === "new") return;
-    refreshSessions();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [index.revision]);
-
   // Prefill the Name from a session title while the field is UNTOUCHED (name
   // still equals the last prefill); a hand-edited name stays the user's. The
   // previous prefill is captured BEFORE reassigning the ref — setName's updater
@@ -318,89 +244,29 @@ export function AgentDialog({
     prefillRef.current = next;
   };
 
-  // A pick belongs to ONE agent's store — switching agents voids it (and the
-  // typed filter; the fresh listing shouldn't open pre-narrowed). An
-  // auto-filled (untouched) name came from that pick's title, so drop it too.
-  useEffect(() => {
-    setPicked(null);
-    setSessionQuery("");
-    applyPrefill("");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [agentType]);
-
-  // Resume needs the session's directory alive — same gate as the browser.
-  const presenceCwds = useMemo(
-    () => (startMode === "resume" ? sessions.map((s) => s.handle.cwd) : []),
-    [startMode, sessions],
-  );
-  const presence = useDirPresence(presenceCwds);
-  // Which sessions an OUTSIDE process holds, asked once per agent while a
-  // resume picker is open — a second wave, never a delay to opening (the
-  // registry costs a CLI spawn; the branch list arrives the same way).
-  // `unknown` marks rows the registry could not speak to — blocked like a
-  // busy row (resuming would just be refused), forkable like any other.
-  const [liveOutsideIds, setLiveOutsideIds] = useState<ReadonlySet<string> | "unknown">("unknown");
-  useEffect(() => {
-    if (startMode !== "resume") return;
-    let cancelled = false;
-    setLiveOutsideIds("unknown");
-    liveOutside(agentType).then((answer) => {
-      if (cancelled) return;
-      setLiveOutsideIds(answer.ok ? answer.ids : "unknown");
-    });
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startMode, agentType]);
-  const resumeBlockOf = (row: SessionPickRow): ResumeBlock => {
-    if (row.handle.cwd === "") return "no-cwd";
-    if (sessionClaim(row.handle.sessionId) !== null) return "claimed";
-    if (
-      liveOutsideIds !== "unknown" &&
-      liveOutsideIds.has(row.handle.sessionId)
-    )
-      return "busy-outside";
-    if (!dirPresent(presence, row.handle.cwd)) return "dir-gone";
-    // A member runs where its team runs: a session recorded anywhere else
-    // resumes into another team. Forking it HERE is what the copy is for.
-    // "The same directory" is the deck's key, not the raw strings: the
-    // journal records "/repo/wt/" where the team holds "/repo/wt", and the
-    // landing would put that resume on this team.
-    if (
-      member &&
-      member.cwd !== null &&
-      normalizePath(row.handle.cwd) !== normalizePath(member.cwd)
-    )
-      return "elsewhere";
-    return null;
-  };
-  const blockReason = (block: ResumeBlock): string | null => {
-    switch (block) {
-      case "no-cwd":
-        return "no recorded directory — fork instead";
-      case "claimed":
-        return "already in a pane";
-      case "busy-outside":
-        return "running in the background — fork a copy to continue here";
-      case "dir-gone":
-        return "directory is gone — fork instead";
-      case "elsewhere":
-        return "recorded in another directory — fork a copy into this team";
-      case null:
-        return null;
-    }
-  };
-
-  const pickSession = (row: SessionPickRow) => {
-    // Ignore a click on a row from a DIFFERENT agent than the selected one —
-    // reachable only on a row still rendered from the previous agent during the
-    // search debounce window. `validPick` already blocks it downstream; this
-    // also stops the Name from prefilling off a pick that can't be used.
-    if (row.handle.agent !== agentType) return;
-    setPicked(row);
-    applyPrefill(row.handle.title ?? "");
-  };
+  // "Start from" — which recorded session this pane continues, and whether
+  // it may. Its own feature, with its own four collaborators.
+  const picker = useSessionPicker({
+    agentType,
+    startMode,
+    member,
+    searchSessions,
+    sessionClaim,
+    liveOutside,
+    onPrefill: applyPrefill,
+  });
+  const {
+    sessionQuery,
+    setSessionQuery,
+    picked,
+    pagedSessions,
+    sessions,
+    listRef,
+    onSessionsScroll,
+    resumeBlockOf,
+    blockReason,
+    pickSession,
+  } = picker;
 
   // Snap the pre-selected type onto the installed set once detection resolves
   // (the default may have been a not-installed fallback) ([F1]).
@@ -410,74 +276,6 @@ export function AgentDialog({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agents]);
-
-  // Live-probe the entered path (debounced) to drive the hint. A null probe
-  // while a non-empty path is pending reads as "checking".
-  useEffect(() => {
-    if (!repo || !path.trim()) {
-      setProbe(null);
-      return;
-    }
-    setProbe(null);
-    let cancelled = false;
-    const timer = setTimeout(() => {
-      probePath(path)
-        .then((p) => {
-          if (!cancelled) setProbe(p);
-        })
-        .catch(() => {
-          if (!cancelled)
-            setProbe({ exists: false, isWorktree: false, empty: false, branch: null });
-        });
-    }, 250);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [path, repo]);
-
-  useEffect(() => setAttachAnyway(false), [path]);
-
-  // Load the base-branch options once per dialog: the workspace repo is fixed
-  // for its lifetime. A failure just leaves `branches` null (see above).
-  useEffect(() => {
-    if (!repo) return;
-    let cancelled = false;
-    listBranches(repo.cwd)
-      .then((list) => {
-        if (!cancelled) setBranches(list);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [repo]);
-
-  // Follow the path with the branch (debounced like the probe): an untouched
-  // branch — one still equal to the suggestion it came from — moves to the new
-  // path's implied branch; an edited one stays the user's.
-  useEffect(() => {
-    if (!repo || !path.trim()) return;
-    let cancelled = false;
-    const timer = setTimeout(() => {
-      branchForPath(path)
-        .then((b) => {
-          if (cancelled || b === null) return;
-          const previous = derivedRef.current;
-          setBranch((prev) => (prev === previous ? b : prev));
-          derivedRef.current = b;
-          setDerivedBranch(b);
-        })
-        .catch(() => {});
-    }, 250);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [path, repo]);
 
   const supportsYolo = agentSupportsYolo(agents, agentType);
   // The schemes the selected agent speaks (codex ws/wss, opencode http/https)
@@ -495,23 +293,7 @@ export function AgentDialog({
   // submitted value is gated here so an unsupported agent never gets a target.
   const remote = where === "remote" && canRemote;
   const endpointOk = remoteValid(endpoint, remote ? remoteSchemes : null);
-  const occupancy = repo && path.trim() ? occupancyAt(path) : null;
-  const kind = repo
-    ? classifyLocation(path, probe, occupancy, attachAnyway)
-    : "main";
-  // What the LAYOUT renders while a probe is in flight: "checking" is the
-  // only transient kind, and every keystroke in the path field passes through
-  // it — unmounting the Branch/Base fields on each one made the whole dialog
-  // jump. The last settled kind holds the layout still; `kind` itself keeps
-  // gating Create, so nothing can be submitted against a stale read. Seeded
-  // optimistically: a prefilled path was already probed free by the opener,
-  // so the dialog opens at its full height instead of growing a beat later.
-  const settledKindRef = useRef<LocationKind>(
-    suggestedPath.trim() ? "new" : "main",
-  );
-  if (kind !== "checking") settledKindRef.current = kind;
-  const layoutKind = settledKindRef.current;
-  const baseOk = isKnownBaseBranch(baseBranch, branches);
+  const { kind, baseOk } = location;
   // A pick is only usable for the CURRENTLY selected agent. Switching agents
   // clears `picked`, but a click on a row still showing from the previous
   // agent (during the search's debounce window) can set a cross-agent handle;
@@ -529,46 +311,14 @@ export function AgentDialog({
   // forked, it is on the team under an address teammates can write to.
   const roleOk = member ? roleAddress !== null : true;
   const valid = forTeam
-    ? canCreateAgent(kind, branch, baseOk)
+    ? canCreateAgent(kind, location.branch, baseOk)
     : supportsNew &&
       roleOk &&
       (remote
         ? endpointOk
         : startMode === "resume"
           ? sessionOk
-          : canCreateAgent(kind, branch, baseOk) && sessionOk);
-
-  // "Use next available": swap the occupied path (and its branch) for the
-  // next free suggestion. A null result (no base, IPC down) leaves the field
-  // as is — the blocking hint still explains the state.
-  const useNextFree = async () => {
-    const free = await nextFreeLocation(path);
-    if (free) {
-      setPath(free.path);
-      setBranch(free.branch);
-    }
-  };
-
-  const buildLocation = (): AgentLocation => {
-    if (kind === "new")
-      return {
-        kind: "new",
-        path: path.trim(),
-        branch: branch.trim(),
-        baseBranch: baseBranch.trim() || undefined,
-      };
-    if (kind === "existing")
-      return { kind: "existing", path: path.trim(), branch: (probe?.branch ?? "").trim() };
-    return { kind: "main" };
-  };
-
-  // "Choose…" picks the worktree folder itself — the agent's project lives
-  // directly in it, not in a subfolder ([F2]). git accepts a non-existent or
-  // existing-empty dir; the field stays editable for typing a fresh path.
-  const choosePath = async () => {
-    const dir = await pickFolder("Choose the worktree folder");
-    if (dir !== null) setPath(dir);
-  };
+          : canCreateAgent(kind, location.branch, baseOk) && sessionOk);
 
   return (
     <ModalOverlay>
@@ -580,7 +330,7 @@ export function AgentDialog({
             onConfirm({
               agentType,
               name,
-              location: buildLocation(),
+              location: location.buildLocation(),
               yolo: yolo && supportsYolo,
               ...(remote && endpointOk ? { remoteEndpoint: endpoint.trim() } : {}),
               ...(startMode !== "new" &&
@@ -811,61 +561,11 @@ export function AgentDialog({
         )}
 
         {forTeam && repo && (
-          <>
-            <span className="form__label">Worktree</span>
-            <div className="form__path">
-              <SuggestedInput
-                value={path}
-                suggestion={suggestedPath}
-                onChange={setPath}
-                className="form__path-field"
-                placeholder="Empty = main repo · a path = worktree"
-                ariaLabel="Worktree path"
-                clearTitle="Clear — run in the main repo"
-                resetTitle="Reset to the suggested path"
-              />
-              <button type="button" className="form__dir-btn" onClick={choosePath}>
-                Choose…
-              </button>
-            </div>
-            <LocationHint
-              kind={kind}
-              repoBranch={repo.branch}
-              probe={probe}
-              canAttach={occupancy === "worktree"}
-              onUseNext={useNextFree}
-              onAttachAnyway={() => setAttachAnyway(true)}
-            />
-
-            {layoutKind === "new" && (
-              <>
-                <span className="form__label">Branch</span>
-                <SuggestedInput
-                  value={branch}
-                  suggestion={derivedBranch}
-                  onChange={setBranch}
-                  className="form__field--gap"
-                  ariaLabel="Branch name"
-                  resetTitle="Reset to the suggested branch"
-                />
-                {!branch.trim() && (
-                  <span className="form__error">Branch is required</span>
-                )}
-
-                <span className="form__label">Base branch</span>
-                <Combobox
-                  options={branches ?? []}
-                  value={baseBranch}
-                  onChange={setBaseBranch}
-                  className="form__field--gap"
-                  ariaLabel="Base branch"
-                />
-                {!baseOk && (
-                  <span className="form__error">No such local branch</span>
-                )}
-              </>
-            )}
-          </>
+          <WorktreeLocationField
+            location={location}
+            repoBranch={repo.branch}
+            suggestedPath={suggestedPath}
+          />
         )}
 
         {member && supportsYolo && <YoloField checked={yolo} onChange={setYolo} />}
@@ -887,92 +587,4 @@ export function AgentDialog({
       </form>
     </ModalOverlay>
   );
-}
-
-/** The live hint under the worktree field: what the current path will do.
- * The unusable states are a choice, not a dead end — inline icon actions let
- * the user jump to the next free path (occupied AND blocked paths both offer
- * it) or, for an occupied path whose dir is a live worktree (`canAttach`),
- * attach alongside the other agent anyway. */
-function LocationHint({
-  kind,
-  repoBranch,
-  probe,
-  canAttach,
-  onUseNext,
-  onAttachAnyway,
-}: {
-  kind: ReturnType<typeof classifyLocation>;
-  repoBranch: string | null;
-  probe: PathProbe | null;
-  canAttach: boolean;
-  onUseNext(): void;
-  onAttachAnyway(): void;
-}) {
-  switch (kind) {
-    case "main":
-      return (
-        <span className="form__git">
-          ✓ Runs in the main repo{repoBranch ? ` · ${repoBranch}` : ""}
-        </span>
-      );
-    case "checking":
-      return <span className="form__git">Checking path…</span>;
-    case "new":
-      return <span className="form__git">✓ New worktree on a new branch</span>;
-    case "existing":
-      return (
-        <span className="form__git">
-          ✓ Attach to existing worktree
-          {probe?.branch ? ` · ${probe.branch}` : ""}
-        </span>
-      );
-    case "occupied":
-      return (
-        <>
-          <span className="form__error">Already in use by another agent</span>
-          <div className="form__choices">
-            <button
-              type="button"
-              className="form__choice"
-              onClick={onUseNext}
-              title="Use next available"
-              aria-label="Use next available"
-            >
-              <NextIcon />
-            </button>
-            {canAttach && (
-              <button
-                type="button"
-                className="form__choice"
-                onClick={onAttachAnyway}
-                title="Attach anyway"
-                aria-label="Attach anyway"
-              >
-                <AttachIcon />
-              </button>
-            )}
-          </div>
-        </>
-      );
-    case "blocked":
-      return (
-        <>
-          <span className="form__error">
-            Folder has files and isn't a worktree — pick a new or empty folder
-          </span>
-          <div className="form__choices">
-            <button
-              type="button"
-              className="form__choice"
-              onClick={onUseNext}
-              title="Use next available"
-              aria-label="Use next available"
-            >
-              <NextIcon />
-            </button>
-          </div>
-        </>
-      );
-  }
 }

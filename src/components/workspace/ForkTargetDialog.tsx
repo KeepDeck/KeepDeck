@@ -6,7 +6,7 @@ import {
   canCreateAgent,
   classifyLocation,
   type LocationKind,
-  type Occupancy,
+  type DirectoryState,
   type PathProbe,
 } from "../../domain/agents";
 import type { SessionHandle } from "../../domain/journal";
@@ -29,8 +29,10 @@ interface ForkTargetDialogProps {
   defaultYolo: boolean;
   /** Probe a candidate path for the live hint (injected, like AgentDialog). */
   probe(path: string): Promise<PathProbe | null>;
-  /** Whether a deck pane already runs in / targets `path`. */
-  occupancy(path: string): Occupancy;
+  /** What the deck says about `path` — see [`DirectoryState`]. A directory a
+   * team works in is not a refusal here either: the fork ATTACHES to it and
+   * its pane joins that team, which is what the landing does anyway. */
+  directoryAt(path: string): DirectoryState;
   /** Native folder picker; `null` = cancelled. */
   pickFolder(title: string): Promise<string | null>;
   onConfirm(result: ForkTargetDialogResult): void;
@@ -47,7 +49,7 @@ export function ForkTargetDialog({
   workspaceCwd,
   defaultYolo,
   probe,
-  occupancy,
+  directoryAt,
   pickFolder,
   onConfirm,
   onCancel,
@@ -77,7 +79,7 @@ export function ForkTargetDialog({
     return () => window.clearTimeout(timer);
   }, [trimmed, probe]);
 
-  const kind: LocationKind = classifyLocation(trimmed, probed, occupancy(trimmed));
+  const kind: LocationKind = classifyLocation(trimmed, probed, directoryAt(trimmed));
   const valid = canCreateAgent(kind, kind === "new" ? branch : "-");
 
   // The branch suggestion follows the path's folder name until the user edits
@@ -105,7 +107,7 @@ export function ForkTargetDialog({
       case "existing":
         return "✓ Existing worktree — the fork attaches to it";
       case "occupied":
-        return "⚠ An agent already runs in this directory";
+        return "⚠ A worktree is still being created here";
       case "blocked":
         return "⚠ The folder exists but is not a git worktree";
     }

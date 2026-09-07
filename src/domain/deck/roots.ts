@@ -12,7 +12,7 @@
 // `panePlacement` from here, and a barrel that re-exports them would close
 // the loop.
 import type { Pane } from "./panes/model";
-import { teamOfPane } from "./teams/collection";
+import { teamOfPane, teamsOf } from "./teams/collection";
 import { normalizePath } from "./teams/lifecycle";
 import type { TeamLocation, TeamProvisioning } from "./teams/model";
 import type { Workspace } from "./workspaces";
@@ -115,12 +115,21 @@ export function panesRunningIn(workspaces: Workspace[], cwd: string): number {
  * nothing rather than the workspace cwd. */
 export function skillRootsOf(ws: Workspace): string[] {
   return [
-    ...new Set(
-      ws.panes.flatMap((pane) => {
+    ...new Set([
+      ...ws.panes.flatMap((pane) => {
         const cwd = paneExecutionCwd(ws, pane);
         return cwd === null ? [] : [cwd];
       }),
-    ),
+      // A TEAM claims the directory it RUNS in whether or not it currently
+      // holds members: a team is born empty, and a team that shares a
+      // directory outlives the close of its neighbour. Deriving this from
+      // panes alone let the sweep strip the plantings out of a directory a
+      // live team was still working in. A create still heading for a
+      // directory claims nothing — there is no directory yet to plant into.
+      ...teamsOf(ws).flatMap((team) =>
+        team.location?.kind === "attached" ? [team.location.cwd] : [],
+      ),
+    ]),
   ];
 }
 
