@@ -69,20 +69,33 @@
   overflow-y: auto;
 }
 
+/* The item is a COLUMN: the workspace's own row, then its teams under it.
+   Its height covers both on purpose — the hit-test reads item rectangles
+   (app/railDnd.ts) and a gap between two workspaces would be read as the top
+   of the next one, so a drag over a workspace's own teams would target its
+   neighbour. Everything inside stays in flow and unpositioned: the list is
+   the only `offsetParent`, and both the hit-test and the ghost's landing
+   measure through it. */
 .rail__item {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   border-radius: 6px;
-  padding-right: 4px;
   /* Pointer moves over an item are reorder-drag candidates, not page scrolls. */
   touch-action: none;
 }
 
-.rail__item:hover {
+.rail__row {
+  display: flex;
+  align-items: center;
+  padding-right: 4px;
+  border-radius: 6px;
+}
+
+.rail__item:hover .rail__row {
   background-color: #151a24;
 }
 
-.rail__item--active {
+.rail__item--active > .rail__row {
   background-color: #1b2230;
 }
 
@@ -192,15 +205,92 @@
   color: #c5c8c6;
 }
 
-/* Show the × (and hide the count) when focused or hovered. */
-.rail__item:hover .rail__count,
-.rail__item--active .rail__count {
+/* Show the × (and hide the count) when focused or hovered. Scoped to the
+   ROW, not the item: hovering a team under a workspace is not hovering the
+   workspace, and it has no business swapping that row's count for a close
+   button. */
+.rail__row:hover .rail__count,
+.rail__item--active > .rail__row .rail__count {
   display: none;
 }
 
-.rail__item:hover .rail__close,
-.rail__item--active .rail__close {
+.rail__row:hover .rail__close,
+.rail__item--active > .rail__row .rail__close {
   display: inline-flex;
+}
+
+/* The teams under a workspace. A thread down the left ties them to the name
+   above; the last one's thread stops at its own row so the group reads as
+   ending rather than running on. */
+.rail__teams {
+  list-style: none;
+  margin: 0 0 2px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.rail__team {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: calc(100% - 4px);
+  margin-left: 4px;
+  padding: 5px 8px 5px 26px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #98a1af;
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+}
+
+.rail__team::before {
+  content: "";
+  position: absolute;
+  left: 15px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background-color: #202838;
+}
+
+.rail__teams li:last-child .rail__team::before {
+  bottom: 50%;
+}
+
+.rail__team:hover {
+  background-color: #161d29;
+  color: #c5c8c6;
+}
+
+.rail__team-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rail__team-size {
+  font-size: 10.5px;
+  color: #59616f;
+  font-variant-numeric: tabular-nums;
+}
+
+.rail__team-rename {
+  width: calc(100% - 8px);
+  margin: 1px 4px 1px 26px;
+  padding: 4px 6px;
+  border: 1px solid #3a4658;
+  border-radius: 5px;
+  background-color: #0b0e14;
+  color: #c5c8c6;
+  font: inherit;
+  font-size: 12.5px;
+  outline: none;
 }
 
 .rail__rename {

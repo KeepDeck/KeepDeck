@@ -327,6 +327,9 @@ export function useAppController() {
   const handleSelectWorkspace = (id: string) => {
     runtime.application.selectWorkspace(id);
   };
+  const handleEnterTeam = (wsId: string, teamId: string) => {
+    runtime.application.activateTeam(wsId, teamId);
+  };
   const notificationPrefs =
     settings?.notifications ?? DEFAULT_SETTINGS.notifications;
   const showBell = bellDoorOpen(notificationPrefs);
@@ -381,6 +384,7 @@ export function useAppController() {
     frozenAck,
     gitHeads,
     handleCreateWorkspace,
+    handleEnterTeam,
     handleSelectWorkspace,
     info,
     openNotification,

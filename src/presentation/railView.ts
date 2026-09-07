@@ -14,8 +14,18 @@
  * holds the rail's one subscription), and a projection that took the tracker
  * would carry it into every test that only wanted to know what a row says.
  */
-import { teamsOf, type Workspace } from "../domain/deck";
+import { membersOf, teamsOf, type Workspace } from "../domain/deck";
 import type { StatusFrame } from "../domain/status";
+
+/** One team under its workspace: the name people address it by and how
+ * many agents are on it. What the row is FOR is reaching the team, so it
+ * carries the id the way in needs and nothing the card already says
+ * better — no branch, no directory, no menu. */
+export interface TeamRow {
+  id: string;
+  name: string;
+  size: number;
+}
 
 /** One row of the rail. */
 export interface WorkspaceItem {
@@ -26,6 +36,10 @@ export interface WorkspaceItem {
    * answered in teams; how many agents are on one is the team's own row
    * to say. */
   teamCount: number;
+  /** The workspace's teams in deck order — the rows under its name. Same
+   * order the cards level lays them out in, so the two surfaces never
+   * disagree about which team is which. */
+  teams: readonly TeamRow[];
   /** The workspace's status frame, folded by the domain ladder — the dot
    * paints it verbatim. Absent = the plain gray dot. */
   dot?: StatusFrame;
@@ -44,10 +58,18 @@ export function railView(
   workspaces: readonly Workspace[],
   frames: ReadonlyMap<string, StatusFrame>,
 ): WorkspaceItem[] {
-  return workspaces.map((ws) => ({
-    id: ws.id,
-    name: ws.name,
-    teamCount: teamsOf(ws).length,
-    dot: frames.get(ws.id) ?? "none",
-  }));
+  return workspaces.map((ws) => {
+    const teams = teamsOf(ws).map((team) => ({
+      id: team.id,
+      name: team.name,
+      size: membersOf(ws, team.id).length,
+    }));
+    return {
+      id: ws.id,
+      name: ws.name,
+      teamCount: teams.length,
+      teams,
+      dot: frames.get(ws.id) ?? "none",
+    };
+  });
 }

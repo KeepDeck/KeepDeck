@@ -10,10 +10,10 @@ import { WorkspacesRail, type WorkspaceItem } from "./WorkspacesRail";
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
 const START: WorkspaceItem[] = [
-  { id: "a", name: "Alpha", teamCount: 1 },
-  { id: "b", name: "Beta", teamCount: 2, dot: "waiting" },
-  { id: "c", name: "Gamma", teamCount: 3 },
-  { id: "d", name: "Delta", teamCount: 4 },
+  { id: "a", name: "Alpha", teamCount: 1, teams: [] },
+  { id: "b", name: "Beta", teamCount: 2, teams: [], dot: "waiting" },
+  { id: "c", name: "Gamma", teamCount: 3, teams: [] },
+  { id: "d", name: "Delta", teamCount: 4, teams: [] },
 ];
 
 function pointerEvent(
@@ -65,6 +65,8 @@ function Harness() {
     onAdd: () => {},
     onClose: () => {},
     onRename: () => {},
+    onEnterTeam: () => {},
+    onRenameTeam: () => {},
     onReorder: (id: string, toIndex: number) =>
       setItems((current) => move(current, id, toIndex)),
     version: null,
@@ -222,16 +224,18 @@ describe("WorkspacesRail workspace metadata", () => {
       root.render(
         createElement(WorkspacesRail, {
           workspaces: [
-            { id: "a", name: "Alpha", teamCount: 1, dot: "selected" },
-            { id: "b", name: "Beta", teamCount: 2, dot: "failed" },
-            { id: "c", name: "Gamma", teamCount: 1, dot: "none" },
-            { id: "d", name: "Delta", teamCount: 1 },
+            { id: "a", name: "Alpha", teamCount: 1, teams: [], dot: "selected" },
+            { id: "b", name: "Beta", teamCount: 2, teams: [], dot: "failed" },
+            { id: "c", name: "Gamma", teamCount: 1, teams: [], dot: "none" },
+            { id: "d", name: "Delta", teamCount: 1, teams: [] },
           ],
           activeId: "a",
           onSelect: () => {},
           onAdd: () => {},
           onClose: () => {},
           onRename: () => {},
+          onEnterTeam: () => {},
+          onRenameTeam: () => {},
           onReorder: () => {},
           version: null,
         }),
@@ -254,12 +258,14 @@ describe("WorkspacesRail workspace metadata", () => {
       act(() =>
         root.render(
           createElement(WorkspacesRail, {
-            workspaces: [{ id: "a", name: "Alpha", teamCount: 1 }],
+            workspaces: [{ id: "a", name: "Alpha", teamCount: 1, teams: [] }],
             activeId: "a",
             onSelect: () => {},
             onAdd: () => {},
             onClose: () => {},
             onRename: () => {},
+            onEnterTeam: () => {},
+            onRenameTeam: () => {},
             onReorder: () => {},
             version,
           }),
@@ -275,5 +281,139 @@ describe("WorkspacesRail workspace metadata", () => {
     // foot reads as a signature rather than as a stray figure.
     expect(foot.textContent).toBe("0.22.0");
     expect(foot.getAttribute("title")).toBe("KeepDeck 0.22.0");
+  });
+});
+
+describe("WorkspacesRail team rows", () => {
+  let host: HTMLDivElement;
+  let root: Root;
+
+  const WITH_TEAMS: WorkspaceItem[] = [
+    {
+      id: "a",
+      name: "Alpha",
+      teamCount: 2,
+      teams: [
+        { id: "team-1", name: "api", size: 3 },
+        { id: "team-2", name: "web", size: 0 },
+      ],
+    },
+    { id: "b", name: "Beta", teamCount: 0, teams: [] },
+  ];
+
+  const render = (props: Partial<Parameters<typeof WorkspacesRail>[0]> = {}) =>
+    act(() =>
+      root.render(
+        createElement(WorkspacesRail, {
+          workspaces: WITH_TEAMS,
+          activeId: "a",
+          onSelect: () => {},
+          onAdd: () => {},
+          onClose: () => {},
+          onRename: () => {},
+          onEnterTeam: () => {},
+          onRenameTeam: () => {},
+          onReorder: () => {},
+          version: null,
+          ...props,
+        }),
+      ),
+    );
+
+  const teamRow = (name: string) =>
+    [...host.querySelectorAll<HTMLElement>(".rail__team")].find(
+      (row) => row.querySelector(".rail__team-name")?.textContent === name,
+    )!;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    host = document.body.appendChild(document.createElement("div"));
+    root = createRoot(host);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    host.remove();
+    vi.useRealTimers();
+  });
+
+  it("lists a workspace's teams under its own row, inside its item", () => {
+    render();
+    // Inside the item on purpose: the hit-test measures item rectangles, so
+    // rows living beside them would open a gap the drag reads as the next
+    // workspace. And never tagged with the workspace id, or they would BE
+    // drag targets.
+    const item = host.querySelector('[data-ws-id="a"]')!;
+    expect([...item.querySelectorAll(".rail__team-name")].map((n) => n.textContent))
+      .toEqual(["api", "web"]);
+    expect(item.querySelectorAll(".rail__teams [data-ws-id]")).toHaveLength(0);
+    expect(host.querySelector('[data-ws-id="b"] .rail__team')).toBeNull();
+  });
+
+  it("says how many agents are on each team, zero included", () => {
+    render();
+    const size = (name: string) =>
+      teamRow(name).querySelector(".rail__team-size")?.textContent;
+    expect(size("api")).toBe("3");
+    // A team born empty is still a team, and its row says so rather than
+    // going blank the way the workspace count does at zero.
+    expect(size("web")).toBe("0");
+  });
+
+  it("goes into the team the row names, workspace and all", () => {
+    const entered: [string, string][] = [];
+    render({ onEnterTeam: (wsId, teamId) => entered.push([wsId, teamId]) });
+    act(() => {
+      teamRow("web").dispatchEvent(new Event("click", { bubbles: true }));
+    });
+    expect(entered).toEqual([["a", "team-2"]]);
+  });
+
+  it("renames the team a double click opens, not the workspace above it", () => {
+    const renamedTeams: [string, string, string][] = [];
+    const renamedWorkspaces: [string, string][] = [];
+    render({
+      onRenameTeam: (wsId, teamId, name) => renamedTeams.push([wsId, teamId, name]),
+      onRename: (id, name) => renamedWorkspaces.push([id, name]),
+    });
+    act(() => {
+      teamRow("api").dispatchEvent(new Event("dblclick", { bubbles: true }));
+    });
+    const input = host.querySelector<HTMLInputElement>(".rail__team-rename")!;
+    expect(input.value).toBe("api");
+    act(() => {
+      // Through the native setter: React tracks the value it wrote, and a
+      // plain assignment would leave the controlled input's state behind.
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!.call(input, "core");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(
+        Object.assign(new Event("keydown", { bubbles: true }), { key: "Enter" }),
+      );
+    });
+    expect(renamedTeams).toEqual([["a", "team-1", "core"]]);
+    // One rename at a time, and it belonged to the team: the workspace's own
+    // name is untouched because both share a single subject key.
+    expect(renamedWorkspaces).toEqual([]);
+  });
+
+  it("does not drag the workspace out from under a held team row", () => {
+    const reordered: string[] = [];
+    render({ onReorder: (id) => reordered.push(id) });
+    const row = teamRow("api");
+    act(() => {
+      row.dispatchEvent(pointerEvent("pointerdown", { clientY: 40 }));
+      vi.advanceTimersByTime(400);
+    });
+    act(() => {
+      document.dispatchEvent(pointerEvent("pointermove", { clientY: 200 }));
+    });
+    // The rows sit inside the workspace's item, so the press reaches the
+    // item's own pointerdown; without the row's exemption a 300ms hold on a
+    // team would lift the workspace instead of opening the team.
+    expect(document.querySelector(".rail__ghost")).toBeNull();
+    expect(reordered).toEqual([]);
   });
 });
