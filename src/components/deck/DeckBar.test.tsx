@@ -222,6 +222,26 @@ describe("DeckBar", () => {
     expect(byText("+ Team")).toBeDefined();
   });
 
+  it("keeps the open team's name recoverable when it does not fit", () => {
+    // This is the one place the deck names the open team — the rail says
+    // nothing about it, and a role badge answers "which teammate", not
+    // "which team". So an ellipsized name here is recoverable nowhere else,
+    // which is why it carries its own title like the branch beside it.
+    const name = "a team whose name is far too long for two hundred and forty pixels";
+    render({
+      level: {
+        kind: "team",
+        name,
+        branch: "kd/api",
+        onBack: () => {},
+        canAddMember: true,
+        addMemberTitle: "Add a member",
+        onAddMember: () => {},
+      },
+    });
+    expect(host.querySelector(".deck__team-name")?.getAttribute("title")).toBe(name);
+  });
+
   it("carries the update control's own words and its own action", () => {
     // The bar decides nothing about updates — it is handed a view and hands
     // back the action by name. Which means the whole seam is: does the label

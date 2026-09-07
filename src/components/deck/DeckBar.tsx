@@ -183,7 +183,13 @@ export function DeckBar({
             >
               ←
             </TipButton>
-            <span className="deck__team-name">{level.name}</span>
+            {/* `title` because this is the ONE place the deck names the open
+                team: the rail says nothing about it and a role badge carries
+                the role, so an ellipsized name here is recoverable nowhere.
+                The branch beside it has carried its own since it arrived. */}
+            <span className="deck__team-name" title={level.name}>
+              {level.name}
+            </span>
             {level.branch !== null && (
               <BranchBadge
                 className="deck__team-branch"
