@@ -197,13 +197,20 @@ export function DeckBar({
             >
               ←
             </TipButton>
-            {/* `title` because this is the ONE place the deck names the open
-                team: the rail says nothing about it and a role badge carries
-                the role, so an ellipsized name here is recoverable nowhere.
-                The branch beside it has carried its own since it arrived. */}
-            <span className="deck__team-name" title={level.name}>
-              {level.name}
-            </span>
+            {/* The app's own tip, not a `title`. This is the one place that
+                names the open team ON ITS OWN — the rail says nothing about
+                it, and a role badge names a team only where the deck runs
+                more than one, dimmed, as the tail of an address and the first
+                thing a narrow header clips. So an ellipsized name here is
+                recoverable nowhere worth calling a place. A `title` does not
+                recover it either:
+                this WebView draws no native tooltip (see TipButton), which is
+                exactly the trap that file was written about. The anchor
+                carries `min-width: 0`, so wrapping the name costs it none of
+                its room to ellipsize. */}
+            <Tooltip tip={level.name} delayMs={BAR_TIP_DELAY_MS}>
+              <span className="deck__team-name">{level.name}</span>
+            </Tooltip>
             {level.branch !== null && (
               <BranchBadge
                 className="deck__team-branch"

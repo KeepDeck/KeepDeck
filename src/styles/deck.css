@@ -77,7 +77,10 @@
 
    No line is drawn here. `.bar__group + .bar__group` below already gives this
    group a left border, and a margin moves a border box whole — the line simply
-   arrives where the group is put.
+   arrives where the group is put. Which also means the seam lives exactly as
+   long as the group does: at the teams level there is no group and no line,
+   and none is wanted — nothing in the left half names the stage there, so the
+   toggle standing over WORKSPACES is the reading that belongs.
 
    157 = 200 − (12 + 23 + 8), and every term is someone else's number:
      200  the rail's content width, and with it the column 200..201 its
@@ -108,10 +111,12 @@
   max-width: 200px;
 }
 
-/* Narrow window: the branch goes, the name stays. Identity first, qualifiers
-   last — the same order the pane header sheds in (pane.css), and the branch is
-   the qualifier here twice over: inside a team every pane header on the stage
-   is already wearing it, so this is the copy the deck can spare.
+/* Narrow window: the branch goes, the name stays. The NAME outlasts its
+   qualifiers — text yields by ellipsis, chips shed whole — which is the order
+   the pane header sheds in too, though not the sense its own comment gives
+   "identity" (there the identity BADGES are what goes first). And the branch
+   is the qualifier here twice over: inside a team every pane header that has
+   one is already wearing it, so this is the copy the deck can spare.
 
    It has to go rather than shrink: a chip does not yield (chip.css says so
    once for all of them), so with the chip in the row it is the NAME that
