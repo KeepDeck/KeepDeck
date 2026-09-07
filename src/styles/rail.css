@@ -157,10 +157,9 @@
   border: 0;
   border-radius: 4px;
   background: transparent;
+  /* The mark is drawn, so the button carries no type metrics — only the
+     colour the icon strokes with. */
   color: #4b5362;
-  font: inherit;
-  font-size: 13px;
-  line-height: 1;
 }
 
 .rail__chevron:hover:not(:disabled) {
@@ -171,12 +170,15 @@
   visibility: hidden;
 }
 
-/* The glyph turns; the button does not. Rotating the button would take its
+/* The mark turns; the button does not. Rotating the button would take its
    hit box with it, and the mark is the only part with an orientation. Same
    140ms the rail's reorder settles in, so the two motions read as one
-   surface's tempo rather than two. */
+   surface's tempo rather than two.
+   `display: flex` so the span is exactly the icon's box: an inline box
+   would add the font's line-height around it, and the centre it turns
+   about would be the centre of that padding, not of the mark. */
 .rail__chevron-glyph {
-  display: inline-block;
+  display: flex;
   transform-origin: 50% 50%;
   transition: transform 140ms ease;
 }

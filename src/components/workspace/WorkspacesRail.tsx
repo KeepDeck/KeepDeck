@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { noAutoCorrect } from "../../ui/inputProps";
 import { useInlineRename } from "../../ui/useInlineRename";
 import { collectRailItemRects } from "../../app/railDnd";
+import { ChevronIcon } from "../AppIcons";
 import {
   animateElementReorder,
   animateFixedElementToRect,
@@ -281,14 +282,15 @@ export function WorkspacesRail({
                         ws.expanded ? `Hide ${ws.name} teams` : `Show ${ws.name} teams`
                       }
                     >
-                      {/* ONE glyph, turned by CSS. Two characters — a right
+                      {/* ONE mark, turned by CSS. Two characters — a right
                           chevron and a down one — are drawn by the font at
                           different weights and on different baselines, so
                           they read as two marks swapping rather than as one
-                          turning, and there is nothing between them to
-                          animate. */}
-                      <span className="rail__chevron-glyph" aria-hidden="true">
-                        ›
+                          turning. And it is drawn, not typed: a glyph sits
+                          where its metrics put it, so rotating one swings
+                          the ink around a point nowhere near its middle. */}
+                      <span className="rail__chevron-glyph">
+                        <ChevronIcon />
                       </span>
                     </button>
                     <button
