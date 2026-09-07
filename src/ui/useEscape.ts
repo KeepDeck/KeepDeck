@@ -1,4 +1,5 @@
-import { useEffect } from "react";
+import { useEffect, type RefObject } from "react";
+import { isBehindModalLayer } from "./inertBackground";
 
 /**
  * Invoke `handler` whenever Escape is pressed while the component is mounted
@@ -11,10 +12,24 @@ import { useEffect } from "react";
  * hook swallowed the press window-wide and dismissed nothing. Say it out
  * here, where the hook can decline before touching the event.
  */
-export function useEscape(handler: () => void, enabled = true): void {
+export function useEscape(
+  handler: () => void,
+  enabled = true,
+  /**
+   * This surface's own node. Given one, the hook declines a press that
+   * belongs to a layer stacked OVER it — two dialogs both listening on
+   * `window` otherwise answer one press together, cancelling the lower one
+   * the user never meant to touch. Asked at key time, because the stack is
+   * what changes, not this component's props.
+   */
+  surface?: RefObject<HTMLElement | null>,
+): void {
   useEffect(() => {
     if (!enabled) return;
     const onKeyDown = (e: KeyboardEvent) => {
+      // Declined BEFORE `preventDefault`, so the layer above still gets the
+      // press it owns — the guard costs the lower dialog nothing.
+      if (surface && isBehindModalLayer(surface.current)) return;
       // A HELD key repeats, and one dismissal must not stand for the next
       // dialog's: notices queue, so a repeat would pop one the user never
       // saw. One press, one dismissal. The repeats that follow are left
@@ -40,7 +55,7 @@ export function useEscape(handler: () => void, enabled = true): void {
     // whole dialog out from under an open menu.
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [enabled, handler]);
+  }, [enabled, handler, surface]);
 }
 
 /**
