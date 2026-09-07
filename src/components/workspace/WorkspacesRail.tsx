@@ -12,16 +12,9 @@ import {
 } from "../../app/dragManager";
 import { railItemAtY } from "../../domain/deck";
 import type { StatusFrame } from "../../domain/status";
+import type { WorkspaceItem } from "../../presentation/railView";
 
-/** View model for the rail (the domain `Workspace` lives in `../workspaces`). */
-export interface WorkspaceItem {
-  id: string;
-  name: string;
-  agentCount: number;
-  /** The workspace's status frame, folded by the domain ladder — the dot
-   * paints it verbatim. Absent = the plain gray dot. */
-  dot?: StatusFrame;
-}
+export type { WorkspaceItem };
 
 interface WorkspacesRailProps {
   workspaces: WorkspaceItem[];
