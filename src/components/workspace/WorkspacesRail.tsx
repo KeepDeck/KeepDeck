@@ -329,6 +329,7 @@ export function WorkspacesRail({
                             rename.start(teamKey(ws.id, team.id), team.name)
                           }
                         >
+                          <span className={`rail__team-dot rail__team-dot--${team.dot}`} />
                           <span className="rail__team-name">{team.name}</span>
                           <span className="rail__team-size">{team.size}</span>
                         </button>

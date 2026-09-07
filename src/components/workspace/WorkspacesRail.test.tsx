@@ -297,8 +297,8 @@ describe("WorkspacesRail team rows", () => {
       name: "Alpha",
       teamCount: 2,
       teams: [
-        { id: "team-1", name: "api", size: 3 },
-        { id: "team-2", name: "web", size: 0 },
+        { id: "team-1", name: "api", size: 3, dot: "working" as const },
+        { id: "team-2", name: "web", size: 0, dot: "creating" as const },
       ],
       expanded: true,
     },

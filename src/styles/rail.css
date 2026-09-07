@@ -294,6 +294,54 @@
   color: #c5c8c6;
 }
 
+/* The team's dot, on the ladder the card already paints (teamCards.css):
+   same palette variables, same rhythms, its own wiring — a shared class
+   would put one surface's rendering decision inside another's. */
+.rail__team-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: #3b4658;
+  flex: none;
+}
+
+.rail__team-dot--done {
+  background-color: var(--status-done);
+}
+
+.rail__team-dot--working {
+  background-color: var(--status-working);
+  animation: status-dot-working 1.6s ease-in-out infinite;
+}
+
+.rail__team-dot--waiting {
+  background-color: var(--status-waiting);
+  animation: status-dot-breathe 2s ease-in-out infinite;
+}
+
+.rail__team-dot--failed {
+  background-color: var(--status-failed);
+  animation: status-dot-pulse 1s ease-in-out infinite;
+}
+
+/* A create in flight breathes in the quiet gray, like the card's: something
+   is being waited for, and it is not the person's turn. */
+.rail__team-dot--creating {
+  animation: status-dot-breathe 2s ease-in-out infinite;
+}
+
+/* Every rhythm above names a state; none of them may move when the person
+   asked for stillness. Listed here rather than in status.css because these
+   are the rail's own wiring, like teamCards.css lists the card's. */
+@media (prefers-reduced-motion: reduce) {
+  .rail__team-dot--working,
+  .rail__team-dot--waiting,
+  .rail__team-dot--failed,
+  .rail__team-dot--creating {
+    animation: none;
+  }
+}
+
 .rail__team-name {
   flex: 1;
   overflow: hidden;

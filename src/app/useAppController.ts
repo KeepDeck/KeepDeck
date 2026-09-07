@@ -19,7 +19,7 @@ import { useMenuHotkeys } from "./useMenuHotkeys";
 import { useModalRouter } from "./useModalRouter";
 import { setSourceVisibilityProbe } from "./notificationCenter";
 import { useActivityNotifications } from "./useActivityNotifications";
-import { useWorkspaceFrames } from "./useWorkspaceFrames";
+import { usePaneActivities } from "./usePaneActivities";
 import { workspaceForNotification } from "./notificationNavigation";
 import { usePaneDrag } from "./usePaneDrag";
 import { usePersistence } from "./usePersistence";
@@ -265,8 +265,9 @@ export function useAppController() {
   // Announce the transitions worth leaving the app for: needs-you, finished,
   // failed.
   useActivityNotifications(deck.workspaces, agents);
-  // Each workspace's status folded to one frame for its rail dot.
-  const railFrames = useWorkspaceFrames(deck.workspaces, deck.activeId);
+  // One subscription for the whole rail; what the activity MEANS for a row
+  // is `railView`'s.
+  const paneActivities = usePaneActivities();
   useMenuHotkeys({
     newWorkspace: () => {
       if (windows.modal) return;
@@ -335,7 +336,7 @@ export function useAppController() {
   const showBell = bellDoorOpen(notificationPrefs);
   const openNotification = runtime.application.openNotification;
   const handleCreateWorkspace = runtime.application.createWorkspace;
-  const railWorkspaces = railView(deck.workspaces, railFrames, deck.viewByWs);
+  const railWorkspaces = railView(deck.workspaces, paneActivities, deck.viewByWs, deck.activeId);
   if (restoring || !spawnCtx || !settings) {
     return { ready: false as const };
   }
