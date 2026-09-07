@@ -13,10 +13,13 @@ export type PlacementRefusal =
   /** A team in ANOTHER workspace works there. A team never spans workspaces,
    * so there is no membership here to take. */
   | "abroad"
-  /** A worktree create is heading for the directory — on one side of the
-   * question or the other. Nothing is there yet, and git makes no second
-   * worktree on one path. */
+  /** THEIR create is still out: a worktree is being made in the directory,
+   * so nothing is there to work in yet. Waiting is the answer. */
   | "creating"
+  /** OURS cannot be: a team already works in the directory, and git makes no
+   * second worktree on one path. Waiting is NOT the answer — the two halves
+   * of that rule were one reason once, and the sentence lied on this half. */
+  | "occupied"
   /** A confirmed close is still removing the directory. */
   | "removing"
   /** The team there is being disbanded: a pane landing on it now would be
@@ -43,6 +46,8 @@ export function placementRefusalMessage(why: PlacementRefusal): string {
       return "That directory is another workspace's team's.";
     case "creating":
       return "A worktree is still being created there — try again in a moment.";
+    case "occupied":
+      return "A team already works in that directory — a worktree cannot be created in it.";
     case "removing":
       return "That directory is still being removed — try again in a moment.";
     case "ending":
