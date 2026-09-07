@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { noAutoCorrect } from "../../ui/inputProps";
 import { useInlineRename } from "../../ui/useInlineRename";
 import { collectRailItemRects } from "../../app/railDnd";
+import { ChevronIcon } from "../AppIcons";
 import {
   animateElementReorder,
   animateFixedElementToRect,
@@ -12,16 +13,9 @@ import {
 } from "../../app/dragManager";
 import { railItemAtY } from "../../domain/deck";
 import type { StatusFrame } from "../../domain/status";
+import type { WorkspaceItem } from "../../presentation/railView";
 
-/** View model for the rail (the domain `Workspace` lives in `../workspaces`). */
-export interface WorkspaceItem {
-  id: string;
-  name: string;
-  agentCount: number;
-  /** The workspace's status frame, folded by the domain ladder — the dot
-   * paints it verbatim. Absent = the plain gray dot. */
-  dot?: StatusFrame;
-}
+export type { WorkspaceItem };
 
 interface WorkspacesRailProps {
   workspaces: WorkspaceItem[];
@@ -30,6 +24,11 @@ interface WorkspacesRailProps {
   onAdd(): void;
   onClose(id: string): void;
   onRename(id: string, name: string): void;
+  /** Go into a team from its row: its workspace on screen, the team open. */
+  onEnterTeam(wsId: string, teamId: string): void;
+  /** Show or hide a workspace's teams under its name. */
+  onToggleTeams(wsId: string): void;
+  onRenameTeam(wsId: string, teamId: string, name: string): void;
   /** Move workspace `id` to `toIndex` (long-press drag reorder). */
   onReorder(id: string, toIndex: number): void;
   /** The running build, or null until `app_info` answers.
@@ -42,6 +41,16 @@ interface WorkspacesRailProps {
    * rail's own footer is the compromise: on screen, and out of the way. */
   version: string | null;
 }
+
+/**
+ * The rail has two things to rename — a workspace and a team under it — and
+ * ONE rename at a time. Namespacing the subject rather than running two
+ * `useInlineRename`s makes that structural: `editing` is a single key, so
+ * two names can never be under edit at once, and the drag suppression stays
+ * one condition instead of two that must be remembered together.
+ */
+const workspaceKey = (wsId: string) => `ws:${wsId}`;
+const teamKey = (wsId: string, teamId: string) => `team:${wsId}:${teamId}`;
 
 /** Hold this long before a press turns into a reorder drag (vs. a select click). */
 const LONG_PRESS_MS = 300;
@@ -76,7 +85,7 @@ interface DragGhost {
   top: number;
 }
 
-/** Left rail listing workspaces with their agent counts. The active one is
+/** Left rail listing workspaces with how many teams each holds. The active one is
  * highlighted and shows a × (also on hover); double-clicking a name renames it;
  * press-and-hold an item to drag it into a new position. */
 export function WorkspacesRail({
@@ -86,11 +95,18 @@ export function WorkspacesRail({
   onAdd,
   onClose,
   onRename,
+  onEnterTeam,
+  onToggleTeams,
+  onRenameTeam,
   onReorder,
   version,
 }: WorkspacesRailProps) {
-  // Empty commit = back to the auto name; the domain rename implements it.
-  const rename = useInlineRename(onRename);
+  // Empty commit = back to the auto name; both domain renames implement it.
+  const rename = useInlineRename((key, name) => {
+    const parts = key.split(":");
+    if (parts[0] === "ws") onRename(parts[1], name);
+    else onRenameTeam(parts[1], parts[2], name);
+  });
   const [ghost, setGhost] = useState<DragGhost | null>(null);
 
   const listRef = useRef<HTMLUListElement>(null);
@@ -185,10 +201,25 @@ export function WorkspacesRail({
     e: React.PointerEvent<HTMLLIElement>,
     ws: WorkspaceItem,
   ) => {
-    // Primary button only; never start a drag from the × or while renaming.
+    // Primary button only; never start a drag from the ×, from a team row,
+    // or while renaming. The team rows live INSIDE the workspace's item so
+    // the hit-test column stays gapless — which puts them under this
+    // handler too, where a 300ms press on a team would otherwise drag the
+    // workspace out from under the finger that meant to open it.
     if (e.button !== 0 || rename.editing !== null) return;
-    if ((e.target as HTMLElement).closest(".rail__close")) return;
-    const r = e.currentTarget.getBoundingClientRect();
+    const from = e.target as HTMLElement;
+    if (
+      from.closest(".rail__close") ||
+      from.closest(".rail__chevron") ||
+      from.closest(".rail__teams")
+    ) {
+      return;
+    }
+    // The ghost is the workspace's own row, not the item: a drag of an
+    // expanded workspace must not lift a block the height of its teams.
+    const r = (
+      e.currentTarget.querySelector(".rail__row") ?? e.currentTarget
+    ).getBoundingClientRect();
     drag.startPointerDrag(e.nativeEvent, {
       id: ws.id,
       name: ws.name,
@@ -219,19 +250,6 @@ export function WorkspacesRail({
       >
         {workspaces.map((ws) => {
           const active = ws.id === activeId;
-          if (ws.id === rename.editing) {
-            return (
-              <li key={ws.id} className="rail__item">
-                <input
-                  {...noAutoCorrect}
-                  {...rename.inputProps}
-                  className="rail__rename"
-                  autoFocus
-                  aria-label="Workspace name"
-                />
-              </li>
-            );
-          }
           return (
             <li
               key={ws.id}
@@ -241,28 +259,95 @@ export function WorkspacesRail({
               }`}
               onPointerDown={(e) => onItemPointerDown(e, ws)}
             >
-              <button
-                type="button"
-                className="rail__select"
-                onClick={() => onSelect(ws.id)}
-                onDoubleClick={() => rename.start(ws.id, ws.name)}
-                aria-current={active}
-              >
-                <span className={railDotClass(ws.dot)} />
-                <span className="rail__name">{ws.name}</span>
-              </button>
-              {ws.agentCount > 0 && (
-                <span className="rail__count">{ws.agentCount}</span>
+              <div className="rail__row">
+                {rename.editing === workspaceKey(ws.id) ? (
+                  <input
+                    {...noAutoCorrect}
+                    {...rename.inputProps}
+                    className="rail__rename"
+                    autoFocus
+                    aria-label="Workspace name"
+                  />
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      className={`rail__chevron${
+                        ws.expanded ? " rail__chevron--open" : ""
+                      }${ws.teams.length === 0 ? " rail__chevron--empty" : ""}`}
+                      onClick={() => onToggleTeams(ws.id)}
+                      disabled={ws.teams.length === 0}
+                      aria-expanded={ws.expanded}
+                      aria-label={
+                        ws.expanded ? `Hide ${ws.name} teams` : `Show ${ws.name} teams`
+                      }
+                    >
+                      {/* ONE mark, turned by CSS. Two characters — a right
+                          chevron and a down one — are drawn by the font at
+                          different weights and on different baselines, so
+                          they read as two marks swapping rather than as one
+                          turning. And it is drawn, not typed: a glyph sits
+                          where its metrics put it, so rotating one swings
+                          the ink around a point nowhere near its middle. */}
+                      <span className="rail__chevron-glyph">
+                        <ChevronIcon />
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      className="rail__select"
+                      onClick={() => onSelect(ws.id)}
+                      onDoubleClick={() => rename.start(workspaceKey(ws.id), ws.name)}
+                      aria-current={active}
+                    >
+                      <span className={railDotClass(ws.dot)} />
+                      <span className="rail__name">{ws.name}</span>
+                    </button>
+                    {ws.teamCount > 0 && (
+                      <span className="rail__count">{ws.teamCount}</span>
+                    )}
+                    <button
+                      type="button"
+                      className="rail__close"
+                      onClick={() => onClose(ws.id)}
+                      title="Close workspace"
+                      aria-label={`Close ${ws.name}`}
+                    >
+                      ×
+                    </button>
+                  </>
+                )}
+              </div>
+              {ws.expanded && (
+                <ul className="rail__teams">
+                  {ws.teams.map((team) => (
+                    <li key={team.id}>
+                      {rename.editing === teamKey(ws.id, team.id) ? (
+                        <input
+                          {...noAutoCorrect}
+                          {...rename.inputProps}
+                          className="rail__team-rename"
+                          autoFocus
+                          aria-label="Team name"
+                        />
+                      ) : (
+                        <button
+                          type="button"
+                          className="rail__team"
+                          onClick={() => onEnterTeam(ws.id, team.id)}
+                          onDoubleClick={() =>
+                            rename.start(teamKey(ws.id, team.id), team.name)
+                          }
+                        >
+                          <span className={`rail__team-dot rail__team-dot--${team.dot}`} />
+                          <span className="rail__team-name">{team.name}</span>
+                          <span className="rail__team-size">{team.size}</span>
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
               )}
-              <button
-                type="button"
-                className="rail__close"
-                onClick={() => onClose(ws.id)}
-                title="Close workspace"
-                aria-label={`Close ${ws.name}`}
-              >
-                ×
-              </button>
             </li>
           );
         })}
@@ -299,12 +384,21 @@ function railItemId(element: HTMLElement): string {
   return element.dataset.wsId ?? "";
 }
 
+/** Where the dropped ghost settles: the workspace's own ROW inside the item,
+ * never the item, whose height also covers however many teams are listed
+ * under it — a ghost the size of the whole group is not the thing that was
+ * picked up. The row's offsets are read directly and NOT added to the
+ * item's: `offsetParent` skips static ancestors, and the list is the only
+ * positioned one, so a row nested inside an item already measures from the
+ * list — exactly as the item itself does for the hit-test. Nothing between
+ * a row and the list may take a position, or both readings move at once. */
 function railItemLayoutRect(list: HTMLElement | null, item: HTMLElement) {
   const listRect = list?.getBoundingClientRect();
+  const row = item.querySelector<HTMLElement>(".rail__row") ?? item;
   return {
-    left: (listRect?.left ?? 0) + item.offsetLeft - (list?.scrollLeft ?? 0),
-    top: (listRect?.top ?? 0) + item.offsetTop - (list?.scrollTop ?? 0),
-    width: item.offsetWidth,
-    height: item.offsetHeight,
+    left: (listRect?.left ?? 0) + row.offsetLeft - (list?.scrollLeft ?? 0),
+    top: (listRect?.top ?? 0) + row.offsetTop - (list?.scrollTop ?? 0),
+    width: row.offsetWidth,
+    height: row.offsetHeight,
   };
 }

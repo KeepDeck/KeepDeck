@@ -139,3 +139,28 @@ export function McpIcon() {
     </svg>
   );
 }
+
+/** A chevron pointing right, drawn CENTRED in its box.
+ *
+ * A typed "›" is not: the font puts the mark where the character's metrics
+ * say, not in the middle of the em, so rotating it swings the ink around a
+ * point that is nowhere near the middle of what you see. Here the vertex is
+ * placed by hand at the box's centre, so a rotation about `50% 50%` turns
+ * the mark on the spot the eye reads as its middle. */
+export function ChevronIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={12}
+      height={12}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M9 5l7 7-7 7" />
+    </svg>
+  );
+}

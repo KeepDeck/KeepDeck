@@ -10,10 +10,10 @@ import { WorkspacesRail, type WorkspaceItem } from "./WorkspacesRail";
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
 const START: WorkspaceItem[] = [
-  { id: "a", name: "Alpha", agentCount: 1 },
-  { id: "b", name: "Beta", agentCount: 2, dot: "waiting" },
-  { id: "c", name: "Gamma", agentCount: 3 },
-  { id: "d", name: "Delta", agentCount: 4 },
+  { id: "a", name: "Alpha", teamCount: 1, teams: [], expanded: false },
+  { id: "b", name: "Beta", teamCount: 2, teams: [], expanded: false, dot: "waiting" },
+  { id: "c", name: "Gamma", teamCount: 3, teams: [], expanded: false },
+  { id: "d", name: "Delta", teamCount: 4, teams: [], expanded: false },
 ];
 
 function pointerEvent(
@@ -65,6 +65,9 @@ function Harness() {
     onAdd: () => {},
     onClose: () => {},
     onRename: () => {},
+    onEnterTeam: () => {},
+    onToggleTeams: () => {},
+    onRenameTeam: () => {},
     onReorder: (id: string, toIndex: number) =>
       setItems((current) => move(current, id, toIndex)),
     version: null,
@@ -211,7 +214,7 @@ describe("WorkspacesRail workspace metadata", () => {
     host.remove();
   });
 
-  it("shows only the numeric agent count, without a model-icon cluster", () => {
+  it("shows only the numeric team count, without a model-icon cluster", () => {
     const item = host.querySelector(`[data-ws-id="b"]`)!;
     expect(item.querySelector(".rail__count")?.textContent).toBe("2");
     expect(item.querySelector(".rail__agents")).toBeNull();
@@ -222,16 +225,19 @@ describe("WorkspacesRail workspace metadata", () => {
       root.render(
         createElement(WorkspacesRail, {
           workspaces: [
-            { id: "a", name: "Alpha", agentCount: 1, dot: "selected" },
-            { id: "b", name: "Beta", agentCount: 2, dot: "failed" },
-            { id: "c", name: "Gamma", agentCount: 1, dot: "none" },
-            { id: "d", name: "Delta", agentCount: 1 },
+            { id: "a", name: "Alpha", teamCount: 1, teams: [], expanded: false, dot: "selected" },
+            { id: "b", name: "Beta", teamCount: 2, teams: [], expanded: false, dot: "failed" },
+            { id: "c", name: "Gamma", teamCount: 1, teams: [], expanded: false, dot: "none" },
+            { id: "d", name: "Delta", teamCount: 1, teams: [], expanded: false },
           ],
           activeId: "a",
           onSelect: () => {},
           onAdd: () => {},
           onClose: () => {},
           onRename: () => {},
+          onEnterTeam: () => {},
+          onToggleTeams: () => {},
+          onRenameTeam: () => {},
           onReorder: () => {},
           version: null,
         }),
@@ -254,12 +260,15 @@ describe("WorkspacesRail workspace metadata", () => {
       act(() =>
         root.render(
           createElement(WorkspacesRail, {
-            workspaces: [{ id: "a", name: "Alpha", agentCount: 1 }],
+            workspaces: [{ id: "a", name: "Alpha", teamCount: 1, teams: [], expanded: false }],
             activeId: "a",
             onSelect: () => {},
             onAdd: () => {},
             onClose: () => {},
             onRename: () => {},
+            onEnterTeam: () => {},
+            onToggleTeams: () => {},
+            onRenameTeam: () => {},
             onReorder: () => {},
             version,
           }),
@@ -275,5 +284,236 @@ describe("WorkspacesRail workspace metadata", () => {
     // foot reads as a signature rather than as a stray figure.
     expect(foot.textContent).toBe("0.22.0");
     expect(foot.getAttribute("title")).toBe("KeepDeck 0.22.0");
+  });
+});
+
+describe("WorkspacesRail team rows", () => {
+  let host: HTMLDivElement;
+  let root: Root;
+
+  const WITH_TEAMS: WorkspaceItem[] = [
+    {
+      id: "a",
+      name: "Alpha",
+      teamCount: 2,
+      teams: [
+        { id: "team-1", name: "api", size: 3, dot: "working" as const },
+        { id: "team-2", name: "web", size: 0, dot: "creating" as const },
+      ],
+      expanded: true,
+    },
+    { id: "b", name: "Beta", teamCount: 0, teams: [], expanded: false },
+  ];
+
+  const render = (props: Partial<Parameters<typeof WorkspacesRail>[0]> = {}) =>
+    act(() =>
+      root.render(
+        createElement(WorkspacesRail, {
+          workspaces: WITH_TEAMS,
+          activeId: "a",
+          onSelect: () => {},
+          onAdd: () => {},
+          onClose: () => {},
+          onRename: () => {},
+          onEnterTeam: () => {},
+          onToggleTeams: () => {},
+          onRenameTeam: () => {},
+          onReorder: () => {},
+          version: null,
+          ...props,
+        }),
+      ),
+    );
+
+  const teamRow = (name: string) =>
+    [...host.querySelectorAll<HTMLElement>(".rail__team")].find(
+      (row) => row.querySelector(".rail__team-name")?.textContent === name,
+    )!;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    host = document.body.appendChild(document.createElement("div"));
+    root = createRoot(host);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    host.remove();
+    vi.useRealTimers();
+  });
+
+  it("lists a workspace's teams under its own row, inside its item", () => {
+    render();
+    // Inside the item on purpose: the hit-test measures item rectangles, so
+    // rows living beside them would open a gap the drag reads as the next
+    // workspace. And never tagged with the workspace id, or they would BE
+    // drag targets.
+    const item = host.querySelector('[data-ws-id="a"]')!;
+    expect([...item.querySelectorAll(".rail__team-name")].map((n) => n.textContent))
+      .toEqual(["api", "web"]);
+    expect(item.querySelectorAll(".rail__teams [data-ws-id]")).toHaveLength(0);
+    expect(host.querySelector('[data-ws-id="b"] .rail__team')).toBeNull();
+  });
+
+  it("says how many agents are on each team, zero included", () => {
+    render();
+    const size = (name: string) =>
+      teamRow(name).querySelector(".rail__team-size")?.textContent;
+    expect(size("api")).toBe("3");
+    // A team born empty is still a team, and its row says so rather than
+    // going blank the way the workspace count does at zero.
+    expect(size("web")).toBe("0");
+  });
+
+  it("goes into the team the row names, workspace and all", () => {
+    const entered: [string, string][] = [];
+    render({ onEnterTeam: (wsId, teamId) => entered.push([wsId, teamId]) });
+    act(() => {
+      teamRow("web").dispatchEvent(new Event("click", { bubbles: true }));
+    });
+    expect(entered).toEqual([["a", "team-2"]]);
+  });
+
+  it("renames the team a double click opens, not the workspace above it", () => {
+    const renamedTeams: [string, string, string][] = [];
+    const renamedWorkspaces: [string, string][] = [];
+    render({
+      onRenameTeam: (wsId, teamId, name) => renamedTeams.push([wsId, teamId, name]),
+      onRename: (id, name) => renamedWorkspaces.push([id, name]),
+    });
+    act(() => {
+      teamRow("api").dispatchEvent(new Event("dblclick", { bubbles: true }));
+    });
+    const input = host.querySelector<HTMLInputElement>(".rail__team-rename")!;
+    expect(input.value).toBe("api");
+    act(() => {
+      // Through the native setter: React tracks the value it wrote, and a
+      // plain assignment would leave the controlled input's state behind.
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!.call(input, "core");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(
+        Object.assign(new Event("keydown", { bubbles: true }), { key: "Enter" }),
+      );
+    });
+    expect(renamedTeams).toEqual([["a", "team-1", "core"]]);
+    // One rename at a time, and it belonged to the team: the workspace's own
+    // name is untouched because both share a single subject key.
+    expect(renamedWorkspaces).toEqual([]);
+  });
+
+  it("shows and hides the teams the chevron points at", () => {
+    const toggled: string[] = [];
+    render({ onToggleTeams: (wsId) => toggled.push(wsId) });
+    const chevron = host.querySelector<HTMLButtonElement>('[data-ws-id="a"] .rail__chevron')!;
+    expect(chevron.getAttribute("aria-expanded")).toBe("true");
+    act(() => chevron.dispatchEvent(new Event("click", { bubbles: true })));
+    expect(toggled).toEqual(["a"]);
+  });
+
+  it("offers no chevron to turn on a workspace with no teams", () => {
+    render();
+    const chevron = host.querySelector<HTMLButtonElement>('[data-ws-id="b"] .rail__chevron')!;
+    expect(chevron.disabled).toBe(true);
+    expect(chevron.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("lifts and lands the workspace's own row, not its whole group", () => {
+    // Geometry the drag suite's index stub cannot express: an EXPANDED item
+    // is taller than the row inside it, and the ghost is the row. Stubbing
+    // them apart is the only way a regression to measuring the item shows.
+    const ROW = 30;
+    const ITEM = ROW + 2 * 26;
+    const boxes = new Map<HTMLElement, { top: number; height: number }>();
+    const spread = () => {
+      const items = [...host.querySelectorAll<HTMLElement>("[data-ws-id]")];
+      let top = 0;
+      for (const item of items) {
+        const row = item.querySelector<HTMLElement>(".rail__row")!;
+        const height = item.querySelector(".rail__teams") ? ITEM : ROW;
+        boxes.set(item, { top, height });
+        boxes.set(row, { top, height: ROW });
+        top += height;
+      }
+    };
+    const original = {
+      top: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetTop"),
+      height: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight"),
+    };
+    Object.defineProperty(HTMLElement.prototype, "offsetTop", {
+      configurable: true,
+      get() {
+        return boxes.get(this as HTMLElement)?.top ?? 0;
+      },
+    });
+    Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+      configurable: true,
+      get() {
+        return boxes.get(this as HTMLElement)?.height ?? 0;
+      },
+    });
+    try {
+      render();
+      spread();
+      const item = host.querySelector<HTMLElement>('[data-ws-id="a"]')!;
+      const row = item.querySelector<HTMLElement>(".rail__row")!;
+      item.getBoundingClientRect = () =>
+        ({ left: 0, top: 0, width: 200, height: ITEM }) as DOMRect;
+      row.getBoundingClientRect = () =>
+        ({ left: 0, top: 0, width: 200, height: ROW }) as DOMRect;
+      act(() => {
+        item
+          .querySelector(".rail__name")!
+          .dispatchEvent(pointerEvent("pointerdown", { clientY: 10 }));
+        vi.advanceTimersByTime(400);
+      });
+      const ghost = document.querySelector<HTMLElement>(".rail__ghost")!;
+      // Lifted at the row's height — an expanded workspace must not come up
+      // as a block the height of its teams.
+      expect(ghost.style.height).toBe(`${ROW}px`);
+      act(() => document.dispatchEvent(pointerEvent("pointerup", { clientY: 10 })));
+      // And landed on the row's box, not the item's.
+      expect(ghost.style.height).toBe(`${ROW}px`);
+    } finally {
+      if (original.top) Object.defineProperty(HTMLElement.prototype, "offsetTop", original.top);
+      if (original.height)
+        Object.defineProperty(HTMLElement.prototype, "offsetHeight", original.height);
+    }
+  });
+
+  it("does not drag the workspace off a held chevron either", () => {
+    // The chevron sits in the workspace's own row, where a press IS meant
+    // to start a drag — so it needs the same exemption the team rows have,
+    // or holding it to open a list would carry the workspace away instead.
+    const reordered: string[] = [];
+    render({ onReorder: (id) => reordered.push(id) });
+    const chevron = host.querySelector<HTMLElement>('[data-ws-id="a"] .rail__chevron')!;
+    act(() => {
+      chevron.dispatchEvent(pointerEvent("pointerdown", { clientY: 10 }));
+      vi.advanceTimersByTime(400);
+    });
+    act(() => document.dispatchEvent(pointerEvent("pointermove", { clientY: 200 })));
+    expect(document.querySelector(".rail__ghost")).toBeNull();
+    expect(reordered).toEqual([]);
+  });
+
+  it("does not drag the workspace out from under a held team row", () => {
+    const reordered: string[] = [];
+    render({ onReorder: (id) => reordered.push(id) });
+    const row = teamRow("api");
+    act(() => {
+      row.dispatchEvent(pointerEvent("pointerdown", { clientY: 40 }));
+      vi.advanceTimersByTime(400);
+    });
+    act(() => {
+      document.dispatchEvent(pointerEvent("pointermove", { clientY: 200 }));
+    });
+    // The rows sit inside the workspace's item, so the press reaches the
+    // item's own pointerdown; without the row's exemption a 300ms hold on a
+    // team would lift the workspace instead of opening the team.
+    expect(document.querySelector(".rail__ghost")).toBeNull();
+    expect(reordered).toEqual([]);
   });
 });

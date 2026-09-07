@@ -75,6 +75,7 @@ function App() {
     frozenAck,
     gitHeads,
     handleCreateWorkspace,
+    handleEnterTeam,
     handleSelectWorkspace,
     info,
     openNotification,
@@ -163,6 +164,9 @@ function App() {
             onAdd={() => setCreating(true)}
             onClose={closeFlow.requestCloseWorkspace}
             onRename={deck.renameWorkspace}
+            onEnterTeam={handleEnterTeam}
+            onToggleTeams={deck.toggleRailTeams}
+            onRenameTeam={deck.renameTeam}
             onReorder={deck.moveWorkspace}
             version={info?.version ?? null}
           />

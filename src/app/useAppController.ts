@@ -19,7 +19,7 @@ import { useMenuHotkeys } from "./useMenuHotkeys";
 import { useModalRouter } from "./useModalRouter";
 import { setSourceVisibilityProbe } from "./notificationCenter";
 import { useActivityNotifications } from "./useActivityNotifications";
-import { useWorkspaceFrames } from "./useWorkspaceFrames";
+import { usePaneActivities } from "./usePaneActivities";
 import { workspaceForNotification } from "./notificationNavigation";
 import { usePaneDrag } from "./usePaneDrag";
 import { usePersistence } from "./usePersistence";
@@ -54,6 +54,7 @@ import { describeError, log } from "../ipc/log";
 import { pluginCrashes, subscribePluginCrashes } from "./pluginHealth";
 import { addTeamDoorOpen, bellDoorOpen, dockDoorOpen } from "./doors";
 import type { BarLevel } from "../components/deck/DeckBar";
+import { railView } from "../presentation/railView";
 import { teamBranchOf } from "../presentation/teamCardView";
 
 /** Shell/application wiring kept separate from the rendered app tree. */
@@ -268,8 +269,9 @@ export function useAppController() {
   // Announce the transitions worth leaving the app for: needs-you, finished,
   // failed.
   useActivityNotifications(deck.workspaces, agents);
-  // Each workspace's status folded to one frame for its rail dot.
-  const railFrames = useWorkspaceFrames(deck.workspaces, deck.activeId);
+  // One subscription for the whole rail; what the activity MEANS for a row
+  // is `railView`'s.
+  const paneActivities = usePaneActivities();
   useMenuHotkeys({
     newWorkspace: () => {
       if (windows.modal) return;
@@ -330,17 +332,15 @@ export function useAppController() {
   const handleSelectWorkspace = (id: string) => {
     runtime.application.selectWorkspace(id);
   };
+  const handleEnterTeam = (wsId: string, teamId: string) => {
+    runtime.application.activateTeam(wsId, teamId);
+  };
   const notificationPrefs =
     settings?.notifications ?? DEFAULT_SETTINGS.notifications;
   const showBell = bellDoorOpen(notificationPrefs);
   const openNotification = runtime.application.openNotification;
   const handleCreateWorkspace = runtime.application.createWorkspace;
-  const railWorkspaces = deck.workspaces.map((w) => ({
-    id: w.id,
-    name: w.name,
-    agentCount: w.panes.length,
-    dot: railFrames.get(w.id) ?? ("none" as const),
-  }));
+  const railWorkspaces = railView(deck.workspaces, paneActivities, deck.viewByWs, deck.activeId);
   if (restoring || !spawnCtx || !settings) {
     return { ready: false as const };
   }
@@ -389,6 +389,7 @@ export function useAppController() {
     frozenAck,
     gitHeads,
     handleCreateWorkspace,
+    handleEnterTeam,
     handleSelectWorkspace,
     info,
     openNotification,

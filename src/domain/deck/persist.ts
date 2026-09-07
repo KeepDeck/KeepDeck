@@ -76,10 +76,13 @@ export type HydrateDeckResult =
  * decision rather than this launch's circumstances; the session binding is
  * kept — it's the resume key. The unified
  * `viewByWs` persists only its durable half — the `focusByWs`/`selectByWs`
- * maps the on-disk schema has always had, and `teamOpenByWs`, the team the
- * stage had open, so a launch returns the person where they were;
+ * maps the on-disk schema has always had, `teamOpenByWs`, the team the
+ * stage had open, and `railExpandedByWs`, the workspaces whose teams the
+ * rail was listing — so a launch returns the person where they were;
  * `dock`/`dockTab` are session-only and never written, so every launch
- * starts with the dock closed. */
+ * starts with the dock closed. The line between the halves is whose answer
+ * it is: what the person chose to have open survives, what a run's
+ * circumstances produced starts over. */
 export function serializeDeck(
   state: DeckState,
   docExtras: Record<string, unknown> = {},
@@ -87,10 +90,12 @@ export function serializeDeck(
   const focusByWs: Record<string, string> = {};
   const selectByWs: Record<string, string> = {};
   const teamOpenByWs: Record<string, string> = {};
+  const railExpandedByWs: Record<string, true> = {};
   for (const [wsId, view] of Object.entries(state.viewByWs)) {
     if (view.focus !== undefined) focusByWs[wsId] = view.focus;
     if (view.select !== undefined) selectByWs[wsId] = view.select;
     if (view.teamOpen !== undefined) teamOpenByWs[wsId] = view.teamOpen;
+    if (view.railExpanded) railExpandedByWs[wsId] = true;
   }
   // Extras spread FIRST at every level, so the keys this build owns always
   // win — a newer revision's fields ride along, never override.
@@ -102,6 +107,7 @@ export function serializeDeck(
     focusByWs,
     selectByWs,
     teamOpenByWs,
+    railExpandedByWs,
     workspaces: state.workspaces.map((ws) => {
       // A fork's card is dropped while still in flight — the team AND its
       // members: its store surgery is an in-memory post-provision step that
@@ -281,6 +287,17 @@ export function hydrateDeck(json: string): HydrateDeckResult {
   for (const [wsId, teamId] of Object.entries(readTeamOpen(raw.teamOpenByWs))) {
     viewByWs[wsId] = { ...viewByWs[wsId], teamOpen: teamId };
   }
+  // Only for a workspace the deck still has, and only the `true` the writer
+  // stores: a key naming nothing reads as collapsed, like every other stale
+  // view key, and the file cleans itself on the next save.
+  const liveWorkspaces = new Set(workspaces.map((w) => w.id));
+  if (isRecord(raw.railExpandedByWs)) {
+    for (const [wsId, expanded] of Object.entries(raw.railExpandedByWs)) {
+      if (expanded === true && liveWorkspaces.has(wsId)) {
+        viewByWs[wsId] = { ...viewByWs[wsId], railExpanded: true };
+      }
+    }
+  }
 
   return {
     kind: "ok",
@@ -310,6 +327,7 @@ const DOC_KNOWN_KEYS: ReadonlySet<string> = new Set([
   "focusByWs",
   "selectByWs",
   "teamOpenByWs",
+  "railExpandedByWs",
   "workspaces",
   // The ladder's one-time word to the person — consumed on read, never an
   // extra, so it cannot be announced again on the next launch.

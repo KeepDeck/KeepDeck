@@ -69,20 +69,33 @@
   overflow-y: auto;
 }
 
+/* The item is a COLUMN: the workspace's own row, then its teams under it.
+   Its height covers both on purpose — the hit-test reads item rectangles
+   (app/railDnd.ts) and a gap between two workspaces would be read as the top
+   of the next one, so a drag over a workspace's own teams would target its
+   neighbour. Everything inside stays in flow and unpositioned: the list is
+   the only `offsetParent`, and both the hit-test and the ghost's landing
+   measure through it. */
 .rail__item {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   border-radius: 6px;
-  padding-right: 4px;
   /* Pointer moves over an item are reorder-drag candidates, not page scrolls. */
   touch-action: none;
 }
 
-.rail__item:hover {
+.rail__row {
+  display: flex;
+  align-items: center;
+  padding-right: 4px;
+  border-radius: 6px;
+}
+
+.rail__item:hover .rail__row {
   background-color: #151a24;
 }
 
-.rail__item--active {
+.rail__item--active > .rail__row {
   background-color: #1b2230;
 }
 
@@ -131,13 +144,56 @@
   white-space: nowrap;
 }
 
+/* The chevron keeps its width when there is nothing to turn, so names stay
+   on one left edge whether or not a workspace has teams. */
+.rail__chevron {
+  flex: none;
+  width: 16px;
+  align-self: stretch;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  /* The mark is drawn, so the button carries no type metrics — only the
+     colour the icon strokes with. */
+  color: #4b5362;
+}
+
+.rail__chevron:hover:not(:disabled) {
+  color: #c5c8c6;
+}
+
+.rail__chevron--empty {
+  visibility: hidden;
+}
+
+/* The mark turns; the button does not. Rotating the button would take its
+   hit box with it, and the mark is the only part with an orientation. Same
+   140ms the rail's reorder settles in, so the two motions read as one
+   surface's tempo rather than two.
+   `display: flex` so the span is exactly the icon's box: an inline box
+   would add the font's line-height around it, and the centre it turns
+   about would be the centre of that padding, not of the mark. */
+.rail__chevron-glyph {
+  display: flex;
+  transform-origin: 50% 50%;
+  transition: transform 140ms ease;
+}
+
+.rail__chevron--open .rail__chevron-glyph {
+  transform: rotate(90deg);
+}
+
 .rail__select {
   display: flex;
   align-items: center;
   gap: 8px;
   flex: 1;
   min-width: 0;
-  padding: 7px 8px;
+  padding: 7px 8px 7px 2px;
   border: 0;
   background: transparent;
   color: #c5c8c6;
@@ -192,15 +248,134 @@
   color: #c5c8c6;
 }
 
-/* Show the × (and hide the count) when focused or hovered. */
-.rail__item:hover .rail__count,
-.rail__item--active .rail__count {
+/* Show the × (and hide the count) when focused or hovered. Scoped to the
+   ROW, not the item: hovering a team under a workspace is not hovering the
+   workspace, and it has no business swapping that row's count for a close
+   button. */
+.rail__row:hover .rail__count,
+.rail__item--active > .rail__row .rail__count {
   display: none;
 }
 
-.rail__item:hover .rail__close,
-.rail__item--active .rail__close {
+.rail__row:hover .rail__close,
+.rail__item--active > .rail__row .rail__close {
   display: inline-flex;
+}
+
+/* The teams under a workspace. Indent alone ties them to the name above —
+   they only ever appear directly under it, and the chevron above says the
+   group is open, so a thread drawn down the left was a second answer to a
+   question already answered. */
+.rail__teams {
+  list-style: none;
+  margin: 0 0 2px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+/* Unpositioned like everything else inside the item: the list stays the one
+   `offsetParent`, which both the hit-test and the ghost's landing measure
+   through. */
+.rail__team {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: calc(100% - 4px);
+  margin-left: 4px;
+  padding: 5px 8px 5px 24px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #98a1af;
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+}
+
+.rail__team:hover {
+  background-color: #161d29;
+  color: #c5c8c6;
+}
+
+/* The team's dot, on the ladder the card already paints (teamCards.css):
+   same palette variables, same rhythms, its own wiring — a shared class
+   would put one surface's rendering decision inside another's. */
+.rail__team-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: #3b4658;
+  flex: none;
+}
+
+.rail__team-dot--done {
+  background-color: var(--status-done);
+}
+
+.rail__team-dot--working {
+  background-color: var(--status-working);
+  animation: status-dot-working 1.6s ease-in-out infinite;
+}
+
+.rail__team-dot--waiting {
+  background-color: var(--status-waiting);
+  animation: status-dot-breathe 2s ease-in-out infinite;
+}
+
+.rail__team-dot--failed {
+  background-color: var(--status-failed);
+  animation: status-dot-pulse 1s ease-in-out infinite;
+}
+
+/* A create in flight breathes in the quiet gray, like the card's: something
+   is being waited for, and it is not the person's turn. */
+.rail__team-dot--creating {
+  animation: status-dot-breathe 2s ease-in-out infinite;
+}
+
+/* Every rhythm above names a state; none of them may move when the person
+   asked for stillness. Listed here rather than in status.css because these
+   are the rail's own wiring, like teamCards.css lists the card's. */
+@media (prefers-reduced-motion: reduce) {
+  .rail__team-dot--working,
+  .rail__team-dot--waiting,
+  .rail__team-dot--failed,
+  .rail__team-dot--creating {
+    animation: none;
+  }
+
+  /* The chevron still turns — it just arrives turned. */
+  .rail__chevron-glyph {
+    transition: none;
+  }
+}
+
+.rail__team-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rail__team-size {
+  font-size: 10.5px;
+  color: #59616f;
+  font-variant-numeric: tabular-nums;
+}
+
+.rail__team-rename {
+  width: calc(100% - 8px);
+  margin: 1px 4px 1px 24px;
+  padding: 4px 6px;
+  border: 1px solid #3a4658;
+  border-radius: 5px;
+  background-color: #0b0e14;
+  color: #c5c8c6;
+  font: inherit;
+  font-size: 12.5px;
+  outline: none;
 }
 
 .rail__rename {

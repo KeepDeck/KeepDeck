@@ -38,6 +38,11 @@ export interface ApplicationController {
   start(): void;
   bindUi(ui: ApplicationUi): () => void;
   selectWorkspace(id: string): void;
+  /** Put the person inside a team: its workspace on screen, the team open
+   * on the stage. One named operation rather than two calls from a view —
+   * the `activatePane` precedent — because the order is policy, not
+   * rendering. */
+  activateTeam(wsId: string, teamId: string): void;
   openNotification(notification: Notification): void;
   createWorkspace(config: SpawnConfig): void;
   dispose(): void;
@@ -98,6 +103,14 @@ export function createApplicationController({
     ui?.setCreating(false);
   };
 
+  // The team opens FIRST, then its workspace comes forward: `openTeam`
+  // names the workspace it acts on, so the level is already right when the
+  // stage appears and no frame renders the cards on the way through.
+  const activateTeam = (wsId: string, teamId: string) => {
+    actions.openTeam(wsId, teamId);
+    selectWorkspace(wsId);
+  };
+
   const activatePane = (wsId: string, paneId: string) => {
     selectWorkspace(wsId);
     paneView.revealPane(wsId, paneId);
@@ -138,6 +151,8 @@ export function createApplicationController({
     },
 
     selectWorkspace,
+
+    activateTeam,
 
     openNotification(notification) {
       switch (notification.source.type) {

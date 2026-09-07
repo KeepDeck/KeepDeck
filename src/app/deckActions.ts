@@ -98,6 +98,7 @@ function buildDeckActions(store: DeckStore) {
       dispatch({ type: "selectPane", wsId, paneId }),
     /** Drill into a team on the stage — from its card, a reveal, a door. */
     openTeam: (wsId: string, teamId: string) => dispatch({ type: "openTeam", wsId, teamId }),
+    toggleRailTeams: (wsId: string) => dispatch({ type: "toggleRailTeams", wsId }),
     /** Back up to the workspace's team cards. */
     closeTeam: (wsId: string) => dispatch({ type: "closeTeam", wsId }),
     toggleDock: (wsId: string) => dispatch({ type: "toggleDock", wsId }),

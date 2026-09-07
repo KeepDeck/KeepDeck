@@ -59,7 +59,7 @@ import {
 } from "./workspaceView";
 
 export type { DeckAction } from "./reducerActions";
-export type { WorkspaceView } from "./workspaceView";
+export type { WorkspaceView, WorkspaceViewMap } from "./workspaceView";
 
 /**
  * The deck's interdependent state: the workspaces, which one is active, and the
@@ -407,6 +407,16 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         viewByWs = setViewField(viewByWs, wsId, "focus", undefined);
       }
       return withView(state, viewByWs);
+    }
+    case "toggleRailTeams": {
+      // Collapsing is the absence of the field, not `false`: the sparse view
+      // drops an empty record entirely, so a workspace nobody expanded costs
+      // nothing on disk and reads the same as one that was collapsed again.
+      const open = state.viewByWs[action.wsId]?.railExpanded ?? false;
+      return withView(
+        state,
+        setViewField(state.viewByWs, action.wsId, "railExpanded", open ? undefined : true),
+      );
     }
     case "closeTeam": {
       // Back to the cards, where nothing is a pane to highlight. The

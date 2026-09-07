@@ -17,6 +17,12 @@ export interface WorkspaceView {
    * the open team's members, or nothing — every writer that repairs it
    * repairs it within the slice. */
   teamOpen?: string;
+  /** Whether the rail lists this workspace's teams under its name. The
+   * person's own answer to "show me what is in there", so it is kept
+   * beside `teamOpen` in the durable half rather than with the dock: a
+   * launch puts back what they chose to have open, and only the
+   * circumstances of a run — geometry, placement — start over. */
+  railExpanded?: boolean;
 }
 
 export type WorkspaceViewMap = Record<string, WorkspaceView>;
@@ -30,7 +36,8 @@ function isEmptyView(view: WorkspaceView): boolean {
     view.dockTab === undefined &&
     view.minimized === undefined &&
     view.suspendedTray === undefined &&
-    view.teamOpen === undefined
+    view.teamOpen === undefined &&
+    view.railExpanded === undefined
   );
 }
 

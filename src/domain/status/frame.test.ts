@@ -78,25 +78,25 @@ describe("paneFrame", () => {
 
 describe("workspaceFrame", () => {
   it("any pane's attention wins for the workspace, failed over waiting", () => {
-    expect(workspaceFrame([working, waiting, done], false)).toBe("waiting");
-    expect(workspaceFrame([waiting, failed, undefined], false)).toBe("failed");
+    expect(workspaceFrame([working.state, waiting.state, done.state], false)).toBe("waiting");
+    expect(workspaceFrame([waiting.state, failed.state, undefined], false)).toBe("failed");
   });
 
   it("attention pierces the active workspace's green", () => {
-    expect(workspaceFrame([waiting], true)).toBe("waiting");
-    expect(workspaceFrame([failed], true)).toBe("failed");
+    expect(workspaceFrame([waiting.state], true)).toBe("waiting");
+    expect(workspaceFrame([failed.state], true)).toBe("failed");
   });
 
   it("a live fact outranks a finished turn's tail in the fold", () => {
-    expect(workspaceFrame([working], false)).toBe("working");
-    expect(workspaceFrame([done, working], false)).toBe("working");
-    expect(workspaceFrame([working, waiting, done], false)).toBe("waiting");
+    expect(workspaceFrame([working.state], false)).toBe("working");
+    expect(workspaceFrame([done.state, working.state], false)).toBe("working");
+    expect(workspaceFrame([working.state, waiting.state, done.state], false)).toBe("waiting");
   });
 
   it("working and done mark only a background workspace — the active one is on screen", () => {
-    expect(workspaceFrame([done], false)).toBe("done");
-    expect(workspaceFrame([working, done], true)).toBe("selected");
-    expect(workspaceFrame([working], true)).toBe("selected");
+    expect(workspaceFrame([done.state], false)).toBe("done");
+    expect(workspaceFrame([working.state, done.state], true)).toBe("selected");
+    expect(workspaceFrame([working.state], true)).toBe("selected");
   });
 
   it("a quiet pane leaves the dot to the active/none default", () => {

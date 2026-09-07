@@ -43,7 +43,10 @@ const ATTENTION_FLOOR = 3;
  * `fullBleed` names the stage-filling mode — maximized by hand, or the
  * only pane there is — which is a fact about layout, not a frame mode. */
 export interface PaneFrameFacts {
-  activity?: PaneActivity;
+  /** Only the state is ranked, so a caller holding one already folded —
+   * a team's loudest, say — passes it without inventing the timestamps a
+   * whole activity carries. */
+  activity?: Pick<PaneActivity, "state">;
   /** Whether this surface wears the deck's selection border at all: a
    * gridded pane holding the cursor does; a list row never does (its
    * accordion expansion is its own selection mark — a green border would
@@ -107,9 +110,15 @@ export function paneFrame(facts: PaneFrameFacts): StatusFrame {
 }
 
 /**
- * The same ladder folded over a whole workspace — the rail dot's one
- * answer. Literally [`paneFrame`] of the workspace's LOUDEST pane under
- * the workspace's own facts (`selected: active` — the active dot's green
+ * The same ladder folded over many surfaces at once — the rail dot's one
+ * answer. It takes STATES rather than activities so a caller that has
+ * already folded once can fold again: a workspace's dot is the loudest of
+ * its teams, and a team's is the loudest of its members, and max is
+ * associative, so two rounds of this function rank exactly as one round
+ * over every member would. A second ranking table for the second round is
+ * what that avoids.
+ *
+ * Literally [`paneFrame`] of the LOUDEST state under the surface's own facts (`selected: active` — the active dot's green
  * is the cursor rung; `fullBleed: false` — a rail dot is a small surface
  * that picks workspaces out, never the rim of what fills the stage), so
  * the two surfaces can never rank attention differently: any pane's
@@ -119,18 +128,16 @@ export function paneFrame(facts: PaneFrameFacts): StatusFrame {
  * workspace, exactly as they yield to selection on a pane.
  */
 export function workspaceFrame(
-  activities: Iterable<PaneActivity | undefined>,
+  states: Iterable<PaneActivity["state"] | undefined>,
   active: boolean,
 ): StatusFrame {
-  let loudest: PaneActivity | undefined;
-  for (const activity of activities) {
-    if (!activity) continue;
-    if (!loudest || SEVERITY[activity.state] > SEVERITY[loudest.state]) {
-      loudest = activity;
-    }
+  let loudest: PaneActivity["state"] | undefined;
+  for (const state of states) {
+    if (!state) continue;
+    if (!loudest || SEVERITY[state] > SEVERITY[loudest]) loudest = state;
   }
   return paneFrame({
-    activity: loudest,
+    activity: loudest && { state: loudest },
     selected: active,
     fullBleed: false,
   });

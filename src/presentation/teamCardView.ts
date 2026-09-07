@@ -77,6 +77,36 @@ export function teamBranchOf(team: Team, head?: GitPosition): string | null {
   return head?.branch ?? (location?.kind === "attached" ? location.branch : undefined) ?? null;
 }
 
+/**
+ * A team's dot — the ladder at the top of this file, and the one place it
+ * is decided. The card draws it big beside a pending rim; the rail draws
+ * it small in the team's row; neither may rank these states its own way.
+ */
+export function teamDot(
+  team: Pick<Team, "location">,
+  /** The members' live activity, in any order; absent entries are fine. */
+  activities: Iterable<PaneActivity | undefined>,
+): TeamCardDot {
+  const location = team.location;
+  const creating = location?.kind === "provisioning";
+  const treeFailed = creating && location.error !== undefined;
+  // `selected: false` — a team is picked out by nothing but its own dot,
+  // like a rail dot on a background workspace.
+  const frame = workspaceFrame(
+    [...activities].map((activity) => activity?.state),
+    false,
+  );
+  return frame === "failed" || frame === "waiting"
+    ? frame
+    : treeFailed
+      ? "failed"
+      : creating
+        ? "creating"
+        : frame === "selected"
+          ? "none"
+          : frame;
+}
+
 export function teamCardView(
   ws: Workspace,
   team: Team,
@@ -88,19 +118,7 @@ export function teamCardView(
   const location = team.location;
   const creating = location?.kind === "provisioning";
   const treeFailed = creating && location.error !== undefined;
-  // `selected: false` — a card is picked out by nothing but its own dot,
-  // like a rail dot on a background workspace.
-  const frame = workspaceFrame(activities, false);
-  const dot: TeamCardDot =
-    frame === "failed" || frame === "waiting"
-      ? frame
-      : treeFailed
-        ? "failed"
-        : creating
-          ? "creating"
-          : frame === "selected"
-            ? "none"
-            : frame;
+  const dot = teamDot(team, activities);
   return {
     id: team.id,
     name: team.name,
