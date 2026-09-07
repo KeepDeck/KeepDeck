@@ -171,6 +171,20 @@
   visibility: hidden;
 }
 
+/* The glyph turns; the button does not. Rotating the button would take its
+   hit box with it, and the mark is the only part with an orientation. Same
+   140ms the rail's reorder settles in, so the two motions read as one
+   surface's tempo rather than two. */
+.rail__chevron-glyph {
+  display: inline-block;
+  transform-origin: 50% 50%;
+  transition: transform 140ms ease;
+}
+
+.rail__chevron--open .rail__chevron-glyph {
+  transform: rotate(90deg);
+}
+
 .rail__select {
   display: flex;
   align-items: center;
@@ -328,6 +342,11 @@
   .rail__team-dot--failed,
   .rail__team-dot--creating {
     animation: none;
+  }
+
+  /* The chevron still turns — it just arrives turned. */
+  .rail__chevron-glyph {
+    transition: none;
   }
 }
 

@@ -272,8 +272,8 @@ export function WorkspacesRail({
                     <button
                       type="button"
                       className={`rail__chevron${
-                        ws.teams.length === 0 ? " rail__chevron--empty" : ""
-                      }`}
+                        ws.expanded ? " rail__chevron--open" : ""
+                      }${ws.teams.length === 0 ? " rail__chevron--empty" : ""}`}
                       onClick={() => onToggleTeams(ws.id)}
                       disabled={ws.teams.length === 0}
                       aria-expanded={ws.expanded}
@@ -281,7 +281,15 @@ export function WorkspacesRail({
                         ws.expanded ? `Hide ${ws.name} teams` : `Show ${ws.name} teams`
                       }
                     >
-                      {ws.expanded ? "▾" : "›"}
+                      {/* ONE glyph, turned by CSS. Two characters — a right
+                          chevron and a down one — are drawn by the font at
+                          different weights and on different baselines, so
+                          they read as two marks swapping rather than as one
+                          turning, and there is nothing between them to
+                          animate. */}
+                      <span className="rail__chevron-glyph" aria-hidden="true">
+                        ›
+                      </span>
                     </button>
                     <button
                       type="button"
