@@ -59,7 +59,7 @@ describe("the role catalog", () => {
     expect(teamRoles().filter((role) => role.standing === "leads")).toEqual([
       leadRole(),
     ]);
-    for (const id of ["impl", "reviewer", "tester"]) {
+    for (const id of ["impl", "reviewer", "tester", "analyst"]) {
       expect(roleById(id)?.standing, id).toBe("reports");
     }
     expect(roleById("peer")?.standing).toBe("peer");

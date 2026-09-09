@@ -80,9 +80,14 @@ const LEAD_ID = "lead";
 /**
  * The roles KeepDeck ships with.
  *
- * Five, and deliberately not more: a role nobody can explain in three lines
- * is one that will be used as a synonym for another. The user's own roles
- * arrive through [`configureRoleCatalog`] and change nothing here.
+ * Six, and deliberately not more: a role nobody can explain in three lines
+ * is one that will be used as a synonym for another. Each earns its line by
+ * the ACT, never the subject matter — the analyst works a question out from
+ * evidence, whatever the material, where the reviewer judges work the team
+ * produced and the tester reports what running it did; a catalog that
+ * blurred those would have three names for one job and a team that picks
+ * between them by coin toss. The user's own roles arrive through
+ * [`configureRoleCatalog`] and change nothing here.
  */
 const BUILT_IN_ROLES: readonly TeamRole[] = [
   {
@@ -135,6 +140,19 @@ const BUILT_IN_ROLES: readonly TeamRole[] = [
       "A result is what you observed, not what should have happened. Report a failure exactly as it appeared.",
       "Results go to lead as a note, or as an answer when you were asked.",
       "You do not fix what you find unless lead asks you to. You may ask another member directly about what you are seeing, as a question or a note; assigning the fix is lead's.",
+    ],
+  },
+  {
+    id: "analyst",
+    label: "Analyst",
+    repeatable: true,
+    standing: "reports",
+    summary: "works out whatever the team needs understood and reports what it found",
+    charter: [
+      "You ANALYSE — code, a document, data, a set of options, a question nobody has had time to answer. Take what the team needs understood, work it out from the evidence, and report what you found.",
+      "A finding is what the evidence actually supports. Keep what you verified apart from what you inferred, and name what you could not determine rather than closing the gap yourself.",
+      "Findings go to lead as a note, or as an answer when you were asked.",
+      "You do not change what you study, and you do not rule on whether the team's own work is any good — that is reviewer's. You may ask another member directly about what you are looking into, as a question or a note; assigning any follow-up is lead's.",
     ],
   },
   {
