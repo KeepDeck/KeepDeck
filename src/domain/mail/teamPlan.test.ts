@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { SENDABLE_KINDS } from "./message";
-import { awaitsAnswer } from "./policy";
+import { awaitsAnswer, sendRefusal } from "./policy";
 import type { Pane, Team, Workspace } from "../deck";
 import { resolveNamedPanes } from "../deck/teams/testSupport";
 import { createWorkspaceInstance } from "../workspaceInstance";
@@ -346,6 +346,47 @@ describe("teamBriefing", () => {
     for (const line of roleById("peer")!.charter) {
       expect(text).toContain(line);
     }
+  });
+
+  it("offers the task kind to exactly whoever the send gate lets send one", () => {
+    // The briefing may say less than the rules allow; it may never say
+    // more. Offered a task it cannot send, an implementer takes the
+    // briefing at its word, is refused `not-yours-to-assign`, and learns
+    // from the refusal that mail rejects it — which is how a teammate goes
+    // quiet. Asserted against the GATE rather than against a second copy of
+    // the rule, so the two cannot drift apart in silence.
+    const sender = (role: string) => ({
+      paneId: "pane-1",
+      workspaceId: "ws-1",
+      label: "Agent",
+      role,
+    });
+    for (const role of ["impl-1", "reviewer-1", "tester-1"]) {
+      expect(sendRefusal(sender(role), "pane-2", "task")).not.toBeNull();
+      const text = teamBriefing("api", role, ["lead", role]);
+      expect(text).not.toContain("task and question expect");
+      expect(text).toContain("question expects something back");
+    }
+    // The one member that may, and is told so.
+    expect(sendRefusal(sender("lead"), "pane-2", "task")).toBeNull();
+    expect(teamBriefing("api", "lead", ["lead", "impl-1"])).toContain(
+      "task and question expect",
+    );
+  });
+
+  it("offers no task to a role the catalog has lost, as its gate refuses one", () => {
+    // The branch that changed: a lost role on a roster WITH a lead used to
+    // read as "not flat" and be offered the kind, while its send was
+    // refused for a standing nothing could read.
+    const text = teamBriefing("api", "architect", ["architect", "lead"]);
+    expect(text).not.toContain("task and question expect");
+    expect(
+      sendRefusal(
+        { paneId: "pane-1", workspaceId: "ws-1", label: "Agent", role: "architect" },
+        "pane-2",
+        "task",
+      ),
+    ).not.toBeNull();
   });
 
   it("briefs a member by ITS standing, not by who else survived the roster", () => {
