@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  builtInRoles,
   defaultRoleFor,
   isLeadAddress,
   leadRole,
@@ -11,6 +12,26 @@ import {
 } from "./roles";
 
 describe("the role catalog", () => {
+  it("tells every working role that a teammate is reachable directly", () => {
+    // The catalog's one horizontal permission used to live in the
+    // reviewer's charter alone, and a charter is holder-only — so the
+    // implementer it named had never been told it may answer. A permission
+    // stated on one side is a permission nobody can use: the side that
+    // receives has only its own charter, which ended by routing everything
+    // to lead.
+    //
+    // Asserted on the BOUND rather than on the invitation, because that is
+    // the half that must survive a rewording: reachability is offered as an
+    // option with its kinds named, never as a duty to report. A charter
+    // that grew "tell lead when you are idle" would satisfy a test for the
+    // word "may" and buy exactly the ceremonial traffic this avoids.
+    for (const role of builtInRoles().filter((r) => r.standing === "reports")) {
+      expect(role.charter.join(" "), `${role.id} charter`).toContain(
+        "as a question or a note",
+      );
+    }
+  });
+
   it("describes every role well enough to brief an agent with it", () => {
     // The catalog is the ONLY source of role text, so an entry missing a
     // charter would leave its holder with nothing said about it — which is

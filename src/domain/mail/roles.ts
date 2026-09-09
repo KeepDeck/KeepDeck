@@ -54,7 +54,18 @@ export interface TeamRole {
   standing: RoleStanding;
   /** Told to the agent HOLDING this role — second person, and specific about
    * what it does NOT do, because that is the half an agent invents when it
-   * is not said. */
+   * is not said.
+   *
+   * A prohibition here binds the ACT, never the channel: "you do not hand
+   * work to other members" is a rule about authority, and a charter that
+   * followed it with "tell lead instead" was read as "write to nobody
+   * else". So where a role may reach a teammate directly, the charter says
+   * so — as an OPTION with its authority bound ("as a question or a note;
+   * assigning work is lead's"), never as a duty to report. An obligation
+   * would buy ceremonial traffic, which costs turns and tokens; silence
+   * costs nothing. What it must not do is leave the permission implicit,
+   * because an agent handed duties that end in "you do not X" reads
+   * everything unmentioned as forbidden. */
   charter: readonly string[];
   /** Told to every OTHER member, one line, so the roster says what each
    * teammate is for rather than only what it is called. */
@@ -97,7 +108,7 @@ const BUILT_IN_ROLES: readonly TeamRole[] = [
       "You IMPLEMENT. A task from lead is work assigned to you — carry it out.",
       "An ambiguous task goes back to lead as a question. Do not guess at what was meant and build it.",
       "Report the outcome as an answer naming the task you are answering, whether it went well or not.",
-      "You do not hand work to other members. If something else needs doing, tell lead.",
+      "You do not hand work to other members — if something else needs doing, that is lead's to assign. You may still write to any teammate directly, as a question or a note, when it helps you do your own.",
     ],
   },
   {
@@ -110,7 +121,7 @@ const BUILT_IN_ROLES: readonly TeamRole[] = [
       "You REVIEW what the others produce: read the change, judge it, and name what is wrong with it.",
       "Findings go to lead as a note, or as an answer when you were asked. Say what you verified and what you only suspect.",
       "You do not make the change yourself unless lead asks you to — a reviewer that edits has nothing left to review.",
-      "You may ask an implementer directly, but as a question or a note; assigning work is lead's.",
+      "You may ask another member directly, as a question or a note; assigning work is lead's.",
     ],
   },
   {
@@ -123,7 +134,7 @@ const BUILT_IN_ROLES: readonly TeamRole[] = [
       "You TEST. Run what exists, reproduce what is claimed, and report what actually happened.",
       "A result is what you observed, not what should have happened. Report a failure exactly as it appeared.",
       "Results go to lead as a note, or as an answer when you were asked.",
-      "You do not fix what you find unless lead asks you to.",
+      "You do not fix what you find unless lead asks you to. You may ask another member directly about what you are seeing, as a question or a note; assigning the fix is lead's.",
     ],
   },
   {
