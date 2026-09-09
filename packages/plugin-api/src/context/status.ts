@@ -28,6 +28,10 @@ export type StatusWaitReason = "permission" | "question";
 export type AgentStatusEvent =
   /** The user submitted a prompt — the turn is running. */
   | { kind: "turn-start"; at: number }
+  /** A store confirms that a new request entered execution. Unlike a prompt
+   * hook this may arrive AFTER its ending, so `at` must be source time and
+   * observations no newer than the current phase/ending are ignored. */
+  | { kind: "turn-observed"; at: number }
   /** The turn is blocked on the user (approval dialog, agent question). */
   | { kind: "waiting"; at: number; reason: StatusWaitReason }
   /** The wait resolved and the turn is running again. Only CLIs with a
@@ -75,11 +79,14 @@ export type AgentStatusEvent =
   /** The turn completed normally. Whether it is an ENDING also depends on
    * the edge stream: a turn that closes while an agent turn is still open
    * is held, not done, and the ending lands when the last one closes — see
-   * the host's status fold. */
-  | { kind: "turn-end"; at: number }
+   * the host's status fold. `liveAgentIds`, when known authoritatively, retires
+   * already-open brackets absent from that list; it never opens new ones. */
+  | { kind: "turn-end"; at: number; liveAgentIds?: readonly string[] }
   /** The user interrupted the turn (Esc/Ctrl-C) — it is over, but not
-   * "done" in the completed sense. */
-  | { kind: "interrupted"; at: number }
+   * "done" in the completed sense. `scope: main` cancels only the main
+   * execution; independent agent turns keep running. Omitted means the
+   * whole loop, preserving the contract of existing reporters. */
+  | { kind: "interrupted"; at: number; scope?: "main" }
   /** The turn died on an API error. `error` is the CLI's error type
    * (e.g. `rate_limit`, `authentication_failed`); `detail` its prose. */
   | { kind: "turn-failed"; at: number; error: string; detail?: string }

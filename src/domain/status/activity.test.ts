@@ -321,7 +321,7 @@ describe("reduceStatus", () => {
     // The age is the TURN's, not the parking's: the work never stopped, so
     // "how long since you could have walked away" never reset.
     expect(held.activity).toEqual({ state: "working", since: 100 });
-    expect(held.heldEnd).toBe(120);
+    expect(held.heldEnd).toEqual({ kind: "turn-end", at: 120 });
   });
 
   it("the ending lands when the LAST agent turn closes", () => {

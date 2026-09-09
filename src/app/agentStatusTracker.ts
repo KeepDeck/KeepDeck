@@ -109,15 +109,16 @@ export function createAgentStatusTracker(): AgentStatusTracker {
   }
 
   /**
-   * Fold ONE edge into a pane's lane state. Every edge lands here whoever
+   * Fold an ordered batch into a pane's lane state, publishing only once.
+   * Every edge lands here whoever
    * minted it — a plugin normalizer reading a hook envelope, or the host
    * seeing the user answer — so "what an edge does to a pane" keeps the pure
    * reducer as its single answer. An edge the fold absorbs comes back as the
    * SAME object and stops here, without a store write.
    */
-  function apply(paneId: string, edge: AgentStatusEvent): void {
+  function apply(paneId: string, edges: readonly AgentStatusEvent[]): void {
     const previous = statuses.get(paneId) ?? null;
-    const next = reduceStatus(previous, edge);
+    const next = edges.reduce(reduceStatus, previous);
     if (next === previous) return;
     const panes = new Map(statuses);
     if (next) panes.set(paneId, next);
@@ -139,15 +140,26 @@ export function createAgentStatusTracker(): AgentStatusTracker {
       if (!isRecord(payload) || typeof payload.agent !== "string") return;
       const normalize = normalizers.get(payload.agent);
       if (!normalize) return;
-      const edge = normalize(payload, at);
-      if (!edge) return;
+      // A tail drain is ordered and atomic: an old abort followed by the
+      // accepted next prompt must not publish a spurious stopped snapshot.
+      // The transport is generic; only the registered plugin reads records.
+      const payloads = payload.kind === "store.batch"
+        ? (Array.isArray(payload.records) ? payload.records : []).map((record) => ({
+            agent: payload.agent, kind: "store.record", record,
+          }))
+        : [payload];
+      const edges = payloads.map((item) => normalize(item, at))
+        .filter((edge): edge is AgentStatusEvent => edge !== null);
+      if (edges.length === 0) return;
       // Before the fold, and regardless of what the fold does with it: on
       // an ordinary pane a compaction moves no activity at all, so this is
       // the only place the event can still be seen.
-      if (edge.kind === "context-compacted") {
-        for (const listener of [...rebuilt]) listener(paneId);
+      for (const edge of edges) {
+        if (edge.kind === "context-compacted") {
+          for (const listener of [...rebuilt]) listener(paneId);
+        }
       }
-      apply(paneId, edge);
+      apply(paneId, edges);
     },
 
     answered(paneId, at = Date.now()) {
@@ -155,7 +167,7 @@ export function createAgentStatusTracker(): AgentStatusTracker {
       // that reads the same edge from an agent — asking it here in a second
       // spelling is how the two readings drift apart.
       if (!answerResolves(statuses.get(paneId)?.activity ?? null)) return;
-      apply(paneId, { kind: "resumed", at });
+      apply(paneId, [{ kind: "resumed", at }]);
     },
 
     clear(paneId) {

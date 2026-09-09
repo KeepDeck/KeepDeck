@@ -66,10 +66,11 @@ export interface PaneStatus {
   /** Agent turns open right now, by the CLI's own agent id. */
   readonly openAgentTurns: ReadonlySet<string>;
   /** When the main turn closed while an agent turn was still open, and so
-   * did not end. Replayed as the ending once the last one closes: without
+   * did not end. The outcome is preserved, including a main-only interrupt.
+   * Replayed as the ending once the last one closes: without
    * it the close of the final agent turn settles nothing and the pane keeps
    * reporting "working" with no edge left to finish it. */
-  readonly heldEnd: number | null;
+  readonly heldEnd: Extract<AgentStatusEvent, { kind: "turn-end" | "interrupted" }> | null;
 }
 
 const NO_TURNS: ReadonlySet<string> = new Set();
@@ -167,12 +168,25 @@ function endedTurnStands(
  *
  * `turn-start` deliberately does NOT release the brackets: a background agent
  * outlives the turn that spawned it, which is the whole reason this exists.
- * `interrupted` and `turn-failed` DO — see [`reduceOpenTurns`].
+ * Whole-loop `interrupted` and `turn-failed` DO — a main-only interruption
+ * leaves independent work alive. See [`reduceOpenTurns`].
  */
 export function reduceStatus(
   current: PaneStatus | null,
   event: AgentStatusEvent,
 ): PaneStatus | null {
+  if (event.kind === "turn-observed" && current !== null) {
+    const activity = current.activity;
+    const phaseAt = activity.state === "working" || activity.state === "waiting"
+      ? activity.since : activity.at;
+    const latest = Math.max(phaseAt, current.heldEnd?.at ?? -Infinity);
+    // Guard the WHOLE fold: an old observation must not release a held end.
+    // Equal millisecond stamps still have file order: an accepted prompt
+    // following that file's interruption starts the next execution.
+    const followsInterrupt = current.heldEnd?.kind === "interrupted" ||
+      (activity.state === "done" && activity.interrupted);
+    if (event.at < latest || (event.at === latest && !followsInterrupt)) return current;
+  }
   if (isAgentTurnEdge(event)) {
     const open = reduceOpenTurns(current?.openAgentTurns ?? NO_TURNS, event);
     if (current === null) {
@@ -197,7 +211,7 @@ export function reduceStatus(
     // the user can act on. Nothing else is coming to settle it.
     return {
       activity: reduceActivity(current.activity, {
-        kind: "turn-end",
+        ...current.heldEnd,
         at: event.at,
       }),
       openAgentTurns: open,
@@ -223,7 +237,8 @@ export function reduceStatus(
   if (
     current !== null &&
     isEnding(event) &&
-    endedTurnStands(current.activity, event.at)
+    (endedTurnStands(current.activity, event.at) ||
+      (current.heldEnd !== null && event.at < current.heldEnd.at))
   ) {
     return current;
   }
@@ -248,7 +263,9 @@ export function reduceStatus(
   }
 
   const open = reduceOpenTurns(current?.openAgentTurns ?? NO_TURNS, event);
-  const holds = event.kind === "turn-end" && open.size > 0;
+  const holds = open.size > 0 && (
+    event.kind === "turn-end" || (event.kind === "interrupted" && event.scope === "main")
+  );
   const settled: ActivityEdge = holds ? { kind: "parked", at: event.at } : event;
   const activity = reduceActivity(current?.activity ?? null, settled);
   const heldEnd = reduceHeldEnd(current?.heldEnd ?? null, event, holds);
@@ -270,6 +287,12 @@ function reduceOpenTurns(
   event: AgentStatusEvent,
 ): ReadonlySet<string> {
   switch (event.kind) {
+    case "turn-end": {
+      if (!event.liveAgentIds) return open;
+      const live = new Set(event.liveAgentIds);
+      const next = new Set([...open].filter((id) => live.has(id)));
+      return next.size === open.size ? open : next;
+    }
     case "agent-turn-start":
       if (open.has(event.id)) return open;
       return new Set(open).add(event.id);
@@ -280,18 +303,13 @@ function reduceOpenTurns(
       return next;
     }
     case "agent-turns-cleared":
-    // The turn died, or may have. Whatever was running under it is no longer
-    // evidence about THIS pane's next turn, and a bracket kept past the death
-    // of the thing that opened it can only strand the pane on "working" —
-    // there is no edge left that would ever close it. The two ending edges
-    // below close the turn regardless of background work (the user is needed
-    // NOW), so releasing the brackets with them changes nothing visible;
-    // `agent-turns-cleared` also arrives as that release ALONE, for a report
-    // its plugin declines to card as an ending. Either way this removes the
-    // only unrecoverable failure this set can produce.
-    case "interrupted":
+    // These end the whole loop or explicitly retire unaccountable brackets.
+    // A main-only interruption is different: independently running agents
+    // still close on their own lifecycle events (live-verified on Claude).
     case "turn-failed":
       return open.size === 0 ? open : NO_TURNS;
+    case "interrupted":
+      return event.scope === "main" || open.size === 0 ? open : NO_TURNS;
     default:
       return open;
   }
@@ -303,11 +321,11 @@ function reduceOpenTurns(
  * not un-close the main thread; dropped by anything that starts a new turn
  * or ends this one for real. */
 function reduceHeldEnd(
-  held: number | null,
+  held: PaneStatus["heldEnd"],
   event: ActivityEdge,
   holds: boolean,
-): number | null {
-  if (holds) return event.at;
+): PaneStatus["heldEnd"] {
+  if (holds && (event.kind === "turn-end" || event.kind === "interrupted")) return event;
   switch (event.kind) {
     case "waiting":
     case "resumed":
@@ -352,6 +370,7 @@ function reduceActivity(
   event: ActivityEdge,
 ): PaneActivity {
   switch (event.kind) {
+    case "turn-observed": // Source-time staleness was checked before bookkeeping.
     case "turn-start":
       // A new turn trumps whatever the old one left behind. NOT only the
       // user's own prompt: a CLI also injects a turn of its own accord —

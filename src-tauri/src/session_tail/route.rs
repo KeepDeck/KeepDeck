@@ -13,6 +13,31 @@ use crate::bridge::Report;
 /// classify every interrupt as plain usage.
 const EVENT_KEY: &str = "event";
 const CATCH_UP_KEY: &str = "catchUp";
+const BATCH: &str = "store.batch";
+
+/// Publish one root-file drain's status records atomically. The caller has
+/// already separated usage, subagent files and replays. No record is read
+/// for meaning here; the plugin still normalizes each one in file order.
+pub(super) fn batch_status(reports: Vec<Report>) -> Option<Report> {
+    let mut reports = reports.into_iter();
+    let mut first = reports.next()?;
+    let rest: Vec<_> = reports.collect();
+    if rest.is_empty() {
+        return Some(first);
+    }
+    let mut records = vec![first.payload[EVENT_KEY]["record"].take()];
+    records.extend(
+        rest.into_iter()
+            .map(|mut report| report.payload[EVENT_KEY]["record"].take()),
+    );
+    first.payload[EVENT_KEY] = json!({ "type": BATCH, "records": records, "lane": "status" });
+    // Each record keeps its own source timestamp. A batch has no single one.
+    if let Some(body) = first.payload.as_object_mut() {
+        body.remove("sourceAt");
+        body.remove("sourceMtimeMs");
+    }
+    Some(first)
+}
 
 /// Wrap one session-file event into the bridge's wire shape. `agent` and
 /// `catchUp` are HOST-owned transport keys on the payload: `catchUp` marks
@@ -69,7 +94,8 @@ pub(super) fn route(report: Report) -> Routed {
     // after deciding for itself what a transcript line meant. Both agents
     // that had such a line now read their own, so nothing mints it and the
     // branch is gone with them.
-    if report.payload[EVENT_KEY]["type"] != CARRIED_RECORD {
+    let is_batch = report.payload[EVENT_KEY]["type"] == BATCH;
+    if report.payload[EVENT_KEY]["type"] != CARRIED_RECORD && !is_batch {
         return Routed::Usage(report);
     }
     // The lane the dialect DECLARED. A record about the numbers rides the
@@ -84,11 +110,13 @@ pub(super) fn route(report: Report) -> Routed {
     if report.payload[CATCH_UP_KEY] == true {
         return Routed::Drop;
     }
-    let mut body = json!({
-        "agent": report.payload["agent"],
-        "kind": CARRIED_RECORD,
-        "record": report.payload[EVENT_KEY]["record"],
-    });
+    let mut body = if is_batch {
+        json!({ "agent": report.payload["agent"], "kind": BATCH,
+            "records": report.payload[EVENT_KEY]["records"] })
+    } else {
+        json!({ "agent": report.payload["agent"], "kind": CARRIED_RECORD,
+            "record": report.payload[EVENT_KEY]["record"] })
+    };
     for key in ["sourceAt", "sourceMtimeMs"] {
         if !report.payload[key].is_null() {
             body[key] = report.payload[key].clone();
@@ -173,5 +201,34 @@ mod tests {
             true,
         );
         assert_eq!(route(replay), Routed::Drop);
+    }
+
+    #[test]
+    fn a_drain_keeps_status_order_and_routing_atomic() {
+        let reports = ["abort", "accepted"]
+            .into_iter()
+            .map(|kind| {
+                wrap(
+                    "pane-1",
+                    "tok",
+                    "agent",
+                    event(json!({
+                        "type": CARRIED_RECORD, "lane": "status", "record": { "kind": kind },
+                    })),
+                    false,
+                )
+            })
+            .collect();
+        let report = batch_status(reports).unwrap();
+        let Routed::Status(status) = route(report) else {
+            panic!("expected status batch")
+        };
+        assert_eq!(status.pane_id, "pane-1");
+        assert_eq!(status.token, "tok");
+        assert_eq!(
+            status.payload,
+            json!({ "agent": "agent", "kind": BATCH,
+            "records": [{ "kind": "abort" }, { "kind": "accepted" }] })
+        );
     }
 }

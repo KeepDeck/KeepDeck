@@ -48,7 +48,7 @@ use crate::fswatch;
 
 use dialects::{last_of_each, sibling_paths, TailWatch, TailedEvent};
 use reader::{drain_file, TailCursor};
-use route::{route, wrap, Routed};
+use route::{batch_status, route, wrap, Routed};
 use totals::Folds;
 
 /// One followed session: where every source file is up to and how to
@@ -204,6 +204,7 @@ fn spawn_tailer(
                 let Ok(mut s) = state.lock() else { break };
                 let agent = s.agent.clone();
                 let (events, replay) = drain_all(&mut s);
+                let mut status = Vec::new();
                 for event in events {
                     // A subagent transcript's turn edges are the subagent's
                     // own story: pane-level status reads only ROOT markers.
@@ -219,7 +220,16 @@ fn spawn_tailer(
                     // OWN file, so a subagent's rotation can never cost a
                     // fresh root Esc its delivery.
                     let catch_up = if event.root { replay.root } else { replay.any };
-                    deliver(wrap(&s.pane_id, &s.token, &agent, event, catch_up));
+                    let is_status = event.payload["lane"] == "status";
+                    let report = wrap(&s.pane_id, &s.token, &agent, event, catch_up);
+                    if is_status && !catch_up {
+                        status.push(report);
+                    } else {
+                        deliver(report);
+                    }
+                }
+                if let Some(report) = batch_status(status) {
+                    deliver(report);
                 }
             }
         })
@@ -615,7 +625,11 @@ mod tests {
         let subagents = dir.join("session-solo/subagents");
         fs::create_dir_all(&subagents).unwrap();
         let sub = subagents.join("agent-a.jsonl");
-        fs::write(&sub, format!("{CLAUDE_ASSISTANT_LINE}\n{CLAUDE_ASSISTANT_LINE}\n")).unwrap();
+        fs::write(
+            &sub,
+            format!("{CLAUDE_ASSISTANT_LINE}\n{CLAUDE_ASSISTANT_LINE}\n"),
+        )
+        .unwrap();
 
         let mut state = tail_with_siblings(path.clone(), subagents.clone());
         drain_all(&mut state);
@@ -628,8 +642,6 @@ mod tests {
         assert!(events.iter().all(|event| !event.root));
         fs::remove_dir_all(&dir).ok();
     }
-
-
 
     #[test]
     fn drain_rotation_resets_the_running_total() {
@@ -778,7 +790,6 @@ mod tests {
         fs::remove_dir_all(&dir).ok();
     }
 
-
     #[test]
     fn a_cold_read_answers_with_the_same_collapse_a_live_arming_does() {
         // The boot catch-up. What comes back must be indistinguishable from
@@ -790,8 +801,7 @@ mod tests {
         fs::write(&path, format!("{USAGE_RECORD_LINE}\n{USAGE_RECORD_LINE}\n")).unwrap();
         set_mtime(&path, 2_000);
 
-        let found =
-            usage_read_store_cold(path.to_string_lossy().into(), watches).expect("read");
+        let found = usage_read_store_cold(path.to_string_lossy().into(), watches).expect("read");
         assert_eq!(found.mtime_ms, 2_000_000);
         assert_eq!(found.records.len(), 1, "the last record of the one watch");
         let record = &found.records[0].event["record"];
@@ -825,9 +835,8 @@ mod tests {
     #[test]
     fn reports_carry_the_agent_tag_and_the_catch_up_mark() {
         let watches = any_typed_record();
-        let carry = |line: &[u8]| {
-            watched_event(line, &watches, &mut Folds::default()).expect("carried")
-        };
+        let carry =
+            |line: &[u8]| watched_event(line, &watches, &mut Folds::default()).expect("carried");
 
         let mut state = tail(PathBuf::from("/x/rollout.jsonl"));
         let mut event = carry(TURN_CONTEXT_LINE.as_bytes());
@@ -910,6 +919,74 @@ mod tests {
             "a prompt must not ride out of the store"
         );
 
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn tailer_batches_only_live_root_status_in_file_order() {
+        let dir = temp_dir();
+        let path = dir.join("session.jsonl");
+        let siblings = dir.join("subagents");
+        fs::create_dir_all(&siblings).unwrap();
+        let mut state = tail_with_siblings(path.clone(), siblings.clone());
+        state.watches = serde_json::from_value(serde_json::json!([
+            { "match": [{ "key": "type", "equals": "status" }],
+              "keep": ["type", "edge"], "lane": "status" },
+            { "match": [{ "key": "type", "equals": "usage" }],
+              "keep": ["type"], "lane": "usage" }
+        ]))
+        .unwrap();
+        // Hold the mutex while writing: both records must be visible in ONE
+        // poll, without relying on scheduling or a close notification.
+        let state = Arc::new(Mutex::new(state));
+        let guard = state.lock().unwrap();
+        let (tx, rx) = mpsc::channel();
+        let watcher = spawn_tailer(state.clone(), Duration::from_millis(20), move |r| {
+            let _ = tx.send(route(r));
+        })
+        .unwrap();
+        fs::write(
+            &path,
+            concat!(
+                "{\"type\":\"status\",\"edge\":\"abort\",\"private\":\"SECRET\"}\n",
+                "{\"type\":\"usage\"}\n",
+                "{\"type\":\"status\",\"edge\":\"accepted\"}\n"
+            ),
+        )
+        .unwrap();
+        fs::write(
+            siblings.join("agent.jsonl"),
+            "{\"type\":\"status\",\"edge\":\"child-abort\"}\n",
+        )
+        .unwrap();
+        drop(guard);
+        assert!(matches!(
+            rx.recv_timeout(Duration::from_secs(10)).unwrap(),
+            Routed::Usage(_)
+        ));
+        let Routed::Status(report) = rx.recv_timeout(Duration::from_secs(10)).unwrap() else {
+            panic!("expected atomic status delivery")
+        };
+        assert_eq!(report.payload["kind"], "store.batch");
+        assert_eq!(
+            report.payload["records"],
+            serde_json::json!([
+                { "type": "status", "edge": "abort" },
+                { "type": "status", "edge": "accepted" }
+            ])
+        );
+        assert_eq!(report.pane_id, "pane-1");
+        assert_eq!(report.token, "tok");
+        // Rotation replays history but must never publish that as live status.
+        let guard = state.lock().unwrap();
+        fs::write(&path, "{\"type\":\"status\",\"edge\":\"old\"}\n").unwrap();
+        drop(guard);
+        assert_eq!(
+            rx.recv_timeout(Duration::from_secs(10)).unwrap(),
+            Routed::Drop
+        );
+        assert!(rx.try_recv().is_err(), "no off-root status may escape");
+        drop(watcher);
         fs::remove_dir_all(&dir).ok();
     }
 

@@ -206,7 +206,7 @@ export const normalizeClaudeStatus: StatusNormalizer = (
   if (!isJsonRecord(payload)) return null;
   if (payload.kind === "store.record") {
     // A record the host carried because THIS plugin's watch named it. The
-    // host did not read it: it compared two keys and copied three fields.
+    // host only matched and projected the declared metadata fields.
     // What it means is decided here, by the dialect that wrote the watch —
     // which is the whole of what moved.
     //
@@ -226,7 +226,13 @@ export const normalizeClaudeStatus: StatusNormalizer = (
       // re-opens on its own and only the LAST `Stop` (empty list) ends it.
       return outlivesTurn(event)
         ? { kind: "parked", at }
-        : { kind: "turn-end", at };
+        : {
+            kind: "turn-end", at,
+            // An empty authoritative task list retires orphaned brackets
+            // (e.g. a cancelled foreground subagent that sent no stop).
+            ...(Array.isArray(event.background_tasks) && event.background_tasks.length === 0
+              ? { liveAgentIds: [] } : {}),
+          };
     case "SubagentStart":
       // One agent loop serves both kinds of side work: a background subagent
       // and a teammate run through the same entry, which fires this on the
