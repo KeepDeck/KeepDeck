@@ -188,9 +188,10 @@ export const renderCodexMail: MailReplyRenderer = (input) => {
  *
  * codex's surface is the narrowest of the four: `PermissionRequest` is its
  * only waiting edge, and it has NO failure event — an API-error turn is
- * invisible to hooks (a known gap; only the rollout could tell). A user
+ * invisible to hooks. The rollout's task_complete.error supplies that
+ * missing ending (verified on 0.153.2). A user
  * interrupt pushes no hook either — that edge arrives from the host's
- * rollout tailer as `kind: "session.interrupt"` (marker = a record of TYPE
+ * rollout tailer as `kind: "store.record"` (marker = a record of TYPE
  * `turn_aborted`, so assistant text can't trip it), stamped with the
  * marker's own time. EVERY abort reason maps to `interrupted`, not just
  * the user's Esc: an aborted turn did not complete, and `turn-end` would
