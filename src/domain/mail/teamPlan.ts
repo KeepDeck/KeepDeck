@@ -117,12 +117,20 @@ export function teamBriefing(
   // keeps the graded line. A role the catalog has LOST keeps the roster's
   // answer: its standing is unreadable, and a flat team whose custom peer
   // role was deleted must not start hearing about a lead it never had.
-  // The briefing must not advertise what the rules refuse, so a flat
-  // member is not offered the task kind either.
   const flat = mine
     ? mine.role.standing === "peer"
     : !everyRole.some(isLeadAddress);
-  const kinds = SENDABLE_KINDS.filter((kind) => !flat || kind !== "task");
+  // The briefing must not advertise what the rules refuse, so the task kind
+  // goes to exactly whoever may SEND one — [`isLeadAddress`], the predicate
+  // the send gate itself runs. Asking `flat` here kept that promise for a
+  // FLAT team only: a `reports` member is not flat, so it was offered a
+  // task its own send answers with `not-yours-to-assign`, and an agent that
+  // takes the briefing at its word learns from the refusal that mail
+  // rejects it. A role the catalog has LOST is refused by both. The
+  // briefing may say less than the rules allow; it may never say more.
+  const kinds = SENDABLE_KINDS.filter(
+    (kind) => kind !== "task" || isLeadAddress(role),
+  );
   return [
     // "KeepDeck team" every time, never a bare "team". Asked what its team
     // was, a briefed agent answered about its OWN mechanisms instead —
