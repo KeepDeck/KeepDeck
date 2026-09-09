@@ -201,7 +201,7 @@ export interface MailManager {
    * a message held for a permission prompt stays held: the prompt is about
    * the terminal, and the hook is not going to make it safe.
    */
-  takeAtTurnEnd(paneId: string): Mail[];
+  takeAtTurnEnd(paneId: string, activity?: PaneActivity | null): Mail[];
   /** Put back messages taken at a turn boundary that could not be rendered
    * after all. They go to the FRONT, because they were the oldest waiting
    * and taking them must not cost them their place; their inbox entry is
@@ -773,7 +773,7 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
    * has usually taken some journal entries already, and the budget covers
    * the whole answer, not the queue's share of it.
    */
-  function drainQueue(paneId: string, collected: Mail[], door: MailDoor): void {
+  function drainQueue(paneId: string, collected: Mail[], door: MailDoor, activity?: PaneActivity | null): void {
     const queue = queues.get(paneId);
     if (!queue) return;
     let carried = collected.reduce((sum, mail) => sum + mail.body.length, 0);
@@ -799,7 +799,7 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
       // the DOOR's question, and it is asked rather than answered here:
       // copied into this file once, it became a reason to hold that the
       // terminal honoured and the briefing path silently ignored.
-      if (decideHandover(deps.activityOf(paneId), door) === "hold") {
+      if (decideHandover((activity === undefined ? deps.activityOf(paneId) : activity) ?? undefined, door) === "hold") {
         // Said out loud, because the alternative reading of a break here is
         // "the queue was empty", and those are opposite facts about a pane.
         log.debug(
@@ -858,9 +858,9 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
       drain();
     },
 
-    takeAtTurnEnd(paneId) {
+    takeAtTurnEnd(paneId, activity) {
       const taken: Mail[] = [];
-      drainQueue(paneId, taken, "turn-boundary");
+      drainQueue(paneId, taken, "turn-boundary", activity);
       // Whatever is left (a held prompt, a fresh notice) still needs its
       // timer, and the queue just moved under it.
       drain();

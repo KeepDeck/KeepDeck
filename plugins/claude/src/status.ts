@@ -113,6 +113,21 @@ function outlivesTurn(event: Record<string, unknown>): boolean {
   return tasks.some((task) => isJsonRecord(task) && wakes(task));
 }
 
+/** Stop feedback continues the SAME loop without a UserPromptSubmit hook. */
+function continuesFromReply(reply?: string): boolean {
+  if (!reply) return false;
+  try {
+    const output: unknown = JSON.parse(reply);
+    if (!isJsonRecord(output) || output.continue === false) return false;
+    if (output.decision === "block" && typeof output.reason === "string" && output.reason.trim()) return true;
+    const specific = output.hookSpecificOutput;
+    return isJsonRecord(specific) && specific.hookEventName === "Stop" &&
+      typeof specific.additionalContext === "string" && specific.additionalContext.trim() !== "";
+  } catch {
+    return false;
+  }
+}
+
 /** The two 400s claude raises when the request no longer FITS — the wording
  * of its own detector, verbatim (decompiled from 2.1.222, where the same
  * pair triggers the reactive compaction). */
@@ -202,6 +217,7 @@ function contextOverflowed(event: Record<string, unknown>): boolean {
 export const normalizeClaudeStatus: StatusNormalizer = (
   payload,
   at,
+  context,
 ): AgentStatusEvent | null => {
   if (!isJsonRecord(payload)) return null;
   if (payload.kind === "store.record") {
@@ -221,6 +237,7 @@ export const normalizeClaudeStatus: StatusNormalizer = (
     case "UserPromptSubmit":
       return { kind: "turn-start", at };
     case "Stop":
+      if (continuesFromReply(context?.reply)) return { kind: "turn-observed", at };
       // Background work in flight means the turn is PARKED, not over: the
       // wake it triggers arrives as a fresh `UserPromptSubmit`, so the turn
       // re-opens on its own and only the LAST `Stop` (empty list) ends it.

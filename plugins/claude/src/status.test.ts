@@ -5,6 +5,18 @@ import { normalizeClaudeStatus } from "./status";
 const wrap = (event: Record<string, unknown>) => ({ agent: "claude", event });
 
 describe("normalizeClaudeStatus", () => {
+  it("only a valid delivered Stop continuation changes the ending", () => {
+    const stop = wrap({ hook_event_name: "Stop" });
+    for (const reply of ["", "{", "null", "[]", "{}",
+      '{"decision":"block","reason":""}',
+      '{"continue":false,"decision":"block","reason":"continue"}',
+      '{"hookSpecificOutput":{"hookEventName":"PostToolBatch","additionalContext":"continue"}}',
+    ]) {
+      expect(normalizeClaudeStatus(stop, 200, { reply })).toEqual({ kind: "turn-end", at: 200 });
+    }
+    expect(normalizeClaudeStatus(stop, 200, { reply: '{"decision":"block","reason":"continue"}' }))
+      .toEqual({ kind: "turn-observed", at: 200 });
+  });
   it("maps the turn boundaries", () => {
     expect(
       normalizeClaudeStatus(wrap({ hook_event_name: "UserPromptSubmit" }), 100),

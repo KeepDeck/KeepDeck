@@ -8,6 +8,7 @@ import { paneAgentType } from "../domain/deck";
 import { isNavigationKey } from "../domain/terminal";
 import { paneMembership, paneMembershipKey } from "./paneMembership";
 import { createVerifiedPaneReports } from "./verifiedPaneReports";
+import type { HookReplies } from "./mail/hookReply";
 
 export interface AgentStatusChannel {
   dispose(): void;
@@ -63,11 +64,11 @@ export function createAgentStatusChannel(
    * one while the other was still deciding to keep it working. Absent in
    * tests and while the feature is off; a payload that asks nothing never
    * reaches it. */
-  answerAsk: (paneId: string, payload: unknown) => void = () => {},
+  answerAsk: HookReplies["answer"] = () => {},
   /** Tell the mail side an answer is coming, BEFORE the fold that wakes its
    * subscribers — otherwise it types a nudge at a pane it is about to serve
    * for free. Returns the disarm; a payload that asks nothing arms nothing.
-   * See [`MailService.expectAsk`] for why the fold cannot simply move. */
+   * Remains armed until the reply and resolved activity have both settled. */
   expectAsk: (paneId: string, payload: unknown) => () => void = () => () => {},
 ): AgentStatusChannel {
   let disposed = false;
@@ -114,22 +115,24 @@ export function createAgentStatusChannel(
     subscribe: onAgentStatus,
     requireLiveProcess: true,
     apply: (paneId, payload) => {
-      // Fold FIRST: the answer may depend on what this very event just said
-      // about the pane (a turn that has ended is a turn that can be told
-      // to keep going), and reading a status one edge stale is exactly the
-      // divergence one round trip exists to prevent.
-      //
-      // The fold's cost is that it wakes mail's own subscription in the same
-      // breath, one call before the answer empties the queue — so the mail
-      // side is told an answer is coming and stops typing at this pane until
-      // it has. Marking it here rather than reordering the two: swapping them
-      // would answer against a stale status, which is the divergence above.
+      // Handover reads a fresh preview, but observers see only the resolved
+      // state: a delivered continuation is not a completed turn.
+      const pending = tracker.prepare(paneId, payload);
       const answered = expectAsk(paneId, payload);
+      const finish = (reply?: string) => {
+        try {
+          const kind = sessions.state(paneId).kind;
+          if (!disposed && (kind === "live" || kind === "starting")) pending.finish(reply);
+        } finally {
+          answered();
+        }
+      };
       try {
-        tracker.report(paneId, payload);
-        answerAsk(paneId, payload);
-      } finally {
-        answered();
+        const reply = answerAsk(paneId, payload, pending.activity);
+        if (reply) void reply.then(finish, () => finish());
+        else finish();
+      } catch {
+        finish();
       }
     },
   });

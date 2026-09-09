@@ -7,6 +7,17 @@ import {
 
 const wrap = (event: Record<string, unknown>) => ({ agent: "codex", event });
 
+it("does not treat malformed output or non-blocking context as a Stop continuation", () => {
+  for (const reply of ["", "{", "null", "[]", "{}",
+    '{"decision":"block","reason":""}', '{"should_block":true}',
+    '{"continue":false,"decision":"block","reason":"continue"}',
+    '{"hookSpecificOutput":{"hookEventName":"Stop","additionalContext":"context"}}',
+  ]) {
+    expect(normalizeCodexStatus(wrap({ hook_event_name: "Stop" }), 200, { reply }))
+      .toEqual({ kind: "turn-end", at: 200 });
+  }
+});
+
 describe("renderCodexMail", () => {
   const messages = [
     { id: "mail-3", kind: "task" as const, body: "take the parser", from: "lead" },

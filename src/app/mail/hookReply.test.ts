@@ -262,35 +262,29 @@ describe("answerMailAsk", () => {
     expect(lines[0]).toContain("an unreadable event");
   });
 
-  it("puts the messages back when the answer reached nobody", () => {
+  it("puts the messages back when the answer reached nobody", async () => {
     // The messages left the queue to travel in that answer. If it reaches
     // nobody — the hook timed out, the process died — they are gone and
     // nobody is told. The transport used to guess at this by waiting out a
     // window; it now says so, and this is what the deck does about it.
     const h = setup({ lost: true });
     h.manager.send({ from: A, toPaneId: "pane-2", kind: "task", body: "take the parser" });
-    h.channel.answer("pane-2", asking());
+    expect(await h.channel.answer("pane-2", asking())).toBeUndefined();
     expect(h.replies).toHaveLength(1);
-
-    return Promise.resolve().then(() => {
-      const back = h.manager.takeAtTurnEnd("pane-2");
-      expect(back.map((mail) => mail.body)).toEqual(["take the parser"]);
-    });
+    const back = h.manager.takeAtTurnEnd("pane-2");
+    expect(back.map((mail) => mail.body)).toEqual(["take the parser"]);
   });
 
-  it("keeps the messages taken when the answer landed", () => {
+  it("keeps the messages taken when the answer landed", async () => {
     // The other half, and the one that must NOT put anything back: a
     // delivered answer means the hook has them.
     const h = setup();
     h.manager.send({ from: A, toPaneId: "pane-2", kind: "task", body: "take the parser" });
-    h.channel.answer("pane-2", asking());
-
-    return Promise.resolve().then(() => {
-      expect(h.manager.takeAtTurnEnd("pane-2")).toEqual([]);
-    });
+    expect(await h.channel.answer("pane-2", asking())).toBe(h.replies[0].body);
+    expect(h.manager.takeAtTurnEnd("pane-2")).toEqual([]);
   });
 
-  it("puts messages back into the queue they came from, not into a later one", () => {
+  it("puts messages back into the queue they came from, not into a later one", async () => {
     // The answer resolves a moment after the hand-over, and the feature can
     // be switched off in between — which destroys the queues. Restoring into
     // whatever manager is live NOW would put messages into a fresh queue the
@@ -309,11 +303,11 @@ describe("answerMailAsk", () => {
     const channel = createHookReplies({ ...h.deps, mail: () => live });
 
     h.manager.send({ from: A, toPaneId: "pane-2", kind: "task", body: "take the parser" });
-    channel.answer("pane-2", asking());
+    const pending = channel.answer("pane-2", asking());
     live = replaced; // the toggle went off and on again
 
-    return Promise.resolve().then(() => {
-      expect(replaced.takeAtTurnEnd("pane-2")).toEqual([]);
-    });
+    await pending;
+    expect(replaced.takeAtTurnEnd("pane-2")).toEqual([]);
+    expect(h.manager.takeAtTurnEnd("pane-2").map((mail) => mail.body)).toEqual(["take the parser"]);
   });
 });

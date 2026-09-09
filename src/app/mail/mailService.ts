@@ -105,20 +105,16 @@ export interface MailService {
   current(): MailManager | null;
   /** Answer one asking payload from a pane's reporter. Handed to the status
    * lane, which is where the question arrives. */
-  answerAsk(paneId: string, payload: unknown): void;
+  answerAsk: HookReplies["answer"];
   /**
    * Declare that this envelope is about to be ANSWERED, before anything else
    * reacts to it. Returns the disarm; a payload that asks nothing arms
    * nothing and disarms nothing.
    *
-   * It exists because of an order that is right for a different reason. The
-   * status lane folds an envelope BEFORE answering it, so the answer reads a
-   * fresh status — and the fold, synchronously, wakes everything subscribed
-   * to activity, this manager included. A pane whose turn just ended looks
-   * idle with mail queued, so the pass types a nudge at it, and only then
-   * does the same envelope hand that mail over through the hook for free.
-   * Observed on 42 of 188 nudged messages: a line left in a composer for a
-   * message that was already leaving by another door.
+   * Holds the terminal door while the status lane previews the event, answers
+   * it and publishes the resolved activity. A concurrent queue pass must not
+   * type a nudge for mail already travelling through the hook. A failed send
+   * restores the mail before this guard is released.
    *
    * Between these two calls the terminal leg of `wake` refuses. Nothing else
    * changes: the bridge doorbell is untouched, the queue is untouched, and a
@@ -131,10 +127,8 @@ export interface MailService {
 
 export function createMailService(deps: MailServiceDeps): MailService {
   let disposed = false;
-  /** Panes whose asking envelope is being answered RIGHT NOW — see
-   * [`MailService.expectAsk`]. Never more than one at a time in practice:
-   * the transport holds a slot per pane and correlation. */
-  const answering = new Set<string>();
+  /** Several hook correlations can be in flight for one pane. */
+  const answering = new Map<string, number>();
 
   /** What THIS pane's agent contributes about mail. */
   const statusOfPane = (paneId: string): AgentStatus | undefined => {
@@ -275,9 +269,17 @@ export function createMailService(deps: MailServiceDeps): MailService {
     answerAsk: hookReplies.answer,
     expectAsk(paneId, payload) {
       if (!correlationOf(payload)) return () => {};
-      answering.add(paneId);
+      answering.set(paneId, (answering.get(paneId) ?? 0) + 1);
+      let finished = false;
       return () => {
-        if (!answering.delete(paneId)) return;
+        if (finished) return;
+        finished = true;
+        const pending = (answering.get(paneId) ?? 1) - 1;
+        if (pending > 0) {
+          answering.set(paneId, pending);
+          return;
+        }
+        answering.delete(paneId);
         // A pass that ran while we refused reached no conclusion, and a
         // refusal arms no timer — so the walk has to be re-run by hand. The
         // usual case finds an empty queue and does nothing; the case that

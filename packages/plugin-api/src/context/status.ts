@@ -113,17 +113,18 @@ export type AgentStatusEvent =
 /** A per-agent normalizer: raw bridge status payload → one edge, or null
  * when the payload is not a tracked event. Pure; time is injected.
  *
- * HOST-owned payload keys, not agent schema: `agent` (the dispatch key);
- * and on the transcript tailer's recovered markers `kind`
- * ("session.interrupt"), `reason` (the CLI's abort reason — only
- * "interrupted" is the user's hand), `sourceAt`/`sourceMtimeMs` (the
- * marker's own time — see [`statusSourceInstant`]). A hook reporter's
- * payload instead rides verbatim under `event`. An agent whose interrupts
- * the tailer recovers (claude, codex) must map the marker; the rest never
- * receive one. */
+ * HOST-owned payload keys: `agent` dispatches, `kind: "store.record"`
+ * carries projected transcript metadata under `record`. A hook reporter's
+ * payload instead rides verbatim under `event`.
+ *
+ * `context.reply` is the output successfully delivered to this hook, if any.
+ * Only the plugin knows whether that output continues the turn. The host may
+ * call twice: once to preview the event for mail handover, then to settle it
+ * with the delivered reply. Neither call may mutate state. */
 export type StatusNormalizer = (
   payload: unknown,
   at: number,
+  context?: { readonly reply?: string },
 ) => AgentStatusEvent | null;
 
 /** The status half of an agent contribution.

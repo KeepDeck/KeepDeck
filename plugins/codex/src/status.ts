@@ -221,9 +221,22 @@ export const renderCodexMail: MailReplyRenderer = (input) => {
  * `PostToolUse` case below therefore remains the backstop for an answer
  * given some other way, not the primary resolution.
  */
+function continuesFromReply(reply?: string): boolean {
+  if (!reply) return false;
+  try {
+    const output: unknown = JSON.parse(reply);
+    if (!isJsonRecord(output) || output.continue === false) return false;
+    return (output.decision === "block" && typeof output.reason === "string" && output.reason.trim() !== "") ||
+      (output.should_block === true && typeof output.block_reason === "string" && output.block_reason.trim() !== "");
+  } catch {
+    return false;
+  }
+}
+
 export const normalizeCodexStatus: StatusNormalizer = (
   payload,
   at,
+  context,
 ): AgentStatusEvent | null => {
   if (!isJsonRecord(payload)) return null;
   if (payload.kind === "store.record") {
@@ -237,6 +250,7 @@ export const normalizeCodexStatus: StatusNormalizer = (
     case "UserPromptSubmit":
       return { kind: "turn-start", at };
     case "Stop":
+      if (continuesFromReply(context?.reply)) return { kind: "turn-observed", at };
       return { kind: "turn-end", at };
     case "PermissionRequest":
       return { kind: "waiting", at, reason: "permission" };
