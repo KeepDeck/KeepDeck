@@ -1,11 +1,11 @@
 import {
   frameTeammateMail,
   isJsonRecord,
-  turnFailedEvent,
   type AgentStatusEvent,
   type MailReplyRenderer,
   type StatusNormalizer,
 } from "@keepdeck/plugin-api";
+import { kimiRecords } from "./tail";
 
 /**
  * Messages waiting for this pane, in the shape kimi's hooks accept.
@@ -61,33 +61,32 @@ export const renderKimiMail: MailReplyRenderer = ({ event, messages, waiting }) 
  * `event`; base fields per kimi's hooks doc: `{hook_event_name, session_id,
  * cwd}`, snake_case.
  *
- * kimi's surface is the most complete of the four:
- * - a DEDICATED `Interrupt` event ("Stop does not fire on interrupts, so
- *   this event fires instead") — no transcript recovery needed;
- * - `PermissionResult` — the approval-resolution edge claude/codex lack;
- * - `StopFailure` with the error class IN the payload. Binary-verified:
- *   kimi's `toHookInputData` snake-cases EVERY key in both engine
- *   generations, so `error_type`/`error_message` are the only spellings
- *   that reach a hook.
+ * Terminal hooks have no agent identity in 0.40.1 and fire on child agents
+ * too. They are mail boundaries, not pane endings. The main wire supplies
+ * actual completion/failure/cancellation, including after Stop continuation.
  */
 export const normalizeKimiStatus: StatusNormalizer = (
   payload,
   at,
 ): AgentStatusEvent | null => {
-  if (!isJsonRecord(payload) || !isJsonRecord(payload.event)) return null;
+  if (!isJsonRecord(payload)) return null;
+  if (payload.kind === "store.record") {
+    return isJsonRecord(payload.record) ? kimiRecords.read(payload.record) : null;
+  }
+  if (!isJsonRecord(payload.event)) return null;
   const event = payload.event;
   switch (event.hook_event_name) {
     case "UserPromptSubmit":
       return { kind: "turn-start", at };
     case "Stop":
-      return { kind: "turn-end", at };
     case "Interrupt":
-      return { kind: "interrupted", at };
     case "StopFailure":
-      return turnFailedEvent(at, event.error_type, event.error_message);
+      return null;
     case "PermissionRequest":
+      if (event.agent_id !== "main") return null;
       return { kind: "waiting", at, reason: "permission" };
     case "PermissionResult":
+      if (event.agent_id !== "main") return null;
       return { kind: "resumed", at };
     default:
       return null;

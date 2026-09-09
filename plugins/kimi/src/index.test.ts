@@ -228,5 +228,10 @@ describe("Kimi CLI plugin", () => {
     // instead — with every renderer test still green.
     const { agent } = await activate();
     expect(agent?.status?.renderMail).toBe(renderKimiMail);
+    expect(agent?.status?.tail?.watches).toEqual(expect.arrayContaining([
+      expect.objectContaining({ lane: "status", match: [
+        { key: "type", equals: "turn.ended" }, { key: "agentId", equals: "main" },
+      ] }),
+    ]));
   });
 });

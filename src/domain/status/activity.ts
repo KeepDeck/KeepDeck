@@ -181,11 +181,13 @@ export function reduceStatus(
       ? activity.since : activity.at;
     const latest = Math.max(phaseAt, current.heldEnd?.at ?? -Infinity);
     // Guard the WHOLE fold: an old observation must not release a held end.
-    // Equal millisecond stamps still have file order: an accepted prompt
-    // following that file's interruption starts the next execution.
-    const followsInterrupt = current.heldEnd?.kind === "interrupted" ||
-      (activity.state === "done" && activity.interrupted);
-    if (event.at < latest || (event.at === latest && !followsInterrupt)) return current;
+    // Equal millisecond stamps still have file order: a new execution can
+    // follow ANY ending in that millisecond, including background work
+    // waking its parent after a normal completion. A live phase still wins
+    // ties, so a delayed start cannot erase a newer wait.
+    const followsEnding = current.heldEnd !== null ||
+      activity.state === "done" || activity.state === "failed";
+    if (event.at < latest || (event.at === latest && !followsEnding)) return current;
   }
   if (isAgentTurnEdge(event)) {
     const open = reduceOpenTurns(current?.openAgentTurns ?? NO_TURNS, event);
