@@ -119,9 +119,8 @@ describe("codexTail", () => {
   });
 
   it("claims to know nothing it did not ask for", () => {
-    // Every carried record IS an abort, because the watch saw to it. One
-    // that arrives and is not is a rollout whose shape moved, and the count
-    // of those is the only warning anyone gets.
-    expect(codexRecords.ignores()).toBe(false);
+    expect(codexRecords.ignores({ type: "unknown" })).toBe(false);
+    expect(codexRecords.ignores({ type: "turn_context" })).toBe(true);
+    expect(codexRecords.ignores({ type: "response_item" })).toBe(true);
   });
 });

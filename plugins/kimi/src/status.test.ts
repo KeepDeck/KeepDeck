@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { normalizeKimiStatus, renderKimiMail } from "./status";
+import { normalizeKimiStatus as normalize, renderKimiMail } from "./status";
+
+const normalizeKimiStatus = (...args: Parameters<typeof normalize>) => {
+  const result = normalize(...args);
+  if (result?.kind !== "status-reduction") return result;
+  expect(result.events.length).toBeLessThanOrEqual(1);
+  return result.events[0] ?? null;
+};
 
 const wrap = (event: Record<string, unknown>) => ({ agent: "kimi", event });
 
@@ -56,7 +63,7 @@ describe("normalizeKimiStatus", () => {
     ).toEqual({ kind: "waiting", at: 300, reason: "permission" });
     expect(
       normalizeKimiStatus(wrap({ hook_event_name: "PermissionResult", agent_id: "main" }), 400),
-    ).toEqual({ kind: "resumed", at: 400 });
+    ).toEqual({ kind: "resumed", at: 400, reason: "permission" });
   });
 
   it.each(["Stop", "Interrupt", "StopFailure"])("does not attribute an ambiguous %s to the main agent", (hook_event_name) => {

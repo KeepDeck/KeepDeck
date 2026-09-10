@@ -1,11 +1,14 @@
 import {
   frameTeammateMail,
   isJsonRecord,
+  reduceQuestionStatus,
   type AgentStatusEvent,
   type MailReplyRenderer,
   type StatusNormalizer,
+  type QuestionState,
 } from "@keepdeck/plugin-api";
 import { kimiRecords } from "./tail";
+import { kimiQuestionCall } from "./questions";
 
 /**
  * Messages waiting for this pane, in the shape kimi's hooks accept.
@@ -65,9 +68,9 @@ export const renderKimiMail: MailReplyRenderer = ({ event, messages, waiting }) 
  * too. They are mail boundaries, not pane endings. The main wire supplies
  * actual completion/failure/cancellation, including after Stop continuation.
  */
-export const normalizeKimiStatus: StatusNormalizer = (
-  payload,
-  at,
+const readKimiStatus = (
+  payload: unknown,
+  at: number,
 ): AgentStatusEvent | null => {
   if (!isJsonRecord(payload)) return null;
   if (payload.kind === "store.record") {
@@ -87,8 +90,16 @@ export const normalizeKimiStatus: StatusNormalizer = (
       return { kind: "waiting", at, reason: "permission" };
     case "PermissionResult":
       if (event.agent_id !== "main") return null;
-      return { kind: "resumed", at };
+      return { kind: "resumed", at, reason: "permission" };
     default:
       return null;
   }
+};
+
+export const normalizeKimiStatus: StatusNormalizer = (payload, at, context) => {
+  const record = isJsonRecord(payload) && payload.kind === "store.record" && isJsonRecord(payload.record)
+    ? payload.record : null;
+  const result = reduceQuestionStatus(context?.state as QuestionState | undefined,
+    readKimiStatus(payload, at), record ? kimiQuestionCall(record) : undefined);
+  return { kind: "status-reduction", ...result };
 };

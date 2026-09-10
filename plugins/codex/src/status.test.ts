@@ -1,11 +1,19 @@
 import { describe, expect, it } from "vitest";
 import {
   ASKS_FOR_MAIL,
-  normalizeCodexStatus,
+  normalizeCodexStatus as normalize,
   renderCodexMail,
 } from "./status";
 
 const wrap = (event: Record<string, unknown>) => ({ agent: "codex", event });
+// These single-fact cases assert edges; question sequences below the plugin
+// boundary are exercised with committed decoder state in questionWaits.test.ts.
+const normalizeCodexStatus = (...args: Parameters<typeof normalize>) => {
+  const result = normalize(...args);
+  if (result?.kind !== "status-reduction") return result;
+  expect(result.events.length).toBeLessThanOrEqual(1);
+  return result.events[0] ?? null;
+};
 
 it("does not treat malformed output or non-blocking context as a Stop continuation", () => {
   for (const reply of ["", "{", "null", "[]", "{}",
@@ -112,7 +120,7 @@ describe("normalizeCodexStatus", () => {
     // the first post-approval hook codex offers.
     expect(
       normalizeCodexStatus(wrap({ hook_event_name: "PostToolUse" }), 250),
-    ).toEqual({ kind: "resumed", at: 250 });
+    ).toEqual({ kind: "resumed", at: 250, reason: "permission" });
     expect(
       normalizeCodexStatus(wrap({ hook_event_name: "PermissionRequest" }), 300),
     ).toEqual({ kind: "waiting", at: 300, reason: "permission" });

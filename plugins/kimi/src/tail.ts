@@ -8,6 +8,7 @@ import {
   type SessionTailDialect,
   type TailWatch,
 } from "@keepdeck/plugin-api";
+import { kimiQuestionWatches } from "./questions";
 
 type WireRecord = Readonly<Record<string, unknown>>;
 
@@ -23,6 +24,7 @@ const watches: readonly TailWatch[] = [
     match: [{ key: "type", equals: type }, { key: "agentId", equals: "main" }],
     keep: ["type", "agentId", "time", "info.taskId", "info.detached"], lane: "status",
   })),
+  ...kimiQuestionWatches,
 ];
 
 export const kimiRecords = {
@@ -51,7 +53,8 @@ export const kimiRecords = {
       default: return null;
     }
   },
-  ignores: () => false,
+  // Correlated by the status normalizer, not a stateless record reader.
+  ignores: (record: WireRecord) => record.type === "context.append_loop_event",
 } satisfies Pick<SessionTailDialect<JsonlRequest, WireRecord>, "watches" | "read" | "ignores">;
 
 /** Reuse history's discovery for a resumed pane whose SessionStart was missed. */

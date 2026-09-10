@@ -2,8 +2,8 @@
  * What one line of a codex rollout says about its pane, while the rollout is
  * still being written.
  *
- * Codex pushes no hook when a turn is aborted or fails on an API error.
- * Its own store supplies those missing endings: turn_aborted, and
+ * Native Interrupt exists in 0.153.2, but this plugin also supports older
+ * hook sets. Its own store supplies turn_aborted, and
  * task_complete with a structured error (verified on 0.153.2).
  *
  * Where it differs is the shape: codex nests. An abort is
@@ -27,6 +27,7 @@ import {
   type SessionTailDialect,
 } from "@keepdeck/plugin-api";
 import { findRollout } from "./store";
+import { codexQuestionWatches } from "./questions";
 
 /**
  * The carried record, as the watch below projects it.
@@ -35,6 +36,7 @@ import { findRollout } from "./store";
  * what arrives is what was requested, under the name it was requested by.
  */
 interface CarriedRollout {
+  type?: unknown;
   timestamp?: unknown;
   "payload.type"?: unknown;
   "payload.error"?: unknown;
@@ -73,7 +75,7 @@ export const codexRecords = {
     ],
     keep: ["timestamp", "payload.type", "payload.error"],
     lane: "status",
-  }],
+  }, ...codexQuestionWatches],
 
   read: (record: CarriedRollout) => {
     const at = instantOf(record.timestamp);
@@ -91,14 +93,8 @@ export const codexRecords = {
     );
   },
 
-  /**
-   * Every carried record is an abort or terminal failure — the watches saw
-   * to that — so there is
-   * nothing this dialect knowingly passes over. A record that arrives here
-   * and is not one is a rollout whose shape moved, and saying so is the
-   * whole point of the question.
-   */
-  ignores: () => false,
+  // These need correlation/mode in the normalizer, not a stateless read.
+  ignores: (record: CarriedRollout) => record.type === "turn_context" || record.type === "response_item",
 } satisfies Pick<
   SessionTailDialect<JsonlRequest, CarriedRollout>,
   "watches" | "read" | "ignores"
