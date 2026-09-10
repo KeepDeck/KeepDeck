@@ -14,7 +14,7 @@ describe("claudeTail", () => {
         interruptedMessageId: "msg_1",
         timestamp: "2026-08-14T21:20:29.661Z",
       }),
-    ).toEqual({ kind: "interrupted", at: Date.parse("2026-08-14T21:20:29.661Z") });
+    ).toEqual({ kind: "interrupted", at: Date.parse("2026-08-14T21:20:29.661Z"), scope: "main" });
 
     expect(
       claudeTail.read({

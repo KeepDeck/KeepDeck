@@ -8,6 +8,7 @@ import { paneAgentType } from "../domain/deck";
 import { isNavigationKey } from "../domain/terminal";
 import { paneMembership, paneMembershipKey } from "./paneMembership";
 import { createVerifiedPaneReports } from "./verifiedPaneReports";
+import type { HookReplies } from "./mail/hookReply";
 
 export interface AgentStatusChannel {
   dispose(): void;
@@ -32,12 +33,12 @@ export interface PaneKeyPort {
 /**
  * App-lifetime wiring of agent status into the tracker — the sibling of
  * [`createUsageChannel`], with the same duties folded into one module
- * because status has no tails, no polling and no persistence:
+ * because its tail reports arrive on the same verified bus as hooks:
  *
  * - plugin `status.normalize` declarations ⇄ tracker registrations;
  * - the user's own answer to a waiting agent, read off their keystrokes —
  *   the one edge minted from what the host SEES rather than from what an
- *   agent reports, because no CLI reports it;
+ *   agent reports, for approval prompts without an answer event;
  * - bridge reports through the shared verification — WITH the live-process
  *   requirement: activity is a claim about a running process, and a hook
  *   envelope that outlives its process (a Stop racing a crash) must not
@@ -63,11 +64,11 @@ export function createAgentStatusChannel(
    * one while the other was still deciding to keep it working. Absent in
    * tests and while the feature is off; a payload that asks nothing never
    * reaches it. */
-  answerAsk: (paneId: string, payload: unknown) => void = () => {},
+  answerAsk: HookReplies["answer"] = () => {},
   /** Tell the mail side an answer is coming, BEFORE the fold that wakes its
    * subscribers — otherwise it types a nudge at a pane it is about to serve
    * for free. Returns the disarm; a payload that asks nothing arms nothing.
-   * See [`MailService.expectAsk`] for why the fold cannot simply move. */
+   * Remains armed until the reply and resolved activity have both settled. */
   expectAsk: (paneId: string, payload: unknown) => () => void = () => () => {},
 ): AgentStatusChannel {
   let disposed = false;
@@ -114,22 +115,24 @@ export function createAgentStatusChannel(
     subscribe: onAgentStatus,
     requireLiveProcess: true,
     apply: (paneId, payload) => {
-      // Fold FIRST: the answer may depend on what this very event just said
-      // about the pane (a turn that has ended is a turn that can be told
-      // to keep going), and reading a status one edge stale is exactly the
-      // divergence one round trip exists to prevent.
-      //
-      // The fold's cost is that it wakes mail's own subscription in the same
-      // breath, one call before the answer empties the queue — so the mail
-      // side is told an answer is coming and stops typing at this pane until
-      // it has. Marking it here rather than reordering the two: swapping them
-      // would answer against a stale status, which is the divergence above.
+      // Handover reads a fresh preview, but observers see only the resolved
+      // state: a delivered continuation is not a completed turn.
+      const pending = tracker.prepare(paneId, payload);
       const answered = expectAsk(paneId, payload);
+      const finish = (reply?: string) => {
+        try {
+          const kind = sessions.state(paneId).kind;
+          if (!disposed && (kind === "live" || kind === "starting")) pending.finish(reply);
+        } finally {
+          answered();
+        }
+      };
       try {
-        tracker.report(paneId, payload);
-        answerAsk(paneId, payload);
-      } finally {
-        answered();
+        const reply = answerAsk(paneId, payload, pending.activity);
+        if (reply) void reply.then(finish, () => finish());
+        else finish();
+      } catch {
+        finish();
       }
     },
   });
@@ -152,16 +155,20 @@ export function createAgentStatusChannel(
   // rung it would render forever. The orchestrator's own retire owns the
   // deliberate teardowns (suspend, close, restart).
   const clearDeadPanes = () => {
-    for (const paneId of tracker.getSnapshot().panes.keys()) {
-      const kind = sessions.state(paneId).kind;
-      if (kind === "exited" || kind === "failed") tracker.clear(paneId);
+    // Metadata can exist before a published activity. Sweep the pane roster,
+    // not the activity snapshot, or a restarted pane inherits the old mode.
+    for (const workspace of deck.getSnapshot().workspaces) {
+      for (const { id } of workspace.panes) {
+        const kind = sessions.state(id).kind;
+        if (kind === "exited" || kind === "failed") tracker.clear(id);
+      }
     }
   };
   const unsubscribeSessions = sessions.subscribe(clearDeadPanes);
   clearDeadPanes();
 
-  // The user's own answer. A CLI reports the question it parks on and never
-  // the answer — measured on codex 0.146, the next hook after its approval
+  // The user's own approval answer. Some CLIs report the prompt but not
+  // its resolution — measured on codex 0.146, the next hook after its approval
   // prompt is the approved tool's COMPLETION, and claude's normalizer states
   // the same gap — so a pane keeps claiming "Needs approval" for as long as
   // the approved command runs. This is the only edge the host mints from
@@ -169,7 +176,9 @@ export function createAgentStatusChannel(
   // belongs here beside the reports and not in a plugin.
   //
   // Reading the question back is not answering it, so navigation resolves
-  // nothing; anything else the user presses does. Erring that way is
+  // nothing; other keys may resolve an approval. Tool-backed questions are
+  // excluded by answerResolves: typing text or advancing one question is not
+  // a submitted answer. Erring that way for approvals is
   // deliberate: a wait cleared early self-corrects on claude (its idle nudge
   // re-raises) and is settled by the agent's own edge on codex, while a wait
   // left standing over an answered prompt is the silent lie this exists to

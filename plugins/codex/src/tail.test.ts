@@ -10,6 +10,52 @@ const abort = (reason?: string) => ({
 });
 
 describe("codexTail", () => {
+  it("carries terminal failures without the assistant's output", () => {
+    const line = {
+      timestamp: ISO,
+      type: "event_msg",
+      payload: {
+        type: "task_complete",
+        turn_id: "turn-1",
+        last_agent_message: "private conversation",
+        error: { codex_error_info: "usage_limit_exceeded", message: "Usage exhausted" },
+      },
+    };
+    const watch = codexRecords.watches.find((candidate) => watchMatches(candidate, line));
+    expect(watch).toBeDefined();
+    const carried = watchProject(watch!, line);
+    expect(JSON.stringify(carried)).not.toContain("private conversation");
+    expect(codexRecords.read(carried)).toEqual({
+      kind: "turn-failed", at: Date.parse(ISO), error: "rate_limit", detail: "Usage exhausted",
+    });
+  });
+
+  it("does not turn successes or retry errors into terminal failures", () => {
+    for (const payload of [
+      { type: "task_complete", error: null },
+      { type: "task_complete" },
+      { type: "error", codex_error_info: "usage_limit_exceeded", message: "retrying" },
+    ]) {
+      const line = { timestamp: ISO, type: "event_msg", payload };
+      const watch = codexRecords.watches.find((candidate) => watchMatches(candidate, line));
+      expect(watch ? codexRecords.read(watchProject(watch, line)) : null).toBeNull();
+    }
+  });
+
+  it("keeps other terminal errors and degrades unreadable reasons safely", () => {
+    const read = (error: unknown, timestamp = ISO) => codexRecords.read({
+      timestamp, "payload.type": "task_complete", "payload.error": error,
+    });
+    expect(read({ codex_error_info: "future_error", message: "detail" })).toEqual({
+      kind: "turn-failed", at: Date.parse(ISO), error: "future_error", detail: "detail",
+    });
+    expect(read({ codex_error_info: { stream_error: {} } })).toEqual({
+      kind: "turn-failed", at: Date.parse(ISO), error: "unknown",
+    });
+    for (const error of [null, undefined, "error", []]) expect(read(error)).toBeNull();
+    expect(read({ message: "failed" }, "not a date")).toBeNull();
+  });
+
   it("carries only the abort, not the class it hides in", () => {
     // codex's usage numbers ride `event_msg` too, and so does the
     // assistant's own text. Carrying the whole class would put a session's
@@ -73,9 +119,8 @@ describe("codexTail", () => {
   });
 
   it("claims to know nothing it did not ask for", () => {
-    // Every carried record IS an abort, because the watch saw to it. One
-    // that arrives and is not is a rollout whose shape moved, and the count
-    // of those is the only warning anyone gets.
-    expect(codexRecords.ignores()).toBe(false);
+    expect(codexRecords.ignores({ type: "unknown" })).toBe(false);
+    expect(codexRecords.ignores({ type: "turn_context" })).toBe(true);
+    expect(codexRecords.ignores({ type: "response_item" })).toBe(true);
   });
 });

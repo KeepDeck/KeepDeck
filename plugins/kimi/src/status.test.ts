@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { normalizeKimiStatus, renderKimiMail } from "./status";
+import { normalizeKimiStatus as normalize, renderKimiMail } from "./status";
+
+const normalizeKimiStatus = (...args: Parameters<typeof normalize>) => {
+  const result = normalize(...args);
+  if (result?.kind !== "status-reduction") return result;
+  expect(result.events.length).toBeLessThanOrEqual(1);
+  return result.events[0] ?? null;
+};
 
 const wrap = (event: Record<string, unknown>) => ({ agent: "kimi", event });
 
@@ -50,46 +57,23 @@ describe("normalizeKimiStatus", () => {
     expect(
       normalizeKimiStatus(wrap({ hook_event_name: "UserPromptSubmit" }), 100),
     ).toEqual({ kind: "turn-start", at: 100 });
-    expect(normalizeKimiStatus(wrap({ hook_event_name: "Stop" }), 200)).toEqual(
-      { kind: "turn-end", at: 200 },
-    );
+    expect(normalizeKimiStatus(wrap({ hook_event_name: "Stop" }), 200)).toBeNull();
     expect(
-      normalizeKimiStatus(wrap({ hook_event_name: "PermissionRequest" }), 300),
+      normalizeKimiStatus(wrap({ hook_event_name: "PermissionRequest", agent_id: "main" }), 300),
     ).toEqual({ kind: "waiting", at: 300, reason: "permission" });
     expect(
-      normalizeKimiStatus(wrap({ hook_event_name: "PermissionResult" }), 400),
-    ).toEqual({ kind: "resumed", at: 400 });
+      normalizeKimiStatus(wrap({ hook_event_name: "PermissionResult", agent_id: "main" }), 400),
+    ).toEqual({ kind: "resumed", at: 400, reason: "permission" });
   });
 
-  it("maps kimi's native Interrupt — the event Stop deliberately skips", () => {
-    expect(
-      normalizeKimiStatus(
-        wrap({ hook_event_name: "Interrupt", reason: "user" }),
-        500,
-      ),
-    ).toEqual({ kind: "interrupted", at: 500 });
+  it.each(["Stop", "Interrupt", "StopFailure"])("does not attribute an ambiguous %s to the main agent", (hook_event_name) => {
+    expect(normalizeKimiStatus(wrap({ hook_event_name, session_id: "shared", error_type: "rate_limit" }), 500)).toBeNull();
   });
 
-  it("reads StopFailure's snake_cased error class — the only spelling kimi emits", () => {
-    expect(
-      normalizeKimiStatus(
-        wrap({
-          hook_event_name: "StopFailure",
-          error_type: "ChatProviderError",
-          error_message: "rate limited",
-        }),
-        600,
-      ),
-    ).toEqual({
-      kind: "turn-failed",
-      at: 600,
-      error: "ChatProviderError",
-      detail: "rate limited",
-    });
-    // A missing class degrades to "unknown", never to a crash.
-    expect(
-      normalizeKimiStatus(wrap({ hook_event_name: "StopFailure" }), 600),
-    ).toEqual({ kind: "turn-failed", at: 600, error: "unknown" });
+  it.each(["PermissionRequest", "PermissionResult"])("ignores child and unidentifiable %s", (hook_event_name) => {
+    for (const agent_id of [undefined, "agent-1"]) {
+      expect(normalizeKimiStatus(wrap({ hook_event_name, agent_id }), 500)).toBeNull();
+    }
   });
 
   it("drops untracked events and garbage", () => {

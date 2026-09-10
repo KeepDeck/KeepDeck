@@ -4,6 +4,57 @@ import { createAgentStatusTracker } from "./agentStatusTracker";
 
 const turnStart = (at: number): AgentStatusEvent => ({ kind: "turn-start", at });
 
+describe("prepared status reports", () => {
+  const payload = (kind: string) => ({ agent: "test", event: { kind } });
+  const setup = () => {
+    const tracker = createAgentStatusTracker();
+    tracker.registerNormalizer("test", literal);
+    return tracker;
+  };
+
+  it("previews without notifying and publishes at most once", () => {
+    const tracker = setup();
+    tracker.report("pane", payload("start"), 100);
+    const changed = vi.fn();
+    tracker.subscribe(changed);
+    const pending = tracker.prepare("pane", payload("end"), 200);
+    expect(pending.activity?.state).toBe("done");
+    expect(tracker.getSnapshot().panes.get("pane")?.state).toBe("working");
+    expect(changed).not.toHaveBeenCalled();
+    pending.finish();
+    pending.finish();
+    expect(changed).toHaveBeenCalledOnce();
+  });
+
+  it.each(["clear", "retain", "normalizer"])("invalidates even unpublished activity on %s", (cause) => {
+    const tracker = setup();
+    const pending = tracker.prepare("pane", payload("start"), 100);
+    if (cause === "clear") tracker.clear("pane");
+    if (cause === "retain") tracker.retain(new Set());
+    if (cause === "normalizer") tracker.registerNormalizer("test", () => null);
+    pending.finish();
+    expect(tracker.getSnapshot().panes.size).toBe(0);
+  });
+
+  it("does not let an old delayed start erase a newer permission wait", () => {
+    const tracker = setup();
+    const pending = tracker.prepare("pane", payload("start"), 100);
+    tracker.report("pane", payload("wait"), 200);
+    const waiting = tracker.getSnapshot();
+    pending.finish();
+    expect(tracker.getSnapshot()).toBe(waiting);
+  });
+
+  it("distinguishes newer turns even in the same millisecond", () => {
+    const tracker = setup();
+    tracker.report("pane", payload("start"), 100);
+    const pending = tracker.prepare("pane", payload("end"), 200);
+    tracker.report("pane", payload("start"), 200);
+    pending.finish();
+    expect(tracker.getSnapshot().panes.get("pane")).toEqual({ state: "working", since: 200 });
+  });
+});
+
 /** A normalizer reading `{ agent, event: { kind } }` fixtures literally. */
 const literal = (payload: unknown, at: number): AgentStatusEvent | null => {
   const event = (payload as { event?: { kind?: string } }).event;

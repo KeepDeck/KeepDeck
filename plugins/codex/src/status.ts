@@ -7,6 +7,7 @@ import {
   type StatusNormalizer,
 } from "@keepdeck/plugin-api";
 import { codexRecords } from "./tail";
+import { codexQuestionStatus } from "./questions";
 
 /** The teammate framing both events below carry, worded once for every CLI
  * in [`frameTeammateMail`]. */
@@ -186,11 +187,11 @@ export const renderCodexMail: MailReplyRenderer = (input) => {
  * codex's turn-lifecycle payloads → status edges. The reporter wraps each
  * hook payload verbatim under `event`; fields live-verified on 0.145/0.146.
  *
- * codex's surface is the narrowest of the four: `PermissionRequest` is its
- * only waiting edge, and it has NO failure event — an API-error turn is
- * invisible to hooks (a known gap; only the rollout could tell). A user
- * interrupt pushes no hook either — that edge arrives from the host's
- * rollout tailer as `kind: "session.interrupt"` (marker = a record of TYPE
+ * API-error turns have no terminal failure hook. The rollout's
+ * task_complete.error supplies that ending (verified on 0.153.2). Native
+ * Interrupt exists in that version too; this plugin keeps its cross-version
+ * fallback, which arrives from the host's
+ * rollout tailer as `kind: "store.record"` (marker = a record of TYPE
  * `turn_aborted`, so assistant text can't trip it), stamped with the
  * marker's own time. EVERY abort reason maps to `interrupted`, not just
  * the user's Esc: an aborted turn did not complete, and `turn-end` would
@@ -199,12 +200,9 @@ export const renderCodexMail: MailReplyRenderer = (input) => {
  * common non-Esc case ("replaced") a new turn's own edge follows at once
  * and settles the display anyway.
  *
- * ALL FOUR armed events exist and fire — measured on 0.146, and stated by
- * codex's own `HookEventsToml`, which carries eleven names including the two
- * an audit once reported missing. Do not "fix" a stuck badge by dropping
- * `UserPromptSubmit`/`Stop` for rollout-sourced bookends: they are the only
- * bookends codex has, and the tailer would replace working edges with
- * polled ones.
+ * UserPromptSubmit/Stop remain low-latency bookends. Blocking questions need
+ * the rollout's mode plus correlated function_call/output, decoded separately
+ * in questions.ts. The transient RequestUserInput event is not persisted.
  *
  * The real gap is that codex never reports an approval ANSWER. Measured
  * sequence for one escalated command:
@@ -220,9 +218,22 @@ export const renderCodexMail: MailReplyRenderer = (input) => {
  * `PostToolUse` case below therefore remains the backstop for an answer
  * given some other way, not the primary resolution.
  */
-export const normalizeCodexStatus: StatusNormalizer = (
-  payload,
-  at,
+function continuesFromReply(reply?: string): boolean {
+  if (!reply) return false;
+  try {
+    const output: unknown = JSON.parse(reply);
+    if (!isJsonRecord(output) || output.continue === false) return false;
+    return (output.decision === "block" && typeof output.reason === "string" && output.reason.trim() !== "") ||
+      (output.should_block === true && typeof output.block_reason === "string" && output.block_reason.trim() !== "");
+  } catch {
+    return false;
+  }
+}
+
+const readCodexStatus = (
+  payload: unknown,
+  at: number,
+  context?: { readonly reply?: string },
 ): AgentStatusEvent | null => {
   if (!isJsonRecord(payload)) return null;
   if (payload.kind === "store.record") {
@@ -236,6 +247,7 @@ export const normalizeCodexStatus: StatusNormalizer = (
     case "UserPromptSubmit":
       return { kind: "turn-start", at };
     case "Stop":
+      if (continuesFromReply(context?.reply)) return { kind: "turn-observed", at };
       return { kind: "turn-end", at };
     case "PermissionRequest":
       return { kind: "waiting", at, reason: "permission" };
@@ -246,8 +258,14 @@ export const normalizeCodexStatus: StatusNormalizer = (
       // the wait when it is given; this still settles a pane whose answer
       // never came through us. Mid-turn repeats are absorbed by the reducer
       // without an emit.
-      return { kind: "resumed", at };
+      return { kind: "resumed", at, reason: "permission" };
     default:
       return null;
   }
+};
+
+export const normalizeCodexStatus: StatusNormalizer = (payload, at, context) => {
+  const record = isJsonRecord(payload) && payload.kind === "store.record" && isJsonRecord(payload.record)
+    ? payload.record : null;
+  return codexQuestionStatus(context?.state, record, readCodexStatus(payload, at, context));
 };

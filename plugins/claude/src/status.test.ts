@@ -5,6 +5,18 @@ import { normalizeClaudeStatus } from "./status";
 const wrap = (event: Record<string, unknown>) => ({ agent: "claude", event });
 
 describe("normalizeClaudeStatus", () => {
+  it("only a valid delivered Stop continuation changes the ending", () => {
+    const stop = wrap({ hook_event_name: "Stop" });
+    for (const reply of ["", "{", "null", "[]", "{}",
+      '{"decision":"block","reason":""}',
+      '{"continue":false,"decision":"block","reason":"continue"}',
+      '{"hookSpecificOutput":{"hookEventName":"PostToolBatch","additionalContext":"continue"}}',
+    ]) {
+      expect(normalizeClaudeStatus(stop, 200, { reply })).toEqual({ kind: "turn-end", at: 200 });
+    }
+    expect(normalizeClaudeStatus(stop, 200, { reply: '{"decision":"block","reason":"continue"}' }))
+      .toEqual({ kind: "turn-observed", at: 200 });
+  });
   it("maps the turn boundaries", () => {
     expect(
       normalizeClaudeStatus(wrap({ hook_event_name: "UserPromptSubmit" }), 100),
@@ -268,7 +280,7 @@ describe("normalizeClaudeStatus", () => {
         wrap({ hook_event_name: "Stop", background_tasks: [] }),
         700,
       ),
-    ).toEqual({ kind: "turn-end", at: 700 });
+    ).toEqual({ kind: "turn-end", at: 700, liveAgentIds: [] });
   });
 
   it("ends the turn when the background list is absent or unreadable", () => {
@@ -294,7 +306,7 @@ describe("normalizeClaudeStatus", () => {
         }),
         800,
       ),
-    ).toEqual({ kind: "turn-end", at: 800 });
+    ).toEqual({ kind: "turn-end", at: 800, liveAgentIds: [] });
   });
 
   it("brackets one helper's turn from the agent-loop hooks", () => {
@@ -437,7 +449,7 @@ describe("normalizeClaudeStatus", () => {
     };
     expect(
       normalizeClaudeStatus({ agent: "claude", kind: "store.record", record }, 500),
-    ).toEqual({ kind: "interrupted", at: Date.parse("2026-08-01T10:00:00Z") });
+    ).toEqual({ kind: "interrupted", at: Date.parse("2026-08-01T10:00:00Z"), scope: "main" });
 
     // The record's OWN instant, never receipt: the tail polls, so receipt
     // runs up to an interval late, and a marker stamped honestly is one the

@@ -26,6 +26,7 @@ import type { DeliverableMail, MailReplyRenderer } from "@keepdeck/plugin-api";
 import { isStandingContext, senderName, type Mail } from "../../domain/mail";
 import { log } from "../../ipc/log";
 import type { MailManager } from "./mailManager";
+import type { PaneActivity } from "../../domain/status";
 
 export interface HookReplyDeps {
   /** The live mail owner, or null while the feature is off. Looked up per
@@ -45,8 +46,9 @@ export interface HookReplyDeps {
 
 /** The labelled channel, as one owner: it answers asks. */
 export interface HookReplies {
-  /** Answer one asking payload from `paneId`. */
-  answer(paneId: string, payload: unknown): void;
+  /** Answer using the status preview; resolve with the output ONLY if it
+   * reached the hook. Reports that ask nothing remain synchronous. */
+  answer(paneId: string, payload: unknown, activity?: PaneActivity | null): void | Promise<string | undefined>;
 }
 
 /** The correlation a payload is asking on, or null when it only reports.
@@ -92,7 +94,7 @@ function forAgent(mail: Mail): DeliverableMail {
 }
 
 export function createHookReplies(deps: HookReplyDeps): HookReplies {
-  return { answer: (paneId, payload) => answerMailAsk(deps, paneId, payload) };
+  return { answer: (paneId, payload, activity) => answerMailAsk(deps, paneId, payload, activity) };
 }
 
 /**
@@ -109,7 +111,8 @@ function answerMailAsk(
   deps: HookReplyDeps,
   paneId: string,
   payload: unknown,
-): void {
+  activity?: PaneActivity | null,
+): void | Promise<string | undefined> {
   const manager = deps.mail();
   // Named by whichever field this reporter's CLI uses. The hook CLIs send
   // `hook_event_name`; an in-process reporter has no hook and names its own
@@ -147,7 +150,7 @@ function answerMailAsk(
     said(why);
     // Nothing to lose: an empty answer means "nothing was waiting for you",
     // so whether it lands changes nothing that has to be put back.
-    void deps.reply(paneId, correlation, body);
+    return deps.reply(paneId, correlation, body).then(() => undefined, () => undefined);
   };
   // Always answer, even with nothing: a hook that gets no reply waits out its
   // whole timeout, and doing that on every turn end would tax every pane for
@@ -159,7 +162,7 @@ function answerMailAsk(
   if (!render || !event) {
     return answer("", render ? "malformed payload" : `${agent} renders no mail`);
   }
-  const taken = manager.takeAtTurnEnd(paneId);
+  const taken = manager.takeAtTurnEnd(paneId, activity);
   if (taken.length === 0) {
     // "Nothing waiting" is only honest when nothing IS waiting. A hand-over
     // the door refused leaves the queue exactly as it was, and answering an
@@ -210,8 +213,8 @@ function answerMailAsk(
   // restoring into a fresh manager would resurrect mail into a queue the
   // user had deliberately cleared; a disposed one takes them back inertly,
   // which is the right ending for messages whose queue no longer exists.
-  void deps.reply(paneId, correlation, rendered).then((delivered) => {
-    if (delivered) return;
+  return deps.reply(paneId, correlation, rendered).catch(() => false).then((delivered) => {
+    if (delivered) return rendered;
     log.warn(
       "web:mail",
       `${paneId} was gone before its answer arrived — putting back ${taken

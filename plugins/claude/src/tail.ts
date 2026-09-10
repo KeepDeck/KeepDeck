@@ -5,9 +5,9 @@
  * The edge that lives here and nowhere else: a user interrupt. claude pushes
  * NO hook when the user presses Esc — the transcript is the only witness —
  * and the pane's whole idea of whether this agent is working rests on that
- * edge arriving. Everything else about the turn comes through the reporter's
- * hooks, which is why this dialect reports one kind of event and passes over
- * fifteen kinds of record.
+ * edge arriving. Hard steering also records the NEXT accepted prompt after
+ * the old turn's cancellation, even though UserPromptSubmit ran before it.
+ * Both records must travel together; reading only the abort ends new work.
  *
  * This used to be the HOST's knowledge: it read `interruptedMessageId` out of
  * a claude record, decided the record meant an interrupt, minted a word for
@@ -31,6 +31,10 @@ interface ClaudeRecord {
    * end its own turn. */
   interruptedMessageId?: unknown;
   timestamp?: unknown;
+  "origin.kind"?: unknown;
+  promptSource?: unknown;
+  isMeta?: unknown;
+  isSidechain?: unknown;
 }
 
 /**
@@ -81,11 +85,10 @@ export const claudeTail: SessionTailDialect<JsonlRequest, ClaudeRecord> = {
   format: jsonl<ClaudeRecord>(),
 
   /**
-   * The one shape worth carrying out of a claude transcript, and the three
-   * fields worth carrying with it.
+   * Lifecycle metadata only; prompt and assistant contents stay on disk.
    *
    * The reader applying this cannot tell an interrupt from a tool result: it
-   * compares two keys and copies three. What that buys is measured — a
+   * compares declared keys and copies selected metadata. What that buys is measured — a
    * claude transcript is mostly assistant records, which are the fat ones,
    * and a follower without this would carry a session's whole output to
    * somebody who wants a timestamp.
@@ -96,7 +99,11 @@ export const claudeTail: SessionTailDialect<JsonlRequest, ClaudeRecord> = {
    */
   watches: [{
     match: [{ key: "type", equals: "user" }, { key: "interruptedMessageId" }],
-    keep: ["type", "interruptedMessageId", "timestamp"],
+    keep: ["type", "interruptedMessageId", "timestamp", "isSidechain"],
+    lane: "status",
+  }, {
+    match: [{ key: "type", equals: "user" }, { key: "origin.kind", equals: "human" }],
+    keep: ["type", "timestamp", "origin.kind", "promptSource", "isMeta", "isSidechain"],
     lane: "status",
   }],
 
@@ -108,15 +115,20 @@ export const claudeTail: SessionTailDialect<JsonlRequest, ClaudeRecord> = {
 
   read: (record) => {
     if (record.type !== "user") return null;
+    const at = instantOf(record.timestamp);
+    if (at === null || record.isSidechain === true) return null;
+    if (
+      record["origin.kind"] === "human" && record.isMeta !== true &&
+      (record.promptSource === "typed" || record.promptSource === "queued")
+    ) return { kind: "turn-observed", at };
     const interrupted =
       typeof record.interruptedMessageId === "string" &&
       record.interruptedMessageId !== "";
     if (!interrupted) return null;
-    const at = instantOf(record.timestamp);
     // Unstamped is not reportable. The staleness guard compares this instant
     // against the turn it would end, so an interrupt with no honest time
     // cannot be placed — and placing it wrongly ends a turn that is running.
-    return at === null ? null : { kind: "interrupted", at };
+    return { kind: "interrupted", at, scope: "main" };
   },
 
   ignores: (record) =>

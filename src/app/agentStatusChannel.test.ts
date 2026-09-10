@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { AgentContribution, AgentStatusEvent } from "@keepdeck/plugin-api";
+import type { AgentContribution, AgentStatusEvent, StatusNormalizer } from "@keepdeck/plugin-api";
 import type { ContributionRegistry } from "../plugins/registries/contributions";
 import {
   createAgentStatusTracker,
@@ -65,7 +65,7 @@ const deckWith = (...paneIds: string[]) => {
 /** A contribution registry whose agent list can change under the channel. */
 const agentsWith = () => {
   const listeners = new Set<() => void>();
-  let entries = [
+  let entries: { entry: { id: string; status: { normalize: StatusNormalizer } } }[] = [
     { entry: { id: "claude", status: { normalize: edgeNormalizer } } },
   ];
   return {
@@ -118,6 +118,23 @@ describe("createAgentStatusChannel", () => {
         for (const listener of [...keyListeners]) listener(paneId, data);
       },
     };
+  });
+
+  it("retires decoder metadata when a process dies before publishing any activity", () => {
+    const agents = agentsWith();
+    const normalize: StatusNormalizer = (payload, at, context) => {
+      if ((payload as { seed?: boolean }).seed) return { kind: "status-reduction", state: "old-mode", events: [] };
+      return { kind: "turn-start", at: context?.state === "old-mode" ? 999 : at };
+    };
+    agents.replace([{ entry: { id: "claude", status: { normalize } } }]);
+    createAgentStatusChannel(deckWith("pane-1").store, agents.registry,
+      tracker, sessions, attribution, keys.port);
+    tracker.report("pane-1", { agent: "claude", seed: true }, 100);
+    expect(tracker.getSnapshot().panes.size).toBe(0);
+    exit("pane-1");
+    kinds.set("pane-1", "live");
+    tracker.report("pane-1", { agent: "claude" }, 200);
+    expect(tracker.getSnapshot().panes.get("pane-1")).toEqual({ state: "working", since: 200 });
   });
 
   it("clears a pane's activity the moment its process exits", () => {
@@ -350,6 +367,21 @@ describe("createAgentStatusChannel", () => {
     expect(tracker.getSnapshot().panes.get("pane-1")).toMatchObject({
       state: "working",
     });
+  });
+
+  it("typing or Enter cannot finish a multi-page/free-text question", () => {
+    createAgentStatusChannel(deckWith("pane-1").store, agentsWith().registry,
+      tracker, sessions, attribution, keys.port);
+    tracker.report("pane-1", {
+      agent: "claude", edge: { kind: "waiting", at: 100, reason: "question" },
+    });
+    for (const key of ["a", "\r", "\x1b[A"]) keys.press("pane-1", key);
+    expect(tracker.getSnapshot().panes.get("pane-1"))
+      .toEqual({ state: "waiting", since: 100, reason: "question" });
+    tracker.report("pane-1", {
+      agent: "claude", edge: { kind: "resumed", at: 200, reason: "question" },
+    });
+    expect(tracker.getSnapshot().panes.get("pane-1")?.state).toBe("working");
   });
 
   it("reading the question does not answer it", () => {

@@ -2,9 +2,9 @@
  * What one line of a codex rollout says about its pane, while the rollout is
  * still being written.
  *
- * The same edge as claude's and for the same reason: codex pushes no hook
- * when a turn is aborted, so its own store is the only witness, and the
- * pane's idea of whether this agent is working rests on that edge arriving.
+ * Native Interrupt exists in 0.153.2, but this plugin also supports older
+ * hook sets. Its own store supplies turn_aborted, and
+ * task_complete with a structured error (verified on 0.153.2).
  *
  * Where it differs is the shape: codex nests. An abort is
  * `payload.type === "turn_aborted"` under an `event_msg` line, one level
@@ -19,12 +19,15 @@
  * own edge follows at once and settles the display anyway.
  */
 import {
+  isJsonRecord,
   jsonl,
+  turnFailedEvent,
   type JsonlRequest,
   type PluginContext,
   type SessionTailDialect,
 } from "@keepdeck/plugin-api";
 import { findRollout } from "./store";
+import { codexQuestionWatches } from "./questions";
 
 /**
  * The carried record, as the watch below projects it.
@@ -33,8 +36,10 @@ import { findRollout } from "./store";
  * what arrives is what was requested, under the name it was requested by.
  */
 interface CarriedRollout {
+  type?: unknown;
   timestamp?: unknown;
   "payload.type"?: unknown;
+  "payload.error"?: unknown;
 }
 
 function instantOf(value: unknown): number | null {
@@ -60,24 +65,36 @@ export const codexRecords = {
     ],
     keep: ["timestamp", "payload.type"],
     lane: "status",
-  }],
+  }, {
+    // 0.153.2 records terminal API failures here, without firing Stop.
+    // An ordinary `error` may be a retry; only task_complete ends the turn.
+    match: [
+      { key: "type", equals: "event_msg" },
+      { key: "payload.type", equals: "task_complete" },
+      { key: "payload.error" },
+    ],
+    keep: ["timestamp", "payload.type", "payload.error"],
+    lane: "status",
+  }, ...codexQuestionWatches],
 
   read: (record: CarriedRollout) => {
-    if (record["payload.type"] !== "turn_aborted") return null;
     const at = instantOf(record.timestamp);
     // Undatable is unreportable: the staleness guard places this instant
     // against the turn the edge would end, and an edge it cannot place would
     // end a turn that is running.
-    return at === null ? null : ({ kind: "interrupted", at } as const);
+    if (at === null) return null;
+    if (record["payload.type"] === "turn_aborted") return { kind: "interrupted", at } as const;
+    const error = record["payload.error"];
+    if (record["payload.type"] !== "task_complete" || !isJsonRecord(error)) return null;
+    return turnFailedEvent(
+      at,
+      error.codex_error_info === "usage_limit_exceeded" ? "rate_limit" : error.codex_error_info,
+      error.message,
+    );
   },
 
-  /**
-   * Every carried record IS an abort — the watch saw to that — so there is
-   * nothing this dialect knowingly passes over. A record that arrives here
-   * and is not one is a rollout whose shape moved, and saying so is the
-   * whole point of the question.
-   */
-  ignores: () => false,
+  // These need correlation/mode in the normalizer, not a stateless read.
+  ignores: (record: CarriedRollout) => record.type === "turn_context" || record.type === "response_item",
 } satisfies Pick<
   SessionTailDialect<JsonlRequest, CarriedRollout>,
   "watches" | "read" | "ignores"

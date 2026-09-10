@@ -35,9 +35,8 @@ import {
  * so no version gate is needed; such a pane just stays unbound and revives
  * via its recorded binding.
  *
- * codex has no Notification and no StopFailure: PermissionRequest is its
- * only waiting edge, and an API-error turn is invisible to hooks (the
- * rollout tail supplies the interrupt edge; failures stay a known gap).
+ * PermissionRequest supplies approval waits; the rollout supplies blocking
+ * questions, terminal API failures and the cross-version abort fallback.
  * PostToolUse is the approval-resolution BACKSTOP — codex has no reply
  * hook either, and its completion lands only when the approved command
  * does; the host reads the user's own answer instead, so the amber no

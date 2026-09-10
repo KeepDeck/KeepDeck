@@ -1,5 +1,6 @@
 import type { AgentStatusEvent, StatusNormalizer } from "@keepdeck/plugin-api";
 import { isRecord } from "../domain/json";
+import { normalizeStatusBatch } from "./statusNormalization";
 import {
   answerResolves,
   reduceStatus,
@@ -45,6 +46,12 @@ export interface StatusSnapshot {
 }
 
 export interface AgentStatusTracker {
+  /** Preview without publishing, then finish once the hook reply is known.
+   * A cleared/replaced pane or a newer turn invalidates the pending result. */
+  prepare(paneId: string, payload: unknown, at?: number): {
+    activity: PaneActivity | null;
+    finish(reply?: string): void;
+  };
   /** Register an agent's status normalizer; returns the unregister. A second
    * registration for the same id replaces the first (last plugin wins, the
    * contribution-registry convention). */
@@ -82,14 +89,15 @@ export function createAgentStatusTracker(): AgentStatusTracker {
   // The FULL lane state per pane — activity plus the open agent-turn
   // brackets. Only the activity half reaches the snapshot: the brackets are
   // how the fold knows a closing turn is not an ending, not something to
-  // render. Every pane here HAS an activity, so the published map carries
-  // the same keys — callers that read it as the roster of tracked panes
-  // (agentStatusChannel's dead-pane sweep) are right by construction.
+  // render. Decoder checkpoints may exist before the first activity, so
+  // lifecycle cleanup must not use the published map as a process roster.
   let statuses: ReadonlyMap<string, PaneStatus> = new Map();
   let snapshot: StatusSnapshot = { panes: new Map() };
   const listeners = new Set<() => void>();
   const rebuilt = new Set<(paneId: string) => void>();
   const normalizers = new Map<string, StatusNormalizer>();
+  const epochs = new Map<string, object>();
+  const decoderStates = new Map<string, { normalize: StatusNormalizer; state: unknown }>();
 
   /**
    * The ONE way this store moves: adopt the next state, project it, and
@@ -109,15 +117,16 @@ export function createAgentStatusTracker(): AgentStatusTracker {
   }
 
   /**
-   * Fold ONE edge into a pane's lane state. Every edge lands here whoever
+   * Fold an ordered batch into a pane's lane state, publishing only once.
+   * Every edge lands here whoever
    * minted it — a plugin normalizer reading a hook envelope, or the host
    * seeing the user answer — so "what an edge does to a pane" keeps the pure
    * reducer as its single answer. An edge the fold absorbs comes back as the
    * SAME object and stops here, without a store write.
    */
-  function apply(paneId: string, edge: AgentStatusEvent): void {
+  function apply(paneId: string, edges: readonly AgentStatusEvent[]): void {
     const previous = statuses.get(paneId) ?? null;
-    const next = reduceStatus(previous, edge);
+    const next = edges.reduce(reduceStatus, previous);
     if (next === previous) return;
     const panes = new Map(statuses);
     if (next) panes.set(paneId, next);
@@ -125,7 +134,66 @@ export function createAgentStatusTracker(): AgentStatusTracker {
     commit(panes);
   }
 
+  function prepare(paneId: string, payload: unknown, at = Date.now()) {
+    const previous = statuses.get(paneId) ?? null;
+    const ignored = { activity: previous?.activity ?? null, finish() {} };
+    if (!isRecord(payload) || typeof payload.agent !== "string") return ignored;
+    const agent = payload.agent;
+    const normalize = normalizers.get(agent);
+    if (!normalize) return ignored;
+    // One root-file drain is ordered and atomic; only the plugin reads its
+    // records. In particular, no subscriber sees the abort between turns.
+    const payloads = payload.kind === "store.batch"
+      ? (Array.isArray(payload.records) ? payload.records : []).map((record) => ({
+          agent, kind: "store.record", record,
+        }))
+      : [payload];
+    const stateNow = () => {
+      const held = decoderStates.get(paneId);
+      return held?.normalize === normalize ? held.state : undefined;
+    };
+    const normalizeAll = (reply?: string) => normalizeStatusBatch(
+      normalize, payloads, at, stateNow(), reply, payload.contextOnly === true,
+    );
+    const initial = normalizeAll();
+    const edges = initial.events;
+    if (edges.length === 0 && initial.state === stateNow()) return ignored;
+    const preview = edges.reduce(reduceStatus, previous);
+    if (!epochs.has(paneId) || (preview !== previous && edges.some((edge) =>
+      edge.kind === "turn-start" || edge.kind === "turn-observed"))) {
+      epochs.set(paneId, {});
+    }
+    const epoch = epochs.get(paneId);
+    let finished = false;
+    return {
+      activity: preview?.activity ?? null,
+      finish(reply?: string) {
+        if (finished) return;
+        finished = true;
+        if (epochs.get(paneId) !== epoch || normalizers.get(agent) !== normalize) return;
+        // Rebase decoding on the latest committed checkpoint: metadata can
+        // arrive while a hook reply is in flight. Preview never consumed it.
+        const settled = normalizeAll(reply);
+        if (settled.state === undefined) decoderStates.delete(paneId);
+        else decoderStates.set(paneId, { normalize, state: settled.state });
+        // A delayed start must not overwrite a newer wait or ending. Once
+        // other evidence has arrived it obeys the source-time start guard.
+        const current = statuses.get(paneId) ?? null;
+        const guarded = settled.events.map((edge): AgentStatusEvent =>
+          current !== previous && edge.kind === "turn-start"
+            ? { kind: "turn-observed", at: edge.at } : edge);
+        for (const edge of guarded) {
+          if (edge.kind === "context-compacted") {
+            for (const listener of [...rebuilt]) listener(paneId);
+          }
+        }
+        apply(paneId, guarded);
+      },
+    };
+  }
+
   return {
+    prepare,
     registerNormalizer(agentId, normalizer) {
       normalizers.set(agentId, normalizer);
       return () => {
@@ -136,18 +204,7 @@ export function createAgentStatusTracker(): AgentStatusTracker {
     },
 
     report(paneId, payload, at = Date.now()) {
-      if (!isRecord(payload) || typeof payload.agent !== "string") return;
-      const normalize = normalizers.get(payload.agent);
-      if (!normalize) return;
-      const edge = normalize(payload, at);
-      if (!edge) return;
-      // Before the fold, and regardless of what the fold does with it: on
-      // an ordinary pane a compaction moves no activity at all, so this is
-      // the only place the event can still be seen.
-      if (edge.kind === "context-compacted") {
-        for (const listener of [...rebuilt]) listener(paneId);
-      }
-      apply(paneId, edge);
+      prepare(paneId, payload, at).finish();
     },
 
     answered(paneId, at = Date.now()) {
@@ -155,10 +212,12 @@ export function createAgentStatusTracker(): AgentStatusTracker {
       // that reads the same edge from an agent — asking it here in a second
       // spelling is how the two readings drift apart.
       if (!answerResolves(statuses.get(paneId)?.activity ?? null)) return;
-      apply(paneId, { kind: "resumed", at });
+      apply(paneId, [{ kind: "resumed", at }]);
     },
 
     clear(paneId) {
+      epochs.delete(paneId);
+      decoderStates.delete(paneId);
       if (!statuses.has(paneId)) return;
       const next = new Map(statuses);
       next.delete(paneId);
@@ -166,6 +225,12 @@ export function createAgentStatusTracker(): AgentStatusTracker {
     },
 
     retain(liveIds) {
+      for (const id of decoderStates.keys()) {
+        if (!liveIds.has(id)) decoderStates.delete(id);
+      }
+      for (const id of epochs.keys()) {
+        if (!liveIds.has(id)) epochs.delete(id);
+      }
       if (![...statuses.keys()].some((id) => !liveIds.has(id))) return;
       const next = new Map<string, PaneStatus>();
       for (const [id, status] of statuses) {

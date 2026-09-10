@@ -28,11 +28,15 @@ export type StatusWaitReason = "permission" | "question";
 export type AgentStatusEvent =
   /** The user submitted a prompt — the turn is running. */
   | { kind: "turn-start"; at: number }
+  /** A store confirms that a new request entered execution. Unlike a prompt
+   * hook this may arrive AFTER its ending, so `at` must be source time and
+   * observations no newer than the current phase/ending are ignored. */
+  | { kind: "turn-observed"; at: number }
   /** The turn is blocked on the user (approval dialog, agent question). */
   | { kind: "waiting"; at: number; reason: StatusWaitReason }
   /** The wait resolved and the turn is running again. Only CLIs with a
    * resolution event emit this; for the rest the next edge settles it. */
-  | { kind: "resumed"; at: number }
+  | { kind: "resumed"; at: number; reason?: StatusWaitReason }
   /** The CLI closed its turn, but work that turn STARTED is still running
    * and WILL WAKE the session again when it finishes (claude's background
    * agents). Work that merely outlives the turn is not enough — a process
@@ -75,11 +79,14 @@ export type AgentStatusEvent =
   /** The turn completed normally. Whether it is an ENDING also depends on
    * the edge stream: a turn that closes while an agent turn is still open
    * is held, not done, and the ending lands when the last one closes — see
-   * the host's status fold. */
-  | { kind: "turn-end"; at: number }
+   * the host's status fold. `liveAgentIds`, when known authoritatively, retires
+   * already-open brackets absent from that list; it never opens new ones. */
+  | { kind: "turn-end"; at: number; liveAgentIds?: readonly string[] }
   /** The user interrupted the turn (Esc/Ctrl-C) — it is over, but not
-   * "done" in the completed sense. */
-  | { kind: "interrupted"; at: number }
+   * "done" in the completed sense. `scope: main` cancels only the main
+   * execution; independent agent turns keep running. Omitted means the
+   * whole loop, preserving the contract of existing reporters. */
+  | { kind: "interrupted"; at: number; scope?: "main" }
   /** The turn died on an API error. `error` is the CLI's error type
    * (e.g. `rate_limit`, `authentication_failed`); `detail` its prose. */
   | { kind: "turn-failed"; at: number; error: string; detail?: string }
@@ -103,21 +110,36 @@ export type AgentStatusEvent =
    * the user has already acted on is merely a loud one. */
   | { kind: "context-compacted"; at: number };
 
-/** A per-agent normalizer: raw bridge status payload → one edge, or null
+/** A plugin's immutable decoding checkpoint, scoped to one pane generation.
+ * Correlating a tool result with its call or reading a mode set by an earlier
+ * record belongs to the CLI adapter, not to the host's activity rules. */
+export interface StatusReduction {
+  readonly kind: "status-reduction";
+  readonly state: unknown;
+  readonly events: readonly AgentStatusEvent[];
+}
+
+export type StatusNormalization = AgentStatusEvent | StatusReduction | null;
+
+/** A per-agent normalizer: raw bridge status payload → edges, or null
  * when the payload is not a tracked event. Pure; time is injected.
  *
- * HOST-owned payload keys, not agent schema: `agent` (the dispatch key);
- * and on the transcript tailer's recovered markers `kind`
- * ("session.interrupt"), `reason` (the CLI's abort reason — only
- * "interrupted" is the user's hand), `sourceAt`/`sourceMtimeMs` (the
- * marker's own time — see [`statusSourceInstant`]). A hook reporter's
- * payload instead rides verbatim under `event`. An agent whose interrupts
- * the tailer recovers (claude, codex) must map the marker; the rest never
- * receive one. */
+ * HOST-owned payload keys: `agent` dispatches, `kind: "store.record"`
+ * carries projected transcript metadata under `record`. A hook reporter's
+ * payload instead rides verbatim under `event`.
+ *
+ * `context.reply` is the output successfully delivered to this hook, if any.
+ * Only the plugin knows whether that output continues the turn. The host may
+ * call twice: once to preview the event for mail handover, then to settle it
+ * with the delivered reply. Neither call may mutate state. `state` is the
+ * last committed StatusReduction checkpoint, undefined for a fresh pane.
+ * Return a new checkpoint when it changes, even if no activity edge results.
+ * Context-only catch-up records may seed it but never publish activity. */
 export type StatusNormalizer = (
   payload: unknown,
   at: number,
-) => AgentStatusEvent | null;
+  context?: { readonly reply?: string; readonly state?: unknown },
+) => StatusNormalization;
 
 /** The status half of an agent contribution.
  *

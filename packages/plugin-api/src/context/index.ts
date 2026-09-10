@@ -34,6 +34,8 @@ export type {
   MailReplyInput,
   MailReplyRenderer,
   StatusNormalizer,
+  StatusNormalization,
+  StatusReduction,
   StatusWaitReason,
 } from "./status.ts";
 export {
@@ -41,6 +43,7 @@ export {
   statusSourceInstant,
   turnFailedEvent,
 } from "./status.ts";
+export { updateQuestionCalls, reduceQuestionStatus, type QuestionCalls, type QuestionState } from "./questionCalls.ts";
 export type {
   AccountUsage,
   AgentUsage,

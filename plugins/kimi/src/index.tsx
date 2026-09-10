@@ -18,6 +18,7 @@ import {
 } from "./setupController";
 import { createSetupSection } from "./SetupSection";
 import { normalizeKimiStatus, renderKimiMail } from "./status";
+import { kimiTail } from "./tail";
 import {
   kimiUsageWatches,
   normalizeKimiUsages,
@@ -62,6 +63,7 @@ export function setupNotification(state: SetupState): {
 
 const plugin: KeepDeckPlugin = {
   async activate(ctx) {
+    const history = kimiHistory(ctx);
     ctx.agents.register({
       id: "kimi",
       label: "Kimi Code",
@@ -74,11 +76,8 @@ const plugin: KeepDeckPlugin = {
         tail: { watches: kimiUsageWatches },
         limits: { poll: "kimi-usages", normalize: normalizeKimiUsages },
       },
-      // Turn lifecycle from the companion's hooks — the fullest surface of
-      // the four agents (native Interrupt, PermissionResult, typed
-      // StopFailure), so no out-of-band recovery is needed at all.
-      status: { normalize: normalizeKimiStatus, renderMail: renderKimiMail },
-      history: kimiHistory(ctx),
+      status: { normalize: normalizeKimiStatus, renderMail: renderKimiMail, tail: kimiTail(history) as never },
+      history,
       hooks: {
         "spawn.plan": (input, output) => {
           output.args = [

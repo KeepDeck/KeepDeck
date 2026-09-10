@@ -67,6 +67,9 @@ pub struct TailWatch {
     /// deriving it would mean reading the record — and not reading records is
     /// the whole of this side's job.
     pub lane: TailLane,
+    /// Latest cold metadata may seed the decoder, never publish activity.
+    #[serde(default)]
+    pub replay_context: bool,
     /// A running total to fold over these records and stamp onto each.
     /// Absent for a store that carries its own cumulative, or for records
     /// that are not about numbers at all.
@@ -123,20 +126,31 @@ pub(super) const CARRIED_RECORD: &str = "store.record";
 /// still extract usage, which has not moved yet. A line can satisfy both,
 /// and then it travels twice — once as this side's reading of the numbers,
 /// once as the record the other side will read for itself.
-pub(super) fn watched_event(
+pub(super) fn watched_events(
     line: &[u8],
     watches: &[TailWatch],
     folds: &mut Folds,
-) -> Option<TailedEvent> {
-    let value: Value = serde_json::from_slice(line).ok()?;
-    value.as_object()?;
-    // First match carries. A dialect that wants two readings of one record
-    // says so on its own side, where saying so is cheap; here, trying on
-    // after a hit would send the same record twice under two lanes.
-    watches
-        .iter()
-        .enumerate()
-        .find_map(|(slot, watch)| carry(&value, watch, slot, folds))
+) -> Vec<TailedEvent> {
+    let Ok(value) = serde_json::from_slice::<Value>(line) else {
+        return Vec::new();
+    };
+    if !value.is_object() {
+        return Vec::new();
+    }
+    // First match PER LANE: a context record can describe both execution
+    // mode and usage. Parse its bytes once, retain each lane's projection.
+    let mut lanes = Vec::new();
+    let mut events = Vec::new();
+    for (slot, watch) in watches.iter().enumerate() {
+        if lanes.contains(&watch.lane) {
+            continue;
+        }
+        if let Some(event) = carry(&value, watch, slot, folds) {
+            lanes.push(watch.lane);
+            events.push(event);
+        }
+    }
+    events
 }
 
 fn carry(value: &Value, watch: &TailWatch, slot: usize, folds: &mut Folds) -> Option<TailedEvent> {
@@ -176,6 +190,7 @@ fn carry(value: &Value, watch: &TailWatch, slot: usize, folds: &mut Folds) -> Op
         payload: json!({
             "type": CARRIED_RECORD,
             "record": Value::Object(kept),
+            "replayContext": watch.replay_context,
             "lane": match watch.lane {
                 TailLane::Status => "status",
                 TailLane::Usage => "usage",
@@ -277,7 +292,8 @@ pub(super) fn sibling_paths(directory: &std::path::Path) -> Vec<PathBuf> {
 /// carrying its model and context window BEFORE the one carrying its
 /// numbers, so the window lands before the counts it qualifies.
 ///
-/// Status-lane records do not survive at all. A record read out of the
+/// Status-lane activity records do not survive. Explicit context-only
+/// metadata keeps its latest value to seed the decoder. A record read out of the
 /// existing file describes a turn that ended before this deck was looking,
 /// and replaying it would end the turn running now — so the replay stops
 /// here, in the one place that sees the whole drain, rather than at each of
@@ -286,8 +302,10 @@ pub(super) fn last_of_each(events: Vec<TailedEvent>, watches: &[TailWatch]) -> V
     let mut last: Vec<Option<TailedEvent>> = (0..watches.len()).map(|_| None).collect();
     for event in events {
         let Some(slot) = event.slot else { continue };
-        let Some(watch) = watches.get(slot) else { continue };
-        if watch.lane == TailLane::Status {
+        let Some(watch) = watches.get(slot) else {
+            continue;
+        };
+        if watch.lane == TailLane::Status && !watch.replay_context {
             continue;
         }
         last[slot] = Some(event);
@@ -305,6 +323,7 @@ mod tests {
             clauses,
             keep: keep.iter().map(|k| k.to_string()).collect(),
             lane,
+            replay_context: false,
             sum: None,
         }
     }
@@ -324,7 +343,9 @@ mod tests {
     }
 
     fn carried(line: &[u8], watches: &[TailWatch]) -> Option<TailedEvent> {
-        watched_event(line, watches, &mut Folds::default())
+        watched_events(line, watches, &mut Folds::default())
+            .into_iter()
+            .next()
     }
 
     // Interrupts ride on the record's STRUCTURE, never its prose — and this
@@ -461,11 +482,17 @@ mod tests {
         let watches = std::slice::from_ref(&watch);
         let mut folds = Folds::default();
 
-        let first = watched_event(USAGE_RECORD_LINE.as_bytes(), watches, &mut folds).unwrap();
+        let first = watched_events(USAGE_RECORD_LINE.as_bytes(), watches, &mut folds)
+            .into_iter()
+            .next()
+            .unwrap();
         assert_eq!(first.payload["record"]["sessionTotals"]["output"], 300);
         // The SECOND record carries the running total, not its own count —
         // which is what makes the last record of a catch-up drain enough.
-        let second = watched_event(USAGE_RECORD_LINE.as_bytes(), watches, &mut folds).unwrap();
+        let second = watched_events(USAGE_RECORD_LINE.as_bytes(), watches, &mut folds)
+            .into_iter()
+            .next()
+            .unwrap();
         assert_eq!(second.payload["record"]["sessionTotals"]["output"], 600);
     }
 
@@ -513,10 +540,16 @@ mod tests {
         let watches = vec![context, counts];
         let mut folds = Folds::default();
 
-        let old = watched_event(TURN_CONTEXT_LINE.as_bytes(), &watches, &mut folds).unwrap();
+        let old = watched_events(TURN_CONTEXT_LINE.as_bytes(), &watches, &mut folds)
+            .into_iter()
+            .next()
+            .unwrap();
         let mut newer = old.clone();
         newer.payload["record"]["type"] = "turn_context_newer".into();
-        let count = watched_event(TOKEN_COUNT_LINE.as_bytes(), &watches, &mut folds).unwrap();
+        let count = watched_events(TOKEN_COUNT_LINE.as_bytes(), &watches, &mut folds)
+            .into_iter()
+            .next()
+            .unwrap();
 
         let kept = last_of_each(vec![old, count.clone(), newer.clone()], &watches);
         assert_eq!(kept, vec![newer, count]);
@@ -566,7 +599,9 @@ mod tests {
 
         for case in corpus.cases {
             let line = serde_json::to_vec(&case.record).unwrap();
-            let carried = watched_event(&line, &case.watches, &mut Folds::default());
+            let carried = watched_events(&line, &case.watches, &mut Folds::default())
+                .into_iter()
+                .next();
             match (carried, case.carried) {
                 (None, None) => {}
                 (Some(event), Some(want)) => {
@@ -574,7 +609,10 @@ mod tests {
                     assert_eq!(event.payload["record"], want.record, "{}", case.name);
                 }
                 (Some(event), None) => {
-                    panic!("{}: carried {} when nothing should be", case.name, event.payload)
+                    panic!(
+                        "{}: carried {} when nothing should be",
+                        case.name, event.payload
+                    )
                 }
                 (None, Some(_)) => panic!("{}: carried nothing", case.name),
             }

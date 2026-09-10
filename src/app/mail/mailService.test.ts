@@ -316,4 +316,16 @@ describe("createMailService", () => {
     expect(h.woken).toEqual(["pane-2"]);
     answered();
   });
+
+  it("holds until ALL overlapping hook replies settle, with idempotent release", () => {
+    const h = setup();
+    const first = h.service.expectAsk("pane-2", { reply: "first" });
+    const second = h.service.expectAsk("pane-2", { reply: "second" });
+    h.send("hi");
+    first();
+    first();
+    expect(h.woken).toEqual([]);
+    second();
+    expect(h.woken).toEqual(["pane-2"]);
+  });
 });

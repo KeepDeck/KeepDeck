@@ -104,7 +104,7 @@ describe("a context rebuild", () => {
       { kind: "agent-turn-end", at: 130, id: "summarizer" },
       compacted(140),
     );
-    expect(held?.heldEnd).toBe(120);
+    expect(held?.heldEnd).toEqual({ kind: "turn-end", at: 120 });
     expect(held?.activity).toEqual({ state: "working", since: 100 });
     expect(held?.openAgentTurns).toEqual(new Set(["a"]));
 
