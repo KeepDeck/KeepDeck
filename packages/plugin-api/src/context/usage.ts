@@ -210,8 +210,8 @@ export interface AgentUsage {
  *   numbers has to land before the numbers.
  *
  * Usage first, therefore, and the numbers keep their declared order. A
- * plugin that wants one record read two ways says so in its dialect's
- * `read`, where saying so is cheap.
+ * record may feed both lanes: first-match precedence is scoped to each
+ * lane, so a status metadata watch cannot steal the usage model record.
  */
 export function tailWatches(
   usage: UsageTail | undefined,

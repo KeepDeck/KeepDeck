@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import { answerResolves, reduceStatus } from "./activity";
 
 describe("answerResolves", () => {
+  it("typing is not yet an answer to a free-text question", () => {
+    expect(answerResolves({ state: "waiting", since: 100, reason: "question" })).toBe(false);
+  });
   it("refuses a pane that has reported nothing — unlike the `resumed` edge", () => {
     // The asymmetry IS the whole reason this predicate exists. An agent's
     // own `resumed` starts a phase from no activity, because a completed

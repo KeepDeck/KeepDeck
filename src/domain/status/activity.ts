@@ -347,13 +347,16 @@ function reduceHeldEnd(
  * reported on, a keystroke is just someone typing at a shell, and minting
  * "Working" there would advertise a turn that is not happening.
  *
- * WHICH activities a resume actually moves stays the fold's own call, so
+ * A question also refuses keystrokes: only its tool/interaction result says
+ * the whole answer was submitted. WHICH activities a resume actually moves stays the fold's own call, so
  * that rule keeps its single home: a wait becomes working, and a running or
  * finished turn absorbs the edge unchanged. Re-stating any of that here
  * would be a second copy to keep in step.
  */
 export function answerResolves(activity: PaneActivity | null): boolean {
-  return activity !== null;
+  // Typing part of a free-text answer is not submitting it. Questions have
+  // an authoritative tool/interaction resolution; keep waiting until that.
+  return activity !== null && !(activity.state === "waiting" && activity.reason === "question");
 }
 
 /**
@@ -406,6 +409,8 @@ function reduceActivity(
       }
       return { state: "waiting", since: event.at, reason: event.reason };
     case "resumed":
+      if (current?.state === "waiting" && (event.at < current.since ||
+        (event.reason !== undefined && event.reason !== current.reason))) return current;
       // A resolution resolves a WAIT. Mid-turn it is a no-op (a tool
       // completing while working proves nothing new), and after done or
       // failed it is the answered prompt's echo — resurrecting a turn the

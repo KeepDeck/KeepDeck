@@ -57,9 +57,9 @@ export interface SessionTailDialect<Req, Item> {
    * A LIST, because a store answers with more than one shape: the numbers
    * arrive as one kind of record and the model that qualifies them as
    * another, and joining those into a single condition would need the `or`
-   * this deliberately does not have. Tried in order, and the FIRST match
-   * carries — so a dialect that wants two readings of one record has to say
-   * so in `read`, where saying so is cheap.
+   * this deliberately does not have. Tried in order, the FIRST match in
+   * each lane carries: one record may qualify both usage and status without
+   * either consumer stealing it from the other.
    */
   readonly watches: readonly TailWatch[];
 
@@ -173,6 +173,10 @@ export interface TailWatch {
    * which, so the dialect that named it says.
    */
   readonly lane: TailLane;
+  /** Replay only the latest record of this watch to seed decoder context.
+   * The host suppresses ALL activity edges from such a catch-up report.
+   * For metadata (e.g. execution mode), never for old calls or endings. */
+  readonly replayContext?: boolean;
   /**
    * Fold these records into a running session total, stamped onto each one
    * as it is carried.

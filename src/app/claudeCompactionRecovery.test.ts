@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { normalizeClaudeStatus } from "../../plugins/claude/src/status";
 import { reduceStatus, type PaneStatus } from "../domain/status/activity";
 import { activityBadge } from "../domain/status/format";
+import { normalizeStatusBatch } from "./statusNormalization";
 
 /**
  * The oversize-request recovery, end to end: claude's own hook payloads →
@@ -34,8 +35,8 @@ const receive = (
   event: Record<string, unknown>,
   at: number,
 ): PaneStatus | null => {
-  const edge = normalizeClaudeStatus(report(event), at);
-  return edge === null ? state : reduceStatus(state, edge);
+  return normalizeStatusBatch(normalizeClaudeStatus, [report(event)], at, undefined)
+    .events.reduce(reduceStatus, state);
 };
 
 describe("a session that outgrew its context window", () => {

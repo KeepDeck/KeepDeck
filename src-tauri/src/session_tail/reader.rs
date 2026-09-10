@@ -5,7 +5,7 @@
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 
-use super::dialects::{watched_event, SourceTimestamp, TailWatch, TailedEvent};
+use super::dialects::{watched_events, SourceTimestamp, TailWatch, TailedEvent};
 use super::totals::Folds;
 
 #[derive(Default)]
@@ -82,8 +82,7 @@ pub(super) fn drain_file(
     // Rotation = the file shrank OR it is a different file at the same
     // path (dev/ino changed under an unchanged-or-longer length).
     let identity = file_identity(&metadata);
-    let replaced =
-        matches!((cursor.identity, identity), (Some(a), Some(b)) if a != b);
+    let replaced = matches!((cursor.identity, identity), (Some(a), Some(b)) if a != b);
     let rotated = replaced || len < cursor.offset;
     if rotated {
         cursor.offset = 0;
@@ -121,7 +120,10 @@ pub(super) fn drain_file(
                     &chunk[..read],
                     watches,
                     folds,
-                    Provenance { file_mtime_ms, root },
+                    Provenance {
+                        file_mtime_ms,
+                        root,
+                    },
                     &mut events,
                 );
             }
@@ -193,18 +195,17 @@ fn push_event(
     // alongside a set of arms of our own, and a line satisfying both
     // travelled twice — once as this side's reading of the numbers, once as
     // the record the other side reads for itself. There is only the second.
-    let Some(mut event) = watched_event(line, watches, folds) else {
-        return;
-    };
-    event.source_mtime_ms = from.file_mtime_ms;
-    if event.source_at.is_none() {
-        event.source_at = from.file_mtime_ms.map(SourceTimestamp::UnixMillis);
+    for mut event in watched_events(line, watches, folds) {
+        event.source_mtime_ms = from.file_mtime_ms;
+        if event.source_at.is_none() {
+            event.source_at = from.file_mtime_ms.map(SourceTimestamp::UnixMillis);
+        }
+        // Stamped by the FILE, not by the record: a subagent's abort is the
+        // subagent's own story, and no field of the record it was read from
+        // could say which transcript it came out of.
+        event.root = from.root;
+        events.push(event);
     }
-    // Stamped by the FILE, not by the record: a subagent's abort is the
-    // subagent's own story, and no field of the record it was read from
-    // could say which transcript it came out of.
-    event.root = from.root;
-    events.push(event);
 }
 
 #[cfg(test)]
@@ -228,12 +229,20 @@ mod tests {
             }],
             keep: vec!["type".into()],
             lane: TailLane::Usage,
+            replay_context: false,
             sum: None,
         }]
     }
 
     fn drain(path: &std::path::Path, cursor: &mut TailCursor) -> Vec<TailedEvent> {
-        drain_file(path, cursor, &any_typed_record(), &mut Folds::default(), true).0
+        drain_file(
+            path,
+            cursor,
+            &any_typed_record(),
+            &mut Folds::default(),
+            true,
+        )
+        .0
     }
 
     #[test]

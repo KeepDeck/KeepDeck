@@ -26,6 +26,8 @@
 //!   a torn multi-byte character or half-written line never breaks parsing;
 //!   it completes on the next poll).
 
+#[cfg(test)]
+mod context_tests;
 mod dialects;
 mod reader;
 mod route;
@@ -304,8 +306,8 @@ pub fn usage_watch_session_file(
         for event in events {
             let report = wrap(&s.pane_id, &s.token, &agent, event, true);
             // Through the SAME router as the live path: catch-up safety
-            // rests on two independent rules, the collapse dropping every
-            // status-lane record and the router dropping a replayed one.
+            // rests on the collapse and router dropping old activity.
+            // Opted-in decoder metadata is marked context-only instead.
             deliver_routed(&app, report);
         }
         count
@@ -411,6 +413,7 @@ mod tests {
             }],
             keep: vec!["type".into()],
             lane: TailLane::Usage,
+            replay_context: false,
             sum: None,
         }]
     }
@@ -421,6 +424,7 @@ mod tests {
             clauses: vec![equals("type", "usage.record")],
             keep: vec!["type".into()],
             lane: TailLane::Usage,
+            replay_context: false,
             sum: Some(TailSum {
                 buckets: BTreeMap::from([
                     ("inputOther".to_string(), "usage.inputOther".to_string()),
@@ -439,6 +443,7 @@ mod tests {
             clauses: vec![equals("type", "assistant")],
             keep: vec!["message.id".into()],
             lane: TailLane::Usage,
+            replay_context: false,
             sum: Some(TailSum {
                 buckets: BTreeMap::from([
                     (
@@ -470,6 +475,7 @@ mod tests {
             }],
             keep: vec!["interruptedMessageId".into()],
             lane: TailLane::Status,
+            replay_context: false,
             sum: None,
         }
     }
@@ -835,8 +841,12 @@ mod tests {
     #[test]
     fn reports_carry_the_agent_tag_and_the_catch_up_mark() {
         let watches = any_typed_record();
-        let carry =
-            |line: &[u8]| watched_event(line, &watches, &mut Folds::default()).expect("carried");
+        let carry = |line: &[u8]| {
+            watched_events(line, &watches, &mut Folds::default())
+                .into_iter()
+                .next()
+                .expect("carried")
+        };
 
         let mut state = tail(PathBuf::from("/x/rollout.jsonl"));
         let mut event = carry(TURN_CONTEXT_LINE.as_bytes());

@@ -107,7 +107,9 @@ pub(super) fn route(report: Report) -> Routed {
     }
     // A status edge from a replay is a turn that ended before this deck was
     // looking, and acting on it would end the turn running now.
-    if report.payload[CATCH_UP_KEY] == true {
+    let context_only =
+        report.payload[CATCH_UP_KEY] == true && report.payload[EVENT_KEY]["replayContext"] == true;
+    if report.payload[CATCH_UP_KEY] == true && !context_only {
         return Routed::Drop;
     }
     let mut body = if is_batch {
@@ -121,6 +123,9 @@ pub(super) fn route(report: Report) -> Routed {
         if !report.payload[key].is_null() {
             body[key] = report.payload[key].clone();
         }
+    }
+    if context_only {
+        body["contextOnly"] = json!(true);
     }
     Routed::Status(Report {
         pane_id: report.pane_id,

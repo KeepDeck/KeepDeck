@@ -1,5 +1,6 @@
 import type { AgentStatusEvent, StatusNormalizer } from "@keepdeck/plugin-api";
 import { isRecord } from "../domain/json";
+import { normalizeStatusBatch } from "./statusNormalization";
 import {
   answerResolves,
   reduceStatus,
@@ -88,15 +89,15 @@ export function createAgentStatusTracker(): AgentStatusTracker {
   // The FULL lane state per pane — activity plus the open agent-turn
   // brackets. Only the activity half reaches the snapshot: the brackets are
   // how the fold knows a closing turn is not an ending, not something to
-  // render. Every pane here HAS an activity, so the published map carries
-  // the same keys — callers that read it as the roster of tracked panes
-  // (agentStatusChannel's dead-pane sweep) are right by construction.
+  // render. Decoder checkpoints may exist before the first activity, so
+  // lifecycle cleanup must not use the published map as a process roster.
   let statuses: ReadonlyMap<string, PaneStatus> = new Map();
   let snapshot: StatusSnapshot = { panes: new Map() };
   const listeners = new Set<() => void>();
   const rebuilt = new Set<(paneId: string) => void>();
   const normalizers = new Map<string, StatusNormalizer>();
   const epochs = new Map<string, object>();
+  const decoderStates = new Map<string, { normalize: StatusNormalizer; state: unknown }>();
 
   /**
    * The ONE way this store moves: adopt the next state, project it, and
@@ -147,11 +148,16 @@ export function createAgentStatusTracker(): AgentStatusTracker {
           agent, kind: "store.record", record,
         }))
       : [payload];
-    const normalizeAll = (reply?: string) => payloads
-      .map((item) => normalize(item, at, { reply }))
-      .filter((edge): edge is AgentStatusEvent => edge !== null);
-    const edges = normalizeAll();
-    if (edges.length === 0) return ignored;
+    const stateNow = () => {
+      const held = decoderStates.get(paneId);
+      return held?.normalize === normalize ? held.state : undefined;
+    };
+    const normalizeAll = (reply?: string) => normalizeStatusBatch(
+      normalize, payloads, at, stateNow(), reply, payload.contextOnly === true,
+    );
+    const initial = normalizeAll();
+    const edges = initial.events;
+    if (edges.length === 0 && initial.state === stateNow()) return ignored;
     const preview = edges.reduce(reduceStatus, previous);
     if (!epochs.has(paneId) || (preview !== previous && edges.some((edge) =>
       edge.kind === "turn-start" || edge.kind === "turn-observed"))) {
@@ -165,11 +171,15 @@ export function createAgentStatusTracker(): AgentStatusTracker {
         if (finished) return;
         finished = true;
         if (epochs.get(paneId) !== epoch || normalizers.get(agent) !== normalize) return;
-        const settled = reply === undefined ? edges : normalizeAll(reply);
+        // Rebase decoding on the latest committed checkpoint: metadata can
+        // arrive while a hook reply is in flight. Preview never consumed it.
+        const settled = normalizeAll(reply);
+        if (settled.state === undefined) decoderStates.delete(paneId);
+        else decoderStates.set(paneId, { normalize, state: settled.state });
         // A delayed start must not overwrite a newer wait or ending. Once
         // other evidence has arrived it obeys the source-time start guard.
         const current = statuses.get(paneId) ?? null;
-        const guarded = settled.map((edge): AgentStatusEvent =>
+        const guarded = settled.events.map((edge): AgentStatusEvent =>
           current !== previous && edge.kind === "turn-start"
             ? { kind: "turn-observed", at: edge.at } : edge);
         for (const edge of guarded) {
@@ -207,6 +217,7 @@ export function createAgentStatusTracker(): AgentStatusTracker {
 
     clear(paneId) {
       epochs.delete(paneId);
+      decoderStates.delete(paneId);
       if (!statuses.has(paneId)) return;
       const next = new Map(statuses);
       next.delete(paneId);
@@ -214,6 +225,9 @@ export function createAgentStatusTracker(): AgentStatusTracker {
     },
 
     retain(liveIds) {
+      for (const id of decoderStates.keys()) {
+        if (!liveIds.has(id)) decoderStates.delete(id);
+      }
       for (const id of epochs.keys()) {
         if (!liveIds.has(id)) epochs.delete(id);
       }

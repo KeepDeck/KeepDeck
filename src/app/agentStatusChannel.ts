@@ -33,12 +33,12 @@ export interface PaneKeyPort {
 /**
  * App-lifetime wiring of agent status into the tracker — the sibling of
  * [`createUsageChannel`], with the same duties folded into one module
- * because status has no tails, no polling and no persistence:
+ * because its tail reports arrive on the same verified bus as hooks:
  *
  * - plugin `status.normalize` declarations ⇄ tracker registrations;
  * - the user's own answer to a waiting agent, read off their keystrokes —
  *   the one edge minted from what the host SEES rather than from what an
- *   agent reports, because no CLI reports it;
+ *   agent reports, for approval prompts without an answer event;
  * - bridge reports through the shared verification — WITH the live-process
  *   requirement: activity is a claim about a running process, and a hook
  *   envelope that outlives its process (a Stop racing a crash) must not
@@ -155,16 +155,20 @@ export function createAgentStatusChannel(
   // rung it would render forever. The orchestrator's own retire owns the
   // deliberate teardowns (suspend, close, restart).
   const clearDeadPanes = () => {
-    for (const paneId of tracker.getSnapshot().panes.keys()) {
-      const kind = sessions.state(paneId).kind;
-      if (kind === "exited" || kind === "failed") tracker.clear(paneId);
+    // Metadata can exist before a published activity. Sweep the pane roster,
+    // not the activity snapshot, or a restarted pane inherits the old mode.
+    for (const workspace of deck.getSnapshot().workspaces) {
+      for (const { id } of workspace.panes) {
+        const kind = sessions.state(id).kind;
+        if (kind === "exited" || kind === "failed") tracker.clear(id);
+      }
     }
   };
   const unsubscribeSessions = sessions.subscribe(clearDeadPanes);
   clearDeadPanes();
 
-  // The user's own answer. A CLI reports the question it parks on and never
-  // the answer — measured on codex 0.146, the next hook after its approval
+  // The user's own approval answer. Some CLIs report the prompt but not
+  // its resolution — measured on codex 0.146, the next hook after its approval
   // prompt is the approved tool's COMPLETION, and claude's normalizer states
   // the same gap — so a pane keeps claiming "Needs approval" for as long as
   // the approved command runs. This is the only edge the host mints from
@@ -172,7 +176,9 @@ export function createAgentStatusChannel(
   // belongs here beside the reports and not in a plugin.
   //
   // Reading the question back is not answering it, so navigation resolves
-  // nothing; anything else the user presses does. Erring that way is
+  // nothing; other keys may resolve an approval. Tool-backed questions are
+  // excluded by answerResolves: typing text or advancing one question is not
+  // a submitted answer. Erring that way for approvals is
   // deliberate: a wait cleared early self-corrects on claude (its idle nudge
   // re-raises) and is settled by the agent's own edge on codex, while a wait
   // left standing over an answered prompt is the silent lie this exists to

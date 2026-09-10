@@ -36,7 +36,7 @@ export type AgentStatusEvent =
   | { kind: "waiting"; at: number; reason: StatusWaitReason }
   /** The wait resolved and the turn is running again. Only CLIs with a
    * resolution event emit this; for the rest the next edge settles it. */
-  | { kind: "resumed"; at: number }
+  | { kind: "resumed"; at: number; reason?: StatusWaitReason }
   /** The CLI closed its turn, but work that turn STARTED is still running
    * and WILL WAKE the session again when it finishes (claude's background
    * agents). Work that merely outlives the turn is not enough — a process
@@ -110,7 +110,18 @@ export type AgentStatusEvent =
    * the user has already acted on is merely a loud one. */
   | { kind: "context-compacted"; at: number };
 
-/** A per-agent normalizer: raw bridge status payload → one edge, or null
+/** A plugin's immutable decoding checkpoint, scoped to one pane generation.
+ * Correlating a tool result with its call or reading a mode set by an earlier
+ * record belongs to the CLI adapter, not to the host's activity rules. */
+export interface StatusReduction {
+  readonly kind: "status-reduction";
+  readonly state: unknown;
+  readonly events: readonly AgentStatusEvent[];
+}
+
+export type StatusNormalization = AgentStatusEvent | StatusReduction | null;
+
+/** A per-agent normalizer: raw bridge status payload → edges, or null
  * when the payload is not a tracked event. Pure; time is injected.
  *
  * HOST-owned payload keys: `agent` dispatches, `kind: "store.record"`
@@ -120,12 +131,15 @@ export type AgentStatusEvent =
  * `context.reply` is the output successfully delivered to this hook, if any.
  * Only the plugin knows whether that output continues the turn. The host may
  * call twice: once to preview the event for mail handover, then to settle it
- * with the delivered reply. Neither call may mutate state. */
+ * with the delivered reply. Neither call may mutate state. `state` is the
+ * last committed StatusReduction checkpoint, undefined for a fresh pane.
+ * Return a new checkpoint when it changes, even if no activity edge results.
+ * Context-only catch-up records may seed it but never publish activity. */
 export type StatusNormalizer = (
   payload: unknown,
   at: number,
-  context?: { readonly reply?: string },
-) => AgentStatusEvent | null;
+  context?: { readonly reply?: string; readonly state?: unknown },
+) => StatusNormalization;
 
 /** The status half of an agent contribution.
  *
