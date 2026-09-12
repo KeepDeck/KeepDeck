@@ -21,10 +21,7 @@ type Spawn = (
 function setup(spawn?: Spawn) {
   const calls: string[] = [];
   const reports: string[] = [];
-  const told: { paneId: string; body: string }[] = [];
   const deps = {
-    announce: (paneId: string, _kind: "team", body: string) =>
-      told.push({ paneId, body }),
     settleRoster: (
       _ws: string,
       teamId: string,
@@ -37,7 +34,7 @@ function setup(spawn?: Spawn) {
     spawn: spawn ?? (async () => "pane-new"),
     report: (title: string) => reports.push(title),
   };
-  return { deps, calls, reports, told };
+  return { deps, calls, reports };
 }
 
 const plan = (over: Partial<TeamPlan> = {}): TeamPlan => ({
@@ -83,7 +80,6 @@ describe("applyTeamPlan", () => {
       plan({ recruits: [{ agentType: "claude", role: "impl-1", yolo: false }] }),
     );
     expect(spawn).toHaveBeenCalledWith("ws-1", "team-1", "claude", false, "impl-1");
-    expect(h.told.map((entry) => entry.paneId)).toEqual(["pane-9"]);
   });
 
   it("carries each recruit's OWN yolo answer, not the global default", async () => {
@@ -126,61 +122,17 @@ describe("applyTeamPlan", () => {
     expect(h.reports).toEqual(['Could not start claude as “impl-1”']);
   });
 
-  it("tells every member its role and who else it can write to", async () => {
-    // An agent cannot work this out for itself — nothing about its own
-    // process says it has teammates — so it has to be told at the moment
-    // it becomes true, or the feature exists and nobody uses it.
-    const h = setup();
-    await applyTeamPlan(
-      h.deps,
-      "ws-1",
-      plan({
-        members: [
-          { paneId: "pane-1", role: "lead" },
-          { paneId: "pane-2", role: "impl-1" },
-        ],
-      }),
-    );
-    expect(h.told.map((t) => t.paneId)).toEqual(["pane-1", "pane-2"]);
-    expect(h.told[0].body).toContain('as "lead"');
-    expect(h.told[0].body).toContain("impl-1");
-    // "KeepDeck team", never a bare "team": asked what its team was, a
-    // briefed agent answered about its own subagents instead, because the
-    // word already means those to it.
-    expect(h.told[0].body).toContain("KeepDeck team");
-    expect(h.told[0].body).toContain("not your subagents");
-    // ...and never names itself among the teammates it can write to.
-    expect(h.told[0].body).not.toMatch(/by role:[^\n]*lead/);
-    expect(h.told[1].body).toContain('as "impl-1"');
-    expect(h.told[1].body).toContain("lead");
-  });
+  // What every member is TOLD is no longer this owner's: the briefing follows
+  // membership off the deck (`membershipWatch`, pinned in mailService.test),
+  // so a roster written here and a recruit landed here are briefed the same
+  // way a member added through any other door is — and a recruit whose
+  // start failed never reaches the deck, so no briefing ever names it.
 
-  it("names only teammates that actually landed", async () => {
-    // A briefing naming an agent whose spawn failed would send someone
-    // writing into nothing.
-    const h = setup(async () => {
-      throw new Error("the team is full");
-    });
-    await applyTeamPlan(
-      h.deps,
-      "ws-1",
-      plan({
-        members: [{ paneId: "pane-1", role: "lead" }],
-        recruits: [{ agentType: "claude", role: "impl-1", yolo: false }],
-      }),
-    );
-    expect(h.told).toHaveLength(1);
-    expect(h.told[0].body).not.toContain("impl-1");
-    expect(h.told[0].body).toContain("only member");
-  });
-
-  it("records the roles even with nothing running to tell", async () => {
-    // The feature's toggle can be off; membership is still deck state.
+  it("records the roles with nothing else to do", async () => {
+    // Membership is deck state, whether or not anything is running to tell.
     const h = setup();
-    const deps = { ...h.deps, announce: undefined };
-    await applyTeamPlan(deps, "ws-1", plan({ members: [{ paneId: "pane-1", role: "lead" }] }));
+    await applyTeamPlan(h.deps, "ws-1", plan({ members: [{ paneId: "pane-1", role: "lead" }] }));
     expect(h.calls).toEqual(['settle team-1 "api" pane-1=lead']);
-    expect(h.told).toEqual([]);
   });
 
   it("reports a refusal that answered with no pane", async () => {
@@ -192,7 +144,6 @@ describe("applyTeamPlan", () => {
       "ws-1",
       plan({ recruits: [{ agentType: "claude", role: "impl-1", yolo: false }] }),
     );
-    expect(h.told).toEqual([]);
     expect(h.reports).toHaveLength(1);
   });
 
@@ -225,7 +176,6 @@ describe("applyTeamPlan", () => {
       }),
     );
     expect(attempt).toBe(2);
-    expect(h.told.map((entry) => entry.paneId)).toEqual(["pane-9"]);
     expect(h.reports).toHaveLength(1);
   });
 });

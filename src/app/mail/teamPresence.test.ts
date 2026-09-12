@@ -10,6 +10,7 @@ function setup(
   const rebuilds = new Set<(paneId: string) => void>();
   const catalog = new Set<() => void>();
   const roster = new Set<() => void>();
+  const moves = new Set<(paneIds: readonly string[]) => void>();
   const presence = createTeamPresence({
     standingOf: standing,
     announce: (paneId, body) => said.push({ paneId, body }),
@@ -20,6 +21,10 @@ function setup(
     onContextRebuilt: (listener) => {
       rebuilds.add(listener);
       return () => rebuilds.delete(listener);
+    },
+    onMembershipChanged: (listener) => {
+      moves.add(listener);
+      return () => moves.delete(listener);
     },
     onCatalogChanged: (listener) => {
       catalog.add(listener);
@@ -38,6 +43,7 @@ function setup(
     compacted: (paneId: string) => rebuilds.forEach((l) => l(paneId)),
     catalogChanged: () => catalog.forEach((l) => l()),
     rosterChanged: () => roster.forEach((l) => l()),
+    membershipMoved: (paneIds: string[]) => moves.forEach((l) => l(paneIds)),
   };
 }
 
@@ -58,6 +64,16 @@ describe("createTeamPresence", () => {
     expect(h.said[0].paneId).toBe("pane-1");
     expect(h.said[0].body).toContain('as "lead"');
     expect(h.said[0].body).toContain("impl-1");
+  });
+
+  it("says it for every pane a roster change names — the first time it is said at all", () => {
+    // A pane lands on a team, a teammate joins or leaves: the deck's one
+    // writer of membership moved, and the watch names the whole roster of
+    // every team it moved on. Each hears where it stands NOW, read fresh.
+    const h = setup(() => ON_TEAM);
+    h.membershipMoved(["pane-1", "pane-2"]);
+    expect(h.said.map((s) => s.paneId)).toEqual(["pane-1", "pane-2"]);
+    expect(h.said[0].body).toContain('as "lead"');
   });
 
   it("says it again when the context is compacted out from under it", () => {

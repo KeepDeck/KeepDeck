@@ -409,24 +409,21 @@ describe("team.assign", () => {
     if (!clash.ok) expect(clash.error.message).toContain("a role is an address");
   });
 
-  it("briefs the agent whose role changed, and re-briefs the rest of the roster", async () => {
-    // Recording the role alone built teams whose members never learned they
-    // were on one: they held an address nobody had told them about, and
-    // nothing would tell them until a fresh session happened to restate it.
-    const { registry, mail } = setup(true);
+  it("records the role that changed, and briefs nobody from here", async () => {
+    // Recording the role alone once built teams whose members never learned
+    // they were on one, and this command briefed them itself to close that.
+    // It was the second of two producers, reading the roster from the plan
+    // because the deck "might not have caught up" — and the first, the
+    // roster dialog, was deleted with its call. The briefing now follows
+    // MEMBERSHIP off the deck (`membershipWatch`), for this door and every
+    // other; the command's whole job is the roster write.
+    const { registry, mail, workspaces } = setup(true);
     const lead = from("pane-1", "ws-1", "Agent 1");
     await run(registry, "team.assign", { agent: "pane-2", role: "impl-2" }, lead);
 
-    const reroled = mail.takeAtTurnEnd("pane-2");
-    expect(reroled.map((message) => message.kind)).toEqual(["team"]);
-    expect(reroled[0].body).toContain('as "impl-2"');
-    // And the lead hears the roster it now leads. One message, not two:
-    // standing context supersedes itself, so what waits is always the
-    // current roster and never a history of it.
-    const leadBriefs = mail.takeAtTurnEnd("pane-1");
-    expect(leadBriefs).toHaveLength(1);
-    expect(leadBriefs[0].body).toContain("impl-2");
-    expect(leadBriefs[0].body).not.toContain("impl-1");
+    expect(workspaces[0].panes[1].team).toEqual({ teamId: "team-1", role: "impl-2" });
+    expect(mail.takeAtTurnEnd("pane-2")).toEqual([]);
+    expect(mail.takeAtTurnEnd("pane-1")).toEqual([]);
   });
 
   it("refuses a member with no role, and an agent asked for nothing", async () => {

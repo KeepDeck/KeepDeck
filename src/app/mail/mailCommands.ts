@@ -65,16 +65,14 @@ export interface MailCommandDeps {
  * What applying a roster means, from here.
  *
  * The one owner of applying a roster (`applyTeamPlan`), with the ports an
- * AGENT-driven settle can honestly supply: it records the roles and
- * re-briefs everyone whose roster changed. It cannot start an agent — a
- * roster settle asks for none, and a plan that did would say so rather than
- * skip it silently.
+ * AGENT-driven settle can honestly supply: it records the roles. It cannot
+ * start an agent — a roster settle asks for none, and a plan that did would
+ * say so rather than skip it silently. Whoever's roster changed hears about
+ * it the way every membership change is heard: off the deck, not from here.
  */
 function rosterPorts(deps: MailCommandDeps): TeamSetupDeps {
   return {
     settleRoster: deps.settleRoster,
-    // Always live here: these commands exist only while the feature is on.
-    announce: (paneId, kind, body) => deps.mail.announce(paneId, kind, body),
     report: (title, message) => log.warn("web:mail", `${title}: ${message}`),
   };
 }

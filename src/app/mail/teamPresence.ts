@@ -8,9 +8,11 @@
  * Either way the agent is still ON the team and has no idea — which is
  * worse than never being told, because the deck now believes it knows.
  *
- * So the briefing is a standing fact the deck RE-STATES whenever the memory
- * of it may have gone. Not on a timer and not per turn: only on the two
- * moments that actually erase it, both of which the deck already observes.
+ * So the briefing is a standing fact the deck STATES when a pane's standing
+ * is written — it lands on a team, a teammate joins or leaves — and
+ * RE-STATES whenever the memory of it may have gone. Not on a timer and not
+ * per turn: only on the moments that make it true or erase it, all of which
+ * the deck already observes.
  *
  * A pane on no team is silent, so this costs nothing for anyone not using
  * the feature.
@@ -37,6 +39,12 @@ export interface TeamPresenceDeps {
   onSessionBegan(listener: (paneId: string) => void): () => void;
   /** A pane whose context was rebuilt under it. */
   onContextRebuilt(listener: (paneId: string) => void): () => void;
+  /** Panes whose team's roster MOVED — one landed, left or changed role —
+   * named as the whole roster of every team it happened to. This is how a
+   * pane hears where it stands in the first place: read off the deck, the
+   * one writer of membership, rather than called by whichever door wrote
+   * it. See `membershipWatch`. */
+  onMembershipChanged(listener: (paneIds: readonly string[]) => void): () => void;
   /** The role catalog changed — the charters and summaries every live
    * briefing was built from may no longer be what the deck believes. */
   onCatalogChanged(listener: () => void): () => void;
@@ -85,6 +93,13 @@ export function createTeamPresence(deps: TeamPresenceDeps): { dispose(): void } 
   const unsubscribes = [
     deps.onSessionBegan(restate("began a fresh session")),
     deps.onContextRebuilt(restate("had its context rebuilt")),
+    // The briefing's FIRST statement, and every re-statement a roster change
+    // owes: the newcomer hears where it stands, and everyone already there
+    // hears the roster that now names it. Standing context supersedes itself
+    // in the queue, so a pane touched twice holds one briefing.
+    deps.onMembershipChanged((paneIds) => {
+      for (const paneId of paneIds) restate("moved on its team's roster")(paneId);
+    }),
     // One event, many panes: unlike the two signals above this one names
     // nobody, so the walk over the teamed panes lives here. `restate`
     // re-reads each standing, and standing context supersedes itself in

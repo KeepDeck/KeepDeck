@@ -30,6 +30,7 @@ import { correlationOf, createHookReplies, type HookReplies } from "./hookReply"
 import { registerMailCommands, type MailCommandDeps } from "./mailCommands";
 import { createMailManager, type MailManager } from "./mailManager";
 import { createMailWake } from "./wakeChannel";
+import { createMembershipWatch } from "./membershipWatch";
 import { createTeamPresence } from "./teamPresence";
 
 /**
@@ -44,6 +45,10 @@ export interface MailServiceDeps {
   deck: {
     workspaces(): readonly Workspace[];
     subscribe(listener: () => void): () => void;
+    /** Whether the deck is still being read back from disk. A restore is
+     * not a membership change: the teams it brings were briefed when they
+     * formed, and their panes resume sessions that were told. */
+    restoring(): boolean;
     settleRoster: MailCommandDeps["settleRoster"];
     /** Which CLI a pane runs, or null when the deck no longer holds it. */
     agentTypeOf(paneId: string): string | null;
@@ -184,10 +189,21 @@ export function createMailService(deps: MailServiceDeps): MailService {
     reply: deps.bridge.reply,
   });
 
-  // Re-states a pane's standing whenever its memory of it may have gone — a
-  // fresh conversation, or a compaction. Built below and torn down with
-  // everything else, so a disposed service leaves no subscription at all
-  // rather than a live one whose every announcement lands on a dead manager.
+  // Membership, read off the deck — its one writer — so a briefing follows
+  // a landing whichever door made it: the dialog, `team.add`, `agent.spawn`,
+  // a roster settled over MCP. A door used to call the briefing itself, and
+  // the call was lost with the door.
+  const membership = createMembershipWatch({
+    workspaces: deps.deck.workspaces,
+    subscribe: deps.deck.subscribe,
+    restoring: deps.deck.restoring,
+  });
+
+  // States a pane's standing when it is written, and re-states it whenever
+  // its memory of it may have gone — a fresh conversation, or a compaction.
+  // Built below and torn down with everything else, so a disposed service
+  // leaves no subscription at all rather than a live one whose every
+  // announcement lands on a dead manager.
   const startPresence = () =>
     createTeamPresence({
       standingOf: (paneId) => {
@@ -210,6 +226,7 @@ export function createMailService(deps: MailServiceDeps): MailService {
       announce: (paneId, body) => manager.announce(paneId, "team", body),
       onSessionBegan: deps.onSessionBegan,
       onContextRebuilt: deps.status.onContextRebuilt,
+      onMembershipChanged: membership.onChanged,
       onCatalogChanged: deps.onRoleCatalogChanged,
       onRosterChanged: deps.deck.subscribe,
       teamedPanes: () =>
@@ -305,6 +322,7 @@ export function createMailService(deps: MailServiceDeps): MailService {
       unsubscribeAgents();
       unregister();
       presence.dispose();
+      membership.dispose();
       manager.dispose();
     },
   };

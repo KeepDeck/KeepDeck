@@ -60,6 +60,7 @@ function setup() {
           paneListeners.add(listener);
           return () => paneListeners.delete(listener);
         },
+        restoring: () => false,
         settleRoster: () => {},
         agentTypeOf: (paneId: string) => agentTypes[paneId] ?? "claude",
       },
@@ -135,6 +136,17 @@ function setup() {
       panes = kept;
       for (const listener of [...paneListeners]) listener();
     },
+    /** The deck's roster after a membership write — a pane landed on a team,
+     * left one, or changed role. The deck is the ONE writer of membership,
+     * so this is the only signal a briefing may hang off. */
+    rosterBecomes(next: Pane[]) {
+      panes = next;
+      for (const listener of [...paneListeners]) listener();
+    },
+    /** The bodies waiting for a pane through the labelled channel, so a test
+     * can read WHAT a briefing says, not only that one is there. */
+    bodiesFor: (paneId: string) =>
+      (service.current()?.takeAtTurnEnd(paneId) ?? []).map((mail) => mail.body),
     send: (body: string) =>
       registry.execute("mail.send", { to: "pane-2", kind: "note", body }, SENDER),
   };
@@ -327,5 +339,96 @@ describe("createMailService", () => {
     expect(h.woken).toEqual([]);
     second();
     expect(h.woken).toEqual(["pane-2"]);
+  });
+});
+
+/**
+ * RED until the briefing hangs off MEMBERSHIP rather than off whichever
+ * caller happened to write it.
+ *
+ * Since 65681639 (0.22.0) the doors — "+ Участник", `team.add`,
+ * `agent.spawn` — land a pane on a team and nobody tells the agent where it
+ * stands: the one caller of `applyTeamPlan` left is the MCP `team.assign`,
+ * and the standing-presence re-states only on a session CHANGE. Membership
+ * has exactly one writer, the deck, so the fact "this pane is now on that
+ * team" is the signal a briefing must follow — whatever door wrote it.
+ *
+ * Nothing here says HOW: a roster diff on the deck subscription, or an
+ * explicit membership port the runtime feeds. What is pinned is the
+ * observable contract: land → briefed, join → everyone re-briefed, leave →
+ * the rest re-briefed, and an unrelated deck change briefs nobody.
+ */
+describe("mail service — a briefing follows membership", () => {
+  const lead = (): Pane =>
+    ({ id: "pane-1", team: { teamId: "team-1", role: "lead" } }) as Pane;
+  const impl = (): Pane =>
+    ({ id: "pane-2", team: { teamId: "team-1", role: "impl-1" } }) as Pane;
+
+  it("briefs a pane the moment the deck shows it on a team — before any session event", () => {
+    // Synchronous with the membership write, on purpose: the briefing has
+    // to be in the queue BEFORE the pane's process boots and asks on
+    // SessionStart. Queued a moment later, the first ask is answered
+    // "nothing waiting" and the brief rides a later boundary — or never,
+    // for an agent whose only ask is the first one.
+    const h = setup();
+    h.rosterBecomes([lead(), impl()]);
+    expect(h.waitingFor("pane-2")).toEqual(["team"]);
+  });
+
+  it("re-briefs the members already there when one joins, so the roster names the newcomer", () => {
+    // A briefing states the roster, and a roster with a member missing sends
+    // the lead writing to nobody. The plan-driven path already told
+    // EVERYONE who landed (teamSetup.ts); this is the same promise, kept
+    // for a join that arrives through any door.
+    const h = setup();
+    h.rosterBecomes([lead(), impl()]);
+    const bodies = h.bodiesFor("pane-1");
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]).toContain("impl-1");
+  });
+
+  it("re-briefs the rest when a member leaves, so nobody keeps writing to a dead address", () => {
+    // Found while reading why teammates under-communicate: no re-brief on a
+    // LEAVE, so the roster kept naming an address whose pane was gone.
+    const h = setup();
+    h.rosterBecomes([lead(), impl()]);
+    // Both briefed on the join; take those out of the way.
+    h.waitingFor("pane-1");
+    h.waitingFor("pane-2");
+
+    h.rosterBecomes([lead()]);
+    const bodies = h.bodiesFor("pane-1");
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]).not.toContain("impl-1");
+  });
+
+  it("re-briefs the roster when a member's role changes — the team.assign door", () => {
+    // A roster settled over MCP writes roles and nothing else; the briefing
+    // follows the write off the deck like every other membership change.
+    const h = setup();
+    h.rosterBecomes([lead(), impl()]);
+    h.waitingFor("pane-1");
+    h.waitingFor("pane-2");
+
+    h.rosterBecomes([lead(), { ...impl(), team: { teamId: "team-1", role: "reviewer-1" } } as Pane]);
+    expect(h.bodiesFor("pane-2")[0]).toContain('as "reviewer-1"');
+    const leadBriefs = h.bodiesFor("pane-1");
+    expect(leadBriefs).toHaveLength(1);
+    expect(leadBriefs[0]).toContain("reviewer-1");
+    expect(leadBriefs[0]).not.toContain("impl-1");
+  });
+
+  it("briefs nobody on a deck change that moved no membership", () => {
+    // GREEN today and the guard for the fix: a naive "re-brief on every deck
+    // notification" would hand a teamed pane a briefing per title change,
+    // per activity tick, per anything the deck publishes.
+    const h = setup();
+    h.rosterBecomes([lead(), impl()]);
+    h.waitingFor("pane-1");
+    h.waitingFor("pane-2");
+
+    h.rosterBecomes([{ ...lead(), name: "renamed" }, impl()]);
+    expect(h.waitingFor("pane-1")).toEqual([]);
+    expect(h.waitingFor("pane-2")).toEqual([]);
   });
 });
