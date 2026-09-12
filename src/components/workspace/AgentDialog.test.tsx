@@ -3,6 +3,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentDialog } from "./AgentDialog";
+import { roleChoiceView } from "../../presentation/roleChoiceView";
 import * as dirPresenceModule from "../history/useDirPresence";
 import { createSessionIndexManager } from "../../app/sessionIndexManager";
 import type {
@@ -200,7 +201,7 @@ describe("AgentDialog worktree location flow", () => {
           defaultAgentType: "claude" as const,
           remoteEnabled: false,
           target: { kind: "new-team" as const, suggestedName: "Team 3" },
-          heldRoles: [] as string[],
+          roles: roleChoiceView([]),
           defaultYolo: false,
           repo: { cwd: "/repo", branch: "main" },
           suggestedPath: "/base/kd-ws-2",
@@ -485,7 +486,7 @@ describe("AgentDialog agent picker", () => {
           defaultAgentType: "claude" as const,
           remoteEnabled: false,
           target: MEMBER,
-          heldRoles: [] as string[],
+          roles: roleChoiceView([]),
           defaultYolo: false,
           repo: null,
           suggestedPath: "",
@@ -536,7 +537,7 @@ describe("AgentDialog YOLO toggle", () => {
           defaultAgentType: "claude" as const,
           remoteEnabled: false,
           target: MEMBER,
-          heldRoles: [] as string[],
+          roles: roleChoiceView([]),
           defaultYolo,
           repo: null,
           suggestedPath: "",
@@ -650,7 +651,7 @@ describe("AgentDialog start-from session picker", () => {
           defaultAgentType: "claude" as const,
           remoteEnabled: false,
           target: MEMBER,
-          heldRoles: [] as string[],
+          roles: roleChoiceView([]),
           defaultYolo: false,
           repo: { cwd: "/repo", branch: "main" },
           suggestedPath: "",
@@ -974,7 +975,7 @@ describe("AgentDialog start-from paging", () => {
           defaultAgentType: "claude" as const,
           remoteEnabled: false,
           target: MEMBER,
-          heldRoles: [] as string[],
+          roles: roleChoiceView([]),
           defaultYolo: false,
           repo: { cwd: "/repo", branch: "main" },
           suggestedPath: "",
@@ -1030,7 +1031,7 @@ describe("AgentDialog start-from paging", () => {
           defaultAgentType: "claude" as const,
           remoteEnabled: false,
           target: MEMBER,
-          heldRoles: [] as string[],
+          roles: roleChoiceView([]),
           defaultYolo: false,
           repo: { cwd: "/repo", branch: "main" },
           suggestedPath: "",
@@ -1084,7 +1085,7 @@ describe("AgentDialog start-from paging", () => {
           defaultAgentType: "claude" as const,
           remoteEnabled: false,
           target: MEMBER,
-          heldRoles: [] as string[],
+          roles: roleChoiceView([]),
           defaultYolo: false,
           repo: { cwd: "/repo", branch: "main" },
           suggestedPath: "",
@@ -1175,7 +1176,7 @@ describe("AgentDialog cross-agent pick guard", () => {
           defaultAgentType: "claude" as const,
           remoteEnabled: false,
           target: MEMBER,
-          heldRoles: [] as string[],
+          roles: roleChoiceView([]),
           defaultYolo: false,
           repo: { cwd: "/repo", branch: "main" },
           suggestedPath: "",
@@ -1290,7 +1291,7 @@ describe("remote gating (Experimental setting)", () => {
       root.render(
         createElement(AgentDialog, {
           target: MEMBER,
-          heldRoles: [] as string[],
+          roles: roleChoiceView([]),
           defaultAgentType: agent as AgentDialogResult["agentType"],
           defaultYolo: false,
           remoteEnabled,
@@ -1342,7 +1343,7 @@ describe("remote gating (Experimental setting)", () => {
           defaultAgentType: "codex" as const,
           remoteEnabled: true,
           target: MEMBER,
-          heldRoles: [] as string[],
+          roles: roleChoiceView([]),
           defaultYolo: false,
           repo: null,
           suggestedPath: "",
@@ -1476,7 +1477,7 @@ describe("AgentDialog picker ↔ sessionIndexManager (integration)", () => {
           defaultAgentType: "claude" as const,
           remoteEnabled: false,
           target: MEMBER,
-          heldRoles: [] as string[],
+          roles: roleChoiceView([]),
           defaultYolo: false,
           repo: { cwd: "/repo", branch: "main" },
           suggestedPath: "",

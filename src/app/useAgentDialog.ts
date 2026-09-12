@@ -16,15 +16,11 @@ import {
   firstFreeTeamWorktree,
   membersOf,
   nextTeamSeq,
-  paneFromAgentRequest,
   paneId,
   parentDir,
   sessionClaimant,
-  WORKSPACE_GONE_MESSAGE,
-  placementRefusalMessage,
   type Workspace,
 } from "../domain/deck";
-import { createRefusalMessage } from "./agentOrchestrator";
 import { handleFromHit } from "../domain/journal";
 import { describeError } from "../ipc/log";
 import { indexSearch } from "../ipc/history";
@@ -40,12 +36,16 @@ import {
 } from "./newAgentDefaults";
 import { useAppRuntime } from "./runtimeContext";
 import type { DirectoryHolder } from "./agentOrchestrator";
+import type { DoorName, DoorOutcome } from "./agentDoors";
+import { roleChoiceView, type RoleChoice } from "../presentation/roleChoiceView";
 import type { Deck } from "./useDeck";
 
-/** Where a "Start from" continuation reports its failure. A continuation the
- * user asked for must fail VISIBLY — a dialog that just closes reads as
- * success — and confirm is synchronous, so the notice is a callback rather
- * than a rejected promise the caller would have to remember to catch. */
+/** Where a door's refusal is heard. A door the person opened must fail
+ * VISIBLY — a dialog that just closes reads as success — and `confirm`
+ * answers nothing, so the notice is a callback rather than a rejected
+ * promise the caller would have to remember to catch. Which door refused,
+ * and in what words, is the owner's answer (`agentDoors`); this only says
+ * where each is heard. */
 export interface AgentDialogNotices {
   onResumeFailed(message: string): void;
   onForkFailed(message: string): void;
@@ -87,9 +87,9 @@ export interface AgentDialogSpec {
   /** What the dialog is for — a new team with a suggested name, or a member
    * of a team that exists, named so the title can say so. */
   target: AgentDialogTarget;
-  /** The addresses the target team already holds — what the role picker
-   * mints against. Empty for a new team. */
-  heldRoles: readonly string[];
+  /** The role picker's data, built against what the target team holds —
+   * the view decides nothing about roles itself. */
+  roles: RoleChoice;
   defaultAgentType: AgentType;
   /** The YOLO toggle's starting position ([F6] global preference). */
   defaultYolo: boolean;
@@ -107,11 +107,12 @@ export interface AgentDialogSpec {
 }
 
 /**
- * Owns the agent dialog flow: open the dialog with per-workspace suggestions,
- * then turn its result into a pane — bare (main repo), attached to an existing
- * worktree, or a fresh worktree created at the chosen path ([F2]). The fresh
- * worktree lands optimistically: the pane joins the grid as a provisioning
- * card at once and the create runs in the background.
+ * The agent dialog's presentation: opens it with per-workspace suggestions,
+ * hands a confirmed result to the doors (`agentDoors` — what a confirmed
+ * dialog DOES lives there, with its landings and its refusal words), and
+ * shows the answer — a notice for a refusal, a standing question for a
+ * directory another team works in. What this hook holds is UI state and the
+ * form's data sources; it decides nothing about teams, roles or landings.
  */
 export function useAgentDialog(
   deck: Deck,
@@ -129,7 +130,7 @@ export function useAgentDialog(
    * omits it, compiles, and tells the user a dead pane is running again. */
   blockedPanes: Record<string, string>,
 ) {
-  const { orchestrator } = useAppRuntime();
+  const { agentDoors } = useAppRuntime();
   const [dialog, setDialog] = useState<AgentDialogSpec | null>(null);
   /** The open "create anyway?" question, if one is standing. */
   const [sharedAsk, setSharedAsk] = useState<SharedDirectoryAsk | null>(null);
@@ -172,8 +173,8 @@ export function useAgentDialog(
           // Null while the create is out: nothing to resume in or fork into.
           cwd: team.location?.kind === "attached" ? team.location.cwd : null,
         },
-        heldRoles: membersOf(ws, team.id).flatMap((member) =>
-          member.team ? [member.team.role] : [],
+        roles: roleChoiceView(
+          membersOf(ws, team.id).flatMap((member) => (member.team ? [member.team.role] : [])),
         ),
         defaultAgentType: defaultType,
         defaultYolo: getSettings()?.defaultYolo ?? false,
@@ -228,7 +229,7 @@ export function useAgentDialog(
         suggestedName: autoTeamName(nextTeamSeq(deckRef.current.workspaces)),
       },
       // A new team holds nothing yet: the picker opens on the lead.
-      heldRoles: [],
+      roles: roleChoiceView([]),
       defaultAgentType: defaultType,
       defaultYolo: getSettings()?.defaultYolo ?? false,
       remoteEnabled: getSettings()?.remoteAgents === true,
@@ -238,128 +239,78 @@ export function useAgentDialog(
     });
   };
 
+  /** Which notice a refused door reports through — the one presentation
+   * decision left here: the owner says WHICH door refused and in what
+   * words; the surface says where that is heard. */
+  const notice = (door: DoorName, message: string) => {
+    switch (door) {
+      case "team":
+        notices.onTeamFailed(message);
+        return;
+      case "member":
+        notices.onCreateFailed(message);
+        return;
+      case "resume":
+        notices.onResumeFailed(message);
+        return;
+      case "fork":
+        notices.onForkFailed(message);
+        return;
+      default: {
+        const unhandled: never = door;
+        throw new Error(`unhandled door: ${JSON.stringify(unhandled)}`);
+      }
+    }
+  };
+
+  /** Show a door's answer: nothing for done, a notice for a refusal, and
+   * the standing question for a directory another team works in — whose
+   * answer re-issues the owner's own create and shows THAT answer. */
+  const show = (outcome: DoorOutcome): void => {
+    switch (outcome.kind) {
+      case "done":
+        return;
+      case "refused":
+        notice(outcome.door, outcome.message);
+        return;
+      case "ask-shared":
+        setSharedAsk({
+          holder: outcome.holder,
+          path: outcome.path,
+          confirm: () => {
+            setSharedAsk(null);
+            show(outcome.anyway());
+          },
+          cancel: () => setSharedAsk(null),
+        });
+        return;
+      default: {
+        const unhandled: never = outcome;
+        throw new Error(`unhandled door outcome: ${JSON.stringify(unhandled)}`);
+      }
+    }
+  };
+
   const confirm = (result: AgentDialogResult) => {
-    const { name, yolo, session } = result;
     const dlg = dialog;
     if (!dlg) return;
+    // Closed first, whatever the door answers: a refusal is a notice and a
+    // question is its own dialog, and neither stacks on top of this one.
     setDialog(null);
-    const currentDeck = deckRef.current;
-    const ws = findWorkspaceByRef(currentDeck.workspaces, dlg.workspace);
-    if (!ws) {
-      // The workspace this dialog opened for is gone. Say so here rather than
-      // returning quietly: the dialog has already closed, so silence is an
-      // agent the user asked for that simply never appears. The landing would
-      // refuse it too, but this path never reaches the landing.
-      notices.onCreateFailed(WORKSPACE_GONE_MESSAGE);
-      return;
-    }
-    const paneName = name.trim() || undefined;
-    // The request's directory, as the domain reads the dialog's location: the
-    // root, an existing directory, or a create heading for one.
-    const request = paneFromAgentRequest(dlg.agentId, result, ws, dlg.index);
-
-    if (dlg.target.kind === "new-team") {
-      // A team and nothing else: no agent lands here. The team just born is
-      // where the person's attention is, so the stage drills into it — an
-      // empty grid with the way to its first member.
-      const teamName = result.teamName ?? dlg.target.suggestedName;
-      // Issued twice at most: once as asked, and once more carrying the
-      // answer to "another team works here — create anyway?".
-      const make = (shared?: true) => {
-        const made = orchestrator.createTeam({
-          workspace: dlg.workspace,
-          name: teamName,
-          placement: request.placement,
-          ...(shared && { shared }),
-        });
-        switch (made.kind) {
-          case "created":
-            deckRef.current.openTeam(dlg.workspace.id, made.teamId);
-            break;
-          case "gone":
-            notices.onTeamFailed(WORKSPACE_GONE_MESSAGE);
-            break;
-          case "shared":
-            // Not a failure: the person has not been asked yet. Asked here
-            // rather than guarded in the form, because only the create knows
-            // WHOSE the directory is — and the answer is a decision, not a
-            // correction to make in a field.
-            setSharedAsk({
-              holder: made.holder,
-              path: made.directory,
-              confirm: () => {
-                setSharedAsk(null);
-                make(true);
-              },
-              cancel: () => setSharedAsk(null),
-            });
-            break;
-          case "held":
-            notices.onTeamFailed(placementRefusalMessage(made.why));
-            break;
-          case "taken":
-            notices.onTeamFailed(
-              `A team called “${teamName.trim()}” already exists here.`,
-            );
-            break;
-          default: {
-            const unhandled: never = made;
-            throw new Error(`unhandled team outcome: ${JSON.stringify(unhandled)}`);
-          }
-        }
-      };
-      make();
-      return;
-    }
-
-    const { teamId, cwd } = dlg.target;
-    // "Start from" a picked session: a continuation, not a fresh pane. The
-    // orchestrator owns plan-building, the claim re-check and the landing.
-    // A member runs where its team runs: a resume is offered only for a
-    // session recorded in the team's directory (it runs where it was
-    // recorded), and a fork copies the session INTO that directory.
-    // The role the person picked rides every way in, and the landing honours
-    // it or refuses it — never swaps it for another behind their back; a
-    // refusal comes back as a notice like every other landing refusal.
-    const role = result.role !== undefined ? { role: result.role } : {};
-    if (session) {
-      if (session.mode === "resume") {
-        void orchestrator
-          .resumeSession(dlg.workspace.id, session.handle, {
-            name: paneName,
-            yolo,
-            ...role,
-          })
-          .catch((e: unknown) => notices.onResumeFailed(describeError(e)));
-        return;
-      }
-      if (cwd === null) {
-        notices.onForkFailed("the team's directory is not there yet");
-        return;
-      }
-      void orchestrator
-        .forkSession(dlg.workspace.id, session.handle, { kind: "dir", cwd }, {
-          name: paneName,
-          yolo,
-          ...role,
-        })
-        .catch((e: unknown) => notices.onForkFailed(describeError(e)));
-      return;
-    }
-    // A fresh member: the pane the request describes, handed to the one
-    // owner of what arriving in a workspace entails, joining its team by id
-    // — the directory is the team's, not the dialog's to choose.
-    const landed = orchestrator.createPane({
-      workspace: dlg.workspace,
-      pane: request.pane,
-      team: teamId,
-      ...role,
-    });
-    // `gone` is reachable here too: the guard above reads this render's deck,
-    // the landing re-resolves against the live store, and a workspace can
-    // close in between. Whatever the refusal, it is said in the one spelling
-    // every door uses.
-    if (landed.kind !== "created") notices.onCreateFailed(createRefusalMessage(landed));
+    void agentDoors
+      .confirm({
+        workspace: dlg.workspace,
+        agentId: dlg.agentId,
+        index: dlg.index,
+        target: dlg.target,
+        result,
+      })
+      .then(show, (error: unknown) =>
+        // The owner answers refusals as outcomes; a throw is a defect on its
+        // side. Heard rather than swallowed — the dialog is already closed,
+        // and an unhandled rejection is silence to the person.
+        notice(dlg.target.kind === "new-team" ? "team" : "member", describeError(error)),
+      );
   };
 
   /**
