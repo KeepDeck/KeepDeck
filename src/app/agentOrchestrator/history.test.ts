@@ -281,7 +281,7 @@ describe("agent orchestrator —continuing a recorded session", () => {
     expect(ws.teams?.map((team) => team.name)).toEqual(["api", "Team 2"]);
   });
 
-  it("takes the role asked for when the team has it free, and suggests one past a held address", async () => {
+  it("takes the role asked for when the team has it free, and refuses one past a held address", async () => {
     // The session's directory is a team's, with its lead on it: a resume
     // joins THAT team, under the address the person picked.
     act(() => {
@@ -299,13 +299,23 @@ describe("agent orchestrator —continuing a recorded session", () => {
     const first = deck.workspaces[0].panes.find((pane) => pane.session?.id === "s-1")!;
     expect(first.team).toEqual({ teamId: "team-1", role: "reviewer-1" });
 
-    // A singleton the team already holds is not written twice: the roster
-    // suggests the next free address instead of a second lead.
-    await act(async () =>
-      agentRun.resumeSession("ws-1", handle({ sessionId: "s-2" }), { role: "lead" }),
-    );
+    // Asked for nothing, the roster suggests the next free address.
+    await act(async () => agentRun.resumeSession("ws-1", handle({ sessionId: "s-2" })));
     const second = deck.workspaces[0].panes.find((pane) => pane.session?.id === "s-2")!;
     expect(second.team).toEqual({ teamId: "team-1", role: "impl-1" });
+
+    // A singleton the team already holds is REFUSED, the same as at every
+    // other door — never quietly rewritten to the next free address, which
+    // handed the person a role they did not pick under a "created" answer.
+    // Last in the test on purpose: in this harness an `act` that follows a
+    // rejected one renders against a stale root, and the leak reaches the
+    // NEXT test's deck.
+    await expect(
+      act(async () =>
+        agentRun.resumeSession("ws-1", handle({ sessionId: "s-3" }), { role: "lead" }),
+      ),
+    ).rejects.toThrow('role "lead" is taken');
+    expect(deck.workspaces[0].panes.find((pane) => pane.session?.id === "s-3")).toBeUndefined();
   });
 
   it("fails a full team loudly instead of stranding the built plan", async () => {

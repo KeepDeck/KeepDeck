@@ -10,15 +10,11 @@ import {
   MAX_PANES,
   nextTeamSeq,
   normalizePath,
-  roleTaken,
   teamHeldPath,
   teamId,
   teamNameTaken,
   teamOfPane,
   teamsOf,
-  placementRefusalMessage,
-  TEAM_FULL_MESSAGE,
-  WORKSPACE_GONE_MESSAGE,
   type DirectoryClaim,
   type Pane,
   type PlacementRefusal,
@@ -26,7 +22,8 @@ import {
   type TeamLocation,
   type Workspace,
 } from "../../domain/deck";
-import { suggestRoleAddress } from "../../domain/mail";
+import { admitRole } from "../../domain/mail";
+import { createRefusalMessage } from "./refusals";
 import { createWorkspaceInstance, type WorkspaceRef } from "../../domain/workspaceInstance";
 import { log } from "../../ipc/log";
 import type {
@@ -335,30 +332,21 @@ export function createAgentOrchestratorCreation({
   }
 
   /** Put `pane` on the landing's team: the team minted when fresh, the
-   * membership written under a role the dialog would suggest, and a fresh
-   * team's create issued — only once the deck confirms the pane is ON the
-   * team. The transforms refuse silently and answer the same array, so the
-   * deck is read back rather than trusted: a create issued for a team the
-   * deck refused would make a worktree nobody could ever name. Answers
-   * whether the pane landed on the team. */
+   * membership written under the role already admitted ([`admitRole`] —
+   * the one rule, asked before anything is written), and a fresh team's
+   * create issued — only once the deck confirms the pane is ON the team.
+   * The transforms refuse silently and answer the same array, so the deck
+   * is read back rather than trusted: a create issued for a team the deck
+   * refused would make a worktree nobody could ever name. Answers whether
+   * the pane landed on the team. */
   function join(
     current: Workspace,
     pane: Pane,
     landing: { team: Team & { location: TeamLocation }; fresh: boolean },
     postProvision: CreatePaneRequest["postProvision"],
-    /** The role the caller had in mind; taken when free on the team. */
-    asked?: string,
+    role: string,
   ): boolean {
     const { team, fresh } = landing;
-    const wanted = asked?.trim();
-    const role =
-      wanted && !roleTaken(current, team.id, wanted)
-        ? wanted
-        : suggestRoleAddress(
-            membersOf(current, team.id).flatMap((member) =>
-              member.team ? [member.team.role] : [],
-            ),
-          );
     if (fresh) actions.createTeam(current.id, team);
     actions.joinTeam(current.id, pane.id, team.id, role);
     const settled = findWorkspaceByRef(deck.getSnapshot().workspaces, {
@@ -408,8 +396,14 @@ export function createAgentOrchestratorCreation({
     if (!current) return refuse(pane.id, { kind: "gone" });
     const landing = resolveRequest(workspaces, current, request);
     if ("refusal" in landing) return refuse(pane.id, refusalOutcome(landing));
+    // The role is admitted BEFORE the pane is written: a refused role adds
+    // nothing to take back out.
+    const admitted = admitRole(current, landing.team.id, request.role);
+    if (!admitted.ok) {
+      return refuse(pane.id, { kind: "role", why: admitted.why, role: admitted.role });
+    }
     actions.addAgentPane(current.id, pane);
-    if (!join(current, pane, landing, postProvision, request.role)) {
+    if (!join(current, pane, landing, postProvision, admitted.role)) {
       // Never a pane on no team reported as created: the pane goes back
       // out, and the caller hears a refusal.
       actions.closeAgent(current.id, pane.id);
@@ -435,25 +429,18 @@ export function createAgentOrchestratorCreation({
     }
     // A pane holds ONE team: joining the new one is leaving the old one,
     // and a roster the old membership alone kept alive is pruned with it.
-    if (!join(current, pane, landing, undefined)) return { kind: "held", why: "refused" };
+    // Nobody asked for a role here, so the roster suggests one; the pane's
+    // own current address does not count as held.
+    const admitted = admitRole(current, landing.team.id, undefined, pane.id);
+    if (!admitted.ok) return { kind: "role", why: admitted.why, role: admitted.role };
+    if (!join(current, pane, landing, undefined, admitted.role)) {
+      return { kind: "held", why: "refused" };
+    }
     return { kind: "created", teamId: landing.team.id };
   }
 
   function landOrThrow(outcome: CreatePaneOutcome): void {
-    switch (outcome.kind) {
-      case "created":
-        return;
-      case "full":
-        throw new Error(TEAM_FULL_MESSAGE);
-      case "gone":
-        throw new Error(WORKSPACE_GONE_MESSAGE);
-      case "held":
-        throw new Error(placementRefusalMessage(outcome.why));
-      default: {
-        const unhandled: never = outcome;
-        throw new Error(`unhandled create outcome: ${JSON.stringify(unhandled)}`);
-      }
-    }
+    if (outcome.kind !== "created") throw new Error(createRefusalMessage(outcome));
   }
 
   /** A workspace is born EMPTY: nothing spawns here, so nothing is provisioned

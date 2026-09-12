@@ -20,11 +20,11 @@ import {
   paneId,
   parentDir,
   sessionClaimant,
-  TEAM_FULL_MESSAGE,
   WORKSPACE_GONE_MESSAGE,
   placementRefusalMessage,
   type Workspace,
 } from "../domain/deck";
+import { createRefusalMessage } from "./agentOrchestrator";
 import { handleFromHit } from "../domain/journal";
 import { describeError } from "../ipc/log";
 import { indexSearch } from "../ipc/history";
@@ -318,8 +318,9 @@ export function useAgentDialog(
     // A member runs where its team runs: a resume is offered only for a
     // session recorded in the team's directory (it runs where it was
     // recorded), and a fork copies the session INTO that directory.
-    // The role the person picked rides every way in: the landing takes it
-    // while it is free on the team and suggests one otherwise.
+    // The role the person picked rides every way in, and the landing honours
+    // it or refuses it — never swaps it for another behind their back; a
+    // refusal comes back as a notice like every other landing refusal.
     const role = result.role !== undefined ? { role: result.role } : {};
     if (session) {
       if (session.mode === "resume") {
@@ -356,24 +357,9 @@ export function useAgentDialog(
     });
     // `gone` is reachable here too: the guard above reads this render's deck,
     // the landing re-resolves against the live store, and a workspace can
-    // close in between.
-    switch (landed.kind) {
-      case "full":
-        notices.onCreateFailed(TEAM_FULL_MESSAGE);
-        break;
-      case "gone":
-        notices.onCreateFailed(WORKSPACE_GONE_MESSAGE);
-        break;
-      case "held":
-        notices.onCreateFailed(placementRefusalMessage(landed.why));
-        break;
-      case "created":
-        break;
-      default: {
-        const unhandled: never = landed;
-        throw new Error(`unhandled create outcome: ${JSON.stringify(unhandled)}`);
-      }
-    }
+    // close in between. Whatever the refusal, it is said in the one spelling
+    // every door uses.
+    if (landed.kind !== "created") notices.onCreateFailed(createRefusalMessage(landed));
   };
 
   /**

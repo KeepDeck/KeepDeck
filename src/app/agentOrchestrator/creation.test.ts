@@ -979,3 +979,123 @@ describe("agent orchestrator —a team born empty", () => {
     expect(deck.workspaces[0].teams).toHaveLength(1);
   });
 });
+
+/**
+ * RED until the landing admits a role by ONE rule, in one place.
+ *
+ * "A role is an address: known to the catalog, unique on its team" is
+ * decided four times today, with three different answers. The `team.add`
+ * command throws on a taken or unknown role (coreCommands/spawn.ts,
+ * `askedRole`); `planTeam` refuses; the reducer silently writes nothing; and
+ * THIS landing quietly hands out another role (`suggestRoleAddress`) — so a
+ * caller that asked for `impl-1` can be given `impl-2` and told "created",
+ * and a role the catalog has never heard of lands as-is, with no charter to
+ * brief.
+ *
+ * The policy pinned here is the command door's, because it is the only one
+ * that tells the truth: a role that was ASKED FOR is honoured or refused,
+ * never substituted; a role nobody asked for is suggested. The refusal's
+ * exact shape is the fix's to choose — these tests only insist that it is
+ * not "created", and that nothing landed.
+ */
+describe("agent orchestrator —a role at the landing", () => {
+  let root: Root;
+
+  beforeEach(() => {
+    resetPaneSpawnSpecs();
+    ipc.probeWorktree.mockReset().mockResolvedValue({
+      exists: true,
+      isWorktree: false,
+      empty: false,
+      branch: null,
+    });
+    catalog.ready = true;
+    catalog.parkOnLaunch = false;
+    pty.reset();
+    document.body.innerHTML = "<div id='host'></div>";
+    root = createRoot(document.getElementById("host")!);
+    act(() => root.render(createElement(Probe)));
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+  });
+
+  const instance = () => deck.workspaces[0].instance;
+  /** One team on an attached directory, with `pane-1` already `impl-1`. */
+  const teamWithImpl = (): DeckState => ({
+    workspaces: [
+      {
+        id: "ws-1",
+        instance: createWorkspaceInstance(),
+        name: "ws",
+        cwd: "/repo",
+        worktreeBaseDir: "/wt",
+        panes: [
+          {
+            id: "pane-1",
+            agentType: "claude",
+            team: { teamId: "team-1", role: "impl-1" },
+          },
+        ],
+        teams: [{ id: "team-1", name: "api", location: { kind: "attached", cwd: "/wt/a" } }],
+      },
+    ],
+    activeId: "ws-1",
+    journal: emptyJournal,
+    viewByWs: {},
+  });
+  const recruit = (): Pane => ({ id: "pane-9", agentType: "claude" });
+
+  it("refuses an asked role that is taken on the team, instead of quietly handing out another", async () => {
+    act(() => deck.hydrate(teamWithImpl()));
+    let outcome: ReturnType<typeof agentRun.createPane> | undefined;
+    await act(async () => {
+      outcome = agentRun.createPane({
+        workspace: { id: "ws-1", instance: instance() },
+        pane: recruit(),
+        team: "team-1",
+        role: "impl-1",
+      });
+    });
+    expect(outcome?.kind).not.toBe("created");
+    expect(deck.workspaces[0].panes.map((pane) => pane.id)).toEqual(["pane-1"]);
+  });
+
+  it("refuses a role the catalog does not know — a holder with no charter cannot be briefed", async () => {
+    act(() => deck.hydrate(teamWithImpl()));
+    let outcome: ReturnType<typeof agentRun.createPane> | undefined;
+    await act(async () => {
+      outcome = agentRun.createPane({
+        workspace: { id: "ws-1", instance: instance() },
+        pane: recruit(),
+        team: "team-1",
+        role: "wizard-1",
+      });
+    });
+    expect(outcome?.kind).not.toBe("created");
+    expect(deck.workspaces[0].panes.map((pane) => pane.id)).toEqual(["pane-1"]);
+  });
+
+  it("suggests a role only when none was asked for", async () => {
+    // GREEN today — the other half of the policy, so the fix cannot answer
+    // the two above by refusing everything.
+    act(() => deck.hydrate(teamWithImpl()));
+    let outcome: ReturnType<typeof agentRun.createPane> | undefined;
+    await act(async () => {
+      outcome = agentRun.createPane({
+        workspace: { id: "ws-1", instance: instance() },
+        pane: recruit(),
+        team: "team-1",
+      });
+    });
+    expect(outcome).toEqual({ kind: "created", teamId: "team-1" });
+    const landed = deck.workspaces[0].panes.find((pane) => pane.id === "pane-9");
+    // WHICH free role the roster suggests is the domain's rule
+    // (`suggestRoleAddress`, pinned in its own suite); here only that one
+    // was suggested and that it is not the address already taken.
+    expect(landed?.team?.teamId).toBe("team-1");
+    expect(landed?.team?.role).toBeDefined();
+    expect(landed?.team?.role).not.toBe("impl-1");
+  });
+});

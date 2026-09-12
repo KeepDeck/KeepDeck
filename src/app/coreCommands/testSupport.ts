@@ -21,7 +21,7 @@ import {
   teamNameTaken,
   type Workspace,
 } from "../../domain/deck";
-import { suggestRoleAddress } from "../../domain/mail";
+import { admitRole } from "../../domain/mail";
 import type { PaneActivity } from "../../domain/status";
 import { createWorkspaceInstance } from "../../domain/workspaceInstance";
 import type {
@@ -178,12 +178,15 @@ export function setup(workspaces: Workspace[]) {
           },
         ];
       }
-      const taken = ws.panes
-        .filter((candidate) => candidate.team?.teamId === teamId)
-        .map((candidate) => candidate.team!.role);
-      if (taken.length >= MAX_PANES) return { kind: "full" };
-      const chosen = role && !taken.includes(role) ? role : suggestRoleAddress(taken);
-      ws.panes.push({ ...pane, team: { teamId, role: chosen } });
+      if (ws.panes.filter((candidate) => candidate.team?.teamId === teamId).length >= MAX_PANES) {
+        return { kind: "full" };
+      }
+      // The one rule the real landing asks, asked here too rather than
+      // re-spelled: a hand-rolled "taken → suggest" lived here once and
+      // answered "created" for a role the landing would refuse.
+      const admitted = admitRole(ws, teamId, role);
+      if (!admitted.ok) return { kind: "role", why: admitted.why, role: admitted.role };
+      ws.panes.push({ ...pane, team: { teamId, role: admitted.role } });
       return { kind: "created", teamId };
     },
   );

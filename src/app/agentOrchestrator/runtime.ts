@@ -12,12 +12,10 @@ import {
   paneBranch,
   paneProvisioning,
   remoteEndpointOf,
-  TEAM_FULL_MESSAGE,
-  WORKSPACE_GONE_MESSAGE,
-  placementRefusalMessage,
 } from "../../domain/deck";
 import { describeError, log } from "../../ipc/log";
 import { createDeckActions, type DeckActions } from "../deckActions";
+import { createRefusalMessage } from "./refusals";
 import {
   buildLivePaneSpec,
   buildResumeSpec,
@@ -533,12 +531,7 @@ export function createAgentOrchestratorRuntime(
         { kind: "attached", cwd: workspace.cwd },
       );
       if (moved.kind !== "created") {
-        const why =
-          moved.kind === "full"
-            ? TEAM_FULL_MESSAGE
-            : moved.kind === "held"
-              ? placementRefusalMessage(moved.why)
-              : WORKSPACE_GONE_MESSAGE;
+        const why = createRefusalMessage(moved);
         log.warn("web:orchestrator", `${paneId}: start fresh refused — ${why}`);
         runView.markWakeFailed(paneId, why);
         publish();
