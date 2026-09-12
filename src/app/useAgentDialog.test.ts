@@ -10,6 +10,7 @@ import {
 } from "../domain/deck";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import { inspectRepo } from "../ipc/worktree";
+import { createAgentDoors } from "./agentDoors";
 import { useAgentDialog } from "./useAgentDialog";
 import { AppRuntimeProvider } from "./runtimeContext";
 import type { AppRuntime } from "./runtime";
@@ -90,8 +91,21 @@ const createTeam = vi.fn<(request: CreateTeamRequest) => CreateTeamOutcome>(() =
   kind: "created",
   teamId: "team-1",
 }));
+/** The deck the current Host was mounted with — what the doors owner reads
+ * and enters teams through, exactly as the hook's own deck argument. */
+let currentDeck: Deck;
 const runtime = {
   orchestrator: { createPane, createTeam, resumeSession, forkSession },
+  // The doors owner over the same doubles: what the hook asks when a dialog
+  // is confirmed. Its own decisions are pinned in agentDoors.test; here the
+  // subject is what the hook OFFERS it and how it shows the answer.
+  agentDoors: createAgentDoors({
+    orchestrator: { createPane, createTeam, resumeSession, forkSession },
+    deck: {
+      workspaces: () => currentDeck.workspaces,
+      openTeam: (wsId, teamId) => currentDeck.openTeam(wsId, teamId),
+    },
+  }),
 } as unknown as AppRuntime;
 /** Where a failed continuation reports. A dialog that just closes on a failed
  * fork reads as success, so the wiring is worth asserting. */
@@ -107,10 +121,12 @@ const mountHost = (
   root: Root,
   Host: (props: { deck: Deck }) => null,
   deck: Deck,
-) =>
-  root.render(
+) => {
+  currentDeck = deck;
+  return root.render(
     createElement(AppRuntimeProvider, { runtime }, createElement(Host, { deck })),
   );
+};
 
 describe("useAgentDialog suggestions", () => {
   let host: HTMLElement;
@@ -686,10 +702,12 @@ describe("useAgentDialog targets", () => {
     expect(inspectRepo).not.toHaveBeenCalled();
     expect(flow.dialog).toMatchObject({
       target: { kind: "member", teamId: "team-1", teamName: "api", cwd: "/base/kd-KeepDeck-1" },
-      heldRoles: ["lead"],
       repo: null,
       suggestedPath: "",
     });
+    // The picker's data is built against the roster the team holds.
+    expect(flow.dialog!.roles.defaultId).toBe("impl");
+    expect(flow.dialog!.roles.addressFor("impl")).toBe("impl-1");
 
     await act(async () => flow.confirm({ ...fresh(), role: "impl-1" }));
     expect(offered()).toMatchObject({ team: "team-1", role: "impl-1" });
@@ -760,8 +778,8 @@ describe("useAgentDialog targets", () => {
     await act(async () => flow.openFor(ws));
     expect(flow.dialog).toMatchObject({
       target: { kind: "new-team", suggestedName: "Team 2" },
-      heldRoles: [],
     });
+    expect(flow.dialog!.roles.defaultId).toBe("lead");
 
     await act(async () =>
       flow.confirm({

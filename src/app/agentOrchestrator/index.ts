@@ -8,6 +8,7 @@ import type {
   WorktreeTarget,
 } from "../../domain/deck";
 import type { SessionHandle } from "../../domain/journal";
+import type { RoleRefusal } from "../../domain/mail";
 import type { WorkspaceRef } from "../../domain/workspaceInstance";
 import type { WorkspaceCreationResult } from "../deckActions";
 import type { DeckStore } from "../deckStore";
@@ -72,8 +73,9 @@ export interface AgentOrchestrator {
    * nothing is erased — the ordinary exit card takes over. */
   dismissOccupied(paneId: string): void;
   /** Continue a journal session in a new pane. `role` is the address the
-   * pane asks for on the team it lands on — taken when free, else the roster
-   * suggests one. */
+   * pane asks for on the team it lands on — honoured when the catalog knows
+   * it and it is free, refused otherwise ([`admitRole`], thrown as the
+   * refusal's words); absent, the roster suggests one. */
   resumeSession(
     wsId: string,
     record: SessionHandle,
@@ -153,8 +155,9 @@ export interface CreatePaneRequest {
    * included. Wins over `placement`. A team that is not here, holds no
    * directory, or is being closed refuses `held`. */
   team?: string;
-  /** The role the pane takes on its team, when the caller has one in mind;
-   * used when free on the team, else the roster suggests one. */
+  /** The role the pane takes on its team, when the caller has one in mind:
+   * honoured when the catalog knows it and it is free on the team, refused
+   * otherwise (`role`). Absent, the roster suggests one. */
   role?: string;
   /** The name for a team the landing MINTS — when the caller is creating
    * one and named it; the pane's own name otherwise. Ignored when the pane
@@ -176,8 +179,12 @@ export type CreatePaneOutcome =
   | { kind: "full" }
   /** The directory the pane asked for is nothing it can land on — `why`
    * says which of the reasons it was, so every door tells the truth in the
-   * same words ([`placementRefusalMessage`]). */
-  | { kind: "held"; why: PlacementRefusal };
+   * same words ([`createRefusalMessage`]). */
+  | { kind: "held"; why: PlacementRefusal }
+  /** The role the pane asked for cannot be its address on that team: it is
+   * taken, or the catalog does not know it. Refused, never replaced — a
+   * role asked for is honoured or refused ([`admitRole`]). */
+  | { kind: "role"; why: RoleRefusal; role: string };
 
 /** A team born with its directory and nobody on it — the "+ Team" door.
  * Agents come later, each through `createPane` naming the team. */
@@ -267,6 +274,7 @@ export type ResumeRequest =
  * Owned by the MCP feature, and passed straight through to the spawn plan;
  * re-exported so the orchestrator's own deps read in one place. */
 export type { McpAccessAsk };
+export { createRefusalMessage, type CreateRefusal } from "./refusals";
 
 /** Delay staged-skill lookup until a spawn plan is actually built. */
 export type StagedSkillsAsk = (

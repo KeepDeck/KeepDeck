@@ -7,4 +7,5 @@ export * from "./model";
 export * from "./collection";
 export * from "./transforms";
 export * from "./lifecycle";
+export * from "./membership";
 export * from "./placement";

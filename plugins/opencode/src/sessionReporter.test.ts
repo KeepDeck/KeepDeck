@@ -62,6 +62,8 @@ const client = {
 describe("opencode session reporter", () => {
   let dir: string;
   let deck: Awaited<ReturnType<typeof startDeck>>;
+  /** The runner's own approvals mode, if it has one — put back after. */
+  let ambientSkipsApprovals: string | undefined;
 
   beforeEach(async () => {
     resetPaneSession();
@@ -74,10 +76,24 @@ describe("opencode session reporter", () => {
       token: "tok",
       url: deck.url,
     });
+    // The reporter reads its pane's launch mode from the environment, and
+    // this suite says which mode each case is in. Run from INSIDE a pane
+    // that skips approvals — an agent running the tests in a YOLO pane —
+    // the variable is already there, inherited by the runner, and every
+    // case then reads as that pane rather than as itself: the dialogs a
+    // normal pane forwards went missing, deterministically, on one
+    // machine and never on another. Owned here like KEEPDECK_BRIDGE is.
+    ambientSkipsApprovals = process.env.KEEPDECK_OPENCODE_SKIPS_APPROVALS;
+    delete process.env.KEEPDECK_OPENCODE_SKIPS_APPROVALS;
   });
 
   afterEach(async () => {
     delete process.env.KEEPDECK_BRIDGE;
+    if (ambientSkipsApprovals === undefined) {
+      delete process.env.KEEPDECK_OPENCODE_SKIPS_APPROVALS;
+    } else {
+      process.env.KEEPDECK_OPENCODE_SKIPS_APPROVALS = ambientSkipsApprovals;
+    }
     await deck.close();
     rmSync(dir, { recursive: true, force: true });
   });

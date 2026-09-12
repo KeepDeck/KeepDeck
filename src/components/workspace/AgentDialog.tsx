@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   agentRemoteSchemes,
   agentSessionCapabilities,
@@ -17,7 +17,7 @@ import {
   type SessionPickRow,
   type SessionStartMode,
 } from "../../domain/agents";
-import { defaultRoleFor, mintRoleAddress, roleById, teamRoles } from "../../domain/mail";
+import type { RoleChoice } from "../../presentation/roleChoiceView";
 import { rowKeyOf } from "../../domain/journal/sessionRow";
 import { formatAge } from "../../domain/usage/format";
 import { useAgents } from "../../app/useAgents";
@@ -41,10 +41,11 @@ interface AgentDialogProps {
    * directory, so no location is asked, and fresh only: a continuation
    * lands where its session was recorded, which is a team of its own. */
   target: AgentDialogTarget;
-  /** The addresses the target team already holds — what the role picker
-   * mints the new address against, and what tells it a singleton (the
-   * lead) is already taken. Empty for a new team. */
-  heldRoles: readonly string[];
+  /** The role picker's data, built against what the target team holds:
+   * the roles on offer, the one to open on, and the address each pick
+   * would mint (null for a singleton the team already has). Data, so the
+   * view decides nothing about roles itself. */
+  roles: RoleChoice;
   /** Pre-selected agent type. */
   defaultAgentType: AgentType;
   /** The YOLO toggle's starting position (the global preference); shown only
@@ -127,7 +128,7 @@ interface AgentDialogProps {
  */
 export function AgentDialog({
   target,
-  heldRoles,
+  roles,
   defaultAgentType,
   defaultYolo,
   remoteEnabled,
@@ -155,18 +156,12 @@ export function AgentDialog({
     target.kind === "new-team" ? target.suggestedName : "",
   );
   // The role — picked, never typed: it carries what the member is FOR, and
-  // that only exists for a role the catalog has. Opens on what the deck
-  // would give unasked: the lead where the team has none, else the next
-  // implementer, or a peer among peers. The ADDRESS is minted from the pick
-  // against the roster (`impl-2` past a held `impl-1`); a singleton the
-  // team already holds mints nothing, and the form says so.
-  const [roleId, setRoleId] = useState(() => defaultRoleFor(heldRoles).id);
-  const roleOptions = useMemo(
-    () => teamRoles().map((role) => ({ value: role.id, label: role.label })),
-    [],
-  );
-  const pickedRole = roleById(roleId);
-  const roleAddress = pickedRole ? mintRoleAddress(pickedRole, heldRoles) : null;
+  // that only exists for a role the catalog has. Which role the picker
+  // opens on and which ADDRESS a pick mints (`impl-2` past a held
+  // `impl-1`; nothing for a singleton the team already holds) are the
+  // catalog's answers, handed in as `roles`; the form only shows them.
+  const [roleId, setRoleId] = useState(roles.defaultId);
+  const roleAddress = roles.addressFor(roleId);
   // The toggle's state survives switching through a non-supporting agent —
   // only the SUBMITTED value is gated (see `supportsYolo` below).
   const [yolo, setYolo] = useState(defaultYolo);
@@ -397,7 +392,7 @@ export function AgentDialog({
             <span className="form__label">Role</span>
             <Dropdown
               className="form__role-pick"
-              options={roleOptions}
+              options={roles.options}
               value={roleId}
               onChange={setRoleId}
               ariaLabel="Role"
@@ -413,7 +408,7 @@ export function AgentDialog({
               </span>
             ) : (
               <span className="form__error">
-                {pickedRole?.label ?? roleId} is already on this team — pick another role
+                {roles.labelOf(roleId)} is already on this team — pick another role
               </span>
             )}
           </>

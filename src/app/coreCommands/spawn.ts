@@ -1,14 +1,13 @@
 import { agentSupportsNew, agentSupportsYolo } from "../../domain/agents";
 import { resolveTeamRef, type CommandArgs, type CommandRegistry } from "../../domain/commands";
-import { findTeam, findWorkspaceByRef, paneId, placementRefusalMessage, roleTaken, teamNameTaken, TEAM_FULL_MESSAGE, WORKSPACE_GONE_MESSAGE, type Pane, type TeamLocation, type Workspace } from "../../domain/deck";
+import { findTeam, findWorkspaceByRef, paneId, placementRefusalMessage, teamNameTaken, WORKSPACE_GONE_MESSAGE, type Pane, type TeamLocation, type Workspace } from "../../domain/deck";
 import { sharedDirectoryRefusal } from "../sharedDirectoryMessage";
 import { log } from "../../ipc/log";
 import { inspectRepo } from "../../ipc/worktree";
 import { firstFreeTeamWorktreeFor, nextAgentIndex, nextAgentType } from "../newAgentDefaults";
 import { mintAgentSeq } from "../ids";
-import { parseRoleAddress } from "../../domain/mail";
 import { getSettings } from "../settingsManager";
-import type { CreatePaneRequest } from "../agentOrchestrator";
+import { createRefusalMessage, type CreatePaneRequest } from "../agentOrchestrator";
 import type { Deck } from "../useDeck";
 import { requiredStr, str } from "./args";
 import { deliverTask } from "./deliverTask";
@@ -80,24 +79,12 @@ export function registerSpawnCommands(
     let current = currentTarget();
 
     // A full team used to swallow the add and then report a paneId that was
-    // never in the deck — with the worktree already created. The `never` is
-    // what makes a new refusal a compile error here: a bare switch would let
-    // an unmatched outcome fall straight through to the success report.
+    // never in the deck — with the worktree already created. Every refusal
+    // the landing can answer — a full team, a gone workspace, a held
+    // directory, a role that is taken or unknown — is said in the one
+    // spelling every door uses: the landing decides, this door only tells.
     const landed = deps.createPane({ workspace, pane, ...ask });
-    switch (landed.kind) {
-      case "created":
-        break;
-      case "full":
-        throw new Error(TEAM_FULL_MESSAGE);
-      case "gone":
-        throw new Error(WORKSPACE_GONE_MESSAGE);
-      case "held":
-        throw new Error(placementRefusalMessage(landed.why));
-      default: {
-        const unhandled: never = landed;
-        throw new Error(`unhandled create outcome: ${JSON.stringify(unhandled)}`);
-      }
-    }
+    if (landed.kind !== "created") throw new Error(createRefusalMessage(landed));
     current = currentTarget();
     current.deck.selectWorkspace(workspace.id);
     current.deck.selectPane(workspace.id, id);
@@ -155,17 +142,6 @@ export function registerSpawnCommands(
     return resolved.value;
   }
 
-  /** The role a recruit is asked to take — a role this deck knows, free on
-   * the team — or the refusal in words. */
-  function askedRole(workspace: Workspace, teamId: string, role: string | undefined) {
-    if (role === undefined) return undefined;
-    if (!parseRoleAddress(role)) throw new Error(`"${role}" is not a role this deck knows`);
-    if (roleTaken(workspace, teamId, role)) {
-      throw new Error(`role "${role}" is taken on that team — a role is an address, so it has to be unique`);
-    }
-    return role;
-  }
-
   return [
     registry.register({
       id: "agent.spawn",
@@ -192,7 +168,7 @@ export function registerSpawnCommands(
         {
           name: "role",
           type: "string",
-          description: "The role it takes on its team — how teammates address it; suggested when omitted",
+          description: "The role it takes on its team — how teammates address it. Asked for, it is honoured or refused (taken, or not a role this deck knows); omitted, the roster suggests one",
         },
         {
           name: "yolo",
@@ -213,17 +189,12 @@ export function registerSpawnCommands(
       run: (args) =>
         recruit(args, async (current, index) => {
           const ref = str(args, "team");
+          // The role rides to the landing as asked: whether it is one the
+          // deck knows and free on the team is the landing's one rule.
+          const role = str(args, "role");
           if (ref !== undefined) {
             const team = teamRef(current.workspace, ref);
-            const role = askedRole(current.workspace, team.id, str(args, "role"));
             return { team: team.id, ...(role !== undefined && { role }) };
-          }
-          // A new team has no roster to clash with, but the role still has
-          // to be one the deck knows — the contract `team.add` holds, so
-          // the facade cannot mint a member no roster reads.
-          const role = str(args, "role");
-          if (role !== undefined && !parseRoleAddress(role)) {
-            throw new Error(`"${role}" is not a role this deck knows`);
           }
           const placement = await freshWorktree(current, index);
           return {
@@ -368,7 +339,7 @@ export function registerSpawnCommands(
         {
           name: "role",
           type: "string",
-          description: "The role it takes — how teammates address it; suggested when omitted",
+          description: "The role it takes — how teammates address it. Asked for, it is honoured or refused (taken, or not a role this deck knows); omitted, the roster suggests one",
         },
         {
           name: "yolo",
@@ -382,7 +353,7 @@ export function registerSpawnCommands(
       run: (args) =>
         recruit(args, async (current) => {
           const team = teamRef(current.workspace, requiredStr(args, "team"));
-          const role = askedRole(current.workspace, team.id, str(args, "role"));
+          const role = str(args, "role");
           return { team: team.id, ...(role !== undefined && { role }) };
         }),
     }),

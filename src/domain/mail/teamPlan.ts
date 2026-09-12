@@ -26,6 +26,7 @@ import {
   teamNameTaken,
   type Workspace,
 } from "../deck";
+import { roleRefusalMessage } from "./admission";
 import { SENDABLE_KINDS } from "./message";
 import { kindGuidance } from "./policy";
 import {
@@ -315,10 +316,7 @@ export function planTeam(
     // nothing said about what it is for — the exact state roles exist to end.
     const known = parseRoleAddress(role);
     if (!known) {
-      return {
-        ok: false,
-        message: `"${role}" is not a role this deck knows`,
-      };
+      return { ok: false, message: roleRefusalMessage("unknown", role) };
     }
     standings[known.role.standing] += 1;
   }

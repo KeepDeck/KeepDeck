@@ -284,7 +284,7 @@ function App() {
           {agentFlow.dialog && (
             <AgentDialog
               target={agentFlow.dialog.target}
-              heldRoles={agentFlow.dialog.heldRoles}
+              roles={agentFlow.dialog.roles}
               defaultAgentType={agentFlow.dialog.defaultAgentType}
               defaultYolo={agentFlow.dialog.defaultYolo}
               remoteEnabled={agentFlow.dialog.remoteEnabled}

@@ -14,6 +14,7 @@ import {
 } from "./agentOrchestrator";
 import { createAgentStatusChannel } from "./agentStatusChannel";
 import { createApplicationController } from "./applicationController";
+import { createAgentDoors } from "./agentDoors";
 import { createDeckActions } from "./deckActions";
 import { createDeckPersistence } from "./deckPersistence";
 import { createDeckStore } from "./deckStore";
@@ -281,6 +282,7 @@ export function createAppRuntime(
       deck: {
         workspaces: () => deckStore.getSnapshot().workspaces,
         subscribe: deckStore.subscribe,
+        restoring: () => deckPersistence.getSnapshot().restoring,
         settleRoster: (workspaceId, teamId, name, members) =>
           deckActions.settleRoster(workspaceId, teamId, name, members),
         agentTypeOf: (paneId) => paneAgentTypeOf(deckStore, paneId),
@@ -495,6 +497,15 @@ export function createAppRuntime(
       deckPersistence.dispose();
     },
     orchestrator,
+    // The "+ Team" and "Add member" doors as one owner: what a confirmed
+    // dialog does, with the orchestrator's landings behind it.
+    agentDoors: createAgentDoors({
+      orchestrator,
+      deck: {
+        workspaces: () => deckStore.getSnapshot().workspaces,
+        openTeam: deckActions.openTeam,
+      },
+    }),
     fileOpen: createFileOpenManager(
       () => plugins.pluginRegistries.fileOpeners.list(),
       openPath,

@@ -3,6 +3,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentDialog } from "./AgentDialog";
+import { roleChoiceView } from "../../presentation/roleChoiceView";
 import type { AgentDialogResult, AgentDialogTarget, PathProbe } from "../../domain/agents";
 import { roleById } from "../../domain/mail";
 
@@ -83,7 +84,7 @@ describe("AgentDialog targets", () => {
       root.render(
         createElement(AgentDialog, {
           target,
-          heldRoles,
+          roles: roleChoiceView(heldRoles),
           defaultAgentType: "claude" as const,
           remoteEnabled: false,
           defaultYolo: false,
