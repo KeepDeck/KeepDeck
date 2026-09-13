@@ -226,6 +226,32 @@ describe("GitTab", () => {
     expect(header().getAttribute("aria-expanded")).toBe("true");
   });
 
+  it("a slot that refuses to remember the sections is said in the log, not swallowed", async () => {
+    const git = makeGit();
+    git.statuses.set("/repo", cleanStatus());
+    git.histories.set("/repo", { forkSha: null, ahead: null, commits: [] });
+    const ctx = makeCtx(git);
+    const slot = {
+      get: vi.fn(async () => undefined),
+      set: vi.fn(async () => {
+        throw new Error("slot is read-only");
+      }),
+      delete: vi.fn(async () => {}),
+    };
+    ctx.storage.workspace = () => slot as unknown as ReturnType<typeof ctx.storage.workspace>;
+    setRuntime(ctx);
+
+    await rig.render();
+    const header = [...rig.host.querySelectorAll("button.git__sechdr")].find((el) =>
+      el.textContent?.includes("History"),
+    ) as HTMLButtonElement;
+    await act(async () => header.click());
+
+    // The toggle holds on screen; the failure to keep it leaves a trace.
+    expect(header.getAttribute("aria-expanded")).toBe("true");
+    expect(ctx.log.warn).toHaveBeenCalledWith(expect.stringContaining("slot is read-only"));
+  });
+
   it("surfaces a status failure as the folder's state, git's own words on hover", async () => {
     const git = makeGit(); // no statuses registered → status() rejects
     setRuntime(makeCtx(git));

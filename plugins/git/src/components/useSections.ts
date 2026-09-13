@@ -53,7 +53,18 @@ export function useSections(
     const next = toggleSection(state, id);
     setState(next);
     // Torn down: nothing to remember it in.
-    void activeRuntime()?.storage.workspace(workspace).set(KEY, next).catch(() => {});
+    const runtime = activeRuntime();
+    if (!runtime) return;
+    void runtime.storage
+      .workspace(workspace)
+      .set(KEY, next)
+      .catch((cause: unknown) => {
+        // The screen keeps the toggle; the next mount will show the slot's
+        // older word. Said in the log rather than swallowed — a UI and a
+        // store that disagree should leave a trace somewhere.
+        const message = cause instanceof Error ? cause.message : String(cause);
+        runtime.log.warn(`git sections: could not remember the open sections: ${message}`);
+      });
   };
   return [state, toggle];
 }
