@@ -10,9 +10,13 @@
 //! file read: the `git` capability's scope resolves to the same live roots, and
 //! the repo path must sit inside one of them.
 //!
-//! Reads are pure by construction: everything runs under `--no-optional-locks`
-//! (see `keepdeck-git`), so a status re-read can never take `index.lock` and
-//! stall an agent's own git commands in the same worktree.
+//! Reads are pure by construction: the commands that would otherwise refresh
+//! the index — status, diff, log, the untracked listing — run under
+//! `--no-optional-locks` (see `keepdeck-git`), so a status re-read can never
+//! take `index.lock` and stall an agent's own git commands in the same
+//! worktree; the ref reads beside them (`rev-parse`, `merge-base`,
+//! `for-each-ref`, `symbolic-ref`, `worktree list`) take no such lock to
+//! begin with.
 //!
 //! ## The watch
 //!
@@ -38,7 +42,6 @@
 //! needs to learn "something changed" often enough for its own trailing
 //! debounce to schedule one fresh status read.
 
-use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -354,25 +357,15 @@ fn commit_or_root(repo: &Path, from: &str) -> String {
     }
 }
 
-/// The live git watchers — PAIRS of watchers (working tree + gitdir) keyed by
-/// registered repo path. Tauri managed state; re-registering a path replaces
-/// (and stops) the old pair, removing stops it.
+/// The live git watchers — one SET per repo (working tree, gitdir, shared
+/// refs) in the shared [`fswatch::WatchRegistry`], keyed by the repo path as
+/// the webview registered it. Tauri managed state; re-registering a path
+/// replaces (and stops) the old set, removing stops it. The key is the
+/// registered string verbatim: `/repo` and `/repo/` are two keys here as
+/// they are two feeds in the webview, and each change event carries its own
+/// key back, which is what makes the join work.
 #[derive(Default)]
-pub struct ProjectGitWatchers(Mutex<HashMap<String, Vec<RecommendedWatcher>>>);
-
-impl ProjectGitWatchers {
-    fn insert(&self, key: String, watchers: Vec<RecommendedWatcher>) {
-        self.lock().insert(key, watchers);
-    }
-
-    fn remove(&self, key: &str) {
-        self.lock().remove(key);
-    }
-
-    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, Vec<RecommendedWatcher>>> {
-        self.0.lock().expect("git watch registry poisoned")
-    }
-}
+pub struct ProjectGitWatchers(fswatch::WatchRegistry<Vec<RecommendedWatcher>>);
 
 /// Does a working-tree event matter to git status? Content writes DO (unlike
 /// the file tree's structural filter — status is about bytes, not listings);
@@ -493,7 +486,7 @@ fn spawn_git_watch(
 
 /// Start watching one repo for status-relevant changes, emitting
 /// [`PROJECT_GIT_CHANGE_EVENT`]. Scoped exactly like a read. Idempotent per
-/// registered path — re-registering replaces the old watcher pair.
+/// registered path — re-registering replaces the old watcher set.
 #[tauri::command(async)]
 pub fn project_git_watch(
     app: AppHandle,
@@ -502,30 +495,48 @@ pub fn project_git_watch(
     roots: Vec<String>,
     everywhere: bool,
 ) -> Result<(), String> {
-    let repo = resolve_within(&path, &roots, everywhere)?;
-    let gitdir = head::git_dir(&repo).map_err(|e| e.to_string())?;
-    let common = head::git_common_dir(&repo).map_err(|e| e.to_string())?;
-
     let emitter = app.clone();
-    let set = spawn_git_watch(
-        &repo,
-        &gitdir,
-        &common,
-        path.clone(),
-        MIN_EVENT_GAP,
-        move |registered| {
-            let _ = emitter.emit(PROJECT_GIT_CHANGE_EVENT, &ProjectGitChange { path: registered });
-        },
-    )?;
-    watchers.insert(path, set);
-    Ok(())
+    arm_watch(&watchers.0, path, &roots, everywhere, move |registered| {
+        let _ = emitter.emit(PROJECT_GIT_CHANGE_EVENT, &ProjectGitChange { path: registered });
+    })
+}
+
+/// Resolve, wire and register the watcher set for `path` — or, when the
+/// path is refused or the repo cannot be read, DROP whatever set the path
+/// had. A refusal is an answer about the path as it is now (the worktree
+/// gone, the scope narrowed), and a set armed under the old answer kept
+/// delivering for a repo the caller was just told it may not watch. Split
+/// from the command so the registry's behaviour is testable without a
+/// Tauri app.
+fn arm_watch(
+    registry: &fswatch::WatchRegistry<Vec<RecommendedWatcher>>,
+    path: String,
+    roots: &[String],
+    everywhere: bool,
+    deliver: impl Fn(String) + Send + Sync + 'static,
+) -> Result<(), String> {
+    let armed = resolve_within(&path, roots, everywhere).and_then(|repo| {
+        let gitdir = head::git_dir(&repo).map_err(|e| e.to_string())?;
+        let common = head::git_common_dir(&repo).map_err(|e| e.to_string())?;
+        spawn_git_watch(&repo, &gitdir, &common, path.clone(), MIN_EVENT_GAP, deliver)
+    });
+    match armed {
+        Ok(set) => {
+            registry.insert(path, set);
+            Ok(())
+        }
+        Err(reason) => {
+            registry.remove(&path);
+            Err(reason)
+        }
+    }
 }
 
 /// Stop watching a repo (tab switched away, workspace closed). An unknown path
 /// is a no-op.
 #[tauri::command]
 pub fn project_git_unwatch(watchers: State<ProjectGitWatchers>, path: String) {
-    watchers.remove(&path);
+    watchers.0.remove(&path);
 }
 
 #[cfg(test)]
@@ -1298,6 +1309,41 @@ mod tests {
         git(&repo, &["add", "README.md"]);
         rx.recv_timeout(Duration::from_secs(10))
             .expect("an event for the staging");
+
+        fs::remove_dir_all(&repo).ok();
+    }
+
+    #[test]
+    fn a_refused_re_watch_drops_the_earlier_watchers() {
+        let repo = init_repo();
+        let registry = fswatch::WatchRegistry::default();
+        let key = repo.to_string_lossy().into_owned();
+        let (tx, rx) = mpsc::channel::<String>();
+
+        // Armed under a scope that allows the repo…
+        arm_watch(&registry, key.clone(), &roots(&repo), false, {
+            let tx = tx.clone();
+            move |registered| {
+                let _ = tx.send(registered);
+            }
+        })
+        .expect("watch");
+        fs::write(repo.join("README.md"), "edited\n").unwrap();
+        rx.recv_timeout(Duration::from_secs(10)).expect("the first set delivers");
+        while rx.recv_timeout(Duration::from_millis(300)).is_ok() {}
+
+        // …then re-registered under a scope that refuses it: the refusal
+        // must take the earlier set with it, not leave it delivering for a
+        // repo the caller was just told it may not watch.
+        let refused = arm_watch(&registry, key, &[], false, move |registered| {
+            let _ = tx.send(registered);
+        });
+        assert!(refused.is_err(), "empty roots refuse");
+        fs::write(repo.join("README.md"), "edited again\n").unwrap();
+        assert!(
+            rx.recv_timeout(Duration::from_secs(2)).is_err(),
+            "the earlier set survived the refusal"
+        );
 
         fs::remove_dir_all(&repo).ok();
     }
