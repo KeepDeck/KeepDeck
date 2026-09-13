@@ -504,12 +504,12 @@ describe("DiffPeek", () => {
 
     await drawRow(changedRow("src/main.ts"), 1, vi.fn());
     await settle(() => rowTexts().length > 0);
-    expect(note()).toContain("Showing the first 1 MiB");
+    expect(note()).toContain("Cut at the host's size limit");
 
     const untracked: ChangeRow = { path: "big.log", origPath: null, code: "?", kind: "untracked" };
     await drawRow(untracked, 1, vi.fn());
     await settle(() => rowTexts().length === 2);
-    expect(note()).toContain("Showing the first 1 MiB");
+    expect(note()).toContain("Cut at the host's size limit");
   });
 
   it("shows an unmerged file itself, markers included, instead of a combined diff", async () => {

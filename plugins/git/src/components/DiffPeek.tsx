@@ -235,7 +235,7 @@ export function DiffPeek({
       )}
       {view.kind === "file" && diff?.truncated && (
         <p className="peek__note">
-          Showing the first 1 MiB — the rest was not loaded.
+          Cut at the host's size limit — only the beginning is shown.
         </p>
       )}
       {view.kind === "file" && diff && !diff.binary && (
