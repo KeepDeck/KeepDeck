@@ -304,10 +304,13 @@
   background-color: #151a24;
 }
 
-/* The one-letter porcelain code, colored by what happened. */
+/* The porcelain code in its tone (presentation/codeTone: the row's section,
+   deletions and conflicts red). One letter, centred in a fixed cell so the
+   names line up; a conflict's two-letter code (`UU`, `DD`) widens its own
+   cell — all rows of the Conflicts section carry two, so they line up too. */
 .git__code {
   flex: none;
-  width: 14px;
+  min-width: 14px;
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   font-size: 11.5px;
   font-weight: 700;

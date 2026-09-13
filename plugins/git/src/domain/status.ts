@@ -24,7 +24,9 @@ export interface ChangeRow {
   path: string;
   /** The pre-rename path, when the index stages a rename. */
   origPath: string | null;
-  /** The porcelain v2 code for THIS row's side (`M`, `A`, `D`, `R`, …). */
+  /** The porcelain v2 code for THIS row's side (`M`, `A`, `D`, `R`, …); a
+   * conflicted row carries both sides (`UU`, `AA`, `DU`, …), which is what
+   * tells "both added" from "both deleted" without opening the file. */
   code: string;
   kind: ChangeKind;
 }
@@ -50,7 +52,7 @@ export function groupEntries(entries: GitStatusEntry[]): ChangeGroups {
   };
   for (const entry of entries) {
     if (entry.conflicted) {
-      groups.conflicted.push(row(entry, "U", "conflicted"));
+      groups.conflicted.push(row(entry, `${entry.staged}${entry.unstaged}`, "conflicted"));
       continue;
     }
     if (entry.untracked) {
@@ -71,7 +73,8 @@ function row(entry: GitStatusEntry, code: string, kind: ChangeKind): ChangeRow {
   return { path: entry.path, origPath: entry.origPath, code, kind };
 }
 
-/** A porcelain code in plain words — row tooltips and accessibility labels. */
+/** A porcelain code in plain words — row tooltips and accessibility labels.
+ * A conflict's two sides say who did what (git's own `status` wording). */
 export function codeLabel(code: string): string {
   switch (code) {
     case "M":
@@ -88,6 +91,20 @@ export function codeLabel(code: string): string {
       return "type changed";
     case "U":
       return "conflicted";
+    case "UU":
+      return "both modified";
+    case "AA":
+      return "both added";
+    case "DD":
+      return "both deleted";
+    case "AU":
+      return "added by us";
+    case "UA":
+      return "added by them";
+    case "DU":
+      return "deleted by us";
+    case "UD":
+      return "deleted by them";
     case "?":
       return "untracked";
     default:

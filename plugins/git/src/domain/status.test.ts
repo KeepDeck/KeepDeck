@@ -64,6 +64,15 @@ describe("groupEntries", () => {
     expect(groups.staged).toHaveLength(0);
     expect(groups.unstaged).toHaveLength(0);
   });
+
+  it("a conflicted row keeps both sides of its code — both-added is not both-deleted", () => {
+    const groups = groupEntries([
+      entry({ path: "d.ts", conflicted: true, staged: "U", unstaged: "U" }),
+      entry({ path: "clash.ts", conflicted: true, staged: "D", unstaged: "U" }),
+      entry({ path: "twice.ts", conflicted: true, staged: "A", unstaged: "A" }),
+    ]);
+    expect(groups.conflicted.map((r) => r.code)).toEqual(["UU", "DU", "AA"]);
+  });
 });
 
 describe("codeLabel", () => {
@@ -75,6 +84,16 @@ describe("codeLabel", () => {
     expect(codeLabel("?")).toBe("untracked");
     expect(codeLabel("U")).toBe("conflicted");
     expect(codeLabel("X")).toBe("changed");
+  });
+
+  it("words a conflict's two sides the way git status does", () => {
+    expect(codeLabel("UU")).toBe("both modified");
+    expect(codeLabel("AA")).toBe("both added");
+    expect(codeLabel("DD")).toBe("both deleted");
+    expect(codeLabel("AU")).toBe("added by us");
+    expect(codeLabel("UA")).toBe("added by them");
+    expect(codeLabel("DU")).toBe("deleted by us");
+    expect(codeLabel("UD")).toBe("deleted by them");
   });
 });
 
