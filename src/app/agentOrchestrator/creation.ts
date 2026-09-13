@@ -3,6 +3,7 @@ import {
   autoWorkspaceName,
   birthRefusal,
   claimDirectory,
+  createFailed,
   findTeam,
   findWorkspace,
   findWorkspaceByRef,
@@ -479,8 +480,7 @@ export function createAgentOrchestratorCreation({
   const retryProvisioning: AgentOrchestrator["retryProvisioning"] = (wsId, teamId) => {
     const workspace = findWorkspace(deck.getSnapshot().workspaces, wsId);
     const team = workspace ? teamsOf(workspace).find((candidate) => candidate.id === teamId) : undefined;
-    if (!workspace || !team || team.location?.kind !== "provisioning") return;
-    if (team.location.error === undefined) return;
+    if (!workspace || !team || !createFailed(team.location)) return;
     if (closing({ id: workspace.id, instance: workspace.instance }, teamId)) return;
     actions.setTeamProvisioningError(wsId, teamId, null);
     provisionTeams(workspace, [team]);

@@ -1,5 +1,5 @@
 import type { CommandArgs, CommandRegistry } from "../../domain/commands";
-import { teamNameTaken } from "../../domain/deck";
+import { createFailed, createIsOut, teamNameTaken } from "../../domain/deck";
 import { requiredStr, str } from "./args";
 import type { CoreCommandDeps } from ".";
 import { targetTeam, targetWorkspace } from "./targets";
@@ -86,15 +86,16 @@ export function registerTeamLifecycleCommands(
         // Only a FAILED create is retried: one still running would be
         // issued twice, and a team that already runs has nothing to make.
         // Both are said, because the card shows Retry only when it applies
-        // and an agent sees no card.
-        if (location?.kind !== "provisioning") {
-          throw new Error(
-            `team "${team.name}" has nothing to retry — it is not waiting on a worktree create`,
-          );
-        }
-        if (location.error === undefined) {
+        // and an agent sees no card — asked through the domain's own two
+        // questions, the same ones the card's rim and the roster ask.
+        if (createIsOut(location)) {
           throw new Error(
             `team "${team.name}" has nothing to retry — its worktree is still being created`,
+          );
+        }
+        if (!createFailed(location) || location?.kind !== "provisioning") {
+          throw new Error(
+            `team "${team.name}" has nothing to retry — it is not waiting on a worktree create`,
           );
         }
         deps.retryProvisioning(ws.id, team.id);

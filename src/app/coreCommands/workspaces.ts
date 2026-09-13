@@ -1,15 +1,25 @@
 import type { CommandRegistry } from "../../domain/commands";
-import { membersOf, paneAgentType, paneDisplayTitle, teamsOf, type Team } from "../../domain/deck";
+import {
+  createFailed,
+  createIsOut,
+  membersOf,
+  paneAgentType,
+  paneDisplayTitle,
+  teamsOf,
+  type Team,
+} from "../../domain/deck";
 import { teamOf } from "../../domain/mail";
 import { requiredStr } from "./args";
 import type { CoreCommandDeps } from ".";
 import { targetWorkspace } from "./targets";
 
 /** A team's state, folded to one word for a roster reader: its worktree
- * still being created, the create failed (Retry is on offer), or ready. */
+ * still being created, the create failed (Retry is on offer), or ready —
+ * through the domain's own two questions, so this word and the card's rim
+ * cannot disagree. */
 function teamStatus(team: Team): "creating" | "failed" | "ready" {
-  if (team.location?.kind !== "provisioning") return "ready";
-  return team.location.error !== undefined ? "failed" : "creating";
+  if (createFailed(team.location)) return "failed";
+  return createIsOut(team.location) ? "creating" : "ready";
 }
 
 /**

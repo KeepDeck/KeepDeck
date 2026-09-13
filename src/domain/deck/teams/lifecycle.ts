@@ -64,6 +64,15 @@ export function createIsOut(location: TeamLocation | undefined): boolean {
   return location?.kind === "provisioning" && !location.error;
 }
 
+/** Whether a team's worktree create FAILED and is parked waiting for Retry
+ * — the other half of a provisioning card, and the one state Retry applies
+ * to. The card's failed rim, the roster's `status: "failed"`, the retry
+ * door and the retry tool all ask it here, so the next state a card can
+ * hold moves them together rather than one at a time. */
+export function createFailed(location: TeamLocation | undefined): boolean {
+  return location?.kind === "provisioning" && location.error !== undefined;
+}
+
 /**
  * Who is in a directory — the FACT, not the verdict.
  *
