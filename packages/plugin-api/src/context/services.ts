@@ -291,8 +291,10 @@ export interface PluginGit {
    * file diffs as a rename only when `origPath` names its old path — git
    * pairs the two names and shows the edit; without it the new path reads
    * as a whole new file. Untracked files have no diff; render their plain
-   * content (via `fs.readFile`) instead. */
-  diffFile(repo: string, file: string, opts?: GitDiffOptions): Promise<string>;
+   * content (via `fs.readFile`) instead. The text is capped host-side — a
+   * generated file's diff can run to hundreds of megabytes — and
+   * `truncated` says when it was cut. */
+  diffFile(repo: string, file: string, opts?: GitDiffOptions): Promise<GitDiff>;
   /** The repo's history for a changes view: the full recent log (newest
    * first, capped by the host), annotated with the branch's fork point off
    * `base` (defaulting to the repo's default branch — exact for worktrees
@@ -313,6 +315,14 @@ export interface PluginGit {
    * outside the scope, a watcher limit): such a handle never fires, and a
    * fresh `watch` is the retry. */
   watch(repo: string, onChange: () => void): WatchHandle;
+}
+
+/** One file's unified diff as text. `truncated` means the host stopped at
+ * its cap (whole lines only, so the last line is intact) — say so in the
+ * view rather than presenting the head of a diff as all of it. */
+export interface GitDiff {
+  text: string;
+  truncated: boolean;
 }
 
 export interface GitDiffOptions {

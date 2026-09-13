@@ -112,6 +112,7 @@ export type {
   GitBranches,
   GitChangedFile,
   GitCommit,
+  GitDiff,
   GitDiffOptions,
   GitHistory,
   GitHistoryOptions,

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  binaryFileDiff,
   conflictedFileDiff,
   flatLines,
   hunkOffsets,
@@ -126,6 +127,17 @@ describe("flatLines / hunkOffsets", () => {
     const diff = parseDiff("");
     expect(flatLines(diff)).toEqual([]);
     expect(hunkOffsets(diff)).toEqual([]);
+  });
+});
+
+describe("truncated", () => {
+  it("rides from the host's answer into the model, false by default", () => {
+    expect(parseDiff(SAMPLE).truncated).toBe(false);
+    expect(parseDiff(SAMPLE, true).truncated).toBe(true);
+    expect(newFileDiff("a\n").truncated).toBe(false);
+    expect(newFileDiff("a\n", true).truncated).toBe(true);
+    expect(conflictedFileDiff("a\n", true).truncated).toBe(true);
+    expect(binaryFileDiff().truncated).toBe(false);
   });
 });
 

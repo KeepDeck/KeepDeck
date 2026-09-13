@@ -133,7 +133,7 @@ function makeStub(): { ctx: PluginContext; infos: string[] } {
           behind: null,
           entries: [],
         }),
-        diffFile: async () => "",
+        diffFile: async () => ({ text: "", truncated: false }),
         history: async () => ({ forkSha: null, ahead: null, commits: [] }),
         branches: async () => ({ current: null, branches: [] }),
         changedFiles: async () => [],

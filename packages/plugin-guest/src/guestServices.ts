@@ -1,5 +1,6 @@
 import type {
   WatchHandle,
+  GitDiff,
   DownloadState,
   FsEntry,
   FsFile,
@@ -139,7 +140,7 @@ export function createGuestServices({
       status: (repo) =>
         rpc.call("services.git.status", [repo]) as Promise<GitStatus>,
       diffFile: (repo, file, opts) =>
-        rpc.call("services.git.diffFile", [repo, file, opts]) as Promise<string>,
+        rpc.call("services.git.diffFile", [repo, file, opts]) as Promise<GitDiff>,
       history: (repo, opts) =>
         rpc.call("services.git.history", [repo, opts]) as Promise<GitHistory>,
       branches: (repo) =>

@@ -86,7 +86,10 @@ function makeCtx(over: Partial<GitStatus> | null = null): PluginContext {
     services: {
       git: {
         status: vi.fn(async () => ({ ...status(["src/app.ts"]), ...over })),
-        diffFile: vi.fn(async () => "@@ -1 +1 @@\n-hello\n+goodbye\n"),
+        diffFile: vi.fn(async () => ({
+          text: "@@ -1 +1 @@\n-hello\n+goodbye\n",
+          truncated: false,
+        })),
         history: vi.fn(async () => ({ commits: [], base: null })),
         branches: vi.fn(async () => ({ current: "main", branches: ["main"] })),
         changedFiles: vi.fn(async () => []),

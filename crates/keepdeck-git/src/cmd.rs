@@ -1,8 +1,94 @@
 use std::ffi::OsStr;
+use std::io::Read;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use crate::error::GitError;
+
+/// Output read under a byte cap: the text up to the cap, cut at the last
+/// line break within it so no line arrives half, and whether anything was
+/// left behind.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Capped {
+    pub text: String,
+    pub truncated: bool,
+}
+
+/// Run `git -C <dir> <args...>` and return its stdout up to `max_bytes`.
+///
+/// The counterpart of [`run_git`] for commands whose output has no natural
+/// bound — a diff of a generated file can run to hundreds of megabytes, and
+/// `.output()` would hold every byte before anyone could decide it was too
+/// much. Stdout is read as a stream and the child is killed once the cap is
+/// passed; stderr drains on its own thread so a chatty child can never
+/// block the read. Below the cap this behaves exactly like [`run_git`]: a
+/// non-zero exit is [`GitError::Command`] with the args and stderr.
+pub(crate) fn run_git_capped<I, S>(dir: &Path, args: I, max_bytes: usize) -> Result<Capped, GitError>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    let args: Vec<S> = args.into_iter().collect();
+    let mut child = Command::new("git")
+        .env("PATH", keepdeck_env::augmented_path())
+        .arg("-C")
+        .arg(dir)
+        .args(&args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(GitError::Spawn)?;
+
+    let mut stderr = child.stderr.take().expect("stderr was piped");
+    let stderr_reader = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = stderr.read_to_end(&mut buf);
+        buf
+    });
+
+    let mut stdout = child.stdout.take().expect("stdout was piped");
+    let mut buf = Vec::with_capacity(max_bytes.min(64 * 1024));
+    // One byte past the cap tells "exactly at the cap" from "more to come".
+    let read = (&mut stdout)
+        .take(max_bytes as u64 + 1)
+        .read_to_end(&mut buf)
+        .map_err(GitError::Spawn);
+    let truncated = buf.len() > max_bytes;
+    if truncated {
+        // The rest is not wanted: stop the child instead of draining it.
+        let _ = child.kill();
+    }
+    drop(stdout);
+    let status = child.wait().map_err(GitError::Spawn)?;
+    let stderr_bytes = stderr_reader.join().unwrap_or_default();
+    read?;
+
+    if !truncated && !status.success() {
+        return Err(GitError::Command {
+            args: args
+                .iter()
+                .map(|a| a.as_ref().to_string_lossy().into_owned())
+                .collect(),
+            status: status.code(),
+            stderr: String::from_utf8_lossy(&stderr_bytes).trim().to_string(),
+        });
+    }
+
+    if truncated {
+        // Whole lines only: cut at the last line break inside the cap, so the
+        // reader never sees a line that stops mid-way. A single line longer
+        // than the cap is kept as it is — there is no better place to cut.
+        buf.truncate(max_bytes);
+        if let Some(nl) = buf.iter().rposition(|b| *b == b'\n') {
+            buf.truncate(nl + 1);
+        }
+    }
+    Ok(Capped {
+        text: String::from_utf8_lossy(&buf).into_owned(),
+        truncated,
+    })
+}
 
 /// Run `git -C <dir> <args...>` and return its stdout on success.
 ///

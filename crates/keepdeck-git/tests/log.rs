@@ -146,10 +146,11 @@ fn changed_files_and_diff_cover_a_range_and_the_working_tree() {
     // Per-file range diff carries the committed content…
     let ranged =
         diff::diff_file_range(&repo_dir, "renamed.ts", &fork, Some("HEAD"), None).unwrap();
-    assert!(ranged.contains("+export const x = 1;"), "{ranged}");
+    assert!(ranged.text.contains("+export const x = 1;"), "{}", ranged.text);
+    assert!(!ranged.truncated);
     // …and the working-tree variant sees the uncommitted edit.
     let live = diff::diff_file_range(&repo_dir, "README.md", &fork, None, None).unwrap();
-    assert!(live.contains("+hello worktree"), "{live}");
+    assert!(live.text.contains("+hello worktree"), "{}", live.text);
 
     fs::remove_dir_all(&repo_dir).ok();
 }
@@ -218,7 +219,7 @@ fn a_rename_diffs_as_a_rename_only_with_its_old_path() {
     git(&repo_dir, &["commit", "-q", "-am", "move wide"]);
 
     let alone = diff::diff_file_range(&repo_dir, "moved.ts", "HEAD^", Some("HEAD"), None).unwrap();
-    assert!(alone.contains("new file mode"), "without the old path: {alone}");
+    assert!(alone.text.contains("new file mode"), "without the old path: {}", alone.text);
 
     let paired = diff::diff_file_range(
         &repo_dir,
@@ -228,11 +229,11 @@ fn a_rename_diffs_as_a_rename_only_with_its_old_path() {
         Some("wide.ts"),
     )
     .unwrap();
-    assert!(paired.contains("rename from wide.ts"), "{paired}");
-    assert!(paired.contains("rename to moved.ts"), "{paired}");
-    assert!(paired.contains("+line 7 edited"), "{paired}");
-    assert!(!paired.contains("new file mode"), "{paired}");
-    assert!(!paired.contains("+line 1\n"), "the unchanged lines are not added: {paired}");
+    assert!(paired.text.contains("rename from wide.ts"), "{}", paired.text);
+    assert!(paired.text.contains("rename to moved.ts"), "{}", paired.text);
+    assert!(paired.text.contains("+line 7 edited"), "{}", paired.text);
+    assert!(!paired.text.contains("new file mode"), "{}", paired.text);
+    assert!(!paired.text.contains("+line 1\n"), "the unchanged lines are not added: {}", paired.text);
 
     // Staged: the same move + edit sitting in the index (status `2 R.`).
     git(&repo_dir, &["mv", "moved.ts", "staged.ts"]);
@@ -240,12 +241,12 @@ fn a_rename_diffs_as_a_rename_only_with_its_old_path() {
     git(&repo_dir, &["add", "-A"]);
 
     let alone = diff::diff_file(&repo_dir, "staged.ts", true, None).unwrap();
-    assert!(alone.contains("new file mode"), "without the old path: {alone}");
+    assert!(alone.text.contains("new file mode"), "without the old path: {}", alone.text);
 
     let paired = diff::diff_file(&repo_dir, "staged.ts", true, Some("moved.ts")).unwrap();
-    assert!(paired.contains("rename from moved.ts"), "{paired}");
-    assert!(paired.contains("+line 12 edited"), "{paired}");
-    assert!(!paired.contains("new file mode"), "{paired}");
+    assert!(paired.text.contains("rename from moved.ts"), "{}", paired.text);
+    assert!(paired.text.contains("+line 12 edited"), "{}", paired.text);
+    assert!(!paired.text.contains("new file mode"), "{}", paired.text);
 
     fs::remove_dir_all(&repo_dir).ok();
 }

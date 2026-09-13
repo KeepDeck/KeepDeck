@@ -80,7 +80,10 @@ export function makeGit() {
       async (repo: string) =>
         branchLists.get(repo) ?? { current: "main", branches: ["main"] },
     ),
-    diffFile: vi.fn(async () => "@@ -1 +1 @@\n-hello\n+goodbye\n"),
+    diffFile: vi.fn(async () => ({
+      text: "@@ -1 +1 @@\n-hello\n+goodbye\n",
+      truncated: false,
+    })),
     watch: vi.fn((repo: string, onChange: () => void) => {
       let set = watchers.get(repo);
       if (!set) {

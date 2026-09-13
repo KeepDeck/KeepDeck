@@ -151,7 +151,7 @@ pub fn project_git_diff_file(
     from: Option<String>,
     to: Option<String>,
     orig_path: Option<String>,
-) -> Result<String, String> {
+) -> Result<GitDiff, String> {
     let repo = resolve_within(&path, &roots, everywhere)?;
     let orig = orig_path.as_deref();
     match from {
@@ -161,7 +161,20 @@ pub fn project_git_diff_file(
         }
         None => diff::diff_file(&repo, &file, staged, orig),
     }
+    .map(|capped| GitDiff {
+        text: capped.text,
+        truncated: capped.truncated,
+    })
     .map_err(|e| e.to_string())
+}
+
+/// One file's diff as reported to the plugin: the text up to the crate's
+/// cap, and whether it was cut. Mirrors `keepdeck_git::cmd::Capped`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitDiff {
+    pub text: String,
+    pub truncated: bool,
 }
 
 /// One commit as reported to the plugin. Mirrors `keepdeck_git::Commit`.
@@ -736,8 +749,9 @@ mod tests {
             None,
         )
         .expect("diff");
-        assert!(diff.contains("-hello"));
-        assert!(diff.contains("+changed"));
+        assert!(diff.text.contains("-hello"));
+        assert!(diff.text.contains("+changed"));
+        assert!(!diff.truncated);
 
         fs::remove_dir_all(&repo).ok();
     }
@@ -1290,7 +1304,7 @@ mod tests {
             None,
         )
         .expect("root-commit diff");
-        assert!(diff.contains("+hello"), "{diff}");
+        assert!(diff.text.contains("+hello"), "{}", diff.text);
 
         fs::remove_dir_all(&repo).ok();
     }

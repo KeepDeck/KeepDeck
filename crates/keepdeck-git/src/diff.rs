@@ -1,8 +1,14 @@
 use std::ffi::OsStr;
 use std::path::Path;
 
-use crate::cmd::run_git;
+use crate::cmd::{run_git, run_git_capped, Capped};
 use crate::error::GitError;
+
+/// How much of one file's diff crosses into the webview. A diff of a
+/// generated file can run to hundreds of megabytes; the reader needs its
+/// head and a word that it was cut, not the whole of it. The same order as
+/// the host's default file-read cap.
+pub const DIFF_MAX_BYTES: usize = 1024 * 1024;
 
 /// Unified diff for one tracked path — worktree vs index by default, index vs
 /// HEAD with `staged`. Returns git's raw diff text; hunk parsing is the
@@ -24,7 +30,7 @@ pub fn diff_file(
     file: &str,
     staged: bool,
     orig: Option<&str>,
-) -> Result<String, GitError> {
+) -> Result<Capped, GitError> {
     let mut args: Vec<&OsStr> = vec![
         OsStr::new("--no-optional-locks"),
         OsStr::new("diff"),
@@ -38,7 +44,7 @@ pub fn diff_file(
         args.push(OsStr::new("-M"));
     }
     pathspec(&mut args, file, orig);
-    run_git(repo, args)
+    run_git_capped(repo, args, DIFF_MAX_BYTES)
 }
 
 /// Append `--` and the pathspec: the file, preceded by its old path when the
@@ -69,7 +75,7 @@ pub fn diff_file_range(
     from: &str,
     to: Option<&str>,
     orig: Option<&str>,
-) -> Result<String, GitError> {
+) -> Result<Capped, GitError> {
     let mut args: Vec<&OsStr> = vec![
         OsStr::new("--no-optional-locks"),
         OsStr::new("diff"),
@@ -86,7 +92,7 @@ pub fn diff_file_range(
         args.push(OsStr::new(to));
     }
     pathspec(&mut args, file, orig);
-    run_git(repo, args)
+    run_git_capped(repo, args, DIFF_MAX_BYTES)
 }
 
 /// One changed path from a revision-range diff (`--name-status`).

@@ -3,6 +3,7 @@ import type {
   DownloadRequest,
   DownloadTarget,
   WatchHandle,
+  GitDiff,
   FsEntry,
   FsFile,
   FsReadFileOptions,
@@ -75,7 +76,7 @@ export interface GitBackend {
     file: string,
     scope: FsScope,
     opts?: GitDiffOptions,
-  ): Promise<string>;
+  ): Promise<GitDiff>;
   history(
     repo: string,
     scope: FsScope,

@@ -130,21 +130,23 @@ export function DiffPeek({
           : null;
     // A file-shaped row reads the file whatever change set it sits in: an
     // untracked file in a since-fork sweep has no diff at any range either.
+    // Both reads are capped host-side; the flag rides into the model so the
+    // body can say the content was cut instead of presenting its head as all.
     const read = asFile
       ? services.fs
           .readFile(`${repo.replace(/\/+$/, "")}/${row.path}`)
           .then((file) =>
             file.isBinary || file.text === null
               ? binaryFileDiff()
-              : asFile(file.text),
+              : asFile(file.text, file.truncated),
           )
       : range
         ? services.git
             .diffFile(repo, row.path, { from: range.from, to: range.to, ...renamed })
-            .then(parseDiff)
+            .then((d) => parseDiff(d.text, d.truncated))
         : services.git
             .diffFile(repo, row.path, { staged: row.kind === "staged", ...renamed })
-            .then(parseDiff);
+            .then((d) => parseDiff(d.text, d.truncated));
     read
       .then((next) => {
         if (cancelled) return;
@@ -228,6 +230,11 @@ export function DiffPeek({
         ))}
       {view.kind === "file" && diff && isEmptyDiff(diff) && (
         <p className="peek__note">No changes here anymore.</p>
+      )}
+      {view.kind === "file" && diff?.truncated && (
+        <p className="peek__note">
+          Showing the first 1 MiB — the rest was not loaded.
+        </p>
       )}
       {view.kind === "file" && diff && !diff.binary && (
         <div className="git__diff">

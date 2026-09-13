@@ -95,7 +95,7 @@ function fakeBackend() {
         behind: null,
         entries: [],
       })),
-      diffFile: vi.fn(async () => ""),
+      diffFile: vi.fn(async () => ({ text: "", truncated: false })),
       history: vi.fn(async () => ({ forkSha: null, ahead: null, commits: [] })),
       branches: vi.fn(async () => ({ current: null, branches: [] })),
       changedFiles: vi.fn(async () => []),
