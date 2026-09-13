@@ -188,6 +188,16 @@ fn a_working_tree_range_lists_untracked_files_as_untracked() {
         "a committed range has no untracked files: {committed:?}"
     );
 
+    // A file the fork HAS, dropped from the index but kept on disk, is `D` to
+    // the diff and untracked to ls-files: one path, listed once, as the
+    // tracked change — the fact with a diff behind it.
+    git(&repo_dir, &["rm", "-q", "--cached", "README.md"]);
+    let after_rm = diff::changed_files(&repo_dir, &fork, None).expect("tree files");
+    let readme: Vec<&diff::ChangedFile> =
+        after_rm.iter().filter(|f| f.path == "README.md").collect();
+    assert_eq!(readme.len(), 1, "{after_rm:?}");
+    assert_eq!(readme[0].code, 'D', "the tracked side wins: {after_rm:?}");
+
     fs::remove_dir_all(&repo_dir).ok();
 }
 

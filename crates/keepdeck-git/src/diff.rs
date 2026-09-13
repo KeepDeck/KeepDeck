@@ -124,7 +124,10 @@ pub struct ChangedFile {
 /// and untracked files are part of that work: `git diff` never lists them
 /// (it only knows tracked paths), so they are appended from `ls-files`, each
 /// as an entry with code `?` — the status letter for untracked. Ignored files
-/// stay out, as they do in status.
+/// stay out, as they do in status. A path git reports on both sides — a file
+/// removed from the index but left on disk is `D` to the diff and untracked
+/// to `ls-files` — is listed once, as the tracked change: that is the fact
+/// with a diff behind it.
 pub fn changed_files(
     repo: &Path,
     from: &str,
@@ -132,7 +135,11 @@ pub fn changed_files(
 ) -> Result<Vec<ChangedFile>, GitError> {
     let mut files = changed_tracked_files(repo, from, to)?;
     if to.is_none() {
-        files.extend(untracked_files(repo)?);
+        let fresh: Vec<ChangedFile> = untracked_files(repo)?
+            .into_iter()
+            .filter(|candidate| !files.iter().any(|f| f.path == candidate.path))
+            .collect();
+        files.extend(fresh);
     }
     Ok(files)
 }
