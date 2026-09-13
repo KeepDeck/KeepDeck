@@ -267,6 +267,8 @@ export function createHostDispatch(
     },
     "ui.setOverlayVisible": ([id, visible]) =>
       ctx.ui.setOverlayVisible(id as string, visible === true),
+    "ui.setOverlayCovers": ([id, covers]) =>
+      ctx.ui.setOverlayCovers(id as string, covers === true),
 
     // ---- file-open handlers: identity as data; open() as a host→realm proxy ----
     "openers.register": ([regId, entry]) => {

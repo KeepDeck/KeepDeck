@@ -4,6 +4,7 @@ import {
   takeOpenRequest,
   type OpenRequest,
 } from "../openRequests";
+import { getRuntime } from "../runtime";
 import { FileViewer } from "./FileViewer";
 
 /**
@@ -28,6 +29,27 @@ export function FilesOverlay() {
     consume();
     return subscribeOpenRequests(consume);
   }, []);
+
+  // The host cannot see a full-window peek by itself — this overlay is
+  // "visible" while it renders nothing — so the viewer says when it covers
+  // the deck and when it stops: hotkeys pause behind it, and a pane under it
+  // is not on screen for a notification. Unsaid on unmount too; the runtime
+  // may already be gone on that path, and the host clears a retired
+  // plugin's cover on its own.
+  const covers = request !== null;
+  useEffect(() => {
+    const say = (value: boolean) => {
+      try {
+        getRuntime().ui.setOverlayCovers("viewer", value);
+      } catch {
+        // Torn down.
+      }
+    };
+    say(covers);
+    return () => {
+      if (covers) say(false);
+    };
+  }, [covers]);
 
   if (!request) return null;
   return (

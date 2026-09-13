@@ -102,7 +102,7 @@ function fakeDeps() {
       list: vi.fn(async () => []),
     })),
     resources: vi.fn(() => ({ path: vi.fn(async () => null) })),
-    ui: { revealDockTab: vi.fn(), setOverlayVisible: vi.fn() },
+    ui: { revealDockTab: vi.fn(), setOverlayVisible: vi.fn(), setOverlayCovers: vi.fn() },
     notifications: vi.fn(() => vi.fn()),
     log: vi.fn(() => logger),
     hostFacts: { settings: vi.fn(async () => ({ terminalScrollback: 10_000 })) },

@@ -85,6 +85,7 @@ import {
   clearOverlayVisibility,
   setOverlayVisibility,
 } from "./overlayVisibility";
+import { clearOverlayCover, setOverlayCover } from "./overlayCover";
 import { clearPluginCrashes } from "./pluginHealth";
 import type { DownloadManager } from "./downloadManager";
 import {
@@ -573,6 +574,8 @@ export function createPluginManager(appDownloads: DownloadManager) {
         revealDockTab: revealPluginDockTab,
         setOverlayVisible: (pluginId, entryId, visible) =>
           setOverlayVisibility(`${pluginId}:${entryId}`, visible),
+        setOverlayCovers: (pluginId, entryId, covers) =>
+          setOverlayCover(`${pluginId}:${entryId}`, covers),
       },
       notifications: (manifest, source) =>
         createPluginNotifyPort(manifest, {
@@ -629,6 +632,7 @@ export function createPluginManager(appDownloads: DownloadManager) {
         // visibility must not bring its overlays back over the window.
         clearPluginCrashes(pluginId);
         clearOverlayVisibility(pluginId);
+        clearOverlayCover(pluginId);
         const plugins = getSettings()?.plugins ?? DEFAULT_SETTINGS.plugins;
         const external = externalPlugins.get(pluginId);
         updateSettings({

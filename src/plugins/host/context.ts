@@ -191,6 +191,11 @@ export function buildPluginContext(
         declared("overlays", id);
         deps.ui.setOverlayVisible(pluginId, id, visible);
       },
+      setOverlayCovers: (id, covers) => {
+        // The same gate: an undeclared id must not be able to pause the deck.
+        declared("overlays", id);
+        deps.ui.setOverlayCovers(pluginId, id, covers);
+      },
     },
     openers: {
       register: (handler) =>

@@ -50,6 +50,7 @@ import {
 import type { AppInfo } from "../ipc/app";
 import { readAppInfo } from "./appInfo";
 import { layering, statsDeepLinkOnScreen } from "../presentation/layering";
+import { anyOverlayCovers, subscribeOverlayCover } from "./overlayCover";
 import { describeError, log } from "../ipc/log";
 import { pluginCrashes, subscribePluginCrashes } from "./pluginHealth";
 import { addTeamDoorOpen, bellDoorOpen, dockDoorOpen } from "./doors";
@@ -185,6 +186,8 @@ export function useAppController() {
   const pluginDockTabs = useContributions(pluginRegistries.dockTabs);
   const pluginTopBarActions = useContributions(pluginRegistries.topBarActions);
   const crashes = useSyncExternalStore(subscribePluginCrashes, pluginCrashes);
+  // A plugin's full-window peek, by the plugin's own word (`ui.setOverlayCovers`).
+  const overlayCovers = useSyncExternalStore(subscribeOverlayCover, anyOverlayCovers);
   const focusDroppedPane = (paneId: string) =>
     deck.selectPane(deck.activeId, paneId);
   useDragDrop(focusDroppedPane);
@@ -222,6 +225,7 @@ export function useAppController() {
     dockMode,
     dockTabs: dockTabs.length,
     hasActive: !!active,
+    overlayCovers,
   });
   const canAddMember = !!openTeam && !atCap && !windows.modal;
   const canAddTeam = !!active && addTeamDoorOpen(active) && !windows.modal;

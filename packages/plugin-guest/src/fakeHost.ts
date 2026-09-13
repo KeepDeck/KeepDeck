@@ -184,6 +184,8 @@ export function createFakeHost(
       setOverlayVisible: (id, visible) => {
         overlayVisibility.push([id, visible]);
       },
+      // Accepted and forgotten: no guest test reads the cover yet.
+      setOverlayCovers: () => {},
     },
     openers: {
       register: (handler) => record(fileOpeners, handler),

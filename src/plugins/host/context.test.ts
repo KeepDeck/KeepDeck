@@ -95,7 +95,7 @@ function fakeDeps() {
     onPaneSelected: vi.fn(spyDisposable),
     onDeckChanged: vi.fn(spyDisposable),
   };
-  const ui = { revealDockTab: vi.fn(), setOverlayVisible: vi.fn() };
+  const ui = { revealDockTab: vi.fn(), setOverlayVisible: vi.fn(), setOverlayCovers: vi.fn() };
   const commandsPort = {
     register: vi.fn(spyDisposable),
     execute: vi.fn(async () => ({ ok: true, value: null }) as const),
@@ -198,6 +198,21 @@ describe("buildPluginContext", () => {
     expect(ui.revealDockTab).toHaveBeenCalledWith("p", "t");
     ctx.ui.setOverlayVisible("viewer", false);
     expect(ui.setOverlayVisible).toHaveBeenCalledWith("p", "viewer", false);
+  });
+
+  it("forwards setOverlayCovers with the plugin's identity, and refuses an undeclared id", () => {
+    // A covering overlay pauses the deck; an id the manifest never declared
+    // must not be able to do that.
+    const registries = createContributionRegistries();
+    const { deps, ui } = fakeDeps();
+    const { ctx } = buildPluginContext(declaring("p"), "builtin", registries, deps);
+
+    ctx.ui.setOverlayCovers("viewer", true);
+    expect(ui.setOverlayCovers).toHaveBeenCalledWith("p", "viewer", true);
+    expect(() => ctx.ui.setOverlayCovers("ghost", true)).toThrow(
+      'contribution not declared in the manifest: overlays "ghost"',
+    );
+    expect(ui.setOverlayCovers).toHaveBeenCalledTimes(1);
   });
 
   it("refuses setOverlayVisible for an UNDECLARED overlay id — no key seeding", () => {

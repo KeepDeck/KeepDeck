@@ -79,6 +79,27 @@ export function GitDiffOverlay() {
     };
   }, []);
 
+  // The host cannot see a full-window peek by itself — a Component overlay
+  // is "visible" while it renders nothing — so the peek says when it covers
+  // the deck and when it stops: the deck's hotkeys pause behind it, and a
+  // pane under it is not on screen for a notification. Unsaid on unmount
+  // too, so a plugin torn down mid-peek leaves the deck unpaused. The
+  // runtime may already be gone on that path; there is nothing to tell then.
+  const covers = diff !== null;
+  useEffect(() => {
+    const say = (value: boolean) => {
+      try {
+        getRuntime().ui.setOverlayCovers("diff", value);
+      } catch {
+        // Torn down: the host clears a retired plugin's cover on its own.
+      }
+    };
+    say(covers);
+    return () => {
+      if (covers) say(false);
+    };
+  }, [covers]);
+
   if (!diff) return null;
   return (
     <OpenDiffPeek

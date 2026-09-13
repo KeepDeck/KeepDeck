@@ -12,6 +12,7 @@ const quiet: LayeringInput = {
   dockMode: "docked",
   dockTabs: 0,
   hasActive: true,
+  overlayCovers: false,
 };
 const at = (over: Partial<LayeringInput>) => layering({ ...quiet, ...over });
 
@@ -23,6 +24,17 @@ describe("layering", () => {
       panesInteractive: true,
       stats: { open: false, tab: null, covered: false },
     });
+  });
+
+  it("a plugin overlay that covers the window is a modal layer", () => {
+    // A full-window peek: the deck's hotkeys must pause and a pane behind it
+    // is not on screen — it used to be invisible to this decision entirely.
+    const peek = at({ overlayCovers: true });
+    expect(peek.modal).toBe(true);
+    expect(peek.panesInteractive).toBe(false);
+    // It does not paint over the stats dialog — that is a portaled layer of
+    // its own; the peek's claim is about the deck.
+    expect(peek.stats.covered).toBe(false);
   });
 
   it("(а) the zero-workspace form is not a modal layer and covers nothing", () => {

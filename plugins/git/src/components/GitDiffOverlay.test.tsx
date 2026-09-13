@@ -73,6 +73,7 @@ const OTHER_WS: WorkspaceRef = { id: "ws-2", instance: "instance-2" };
 
 function makeCtx(over: Partial<GitStatus> | null = null): PluginContext {
   return {
+    ui: { setOverlayCovers: vi.fn() },
     events: {
       onPaneSelected: (cb: (e: { workspace: WorkspaceRef }) => void) => {
         deckEvents.paneSelected.add(cb);
@@ -182,6 +183,30 @@ describe("GitDiffOverlay", () => {
 
     expect(overlayHost.querySelector(".peek")).toBeTruthy();
     expect(overlayHost.textContent).toContain("goodbye");
+  });
+
+  it("tells the host when the peek covers the window, and when it stops", async () => {
+    // The host cannot see a full-window peek by itself: this overlay is
+    // "visible" while it renders nothing. The word is what pauses the deck's
+    // hotkeys behind the diff and keeps a covered pane off-screen for
+    // notifications — and it is taken back when the peek goes.
+    const ctx = makeCtx();
+    setRuntime(ctx);
+    await mountOverlay();
+    const covers = ctx.ui.setOverlayCovers as ReturnType<typeof vi.fn>;
+    expect(covers).toHaveBeenLastCalledWith("diff", false);
+
+    await act(async () => {
+      requestPeek({ repo: "/repo", workspace: WS, kind: "worktree", row: row("src/app.ts") });
+    });
+    expect(covers).toHaveBeenLastCalledWith("diff", true);
+
+    // Leaving the workspace closes the peek — and takes the word back.
+    await act(async () => {
+      deckEvents.fireActive(OTHER_WS);
+    });
+    expect(overlayHost.querySelector(".peek")).toBeNull();
+    expect(covers).toHaveBeenLastCalledWith("diff", false);
   });
 
   it("keeps an open diff when the dock closes and the tab unmounts", async () => {
