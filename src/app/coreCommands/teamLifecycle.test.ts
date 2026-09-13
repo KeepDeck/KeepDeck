@@ -41,6 +41,23 @@ describe("team.enter", () => {
     ]);
   });
 
+  it("enters a team in a workspace that is not the active one, when that workspace is named", async () => {
+    const { registry, activateTeam } = setup([
+      workspace({}),
+      workspace({
+        id: "ws-2",
+        name: "site",
+        teams: [{ id: "team-9", name: "docs", location: { kind: "attached", cwd: "/wt/docs" } }],
+      }),
+    ]);
+    const result = await registry.execute("team.enter", { team: "docs", workspace: "site" }, HOST);
+    expect(result).toEqual({ ok: true, value: { workspaceId: "ws-2", teamId: "team-9" } });
+    expect(activateTeam).toHaveBeenCalledWith("ws-2", "team-9");
+    // And unnamed, the active workspace has no such team.
+    const unnamed = await registry.execute("team.enter", { team: "docs" }, HOST);
+    expect(unnamed.ok).toBe(false);
+  });
+
   it("refuses a team that is not here, and enters nothing", async () => {
     const { registry, activateTeam } = setup([teamed()]);
     const result = await registry.execute("team.enter", { team: "nowhere" }, HOST);
@@ -58,6 +75,18 @@ describe("team.rename", () => {
       value: { workspaceId: "ws-1", teamId: "team-1", name: "platform" },
     });
     expect(deck.renameTeam).toHaveBeenCalledWith("ws-1", "team-1", "platform");
+  });
+
+  it("lets a team re-spell its own name — its current name is never 'taken' from itself", async () => {
+    // "api" → "API" is a rename the domain performs; "api" → "api" is one it
+    // ignores. The tool answers the name asked for either way: the deck
+    // holds it after the call, which is all the answer promises.
+    const { registry, deck } = setup([teamed()]);
+    const respelled = await registry.execute("team.rename", { team: "api", name: "API" }, HOST);
+    expect(respelled).toEqual({ ok: true, value: { workspaceId: "ws-1", teamId: "team-1", name: "API" } });
+    const same = await registry.execute("team.rename", { team: "api", name: "api" }, HOST);
+    expect(same.ok).toBe(true);
+    expect(deck.renameTeam).toHaveBeenCalledTimes(2);
   });
 
   it("refuses a blank name, and a name another team here holds — in words, since the deck's rename is silent about both", async () => {
@@ -110,5 +139,16 @@ describe("team.disband", () => {
       value: { workspaceId: "ws-1", teamId: "team-1", name: "api", confirm: "dialog" },
     });
     expect(requestDisbandTeam).toHaveBeenCalledWith("ws-1", "team-1");
+  });
+
+  it("offers to disband a team whose worktree is still being created, or failed — the card does in every state", async () => {
+    // The dialog owns what disbanding a create in flight means (it waits
+    // out the ticket and removes what it made); the tool only opens it.
+    for (const location of [CREATING, FAILED]) {
+      const { registry, requestDisbandTeam } = setup([teamed(location)]);
+      const result = await registry.execute("team.disband", { team: "docs" }, HOST);
+      expect(result.ok).toBe(true);
+      expect(requestDisbandTeam).toHaveBeenCalledWith("ws-1", "team-2");
+    }
   });
 });

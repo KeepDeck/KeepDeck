@@ -186,7 +186,7 @@ export function registerSpawnCommands(
           // deck knows and free on the team is the landing's one rule.
           const role = str(args, "role");
           if (ref !== undefined) {
-            const team = targetTeam(current.workspace,ref);
+            const team = targetTeam(current.workspace, ref);
             return { team: team.id, ...(role !== undefined && { role }) };
           }
           const placement = await freshWorktree(current, index);
@@ -345,7 +345,7 @@ export function registerSpawnCommands(
        * Sixteen on one team is the cap. */
       run: (args) =>
         recruit(args, async (current) => {
-          const team = targetTeam(current.workspace,requiredStr(args, "team"));
+          const team = targetTeam(current.workspace, requiredStr(args, "team"));
           const role = str(args, "role");
           return { team: team.id, ...(role !== undefined && { role }) };
         }),

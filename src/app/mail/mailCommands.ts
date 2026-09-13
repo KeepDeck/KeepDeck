@@ -409,7 +409,9 @@ export function registerMailCommands(
         const { workspace, pane: me } = callerWorkspace(deps, caller);
         const mine = teamOfPane(workspace, me);
         if (!mine) {
-          throw new Error("you are on no team — a role is changed on the team that holds it");
+          throw new Error(
+            "you are on no team, so there is no roster to change — an agent joins a team when it starts (team.add)",
+          );
         }
         const ref = str(args, "agent") ?? "";
         // The resolver mail uses: a role names a teammate first, and a title
