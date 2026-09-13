@@ -20,7 +20,8 @@ import {
   type HistoryScope,
 } from "../domain/history";
 import { diffKey } from "../domain/identity";
-import { PeekSiblings, type ChangeSet } from "./PeekSiblings";
+import type { ChangeSet } from "../domain/changeSet";
+import { PeekSiblings } from "./PeekSiblings";
 
 /** What the peek shows. `file` is a chosen row's diff (worktree or history
  * range); `waiting` is a history scope that opened before the rail seeded its

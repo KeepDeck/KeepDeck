@@ -1,15 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import type { GitChangedFile } from "@keepdeck/plugin-api";
 import { activeRuntime } from "../runtime";
-import type { ChangeGroups, ChangeRow } from "../domain/status";
-import {
-  historyRow,
-  scopeLabel,
-  scopeRange,
-  scopeSha,
-  shortSha,
-  type HistoryScope,
-} from "../domain/history";
+import type { ChangeRow } from "../domain/status";
+import { historyRow, scopeLabel, scopeRange, scopeSha, shortSha } from "../domain/history";
+import { changeSetRows, seedRow, type ChangeSet } from "../domain/changeSet";
 import { changeSetKey } from "../domain/identity";
 import { navigate, type ArrowKey } from "../domain/navigate";
 import { FileRow, FileSection } from "./FileRows";
@@ -21,18 +15,6 @@ const ARROW_KEYS: Record<string, ArrowKey | undefined> = {
   ArrowLeft: "left",
   ArrowRight: "right",
 };
-
-/** The change set an open diff belongs to — what the peek's rail lists.
- * A union, not optional fields: a worktree diff belongs to the LIVE status
- * groups, a History diff to one drilled scope; never both.
- *
- * `error` carries the status feed's own failure. A peek can outlive the
- * worktree it opened on (closing the pane deletes it), and the rail is where
- * that has to be said — silently dropping the list left the reader looking at
- * hunks of a directory that no longer exists. */
-export type ChangeSet =
-  | { kind: "worktree"; groups: ChangeGroups | null; error: string | null }
-  | { kind: "history"; scope: HistoryScope };
 
 /**
  * The peek's right-hand rail: every file of the change set the open diff
@@ -92,18 +74,7 @@ export function PeekSiblings({
   const error = settled && "error" in settled ? settled.error : null;
 
   // The rail's rows in visual order — what the arrows walk.
-  const groups = changeSet.kind === "worktree" ? changeSet.groups : null;
-  const rows: ChangeRow[] =
-    changeSet.kind === "worktree"
-      ? groups
-        ? [
-            ...groups.conflicted,
-            ...groups.staged,
-            ...groups.unstaged,
-            ...groups.untracked,
-          ]
-        : []
-      : (files ?? []).map(historyRow);
+  const rows = changeSetRows(changeSet, files);
 
   // One window listener for the peek's lifetime; the latest rows/selection
   // come through a ref so re-renders don't churn the subscription.
@@ -171,12 +142,13 @@ export function PeekSiblings({
 
   // A History scope opens the peek without a file yet — seed the first one
   // the moment its file list lands, so the body shows a diff at once. The
-  // rail is the single owner of the scope's file fetch, so it owns the seed.
-  const isHistory = changeSet.kind === "history";
+  // rail is the single owner of the scope's file fetch, so it owns the seed;
+  // which row that is, and when, is the domain's rule (`seedRow`).
+  const kind = changeSet.kind;
   useEffect(() => {
-    if (!isHistory || current || !files || files.length === 0) return;
-    onSelect(historyRow(files[0]));
-  }, [isHistory, current, files, onSelect]);
+    const seed = seedRow(kind, current, files);
+    if (seed) onSelect(seed);
+  }, [kind, current, files, onSelect]);
 
   if (changeSet.kind === "worktree") {
     // The repo stopped answering — say so where the list would have been.
@@ -187,6 +159,7 @@ export function PeekSiblings({
         <div className="git__empty git__empty--bad">{changeSet.error}</div>
       );
     }
+    const groups = changeSet.groups;
     if (!groups) return null;
     return (
       <div ref={railRef}>
