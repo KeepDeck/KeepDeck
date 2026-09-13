@@ -97,6 +97,33 @@ fn log_walks_a_range_newest_first_and_caps() {
     fs::remove_dir_all(&repo_dir).ok();
 }
 
+/// A revision that spells a git option must be refused as a revision, never
+/// obeyed as an option: `--output=<path>` would otherwise write the diff to
+/// ANY path, past every containment check the caller made on the repo.
+#[test]
+fn a_revision_spelled_as_an_option_is_refused_and_writes_nothing() {
+    let repo_dir = init_forked_repo();
+    let fork = repo::merge_base(&repo_dir, "main", "HEAD").unwrap().unwrap();
+    let escape = unique_dir("escape").join("stolen.diff");
+    let to = format!("--output={}", escape.display());
+
+    let ranged = diff::diff_file_range(&repo_dir, "README.md", &fork, Some(&to));
+    assert!(ranged.is_err(), "the option-shaped revision must fail: {ranged:?}");
+    assert!(!escape.exists(), "diff_file_range wrote outside the repo");
+
+    let files = diff::changed_files(&repo_dir, &fork, Some(&to));
+    assert!(files.is_err(), "the option-shaped revision must fail: {files:?}");
+    assert!(!escape.exists(), "changed_files wrote outside the repo");
+
+    // `from` is guarded the same way.
+    let from_escape = diff::changed_files(&repo_dir, &to, None);
+    assert!(from_escape.is_err(), "{from_escape:?}");
+    assert!(!escape.exists());
+
+    fs::remove_dir_all(&repo_dir).ok();
+    fs::remove_dir_all(escape.parent().unwrap()).ok();
+}
+
 #[test]
 fn changed_files_and_diff_cover_a_range_and_the_working_tree() {
     let repo_dir = init_forked_repo();

@@ -35,6 +35,11 @@ pub fn diff_file(repo: &Path, file: &str, staged: bool) -> Result<String, GitErr
 /// Unified diff for one path across a REVISION range: `from..to`, or `from`
 /// against the working tree when `to` is `None` (the "everything since the
 /// fork, committed or not" view). Same flags and guards as [`diff_file`].
+///
+/// `--end-of-options` sits between the flags and the revisions: git reads
+/// options up to `--`, so a revision spelled `--output=<path>` would otherwise
+/// be obeyed — and write the diff to any path, outside every containment the
+/// caller checked. Behind the guard such a spelling is a bad revision.
 pub fn diff_file_range(
     repo: &Path,
     file: &str,
@@ -46,6 +51,7 @@ pub fn diff_file_range(
         OsStr::new("diff"),
         OsStr::new("--no-color"),
         OsStr::new("--no-ext-diff"),
+        OsStr::new("--end-of-options"),
         OsStr::new(from),
     ];
     if let Some(to) = to {
@@ -70,6 +76,7 @@ pub struct ChangedFile {
 /// The paths changed across a revision range — `from..to`, or `from` against
 /// the working tree when `to` is `None`. `-M` detects renames so a moved file
 /// is one entry with both names, matching what status shows for staged moves.
+/// `--end-of-options` guards the revisions the way [`diff_file_range`] does.
 pub fn changed_files(
     repo: &Path,
     from: &str,
@@ -81,6 +88,7 @@ pub fn changed_files(
         OsStr::new("--name-status"),
         OsStr::new("-M"),
         OsStr::new("-z"),
+        OsStr::new("--end-of-options"),
         OsStr::new(from),
     ];
     if let Some(to) = to {
