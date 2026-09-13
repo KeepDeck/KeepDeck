@@ -11,6 +11,7 @@ import { changesHead } from "../presentation/changesHeadView";
 import { FileSection } from "./FileRows";
 import { HistoryView } from "./HistoryView";
 import { Section } from "./Section";
+import { Trouble } from "./Trouble";
 import { requestPeek } from "../peekRequests";
 
 /**
@@ -105,7 +106,7 @@ export function GitTab({ workspace, selectedPaneId }: DockTabProps) {
           }
         >
           {!status && !error && <div className="git__empty">Loading…</div>}
-          {error && <div className="git__empty git__empty--bad">{error}</div>}
+          {error && <Trouble error={error} />}
           {groups && groups.total === 0 && (
             <div className="git__empty">No changes — the tree is clean.</div>
           )}

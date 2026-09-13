@@ -173,12 +173,14 @@ describe("GitTab", () => {
     expect(git.watcherCount("/wt/one")).toBe(1);
   });
 
-  it("surfaces a status failure instead of a stuck spinner", async () => {
+  it("surfaces a status failure as the folder's state, git's own words on hover", async () => {
     const git = makeGit(); // no statuses registered → status() rejects
     setRuntime(makeCtx(git));
 
     await rig.render();
 
-    expect(rig.host.textContent).toContain("not a git repository");
+    const trouble = rig.host.querySelector(".git__empty--bad") as HTMLElement;
+    expect(trouble.textContent).toBe("Not a git repository.");
+    expect(trouble.title).toContain("not a git repository: /repo");
   });
 });

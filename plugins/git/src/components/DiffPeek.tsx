@@ -11,6 +11,8 @@ import {
 } from "../domain/diff";
 import { diffReadFor, fileAsDiff } from "../domain/diffRead";
 import { noteKey, noteText } from "../presentation/diffNoteView";
+import { repoTrouble } from "../domain/repoState";
+import { troubleText } from "../presentation/troubleView";
 import { baseName, codeLabel, type ChangeRow } from "../domain/status";
 import {
   scopeLabel,
@@ -195,7 +197,9 @@ export function DiffPeek({
         <p className="peek__note">Loading…</p>
       )}
       {view.kind === "file" && error && (
-        <p className="peek__note peek__note--bad">{error}</p>
+        <p className="peek__note peek__note--bad" title={error}>
+          {troubleText(repoTrouble(error))}
+        </p>
       )}
       {view.kind === "file" && diff?.binary && (
         <p className="peek__note">Binary file — no text diff.</p>

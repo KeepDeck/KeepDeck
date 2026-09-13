@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import type { GitHistory } from "@keepdeck/plugin-api";
 import type { HistoryScope } from "../domain/history";
 import { historyList } from "../presentation/historyListView";
+import { Trouble } from "./Trouble";
 
 /**
  * The History section's list. What the rows are — the pinned "Since fork"
@@ -46,7 +47,7 @@ export function HistoryView({
     // grows, and `hasMore` flipping off removes it entirely.
   }, [loadMore, hasMore, history]);
 
-  if (error) return <div className="git__empty git__empty--bad">{error}</div>;
+  if (error) return <Trouble error={error} />;
   if (!history) return <div className="git__empty">Loading…</div>;
 
   const list = historyList(history, Date.now());

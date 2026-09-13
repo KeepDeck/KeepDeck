@@ -7,6 +7,7 @@ import { changeSetRows, seedRow, type ChangeSet } from "../domain/changeSet";
 import { changeSetKey } from "../domain/identity";
 import { navigate, type ArrowKey } from "../domain/navigate";
 import { FileRow, FileSection } from "./FileRows";
+import { Trouble } from "./Trouble";
 
 /** Arrow keys the rail consumes, mapped to the pure navigator's vocabulary. */
 const ARROW_KEYS: Record<string, ArrowKey | undefined> = {
@@ -154,11 +155,7 @@ export function PeekSiblings({
     // The repo stopped answering — say so where the list would have been.
     // The body says it too (the diff re-read fails on the same version bump),
     // but the rail is what visibly disappeared.
-    if (changeSet.error) {
-      return (
-        <div className="git__empty git__empty--bad">{changeSet.error}</div>
-      );
-    }
+    if (changeSet.error) return <Trouble error={changeSet.error} />;
     const groups = changeSet.groups;
     if (!groups) return null;
     return (
@@ -205,7 +202,7 @@ export function PeekSiblings({
           {shortSha(scopeSha(changeSet.scope))}
         </span>
       </div>
-      {error && <div className="git__empty git__empty--bad">{error}</div>}
+      {error && <Trouble error={error} />}
       {!files && !error && <div className="git__empty">Loading…</div>}
       {files && files.length === 0 && (
         <div className="git__empty">Nothing changed here.</div>
