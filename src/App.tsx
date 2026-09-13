@@ -167,6 +167,7 @@ function App() {
             onEnterTeam={handleEnterTeam}
             onToggleTeams={deck.toggleRailTeams}
             onRenameTeam={deck.renameTeam}
+            onDisbandTeam={closeFlow.requestDisbandTeam}
             onReorder={deck.moveWorkspace}
             version={info?.version ?? null}
           />

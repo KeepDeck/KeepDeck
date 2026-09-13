@@ -228,7 +228,10 @@
   padding: 0 4px;
 }
 
-.rail__close {
+/* One × for both rows — the workspace's and a team's — shown by each row's
+   own hover rule below. */
+.rail__close,
+.rail__team-close {
   display: none;
   width: 18px;
   height: 18px;
@@ -243,7 +246,8 @@
   cursor: pointer;
 }
 
-.rail__close:hover {
+.rail__close:hover,
+.rail__team-close:hover {
   background-color: #243044;
   color: #c5c8c6;
 }
@@ -275,15 +279,30 @@
   gap: 1px;
 }
 
-/* Unpositioned like everything else inside the item: the list stays the one
+/* One team's row: the button that enters it and, on hover, the × that
+   disbands it — laid out by the item the way .rail__row lays out the
+   workspace's, so the × sits beside the button rather than inside it.
+   Unpositioned like everything else inside the item: the list stays the one
    `offsetParent`, which both the hit-test and the ghost's landing measure
    through. */
+.rail__team-item {
+  display: flex;
+  align-items: center;
+  margin-left: 4px;
+  padding-right: 4px;
+  border-radius: 6px;
+}
+
+.rail__team-item:hover {
+  background-color: #161d29;
+}
+
 .rail__team {
   display: flex;
   align-items: center;
   gap: 8px;
-  width: calc(100% - 4px);
-  margin-left: 4px;
+  flex: 1;
+  min-width: 0;
   padding: 5px 8px 5px 24px;
   border: 0;
   border-radius: 6px;
@@ -294,8 +313,7 @@
   text-align: left;
 }
 
-.rail__team:hover {
-  background-color: #161d29;
+.rail__team-item:hover .rail__team {
   color: #c5c8c6;
 }
 
@@ -365,9 +383,24 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Hovered, the row swaps its size for its × — the same trade the workspace
+   row makes with its count. On hover only, where the workspace × also
+   stays on the active row: a team row has no active state to hold it on,
+   and an open team painted with a standing × would read as a warning. */
+.rail__team-item:hover .rail__team-size {
+  display: none;
+}
+
+.rail__team-item:hover .rail__team-close {
+  display: inline-flex;
+}
+
+/* Fills the row's item the way the button does; the left margin keeps the
+   text where the name sat before the edit began. */
 .rail__team-rename {
-  width: calc(100% - 8px);
-  margin: 1px 4px 1px 24px;
+  flex: 1;
+  min-width: 0;
+  margin: 1px 0 1px 20px;
   padding: 4px 6px;
   border: 1px solid #3a4658;
   border-radius: 5px;
