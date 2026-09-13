@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   binaryFileDiff,
-  conflictedFileDiff,
   flatLines,
   hunkOffsets,
   isEmptyDiff,
@@ -136,29 +135,7 @@ describe("truncated", () => {
     expect(parseDiff(SAMPLE, true).truncated).toBe(true);
     expect(newFileDiff("a\n").truncated).toBe(false);
     expect(newFileDiff("a\n", true).truncated).toBe(true);
-    expect(conflictedFileDiff("a\n", true).truncated).toBe(true);
     expect(binaryFileDiff().truncated).toBe(false);
-  });
-});
-
-describe("conflictedFileDiff", () => {
-  it("is the working file, all added, under an unmerged note", () => {
-    const diff = conflictedFileDiff("a\n<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> side\nc\n");
-    expect(diff.binary).toBe(false);
-    expect(diff.notes).toEqual([{ kind: "unmerged" }]);
-    expect(diff.hunks).toHaveLength(1);
-    // Every line, markers included, keeps its exact text on the new side —
-    // nothing is read as a marker column the way a combined diff would be.
-    expect(diff.hunks[0].lines.map((l) => [l.kind, l.text, l.newNo])).toEqual([
-      ["add", "a", 1],
-      ["add", "<<<<<<< HEAD", 2],
-      ["add", "ours", 3],
-      ["add", "=======", 4],
-      ["add", "theirs", 5],
-      ["add", ">>>>>>> side", 6],
-      ["add", "c", 7],
-    ]);
-    expect(isEmptyDiff(diff)).toBe(false);
   });
 });
 

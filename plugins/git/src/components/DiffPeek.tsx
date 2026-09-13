@@ -3,16 +3,14 @@ import { Peek } from "@keepdeck/ui-kit/Peek";
 import { langFor, TokenLine, useHighlight } from "@keepdeck/code-kit";
 import { activeRuntime } from "../runtime";
 import {
-  binaryFileDiff,
-  conflictedFileDiff,
   flatLines,
   hunkOffsets,
   isEmptyDiff,
-  newFileDiff,
   parseDiff,
   type DiffNote,
   type FileDiff,
 } from "../domain/diff";
+import { diffReadFor, fileAsDiff } from "../domain/diffRead";
 import { baseName, codeLabel, type ChangeRow } from "../domain/status";
 import {
   scopeLabel,
@@ -36,10 +34,11 @@ export type PeekView =
 
 /**
  * One change's diff, inside the shared `Peek` overlay (ui-kit) — the shell is
- * the kit's; this component owns the diff that fills it. Which diff depends on
- * the row's section: staged rows peek index-vs-HEAD, changed rows
- * worktree-vs-index, untracked rows render the file's content as all-added
- * (git has no diff for them).
+ * the kit's; this component owns the diff that fills it. Which diff a row
+ * shows and where it is read from is the domain's rule (`diffReadFor`:
+ * staged rows peek index-vs-HEAD, changed rows worktree-vs-index, history
+ * rows their range, untracked and unmerged rows the working file); this
+ * executes the read and renders the model it gets.
  *
  * Lines are syntax-colored by the changed file's language (code-kit, the same
  * engine as the Files preview): the hunks' lines tokenize as ONE flat document
@@ -116,39 +115,15 @@ export function DiffPeek({
     if (!runtime) return;
     let cancelled = false;
     const { services, log } = runtime;
-    // The old path rides along only when the row has one: with it git pairs
-    // the rename and shows the edit, without it the new path reads as a whole
-    // new file. Absent (not `undefined`) when there is none, so a row without
-    // a rename asks for exactly what it always asked for.
-    const renamed = row.origPath ? { origPath: row.origPath } : {};
-    // Untracked and unmerged rows read the working FILE, not a diff: git has
-    // no diff for an untracked path, and for an unmerged one it prints a
-    // combined diff (`@@@`, two marker columns) that a two-sided parser
-    // garbles — the file with its conflict markers is what the reader needs.
-    const asFile =
-      row.kind === "untracked"
-        ? newFileDiff
-        : row.kind === "conflicted"
-          ? conflictedFileDiff
-          : null;
-    // A file-shaped row reads the file whatever change set it sits in: an
-    // untracked file in a since-fork sweep has no diff at any range either.
-    // Both reads are capped host-side; the flag rides into the model so the
-    // body can say the content was cut instead of presenting its head as all.
-    const read = asFile
-      ? services.fs
-          .readFile(`${repo.replace(/\/+$/, "")}/${row.path}`)
-          .then((file) =>
-            file.isBinary || file.text === null
-              ? binaryFileDiff()
-              : asFile(file.text, file.truncated),
-          )
-      : range
-        ? services.git
-            .diffFile(repo, row.path, { from: range.from, to: range.to, ...renamed })
-            .then((d) => parseDiff(d.text, d.truncated))
+    // Which source and which diff is the domain's rule (`diffReadFor`);
+    // this executes it. Both reads are capped host-side, and the flag rides
+    // into the model so the body can say the content was cut.
+    const plan = diffReadFor(repo, row, range);
+    const read =
+      plan.source === "file"
+        ? services.fs.readFile(plan.path).then((file) => fileAsDiff(plan.as, file))
         : services.git
-            .diffFile(repo, row.path, { staged: row.kind === "staged", ...renamed })
+            .diffFile(repo, row.path, plan.options)
             .then((d) => parseDiff(d.text, d.truncated));
     read
       .then((next) => {

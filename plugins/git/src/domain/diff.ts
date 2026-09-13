@@ -165,8 +165,9 @@ export function hunkOffsets(diff: FileDiff): number[] {
   return offsets;
 }
 
-/** An untracked file "diff": its whole content as one all-added hunk — git has
- * nothing to compare it against, but the peek should read the same.
+/** A working file's content as a "diff": one all-added hunk — what an
+ * untracked or an unmerged file shows, since git has no two-sided diff for
+ * either (`diffRead` decides which rows read this way, and what to note).
  * `truncated` is the file read's own flag: the host caps a read too. */
 export function newFileDiff(text: string, truncated = false): FileDiff {
   const lines = text.split("\n");
@@ -187,13 +188,4 @@ export function newFileDiff(text: string, truncated = false): FileDiff {
       },
     ],
   };
-}
-
-/** An unmerged file's "diff": the working file as it stands, conflict markers
- * and all, under a note saying so. `git diff` prints a COMBINED diff for an
- * unmerged path (`@@@` hunks, two marker columns) that a two-sided parser
- * misreads line by line; the file itself is what the reader needs to see. */
-export function conflictedFileDiff(text: string, truncated = false): FileDiff {
-  const diff = newFileDiff(text, truncated);
-  return { ...diff, notes: [{ kind: "unmerged" }] };
 }
