@@ -35,6 +35,7 @@ import {
   resolveMailTarget,
   senderAddress,
   senderOf,
+  teamOf,
   teamRoles,
   type Mail,
   type MailKind,
@@ -77,17 +78,36 @@ function rosterPorts(deps: MailCommandDeps): TeamSetupDeps {
   };
 }
 
+/** Where the deck holds a caller's pane, or null for one it no longer
+ * holds — a pane closed between the call and now. */
+function locateCaller(
+  deps: MailCommandDeps,
+  sender: MailSender,
+): { workspace: Workspace; pane: Pane } | null {
+  const workspace = findWorkspaceOfPane(deps.workspaces(), sender.paneId);
+  const pane = workspace?.panes.find((p) => p.id === sender.paneId);
+  return workspace && pane ? { workspace, pane } : null;
+}
+
 /** The workspace a caller belongs to, refusing anyone who belongs to none.
- * Every command here starts with this: the caller's workspace is both who
- * they are and how far they can reach. */
+ * Every command that ACTS starts with this: the caller's workspace is both
+ * who they are and how far they can reach. */
 function callerWorkspace(
   deps: MailCommandDeps,
   sender: MailSender,
 ): { workspace: Workspace; pane: Pane } {
-  const workspace = findWorkspaceOfPane(deps.workspaces(), sender.paneId);
-  const pane = workspace?.panes.find((p) => p.id === sender.paneId);
-  if (!workspace || !pane) throw new Error(NOT_AN_AGENT_MESSAGE);
-  return { workspace, pane };
+  const found = locateCaller(deps, sender);
+  if (!found) throw new Error(NOT_AN_AGENT_MESSAGE);
+  return found;
+}
+
+/** The team a reader stands on — its id, or null on no team. Null as well
+ * for a pane the deck no longer holds: reading is not acting, and a closed
+ * pane's inbox is answered (empty) rather than refused, so its addresses
+ * are read the way a stranger would read them. */
+function readerTeamOf(deps: MailCommandDeps, reader: MailSender): string | null {
+  const found = locateCaller(deps, reader);
+  return found ? (teamOfPane(found.workspace, found.pane)?.id ?? null) : null;
 }
 
 
@@ -121,8 +141,12 @@ function str(args: CommandArgs, name: string): string | undefined {
  * Field by field on purpose, never a spread: what an agent may read is a
  * decision, and a message gaining an internal field later must not start
  * arriving on the wire because nobody thought about it here.
+ *
+ * `readerTeamId` is the team the READER stands on: the address is shown the
+ * way this reader can answer it — a teammate's bare role, another team's
+ * `role@team`.
  */
-function wire(mail: Mail) {
+function wire(mail: Mail, readerTeamId: string | null) {
   return {
     id: mail.id,
     kind: mail.kind,
@@ -134,7 +158,7 @@ function wire(mail: Mail) {
         ? { kind: "host" as const }
         : {
             kind: "pane" as const,
-            address: senderAddress(mail.from.pane),
+            address: senderAddress(mail.from.pane, readerTeamId),
             label: mail.from.pane.label,
             paneId: mail.from.pane.paneId,
           },
@@ -160,7 +184,7 @@ export function registerMailCommands(
           // teammate can be sure of, while the briefing taught roles — so
           // the two surfaces an agent reads disagreed about how to answer.
           description:
-            "Recipient's address in your own workspace: the role a message shows as `from.address` (lead, impl-1). A pane title or id also resolves, and is all there is for an agent on no team",
+            "Recipient's address in your own workspace: a teammate's role (lead, impl-1); a member of another team as role@team (impl-1@web) — the form a message from that team shows as `from.address`, so a reply copies it. A pane title or id also resolves, and is all there is for an agent on no team",
         },
         {
           name: "kind",
@@ -193,11 +217,14 @@ export function registerMailCommands(
         // of, and with no permission gate anywhere in the registry yet, this
         // resolution IS the boundary rather than a convenience.
         const { workspace, pane } = callerWorkspace(deps, from);
-        // Stamp the ROLE the sender answers to. The receiver replies to
-        // whatever it is shown as the sender, so showing anything that is
-        // not an address is showing it a dead end.
-        const speaking: MailSender = pane.team
-          ? { ...from, role: pane.team.role }
+        // Stamp the ROLE the sender answers to, and the TEAM it answers on.
+        // The receiver replies to whatever it is shown as the sender, so
+        // showing anything that is not an address is showing it a dead end
+        // — and a bare role is an address only inside the sender's own team,
+        // so the team rides along for a receiver on another one.
+        const standing = teamOf(workspace, pane);
+        const speaking: MailSender = standing
+          ? { ...from, role: standing.role, team: { id: standing.id, name: standing.name } }
           : from;
         // A teammate's ROLE outranks every other way to name a pane — see
         // `resolveMailTarget`. A workspace with no teams behaves exactly as
@@ -247,12 +274,14 @@ export function registerMailCommands(
         const reader = requireSender(source);
         // A pane reads its OWN inbox and cannot name another's. There is no
         // argument for whose mail to read, which is the cheapest possible
-        // form of that rule.
+        // form of that rule. Its team decides how every sender is addressed
+        // in the answer — see `wire`.
+        const readerTeam = readerTeamOf(deps, reader);
         const { messages, waiting } = deps.mail.inbox(reader.paneId, {
           all: args.all === true,
         });
         return {
-          messages: messages.map(wire),
+          messages: messages.map((mail) => wire(mail, readerTeam)),
           // Said in the answer because the alternative is an agent that
           // stops at what it was given: a turn's worth of mail is capped,
           // and what did not fit is invisible unless the deck says so.

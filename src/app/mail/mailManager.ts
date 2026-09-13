@@ -134,7 +134,9 @@ function trace(mail: Mail): string {
   // message name a sender the same way. Spelled out here once, it drifted the
   // day the role started outranking the label — and a log that calls somebody
   // by a name the receiver never saw is worse than one that says nothing.
-  return `${mail.id} ${mail.kind} ${senderName(mail) ?? "deck"} → ${mail.toPaneId}`;
+  // Read from no team, as a stranger would: a teamed sender logs as
+  // `role@team`, which says where it spoke from.
+  return `${mail.id} ${mail.kind} ${senderName(mail, null) ?? "deck"} → ${mail.toPaneId}`;
 }
 
 export interface MailSendRequest {

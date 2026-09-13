@@ -265,6 +265,9 @@ describe("mail.inbox", () => {
         workspaceId: "ws-1",
         label: "Team structure and the number of direct reports",
         role: "lead",
+        // And the team it spoke from: what a receiver on another team is
+        // shown the role qualified by.
+        team: { id: "team-1", name: "api" },
       },
     });
     // And the READ path says the same. It did not: the message carried the
@@ -338,6 +341,78 @@ describe("mail.inbox", () => {
     const { registry } = setup();
     const result = await run(registry, "mail.inbox", {}, ANONYMOUS);
     expect(result.ok).toBe(false);
+  });
+});
+
+describe("mail between two teams of one workspace", () => {
+  /** api (team-1: pane-1 lead, pane-2 impl-1) and web (team-2) with pane-3
+   * as its lead — two leads in one workspace, which is what the bare role
+   * could not tell apart. */
+  const twoTeams = () => {
+    const host = setup(true);
+    host.workspaces[0].panes.push(pane("pane-3", { teamId: "team-2", role: "lead" }));
+    return host;
+  };
+
+  it("reaches another team's member by role@team, shows it the sender as role@team, and a reply copying that comes back", async () => {
+    const { registry, mail } = twoTeams();
+    const apiLead = from("pane-1", "ws-1", "Agent 1");
+    const webLead = from("pane-3", "ws-1", "Agent 3");
+    const sent = await run(
+      registry,
+      "mail.send",
+      { to: "lead@web", kind: "question", body: "which port?" },
+      apiLead,
+    );
+    expect(sent.ok).toBe(true);
+    const read = await run(registry, "mail.inbox", {}, webLead);
+    expect(read.ok).toBe(true);
+    if (!read.ok) return;
+    const { messages } = read.value as { messages: { from: { address: string } }[] };
+    expect(messages[0].from.address).toBe("lead@api");
+    const reply = await run(
+      registry,
+      "mail.send",
+      { to: messages[0].from.address, kind: "answer", body: "8080" },
+      webLead,
+    );
+    expect(reply.ok).toBe(true);
+    expect(mail.takeAtTurnEnd("pane-1").map((m) => m.toPaneId)).toEqual(["pane-1"]);
+  });
+
+  it("shows a teammate as its bare role, and a bare role never crosses into another team", async () => {
+    const { registry } = twoTeams();
+    const apiLead = from("pane-1", "ws-1", "Agent 1");
+    await run(registry, "mail.send", { to: "impl-1", kind: "note", body: "hi" }, apiLead);
+    const read = await run(registry, "mail.inbox", {}, from("pane-2", "ws-1", "Agent 2"));
+    expect(read.ok).toBe(true);
+    if (!read.ok) return;
+    const { messages } = read.value as { messages: { from: { address: string } }[] };
+    expect(messages[0].from.address).toBe("lead");
+    // web has no impl-1, and api's is not web's to reach by a bare role.
+    const crossed = await run(
+      registry,
+      "mail.send",
+      { to: "impl-1", kind: "note", body: "hi" },
+      from("pane-3", "ws-1", "Agent 3"),
+    );
+    expect(crossed.ok).toBe(false);
+  });
+
+  it("takes back a message to another team by the same address", async () => {
+    const { registry } = twoTeams();
+    const apiLead = from("pane-1", "ws-1", "Agent 1");
+    const sent = await run(
+      registry,
+      "mail.send",
+      { to: "lead@web", kind: "note", body: "never mind" },
+      apiLead,
+    );
+    expect(sent.ok).toBe(true);
+    if (!sent.ok) return;
+    const { id } = sent.value as { id: string };
+    const cancelled = await run(registry, "mail.cancel", { id, to: "lead@web" }, apiLead);
+    expect(cancelled.ok && cancelled.value).toMatchObject({ status: "cancelled" });
   });
 });
 

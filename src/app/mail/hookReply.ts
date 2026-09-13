@@ -42,6 +42,10 @@ export interface HookReplyDeps {
    * got there. The pane travels with it: the ANSWER is addressed by pane, so
    * an envelope naming another pane's correlation cannot reach that pane. */
   reply(paneId: string, correlation: string, body: string): Promise<boolean>;
+  /** The team the reading pane stands on — its id, or null on none. A
+   * sender is named relative to it: a teammate by its bare role, another
+   * team's member as `role@team` — the form this reader can answer. */
+  teamOf(paneId: string): string | null;
 }
 
 /** The labelled channel, as one owner: it answers asks. */
@@ -77,9 +81,10 @@ export function correlationOf(payload: unknown): string | null {
   return typeof reply === "string" && reply !== "" ? reply : null;
 }
 
-/** One message as a plugin renderer sees it: who spoke, flattened to a name,
- * because a renderer builds prose and has no use for the pane behind it. */
-function forAgent(mail: Mail): DeliverableMail {
+/** One message as a plugin renderer sees it: who spoke, flattened to a name
+ * the READER can answer, because a renderer builds prose and has no use for
+ * the pane behind it. */
+function forAgent(mail: Mail, readerTeamId: string | null): DeliverableMail {
   return {
     id: mail.id,
     kind: mail.kind,
@@ -88,7 +93,7 @@ function forAgent(mail: Mail): DeliverableMail {
     // which — a second copy of that list is a second thing to keep in step.
     standing: isStandingContext(mail.kind),
     body: mail.body,
-    from: senderName(mail),
+    from: senderName(mail, readerTeamId),
     ...(mail.replyTo ? { replyTo: mail.replyTo } : {}),
   };
 }
@@ -180,9 +185,10 @@ function answerMailAsk(
       held > 0 ? `${held} held — the pane is at a prompt` : "nothing waiting",
     );
   }
+  const readerTeam = deps.teamOf(paneId);
   const rendered = render({
     event,
-    messages: taken.map(forAgent),
+    messages: taken.map((mail) => forAgent(mail, readerTeam)),
     // Read AFTER the hand-over, so it counts what the turn's budget left
     // behind rather than what was waiting before it.
     waiting: manager.waiting(paneId),

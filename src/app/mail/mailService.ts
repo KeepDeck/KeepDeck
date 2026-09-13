@@ -182,11 +182,24 @@ export function createMailService(deps: MailServiceDeps): MailService {
     }
   };
 
+  /** Where a pane stands, read off the live deck: its workspace, itself and
+   * its team when it is on one — null for a pane the deck does not hold.
+   * The one walk the hook channel and the presence both make. */
+  const locate = (paneId: string) => {
+    for (const workspace of deps.deck.workspaces()) {
+      const pane = workspace.panes.find((candidate) => candidate.id === paneId);
+      if (!pane) continue;
+      return { workspace, pane, team: teamOfPane(workspace, pane) };
+    }
+    return null;
+  };
+
   const hookReplies: HookReplies = createHookReplies({
     mail: () => manager,
     rendererFor: (agentId) => deps.agents.statusOf(agentId)?.renderMail,
     versionOf: deps.agents.versionOf,
     reply: deps.bridge.reply,
+    teamOf: (paneId) => locate(paneId)?.team?.id ?? null,
   });
 
   // Membership, read off the deck — its one writer — so a briefing follows
@@ -207,21 +220,16 @@ export function createMailService(deps: MailServiceDeps): MailService {
   const startPresence = () =>
     createTeamPresence({
       standingOf: (paneId) => {
-        for (const workspace of deps.deck.workspaces()) {
-          const pane = workspace.panes.find(
-            (candidate) => candidate.id === paneId,
-          );
-          const team = pane ? teamOfPane(workspace, pane) : undefined;
-          if (!pane?.team || !team) continue;
-          return {
-            team: team.name,
-            role: pane.team.role,
-            everyRole: membersOf(workspace, team.id)
-              .map((member) => member.team?.role)
-              .filter((role): role is string => Boolean(role)),
-          };
-        }
-        return null;
+        const found = locate(paneId);
+        const role = found?.pane.team?.role;
+        if (!found?.team || role === undefined) return null;
+        return {
+          team: found.team.name,
+          role,
+          everyRole: membersOf(found.workspace, found.team.id)
+            .map((member) => member.team?.role)
+            .filter((held): held is string => Boolean(held)),
+        };
       },
       announce: (paneId, body) => manager.announce(paneId, "team", body),
       onSessionBegan: deps.onSessionBegan,

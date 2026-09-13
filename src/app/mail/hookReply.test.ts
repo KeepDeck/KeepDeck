@@ -64,6 +64,9 @@ function setup(
       // and answering it is what replaced the memory that used to guess.
       return Promise.resolve(options.lost !== true);
     },
+    // Every reader here stands on no team: the address rule is the domain's
+    // (message.test), and what this channel owes is passing the reader on.
+    teamOf: () => null,
   };
   const channel = createHookReplies(deps);
   return { manager, replies, deps, channel };

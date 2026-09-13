@@ -30,14 +30,31 @@ describe("senderOf", () => {
 });
 
 describe("senderAddress", () => {
-  it("answers with the role, which is the only name that is an address", () => {
+  const onApi = {
+    paneId: "pane-1",
+    workspaceId: "ws-1",
+    label: "Claude 3",
+    role: "impl-1",
+    team: { id: "team-1", name: "api" },
+  };
+
+  it("answers a teammate with the bare role, which is the only name that is an address", () => {
+    expect(senderAddress(onApi, "team-1")).toBe("impl-1");
+  });
+
+  it("answers anyone outside the team with role@team — the form that reaches back", () => {
+    // Shown the bare role, a receiver on another team answered "lead" and
+    // reached its OWN lead. A reader on no team is outside every team.
+    expect(senderAddress(onApi, "team-2")).toBe("impl-1@api");
+    expect(senderAddress(onApi, null)).toBe("impl-1@api");
+  });
+
+  it("keeps a role stamped without its team bare — there is no team to qualify it by", () => {
     expect(
-      senderAddress({
-        paneId: "pane-1",
-        workspaceId: "ws-1",
-        label: "Claude 3",
-        role: "impl-1",
-      }),
+      senderAddress(
+        { paneId: "pane-1", workspaceId: "ws-1", label: "Claude 3", role: "impl-1" },
+        "team-2",
+      ),
     ).toBe("impl-1");
   });
 
@@ -46,7 +63,7 @@ describe("senderAddress", () => {
     // later pane inherits, so a stale id reaches the wrong agent in silence
     // while a stale title comes back as a refusal.
     expect(
-      senderAddress({ paneId: "pane-1", workspaceId: "ws-1", label: "Claude 3" }),
+      senderAddress({ paneId: "pane-1", workspaceId: "ws-1", label: "Claude 3" }, "team-1"),
     ).toBe("Claude 3");
   });
 });
@@ -69,11 +86,16 @@ describe("senderName", () => {
       workspaceId: "ws-1",
       label: "Claude 3",
       role: "lead",
+      team: { id: "team-1", name: "api" },
     };
-    expect(senderName(mail({ kind: "pane", pane: sender }))).toBe(senderAddress(sender));
+    for (const reader of ["team-1", "team-2", null]) {
+      expect(senderName(mail({ kind: "pane", pane: sender }), reader)).toBe(
+        senderAddress(sender, reader),
+      );
+    }
   });
 
   it("has no name for the deck itself", () => {
-    expect(senderName(mail({ kind: "host" }))).toBeNull();
+    expect(senderName(mail({ kind: "host" }), "team-1")).toBeNull();
   });
 });

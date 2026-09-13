@@ -11,8 +11,9 @@
  * resolves it through the workspace's teams first, so no two sites compare
  * names to decide membership — the deck answers that once, by id.
  */
-import { resolvePaneRef, type Resolved } from "../commands";
-import { membersOf, teamOfPane, type Pane, type Workspace } from "../deck";
+import { resolvePaneRef, resolveTeamRef, type Resolved } from "../commands";
+import { membersOf, teamOfPane, type Pane, type Team, type Workspace } from "../deck";
+import { formatAddress, parseAddress } from "./address";
 
 export { teamNameKey, type TeamAssignment } from "../deck";
 
@@ -37,9 +38,14 @@ export { teamNameKey, type TeamAssignment } from "../deck";
  * role is the one name a teammate can be sure of — pane titles follow the
  * terminal and change under them.
  *
+ * `role@team` reaches a member of ANOTHER team in the workspace by its role
+ * — the form a message from that team shows as its sender, so a reply is
+ * addressed by copying what was shown. A bare role is never another team's:
+ * two teams both have a lead, and the sender's own is the one it means.
+ *
  * Everything else falls through to the ordinary pane reference (id, title,
  * user-given name), so a workspace with no teams keeps working exactly as
- * it did.
+ * it did — a title that happens to hold an `@` included.
  */
 export function resolveMailTarget(
   workspace: Workspace,
@@ -47,28 +53,63 @@ export function resolveMailTarget(
   from: Pane,
   ref: string,
 ): Resolved<Pane> {
+  const named = parseAddress(ref);
+  const other = named ? resolveTeamRef(workspace, named.team) : null;
+  if (named && other?.ok) return memberByRole(workspace, other.value, named.role);
   const team = teamOfPane(workspace, from);
   if (team) {
-    const needle = ref.trim().toLowerCase();
-    const mate = membersOf(workspace, team.id).find(
-      (pane) => pane.team?.role.toLowerCase() === needle,
-    );
+    const mate = roleHolder(workspace, team, ref);
     if (mate) return { ok: true, value: mate };
   }
   const fallback = resolvePaneRef(workspace, agents, ref);
-  if (fallback.ok || !team) return fallback;
+  if (fallback.ok) return fallback;
+  // An `@` that named no team here, and no pane titled that way either: the
+  // team is what was wrong, and its refusal says which.
+  if (other && !other.ok) return other;
+  if (!team) return fallback;
   // Inside a team the refusal should say what the sender could have said,
   // because "no agent X" sends an agent looking for a window title it was
   // never given.
-  const roles = membersOf(workspace, team.id)
-    .filter((pane) => pane.id !== from.id)
-    .map((pane) => pane.team?.role)
-    .filter((role): role is string => Boolean(role));
+  const roles = rolesOn(workspace, team, from.id);
   return {
     ok: false,
     message: roles.length
       ? `${fallback.message}; in team "${team.name}" you can write to: ${roles.join(", ")}`
       : fallback.message,
+  };
+}
+
+/** The member of `team` answering to `role`, however cased. */
+function roleHolder(workspace: Workspace, team: Team, role: string): Pane | undefined {
+  const needle = role.trim().toLowerCase();
+  return membersOf(workspace, team.id).find(
+    (pane) => pane.team?.role.toLowerCase() === needle,
+  );
+}
+
+/** The roles held on `team`, leaving out `except` — the sender's own, which
+ * is never an address it could write to. */
+function rolesOn(workspace: Workspace, team: Team, except?: string): string[] {
+  return membersOf(workspace, team.id)
+    .filter((pane) => pane.id !== except)
+    .map((pane) => pane.team?.role)
+    .filter((role): role is string => Boolean(role));
+}
+
+/** A member of another team by role, or the refusal naming the addresses
+ * that WOULD reach that team — in the same `role@team` form, so the sender
+ * can copy one rather than guess at the grammar. */
+function memberByRole(workspace: Workspace, team: Team, role: string): Resolved<Pane> {
+  const holder = roleHolder(workspace, team, role);
+  if (holder) return { ok: true, value: holder };
+  const roles = rolesOn(workspace, team);
+  return {
+    ok: false,
+    message: roles.length
+      ? `no "${role}" on team "${team.name}" — you can write to: ${roles
+          .map((held) => formatAddress(held, team.name))
+          .join(", ")}`
+      : `nobody is on team "${team.name}" yet`,
   };
 }
 
