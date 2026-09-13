@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { WorkspaceSnapshot } from "@keepdeck/plugin-api";
-import { rootFacts } from "./roots";
+import type { GitStatus, WorkspaceSnapshot } from "@keepdeck/plugin-api";
+import { rootFacts, withHead, type RootFact } from "./roots";
 
 const snapshot = (over: Partial<WorkspaceSnapshot>): WorkspaceSnapshot => ({
   id: "ws-1",
@@ -68,5 +68,41 @@ describe("rootFacts", () => {
       }),
     );
     expect(facts[0]).toEqual({ cwd: "/wt/lone", branch: "kd/lone", agents: 1, workspace: false });
+  });
+});
+
+describe("withHead", () => {
+  const status = (over: Partial<GitStatus>): GitStatus => ({
+    branch: "main",
+    detached: false,
+    oid: "abc1234def",
+    upstream: null,
+    ahead: null,
+    behind: null,
+    entries: [],
+    ...over,
+  });
+  const facts: RootFact[] = [
+    { cwd: "/wt/api", team: { id: "team-1", name: "api" }, agents: 1, workspace: false },
+    { cwd: "/wt/web", team: { id: "team-2", name: "web" }, branch: "kd/web/1", agents: 1, workspace: false },
+    { cwd: "/repo", agents: 1, workspace: true },
+  ];
+
+  it("names a detached tree by its commit when the host had no branch for it", () => {
+    const named = withHead(facts, "/wt/api", status({ branch: null, detached: true, oid: "0123456789abcdef" }));
+    expect(named[0].branch).toBe("0123456 (detached)");
+    // Only the root the status was read for; the others are not its business.
+    expect(named[1]).toBe(facts[1]);
+    expect(named[2]).toBe(facts[2]);
+  });
+
+  it("keeps the branch the host named, and the workspace folder's bare line", () => {
+    const detached = status({ branch: null, detached: true, oid: "0123456789abcdef" });
+    expect(withHead(facts, "/wt/web", detached)[1].branch).toBe("kd/web/1");
+    expect(withHead(facts, "/repo", detached)[2]).toBe(facts[2]);
+  });
+
+  it("does nothing before the status has loaded", () => {
+    expect(withHead(facts, "/wt/api", null)).toBe(facts);
   });
 });

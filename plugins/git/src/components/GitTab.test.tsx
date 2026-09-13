@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { act } from "react";
 import { describe, expect, it, vi } from "vitest";
+import type { WorkspaceSnapshot } from "@keepdeck/plugin-api";
 import { setRuntime } from "../runtime";
 import { takePeekRequest } from "../peekRequests";
 import {
@@ -81,6 +82,27 @@ describe("GitTab", () => {
     expect(picker.querySelector(".git__rootopt")?.getAttribute("title")).toBe(
       "/wt/one · 1 agent",
     );
+  });
+
+  it("names a detached tree by its commit — the host has no branch for it", async () => {
+    const git = makeGit();
+    git.statuses.set(
+      "/wt/one",
+      cleanStatus({ branch: null, detached: true, oid: "0123456789abcdef" }),
+    );
+    setRuntime(makeCtx(git));
+
+    // The deck's word for a detached worktree is no branch at all.
+    const detached: WorkspaceSnapshot = {
+      ...workspace,
+      teams: [{ id: "team-1", name: "api", cwd: "/wt/one" }],
+      panes: [{ ...workspace.panes[0], branch: undefined }],
+    };
+    await rig.render("p1", detached);
+
+    const picker = rig.host.querySelector(".git__root")!;
+    expect(picker.querySelector(".git__rootteam")?.textContent).toBe("api");
+    expect(picker.querySelector(".git__rootbranch")?.textContent).toBe("0123456 (detached)");
   });
 
   it("defaults to the highlighted pane's worktree and says so when it is clean", async () => {

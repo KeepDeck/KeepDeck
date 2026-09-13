@@ -160,8 +160,9 @@ export function makeCtx(git: ReturnType<typeof makeGit>): PluginContext {
 export interface GitHarness {
   /** The mount point of the CURRENT test — read it per use, not once. */
   readonly host: HTMLDivElement;
-  /** Tab + resident overlay, the way the host mounts them. */
-  render(selectedPaneId?: string | null): Promise<void>;
+  /** Tab + resident overlay, the way the host mounts them. `ws` overrides
+   * the shared workspace fixture for a test about another deck. */
+  render(selectedPaneId?: string | null, ws?: WorkspaceSnapshot): Promise<void>;
   /** The tab alone, with no consumer for what it opens. */
   renderTabOnly(selectedPaneId?: string | null): Promise<void>;
   /** Flush the debounce timer AND the reads it schedules. */
@@ -197,13 +198,13 @@ export function mountGitHarness(): GitHarness {
     get host() {
       return host;
     },
-    async render(selectedPaneId: string | null = null) {
+    async render(selectedPaneId: string | null = null, ws: WorkspaceSnapshot = workspace) {
       await act(async () => {
         root.render(
           createElement(
             Fragment,
             null,
-            createElement(GitTab, { workspace, selectedPaneId }),
+            createElement(GitTab, { workspace: ws, selectedPaneId }),
             createElement(GitDiffOverlay),
           ),
         );

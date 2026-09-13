@@ -5,7 +5,7 @@ import { useGitStatus } from "./useGitStatus";
 import { useGitHistory } from "./useGitHistory";
 import { useSections } from "./useSections";
 import { groupEntries, type ChangeRow } from "../domain/status";
-import { rootFacts } from "../domain/roots";
+import { rootFacts, withHead } from "../domain/roots";
 import { rootOptions } from "../presentation/rootOptionView";
 import { changesHead } from "../presentation/changesHeadView";
 import { FileSection } from "./FileRows";
@@ -38,15 +38,18 @@ import { requestPeek } from "../peekRequests";
 export function GitTab({ workspace, selectedPaneId }: DockTabProps) {
   // One option per repository, named by the team whose tree it is. Stacked:
   // a 340px dock can't fit team, branch and folder inline, so the folder
-  // line shows in the OPEN list only (CSS hides it on the closed control,
-  // same rule as the ref picker's check).
-  const options = rootOptions(rootFacts(workspace));
+  // line shows in the OPEN list only (CSS hides it on the closed control).
+  const facts = rootFacts(workspace);
   const [target, pick] = useRootSelection({
     selectedPaneId,
     panes: workspace.panes,
     fallback: workspace.cwd,
-    roots: options.map((option) => option.value),
+    roots: facts.map((fact) => fact.cwd),
   });
+  const { status, error, version } = useGitStatus(target);
+  // The shown root's HEAD by its own status: a detached tree, which the
+  // host has no branch name for, reads as its commit.
+  const options = rootOptions(withHead(facts, target, status));
   const targets = options.map((option) => ({
     value: option.value,
     label:
@@ -63,7 +66,6 @@ export function GitTab({ workspace, selectedPaneId }: DockTabProps) {
       ),
   }));
 
-  const { status, error, version } = useGitStatus(target);
   const [sections, toggle] = useSections(workspace);
   const groups = status ? groupEntries(status.entries) : null;
   const head = changesHead(status, groups);

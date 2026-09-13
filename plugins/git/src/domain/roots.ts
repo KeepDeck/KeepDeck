@@ -1,4 +1,5 @@
-import type { WorkspaceSnapshot } from "@keepdeck/plugin-api";
+import type { GitStatus, WorkspaceSnapshot } from "@keepdeck/plugin-api";
+import { headline } from "./status";
 
 /**
  * Which repositories the tab can show — the facts behind the root picker.
@@ -53,4 +54,23 @@ export function rootFacts(ws: WorkspaceSnapshot): RootFact[] {
     ...byDir.values(),
     { cwd: ws.cwd, agents: onRoot, workspace: true },
   ];
+}
+
+/** The facts with one root's HEAD named by its own status. The host names
+ * a tree by its branch and says nothing for a detached one, so a checked
+ * out commit had no line at all; the status — which knows the commit —
+ * fills that gap for the root it was read for (`abc1234 (detached)`). A
+ * branch the host named stays its word; the workspace folder carries no
+ * branch line by design. */
+export function withHead(
+  facts: RootFact[],
+  cwd: string,
+  status: GitStatus | null,
+): RootFact[] {
+  if (!status) return facts;
+  return facts.map((fact) =>
+    fact.cwd === cwd && !fact.workspace && fact.branch === undefined
+      ? { ...fact, branch: headline(status) }
+      : fact,
+  );
 }
