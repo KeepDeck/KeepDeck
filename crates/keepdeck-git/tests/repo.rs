@@ -66,6 +66,22 @@ fn an_unborn_branch_has_a_name_and_no_commit() {
 }
 
 #[test]
+fn the_branch_listing_stops_at_its_cap_in_refname_order() {
+    let dir = init_unborn();
+    commit_readme(&dir);
+    git(&dir, &["branch", "a-first"]);
+    git(&dir, &["branch", "b-second"]);
+    git(&dir, &["branch", "c-third"]);
+
+    let all = repo::list_branches(&dir).unwrap();
+    assert_eq!(all, vec!["a-first", "b-second", "c-third", "main"]);
+    let capped = repo::list_branches_up_to(&dir, 2).unwrap();
+    assert_eq!(capped, vec!["a-first", "b-second"]);
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn a_branch_and_a_detached_head_read_as_themselves() {
     let dir = init_unborn();
     commit_readme(&dir);

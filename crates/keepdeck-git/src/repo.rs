@@ -177,8 +177,15 @@ pub fn head_commit(repo: &Path) -> Result<Option<String>, GitError> {
     }
 }
 
+/// How many local branches a listing carries at most. A picker cannot show
+/// thousands, and a repository with thousands (a long-lived monorepo, a
+/// mirror with every contributor's branch) would otherwise hand the webview
+/// an unbounded payload on every read — the same class of cost the diff
+/// and log caps guard against.
+pub const BRANCHES_MAX: usize = 1000;
+
 /// The repository's local branch names, in git's default alphabetical
-/// (refname) order.
+/// (refname) order, at most [`BRANCHES_MAX`] of them.
 ///
 /// Local heads only — remote-tracking refs are deliberately excluded: this
 /// feeds the "+ Agent" dialog's base-branch picker, and basing a worktree on a
@@ -186,9 +193,21 @@ pub fn head_commit(repo: &Path) -> Result<Option<String>, GitError> {
 /// to use it). Detached HEAD contributes nothing (it isn't a ref under
 /// `refs/heads`), so the list can be empty in a repo with no branches yet.
 pub fn list_branches(repo: &Path) -> Result<Vec<String>, GitError> {
+    list_branches_up_to(repo, BRANCHES_MAX)
+}
+
+/// [`list_branches`] with the cap as a parameter — the cap's own tests need
+/// not create a thousand branches.
+pub fn list_branches_up_to(repo: &Path, cap: usize) -> Result<Vec<String>, GitError> {
+    let count = format!("--count={cap}");
     let out = run_git(
         repo,
-        ["for-each-ref", "refs/heads", "--format=%(refname:short)"],
+        [
+            "for-each-ref",
+            "refs/heads",
+            "--format=%(refname:short)",
+            count.as_str(),
+        ],
     )?;
     Ok(out
         .lines()

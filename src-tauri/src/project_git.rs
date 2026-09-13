@@ -284,8 +284,9 @@ pub fn project_git_history(
 pub struct GitBranches {
     /// The branch the working tree is on; `None` when detached.
     pub current: Option<String>,
-    /// Local branch names, alphabetical. Remote-tracking refs are excluded —
-    /// browsing history is a LOCAL affair, same rule as the base-branch picker.
+    /// Local branch names, alphabetical, at most the crate's
+    /// `BRANCHES_MAX` of them. Remote-tracking refs are excluded — browsing
+    /// history is a LOCAL affair, same rule as the base-branch picker.
     pub branches: Vec<String>,
 }
 
