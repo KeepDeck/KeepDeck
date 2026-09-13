@@ -4,6 +4,7 @@ import { langFor, TokenLine, useHighlight } from "@keepdeck/code-kit";
 import { getRuntime } from "../runtime";
 import {
   binaryFileDiff,
+  conflictedFileDiff,
   flatLines,
   hunkOffsets,
   isEmptyDiff,
@@ -117,17 +118,27 @@ export function DiffPeek({
     // new file. Absent (not `undefined`) when there is none, so a row without
     // a rename asks for exactly what it always asked for.
     const renamed = row.origPath ? { origPath: row.origPath } : {};
+    // Untracked and unmerged rows read the working FILE, not a diff: git has
+    // no diff for an untracked path, and for an unmerged one it prints a
+    // combined diff (`@@@`, two marker columns) that a two-sided parser
+    // garbles — the file with its conflict markers is what the reader needs.
+    const asFile =
+      row.kind === "untracked"
+        ? newFileDiff
+        : row.kind === "conflicted"
+          ? conflictedFileDiff
+          : null;
     const read = range
       ? services.git
           .diffFile(repo, row.path, { from: range.from, to: range.to, ...renamed })
           .then(parseDiff)
-      : row.kind === "untracked"
+      : asFile
         ? services.fs
             .readFile(`${repo.replace(/\/+$/, "")}/${row.path}`)
             .then((file) =>
               file.isBinary || file.text === null
                 ? binaryFileDiff()
-                : newFileDiff(file.text),
+                : asFile(file.text),
             )
         : services.git
             .diffFile(repo, row.path, { staged: row.kind === "staged", ...renamed })
@@ -209,7 +220,7 @@ export function DiffPeek({
           changes here anymore." while the list beside it said Modified. */}
       {view.kind === "file" &&
         diff?.notes.map((note) => (
-          <p className="peek__note" key={`${note.kind}:${note.from}:${note.to}`}>
+          <p className="peek__note" key={noteKey(note)}>
             {noteText(note)}
           </p>
         ))}
@@ -262,6 +273,11 @@ export function DiffPeek({
   );
 }
 
+/** One note of a kind per file, plus its paths where it has them. */
+function noteKey(note: DiffNote): string {
+  return note.kind === "unmerged" ? note.kind : `${note.kind}:${note.from}:${note.to}`;
+}
+
 /** The wording is presentation, so it lives with the render — the domain
  * hands over kinds and paths, never English. */
 function noteText(note: DiffNote): string {
@@ -272,5 +288,7 @@ function noteText(note: DiffNote): string {
       return `Renamed ${note.from} → ${note.to}`;
     case "copy":
       return `Copied from ${note.from}`;
+    case "unmerged":
+      return "Unmerged — showing the working file with its conflict markers";
   }
 }

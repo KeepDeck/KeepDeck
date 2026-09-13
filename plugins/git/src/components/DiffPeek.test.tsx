@@ -443,6 +443,60 @@ describe("DiffPeek", () => {
     });
   });
 
+  it("shows an unmerged file itself, markers included, instead of a combined diff", async () => {
+    // `git diff` on an unmerged path prints a combined diff (`@@@ -1,3 -1,3
+    // +1,7 @@@`, two marker columns) that the two-sided parser garbled: wrong
+    // kinds, a stray `+` in the text, line numbers from 1. The row reads the
+    // working file instead and says why.
+    const diffFile = vi.fn(async () => TS_DIFF);
+    const readFile = vi.fn(async () => ({
+      text: "a\n<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> side\nc\n",
+      isBinary: false,
+      size: 42,
+      truncated: false,
+      readBytes: 42,
+    }));
+    setRuntime({
+      services: { git: { diffFile }, fs: { readFile } },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    } as unknown as PluginContext);
+
+    const row: ChangeRow = { path: "f.txt", origPath: null, code: "U", kind: "conflicted" };
+    await act(async () => {
+      root.render(
+        createElement(DiffPeek, {
+          repo: "/repo/",
+          view: {
+            kind: "file",
+            row,
+            changeSet: {
+              kind: "worktree",
+              groups: { ...railGroups([]), conflicted: [row], total: 1 },
+              error: null,
+            },
+          },
+          version: 1,
+          onSelect: vi.fn(),
+          onClose: vi.fn(),
+        }),
+      );
+    });
+    await settle(() => rowTexts().length > 0);
+
+    expect(diffFile).not.toHaveBeenCalled();
+    expect(readFile).toHaveBeenCalledWith("/repo/f.txt");
+    expect(rowTexts()).toEqual([
+      "a",
+      "<<<<<<< HEAD",
+      "ours",
+      "=======",
+      "theirs",
+      ">>>>>>> side",
+      "c",
+    ]);
+    expect(host.querySelector(".peek__note")?.textContent).toContain("Unmerged");
+  });
+
   it("seeding a history scope's first file starts its diff in place", async () => {
     // The real path a History scope takes: it opens with no file, the rail
     // fetches the change set and hands back the first row, and GitTab fills it

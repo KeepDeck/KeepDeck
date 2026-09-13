@@ -30,7 +30,10 @@ export interface DiffHunk {
 export type DiffNote =
   | { kind: "mode"; from: string; to: string }
   | { kind: "rename"; from: string; to: string }
-  | { kind: "copy"; from: string; to: string };
+  | { kind: "copy"; from: string; to: string }
+  /** The file is unmerged: what follows is the working file itself, conflict
+   * markers included, not a diff — git has no two-sided diff for it. */
+  | { kind: "unmerged" };
 
 export interface FileDiff {
   hunks: DiffHunk[];
@@ -178,4 +181,13 @@ export function newFileDiff(text: string): FileDiff {
       },
     ],
   };
+}
+
+/** An unmerged file's "diff": the working file as it stands, conflict markers
+ * and all, under a note saying so. `git diff` prints a COMBINED diff for an
+ * unmerged path (`@@@` hunks, two marker columns) that a two-sided parser
+ * misreads line by line; the file itself is what the reader needs to see. */
+export function conflictedFileDiff(text: string): FileDiff {
+  const diff = newFileDiff(text);
+  return { ...diff, notes: [{ kind: "unmerged" }] };
 }
