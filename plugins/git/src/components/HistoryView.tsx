@@ -1,13 +1,13 @@
 import { useEffect, useRef } from "react";
 import type { GitHistory } from "@keepdeck/plugin-api";
-import { relativeTime, shortSha, type HistoryScope } from "../domain/history";
+import type { HistoryScope } from "../domain/history";
+import { historyList } from "../presentation/historyListView";
 
 /**
- * The History section's list: commits since the branch's fork point (plain
- * recent history when the repo IS the base), with a pinned "Since fork"
- * summary row when a fork applies — log and net-diff are two projections of
- * the same range, so they live on one surface (the PR commits/files-changed
- * model). The walk follows the working tree's HEAD.
+ * The History section's list. What the rows are — the pinned "Since fork"
+ * summary, the fork boundary, the commits — is the view model's
+ * (`historyList`); this draws them. The walk follows the working tree's
+ * HEAD.
  *
  * A single pane: clicking a commit (or the since-fork sweep) opens the
  * shared fullscreen peek straight away — its rail IS the commit's file
@@ -49,61 +49,46 @@ export function HistoryView({
   if (error) return <div className="git__empty git__empty--bad">{error}</div>;
   if (!history) return <div className="git__empty">Loading…</div>;
 
-  const now = Date.now();
-  const ahead = history.ahead ?? 0;
+  const list = historyList(history, Date.now());
 
   return (
     <div className="git__section">
-      {history.forkSha && (
-        <button
-          type="button"
-          className="git__row git__row--pin"
-          onClick={() => onOpen({ kind: "fork", forkSha: history.forkSha! })}
-          title={`Everything since ${shortSha(history.forkSha)}, working tree included`}
-        >
-          <span className="git__code git__code--history" aria-hidden>
-            Σ
-          </span>
-          <span className="git__subject">Since fork</span>
-          <span className="git__when">
-            {ahead} {ahead === 1 ? "commit" : "commits"}
-          </span>
-        </button>
-      )}
-      {history.commits.length === 0 && (
-        <div className="git__empty">No commits yet.</div>
-      )}
-      {history.commits.map((commit) => (
-        // The full log, boundary drawn AT the fork commit: everything above
-        // the divider is the branch's own work, below it the base history.
-        <div key={commit.sha}>
-          {commit.sha === history.forkSha && (
-            <div className="git__forkline" role="separator">
-              <span>fork point</span>
-            </div>
-          )}
+      {list.rows.map((row) =>
+        row.kind === "pin" ? (
           <button
+            key="pin"
+            type="button"
+            className="git__row git__row--pin"
+            onClick={() => onOpen(row.scope)}
+            title={row.hint}
+          >
+            <span className="git__code git__code--history" aria-hidden>
+              Σ
+            </span>
+            <span className="git__subject">Since fork</span>
+            <span className="git__when">{row.count}</span>
+          </button>
+        ) : row.kind === "fork" ? (
+          <div key="fork" className="git__forkline" role="separator">
+            <span>fork point</span>
+          </div>
+        ) : (
+          <button
+            key={row.sha}
             type="button"
             className="git__row"
-            onClick={() =>
-              onOpen({
-                kind: "commit",
-                sha: commit.sha,
-                subject: commit.subject,
-              })
-            }
-            title={`${commit.subject} — ${commit.author}`}
+            onClick={() => onOpen(row.scope)}
+            title={row.hint}
           >
-            <span className="git__subject">{commit.subject}</span>
+            <span className="git__subject">{row.subject}</span>
             <span className="git__sha" aria-hidden>
-              {shortSha(commit.sha)}
+              {row.short}
             </span>
-            <span className="git__when">
-              {relativeTime(commit.timestamp, now)}
-            </span>
+            <span className="git__when">{row.when}</span>
           </button>
-        </div>
-      ))}
+        ),
+      )}
+      {list.empty && <div className="git__empty">No commits yet.</div>}
       {hasMore && (
         <button
           type="button"
