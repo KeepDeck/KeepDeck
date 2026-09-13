@@ -98,6 +98,17 @@ describe("historyRow", () => {
     });
   });
 
+  it("maps an unmerged file of a working-tree range to a conflicted row", () => {
+    // A range diff of an unmerged path is a combined diff the peek cannot
+    // read; the conflicted row shows the working file instead, as in status.
+    expect(historyRow({ path: "f.txt", origPath: null, code: "U" })).toEqual({
+      path: "f.txt",
+      origPath: null,
+      code: "U",
+      kind: "conflicted",
+    });
+  });
+
   it("maps an untracked file of a working-tree range to an untracked row", () => {
     // `?` is listed only when the range reaches the working tree; there is
     // no diff to read for it at any range, so the row is the file itself —

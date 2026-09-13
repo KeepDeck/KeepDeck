@@ -98,14 +98,16 @@ export function relativeTime(unixSeconds: number, nowMs: number): string {
 }
 
 /** A range-diff file as a peek row. `history` rows diff across the drilled
- * range, never against the index. An untracked file (`?`, listed only when
- * the range reaches the working tree) has no diff to read at any range — it
- * is the same row an untracked status entry makes: the file's own content. */
+ * range, never against the index. Two codes name a file the range cannot
+ * diff and only the working tree can show — both reachable only when the
+ * range reaches the working tree: an untracked file (`?`) has no diff at
+ * any range, and an unmerged one (`U`) would diff as a combined diff the
+ * peek cannot read. Each becomes the row its status entry would make. */
 export function historyRow(file: GitChangedFile): ChangeRow {
   return {
     path: file.path,
     origPath: file.origPath,
     code: file.code,
-    kind: file.code === "?" ? "untracked" : "history",
+    kind: file.code === "?" ? "untracked" : file.code === "U" ? "conflicted" : "history",
   };
 }
