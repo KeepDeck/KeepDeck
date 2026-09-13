@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { GitChangedFile } from "@keepdeck/plugin-api";
-import { changeSetRows, seedRow, type ChangeSet } from "./changeSet";
+import { changeSetRows, hasRail, seedRow, type ChangeSet } from "./changeSet";
 import type { ChangeGroups, ChangeRow } from "./status";
 
 const row = (path: string, kind: ChangeRow["kind"]): ChangeRow => ({
@@ -41,6 +41,19 @@ describe("changeSetRows", () => {
       { path: "src/b.ts", origPath: "src/old.ts", code: "R", kind: "history" },
     ]);
     expect(changeSetRows(fork, null)).toEqual([]);
+  });
+});
+
+describe("hasRail", () => {
+  it("a worktree set has no rail before its status ever loaded, but a failed status is a rail", () => {
+    expect(hasRail({ kind: "worktree", groups: null, error: null })).toBe(false);
+    expect(hasRail({ kind: "worktree", groups, error: null })).toBe(true);
+    // The repo stopped answering: the rail is where that is said.
+    expect(hasRail({ kind: "worktree", groups: null, error: "gone" })).toBe(true);
+  });
+
+  it("a History set always has one — it carries its own loading note", () => {
+    expect(hasRail(fork)).toBe(true);
   });
 });
 

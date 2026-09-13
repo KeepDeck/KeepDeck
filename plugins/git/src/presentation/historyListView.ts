@@ -31,6 +31,13 @@ export interface HistoryList {
   empty: boolean;
 }
 
+/** What the History section's header counts: the branch's own commits since
+ * the fork — the "N commits" the pinned row says — and nothing while there
+ * is no fork to count from, or no log yet. */
+export function historyCount(history: GitHistory | null): number | null {
+  return history?.ahead ?? null;
+}
+
 export function historyList(history: GitHistory, nowMs: number): HistoryList {
   const rows: HistoryListRow[] = [];
   if (history.forkSha) {

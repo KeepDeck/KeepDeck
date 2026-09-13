@@ -22,7 +22,7 @@ import {
   type HistoryScope,
 } from "../domain/history";
 import { diffKey } from "../domain/identity";
-import type { ChangeSet } from "../domain/changeSet";
+import { hasRail, type ChangeSet } from "../domain/changeSet";
 import { PeekSiblings } from "./PeekSiblings";
 
 /** What the peek shows. `file` is a chosen row's diff (worktree or history
@@ -172,13 +172,7 @@ export function DiffPeek({
             : view.row.path
       }
       aside={
-        // No rail before the status has ever loaded — an empty column says
-        // nothing (a loaded-then-empty worktree still shows its clean note).
-        // A FAILED status is different: it has something to say, so the rail
-        // stays to say it.
-        changeSet.kind === "worktree" &&
-        !changeSet.groups &&
-        !changeSet.error ? undefined : (
+        !hasRail(changeSet) ? undefined : (
           <PeekSiblings
             repo={repo}
             changeSet={changeSet}

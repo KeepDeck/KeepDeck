@@ -73,6 +73,13 @@ function row(entry: GitStatusEntry, code: string, kind: ChangeKind): ChangeRow {
   return { path: entry.path, origPath: entry.origPath, code, kind };
 }
 
+/** Whether two rows are the same change: the same path in the same section.
+ * A path staged AND edited again is two rows — two different diffs — so a
+ * path alone does not say which one is open, marked, or walked to. */
+export function sameChange(a: ChangeRow, b: ChangeRow): boolean {
+  return a.path === b.path && a.kind === b.kind;
+}
+
 /** Where an open row stands after a status refresh. Itself, fresh, while
  * its section still lists the path; the same path's row in another section
  * when the change MOVED — staged with `git add`, unstaged by a reset, a
@@ -87,7 +94,7 @@ export function reconcileRow(row: ChangeRow, groups: ChangeGroups): ChangeRow {
     ...groups.unstaged,
     ...groups.untracked,
   ].filter((candidate) => candidate.path === row.path);
-  return listed.find((candidate) => candidate.kind === row.kind) ?? listed[0] ?? row;
+  return listed.find((candidate) => sameChange(candidate, row)) ?? listed[0] ?? row;
 }
 
 /** A porcelain code in plain words — row tooltips and accessibility labels.

@@ -7,6 +7,7 @@ import {
   groupEntries,
   headline,
   reconcileRow,
+  sameChange,
 } from "./status";
 
 const entry = (over: Partial<GitStatusEntry>): GitStatusEntry => ({
@@ -73,6 +74,15 @@ describe("groupEntries", () => {
       entry({ path: "twice.ts", conflicted: true, staged: "A", unstaged: "A" }),
     ]);
     expect(groups.conflicted.map((r) => r.code)).toEqual(["UU", "DU", "AA"]);
+  });
+});
+
+describe("sameChange", () => {
+  it("is the same path in the same section — a path in two sections is two changes", () => {
+    const staged = { path: "a.ts", origPath: null, code: "M", kind: "staged" as const };
+    expect(sameChange(staged, { ...staged, code: "A" })).toBe(true);
+    expect(sameChange(staged, { ...staged, kind: "unstaged" })).toBe(false);
+    expect(sameChange(staged, { ...staged, path: "b.ts" })).toBe(false);
   });
 });
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { GitHistory } from "@keepdeck/plugin-api";
-import { historyList } from "./historyListView";
+import { historyCount, historyList } from "./historyListView";
 
 const NOW = 1_760_000_000_000;
 const fork = "f0".repeat(20);
@@ -9,6 +9,15 @@ const commit = (sha: string, subject: string, ago: number) => ({
   author: "Me",
   timestamp: NOW / 1000 - ago,
   subject,
+});
+
+describe("historyCount", () => {
+  it("counts the branch's own commits, and nothing without a fork or a log", () => {
+    expect(historyCount({ forkSha: fork, ahead: 3, commits: [] })).toBe(3);
+    expect(historyCount({ forkSha: fork, ahead: 0, commits: [] })).toBe(0);
+    expect(historyCount({ forkSha: null, ahead: null, commits: [] })).toBeNull();
+    expect(historyCount(null)).toBeNull();
+  });
 });
 
 describe("historyList", () => {

@@ -8,6 +8,7 @@ import { groupEntries, type ChangeRow } from "../domain/status";
 import { rootFacts, withHead } from "../domain/roots";
 import { rootOptions } from "../presentation/rootOptionView";
 import { changesHead } from "../presentation/changesHeadView";
+import { historyCount } from "../presentation/historyListView";
 import { FileSection } from "./FileRows";
 import { HistoryView } from "./HistoryView";
 import { Section } from "./Section";
@@ -125,7 +126,7 @@ export function GitTab({ workspace, selectedPaneId }: DockTabProps) {
         <Section
           id="history"
           label="History"
-          count={log.history?.ahead ?? null}
+          count={historyCount(log.history)}
           open={sections.history}
           onToggle={toggle}
         >

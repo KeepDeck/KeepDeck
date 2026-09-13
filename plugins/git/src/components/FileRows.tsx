@@ -2,6 +2,7 @@ import {
   baseName,
   codeLabel,
   dirName,
+  sameChange,
   type ChangeRow,
 } from "../domain/status";
 import { codeTone } from "../presentation/codeTone";
@@ -24,12 +25,9 @@ export function FileRow({
   current?: ChangeRow | null;
   onOpen: (row: ChangeRow) => void;
 }) {
-  // The same path can sit in two sections (staged AND edited again) — a row
-  // is "the open one" only when the kind matches too. Null = nothing open.
-  const active =
-    current != null &&
-    current.path === row.path &&
-    current.kind === row.kind;
+  // "The open one" is the same change, not the same path (`sameChange`).
+  // Null = nothing open.
+  const active = current != null && sameChange(current, row);
   return (
     <button
       type="button"

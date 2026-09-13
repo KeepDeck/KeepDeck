@@ -1,4 +1,4 @@
-import { dirName, type ChangeRow } from "./status";
+import { dirName, sameChange, type ChangeRow } from "./status";
 
 /**
  * Keyboard navigation over the peek rail's flat row order — pure, like the
@@ -21,9 +21,7 @@ export function navigate(
   key: ArrowKey,
 ): ChangeRow | null {
   if (rows.length === 0) return null;
-  const index = rows.findIndex(
-    (row) => row.path === current.path && row.kind === current.kind,
-  );
+  const index = rows.findIndex((row) => sameChange(row, current));
   if (index < 0) return rows[0];
 
   switch (key) {

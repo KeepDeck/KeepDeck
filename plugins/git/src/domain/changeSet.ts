@@ -16,6 +16,15 @@ export type ChangeSet =
   | { kind: "worktree"; groups: ChangeGroups | null; error: string | null }
   | { kind: "history"; scope: HistoryScope };
 
+/** Whether the change set has a rail to show yet. A worktree set has none
+ * before its status has ever loaded — an empty column says nothing (a
+ * loaded-then-empty tree still shows its clean note) — but a FAILED status
+ * is different: it has something to say, so the rail is there to say it. A
+ * History set always has one; it carries its own loading note. */
+export function hasRail(changeSet: ChangeSet): boolean {
+  return changeSet.kind !== "worktree" || changeSet.groups !== null || changeSet.error !== null;
+}
+
 /** The change set's rows in order — the rail's list, and the path the
  * arrows walk. A worktree set lists the live groups in section order; a
  * History set its files, each as a peek row. Nothing until the groups or
