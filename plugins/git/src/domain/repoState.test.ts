@@ -32,6 +32,9 @@ describe("repoTrouble", () => {
       kind: "failed",
       detail: "killed",
     });
+    expect(
+      repoTrouble("`git status --porcelain=v2` failed (timeout): gave no answer in 30s"),
+    ).toEqual({ kind: "failed", detail: "gave no answer in 30s" });
   });
 
   it("a message with no command frame is taken as it is", () => {

@@ -29,10 +29,11 @@ export function repoTrouble(message: string): RepoTrouble {
 }
 
 /** The first line of what git itself said: the crate's `` `git …` failed
- * (exit N): `` frame and git's `fatal:` / `error:` tag stripped. A message
- * with no such frame (the host's, a fake's) is taken as it is. */
+ * (exit N | signal | timeout): `` frame and git's `fatal:` / `error:` tag
+ * stripped. A message with no such frame (the host's, a fake's) is taken as
+ * it is. */
 function gitsOwnWords(message: string): string {
-  const framed = /^`git [^`]*` failed \((?:exit \d+|signal)\): /.exec(message);
+  const framed = /^`git [^`]*` failed \((?:exit \d+|signal|timeout)\): /.exec(message);
   const body = framed ? message.slice(framed[0].length) : message;
   const firstLine = body.split("\n")[0].trim();
   return firstLine.replace(/^(?:fatal|error): /, "");
