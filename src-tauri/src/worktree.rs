@@ -873,6 +873,8 @@ mod tests {
     fn configure_repo(dir: &Path) {
         git(dir, &["config", "user.email", "test@keepdeck.ai"]);
         git(dir, &["config", "user.name", "KeepDeck Test"]);
+        // The machine's global excludes must not reach into the stand.
+        git(dir, &["config", "core.excludesfile", ""]);
         std::fs::write(dir.join("README.md"), "hi").unwrap();
         git(dir, &["add", "."]);
         git(dir, &["commit", "-q", "-m", "init"]);

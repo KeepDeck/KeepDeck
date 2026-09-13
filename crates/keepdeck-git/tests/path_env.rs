@@ -86,6 +86,8 @@ fn worktree_add_resolves_required_filters_beyond_the_inherited_path() {
     git(&repo_dir, &["init", "-q"]);
     git(&repo_dir, &["config", "user.email", "test@keepdeck.ai"]);
     git(&repo_dir, &["config", "user.name", "KeepDeck Test"]);
+    // The machine's global excludes must not reach into the stand.
+    git(&repo_dir, &["config", "core.excludesfile", ""]);
     git(&repo_dir, &["config", "filter.cap.clean", "kd-test-filter"]);
     git(&repo_dir, &["config", "filter.cap.smudge", "kd-test-filter"]);
     git(&repo_dir, &["config", "filter.cap.required", "true"]);
