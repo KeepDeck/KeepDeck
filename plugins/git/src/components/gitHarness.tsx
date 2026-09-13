@@ -33,8 +33,16 @@ export const workspace: WorkspaceSnapshot = {
   instance: "instance-1",
   name: "app",
   cwd: "/repo",
+  teams: [{ id: "team-1", name: "api", cwd: "/wt/one", branch: "kd/app/1" }],
   panes: [
-    { id: "p1", name: "agent 1", cwd: "/wt/one", branch: "kd/app/1", agentType: "claude" },
+    {
+      id: "p1",
+      name: "agent 1",
+      cwd: "/wt/one",
+      branch: "kd/app/1",
+      agentType: "claude",
+      team: "team-1",
+    },
   ],
 };
 

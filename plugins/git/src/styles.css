@@ -83,12 +83,32 @@
   max-width: 100%;
 }
 
+/* The first line: the team's name, its branch beside it, dimmer. */
+.git__rootline {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.git__rootteam,
 .git__rootbranch,
 .git__rootfolder {
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.git__rootteam {
+  flex: none;
+  font-weight: 600;
+}
+
+.git__rootbranch {
+  color: #8b93a3;
+  font-size: 11px;
 }
 
 .git__rootfolder {

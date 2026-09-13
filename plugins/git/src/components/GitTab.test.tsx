@@ -48,6 +48,24 @@ describe("GitTab", () => {
     expect(rig.host.textContent).not.toContain("Conflicts");
   });
 
+  it("names a team's tree by the team in the root picker", async () => {
+    const git = makeGit();
+    git.statuses.set("/wt/one", cleanStatus({ branch: "kd/app/1" }));
+    setRuntime(makeCtx(git));
+
+    await rig.render("p1");
+
+    // The closed control names the team, branch beside it; the folder line
+    // belongs to the open list, so it is in the DOM under the option.
+    const picker = rig.host.querySelector(".git__root")!;
+    expect(picker.textContent).toContain("api");
+    expect(picker.textContent).toContain("kd/app/1");
+    expect(picker.querySelector(".git__rootteam")?.textContent).toBe("api");
+    expect(picker.querySelector(".git__rootopt")?.getAttribute("title")).toBe(
+      "/wt/one · 1 agent",
+    );
+  });
+
   it("defaults to the highlighted pane's worktree and says so when it is clean", async () => {
     const git = makeGit();
     git.statuses.set("/wt/one", cleanStatus({ branch: "kd/app/1" }));

@@ -1,9 +1,10 @@
 import { useRef, useState } from "react";
 import type { DockTabProps } from "@keepdeck/plugin-api";
 import { Dropdown } from "@keepdeck/ui-kit/Dropdown";
-import { shortPath } from "@keepdeck/ui-kit/paths";
 import { useGitStatus } from "./useGitStatus";
 import { groupEntries, headline, type ChangeRow } from "../domain/status";
+import { rootFacts } from "../domain/roots";
+import { rootOptions } from "../presentation/rootOptionView";
 import { FileSection } from "./FileRows";
 import { HistoryView } from "./HistoryView";
 import { requestPeek } from "../peekRequests";
@@ -46,32 +47,25 @@ export function GitTab({ workspace, selectedPaneId }: DockTabProps) {
   const { status, error, version } = useGitStatus(target);
   const [mode, setMode] = useState<"changes" | "history">("changes");
 
-  // Distinct roots: each pane worktree once, the workspace folder last (a
-  // pane attached to the main repo can't duplicate it).
-  const targets = [
-    ...[
-      ...new Map(
-        workspace.panes
-          .filter((pane) => pane.cwd && pane.cwd !== workspace.cwd)
-          .map((pane) => [
-            pane.cwd!,
-            // Branch AND folder — the picker chooses working trees, not
-            // branches — but stacked: a 340px dock can't fit them inline.
-            // The folder line shows in the OPEN list only (CSS hides it on
-            // the closed control, same rule as the ref picker's check).
-            pane.branch ? (
-              <span className="git__rootopt" title={pane.cwd}>
-                <span className="git__rootbranch">{pane.branch}</span>
-                <span className="git__rootfolder">{lastSegment(pane.cwd!)}</span>
-              </span>
-            ) : (
-              shortPath(pane.cwd!)
-            ),
-          ]),
-      ).entries(),
-    ].map(([value, label]) => ({ value, label })),
-    { value: workspace.cwd, label: "Workspace folder" },
-  ];
+  // One option per repository, named by the team whose tree it is. Stacked:
+  // a 340px dock can't fit team, branch and folder inline, so the folder
+  // line shows in the OPEN list only (CSS hides it on the closed control,
+  // same rule as the ref picker's check).
+  const targets = rootOptions(rootFacts(workspace)).map((option) => ({
+    value: option.value,
+    label:
+      option.detail === undefined && option.folder === undefined ? (
+        option.title
+      ) : (
+        <span className="git__rootopt" title={option.hint}>
+          <span className="git__rootline">
+            <span className="git__rootteam">{option.title}</span>
+            {option.detail && <span className="git__rootbranch">{option.detail}</span>}
+          </span>
+          {option.folder && <span className="git__rootfolder">{option.folder}</span>}
+        </span>
+      ),
+  }));
 
   const groups = status ? groupEntries(status.entries) : null;
   // The workspace rides along so the peek can outlive the dock without
@@ -187,10 +181,4 @@ export function GitTab({ workspace, selectedPaneId }: DockTabProps) {
       </div>
     </div>
   );
-}
-
-/** The folder's own name. */
-function lastSegment(path: string): string {
-  const parts = path.split("/").filter(Boolean);
-  return parts[parts.length - 1] ?? path;
 }
