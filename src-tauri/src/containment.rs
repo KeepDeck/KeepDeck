@@ -6,17 +6,30 @@
 //! [`resolve_within`] is that proof, shared by every project-facing service
 //! backend (`project_fs`, `project_git`) so the escape analysis exists once.
 
+use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::path::{Path, PathBuf};
+
+/// The user's home as the environment names it — the ONE place this module
+/// reads the process's environment. The rules below take the home as a
+/// value, so a test hands one in and depends on nothing the machine has.
+fn home_dir() -> Option<OsString> {
+    std::env::var_os("HOME")
+}
 
 /// Expand a leading `~/` to the user's home directory — THE home expansion
 /// for every containment-adjacent path (three separate copies drifted once;
 /// this is the single one). Lossy on a non-UTF-8 home, documented: every
 /// caller ultimately round-trips through UTF-8 command payloads anyway.
 pub fn expand_home(path: &str) -> Result<String, String> {
+    expand_home_from(path, home_dir().as_deref())
+}
+
+/// [`expand_home`] against a given home — the rule itself.
+pub fn expand_home_from(path: &str, home: Option<&OsStr>) -> Result<String, String> {
     if let Some(rest) = path.strip_prefix("~/") {
-        let home = std::env::var_os("HOME").ok_or("no home directory")?;
-        return Ok(format!("{}/{rest}", PathBuf::from(home).to_string_lossy()));
+        let home = home.ok_or("no home directory")?;
+        return Ok(format!("{}/{rest}", home.to_string_lossy()));
     }
     Ok(path.to_string())
 }
@@ -59,7 +72,17 @@ pub fn is_unbounded_root(root: &Path) -> bool {
 /// never existed) simply doesn't authorize anything; if none matches, the path
 /// is refused.
 pub fn resolve_within(path: &str, roots: &[String], everywhere: bool) -> Result<PathBuf, String> {
-    let expanded = expand_home(path)?;
+    resolve_within_from(path, roots, everywhere, home_dir().as_deref())
+}
+
+/// [`resolve_within`] against a given home — the proof itself.
+pub fn resolve_within_from(
+    path: &str,
+    roots: &[String],
+    everywhere: bool,
+    home: Option<&OsStr>,
+) -> Result<PathBuf, String> {
+    let expanded = expand_home_from(path, home)?;
     let canonical = fs::canonicalize(&expanded).map_err(|_| format!("no such path: {path}"))?;
     if everywhere {
         return Ok(canonical);
@@ -79,30 +102,83 @@ pub fn resolve_within(path: &str, roots: &[String], everywhere: bool) -> Result<
 mod tests {
     use super::*;
 
-    /// The real home, read-only: the tests never write under it, and never
-    /// set the variable (a home pin in `lib.rs` forbids that in-tree).
-    fn home() -> String {
-        std::env::var("HOME").expect("a home directory")
+    /// A stand of its own: a fabricated home and a second directory beside
+    /// it, both made here and now. Nothing is read from the machine — not
+    /// its HOME, not its git, not where its temp directory happens to sit —
+    /// and nothing is set in the process's environment (a home pin in
+    /// `lib.rs` forbids that in-tree, and the rules take the home as a
+    /// value for exactly this reason).
+    struct Stand {
+        root: PathBuf,
+        home: PathBuf,
+        elsewhere: PathBuf,
+    }
+
+    impl Stand {
+        fn new() -> Self {
+            let root = std::env::temp_dir().join(format!(
+                "kd-containment-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            let home = root.join("home");
+            let elsewhere = root.join("elsewhere");
+            fs::create_dir_all(&home).unwrap();
+            fs::create_dir_all(&elsewhere).unwrap();
+            Self { root, home, elsewhere }
+        }
+
+        fn home(&self) -> Option<&OsStr> {
+            Some(self.home.as_os_str())
+        }
+
+        fn root_of(&self, dir: &Path) -> Vec<String> {
+            vec![dir.to_string_lossy().into_owned()]
+        }
+    }
+
+    impl Drop for Stand {
+        fn drop(&mut self) {
+            fs::remove_dir_all(&self.root).ok();
+        }
     }
 
     #[test]
     fn a_home_relative_path_is_expanded_before_the_containment_check() {
-        let home = home();
+        let stand = Stand::new();
         // Inside its own root: the same directory, spelled two ways.
-        let resolved = resolve_within("~/", &[home.clone()], false).expect("home is inside home");
-        assert_eq!(resolved, fs::canonicalize(&home).unwrap());
+        let resolved = resolve_within_from("~/", &stand.root_of(&stand.home), false, stand.home())
+            .expect("home is inside home");
+        assert_eq!(resolved, fs::canonicalize(&stand.home).unwrap());
 
         // Outside a root that is not home: refused as OUTSIDE — the spelling
         // was read as the home directory, not as a folder literally named `~`.
-        let elsewhere = std::env::temp_dir().to_string_lossy().into_owned();
-        let err = resolve_within("~/", &[elsewhere], false).expect_err("home is not the temp dir");
+        let err = resolve_within_from("~/", &stand.root_of(&stand.elsewhere), false, stand.home())
+            .expect_err("home is not the other directory");
         assert!(err.contains("outside"), "{err}");
     }
 
     #[test]
     fn a_missing_path_is_named_as_the_caller_spelled_it() {
-        let err = resolve_within("~/no-such-keepdeck-folder-0f3a", &[home()], false)
-            .expect_err("nothing there");
-        assert!(err.contains("no such path: ~/no-such-keepdeck-folder-0f3a"), "{err}");
+        let stand = Stand::new();
+        let err = resolve_within_from(
+            "~/no-such-folder",
+            &stand.root_of(&stand.home),
+            false,
+            stand.home(),
+        )
+        .expect_err("nothing there");
+        assert!(err.contains("no such path: ~/no-such-folder"), "{err}");
+    }
+
+    #[test]
+    fn without_a_home_a_home_relative_path_is_refused_by_name() {
+        let stand = Stand::new();
+        let err = resolve_within_from("~/x", &stand.root_of(&stand.home), false, None)
+            .expect_err("no home to expand against");
+        assert!(err.contains("no home directory"), "{err}");
     }
 }

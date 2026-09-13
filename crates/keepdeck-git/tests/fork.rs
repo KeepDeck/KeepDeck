@@ -28,6 +28,8 @@ fn init_repo() -> tempfile::TempDir {
     git(root.path(), &["init", "-q", "-b", "main"]);
     git(root.path(), &["config", "user.email", "test@keepdeck.ai"]);
     git(root.path(), &["config", "user.name", "KeepDeck Test"]);
+    // The machine's global excludes must not reach into the stand.
+    git(root.path(), &["config", "core.excludesfile", ""]);
     fs::write(root.path().join("README.md"), "hello\n").unwrap();
     git(root.path(), &["add", "."]);
     git(root.path(), &["commit", "-q", "-m", "init"]);

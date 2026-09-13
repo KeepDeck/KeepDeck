@@ -42,6 +42,8 @@ fn init_unborn() -> PathBuf {
     git(&dir, &["init", "-q", "-b", "main"]);
     git(&dir, &["config", "user.email", "test@keepdeck.ai"]);
     git(&dir, &["config", "user.name", "KeepDeck Test"]);
+    // The machine's global excludes must not reach into the stand.
+    git(&dir, &["config", "core.excludesfile", ""]);
     dir
 }
 

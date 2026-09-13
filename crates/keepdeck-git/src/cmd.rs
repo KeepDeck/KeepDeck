@@ -1,23 +1,34 @@
+use std::cell::Cell;
 use std::ffi::OsStr;
 use std::io::Read;
 use std::path::Path;
 use std::process::{Child, Command, ExitStatus, Stdio};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
 use crate::error::GitError;
 
-/// Every git process this crate has spawned in this process, counted at the
-/// one boundary that spawns them.
-static SPAWNS: AtomicU64 = AtomicU64::new(0);
+thread_local! {
+    /// Every git process this crate has spawned ON THIS THREAD, counted at
+    /// the one boundary that spawns them. Per thread, not per process: the
+    /// crate spawns on the caller's thread (the engine's reader threads spawn
+    /// nothing), and a caller measuring one read's cost must not see the
+    /// processes of whatever else is running — the test harness runs its
+    /// tests in parallel, and a process-wide count charged one test's
+    /// worktree setup to another's measured read.
+    static SPAWNS: Cell<u64> = const { Cell::new(0) };
+}
 
-/// How many git processes the crate has spawned so far — a monotonic count,
-/// so a caller measures a read's cost as a difference. The unit that matters
-/// for a read that fans out per worktree is processes, not seconds: seconds
-/// vary with the machine, the count is the design.
+/// How many git processes the crate has spawned so far on the calling thread
+/// — a monotonic count, so a caller measures a read's cost as a difference.
+/// The unit that matters for a read that fans out per worktree is processes,
+/// not seconds: seconds vary with the machine, the count is the design.
 pub fn spawns() -> u64 {
-    SPAWNS.load(Ordering::Relaxed)
+    SPAWNS.with(Cell::get)
+}
+
+fn count_spawn() {
+    SPAWNS.with(|count| count.set(count.get() + 1));
 }
 
 /// How long one READ may run. Every read this crate makes answers in
@@ -163,7 +174,7 @@ fn run(
     cap: Option<usize>,
     timeout: Option<Duration>,
 ) -> Result<Capped, GitError> {
-    SPAWNS.fetch_add(1, Ordering::Relaxed);
+    count_spawn();
     command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())

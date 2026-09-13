@@ -58,6 +58,8 @@ fn init_sha256_repo() -> Option<tempfile::TempDir> {
 fn configure_repo(root: &Path) {
     git(root, &["config", "user.email", "test@keepdeck.ai"]);
     git(root, &["config", "user.name", "KeepDeck Test"]);
+    // The machine's global excludes must not reach into the stand.
+    git(root, &["config", "core.excludesfile", ""]);
     fs::write(root.join("README.md"), "hello\n").unwrap();
     git(root, &["add", "."]);
     git(root, &["commit", "-q", "-m", "init"]);
