@@ -443,6 +443,7 @@ export function createPluginManager(appDownloads: DownloadManager) {
           opts?.staged ?? false,
           opts?.from,
           opts?.to,
+          opts?.origPath,
         ),
       history: (repo, scope, opts) =>
         projectGitHistory(

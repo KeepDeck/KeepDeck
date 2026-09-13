@@ -137,8 +137,10 @@ pub fn project_git_status(
 /// Unified diff for one tracked path in the repo. Three shapes, one command:
 /// worktree vs index (default), index vs HEAD (`staged`), or across a
 /// revision range when `from` is given (`from..to`, or `from` against the
-/// working tree without `to`). Untracked files have no diff (the plugin
-/// renders their plain content via `services.fs` instead).
+/// working tree without `to`). `orig_path` is the file's pre-rename path:
+/// with it the diff pairs both names instead of reading as a new file.
+/// Untracked files have no diff (the plugin renders their plain content via
+/// `services.fs` instead).
 #[tauri::command(async)]
 pub fn project_git_diff_file(
     path: String,
@@ -148,14 +150,16 @@ pub fn project_git_diff_file(
     staged: bool,
     from: Option<String>,
     to: Option<String>,
+    orig_path: Option<String>,
 ) -> Result<String, String> {
     let repo = resolve_within(&path, &roots, everywhere)?;
+    let orig = orig_path.as_deref();
     match from {
         Some(from) => {
             let from = commit_or_root(&repo, &from);
-            diff::diff_file_range(&repo, &file, &from, to.as_deref())
+            diff::diff_file_range(&repo, &file, &from, to.as_deref(), orig)
         }
-        None => diff::diff_file(&repo, &file, staged),
+        None => diff::diff_file(&repo, &file, staged, orig),
     }
     .map_err(|e| e.to_string())
 }
@@ -729,6 +733,7 @@ mod tests {
             false,
             None,
             None,
+            None,
         )
         .expect("diff");
         assert!(diff.contains("-hello"));
@@ -1282,6 +1287,7 @@ mod tests {
             false,
             Some(format!("{head}^")),
             Some(head),
+            None,
         )
         .expect("root-commit diff");
         assert!(diff.contains("+hello"), "{diff}");

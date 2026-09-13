@@ -384,6 +384,65 @@ describe("DiffPeek", () => {
     expect(body.scrollLeft).toBe(0);
   });
 
+  it("asks for the old path beside the new one when the row was renamed", async () => {
+    // Git pairs a rename only when both paths are in the pathspec; a row that
+    // knows its old path hands it over, in a history range and in the index
+    // alike. Rows without one keep asking exactly what they always asked —
+    // the range test above pins that shape.
+    const diffFile = vi.fn(async () => TS_DIFF);
+    const changedFiles = vi.fn(async () => []);
+    setRuntime({
+      services: { git: { diffFile, changedFiles }, fs: { readFile: vi.fn() } },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    } as unknown as PluginContext);
+
+    await act(async () => {
+      root.render(
+        createElement(DiffPeek, {
+          repo: "/repo",
+          view: {
+            kind: "file",
+            row: { path: "src/new.ts", origPath: "src/old.ts", code: "R", kind: "history" },
+            changeSet: {
+              kind: "history",
+              scope: { kind: "commit", sha: "aaa1111", subject: "move it" },
+            },
+          },
+          version: 1,
+          onSelect: vi.fn(),
+          onClose: vi.fn(),
+        }),
+      );
+    });
+    await act(async () => {});
+    expect(diffFile).toHaveBeenLastCalledWith("/repo", "src/new.ts", {
+      from: "aaa1111^",
+      to: "aaa1111",
+      origPath: "src/old.ts",
+    });
+
+    await act(async () => {
+      root.render(
+        createElement(DiffPeek, {
+          repo: "/repo",
+          view: {
+            kind: "file",
+            row: { path: "src/new.ts", origPath: "src/old.ts", code: "R", kind: "staged" },
+            changeSet: { kind: "worktree", groups: railGroups(RAIL_ROWS), error: null },
+          },
+          version: 1,
+          onSelect: vi.fn(),
+          onClose: vi.fn(),
+        }),
+      );
+    });
+    await act(async () => {});
+    expect(diffFile).toHaveBeenLastCalledWith("/repo", "src/new.ts", {
+      staged: true,
+      origPath: "src/old.ts",
+    });
+  });
+
   it("seeding a history scope's first file starts its diff in place", async () => {
     // The real path a History scope takes: it opens with no file, the rail
     // fetches the change set and hands back the first row, and GitTab fills it

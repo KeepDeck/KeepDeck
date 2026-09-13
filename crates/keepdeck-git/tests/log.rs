@@ -107,7 +107,7 @@ fn a_revision_spelled_as_an_option_is_refused_and_writes_nothing() {
     let escape = unique_dir("escape").join("stolen.diff");
     let to = format!("--output={}", escape.display());
 
-    let ranged = diff::diff_file_range(&repo_dir, "README.md", &fork, Some(&to));
+    let ranged = diff::diff_file_range(&repo_dir, "README.md", &fork, Some(&to), None);
     assert!(ranged.is_err(), "the option-shaped revision must fail: {ranged:?}");
     assert!(!escape.exists(), "diff_file_range wrote outside the repo");
 
@@ -144,11 +144,72 @@ fn changed_files_and_diff_cover_a_range_and_the_working_tree() {
     assert!(paths.contains(&"README.md"), "{paths:?}");
 
     // Per-file range diff carries the committed content…
-    let ranged = diff::diff_file_range(&repo_dir, "renamed.ts", &fork, Some("HEAD")).unwrap();
+    let ranged =
+        diff::diff_file_range(&repo_dir, "renamed.ts", &fork, Some("HEAD"), None).unwrap();
     assert!(ranged.contains("+export const x = 1;"), "{ranged}");
     // …and the working-tree variant sees the uncommitted edit.
-    let live = diff::diff_file_range(&repo_dir, "README.md", &fork, None).unwrap();
+    let live = diff::diff_file_range(&repo_dir, "README.md", &fork, None, None).unwrap();
     assert!(live.contains("+hello worktree"), "{live}");
+
+    fs::remove_dir_all(&repo_dir).ok();
+}
+
+/// Twenty lines, so a one-line edit after a move still reads as a rename to
+/// git's similarity check (a one-liner edited would be 0% similar).
+fn twenty_lines(changed: Option<usize>) -> String {
+    (1..=20)
+        .map(|n| match changed {
+            Some(c) if c == n => format!("line {n} edited\n"),
+            _ => format!("line {n}\n"),
+        })
+        .collect()
+}
+
+/// A moved file diffs as a rename plus its edit only when the old path is in
+/// the pathspec too. Limited to the new path, git cannot pair the rename and
+/// reports every line as added — which is what the peek used to show under a
+/// header that said `old → new`.
+#[test]
+fn a_rename_diffs_as_a_rename_only_with_its_old_path() {
+    let repo_dir = init_forked_repo();
+    fs::write(repo_dir.join("wide.ts"), twenty_lines(None)).unwrap();
+    git(&repo_dir, &["add", "wide.ts"]);
+    git(&repo_dir, &["commit", "-q", "-m", "add wide"]);
+
+    // Committed: move + one-line edit in one commit.
+    git(&repo_dir, &["mv", "wide.ts", "moved.ts"]);
+    fs::write(repo_dir.join("moved.ts"), twenty_lines(Some(7))).unwrap();
+    git(&repo_dir, &["commit", "-q", "-am", "move wide"]);
+
+    let alone = diff::diff_file_range(&repo_dir, "moved.ts", "HEAD^", Some("HEAD"), None).unwrap();
+    assert!(alone.contains("new file mode"), "without the old path: {alone}");
+
+    let paired = diff::diff_file_range(
+        &repo_dir,
+        "moved.ts",
+        "HEAD^",
+        Some("HEAD"),
+        Some("wide.ts"),
+    )
+    .unwrap();
+    assert!(paired.contains("rename from wide.ts"), "{paired}");
+    assert!(paired.contains("rename to moved.ts"), "{paired}");
+    assert!(paired.contains("+line 7 edited"), "{paired}");
+    assert!(!paired.contains("new file mode"), "{paired}");
+    assert!(!paired.contains("+line 1\n"), "the unchanged lines are not added: {paired}");
+
+    // Staged: the same move + edit sitting in the index (status `2 R.`).
+    git(&repo_dir, &["mv", "moved.ts", "staged.ts"]);
+    fs::write(repo_dir.join("staged.ts"), twenty_lines(Some(12))).unwrap();
+    git(&repo_dir, &["add", "-A"]);
+
+    let alone = diff::diff_file(&repo_dir, "staged.ts", true, None).unwrap();
+    assert!(alone.contains("new file mode"), "without the old path: {alone}");
+
+    let paired = diff::diff_file(&repo_dir, "staged.ts", true, Some("moved.ts")).unwrap();
+    assert!(paired.contains("rename from moved.ts"), "{paired}");
+    assert!(paired.contains("+line 12 edited"), "{paired}");
+    assert!(!paired.contains("new file mode"), "{paired}");
 
     fs::remove_dir_all(&repo_dir).ok();
 }

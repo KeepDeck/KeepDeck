@@ -15,7 +15,16 @@ use crate::error::GitError;
 /// `--no-optional-locks` keeps this a pure read (see [`crate::status::status`]);
 /// `--no-ext-diff` pins output to git's own format — a user-configured external
 /// diff driver could emit anything, or block.
-pub fn diff_file(repo: &Path, file: &str, staged: bool) -> Result<String, GitError> {
+///
+/// `orig` is the file's path before a rename (the status entry's old path).
+/// Git can only pair a rename when BOTH paths are in the pathspec: limited to
+/// the new one, it reports the file as added in full. See [`rename_pathspec`].
+pub fn diff_file(
+    repo: &Path,
+    file: &str,
+    staged: bool,
+    orig: Option<&str>,
+) -> Result<String, GitError> {
     let mut args: Vec<&OsStr> = vec![
         OsStr::new("--no-optional-locks"),
         OsStr::new("diff"),
@@ -25,11 +34,25 @@ pub fn diff_file(repo: &Path, file: &str, staged: bool) -> Result<String, GitErr
     if staged {
         args.push(OsStr::new("--cached"));
     }
-    // `--` ends option parsing — the path comes from status output, but the
-    // guard matches the crate's other path-taking commands.
-    args.push(OsStr::new("--"));
-    args.push(OsStr::new(file));
+    if orig.is_some() {
+        args.push(OsStr::new("-M"));
+    }
+    pathspec(&mut args, file, orig);
     run_git(repo, args)
+}
+
+/// Append `--` and the pathspec: the file, preceded by its old path when the
+/// caller knows one. Git pairs a rename only when both names are in the
+/// pathspec (the caller turns `-M` on beside this); limited to the new one it
+/// reports the file as added in full. `--` ends option parsing — the paths
+/// come from git's own status output, but the guard matches the crate's
+/// other path-taking commands.
+fn pathspec<'a>(args: &mut Vec<&'a OsStr>, file: &'a str, orig: Option<&'a str>) {
+    args.push(OsStr::new("--"));
+    if let Some(orig) = orig {
+        args.push(OsStr::new(orig));
+    }
+    args.push(OsStr::new(file));
 }
 
 /// Unified diff for one path across a REVISION range: `from..to`, or `from`
@@ -45,20 +68,24 @@ pub fn diff_file_range(
     file: &str,
     from: &str,
     to: Option<&str>,
+    orig: Option<&str>,
 ) -> Result<String, GitError> {
     let mut args: Vec<&OsStr> = vec![
         OsStr::new("--no-optional-locks"),
         OsStr::new("diff"),
         OsStr::new("--no-color"),
         OsStr::new("--no-ext-diff"),
-        OsStr::new("--end-of-options"),
-        OsStr::new(from),
     ];
+    // `-M` is an option, so it must precede `--end-of-options`.
+    if orig.is_some() {
+        args.push(OsStr::new("-M"));
+    }
+    args.push(OsStr::new("--end-of-options"));
+    args.push(OsStr::new(from));
     if let Some(to) = to {
         args.push(OsStr::new(to));
     }
-    args.push(OsStr::new("--"));
-    args.push(OsStr::new(file));
+    pathspec(&mut args, file, orig);
     run_git(repo, args)
 }
 

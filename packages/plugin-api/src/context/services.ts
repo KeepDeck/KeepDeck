@@ -285,9 +285,11 @@ export interface PluginGit {
   status(repo: string): Promise<GitStatus>;
   /** Unified diff text for ONE tracked path, relative to `repo` — worktree vs
    * index by default, index vs HEAD with `staged`, or across a revision range
-   * with `from`/`to` (`from` alone diffs against the working tree). Untracked
-   * files have no diff; render their plain content (via `fs.readFile`)
-   * instead. */
+   * with `from`/`to` (`from` alone diffs against the working tree). A renamed
+   * file diffs as a rename only when `origPath` names its old path — git
+   * pairs the two names and shows the edit; without it the new path reads
+   * as a whole new file. Untracked files have no diff; render their plain
+   * content (via `fs.readFile`) instead. */
   diffFile(repo: string, file: string, opts?: GitDiffOptions): Promise<string>;
   /** The repo's history for a changes view: the full recent log (newest
    * first, capped by the host), annotated with the branch's fork point off
@@ -317,6 +319,11 @@ export interface GitDiffOptions {
   from?: string;
   /** Diff up to this revision; omitted = the working tree. */
   to?: string;
+  /** The file's path BEFORE a rename — `GitStatusEntry.origPath` or
+   * `GitChangedFile.origPath` when set. Both paths then go into the
+   * pathspec with rename detection on, so the diff is the rename plus its
+   * edits rather than every line added under the new name. */
+  origPath?: string;
 }
 
 export interface GitHistoryOptions {

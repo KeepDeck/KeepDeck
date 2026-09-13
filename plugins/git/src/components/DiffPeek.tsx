@@ -112,9 +112,14 @@ export function DiffPeek({
     if (!row) return;
     let cancelled = false;
     const { services, log } = getRuntime();
+    // The old path rides along only when the row has one: with it git pairs
+    // the rename and shows the edit, without it the new path reads as a whole
+    // new file. Absent (not `undefined`) when there is none, so a row without
+    // a rename asks for exactly what it always asked for.
+    const renamed = row.origPath ? { origPath: row.origPath } : {};
     const read = range
       ? services.git
-          .diffFile(repo, row.path, { from: range.from, to: range.to })
+          .diffFile(repo, row.path, { from: range.from, to: range.to, ...renamed })
           .then(parseDiff)
       : row.kind === "untracked"
         ? services.fs
@@ -125,7 +130,7 @@ export function DiffPeek({
                 : newFileDiff(file.text),
             )
         : services.git
-            .diffFile(repo, row.path, { staged: row.kind === "staged" })
+            .diffFile(repo, row.path, { staged: row.kind === "staged", ...renamed })
             .then(parseDiff);
     read
       .then((next) => {

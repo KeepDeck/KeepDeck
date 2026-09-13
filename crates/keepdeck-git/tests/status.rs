@@ -200,18 +200,18 @@ fn diffs_worktree_and_staged_changes() {
     let repo = init_repo();
 
     fs::write(repo.join("README.md"), "goodbye\n").unwrap();
-    let unstaged = diff::diff_file(&repo, "README.md", false).expect("worktree diff");
+    let unstaged = diff::diff_file(&repo, "README.md", false, None).expect("worktree diff");
     assert!(unstaged.contains("-hello"), "old line in diff: {unstaged}");
     assert!(unstaged.contains("+goodbye"), "new line in diff: {unstaged}");
 
     // Nothing staged yet → empty staged diff.
-    let staged = diff::diff_file(&repo, "README.md", true).expect("staged diff");
+    let staged = diff::diff_file(&repo, "README.md", true, None).expect("staged diff");
     assert!(staged.is_empty());
 
     git(&repo, &["add", "README.md"]);
-    let staged = diff::diff_file(&repo, "README.md", true).expect("staged diff");
+    let staged = diff::diff_file(&repo, "README.md", true, None).expect("staged diff");
     assert!(staged.contains("+goodbye"));
-    let unstaged = diff::diff_file(&repo, "README.md", false).expect("worktree diff");
+    let unstaged = diff::diff_file(&repo, "README.md", false, None).expect("worktree diff");
     assert!(unstaged.is_empty(), "everything staged → no worktree diff");
 
     fs::remove_dir_all(&repo).ok();
