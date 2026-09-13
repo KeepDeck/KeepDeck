@@ -216,6 +216,32 @@ pub fn list_branches_up_to(repo: &Path, cap: usize) -> Result<Vec<String>, GitEr
         .collect())
 }
 
+/// Whether `path` (relative to the repo) is ignored by the repository's
+/// exclude rules — `.gitignore` at every level, `info/exclude`, the global
+/// excludes — the way status and `ls-files --others` read them. A TRACKED
+/// path is never ignored, whatever a pattern says: `check-ignore` leaves
+/// tracked paths out unless asked otherwise. Exit 1 is "not ignored".
+pub fn is_ignored(repo: &Path, path: &str) -> Result<bool, GitError> {
+    match run_git(
+        repo,
+        ["--no-optional-locks", "check-ignore", "-q", "--", path],
+    ) {
+        Ok(_) => Ok(true),
+        Err(GitError::Command {
+            status: Some(1), ..
+        }) => Ok(false),
+        Err(other) => Err(other),
+    }
+}
+
+/// Whether any tracked file sits at or under `path` (relative to the repo).
+/// An ignored DIRECTORY can still hold files that were added by force; a
+/// watcher that skips the directory for being ignored must not skip those.
+pub fn has_tracked_files(repo: &Path, path: &str) -> Result<bool, GitError> {
+    let out = run_git(repo, ["--no-optional-locks", "ls-files", "-z", "--", path])?;
+    Ok(!out.is_empty())
+}
+
 /// Whether a local branch named `name` already exists in `repo`.
 pub fn branch_exists(repo: &Path, name: &str) -> Result<bool, GitError> {
     let reference = format!("refs/heads/{name}");

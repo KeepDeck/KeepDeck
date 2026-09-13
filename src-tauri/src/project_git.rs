@@ -42,7 +42,9 @@
 //! needs to learn "something changed" often enough for its own trailing
 //! debounce to schedule one fresh status read.
 
-use std::path::Path;
+use std::collections::HashMap;
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -369,18 +371,81 @@ pub struct ProjectGitWatchers(fswatch::WatchRegistry<Vec<RecommendedWatcher>>);
 
 /// Does a working-tree event matter to git status? Content writes DO (unlike
 /// the file tree's structural filter — status is about bytes, not listings);
-/// pure access never does; and anything under a `.git` component is the
+/// pure access never does; anything under a `.git` component is the
 /// gitdir's business, not the working tree's (for the main repo the `.git`
 /// dir sits inside the watched root, so the recursive stream reports its
-/// lockfile/object churn — all noise for status).
-fn worktree_event_matters(event: &Event) -> bool {
+/// lockfile/object churn — all noise for status); and a path git ignores
+/// (`skipped`, see [`IgnoredTrees`]) cannot change what status shows.
+fn worktree_event_matters(event: &Event, skipped: &dyn Fn(&Path) -> bool) -> bool {
     if matches!(event.kind, EventKind::Access(_)) {
         return false;
     }
     event
         .paths
         .iter()
-        .any(|p| !p.components().any(|c| c.as_os_str() == ".git"))
+        .any(|p| !p.components().any(|c| c.as_os_str() == ".git") && !skipped(p))
+}
+
+/// Which top-level entries of a working tree git ignores — asked once per
+/// name, remembered, forgotten when the rules change.
+///
+/// A build writes thousands of files under `target/` or `node_modules/`;
+/// status never looks there, so a watcher that re-read status for each of
+/// them paid a git process per burst for nothing. Per TOP-LEVEL name on
+/// purpose: the big ignored trees live at the root, and the names there are
+/// few — one `check-ignore` each, ever. A nested ignored directory still
+/// passes, which costs a spare status read, never a missed one. An ignored
+/// directory holding files added by force is not skipped either: those
+/// files are tracked, and an edit to them is a status change.
+///
+/// Any `.gitignore` written anywhere in the tree empties the memory — the
+/// rules are what they say now — and passes as an event of its own.
+struct IgnoredTrees {
+    worktree: PathBuf,
+    known: Mutex<HashMap<OsString, bool>>,
+}
+
+impl IgnoredTrees {
+    fn new(worktree: &Path) -> Self {
+        Self {
+            // The OS reports events by the REAL path (`/private/var/…` for
+            // macOS's `/var/…`); a tree named by any other spelling would
+            // match none of them, and skip nothing.
+            worktree: std::fs::canonicalize(worktree).unwrap_or_else(|_| worktree.to_path_buf()),
+            known: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Whether an event at `path` can be skipped: its top-level entry is
+    /// ignored and holds nothing tracked. A path outside the tree, or the
+    /// tree itself, is never skipped.
+    fn skips(&self, path: &Path) -> bool {
+        let Ok(rel) = path.strip_prefix(&self.worktree) else {
+            return false;
+        };
+        let Some(top) = rel.components().next() else {
+            return false;
+        };
+        if rel.file_name().is_some_and(|name| name == ".gitignore") {
+            self.known().clear();
+            return false;
+        }
+        let top = top.as_os_str();
+        if let Some(&skipped) = self.known().get(top) {
+            return skipped;
+        }
+        let name = top.to_string_lossy();
+        // A git that cannot answer (the tree gone mid-event) skips nothing:
+        // a spare read beats a missed one.
+        let skipped = repo::is_ignored(&self.worktree, &name).unwrap_or(false)
+            && !repo::has_tracked_files(&self.worktree, &name).unwrap_or(true);
+        self.known().insert(top.to_owned(), skipped);
+        skipped
+    }
+
+    fn known(&self) -> std::sync::MutexGuard<'_, HashMap<OsString, bool>> {
+        self.known.lock().expect("ignored trees poisoned")
+    }
 }
 
 /// Does a gitdir event matter to git status? `index` (stage/unstage/commit),
@@ -442,8 +507,9 @@ fn spawn_git_watch(
     };
 
     let tree_notify = notify.clone();
+    let ignored = IgnoredTrees::new(worktree);
     let tree_watcher = fswatch::watch_dir_recursive(worktree, move |event| {
-        if worktree_event_matters(event) {
+        if worktree_event_matters(event, &|path| ignored.skips(path)) {
             tree_notify();
         }
     })?;
@@ -1240,17 +1306,97 @@ mod tests {
 
     #[test]
     fn worktree_filter_keeps_content_edits_drops_git_and_access() {
+        let nothing_skipped = |_: &Path| false;
         let edit = Event::new(EventKind::Modify(ModifyKind::Data(DataChange::Content)))
             .add_path(PathBuf::from("/ws/src/main.ts"));
-        assert!(worktree_event_matters(&edit));
+        assert!(worktree_event_matters(&edit, &nothing_skipped));
 
         let git_churn = Event::new(EventKind::Create(CreateKind::File))
             .add_path(PathBuf::from("/ws/.git/objects/ab/cdef"));
-        assert!(!worktree_event_matters(&git_churn));
+        assert!(!worktree_event_matters(&git_churn, &nothing_skipped));
 
         let access = Event::new(EventKind::Access(AccessKind::Any))
             .add_path(PathBuf::from("/ws/src/main.ts"));
-        assert!(!worktree_event_matters(&access));
+        assert!(!worktree_event_matters(&access, &nothing_skipped));
+
+        // An ignored tree's event is dropped; one path outside it keeps the
+        // event alive.
+        let under_target = |p: &Path| p.starts_with("/ws/target");
+        let build = Event::new(EventKind::Create(CreateKind::File))
+            .add_path(PathBuf::from("/ws/target/debug/app.o"));
+        assert!(!worktree_event_matters(&build, &under_target));
+        let mixed = Event::new(EventKind::Create(CreateKind::File))
+            .add_path(PathBuf::from("/ws/target/debug/app.o"))
+            .add_path(PathBuf::from("/ws/src/main.ts"));
+        assert!(worktree_event_matters(&mixed, &under_target));
+    }
+
+    #[test]
+    fn ignored_trees_skip_by_top_level_entry_and_forget_on_a_rule_change() {
+        // Events name the REAL path; so does this test.
+        let repo = fs::canonicalize(init_repo()).unwrap();
+        fs::write(repo.join(".gitignore"), "target/\n").unwrap();
+        fs::create_dir_all(repo.join("target/debug")).unwrap();
+        fs::create_dir_all(repo.join("src")).unwrap();
+        let trees = IgnoredTrees::new(&repo);
+
+        assert!(trees.skips(&repo.join("target/debug/app.o")));
+        assert!(!trees.skips(&repo.join("src/main.ts")));
+        assert!(!trees.skips(&repo.join("README.md")));
+        // The tree itself, and a path outside it, are never skipped.
+        assert!(!trees.skips(&repo));
+        assert!(!trees.skips(Path::new("/elsewhere/target/x")));
+
+        // Rules change: the memory goes, and the new rules apply.
+        fs::write(repo.join(".gitignore"), "").unwrap();
+        assert!(!trees.skips(&repo.join(".gitignore")));
+        assert!(!trees.skips(&repo.join("target/debug/app.o")));
+
+        // An ignored directory with a force-added file inside is not skipped:
+        // that file is tracked, and an edit to it is a status change.
+        fs::write(repo.join(".gitignore"), "target/\n").unwrap();
+        fs::write(repo.join("target/keep.txt"), "kept\n").unwrap();
+        git(&repo, &["add", "-f", "target/keep.txt"]);
+        let fresh = IgnoredTrees::new(&repo);
+        assert!(!fresh.skips(&repo.join("target/keep.txt")));
+        assert!(!fresh.skips(&repo.join("target/debug/app.o")));
+
+        fs::remove_dir_all(&repo).ok();
+    }
+
+    #[test]
+    fn watch_stays_quiet_under_an_ignored_tree() {
+        let repo = init_repo();
+        fs::write(repo.join(".gitignore"), "target/\n").unwrap();
+        git(&repo, &["add", ".gitignore"]);
+        git(&repo, &["commit", "-q", "-m", "ignore target"]);
+        fs::create_dir_all(repo.join("target")).unwrap();
+        let gitdir = head::git_dir(&repo).unwrap();
+        let common = head::git_common_dir(&repo).unwrap();
+        let (tx, rx) = mpsc::channel::<String>();
+        let _set = spawn_git_watch(&repo, &gitdir, &common, "k".to_string(), Duration::ZERO, {
+            move |key| {
+                let _ = tx.send(key);
+            }
+        })
+        .expect("watch");
+        // The watcher is live before the writes below (delivery of a tracked
+        // edit proves it), then quiet.
+        fs::write(repo.join("README.md"), "edited\n").unwrap();
+        rx.recv_timeout(Duration::from_secs(10)).expect("a tracked edit delivers");
+        while rx.recv_timeout(Duration::from_millis(300)).is_ok() {}
+
+        // A build under the ignored tree: status would not change, and the
+        // watcher says nothing.
+        for n in 0..20 {
+            fs::write(repo.join(format!("target/out-{n}.o")), "obj\n").unwrap();
+        }
+        assert!(
+            rx.recv_timeout(Duration::from_secs(2)).is_err(),
+            "an ignored tree's writes reached the webview"
+        );
+
+        fs::remove_dir_all(&repo).ok();
     }
 
     #[test]

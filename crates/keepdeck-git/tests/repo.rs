@@ -82,6 +82,31 @@ fn the_branch_listing_stops_at_its_cap_in_refname_order() {
 }
 
 #[test]
+fn ignore_rules_are_read_the_way_status_reads_them() {
+    let dir = init_unborn();
+    commit_readme(&dir);
+    fs::write(dir.join(".gitignore"), "target/\n*.log\n").unwrap();
+    fs::create_dir_all(dir.join("target")).unwrap();
+    fs::create_dir_all(dir.join("src")).unwrap();
+    fs::write(dir.join("target/keep.txt"), "kept\n").unwrap();
+
+    assert!(repo::is_ignored(&dir, "target").unwrap());
+    assert!(repo::is_ignored(&dir, "target/out.o").unwrap());
+    assert!(repo::is_ignored(&dir, "build.log").unwrap());
+    assert!(!repo::is_ignored(&dir, "src").unwrap());
+    // A tracked file is never ignored, whatever the pattern says.
+    assert!(!repo::is_ignored(&dir, "README.md").unwrap());
+
+    assert!(!repo::has_tracked_files(&dir, "target").unwrap());
+    git(&dir, &["add", "-f", "target/keep.txt"]);
+    assert!(repo::has_tracked_files(&dir, "target").unwrap());
+    assert!(repo::has_tracked_files(&dir, "README.md").unwrap());
+    assert!(!repo::has_tracked_files(&dir, "src").unwrap());
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn a_branch_and_a_detached_head_read_as_themselves() {
     let dir = init_unborn();
     commit_readme(&dir);
