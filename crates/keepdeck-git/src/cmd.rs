@@ -35,7 +35,14 @@ pub struct Capped {
 /// much. Stdout is read as a stream and the child is killed once the cap is
 /// passed; stderr drains on its own thread so a chatty child can never
 /// block the read. Below the cap this behaves exactly like [`run_git`]: a
-/// non-zero exit is [`GitError::Command`] with the args and stderr.
+/// non-zero exit is [`GitError::Command`] with the args and stderr. Past
+/// the cap, only the exit WE caused is forgiven — a git that failed on its
+/// own after writing more than the cap is still a failure, not a long
+/// answer.
+///
+/// The stderr drain waits for every writer of the pipe to close it. Git's
+/// own children (an external diff driver, a textconv filter) would inherit
+/// it and outlive a kill; the diff commands turn those off for that reason.
 pub(crate) fn run_git_capped<I, S>(dir: &Path, args: I, max_bytes: usize) -> Result<Capped, GitError>
 where
     I: IntoIterator<Item = S>,
@@ -69,16 +76,15 @@ where
         .read_to_end(&mut buf)
         .map_err(GitError::Spawn);
     let truncated = buf.len() > max_bytes;
-    if truncated {
-        // The rest is not wanted: stop the child instead of draining it.
-        let _ = child.kill();
-    }
+    // The rest is not wanted: stop the child instead of draining it. A kill
+    // that fails found the child already gone — its own exit then counts.
+    let killed = truncated && child.kill().is_ok();
     drop(stdout);
     let status = child.wait().map_err(GitError::Spawn)?;
     let stderr_bytes = stderr_reader.join().unwrap_or_default();
     read?;
 
-    if !truncated && !status.success() {
+    if !killed && !status.success() {
         return Err(GitError::Command {
             args: args
                 .iter()

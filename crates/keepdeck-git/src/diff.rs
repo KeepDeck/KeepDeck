@@ -19,12 +19,13 @@ pub const DIFF_MAX_BYTES: usize = 1024 * 1024;
 /// render an untracked file from its plain content instead.
 ///
 /// `--no-optional-locks` keeps this a pure read (see [`crate::status::status`]);
-/// `--no-ext-diff` pins output to git's own format — a user-configured external
-/// diff driver could emit anything, or block.
+/// `--no-ext-diff` and `--no-textconv` pin output to git's own format — a
+/// user-configured diff driver or textconv filter could emit anything, block,
+/// or spawn a child that outlives the git we kill past the output cap.
 ///
 /// `orig` is the file's path before a rename (the status entry's old path).
 /// Git can only pair a rename when BOTH paths are in the pathspec: limited to
-/// the new one, it reports the file as added in full. See [`rename_pathspec`].
+/// the new one, it reports the file as added in full. See [`pathspec`].
 pub fn diff_file(
     repo: &Path,
     file: &str,
@@ -36,6 +37,7 @@ pub fn diff_file(
         OsStr::new("diff"),
         OsStr::new("--no-color"),
         OsStr::new("--no-ext-diff"),
+        OsStr::new("--no-textconv"),
     ];
     if staged {
         args.push(OsStr::new("--cached"));
@@ -53,6 +55,11 @@ pub fn diff_file(
 /// reports the file as added in full. `--` ends option parsing — the paths
 /// come from git's own status output, but the guard matches the crate's
 /// other path-taking commands.
+///
+/// The old path is trusted as the caller's latest word. Should the repo move
+/// between the status read that named it and this diff (the rename undone,
+/// the old path reborn as a file of its own), git answers with two files'
+/// diffs in one text; the next status refresh re-reads with current names.
 fn pathspec<'a>(args: &mut Vec<&'a OsStr>, file: &'a str, orig: Option<&'a str>) {
     args.push(OsStr::new("--"));
     if let Some(orig) = orig {
@@ -81,6 +88,7 @@ pub fn diff_file_range(
         OsStr::new("diff"),
         OsStr::new("--no-color"),
         OsStr::new("--no-ext-diff"),
+        OsStr::new("--no-textconv"),
     ];
     // `-M` is an option, so it must precede `--end-of-options`.
     if orig.is_some() {
