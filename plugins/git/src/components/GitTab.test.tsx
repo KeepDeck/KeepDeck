@@ -37,15 +37,32 @@ describe("GitTab", () => {
 
     await rig.render();
 
-    expect(rig.host.textContent).toContain("main");
-    expect(rig.host.textContent).toContain("↑2 ↓1");
-    expect(rig.host.textContent).toContain("Changes");
+    // The Changes header carries the count and, since the branch stands
+    // somewhere against its upstream, the ahead/behind badge.
+    const header = rig.host.querySelector("button.git__sechdr")!;
+    expect(header.textContent).toContain("Changes");
+    expect(header.querySelector(".git__count")?.textContent).toBe("2");
+    expect(header.textContent).toContain("↑2 ↓1");
     expect(rig.host.textContent).toContain("app.ts");
     expect(rig.host.textContent).toContain("Untracked");
     expect(rig.host.textContent).toContain("notes.md");
-    // Sections with no rows don't render at all.
+    // Groups with no rows don't render at all.
     expect(rig.host.textContent).not.toContain("Staged");
     expect(rig.host.textContent).not.toContain("Conflicts");
+    // The old toggle and branch line are gone: sections are the structure.
+    expect(rig.host.querySelector(".git__mode")).toBeNull();
+    expect(rig.host.querySelector(".git__head")).toBeNull();
+  });
+
+  it("hides the ahead/behind badge while the branch is level with its upstream", async () => {
+    const git = makeGit();
+    git.statuses.set("/repo", cleanStatus({ upstream: "origin/main", ahead: 0, behind: 0 }));
+    setRuntime(makeCtx(git));
+
+    await rig.render();
+
+    expect(rig.host.querySelector(".git__ab")).toBeNull();
+    expect(rig.host.textContent).not.toContain("↑0");
   });
 
   it("names a team's tree by the team in the root picker", async () => {

@@ -1,72 +1,35 @@
-import { useEffect, useRef, useState } from "react";
-import type { GitBranches } from "@keepdeck/plugin-api";
-import { Dropdown } from "@keepdeck/ui-kit/Dropdown";
-import { getRuntime } from "../runtime";
-import { useGitHistory } from "./useGitHistory";
-import {
-  relativeTime,
-  shortSha,
-  type HistoryScope,
-} from "../domain/history";
-import { CheckIcon } from "../icons";
+import { useEffect, useRef } from "react";
+import type { GitHistory } from "@keepdeck/plugin-api";
+import { relativeTime, shortSha, type HistoryScope } from "../domain/history";
 
 /**
- * The History half of the Git tab: commits since the branch's fork point
- * (plain recent history when the repo IS the base), with a pinned "Since fork"
+ * The History section's list: commits since the branch's fork point (plain
+ * recent history when the repo IS the base), with a pinned "Since fork"
  * summary row when a fork applies — log and net-diff are two projections of
  * the same range, so they live on one surface (the PR commits/files-changed
- * model). Any local branch can be browsed by ref, checkout or not.
+ * model). The walk follows the working tree's HEAD.
  *
- * The list is a single pane: clicking a commit (or the since-fork sweep)
- * opens the shared fullscreen peek straight away — its rail IS the commit's
- * file list, the standard file-viewing mode. No in-panel drill, no slide.
+ * A single pane: clicking a commit (or the since-fork sweep) opens the
+ * shared fullscreen peek straight away — its rail IS the commit's file
+ * list, the standard file-viewing mode. Dumb: the history and its paging
+ * come from the owner (`useGitHistory` in the tab), which keeps the window
+ * across a collapse of the section.
  */
 export function HistoryView({
-  repo,
-  version,
+  history,
+  error,
+  hasMore,
+  loadMore,
   onOpen,
 }: {
-  repo: string;
-  /** The status feed's revision — bumping it re-reads history, so the view
-   * follows commits as they land. */
-  version: number;
+  history: GitHistory | null;
+  error: string | null;
+  hasMore: boolean;
+  loadMore: () => void;
   /** Open the fullscreen peek for a scope — a single commit or the whole
    * since-fork sweep. The peek's rail lists its files. */
   onOpen: (scope: HistoryScope) => void;
 }) {
-  // Which ref the walk starts from: null = the working tree's checkout.
-  // Any local branch can be browsed without being checked out anywhere.
-  const [rev, setRev] = useState<string | null>(null);
-  const [branches, setBranches] = useState<GitBranches | null>(null);
-  const { history, error, hasMore, loadMore } = useGitHistory(
-    repo,
-    version,
-    true,
-    rev,
-  );
-
-  useEffect(() => {
-    setRev(null);
-    setBranches(null);
-  }, [repo]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const { services, log } = getRuntime();
-    services.git
-      .branches(repo)
-      .then((next) => {
-        if (!cancelled) setBranches(next);
-      })
-      .catch((cause: unknown) => {
-        const message = cause instanceof Error ? cause.message : String(cause);
-        log.warn(`git branches failed for ${repo}: ${message}`);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [repo, version]);
-
   // Lazy scroll: when the trailing sentinel button scrolls into view, load
   // the next chunk by itself. The button stays clickable — the fallback for
   // environments without IntersectionObserver, and for keyboard users.
@@ -88,50 +51,15 @@ export function HistoryView({
 
   const now = Date.now();
   const ahead = history.ahead ?? 0;
-  const pickable = branches !== null && branches.branches.length > 1;
 
   return (
     <div className="git__section">
-      {pickable && (
-        <div className="git__refbar">
-          <Dropdown
-            className="git__ref"
-            options={branches.branches.map((name) => ({
-              value: name,
-              label:
-                name === branches.current ? (
-                  <span className="git__refcur">
-                    {name}
-                    <span className="git__refcheck" title="checked out">
-                      <CheckIcon />
-                    </span>
-                  </span>
-                ) : (
-                  name
-                ),
-            }))}
-            value={rev ?? branches.current ?? branches.branches[0]}
-            onChange={(name) =>
-              // Picking the checkout goes back to null: the walk follows
-              // HEAD and since-fork reaches the working tree again.
-              setRev(name === branches.current ? null : name)
-            }
-            ariaLabel="Branch to browse history for"
-          />
-        </div>
-      )}
       {history.forkSha && (
         <button
           type="button"
           className="git__row git__row--pin"
-          onClick={() =>
-            onOpen({
-              kind: "fork",
-              forkSha: history.forkSha!,
-              rev: rev ?? undefined,
-            })
-          }
-          title={`Everything since ${shortSha(history.forkSha)}${rev ? "" : ", working tree included"}`}
+          onClick={() => onOpen({ kind: "fork", forkSha: history.forkSha! })}
+          title={`Everything since ${shortSha(history.forkSha)}, working tree included`}
         >
           <span className="git__code git__code--history" aria-hidden>
             Σ

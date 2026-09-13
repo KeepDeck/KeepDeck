@@ -5,17 +5,21 @@ import { setRuntime } from "../runtime";
 import { cleanStatus, makeCtx, makeGit, mountGitHarness } from "./gitHarness";
 
 /**
- * History mode's LISTING: the log, the fork divider and its since-fork
- * summary, lazy paging, and browsing a ref that is not checked out. What
- * opening one of these rows shows lives in `GitPeek.test.tsx`.
+ * The History SECTION's listing: the log, the fork divider and its
+ * since-fork summary, lazy paging, and what opening and closing the section
+ * costs. What opening one of these rows shows lives in `GitPeek.test.tsx`.
  */
 const rig = mountGitHarness();
 
+/** The History section's header — a toggle. */
+function historyHeader() {
+  return [...rig.host.querySelectorAll("button.git__sechdr")].find((el) =>
+    el.textContent?.includes("History"),
+  ) as HTMLButtonElement;
+}
+
 async function openHistory() {
-  const historyBtn = [
-    ...rig.host.querySelectorAll("button.git__modebtn"),
-  ].find((el) => el.textContent === "History") as HTMLButtonElement;
-  await act(async () => historyBtn.click());
+  await act(async () => historyHeader().click());
 }
 
 describe("History listing", () => {
@@ -110,61 +114,68 @@ describe("History listing", () => {
     expect(rig.host.querySelector("button.git__more")).toBeNull();
   });
 
-  it("can browse a branch that is not checked out", async () => {
+  it("reads the log only while its section is open, and keeps its window across a collapse", async () => {
     const git = makeGit();
     git.statuses.set("/repo", cleanStatus());
-    git.branchLists.set("/repo", {
-      current: "main",
-      branches: ["kd/side/1", "main"],
+    git.histories.set("/repo", {
+      forkSha: "f0".repeat(20),
+      ahead: 3,
+      commits: Array.from({ length: 60 }, (_, i) => ({
+        sha: String(i).padStart(2, "0").repeat(20),
+        author: "Me",
+        timestamp: 1_760_000_000 - i,
+        subject: `commit ${i}`,
+      })),
     });
-    const fork = "f0".repeat(20);
+    setRuntime(makeCtx(git));
+
+    await rig.render();
+    // Closed by default: the header is there, the log is not asked for.
+    expect(historyHeader().getAttribute("aria-expanded")).toBe("false");
+    expect(git.history).not.toHaveBeenCalled();
+
+    await openHistory();
+    expect(git.history).toHaveBeenCalledWith("/repo", { limit: 50 });
+    // The header carries the branch's own commit count.
+    expect(historyHeader().textContent).toContain("3");
+    const more = rig.host.querySelector("button.git__more") as HTMLButtonElement;
+    await act(async () => more.click());
+    // Sixty commit rows besides the pinned since-fork sweep.
+    expect(rig.host.querySelectorAll("button.git__row:not(.git__row--pin)").length).toBe(60);
+
+    // Collapse: the list goes, the window stays. Reopen: it comes back at
+    // the widened window, not the first page — the toggle used to unmount
+    // the view and lose it.
+    await act(async () => historyHeader().click());
+    expect(rig.host.querySelector("button.git__more")).toBeNull();
+    expect(rig.host.textContent).not.toContain("commit 59");
+    const reads = git.history.mock.calls.length;
+    await act(async () => historyHeader().click());
+    expect(rig.host.textContent).toContain("commit 59");
+    expect(git.history).toHaveBeenLastCalledWith("/repo", { limit: 100 });
+    expect(git.history.mock.calls.length).toBe(reads + 1);
+  });
+
+  it("both sections open share the tab — the change list and the log at once", async () => {
+    const git = makeGit();
+    git.statuses.set("/repo", cleanStatus({
+      entries: [
+        { path: "src/app.ts", origPath: null, staged: ".", unstaged: "M", untracked: false, conflicted: false },
+      ],
+    }));
     git.histories.set("/repo", {
       forkSha: null,
       ahead: null,
-      commits: [
-        { sha: "d4".repeat(20), author: "Me", timestamp: 1_760_000_000, subject: "init" },
-      ],
+      commits: [{ sha: "d4".repeat(20), author: "Me", timestamp: 1_760_000_000, subject: "init" }],
     });
     setRuntime(makeCtx(git));
 
     await rig.render();
     await openHistory();
 
-    // The picker marks the checkout with the green-check badge, not a text
-    // suffix; switching to the foreign branch walks it by ref — no checkout
-    // involved.
-    expect(rig.host.querySelector(".git__refcur .git__refcheck")).toBeTruthy();
-    expect(rig.host.textContent).not.toContain("checked out");
-    git.histories.set("/repo", {
-      forkSha: fork,
-      ahead: 1,
-      commits: [
-        { sha: "a9".repeat(20), author: "Agent", timestamp: 1_760_000_100, subject: "side work" },
-        { sha: fork, author: "Me", timestamp: 1_760_000_000, subject: "init" },
-      ],
-    });
-    // The ui-kit Dropdown portals its listbox outside this component host.
-    const trigger = rig.host.querySelector(
-      ".git__ref .dropdown__button",
-    ) as HTMLButtonElement;
-    await act(async () => trigger.click());
-    const option = [...document.querySelectorAll("button[role='option']")].find(
-      (el) => el.textContent === "kd/side/1",
-    ) as HTMLButtonElement;
-    await act(async () => option.click());
-
-    expect(git.history).toHaveBeenLastCalledWith("/repo", {
-      limit: 50,
-      rev: "kd/side/1",
-    });
-    expect(rig.host.textContent).toContain("side work");
-
-    // Since-fork on a foreign ref pins the range's end to the ref — there is
-    // no working tree to reach.
-    const pin = rig.host.querySelector(
-      "button.git__row--pin",
-    ) as HTMLButtonElement;
-    await act(async () => pin.click());
-    expect(git.changedFiles).toHaveBeenCalledWith("/repo", fork, "kd/side/1");
+    const open = [...rig.host.querySelectorAll("section.git__sec--open")];
+    expect(open.length).toBe(2);
+    expect(rig.host.textContent).toContain("app.ts");
+    expect(rig.host.textContent).toContain("init");
   });
 });

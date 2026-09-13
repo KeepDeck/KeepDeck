@@ -13,17 +13,17 @@ import { cleanStatus, makeCtx, makeGit, mountGitHarness } from "./gitHarness";
  */
 const rig = mountGitHarness();
 
-/** Switch the tab to History mode. */
+/** Open the History section. */
 async function openHistory() {
-  const historyBtn = [
-    ...rig.host.querySelectorAll("button.git__modebtn"),
-  ].find((el) => el.textContent === "History") as HTMLButtonElement;
-  await act(async () => historyBtn.click());
+  const header = [...rig.host.querySelectorAll("button.git__sechdr")].find((el) =>
+    el.textContent?.includes("History"),
+  ) as HTMLButtonElement;
+  await act(async () => header.click());
 }
 
-/** A row of the tab's own list (not the peek's rail). */
+/** A row of the tab's own sections (not the peek's rail). */
 function listRow(subject: string) {
-  return [...rig.host.querySelectorAll(".git__list button.git__row")].find(
+  return [...rig.host.querySelectorAll(".git__secbody button.git__row")].find(
     (el) => el.textContent?.includes(subject),
   ) as HTMLButtonElement;
 }

@@ -16,33 +16,29 @@ export const HISTORY_CHUNK = 50;
  * Piggybacks on the STATUS feed's revision instead of owning a second
  * watcher: every status refresh (edits, staging, commits, checkouts — the
  * same signals that move history) bumps `version`, and the window re-reads.
- * `enabled` gates the fetch to the History view being open — the Changes view
- * never pays for a log walk.
+ * `enabled` gates the fetch to the History section being open — a person
+ * who never opens it never pays for a log walk — while the window and the
+ * last answer stay, so reopening the section shows what it showed.
  */
-export function useGitHistory(
-  repo: string,
-  version: number,
-  enabled: boolean,
-  rev: string | null,
-) {
+export function useGitHistory(repo: string, version: number, enabled: boolean) {
   const [history, setHistory] = useState<GitHistory | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [count, setCount] = useState(HISTORY_CHUNK);
 
-  // A new repo or ref starts blank at the first page — stale commits from
-  // the previous walk must not flash while the first read is in flight.
+  // A new repo starts blank at the first page — stale commits from the
+  // previous walk must not flash while the first read is in flight.
   useEffect(() => {
     setHistory(null);
     setError(null);
     setCount(HISTORY_CHUNK);
-  }, [repo, rev]);
+  }, [repo]);
 
   useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
     const { services, log } = getRuntime();
     services.git
-      .history(repo, { limit: count, ...(rev ? { rev } : {}) })
+      .history(repo, { limit: count })
       .then((next) => {
         if (cancelled) return;
         setHistory(next);
@@ -58,7 +54,7 @@ export function useGitHistory(
     return () => {
       cancelled = true;
     };
-  }, [repo, version, enabled, count, rev]);
+  }, [repo, version, enabled, count]);
 
   /** Whether scrolling further could reveal more: the last read filled its
    * whole window. A short repo underfills it and the list is complete. */

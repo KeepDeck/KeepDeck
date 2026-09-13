@@ -109,6 +109,15 @@ export function makeGit() {
 
 export function makeCtx(git: ReturnType<typeof makeGit>): PluginContext {
   return {
+    // The tab remembers its open sections per workspace; an empty slot here
+    // means the defaults, and writes are accepted and forgotten.
+    storage: {
+      workspace: () => ({
+        get: vi.fn(async () => undefined),
+        set: vi.fn(async () => {}),
+        delete: vi.fn(async () => {}),
+      }),
+    },
     // The resident diff overlay subscribes to these to drop a diff whose
     // workspace the user has left; nothing here fires them.
     events: {
