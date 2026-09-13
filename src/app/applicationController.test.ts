@@ -43,6 +43,7 @@ function ui() {
   return {
     agents: vi.fn(() => []),
     requestCloseAgent: vi.fn(),
+    requestDisbandTeam: vi.fn(),
     openSettings: vi.fn(() => true),
     openUsage: vi.fn(() => true),
     setCreating: vi.fn(),

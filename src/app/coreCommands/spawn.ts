@@ -1,5 +1,5 @@
 import { agentSupportsNew, agentSupportsYolo } from "../../domain/agents";
-import { resolveTeamRef, type CommandArgs, type CommandRegistry } from "../../domain/commands";
+import type { CommandArgs, CommandRegistry } from "../../domain/commands";
 import { findTeam, findWorkspaceByRef, paneId, placementRefusalMessage, teamNameTaken, WORKSPACE_GONE_MESSAGE, type Pane, type TeamLocation, type Workspace } from "../../domain/deck";
 import { sharedDirectoryRefusal } from "../sharedDirectoryMessage";
 import { log } from "../../ipc/log";
@@ -12,7 +12,7 @@ import type { Deck } from "../useDeck";
 import { requiredStr, str } from "./args";
 import { deliverTask } from "./deliverTask";
 import type { CoreCommandDeps } from ".";
-import { targetWorkspace, worktreeAhead } from "./targets";
+import { targetTeam, targetWorkspace, worktreeAhead } from "./targets";
 
 /**
  * Landing agents and teams: `agent.spawn`, `team.create`, `team.add` — the
@@ -135,13 +135,6 @@ export function registerSpawnCommands(
     };
   }
 
-  /** The team a command named, by id or name, in the workspace it acts on. */
-  function teamRef(workspace: Workspace, ref: string) {
-    const resolved = resolveTeamRef(workspace, ref);
-    if (!resolved.ok) throw new Error(resolved.message);
-    return resolved.value;
-  }
-
   return [
     registry.register({
       id: "agent.spawn",
@@ -193,7 +186,7 @@ export function registerSpawnCommands(
           // deck knows and free on the team is the landing's one rule.
           const role = str(args, "role");
           if (ref !== undefined) {
-            const team = teamRef(current.workspace, ref);
+            const team = targetTeam(current.workspace,ref);
             return { team: team.id, ...(role !== undefined && { role }) };
           }
           const placement = await freshWorktree(current, index);
@@ -352,7 +345,7 @@ export function registerSpawnCommands(
        * Sixteen on one team is the cap. */
       run: (args) =>
         recruit(args, async (current) => {
-          const team = teamRef(current.workspace, requiredStr(args, "team"));
+          const team = targetTeam(current.workspace,requiredStr(args, "team"));
           const role = str(args, "role");
           return { team: team.id, ...(role !== undefined && { role }) };
         }),

@@ -11,6 +11,7 @@ import { registerPaneCommands } from "./panes";
 import { registerSkillsCommands } from "./skills";
 import { registerSpawnCommands } from "./spawn";
 import { registerSurfaceCommands } from "./surfaces";
+import { registerTeamLifecycleCommands } from "./teamLifecycle";
 import { registerWorkspaceCommands } from "./workspaces";
 
 /**
@@ -52,6 +53,15 @@ export interface CoreCommandDeps {
    * "+ Team" goes through, so a team asked for by voice or MCP is born the
    * way one asked for by hand is: empty, agents to follow one at a time. */
   createTeam(request: CreateTeamRequest): CreateTeamOutcome;
+  /** Put the person inside a team — its workspace on screen, the team open
+   * on the stage — the operation the rail's team row performs. */
+  activateTeam(wsId: string, teamId: string): void;
+  /** Open the disband-confirm flow — the dialog the card's Disband opens,
+   * worktree offer and all, so the destructive step keeps its human
+   * confirmation the way `requestCloseAgent` does. */
+  requestDisbandTeam(wsId: string, teamId: string): void;
+  /** Re-issue a team's failed worktree create — the card's Retry. */
+  retryProvisioning(wsId: string, teamId: string): void;
   /** Open the settings dialog; `sectionId` lands it on a specific section
    * (a plugin's `plugin:<id>`), null on the first. Answers whether it opened:
    * a command arrives with no button to have been disabled, so it asks the
@@ -70,10 +80,10 @@ export interface CoreCommandDeps {
 /**
  * Register the core commands; returns the combined unregister.
  *
- * One area per module — workspaces, panes, landing agents and teams,
- * surfaces, and the two libraries — each taking only the slice of the deps
- * it uses. This file composes them and holds nothing else, so an area can
- * grow without the whole set growing with it.
+ * One area per module — workspaces, panes, landing agents and teams, a
+ * team's life after that, surfaces, and the two libraries — each taking
+ * only the slice of the deps it uses. This file composes them and holds
+ * nothing else, so an area can grow without the whole set growing with it.
  */
 export function registerCoreCommands(
   registry: CommandRegistry,
@@ -83,6 +93,7 @@ export function registerCoreCommands(
     ...registerWorkspaceCommands(registry, deps),
     ...registerPaneCommands(registry, deps),
     ...registerSpawnCommands(registry, deps),
+    ...registerTeamLifecycleCommands(registry, deps),
     ...registerSurfaceCommands(registry, deps),
     ...registerSkillsCommands(registry, { deck: deps.deck, skills: deps.skills }),
     ...registerMcpCommands(registry, { deck: deps.deck, library: deps.mcpLibrary }),

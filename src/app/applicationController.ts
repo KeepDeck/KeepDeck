@@ -28,6 +28,8 @@ type Orchestrator = ReturnType<typeof createAgentOrchestrator>;
 export interface ApplicationUi {
   agents(): AgentInfo[];
   requestCloseAgent(wsId: string, paneId: string, label: string): void;
+  /** Open the disband-confirm flow for a team — the card's Disband. */
+  requestDisbandTeam(wsId: string, teamId: string): void;
   openSettings(sectionId: string | null): boolean;
   openUsage(tab: StatsTab | null): boolean;
   setCreating(creating: boolean): void;
@@ -134,6 +136,9 @@ export function createApplicationController({
         resumeAgent: orchestrator.resume,
         createPane: orchestrator.createPane,
         createTeam: orchestrator.createTeam,
+        activateTeam,
+        requestDisbandTeam: (wsId, teamId) => requireUi().requestDisbandTeam(wsId, teamId),
+        retryProvisioning: orchestrator.retryProvisioning,
         openSettings: (sectionId) =>
           ui?.openSettings(sectionId) ?? false,
         openUsage: () => ui?.openUsage(null) ?? false,

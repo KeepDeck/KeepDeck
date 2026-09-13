@@ -131,6 +131,7 @@ function fakeDeck(workspaces: Workspace[]): Deck {
     viewOf: vi.fn(() => ({})),
     selectWorkspace: vi.fn(),
     selectPane: vi.fn(),
+    renameTeam: vi.fn(),
   } as unknown as Deck;
 }
 
@@ -142,6 +143,9 @@ export function setup(workspaces: Workspace[]) {
     deck.selectWorkspace(wsId);
     deck.selectPane(wsId, paneId);
   });
+  const activateTeam = vi.fn();
+  const requestDisbandTeam = vi.fn();
+  const retryProvisioning = vi.fn();
   const suspendAgent = vi.fn<
     (wsId: string, paneId: string) => Promise<SuspendOutcome>
   >(() => Promise.resolve("suspended"));
@@ -247,6 +251,9 @@ export function setup(workspaces: Workspace[]) {
     resumeAgent,
     createPane,
     createTeam,
+    activateTeam,
+    requestDisbandTeam,
+    retryProvisioning,
     openSettings,
     openUsage,
     skills,
@@ -264,6 +271,9 @@ export function setup(workspaces: Workspace[]) {
     resumeAgent,
     createPane,
     createTeam,
+    activateTeam,
+    requestDisbandTeam,
+    retryProvisioning,
     openSettings,
     openUsage,
     dispose,

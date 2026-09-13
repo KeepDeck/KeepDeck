@@ -159,6 +159,7 @@ export function useAppController() {
     openStats: modal.openStats,
     pushAlert,
     requestCloseAgent: closeFlow.requestCloseAgent,
+    requestDisbandTeam: closeFlow.requestDisbandTeam,
     setCreating,
   });
   applicationUi.current = {
@@ -167,6 +168,7 @@ export function useAppController() {
     openStats: modal.openStats,
     pushAlert,
     requestCloseAgent: closeFlow.requestCloseAgent,
+    requestDisbandTeam: closeFlow.requestDisbandTeam,
     setCreating,
   };
   useEffect(() => {
@@ -175,6 +177,7 @@ export function useAppController() {
       agents: () => current().agents,
       requestCloseAgent: (wsId, paneId, label) =>
         current().requestCloseAgent(wsId, paneId, label),
+      requestDisbandTeam: (wsId, teamId) => current().requestDisbandTeam(wsId, teamId),
       openSettings: (sectionId) =>
         current().openSettings(sectionId ?? undefined),
       openUsage: (tab) => current().openStats(tab),
