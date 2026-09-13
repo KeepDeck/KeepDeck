@@ -73,6 +73,23 @@ function row(entry: GitStatusEntry, code: string, kind: ChangeKind): ChangeRow {
   return { path: entry.path, origPath: entry.origPath, code, kind };
 }
 
+/** Where an open row stands after a status refresh. Itself, fresh, while
+ * its section still lists the path; the same path's row in another section
+ * when the change MOVED — staged with `git add`, unstaged by a reset, a
+ * conflict resolved, an untracked file added — so the open peek follows
+ * the file to the diff it now has instead of re-reading the one it no
+ * longer has; itself unchanged when the path left the status altogether,
+ * where the diff then reads empty, which is the truth. */
+export function reconcileRow(row: ChangeRow, groups: ChangeGroups): ChangeRow {
+  const listed = [
+    ...groups.conflicted,
+    ...groups.staged,
+    ...groups.unstaged,
+    ...groups.untracked,
+  ].filter((candidate) => candidate.path === row.path);
+  return listed.find((candidate) => candidate.kind === row.kind) ?? listed[0] ?? row;
+}
+
 /** A porcelain code in plain words — row tooltips and accessibility labels.
  * A conflict's two sides say who did what (git's own `status` wording). */
 export function codeLabel(code: string): string {

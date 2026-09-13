@@ -6,6 +6,7 @@ import {
   dirName,
   groupEntries,
   headline,
+  reconcileRow,
 } from "./status";
 
 const entry = (over: Partial<GitStatusEntry>): GitStatusEntry => ({
@@ -72,6 +73,45 @@ describe("groupEntries", () => {
       entry({ path: "twice.ts", conflicted: true, staged: "A", unstaged: "A" }),
     ]);
     expect(groups.conflicted.map((r) => r.code)).toEqual(["UU", "DU", "AA"]);
+  });
+});
+
+describe("reconcileRow", () => {
+  const open: ReturnType<typeof groupEntries>["unstaged"][number] = {
+    path: "src/app.ts",
+    origPath: null,
+    code: "M",
+    kind: "unstaged",
+  };
+
+  it("keeps the row, refreshed, while its section still lists the path", () => {
+    const groups = groupEntries([entry({ path: "src/app.ts", staged: "M", unstaged: "D" })]);
+    // Same section, but the code moved on — the fresh row carries it.
+    expect(reconcileRow(open, groups)).toEqual({ ...open, code: "D" });
+  });
+
+  it("follows the file to another section when the change moved", () => {
+    // `git add` took it from Changes to Staged.
+    const staged = groupEntries([entry({ path: "src/app.ts", staged: "M" })]);
+    expect(reconcileRow(open, staged)).toEqual({ ...open, kind: "staged" });
+    // A conflict resolved and added: Conflicts → Staged.
+    const clash = { ...open, code: "UU", kind: "conflicted" as const };
+    expect(reconcileRow(clash, staged)).toEqual({ ...open, kind: "staged" });
+    // An untracked file added: Untracked → Staged as new.
+    const fresh = { ...open, code: "?", kind: "untracked" as const };
+    const added = groupEntries([entry({ path: "src/app.ts", staged: "A" })]);
+    expect(reconcileRow(fresh, added)).toEqual({ ...open, code: "A", kind: "staged" });
+  });
+
+  it("prefers the row's own section when the path sits in two", () => {
+    const both = groupEntries([entry({ path: "src/app.ts", staged: "M", unstaged: "M" })]);
+    expect(reconcileRow(open, both).kind).toBe("unstaged");
+    expect(reconcileRow({ ...open, kind: "staged" }, both).kind).toBe("staged");
+  });
+
+  it("stays as it was once the path left the status", () => {
+    expect(reconcileRow(open, groupEntries([]))).toBe(open);
+    expect(reconcileRow(open, groupEntries([entry({ path: "other.ts", unstaged: "M" })]))).toBe(open);
   });
 });
 

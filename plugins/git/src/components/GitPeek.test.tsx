@@ -409,6 +409,39 @@ describe("opening a history scope", () => {
     ).toContain("b.ts");
   });
 
+  it("an open diff follows its file when the change moves section", async () => {
+    vi.useFakeTimers();
+    const git = makeGit();
+    git.statuses.set("/repo", cleanStatus({
+      entries: [
+        { path: "src/app.ts", origPath: null, staged: ".", unstaged: "M", untracked: false, conflicted: false },
+      ],
+    }));
+    setRuntime(makeCtx(git));
+
+    await rig.render();
+    await act(async () => listRow("app.ts").click());
+    await rig.settle(0);
+    expect(git.diffFile).toHaveBeenLastCalledWith("/repo", "src/app.ts", { staged: false });
+
+    // `git add` under the open peek: the path is now staged only. The row
+    // the peek was opened on was "unstaged", and re-reading THAT diff on the
+    // tick shows nothing while the rail marks no row at all.
+    git.statuses.set("/repo", cleanStatus({
+      entries: [
+        { path: "src/app.ts", origPath: null, staged: "M", unstaged: ".", untracked: false, conflicted: false },
+      ],
+    }));
+    git.fireChange("/repo");
+    await rig.settle(301);
+
+    expect(git.diffFile).toHaveBeenLastCalledWith("/repo", "src/app.ts", { staged: true });
+    const aside = rig.host.querySelector(".peek__aside")!;
+    expect(aside.textContent).toContain("Staged");
+    expect(aside.querySelector(".git__row--on")?.textContent).toContain("app.ts");
+    expect(rig.host.querySelector(".git__badge")?.className).toContain("git__badge--staged");
+  });
+
   it("a failed refetch REPLACES the rail's list instead of sitting over it", async () => {
     vi.useFakeTimers();
     const git = makeGit();

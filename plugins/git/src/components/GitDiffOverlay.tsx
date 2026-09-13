@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { DiffPeek } from "./DiffPeek";
 import { useGitStatus } from "./useGitStatus";
-import { groupEntries, type ChangeRow } from "../domain/status";
+import { groupEntries, reconcileRow, type ChangeRow } from "../domain/status";
 import { readVersionFor } from "../domain/history";
 import {
   afterClose,
@@ -125,6 +125,12 @@ function OpenDiffPeek({
     version,
     error,
   });
+  // A worktree row follows its file across the live groups: staged under
+  // the open peek, it shows the staged diff next, not an empty re-read of
+  // the worktree one. Derived per tick, so the row the overlay holds is
+  // only where the peek was opened, never a frozen classification.
+  const worktreeRow =
+    diff.kind === "worktree" && groups ? reconcileRow(diff.row, groups) : diff.row;
 
   return (
     <DiffPeek
@@ -133,7 +139,7 @@ function OpenDiffPeek({
         diff.kind === "worktree"
           ? {
               kind: "file",
-              row: diff.row,
+              row: worktreeRow!,
               changeSet: { kind: "worktree", groups, error },
             }
           : diff.row !== null
