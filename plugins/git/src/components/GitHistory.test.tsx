@@ -156,6 +156,37 @@ describe("History listing", () => {
     expect(git.history.mock.calls.length).toBe(reads + 1);
   });
 
+  it("an effect that fires after the plugin is torn down reads nothing, and throws nothing", async () => {
+    const git = makeGit();
+    git.statuses.set("/repo", cleanStatus());
+    git.histories.set("/repo", {
+      forkSha: null,
+      ahead: null,
+      commits: Array.from({ length: 60 }, (_, i) => ({
+        sha: String(i).padStart(2, "0").repeat(20),
+        author: "Me",
+        timestamp: 1_760_000_000 - i,
+        subject: `commit ${i}`,
+      })),
+    });
+    setRuntime(makeCtx(git));
+
+    await rig.render();
+    await openHistory();
+    const reads = git.history.mock.calls.length;
+
+    // `deactivate` clears the runtime BEFORE the host unmounts the surfaces.
+    // Anything that re-runs the log's effect in that window — here, the
+    // window widening — used to throw out of `getRuntime()` inside React.
+    setRuntime(null);
+    const more = rig.host.querySelector("button.git__more") as HTMLButtonElement;
+    await act(async () => more.click());
+
+    expect(git.history.mock.calls.length).toBe(reads);
+    // What was on screen stays on screen until the unmount takes it.
+    expect(rig.host.textContent).toContain("commit 0");
+  });
+
   it("both sections open share the tab — the change list and the log at once", async () => {
     const git = makeGit();
     git.statuses.set("/repo", cleanStatus({

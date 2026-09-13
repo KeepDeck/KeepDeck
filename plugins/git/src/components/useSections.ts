@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { WorkspaceRef } from "@keepdeck/plugin-api";
-import { getRuntime } from "../runtime";
+import { activeRuntime } from "../runtime";
 import {
   DEFAULT_SECTIONS,
   readSections,
@@ -24,20 +24,19 @@ export function useSections(
   const [state, setState] = useState<SectionsState>(DEFAULT_SECTIONS);
 
   useEffect(() => {
+    // Torn down: the default, for whatever is left of this surface.
+    const runtime = activeRuntime();
+    if (!runtime) return;
     let cancelled = false;
-    try {
-      void getRuntime()
-        .storage.workspace(workspace)
-        .get(KEY)
-        .then((raw) => {
-          if (!cancelled) setState(readSections(raw));
-        })
-        .catch(() => {
-          // An unreadable slot means the default — nothing to say.
-        });
-    } catch {
-      // No runtime (a component rendered outside activation): the default.
-    }
+    void runtime.storage
+      .workspace(workspace)
+      .get(KEY)
+      .then((raw) => {
+        if (!cancelled) setState(readSections(raw));
+      })
+      .catch(() => {
+        // An unreadable slot means the default — nothing to say.
+      });
     return () => {
       cancelled = true;
     };
@@ -46,11 +45,8 @@ export function useSections(
   const toggle = (id: SectionId) => {
     const next = toggleSection(state, id);
     setState(next);
-    try {
-      void getRuntime().storage.workspace(workspace).set(KEY, next).catch(() => {});
-    } catch {
-      // Torn down: nothing to remember it in.
-    }
+    // Torn down: nothing to remember it in.
+    void activeRuntime()?.storage.workspace(workspace).set(KEY, next).catch(() => {});
   };
   return [state, toggle];
 }

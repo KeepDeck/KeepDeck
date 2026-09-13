@@ -118,6 +118,13 @@ export function makeCtx(git: ReturnType<typeof makeGit>): PluginContext {
         delete: vi.fn(async () => {}),
       }),
     },
+    // The resident diff overlay tells the host when its peek covers the
+    // deck; the fake takes the word and does nothing with it.
+    ui: {
+      registerDockTab: vi.fn(() => ({ dispose: vi.fn() })),
+      registerOverlay: vi.fn(() => ({ dispose: vi.fn() })),
+      setOverlayCovers: vi.fn(),
+    },
     // The resident diff overlay subscribes to these to drop a diff whose
     // workspace the user has left; nothing here fires them.
     events: {

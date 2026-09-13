@@ -19,3 +19,12 @@ export function getRuntime(): PluginContext {
   if (!ctx) throw new Error("Git plugin: runtime read before activate()");
   return ctx;
 }
+
+/** The active context, or null once `deactivate` has cleared it — for the
+ * EFFECTS of surfaces the host is still tearing down. `deactivate` runs
+ * before the host unmounts them, so a status tick can land in between and
+ * re-run every effect keyed on it; one that asked `getRuntime()` then threw
+ * inside React. Such an effect has nothing left to fetch or log: it returns. */
+export function activeRuntime(): PluginContext | null {
+  return ctx;
+}

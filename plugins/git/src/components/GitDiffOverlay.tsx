@@ -4,7 +4,7 @@ import { DiffPeek } from "./DiffPeek";
 import { useGitStatus } from "./useGitStatus";
 import { groupEntries, type ChangeRow } from "../domain/status";
 import { readVersionFor, type HistoryScope } from "../domain/history";
-import { getRuntime } from "../runtime";
+import { activeRuntime } from "../runtime";
 import { subscribePeekRequests, takePeekRequest } from "../peekRequests";
 
 /**
@@ -60,7 +60,10 @@ export function GitDiffOverlay() {
   // user just left on screen over the one they went to, with nothing on it
   // naming where it came from.
   useEffect(() => {
-    const { events } = getRuntime();
+    // Torn down: nothing left to listen to (and this mounts once anyway).
+    const runtime = activeRuntime();
+    if (!runtime) return;
+    const { events } = runtime;
     const gone = (workspace: WorkspaceRef) =>
       setDiff((prev) =>
         prev && prev.workspace.instance === workspace.instance ? null : prev,
@@ -84,16 +87,12 @@ export function GitDiffOverlay() {
   // the deck and when it stops: the deck's hotkeys pause behind it, and a
   // pane under it is not on screen for a notification. Unsaid on unmount
   // too, so a plugin torn down mid-peek leaves the deck unpaused. The
-  // runtime may already be gone on that path; there is nothing to tell then.
+  // runtime may already be gone on that path; the host clears a retired
+  // plugin's cover on its own, so there is nothing to tell then.
   const covers = diff !== null;
   useEffect(() => {
-    const say = (value: boolean) => {
-      try {
-        getRuntime().ui.setOverlayCovers("diff", value);
-      } catch {
-        // Torn down: the host clears a retired plugin's cover on its own.
-      }
-    };
+    const say = (value: boolean) =>
+      activeRuntime()?.ui.setOverlayCovers("diff", value);
     say(covers);
     return () => {
       if (covers) say(false);

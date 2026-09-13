@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { GitChangedFile } from "@keepdeck/plugin-api";
-import { getRuntime } from "../runtime";
+import { activeRuntime } from "../runtime";
 import type { ChangeGroups, ChangeRow } from "../domain/status";
 import {
   historyRow,
@@ -142,8 +142,11 @@ export function PeekSiblings({
   // fetched for, so a stale one simply stops counting as loaded.
   useEffect(() => {
     if (!range) return;
+    // Torn down: the host is unmounting this surface; nothing to read.
+    const runtime = activeRuntime();
+    if (!runtime) return;
     let cancelled = false;
-    const { services, log } = getRuntime();
+    const { services, log } = runtime;
     services.git
       .changedFiles(repo, range.from, range.to)
       .then((next) => {

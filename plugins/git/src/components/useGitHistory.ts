@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { GitHistory } from "@keepdeck/plugin-api";
-import { getRuntime } from "../runtime";
+import { activeRuntime } from "../runtime";
 
 /** The lazy-scroll page size: the first read asks for this many commits, and
  * every `loadMore` widens the window by the same step. */
@@ -35,8 +35,11 @@ export function useGitHistory(repo: string, version: number, enabled: boolean) {
 
   useEffect(() => {
     if (!enabled) return;
+    // Torn down: the host is unmounting this surface; nothing to read.
+    const runtime = activeRuntime();
+    if (!runtime) return;
     let cancelled = false;
-    const { services, log } = getRuntime();
+    const { services, log } = runtime;
     services.git
       .history(repo, { limit: count })
       .then((next) => {

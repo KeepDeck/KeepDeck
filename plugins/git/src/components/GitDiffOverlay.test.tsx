@@ -74,6 +74,14 @@ const OTHER_WS: WorkspaceRef = { id: "ws-2", instance: "instance-2" };
 function makeCtx(over: Partial<GitStatus> | null = null): PluginContext {
   return {
     ui: { setOverlayCovers: vi.fn() },
+    // The tab remembers its open sections here; an empty slot is the default.
+    storage: {
+      workspace: () => ({
+        get: vi.fn(async () => undefined),
+        set: vi.fn(async () => {}),
+        delete: vi.fn(async () => {}),
+      }),
+    },
     events: {
       onPaneSelected: (cb: (e: { workspace: WorkspaceRef }) => void) => {
         deckEvents.paneSelected.add(cb);

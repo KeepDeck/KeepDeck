@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Peek } from "@keepdeck/ui-kit/Peek";
 import { langFor, TokenLine, useHighlight } from "@keepdeck/code-kit";
-import { getRuntime } from "../runtime";
+import { activeRuntime } from "../runtime";
 import {
   binaryFileDiff,
   conflictedFileDiff,
@@ -111,8 +111,11 @@ export function DiffPeek({
   useEffect(() => {
     // No file to diff yet — the rail seeds the first file of a History scope.
     if (!row) return;
+    // Torn down: the host is unmounting this surface; nothing to read.
+    const runtime = activeRuntime();
+    if (!runtime) return;
     let cancelled = false;
-    const { services, log } = getRuntime();
+    const { services, log } = runtime;
     // The old path rides along only when the row has one: with it git pairs
     // the rename and shows the edit, without it the new path reads as a whole
     // new file. Absent (not `undefined`) when there is none, so a row without
