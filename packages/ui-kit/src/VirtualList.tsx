@@ -1,15 +1,27 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { useRowWindow } from "./useRowWindow";
 
-export interface VirtualListProps<T> {
+/** The elements a consumer's list is made of, when the defaults (plain
+ * divs) are not its markup: a `ul` spacer with `li` items keeps a list a
+ * list for the stylesheet and the accessibility tree. */
+export interface VirtualListMarkup {
+  /** The spacer the items are positioned in. */
+  spacer?: { as?: "div" | "ul"; className?: string };
+  /** The box around each item — the one the list positions and
+   * measures. Its class is the consumer's: padding inside it is part of
+   * the measured height, a margin would not be. */
+  item?: { as?: "div" | "li"; className?: string };
+}
+
+export interface VirtualListProps<T> extends VirtualListMarkup {
   items: readonly T[];
   /** A stable identity per item — never the index (see `useRowWindow`). */
   itemKey: (item: T) => string;
   /** The first paint's guess at an item's height, in pixels; corrected
    * by measurement the moment the row reports its real box. */
   estimate: number | ((item: T) => number);
-  /** The item's content. The list positions and measures the slot
-   * around it, so the content takes no position of its own. */
+  /** The item's content. The list positions and measures the box around
+   * it, so the content takes no position of its own. */
   render: (item: T, index: number) => ReactNode;
   /** The scroll container's class — the consumer's, styled by it. */
   className: string;
@@ -21,11 +33,12 @@ export interface VirtualListProps<T> {
 }
 
 /**
- * The windowed list as a component, for a consumer whose rows are plain
- * content: the scroll container, a spacer the height of every item, and
- * only the items in view (plus a few beyond) mounted, absolutely
- * positioned inside it. The engine is `useRowWindow`, the same one the
- * host's lists drive with their own markup.
+ * The windowed list as a component: the scroll container, a spacer the
+ * height of every item, and only the items in view (plus a few beyond)
+ * mounted, absolutely positioned inside it. The engine is `useRowWindow`;
+ * a consumer whose rows must own their own element, or whose window drives
+ * more than a list (the sessions browser's lane paging and focus
+ * transfer), drives that engine directly with its own markup.
  */
 export function VirtualList<T>({
   items,
@@ -36,6 +49,8 @@ export function VirtualList<T>({
   role,
   ariaLabel,
   onReachEnd,
+  spacer,
+  item,
 }: VirtualListProps<T>) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const window = useRowWindow({ rows: items, keyOf: itemKey, estimate, scrollRef });
@@ -48,14 +63,20 @@ export function VirtualList<T>({
     if (reachedEnd) onReachEnd?.();
   }, [reachedEnd, items.length, onReachEnd]);
 
+  const Spacer = spacer?.as ?? "div";
+  const Item = item?.as ?? "div";
   return (
     <div className={className} ref={scrollRef} role={role} aria-label={ariaLabel}>
-      <div style={{ height: `${window.totalSize}px`, position: "relative" }}>
+      <Spacer
+        className={spacer?.className}
+        style={{ height: `${window.totalSize}px`, position: "relative" }}
+      >
         {window.items.map((slot) => (
-          <div
+          <Item
             key={slot.key}
             ref={window.measure}
             data-index={slot.index}
+            className={item?.className}
             style={{
               position: "absolute",
               top: 0,
@@ -65,9 +86,9 @@ export function VirtualList<T>({
             }}
           >
             {render(items[slot.index], slot.index)}
-          </div>
+          </Item>
         ))}
-      </div>
+      </Spacer>
     </div>
   );
 }

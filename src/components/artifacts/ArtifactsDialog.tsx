@@ -1,4 +1,3 @@
-import { useRef } from "react";
 import { formatAge } from "../../domain/usage";
 import type {
   ArtifactMetaRow,
@@ -13,11 +12,7 @@ import { useWallClock } from "../../ui/useWallClock";
 import { isRow } from "./rowRef";
 import { rowMeta, versionsNewestFirst } from "./rowMeta";
 import { useArtifactsRegistry } from "./useArtifactsRegistry";
-import { useRowWindow } from "@keepdeck/ui-kit/useRowWindow";
-
-/** One array identity for every non-list state: a fresh `[]` per render
- * would give the window a new input each time and re-key its memos. */
-const EMPTY: readonly ArtifactMetaRow[] = [];
+import { VirtualList } from "@keepdeck/ui-kit/VirtualList";
 
 /** The artifact's id — never the index: a publish reorders the list
  * (newest first), and an index key would hand one row's measured height —
@@ -72,25 +67,16 @@ export function ArtifactsDialog({
   const now = useWallClock(
     view.kind === "rows" ? (view.rows[0]?.updatedAt ?? 0) : 0,
   );
-  // The body is the scroll container the window measures against.
-  //
   // A workspace's artifacts have no ceiling — an agent publishes as many
   // as the work needs, and nothing prunes them — so the list is windowed
-  // like the sessions browser's, on the app's one engine. Measured, not
-  // assumed: an item is a row plus, when it is the open one, its whole
+  // like the sessions browser's, on the app's one list (below). Measured,
+  // not assumed: an item is a row plus, when it is the open one, its whole
   // version history — heights differ by an order of magnitude within one
   // list. A row scrolled out of the window is UNMOUNTED, and focus inside
   // it goes with it — accepted, deliberately, rather than carried to a
   // neighbour the way the sessions browser carries it: the modal's
   // background is `inert`, so the keyboard cannot fall past the dialog,
   // and the next Tab resumes at its first control.
-  const bodyRef = useRef<HTMLDivElement>(null);
-  const rowWindow = useRowWindow({
-    rows: view.kind === "rows" ? view.rows : EMPTY,
-    keyOf: artifactKey,
-    estimate: ESTIMATED_ROW_PX,
-    scrollRef: bodyRef,
-  });
 
   return (
     <ModalOverlay>
@@ -131,7 +117,8 @@ export function ArtifactsDialog({
           </p>
         )}
 
-        <div className="artifacts__body" ref={bodyRef}>
+        {view.kind !== "rows" ? (
+          <div className="artifacts__body">
           {view.kind === "noWorkspace" ? (
             <div className="artifacts__placeholder">
               <span className="artifacts__placeholder-title">
@@ -157,7 +144,7 @@ export function ArtifactsDialog({
               </span>
               <span>This workspace has artifacts; none of them by that name</span>
             </div>
-          ) : view.kind === "empty" ? (
+          ) : (
             <div className="artifacts__placeholder">
               <span className="artifacts__placeholder-title">
                 Nothing published yet
@@ -167,42 +154,33 @@ export function ArtifactsDialog({
                 refresh themselves as the agent iterates
               </span>
             </div>
-          ) : (
-            // The spacer: the measured height of every row, with the
-            // window's items absolutely positioned inside it. The list
-            // stays ONE ul/li list and the scroll container stays the
-            // body above.
-            <ul
-              className="artifacts__list"
-              style={{ height: `${rowWindow.totalSize}px`, position: "relative" }}
-            >
-              {rowWindow.items.map((item) => {
-                const row = view.rows[item.index];
-                const meta = rowMeta(row, now);
-                // The FULL ref, not the id: the effect that drops a
-                // stale history runs after paint, and an id alone would
-                // draw one workspace's versions under another's artifact
-                // of the same name for that frame.
-                const openHere = expanded !== null && isRow(expanded, row);
-                return (
+          )}
+          </div>
+        ) : (
+          // The body IS the windowed list: the scroll container, a ul
+          // spacer the measured height of every row, and only the rows in
+          // view mounted as li items — the list stays ONE ul/li list.
+          <VirtualList
+            items={view.rows}
+            itemKey={artifactKey}
+            estimate={ESTIMATED_ROW_PX}
+            className="artifacts__body"
+            spacer={{ as: "ul", className: "artifacts__list" }}
+            item={{ as: "li", className: "artifacts__item" }}
+            render={(row) => {
+              const meta = rowMeta(row, now);
+              // The FULL ref, not the id: the effect that drops a
+              // stale history runs after paint, and an id alone would
+              // draw one workspace's versions under another's artifact
+              // of the same name for that frame.
+              const openHere = expanded !== null && isRow(expanded, row);
+              return (
                 // ONE measured box per artifact: the row, and the history
                 // when this is the open one. They are one item because
                 // they move together and are measured together — the
                 // history is what makes an item's height differ from its
                 // neighbours' by an order of magnitude.
-                <li
-                  key={item.key}
-                  ref={rowWindow.measure}
-                  data-index={item.index}
-                  className="artifacts__item"
-                  style={{
-                    position: "absolute",
-                    top: 0,
-                    left: 0,
-                    width: "100%",
-                    transform: `translateY(${item.start}px)`,
-                  }}
-                >
+                <>
                 <div className="artifacts__row">
                   {/* The row IS the control — a list row is one of the
                       archetypes the shared Button deliberately does not
@@ -281,12 +259,11 @@ export function ArtifactsDialog({
                     )}
                   </div>
                 )}
-                </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
+                </>
+              );
+            }}
+          />
+        )}
       </div>
 
       {confirm !== null && (

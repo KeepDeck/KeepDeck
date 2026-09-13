@@ -69,4 +69,25 @@ describe("VirtualList", () => {
     render(onReachEnd);
     expect(onReachEnd).not.toHaveBeenCalled();
   });
+
+  it("is a ul/li list for a consumer whose stylesheet and readers expect one", () => {
+    restore = pinListViewport("list", 200, 300, ROW);
+    act(() =>
+      root.render(
+        createElement(VirtualList<string>, {
+          items: items.slice(0, 3),
+          itemKey: (item) => item,
+          estimate: () => ROW,
+          render: (item) => createElement("span", { className: "row" }, item),
+          className: "list",
+          spacer: { as: "ul", className: "list__spacer" },
+          item: { as: "li", className: "list__item" },
+        }),
+      ),
+    );
+    const spacer = host.querySelector(".list > ul.list__spacer") as HTMLElement;
+    expect(spacer).toBeTruthy();
+    expect(spacer.style.height).toBe(`${3 * ROW}px`);
+    expect(host.querySelectorAll("ul.list__spacer > li.list__item > .row").length).toBe(3);
+  });
 });
