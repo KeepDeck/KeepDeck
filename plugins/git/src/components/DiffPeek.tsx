@@ -7,10 +7,10 @@ import {
   hunkOffsets,
   isEmptyDiff,
   parseDiff,
-  type DiffNote,
   type FileDiff,
 } from "../domain/diff";
 import { diffReadFor, fileAsDiff } from "../domain/diffRead";
+import { noteKey, noteText } from "../presentation/diffNoteView";
 import { baseName, codeLabel, type ChangeRow } from "../domain/status";
 import {
   scopeLabel,
@@ -260,24 +260,4 @@ export function DiffPeek({
       )}
     </Peek>
   );
-}
-
-/** One note of a kind per file, plus its paths where it has them. */
-function noteKey(note: DiffNote): string {
-  return note.kind === "unmerged" ? note.kind : `${note.kind}:${note.from}:${note.to}`;
-}
-
-/** The wording is presentation, so it lives with the render — the domain
- * hands over kinds and paths, never English. */
-function noteText(note: DiffNote): string {
-  switch (note.kind) {
-    case "mode":
-      return `File mode changed ${note.from} → ${note.to}`;
-    case "rename":
-      return `Renamed ${note.from} → ${note.to}`;
-    case "copy":
-      return `Copied from ${note.from}`;
-    case "unmerged":
-      return "Unmerged — showing the working file with its conflict markers";
-  }
 }
