@@ -108,7 +108,7 @@ const emptyFs: PluginFs = {
     truncated: false,
     readBytes: 0,
   }),
-  watch: () => ({ dispose() {} }),
+  watch: () => ({ ready: Promise.resolve(), dispose() {} }),
 };
 
 export function createFakeHost(
@@ -184,6 +184,8 @@ export function createFakeHost(
       setOverlayVisible: (id, visible) => {
         overlayVisibility.push([id, visible]);
       },
+      // Accepted and forgotten: no guest test reads the cover yet.
+      setOverlayCovers: () => {},
     },
     openers: {
       register: (handler) => record(fileOpeners, handler),
@@ -347,11 +349,11 @@ export function createFakeHost(
           behind: null,
           entries: [],
         }),
-        diffFile: async () => "",
+        diffFile: async () => ({ text: "", truncated: false }),
         history: async () => ({ forkSha: null, ahead: null, commits: [] }),
         branches: async () => ({ current: null, branches: [] }),
         changedFiles: async () => [],
-        watch: () => ({ dispose() {} }),
+        watch: () => ({ ready: Promise.resolve(), dispose() {} }),
       },
     },
     host: {

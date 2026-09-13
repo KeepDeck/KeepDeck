@@ -23,6 +23,7 @@ const workspace: WorkspaceSnapshot = {
   name: "app",
   cwd: "/repo",
   panes: [],
+  teams: [],
 };
 
 const dir = (name: string): FsEntry => ({
@@ -74,7 +75,7 @@ function makeFs() {
         watchers.set(path, set);
       }
       set.add(onChange);
-      return { dispose: () => void set!.delete(onChange) };
+      return { ready: Promise.resolve(), dispose: () => void set!.delete(onChange) };
     }),
     /** Simulate an OS change event for a watched directory. */
     fireChange: (path: string) => watchers.get(path)?.forEach((cb) => cb()),

@@ -195,24 +195,49 @@ fn status_takes_no_index_lock() {
     fs::remove_dir_all(&repo).ok();
 }
 
+/// A diff of a generated file can run to hundreds of megabytes, and every
+/// byte used to be held in memory and then shipped to the webview. The read
+/// stops at the cap, on a whole line, and says it did.
+#[test]
+fn a_huge_diff_is_cut_at_the_cap_on_a_whole_line() {
+    let repo = init_repo();
+    // Well past the cap: ~1.6 MB of distinct lines, every one a `+` line in
+    // the diff (README had one line).
+    let big: String = (0..130_000).map(|n| format!("line {n}\n")).collect();
+    assert!(big.len() > diff::DIFF_MAX_BYTES);
+    fs::write(repo.join("README.md"), &big).unwrap();
+
+    let capped = diff::diff_file(&repo, "README.md", false, None).expect("capped diff");
+    assert!(capped.truncated);
+    assert!(capped.text.len() <= diff::DIFF_MAX_BYTES, "{}", capped.text.len());
+    assert!(capped.text.ends_with('\n'), "cut on a whole line");
+    assert!(capped.text.contains("+line 0\n"), "the head of the diff is there");
+    assert!(!capped.text.contains("+line 129999\n"), "the tail is not");
+    // Git was killed mid-output, not reported as a failure.
+    assert!(capped.text.starts_with("diff --git"), "{}", &capped.text[..60]);
+
+    fs::remove_dir_all(&repo).ok();
+}
+
 #[test]
 fn diffs_worktree_and_staged_changes() {
     let repo = init_repo();
 
     fs::write(repo.join("README.md"), "goodbye\n").unwrap();
-    let unstaged = diff::diff_file(&repo, "README.md", false).expect("worktree diff");
-    assert!(unstaged.contains("-hello"), "old line in diff: {unstaged}");
-    assert!(unstaged.contains("+goodbye"), "new line in diff: {unstaged}");
+    let unstaged = diff::diff_file(&repo, "README.md", false, None).expect("worktree diff");
+    assert!(unstaged.text.contains("-hello"), "old line in diff: {}", unstaged.text);
+    assert!(unstaged.text.contains("+goodbye"), "new line in diff: {}", unstaged.text);
+    assert!(!unstaged.truncated);
 
     // Nothing staged yet → empty staged diff.
-    let staged = diff::diff_file(&repo, "README.md", true).expect("staged diff");
-    assert!(staged.is_empty());
+    let staged = diff::diff_file(&repo, "README.md", true, None).expect("staged diff");
+    assert!(staged.text.is_empty());
 
     git(&repo, &["add", "README.md"]);
-    let staged = diff::diff_file(&repo, "README.md", true).expect("staged diff");
-    assert!(staged.contains("+goodbye"));
-    let unstaged = diff::diff_file(&repo, "README.md", false).expect("worktree diff");
-    assert!(unstaged.is_empty(), "everything staged → no worktree diff");
+    let staged = diff::diff_file(&repo, "README.md", true, None).expect("staged diff");
+    assert!(staged.text.contains("+goodbye"));
+    let unstaged = diff::diff_file(&repo, "README.md", false, None).expect("worktree diff");
+    assert!(unstaged.text.is_empty(), "everything staged → no worktree diff");
 
     fs::remove_dir_all(&repo).ok();
 }

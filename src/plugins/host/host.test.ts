@@ -61,7 +61,7 @@ function fakeDeps() {
     sessions: { spawn: vi.fn() },
     ports: { allocate: vi.fn() },
     opener: { openUrl: vi.fn(), openPath: vi.fn(), openPathWith: vi.fn() },
-    fs: { readDir: vi.fn(), readFile: vi.fn(), watch: vi.fn(() => ({ dispose: vi.fn() })) },
+    fs: { readDir: vi.fn(), readFile: vi.fn(), watch: vi.fn(() => ({ ready: Promise.resolve(), dispose: vi.fn() })) },
     sessionStore: { read: vi.fn() },
     sqlite: {
       query: vi.fn(() => Promise.resolve({ rows: [], stopped: "exhausted" as const, payloadBytes: 0 })),
@@ -78,7 +78,7 @@ function fakeDeps() {
       history: vi.fn(),
       branches: vi.fn(),
       changedFiles: vi.fn(),
-      watch: vi.fn(() => ({ dispose: vi.fn() })),
+      watch: vi.fn(() => ({ ready: Promise.resolve(), dispose: vi.fn() })),
     },
   };
   const events = {
@@ -102,7 +102,7 @@ function fakeDeps() {
       list: vi.fn(async () => []),
     })),
     resources: vi.fn(() => ({ path: vi.fn(async () => null) })),
-    ui: { revealDockTab: vi.fn(), setOverlayVisible: vi.fn() },
+    ui: { revealDockTab: vi.fn(), setOverlayVisible: vi.fn(), setOverlayCovers: vi.fn() },
     notifications: vi.fn(() => vi.fn()),
     log: vi.fn(() => logger),
     hostFacts: { settings: vi.fn(async () => ({ terminalScrollback: 10_000 })) },

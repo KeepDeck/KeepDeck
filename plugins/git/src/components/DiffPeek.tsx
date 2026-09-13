@@ -1,17 +1,18 @@
 import { useEffect, useState } from "react";
 import { Peek } from "@keepdeck/ui-kit/Peek";
 import { langFor, TokenLine, useHighlight } from "@keepdeck/code-kit";
-import { getRuntime } from "../runtime";
+import { activeRuntime } from "../runtime";
 import {
-  binaryFileDiff,
   flatLines,
   hunkOffsets,
   isEmptyDiff,
-  newFileDiff,
   parseDiff,
-  type DiffNote,
   type FileDiff,
 } from "../domain/diff";
+import { diffReadFor, fileAsDiff } from "../domain/diffRead";
+import { noteKey, noteText } from "../presentation/diffNoteView";
+import { repoTrouble } from "../domain/repoState";
+import { troubleText } from "../presentation/troubleView";
 import { baseName, codeLabel, type ChangeRow } from "../domain/status";
 import {
   scopeLabel,
@@ -21,7 +22,8 @@ import {
   type HistoryScope,
 } from "../domain/history";
 import { diffKey } from "../domain/identity";
-import { PeekSiblings, type ChangeSet } from "./PeekSiblings";
+import { hasRail, type ChangeSet } from "../domain/changeSet";
+import { PeekSiblings } from "./PeekSiblings";
 
 /** What the peek shows. `file` is a chosen row's diff (worktree or history
  * range); `waiting` is a history scope that opened before the rail seeded its
@@ -35,10 +37,11 @@ export type PeekView =
 
 /**
  * One change's diff, inside the shared `Peek` overlay (ui-kit) — the shell is
- * the kit's; this component owns the diff that fills it. Which diff depends on
- * the row's section: staged rows peek index-vs-HEAD, changed rows
- * worktree-vs-index, untracked rows render the file's content as all-added
- * (git has no diff for them).
+ * the kit's; this component owns the diff that fills it. Which diff a row
+ * shows and where it is read from is the domain's rule (`diffReadFor`:
+ * staged rows peek index-vs-HEAD, changed rows worktree-vs-index, history
+ * rows their range, untracked and unmerged rows the working file); this
+ * executes the read and renders the model it gets.
  *
  * Lines are syntax-colored by the changed file's language (code-kit, the same
  * engine as the Files preview): the hunks' lines tokenize as ONE flat document
@@ -110,23 +113,21 @@ export function DiffPeek({
   useEffect(() => {
     // No file to diff yet — the rail seeds the first file of a History scope.
     if (!row) return;
+    // Torn down: the host is unmounting this surface; nothing to read.
+    const runtime = activeRuntime();
+    if (!runtime) return;
     let cancelled = false;
-    const { services, log } = getRuntime();
-    const read = range
-      ? services.git
-          .diffFile(repo, row.path, { from: range.from, to: range.to })
-          .then(parseDiff)
-      : row.kind === "untracked"
-        ? services.fs
-            .readFile(`${repo.replace(/\/+$/, "")}/${row.path}`)
-            .then((file) =>
-              file.isBinary || file.text === null
-                ? binaryFileDiff()
-                : newFileDiff(file.text),
-            )
+    const { services, log } = runtime;
+    // Which source and which diff is the domain's rule (`diffReadFor`);
+    // this executes it. Both reads are capped host-side, and the flag rides
+    // into the model so the body can say the content was cut.
+    const plan = diffReadFor(repo, row, range);
+    const read =
+      plan.source === "file"
+        ? services.fs.readFile(plan.path).then((file) => fileAsDiff(plan.as, file))
         : services.git
-            .diffFile(repo, row.path, { staged: row.kind === "staged" })
-            .then(parseDiff);
+            .diffFile(repo, row.path, plan.options)
+            .then((d) => parseDiff(d.text, d.truncated));
     read
       .then((next) => {
         if (cancelled) return;
@@ -142,7 +143,9 @@ export function DiffPeek({
       cancelled = true;
     };
     // `version` rides alongside the key rather than inside it: it is the one
-    // input that must refetch WITHOUT counting as a different diff.
+    // input that must refetch WITHOUT counting as a different diff. The owner
+    // of the peek decides what it is — a commit's peek gets a frozen one, its
+    // range cannot move (see `readVersionFor`).
   }, [key, version]);
 
   const waiting = view.kind === "waiting";
@@ -169,13 +172,7 @@ export function DiffPeek({
             : view.row.path
       }
       aside={
-        // No rail before the status has ever loaded — an empty column says
-        // nothing (a loaded-then-empty worktree still shows its clean note).
-        // A FAILED status is different: it has something to say, so the rail
-        // stays to say it.
-        changeSet.kind === "worktree" &&
-        !changeSet.groups &&
-        !changeSet.error ? undefined : (
+        !hasRail(changeSet) ? undefined : (
           <PeekSiblings
             repo={repo}
             changeSet={changeSet}
@@ -194,7 +191,9 @@ export function DiffPeek({
         <p className="peek__note">Loading…</p>
       )}
       {view.kind === "file" && error && (
-        <p className="peek__note peek__note--bad">{error}</p>
+        <p className="peek__note peek__note--bad" title={error}>
+          {troubleText(repoTrouble(error))}
+        </p>
       )}
       {view.kind === "file" && diff?.binary && (
         <p className="peek__note">Binary file — no text diff.</p>
@@ -204,12 +203,17 @@ export function DiffPeek({
           changes here anymore." while the list beside it said Modified. */}
       {view.kind === "file" &&
         diff?.notes.map((note) => (
-          <p className="peek__note" key={`${note.kind}:${note.from}:${note.to}`}>
+          <p className="peek__note" key={noteKey(note)}>
             {noteText(note)}
           </p>
         ))}
       {view.kind === "file" && diff && isEmptyDiff(diff) && (
         <p className="peek__note">No changes here anymore.</p>
+      )}
+      {view.kind === "file" && diff?.truncated && (
+        <p className="peek__note">
+          Cut at the host's size limit — only the beginning is shown.
+        </p>
       )}
       {view.kind === "file" && diff && !diff.binary && (
         <div className="git__diff">
@@ -255,17 +259,4 @@ export function DiffPeek({
       )}
     </Peek>
   );
-}
-
-/** The wording is presentation, so it lives with the render — the domain
- * hands over kinds and paths, never English. */
-function noteText(note: DiffNote): string {
-  switch (note.kind) {
-    case "mode":
-      return `File mode changed ${note.from} → ${note.to}`;
-    case "rename":
-      return `Renamed ${note.from} → ${note.to}`;
-    case "copy":
-      return `Copied from ${note.from}`;
-  }
 }

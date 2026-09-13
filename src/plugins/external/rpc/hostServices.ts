@@ -78,12 +78,13 @@ export function createServiceHandlers({
     "services.fs.watch": ([id, path]) => {
       const key = id as number;
       watches.get(key)?.dispose();
-      watches.set(
-        key,
-        ctx.services.fs.watch(path as string, () =>
-          push(fswatchChannel(key), undefined),
-        ),
+      const handle = ctx.services.fs.watch(path as string, () =>
+        push(fswatchChannel(key), undefined),
       );
+      watches.set(key, handle);
+      // The call answers once the watch is armed, and fails when the host
+      // refused it — the guest's handle promises the same on its `ready`.
+      return handle.ready;
     },
     "services.sqlite.query": ([dbPath, sql, params]) =>
       ctx.services.sqlite.query(
@@ -131,12 +132,13 @@ export function createServiceHandlers({
     "services.git.watch": ([id, repo]) => {
       const key = id as number;
       watches.get(key)?.dispose();
-      watches.set(
-        key,
-        ctx.services.git.watch(repo as string, () =>
-          push(fswatchChannel(key), undefined),
-        ),
+      const handle = ctx.services.git.watch(repo as string, () =>
+        push(fswatchChannel(key), undefined),
       );
+      watches.set(key, handle);
+      // The call answers once the watch is armed, and fails when the host
+      // refused it — the guest's handle promises the same on its `ready`.
+      return handle.ready;
     },
     "services.git.unwatch": ([id]) => {
       const key = id as number;

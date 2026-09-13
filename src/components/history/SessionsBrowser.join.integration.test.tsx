@@ -138,7 +138,7 @@ import {
 } from "../../app/useSessionsBrowser";
 import { rowKeyOf } from "../../domain/journal/sessionRow";
 import { SessionsBrowser } from "./SessionsBrowser";
-import { installResizeObserver, pinListViewport } from "../../ui/virtualGeometry.test-support";
+import { installResizeObserver, pinListViewport } from "@keepdeck/ui-kit/virtualGeometry.test-support";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;

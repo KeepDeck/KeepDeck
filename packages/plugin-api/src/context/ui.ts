@@ -24,6 +24,14 @@ export interface PluginUi {
    * DECLARE is refused like any contribution; a declared id that isn't
    * currently registered is an inert no-op. */
   setOverlayVisible(id: string, visible: boolean): void;
+  /** Say that one of this plugin's overlays is painted over the whole window
+   * right now — a full-window peek — or no longer is. The host treats a
+   * covering overlay as a modal layer: the deck's hotkeys pause, and a pane
+   * behind it is not "on screen" for a notification. Visibility is a
+   * different fact (a Component overlay is visible while it renders
+   * nothing); this one is what the person actually sees. Refused for an id
+   * the manifest doesn't declare, like `setOverlayVisible`. */
+  setOverlayCovers(id: string, covers: boolean): void;
   /** Contribute an icon action to the top bar's right cluster. */
   registerTopBarAction(action: TopBarActionContribution): Disposable;
   /** Contribute an icon action to every agent pane's header. FORWARD

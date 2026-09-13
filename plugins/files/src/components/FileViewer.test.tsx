@@ -27,7 +27,7 @@ function makeCtx(files: Record<string, FsFile>): PluginContext {
       fs: {
         readDir: vi.fn(async () => []),
         readFile: vi.fn(async (path: string) => files[path]),
-        watch: vi.fn(() => ({ dispose: () => {} })),
+        watch: vi.fn(() => ({ ready: Promise.resolve(), dispose: () => {} })),
       },
       opener: { openUrl: vi.fn(async () => {}), openPath: vi.fn(async () => {}) },
     },

@@ -115,6 +115,8 @@ export function createGuestContributions({
       },
       setOverlayVisible: (id, visible) =>
         void rpc.call("ui.setOverlayVisible", [id, visible]).catch(noop),
+      setOverlayCovers: (id, covers) =>
+        void rpc.call("ui.setOverlayCovers", [id, covers]).catch(noop),
       // Fire-and-forget by contract (returns void) — a rejection has nowhere
       // to land, and the host treats an unregistered tab as a no-op anyway.
       revealDockTab: (id) => void rpc.call("ui.revealDockTab", [id]).catch(noop),

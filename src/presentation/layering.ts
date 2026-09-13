@@ -42,10 +42,14 @@ export interface LayeringInput {
   dockMode: DockMode;
   dockTabs: number;
   hasActive: boolean;
+  /** A plugin overlay says it is painted over the whole window — a
+   * full-window peek (`ui.setOverlayCovers`). */
+  overlayCovers: boolean;
 }
 
 export interface WindowLayering {
-  /** A modal layer is up: the CREATE form, a transaction, or a router dialog. */
+  /** A modal layer is up: the CREATE form, a transaction, a router dialog,
+   * or a plugin overlay covering the window. */
   modal: boolean;
   /** The floating dock is over the panes. */
   dockCovers: boolean;
@@ -75,7 +79,12 @@ export function statsDeepLinkOnScreen(
 
 export function layering(input: LayeringInput): WindowLayering {
   const formIsModalLayer = input.creating && input.workspaceCount > 0;
-  const modal = formIsModalLayer || input.dialogOpen || input.anyDialogOpen;
+  // A covering overlay is a modal layer to everything that asks: hotkeys
+  // pause, the doors close, a pane behind it is not on screen. It used to be
+  // invisible here — a full-window diff had ⌘-hotkeys firing through it and
+  // banners for the panes under it suppressed as if they were visible.
+  const modal =
+    formIsModalLayer || input.dialogOpen || input.anyDialogOpen || input.overlayCovers;
   const dockCovers =
     input.dockMode === "floating" && input.dockTabs > 0 && input.hasActive;
   return {

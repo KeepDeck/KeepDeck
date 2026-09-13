@@ -6,6 +6,8 @@ import {
   dirName,
   groupEntries,
   headline,
+  reconcileRow,
+  sameChange,
 } from "./status";
 
 const entry = (over: Partial<GitStatusEntry>): GitStatusEntry => ({
@@ -64,6 +66,63 @@ describe("groupEntries", () => {
     expect(groups.staged).toHaveLength(0);
     expect(groups.unstaged).toHaveLength(0);
   });
+
+  it("a conflicted row keeps both sides of its code — both-added is not both-deleted", () => {
+    const groups = groupEntries([
+      entry({ path: "d.ts", conflicted: true, staged: "U", unstaged: "U" }),
+      entry({ path: "clash.ts", conflicted: true, staged: "D", unstaged: "U" }),
+      entry({ path: "twice.ts", conflicted: true, staged: "A", unstaged: "A" }),
+    ]);
+    expect(groups.conflicted.map((r) => r.code)).toEqual(["UU", "DU", "AA"]);
+  });
+});
+
+describe("sameChange", () => {
+  it("is the same path in the same section — a path in two sections is two changes", () => {
+    const staged = { path: "a.ts", origPath: null, code: "M", kind: "staged" as const };
+    expect(sameChange(staged, { ...staged, code: "A" })).toBe(true);
+    expect(sameChange(staged, { ...staged, kind: "unstaged" })).toBe(false);
+    expect(sameChange(staged, { ...staged, path: "b.ts" })).toBe(false);
+  });
+});
+
+describe("reconcileRow", () => {
+  const open: ReturnType<typeof groupEntries>["unstaged"][number] = {
+    path: "src/app.ts",
+    origPath: null,
+    code: "M",
+    kind: "unstaged",
+  };
+
+  it("keeps the row, refreshed, while its section still lists the path", () => {
+    const groups = groupEntries([entry({ path: "src/app.ts", staged: "M", unstaged: "D" })]);
+    // Same section, but the code moved on — the fresh row carries it.
+    expect(reconcileRow(open, groups)).toEqual({ ...open, code: "D" });
+  });
+
+  it("follows the file to another section when the change moved", () => {
+    // `git add` took it from Changes to Staged.
+    const staged = groupEntries([entry({ path: "src/app.ts", staged: "M" })]);
+    expect(reconcileRow(open, staged)).toEqual({ ...open, kind: "staged" });
+    // A conflict resolved and added: Conflicts → Staged.
+    const clash = { ...open, code: "UU", kind: "conflicted" as const };
+    expect(reconcileRow(clash, staged)).toEqual({ ...open, kind: "staged" });
+    // An untracked file added: Untracked → Staged as new.
+    const fresh = { ...open, code: "?", kind: "untracked" as const };
+    const added = groupEntries([entry({ path: "src/app.ts", staged: "A" })]);
+    expect(reconcileRow(fresh, added)).toEqual({ ...open, code: "A", kind: "staged" });
+  });
+
+  it("prefers the row's own section when the path sits in two", () => {
+    const both = groupEntries([entry({ path: "src/app.ts", staged: "M", unstaged: "M" })]);
+    expect(reconcileRow(open, both).kind).toBe("unstaged");
+    expect(reconcileRow({ ...open, kind: "staged" }, both).kind).toBe("staged");
+  });
+
+  it("stays as it was once the path left the status", () => {
+    expect(reconcileRow(open, groupEntries([]))).toBe(open);
+    expect(reconcileRow(open, groupEntries([entry({ path: "other.ts", unstaged: "M" })]))).toBe(open);
+  });
 });
 
 describe("codeLabel", () => {
@@ -75,6 +134,16 @@ describe("codeLabel", () => {
     expect(codeLabel("?")).toBe("untracked");
     expect(codeLabel("U")).toBe("conflicted");
     expect(codeLabel("X")).toBe("changed");
+  });
+
+  it("words a conflict's two sides the way git status does", () => {
+    expect(codeLabel("UU")).toBe("both modified");
+    expect(codeLabel("AA")).toBe("both added");
+    expect(codeLabel("DD")).toBe("both deleted");
+    expect(codeLabel("AU")).toBe("added by us");
+    expect(codeLabel("UA")).toBe("added by them");
+    expect(codeLabel("DU")).toBe("deleted by us");
+    expect(codeLabel("UD")).toBe("deleted by them");
   });
 });
 

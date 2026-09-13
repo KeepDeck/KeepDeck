@@ -1,6 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { GitBranches, GitChangedFile, GitHistory, GitStatus } from "@keepdeck/plugin-api";
+import type {
+  GitBranches,
+  GitChangedFile,
+  GitDiff,
+  GitHistory,
+  GitStatus,
+} from "@keepdeck/plugin-api";
 
 /**
  * The backend behind the plugin `git` service (`services.git`). Read-only git
@@ -22,7 +28,9 @@ export function projectGitStatus(
 }
 
 /** Unified diff text for one tracked repo-relative path — worktree vs index,
- * or index vs HEAD when `staged`. */
+ * or index vs HEAD when `staged`. `origPath` is the file's pre-rename path:
+ * with it the diff pairs both names instead of reading as a new file. The
+ * text is capped Rust-side; `truncated` says when it was. */
 export function projectGitDiffFile(
   path: string,
   roots: string[],
@@ -31,8 +39,9 @@ export function projectGitDiffFile(
   staged: boolean,
   from?: string,
   to?: string,
-): Promise<string> {
-  return invoke<string>("project_git_diff_file", {
+  origPath?: string,
+): Promise<GitDiff> {
+  return invoke<GitDiff>("project_git_diff_file", {
     path,
     roots,
     everywhere,
@@ -40,6 +49,7 @@ export function projectGitDiffFile(
     staged,
     from: from ?? null,
     to: to ?? null,
+    origPath: origPath ?? null,
   });
 }
 

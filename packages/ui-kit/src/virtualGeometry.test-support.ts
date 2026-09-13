@@ -15,20 +15,29 @@
  * `rowHeight` defaults to 64; pass the ESTIMATE when a test needs
  * measurement to be a no-op (offsets computed from the estimate never
  * shift after the first measure — the stability witnesses need that).
- * Returns a restore function. */
+ * Returns a restore function.
+ *
+ * Both of the browser's answers are pinned, because the virtualizer asks
+ * both: the rect (its viewport probe and the observer entries) and the
+ * element's `offsetHeight`/`offsetWidth`, which it reads for a row whose
+ * observer entry has not arrived and whose size it has not cached — and
+ * happy-dom answers 0 there, which a virtualizer takes as "this row is
+ * zero tall" and mounts the pile. */
 export function pinListViewport(
   list: string,
   height: number,
   width = 800,
   rowHeight = 64,
 ): () => void {
+  const inList = (el: HTMLElement) =>
+    Boolean(el.closest?.(`.${list}`) || el.classList?.contains(list));
   const original = Element.prototype.getBoundingClientRect;
   Element.prototype.getBoundingClientRect = function (
     this: Element,
   ): DOMRect {
     const base = original.call(this);
     const el = this as HTMLElement;
-    if (el.closest?.(`.${list}`) || el.classList?.contains(list)) {
+    if (inList(el)) {
       // Everything inside the list reports the CONTAINER's box as its
       // own: the virtualizer's viewport probe reads the container, and
       // any per-row measurement reads the pinned row height.
@@ -44,8 +53,32 @@ export function pinListViewport(
     }
     return base;
   };
+  const offsets = {
+    offsetHeight: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight"),
+    offsetWidth: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth"),
+  };
+  Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+    configurable: true,
+    get(this: HTMLElement) {
+      return inList(this)
+        ? this.getBoundingClientRect().height
+        : (offsets.offsetHeight?.get?.call(this) ?? 0);
+    },
+  });
+  Object.defineProperty(HTMLElement.prototype, "offsetWidth", {
+    configurable: true,
+    get(this: HTMLElement) {
+      return inList(this)
+        ? this.getBoundingClientRect().width
+        : (offsets.offsetWidth?.get?.call(this) ?? 0);
+    },
+  });
   return () => {
     Element.prototype.getBoundingClientRect = original;
+    for (const [name, descriptor] of Object.entries(offsets)) {
+      if (descriptor) Object.defineProperty(HTMLElement.prototype, name, descriptor);
+      else delete (HTMLElement.prototype as unknown as Record<string, unknown>)[name];
+    }
   };
 }
 

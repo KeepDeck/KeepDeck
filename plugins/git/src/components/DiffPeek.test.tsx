@@ -23,10 +23,13 @@ const TS_DIFF = [
   "",
 ].join("\n");
 
+/** The host's answer for a diff: text under its cap, not cut. */
+const diffOf = (text: string) => ({ text, truncated: false });
+
 function makeCtx(diffText: string): PluginContext {
   return {
     services: {
-      git: { diffFile: vi.fn(async () => diffText) },
+      git: { diffFile: vi.fn(async () => diffOf(diffText)) },
       fs: { readFile: vi.fn() },
     },
     log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -222,7 +225,7 @@ describe("DiffPeek", () => {
     // A waiting scope whose file list resolves empty: the rail says
     // "Nothing changed here." and the body stays blank — no perpetual
     // "Loading…" beside it (the same holds for a fetch error).
-    const diffFile = vi.fn(async () => TS_DIFF);
+    const diffFile = vi.fn(async () => diffOf(TS_DIFF));
     const changedFiles = vi.fn(async () => []);
     setRuntime({
       services: {
@@ -263,7 +266,7 @@ describe("DiffPeek", () => {
     // The seed wiring lives in the rail; this localizes it. The diff fetch
     // is the parent's job (the harness keeps the view waiting), so this
     // proves the onSelect hand-off in isolation.
-    const diffFile = vi.fn(async () => TS_DIFF);
+    const diffFile = vi.fn(async () => diffOf(TS_DIFF));
     const changedFiles = vi.fn(async () => [
       { path: "src/a.ts", origPath: null, code: "A" },
       { path: "src/b.ts", origPath: null, code: "M" },
@@ -328,7 +331,7 @@ describe("DiffPeek", () => {
   });
 
   it("a watcher refresh re-reads the open diff without moving the reader", async () => {
-    const diffFile = vi.fn(async () => TS_DIFF);
+    const diffFile = vi.fn(async () => diffOf(TS_DIFF));
     setRuntime({
       services: { git: { diffFile }, fs: { readFile: vi.fn() } },
       log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -356,7 +359,7 @@ describe("DiffPeek", () => {
     const diffFile = vi.fn(
       async (_repo: string, _path: string, range?: { from: string; to?: string }) => {
         void range;
-        return TS_DIFF;
+        return diffOf(TS_DIFF);
       },
     );
     const changedFiles = vi.fn(async () => [
@@ -384,6 +387,185 @@ describe("DiffPeek", () => {
     expect(body.scrollLeft).toBe(0);
   });
 
+  it("asks for the old path beside the new one when the row was renamed", async () => {
+    // Git pairs a rename only when both paths are in the pathspec; a row that
+    // knows its old path hands it over, in a history range and in the index
+    // alike. Rows without one keep asking exactly what they always asked —
+    // the range test above pins that shape.
+    const diffFile = vi.fn(async () => diffOf(TS_DIFF));
+    const changedFiles = vi.fn(async () => []);
+    setRuntime({
+      services: { git: { diffFile, changedFiles }, fs: { readFile: vi.fn() } },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    } as unknown as PluginContext);
+
+    await act(async () => {
+      root.render(
+        createElement(DiffPeek, {
+          repo: "/repo",
+          view: {
+            kind: "file",
+            row: { path: "src/new.ts", origPath: "src/old.ts", code: "R", kind: "history" },
+            changeSet: {
+              kind: "history",
+              scope: { kind: "commit", sha: "aaa1111", subject: "move it" },
+            },
+          },
+          version: 1,
+          onSelect: vi.fn(),
+          onClose: vi.fn(),
+        }),
+      );
+    });
+    await act(async () => {});
+    expect(diffFile).toHaveBeenLastCalledWith("/repo", "src/new.ts", {
+      from: "aaa1111^",
+      to: "aaa1111",
+      origPath: "src/old.ts",
+    });
+
+    await act(async () => {
+      root.render(
+        createElement(DiffPeek, {
+          repo: "/repo",
+          view: {
+            kind: "file",
+            row: { path: "src/new.ts", origPath: "src/old.ts", code: "R", kind: "staged" },
+            changeSet: { kind: "worktree", groups: railGroups(RAIL_ROWS), error: null },
+          },
+          version: 1,
+          onSelect: vi.fn(),
+          onClose: vi.fn(),
+        }),
+      );
+    });
+    await act(async () => {});
+    expect(diffFile).toHaveBeenLastCalledWith("/repo", "src/new.ts", {
+      staged: true,
+      origPath: "src/old.ts",
+    });
+  });
+
+  it("reads an untracked file in a since-fork sweep as a file, not a range diff", async () => {
+    // A working-tree range lists untracked files as `?`; git has no diff for
+    // them at any range, so the row reads the file the way a status row does.
+    const diffFile = vi.fn(async () => diffOf(TS_DIFF));
+    const readFile = vi.fn(async () => ({
+      text: "notes\n",
+      isBinary: false,
+      size: 6,
+      truncated: false,
+      readBytes: 6,
+    }));
+    setRuntime({
+      services: { git: { diffFile, changedFiles: vi.fn(async () => []) }, fs: { readFile } },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    } as unknown as PluginContext);
+
+    await act(async () => {
+      root.render(
+        createElement(DiffPeek, {
+          repo: "/repo",
+          view: {
+            kind: "file",
+            row: { path: "scratch.md", origPath: null, code: "?", kind: "untracked" },
+            changeSet: { kind: "history", scope: { kind: "fork", forkSha: "fork456" } },
+          },
+          version: 1,
+          onSelect: vi.fn(),
+          onClose: vi.fn(),
+        }),
+      );
+    });
+    await settle(() => rowTexts().length > 0);
+
+    expect(diffFile).not.toHaveBeenCalled();
+    expect(readFile).toHaveBeenCalledWith("/repo/scratch.md");
+    expect(rowTexts()).toEqual(["notes"]);
+  });
+
+  it("says when a diff or a file was cut at the host's cap", async () => {
+    // Both reads are capped host-side. What arrives is the head of the
+    // content; presenting it as all of it is the lie this note prevents.
+    const diffFile = vi.fn(async () => ({ text: TS_DIFF, truncated: true }));
+    const readFile = vi.fn(async () => ({
+      text: "first\nsecond\n",
+      isBinary: false,
+      size: 5_000_000,
+      truncated: true,
+      readBytes: 13,
+    }));
+    setRuntime({
+      services: { git: { diffFile }, fs: { readFile } },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    } as unknown as PluginContext);
+    const note = () =>
+      [...host.querySelectorAll(".peek__note")].map((n) => n.textContent).join(" | ");
+
+    await drawRow(changedRow("src/main.ts"), 1, vi.fn());
+    await settle(() => rowTexts().length > 0);
+    expect(note()).toContain("Cut at the host's size limit");
+
+    const untracked: ChangeRow = { path: "big.log", origPath: null, code: "?", kind: "untracked" };
+    await drawRow(untracked, 1, vi.fn());
+    await settle(() => rowTexts().length === 2);
+    expect(note()).toContain("Cut at the host's size limit");
+  });
+
+  it("shows an unmerged file itself, markers included, instead of a combined diff", async () => {
+    // `git diff` on an unmerged path prints a combined diff (`@@@ -1,3 -1,3
+    // +1,7 @@@`, two marker columns) that the two-sided parser garbled: wrong
+    // kinds, a stray `+` in the text, line numbers from 1. The row reads the
+    // working file instead and says why.
+    const diffFile = vi.fn(async () => diffOf(TS_DIFF));
+    const readFile = vi.fn(async () => ({
+      text: "a\n<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> side\nc\n",
+      isBinary: false,
+      size: 42,
+      truncated: false,
+      readBytes: 42,
+    }));
+    setRuntime({
+      services: { git: { diffFile }, fs: { readFile } },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    } as unknown as PluginContext);
+
+    const row: ChangeRow = { path: "f.txt", origPath: null, code: "U", kind: "conflicted" };
+    await act(async () => {
+      root.render(
+        createElement(DiffPeek, {
+          repo: "/repo/",
+          view: {
+            kind: "file",
+            row,
+            changeSet: {
+              kind: "worktree",
+              groups: { ...railGroups([]), conflicted: [row], total: 1 },
+              error: null,
+            },
+          },
+          version: 1,
+          onSelect: vi.fn(),
+          onClose: vi.fn(),
+        }),
+      );
+    });
+    await settle(() => rowTexts().length > 0);
+
+    expect(diffFile).not.toHaveBeenCalled();
+    expect(readFile).toHaveBeenCalledWith("/repo/f.txt");
+    expect(rowTexts()).toEqual([
+      "a",
+      "<<<<<<< HEAD",
+      "ours",
+      "=======",
+      "theirs",
+      ">>>>>>> side",
+      "c",
+    ]);
+    expect(host.querySelector(".peek__note")?.textContent).toContain("Unmerged");
+  });
+
   it("seeding a history scope's first file starts its diff in place", async () => {
     // The real path a History scope takes: it opens with no file, the rail
     // fetches the change set and hands back the first row, and GitTab fills it
@@ -391,7 +573,7 @@ describe("DiffPeek", () => {
     const diffFile = vi.fn(
       async (_repo: string, _path: string, range?: { from: string; to?: string }) => {
         void range;
-        return TS_DIFF;
+        return diffOf(TS_DIFF);
       },
     );
     const changedFiles = vi.fn(async (_repo: string) => [
@@ -437,7 +619,7 @@ describe("DiffPeek", () => {
     // decide "same change set" and keep showing the first worktree's files,
     // then seed a foreign path from them.
     const diffFile = vi.fn(
-      async (_repo: string, _path: string, _range?: unknown) => TS_DIFF,
+      async (_repo: string, _path: string, _range?: unknown) => diffOf(TS_DIFF),
     );
     const changedFiles = vi.fn(async (_repo: string) => [
       { path: "src/main.ts", origPath: null, code: "M" },

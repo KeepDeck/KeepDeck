@@ -13,17 +13,17 @@ import { cleanStatus, makeCtx, makeGit, mountGitHarness } from "./gitHarness";
  */
 const rig = mountGitHarness();
 
-/** Switch the tab to History mode. */
+/** Open the History section. */
 async function openHistory() {
-  const historyBtn = [
-    ...rig.host.querySelectorAll("button.git__modebtn"),
-  ].find((el) => el.textContent === "History") as HTMLButtonElement;
-  await act(async () => historyBtn.click());
+  const header = [...rig.host.querySelectorAll("button.git__sechdr")].find((el) =>
+    el.textContent?.includes("History"),
+  ) as HTMLButtonElement;
+  await act(async () => header.click());
 }
 
-/** A row of the tab's own list (not the peek's rail). */
+/** A row of the tab's own sections (not the peek's rail). */
 function listRow(subject: string) {
-  return [...rig.host.querySelectorAll(".git__list button.git__row")].find(
+  return [...rig.host.querySelectorAll(".git__secbody button.git__row")].find(
     (el) => el.textContent?.includes(subject),
   ) as HTMLButtonElement;
 }
@@ -409,6 +409,39 @@ describe("opening a history scope", () => {
     ).toContain("b.ts");
   });
 
+  it("an open diff follows its file when the change moves section", async () => {
+    vi.useFakeTimers();
+    const git = makeGit();
+    git.statuses.set("/repo", cleanStatus({
+      entries: [
+        { path: "src/app.ts", origPath: null, staged: ".", unstaged: "M", untracked: false, conflicted: false },
+      ],
+    }));
+    setRuntime(makeCtx(git));
+
+    await rig.render();
+    await act(async () => listRow("app.ts").click());
+    await rig.settle(0);
+    expect(git.diffFile).toHaveBeenLastCalledWith("/repo", "src/app.ts", { staged: false });
+
+    // `git add` under the open peek: the path is now staged only. The row
+    // the peek was opened on was "unstaged", and re-reading THAT diff on the
+    // tick shows nothing while the rail marks no row at all.
+    git.statuses.set("/repo", cleanStatus({
+      entries: [
+        { path: "src/app.ts", origPath: null, staged: "M", unstaged: ".", untracked: false, conflicted: false },
+      ],
+    }));
+    git.fireChange("/repo");
+    await rig.settle(301);
+
+    expect(git.diffFile).toHaveBeenLastCalledWith("/repo", "src/app.ts", { staged: true });
+    const aside = rig.host.querySelector(".peek__aside")!;
+    expect(aside.textContent).toContain("Staged");
+    expect(aside.querySelector(".git__row--on")?.textContent).toContain("app.ts");
+    expect(rig.host.querySelector(".git__badge")?.className).toContain("git__badge--staged");
+  });
+
   it("a failed refetch REPLACES the rail's list instead of sitting over it", async () => {
     vi.useFakeTimers();
     const git = makeGit();
@@ -437,9 +470,12 @@ describe("opening a history scope", () => {
       "listed.ts",
     );
 
-    // The worktree is deleted under the open peek: the feed's next read bumps
-    // `version`, so the rail refetches the SAME scope — and now fails.
+    // The worktree is deleted under the open peek: the feed's next read FAILS
+    // and bumps `version`. A commit's peek ignores healthy ticks (its range
+    // cannot move), but a failed feed means the repo may be gone — so the rail
+    // refetches the SAME scope, and that now fails too.
     fail = true;
+    git.statuses.delete("/repo");
     git.fireChange("/repo");
     await rig.settle(301);
 
@@ -450,13 +486,14 @@ describe("opening a history scope", () => {
     expect(aside.textContent).not.toContain("listed.ts");
   });
 
-  it("a status refresh while a history scope is waiting refetches its file list", async () => {
+  it("a status refresh while the since-fork sweep is waiting refetches its file list", async () => {
     vi.useFakeTimers();
     const git = makeGit();
     git.statuses.set("/repo", cleanStatus());
+    const fork = "f0".repeat(20);
     git.histories.set("/repo", {
-      forkSha: null,
-      ahead: null,
+      forkSha: fork,
+      ahead: 1,
       commits: [
         { sha: "a1".repeat(20), author: "Agent", timestamp: 1_760_000_000, subject: "add feature" },
       ],
@@ -470,19 +507,55 @@ describe("opening a history scope", () => {
 
     await rig.render();
     await openHistory();
-    await act(async () => listRow("add feature").click());
+    const pin = rig.host.querySelector("button.git__row--pin") as HTMLButtonElement;
+    await act(async () => pin.click());
     await rig.settle(0);
 
     // Waiting — no file seeded yet.
     expect(rig.host.querySelector(".peek")).toBeTruthy();
     expect(rig.host.querySelector(".peek__aside .git__row--on")).toBeNull();
 
-    // A repo change bumps the status feed's version; the rail refetches the
-    // scope's files even though no file is chosen yet.
+    // A repo change bumps the status feed's version; the sweep reaches the
+    // working tree, so the rail refetches its files even with no file chosen.
     const before = git.changedFiles.mock.calls.length;
     git.fireChange("/repo");
     await rig.settle(301);
     expect(git.changedFiles.mock.calls.length).toBeGreaterThan(before);
     expect(rig.host.querySelector(".peek")).toBeTruthy();
+  });
+
+  it("a status refresh does not re-read a commit's file list or diff", async () => {
+    // A commit is a fixed pair of trees; nothing the working tree does after
+    // changes `sha^..sha`. Re-reading it on every edit cost a `changedFiles`
+    // and a `diffFile` per keystroke burst while a commit's peek was open.
+    vi.useFakeTimers();
+    const git = makeGit();
+    git.statuses.set("/repo", cleanStatus());
+    const sha = "a1".repeat(20);
+    git.histories.set("/repo", {
+      forkSha: null,
+      ahead: null,
+      commits: [{ sha, author: "Agent", timestamp: 1_760_000_000, subject: "add feature" }],
+    });
+    git.changed.set(`${sha}^..${sha}`, [{ path: "src/app.ts", origPath: null, code: "M" }]);
+    setRuntime(makeCtx(git));
+
+    await rig.render();
+    await openHistory();
+    await act(async () => listRow("add feature").click());
+    await rig.settle(0);
+    expect(rig.host.querySelector(".peek__aside .git__row--on")?.textContent).toContain(
+      "app.ts",
+    );
+    const files = git.changedFiles.mock.calls.length;
+    const diffs = git.diffFile.mock.calls.length;
+
+    git.fireChange("/repo");
+    await rig.settle(301);
+
+    expect(git.changedFiles.mock.calls.length).toBe(files);
+    expect(git.diffFile.mock.calls.length).toBe(diffs);
+    // The status itself was re-read — the gate is on the immutable range only.
+    expect(git.status.mock.calls.length).toBeGreaterThan(1);
   });
 });

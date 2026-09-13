@@ -33,7 +33,12 @@ function deferredFs() {
     readFile: vi.fn(),
     watch: vi.fn((path: string) => {
       watched.set(path, (watched.get(path) ?? 0) + 1);
-      return { dispose: () => watched.set(path, (watched.get(path) ?? 1) - 1) };
+      return {
+        ready: Promise.resolve(),
+        dispose: () => {
+          watched.set(path, (watched.get(path) ?? 1) - 1);
+        },
+      };
     }),
   };
 }
@@ -43,9 +48,12 @@ describe("useFileTree re-rooting", () => {
   let host: HTMLElement;
   let root: Root;
   let latest: TreeState;
+  let hook: ReturnType<typeof useFileTree>;
+  const warn = vi.fn();
 
   function Probe({ rootPath }: { rootPath: string }) {
-    latest = useFileTree(rootPath).state;
+    hook = useFileTree(rootPath);
+    latest = hook.state;
     return null;
   }
 
@@ -57,11 +65,12 @@ describe("useFileTree re-rooting", () => {
 
   beforeEach(() => {
     fs = deferredFs();
+    warn.mockReset();
     setRuntime({
       services: {
         fs: { readDir: fs.readDir, readFile: fs.readFile, watch: fs.watch },
       },
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn, error: vi.fn() },
     } as unknown as PluginContext);
     document.body.innerHTML = "";
     host = document.body.appendChild(document.createElement("div"));
@@ -101,5 +110,27 @@ describe("useFileTree re-rooting", () => {
     // watcher on an abandoned directory, re-reading it into /b's tree.
     expect(fs.live("/a")).toBe(0);
     expect(fs.live("/b")).toBe(1);
+  });
+
+  it("a refused watch is said in the log and asked for again on the next load", async () => {
+    // The host arms a watch asynchronously; `ready` rejects when it refuses
+    // (a watcher limit, a path outside the scope). The tree used to keep
+    // the dead handle and never ask again — the directory stayed silent.
+    let refuse = true;
+    fs.watch.mockImplementation(() => ({
+      ready: refuse ? Promise.reject(new Error("watcher limit reached")) : Promise.resolve(),
+      dispose: () => {},
+    }));
+    mount("/a");
+    await settle("/a", [entry("/a", "a.ts")]);
+    expect(fs.watch).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("watcher limit reached"));
+
+    // The Refresh button re-reads the root — and, with the refusal
+    // forgotten, watches it again; this time the host agrees.
+    refuse = false;
+    await act(async () => hook.refresh());
+    await settle("/a", [entry("/a", "a.ts")]);
+    expect(fs.watch).toHaveBeenCalledTimes(2);
   });
 });

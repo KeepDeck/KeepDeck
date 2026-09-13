@@ -1,4 +1,4 @@
-import type { Disposable } from "./disposable.ts";
+import type { WatchHandle } from "./disposable.ts";
 import type { PluginDownloads } from "./downloads.ts";
 import type { PluginSessionStore } from "./sessionRead.ts";
 import type { PluginSpeech } from "./speech.ts";
@@ -167,9 +167,11 @@ export interface PluginFs {
   /** Watch a directory for changes to its LISTING — a child added, removed, or
    * renamed, NOT a content edit. `onChange` fires (coalesced) when the entries
    * change; re-`readDir` to get the new listing. Passive OS notification, so
-   * the tree stays live without polling. Returns a Disposable that stops
-   * watching; scoped by the `fs` capability like reads. */
-  watch(path: string, onChange: () => void): Disposable;
+   * the tree stays live without polling. The handle stops the watch on
+   * dispose; its `ready` says whether the host armed it or refused it (a
+   * path outside the scope, a watcher limit) — a refused watch never fires.
+   * Scoped by the `fs` capability like reads. */
+  watch(path: string, onChange: () => void): WatchHandle;
 }
 
 /** Narrow WRITE surface over the manifest's declared `fsWrite` path
@@ -285,27 +287,43 @@ export interface PluginGit {
   status(repo: string): Promise<GitStatus>;
   /** Unified diff text for ONE tracked path, relative to `repo` — worktree vs
    * index by default, index vs HEAD with `staged`, or across a revision range
-   * with `from`/`to` (`from` alone diffs against the working tree). Untracked
-   * files have no diff; render their plain content (via `fs.readFile`)
-   * instead. */
-  diffFile(repo: string, file: string, opts?: GitDiffOptions): Promise<string>;
+   * with `from`/`to` (`from` alone diffs against the working tree). A renamed
+   * file diffs as a rename only when `origPath` names its old path — git
+   * pairs the two names and shows the edit; without it the new path reads
+   * as a whole new file. Untracked files have no diff; render their plain
+   * content (via `fs.readFile`) instead. The text is capped host-side — a
+   * generated file's diff can run to hundreds of megabytes — and
+   * `truncated` says when it was cut. */
+  diffFile(repo: string, file: string, opts?: GitDiffOptions): Promise<GitDiff>;
   /** The repo's history for a changes view: the full recent log (newest
    * first, capped by the host), annotated with the branch's fork point off
    * `base` (defaulting to the repo's default branch — exact for worktrees
    * created off it) and how many commits sit on the branch's side of it. */
   history(repo: string, opts?: GitHistoryOptions): Promise<GitHistory>;
-  /** The repo's local branches and which one is checked out — the history
-   * browser's ref picker. */
+  /** The repo's local branches and which one is checked out — for a plugin
+   * that offers a choice of branch (a base to fork from, a ref to browse
+   * with `history`'s `rev`). Capped host-side at a thousand names. */
   branches(repo: string): Promise<GitBranches>;
   /** The paths changed across `from..to` — or everything since `from`
-   * (committed or not) when `to` is omitted. The file list behind one commit
-   * or a "since the fork" summary. */
+   * (committed or not, untracked files included as `?` entries) when `to` is
+   * omitted. The file list behind one commit or a "since the fork" summary. */
   changedFiles(repo: string, from: string, to?: string): Promise<GitChangedFile[]>;
   /** Watch the repo for status-relevant changes — working-tree edits AND
    * index/HEAD/ref moves (stage, commit, checkout). `onChange` fires
    * throttled; re-`status` to get the fresh state (debounce it — bursts are
-   * normal). Passive OS notification: nothing is polled, nothing is locked. */
-  watch(repo: string, onChange: () => void): Disposable;
+   * normal). Passive OS notification: nothing is polled, nothing is locked.
+   * The handle's `ready` rejects when the host refused the watch (a repo
+   * outside the scope, a watcher limit): such a handle never fires, and a
+   * fresh `watch` is the retry. */
+  watch(repo: string, onChange: () => void): WatchHandle;
+}
+
+/** One file's unified diff as text. `truncated` means the host stopped at
+ * its cap (whole lines only, so the last line is intact) — say so in the
+ * view rather than presenting the head of a diff as all of it. */
+export interface GitDiff {
+  text: string;
+  truncated: boolean;
 }
 
 export interface GitDiffOptions {
@@ -317,6 +335,11 @@ export interface GitDiffOptions {
   from?: string;
   /** Diff up to this revision; omitted = the working tree. */
   to?: string;
+  /** The file's path BEFORE a rename — `GitStatusEntry.origPath` or
+   * `GitChangedFile.origPath` when set. Both paths then go into the
+   * pathspec with rename detection on, so the diff is the rename plus its
+   * edits rather than every line added under the new name. */
+  origPath?: string;
 }
 
 export interface GitHistoryOptions {
@@ -327,11 +350,13 @@ export interface GitHistoryOptions {
    * this window; `ahead` stays honest regardless of it. */
   limit?: number;
   /** Walk history from this ref instead of the working tree's HEAD — a
-   * branch can be browsed without being checked out anywhere. */
+   * branch can be browsed without being checked out anywhere. The built-in
+   * Git tab follows HEAD only; this is here for a plugin that offers the
+   * choice. */
   rev?: string;
 }
 
-/** A repo's local branches, for a history browser's ref picker. */
+/** A repo's local branches and which one is checked out (`branches`). */
 export interface GitBranches {
   /** The branch the working tree is on; null when detached. */
   current: string | null;
@@ -365,7 +390,10 @@ export interface GitHistory {
 }
 
 /** One changed path across a revision range. `code` is git's status letter
- * (`M`/`A`/`D`/`R`/`C`/`T`); renames fold into one entry carrying both names. */
+ * (`M`/`A`/`D`/`R`/`C`/`T`), or `?` for an untracked file — those appear
+ * only in an open-ended range, where the working tree counts, and have no
+ * diff: render their plain content (via `fs.readFile`) like a status
+ * entry's untracked path. Renames fold into one entry carrying both names. */
 export interface GitChangedFile {
   path: string;
   origPath: string | null;

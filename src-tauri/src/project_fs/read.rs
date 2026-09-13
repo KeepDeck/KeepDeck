@@ -14,7 +14,7 @@ use std::io::{Read as _, Seek as _, SeekFrom};
 
 use serde::Serialize;
 
-use crate::containment::{expand_home, resolve_within};
+use crate::containment::resolve_within;
 
 /// Default cap for a single [`project_fs_read_file`] read, when the caller
 /// names none. A code viewer wants text, not a 2 GB blob paged into the
@@ -96,7 +96,7 @@ pub fn project_fs_read_dir(
     roots: Vec<String>,
     everywhere: bool,
 ) -> Result<Vec<FsEntry>, String> {
-    let dir = resolve_within(&expand_home(&path)?, &roots, everywhere)?;
+    let dir = resolve_within(&path, &roots, everywhere)?;
     let reader = fs::read_dir(&dir).map_err(|e| format!("cannot read directory: {e}"))?;
 
     let mut entries = Vec::new();
@@ -147,7 +147,7 @@ pub fn project_fs_read_file(
     max_bytes: Option<u64>,
     offset: Option<u64>,
 ) -> Result<FsFile, String> {
-    let file = resolve_within(&expand_home(&path)?, &roots, everywhere)?;
+    let file = resolve_within(&path, &roots, everywhere)?;
     let meta = fs::metadata(&file).map_err(|e| format!("cannot stat: {e}"))?;
     if meta.is_dir() {
         return Err(format!("path is a directory: {path}"));

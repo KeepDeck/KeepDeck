@@ -1,5 +1,6 @@
 import type {
   Disposable,
+  WatchHandle,
   PluginContext,
   PluginManifest,
 } from "@keepdeck/plugin-api";
@@ -58,6 +59,13 @@ export function buildPluginContext(
     };
   }
 
+  /** A watch handle tracked like any disposable, its `ready` passed through
+   * untouched — the brace owns the cleanup, not the arming outcome. */
+  function trackWatch(handle: WatchHandle): WatchHandle {
+    const tracked = track(handle);
+    return { ready: handle.ready, dispose: () => tracked.dispose() };
+  }
+
   function disposeAll(): void {
     for (const run of [...disposers]) {
       disposers.delete(run);
@@ -85,11 +93,11 @@ export function buildPluginContext(
       ...services,
       fs: {
         ...services.fs,
-        watch: (path, onChange) => track(services.fs.watch(path, onChange)),
+        watch: (path, onChange) => trackWatch(services.fs.watch(path, onChange)),
       },
       git: {
         ...services.git,
-        watch: (repo, onChange) => track(services.git.watch(repo, onChange)),
+        watch: (repo, onChange) => trackWatch(services.git.watch(repo, onChange)),
       },
     };
   }
@@ -182,6 +190,11 @@ export function buildPluginContext(
         // iframe tier's hidden default on a later registration).
         declared("overlays", id);
         deps.ui.setOverlayVisible(pluginId, id, visible);
+      },
+      setOverlayCovers: (id, covers) => {
+        // The same gate: an undeclared id must not be able to pause the deck.
+        declared("overlays", id);
+        deps.ui.setOverlayCovers(pluginId, id, covers);
       },
     },
     openers: {

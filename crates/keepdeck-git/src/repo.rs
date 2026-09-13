@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::cmd::run_git;
+use crate::cmd::{run_git, run_git_provisioning};
 use crate::error::GitError;
 
 /// Whether `path` is inside a git work tree.
@@ -98,14 +98,32 @@ pub fn default_branch(repo: &Path) -> Result<Option<String>, GitError> {
 }
 
 /// The best common ancestor of two revisions — the fork point a branch's
-/// history is measured from. `None` when the revisions share no history (or
-/// either doesn't resolve): for a changes view that's an answer ("no fork
-/// point"), not an error.
+/// history is measured from. `None` when the revisions share no history OR
+/// either doesn't resolve: for the fork ladder that's an answer ("no fork
+/// point"), not an error — the revisions it tries come from reflogs and
+/// remote HEADs that a pruned reflog or a missing local branch can leave
+/// dangling, and a history that failed outright for that would be worse
+/// than one measured from the next rung. A revision the CALLER named is
+/// [`merge_base_of_named`]'s business.
 pub fn merge_base(repo: &Path, a: &str, b: &str) -> Result<Option<String>, GitError> {
     match run_git(repo, ["merge-base", "--", a, b]) {
         Ok(out) => Ok(Some(out.trim().to_string())),
         // Exit 1 = no common ancestor; unresolvable revs also land here.
         Err(GitError::Command { .. }) => Ok(None),
+        Err(other) => Err(other),
+    }
+}
+
+/// [`merge_base`] for revisions the caller NAMED — an explicit base typed
+/// or picked by a person. "No common ancestor" (exit 1) is still an answer;
+/// a revision that does not resolve is the caller's mistake, and answering
+/// "no fork point" to it would hide the typo behind a plausible history.
+pub fn merge_base_of_named(repo: &Path, a: &str, b: &str) -> Result<Option<String>, GitError> {
+    match run_git(repo, ["merge-base", "--", a, b]) {
+        Ok(out) => Ok(Some(out.trim().to_string())),
+        Err(GitError::Command {
+            status: Some(1), ..
+        }) => Ok(None),
         Err(other) => Err(other),
     }
 }
@@ -140,18 +158,52 @@ pub fn branch_created_at(repo: &Path, branch: &str) -> Result<Option<String>, Gi
 }
 
 /// The current branch name, or `None` when `HEAD` is detached.
+///
+/// Read as the symbolic ref, not through `rev-parse --abbrev-ref`: that
+/// resolves the ref to a commit on the way, and an UNBORN branch — a fresh
+/// `git init`, nothing committed yet — has none, so it failed outright where
+/// the branch plainly has a name. `symbolic-ref -q` prints the name whether
+/// or not a commit sits behind it, and exits 1, silently, when HEAD is
+/// detached.
 pub fn current_branch(repo: &Path) -> Result<Option<String>, GitError> {
-    let out = run_git(repo, ["rev-parse", "--abbrev-ref", "HEAD"])?;
-    let name = out.trim();
-    Ok(if name == "HEAD" {
-        None
-    } else {
-        Some(name.to_string())
-    })
+    match run_git(repo, ["symbolic-ref", "--short", "-q", "HEAD"]) {
+        Ok(out) => Ok(Some(out.trim().to_string())),
+        Err(GitError::Command {
+            status: Some(1), ..
+        }) => Ok(None),
+        Err(other) => Err(other),
+    }
 }
 
+/// The commit `HEAD` points at, or `None` on an unborn branch — a repository
+/// with no commit yet, where there is nothing to walk, diff or fork from.
+/// Distinct from [`resolve_commit`], for which an unresolvable revision is
+/// an error: a caller asking for HEAD's history wants "no commits yet" as an
+/// answer, not a failure.
+pub fn head_commit(repo: &Path) -> Result<Option<String>, GitError> {
+    match run_git(
+        repo,
+        ["rev-parse", "--verify", "--quiet", "HEAD^{commit}"],
+    ) {
+        Ok(out) => Ok(Some(out.trim().to_string())),
+        // `--quiet --verify` exits 1, silently, when the revision does not
+        // resolve — for HEAD, that is the unborn branch.
+        Err(GitError::Command {
+            status: Some(1), ..
+        }) => Ok(None),
+        Err(other) => Err(other),
+    }
+}
+
+/// How many local branches a listing carries at most. A picker cannot show
+/// thousands, and a repository with thousands (a long-lived monorepo, a
+/// mirror with every contributor's branch) would otherwise hand the webview
+/// an unbounded payload on every read — the same class of cost the diff
+/// and log caps guard against.
+pub const BRANCHES_MAX: usize = 1000;
+
 /// The repository's local branch names, in git's default alphabetical
-/// (refname) order.
+/// (refname) order, at most [`BRANCHES_MAX`] of them.
 ///
 /// Local heads only — remote-tracking refs are deliberately excluded: this
 /// feeds the "+ Agent" dialog's base-branch picker, and basing a worktree on a
@@ -159,15 +211,53 @@ pub fn current_branch(repo: &Path) -> Result<Option<String>, GitError> {
 /// to use it). Detached HEAD contributes nothing (it isn't a ref under
 /// `refs/heads`), so the list can be empty in a repo with no branches yet.
 pub fn list_branches(repo: &Path) -> Result<Vec<String>, GitError> {
+    list_branches_up_to(repo, BRANCHES_MAX)
+}
+
+/// [`list_branches`] with the cap as a parameter — the cap's own tests need
+/// not create a thousand branches.
+pub fn list_branches_up_to(repo: &Path, cap: usize) -> Result<Vec<String>, GitError> {
+    let count = format!("--count={cap}");
     let out = run_git(
         repo,
-        ["for-each-ref", "refs/heads", "--format=%(refname:short)"],
+        [
+            "for-each-ref",
+            "refs/heads",
+            "--format=%(refname:short)",
+            count.as_str(),
+        ],
     )?;
     Ok(out
         .lines()
         .filter(|line| !line.is_empty())
         .map(str::to_string)
         .collect())
+}
+
+/// Whether `path` (relative to the repo) is ignored by the repository's
+/// exclude rules — `.gitignore` at every level, `info/exclude`, the global
+/// excludes — the way status and `ls-files --others` read them. A TRACKED
+/// path is never ignored, whatever a pattern says: `check-ignore` leaves
+/// tracked paths out unless asked otherwise. Exit 1 is "not ignored".
+pub fn is_ignored(repo: &Path, path: &str) -> Result<bool, GitError> {
+    match run_git(
+        repo,
+        ["--no-optional-locks", "check-ignore", "-q", "--", path],
+    ) {
+        Ok(_) => Ok(true),
+        Err(GitError::Command {
+            status: Some(1), ..
+        }) => Ok(false),
+        Err(other) => Err(other),
+    }
+}
+
+/// Whether any tracked file sits at or under `path` (relative to the repo).
+/// An ignored DIRECTORY can still hold files that were added by force; a
+/// watcher that skips the directory for being ignored must not skip those.
+pub fn has_tracked_files(repo: &Path, path: &str) -> Result<bool, GitError> {
+    let out = run_git(repo, ["--no-optional-locks", "ls-files", "-z", "--", path])?;
+    Ok(!out.is_empty())
 }
 
 /// Whether a local branch named `name` already exists in `repo`.
@@ -193,5 +283,6 @@ pub fn branch_exists(repo: &Path, name: &str) -> Result<bool, GitError> {
 /// `worktree add`/`remove` siblings so no positional name can be read as a flag.
 pub fn delete_branch(repo: &Path, name: &str, force: bool) -> Result<(), GitError> {
     let flag = if force { "-D" } else { "-d" };
-    run_git(repo, ["branch", flag, "--", name]).map(drop)
+    // Provisioning, not a read: on no clock, like the worktree commands.
+    run_git_provisioning(repo, ["branch", flag, "--", name]).map(drop)
 }

@@ -23,6 +23,7 @@ mod error;
 pub mod branch;
 pub mod diff;
 pub mod exclude;
+pub mod fork;
 pub mod head;
 pub mod log;
 pub mod provenance;
@@ -31,6 +32,7 @@ pub mod status;
 pub mod worktree;
 pub mod worktree_base;
 
+pub use cmd::spawns;
 pub use error::GitError;
 pub use head::Head;
 pub use log::Commit;

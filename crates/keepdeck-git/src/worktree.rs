@@ -1,7 +1,7 @@
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
-use crate::cmd::run_git;
+use crate::cmd::{run_git, run_git_provisioning};
 use crate::error::GitError;
 use crate::head;
 
@@ -105,7 +105,9 @@ pub fn add(repo: &Path, path: &Path, branch: &str, base_commit: &str) -> Result<
     // `--` ends option parsing (the dir is user-editable, so a leaf starting
     // with `-` must not be read by git as a flag); the path passes as an OsStr
     // so a non-UTF-8 path isn't corrupted.
-    run_git(
+    // No clock: the checkout runs smudge filters and the post-checkout hook,
+    // and a large tree takes as long as it takes (see `run_git_provisioning`).
+    run_git_provisioning(
         repo,
         [
             OsStr::new("worktree"),
@@ -196,12 +198,12 @@ pub fn remove(repo: &Path, path: &Path, force: bool) -> Result<(), GitError> {
     }
     args.push(OsStr::new("--")); // end of options — the path is positional (see `add`)
     args.push(path.as_os_str());
-    run_git(repo, args).map(drop)
+    run_git_provisioning(repo, args).map(drop)
 }
 
 /// Prune administrative records of worktrees whose directories are gone.
 pub fn prune(repo: &Path) -> Result<(), GitError> {
-    run_git(repo, ["worktree", "prune"]).map(drop)
+    run_git_provisioning(repo, ["worktree", "prune"]).map(drop)
 }
 
 /// Whether the working tree at `path` has uncommitted or untracked changes.

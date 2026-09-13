@@ -2,7 +2,8 @@ import type {
   Capability,
   DownloadRequest,
   DownloadTarget,
-  Disposable,
+  WatchHandle,
+  GitDiff,
   FsEntry,
   FsFile,
   FsReadFileOptions,
@@ -22,7 +23,7 @@ import type {
   PluginSpeech,
   SqlAnswer,
 } from "@keepdeck/plugin-api";
-import { createSessionStore } from "@keepdeck/plugin-api";
+import { createSessionStore, GIT_DIFF_ANSWER_API } from "@keepdeck/plugin-api";
 import { execCovers } from "./execCovers";
 
 /** The two scopes the `fs` capability may declare, as the backend consumes
@@ -41,7 +42,7 @@ export interface FsBackend {
     scope: FsScope,
     opts?: FsReadFileOptions,
   ): Promise<FsFile>;
-  watch(path: string, scope: FsScope, onChange: () => void): Disposable;
+  watch(path: string, scope: FsScope, onChange: () => void): WatchHandle;
 }
 
 /** The prefix-aware write backend the gate wraps: the gate passes the
@@ -75,7 +76,7 @@ export interface GitBackend {
     file: string,
     scope: FsScope,
     opts?: GitDiffOptions,
-  ): Promise<string>;
+  ): Promise<GitDiff>;
   history(
     repo: string,
     scope: FsScope,
@@ -88,7 +89,7 @@ export interface GitBackend {
     to: string | undefined,
     scope: FsScope,
   ): Promise<GitChangedFile[]>;
-  watch(repo: string, scope: FsScope, onChange: () => void): Disposable;
+  watch(repo: string, scope: FsScope, onChange: () => void): WatchHandle;
 }
 
 /** The ungated platform backends the gate decorates. Identical to
@@ -332,12 +333,19 @@ export function createCapabilityGate(
           hasGitCapability(manifest.capabilities),
           `git.diffFile: "${repo}" requires a "git" capability, which the manifest does not declare`,
         );
-        return backend.git.diffFile(
+        const answer = backend.git.diffFile(
           repo,
           file,
           gitScope(manifest.capabilities),
           opts,
         );
+        // A plugin from before the answer grew its cap flag was compiled
+        // against the bare text; it gets that, not an object it would read
+        // `.length` off. The floor is the manifest's word on which contract
+        // the plugin speaks — the same gate the http MCP arm is held behind.
+        return manifest.minApiVersion < GIT_DIFF_ANSWER_API
+          ? (answer.then((diff) => diff.text) as unknown as Promise<GitDiff>)
+          : answer;
       },
       history(repo, opts) {
         admit(

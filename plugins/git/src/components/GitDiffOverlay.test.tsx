@@ -8,6 +8,10 @@ import type {
   WorkspaceRef,
   WorkspaceSnapshot,
 } from "@keepdeck/plugin-api";
+import {
+  installResizeObserver,
+  pinListViewport,
+} from "@keepdeck/ui-kit/virtualGeometry.test-support";
 import { setRuntime } from "../runtime";
 import { requestPeek, takePeekRequest } from "../peekRequests";
 import { GitDiffOverlay } from "./GitDiffOverlay";
@@ -24,6 +28,7 @@ const workspace: WorkspaceSnapshot = {
   name: "app",
   cwd: "/repo",
   panes: [],
+  teams: [],
 };
 
 const status = (paths: string[]): GitStatus => ({
@@ -72,6 +77,15 @@ const OTHER_WS: WorkspaceRef = { id: "ws-2", instance: "instance-2" };
 
 function makeCtx(over: Partial<GitStatus> | null = null): PluginContext {
   return {
+    ui: { setOverlayCovers: vi.fn() },
+    // The tab remembers its open sections here; an empty slot is the default.
+    storage: {
+      workspace: () => ({
+        get: vi.fn(async () => undefined),
+        set: vi.fn(async () => {}),
+        delete: vi.fn(async () => {}),
+      }),
+    },
     events: {
       onPaneSelected: (cb: (e: { workspace: WorkspaceRef }) => void) => {
         deckEvents.paneSelected.add(cb);
@@ -86,7 +100,10 @@ function makeCtx(over: Partial<GitStatus> | null = null): PluginContext {
     services: {
       git: {
         status: vi.fn(async () => ({ ...status(["src/app.ts"]), ...over })),
-        diffFile: vi.fn(async () => "@@ -1 +1 @@\n-hello\n+goodbye\n"),
+        diffFile: vi.fn(async () => ({
+          text: "@@ -1 +1 @@\n-hello\n+goodbye\n",
+          truncated: false,
+        })),
         history: vi.fn(async () => ({ commits: [], base: null })),
         branches: vi.fn(async () => ({ current: "main", branches: ["main"] })),
         changedFiles: vi.fn(async () => []),
@@ -118,7 +135,13 @@ let overlayHost: HTMLDivElement;
 let tabRoot: Root;
 let overlayRoot: Root;
 
+let restoreViewport: () => void = () => {};
+
 beforeEach(() => {
+  // The tab's lists are windowed; a tall pinned viewport mounts every row
+  // a test clicks (the window's own behaviour is the ui-kit list's suite).
+  installResizeObserver();
+  restoreViewport = pinListViewport("git__list", 100_000, 340, 24);
   tabHost = document.createElement("div");
   overlayHost = document.createElement("div");
   document.body.append(tabHost, overlayHost);
@@ -133,6 +156,7 @@ afterEach(async () => {
   });
   tabHost.remove();
   overlayHost.remove();
+  restoreViewport();
   setRuntime(null);
   takePeekRequest();
   deckEvents.reset();
@@ -178,6 +202,30 @@ describe("GitDiffOverlay", () => {
 
     expect(overlayHost.querySelector(".peek")).toBeTruthy();
     expect(overlayHost.textContent).toContain("goodbye");
+  });
+
+  it("tells the host when the peek covers the window, and when it stops", async () => {
+    // The host cannot see a full-window peek by itself: this overlay is
+    // "visible" while it renders nothing. The word is what pauses the deck's
+    // hotkeys behind the diff and keeps a covered pane off-screen for
+    // notifications — and it is taken back when the peek goes.
+    const ctx = makeCtx();
+    setRuntime(ctx);
+    await mountOverlay();
+    const covers = ctx.ui.setOverlayCovers as ReturnType<typeof vi.fn>;
+    expect(covers).toHaveBeenLastCalledWith("diff", false);
+
+    await act(async () => {
+      requestPeek({ repo: "/repo", workspace: WS, kind: "worktree", row: row("src/app.ts") });
+    });
+    expect(covers).toHaveBeenLastCalledWith("diff", true);
+
+    // Leaving the workspace closes the peek — and takes the word back.
+    await act(async () => {
+      deckEvents.fireActive(OTHER_WS);
+    });
+    expect(overlayHost.querySelector(".peek")).toBeNull();
+    expect(covers).toHaveBeenLastCalledWith("diff", false);
   });
 
   it("keeps an open diff when the dock closes and the tab unmounts", async () => {

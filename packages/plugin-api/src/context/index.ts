@@ -83,7 +83,7 @@ export {
   textFromParts,
 } from "./historyText.ts";
 export type { PluginContext } from "./context.ts";
-export type { Disposable } from "./disposable.ts";
+export type { Disposable, WatchHandle } from "./disposable.ts";
 export {
   downloadPercent,
   type DownloadIntegrity,
@@ -112,6 +112,7 @@ export type {
   GitBranches,
   GitChangedFile,
   GitCommit,
+  GitDiff,
   GitDiffOptions,
   GitHistory,
   GitHistoryOptions,
@@ -188,6 +189,7 @@ export type {
 export { mergeSectionValues } from "./settings.ts";
 export type {
   PaneSnapshot,
+  TeamSnapshot,
   WorkspaceRef,
   WorkspaceSnapshot,
 } from "./snapshots.ts";

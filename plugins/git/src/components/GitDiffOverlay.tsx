@@ -1,24 +1,17 @@
 import { useEffect, useState } from "react";
-import type { WorkspaceRef } from "@keepdeck/plugin-api";
 import { DiffPeek } from "./DiffPeek";
 import { useGitStatus } from "./useGitStatus";
-import { groupEntries, type ChangeRow } from "../domain/status";
-import type { HistoryScope } from "../domain/history";
-import { getRuntime } from "../runtime";
+import { groupEntries, reconcileRow, type ChangeRow } from "../domain/status";
+import { readVersionFor } from "../domain/history";
+import {
+  afterClose,
+  afterSelection,
+  openDiffFor,
+  withRow,
+  type OpenDiff,
+} from "../domain/openDiff";
+import { activeRuntime } from "../runtime";
 import { subscribePeekRequests, takePeekRequest } from "../peekRequests";
-
-/**
- * The open diff. Splitting the union keeps a null-row worktree
- * unrepresentable: a Changes row is always picked before it opens, while a
- * History scope opens first and the peek's rail seeds its file after.
- *
- * `repo` is the peek's OWN — captured when the diff was opened, not read from
- * the tab. The two are independent on purpose: see the overlay below.
- */
-type OpenDiff = { repo: string; workspace: WorkspaceRef } & (
-  | { kind: "worktree"; row: ChangeRow }
-  | { kind: "history"; row: ChangeRow | null; scope: HistoryScope }
-);
 
 /**
  * The plugin's resident diff viewer — the single consumer of the tab's peek
@@ -38,14 +31,7 @@ export function GitDiffOverlay() {
   useEffect(() => {
     const consume = () => {
       const next = takePeekRequest();
-      if (!next) return;
-      const { repo, workspace } = next;
-      // A History scope opens with no file yet; a Changes row opens on itself.
-      setDiff(
-        next.kind === "worktree"
-          ? { repo, workspace, kind: "worktree", row: next.row }
-          : { repo, workspace, kind: "history", row: null, scope: next.scope },
-      );
+      if (next) setDiff(openDiffFor(next));
     };
     // A request may predate this mount; the take-based consume is naturally
     // StrictMode-safe — a re-invoked effect finds the slot empty and touches
@@ -58,26 +44,41 @@ export function GitDiffOverlay() {
   // overlay is never remounted by a workspace change the way the dock panel
   // is — so without these it kept a full-window diff of the workspace the
   // user just left on screen over the one they went to, with nothing on it
-  // naming where it came from.
+  // naming where it came from. Which event takes it down is the domain's
+  // rule (`afterSelection`, `afterClose`).
   useEffect(() => {
-    const { events } = getRuntime();
-    const gone = (workspace: WorkspaceRef) =>
-      setDiff((prev) =>
-        prev && prev.workspace.instance === workspace.instance ? null : prev,
-      );
-    // Fires for the ACTIVE workspace, so a different one named here means the
-    // user moved: the open diff belongs to the workspace they left.
+    // Torn down: nothing left to listen to (and this mounts once anyway).
+    const runtime = activeRuntime();
+    if (!runtime) return;
+    const { events } = runtime;
     const selected = events.onPaneSelected(({ workspace }) =>
-      setDiff((prev) =>
-        prev && prev.workspace.instance !== workspace.instance ? null : prev,
-      ),
+      setDiff((prev) => prev && afterSelection(prev, workspace)),
     );
-    const closed = events.onWorkspaceClosed(({ workspace }) => gone(workspace));
+    const closed = events.onWorkspaceClosed(({ workspace }) =>
+      setDiff((prev) => prev && afterClose(prev, workspace)),
+    );
     return () => {
       selected.dispose();
       closed.dispose();
     };
   }, []);
+
+  // The host cannot see a full-window peek by itself — a Component overlay
+  // is "visible" while it renders nothing — so the peek says when it covers
+  // the deck and when it stops: the deck's hotkeys pause behind it, and a
+  // pane under it is not on screen for a notification. Unsaid on unmount
+  // too, so a plugin torn down mid-peek leaves the deck unpaused. The
+  // runtime may already be gone on that path; the host clears a retired
+  // plugin's cover on its own, so there is nothing to tell then.
+  const covers = diff !== null;
+  useEffect(() => {
+    const say = (value: boolean) =>
+      activeRuntime()?.ui.setOverlayCovers("diff", value);
+    say(covers);
+    return () => {
+      if (covers) say(false);
+    };
+  }, [covers]);
 
   if (!diff) return null;
   return (
@@ -90,7 +91,7 @@ export function GitDiffOverlay() {
       // safe too.
       key={diff.repo}
       diff={diff}
-      onSelect={(row) => setDiff((prev) => (prev ? { ...prev, row } : prev))}
+      onSelect={(row) => setDiff((prev) => prev && withRow(prev, row))}
       onClose={() => setDiff(null)}
     />
   );
@@ -118,6 +119,18 @@ function OpenDiffPeek({
 }) {
   const { status, error, version } = useGitStatus(diff.repo);
   const groups = status ? groupEntries(status.entries) : null;
+  // What the peek re-reads on: the feed's tick, frozen for a commit scope
+  // while the feed is healthy — a commit cannot move, a deleted repo can.
+  const readVersion = readVersionFor(diff.kind === "history" ? diff.scope : null, {
+    version,
+    error,
+  });
+  // A worktree row follows its file across the live groups: staged under
+  // the open peek, it shows the staged diff next, not an empty re-read of
+  // the worktree one. Derived per tick, so the row the overlay holds is
+  // only where the peek was opened, never a frozen classification.
+  const worktreeRow =
+    diff.kind === "worktree" && groups ? reconcileRow(diff.row, groups) : diff.row;
 
   return (
     <DiffPeek
@@ -126,7 +139,7 @@ function OpenDiffPeek({
         diff.kind === "worktree"
           ? {
               kind: "file",
-              row: diff.row,
+              row: worktreeRow!,
               changeSet: { kind: "worktree", groups, error },
             }
           : diff.row !== null
@@ -137,7 +150,7 @@ function OpenDiffPeek({
               }
             : { kind: "waiting", scope: diff.scope }
       }
-      version={version}
+      version={readVersion}
       onSelect={onSelect}
       onClose={onClose}
     />

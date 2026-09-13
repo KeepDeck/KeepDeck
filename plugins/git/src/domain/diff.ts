@@ -30,7 +30,10 @@ export interface DiffHunk {
 export type DiffNote =
   | { kind: "mode"; from: string; to: string }
   | { kind: "rename"; from: string; to: string }
-  | { kind: "copy"; from: string; to: string };
+  | { kind: "copy"; from: string; to: string }
+  /** The file is unmerged: what follows is the working file itself, conflict
+   * markers included, not a diff — git has no two-sided diff for it. */
+  | { kind: "unmerged" };
 
 export interface FileDiff {
   hunks: DiffHunk[];
@@ -40,13 +43,16 @@ export interface FileDiff {
    * A pure one has REAL changes and zero hunks — without these the peek
    * called such a file empty while the list right beside it said Modified. */
   notes: DiffNote[];
+  /** The host stopped at its cap: what is here is the HEAD of the content,
+   * not all of it. Said in the view, never silently. */
+  truncated: boolean;
 }
 
 /** A binary file's "diff": nothing to parse, nothing textual to show. The
  * one place this shape is stated — a view assembling it by hand had to be
  * edited when the model grew a field. */
 export function binaryFileDiff(): FileDiff {
-  return { binary: true, hunks: [], notes: [] };
+  return { binary: true, hunks: [], notes: [], truncated: false };
 }
 
 /** Whether a parsed diff has nothing to show. */
@@ -57,8 +63,9 @@ export function isEmptyDiff(diff: FileDiff): boolean {
 /** Parse `git diff` output. Preamble lines (`diff --git`, `index`, `---`,
  * `+++`) are dropped — the peek's own header names the file — except the
  * mode/rename pairs, which surface as `notes`; `\ No newline at end of
- * file` stays, as a dim meta line. */
-export function parseDiff(raw: string): FileDiff {
+ * file` stays, as a dim meta line. `truncated` is the host's word that
+ * `raw` is the head of the diff, not all of it. */
+export function parseDiff(raw: string, truncated = false): FileDiff {
   const lines = raw.split("\n");
   if (lines[lines.length - 1] === "") lines.pop();
 
@@ -131,7 +138,7 @@ export function parseDiff(raw: string): FileDiff {
       });
     }
   }
-  return { hunks, binary, notes };
+  return { hunks, binary, notes, truncated };
 }
 
 /** Every hunk's lines flattened in render order — the text the syntax
@@ -158,14 +165,17 @@ export function hunkOffsets(diff: FileDiff): number[] {
   return offsets;
 }
 
-/** An untracked file "diff": its whole content as one all-added hunk — git has
- * nothing to compare it against, but the peek should read the same. */
-export function newFileDiff(text: string): FileDiff {
+/** A working file's content as a "diff": one all-added hunk — what an
+ * untracked or an unmerged file shows, since git has no two-sided diff for
+ * either (`diffRead` decides which rows read this way, and what to note).
+ * `truncated` is the file read's own flag: the host caps a read too. */
+export function newFileDiff(text: string, truncated = false): FileDiff {
   const lines = text.split("\n");
   if (lines[lines.length - 1] === "") lines.pop();
   return {
     binary: false,
     notes: [],
+    truncated,
     hunks: [
       {
         header: "",

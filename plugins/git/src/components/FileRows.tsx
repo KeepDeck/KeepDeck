@@ -2,13 +2,15 @@ import {
   baseName,
   codeLabel,
   dirName,
+  sameChange,
   type ChangeRow,
 } from "../domain/status";
+import { codeTone } from "../presentation/codeTone";
 
 /**
  * The one changed-path row and its section wrapper — shared by the Changes
  * list, the History drill, and the peek's sibling rail, so a file reads the
- * same everywhere: the one-letter code colored by what happened, then the
+ * same everywhere: the porcelain code in its tone (`codeTone`), then the
  * dimmed directory and the name.
  */
 
@@ -23,12 +25,9 @@ export function FileRow({
   current?: ChangeRow | null;
   onOpen: (row: ChangeRow) => void;
 }) {
-  // The same path can sit in two sections (staged AND edited again) — a row
-  // is "the open one" only when the kind matches too. Null = nothing open.
-  const active =
-    current != null &&
-    current.path === row.path &&
-    current.kind === row.kind;
+  // "The open one" is the same change, not the same path (`sameChange`).
+  // Null = nothing open.
+  const active = current != null && sameChange(current, row);
   return (
     <button
       type="button"
@@ -37,10 +36,7 @@ export function FileRow({
       title={`${row.path} — ${codeLabel(row.code)}`}
       aria-current={active || undefined}
     >
-      <span
-        className={`git__code git__code--${row.kind === "conflicted" ? "conflicted" : row.code === "D" ? "del" : row.kind}`}
-        aria-hidden
-      >
+      <span className={`git__code git__code--${codeTone(row)}`} aria-hidden>
         {row.code}
       </span>
       <span className="git__file">

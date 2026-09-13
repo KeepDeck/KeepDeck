@@ -1,8 +1,8 @@
 {
   "name": "@keepdeck-plugins/git",
   "private": true,
-  "version": "0.1.0",
-  "description": "The Git built-in plugin: a live changes view (status and diffs) per worktree, on the plugin API's git service.",
+  "version": "0.2.0",
+  "description": "The Git built-in plugin: a live changes list and the history since the fork point, with diffs, per worktree, on the plugin API's git service.",
   "type": "module",
   "peerDependencies": {
     "react": "^19.1.0"

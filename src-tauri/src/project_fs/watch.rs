@@ -11,7 +11,7 @@ use notify::{Event, EventKind};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
-use crate::containment::{expand_home, resolve_within};
+use crate::containment::resolve_within;
 use crate::fswatch;
 
 /// The Tauri event delivering "this watched directory's listing changed" to the
@@ -72,9 +72,9 @@ pub fn project_fs_watch(
     roots: Vec<String>,
     everywhere: bool,
 ) -> Result<(), String> {
-    // Same `~/` expansion as its read siblings — a dir a plugin can readDir
-    // must also be watchable by the same path string.
-    let dir = resolve_within(&expand_home(&path)?, &roots, everywhere)?;
+    // The same reading of the path string as its read siblings and the git
+    // backend — `resolve_within` expands `~/` for all of them.
+    let dir = resolve_within(&path, &roots, everywhere)?;
     let emitter = app.clone();
     let watcher = spawn_project_watch(&dir, path.clone(), move |registered| {
         let _ = emitter.emit(

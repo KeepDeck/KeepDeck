@@ -236,3 +236,35 @@ export function BellIcon() {
     </svg>
   );
 }
+
+/** A chevron pointing right, drawn CENTRED in its box — the mark of a thing
+ * that opens (the workspace rail's teams, a plugin's sections), which the
+ * owner turns with CSS rather than swapping for a down chevron.
+ *
+ * ONE mark, turned. Two characters — a right chevron and a down one — are
+ * drawn by the font at different weights and on different baselines, so
+ * they read as two marks swapping rather than as one turning. And it is
+ * drawn, not typed: a typed "›" sits where the character's metrics put it,
+ * not in the middle of the em, so rotating it swings the ink around a
+ * point nowhere near the middle of what you see. Here the vertex is placed
+ * by hand at the box's centre, so a rotation about `50% 50%` turns the
+ * mark on the spot the eye reads as its middle. Its own size and weight,
+ * not the set's: a mark that turns wants a heavier stroke than a static
+ * one to keep its presence mid-turn. */
+export function ChevronIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={12}
+      height={12}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M9 5l7 7-7 7" />
+    </svg>
+  );
+}

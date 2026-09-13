@@ -26,6 +26,7 @@ const workspace: WorkspaceSnapshot = {
     { id: "pane-1", name: "a", cwd: "/wt/a", branch: "kd/a", agentType: "x" },
     { id: "pane-2", name: "b", cwd: "/wt/b", branch: "kd/b", agentType: "x" },
   ],
+  teams: [],
 };
 
 const PRESETS: RunPreset[] = [

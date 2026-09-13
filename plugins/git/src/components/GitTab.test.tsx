@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { act } from "react";
 import { describe, expect, it, vi } from "vitest";
+import type { WorkspaceSnapshot } from "@keepdeck/plugin-api";
 import { setRuntime } from "../runtime";
 import { takePeekRequest } from "../peekRequests";
 import {
@@ -37,15 +38,71 @@ describe("GitTab", () => {
 
     await rig.render();
 
-    expect(rig.host.textContent).toContain("main");
-    expect(rig.host.textContent).toContain("↑2 ↓1");
-    expect(rig.host.textContent).toContain("Changes");
+    // The Changes header carries the count and, since the branch stands
+    // somewhere against its upstream, the ahead/behind badge.
+    const header = rig.host.querySelector("button.git__sechdr")!;
+    expect(header.textContent).toContain("Changes");
+    expect(header.querySelector(".git__count")?.textContent).toBe("2");
+    expect(header.textContent).toContain("↑2 ↓1");
     expect(rig.host.textContent).toContain("app.ts");
     expect(rig.host.textContent).toContain("Untracked");
     expect(rig.host.textContent).toContain("notes.md");
-    // Sections with no rows don't render at all.
+    // Groups with no rows don't render at all.
     expect(rig.host.textContent).not.toContain("Staged");
     expect(rig.host.textContent).not.toContain("Conflicts");
+    // The old toggle and branch line are gone: sections are the structure.
+    expect(rig.host.querySelector(".git__mode")).toBeNull();
+    expect(rig.host.querySelector(".git__head")).toBeNull();
+  });
+
+  it("hides the ahead/behind badge while the branch is level with its upstream", async () => {
+    const git = makeGit();
+    git.statuses.set("/repo", cleanStatus({ upstream: "origin/main", ahead: 0, behind: 0 }));
+    setRuntime(makeCtx(git));
+
+    await rig.render();
+
+    expect(rig.host.querySelector(".git__ab")).toBeNull();
+    expect(rig.host.textContent).not.toContain("↑0");
+  });
+
+  it("names a team's tree by the team in the root picker", async () => {
+    const git = makeGit();
+    git.statuses.set("/wt/one", cleanStatus({ branch: "kd/app/1" }));
+    setRuntime(makeCtx(git));
+
+    await rig.render("p1");
+
+    // The closed control names the team, branch beside it; the folder line
+    // belongs to the open list, so it is in the DOM under the option.
+    const picker = rig.host.querySelector(".git__root")!;
+    expect(picker.textContent).toContain("api");
+    expect(picker.textContent).toContain("kd/app/1");
+    expect(picker.querySelector(".git__rootteam")?.textContent).toBe("api");
+    expect(picker.querySelector(".git__rootopt")?.getAttribute("title")).toBe(
+      "/wt/one · 1 agent",
+    );
+  });
+
+  it("names a detached tree by its commit — the host has no branch for it", async () => {
+    const git = makeGit();
+    git.statuses.set(
+      "/wt/one",
+      cleanStatus({ branch: null, detached: true, oid: "0123456789abcdef" }),
+    );
+    setRuntime(makeCtx(git));
+
+    // The deck's word for a detached worktree is no branch at all.
+    const detached: WorkspaceSnapshot = {
+      ...workspace,
+      teams: [{ id: "team-1", name: "api", cwd: "/wt/one" }],
+      panes: [{ ...workspace.panes[0], branch: undefined }],
+    };
+    await rig.render("p1", detached);
+
+    const picker = rig.host.querySelector(".git__root")!;
+    expect(picker.querySelector(".git__rootteam")?.textContent).toBe("api");
+    expect(picker.querySelector(".git__rootbranch")?.textContent).toBe("0123456 (detached)");
   });
 
   it("defaults to the highlighted pane's worktree and says so when it is clean", async () => {
@@ -138,12 +195,71 @@ describe("GitTab", () => {
     expect(git.watcherCount("/wt/one")).toBe(1);
   });
 
-  it("surfaces a status failure instead of a stuck spinner", async () => {
+  it("a toggle made before the remembered sections arrive is not undone by them", async () => {
+    const git = makeGit();
+    git.statuses.set("/repo", cleanStatus());
+    git.histories.set("/repo", { forkSha: null, ahead: null, commits: [] });
+    const ctx = makeCtx(git);
+    // The slot answers late — an IPC read — and with what it remembered
+    // BEFORE the toggle below.
+    let answer: (raw: unknown) => void = () => {};
+    const slot = {
+      get: vi.fn(() => new Promise<unknown>((resolve) => (answer = resolve))),
+      set: vi.fn(async () => {}),
+      delete: vi.fn(async () => {}),
+    };
+    ctx.storage.workspace = () => slot as unknown as ReturnType<typeof ctx.storage.workspace>;
+    setRuntime(ctx);
+
+    await rig.render();
+    const header = () =>
+      [...rig.host.querySelectorAll("button.git__sechdr")].find((el) =>
+        el.textContent?.includes("History"),
+      ) as HTMLButtonElement;
+    await act(async () => header().click());
+    expect(header().getAttribute("aria-expanded")).toBe("true");
+    expect(slot.set).toHaveBeenCalledWith("sections", { changes: true, history: true });
+
+    // The late answer must not flip the section back: the toggle is newer,
+    // and it is already saved.
+    await act(async () => answer({ changes: true, history: false }));
+    expect(header().getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("a slot that refuses to remember the sections is said in the log, not swallowed", async () => {
+    const git = makeGit();
+    git.statuses.set("/repo", cleanStatus());
+    git.histories.set("/repo", { forkSha: null, ahead: null, commits: [] });
+    const ctx = makeCtx(git);
+    const slot = {
+      get: vi.fn(async () => undefined),
+      set: vi.fn(async () => {
+        throw new Error("slot is read-only");
+      }),
+      delete: vi.fn(async () => {}),
+    };
+    ctx.storage.workspace = () => slot as unknown as ReturnType<typeof ctx.storage.workspace>;
+    setRuntime(ctx);
+
+    await rig.render();
+    const header = [...rig.host.querySelectorAll("button.git__sechdr")].find((el) =>
+      el.textContent?.includes("History"),
+    ) as HTMLButtonElement;
+    await act(async () => header.click());
+
+    // The toggle holds on screen; the failure to keep it leaves a trace.
+    expect(header.getAttribute("aria-expanded")).toBe("true");
+    expect(ctx.log.warn).toHaveBeenCalledWith(expect.stringContaining("slot is read-only"));
+  });
+
+  it("surfaces a status failure as the folder's state, git's own words on hover", async () => {
     const git = makeGit(); // no statuses registered → status() rejects
     setRuntime(makeCtx(git));
 
     await rig.render();
 
-    expect(rig.host.textContent).toContain("not a git repository");
+    const trouble = rig.host.querySelector(".git__empty--bad") as HTMLElement;
+    expect(trouble.textContent).toBe("Not a git repository.");
+    expect(trouble.title).toContain("not a git repository: /repo");
   });
 });

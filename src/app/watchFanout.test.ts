@@ -160,4 +160,63 @@ describe("watch fanout", () => {
     expect(gone).not.toHaveBeenCalled();
     expect(stays).toHaveBeenCalledTimes(1);
   });
+
+  /** The backend arms the OS watcher asynchronously, so a refusal (a path
+   * outside the roots, a watcher limit) lands AFTER the handle was handed
+   * back. It used to be logged and forgotten: the subscriber kept a handle
+   * that would never fire and the path kept a callback set, so even a later
+   * watch of the same path joined the phantom instead of asking again. */
+  it("rejects `ready` when the backend refuses, and lets a later watch ask again", async () => {
+    const { backend } = fakeBackend();
+    backend.start.mockRejectedValueOnce(new Error("path is outside the workspace"));
+    const watch = makeWatchFanout(backend);
+
+    const refused = watch("/repo", "workspace", vi.fn());
+    await expect(refused.ready).rejects.toThrow("outside the workspace");
+
+    // The retry is a NEW watch: the backend is asked a second time, and this
+    // time the watch is live.
+    const again = watch("/repo", "workspace", vi.fn());
+    await expect(again.ready).resolves.toBeUndefined();
+    expect(backend.start).toHaveBeenCalledTimes(2);
+
+    // Disposing the dead handle neither stops the live watcher nor throws.
+    refused.dispose();
+    await settle();
+    expect(backend.stop).not.toHaveBeenCalled();
+  });
+
+  it("gives a subscriber that joins a start still in flight the same `ready`", async () => {
+    const { backend, holdStarts, releaseStarts } = fakeBackend();
+    backend.start.mockRejectedValueOnce(new Error("no watchers left"));
+    const watch = makeWatchFanout(backend);
+    holdStarts();
+
+    const first = watch("/repo", "workspace", vi.fn());
+    const second = watch("/repo", "workspace", vi.fn());
+    releaseStarts();
+
+    // One refusal, heard by both — from the one start made for both.
+    await expect(first.ready).rejects.toThrow("no watchers left");
+    await expect(second.ready).rejects.toThrow("no watchers left");
+    expect(backend.start).toHaveBeenCalledTimes(1);
+  });
+
+  it("resolves `ready` once the backend has armed the watch", async () => {
+    const { backend, holdStarts, releaseStarts } = fakeBackend();
+    const watch = makeWatchFanout(backend);
+    holdStarts();
+
+    const handle = watch("/repo", "workspace", vi.fn());
+    let armed = false;
+    void handle.ready.then(() => {
+      armed = true;
+    });
+    await settle();
+    expect(armed).toBe(false);
+
+    releaseStarts();
+    await handle.ready;
+    expect(armed).toBe(true);
+  });
 });

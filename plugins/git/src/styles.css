@@ -27,37 +27,93 @@
   min-width: 0;
 }
 
-/* The branch line: where HEAD is, ahead/behind, total change count. */
-.git__head {
+/* The sections under the picker: a grid of rows, one per section, packed
+   at the top. A row is as tall as its section's CONTENT — a short change
+   list leaves the next header right under it, not at the bottom of the tab;
+   a closed section is its header alone. Once the rows overflow the tab they
+   split its height EQUALLY, a row that needs less than its share yielding
+   the rest, and each section scrolls its own list. A flex column would
+   instead shrink the rows in proportion to their content, squeezing a
+   one-line "tree is clean" to nothing beside a long log. The one column is
+   the tab's width and no wider: an `auto` column would grow to the widest
+   nowrap row and the subjects would never ellipsize. */
+.git__sections {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-auto-rows: minmax(0, auto);
+  align-content: start;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.git__sec {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* The header: always visible, the whole row a toggle. */
+.git__sechdr {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 2px 2px 8px;
-  border-bottom: 1px solid #1c2230;
-  margin-bottom: 6px;
-}
-
-.git__bicon {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 6px 6px;
+  border: 0;
+  border-top: 1px solid #1c2230;
+  background-color: #0e121a;
   color: #8b93a3;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-align: left;
+  cursor: pointer;
 }
 
-.git__branch {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.git__sec:first-child .git__sechdr {
+  border-top: 0;
+}
+
+.git__sechdr:hover {
   color: #c5c8c6;
-  font-size: 12.5px;
-  font-weight: 600;
 }
 
+/* The mark turns; the header does not. `display: flex` so the span is
+   exactly the icon's box and the centre it turns about is the mark's, not
+   a line box's. Same 140ms as the workspace rail's chevron, so the two read
+   as one surface's tempo. */
+.git__chev {
+  display: flex;
+  flex: none;
+  color: #6b7280;
+  transform-origin: 50% 50%;
+  transition: transform 140ms ease;
+}
+
+.git__sec--open .git__chev {
+  transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* The chevron still turns — it just arrives turned. */
+  .git__chev {
+    transition: none;
+  }
+}
+
+.git__secname {
+  flex: none;
+}
+
+/* Ahead/behind beside the name — only when the branch stands somewhere. */
 .git__ab {
   flex: none;
   color: #6b7280;
   font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .git__count {
@@ -69,7 +125,34 @@
   background-color: #243044;
   color: #c5c8c6;
   font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0;
   text-align: center;
+}
+
+/* The body holds a note (loading, clean, a failure) or the list. The LIST
+   is the scroll container — a windowed list reads its own viewport — so
+   the body itself never scrolls; it only hands the list its height. */
+.git__secbody {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.git__list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 0 6px;
+}
+
+/* A section head that follows another section carries the gap between
+   them as padding: the rows are positioned by measured boxes, and a
+   margin is outside the box. */
+.git__sechead--after {
+  padding-top: 12px;
 }
 
 /* A worktree entry in the root picker: branch on top, its folder dimmed
@@ -83,12 +166,32 @@
   max-width: 100%;
 }
 
+/* The first line: the team's name, its branch beside it, dimmer. */
+.git__rootline {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.git__rootteam,
 .git__rootbranch,
 .git__rootfolder {
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.git__rootteam {
+  flex: none;
+  font-weight: 600;
+}
+
+.git__rootbranch {
+  color: #8b93a3;
+  font-size: 11px;
 }
 
 .git__rootfolder {
@@ -102,32 +205,6 @@
   display: none;
 }
 
-/* The view toggle: Changes | History — its own row under the repo picker,
-   the two halves splitting the dock's width. */
-.git__mode {
-  display: flex;
-  gap: 2px;
-  padding: 2px;
-  border-radius: 6px;
-  background-color: #151a24;
-  margin-bottom: 8px;
-}
-
-.git__modebtn {
-  flex: 1;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: #8b93a3;
-  font-size: 11.5px;
-  padding: 2px 8px;
-  cursor: pointer;
-}
-
-.git__modebtn--on {
-  background-color: #243044;
-  color: #c5c8c6;
-}
 
 /* Commit rows: subject fills, sha and age trail in mono/muted. */
 .git__subject {
@@ -155,38 +232,6 @@
   border-bottom: 1px solid #1c2230;
   border-radius: 5px 5px 0 0;
   margin-bottom: 4px;
-}
-
-/* The History ref picker: browse any local branch, checkout or not. */
-.git__refbar {
-  display: flex;
-  margin-bottom: 6px;
-}
-
-.git__ref {
-  flex: 1;
-  min-width: 0;
-}
-
-/* The checked-out branch in the ref picker: name plus a green check. */
-.git__refcur {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-
-.git__refcheck {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  color: var(--kd-ok);
-}
-
-/* The badge marks the checkout IN THE OPEN LIST only — on the closed control
-   the picked value is self-evident, the check would just be noise. */
-.git__ref .dropdown__button .git__refcheck {
-  display: none;
 }
 
 /* The fork boundary inside the full log: work above, base history below. */
@@ -234,13 +279,6 @@
   color: #8b93a3;
 }
 
-/* The change list: fills the panel and scrolls on its own. */
-.git__list {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow: auto;
-}
-
 .git__section {
   margin-bottom: 8px;
 }
@@ -284,10 +322,13 @@
   background-color: #151a24;
 }
 
-/* The one-letter porcelain code, colored by what happened. */
+/* The porcelain code in its tone (presentation/codeTone: the row's section,
+   deletions and conflicts red). One letter, centred in a fixed cell so the
+   names line up; a conflict's two-letter code (`UU`, `DD`) widens its own
+   cell — all rows of the Conflicts section carry two, so they line up too. */
 .git__code {
   flex: none;
-  width: 14px;
+  min-width: 14px;
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   font-size: 11.5px;
   font-weight: 700;

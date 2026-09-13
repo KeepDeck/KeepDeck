@@ -10,9 +10,13 @@
 //! file read: the `git` capability's scope resolves to the same live roots, and
 //! the repo path must sit inside one of them.
 //!
-//! Reads are pure by construction: everything runs under `--no-optional-locks`
-//! (see `keepdeck-git`), so a status re-read can never take `index.lock` and
-//! stall an agent's own git commands in the same worktree.
+//! Reads are pure by construction: the commands that would otherwise refresh
+//! the index — status, diff, log, the untracked listing — run under
+//! `--no-optional-locks` (see `keepdeck-git`), so a status re-read can never
+//! take `index.lock` and stall an agent's own git commands in the same
+//! worktree; the ref reads beside them (`rev-parse`, `merge-base`,
+//! `for-each-ref`, `symbolic-ref`, `worktree list`) take no such lock to
+//! begin with.
 //!
 //! ## The watch
 //!
@@ -39,11 +43,12 @@
 //! debounce to schedule one fresh status read.
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use keepdeck_git::{diff, head, log, provenance, repo, status, worktree, worktree_base};
+use keepdeck_git::{diff, fork, head, log, repo, status};
 use notify::{Event, EventKind, RecommendedWatcher};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
@@ -137,8 +142,10 @@ pub fn project_git_status(
 /// Unified diff for one tracked path in the repo. Three shapes, one command:
 /// worktree vs index (default), index vs HEAD (`staged`), or across a
 /// revision range when `from` is given (`from..to`, or `from` against the
-/// working tree without `to`). Untracked files have no diff (the plugin
-/// renders their plain content via `services.fs` instead).
+/// working tree without `to`). `orig_path` is the file's pre-rename path:
+/// with it the diff pairs both names instead of reading as a new file.
+/// Untracked files have no diff (the plugin renders their plain content via
+/// `services.fs` instead).
 #[tauri::command(async)]
 pub fn project_git_diff_file(
     path: String,
@@ -148,16 +155,31 @@ pub fn project_git_diff_file(
     staged: bool,
     from: Option<String>,
     to: Option<String>,
-) -> Result<String, String> {
+    orig_path: Option<String>,
+) -> Result<GitDiff, String> {
     let repo = resolve_within(&path, &roots, everywhere)?;
+    let orig = orig_path.as_deref();
     match from {
         Some(from) => {
             let from = commit_or_root(&repo, &from);
-            diff::diff_file_range(&repo, &file, &from, to.as_deref())
+            diff::diff_file_range(&repo, &file, &from, to.as_deref(), orig)
         }
-        None => diff::diff_file(&repo, &file, staged),
+        None => diff::diff_file(&repo, &file, staged, orig),
     }
+    .map(|capped| GitDiff {
+        text: capped.text,
+        truncated: capped.truncated,
+    })
     .map_err(|e| e.to_string())
+}
+
+/// One file's diff as reported to the plugin: the text up to the crate's
+/// cap, and whether it was cut. Mirrors `keepdeck_git::cmd::Capped`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitDiff {
+    pub text: String,
+    pub truncated: bool,
 }
 
 /// One commit as reported to the plugin. Mirrors `keepdeck_git::Commit`.
@@ -208,27 +230,30 @@ pub fn project_git_history(
 ) -> Result<GitHistory, String> {
     let repo = resolve_within(&path, &roots, everywhere)?;
 
-    // `rev` lets the UI browse ANY ref's history without a checkout; absent,
-    // the walk starts at the working tree's own HEAD.
-    let rev = rev.as_deref().unwrap_or("HEAD");
-    let tip = repo::resolve_commit(&repo, rev).map_err(|e| e.to_string())?;
-
-    // The fork-point ladder:
-    // 1. an EXPLICIT base wins — merge-base against it, as asked;
-    // 2. metadata owned by this branch follows its selected local base;
-    // 3. its creation SHA prevents a reset base from moving the fork backward;
-    // 4. metadata-less branches combine validated creation evidence with the
-    //    current default-branch merge-base for upgrade compatibility.
-    // A fork AT the tip means "this ref IS the base" — nothing to measure.
-    let fork = match base {
-        Some(ref base_ref) => repo::merge_base(&repo, base_ref, rev)
-            .map_err(|e| e.to_string())?
-            .filter(|fork| fork != &tip),
-        None => match managed_worktree_fork(&repo, rev, &tip)? {
-            WorktreeFork::Resolved(fork) => fork,
-            WorktreeFork::Unavailable => legacy_fork(&repo, rev, &tip)?,
+    // `rev` lets a caller browse ANY ref's history without a checkout;
+    // absent, the walk starts at the working tree's own HEAD. A ref that
+    // does not resolve is an error; a HEAD that does not is an UNBORN
+    // branch — a repository with no commit yet — and its history is empty,
+    // not broken: status works there, and so must the section beside it.
+    let tip = match rev.as_deref() {
+        Some(rev) => repo::resolve_commit(&repo, rev).map_err(|e| e.to_string())?,
+        None => match repo::head_commit(&repo).map_err(|e| e.to_string())? {
+            Some(tip) => tip,
+            None => {
+                return Ok(GitHistory {
+                    fork_sha: None,
+                    ahead: None,
+                    commits: Vec::new(),
+                })
+            }
         },
     };
+    let rev = rev.as_deref().unwrap_or("HEAD");
+
+    // The fork-point ladder — explicit base, then the worktree's own recorded
+    // base, then the default branch — lives with the crate (`fork`).
+    let fork =
+        fork::fork_point(&repo, rev, &tip, base.as_deref()).map_err(|e| e.to_string())?;
 
     // The FULL recent log — the ref's own commits arrive first (newest-first
     // order), then the fork commit and the base history; the fork sha lets
@@ -258,135 +283,15 @@ pub fn project_git_history(
     })
 }
 
-/// Result of consulting worktree-private metadata. `Resolved(None)` is
-/// intentionally distinct from `Unavailable`: metadata can authoritatively say
-/// that the inspected ref is sitting at its base tip, in which case the default
-/// branch heuristic must not invent a fork below it.
-enum WorktreeFork {
-    Unavailable,
-    Resolved(Option<String>),
-}
-
-fn managed_worktree_fork(
-    repo_path: &Path,
-    rev: &str,
-    tip: &str,
-) -> Result<WorktreeFork, String> {
-    let Some(metadata) = metadata_for_revision(repo_path, rev)? else {
-        return Ok(WorktreeFork::Unavailable);
-    };
-
-    match metadata
-        .fork_point(repo_path, rev)
-        .map_err(|e| e.to_string())?
-    {
-        Some(fork) if fork == tip => Ok(WorktreeFork::Resolved(None)),
-        Some(fork) => Ok(WorktreeFork::Resolved(Some(fork))),
-        None => Ok(WorktreeFork::Unavailable),
-    }
-}
-
-fn metadata_for_revision(
-    repo_path: &Path,
-    rev: &str,
-) -> Result<Option<worktree_base::BaseMetadata>, String> {
-    let Some(branch_ref) = revision_branch_ref(repo_path, rev)? else {
-        return Ok(None);
-    };
-    let branch = branch_ref
-        .strip_prefix("refs/heads/")
-        .unwrap_or(&branch_ref);
-
-    let mut candidates = Vec::new();
-    for registered in worktree::list(repo_path).map_err(|e| e.to_string())? {
-        let metadata = worktree_base::read_registered(repo_path, &registered.path)
-            .map_err(|e| e.to_string())?;
-        if !metadata.is_empty() {
-            candidates.push((registered.path, metadata));
-        }
-    }
-
-    if let Some((_, metadata)) = candidates
-        .iter()
-        .find(|(_, metadata)| {
-            metadata.managed_branch_ref.as_deref() == Some(branch_ref.as_str())
-        })
-    {
-        return Ok(Some(metadata.clone()));
-    }
-
-    for (worktree_path, metadata) in candidates {
-        let created = provenance::created_branches(repo_path, &worktree_path)
-            .map_err(|e| e.to_string())?;
-        if created.iter().any(|created| created == branch) {
-            return Ok(Some(metadata));
-        }
-    }
-    Ok(None)
-}
-
-fn revision_branch_ref(repo_path: &Path, rev: &str) -> Result<Option<String>, String> {
-    if rev == "HEAD" {
-        return repo::current_branch(repo_path)
-            .map(|branch| branch.map(|branch| format!("refs/heads/{branch}")))
-            .map_err(|e| e.to_string());
-    }
-    repo::local_branch_ref(repo_path, rev).map_err(|e| e.to_string())
-}
-
-fn legacy_fork(repo_path: &Path, rev: &str, tip: &str) -> Result<Option<String>, String> {
-    let Some(default_branch) = repo::default_branch(repo_path).map_err(|e| e.to_string())? else {
-        return Ok(None);
-    };
-    let Some(default_fork) =
-        repo::merge_base(repo_path, &default_branch, rev).map_err(|e| e.to_string())?
-    else {
-        return Ok(None);
-    };
-
-    let branch = revision_branch_ref(repo_path, rev)?
-        .and_then(|reference| reference.strip_prefix("refs/heads/").map(str::to_string));
-    let creation = match branch.as_deref() {
-        Some(branch) if branch != default_branch => {
-            repo::branch_created_at(repo_path, branch).map_err(|e| e.to_string())?
-        }
-        _ => None,
-    };
-    let valid_creation = match creation {
-        Some(created)
-            if created != tip
-                && repo::merge_base(repo_path, &created, tip)
-                    .map_err(|e| e.to_string())?
-                    .as_deref()
-                    == Some(created.as_str()) =>
-        {
-            Some(created)
-        }
-        _ => None,
-    };
-
-    let fork = match valid_creation {
-        Some(created)
-            if repo::merge_base(repo_path, &default_fork, &created)
-                .map_err(|e| e.to_string())?
-                .as_deref()
-                == Some(default_fork.as_str()) =>
-        {
-            created
-        }
-        _ => default_fork,
-    };
-    Ok((fork != tip).then_some(fork))
-}
-
 /// A repo's local branches, for the history browser's ref picker.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GitBranches {
     /// The branch the working tree is on; `None` when detached.
     pub current: Option<String>,
-    /// Local branch names, alphabetical. Remote-tracking refs are excluded —
-    /// browsing history is a LOCAL affair, same rule as the base-branch picker.
+    /// Local branch names, alphabetical, at most the crate's
+    /// `BRANCHES_MAX` of them. Remote-tracking refs are excluded — browsing
+    /// history is a LOCAL affair, same rule as the base-branch picker.
     pub branches: Vec<String>,
 }
 
@@ -454,40 +359,104 @@ fn commit_or_root(repo: &Path, from: &str) -> String {
     }
 }
 
-/// The live git watchers — PAIRS of watchers (working tree + gitdir) keyed by
-/// registered repo path. Tauri managed state; re-registering a path replaces
-/// (and stops) the old pair, removing stops it.
+/// The live git watchers — one SET per repo (working tree, gitdir, shared
+/// refs) in the shared [`fswatch::WatchRegistry`], keyed by the repo path as
+/// the webview registered it. Tauri managed state; re-registering a path
+/// replaces (and stops) the old set, removing stops it. The key is the
+/// registered string verbatim: `/repo` and `/repo/` are two keys here as
+/// they are two feeds in the webview, and each change event carries its own
+/// key back, which is what makes the join work.
 #[derive(Default)]
-pub struct ProjectGitWatchers(Mutex<HashMap<String, Vec<RecommendedWatcher>>>);
-
-impl ProjectGitWatchers {
-    fn insert(&self, key: String, watchers: Vec<RecommendedWatcher>) {
-        self.lock().insert(key, watchers);
-    }
-
-    fn remove(&self, key: &str) {
-        self.lock().remove(key);
-    }
-
-    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, Vec<RecommendedWatcher>>> {
-        self.0.lock().expect("git watch registry poisoned")
-    }
-}
+pub struct ProjectGitWatchers(fswatch::WatchRegistry<Vec<RecommendedWatcher>>);
 
 /// Does a working-tree event matter to git status? Content writes DO (unlike
 /// the file tree's structural filter — status is about bytes, not listings);
-/// pure access never does; and anything under a `.git` component is the
+/// pure access never does; anything under a `.git` component is the
 /// gitdir's business, not the working tree's (for the main repo the `.git`
 /// dir sits inside the watched root, so the recursive stream reports its
-/// lockfile/object churn — all noise for status).
-fn worktree_event_matters(event: &Event) -> bool {
+/// lockfile/object churn — all noise for status); and a path git ignores
+/// (`skipped`, see [`IgnoredTrees`]) cannot change what status shows.
+fn worktree_event_matters(event: &Event, skipped: &dyn Fn(&Path) -> bool) -> bool {
     if matches!(event.kind, EventKind::Access(_)) {
         return false;
     }
     event
         .paths
         .iter()
-        .any(|p| !p.components().any(|c| c.as_os_str() == ".git"))
+        .any(|p| !p.components().any(|c| c.as_os_str() == ".git") && !skipped(p))
+}
+
+/// Which top-level entries of a working tree git ignores — asked once per
+/// name, remembered, forgotten when the rules change.
+///
+/// A build writes thousands of files under `target/` or `node_modules/`;
+/// status never looks there, so a watcher that re-read status for each of
+/// them paid a git process per burst for nothing. Per TOP-LEVEL name on
+/// purpose: the big ignored trees live at the root, and the names there are
+/// few — one `check-ignore` each, ever. A nested ignored directory still
+/// passes, which costs a spare status read rather than missing one. An
+/// ignored directory holding files added by force is not skipped either:
+/// those files are tracked, and an edit to them is a status change.
+///
+/// The memory is emptied whenever the answer could have changed: a
+/// `.gitignore` written anywhere in the tree (the rules are what they say
+/// now; it passes as an event of its own), and any index or ref move the
+/// gitdir watcher reports — a `git add -f` inside a tree remembered as
+/// skipped makes its files tracked. What it cannot see is a rule changed
+/// OUTSIDE the tree — `.git/info/exclude`, the global excludes file — until
+/// the next of those; a tree un-ignored that way stays skipped until then.
+struct IgnoredTrees {
+    worktree: PathBuf,
+    known: Mutex<HashMap<OsString, bool>>,
+}
+
+impl IgnoredTrees {
+    fn new(worktree: &Path) -> Self {
+        Self {
+            // The OS reports events by the REAL path (`/private/var/…` for
+            // macOS's `/var/…`); a tree named by any other spelling would
+            // match none of them, and skip nothing.
+            worktree: std::fs::canonicalize(worktree).unwrap_or_else(|_| worktree.to_path_buf()),
+            known: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Whether an event at `path` can be skipped: its top-level entry is
+    /// ignored and holds nothing tracked. A path outside the tree, or the
+    /// tree itself, is never skipped.
+    fn skips(&self, path: &Path) -> bool {
+        let Ok(rel) = path.strip_prefix(&self.worktree) else {
+            return false;
+        };
+        let Some(top) = rel.components().next() else {
+            return false;
+        };
+        if rel.file_name().is_some_and(|name| name == ".gitignore") {
+            self.forget();
+            return false;
+        }
+        let top = top.as_os_str();
+        if let Some(&skipped) = self.known().get(top) {
+            return skipped;
+        }
+        let name = top.to_string_lossy();
+        // A git that cannot answer (the tree gone mid-event) skips nothing:
+        // a spare read beats a missed one.
+        let skipped = repo::is_ignored(&self.worktree, &name).unwrap_or(false)
+            && !repo::has_tracked_files(&self.worktree, &name).unwrap_or(true);
+        self.known().insert(top.to_owned(), skipped);
+        skipped
+    }
+
+    /// Drop everything remembered: the next event under each name asks git
+    /// again.
+    fn forget(&self) {
+        self.known().clear();
+    }
+
+    fn known(&self) -> std::sync::MutexGuard<'_, HashMap<OsString, bool>> {
+        self.known.lock().expect("ignored trees poisoned")
+    }
 }
 
 /// Does a gitdir event matter to git status? `index` (stage/unstage/commit),
@@ -548,15 +517,19 @@ fn spawn_git_watch(
         }
     };
 
+    let ignored = Arc::new(IgnoredTrees::new(worktree));
     let tree_notify = notify.clone();
+    let tree_ignored = ignored.clone();
     let tree_watcher = fswatch::watch_dir_recursive(worktree, move |event| {
-        if worktree_event_matters(event) {
+        if worktree_event_matters(event, &|path| tree_ignored.skips(path)) {
             tree_notify();
         }
     })?;
     let gitdir_notify = notify.clone();
     let gitdir_watcher = fswatch::watch_dir(gitdir, move |event| {
         if gitdir_event_matters(event) {
+            // The index or a ref moved: what was ignored may be tracked now.
+            ignored.forget();
             gitdir_notify();
         }
     })?;
@@ -593,7 +566,7 @@ fn spawn_git_watch(
 
 /// Start watching one repo for status-relevant changes, emitting
 /// [`PROJECT_GIT_CHANGE_EVENT`]. Scoped exactly like a read. Idempotent per
-/// registered path — re-registering replaces the old watcher pair.
+/// registered path — re-registering replaces the old watcher set.
 #[tauri::command(async)]
 pub fn project_git_watch(
     app: AppHandle,
@@ -602,30 +575,48 @@ pub fn project_git_watch(
     roots: Vec<String>,
     everywhere: bool,
 ) -> Result<(), String> {
-    let repo = resolve_within(&path, &roots, everywhere)?;
-    let gitdir = head::git_dir(&repo).map_err(|e| e.to_string())?;
-    let common = head::git_common_dir(&repo).map_err(|e| e.to_string())?;
-
     let emitter = app.clone();
-    let set = spawn_git_watch(
-        &repo,
-        &gitdir,
-        &common,
-        path.clone(),
-        MIN_EVENT_GAP,
-        move |registered| {
-            let _ = emitter.emit(PROJECT_GIT_CHANGE_EVENT, &ProjectGitChange { path: registered });
-        },
-    )?;
-    watchers.insert(path, set);
-    Ok(())
+    arm_watch(&watchers.0, path, &roots, everywhere, move |registered| {
+        let _ = emitter.emit(PROJECT_GIT_CHANGE_EVENT, &ProjectGitChange { path: registered });
+    })
+}
+
+/// Resolve, wire and register the watcher set for `path` — or, when the
+/// path is refused or the repo cannot be read, DROP whatever set the path
+/// had. A refusal is an answer about the path as it is now (the worktree
+/// gone, the scope narrowed), and a set armed under the old answer kept
+/// delivering for a repo the caller was just told it may not watch. Split
+/// from the command so the registry's behaviour is testable without a
+/// Tauri app.
+fn arm_watch(
+    registry: &fswatch::WatchRegistry<Vec<RecommendedWatcher>>,
+    path: String,
+    roots: &[String],
+    everywhere: bool,
+    deliver: impl Fn(String) + Send + Sync + 'static,
+) -> Result<(), String> {
+    let armed = resolve_within(&path, roots, everywhere).and_then(|repo| {
+        let gitdir = head::git_dir(&repo).map_err(|e| e.to_string())?;
+        let common = head::git_common_dir(&repo).map_err(|e| e.to_string())?;
+        spawn_git_watch(&repo, &gitdir, &common, path.clone(), MIN_EVENT_GAP, deliver)
+    });
+    match armed {
+        Ok(set) => {
+            registry.insert(path, set);
+            Ok(())
+        }
+        Err(reason) => {
+            registry.remove(&path);
+            Err(reason)
+        }
+    }
 }
 
 /// Stop watching a repo (tab switched away, workspace closed). An unknown path
 /// is a no-op.
 #[tauri::command]
 pub fn project_git_unwatch(watchers: State<ProjectGitWatchers>, path: String) {
-    watchers.remove(&path);
+    watchers.0.remove(&path);
 }
 
 #[cfg(test)]
@@ -729,10 +720,12 @@ mod tests {
             false,
             None,
             None,
+            None,
         )
         .expect("diff");
-        assert!(diff.contains("-hello"));
-        assert!(diff.contains("+changed"));
+        assert!(diff.text.contains("-hello"));
+        assert!(diff.text.contains("+changed"));
+        assert!(!diff.truncated);
 
         fs::remove_dir_all(&repo).ok();
     }
@@ -862,6 +855,39 @@ mod tests {
         .expect("branches");
         assert_eq!(listed.current.as_deref(), Some("main"));
         assert!(listed.branches.contains(&"kd/test/2".to_string()));
+
+        fs::remove_dir_all(&repo).ok();
+    }
+
+    #[test]
+    fn an_unborn_repository_has_an_empty_history_and_a_named_branch() {
+        // A fresh `git init`: HEAD names `main`, and no commit exists yet.
+        // Status answers here; history and branches used to fail with exit
+        // 128 beside it, which read as a broken repository in the tab.
+        let repo = unique_dir("unborn");
+        git(&repo, &["init", "-q", "-b", "main"]);
+
+        let history = project_git_history(
+            repo.to_string_lossy().into_owned(),
+            roots(&repo),
+            false,
+            None,
+            None,
+            None,
+        )
+        .expect("history of an unborn branch");
+        assert_eq!(history.commits.len(), 0);
+        assert_eq!(history.fork_sha, None);
+        assert_eq!(history.ahead, None);
+
+        let listed = project_git_branches(
+            repo.to_string_lossy().into_owned(),
+            roots(&repo),
+            false,
+        )
+        .expect("branches of an unborn repository");
+        assert_eq!(listed.current.as_deref(), Some("main"));
+        assert!(listed.branches.is_empty(), "no ref exists yet: {listed:?}");
 
         fs::remove_dir_all(&repo).ok();
     }
@@ -1282,9 +1308,10 @@ mod tests {
             false,
             Some(format!("{head}^")),
             Some(head),
+            None,
         )
         .expect("root-commit diff");
-        assert!(diff.contains("+hello"), "{diff}");
+        assert!(diff.text.contains("+hello"), "{}", diff.text);
 
         fs::remove_dir_all(&repo).ok();
     }
@@ -1293,17 +1320,108 @@ mod tests {
 
     #[test]
     fn worktree_filter_keeps_content_edits_drops_git_and_access() {
+        let nothing_skipped = |_: &Path| false;
         let edit = Event::new(EventKind::Modify(ModifyKind::Data(DataChange::Content)))
             .add_path(PathBuf::from("/ws/src/main.ts"));
-        assert!(worktree_event_matters(&edit));
+        assert!(worktree_event_matters(&edit, &nothing_skipped));
 
         let git_churn = Event::new(EventKind::Create(CreateKind::File))
             .add_path(PathBuf::from("/ws/.git/objects/ab/cdef"));
-        assert!(!worktree_event_matters(&git_churn));
+        assert!(!worktree_event_matters(&git_churn, &nothing_skipped));
 
         let access = Event::new(EventKind::Access(AccessKind::Any))
             .add_path(PathBuf::from("/ws/src/main.ts"));
-        assert!(!worktree_event_matters(&access));
+        assert!(!worktree_event_matters(&access, &nothing_skipped));
+
+        // An ignored tree's event is dropped; one path outside it keeps the
+        // event alive.
+        let under_target = |p: &Path| p.starts_with("/ws/target");
+        let build = Event::new(EventKind::Create(CreateKind::File))
+            .add_path(PathBuf::from("/ws/target/debug/app.o"));
+        assert!(!worktree_event_matters(&build, &under_target));
+        let mixed = Event::new(EventKind::Create(CreateKind::File))
+            .add_path(PathBuf::from("/ws/target/debug/app.o"))
+            .add_path(PathBuf::from("/ws/src/main.ts"));
+        assert!(worktree_event_matters(&mixed, &under_target));
+    }
+
+    #[test]
+    fn ignored_trees_skip_by_top_level_entry_and_forget_on_a_rule_change() {
+        // Events name the REAL path; so does this test.
+        let repo = fs::canonicalize(init_repo()).unwrap();
+        fs::write(repo.join(".gitignore"), "target/\n").unwrap();
+        fs::create_dir_all(repo.join("target/debug")).unwrap();
+        fs::create_dir_all(repo.join("src")).unwrap();
+        let trees = IgnoredTrees::new(&repo);
+
+        assert!(trees.skips(&repo.join("target/debug/app.o")));
+        assert!(!trees.skips(&repo.join("src/main.ts")));
+        assert!(!trees.skips(&repo.join("README.md")));
+        // The tree itself, and a path outside it, are never skipped.
+        assert!(!trees.skips(&repo));
+        assert!(!trees.skips(Path::new("/elsewhere/target/x")));
+
+        // Rules change: the memory goes, and the new rules apply.
+        fs::write(repo.join(".gitignore"), "").unwrap();
+        assert!(!trees.skips(&repo.join(".gitignore")));
+        assert!(!trees.skips(&repo.join("target/debug/app.o")));
+
+        // An ignored directory with a force-added file inside is not skipped:
+        // that file is tracked, and an edit to it is a status change.
+        fs::write(repo.join(".gitignore"), "target/\n").unwrap();
+        fs::write(repo.join("target/keep.txt"), "kept\n").unwrap();
+        git(&repo, &["add", "-f", "target/keep.txt"]);
+        let fresh = IgnoredTrees::new(&repo);
+        assert!(!fresh.skips(&repo.join("target/keep.txt")));
+        assert!(!fresh.skips(&repo.join("target/debug/app.o")));
+
+        fs::remove_dir_all(&repo).ok();
+    }
+
+    #[test]
+    fn watch_stays_quiet_under_an_ignored_tree() {
+        let repo = init_repo();
+        fs::write(repo.join(".gitignore"), "target/\n").unwrap();
+        git(&repo, &["add", ".gitignore"]);
+        git(&repo, &["commit", "-q", "-m", "ignore target"]);
+        fs::create_dir_all(repo.join("target")).unwrap();
+        let gitdir = head::git_dir(&repo).unwrap();
+        let common = head::git_common_dir(&repo).unwrap();
+        let (tx, rx) = mpsc::channel::<String>();
+        let _set = spawn_git_watch(&repo, &gitdir, &common, "k".to_string(), Duration::ZERO, {
+            move |key| {
+                let _ = tx.send(key);
+            }
+        })
+        .expect("watch");
+        // The watcher is live before the writes below (delivery of a tracked
+        // edit proves it), then quiet.
+        fs::write(repo.join("README.md"), "edited\n").unwrap();
+        rx.recv_timeout(Duration::from_secs(10)).expect("a tracked edit delivers");
+        while rx.recv_timeout(Duration::from_millis(300)).is_ok() {}
+
+        // A build under the ignored tree: status would not change, and the
+        // watcher says nothing.
+        for n in 0..20 {
+            fs::write(repo.join(format!("target/out-{n}.o")), "obj\n").unwrap();
+        }
+        assert!(
+            rx.recv_timeout(Duration::from_secs(2)).is_err(),
+            "an ignored tree's writes reached the webview"
+        );
+
+        // A file added by force inside the tree the watcher remembers as
+        // skipped: the index move reaches the webview, and forgets the
+        // memory — so an EDIT to that now-tracked file reaches it too.
+        fs::write(repo.join("target/keep.txt"), "kept\n").unwrap();
+        git(&repo, &["add", "-f", "target/keep.txt"]);
+        rx.recv_timeout(Duration::from_secs(10)).expect("the index move delivers");
+        while rx.recv_timeout(Duration::from_millis(300)).is_ok() {}
+        fs::write(repo.join("target/keep.txt"), "kept, edited\n").unwrap();
+        rx.recv_timeout(Duration::from_secs(10))
+            .expect("an edit to a force-added file under an ignored tree delivers");
+
+        fs::remove_dir_all(&repo).ok();
     }
 
     #[test]
@@ -1362,6 +1480,41 @@ mod tests {
         git(&repo, &["add", "README.md"]);
         rx.recv_timeout(Duration::from_secs(10))
             .expect("an event for the staging");
+
+        fs::remove_dir_all(&repo).ok();
+    }
+
+    #[test]
+    fn a_refused_re_watch_drops_the_earlier_watchers() {
+        let repo = init_repo();
+        let registry = fswatch::WatchRegistry::default();
+        let key = repo.to_string_lossy().into_owned();
+        let (tx, rx) = mpsc::channel::<String>();
+
+        // Armed under a scope that allows the repo…
+        arm_watch(&registry, key.clone(), &roots(&repo), false, {
+            let tx = tx.clone();
+            move |registered| {
+                let _ = tx.send(registered);
+            }
+        })
+        .expect("watch");
+        fs::write(repo.join("README.md"), "edited\n").unwrap();
+        rx.recv_timeout(Duration::from_secs(10)).expect("the first set delivers");
+        while rx.recv_timeout(Duration::from_millis(300)).is_ok() {}
+
+        // …then re-registered under a scope that refuses it: the refusal
+        // must take the earlier set with it, not leave it delivering for a
+        // repo the caller was just told it may not watch.
+        let refused = arm_watch(&registry, key, &[], false, move |registered| {
+            let _ = tx.send(registered);
+        });
+        assert!(refused.is_err(), "empty roots refuse");
+        fs::write(repo.join("README.md"), "edited again\n").unwrap();
+        assert!(
+            rx.recv_timeout(Duration::from_secs(2)).is_err(),
+            "the earlier set survived the refusal"
+        );
 
         fs::remove_dir_all(&repo).ok();
     }

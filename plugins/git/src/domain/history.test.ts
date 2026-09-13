@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   commitRange,
   historyRow,
+  readVersionFor,
   relativeTime,
+  scopeIsPinned,
   scopeLabel,
   scopeRange,
   scopeSha,
@@ -31,6 +33,22 @@ describe("scopes", () => {
     expect(scopeRange(commit)).toEqual({ from: "abc123^", to: "abc123" });
     expect(scopeLabel(commit)).toBe("add feature");
     expect(scopeSha(commit)).toBe("abc123");
+  });
+
+  it("only a commit scope is pinned — a fork sweep follows the tree or a branch", () => {
+    expect(scopeIsPinned(commit)).toBe(true);
+    expect(scopeIsPinned(fork)).toBe(false);
+    // A branch name can move under the peek, so a rev-pinned sweep is live too.
+    expect(scopeIsPinned({ ...fork, rev: "kd/side/1" })).toBe(false);
+  });
+
+  it("a pinned scope reads on a frozen revision until the feed fails", () => {
+    const healthy = { version: 7, error: null };
+    expect(readVersionFor(commit, healthy)).toBe(0);
+    expect(readVersionFor(fork, healthy)).toBe(7);
+    expect(readVersionFor(null, healthy)).toBe(7);
+    // The repo may be gone: even a commit's peek must go and find out.
+    expect(readVersionFor(commit, { version: 8, error: "no such path" })).toBe(8);
   });
 
   it("a fork scope reaches the working tree on the checkout, the ref when pinned", () => {
@@ -77,6 +95,29 @@ describe("historyRow", () => {
       origPath: "src/old.ts",
       code: "R",
       kind: "history",
+    });
+  });
+
+  it("maps an unmerged file of a working-tree range to a conflicted row", () => {
+    // A range diff of an unmerged path is a combined diff the peek cannot
+    // read; the conflicted row shows the working file instead, as in status.
+    expect(historyRow({ path: "f.txt", origPath: null, code: "U" })).toEqual({
+      path: "f.txt",
+      origPath: null,
+      code: "U",
+      kind: "conflicted",
+    });
+  });
+
+  it("maps an untracked file of a working-tree range to an untracked row", () => {
+    // `?` is listed only when the range reaches the working tree; there is
+    // no diff to read for it at any range, so the row is the file itself —
+    // the same shape an untracked status entry makes.
+    expect(historyRow({ path: "scratch.md", origPath: null, code: "?" })).toEqual({
+      path: "scratch.md",
+      origPath: null,
+      code: "?",
+      kind: "untracked",
     });
   });
 });

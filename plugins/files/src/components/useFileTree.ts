@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Disposable } from "@keepdeck/plugin-api";
+import type { WatchHandle } from "@keepdeck/plugin-api";
 import { getRuntime } from "../runtime";
 import {
   initTree,
@@ -27,7 +27,7 @@ const WATCH_DEBOUNCE_MS = 250;
 export function useFileTree(rootPath: string) {
   const [state, setState] = useState<TreeState>(() => initTree(rootPath));
   // One live watcher per loaded directory, plus its pending debounced re-read.
-  const watchesRef = useRef<Map<string, Disposable>>(new Map());
+  const watchesRef = useRef<Map<string, WatchHandle>>(new Map());
   const timersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   // Which tree the live state belongs to; bumped on every re-root. A load
   // reads it before its first await and rechecks after: the path alone can't
@@ -53,21 +53,29 @@ export function useFileTree(rootPath: string) {
       if (generationRef.current !== generation) return;
       setState((current) => setChildren(current, path, entries));
       if (!watchesRef.current.has(path)) {
-        watchesRef.current.set(
-          path,
-          services.fs.watch(path, () => {
-            const timers = timersRef.current;
-            const pending = timers.get(path);
-            if (pending) clearTimeout(pending);
-            timers.set(
-              path,
-              setTimeout(() => {
-                timers.delete(path);
-                void load(path);
-              }, WATCH_DEBOUNCE_MS),
-            );
-          }),
-        );
+        const watches = watchesRef.current;
+        const handle = services.fs.watch(path, () => {
+          const timers = timersRef.current;
+          const pending = timers.get(path);
+          if (pending) clearTimeout(pending);
+          timers.set(
+            path,
+            setTimeout(() => {
+              timers.delete(path);
+              void load(path);
+            }, WATCH_DEBOUNCE_MS),
+          );
+        });
+        watches.set(path, handle);
+        // A refused watch (a path outside the scope, a watcher limit) never
+        // fires, and the directory is not live. Said in the log rather than
+        // swallowed, and forgotten, so the next load of this directory —
+        // the Refresh button, a collapse and expand — asks for it again.
+        handle.ready.catch((cause: unknown) => {
+          const message = cause instanceof Error ? cause.message : String(cause);
+          log.warn(`watch refused for ${path}: ${message}`);
+          if (watches.get(path) === handle) watches.delete(path);
+        });
       }
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause);

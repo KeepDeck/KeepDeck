@@ -5,6 +5,7 @@ import type {
   CommandInfo,
   CommandResult,
   Disposable,
+  WatchHandle,
   DownloadState,
   FileOpenRequest,
   PluginContext,
@@ -187,13 +188,21 @@ export function buildGuestContext(
     service: "fs" | "git",
     path: string,
     onChange: () => void,
-  ): Disposable {
+  ): WatchHandle {
     const id = nextRegId++;
     const channel = `fswatch:${id}`;
     watchCallbacks.set(channel, onChange);
-    void rpc.call(`services.${service}.watch`, [id, path]).catch(noop);
+    // The call answers once the host has armed the watch, and fails when it
+    // refused — which is exactly what the handle's `ready` promises. The
+    // refusal is also logged, since a plugin that never reads `ready` would
+    // otherwise never learn why its watch is quiet.
+    const ready = rpc
+      .call(`services.${service}.watch`, [id, path])
+      .then(() => undefined);
+    ready.catch((cause) => warnRefused(`services.${service}.watch`, cause));
     let live = true;
     return {
+      ready,
       dispose() {
         if (!live) return;
         live = false;

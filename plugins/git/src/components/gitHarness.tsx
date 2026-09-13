@@ -9,6 +9,10 @@ import type {
   PluginContext,
   WorkspaceSnapshot,
 } from "@keepdeck/plugin-api";
+import {
+  installResizeObserver,
+  pinListViewport,
+} from "@keepdeck/ui-kit/virtualGeometry.test-support";
 import { setRuntime } from "../runtime";
 import { takePeekRequest } from "../peekRequests";
 import { GitTab } from "./GitTab";
@@ -33,8 +37,16 @@ export const workspace: WorkspaceSnapshot = {
   instance: "instance-1",
   name: "app",
   cwd: "/repo",
+  teams: [{ id: "team-1", name: "api", cwd: "/wt/one", branch: "kd/app/1" }],
   panes: [
-    { id: "p1", name: "agent 1", cwd: "/wt/one", branch: "kd/app/1", agentType: "claude" },
+    {
+      id: "p1",
+      name: "agent 1",
+      cwd: "/wt/one",
+      branch: "kd/app/1",
+      agentType: "claude",
+      team: "team-1",
+    },
   ],
 };
 
@@ -80,7 +92,10 @@ export function makeGit() {
       async (repo: string) =>
         branchLists.get(repo) ?? { current: "main", branches: ["main"] },
     ),
-    diffFile: vi.fn(async () => "@@ -1 +1 @@\n-hello\n+goodbye\n"),
+    diffFile: vi.fn(async () => ({
+      text: "@@ -1 +1 @@\n-hello\n+goodbye\n",
+      truncated: false,
+    })),
     watch: vi.fn((repo: string, onChange: () => void) => {
       let set = watchers.get(repo);
       if (!set) {
@@ -88,7 +103,7 @@ export function makeGit() {
         watchers.set(repo, set);
       }
       set.add(onChange);
-      return { dispose: () => void set!.delete(onChange) };
+      return { ready: Promise.resolve(), dispose: () => void set!.delete(onChange) };
     }),
     /** Simulate the backend's repo-changed event. */
     fireChange: (repo: string) => watchers.get(repo)?.forEach((cb) => cb()),
@@ -98,6 +113,22 @@ export function makeGit() {
 
 export function makeCtx(git: ReturnType<typeof makeGit>): PluginContext {
   return {
+    // The tab remembers its open sections per workspace; an empty slot here
+    // means the defaults, and writes are accepted and forgotten.
+    storage: {
+      workspace: () => ({
+        get: vi.fn(async () => undefined),
+        set: vi.fn(async () => {}),
+        delete: vi.fn(async () => {}),
+      }),
+    },
+    // The resident diff overlay tells the host when its peek covers the
+    // deck; the fake takes the word and does nothing with it.
+    ui: {
+      registerDockTab: vi.fn(() => ({ dispose: vi.fn() })),
+      registerOverlay: vi.fn(() => ({ dispose: vi.fn() })),
+      setOverlayCovers: vi.fn(),
+    },
     // The resident diff overlay subscribes to these to drop a diff whose
     // workspace the user has left; nothing here fires them.
     events: {
@@ -133,8 +164,9 @@ export function makeCtx(git: ReturnType<typeof makeGit>): PluginContext {
 export interface GitHarness {
   /** The mount point of the CURRENT test — read it per use, not once. */
   readonly host: HTMLDivElement;
-  /** Tab + resident overlay, the way the host mounts them. */
-  render(selectedPaneId?: string | null): Promise<void>;
+  /** Tab + resident overlay, the way the host mounts them. `ws` overrides
+   * the shared workspace fixture for a test about another deck. */
+  render(selectedPaneId?: string | null, ws?: WorkspaceSnapshot): Promise<void>;
   /** The tab alone, with no consumer for what it opens. */
   renderTabOnly(selectedPaneId?: string | null): Promise<void>;
   /** Flush the debounce timer AND the reads it schedules. */
@@ -146,8 +178,15 @@ export interface GitHarness {
 export function mountGitHarness(): GitHarness {
   let root: Root;
   let host: HTMLDivElement;
+  let restoreViewport: () => void = () => {};
 
   beforeEach(() => {
+    // The sections' lists are windowed, and happy-dom computes no layout:
+    // pin the list's viewport TALL, so every row a test counts is mounted
+    // and the end of a list is always in view — the window's own
+    // behaviour is the ui-kit list's suite, not these.
+    installResizeObserver();
+    restoreViewport = pinListViewport("git__list", 100_000, 340, 24);
     host = document.createElement("div");
     document.body.appendChild(host);
     root = createRoot(host);
@@ -159,6 +198,7 @@ export function mountGitHarness(): GitHarness {
     // reach into that module state, here or in production.
     await act(async () => root.unmount());
     host.remove();
+    restoreViewport();
     setRuntime(null);
     // A test that opens a diff without a consumer leaves the request parked
     // in the module's slot; drain it so it can't open a peek in the next one.
@@ -170,13 +210,13 @@ export function mountGitHarness(): GitHarness {
     get host() {
       return host;
     },
-    async render(selectedPaneId: string | null = null) {
+    async render(selectedPaneId: string | null = null, ws: WorkspaceSnapshot = workspace) {
       await act(async () => {
         root.render(
           createElement(
             Fragment,
             null,
-            createElement(GitTab, { workspace, selectedPaneId }),
+            createElement(GitTab, { workspace: ws, selectedPaneId }),
             createElement(GitDiffOverlay),
           ),
         );

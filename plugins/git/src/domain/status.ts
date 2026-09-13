@@ -24,7 +24,9 @@ export interface ChangeRow {
   path: string;
   /** The pre-rename path, when the index stages a rename. */
   origPath: string | null;
-  /** The porcelain v2 code for THIS row's side (`M`, `A`, `D`, `R`, …). */
+  /** The porcelain v2 code for THIS row's side (`M`, `A`, `D`, `R`, …); a
+   * conflicted row carries both sides (`UU`, `AA`, `DU`, …), which is what
+   * tells "both added" from "both deleted" without opening the file. */
   code: string;
   kind: ChangeKind;
 }
@@ -50,7 +52,7 @@ export function groupEntries(entries: GitStatusEntry[]): ChangeGroups {
   };
   for (const entry of entries) {
     if (entry.conflicted) {
-      groups.conflicted.push(row(entry, "U", "conflicted"));
+      groups.conflicted.push(row(entry, `${entry.staged}${entry.unstaged}`, "conflicted"));
       continue;
     }
     if (entry.untracked) {
@@ -71,7 +73,32 @@ function row(entry: GitStatusEntry, code: string, kind: ChangeKind): ChangeRow {
   return { path: entry.path, origPath: entry.origPath, code, kind };
 }
 
-/** A porcelain code in plain words — row tooltips and accessibility labels. */
+/** Whether two rows are the same change: the same path in the same section.
+ * A path staged AND edited again is two rows — two different diffs — so a
+ * path alone does not say which one is open, marked, or walked to. */
+export function sameChange(a: ChangeRow, b: ChangeRow): boolean {
+  return a.path === b.path && a.kind === b.kind;
+}
+
+/** Where an open row stands after a status refresh. Itself, fresh, while
+ * its section still lists the path; the same path's row in another section
+ * when the change MOVED — staged with `git add`, unstaged by a reset, a
+ * conflict resolved, an untracked file added — so the open peek follows
+ * the file to the diff it now has instead of re-reading the one it no
+ * longer has; itself unchanged when the path left the status altogether,
+ * where the diff then reads empty, which is the truth. */
+export function reconcileRow(row: ChangeRow, groups: ChangeGroups): ChangeRow {
+  const listed = [
+    ...groups.conflicted,
+    ...groups.staged,
+    ...groups.unstaged,
+    ...groups.untracked,
+  ].filter((candidate) => candidate.path === row.path);
+  return listed.find((candidate) => sameChange(candidate, row)) ?? listed[0] ?? row;
+}
+
+/** A porcelain code in plain words — row tooltips and accessibility labels.
+ * A conflict's two sides say who did what (git's own `status` wording). */
 export function codeLabel(code: string): string {
   switch (code) {
     case "M":
@@ -88,6 +115,20 @@ export function codeLabel(code: string): string {
       return "type changed";
     case "U":
       return "conflicted";
+    case "UU":
+      return "both modified";
+    case "AA":
+      return "both added";
+    case "DD":
+      return "both deleted";
+    case "AU":
+      return "added by us";
+    case "UA":
+      return "added by them";
+    case "DU":
+      return "deleted by us";
+    case "UD":
+      return "deleted by them";
     case "?":
       return "untracked";
     default:

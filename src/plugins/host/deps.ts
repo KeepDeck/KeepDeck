@@ -73,6 +73,8 @@ export interface PluginHostDeps {
     revealDockTab(pluginId: string, entryId: string): void;
     /** Show/hide one of this plugin's overlays (see `PluginUi`). */
     setOverlayVisible(pluginId: string, entryId: string, visible: boolean): void;
+    /** One of this plugin's overlays covers the window, or no longer does. */
+    setOverlayCovers(pluginId: string, entryId: string, covers: boolean): void;
   };
   /** This plugin's `ctx.notify` — capability-checked (tier from `source`,
    * mirroring `services`), sanitized, rate-limited and attributed by the
