@@ -3,6 +3,7 @@ import type { DockTabProps } from "@keepdeck/plugin-api";
 import { Dropdown } from "@keepdeck/ui-kit/Dropdown";
 import { RefreshIcon } from "@keepdeck/ui-kit/icons";
 import { shortPath } from "@keepdeck/ui-kit/paths";
+import { useRootSelection } from "@keepdeck/ui-kit/useRootSelection";
 import { useFileTree } from "./useFileTree";
 import { requestOpen } from "../openRequests";
 import { visibleRows, type TreeNode } from "../domain/tree";
@@ -25,20 +26,26 @@ import { TreeView } from "./TreeView";
  * keeps its cursor and scroll through the whole round trip.
  */
 export function FilesTab({ workspace, selectedPaneId }: DockTabProps) {
-  const [target, setTarget] = useState(
-    () =>
-      workspace.panes.find((pane) => pane.id === selectedPaneId)?.cwd ??
-      workspace.cwd,
-  );
-  // Follow the highlighted pane (same seen-ref idiom as the Run tab).
-  const seenSelectedRef = useRef(selectedPaneId);
-  if (seenSelectedRef.current !== selectedPaneId) {
-    seenSelectedRef.current = selectedPaneId;
-    const followed = workspace.panes.find(
-      (pane) => pane.id === selectedPaneId,
-    )?.cwd;
-    if (followed && followed !== target) setTarget(followed);
-  }
+  // Distinct roots: each pane worktree once, the workspace folder last (a
+  // pane attached to the main repo can't duplicate it).
+  const targets = [
+    ...[
+      ...new Map(
+        workspace.panes
+          .filter((pane) => pane.cwd && pane.cwd !== workspace.cwd)
+          .map((pane) => [pane.cwd!, pane.branch ?? shortPath(pane.cwd!)]),
+      ).entries(),
+    ].map(([value, label]) => ({ value, label })),
+    { value: workspace.cwd, label: "Workspace folder" },
+  ];
+  // Follows the highlighted pane, holds a hand pick, leaves a vanished root
+  // — the one rule the dock tabs share.
+  const [target, setTarget] = useRootSelection({
+    selectedPaneId,
+    panes: workspace.panes,
+    fallback: workspace.cwd,
+    roots: targets.map((option) => option.value),
+  });
 
   const { state, toggle, refresh } = useFileTree(target);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -61,19 +68,6 @@ export function FilesTab({ workspace, selectedPaneId }: DockTabProps) {
       ?.querySelector('[data-cursor="true"]')
       ?.scrollIntoView({ block: "nearest" });
   }, [cursor]);
-
-  // Distinct roots: each pane worktree once, the workspace folder last (a
-  // pane attached to the main repo can't duplicate it).
-  const targets = [
-    ...[
-      ...new Map(
-        workspace.panes
-          .filter((pane) => pane.cwd && pane.cwd !== workspace.cwd)
-          .map((pane) => [pane.cwd!, pane.branch ?? shortPath(pane.cwd!)]),
-      ).entries(),
-    ].map(([value, label]) => ({ value, label })),
-    { value: workspace.cwd, label: "Workspace folder" },
-  ];
 
   const rows = visibleRows(state);
 

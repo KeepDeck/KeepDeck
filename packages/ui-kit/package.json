@@ -17,7 +17,9 @@
     "./dropBlocker": "./src/dropBlocker.ts",
     "./Peek": "./src/Peek.tsx",
     "./inputProps": "./src/inputProps.ts",
-    "./paths": "./src/paths.ts"
+    "./paths": "./src/paths.ts",
+    "./rootSelection": "./src/rootSelection.ts",
+    "./useRootSelection": "./src/useRootSelection.ts"
   },
   "peerDependencies": {
     "react": "^19.1.0",

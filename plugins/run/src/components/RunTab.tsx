@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import type { DockTabProps } from "@keepdeck/plugin-api";
 import {
   addPreset,
@@ -17,6 +17,7 @@ import { useRunSessions } from "./useRunSessions";
 import { Dropdown } from "@keepdeck/ui-kit/Dropdown";
 import { noAutoCorrect } from "@keepdeck/ui-kit/inputProps";
 import { shortPath } from "@keepdeck/ui-kit/paths";
+import { useRootSelection } from "@keepdeck/ui-kit/useRootSelection";
 import {
   CloseIcon,
   EditIcon,
@@ -48,20 +49,28 @@ export function RunTab({ workspace, selectedPaneId }: DockTabProps) {
   const [openPick, setOpenPick] = useOpenApp(workspace);
   const openApp = resolveOpenApp(openPick, apps);
 
+  // Distinct run targets: each pane worktree once, the workspace folder last
+  // (dropped from the pane pass so an attached-to-main pane can't duplicate it).
+  const targets = [
+    ...[
+      ...new Map(
+        workspace.panes
+          .filter((p) => p.cwd && p.cwd !== workspace.cwd)
+          .map((p) => [p.cwd!, p.branch ?? shortPath(p.cwd!)]),
+      ).entries(),
+    ].map(([value, label]) => ({ value, label })),
+    { value: workspace.cwd, label: "Workspace folder" },
+  ];
   // Where to run: a pane's worktree, or the workspace folder. Defaults to the
   // highlighted pane's worktree — "run what I'm looking at" — and FOLLOWS the
   // highlight (the pane-header ▶ selects, then reveals this panel); a manual
-  // pick holds only until the next pane click. Same seen-ref idiom as
-  // WorkspaceForm's default-agent follow.
-  const [target, setTarget] = useState(
-    () => workspace.panes.find((p) => p.id === selectedPaneId)?.cwd ?? workspace.cwd,
-  );
-  const seenSelectedRef = useRef(selectedPaneId);
-  if (seenSelectedRef.current !== selectedPaneId) {
-    seenSelectedRef.current = selectedPaneId;
-    const followed = workspace.panes.find((p) => p.id === selectedPaneId)?.cwd;
-    if (followed && followed !== target) setTarget(followed);
-  }
+  // pick holds until the highlight changes. The one rule the dock tabs share.
+  const [target, setTarget] = useRootSelection({
+    selectedPaneId,
+    panes: workspace.panes,
+    fallback: workspace.cwd,
+    roots: targets.map((option) => option.value),
+  });
   const [command, setCommand] = useState("");
   const [name, setName] = useState("");
   const [picked, setPicked] = useState<string | null>(null);
@@ -97,19 +106,6 @@ export function RunTab({ workspace, selectedPaneId }: DockTabProps) {
     setPicked(id);
     setLogOpen(true);
   };
-
-  // Distinct run targets: each pane worktree once, the workspace folder last
-  // (dropped from the pane pass so an attached-to-main pane can't duplicate it).
-  const targets = [
-    ...[
-      ...new Map(
-        workspace.panes
-          .filter((p) => p.cwd && p.cwd !== workspace.cwd)
-          .map((p) => [p.cwd!, p.branch ?? shortPath(p.cwd!)]),
-      ).entries(),
-    ].map(([value, label]) => ({ value, label })),
-    { value: workspace.cwd, label: "Workspace folder" },
-  ];
 
   const targetLabel = (s: RunSession) =>
     s.worktree === workspace.cwd
