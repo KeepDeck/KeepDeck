@@ -33,7 +33,10 @@ function deferredFs() {
     readFile: vi.fn(),
     watch: vi.fn((path: string) => {
       watched.set(path, (watched.get(path) ?? 0) + 1);
-      return { dispose: () => watched.set(path, (watched.get(path) ?? 1) - 1) };
+      return {
+        ready: Promise.resolve(),
+        dispose: () => watched.set(path, (watched.get(path) ?? 1) - 1),
+      };
     }),
   };
 }

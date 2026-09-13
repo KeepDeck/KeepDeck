@@ -91,7 +91,7 @@ export function makeGit() {
         watchers.set(repo, set);
       }
       set.add(onChange);
-      return { dispose: () => void set!.delete(onChange) };
+      return { ready: Promise.resolve(), dispose: () => void set!.delete(onChange) };
     }),
     /** Simulate the backend's repo-changed event. */
     fireChange: (repo: string) => watchers.get(repo)?.forEach((cb) => cb()),
