@@ -97,6 +97,31 @@ fn log_walks_a_range_newest_first_and_caps() {
     fs::remove_dir_all(&repo_dir).ok();
 }
 
+/// `user.name` is not sanitized the way a subject is: git trims the ENDS of
+/// a name and drops `<`, `>` and newlines, and a control character in the
+/// middle reaches the log verbatim. The unit and record separators this
+/// format used to split on shifted every field of such a commit and dropped
+/// it silently.
+#[test]
+fn a_control_character_in_the_author_keeps_the_commit_listed() {
+    let repo_dir = init_forked_repo();
+    let odd_name = "Odd\u{1f}Auth\u{1e}or";
+    fs::write(repo_dir.join("odd.txt"), "odd\n").unwrap();
+    git(&repo_dir, &["add", "odd.txt"]);
+    git(
+        &repo_dir,
+        &["-c", &format!("user.name={odd_name}"), "commit", "-q", "-m", "odd commit"],
+    );
+
+    let commits = log::log(&repo_dir, None, 50).expect("log");
+    assert_eq!(commits.len(), 4, "{commits:?}");
+    assert_eq!(commits[0].subject, "odd commit");
+    assert_eq!(commits[0].author, odd_name);
+    assert_eq!(commits[1].subject, "rename feature");
+
+    fs::remove_dir_all(&repo_dir).ok();
+}
+
 /// A revision that spells a git option must be refused as a revision, never
 /// obeyed as an option: `--output=<path>` would otherwise write the diff to
 /// ANY path, past every containment check the caller made on the repo.
