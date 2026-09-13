@@ -23,7 +23,7 @@ export function registerWorkspaceCommands(
   return [
     registry.register({
       id: "workspace.list",
-      title: "List workspaces and agents",
+      title: "List workspaces, their teams and agents",
       args: [],
       run: () => {
         const deck = deps.deck();

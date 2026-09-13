@@ -146,7 +146,7 @@ function publishCommand(deps: ArtifactCommandDeps): CommandSpec {
         name: "id",
         type: "string",
         description:
-          "The artifact's id — lowercase letters, digits, dashes (e.g. auth-flow). Teammates reference it in mail. Omit to mint one from the title",
+          "The artifact's id — lowercase letters, digits, dashes (e.g. auth-flow). Agents in this workspace reference it in mail. Omit to mint one from the title",
       },
       {
         name: "title",
@@ -260,7 +260,7 @@ function listCommand(deps: ArtifactCommandDeps): CommandSpec {
   return {
     id: "artifact.list",
     title:
-      "List this workspace's artifacts (id, title, format, versions, last author) — the team's shared review surface",
+      "List this workspace's artifacts (id, title, format, versions, last author) — the review surface every team in the workspace shares",
     args: [],
     run: async (_args, source) => {
       const caller = callerContext(source, deps);

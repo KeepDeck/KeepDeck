@@ -145,7 +145,7 @@ export function registerSpawnCommands(
   return [
     registry.register({
       id: "agent.spawn",
-      title: "Spawn an agent in a workspace",
+      title: "Start an agent — on a new team of its own, or on `team`",
       args: [
         {
           name: "workspace",
