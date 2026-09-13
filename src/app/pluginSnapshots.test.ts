@@ -9,7 +9,17 @@ const ws: Workspace = {
   name: "Deck",
   cwd: "/repo",
   worktreeBaseDir: null,
-  teams: [{ id: "team-1", name: "x", location: { kind: "attached", cwd: "/repo/wt", branch: "kd/x" } }],
+  teams: [
+    { id: "team-1", name: "x", location: { kind: "attached", cwd: "/repo/wt", branch: "kd/x" } },
+    // Nobody on it: still a team, still a directory — a plugin sees the fact.
+    { id: "team-2", name: "empty", location: { kind: "attached", cwd: "/repo/wt2", branch: "kd/y" } },
+    // Being created: no directory yet, the branch it is heading for.
+    {
+      id: "team-3",
+      name: "making",
+      location: { kind: "provisioning", intent: { repo: "/repo", path: "/repo/wt3", branch: "kd/z", index: 3 } },
+    },
+  ],
   panes: [
     { id: "p1", agentType: "claude", team: { teamId: "team-1", role: "lead" } },
     { id: "p2", autoTitle: "vitest --watch" },
@@ -25,9 +35,14 @@ describe("toWorkspaceSnapshot", () => {
       name: "Deck",
       cwd: "/repo",
       panes: [
-        { id: "p1", name: "p1", cwd: "/repo/wt", branch: "kd/x", agentType: "claude" },
+        { id: "p1", name: "p1", cwd: "/repo/wt", branch: "kd/x", agentType: "claude", team: "team-1" },
         { id: "p2", name: "vitest --watch", agentType: "unknown" },
         { id: "p3", name: "Named", agentType: "unknown" },
+      ],
+      teams: [
+        { id: "team-1", name: "x", cwd: "/repo/wt", branch: "kd/x" },
+        { id: "team-2", name: "empty", cwd: "/repo/wt2", branch: "kd/y" },
+        { id: "team-3", name: "making", branch: "kd/z" },
       ],
     });
   });

@@ -1,8 +1,10 @@
-import type { WorkspaceSnapshot } from "@keepdeck/plugin-api";
+import type { TeamSnapshot, WorkspaceSnapshot } from "@keepdeck/plugin-api";
 import {
   paneWorktree,
   paneBranch,
+  teamsOf,
   type Pane,
+  type Team,
   type Workspace,
 } from "../domain/deck";
 
@@ -19,6 +21,7 @@ export function toWorkspaceSnapshot(ws: Workspace): WorkspaceSnapshot {
     name: ws.name,
     cwd: ws.cwd,
     panes: ws.panes.map((pane) => toPaneSnapshot(ws, pane)),
+    teams: teamsOf(ws).map(toTeamSnapshot),
   };
 }
 
@@ -36,5 +39,26 @@ function toPaneSnapshot(ws: Workspace, pane: Pane) {
     ...(worktree !== null && { cwd: worktree.cwd }),
     ...(branch !== undefined && { branch }),
     agentType: pane.agentType ?? "unknown",
+    ...(pane.team !== undefined && { team: pane.team.teamId }),
+  };
+}
+
+/** A team as facts: where it runs and on what. Sparse like a pane — no
+ * directory while the create is in flight, and then the branch it is
+ * heading for is the one it will have. */
+function toTeamSnapshot(team: Team): TeamSnapshot {
+  const location = team.location;
+  const cwd = location?.kind === "attached" ? location.cwd : undefined;
+  const branch =
+    location?.kind === "attached"
+      ? location.branch
+      : location?.kind === "provisioning"
+        ? location.intent.branch
+        : undefined;
+  return {
+    id: team.id,
+    name: team.name,
+    ...(cwd !== undefined && { cwd }),
+    ...(branch !== undefined && { branch }),
   };
 }

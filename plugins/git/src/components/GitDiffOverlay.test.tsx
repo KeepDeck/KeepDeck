@@ -24,6 +24,7 @@ const workspace: WorkspaceSnapshot = {
   name: "app",
   cwd: "/repo",
   panes: [],
+  teams: [],
 };
 
 const status = (paths: string[]): GitStatus => ({

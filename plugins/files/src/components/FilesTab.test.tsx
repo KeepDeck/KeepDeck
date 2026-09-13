@@ -23,6 +23,7 @@ const workspace: WorkspaceSnapshot = {
   name: "app",
   cwd: "/repo",
   panes: [],
+  teams: [],
 };
 
 const dir = (name: string): FsEntry => ({

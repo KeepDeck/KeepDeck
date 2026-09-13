@@ -189,6 +189,7 @@ export type {
 export { mergeSectionValues } from "./settings.ts";
 export type {
   PaneSnapshot,
+  TeamSnapshot,
   WorkspaceRef,
   WorkspaceSnapshot,
 } from "./snapshots.ts";
