@@ -79,4 +79,16 @@ describe("historyRow", () => {
       kind: "history",
     });
   });
+
+  it("maps an untracked file of a working-tree range to an untracked row", () => {
+    // `?` is listed only when the range reaches the working tree; there is
+    // no diff to read for it at any range, so the row is the file itself —
+    // the same shape an untracked status entry makes.
+    expect(historyRow({ path: "scratch.md", origPath: null, code: "?" })).toEqual({
+      path: "scratch.md",
+      origPath: null,
+      code: "?",
+      kind: "untracked",
+    });
+  });
 });

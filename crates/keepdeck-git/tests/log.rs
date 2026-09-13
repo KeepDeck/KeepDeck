@@ -154,6 +154,42 @@ fn changed_files_and_diff_cover_a_range_and_the_working_tree() {
     fs::remove_dir_all(&repo_dir).ok();
 }
 
+/// "Everything since the fork, committed or not" includes the files git has
+/// never seen: `git diff <fork>` lists tracked paths only, so a working-tree
+/// range appends the untracked ones as `?` entries. A committed range does
+/// not, and ignored files stay out either way.
+#[test]
+fn a_working_tree_range_lists_untracked_files_as_untracked() {
+    let repo_dir = init_forked_repo();
+    let fork = repo::merge_base(&repo_dir, "main", "HEAD").unwrap().unwrap();
+    fs::write(repo_dir.join("scratch.md"), "notes\n").unwrap();
+    fs::write(repo_dir.join(".gitignore"), "ignored.log\n").unwrap();
+    fs::write(repo_dir.join("ignored.log"), "noise\n").unwrap();
+
+    let with_tree = diff::changed_files(&repo_dir, &fork, None).expect("tree files");
+    let scratch = with_tree
+        .iter()
+        .find(|f| f.path == "scratch.md")
+        .expect("the untracked file is listed");
+    assert_eq!(scratch.code, '?');
+    assert_eq!(scratch.orig_path, None);
+    assert!(with_tree.iter().any(|f| f.path == ".gitignore" && f.code == '?'));
+    assert!(
+        !with_tree.iter().any(|f| f.path == "ignored.log"),
+        "ignored files are not work: {with_tree:?}"
+    );
+    // Tracked changes are still there, before the untracked tail.
+    assert!(with_tree.iter().any(|f| f.path == "README.md" && f.code == 'M'));
+
+    let committed = diff::changed_files(&repo_dir, &fork, Some("HEAD")).expect("range files");
+    assert!(
+        !committed.iter().any(|f| f.code == '?'),
+        "a committed range has no untracked files: {committed:?}"
+    );
+
+    fs::remove_dir_all(&repo_dir).ok();
+}
+
 /// Twenty lines, so a one-line edit after a move still reads as a rename to
 /// git's similarity check (a one-liner edited would be 0% similar).
 fn twenty_lines(changed: Option<usize>) -> String {

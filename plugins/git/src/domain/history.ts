@@ -74,12 +74,14 @@ export function relativeTime(unixSeconds: number, nowMs: number): string {
 }
 
 /** A range-diff file as a peek row. `history` rows diff across the drilled
- * range, never against the index. */
+ * range, never against the index. An untracked file (`?`, listed only when
+ * the range reaches the working tree) has no diff to read at any range — it
+ * is the same row an untracked status entry makes: the file's own content. */
 export function historyRow(file: GitChangedFile): ChangeRow {
   return {
     path: file.path,
     origPath: file.origPath,
     code: file.code,
-    kind: "history",
+    kind: file.code === "?" ? "untracked" : "history",
   };
 }

@@ -128,18 +128,20 @@ export function DiffPeek({
         : row.kind === "conflicted"
           ? conflictedFileDiff
           : null;
-    const read = range
-      ? services.git
-          .diffFile(repo, row.path, { from: range.from, to: range.to, ...renamed })
-          .then(parseDiff)
-      : asFile
-        ? services.fs
-            .readFile(`${repo.replace(/\/+$/, "")}/${row.path}`)
-            .then((file) =>
-              file.isBinary || file.text === null
-                ? binaryFileDiff()
-                : asFile(file.text),
-            )
+    // A file-shaped row reads the file whatever change set it sits in: an
+    // untracked file in a since-fork sweep has no diff at any range either.
+    const read = asFile
+      ? services.fs
+          .readFile(`${repo.replace(/\/+$/, "")}/${row.path}`)
+          .then((file) =>
+            file.isBinary || file.text === null
+              ? binaryFileDiff()
+              : asFile(file.text),
+          )
+      : range
+        ? services.git
+            .diffFile(repo, row.path, { from: range.from, to: range.to, ...renamed })
+            .then(parseDiff)
         : services.git
             .diffFile(repo, row.path, { staged: row.kind === "staged", ...renamed })
             .then(parseDiff);

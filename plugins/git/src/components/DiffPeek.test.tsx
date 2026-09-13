@@ -443,6 +443,44 @@ describe("DiffPeek", () => {
     });
   });
 
+  it("reads an untracked file in a since-fork sweep as a file, not a range diff", async () => {
+    // A working-tree range lists untracked files as `?`; git has no diff for
+    // them at any range, so the row reads the file the way a status row does.
+    const diffFile = vi.fn(async () => TS_DIFF);
+    const readFile = vi.fn(async () => ({
+      text: "notes\n",
+      isBinary: false,
+      size: 6,
+      truncated: false,
+      readBytes: 6,
+    }));
+    setRuntime({
+      services: { git: { diffFile, changedFiles: vi.fn(async () => []) }, fs: { readFile } },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    } as unknown as PluginContext);
+
+    await act(async () => {
+      root.render(
+        createElement(DiffPeek, {
+          repo: "/repo",
+          view: {
+            kind: "file",
+            row: { path: "scratch.md", origPath: null, code: "?", kind: "untracked" },
+            changeSet: { kind: "history", scope: { kind: "fork", forkSha: "fork456" } },
+          },
+          version: 1,
+          onSelect: vi.fn(),
+          onClose: vi.fn(),
+        }),
+      );
+    });
+    await settle(() => rowTexts().length > 0);
+
+    expect(diffFile).not.toHaveBeenCalled();
+    expect(readFile).toHaveBeenCalledWith("/repo/scratch.md");
+    expect(rowTexts()).toEqual(["notes"]);
+  });
+
   it("shows an unmerged file itself, markers included, instead of a combined diff", async () => {
     // `git diff` on an unmerged path prints a combined diff (`@@@ -1,3 -1,3
     // +1,7 @@@`, two marker columns) that the two-sided parser garbled: wrong

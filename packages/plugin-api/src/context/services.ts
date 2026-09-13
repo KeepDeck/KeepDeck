@@ -302,8 +302,8 @@ export interface PluginGit {
    * browser's ref picker. */
   branches(repo: string): Promise<GitBranches>;
   /** The paths changed across `from..to` — or everything since `from`
-   * (committed or not) when `to` is omitted. The file list behind one commit
-   * or a "since the fork" summary. */
+   * (committed or not, untracked files included as `?` entries) when `to` is
+   * omitted. The file list behind one commit or a "since the fork" summary. */
   changedFiles(repo: string, from: string, to?: string): Promise<GitChangedFile[]>;
   /** Watch the repo for status-relevant changes — working-tree edits AND
    * index/HEAD/ref moves (stage, commit, checkout). `onChange` fires
@@ -377,7 +377,10 @@ export interface GitHistory {
 }
 
 /** One changed path across a revision range. `code` is git's status letter
- * (`M`/`A`/`D`/`R`/`C`/`T`); renames fold into one entry carrying both names. */
+ * (`M`/`A`/`D`/`R`/`C`/`T`), or `?` for an untracked file — those appear
+ * only in an open-ended range, where the working tree counts, and have no
+ * diff: render their plain content (via `fs.readFile`) like a status
+ * entry's untracked path. Renames fold into one entry carrying both names. */
 export interface GitChangedFile {
   path: string;
   origPath: string | null;

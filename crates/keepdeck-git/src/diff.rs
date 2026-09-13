@@ -96,7 +96,8 @@ pub struct ChangedFile {
     pub path: String,
     /// The old path, for renames and copies.
     pub orig_path: Option<String>,
-    /// The status letter: `M`/`A`/`D`/`R`/`C`/`T` (similarity scores dropped).
+    /// The status letter: `M`/`A`/`D`/`R`/`C`/`T` (similarity scores dropped),
+    /// or `?` for an untracked file in a working-tree range.
     pub code: char,
 }
 
@@ -104,7 +105,26 @@ pub struct ChangedFile {
 /// the working tree when `to` is `None`. `-M` detects renames so a moved file
 /// is one entry with both names, matching what status shows for staged moves.
 /// `--end-of-options` guards the revisions the way [`diff_file_range`] does.
+///
+/// The working-tree form means "everything since `from`, committed or not",
+/// and untracked files are part of that work: `git diff` never lists them
+/// (it only knows tracked paths), so they are appended from `ls-files`, each
+/// as an entry with code `?` — the status letter for untracked. Ignored files
+/// stay out, as they do in status.
 pub fn changed_files(
+    repo: &Path,
+    from: &str,
+    to: Option<&str>,
+) -> Result<Vec<ChangedFile>, GitError> {
+    let mut files = changed_tracked_files(repo, from, to)?;
+    if to.is_none() {
+        files.extend(untracked_files(repo)?);
+    }
+    Ok(files)
+}
+
+/// The paths git itself reports across the range: tracked files only.
+fn changed_tracked_files(
     repo: &Path,
     from: &str,
     to: Option<&str>,
@@ -124,6 +144,30 @@ pub fn changed_files(
     args.push(OsStr::new("--"));
     let out = run_git(repo, args)?;
     Ok(parse_name_status(&out))
+}
+
+/// Untracked, not ignored files of the working tree — each its own entry
+/// (`ls-files --others` lists files, never directories), as `?` entries.
+fn untracked_files(repo: &Path) -> Result<Vec<ChangedFile>, GitError> {
+    let out = run_git(
+        repo,
+        [
+            "--no-optional-locks",
+            "ls-files",
+            "--others",
+            "--exclude-standard",
+            "-z",
+        ],
+    )?;
+    Ok(out
+        .split('\0')
+        .filter(|path| !path.is_empty())
+        .map(|path| ChangedFile {
+            path: path.to_string(),
+            orig_path: None,
+            code: '?',
+        })
+        .collect())
 }
 
 /// Parse `diff --name-status -z` output. Pure: tokens alternate
