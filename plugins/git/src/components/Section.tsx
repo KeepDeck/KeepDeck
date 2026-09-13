@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { ChevronIcon } from "@keepdeck/ui-kit/icons";
 import type { SectionId } from "../presentation/sections";
 
 /**
@@ -39,8 +40,10 @@ export function Section({
         aria-controls={bodyId}
         onClick={() => onToggle(id)}
       >
+        {/* One drawn mark, turned by CSS when open — the workspace rail's
+            chevron, not two glyphs swapping. */}
         <span className="git__chev" aria-hidden>
-          {open ? "⌄" : "›"}
+          <ChevronIcon />
         </span>
         <span className="git__secname">{label}</span>
         {aside}

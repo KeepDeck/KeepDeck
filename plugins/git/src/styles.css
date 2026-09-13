@@ -79,11 +79,27 @@
   color: #c5c8c6;
 }
 
+/* The mark turns; the header does not. `display: flex` so the span is
+   exactly the icon's box and the centre it turns about is the mark's, not
+   a line box's. Same 140ms as the workspace rail's chevron, so the two read
+   as one surface's tempo. */
 .git__chev {
+  display: flex;
   flex: none;
-  width: 10px;
   color: #6b7280;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  transform-origin: 50% 50%;
+  transition: transform 140ms ease;
+}
+
+.git__sec--open .git__chev {
+  transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* The chevron still turns — it just arrives turned. */
+  .git__chev {
+    transition: none;
+  }
 }
 
 .git__secname {
