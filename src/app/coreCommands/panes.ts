@@ -19,7 +19,7 @@ export function registerPaneCommands(
   return [
     registry.register({
       id: "pane.target",
-      title: "Resolve the active pane input target",
+      title: "Resolve the active pane input target, and the team it is on",
       args: [],
       run: () => {
         const deck = deps.deck();
@@ -36,7 +36,7 @@ export function registerPaneCommands(
     }),
     registry.register({
       id: "agent.focus",
-      title: "Select an agent pane",
+      title: "Select an agent pane, entering its team on the way",
       args: [
         {
           name: "agent",

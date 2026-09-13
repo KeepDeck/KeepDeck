@@ -26,6 +26,7 @@
  * nothing on the team can work.
  */
 import {
+  createFailed,
   membersOf,
   teamHeldPath,
   type GitPosition,
@@ -89,7 +90,7 @@ export function teamDot(
 ): TeamCardDot {
   const location = team.location;
   const creating = location?.kind === "provisioning";
-  const treeFailed = creating && location.error !== undefined;
+  const treeFailed = createFailed(location);
   // `selected: false` — a team is picked out by nothing but its own dot,
   // like a rail dot on a background workspace.
   const frame = workspaceFrame(
@@ -117,7 +118,7 @@ export function teamCardView(
 ): TeamCardView {
   const location = team.location;
   const creating = location?.kind === "provisioning";
-  const treeFailed = creating && location.error !== undefined;
+  const treeFailed = createFailed(location);
   const dot = teamDot(team, activities);
   return {
     id: team.id,

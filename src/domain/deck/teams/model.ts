@@ -69,9 +69,10 @@ export interface Team {
    * The directory the team's agents run in.
    *
    * Optional THROUGH the transition only. A team that exists as a roster
-   * alone — one the mail's `team.assign` minted by NAME, whose members run
-   * in the workspace root because a pane carries no directory of its own
-   * any more — has none, and its members read as running in the root. Stage
+   * alone — one the mail's roster command minted by NAME before a team was
+   * born with a directory, whose members run in the workspace root because
+   * a pane carries no directory of its own any more — has none, and its
+   * members read as running in the root. Stage
    * C5 moves the mail onto team ids and creates every team WITH a directory,
    * after which a team without one is not a team and this field stops being
    * optional.
@@ -111,7 +112,7 @@ export function teamNameKey(name: string): string {
 }
 
 /**
- * A membership spoken by NAME: what the team dialog, the `team.assign`
+ * A membership spoken by NAME: what the team dialog, the `team.role`
  * command and the v10 document say — "this pane is `impl-1` on `api`". The
  * deck resolves the name to a team id at its boundary, so nothing past that
  * boundary ever compares names to find a team.

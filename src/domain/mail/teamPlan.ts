@@ -225,7 +225,7 @@ const MOVES_WORK = "an agent runs where its team runs; to move work between team
  * `impl-1`s the moment the second one starts.
  *
  * Enforced HERE and not only where a dialog draws it: an agent driving
- * `team.assign` reads no dialog, and every rule below is about teams, not
+ * `team.role` reads no dialog, and every rule below is about teams, not
  * about a form.
  */
 export function planTeam(

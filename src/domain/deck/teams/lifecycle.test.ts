@@ -7,6 +7,8 @@ import { findTeam, membersOf } from "./collection";
 import {
   birthRefusal,
   claimDirectory,
+  createFailed,
+  createIsOut,
   createTeam,
   directoriesStillHeld,
   dissolveTeam,
@@ -375,6 +377,25 @@ describe("provisioning on the team", () => {
     expect(setTeamProvisioningError(failed, "ws-1", "team-1", "boom")).toBe(failed);
     const retried = setTeamProvisioningError(failed, "ws-1", "team-1", null);
     expect(findTeam(retried[0], "team-1")!.location).toEqual(creating("/wt/1"));
+  });
+
+  it("answers the two questions a card holds — still out, or failed — and never both", () => {
+    // The card's rim, the roster's status word, the retry door and the
+    // retry tool all ask these here; a fold spelled at each of them is how
+    // the next state a card can hold would move one and not the rest.
+    const out = findTeam(card()[0], "team-1")!.location;
+    expect(createIsOut(out)).toBe(true);
+    expect(createFailed(out)).toBe(false);
+    const failed = findTeam(
+      setTeamProvisioningError(card(), "ws-1", "team-1", "boom")[0],
+      "team-1",
+    )!.location;
+    expect(createIsOut(failed)).toBe(false);
+    expect(createFailed(failed)).toBe(true);
+    // A team that runs, or one with no directory yet, is neither.
+    expect(createIsOut({ kind: "attached", cwd: "/wt/1" })).toBe(false);
+    expect(createFailed({ kind: "attached", cwd: "/wt/1" })).toBe(false);
+    expect(createFailed(undefined)).toBe(false);
   });
 });
 

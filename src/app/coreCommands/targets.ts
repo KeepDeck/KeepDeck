@@ -1,13 +1,19 @@
 /**
  * How a command finds what it acts on: the workspace it names or the active
- * one, the pane it names or the selected one, and the worktree a recruit is
- * heading for. Asked by every area of the core set, answered once here —
- * two copies of "the active workspace" had already drifted before this
- * existed.
+ * one, the team it names in it, the pane it names or the selected one, and
+ * the worktree a recruit is heading for. Asked by every area of the core
+ * set, answered once here — two copies of "the active workspace" had
+ * already drifted before this existed.
  */
 import type { AgentInfo } from "../../domain/agents";
-import { resolvePaneRef, resolveWorkspaceRef } from "../../domain/commands";
-import { findWorkspace, type Pane, type Workspace, paneProvisioning } from "../../domain/deck";
+import { resolvePaneRef, resolveTeamRef, resolveWorkspaceRef } from "../../domain/commands";
+import {
+  findWorkspace,
+  type Pane,
+  type Team,
+  type Workspace,
+  paneProvisioning,
+} from "../../domain/deck";
 import type { Deck } from "../useDeck";
 
 /** The workspace a command acts on: the named one, else the active one. */
@@ -22,6 +28,15 @@ export function targetWorkspace(deck: Deck, ref: string | undefined): Workspace 
   const active = findWorkspace(deck.workspaces, deck.activeId);
   if (!active) throw new Error("no active workspace");
   return active;
+}
+
+/** The team a command acts on, named by id or name in the workspace it acts
+ * on. Refused in the resolver's own words: a team that is not here is not
+ * made here. */
+export function targetTeam(ws: Workspace, ref: string): Team {
+  const resolved = resolveTeamRef(ws, ref);
+  if (!resolved.ok) throw new Error(resolved.message);
+  return resolved.value;
 }
 
 /** The pane a command acts on: the named one, else the selected one, else

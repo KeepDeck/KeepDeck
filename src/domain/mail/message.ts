@@ -10,6 +10,7 @@
  * roster paid for twice.
  */
 import type { CommandSource } from "../commands";
+import { formatAddress } from "./address";
 
 /**
  * What the message is FOR.
@@ -80,6 +81,11 @@ export interface MailSender {
    * being told the roles. Snapshot at send time for the same reason the
    * label is: roles move. */
   role?: string;
+  /** The team it answered on, when it spoke from one: its id, and the name
+   * people address it by. Snapshot for the reason `role` is. A receiver on
+   * the SAME team is shown the bare role; anyone else is shown `role@name`,
+   * the address that reaches back — see [`senderAddress`]. */
+  team?: { id: string; name: string };
 }
 
 /**
@@ -145,20 +151,30 @@ export function senderOf(source: CommandSource): MailSender | null {
  * inherited it, while a stale role or title comes back as a refusal. Naming
  * the wrong pane is worse than naming none.
  *
- * A fact about the SENDER, not about a channel, which is why it lives here.
- * The three read paths derived it independently once, each carrying its own
- * copy of this reasoning; change one and that path's receivers keep getting
- * a name `resolveMailTarget` will refuse. [`senderName`] is the same answer
- * for a whole message, and is what the two delivery channels call.
+ * Read RELATIVE to the receiver, because a role is an address inside one
+ * team: a teammate is shown the bare role, and a receiver on another team —
+ * or on none — is shown `role@team`, the form the resolver reads across
+ * teams. Shown the bare role, a receiver on another team answered "lead"
+ * and reached its own lead. `readerTeamId` is the team the reader stands
+ * on, null on none.
+ *
+ * A fact about the SENDER and the reader, not about a channel, which is why
+ * it lives here. The three read paths derived it independently once, each
+ * carrying its own copy of this reasoning; change one and that path's
+ * receivers keep getting a name `resolveMailTarget` will refuse.
+ * [`senderName`] is the same answer for a whole message, and is what the
+ * two delivery channels call.
  */
-export function senderAddress(sender: MailSender): string {
-  return sender.role ?? sender.label;
+export function senderAddress(sender: MailSender, readerTeamId: string | null): string {
+  if (sender.role === undefined) return sender.label;
+  if (sender.team === undefined || sender.team.id === readerTeamId) return sender.role;
+  return formatAddress(sender.role, sender.team.name);
 }
 
 /**
  * The same answer for a whole message: the name a receiver will address its
  * reply TO, or null when the deck is speaking and there is nobody to answer.
  */
-export function senderName(mail: Mail): string | null {
-  return mail.from.kind === "pane" ? senderAddress(mail.from.pane) : null;
+export function senderName(mail: Mail, readerTeamId: string | null): string | null {
+  return mail.from.kind === "pane" ? senderAddress(mail.from.pane, readerTeamId) : null;
 }

@@ -61,6 +61,52 @@ describe("resolveMailTarget", () => {
     expect(resolveMailTarget(ws, AGENTS, me, "nobody").ok).toBe(false);
   });
 
+  it("reaches a member of another team by role@team — the form its mail shows as the sender", () => {
+    const ws = workspace([
+      pane("pane-1", { name: "api", role: "lead" }),
+      pane("pane-3", { name: "web", role: "lead" }),
+      pane("pane-4", { name: "web", role: "impl-1" }),
+    ]);
+    const apiLead = held(ws, "pane-1");
+    const byName = resolveMailTarget(ws, AGENTS, apiLead, "impl-1@web");
+    expect(byName.ok && byName.value.id).toBe("pane-4");
+    // By the team's id as well, however the role is cased.
+    const webId = teamOf(ws, held(ws, "pane-3"))!.id;
+    const byId = resolveMailTarget(ws, AGENTS, apiLead, `LEAD@${webId}`);
+    expect(byId.ok && byId.value.id).toBe("pane-3");
+    // A bare role is never another team's: web's impl-1 writing to "lead"
+    // reaches web's lead, not api's.
+    const bare = resolveMailTarget(ws, AGENTS, held(ws, "pane-4"), "lead");
+    expect(bare.ok && bare.value.id).toBe("pane-3");
+  });
+
+  it("refuses a role nobody on that team holds, naming the addresses that would reach it", () => {
+    const ws = workspace([
+      pane("pane-1", { name: "api", role: "lead" }),
+      pane("pane-3", { name: "web", role: "lead" }),
+      pane("pane-4", { name: "web", role: "impl-1" }),
+    ]);
+    const result = resolveMailTarget(ws, AGENTS, held(ws, "pane-1"), "impl-7@web");
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      // In the same form, so the sender copies one rather than guesses.
+      expect(result.message).toContain("lead@web");
+      expect(result.message).toContain("impl-1@web");
+    }
+  });
+
+  it("refuses a team that is not here — unless the @ was a pane's own name", () => {
+    const titled = pane("pane-9");
+    titled.name = "ops@night";
+    const ws = workspace([pane("pane-1", { name: "api", role: "lead" }), titled]);
+    const me = held(ws, "pane-1");
+    const byTitle = resolveMailTarget(ws, AGENTS, me, "ops@night");
+    expect(byTitle.ok && byTitle.value.id).toBe("pane-9");
+    const gone = resolveMailTarget(ws, AGENTS, me, "lead@docs");
+    expect(gone.ok).toBe(false);
+    if (!gone.ok) expect(gone.message).toContain('no team "docs"');
+  });
+
   it("tells a teammate which roles it could have written to", () => {
     // "no agent X" sends an agent hunting for a window title nobody gave
     // it. The roles are what it was actually handed.

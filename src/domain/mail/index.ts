@@ -1,3 +1,4 @@
+export * from "./address";
 export * from "./admission";
 export * from "./cancel";
 export * from "./catalog";

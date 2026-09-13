@@ -45,7 +45,8 @@ async function setup(dialect = dialects[0]) {
   const delivery = new Promise<boolean>((yes, no) => { resolve = yes; reject = no; });
   const reply = vi.fn(() => delivery);
   const replies = createHookReplies({ mail: () => manager,
-    rendererFor: () => dialect.status.renderMail, versionOf: () => dialect.version, reply });
+    rendererFor: () => dialect.status.renderMail, versionOf: () => dialect.version, reply,
+    teamOf: () => null });
   const deck = { getSnapshot: () => ({ workspaces: [{ id: "ws", panes: [
     { id: "pane", agentType: dialect.agent },
   ] }] }), subscribe: () => () => {} } as unknown as DeckStore;
