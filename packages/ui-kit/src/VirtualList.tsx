@@ -55,13 +55,10 @@ export function VirtualList<T>({
   const scrollRef = useRef<HTMLDivElement>(null);
   const window = useRowWindow({ rows: items, keyOf: itemKey, estimate, scrollRef });
 
-  // The end is "in the window", not "scrolled to": a list shorter than
-  // its viewport has its end in view from the first paint, and a grower
-  // must hear that too.
-  const reachedEnd = items.length > 0 && window.lastIndex === items.length - 1;
+  const { atEnd } = window;
   useEffect(() => {
-    if (reachedEnd) onReachEnd?.();
-  }, [reachedEnd, items.length, onReachEnd]);
+    if (atEnd) onReachEnd?.();
+  }, [atEnd, items.length, onReachEnd]);
 
   const Spacer = spacer?.as ?? "div";
   const Item = item?.as ?? "div";

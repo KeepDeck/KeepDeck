@@ -3,18 +3,10 @@ import { VirtualList } from "@keepdeck/ui-kit/VirtualList";
 import type { HistoryScope } from "../domain/history";
 import {
   historyList,
+  historyRowEstimate,
   historyRowKey,
-  type HistoryListRow,
 } from "../presentation/historyListView";
 import { Trouble } from "./Trouble";
-
-/** The first paint's guess per row kind; measurement corrects it. */
-const ROW_ESTIMATE_PX: Record<HistoryListRow["kind"], number> = {
-  pin: 29,
-  fork: 22,
-  commit: 24,
-  more: 28,
-};
 
 /**
  * The History section's list. What the rows are — the pinned "Since fork"
@@ -55,7 +47,7 @@ export function HistoryView({
       <VirtualList
         items={list.rows}
         itemKey={historyRowKey}
-        estimate={(row) => ROW_ESTIMATE_PX[row.kind]}
+        estimate={historyRowEstimate}
         className="git__list"
         role="list"
         ariaLabel="History"

@@ -18,6 +18,17 @@ const SECTIONS: readonly [label: string, pick: (groups: ChangeGroups) => ChangeR
   ["Untracked", (g) => g.untracked],
 ];
 
+/** The item's identity for a windowed list — its own key, never its index. */
+export function changesItemKey(item: ChangesListItem): string {
+  return item.key;
+}
+
+/** The first paint's guess at an item's height, in pixels — a row, or a
+ * head with the gap it carries before it; measurement corrects it. */
+export function changesItemEstimate(item: ChangesListItem): number {
+  return item.kind === "head" && !item.first ? 32 : 24;
+}
+
 export function changesList(groups: ChangeGroups): ChangesListItem[] {
   const items: ChangesListItem[] = [];
   for (const [label, pick] of SECTIONS) {

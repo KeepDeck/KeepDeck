@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { changesList } from "./changesListView";
+import { changesItemEstimate, changesItemKey, changesList } from "./changesListView";
 import { groupEntries } from "../domain/status";
 import type { GitStatusEntry } from "@keepdeck/plugin-api";
 
@@ -48,5 +48,13 @@ describe("changesList", () => {
 
   it("an empty status is an empty list", () => {
     expect(changesList(groupEntries([]))).toEqual([]);
+  });
+
+  it("guesses a head that follows a section taller than a row, by the gap it carries", () => {
+    const items = changesList(
+      groupEntries([entry({ path: "a.ts", staged: "A" }), entry({ path: "b.ts", unstaged: "M" })]),
+    );
+    expect(items.map(changesItemEstimate)).toEqual([24, 24, 32, 24]);
+    expect(items.map(changesItemKey)).toEqual(items.map((i) => i.key));
   });
 });

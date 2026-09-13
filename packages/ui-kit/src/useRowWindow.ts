@@ -29,6 +29,10 @@ export interface RowWindow {
   /** The last mounted row's index; -1 while nothing is mounted. What a
    * grower checks its paging against. */
   lastIndex: number;
+  /** The last row is in the window — "in the window", not "scrolled to":
+   * a list shorter than its viewport has its end in view from the first
+   * paint, and a grower must hear that too. False for an empty list. */
+  atEnd: boolean;
   /** The measured height of every row — the spacer's height. */
   totalSize: number;
   /** ONE callback for every row's ref — a fresh arrow per row would ride
@@ -84,6 +88,7 @@ export function useRowWindow<Row>({
   return {
     items,
     lastIndex,
+    atEnd: rows.length > 0 && lastIndex === rows.length - 1,
     totalSize: virtualizer.getTotalSize(),
     measure,
     remeasure: () => virtualizer.measure(),

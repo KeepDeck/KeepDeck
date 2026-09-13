@@ -34,6 +34,22 @@ export function historyRowKey(row: HistoryListRow): string {
   return row.kind === "commit" ? row.sha : row.kind;
 }
 
+/** The first paint's guess at a row's height, in pixels, per kind — the
+ * pinned row carries its rule and gap, the divider is a thin line, the
+ * tail a padded button; measurement corrects it. */
+export function historyRowEstimate(row: HistoryListRow): number {
+  switch (row.kind) {
+    case "pin":
+      return 29;
+    case "fork":
+      return 22;
+    case "commit":
+      return 24;
+    case "more":
+      return 28;
+  }
+}
+
 export interface HistoryList {
   rows: HistoryListRow[];
   /** The log has nothing in it. */
