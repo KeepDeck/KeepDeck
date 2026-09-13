@@ -25,7 +25,10 @@ pub fn fork_point(
     base: Option<&str>,
 ) -> Result<Option<String>, GitError> {
     if let Some(base_ref) = base {
-        return Ok(repo::merge_base(repo_path, base_ref, rev)?.filter(|fork| fork != tip));
+        // Named by the caller: a base that does not resolve is an error,
+        // not "no fork" — the rest of the ladder tolerates dangling
+        // revisions because it found them itself.
+        return Ok(repo::merge_base_of_named(repo_path, base_ref, rev)?.filter(|fork| fork != tip));
     }
     match managed_worktree_fork(repo_path, rev, tip)? {
         WorktreeFork::Resolved(fork) => Ok(fork),

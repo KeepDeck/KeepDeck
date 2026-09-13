@@ -98,14 +98,32 @@ pub fn default_branch(repo: &Path) -> Result<Option<String>, GitError> {
 }
 
 /// The best common ancestor of two revisions — the fork point a branch's
-/// history is measured from. `None` when the revisions share no history (or
-/// either doesn't resolve): for a changes view that's an answer ("no fork
-/// point"), not an error.
+/// history is measured from. `None` when the revisions share no history OR
+/// either doesn't resolve: for the fork ladder that's an answer ("no fork
+/// point"), not an error — the revisions it tries come from reflogs and
+/// remote HEADs that a pruned reflog or a missing local branch can leave
+/// dangling, and a history that failed outright for that would be worse
+/// than one measured from the next rung. A revision the CALLER named is
+/// [`merge_base_of_named`]'s business.
 pub fn merge_base(repo: &Path, a: &str, b: &str) -> Result<Option<String>, GitError> {
     match run_git(repo, ["merge-base", "--", a, b]) {
         Ok(out) => Ok(Some(out.trim().to_string())),
         // Exit 1 = no common ancestor; unresolvable revs also land here.
         Err(GitError::Command { .. }) => Ok(None),
+        Err(other) => Err(other),
+    }
+}
+
+/// [`merge_base`] for revisions the caller NAMED — an explicit base typed
+/// or picked by a person. "No common ancestor" (exit 1) is still an answer;
+/// a revision that does not resolve is the caller's mistake, and answering
+/// "no fork point" to it would hide the typo behind a plausible history.
+pub fn merge_base_of_named(repo: &Path, a: &str, b: &str) -> Result<Option<String>, GitError> {
+    match run_git(repo, ["merge-base", "--", a, b]) {
+        Ok(out) => Ok(Some(out.trim().to_string())),
+        Err(GitError::Command {
+            status: Some(1), ..
+        }) => Ok(None),
         Err(other) => Err(other),
     }
 }

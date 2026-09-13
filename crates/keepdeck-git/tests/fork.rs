@@ -139,3 +139,27 @@ fn an_explicit_base_outranks_everything() {
     let fork = fork::fork_point(&one, "HEAD", &tip, Some("picked")).expect("fork point");
     assert_eq!(fork.as_deref(), Some(mid.as_str()));
 }
+
+#[test]
+fn an_explicit_base_that_does_not_resolve_is_an_error_not_no_fork() {
+    let repo_dir = init_repo();
+    let root = tempfile::tempdir().expect("worktree root");
+    let (one, _) = managed_worktree(repo_dir.path(), root.path(), "kd/typo");
+    commit_file(&one, "a.ts");
+    let tip = repo::resolve_commit(&one, "HEAD").expect("tip");
+
+    // A person typed a base that is not there: saying "no fork point" would
+    // hide the typo behind a plausible, wrong history.
+    let err = fork::fork_point(&one, "HEAD", &tip, Some("no-such-base")).unwrap_err();
+    assert!(
+        matches!(err, keepdeck_git::GitError::Command { status: Some(128), .. }),
+        "{err:?}"
+    );
+
+    // A base with no shared history is still an answer, not an error.
+    git(&one, &["checkout", "-q", "--orphan", "island"]);
+    git(&one, &["commit", "-q", "--allow-empty", "-m", "island"]);
+    git(&one, &["checkout", "-q", "kd/typo"]);
+    let fork = fork::fork_point(&one, "HEAD", &tip, Some("island")).expect("an answer");
+    assert_eq!(fork, None);
+}
