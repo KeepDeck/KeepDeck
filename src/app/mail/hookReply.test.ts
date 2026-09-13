@@ -72,6 +72,26 @@ function setup(
   return { manager, replies, deps, channel };
 }
 
+describe("a sender's address, relative to the reader", () => {
+  const LEAD_ON_API: MailSender = { ...A, role: "lead", team: { id: "team-1", name: "api" } };
+
+  it("names a sender from another team as role@team, and a teammate by the bare role", async () => {
+    // RENDER prints `from` verbatim, so what a CLI's frame would carry is
+    // what is asserted. The rule is the domain's (message.test); what this
+    // channel owes is asking the reader's team and passing it on.
+    const h = setup();
+    const outside = createHookReplies({ ...h.deps, teamOf: () => "team-2" });
+    h.manager.send({ from: LEAD_ON_API, toPaneId: "pane-2", kind: "question", body: "which port?" });
+    await outside.answer("pane-2", asking());
+    expect(h.replies[0].body).toContain("/lead@api/");
+
+    const inside = createHookReplies({ ...h.deps, teamOf: () => "team-1" });
+    h.manager.send({ from: LEAD_ON_API, toPaneId: "pane-3", kind: "question", body: "and yours?" });
+    await inside.answer("pane-3", asking());
+    expect(h.replies[1].body).toContain("/lead/");
+  });
+});
+
 function asking(extra: Record<string, unknown> = {}) {
   return {
     agent: "claude",

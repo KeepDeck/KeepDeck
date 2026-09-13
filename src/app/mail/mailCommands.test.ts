@@ -399,6 +399,24 @@ describe("mail between two teams of one workspace", () => {
     expect(crossed.ok).toBe(false);
   });
 
+  it("shows a teamed sender as role@team to a reader on no team", async () => {
+    // A reader outside every team is outside the sender's, so it is shown
+    // the form that reaches back — through the command, not only the rule.
+    const { registry, workspaces } = twoTeams();
+    workspaces[0].panes.push(pane("pane-4"));
+    await run(
+      registry,
+      "mail.send",
+      { to: "pane-4", kind: "note", body: "hi" },
+      from("pane-1", "ws-1", "Agent 1"),
+    );
+    const read = await run(registry, "mail.inbox", {}, from("pane-4", "ws-1", "Agent 4"));
+    expect(read.ok).toBe(true);
+    if (!read.ok) return;
+    const { messages } = read.value as { messages: { from: { address: string } }[] };
+    expect(messages[0].from.address).toBe("lead@api");
+  });
+
   it("takes back a message to another team by the same address", async () => {
     const { registry } = twoTeams();
     const apiLead = from("pane-1", "ws-1", "Agent 1");
@@ -513,6 +531,21 @@ describe("team.role", () => {
       expect(foreign.error.message).toContain('on team "web"');
       expect(foreign.error.message).toContain('not on "api"');
     }
+    expect(workspaces[0].panes[2].team).toEqual({ teamId: "team-2", role: "lead" });
+  });
+
+  it("takes the role@team spelling for its own team only", async () => {
+    // The resolver reads the spelling for any team; the same-team check is
+    // what keeps this tool inside the caller's own.
+    const { registry, workspaces } = setup(true);
+    workspaces[0].panes.push(pane("pane-3", { teamId: "team-2", role: "lead" }));
+    const lead = from("pane-1", "ws-1", "Agent 1");
+    const own = await run(registry, "team.role", { agent: "impl-1@api", role: "impl-2" }, lead);
+    expect(own.ok).toBe(true);
+    expect(workspaces[0].panes[1].team).toEqual({ teamId: "team-1", role: "impl-2" });
+    const foreign = await run(registry, "team.role", { agent: "lead@web", role: "impl-1" }, lead);
+    expect(foreign.ok).toBe(false);
+    if (!foreign.ok) expect(foreign.error.message).toContain('on team "web"');
     expect(workspaces[0].panes[2].team).toEqual({ teamId: "team-2", role: "lead" });
   });
 

@@ -45,7 +45,9 @@ export { teamNameKey, type TeamAssignment } from "../deck";
  *
  * Everything else falls through to the ordinary pane reference (id, title,
  * user-given name), so a workspace with no teams keeps working exactly as
- * it did — a title that happens to hold an `@` included.
+ * it did — a title that happens to hold an `@` included, unless a team of
+ * that name holds that role: the address wins over the title, the way a
+ * role wins over a pane titled like one.
  */
 export function resolveMailTarget(
   workspace: Workspace,
