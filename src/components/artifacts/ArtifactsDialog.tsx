@@ -13,11 +13,20 @@ import { useWallClock } from "../../ui/useWallClock";
 import { isRow } from "./rowRef";
 import { rowMeta, versionsNewestFirst } from "./rowMeta";
 import { useArtifactsRegistry } from "./useArtifactsRegistry";
-import { useRowWindow } from "./useRowWindow";
+import { useRowWindow } from "@keepdeck/ui-kit/useRowWindow";
 
 /** One array identity for every non-list state: a fresh `[]` per render
  * would give the window a new input each time and re-key its memos. */
 const EMPTY: readonly ArtifactMetaRow[] = [];
+
+/** The artifact's id — never the index: a publish reorders the list
+ * (newest first), and an index key would hand one row's measured height —
+ * an open history's, at its tallest — to whatever slid into its place. */
+const artifactKey = (row: ArtifactMetaRow) => row.id;
+
+/** A row with nothing open under it; the first paint's guess, corrected
+ * by measurement the moment a row reports its real box. */
+const ESTIMATED_ROW_PX = 56;
 
 interface ArtifactsDialogProps {
   /** The workspace whose artifacts these are; `null` when no workspace is
@@ -64,8 +73,24 @@ export function ArtifactsDialog({
     view.kind === "rows" ? (view.rows[0]?.updatedAt ?? 0) : 0,
   );
   // The body is the scroll container the window measures against.
+  //
+  // A workspace's artifacts have no ceiling — an agent publishes as many
+  // as the work needs, and nothing prunes them — so the list is windowed
+  // like the sessions browser's, on the app's one engine. Measured, not
+  // assumed: an item is a row plus, when it is the open one, its whole
+  // version history — heights differ by an order of magnitude within one
+  // list. A row scrolled out of the window is UNMOUNTED, and focus inside
+  // it goes with it — accepted, deliberately, rather than carried to a
+  // neighbour the way the sessions browser carries it: the modal's
+  // background is `inert`, so the keyboard cannot fall past the dialog,
+  // and the next Tab resumes at its first control.
   const bodyRef = useRef<HTMLDivElement>(null);
-  const rowWindow = useRowWindow(view.kind === "rows" ? view.rows : EMPTY, bodyRef);
+  const rowWindow = useRowWindow({
+    rows: view.kind === "rows" ? view.rows : EMPTY,
+    keyOf: artifactKey,
+    estimate: ESTIMATED_ROW_PX,
+    scrollRef: bodyRef,
+  });
 
   return (
     <ModalOverlay>

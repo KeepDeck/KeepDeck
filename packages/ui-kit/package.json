@@ -19,7 +19,12 @@
     "./inputProps": "./src/inputProps.ts",
     "./paths": "./src/paths.ts",
     "./rootSelection": "./src/rootSelection.ts",
-    "./useRootSelection": "./src/useRootSelection.ts"
+    "./useRootSelection": "./src/useRootSelection.ts",
+    "./VirtualList": "./src/VirtualList.tsx",
+    "./useRowWindow": "./src/useRowWindow.ts",
+    "./useRowAnchoring": "./src/useRowAnchoring.ts",
+    "./rowAnchor": "./src/rowAnchor.ts",
+    "./virtualGeometry.test-support": "./src/virtualGeometry.test-support.ts"
   },
   "peerDependencies": {
     "react": "^19.1.0",
@@ -29,5 +34,8 @@
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "typescript": "~5.8.3"
+  },
+  "dependencies": {
+    "@tanstack/react-virtual": "^3.14.10"
   }
 }

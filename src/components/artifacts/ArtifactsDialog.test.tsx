@@ -7,7 +7,7 @@ import type { ArtifactMetaRow } from "../../app/artifacts/registryRead";
 import {
   installResizeObserver,
   pinListViewport,
-} from "../../ui/virtualGeometry.test-support";
+} from "@keepdeck/ui-kit/virtualGeometry.test-support";
 import { ArtifactsDialog } from "./ArtifactsDialog";
 
 // React 19 requires this flag for act() outside a test-framework integration.

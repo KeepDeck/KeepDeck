@@ -10,7 +10,7 @@ import type { JoinEntry, SessionRecord } from "../../domain/journal";
 import type { SessionsBrowserApi } from "../../app/useSessionsBrowser";
 import { hitRecord, SessionsBrowser } from "./SessionsBrowser";
 import { SessionRowView } from "./SessionRowView";
-import { installResizeObserver, pinListViewport } from "../../ui/virtualGeometry.test-support";
+import { installResizeObserver, pinListViewport } from "@keepdeck/ui-kit/virtualGeometry.test-support";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
@@ -1544,20 +1544,18 @@ describe("row render stability — the effect, not the memo", () => {
       closed({ sessionId: "s-2" }),
     ]);
     // NOTE: the mount count is the baseline; the ASSERTIONS below count
-    // only the DELTA after it — the honest effect measure.
-    // The mount WAVE includes the measurement pass: the virtualizer
-    // stamps real offsets after the first measure, and rows whose
-    // start moved re-render — a REAL prop change, not instability.
-    // The honest baseline is the count AFTER the wave settles; the
-    // assertions below count the delta from there.
+    // only the DELTA after it — the honest effect measure. With the row
+    // height pinned AT the estimate, measurement moves no offset, so
+    // the mount wave is one render per row — no shifts to re-render for.
+    // (The stand once answered 0 to `offsetHeight`, which the virtualizer
+    // took as a zero-tall row; the pin covers that read now, and the two
+    // "measurement shifts" that baseline counted were that answer.)
     await act(async () => {});
     const mounted = rowRenders.mock.calls.length;
-    expect(mounted).toBe(5); // 3 rows + the measurement pass's 2 shifts
+    expect(mounted).toBe(3);
     expect(rowRenders.mock.calls.map((c) => c[0]).sort()).toEqual([
       "g-1",
-      "g-1",
       "s-1",
-      "s-2",
       "s-2",
     ]);
 

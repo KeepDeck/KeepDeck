@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useRef } from "react";
 import type { RefObject } from "react";
-import {
-  useVirtualizer,
-  type VirtualItem,
-} from "@tanstack/react-virtual";
+import type { VirtualItem } from "@tanstack/react-virtual";
+import { useRowWindow } from "@keepdeck/ui-kit/useRowWindow";
 import type { LaneApi } from "../../../app/useSessionsBrowser";
 import { rowKeyOf, type UnifiedSessionRow } from "../../../domain/journal";
-import { useRowAnchoring } from "../../../ui/useRowAnchoring";
 
-const OVERSCAN_ROWS = 6;
 const PAGE_AHEAD = 40;
+
+/** The first paint's guess at a row: the meta line wraps and a future
+ * snippet stretches the row AFTER first paint, so the estimate overshoots
+ * generously — the scrollbar must never undershoot — and measurement
+ * corrects it. */
+const ESTIMATED_ROW_PX = 72;
 
 type SessionListWindowLane = Pick<LaneApi, "hits" | "hasMore" | "loadMore">;
 
@@ -30,6 +32,23 @@ export interface SessionListWindow {
   checkPaging(): void;
 }
 
+/**
+ * The sessions browser's window over the ONE flat queue (workspace rows,
+ * then other rows — the composition's order, untouched). The engine —
+ * the virtualizer, the measuring, the anchor-by-key correction that
+ * keeps a watched row at its offset when a page lands above it — is the
+ * app's shared `useRowWindow`; what is this list's own is below: the
+ * two paging thresholds, one per lane, and the focus transfer for a
+ * row that unmounts under the keyboard. Keys are agent:sessionId —
+ * NEVER the index.
+ *
+ * A note the engine keeps for every list: the React "flushSync was
+ * called from inside a lifecycle method" warning on measurement and
+ * correction is the library's sync rerender (useFlushSync, on by
+ * default), triggered by measure() from layout effects. Deliberately
+ * untouched: the sync rerender exists to kill flicker; flipping it
+ * would trade a VISIBLE property for a quiet console.
+ */
 export function useSessionListWindow({
   listRef,
   queue,
@@ -37,85 +56,18 @@ export function useSessionListWindow({
   workspace,
   other,
 }: SessionListWindowInput): SessionListWindow {
-  // The virtualizer over the ONE flat queue (workspace rows, then other
-  // rows — the composition's order, untouched). Dynamic measurement:
-  // rows carry meta lines that wrap, so heights vary; estimate runs
-  // before the first measure with a generous overshoot so the scrollbar
-  // never undershoots. Keys are agent:sessionId — NEVER the index.
-  const rowVirtualizer = useVirtualizer({
-    count: queue.length,
-    getScrollElement: () => listRef.current,
-    estimateSize: () => 72,
-    overscan: OVERSCAN_ROWS,
-    // NAMED, NOT FIXED — the React "flushSync was called from inside a
-    // lifecycle method" warning on virtualization/focus/anchor
-    // scenarios: the MECHANISM is the library's (its adapter's
-    // onChange rerender, useFlushSync=true by default), the TRIGGER is
-    // ours (measure() from the layout effects below). The switch
-    // exists (useFlushSync: false) and is DELIBERATELY untouched: the
-    // sync rerender exists to kill flicker on measurement and
-    // correction — flipping it would trade a VISIBLE property for a
-    // quiet console. The warning stays NAMED, not silenced; its cost
-    // is a devtools log line, not anything user-facing. If it ever
-    // truly matters, the change must come WITH a flicker measurement,
-    // not blind.
-    // STABLE from the stable queue: the library's measurements memo
-    // keys on this callback's REFERENCE — a fresh inline arrow per
-    // render (the minute tick included) dropped the memo and walked
-    // the WHOLE queue's measurements on a clock tick that should touch
-    // only the visible rows.
-    getItemKey: useCallback(
-      (index: number) => rowKeyOf(queue[index]),
-      [queue],
-    ),
-    /**
-     * ANCHOR BY KEY, not by index — the correction peer-4 named before
-     * any code: a landed WORKSPACE page inserts rows ABOVE a watched
-     * other-row; the watched row's INDEX shifts by the page size while
-     * its KEY is the same. Anchoring by the old index would hold a
-     * DIFFERENT row and produce exactly the jump this step treats.
-     * The library corrects for SIZE changes above the anchor by
-     * itself; INSERTIONS above are OUR half: on each queue change, if
-     * rows were inserted above the first visible row (its key found at
-     * a NEW index), the scroll shifts by the inserted rows' measured
-     * span so the ANCHOR KEY keeps its viewport offset.
-     *
-     * VANISHED KEY — the explicit branch (named, not defaulted): when
-     * the anchor's key leaves the queue (a real composition change —
-     * search, scope change, invalidation), we HOLD THE CURRENT OFFSET:
-     * whatever now occupies the viewport stays where it is. A jump to
-     * the top would decide FOR the user in the one moment we ourselves
-     * do not know what happened.
-     */
-    onChange: (instance) => {
-      void instance;
-    },
-  });
-  // (declared here, RUNS below lastVirtualIndex — the effects read it)
-  const virtualItems = rowVirtualizer.getVirtualItems();
-  const lastVirtualIndex = virtualItems.length
-    ? virtualItems[virtualItems.length - 1].index
-    : -1;
-  useRowAnchoring({
-    listRef,
-    queue,
+  const {
+    items: virtualItems,
+    lastIndex: lastVirtualIndex,
+    totalSize,
+    measure: measureRow,
+    remeasure,
+  } = useRowWindow({
+    rows: queue,
     keyOf: rowKeyOf,
-    virtualItems,
-    lastVirtualIndex,
-    rowVirtualizer,
+    estimate: ESTIMATED_ROW_PX,
+    scrollRef: listRef,
   });
-  // ONE measure callback for the whole list — a fresh arrow per row
-  // would ride the props and fell every row's memo on every parent
-  // render. measureElement resolves the row by its data-index, so the
-  // single function serves all rows.
-  const measureRow = useCallback(
-    (el: HTMLLIElement | null) => {
-      rowVirtualizer.measureElement(el);
-    },
-    // The virtualizer instance is stable for the mount.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
-  );
 
   // The two thresholds from the range — re-checked on range change AND
   // after each landed page (a landing shifts the ends without a scroll).
@@ -164,11 +116,10 @@ export function useSessionListWindow({
   // UNMOUNTED (scrolled out of the window), focus fell to <body> — the
   // tab walk restarts at the page top and the keyboard context is lost.
   // The transfer lands focus on the LIST CONTAINER: the walk's place is
-  // kept, the next Tab enters the nearest visible row. The overscan buffer
-  // (`OVERSCAN_ROWS` rows) covers stepping; this covers the fling past it.
-  // Asymmetry argument
-  // (the circle's): the unmount-with-focus case is rare, while a lost
-  // focus on every focused scroll would meet the same person
+  // kept, the next Tab enters the nearest visible row. The overscan
+  // buffer covers stepping; this covers the fling past it. Asymmetry
+  // argument (the circle's): the unmount-with-focus case is rare, while
+  // a lost focus on every focused scroll would meet the same person
   // constantly.
   //
   // CONDITIONAL BY CONSTRUCTION: the transfer fires ONLY for the
@@ -249,14 +200,14 @@ export function useSessionListWindow({
     return () => observer.disconnect();
   }, []);
   const onListScroll = () => {
-    rowVirtualizer.measure();
+    remeasure();
     checkPaging();
   };
 
   return {
     virtualItems,
     lastVirtualIndex,
-    totalSize: rowVirtualizer.getTotalSize(),
+    totalSize,
     measureRow,
     onListScroll,
     checkPaging,
