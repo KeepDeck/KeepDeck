@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { WorkspaceRef } from "@keepdeck/plugin-api";
 import { activeRuntime } from "../runtime";
 import {
@@ -22,17 +22,23 @@ export function useSections(
   workspace: WorkspaceRef,
 ): [state: SectionsState, toggle: (id: SectionId) => void] {
   const [state, setState] = useState<SectionsState>(DEFAULT_SECTIONS);
+  // Whether a toggle has landed since the slot was asked. A person's toggle
+  // outranks the slot's late answer: the answer is what was remembered
+  // BEFORE the toggle, and applying it flipped the section back for a
+  // moment — until the next mount read the toggle it had already saved.
+  const touchedRef = useRef(false);
 
   useEffect(() => {
     // Torn down: the default, for whatever is left of this surface.
     const runtime = activeRuntime();
     if (!runtime) return;
     let cancelled = false;
+    touchedRef.current = false;
     void runtime.storage
       .workspace(workspace)
       .get(KEY)
       .then((raw) => {
-        if (!cancelled) setState(readSections(raw));
+        if (!cancelled && !touchedRef.current) setState(readSections(raw));
       })
       .catch(() => {
         // An unreadable slot means the default — nothing to say.
@@ -43,6 +49,7 @@ export function useSections(
   }, [workspace.id, workspace.instance]);
 
   const toggle = (id: SectionId) => {
+    touchedRef.current = true;
     const next = toggleSection(state, id);
     setState(next);
     // Torn down: nothing to remember it in.

@@ -195,6 +195,37 @@ describe("GitTab", () => {
     expect(git.watcherCount("/wt/one")).toBe(1);
   });
 
+  it("a toggle made before the remembered sections arrive is not undone by them", async () => {
+    const git = makeGit();
+    git.statuses.set("/repo", cleanStatus());
+    git.histories.set("/repo", { forkSha: null, ahead: null, commits: [] });
+    const ctx = makeCtx(git);
+    // The slot answers late — an IPC read — and with what it remembered
+    // BEFORE the toggle below.
+    let answer: (raw: unknown) => void = () => {};
+    const slot = {
+      get: vi.fn(() => new Promise<unknown>((resolve) => (answer = resolve))),
+      set: vi.fn(async () => {}),
+      delete: vi.fn(async () => {}),
+    };
+    ctx.storage.workspace = () => slot as unknown as ReturnType<typeof ctx.storage.workspace>;
+    setRuntime(ctx);
+
+    await rig.render();
+    const header = () =>
+      [...rig.host.querySelectorAll("button.git__sechdr")].find((el) =>
+        el.textContent?.includes("History"),
+      ) as HTMLButtonElement;
+    await act(async () => header().click());
+    expect(header().getAttribute("aria-expanded")).toBe("true");
+    expect(slot.set).toHaveBeenCalledWith("sections", { changes: true, history: true });
+
+    // The late answer must not flip the section back: the toggle is newer,
+    // and it is already saved.
+    await act(async () => answer({ changes: true, history: false }));
+    expect(header().getAttribute("aria-expanded")).toBe("true");
+  });
+
   it("surfaces a status failure as the folder's state, git's own words on hover", async () => {
     const git = makeGit(); // no statuses registered → status() rejects
     setRuntime(makeCtx(git));
