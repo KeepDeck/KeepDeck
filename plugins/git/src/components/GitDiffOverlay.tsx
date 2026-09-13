@@ -3,7 +3,7 @@ import type { WorkspaceRef } from "@keepdeck/plugin-api";
 import { DiffPeek } from "./DiffPeek";
 import { useGitStatus } from "./useGitStatus";
 import { groupEntries, type ChangeRow } from "../domain/status";
-import type { HistoryScope } from "../domain/history";
+import { readVersionFor, type HistoryScope } from "../domain/history";
 import { getRuntime } from "../runtime";
 import { subscribePeekRequests, takePeekRequest } from "../peekRequests";
 
@@ -118,6 +118,12 @@ function OpenDiffPeek({
 }) {
   const { status, error, version } = useGitStatus(diff.repo);
   const groups = status ? groupEntries(status.entries) : null;
+  // What the peek re-reads on: the feed's tick, frozen for a commit scope
+  // while the feed is healthy — a commit cannot move, a deleted repo can.
+  const readVersion = readVersionFor(diff.kind === "history" ? diff.scope : null, {
+    version,
+    error,
+  });
 
   return (
     <DiffPeek
@@ -137,7 +143,7 @@ function OpenDiffPeek({
               }
             : { kind: "waiting", scope: diff.scope }
       }
-      version={version}
+      version={readVersion}
       onSelect={onSelect}
       onClose={onClose}
     />

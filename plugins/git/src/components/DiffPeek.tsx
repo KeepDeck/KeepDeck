@@ -162,7 +162,9 @@ export function DiffPeek({
       cancelled = true;
     };
     // `version` rides alongside the key rather than inside it: it is the one
-    // input that must refetch WITHOUT counting as a different diff.
+    // input that must refetch WITHOUT counting as a different diff. The owner
+    // of the peek decides what it is — a commit's peek gets a frozen one, its
+    // range cannot move (see `readVersionFor`).
   }, [key, version]);
 
   const waiting = view.kind === "waiting";

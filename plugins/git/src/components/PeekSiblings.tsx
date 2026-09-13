@@ -162,7 +162,8 @@ export function PeekSiblings({
       cancelled = true;
     };
     // `version` rides alongside the key: it must refetch WITHOUT counting as
-    // a different change set.
+    // a different change set. The peek's owner freezes it for a commit scope
+    // (see `readVersionFor`) — a commit's file list cannot move.
   }, [key, version]);
 
   // A History scope opens the peek without a file yet — seed the first one

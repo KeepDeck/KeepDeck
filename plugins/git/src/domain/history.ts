@@ -34,6 +34,30 @@ export type HistoryScope =
   | { kind: "commit"; sha: string; subject: string }
   | { kind: "fork"; forkSha: string; rev?: string };
 
+/** Whether the scope's content can still move under an open peek. A commit
+ * is a fixed pair of trees: nothing the repo does afterwards changes what
+ * `sha^..sha` shows, so a status refresh has nothing to re-read for it. A
+ * fork scope is live either way — open-ended it reaches the working tree,
+ * pinned to a branch name it follows that branch. */
+export function scopeIsPinned(scope: HistoryScope): boolean {
+  return scope.kind === "commit";
+}
+
+/** The feed revision an open peek re-reads on. Every edit in the tree ticks
+ * the status feed, and a peek re-reads its diff and file list on each tick —
+ * right for a worktree row or the since-fork sweep, wasted on a commit,
+ * whose range cannot move: one more `git diff` and `changedFiles` per burst
+ * of keystrokes for nothing. A pinned scope therefore holds a frozen
+ * revision — UNTIL the feed fails. A failed read means the repo itself may
+ * be gone (the worktree was deleted under the peek), and that the peek must
+ * find out for itself rather than keep showing hunks that no longer exist. */
+export function readVersionFor(
+  scope: HistoryScope | null,
+  feed: { version: number; error: string | null },
+): number {
+  return scope !== null && scopeIsPinned(scope) && feed.error === null ? 0 : feed.version;
+}
+
 /** The revision range a scope's file list and diffs cover. */
 export function scopeRange(scope: HistoryScope): GitRange {
   return scope.kind === "commit"
