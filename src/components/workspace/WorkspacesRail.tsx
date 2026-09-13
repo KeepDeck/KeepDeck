@@ -29,6 +29,8 @@ interface WorkspacesRailProps {
   /** Show or hide a workspace's teams under its name. */
   onToggleTeams(wsId: string): void;
   onRenameTeam(wsId: string, teamId: string, name: string): void;
+  /** Disband a team from its row — the same door the card's menu opens. */
+  onDisbandTeam(wsId: string, teamId: string): void;
   /** Move workspace `id` to `toIndex` (long-press drag reorder). */
   onReorder(id: string, toIndex: number): void;
   /** The running build, or null until `app_info` answers.
@@ -86,8 +88,9 @@ interface DragGhost {
 }
 
 /** Left rail listing workspaces with how many teams each holds. The active one is
- * highlighted and shows a × (also on hover); double-clicking a name renames it;
- * press-and-hold an item to drag it into a new position. */
+ * highlighted and shows a × (also on hover); a team row shows its own × on
+ * hover; double-clicking a name renames it; press-and-hold an item to drag it
+ * into a new position. */
 export function WorkspacesRail({
   workspaces,
   activeId,
@@ -98,6 +101,7 @@ export function WorkspacesRail({
   onEnterTeam,
   onToggleTeams,
   onRenameTeam,
+  onDisbandTeam,
   onReorder,
   version,
 }: WorkspacesRailProps) {
@@ -321,7 +325,7 @@ export function WorkspacesRail({
               {ws.expanded && (
                 <ul className="rail__teams">
                   {ws.teams.map((team) => (
-                    <li key={team.id}>
+                    <li key={team.id} className="rail__team-item">
                       {rename.editing === teamKey(ws.id, team.id) ? (
                         <input
                           {...noAutoCorrect}
@@ -331,18 +335,33 @@ export function WorkspacesRail({
                           aria-label="Team name"
                         />
                       ) : (
-                        <button
-                          type="button"
-                          className="rail__team"
-                          onClick={() => onEnterTeam(ws.id, team.id)}
-                          onDoubleClick={() =>
-                            rename.start(teamKey(ws.id, team.id), team.name)
-                          }
-                        >
-                          <span className={`rail__team-dot rail__team-dot--${team.dot}`} />
-                          <span className="rail__team-name">{team.name}</span>
-                          <span className="rail__team-size">{team.size}</span>
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            className="rail__team"
+                            onClick={() => onEnterTeam(ws.id, team.id)}
+                            onDoubleClick={() =>
+                              rename.start(teamKey(ws.id, team.id), team.name)
+                            }
+                          >
+                            <span className={`rail__team-dot rail__team-dot--${team.dot}`} />
+                            <span className="rail__team-name">{team.name}</span>
+                            <span className="rail__team-size">{team.size}</span>
+                          </button>
+                          {/* Beside the row, not inside it: the row is a button,
+                              and a button may not hold another. It opens the
+                              confirm the card's menu opens — the rail adds a
+                              door, not a second rule about disbanding. */}
+                          <button
+                            type="button"
+                            className="rail__team-close"
+                            onClick={() => onDisbandTeam(ws.id, team.id)}
+                            title="Disband team"
+                            aria-label={`Disband ${team.name}`}
+                          >
+                            ×
+                          </button>
+                        </>
                       )}
                     </li>
                   ))}

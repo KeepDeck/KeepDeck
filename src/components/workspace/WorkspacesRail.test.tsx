@@ -68,6 +68,7 @@ function Harness() {
     onEnterTeam: () => {},
     onToggleTeams: () => {},
     onRenameTeam: () => {},
+    onDisbandTeam: () => {},
     onReorder: (id: string, toIndex: number) =>
       setItems((current) => move(current, id, toIndex)),
     version: null,
@@ -238,6 +239,7 @@ describe("WorkspacesRail workspace metadata", () => {
           onEnterTeam: () => {},
           onToggleTeams: () => {},
           onRenameTeam: () => {},
+          onDisbandTeam: () => {},
           onReorder: () => {},
           version: null,
         }),
@@ -269,6 +271,7 @@ describe("WorkspacesRail workspace metadata", () => {
             onEnterTeam: () => {},
             onToggleTeams: () => {},
             onRenameTeam: () => {},
+            onDisbandTeam: () => {},
             onReorder: () => {},
             version,
           }),
@@ -318,6 +321,7 @@ describe("WorkspacesRail team rows", () => {
           onEnterTeam: () => {},
           onToggleTeams: () => {},
           onRenameTeam: () => {},
+          onDisbandTeam: () => {},
           onReorder: () => {},
           version: null,
           ...props,
@@ -374,6 +378,24 @@ describe("WorkspacesRail team rows", () => {
     expect(entered).toEqual([["a", "team-2"]]);
   });
 
+  it("disbands the team its × names, without entering it", () => {
+    const disbanded: [string, string][] = [];
+    const entered: [string, string][] = [];
+    render({
+      onDisbandTeam: (wsId, teamId) => disbanded.push([wsId, teamId]),
+      onEnterTeam: (wsId, teamId) => entered.push([wsId, teamId]),
+    });
+    // Beside the row, not inside it: the row is a button, and a × nested in
+    // it would enter the team it was meant to disband.
+    const close = host.querySelector<HTMLButtonElement>(
+      '[data-ws-id="a"] .rail__teams [aria-label="Disband web"]',
+    )!;
+    expect(close.closest(".rail__team")).toBeNull();
+    act(() => close.dispatchEvent(new Event("click", { bubbles: true })));
+    expect(disbanded).toEqual([["a", "team-2"]]);
+    expect(entered).toEqual([]);
+  });
+
   it("renames the team a double click opens, not the workspace above it", () => {
     const renamedTeams: [string, string, string][] = [];
     const renamedWorkspaces: [string, string][] = [];
@@ -386,6 +408,9 @@ describe("WorkspacesRail team rows", () => {
     });
     const input = host.querySelector<HTMLInputElement>(".rail__team-rename")!;
     expect(input.value).toBe("api");
+    // The edit takes the whole row: no × waits beside the field to disband
+    // the team whose name is being typed.
+    expect(host.querySelector('[aria-label="Disband api"]')).toBeNull();
     act(() => {
       // Through the native setter: React tracks the value it wrote, and a
       // plain assignment would leave the controlled input's state behind.
