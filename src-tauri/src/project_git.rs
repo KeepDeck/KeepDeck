@@ -225,10 +225,25 @@ pub fn project_git_history(
 ) -> Result<GitHistory, String> {
     let repo = resolve_within(&path, &roots, everywhere)?;
 
-    // `rev` lets the UI browse ANY ref's history without a checkout; absent,
-    // the walk starts at the working tree's own HEAD.
+    // `rev` lets a caller browse ANY ref's history without a checkout;
+    // absent, the walk starts at the working tree's own HEAD. A ref that
+    // does not resolve is an error; a HEAD that does not is an UNBORN
+    // branch — a repository with no commit yet — and its history is empty,
+    // not broken: status works there, and so must the section beside it.
+    let tip = match rev.as_deref() {
+        Some(rev) => repo::resolve_commit(&repo, rev).map_err(|e| e.to_string())?,
+        None => match repo::head_commit(&repo).map_err(|e| e.to_string())? {
+            Some(tip) => tip,
+            None => {
+                return Ok(GitHistory {
+                    fork_sha: None,
+                    ahead: None,
+                    commits: Vec::new(),
+                })
+            }
+        },
+    };
     let rev = rev.as_deref().unwrap_or("HEAD");
-    let tip = repo::resolve_commit(&repo, rev).map_err(|e| e.to_string())?;
 
     // The fork-point ladder — explicit base, then the worktree's own recorded
     // base, then the default branch — lives with the crate (`fork`).
@@ -748,6 +763,39 @@ mod tests {
         .expect("branches");
         assert_eq!(listed.current.as_deref(), Some("main"));
         assert!(listed.branches.contains(&"kd/test/2".to_string()));
+
+        fs::remove_dir_all(&repo).ok();
+    }
+
+    #[test]
+    fn an_unborn_repository_has_an_empty_history_and_a_named_branch() {
+        // A fresh `git init`: HEAD names `main`, and no commit exists yet.
+        // Status answers here; history and branches used to fail with exit
+        // 128 beside it, which read as a broken repository in the tab.
+        let repo = unique_dir("unborn");
+        git(&repo, &["init", "-q", "-b", "main"]);
+
+        let history = project_git_history(
+            repo.to_string_lossy().into_owned(),
+            roots(&repo),
+            false,
+            None,
+            None,
+            None,
+        )
+        .expect("history of an unborn branch");
+        assert_eq!(history.commits.len(), 0);
+        assert_eq!(history.fork_sha, None);
+        assert_eq!(history.ahead, None);
+
+        let listed = project_git_branches(
+            repo.to_string_lossy().into_owned(),
+            roots(&repo),
+            false,
+        )
+        .expect("branches of an unborn repository");
+        assert_eq!(listed.current.as_deref(), Some("main"));
+        assert!(listed.branches.is_empty(), "no ref exists yet: {listed:?}");
 
         fs::remove_dir_all(&repo).ok();
     }

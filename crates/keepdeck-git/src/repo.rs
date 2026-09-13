@@ -140,14 +140,41 @@ pub fn branch_created_at(repo: &Path, branch: &str) -> Result<Option<String>, Gi
 }
 
 /// The current branch name, or `None` when `HEAD` is detached.
+///
+/// Read as the symbolic ref, not through `rev-parse --abbrev-ref`: that
+/// resolves the ref to a commit on the way, and an UNBORN branch — a fresh
+/// `git init`, nothing committed yet — has none, so it failed outright where
+/// the branch plainly has a name. `symbolic-ref -q` prints the name whether
+/// or not a commit sits behind it, and exits 1, silently, when HEAD is
+/// detached.
 pub fn current_branch(repo: &Path) -> Result<Option<String>, GitError> {
-    let out = run_git(repo, ["rev-parse", "--abbrev-ref", "HEAD"])?;
-    let name = out.trim();
-    Ok(if name == "HEAD" {
-        None
-    } else {
-        Some(name.to_string())
-    })
+    match run_git(repo, ["symbolic-ref", "--short", "-q", "HEAD"]) {
+        Ok(out) => Ok(Some(out.trim().to_string())),
+        Err(GitError::Command {
+            status: Some(1), ..
+        }) => Ok(None),
+        Err(other) => Err(other),
+    }
+}
+
+/// The commit `HEAD` points at, or `None` on an unborn branch — a repository
+/// with no commit yet, where there is nothing to walk, diff or fork from.
+/// Distinct from [`resolve_commit`], for which an unresolvable revision is
+/// an error: a caller asking for HEAD's history wants "no commits yet" as an
+/// answer, not a failure.
+pub fn head_commit(repo: &Path) -> Result<Option<String>, GitError> {
+    match run_git(
+        repo,
+        ["rev-parse", "--verify", "--quiet", "HEAD^{commit}"],
+    ) {
+        Ok(out) => Ok(Some(out.trim().to_string())),
+        // `--quiet --verify` exits 1, silently, when the revision does not
+        // resolve — for HEAD, that is the unborn branch.
+        Err(GitError::Command {
+            status: Some(1), ..
+        }) => Ok(None),
+        Err(other) => Err(other),
+    }
 }
 
 /// The repository's local branch names, in git's default alphabetical
