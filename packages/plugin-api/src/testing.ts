@@ -124,7 +124,7 @@ export function fsStore(
       };
     },
 
-    watch: () => ({ dispose() {} }),
+    watch: () => ({ ready: Promise.resolve(), dispose() {} }),
   };
 }
 

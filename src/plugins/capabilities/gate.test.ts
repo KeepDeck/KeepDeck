@@ -72,7 +72,7 @@ function fakeBackend() {
         truncated: false,
         readBytes: 0,
       })),
-      watch: vi.fn(() => ({ dispose: vi.fn() })),
+      watch: vi.fn(() => ({ ready: Promise.resolve(), dispose: vi.fn() })),
     },
     sqlite: {
       query: vi.fn(() =>
@@ -99,7 +99,7 @@ function fakeBackend() {
       history: vi.fn(async () => ({ forkSha: null, ahead: null, commits: [] })),
       branches: vi.fn(async () => ({ current: null, branches: [] })),
       changedFiles: vi.fn(async () => []),
-      watch: vi.fn(() => ({ dispose: vi.fn() })),
+      watch: vi.fn(() => ({ ready: Promise.resolve(), dispose: vi.fn() })),
     },
   };
   return { backend, handle };

@@ -109,12 +109,23 @@ function warn(message: string): void {
 function startWatch(repo: string, feed: Feed): void {
   try {
     const { services } = getRuntime();
-    feed.watcher = services.git.watch(repo, () => {
+    const handle = services.git.watch(repo, () => {
       if (feed.timer) clearTimeout(feed.timer);
       feed.timer = setTimeout(() => {
         feed.timer = null;
         void load(repo, feed);
       }, WATCH_DEBOUNCE_MS);
+    });
+    feed.watcher = handle;
+    // The host arms the OS watcher after handing the handle back, and may
+    // refuse it then — a repo outside the scope, a watcher limit. A refused
+    // handle never fires, so it is dropped the way a synchronous refusal
+    // is: the feed goes not-live and the next subscriber is the retry.
+    handle.ready.catch((cause) => {
+      if (feed.watcher !== handle) return;
+      feed.watcher = null;
+      const message = cause instanceof Error ? cause.message : String(cause);
+      warn(`git watch refused for ${repo}: ${message}`);
     });
   } catch (cause) {
     const message = cause instanceof Error ? cause.message : String(cause);

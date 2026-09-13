@@ -1,5 +1,5 @@
 import type {
-  Disposable,
+  WatchHandle,
   DownloadState,
   FsEntry,
   FsFile,
@@ -45,7 +45,7 @@ export interface GuestServiceDeps {
     service: "fs" | "git",
     path: string,
     onChange: () => void,
-  ) => Disposable;
+  ) => WatchHandle;
   downloadStreams: Map<string, RemoteDownloadStream>;
   speechLevels: Map<string, (level: number) => void>;
   /** The same counter that mints registration ids — one id space for

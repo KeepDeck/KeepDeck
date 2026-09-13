@@ -16,6 +16,7 @@ import {
   type DownloadRequest,
   type DownloadTarget,
   type Disposable,
+  type WatchHandle,
   type KeepDeckPlugin,
   type PluginCategory,
   type PluginManifest,
@@ -119,6 +120,10 @@ export function makeWatchFanout(
   rootsForScope: (scope: FsScope) => string[] = () => [],
 ) {
   const watchCbs = new Map<string, Set<() => void>>();
+  // Each path's `start` outcome, for as long as the path is watched: every
+  // subscriber's `ready` IS this promise, so one that joins while the start
+  // is still in flight learns of a refusal the same way the first one does.
+  const armed = new Map<string, Promise<void>>();
   let changeListener: Promise<() => void> | null = null;
 
   // One serialized chain of backend calls per path. `start` is async while
@@ -129,10 +134,12 @@ export function makeWatchFanout(
   // StrictMode's mount/cleanup/mount, or a fast toggle.
   const chains = new Map<string, Promise<void>>();
 
-  /** Queue one backend call behind whatever is already in flight for `path`. */
-  function enqueue(path: string, what: string, op: () => Promise<void>): void {
-    const next = (chains.get(path) ?? Promise.resolve())
-      .then(op)
+  /** Queue one backend call behind whatever is already in flight for `path`.
+   * Returns that call's own outcome; the chain logs a failure and moves on,
+   * so the call queued behind a refused one still runs. */
+  function enqueue(path: string, what: string, op: () => Promise<void>): Promise<void> {
+    const outcome = (chains.get(path) ?? Promise.resolve()).then(op);
+    const next = outcome
       .catch((e) =>
         log.warn(
           "web:plugins",
@@ -145,13 +152,14 @@ export function makeWatchFanout(
         if (chains.get(path) === next) chains.delete(path);
       });
     chains.set(path, next);
+    return outcome;
   }
 
   return function watchPath(
     path: string,
     scope: FsScope,
     onChange: () => void,
-  ): Disposable {
+  ): WatchHandle {
     changeListener ??= backend
       .subscribe((changed) => {
         const cbs = watchCbs.get(changed);
@@ -177,16 +185,29 @@ export function makeWatchFanout(
 
     let set = watchCbs.get(path);
     if (!set) {
-      set = new Set();
-      watchCbs.set(path, set);
-      enqueue(path, "watch", () =>
+      const fresh = new Set<() => void>();
+      set = fresh;
+      watchCbs.set(path, fresh);
+      const start = enqueue(path, "watch", () =>
         backend.start(path, rootsForScope(scope), scope === "everywhere"),
       );
+      armed.set(path, start);
+      // A refused start leaves nothing that will ever fire. Forget the set,
+      // so the next watch of this path asks the backend again instead of
+      // silently joining a watcher that never came to be — the subscribers
+      // already on it hear the refusal through `ready` and retry that way.
+      start.catch(() => {
+        if (watchCbs.get(path) !== fresh) return;
+        watchCbs.delete(path);
+        armed.delete(path);
+      });
     }
     set.add(onChange);
+    const ready = armed.get(path) ?? Promise.resolve();
 
     let live = true;
     return {
+      ready,
       dispose() {
         if (!live) return;
         live = false;
@@ -195,6 +216,7 @@ export function makeWatchFanout(
         current.delete(onChange);
         if (current.size === 0) {
           watchCbs.delete(path);
+          armed.delete(path);
           enqueue(path, "unwatch", () => backend.stop(path));
         }
       },

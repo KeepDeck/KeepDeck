@@ -109,7 +109,7 @@ function makeStub(): { ctx: PluginContext; infos: string[] } {
           truncated: false,
           readBytes: 0,
         }),
-        watch: () => ({ dispose() {} }),
+        watch: () => ({ ready: Promise.resolve(), dispose() {} }),
       },
       sessionStore: {
         read: async () => ({ payloadBytes: 0, items: 0, stopped: "exhausted" as const }),
@@ -137,7 +137,7 @@ function makeStub(): { ctx: PluginContext; infos: string[] } {
         history: async () => ({ forkSha: null, ahead: null, commits: [] }),
         branches: async () => ({ current: null, branches: [] }),
         changedFiles: async () => [],
-        watch: () => ({ dispose() {} }),
+        watch: () => ({ ready: Promise.resolve(), dispose() {} }),
       },
     },
     host: { settings: async () => ({ terminalScrollback: 1000 }) },

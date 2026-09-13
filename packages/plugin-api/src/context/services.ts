@@ -1,4 +1,4 @@
-import type { Disposable } from "./disposable.ts";
+import type { WatchHandle } from "./disposable.ts";
 import type { PluginDownloads } from "./downloads.ts";
 import type { PluginSessionStore } from "./sessionRead.ts";
 import type { PluginSpeech } from "./speech.ts";
@@ -167,9 +167,11 @@ export interface PluginFs {
   /** Watch a directory for changes to its LISTING — a child added, removed, or
    * renamed, NOT a content edit. `onChange` fires (coalesced) when the entries
    * change; re-`readDir` to get the new listing. Passive OS notification, so
-   * the tree stays live without polling. Returns a Disposable that stops
-   * watching; scoped by the `fs` capability like reads. */
-  watch(path: string, onChange: () => void): Disposable;
+   * the tree stays live without polling. The handle stops the watch on
+   * dispose; its `ready` says whether the host armed it or refused it (a
+   * path outside the scope, a watcher limit) — a refused watch never fires.
+   * Scoped by the `fs` capability like reads. */
+  watch(path: string, onChange: () => void): WatchHandle;
 }
 
 /** Narrow WRITE surface over the manifest's declared `fsWrite` path
@@ -306,8 +308,11 @@ export interface PluginGit {
   /** Watch the repo for status-relevant changes — working-tree edits AND
    * index/HEAD/ref moves (stage, commit, checkout). `onChange` fires
    * throttled; re-`status` to get the fresh state (debounce it — bursts are
-   * normal). Passive OS notification: nothing is polled, nothing is locked. */
-  watch(repo: string, onChange: () => void): Disposable;
+   * normal). Passive OS notification: nothing is polled, nothing is locked.
+   * The handle's `ready` rejects when the host refused the watch (a repo
+   * outside the scope, a watcher limit): such a handle never fires, and a
+   * fresh `watch` is the retry. */
+  watch(repo: string, onChange: () => void): WatchHandle;
 }
 
 export interface GitDiffOptions {

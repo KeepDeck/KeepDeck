@@ -108,7 +108,7 @@ const emptyFs: PluginFs = {
     truncated: false,
     readBytes: 0,
   }),
-  watch: () => ({ dispose() {} }),
+  watch: () => ({ ready: Promise.resolve(), dispose() {} }),
 };
 
 export function createFakeHost(
@@ -351,7 +351,7 @@ export function createFakeHost(
         history: async () => ({ forkSha: null, ahead: null, commits: [] }),
         branches: async () => ({ current: null, branches: [] }),
         changedFiles: async () => [],
-        watch: () => ({ dispose() {} }),
+        watch: () => ({ ready: Promise.resolve(), dispose() {} }),
       },
     },
     host: {

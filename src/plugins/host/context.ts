@@ -1,5 +1,6 @@
 import type {
   Disposable,
+  WatchHandle,
   PluginContext,
   PluginManifest,
 } from "@keepdeck/plugin-api";
@@ -58,6 +59,13 @@ export function buildPluginContext(
     };
   }
 
+  /** A watch handle tracked like any disposable, its `ready` passed through
+   * untouched — the brace owns the cleanup, not the arming outcome. */
+  function trackWatch(handle: WatchHandle): WatchHandle {
+    const tracked = track(handle);
+    return { ready: handle.ready, dispose: () => tracked.dispose() };
+  }
+
   function disposeAll(): void {
     for (const run of [...disposers]) {
       disposers.delete(run);
@@ -85,11 +93,11 @@ export function buildPluginContext(
       ...services,
       fs: {
         ...services.fs,
-        watch: (path, onChange) => track(services.fs.watch(path, onChange)),
+        watch: (path, onChange) => trackWatch(services.fs.watch(path, onChange)),
       },
       git: {
         ...services.git,
-        watch: (repo, onChange) => track(services.git.watch(repo, onChange)),
+        watch: (repo, onChange) => trackWatch(services.git.watch(repo, onChange)),
       },
     };
   }

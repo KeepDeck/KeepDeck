@@ -18,6 +18,7 @@ function makeCtx() {
   const disposed: string[] = [];
   let fail: string | null = null;
   let refuseWatch: string | null = null;
+  let refuseWatchLater: string | null = null;
   let hold: Promise<void> | null = null;
   const status = vi.fn(async (repo: string) => {
     // A read that only settles when the test says so — the window a close or
@@ -36,7 +37,14 @@ function makeCtx() {
       watchers.set(repo, set);
     }
     set.add(onChange);
+    // The host arms the OS watcher after handing the handle back; a refusal
+    // then arrives through `ready`, not as a throw — the bridge's shape.
+    const ready = refuseWatchLater
+      ? Promise.reject(new Error(refuseWatchLater))
+      : Promise.resolve();
+    ready.catch(() => {});
     return {
+      ready,
       dispose: () => {
         disposed.push(repo);
         set!.delete(onChange);
@@ -55,6 +63,9 @@ function makeCtx() {
     fire: (repo: string) => watchers.get(repo)?.forEach((cb) => cb()),
     failWith: (message: string | null) => {
       fail = message;
+    },
+    refuseWatchLaterWith: (message: string | null) => {
+      refuseWatchLater = message;
     },
     refuseWatchWith: (message: string | null) => {
       refuseWatch = message;
@@ -198,6 +209,29 @@ describe("gitStatusFeed", () => {
 
     expect(git.status).toHaveBeenCalledTimes(2);
     // And it is live again: a change now reaches the feed.
+    git.fire("/repo");
+    await settle(300);
+    expect(git.status).toHaveBeenCalledTimes(3);
+    stop();
+  });
+
+  it("treats a watch the host refused after the fact like one refused up front", async () => {
+    // The real refusal shape: the bridge hands the handle back at once and
+    // arms the OS watcher later, so "outside the roots" or "no watchers
+    // left" arrives through `ready`. The feed used to keep such a handle as
+    // if it were live — no events, no error, no retry, for the session.
+    git.refuseWatchLaterWith("git watch refused for /repo");
+    const stop = sub("/repo");
+    await settle();
+    expect(git.status).toHaveBeenCalledTimes(1);
+
+    git.refuseWatchLaterWith(null);
+    sub("/repo");
+    await settle();
+
+    // The next subscriber re-read and re-watched, exactly as after a throw.
+    expect(git.status).toHaveBeenCalledTimes(2);
+    expect(git.watch).toHaveBeenCalledTimes(2);
     git.fire("/repo");
     await settle(300);
     expect(git.status).toHaveBeenCalledTimes(3);

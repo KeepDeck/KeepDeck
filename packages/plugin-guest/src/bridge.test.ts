@@ -356,7 +356,7 @@ describe("external plugin bridge", () => {
     let fireHostChange: (() => void) | undefined;
     host.ctx.services.fs.watch = (path, onChange) => {
       fireHostChange = onChange;
-      return { dispose: () => void unwatched.push(path) };
+      return { ready: Promise.resolve(), dispose: () => void unwatched.push(path) };
     };
     const { ctxReady } = wireCapturingCtx(host);
     const ctx = await ctxReady;

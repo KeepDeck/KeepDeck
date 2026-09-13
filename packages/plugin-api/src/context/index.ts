@@ -83,7 +83,7 @@ export {
   textFromParts,
 } from "./historyText.ts";
 export type { PluginContext } from "./context.ts";
-export type { Disposable } from "./disposable.ts";
+export type { Disposable, WatchHandle } from "./disposable.ts";
 export {
   downloadPercent,
   type DownloadIntegrity,

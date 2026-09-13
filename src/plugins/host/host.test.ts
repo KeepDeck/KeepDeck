@@ -61,7 +61,7 @@ function fakeDeps() {
     sessions: { spawn: vi.fn() },
     ports: { allocate: vi.fn() },
     opener: { openUrl: vi.fn(), openPath: vi.fn(), openPathWith: vi.fn() },
-    fs: { readDir: vi.fn(), readFile: vi.fn(), watch: vi.fn(() => ({ dispose: vi.fn() })) },
+    fs: { readDir: vi.fn(), readFile: vi.fn(), watch: vi.fn(() => ({ ready: Promise.resolve(), dispose: vi.fn() })) },
     sessionStore: { read: vi.fn() },
     sqlite: {
       query: vi.fn(() => Promise.resolve({ rows: [], stopped: "exhausted" as const, payloadBytes: 0 })),
@@ -78,7 +78,7 @@ function fakeDeps() {
       history: vi.fn(),
       branches: vi.fn(),
       changedFiles: vi.fn(),
-      watch: vi.fn(() => ({ dispose: vi.fn() })),
+      watch: vi.fn(() => ({ ready: Promise.resolve(), dispose: vi.fn() })),
     },
   };
   const events = {

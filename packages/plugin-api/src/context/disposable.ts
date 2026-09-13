@@ -8,3 +8,16 @@
 export interface Disposable {
   dispose(): void;
 }
+
+/**
+ * A watch the host arms AFTER handing the handle back — the OS watcher is
+ * created off the calling thread. `ready` settles once that happened:
+ * resolved when the watch is live, rejected when the host refused it (a path
+ * outside the capability's scope, a watcher limit, a backend failure). A
+ * refused handle never fires and disposing it is harmless; a fresh watch is
+ * the retry. Nothing is owed on `ready` — a caller that ignores it merely
+ * never learns why a quiet watch is quiet.
+ */
+export interface WatchHandle extends Disposable {
+  readonly ready: Promise<void>;
+}

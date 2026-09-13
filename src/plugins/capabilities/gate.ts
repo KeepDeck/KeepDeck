@@ -2,7 +2,7 @@ import type {
   Capability,
   DownloadRequest,
   DownloadTarget,
-  Disposable,
+  WatchHandle,
   FsEntry,
   FsFile,
   FsReadFileOptions,
@@ -41,7 +41,7 @@ export interface FsBackend {
     scope: FsScope,
     opts?: FsReadFileOptions,
   ): Promise<FsFile>;
-  watch(path: string, scope: FsScope, onChange: () => void): Disposable;
+  watch(path: string, scope: FsScope, onChange: () => void): WatchHandle;
 }
 
 /** The prefix-aware write backend the gate wraps: the gate passes the
@@ -88,7 +88,7 @@ export interface GitBackend {
     to: string | undefined,
     scope: FsScope,
   ): Promise<GitChangedFile[]>;
-  watch(repo: string, scope: FsScope, onChange: () => void): Disposable;
+  watch(repo: string, scope: FsScope, onChange: () => void): WatchHandle;
 }
 
 /** The ungated platform backends the gate decorates. Identical to
