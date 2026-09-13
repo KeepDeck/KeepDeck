@@ -300,8 +300,9 @@ export interface PluginGit {
    * `base` (defaulting to the repo's default branch — exact for worktrees
    * created off it) and how many commits sit on the branch's side of it. */
   history(repo: string, opts?: GitHistoryOptions): Promise<GitHistory>;
-  /** The repo's local branches and which one is checked out — the history
-   * browser's ref picker. */
+  /** The repo's local branches and which one is checked out — for a plugin
+   * that offers a choice of branch (a base to fork from, a ref to browse
+   * with `history`'s `rev`). Capped host-side at a thousand names. */
   branches(repo: string): Promise<GitBranches>;
   /** The paths changed across `from..to` — or everything since `from`
    * (committed or not, untracked files included as `?` entries) when `to` is
@@ -349,11 +350,13 @@ export interface GitHistoryOptions {
    * this window; `ahead` stays honest regardless of it. */
   limit?: number;
   /** Walk history from this ref instead of the working tree's HEAD — a
-   * branch can be browsed without being checked out anywhere. */
+   * branch can be browsed without being checked out anywhere. The built-in
+   * Git tab follows HEAD only; this is here for a plugin that offers the
+   * choice. */
   rev?: string;
 }
 
-/** A repo's local branches, for a history browser's ref picker. */
+/** A repo's local branches and which one is checked out (`branches`). */
 export interface GitBranches {
   /** The branch the working tree is on; null when detached. */
   current: string | null;

@@ -16,7 +16,8 @@ export type RepoTrouble =
   | { kind: "no-commits" }
   /** The host refused the path — outside the workspace's roots. */
   | { kind: "out-of-scope" }
-  /** Anything else: git's own first line, without the command and code. */
+  /** Anything else: the first line of what was said after the command
+   * frame — git's own words for a failure, the host's for a timeout. */
   | { kind: "failed"; detail: string };
 
 export function repoTrouble(message: string): RepoTrouble {
@@ -28,10 +29,10 @@ export function repoTrouble(message: string): RepoTrouble {
   return { kind: "failed", detail: gitsOwnWords(message) };
 }
 
-/** The first line of what git itself said: the crate's `` `git …` failed
- * (exit N | signal | timeout): `` frame and git's `fatal:` / `error:` tag
- * stripped. A message with no such frame (the host's, a fake's) is taken as
- * it is. */
+/** The first line after the crate's `` `git …` failed (exit N | signal |
+ * timeout): `` frame, git's `fatal:` / `error:` tag stripped — git's own
+ * words for a failure, the host's ("gave no answer in 30s") for a timeout.
+ * A message with no such frame (the host's, a fake's) is taken as it is. */
 function gitsOwnWords(message: string): string {
   const framed = /^`git [^`]*` failed \((?:exit \d+|signal|timeout)\): /.exec(message);
   const body = framed ? message.slice(framed[0].length) : message;
