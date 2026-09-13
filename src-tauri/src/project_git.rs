@@ -394,12 +394,17 @@ fn worktree_event_matters(event: &Event, skipped: &dyn Fn(&Path) -> bool) -> boo
 /// them paid a git process per burst for nothing. Per TOP-LEVEL name on
 /// purpose: the big ignored trees live at the root, and the names there are
 /// few — one `check-ignore` each, ever. A nested ignored directory still
-/// passes, which costs a spare status read, never a missed one. An ignored
-/// directory holding files added by force is not skipped either: those
-/// files are tracked, and an edit to them is a status change.
+/// passes, which costs a spare status read rather than missing one. An
+/// ignored directory holding files added by force is not skipped either:
+/// those files are tracked, and an edit to them is a status change.
 ///
-/// Any `.gitignore` written anywhere in the tree empties the memory — the
-/// rules are what they say now — and passes as an event of its own.
+/// The memory is emptied whenever the answer could have changed: a
+/// `.gitignore` written anywhere in the tree (the rules are what they say
+/// now; it passes as an event of its own), and any index or ref move the
+/// gitdir watcher reports — a `git add -f` inside a tree remembered as
+/// skipped makes its files tracked. What it cannot see is a rule changed
+/// OUTSIDE the tree — `.git/info/exclude`, the global excludes file — until
+/// the next of those; a tree un-ignored that way stays skipped until then.
 struct IgnoredTrees {
     worktree: PathBuf,
     known: Mutex<HashMap<OsString, bool>>,
@@ -427,7 +432,7 @@ impl IgnoredTrees {
             return false;
         };
         if rel.file_name().is_some_and(|name| name == ".gitignore") {
-            self.known().clear();
+            self.forget();
             return false;
         }
         let top = top.as_os_str();
@@ -441,6 +446,12 @@ impl IgnoredTrees {
             && !repo::has_tracked_files(&self.worktree, &name).unwrap_or(true);
         self.known().insert(top.to_owned(), skipped);
         skipped
+    }
+
+    /// Drop everything remembered: the next event under each name asks git
+    /// again.
+    fn forget(&self) {
+        self.known().clear();
     }
 
     fn known(&self) -> std::sync::MutexGuard<'_, HashMap<OsString, bool>> {
@@ -506,16 +517,19 @@ fn spawn_git_watch(
         }
     };
 
+    let ignored = Arc::new(IgnoredTrees::new(worktree));
     let tree_notify = notify.clone();
-    let ignored = IgnoredTrees::new(worktree);
+    let tree_ignored = ignored.clone();
     let tree_watcher = fswatch::watch_dir_recursive(worktree, move |event| {
-        if worktree_event_matters(event, &|path| ignored.skips(path)) {
+        if worktree_event_matters(event, &|path| tree_ignored.skips(path)) {
             tree_notify();
         }
     })?;
     let gitdir_notify = notify.clone();
     let gitdir_watcher = fswatch::watch_dir(gitdir, move |event| {
         if gitdir_event_matters(event) {
+            // The index or a ref moved: what was ignored may be tracked now.
+            ignored.forget();
             gitdir_notify();
         }
     })?;
@@ -1395,6 +1409,17 @@ mod tests {
             rx.recv_timeout(Duration::from_secs(2)).is_err(),
             "an ignored tree's writes reached the webview"
         );
+
+        // A file added by force inside the tree the watcher remembers as
+        // skipped: the index move reaches the webview, and forgets the
+        // memory — so an EDIT to that now-tracked file reaches it too.
+        fs::write(repo.join("target/keep.txt"), "kept\n").unwrap();
+        git(&repo, &["add", "-f", "target/keep.txt"]);
+        rx.recv_timeout(Duration::from_secs(10)).expect("the index move delivers");
+        while rx.recv_timeout(Duration::from_millis(300)).is_ok() {}
+        fs::write(repo.join("target/keep.txt"), "kept, edited\n").unwrap();
+        rx.recv_timeout(Duration::from_secs(10))
+            .expect("an edit to a force-added file under an ignored tree delivers");
 
         fs::remove_dir_all(&repo).ok();
     }
