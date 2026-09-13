@@ -658,6 +658,31 @@ describe("createCapabilityGate — fs", () => {
     expect(log.warn).not.toHaveBeenCalled();
   });
 
+  it("hands a plugin from before the GitDiff answer the diff's text alone", async () => {
+    // `diffFile` answered a string until API 52. A plugin compiled against
+    // that reads `.length` off the answer; the floor in its manifest is the
+    // one word on which contract it speaks, so the gate unwraps for it.
+    const { backend } = fakeBackend();
+    backend.git.diffFile = vi.fn(async () => ({ text: "@@ -1 +1 @@\n", truncated: true }));
+    const log = fakeLog();
+    const older = createCapabilityGate(
+      { ...manifest([{ kind: "git", scope: "workspace" }]), minApiVersion: 51 },
+      backend,
+      { diagnostics: "silent", log },
+    );
+    const current = createCapabilityGate(
+      { ...manifest([{ kind: "git", scope: "workspace" }]), minApiVersion: 52 },
+      backend,
+      { diagnostics: "silent", log },
+    );
+
+    await expect(older.git.diffFile("/repo", "a.ts")).resolves.toBe("@@ -1 +1 @@\n");
+    await expect(current.git.diffFile("/repo", "a.ts")).resolves.toEqual({
+      text: "@@ -1 +1 @@\n",
+      truncated: true,
+    });
+  });
+
   it("refuses fs.watch without the fs capability with silent diagnostics", () => {
     const { backend } = fakeBackend();
     const log = fakeLog();
