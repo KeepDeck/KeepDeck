@@ -295,7 +295,7 @@ export function renameTeam(
 /**
  * Settle a team's roster in ONE step: its name, and each member's role.
  *
- * The one write the roster surfaces make — the dialog and `team.assign`
+ * The one write the roster surfaces make — the dialog and `team.role`
  * both settle a whole roster through `planTeam` and apply it here — so two
  * members swapping roles never pass through a moment in which one address
  * is held twice, and a rename never goes through a pane: the name is an

@@ -1,20 +1,20 @@
 /**
- * `mail.send` and `mail.inbox` — the two commands an agent uses to reach
- * another agent, and therefore the two MCP tools it sees.
+ * The mail commands — `mail.send`, `mail.inbox`, `mail.cancel` — and
+ * `team.role`, the one roster write an agent may make: what an agent uses
+ * to reach another agent and to say what a teammate is called, and
+ * therefore the MCP tools it sees for both.
  *
  * Registered by `createMailService` rather than with the core set, because
  * they must come and go with the feature's toggle: a registered command is
  * an MCP tool, and one that exists only to refuse advertises a capability
  * the deck has switched off.
  *
- * Both commands read WHO IS CALLING and refuse anyone they cannot name.
- * That is not a formality — the sender's identity is the reply address, the
- * thing a `task` is weighed against, and the only answer to "whose inbox is
- * this".
+ * Every command here reads WHO IS CALLING and refuses anyone it cannot
+ * name. That is not a formality — the sender's identity is the reply
+ * address, the thing a `task` is weighed against, the only answer to "whose
+ * inbox is this", and the team whose roles may be changed.
  */
 import {
-  resolvePaneRef,
-  resolveTeamRef,
   type CommandArgs,
   type CommandRegistry,
   type CommandSource,
@@ -335,91 +335,71 @@ export function registerMailCommands(
       },
     }),
     registry.register({
-      id: "team.assign",
-      title: "Put an agent on a team under a role",
+      id: "team.role",
+      title: "Change a teammate's role on your own team",
       args: [
         {
           name: "agent",
           type: "string",
           required: true,
-          description: "Agent pane title, name, or id — in your own workspace",
-        },
-        {
-          name: "team",
-          type: "string",
           description:
-            "The agent's own team, by name or id — optional; an agent runs where its team runs, so it cannot be moved",
+            "A member of your own team: its role (impl-1), or its pane title, name, or id",
         },
         {
           name: "role",
           type: "string",
+          required: true,
           // Composed at REGISTRATION, so the enumeration is a snapshot; the
           // trailing clause is what keeps the sentence true after the user
           // edits the catalog mid-session.
-          description: `The role it takes, which is also how teammates address it — one of ${teamRoles()
+          description: `The role it takes from now on, which is also how teammates address it — one of ${teamRoles()
             .map((role) => (role.repeatable ? `${role.id}-<n>` : role.id))
-            .join(", ")}, plus any role added in Settings → Team roles; omit to remove`,
+            .join(", ")}, plus any role added in Settings → Team roles`,
         },
       ],
       /**
        * A roster settle, from an agent — the one way a role is written.
        *
        * It goes through `planTeam` + `applyTeamPlan` rather than writing the
-       * role straight in, because everything ELSE that joining a team means
-       * lives there: the joiner is briefed, the members whose roster just
-       * changed are re-briefed, and anyone taken off is told so. Recording
-       * the role alone built teams whose members never learned they were on
-       * one — they held an address nobody had told them about, and could not
-       * be told until a fresh session happened to restate it.
+       * role straight in, because the rules a roster obeys — one lead, unique
+       * addresses, known roles — live there, and are obeyed here by
+       * construction rather than by a second, weaker copy. The roster it
+       * settles is the team AS IT WILL BE: everyone on it, this member under
+       * what it was asked to become.
        *
-       * The roster it settles is the team AS IT WILL BE: everyone on it,
-       * this pane under what it was asked to become. So the rules a roster
-       * obeys — one lead, unique addresses, known roles — are obeyed here by
-       * construction rather than by a second, weaker copy. The team is the
-       * pane's OWN, by id: an agent runs where its team runs, so there is no
-       * moving it, and no taking it off — ending it is `agent.close`, and
-       * moving work between teams is starting an agent on the target team.
+       * The team is the CALLER'S own. A role is an address inside one team,
+       * so the only agents whose address this may change are the caller's
+       * teammates; a member of another team in the same workspace is refused
+       * by name rather than quietly re-roled. Nothing here moves an agent or
+       * takes it off a team: an agent runs where its team runs, ending it is
+       * `agent.close`, and moving work between teams is starting an agent on
+       * the target team (team.add).
        */
       run: async (args, source) => {
         const caller = requireSender(source);
-        const { workspace } = callerWorkspace(deps, caller);
-        const target = resolvePaneRef(workspace, deps.agents(), str(args, "agent") ?? "");
+        const { workspace, pane: me } = callerWorkspace(deps, caller);
+        const mine = teamOfPane(workspace, me);
+        if (!mine) {
+          throw new Error("you are on no team — a role is changed on the team that holds it");
+        }
+        const ref = str(args, "agent") ?? "";
+        // The resolver mail uses: a role names a teammate first, and a title
+        // or id reaches any pane in the workspace — which the check after it
+        // keeps inside the caller's team.
+        const target = resolveMailTarget(workspace, deps.agents(), me, ref);
         if (!target.ok) throw new Error(target.message);
-        const paneId = target.value.id;
-        const named = str(args, "team");
-        const role = str(args, "role");
         const held = teamOfPane(workspace, target.value);
-        // Refused in words, because an agent cannot see a silent no-op and
-        // keeps building on it.
-        if (named === undefined && role === undefined) {
+        if (!held || held.id !== mine.id) {
           throw new Error(
-            `${str(args, "agent")} runs where its team runs — to end it, close it; to move work to another team, start an agent there (team.add)`,
+            `${ref} is ${held ? `on team "${held.name}"` : "on no team"}, not on "${mine.name}" — a role is changed by the team that holds it`,
           );
-        }
-        if (!held) {
-          throw new Error(
-            `${str(args, "agent")} is on no team — an agent joins a team when it starts (team.add)`,
-          );
-        }
-        if (named !== undefined) {
-          const wanted = resolveTeamRef(workspace, named);
-          if (!wanted.ok) {
-            throw new Error(
-              `no team "${named}" is running here — make one with team.create, then team.add puts agents on it`,
-            );
-          }
-          if (wanted.value.id !== held.id) {
-            throw new Error(
-              `${str(args, "agent")} is already ${target.value.team?.role} on team "${held.name}" — an agent runs where its team runs; to move work between teams, start an agent on the target team (team.add)`,
-            );
-          }
         }
         // A member with no address is one no teammate can reach.
+        const role = str(args, "role");
         if (role === undefined) {
-          throw new Error(
-            `${str(args, "agent")} needs a role — it is the address teammates use`,
-          );
+          throw new Error(`${ref} needs a role — it is the address teammates use`);
         }
+        const paneId = target.value.id;
         const members = membersOf(workspace, held.id).map((pane) => ({
           paneId: pane.id,
           role: pane.id === paneId ? role : pane.team!.role,

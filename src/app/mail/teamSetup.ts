@@ -21,7 +21,7 @@ import type { TeamPlan } from "../../domain/mail";
  * What applying a plan needs.
  *
  * `spawn` is optional because a plan that asks for no recruit needs none:
- * settling a roster — which is what an agent does through `team.assign` —
+ * settling a roster — which is what an agent does through `team.role` —
  * creates nothing. A plan that DOES ask reports the missing port rather
  * than silently skipping the work.
  */

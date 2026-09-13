@@ -348,7 +348,7 @@ describe("createMailService", () => {
  *
  * Since 65681639 (0.22.0) the doors — "+ Участник", `team.add`,
  * `agent.spawn` — land a pane on a team and nobody tells the agent where it
- * stands: the one caller of `applyTeamPlan` left is the MCP `team.assign`,
+ * stands: the one caller of `applyTeamPlan` left is the MCP `team.role`,
  * and the standing-presence re-states only on a session CHANGE. Membership
  * has exactly one writer, the deck, so the fact "this pane is now on that
  * team" is the signal a briefing must follow — whatever door wrote it.
@@ -402,7 +402,7 @@ describe("mail service — a briefing follows membership", () => {
     expect(bodies[0]).not.toContain("impl-1");
   });
 
-  it("re-briefs the roster when a member's role changes — the team.assign door", () => {
+  it("re-briefs the roster when a member's role changes — the team.role door", () => {
     // A roster settled over MCP writes roles and nothing else; the briefing
     // follows the write off the deck like every other membership change.
     const h = setup();
