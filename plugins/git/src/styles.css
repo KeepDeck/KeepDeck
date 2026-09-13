@@ -130,11 +130,29 @@
   text-align: center;
 }
 
+/* The body holds a note (loading, clean, a failure) or the list. The LIST
+   is the scroll container — a windowed list reads its own viewport — so
+   the body itself never scrolls; it only hands the list its height. */
 .git__secbody {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.git__list {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
   padding: 4px 0 6px;
+}
+
+/* A section head that follows another section carries the gap between
+   them as padding: the rows are positioned by measured boxes, and a
+   margin is outside the box. */
+.git__sechead--after {
+  padding-top: 12px;
 }
 
 /* A worktree entry in the root picker: branch on top, its folder dimmed

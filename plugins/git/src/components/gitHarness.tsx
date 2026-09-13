@@ -9,6 +9,10 @@ import type {
   PluginContext,
   WorkspaceSnapshot,
 } from "@keepdeck/plugin-api";
+import {
+  installResizeObserver,
+  pinListViewport,
+} from "@keepdeck/ui-kit/virtualGeometry.test-support";
 import { setRuntime } from "../runtime";
 import { takePeekRequest } from "../peekRequests";
 import { GitTab } from "./GitTab";
@@ -174,8 +178,15 @@ export interface GitHarness {
 export function mountGitHarness(): GitHarness {
   let root: Root;
   let host: HTMLDivElement;
+  let restoreViewport: () => void = () => {};
 
   beforeEach(() => {
+    // The sections' lists are windowed, and happy-dom computes no layout:
+    // pin the list's viewport TALL, so every row a test counts is mounted
+    // and the end of a list is always in view — the window's own
+    // behaviour is the ui-kit list's suite, not these.
+    installResizeObserver();
+    restoreViewport = pinListViewport("git__list", 100_000, 340, 24);
     host = document.createElement("div");
     document.body.appendChild(host);
     root = createRoot(host);
@@ -187,6 +198,7 @@ export function mountGitHarness(): GitHarness {
     // reach into that module state, here or in production.
     await act(async () => root.unmount());
     host.remove();
+    restoreViewport();
     setRuntime(null);
     // A test that opens a diff without a consumer leaves the request parked
     // in the module's slot; drain it so it can't open a peek in the next one.

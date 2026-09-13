@@ -23,7 +23,16 @@ export type HistoryListRow =
       when: string;
       hint: string;
       scope: HistoryScope;
-    };
+    }
+  /** The tail while the log may go on: reaching it asks for more. */
+  | { kind: "more" };
+
+/** The row's identity for a windowed list — never its index: the window
+ * grows at the bottom and a status tick can reorder nothing, but a key
+ * that is the row's own survives any change above it. */
+export function historyRowKey(row: HistoryListRow): string {
+  return row.kind === "commit" ? row.sha : row.kind;
+}
 
 export interface HistoryList {
   rows: HistoryListRow[];
@@ -38,7 +47,7 @@ export function historyCount(history: GitHistory | null): number | null {
   return history?.ahead ?? null;
 }
 
-export function historyList(history: GitHistory, nowMs: number): HistoryList {
+export function historyList(history: GitHistory, nowMs: number, hasMore = false): HistoryList {
   const rows: HistoryListRow[] = [];
   if (history.forkSha) {
     const ahead = history.ahead ?? 0;
@@ -61,5 +70,6 @@ export function historyList(history: GitHistory, nowMs: number): HistoryList {
       scope: { kind: "commit", sha: commit.sha, subject: commit.subject },
     });
   }
+  if (hasMore) rows.push({ kind: "more" });
   return { rows, empty: history.commits.length === 0 };
 }

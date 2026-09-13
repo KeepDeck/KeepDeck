@@ -8,6 +8,10 @@ import type {
   WorkspaceRef,
   WorkspaceSnapshot,
 } from "@keepdeck/plugin-api";
+import {
+  installResizeObserver,
+  pinListViewport,
+} from "@keepdeck/ui-kit/virtualGeometry.test-support";
 import { setRuntime } from "../runtime";
 import { requestPeek, takePeekRequest } from "../peekRequests";
 import { GitDiffOverlay } from "./GitDiffOverlay";
@@ -131,7 +135,13 @@ let overlayHost: HTMLDivElement;
 let tabRoot: Root;
 let overlayRoot: Root;
 
+let restoreViewport: () => void = () => {};
+
 beforeEach(() => {
+  // The tab's lists are windowed; a tall pinned viewport mounts every row
+  // a test clicks (the window's own behaviour is the ui-kit list's suite).
+  installResizeObserver();
+  restoreViewport = pinListViewport("git__list", 100_000, 340, 24);
   tabHost = document.createElement("div");
   overlayHost = document.createElement("div");
   document.body.append(tabHost, overlayHost);
@@ -146,6 +156,7 @@ afterEach(async () => {
   });
   tabHost.remove();
   overlayHost.remove();
+  restoreViewport();
   setRuntime(null);
   takePeekRequest();
   deckEvents.reset();

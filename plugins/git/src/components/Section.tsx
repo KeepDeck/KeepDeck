@@ -7,7 +7,9 @@ import type { SectionId } from "../presentation/sections";
  * chevron, name, a count, whatever else the owner puts beside it — and the
  * body under it while open. A section is as tall as its content until the
  * open ones overflow the tab; then they split its height equally, each
- * scrolling its own body (CSS, `.git__sections`). Dumb on purpose:
+ * scrolling its own list (CSS, `.git__sections`) — the list inside the
+ * body is the scroll container, so a windowed list measures its own
+ * viewport. Dumb on purpose:
  * whether it is open is the owner's state, what it counts is the owner's
  * view model.
  */
@@ -50,7 +52,7 @@ export function Section({
         {count !== null && <span className="git__count">{count}</span>}
       </button>
       {open && (
-        <div className="git__secbody" id={bodyId} role="list" aria-label={label}>
+        <div className="git__secbody" id={bodyId}>
           {children}
         </div>
       )}

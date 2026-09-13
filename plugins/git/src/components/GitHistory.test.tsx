@@ -98,18 +98,14 @@ describe("History listing", () => {
     await rig.render();
     await openHistory();
 
-    // First chunk: 50 commit rows and a live sentinel.
+    // The first chunk is asked for as 50. The rig's viewport is tall, so
+    // the tail of that chunk is in view at once — which is the reader at
+    // the end of what was read — and the window widens by itself to 100;
+    // a 60-commit repo underfills that, so the tail retires: the list is
+    // complete, and no third read is asked for.
     expect(git.history).toHaveBeenCalledWith("/repo", { limit: 50 });
-    expect(rig.host.querySelectorAll("button.git__row").length).toBe(50);
-    const more = rig.host.querySelector(
-      "button.git__more",
-    ) as HTMLButtonElement;
-    expect(more).toBeTruthy();
-
-    // The next chunk widens the window; a 60-commit repo underfills it, so
-    // the sentinel retires — the list is complete.
-    await act(async () => more.click());
-    expect(git.history).toHaveBeenCalledWith("/repo", { limit: 100 });
+    expect(git.history).toHaveBeenLastCalledWith("/repo", { limit: 100 });
+    expect(git.history).toHaveBeenCalledTimes(2);
     expect(rig.host.querySelectorAll("button.git__row").length).toBe(60);
     expect(rig.host.querySelector("button.git__more")).toBeNull();
   });
@@ -138,9 +134,9 @@ describe("History listing", () => {
     expect(git.history).toHaveBeenCalledWith("/repo", { limit: 50 });
     // The header carries the branch's own commit count.
     expect(historyHeader().textContent).toContain("3");
-    const more = rig.host.querySelector("button.git__more") as HTMLButtonElement;
-    await act(async () => more.click());
-    // Sixty commit rows besides the pinned since-fork sweep.
+    // The tall rig has the tail in view, so the window widened by itself:
+    // sixty commit rows besides the pinned since-fork sweep.
+    expect(git.history).toHaveBeenLastCalledWith("/repo", { limit: 100 });
     expect(rig.host.querySelectorAll("button.git__row:not(.git__row--pin)").length).toBe(60);
 
     // Collapse: the list goes, the window stays. Reopen: it comes back at
@@ -177,13 +173,14 @@ describe("History listing", () => {
 
     // `deactivate` clears the runtime BEFORE the host unmounts the surfaces.
     // Anything that re-runs the log's effect in that window — here, the
-    // window widening — used to throw out of `getRuntime()` inside React.
+    // section closed and opened again — used to throw out of
+    // `getRuntime()` inside React.
     setRuntime(null);
-    const more = rig.host.querySelector("button.git__more") as HTMLButtonElement;
-    await act(async () => more.click());
+    await act(async () => historyHeader().click());
+    await act(async () => historyHeader().click());
 
     expect(git.history.mock.calls.length).toBe(reads);
-    // What was on screen stays on screen until the unmount takes it.
+    // What was read stays on screen until the unmount takes it.
     expect(rig.host.textContent).toContain("commit 0");
   });
 

@@ -9,7 +9,9 @@ import { rootFacts, withHead } from "../domain/roots";
 import { rootOptions } from "../presentation/rootOptionView";
 import { changesHead } from "../presentation/changesHeadView";
 import { historyCount } from "../presentation/historyListView";
-import { FileSection } from "./FileRows";
+import { VirtualList } from "@keepdeck/ui-kit/VirtualList";
+import { changesList, type ChangesListItem } from "../presentation/changesListView";
+import { FileRow } from "./FileRows";
 import { HistoryView } from "./HistoryView";
 import { Section } from "./Section";
 import { Trouble } from "./Trouble";
@@ -36,6 +38,12 @@ import { requestPeek } from "../peekRequests";
  * repo it was opened on and stays live against it, rather than vanishing from
  * under the reader because something re-rooted the panel behind it.
  */
+/** Module-level, so the window's memos are not re-keyed per render. */
+const changesItemKey = (item: ChangesListItem) => item.key;
+/** The first paint's guess per item: a row, or a head with its gap. */
+const changesItemEstimate = (item: ChangesListItem) =>
+  item.kind === "head" ? (item.first ? 24 : 32) : 24;
+
 export function GitTab({ workspace, selectedPaneId }: DockTabProps) {
   // One option per repository, named by the team whose tree it is. Stacked:
   // a 340px dock can't fit team, branch and folder inline, so the folder
@@ -113,13 +121,28 @@ export function GitTab({ workspace, selectedPaneId }: DockTabProps) {
           {groups && groups.total === 0 && (
             <div className="git__empty">No changes — the tree is clean.</div>
           )}
-          {groups && (
-            <>
-              <FileSection label="Conflicts" rows={groups.conflicted} onOpen={openRow} />
-              <FileSection label="Staged" rows={groups.staged} onOpen={openRow} />
-              <FileSection label="Changes" rows={groups.unstaged} onOpen={openRow} />
-              <FileSection label="Untracked" rows={groups.untracked} onOpen={openRow} />
-            </>
+          {groups && groups.total > 0 && (
+            // Windowed: a tree with thousands of untracked files mounts
+            // only the rows in view. What the rows are is the view
+            // model's (`changesList`).
+            <VirtualList
+              items={changesList(groups)}
+              itemKey={changesItemKey}
+              estimate={changesItemEstimate}
+              className="git__list"
+              role="list"
+              ariaLabel="Changes"
+              render={(item) =>
+                item.kind === "head" ? (
+                  <div className={`git__sechead${item.first ? "" : " git__sechead--after"}`}>
+                    {item.label}
+                    <span className="git__seccount">{item.count}</span>
+                  </div>
+                ) : (
+                  <FileRow row={item.row} onOpen={openRow} />
+                )
+              }
+            />
           )}
         </Section>
 

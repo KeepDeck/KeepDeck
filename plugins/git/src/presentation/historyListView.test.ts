@@ -81,6 +81,16 @@ describe("historyList", () => {
     expect(historyList(history, NOW).rows.map((r) => r.kind)).toEqual(["pin", "commit"]);
   });
 
+  it("a log that may go on ends in the tail that asks for more", () => {
+    const history: GitHistory = {
+      forkSha: null,
+      ahead: null,
+      commits: [commit("d4".repeat(20), "init", 10)],
+    };
+    expect(historyList(history, NOW, true).rows.map((r) => r.kind)).toEqual(["commit", "more"]);
+    expect(historyList(history, NOW, false).rows.map((r) => r.kind)).toEqual(["commit"]);
+  });
+
   it("an empty log says so, fork or not", () => {
     expect(historyList({ forkSha: null, ahead: null, commits: [] }, NOW)).toEqual({
       rows: [],
