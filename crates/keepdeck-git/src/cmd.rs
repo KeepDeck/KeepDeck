@@ -20,12 +20,13 @@ pub fn spawns() -> u64 {
     SPAWNS.load(Ordering::Relaxed)
 }
 
-/// How long one git command may run. Every read this crate makes answers in
+/// How long one READ may run. Every read this crate makes answers in
 /// milliseconds on a healthy repository, and in seconds on a monorepo; a git
 /// that has said nothing in this long is stuck — a hook or a filter waiting
 /// on something, a network filesystem gone away — and a caller holding an
 /// IPC slot for it forever helps nobody. It is killed, and the caller hears
-/// [`GitError::Timeout`].
+/// [`GitError::Timeout`]. Provisioning runs on no clock at all
+/// ([`run_git_provisioning`]).
 pub const GIT_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// How long, after the child has gone, to wait for the last of its stderr.
@@ -83,7 +84,23 @@ where
     S: AsRef<OsStr>,
 {
     let (command, shown) = git_command(dir, args);
-    run(command, shown, None, GIT_TIMEOUT).map(|capped| capped.text)
+    run(command, shown, None, Some(GIT_TIMEOUT)).map(|capped| capped.text)
+}
+
+/// Run `git -C <dir> <args...>` with no clock on it — for PROVISIONING:
+/// `worktree add` runs the checkout's smudge filters (LFS pulls whole
+/// files) and its post-checkout hook, and a large tree on a slow disk takes
+/// as long as it takes; killing it at thirty seconds would leave a half-made
+/// worktree where the read timeout only drops a stale answer. The rest of
+/// the engine still applies — its own process group, the bounded stderr
+/// drain — which is what a plain `.output()` never had.
+pub(crate) fn run_git_provisioning<I, S>(dir: &Path, args: I) -> Result<String, GitError>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    let (command, shown) = git_command(dir, args);
+    run(command, shown, None, None).map(|capped| capped.text)
 }
 
 /// Run `git -C <dir> <args...>` and return its stdout up to `max_bytes`.
@@ -105,7 +122,7 @@ where
     S: AsRef<OsStr>,
 {
     let (command, shown) = git_command(dir, args);
-    run(command, shown, Some(max_bytes), GIT_TIMEOUT)
+    run(command, shown, Some(max_bytes), Some(GIT_TIMEOUT))
 }
 
 /// `git -C <dir> <args...>` with the crate's PATH, and the args as an error
@@ -129,10 +146,10 @@ where
     (command, shown)
 }
 
-/// The one engine under both runners: spawn, stream stdout (under the cap,
-/// when there is one), bound the whole thing by `timeout`, drain stderr on
-/// the side, and kill the child — with its process group — when the cap or
-/// the clock says so.
+/// The one engine under every runner: spawn, stream stdout (under the cap,
+/// when there is one), bound the whole thing by `timeout` (when there is
+/// one), drain stderr on the side, and kill the child — with its process
+/// group — when the cap or the clock says so.
 ///
 /// Both pipes are read on their own threads: reading stdout on this thread
 /// would block for as long as a stuck child keeps the pipe open, past any
@@ -144,7 +161,7 @@ fn run(
     mut command: Command,
     shown: Vec<String>,
     cap: Option<usize>,
-    timeout: Duration,
+    timeout: Option<Duration>,
 ) -> Result<Capped, GitError> {
     SPAWNS.fetch_add(1, Ordering::Relaxed);
     command
@@ -178,11 +195,16 @@ fn run(
     });
 
     // Stdout ends with the child (or at the cap) — or the clock runs out.
-    let deadline = started + timeout;
-    let streamed = match stdout_rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
-        Ok(streamed) => Some(streamed),
-        Err(RecvTimeoutError::Timeout) => None,
-        Err(RecvTimeoutError::Disconnected) => Some((Vec::new(), None)),
+    let deadline = timeout.map(|timeout| started + timeout);
+    let streamed = match deadline {
+        Some(deadline) => {
+            match stdout_rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+                Ok(streamed) => Some(streamed),
+                Err(RecvTimeoutError::Timeout) => None,
+                Err(RecvTimeoutError::Disconnected) => Some((Vec::new(), None)),
+            }
+        }
+        None => Some(stdout_rx.recv().unwrap_or((Vec::new(), None))),
     };
     let Some((mut buf, read_error)) = streamed else {
         kill_tree(&mut child);
@@ -213,7 +235,8 @@ fn run(
     // broken pipe; one that has nothing left to say is bound by the clock —
     // a hook it waits on could hold it open indefinitely.
     let bound = if truncated {
-        deadline.min(Instant::now() + CAP_GRACE)
+        let grace = Instant::now() + CAP_GRACE;
+        Some(deadline.map_or(grace, |deadline| deadline.min(grace)))
     } else {
         deadline
     };
@@ -263,10 +286,14 @@ fn died_of_broken_pipe(_status: &ExitStatus) -> bool {
     false
 }
 
-/// Poll for the child's exit until `deadline`; `None` when it is still
-/// running then. Polling, not blocking: std has no bounded wait, and the
-/// intervals are short enough that a normal exit costs no visible latency.
-fn wait_until(child: &mut Child, deadline: Instant) -> Option<ExitStatus> {
+/// Wait for the child's exit until `deadline` — plainly, with none; `None`
+/// when it is still running then. Polling, not blocking, under a deadline:
+/// std has no bounded wait, and the intervals are short enough that a
+/// normal exit costs no visible latency.
+fn wait_until(child: &mut Child, deadline: Option<Instant>) -> Option<ExitStatus> {
+    let Some(deadline) = deadline else {
+        return child.wait().ok();
+    };
     let mut nap = Duration::from_millis(1);
     loop {
         if let Ok(Some(status)) = child.try_wait() {
@@ -324,7 +351,15 @@ mod tests {
     fn sh(script: &str, cap: Option<usize>, timeout: Duration) -> Result<Capped, GitError> {
         let mut command = Command::new("sh");
         command.args(["-c", script]);
-        run(command, vec!["sh".into(), "-c".into()], cap, timeout)
+        run(command, vec!["sh".into(), "-c".into()], cap, Some(timeout))
+    }
+
+    #[test]
+    fn a_run_on_no_clock_waits_for_the_child_however_long() {
+        let mut command = Command::new("sh");
+        command.args(["-c", "sleep 0.5; echo done"]);
+        let out = run(command, vec!["sh".into()], None, None).unwrap();
+        assert_eq!(out.text, "done\n");
     }
 
     fn scratch(name: &str) -> PathBuf {

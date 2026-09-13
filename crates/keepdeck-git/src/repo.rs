@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::cmd::run_git;
+use crate::cmd::{run_git, run_git_provisioning};
 use crate::error::GitError;
 
 /// Whether `path` is inside a git work tree.
@@ -265,5 +265,6 @@ pub fn branch_exists(repo: &Path, name: &str) -> Result<bool, GitError> {
 /// `worktree add`/`remove` siblings so no positional name can be read as a flag.
 pub fn delete_branch(repo: &Path, name: &str, force: bool) -> Result<(), GitError> {
     let flag = if force { "-D" } else { "-d" };
-    run_git(repo, ["branch", flag, "--", name]).map(drop)
+    // Provisioning, not a read: on no clock, like the worktree commands.
+    run_git_provisioning(repo, ["branch", flag, "--", name]).map(drop)
 }
