@@ -36,8 +36,6 @@ describe("workspace commands", () => {
               id: "p1",
               title: "Claude 1",
               agentType: "claude",
-              branch: null,
-              cwd: "/repo",
               activity: null,
               team: null,
             },
@@ -81,7 +79,7 @@ describe("workspace commands", () => {
     if (!result.ok) return;
     const [row] = result.value as {
       teams: unknown[];
-      panes: { id: string; team: unknown; cwd: string | null }[];
+      panes: { id: string; team: unknown }[];
     }[];
     expect(row.teams).toEqual([
       { id: "team-1", name: "api", status: "ready", cwd: "/wt/api", branch: "kd/api", members: ["p1", "p2"] },
@@ -94,13 +92,12 @@ describe("workspace commands", () => {
       { id: "team-1", name: "api", role: "impl-1" },
       { id: "team-2", name: "web", role: "lead" },
     ]);
-    expect(row.panes[2].cwd).toBeNull();
   });
 
-  it("reports no cwd for a pane whose worktree is still being created", async () => {
-    // The pane will run in the worktree once it exists. Answering the
-    // workspace cwd meanwhile told a teammate to look for it — and write
-    // beside it — in a directory it never runs in.
+  it("answers a directory once, on the team — a pane names none of its own", async () => {
+    // A pane runs where its team runs. Saying so again per member answered
+    // twice, and differently while the worktree was being created: the team
+    // named the branch it was heading for, the pane said null.
     const { registry } = setup([
       workspace({
         teams: [
@@ -119,8 +116,13 @@ describe("workspace commands", () => {
     const result = await registry.execute("workspace.list", {}, HOST);
     expect(result.ok).toBe(true);
     if (result.ok) {
-      const rows = result.value as { panes: { id: string; cwd: string | null }[] }[];
-      expect(rows[0].panes[0]).toMatchObject({ id: "p1", cwd: null, branch: null });
+      const [row] = result.value as {
+        teams: { cwd: string | null; branch: string | null }[];
+        panes: Record<string, unknown>[];
+      }[];
+      expect(row.teams[0]).toMatchObject({ cwd: null, branch: "kd/web/1" });
+      expect(row.panes[0]).not.toHaveProperty("cwd");
+      expect(row.panes[0]).not.toHaveProperty("branch");
     }
   });
 

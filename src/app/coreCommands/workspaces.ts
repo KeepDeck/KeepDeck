@@ -1,5 +1,5 @@
 import type { CommandRegistry } from "../../domain/commands";
-import { membersOf, paneAgentType, paneDisplayTitle, teamsOf, type Team, paneBranch, paneExecutionCwd } from "../../domain/deck";
+import { membersOf, paneAgentType, paneDisplayTitle, teamsOf, type Team } from "../../domain/deck";
 import { teamOf } from "../../domain/mail";
 import { requiredStr } from "./args";
 import type { CoreCommandDeps } from ".";
@@ -33,7 +33,11 @@ export function registerWorkspaceCommands(
           name: ws.name,
           cwd: ws.cwd,
           active: ws.id === deck.activeId,
-          // The teams and where each runs. `cwd` is null while the team's
+          // The teams and where each runs — the ONE place a directory is
+          // answered. A pane runs where its team runs, and saying so again
+          // per member answered twice, and differently while a worktree
+          // was being created: the team named the branch it was heading
+          // for, the pane said null. `cwd` is null while the team's
           // worktree is still being created — never the workspace root,
           // which is a directory the team will not run in.
           teams: teamsOf(ws).map((team) => ({
@@ -51,11 +55,6 @@ export function registerWorkspaceCommands(
             id: p.id,
             title: paneDisplayTitle(p, i, agents),
             agentType: paneAgentType(p),
-            branch: paneBranch(ws, p) ?? null,
-            // Null while the pane's worktree is still being created: the
-            // workspace cwd would name a directory the agent will never run
-            // in. Absent information, like `activity` below.
-            cwd: paneExecutionCwd(ws, p),
             // Null when nothing reports — a pane that is provisioning,
             // stopped, or running a CLI with no status reporter. Absent
             // information, not an absent pane.
