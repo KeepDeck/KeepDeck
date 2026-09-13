@@ -43,7 +43,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use keepdeck_git::{diff, head, log, provenance, repo, status, worktree, worktree_base};
+use keepdeck_git::{diff, fork, head, log, repo, status};
 use notify::{Event, EventKind, RecommendedWatcher};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
@@ -230,22 +230,10 @@ pub fn project_git_history(
     let rev = rev.as_deref().unwrap_or("HEAD");
     let tip = repo::resolve_commit(&repo, rev).map_err(|e| e.to_string())?;
 
-    // The fork-point ladder:
-    // 1. an EXPLICIT base wins — merge-base against it, as asked;
-    // 2. metadata owned by this branch follows its selected local base;
-    // 3. its creation SHA prevents a reset base from moving the fork backward;
-    // 4. metadata-less branches combine validated creation evidence with the
-    //    current default-branch merge-base for upgrade compatibility.
-    // A fork AT the tip means "this ref IS the base" — nothing to measure.
-    let fork = match base {
-        Some(ref base_ref) => repo::merge_base(&repo, base_ref, rev)
-            .map_err(|e| e.to_string())?
-            .filter(|fork| fork != &tip),
-        None => match managed_worktree_fork(&repo, rev, &tip)? {
-            WorktreeFork::Resolved(fork) => fork,
-            WorktreeFork::Unavailable => legacy_fork(&repo, rev, &tip)?,
-        },
-    };
+    // The fork-point ladder — explicit base, then the worktree's own recorded
+    // base, then the default branch — lives with the crate (`fork`).
+    let fork =
+        fork::fork_point(&repo, rev, &tip, base.as_deref()).map_err(|e| e.to_string())?;
 
     // The FULL recent log — the ref's own commits arrive first (newest-first
     // order), then the fork commit and the base history; the fork sha lets
@@ -273,127 +261,6 @@ pub fn project_git_history(
             })
             .collect(),
     })
-}
-
-/// Result of consulting worktree-private metadata. `Resolved(None)` is
-/// intentionally distinct from `Unavailable`: metadata can authoritatively say
-/// that the inspected ref is sitting at its base tip, in which case the default
-/// branch heuristic must not invent a fork below it.
-enum WorktreeFork {
-    Unavailable,
-    Resolved(Option<String>),
-}
-
-fn managed_worktree_fork(
-    repo_path: &Path,
-    rev: &str,
-    tip: &str,
-) -> Result<WorktreeFork, String> {
-    let Some(metadata) = metadata_for_revision(repo_path, rev)? else {
-        return Ok(WorktreeFork::Unavailable);
-    };
-
-    match metadata
-        .fork_point(repo_path, rev)
-        .map_err(|e| e.to_string())?
-    {
-        Some(fork) if fork == tip => Ok(WorktreeFork::Resolved(None)),
-        Some(fork) => Ok(WorktreeFork::Resolved(Some(fork))),
-        None => Ok(WorktreeFork::Unavailable),
-    }
-}
-
-fn metadata_for_revision(
-    repo_path: &Path,
-    rev: &str,
-) -> Result<Option<worktree_base::BaseMetadata>, String> {
-    let Some(branch_ref) = revision_branch_ref(repo_path, rev)? else {
-        return Ok(None);
-    };
-    let branch = branch_ref
-        .strip_prefix("refs/heads/")
-        .unwrap_or(&branch_ref);
-
-    let mut candidates = Vec::new();
-    for registered in worktree::list(repo_path).map_err(|e| e.to_string())? {
-        let metadata = worktree_base::read_registered(repo_path, &registered.path)
-            .map_err(|e| e.to_string())?;
-        if !metadata.is_empty() {
-            candidates.push((registered.path, metadata));
-        }
-    }
-
-    if let Some((_, metadata)) = candidates
-        .iter()
-        .find(|(_, metadata)| {
-            metadata.managed_branch_ref.as_deref() == Some(branch_ref.as_str())
-        })
-    {
-        return Ok(Some(metadata.clone()));
-    }
-
-    for (worktree_path, metadata) in candidates {
-        let created = provenance::created_branches(repo_path, &worktree_path)
-            .map_err(|e| e.to_string())?;
-        if created.iter().any(|created| created == branch) {
-            return Ok(Some(metadata));
-        }
-    }
-    Ok(None)
-}
-
-fn revision_branch_ref(repo_path: &Path, rev: &str) -> Result<Option<String>, String> {
-    if rev == "HEAD" {
-        return repo::current_branch(repo_path)
-            .map(|branch| branch.map(|branch| format!("refs/heads/{branch}")))
-            .map_err(|e| e.to_string());
-    }
-    repo::local_branch_ref(repo_path, rev).map_err(|e| e.to_string())
-}
-
-fn legacy_fork(repo_path: &Path, rev: &str, tip: &str) -> Result<Option<String>, String> {
-    let Some(default_branch) = repo::default_branch(repo_path).map_err(|e| e.to_string())? else {
-        return Ok(None);
-    };
-    let Some(default_fork) =
-        repo::merge_base(repo_path, &default_branch, rev).map_err(|e| e.to_string())?
-    else {
-        return Ok(None);
-    };
-
-    let branch = revision_branch_ref(repo_path, rev)?
-        .and_then(|reference| reference.strip_prefix("refs/heads/").map(str::to_string));
-    let creation = match branch.as_deref() {
-        Some(branch) if branch != default_branch => {
-            repo::branch_created_at(repo_path, branch).map_err(|e| e.to_string())?
-        }
-        _ => None,
-    };
-    let valid_creation = match creation {
-        Some(created)
-            if created != tip
-                && repo::merge_base(repo_path, &created, tip)
-                    .map_err(|e| e.to_string())?
-                    .as_deref()
-                    == Some(created.as_str()) =>
-        {
-            Some(created)
-        }
-        _ => None,
-    };
-
-    let fork = match valid_creation {
-        Some(created)
-            if repo::merge_base(repo_path, &default_fork, &created)
-                .map_err(|e| e.to_string())?
-                .as_deref()
-                == Some(default_fork.as_str()) =>
-        {
-            created
-        }
-        _ => default_fork,
-    };
-    Ok((fork != tip).then_some(fork))
 }
 
 /// A repo's local branches, for the history browser's ref picker.

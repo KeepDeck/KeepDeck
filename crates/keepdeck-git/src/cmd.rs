@@ -2,8 +2,21 @@ use std::ffi::OsStr;
 use std::io::Read;
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::error::GitError;
+
+/// Every git process this crate has spawned in this process, counted at the
+/// one boundary that spawns them.
+static SPAWNS: AtomicU64 = AtomicU64::new(0);
+
+/// How many git processes the crate has spawned so far — a monotonic count,
+/// so a caller measures a read's cost as a difference. The unit that matters
+/// for a read that fans out per worktree is processes, not seconds: seconds
+/// vary with the machine, the count is the design.
+pub fn spawns() -> u64 {
+    SPAWNS.load(Ordering::Relaxed)
+}
 
 /// Output read under a byte cap: the text up to the cap, cut at the last
 /// line break within it so no line arrives half, and whether anything was
@@ -29,6 +42,7 @@ where
     S: AsRef<OsStr>,
 {
     let args: Vec<S> = args.into_iter().collect();
+    SPAWNS.fetch_add(1, Ordering::Relaxed);
     let mut child = Command::new("git")
         .env("PATH", keepdeck_env::augmented_path())
         .arg("-C")
@@ -113,6 +127,7 @@ where
     S: AsRef<OsStr>,
 {
     let args: Vec<S> = args.into_iter().collect();
+    SPAWNS.fetch_add(1, Ordering::Relaxed);
     let output = Command::new("git")
         .env("PATH", keepdeck_env::augmented_path())
         .arg("-C")
