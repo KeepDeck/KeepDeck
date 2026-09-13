@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { GitHistory } from "@keepdeck/plugin-api";
-import { historyCount, historyList } from "./historyListView";
+import { historyCount, historyList, historyRowEstimate, historyRowKey } from "./historyListView";
 
 const NOW = 1_760_000_000_000;
 const fork = "f0".repeat(20);
@@ -89,6 +89,18 @@ describe("historyList", () => {
     };
     expect(historyList(history, NOW, true).rows.map((r) => r.kind)).toEqual(["commit", "more"]);
     expect(historyList(history, NOW, false).rows.map((r) => r.kind)).toEqual(["commit"]);
+  });
+
+  it("guesses each row kind's height and keys a commit by its sha, the rest by kind", () => {
+    const history: GitHistory = {
+      forkSha: fork,
+      ahead: 1,
+      commits: [commit("a1".repeat(20), "add feature", 60), commit(fork, "base work", 120)],
+    };
+    const { rows } = historyList(history, NOW, true);
+    expect(rows.map((r) => r.kind)).toEqual(["pin", "commit", "fork", "commit", "more"]);
+    expect(rows.map(historyRowEstimate)).toEqual([29, 24, 22, 24, 28]);
+    expect(rows.map(historyRowKey)).toEqual(["pin", "a1".repeat(20), "fork", fork, "more"]);
   });
 
   it("an empty log says so, fork or not", () => {
