@@ -7,8 +7,9 @@ import { takePeekRequest } from "./peekRequests";
 import { GitTab } from "./components/GitTab";
 import { GitDiffOverlay } from "./components/GitDiffOverlay";
 
-/** The Git built-in plugin: one dock tab with a live changes view per
- * worktree, on the plugin API's git service. */
+/** The Git built-in plugin: one dock tab — a worktree's changes and its
+ * history since the fork point, in two sections under a root picker — and
+ * a resident overlay for the diffs, on the plugin API's git service. */
 const activate: KeepDeckPlugin["activate"] = (ctx) => {
   setRuntime(ctx);
   ctx.ui.registerDockTab({ id: "git", label: "Git", Component: GitTab });
