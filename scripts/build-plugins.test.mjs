@@ -104,7 +104,7 @@ describe("validateManifest", () => {
   });
 });
 
-describe("build pipeline (e2e against the real plugins/run)", () => {
+describe("build pipeline (e2e against the real host and plugins)", () => {
   let distRoot;
 
   beforeEach(() => {
@@ -115,9 +115,17 @@ describe("build pipeline (e2e against the real plugins/run)", () => {
     rmSync(distRoot, { recursive: true, force: true });
   });
 
-  // Builds every real plugin from scratch — well past vitest's 5s default on
+  // Builds the host and every real plugin — well past vitest's 5s default on
   // a cold 2-core CI runner, hence the explicit timeout.
-  it("builds keepdeck.run with externals kept bare, manifest copied, index.json deterministic", { timeout: 120_000 }, () => {
+  it("builds plugins with deterministic metadata and links them through the host import map", { timeout: 120_000 }, () => {
+    execFileSync(
+      process.execPath,
+      [
+        join(REPO_ROOT, "node_modules/vite/bin/vite.js"),
+        "build", "--outDir", distRoot, "--emptyOutDir", "--logLevel", "error",
+      ],
+      { cwd: REPO_ROOT, env: { ...process.env, NODE_ENV: "production" } },
+    );
     const out = execFileSync(process.execPath, [SCRIPT, "--out-dir", distRoot], {
       cwd: REPO_ROOT,
       encoding: "utf8",
@@ -169,6 +177,22 @@ describe("build pipeline (e2e against the real plugins/run)", () => {
         { id: "keepdeck.voice", dir: "plugins/keepdeck.voice", css: true },
       ],
     });
+
+    // Native ESM linking catches missing bridge exports in the SHIPPED
+    // chunks, including imports introduced by a plugin's dependencies.
+    // Dev/source tests resolve the real packages and bypass this boundary.
+    const linked = execFileSync(
+      process.execPath,
+      [
+        "--experimental-vm-modules",
+        join(REPO_ROOT, "scripts/link-plugin-bundles.test-support.mjs"),
+        distRoot,
+      ],
+      { cwd: REPO_ROOT, encoding: "utf8" },
+    );
+    expect(linked.trim().split("\n")).toEqual(
+      index.plugins.map(({ id }) => `Linked ${id}`),
+    );
 
     // The flag and the file agree, both ways: run's CSS (xterm's stylesheet,
     // imported by its log renderer) landed under the fixed name the loader
@@ -278,7 +302,7 @@ describe("build pipeline (e2e against the real plugins/run)", () => {
   });
 });
 
-describe("bridge source files export the names plugin bundles need", () => {
+describe("bridge exports for plugin bundles", () => {
   const bridgePath = (name) =>
     join(REPO_ROOT, "src", "plugins", "bridges", name);
 
@@ -299,9 +323,12 @@ describe("bridge source files export the names plugin bundles need", () => {
     expect(src).toMatch(/\bcreateRoot\b/);
   });
 
-  it("react-dom.js exports createPortal", () => {
-    const src = readFileSync(bridgePath("react-dom.js"), "utf8");
-    expect(src).toMatch(/\bcreatePortal\b/);
+  it("react-dom.js shares the host's portal and synchronous render functions", async () => {
+    const { default: host } = await import("react-dom");
+    const bridge = await import("../src/plugins/bridges/react-dom.js");
+    expect(bridge.createPortal).toBe(host.createPortal);
+    expect(bridge.flushSync).toBeTypeOf("function");
+    expect(bridge.flushSync).toBe(host.flushSync);
   });
 
   it("plugin-api.js is a plain passthrough (genuine ESM, no hand-listed names needed)", () => {
