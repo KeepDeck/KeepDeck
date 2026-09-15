@@ -117,7 +117,7 @@ describe("build pipeline (e2e against the real host and plugins)", () => {
 
   // Builds the host and every real plugin — well past vitest's 5s default on
   // a cold 2-core CI runner, hence the explicit timeout.
-  it("builds plugins with deterministic metadata and links them through the host import map", { timeout: 120_000 }, () => {
+  it("builds and links plugins through the host import map and renders Git without Node globals", { timeout: 120_000 }, () => {
     execFileSync(
       process.execPath,
       [
@@ -178,21 +178,21 @@ describe("build pipeline (e2e against the real host and plugins)", () => {
       ],
     });
 
-    // Native ESM linking catches missing bridge exports in the SHIPPED
-    // chunks, including imports introduced by a plugin's dependencies.
-    // Dev/source tests resolve the real packages and bypass this boundary.
-    const linked = execFileSync(
+    // Check both static linking and real rendering in a browser realm.
+    // Source tests bypass the bridges and have Node globals available.
+    const checked = execFileSync(
       process.execPath,
       [
         "--experimental-vm-modules",
-        join(REPO_ROOT, "scripts/link-plugin-bundles.test-support.mjs"),
+        join(REPO_ROOT, "scripts/check-plugin-bundles.test-support.mjs"),
         distRoot,
       ],
-      { cwd: REPO_ROOT, encoding: "utf8" },
+      { cwd: REPO_ROOT, encoding: "utf8", timeout: 30_000 },
     );
-    expect(linked.trim().split("\n")).toEqual(
-      index.plugins.map(({ id }) => `Linked ${id}`),
-    );
+    expect(checked.trim().split("\n")).toEqual([
+      ...index.plugins.map(({ id }) => `Linked ${id}`),
+      "Rendered keepdeck.git changes and history without Node globals",
+    ]);
 
     // The flag and the file agree, both ways: run's CSS (xterm's stylesheet,
     // imported by its log renderer) landed under the fixed name the loader
