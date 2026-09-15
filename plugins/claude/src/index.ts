@@ -17,7 +17,10 @@
  */
 import type {
   KeepDeckPlugin,
+  PluginContext,
   PluginResources,
+  SpawnPlanInput,
+  SpawnPlanOutput,
   SpawnSkillsInput,
 } from "@keepdeck/plugin-api";
 import { icon } from "./icon";
@@ -187,6 +190,31 @@ const yoloArgs = (yolo: boolean | undefined): string[] =>
 const skillsArgs = (skills: SpawnSkillsInput | undefined): string[] =>
   skills ? ["--plugin-dir", skills.claudePluginDir] : [];
 
+/**
+ * Everything a launch of this CLI carries before its own arguments are
+ * chosen — the two reporters, the staged skills, the injected MCP servers,
+ * the YOLO flag.
+ *
+ * One place, because it was three. The same lines stood in `spawn.plan`,
+ * `resume.plan` and `fork.plan`, held in step by whoever remembered. A
+ * carrier added to one and forgotten in another is not a visible mistake: a
+ * forked pane would simply come up without its reporter, or without its
+ * skills, and go on looking like the ones that have them. Each hook appends
+ * only what makes it that hook — the resume or fork tail.
+ */
+async function stageLaunch(
+  ctx: Pick<PluginContext, "resources">,
+  input: Pick<SpawnPlanInput, "skills" | "mcp" | "yolo">,
+  output: SpawnPlanOutput,
+): Promise<void> {
+  output.args.push(
+    ...(await hookArgs(ctx.resources)),
+    ...skillsArgs(input.skills),
+    ...mcpArgs(input.mcp),
+    ...yoloArgs(input.yolo),
+  );
+}
+
 /** Claude encodes a session's project dir into the store path:
  * `~/.claude/projects/<slug>/<sessionId>.jsonl`. The REAL encoding
  * (decompiled from claude 2.1.215's own sanitizePath) replaces EVERY
@@ -240,23 +268,10 @@ const plugin: KeepDeckPlugin = {
       history: claudeHistory(ctx),
       liveSessions: claudeLiveSessions(ctx),
       hooks: {
-        "spawn.plan": async (input, output) => {
-          output.args = [
-            ...(await hookArgs(ctx.resources)),
-            ...skillsArgs(input.skills),
-            ...mcpArgs(input.mcp),
-            ...yoloArgs(input.yolo),
-          ];
-        },
+        "spawn.plan": (input, output) => stageLaunch(ctx, input, output),
         "resume.plan": async (input, output) => {
-          output.args = [
-            ...(await hookArgs(ctx.resources)),
-            ...skillsArgs(input.skills),
-            ...mcpArgs(input.mcp),
-            ...yoloArgs(input.yolo),
-            "--resume",
-            input.sessionId,
-          ];
+          await stageLaunch(ctx, input, output);
+          output.args.push("--resume", input.sessionId);
         },
         /** Cross-directory fork: copy the recorded transcript into the
          * target cwd's slug dir, then spawn `--resume <id> --fork-session`
@@ -302,15 +317,8 @@ const plugin: KeepDeckPlugin = {
           if (target !== source) {
             await ctx.services.fsWrite.copyFile(source, target);
           }
-          output.args = [
-            ...(await hookArgs(ctx.resources)),
-            ...skillsArgs(input.skills),
-            ...mcpArgs(input.mcp),
-            ...yoloArgs(input.yolo),
-            "--resume",
-            input.sessionId,
-            "--fork-session",
-          ];
+          await stageLaunch(ctx, input, output);
+          output.args.push("--resume", input.sessionId, "--fork-session");
         },
       },
     });
