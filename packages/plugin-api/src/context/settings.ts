@@ -32,7 +32,18 @@ export type SettingsField =
       /** Render obscured; the value is still stored with the rest. */
       secret?: boolean;
     }
-  | { kind: "boolean"; key: string; label: string; default: boolean }
+  | {
+      kind: "boolean";
+      key: string;
+      label: string;
+      default: boolean;
+      /** One line under the label saying what the switch actually does — the
+       * shape the host's own toggles carry (the plugin enable row, the
+       * notifications mute). A switch whose consequence is not obvious from
+       * a few words has no other room to state it. Omit when the label says
+       * everything. */
+      description?: string;
+    }
   | { kind: "number"; key: string; label: string; default: number }
   | {
       kind: "select";

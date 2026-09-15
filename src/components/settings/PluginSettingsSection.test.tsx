@@ -299,6 +299,49 @@ describe("PluginSettingsSection — one resolution rule with the plugin", () => 
     expect(document.querySelector(".dropdown__label")?.textContent).toBe("Auto");
   });
 
+  it("a boolean switch states its consequence under the label, when it has one", async () => {
+    // The plugin's word for what the switch DOES — the host only maps it. A
+    // switch whose consequence is not obvious from its label (claude's own
+    // artifacts share a word with the deck's) has no other place to say so.
+    const described: SettingsSectionContribution = {
+      label: "Sample",
+      fields: [
+        {
+          kind: "boolean",
+          key: "publish",
+          label: "Publish",
+          description: "Applies to the next agent start.",
+          default: true,
+        },
+      ],
+    };
+    await mountWith(described, {});
+
+    const toggle = document.querySelector(".settings__toggle-text")!;
+    expect(toggle.querySelector("span")?.textContent).toBe("Publish");
+    expect(toggle.querySelector(".settings__hint")?.textContent).toBe(
+      "Applies to the next agent start.",
+    );
+    // Flipping it still writes the plugin's value through the store.
+    act(() =>
+      document.querySelector<HTMLInputElement>('input[aria-label="Publish"]')!.click(),
+    );
+    expect(getSettings()?.plugins.values["keepdeck.sample"]?.publish).toBe(false);
+  });
+
+  it("a boolean switch without a description renders no empty hint line", async () => {
+    const bare: SettingsSectionContribution = {
+      label: "Sample",
+      fields: [{ kind: "boolean", key: "publish", label: "Publish", default: true }],
+    };
+    await mountWith(bare, {});
+
+    expect(document.querySelector(".settings__toggle-text")?.textContent).toBe(
+      "Publish",
+    );
+    expect(document.querySelector(".settings__hint")).toBeNull();
+  });
+
   it("hands a custom field only the keys its section declares", async () => {
     const seen: Record<string, unknown>[] = [];
     const customSection: SettingsSectionContribution = {
