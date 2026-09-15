@@ -117,6 +117,32 @@ describe("built-in plugin manifests", () => {
     }
   });
 
+  it("declares settings wherever the source registers a section", () => {
+    // `registerSection` throws on a manifest that does not say `settings:
+    // true`, and activate() throwing lands the WHOLE plugin `failed` — for a
+    // CLI plugin that is the agent gone, not a settings page missing. The
+    // same symbol-grep as the mail check: a plugin that starts registering a
+    // section fails here until its manifest says so. The converse (declared,
+    // never registered) is a harmless dead declaration and is not checked.
+    for (const path of MANIFESTS) {
+      const { id, contributes } = JSON.parse(readFileSync(path, "utf8"));
+      const src = join(dirname(path), "src");
+      const registers = readdirSync(src, { withFileTypes: true, recursive: true })
+        .filter((entry) => entry.isFile() && /\.tsx?$/.test(entry.name))
+        .filter((entry) => !entry.name.includes(".test."))
+        .some((entry) =>
+          /\bsettings\.registerSection\(/.test(
+            readFileSync(join(entry.parentPath, entry.name), "utf8"),
+          ),
+        );
+      if (!registers) continue;
+      expect(
+        contributes?.settings,
+        `${path} (${id}) registers a settings section but does not declare contributes.settings`,
+      ).toBe(true);
+    }
+  });
+
   it("carries a parseable own version", () => {
     // The plugin's DISPLAY version, which stays semver — distinct from the
     // integer API floor above.

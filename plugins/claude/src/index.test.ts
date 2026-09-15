@@ -2,23 +2,40 @@ import { describe, expect, it } from "vitest";
 import type {
   AgentContribution,
   PluginContext,
+  SettingsSectionContribution,
   SpawnPlanOutput,
 } from "@keepdeck/plugin-api";
+import { mergeSectionValues } from "@keepdeck/plugin-api";
 import plugin from "./index";
+import { ARTIFACTS_FIELD, DISABLE_ARTIFACTS_VAR } from "./artifacts";
 import { ASKS_FOR_MAIL, renderClaudeMail } from "./status";
 import { claudeUsageWatches } from "./usage";
 
+/** The section this plugin registered during the last [`activate`]. */
+let registered: SettingsSectionContribution | undefined;
+
 /** Activate against a minimal fake ctx; returns the registered agent.
  * `resources` maps script name → resolved path (missing name = null), so a
- * test can arm the two reporters independently. */
+ * test can arm the two reporters independently. `stored` is what the
+ * settings file holds for this plugin — resolved through the CONTRACT's own
+ * merge, the way the host resolves it, so a field declared under one key and
+ * read under another fails here instead of shipping. */
 function activate(
   resources: Record<string, string> | null,
   copies: [string, string][] = [],
+  stored: Record<string, unknown> = {},
 ): AgentContribution {
   let agent: AgentContribution | undefined;
+  registered = undefined;
   plugin.activate({
     agents: { register: (a: AgentContribution) => ((agent = a), { dispose() {} }) },
     resources: { path: async (name: string) => resources?.[name] ?? null },
+    settings: {
+      registerSection: (section: SettingsSectionContribution) => (
+        (registered = section), { dispose() {} }
+      ),
+      read: async () => mergeSectionValues(registered, stored),
+    },
     services: {
       fsWrite: {
         copyFile: async (src: string, dst: string) => {
@@ -296,6 +313,38 @@ describe("claude plugin hooks", () => {
       "old-id",
     ]);
   });
+
+  it("offers claude's own artifacts as the plugin's one switch", () => {
+    activate(null);
+    // The field the page renders IS the field the hook reads — the fake
+    // resolves through `mergeSectionValues`, so a drift between the two would
+    // leave every plan below carrying no variable.
+    expect(registered).toEqual({
+      label: "Claude Code",
+      fields: [ARTIFACTS_FIELD],
+    });
+  });
+
+  it("switched off, disables claude's artifacts on spawn AND resume", async () => {
+    const agent = activate(null, [], { artifacts: false });
+
+    const spawn = output();
+    await agent.hooks["spawn.plan"]!(input, spawn);
+    expect(spawn.env).toEqual([[DISABLE_ARTIFACTS_VAR, "1"]]);
+
+    // A resumed pane is the same session to the user: the switch it was
+    // spawned under must not lapse the first time it is woken.
+    const resume = output();
+    await agent.hooks["resume.plan"]!({ ...input, sessionId: "s" }, resume);
+    expect(resume.env).toEqual([[DISABLE_ARTIFACTS_VAR, "1"]]);
+  });
+
+  it("leaves the pane environment alone while they are on — the deck has no opinion", async () => {
+    const agent = activate(null);
+    const out = output();
+    await agent.hooks["spawn.plan"]!(input, out);
+    expect(out.env).toEqual([]);
+  });
 });
 
 describe("claude plugin identity", () => {
@@ -380,6 +429,16 @@ describe("claude fork.plan", () => {
         },
       },
     });
+  });
+
+  it("carries the artifacts switch too — every other fork assertion reads argv", async () => {
+    // Same hole as the MCP one above, on the OTHER output: dropping the env
+    // line from this hook alone would pass every argv assertion here, and a
+    // forked pane would quietly regain what its source was denied.
+    const agent = activate(SESSION_HOOK, [], { artifacts: false });
+    const out = output();
+    await agent.hooks["fork.plan"]!({ ...forkInput, cwd: "/repo/wt_2.x" }, out);
+    expect(out.env).toEqual([[DISABLE_ARTIFACTS_VAR, "1"]]);
   });
 
   it("derives the transcript path from the recorded cwd when none was delivered", async () => {

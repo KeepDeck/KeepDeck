@@ -23,6 +23,7 @@ import type {
   SpawnPlanOutput,
   SpawnSkillsInput,
 } from "@keepdeck/plugin-api";
+import { ARTIFACTS_FIELD, artifactsEnv } from "./artifacts";
 import { icon } from "./icon";
 import { mcpArgs } from "./mcp";
 import {
@@ -193,17 +194,23 @@ const skillsArgs = (skills: SpawnSkillsInput | undefined): string[] =>
 /**
  * Everything a launch of this CLI carries before its own arguments are
  * chosen — the two reporters, the staged skills, the injected MCP servers,
- * the YOLO flag.
+ * the YOLO flag — and the environment the user's deck-side choices ride in
+ * (the artifacts switch).
  *
  * One place, because it was three. The same lines stood in `spawn.plan`,
  * `resume.plan` and `fork.plan`, held in step by whoever remembered. A
  * carrier added to one and forgotten in another is not a visible mistake: a
- * forked pane would simply come up without its reporter, or without its
- * skills, and go on looking like the ones that have them. Each hook appends
- * only what makes it that hook — the resume or fork tail.
+ * forked pane would simply come up without its reporter, or with artifacts
+ * its source was denied, and go on looking like the ones that have them.
+ * Each hook appends only what makes it that hook — the resume or fork tail.
+ *
+ * The settings are read per plan, never cached at activation: a plan is
+ * built for every spawn, resume and fork, so the next process always
+ * carries the current answer. A live one keeps what it started with either
+ * way — claude decides at startup.
  */
 async function stageLaunch(
-  ctx: Pick<PluginContext, "resources">,
+  ctx: Pick<PluginContext, "resources" | "settings">,
   input: Pick<SpawnPlanInput, "skills" | "mcp" | "yolo">,
   output: SpawnPlanOutput,
 ): Promise<void> {
@@ -213,6 +220,7 @@ async function stageLaunch(
     ...mcpArgs(input.mcp),
     ...yoloArgs(input.yolo),
   );
+  output.env.push(...artifactsEnv(await ctx.settings.read()));
 }
 
 /** Claude encodes a session's project dir into the store path:
@@ -321,6 +329,14 @@ const plugin: KeepDeckPlugin = {
           output.args.push("--resume", input.sessionId, "--fork-session");
         },
       },
+    });
+    // The switch for claude's OWN artifacts ([`ARTIFACTS_FIELD`]). The label
+    // never reaches the screen — the plugin's page is titled by the manifest
+    // name and renders the fields alone — so it repeats that title rather
+    // than inventing a name nobody would ever see it under.
+    ctx.settings.registerSection({
+      label: "Claude Code",
+      fields: [ARTIFACTS_FIELD],
     });
   },
 };
