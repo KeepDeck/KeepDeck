@@ -155,6 +155,10 @@ async function buildPluginBundle(entry, outDir) {
     // is a fixed multi-entry app build, entirely unrelated to a plugin's lib build).
     configFile: false,
     logLevel: "warn",
+    // Library mode leaves NODE_ENV reads in dependencies untouched even
+    // when the build runs in production. These bundles run in a webview,
+    // where `process` does not exist (e.g. TanStack's virtualizer reads it).
+    define: { "process.env.NODE_ENV": JSON.stringify("production") },
     build: {
       outDir,
       // Safe even for an outDir outside the repo (a test's tmp dir): passing
