@@ -1,7 +1,8 @@
 import { useCallback } from "react";
 import { createPortal } from "react-dom";
 import type { ActivityBadge } from "../../domain/status";
-import { GitBranchIcon } from "../../ui/icons";
+import { GitBranchIcon, UsersIcon } from "../../ui/icons";
+import { teamBadgeTitle } from "../../ui/badges";
 import type { GitBadge } from "../../ui/gitBadge";
 import { useAnchoredTooltipPosition } from "../../ui/tooltip/useAnchoredTooltipPosition";
 
@@ -13,6 +14,10 @@ interface MinimizedDetailsTooltipProps {
    * failed) — the frame colours the chip, this names the state in words. */
   activity?: ActivityBadge | null;
   gitBadge?: GitBadge | null;
+  /** The pane's place on a team, when it is on one. The compact chip has no
+   * room for the team badge, so the hover details carry the same wording the
+   * header badge offers on its own hover. */
+  team?: { name: string; role: string } | null;
   /** The pane behind the stand-in has no process. */
   stopped?: boolean;
 }
@@ -29,6 +34,7 @@ export function MinimizedDetailsTooltip({
   title,
   activity,
   gitBadge,
+  team,
   stopped,
 }: MinimizedDetailsTooltipProps) {
   const getAnchorRect = useCallback(
@@ -66,6 +72,12 @@ export function MinimizedDetailsTooltip({
           custom tooltip suppresses on the same hover — so the detail layer has
           to carry the state itself or the hover hides what it explains. */}
       {stopped && <div className="minimized-tooltip__stopped">Stopped</div>}
+      {team && (
+        <div className="minimized-tooltip__team">
+          <UsersIcon />
+          <span>{teamBadgeTitle(team.name, team.role)}</span>
+        </div>
+      )}
       {gitBadge && (
         <div className="minimized-tooltip__branch">
           <GitBranchIcon />

@@ -5,6 +5,7 @@ export {
   StoppedMarker,
   TeamBadge,
   YoloBadge,
+  teamBadgeTitle,
   type BranchBadgeProps,
   type StoppedMarkerProps,
   type TeamBadgeProps,

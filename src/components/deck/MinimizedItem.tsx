@@ -18,6 +18,9 @@ interface MinimizedItemProps {
   icon?: AgentGlyphIcon | null;
   /** The agent's live branch badge, when its cwd is a known git HEAD. */
   gitBadge?: GitBadge | null;
+  /** The pane's place on a team, when it is on one — shown in the hover
+   * details; the compact chip itself carries no team badge. */
+  team?: { name: string; role: string } | null;
   /** The pane runs in YOLO mode — the header chip's warning must survive
    * minimizing, so the stand-in carries a bolt marker too. */
   yolo?: boolean;
@@ -87,6 +90,7 @@ export function MinimizedItem({
   title,
   icon,
   gitBadge,
+  team,
   yolo,
   stopped,
   label,
@@ -176,6 +180,7 @@ export function MinimizedItem({
           title={title}
           activity={activityView}
           gitBadge={gitBadge}
+          team={team}
           stopped={stopped}
         />
       )}
