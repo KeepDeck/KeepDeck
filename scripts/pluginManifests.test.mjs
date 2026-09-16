@@ -27,6 +27,17 @@ const MANIFESTS = readdirSync(PLUGINS, { withFileTypes: true })
   .filter((entry) => entry.isDirectory())
   .map((entry) => join(PLUGINS, entry.name, "manifest.json"));
 
+/** What a cross-check reads of a plugin: every shipped `.ts`/`.tsx` under
+ * its `src/`, as text, tests excluded — a test file mentioning a symbol is
+ * not the plugin using it. One walk, because three checks each spelled it. */
+function pluginSources(manifestPath) {
+  const src = join(dirname(manifestPath), "src");
+  return readdirSync(src, { withFileTypes: true, recursive: true })
+    .filter((entry) => entry.isFile() && /\.tsx?$/.test(entry.name))
+    .filter((entry) => !entry.name.includes(".test."))
+    .map((entry) => readFileSync(join(entry.parentPath, entry.name), "utf8"));
+}
+
 /** The built-ins that ship today. A ROSTER, not a smoke test: an empty read
  * would make every assertion below vacuous, and a plugin quietly dropped
  * from the bundle is worth failing over. Adding one keeps this passing;
@@ -61,13 +72,7 @@ describe("built-in plugin manifests", () => {
     const MAIL_API = 37;
     for (const path of MANIFESTS) {
       const { id, minApiVersion } = JSON.parse(readFileSync(path, "utf8"));
-      const src = join(dirname(path), "src");
-      const uses = readdirSync(src, { withFileTypes: true, recursive: true })
-        .filter((entry) => entry.isFile() && /\.tsx?$/.test(entry.name))
-        .filter((entry) => !entry.name.includes(".test."))
-        .some((entry) =>
-          MAIL_SURFACE.test(readFileSync(join(entry.parentPath, entry.name), "utf8")),
-        );
+      const uses = pluginSources(path).some((text) => MAIL_SURFACE.test(text));
       if (!uses) continue;
       expect(
         minApiVersion,
@@ -94,13 +99,7 @@ describe("built-in plugin manifests", () => {
     const MAIL_SURFACE = /\b(renderMail|frameTeammateMail)/;
     for (const path of MANIFESTS) {
       const { id, contributes } = JSON.parse(readFileSync(path, "utf8"));
-      const src = join(dirname(path), "src");
-      const rendersMail = readdirSync(src, { withFileTypes: true, recursive: true })
-        .filter((entry) => entry.isFile() && /\.tsx?$/.test(entry.name))
-        .filter((entry) => !entry.name.includes(".test."))
-        .some((entry) =>
-          MAIL_SURFACE.test(readFileSync(join(entry.parentPath, entry.name), "utf8")),
-        );
+      const rendersMail = pluginSources(path).some((text) => MAIL_SURFACE.test(text));
       for (const agent of contributes?.agents ?? []) {
         const ids = new Set((agent.features ?? []).map((feature) => feature.id));
         expect(
@@ -114,6 +113,26 @@ describe("built-in plugin manifests", () => {
           ).toBe(true);
         }
       }
+    }
+  });
+
+  it("declares settings wherever the source registers a section", () => {
+    // `registerSection` throws on a manifest that does not say `settings:
+    // true`, and activate() throwing lands the WHOLE plugin `failed` — for a
+    // CLI plugin that is the agent gone, not a settings page missing. The
+    // same symbol-grep as the mail check: a plugin that starts registering a
+    // section fails here until its manifest says so. The converse (declared,
+    // never registered) is a harmless dead declaration and is not checked.
+    for (const path of MANIFESTS) {
+      const { id, contributes } = JSON.parse(readFileSync(path, "utf8"));
+      const registers = pluginSources(path).some((text) =>
+        /\bsettings\.registerSection\(/.test(text),
+      );
+      if (!registers) continue;
+      expect(
+        contributes?.settings,
+        `${path} (${id}) registers a settings section but does not declare contributes.settings`,
+      ).toBe(true);
     }
   });
 

@@ -94,7 +94,12 @@ function PluginField({
             onChange={(e) => onWrite(e.target.checked)}
             aria-label={field.label}
           />
-          <span className="settings__toggle-text">{field.label}</span>
+          <span className="settings__toggle-text">
+            <span>{field.label}</span>
+            {field.description && (
+              <span className="settings__hint">{field.description}</span>
+            )}
+          </span>
         </label>
       );
     case "string":
