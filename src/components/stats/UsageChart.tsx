@@ -99,6 +99,12 @@ export function UsageChart({
           <Tooltip
             cursor={{ fill: CHART_CURSOR_FILL }}
             isAnimationActive={false}
+            /* recharts 3 portals the tooltip AND the legend into the same
+               .recharts-wrapper, both absolute with no z-index — paint order
+               follows DOM order, which follows JSX order. Legend sits below
+               in this chart, so without this the legend paints over the
+               hover card. */
+            wrapperStyle={{ zIndex: 1 }}
             content={(props) => (
               <BucketTip
                 active={props.active === true}
