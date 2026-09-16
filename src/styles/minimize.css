@@ -267,6 +267,7 @@
   color: var(--status-failed);
 }
 
+.minimized-tooltip__team,
 .minimized-tooltip__branch {
   display: flex;
   align-items: center;
@@ -277,9 +278,11 @@
   line-height: 1.35;
   overflow-wrap: anywhere;
 }
+.minimized-tooltip__team svg,
 .minimized-tooltip__branch svg {
   flex: none;
 }
+.minimized-tooltip__team span,
 .minimized-tooltip__branch span {
   display: -webkit-box;
   -webkit-box-orient: vertical;

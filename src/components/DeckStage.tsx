@@ -419,15 +419,19 @@ export function DeckStage({
           onRestore: () => void,
         ): MinimizedTrayEntry => {
           const title = titleOf(pane);
+          const team = teamOf(ws, pane);
           return {
             id: pane.id,
             title,
             icon:
               agents.find((a) => a.id === paneAgentType(pane))?.icon ?? null,
             gitBadge: badgeOf(pane),
+            team,
             yolo: pane.yolo,
             stopped: stoppedById.get(pane.id) ?? false,
-            label: `${label} ${title}`,
+            label: team
+              ? `${label} ${title}, ${team.role} on team ${team.name}`
+              : `${label} ${title}`,
             onRestore,
           };
         };

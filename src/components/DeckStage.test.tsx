@@ -676,6 +676,30 @@ describe("DeckStage — agent identity on the pane header", () => {
         .title,
     ).toContain("api");
   });
+
+  it("a minimized pane's stand-in names its team and role in the hover details", () => {
+    // The chip is a compact locator with no room for the team badge — the
+    // hover details (and the accessible label) are where membership is read.
+    render({ viewByWs: { "ws-1": { minimized: ["pane-2"] } } });
+    // happy-dom reports zero widths, so the chip sits in the +N popover.
+    act(() =>
+      document
+        .querySelector<HTMLButtonElement>(".minimized-overflow__trigger")!
+        .click(),
+    );
+    const chip = document.querySelector<HTMLButtonElement>(
+      "[role='dialog'] .minimized--chip",
+    )!;
+    expect(chip.getAttribute("aria-label")).toContain(
+      "impl-1 on team team-1",
+    );
+
+    act(() => chip.focus());
+    expect(
+      document.querySelector<HTMLElement>(".minimized-tooltip__team")!
+        .textContent,
+    ).toContain("impl-1 on team team-1");
+  });
 });
 
 describe("DeckStage — a maximized pane minimizes the rest", () => {

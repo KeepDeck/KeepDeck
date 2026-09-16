@@ -9,6 +9,7 @@ import {
 } from "../../app/agentStatusTracker";
 import { AppRuntimeProvider } from "../../app/runtimeContext";
 import type { AppRuntime } from "../../app/runtime";
+import { teamBadgeTitle } from "../../ui/badges";
 import {
   MINIMIZED_TOOLTIP_DELAY_MS,
   MinimizedItem,
@@ -131,6 +132,32 @@ describe("MinimizedItem", () => {
 
     act(() => button.blur());
     expect(document.querySelector("[role='tooltip']")).toBeNull();
+  });
+
+  it("names the pane's team and role in the hover details — the chip is too small for the badge", () => {
+    render({
+      paneId: "pane-1",
+      title: "Claude 1",
+      team: { name: "improvements", role: "lead" },
+      label: "Restore Claude 1, lead on team improvements",
+      active: true,
+      onClick,
+    });
+    const button = document.querySelector<HTMLButtonElement>(".minimized")!;
+    act(() => button.focus());
+
+    const line = document.querySelector<HTMLElement>(
+      ".minimized-tooltip__team",
+    )!;
+    // The same wording the header badge offers on its own hover — one home.
+    expect(line.textContent).toBe(teamBadgeTitle("improvements", "lead"));
+  });
+
+  it("shows no team line for a pane on no team", () => {
+    const button = document.querySelector<HTMLButtonElement>(".minimized")!;
+    act(() => button.focus());
+    expect(document.querySelector("[role='tooltip']")).not.toBeNull();
+    expect(document.querySelector(".minimized-tooltip__team")).toBeNull();
   });
 
   it("closes details and restores the agent on click", () => {

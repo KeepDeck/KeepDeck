@@ -27,6 +27,9 @@ export interface MinimizedTrayEntry {
   /** The agent's brand mark; absent/null draws the neutral fallback. */
   icon?: AgentGlyphIcon | null;
   gitBadge?: GitBadge | null;
+  /** The pane's place on a team, when it is on one — the hover details name
+   * the team and role, since the chip itself is too small for the badge. */
+  team?: { name: string; role: string } | null;
   /** The pane runs in YOLO mode — the chip carries the bolt marker. */
   yolo?: boolean;
   /** The pane is stopped (suspended, or parked at launch). Without this the
@@ -261,6 +264,7 @@ function MinimizedOverflow({
             title={entry.title}
             icon={entry.icon}
             gitBadge={entry.gitBadge}
+            team={entry.team}
             yolo={entry.yolo}
             stopped={entry.stopped}
             label={entry.label}
@@ -393,6 +397,7 @@ export function MinimizedTray({
             title={entry.title}
             icon={entry.icon}
             gitBadge={entry.gitBadge}
+            team={entry.team}
             yolo={entry.yolo}
             stopped={entry.stopped}
             label={entry.label}
