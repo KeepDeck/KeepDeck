@@ -6,3 +6,4 @@
 export * from "./model";
 export * from "./board";
 export * from "./transition";
+export * from "./codec";
