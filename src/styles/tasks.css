@@ -382,36 +382,6 @@
   overflow-y: auto;
 }
 
-.tasks__detail-status {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.tasks__status {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: #8b93a3;
-}
-
-.tasks__status--working {
-  color: var(--status-working);
-}
-
-.tasks__status--waiting {
-  color: var(--status-waiting);
-}
-
-.tasks__status--failed {
-  color: var(--status-failed);
-}
-
-.tasks__status--done {
-  color: var(--status-done);
-}
-
 .tasks__detail-title {
   margin: 0;
   color: #e6e9ef;
@@ -453,12 +423,54 @@
 
 .tasks__pick .dropdown__button {
   width: 100%;
+  padding: 6px 10px;
+  font-size: 13px;
 }
 
-.tasks__moves {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+/* The properties: label on the left, picker on the right, one row each —
+   the issue tracker's property list. */
+.tasks__props {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px 10px;
+  margin-top: 8px;
+}
+
+.tasks__prop-label {
+  color: #565e6b;
+  font-size: 12px;
+}
+
+.tasks__status-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* The status hue as a dot before the word, the ladder's four names. */
+.tasks__status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #3b4658;
+  flex: none;
+}
+
+.tasks__status-dot--working {
+  background-color: var(--status-working);
+}
+
+.tasks__status-dot--waiting {
+  background-color: var(--status-waiting);
+}
+
+.tasks__status-dot--failed {
+  background-color: var(--status-failed);
+}
+
+.tasks__status-dot--done {
+  background-color: var(--status-done);
 }
 
 .tasks__links {

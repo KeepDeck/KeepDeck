@@ -15,30 +15,27 @@ import {
   POOL_LABEL,
   STATUS_LABEL,
   personName,
-  priorityMark,
   statusTone,
   type StatusTone,
 } from "./words";
-
-export interface MoveView {
-  to: TaskStatus;
-  label: string;
-  /** The one move that closes the loop — drawn as the primary action. */
-  primary: boolean;
-}
 
 export interface ChoiceView {
   value: string;
   label: string;
 }
 
+/** A status the person may pick — where the task stands, and every rung
+ * the transition table lets them move it to from here. */
+export interface StatusChoiceView extends ChoiceView {
+  value: TaskStatus;
+  tone: StatusTone;
+}
+
 export interface TaskDetailView {
   id: string;
   title: string;
-  statusLabel: string;
-  tone: StatusTone;
+  status: TaskStatus;
   priority: TaskPriority;
-  priorityMark: string | null;
   /** `task-4 · by you · opened 40m ago · updated 25m ago` */
   meta: string;
   body: string;
@@ -48,9 +45,10 @@ export interface TaskDetailView {
   assignee: string;
   assigneeOptions: ChoiceView[];
   priorityOptions: ChoiceView[];
-  /** The moves the PERSON may make from here — the transition table's
-   * answer, never a list spelled in markup. */
-  moves: MoveView[];
+  /** What the status picker offers: where the task stands, then where the
+   * PERSON may move it — the transition table's answer, in ladder order,
+   * never a list spelled in markup. */
+  statusOptions: StatusChoiceView[];
   blockers: { id: string; text: string }[];
   blockersEmpty: string | null;
   unblocks: { id: string; title: string }[];
@@ -60,21 +58,8 @@ export interface TaskDetailView {
   log: { who: string; text: string; age: string }[];
 }
 
-/** What a move is called, from where it starts. */
-function moveLabel(from: TaskStatus, to: TaskStatus): string {
-  if (to === "dropped") return "Drop";
-  if (to === "done") return "Accept";
-  if (to === "review") return "Finish — to review";
-  if (to === "blocked") return "Block";
-  if (to === "todo") return "Reopen";
-  // to === "doing"
-  if (from === "review") return "Return — to doing";
-  if (from === "blocked") return "Unblock — doing";
-  return "Start — doing";
-}
-
-/** The order moves are offered in: forward first, then back, then out. */
-const MOVE_ORDER: readonly TaskStatus[] = ["doing", "review", "done", "blocked", "todo", "dropped"];
+/** The ladder's order — how the status picker lists what it offers. */
+const LADDER: readonly TaskStatus[] = ["todo", "doing", "blocked", "review", "done", "dropped"];
 
 export function taskDetailView(
   task: Task,
@@ -83,17 +68,15 @@ export function taskDetailView(
   now: number,
 ): TaskDetailView {
   const ctx = { board, roster, at: now };
-  const moves = MOVE_ORDER.filter((to) => to !== task.status)
-    .filter((to) => transition(task, { kind: "status", to }, USER_ACTOR, ctx).ok)
-    .map((to) => ({ to, label: moveLabel(task.status, to), primary: to === "done" || (to === "doing" && task.status === "todo") }));
+  const statusOptions = LADDER.filter(
+    (to) => to === task.status || transition(task, { kind: "status", to }, USER_ACTOR, ctx).ok,
+  ).map((to) => ({ value: to, label: STATUS_LABEL[to], tone: statusTone(to) }));
   const assigneeValues = [...new Set([...roster, ...(task.assignee ? [task.assignee] : [])])];
   return {
     id: task.id,
     title: task.title,
-    statusLabel: STATUS_LABEL[task.status],
-    tone: statusTone(task.status),
+    status: task.status,
     priority: task.priority,
-    priorityMark: priorityMark(task.priority),
     meta: [
       task.id,
       `by ${personName(task.author)}`,
@@ -108,7 +91,7 @@ export function taskDetailView(
       ...assigneeValues.map((role) => ({ value: role, label: role })),
     ],
     priorityOptions: (["high", "normal", "low"] as const).map((value) => ({ value, label: PRIORITY_LABEL[value] })),
-    moves,
+    statusOptions,
     blockers: task.blockedBy.map((id) => {
       const blocker = findTask(board, id);
       return { id, text: `${id} · ${blocker ? STATUS_LABEL[blocker.status].toLowerCase() : "gone"}` };

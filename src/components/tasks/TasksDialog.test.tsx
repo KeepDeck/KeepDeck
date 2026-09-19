@@ -81,16 +81,22 @@ describe("TasksDialog", () => {
     await flush();
     expect(focus).toBe("task-1");
     expect(text()).toContain("task-1 · by lead");
-    expect(button("Start — doing")).toBeTruthy();
-    expect(buttons().some((b) => b.textContent?.trim() === "Accept")).toBe(false);
 
-    act(() => button("Start — doing").click());
+    // The status picker offers only what the table allows from todo.
+    const statusPicker = () => document.querySelector<HTMLButtonElement>('button[aria-label="Status"]')!;
+    const options = () => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="option"]'));
+    act(() => statusPicker().click());
+    await flush();
+    expect(options().map((o) => o.textContent)).toEqual(["To do", "Doing", "Dropped"]);
+    act(() => options().find((o) => o.textContent === "Doing")!.click());
     await flush();
     render();
     await flush();
     const state = service.peek("ws-1");
     expect(state?.kind === "ready" && state.board.tasks[0].status).toBe("doing");
-    expect(button("Finish — to review")).toBeTruthy();
+    act(() => statusPicker().click());
+    await flush();
+    expect(options().map((o) => o.textContent)).toEqual(["Doing", "Blocked", "Review", "Dropped"]);
   });
 
   it("creates a task from the form as the user and opens it", async () => {

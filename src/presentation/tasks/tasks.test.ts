@@ -103,21 +103,20 @@ describe("queuesView", () => {
 });
 
 describe("taskDetailView", () => {
-  it("offers exactly the moves the person may make, from the transition table", () => {
+  it("offers the current status and exactly the rungs the person may move to, in ladder order", () => {
     const b = board([task({ id: "task-1", assignee: "impl-1" })]);
     const fromTodo = taskDetailView(b.tasks[0], b, ROSTER, NOW);
-    expect(fromTodo.moves).toEqual([
-      { to: "doing", label: "Start — doing", primary: true },
-      { to: "dropped", label: "Drop", primary: false },
-    ]);
+    expect(fromTodo.status).toBe("todo");
+    expect(fromTodo.statusOptions.map((o) => `${o.value}:${o.tone}`)).toEqual(["todo:none", "doing:working", "dropped:none"]);
     const inReview = board([task({ id: "task-1", status: "review", assignee: "impl-1" })]);
-    expect(taskDetailView(inReview.tasks[0], inReview, ROSTER, NOW).moves.map((m) => m.label)).toEqual([
-      "Return — to doing",
-      "Accept",
-      "Drop",
+    expect(taskDetailView(inReview.tasks[0], inReview, ROSTER, NOW).statusOptions.map((o) => o.label)).toEqual([
+      "Doing",
+      "Review",
+      "Done",
+      "Dropped",
     ]);
     const done = board([task({ id: "task-1", status: "done" })]);
-    expect(taskDetailView(done.tasks[0], done, ROSTER, NOW).moves.map((m) => m.label)).toEqual(["Reopen"]);
+    expect(taskDetailView(done.tasks[0], done, ROSTER, NOW).statusOptions.map((o) => o.value)).toEqual(["todo", "done"]);
   });
 
   it("a blocked start is not offered; blockers, what it unblocks, the thread and the log are worded", () => {
@@ -136,7 +135,7 @@ describe("taskDetailView", () => {
       task({ id: "task-3", blockedBy: ["task-2"] }),
     ]);
     const view = taskDetailView(b.tasks[1], b, ROSTER, NOW);
-    expect(view.moves.map((m) => m.to)).toEqual(["dropped"]);
+    expect(view.statusOptions.map((o) => o.value)).toEqual(["todo", "dropped"]);
     expect(view.meta).toBe("task-2 · by you · opened 1m ago · updated 1m ago");
     expect(view.blockers).toEqual([{ id: "task-1", text: "task-1 · doing" }]);
     expect(view.blockersEmpty).toBeNull();

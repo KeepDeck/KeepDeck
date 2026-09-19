@@ -24,49 +24,54 @@ export function TaskDetail({ view, onMove, onAssign, onPriority, onComment, onSe
   };
   return (
     <aside className="tasks__detail" aria-label={`Task ${view.id}`}>
-      <div className="tasks__detail-status">
-        <span className={`tasks__status tasks__status--${view.tone}`}>{view.statusLabel}</span>
-        {view.priorityMark && <span className="tasks__mark">{view.priorityMark}</span>}
-      </div>
       <h3 className="tasks__detail-title">{view.title}</h3>
       <p className="tasks__detail-meta">
         <code>{view.meta}</code>
       </p>
 
+      {/* The task's properties as a list of pickers, the way an issue
+          tracker lays them out: pick a status, do not read a verb. What
+          may be picked is the transition table's answer, carried in the
+          view — nothing here decides it. */}
+      <div className="tasks__props">
+        <span className="tasks__prop-label">Status</span>
+        <Dropdown
+          ariaLabel="Status"
+          options={view.statusOptions.map((option) => ({
+            value: option.value,
+            label: (
+              <span className="tasks__status-choice">
+                <span className={`tasks__status-dot tasks__status-dot--${option.tone}`} />
+                {option.label}
+              </span>
+            ),
+          }))}
+          value={view.status}
+          onChange={(value) => {
+            if (value !== view.status) onMove(view.id, value as TaskStatus);
+          }}
+          className="tasks__pick"
+        />
+        <span className="tasks__prop-label">Priority</span>
+        <Dropdown
+          ariaLabel="Priority"
+          options={view.priorityOptions}
+          value={view.priority}
+          onChange={(value) => onPriority(view.id, value as TaskPriority)}
+          className="tasks__pick"
+        />
+        <span className="tasks__prop-label">Assignee</span>
+        <Dropdown
+          ariaLabel="Assignee"
+          options={view.assigneeOptions}
+          value={view.assignee}
+          onChange={(value) => onAssign(view.id, value)}
+          className="tasks__pick"
+        />
+      </div>
+
       <span className="tasks__section">Brief</span>
       {view.bodyEmpty ? <p className="tasks__muted">{view.bodyEmpty}</p> : <p className="tasks__body kd-selectable">{view.body}</p>}
-
-      <span className="tasks__section">Assignee</span>
-      <Dropdown
-        ariaLabel="Assignee"
-        options={view.assigneeOptions}
-        value={view.assignee}
-        onChange={(value) => onAssign(view.id, value)}
-        className="tasks__pick"
-      />
-
-      <span className="tasks__section">Priority</span>
-      <div className="form__types">
-        {view.priorityOptions.map((option) => (
-          <button
-            key={option.value}
-            type="button"
-            className={`form__type${option.value === view.priority ? " form__type--active" : ""}`}
-            onClick={() => onPriority(view.id, option.value as TaskPriority)}
-          >
-            {option.label}
-          </button>
-        ))}
-      </div>
-
-      <span className="tasks__section">Move</span>
-      <div className="tasks__moves">
-        {view.moves.map((move) => (
-          <Button key={move.to} size="sm" variant={move.primary ? "primary" : "secondary"} onClick={() => onMove(view.id, move.to)}>
-            {move.label}
-          </Button>
-        ))}
-      </div>
 
       <span className="tasks__section">Blockers</span>
       {view.blockersEmpty ? (
