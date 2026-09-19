@@ -172,17 +172,25 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
     for (const listener of [...eventListeners]) listener(event);
   };
 
-  /** The board to mutate, or the refusal that stands in for it. */
-  const boardFor = async (
+  /**
+   * The board to mutate, read SYNCHRONOUSLY — or the refusal that stands
+   * in for it.
+   *
+   * Every mutation below awaits the load first and then runs from this
+   * read to `commit` without yielding. That is the whole concurrency
+   * story: an `await` between the two would let a second command read
+   * the same board and its commit overwrite the first's — which is
+   * exactly what happened while this read sat behind an async helper
+   * whose result crossed one more microtask. The write queue orders
+   * writes; it cannot un-lose an update decided on a stale board.
+   */
+  const liveBoard = (
     workspaceId: string,
-  ): Promise<{ ok: true; board: TaskBoard } | { ok: false; refusal: TaskProblem }> => {
-    const state = await load(workspaceId);
-    if (state.kind === "unreadable") return { ok: false, refusal: { kind: "board-unreadable", error: state.error } };
-    // Read the LIVE board after the await, not the one the load answered
-    // with: another command may have moved it in between.
-    const live = states.get(workspaceId);
-    if (live?.kind !== "ready") return { ok: false, refusal: { kind: "board-unreadable", error: "board is not ready" } };
-    return { ok: true, board: live.board };
+  ): { ok: true; board: TaskBoard } | { ok: false; refusal: TaskProblem } => {
+    const state = states.get(workspaceId);
+    if (state?.kind === "unreadable") return { ok: false, refusal: { kind: "board-unreadable", error: state.error } };
+    if (state?.kind !== "ready") return { ok: false, refusal: { kind: "board-unreadable", error: "board is not ready" } };
+    return { ok: true, board: state.board };
   };
 
   const commit = (workspaceId: string, board: TaskBoard) => {
@@ -217,7 +225,9 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
         .filter((role): role is string => role !== undefined);
     },
     async create(workspaceId, input, actor) {
-      const held = await boardFor(workspaceId);
+      await load(workspaceId);
+      // From here to `commit`: no await.
+      const held = liveBoard(workspaceId);
       if (!held.ok) return held;
       const result = createTask(input, actor, {
         board: held.board,
@@ -230,7 +240,9 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
       return { ok: true, task: result.task, board: result.board };
     },
     async apply(workspaceId, taskId, changes, actor) {
-      const held = await boardFor(workspaceId);
+      await load(workspaceId);
+      // From here to `commit`: no await.
+      const held = liveBoard(workspaceId);
       if (!held.ok) return held;
       const before = findTask(held.board, taskId);
       if (!before) return { ok: false, refusal: { kind: "unknown-task", id: taskId } };

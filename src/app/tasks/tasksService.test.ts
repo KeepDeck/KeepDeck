@@ -110,6 +110,28 @@ describe("createTasksService", () => {
     expect(store.writes.map((w) => (JSON.parse(w.json) as TaskBoard).tasks.length)).toEqual([1, 3]);
   });
 
+  it("two commands landing at once both take: neither reads a board the other is about to replace", async () => {
+    const { service, store } = setup();
+    await service.ready("ws-1");
+    const [a, b] = await Promise.all([
+      service.create("ws-1", { teamId: "team-1", title: "first" }, lead),
+      service.create("ws-1", { teamId: "team-1", title: "second" }, lead),
+    ]);
+    expect(a.ok && a.task.id).toBe("task-1");
+    expect(b.ok && b.task.id).toBe("task-2");
+    const state = service.peek("ws-1");
+    expect(state?.kind === "ready" && state.board.tasks.map((t) => t.title)).toEqual(["first", "second"]);
+    // An update racing a create sees the create.
+    const [c, d] = await Promise.all([
+      service.create("ws-1", { teamId: "team-1", title: "third" }, lead),
+      service.apply("ws-1", "task-1", [{ kind: "priority", to: "high" }], lead),
+    ]);
+    expect(c.ok && d.ok).toBe(true);
+    await flush();
+    const last = JSON.parse(store.files.get("ws-1")!) as TaskBoard;
+    expect(last.tasks.map((t) => `${t.id}:${t.priority}`)).toEqual(["task-1:high", "task-2:normal", "task-3:normal"]);
+  });
+
   it("forgetting a workspace drops its board; the next ask loads afresh", async () => {
     const { service, store } = setup();
     await service.create("ws-1", { teamId: "team-1", title: "a" }, lead);
