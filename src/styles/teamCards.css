@@ -158,6 +158,14 @@
   white-space: nowrap;
 }
 
+/* The card's line about its board — what is open, what waits on a person.
+   Dimmer than the meta above it: a count, not a control. */
+.team-card__tasks {
+  font-size: 12px;
+  color: #8b93a3;
+  font-variant-numeric: tabular-nums;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .team-card__dot--working,
   .team-card__dot--waiting,

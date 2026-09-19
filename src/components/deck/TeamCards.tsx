@@ -14,6 +14,9 @@
  */
 import { useMemo, useSyncExternalStore } from "react";
 import { useAppRuntime } from "../../app/runtimeContext";
+import { tasksOfTeam } from "../../domain/tasks";
+import { teamCardTasksLine } from "../../presentation/tasks";
+import { useTasksBoardState } from "../tasks/useBoardState";
 import {
   baseName,
   membersOf,
@@ -80,8 +83,10 @@ export function TeamCards({
   onDisband,
   onRetry,
 }: TeamCardsProps) {
-  const { statusTracker } = useAppRuntime();
+  const { statusTracker, tasks } = useAppRuntime();
   const snapshot = useSyncExternalStore(statusTracker.subscribe, statusTracker.getSnapshot);
+  const boardState = useTasksBoardState(tasks, workspace.id);
+  const board = boardState?.kind === "ready" ? boardState.board : null;
   const cards = useMemo(
     () =>
       teamsOf(workspace).map((team) =>
@@ -103,6 +108,7 @@ export function TeamCards({
         <TeamCard
           key={card.id}
           card={card}
+          tasksLine={board ? teamCardTasksLine(tasksOfTeam(board, card.id)) : null}
           rename={rename}
           onEnter={onEnter}
           onAddMember={onAddMember}
@@ -116,6 +122,7 @@ export function TeamCards({
 
 function TeamCard({
   card,
+  tasksLine,
   rename,
   onEnter,
   onAddMember,
@@ -123,6 +130,8 @@ function TeamCard({
   onRetry,
 }: {
   card: TeamCardView;
+  /** The card's line about its board, or null for a team with no tasks. */
+  tasksLine: string | null;
   rename: InlineRename;
   onEnter(teamId: string): void;
   onAddMember(teamId: string): void;
@@ -226,6 +235,7 @@ function TeamCard({
       <span className="team-card__dir" title={card.cwd}>
         {baseName(card.cwd)}
       </span>
+      {tasksLine !== null && <div className="team-card__tasks">{tasksLine}</div>}
     </article>
   );
 }
