@@ -81,6 +81,9 @@ export interface TasksService {
   /** One workspace's board as held here. Asking for a board nobody asked
    * for yet starts its load — the answer is `loading` until it lands. */
   board(workspaceId: string): BoardState;
+  /** One workspace's board as held here, WITHOUT starting a load — for a
+   * render, which must not trigger the notification a load emits. */
+  peek(workspaceId: string): BoardState | null;
   /** Settles once the board is loaded, either way. */
   ready(workspaceId: string): Promise<BoardState>;
   subscribe(listener: () => void): () => void;
@@ -194,6 +197,7 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
       void load(workspaceId);
       return { kind: "loading" };
     },
+    peek: (workspaceId) => states.get(workspaceId) ?? null,
     async ready(workspaceId) {
       // The LIVE state once the load has settled — not the load's own
       // answer, which is the board as it was the moment it arrived.

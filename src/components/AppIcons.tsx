@@ -39,6 +39,27 @@ export function SkillsIcon() {
   );
 }
 
+export function TasksIcon() {
+  // A board with a ticked line — work orders, one of them done.
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={15}
+      height={15}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <rect x="4" y="4" width="16" height="16" rx="2" />
+      <path d="m8 12 2 2 4-4" />
+      <path d="M8 17h8" />
+    </svg>
+  );
+}
+
 export function ArtifactsIcon() {
   // A page with a corner turned — a published document, not a file on disk.
   return (

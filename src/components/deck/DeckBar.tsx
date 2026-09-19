@@ -58,6 +58,7 @@ import {
   SidebarIcon,
   SkillsIcon,
   StatsIcon,
+  TasksIcon,
 } from "../AppIcons";
 import { NotificationBell } from "../notifications/NotificationBell";
 import { UsageChips } from "../usage/UsageChips";
@@ -119,6 +120,10 @@ export interface DeckBarProps {
   /** The artifacts registry, or null while Fleet artifacts are off — a door
    * to a feature that is not running is a door to a refusal. */
   onOpenArtifacts: (() => void) | null;
+  /** The task board, or null while Tasks are off — the same rule. */
+  onOpenTasks: (() => void) | null;
+  /** How many tasks wait on a person in the active workspace; 0 shows nothing. */
+  tasksBadge: number;
   onOpenSettings(): void;
 
   /** The notification bell, or null when notifications are off or delegated
@@ -145,6 +150,8 @@ export function DeckBar({
   onOpenSkills,
   onOpenMcp,
   onOpenArtifacts,
+  onOpenTasks,
+  tasksBadge,
   onOpenSettings,
   notifications,
 }: DeckBarProps) {
@@ -396,6 +403,22 @@ export function DeckBar({
               disabled={!canOpenDialog}
             >
               <ArtifactsIcon />
+            </TipButton>
+          )}
+          {onOpenTasks && (
+            <TipButton
+              variant="ghost"
+              size="sm"
+              tip="Open tasks"
+              onClick={onOpenTasks}
+              disabled={!canOpenDialog}
+            >
+              <TasksIcon />
+              {tasksBadge > 0 && (
+                <span className="tasks-door__count" aria-label={`${tasksBadge} waiting`}>
+                  {tasksBadge}
+                </span>
+              )}
             </TipButton>
           )}
           <TipButton
