@@ -119,11 +119,22 @@ describe("the ladder", () => {
     });
   });
 
-  it("a start waits for every blocker — for the lead and the user too", () => {
+  it("the user walks no ladder: any status from any status, blockers notwithstanding", () => {
     const blocker = task({ id: "task-1", status: "in-progress", assignee: "impl-2" });
     const t = task({ id: "task-2", assignee: "impl-1", blockedBy: ["task-1"] });
     const c = ctx([blocker, t]);
-    for (const actor of [impl1, lead, USER_ACTOR]) {
+    expect(moved(t, "done", USER_ACTOR, c).status).toBe("done");
+    expect(moved(t, "in-progress", USER_ACTOR, c).status).toBe("in-progress");
+    const done = task({ id: "task-1", status: "done" });
+    expect(moved(done, "in-progress", USER_ACTOR).log[0]).toMatchObject({ from: "user", was: "done", now: "in-progress" });
+    expect(reachableStatuses(t, USER_ACTOR, c)).toEqual(["in-progress", "blocked", "review", "done", "cancelled"]);
+  });
+
+  it("a start waits for every blocker — for the lead too", () => {
+    const blocker = task({ id: "task-1", status: "in-progress", assignee: "impl-2" });
+    const t = task({ id: "task-2", assignee: "impl-1", blockedBy: ["task-1"] });
+    const c = ctx([blocker, t]);
+    for (const actor of [impl1, lead]) {
       expect(refusalOf(t, { kind: "status", to: "in-progress" }, actor, c)).toEqual({
         kind: "blocked-by-open",
         blockers: ["task-1"],
@@ -145,7 +156,7 @@ describe("reachableStatuses", () => {
     expect(reachableStatuses(t, impl1, ctx([t]))).toEqual(["in-progress"]);
     expect(reachableStatuses(t, lead, ctx([t]))).toEqual(["in-progress", "cancelled"]);
     const inReview = task({ id: "task-1", status: "review", assignee: "impl-1" });
-    expect(reachableStatuses(inReview, USER_ACTOR, ctx([inReview]))).toEqual(["in-progress", "done", "cancelled"]);
+    expect(reachableStatuses(inReview, lead, ctx([inReview]))).toEqual(["in-progress", "done", "cancelled"]);
     expect(reachableStatuses(inReview, impl1, ctx([inReview]))).toEqual([]);
   });
 });

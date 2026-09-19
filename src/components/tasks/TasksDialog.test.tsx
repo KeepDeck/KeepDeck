@@ -69,7 +69,7 @@ async function seeded() {
 }
 
 describe("TasksDialog", () => {
-  it("shows the board as columns, opens a task on click, and moves it with the ladder's own verbs", async () => {
+  it("shows the board as columns, opens a task on click, and moves it with the status picker", async () => {
     const { service } = await seeded();
     const render = mount(service);
     render();
@@ -82,12 +82,13 @@ describe("TasksDialog", () => {
     expect(focus).toBe("task-1");
     expect(text()).toContain("task-1 · by lead");
 
-    // The status picker offers only what the table allows from todo.
+    // The status picker offers the person every status, in board order.
     const statusPicker = () => document.querySelector<HTMLButtonElement>('button[aria-label="Status"]')!;
     const options = () => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="option"]'));
+    const EVERY = ["Blocked", "To do", "In progress", "Review", "Done", "Cancelled"];
     act(() => statusPicker().click());
     await flush();
-    expect(options().map((o) => o.textContent)).toEqual(["To do", "In progress", "Cancelled"]);
+    expect(options().map((o) => o.textContent)).toEqual(EVERY);
     act(() => options().find((o) => o.textContent === "In progress")!.click());
     await flush();
     render();
@@ -96,7 +97,7 @@ describe("TasksDialog", () => {
     expect(state?.kind === "ready" && state.board.tasks[0].status).toBe("in-progress");
     act(() => statusPicker().click());
     await flush();
-    expect(options().map((o) => o.textContent)).toEqual(["Blocked", "In progress", "Review", "Cancelled"]);
+    expect(options().map((o) => o.textContent)).toEqual(EVERY);
   });
 
   it("creates a task from the form as the user and opens it", async () => {
@@ -209,42 +210,6 @@ describe("TasksDialog", () => {
     await flush();
     expect(panel()).toBeNull();
     expect(onClose).not.toHaveBeenCalled();
-  });
-
-  it("a dragged card may land only where the table allows, and lands there", async () => {
-    const { service } = await seeded();
-    const render = mount(service);
-    render();
-    await flush();
-    const column = (label: string) => document.querySelector<HTMLElement>(`section[aria-label="${label}"]`)!;
-    act(() => {
-      cards()[0].dispatchEvent(new Event("dragstart", { bubbles: true }));
-    });
-    await flush();
-    expect(column("In progress").className).toContain("tasks__column--drop-ok");
-    expect(column("Cancelled") ?? column("Done")).toBeTruthy();
-    expect(column("Done").className).toContain("tasks__column--drop-no");
-    expect(column("Review").className).toContain("tasks__column--drop-no");
-
-    // A drop on a column that is not a target moves nothing.
-    act(() => {
-      column("Done").dispatchEvent(new Event("drop", { bubbles: true }));
-    });
-    await flush();
-    let state = service.peek("ws-1");
-    expect(state?.kind === "ready" && state.board.tasks[0].status).toBe("todo");
-
-    act(() => {
-      cards()[0].dispatchEvent(new Event("dragstart", { bubbles: true }));
-    });
-    await flush();
-    act(() => {
-      column("In progress").dispatchEvent(new Event("drop", { bubbles: true }));
-    });
-    await flush();
-    state = service.peek("ws-1");
-    expect(state?.kind === "ready" && state.board.tasks[0].status).toBe("in-progress");
-    expect(column("In progress").className).not.toContain("drop-");
   });
 
   it("the queues view lays out a lane per member and the pool", async () => {

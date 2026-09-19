@@ -6,7 +6,8 @@
  * Authority mirrors mail's: the actor's [`RoleStanding`] decides. A role
  * that LEADS (or a peer on a flat team) hands work out and accepts it; a
  * role that REPORTS moves only its own task along the ladder; the user
- * outranks everyone. A prohibition binds the act, never the channel.
+ * outranks everyone and walks no ladder at all — any status, any time.
+ * A prohibition binds the act, never the channel.
  */
 import { openBlockersOf, findTask } from "./board";
 import {
@@ -330,12 +331,20 @@ function moveStatus(
   ctx: TransitionContext,
   by: string,
 ): TransitionResult {
-  const edge = EDGES.find((e) => e.from === task.status && e.to === to);
-  if (!edge) {
-    return to === task.status
-      ? { ok: true, task }
-      : refuse({ kind: "illegal-transition", from: task.status, to });
+  if (to === task.status) return { ok: true, task };
+  // The PERSON is not on the ladder: they move a task anywhere, blockers
+  // notwithstanding — the board is theirs to correct, and a rule that
+  // refused them would be a rule about the agents applied to their user.
+  if (actor.kind === "user") {
+    return {
+      ok: true,
+      task: logged(task, [{ at: ctx.at, from: by, field: "status", was: task.status, now: to }], ctx.at, {
+        status: to,
+      }),
+    };
   }
+  const edge = EDGES.find((e) => e.from === task.status && e.to === to);
+  if (!edge) return refuse({ kind: "illegal-transition", from: task.status, to });
   const entries: TaskLogEntry[] = [];
   let assignee = task.assignee;
   if (edge.who === "acceptor") {

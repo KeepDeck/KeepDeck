@@ -34,7 +34,7 @@ export function TaskDetail({ view, wide, onToggleWide, onClose, onMove, onAssign
             stacked read as a mistake. */}
         <div className="tasks__detail-actions">
           <Button size="sm" variant="ghost" aria-pressed={wide} onClick={onToggleWide}>
-            {wide ? "Back to board" : "Expand"}
+            {wide ? "Collapse" : "Expand"}
           </Button>
           <Button size="sm" variant="ghost" onClick={onClose}>
             Close

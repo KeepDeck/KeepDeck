@@ -103,23 +103,21 @@ describe("queuesView", () => {
 });
 
 describe("taskDetailView", () => {
-  it("offers the current status and exactly the rungs the person may move to, in ladder order", () => {
+  it("offers the person every status, in board order — they walk no ladder", () => {
     const b = board([task({ id: "task-1", assignee: "impl-1" })]);
-    const fromTodo = taskDetailView(b.tasks[0], b, ROSTER, NOW);
-    expect(fromTodo.status).toBe("todo");
-    expect(fromTodo.statusOptions.map((o) => `${o.value}:${o.tone}`)).toEqual(["todo:none", "in-progress:working", "cancelled:none"]);
-    const inReview = board([task({ id: "task-1", status: "review", assignee: "impl-1" })]);
-    expect(taskDetailView(inReview.tasks[0], inReview, ROSTER, NOW).statusOptions.map((o) => o.label)).toEqual([
-      "In progress",
-      "Review",
-      "Done",
-      "Cancelled",
+    const view = taskDetailView(b.tasks[0], b, ROSTER, NOW);
+    expect(view.status).toBe("todo");
+    expect(view.statusOptions.map((o) => `${o.value}:${o.tone}`)).toEqual([
+      "blocked:failed",
+      "todo:none",
+      "in-progress:working",
+      "review:waiting",
+      "done:done",
+      "cancelled:none",
     ]);
-    const done = board([task({ id: "task-1", status: "done" })]);
-    expect(taskDetailView(done.tasks[0], done, ROSTER, NOW).statusOptions.map((o) => o.value)).toEqual(["todo", "done"]);
   });
 
-  it("a blocked start is not offered; blockers, what it unblocks, the thread and the log are worded", () => {
+  it("blockers, what it unblocks, the thread and the log are worded", () => {
     const b = board([
       task({ id: "task-1", status: "in-progress", assignee: "impl-2" }),
       task({
@@ -135,7 +133,6 @@ describe("taskDetailView", () => {
       task({ id: "task-3", blockedBy: ["task-2"] }),
     ]);
     const view = taskDetailView(b.tasks[1], b, ROSTER, NOW);
-    expect(view.statusOptions.map((o) => o.value)).toEqual(["todo", "cancelled"]);
     expect(view.meta).toBe("task-2 · by you · opened 1m ago · updated 1m ago");
     expect(view.blockers).toEqual([{ id: "task-1", text: "task-1 · in progress" }]);
     expect(view.blockersEmpty).toBeNull();
