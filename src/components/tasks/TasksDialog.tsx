@@ -134,9 +134,7 @@ export function TasksDialog({ tasks, workspace, focus, onFocus, onClose, canClos
             )}
           </div>
         ) : (
-          <div
-            className={`tasks__stage${panel ? " tasks__stage--panel" : ""}${board.composing ? " tasks__stage--compose" : ""}${board.wide ? " tasks__stage--wide" : ""}`}
-          >
+          <div className="tasks__stage">
             {/* Wide: the task fills the stage and the board is put away —
                 not hidden under it, gone until the person comes back. */}
             {!board.wide && (

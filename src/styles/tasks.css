@@ -80,10 +80,11 @@
   margin-left: auto;
 }
 
-/* Under the columns, right-aligned: the one filter the board has. */
+/* Under the columns, at the left where no drawer covers it: the one
+   filter the board has. */
 .tasks__board-foot {
   display: flex;
-  justify-content: flex-end;
+  justify-content: flex-start;
   padding-top: 6px;
 }
 
@@ -119,32 +120,20 @@
   font-size: 14px;
 }
 
-/* The stage: the board (or lanes) and, when something is open, the panel.
-   A grid so the panel takes a fixed column and the board keeps the rest. */
+/* The stage: the board (or lanes), and OVER its right edge — never
+   beside it — the open task or the form. A panel that took a column
+   moved every card on the board when it opened; a drawer moves nothing. */
 .tasks__stage {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 14px;
+  position: relative;
+  display: flex;
   flex: 1;
   min-height: 0;
 }
 
-.tasks__stage--panel {
-  grid-template-columns: minmax(0, 1fr) 360px;
-}
-
-/* The form gets more room than a task's details: a brief is typed here,
-   and a column made for reading one is cramped for writing one. */
-.tasks__stage--compose {
-  grid-template-columns: minmax(0, 1fr) minmax(420px, 44%);
-}
-
-/* Wide: the one panel is the stage. */
-.tasks__stage--wide {
-  grid-template-columns: minmax(0, 1fr);
-}
-
+/* Wide: the drawer is the stage — the board is put away, not covered. */
 .tasks__detail--wide {
+  left: 0;
+  width: auto;
   padding: 20px 28px;
 }
 
@@ -421,8 +410,16 @@
   font-size: 12px;
 }
 
-/* The panel: one task whole, scrolling on its own. */
+/* The drawer: one task whole, over the board's right edge, scrolling on
+   its own. The board stays interactive beside it — a card can still be
+   picked or dragged while a task is open. */
 .tasks__detail {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
+  width: min(400px, 100%);
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -431,6 +428,7 @@
   border: 1px solid #1c2230;
   border-radius: 8px;
   background-color: #0e121a;
+  box-shadow: -16px 0 32px rgba(0, 0, 0, 0.45);
   overflow-y: auto;
 }
 
@@ -621,6 +619,8 @@
 /* The compose panel: its own head with a ×, roomier fields, and the
    actions pinned under them rather than floating mid-panel. */
 .tasks__compose {
+  /* A brief is typed here: more room than a task's details. */
+  width: min(540px, 100%);
   padding: 0;
   gap: 0;
   /* The panel does not scroll as a whole: its body does, and its actions
