@@ -121,7 +121,7 @@ function statusArg(args: CommandArgs): TaskStatus | undefined {
   const value = str(args, "status");
   if (value === undefined) return undefined;
   if (!isTaskStatus(value)) {
-    throw new Error(`status must be todo, doing, blocked, review, done or dropped, not "${value}"`);
+    throw new Error(`status must be todo, doing, blocked, review, done or cancelled, not "${value}"`);
   }
   return value;
 }
@@ -282,7 +282,7 @@ function updateCommand(deps: TaskCommandDeps): CommandSpec {
     title: "Change a task: move it along, reassign it, edit its fields",
     args: [
       { name: "id", type: "string", required: true, description: "The task id (task-N)" },
-      { name: "status", type: "string", description: "todo | doing | blocked | review | done | dropped — the ladder decides which moves are yours" },
+      { name: "status", type: "string", description: "todo | doing | blocked | review | done | cancelled — the ladder decides which moves are yours" },
       { name: "assignee", type: "string", description: "A role address on the team; \"pool\" to unassign" },
       { name: "priority", type: "string", description: "high | normal | low" },
       { name: "title", type: "string", description: "A new title" },

@@ -158,10 +158,10 @@ export function TasksDialog({ tasks, workspace, focus, onFocus, onClose, canClos
                     <button
                       type="button"
                       className="tasks__column-toggle"
-                      aria-pressed={board.showDropped}
-                      onClick={board.toggleDropped}
+                      aria-pressed={board.showCancelled}
+                      onClick={board.toggleCancelled}
                     >
-                      {board.showDropped ? "Hide dropped" : "Show dropped"}
+                      {board.showCancelled ? "Hide cancelled" : "Show cancelled"}
                     </button>
                   </div>
                 </>

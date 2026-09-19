@@ -13,21 +13,21 @@ export interface BoardColumnView {
   label: string;
   count: number;
   cards: TaskCardView[];
-  /** A closed column folded to its header — Done by default, Dropped
+  /** A closed column folded to its header — Done by default, Cancelled
    * always behind the filter; the count still shows. */
   collapsed: boolean;
 }
 
 export interface BoardOptions {
-  /** Whether the Dropped column is on the board at all. */
-  showDropped: boolean;
+  /** Whether the Cancelled column is on the board at all. */
+  showCancelled: boolean;
   /** Closed columns the person unfolded. */
   expanded: ReadonlySet<TaskStatus>;
   now: number;
 }
 
 /** The ladder's order, left to right. */
-const LADDER: readonly TaskStatus[] = ["todo", "doing", "blocked", "review", "done", "dropped"];
+const LADDER: readonly TaskStatus[] = ["todo", "doing", "blocked", "review", "done", "cancelled"];
 
 /**
  * The board: one column per status in ladder order. Open columns keep
@@ -36,7 +36,7 @@ const LADDER: readonly TaskStatus[] = ["todo", "doing", "blocked", "review", "do
  * does.
  */
 export function boardView(tasks: readonly Task[], board: TaskBoard, options: BoardOptions): BoardColumnView[] {
-  return LADDER.filter((status) => status !== "dropped" || options.showDropped).map((status) => {
+  return LADDER.filter((status) => status !== "cancelled" || options.showCancelled).map((status) => {
     const inColumn = tasks.filter((task) => task.status === status);
     const ordered = isOpen(status)
       ? [...inColumn].sort(compareQueue)

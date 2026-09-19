@@ -4,7 +4,7 @@
  * The store keeps bytes; this is the one place that says what bytes a
  * board is. Reading is UNTRUSTED: the file sits in the user's home where
  * any process of theirs can edit it, so every field is checked against the
- * vocabulary and a board that does not parse is refused WHOLE — dropping
+ * vocabulary and a board that does not parse is refused WHOLE — cancelling
  * the tasks that did not fit and writing the rest back would erase them
  * on the next save, and losing work quietly is the worse failure. The
  * owner turns a refusal into a board it will not write to.

@@ -17,12 +17,12 @@ import { parseRoleAddress, type RoleStanding } from "../mail/roles";
 
 /**
  * The status ladder. `review` is the assignee saying "finished — look";
- * `done` is the team's lead (or the user) agreeing; `dropped` is a task
+ * `done` is the team's lead (or the user) agreeing; `cancelled` is a task
  * that was taken off the board without being done. Both closed states
- * RESOLVE a blocker (see [`blockerResolved`]): a dropped prerequisite
+ * RESOLVE a blocker (see [`blockerResolved`]): a cancelled prerequisite
  * must not hold its dependants hostage forever.
  */
-export type TaskStatus = "todo" | "doing" | "blocked" | "review" | "done" | "dropped";
+export type TaskStatus = "todo" | "doing" | "blocked" | "review" | "done" | "cancelled";
 
 export const TASK_STATUSES: readonly TaskStatus[] = [
   "todo",
@@ -30,7 +30,7 @@ export const TASK_STATUSES: readonly TaskStatus[] = [
   "blocked",
   "review",
   "done",
-  "dropped",
+  "cancelled",
 ];
 
 /** Three rungs and no numbers: numbers breed arguments about 7 versus 8. */
@@ -70,7 +70,7 @@ export interface TaskLogEntry {
 
 export interface Task {
   /** `task-N`, minted per workspace by [`TaskBoard.nextId`]; never reused,
-   * unlike `pane-N` — a dropped task must not hand its number to the next. */
+   * unlike `pane-N` — a cancelled task must not hand its number to the next. */
   id: string;
   /** The team whose board this is on. A task never moves between teams. */
   teamId: string;
@@ -97,7 +97,7 @@ export interface Task {
 /** One workspace's board — what the store keeps as `board.json`. */
 export interface TaskBoard {
   /** The next `task-N` to mint. Persisted, so a restart cannot reuse a
-   * number a dropped task gave up. */
+   * number a cancelled task gave up. */
   nextId: number;
   tasks: readonly Task[];
 }
@@ -154,13 +154,13 @@ export const TASK_CAPS = {
   commentsMax: 200,
   /** Oldest log entries fall off past this. */
   logMax: 500,
-  /** Creating past this is refused, never silently dropped. */
+  /** Creating past this is refused, never silently cancelled. */
   tasksMax: 2000,
 } as const;
 
 /** Whether a task is still on the board's live half. */
 export function isOpen(status: TaskStatus): boolean {
-  return status !== "done" && status !== "dropped";
+  return status !== "done" && status !== "cancelled";
 }
 
 /** Whether a task in this status no longer holds its dependants. */

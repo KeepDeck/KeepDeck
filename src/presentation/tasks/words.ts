@@ -11,7 +11,7 @@ export const STATUS_LABEL: Record<TaskStatus, string> = {
   blocked: "Blocked",
   review: "Review",
   done: "Done",
-  dropped: "Dropped",
+  cancelled: "Cancelled",
 };
 
 /** The status ladder's four hues plus none — the SAME names status.css
@@ -30,7 +30,7 @@ export function statusTone(status: TaskStatus): StatusTone {
     case "done":
       return "done";
     case "todo":
-    case "dropped":
+    case "cancelled":
       return "none";
   }
 }

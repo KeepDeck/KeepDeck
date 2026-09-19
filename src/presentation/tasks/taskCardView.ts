@@ -14,7 +14,7 @@ export interface TaskCardView {
   blockedBy: string | null;
   tone: StatusTone;
   /** Struck through and dimmed: taken off the board without being done. */
-  dropped: boolean;
+  cancelled: boolean;
 }
 
 export function taskCardView(task: Task, board: TaskBoard, now: number): TaskCardView {
@@ -26,6 +26,6 @@ export function taskCardView(task: Task, board: TaskBoard, now: number): TaskCar
     priority: priorityMark(task.priority),
     blockedBy: open.length === 0 ? null : `blocked by ${open.join(" · ")}`,
     tone: statusTone(task.status),
-    dropped: task.status === "dropped",
+    cancelled: task.status === "cancelled",
   };
 }

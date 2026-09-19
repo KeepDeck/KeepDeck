@@ -21,7 +21,7 @@ export function BoardColumns({ columns, selectedId, onSelect, onToggleColumn }: 
           <header className="tasks__column-head">
             <span className={`tasks__column-label tasks__column-label--${column.status}`}>{column.label}</span>
             <span className="tasks__column-count">{column.count}</span>
-            {(column.status === "done" || column.status === "dropped") && (
+            {(column.status === "done" || column.status === "cancelled") && (
               <button type="button" className="tasks__column-toggle" onClick={() => onToggleColumn(column.status)}>
                 {column.collapsed ? "Show" : "Hide"}
               </button>

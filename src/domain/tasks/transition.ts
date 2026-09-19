@@ -45,7 +45,7 @@ export type TaskRefusal =
   | { kind: "not-your-task"; assignee: string | null }
   /** A working role editing what only the lead sets. */
   | { kind: "not-yours-to-assign"; field: TaskField }
-  /** A working role accepting, returning, reopening or dropping. */
+  /** A working role accepting, returning, reopening or cancelling. */
   | { kind: "review-not-yours" }
   | { kind: "illegal-transition"; from: TaskStatus; to: TaskStatus }
   | { kind: "blocked-by-open"; blockers: readonly string[] }
@@ -107,11 +107,11 @@ const EDGES: readonly {
   { from: "review", to: "done", who: "acceptor" },
   { from: "review", to: "doing", who: "acceptor" },
   { from: "done", to: "todo", who: "acceptor" },
-  { from: "dropped", to: "todo", who: "acceptor" },
-  { from: "todo", to: "dropped", who: "acceptor" },
-  { from: "doing", to: "dropped", who: "acceptor" },
-  { from: "blocked", to: "dropped", who: "acceptor" },
-  { from: "review", to: "dropped", who: "acceptor" },
+  { from: "cancelled", to: "todo", who: "acceptor" },
+  { from: "todo", to: "cancelled", who: "acceptor" },
+  { from: "doing", to: "cancelled", who: "acceptor" },
+  { from: "blocked", to: "cancelled", who: "acceptor" },
+  { from: "review", to: "cancelled", who: "acceptor" },
 ];
 
 function joined(ids: readonly string[]): string | null {

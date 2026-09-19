@@ -87,7 +87,7 @@ describe("TasksDialog", () => {
     const options = () => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="option"]'));
     act(() => statusPicker().click());
     await flush();
-    expect(options().map((o) => o.textContent)).toEqual(["To do", "Doing", "Dropped"]);
+    expect(options().map((o) => o.textContent)).toEqual(["To do", "Doing", "Cancelled"]);
     act(() => options().find((o) => o.textContent === "Doing")!.click());
     await flush();
     render();
@@ -96,7 +96,7 @@ describe("TasksDialog", () => {
     expect(state?.kind === "ready" && state.board.tasks[0].status).toBe("doing");
     act(() => statusPicker().click());
     await flush();
-    expect(options().map((o) => o.textContent)).toEqual(["Doing", "Blocked", "Review", "Dropped"]);
+    expect(options().map((o) => o.textContent)).toEqual(["Doing", "Blocked", "Review", "Cancelled"]);
   });
 
   it("creates a task from the form as the user and opens it", async () => {

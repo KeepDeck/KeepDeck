@@ -59,7 +59,7 @@ export interface TaskDetailView {
 }
 
 /** The ladder's order — how the status picker lists what it offers. */
-const LADDER: readonly TaskStatus[] = ["todo", "doing", "blocked", "review", "done", "dropped"];
+const LADDER: readonly TaskStatus[] = ["todo", "doing", "blocked", "review", "done", "cancelled"];
 
 export function taskDetailView(
   task: Task,

@@ -283,7 +283,7 @@
   outline-offset: -1px;
 }
 
-.tasks__card--dropped .tasks__card-title {
+.tasks__card--cancelled .tasks__card-title {
   color: #565e6b;
   text-decoration: line-through;
 }

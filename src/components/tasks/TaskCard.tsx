@@ -13,7 +13,7 @@ export function TaskCard({ card, selected, onSelect }: TaskCardProps) {
   return (
     <button
       type="button"
-      className={`tasks__card tasks__card--${card.tone}${card.dropped ? " tasks__card--dropped" : ""}`}
+      className={`tasks__card tasks__card--${card.tone}${card.cancelled ? " tasks__card--cancelled" : ""}`}
       aria-pressed={selected}
       onClick={() => onSelect(card.id)}
     >

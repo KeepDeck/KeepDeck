@@ -18,7 +18,7 @@ describe("words", () => {
     expect(personName("user")).toBe("you");
     expect(personName("impl-1")).toBe("impl-1");
     expect([priorityMark("high"), priorityMark("normal"), priorityMark("low")]).toEqual(["HIGH", null, "LOW"]);
-    expect(["doing", "review", "blocked", "done", "todo", "dropped"].map((s) => statusTone(s as never))).toEqual([
+    expect(["doing", "review", "blocked", "done", "todo", "cancelled"].map((s) => statusTone(s as never))).toEqual([
       "working",
       "waiting",
       "failed",
@@ -43,7 +43,7 @@ describe("taskCardView", () => {
       priority: "HIGH",
       blockedBy: "blocked by task-1",
       tone: "none",
-      dropped: false,
+      cancelled: false,
     });
     expect(taskCardView(b.tasks[0], b, NOW).blockedBy).toBeNull();
   });
@@ -55,11 +55,11 @@ describe("boardView", () => {
     task({ id: "task-2", status: "todo", priority: "high", created: 2 }),
     task({ id: "task-3", status: "done", updated: 10 }),
     task({ id: "task-4", status: "done", updated: 20 }),
-    task({ id: "task-5", status: "dropped" }),
+    task({ id: "task-5", status: "cancelled" }),
   ]);
 
   it("lays the ladder out left to right, open columns in queue order, closed ones newest first and folded", () => {
-    const columns = boardView(b.tasks, b, { showDropped: false, expanded: new Set(), now: NOW });
+    const columns = boardView(b.tasks, b, { showCancelled: false, expanded: new Set(), now: NOW });
     expect(columns.map((c) => `${c.status}:${c.count}:${c.collapsed}`)).toEqual([
       "todo:2:false",
       "doing:0:false",
@@ -71,12 +71,12 @@ describe("boardView", () => {
     expect(columns[4].cards.map((c) => c.id)).toEqual(["task-4", "task-3"]);
   });
 
-  it("shows dropped only behind the filter, and unfolds what the person opened", () => {
-    const columns = boardView(b.tasks, b, { showDropped: true, expanded: new Set(["done"] as const), now: NOW });
-    expect(columns.map((c) => c.status)).toContain("dropped");
+  it("shows cancelled only behind the filter, and unfolds what the person opened", () => {
+    const columns = boardView(b.tasks, b, { showCancelled: true, expanded: new Set(["done"] as const), now: NOW });
+    expect(columns.map((c) => c.status)).toContain("cancelled");
     expect(columns.find((c) => c.status === "done")?.collapsed).toBe(false);
-    expect(columns.find((c) => c.status === "dropped")).toMatchObject({ collapsed: true, count: 1 });
-    expect(columns.find((c) => c.status === "dropped")?.cards[0].dropped).toBe(true);
+    expect(columns.find((c) => c.status === "cancelled")).toMatchObject({ collapsed: true, count: 1 });
+    expect(columns.find((c) => c.status === "cancelled")?.cards[0].cancelled).toBe(true);
   });
 });
 
@@ -107,13 +107,13 @@ describe("taskDetailView", () => {
     const b = board([task({ id: "task-1", assignee: "impl-1" })]);
     const fromTodo = taskDetailView(b.tasks[0], b, ROSTER, NOW);
     expect(fromTodo.status).toBe("todo");
-    expect(fromTodo.statusOptions.map((o) => `${o.value}:${o.tone}`)).toEqual(["todo:none", "doing:working", "dropped:none"]);
+    expect(fromTodo.statusOptions.map((o) => `${o.value}:${o.tone}`)).toEqual(["todo:none", "doing:working", "cancelled:none"]);
     const inReview = board([task({ id: "task-1", status: "review", assignee: "impl-1" })]);
     expect(taskDetailView(inReview.tasks[0], inReview, ROSTER, NOW).statusOptions.map((o) => o.label)).toEqual([
       "Doing",
       "Review",
       "Done",
-      "Dropped",
+      "Cancelled",
     ]);
     const done = board([task({ id: "task-1", status: "done" })]);
     expect(taskDetailView(done.tasks[0], done, ROSTER, NOW).statusOptions.map((o) => o.value)).toEqual(["todo", "done"]);
@@ -135,7 +135,7 @@ describe("taskDetailView", () => {
       task({ id: "task-3", blockedBy: ["task-2"] }),
     ]);
     const view = taskDetailView(b.tasks[1], b, ROSTER, NOW);
-    expect(view.statusOptions.map((o) => o.value)).toEqual(["todo", "dropped"]);
+    expect(view.statusOptions.map((o) => o.value)).toEqual(["todo", "cancelled"]);
     expect(view.meta).toBe("task-2 · by you · opened 1m ago · updated 1m ago");
     expect(view.blockers).toEqual([{ id: "task-1", text: "task-1 · doing" }]);
     expect(view.blockersEmpty).toBeNull();
@@ -179,7 +179,7 @@ describe("teamCardTasksLine", () => {
       ]),
     ).toBe("2 open · 1 blocked · 2 in review");
     expect(teamCardTasksLine([task({ id: "task-1" })])).toBe("1 open");
-    expect(teamCardTasksLine([task({ id: "task-1", status: "done" }), task({ id: "task-2", status: "dropped" })])).toBe("1 done");
+    expect(teamCardTasksLine([task({ id: "task-1", status: "done" }), task({ id: "task-2", status: "cancelled" })])).toBe("1 done");
     expect(teamCardTasksLine([])).toBeNull();
   });
 });

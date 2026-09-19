@@ -62,7 +62,7 @@ export function useTasksBoard(
   // The team on screen: the one chosen, if it still exists, else the first.
   const teamId = teams.some((team) => team.id === chosenTeam) ? chosenTeam : (teams[0]?.id ?? null);
   const [mode, setMode] = useState<TasksMode>("board");
-  const [showDropped, setShowDropped] = useState(false);
+  const [showCancelled, setShowCancelled] = useState(false);
   const [expanded, setExpanded] = useState<ReadonlySet<TaskStatus>>(new Set());
   const [composing, setComposing] = useState(false);
   /** The open task filling the stage, the board put away behind it. */
@@ -103,7 +103,7 @@ export function useTasksBoard(
 
   const selected = board && focus !== null ? (findTask(board, focus) ?? null) : null;
   const detail = selected && selected.teamId === teamId ? taskDetailView(selected, board!, roster, now) : null;
-  const columns = board ? boardView(teamTasks, board, { showDropped, expanded, now }) : [];
+  const columns = board ? boardView(teamTasks, board, { showCancelled, expanded, now }) : [];
   const lanes = board && teamId !== null ? queuesView(board, teamId, roster, now) : [];
   const form = newTaskFormView(roster);
 
@@ -138,8 +138,8 @@ export function useTasksBoard(
       setChosenTeam(id);
       onFocus(null);
     },
-    showDropped,
-    toggleDropped: () => setShowDropped((current) => !current),
+    showCancelled,
+    toggleCancelled: () => setShowCancelled((current) => !current),
     toggleColumn: (status: TaskStatus) =>
       setExpanded((current) => {
         const next = new Set(current);

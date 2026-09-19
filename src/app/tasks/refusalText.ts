@@ -21,11 +21,11 @@ export function refusalText(refusal: TaskProblem): string {
     case "not-yours-to-assign":
       return `${refusal.field} is ${lead}'s to set on this team — you may create a task for yourself or the pool, or ask ${lead}`;
     case "review-not-yours":
-      return `accepting, returning, reopening or dropping a task is ${lead}'s — move yours to review and say so`;
+      return `accepting, returning, reopening or cancelling a task is ${lead}'s — move yours to review and say so`;
     case "illegal-transition":
       return `a task cannot go from ${refusal.from} to ${refusal.to}`;
     case "blocked-by-open":
-      return `still blocked by ${refusal.blockers.join(", ")} — they must be done or dropped first`;
+      return `still blocked by ${refusal.blockers.join(", ")} — they must be done or cancelled first`;
     case "already-claimed":
       return `that task is already ${refusal.assignee}'s`;
     case "claim-needs-an-agent":
@@ -45,7 +45,7 @@ export function refusalText(refusal: TaskProblem): string {
     case "blank":
       return `${refusal.field} must not be blank`;
     case "board-full":
-      return `this workspace's board holds ${refusal.max} tasks — finish or drop some first`;
+      return `this workspace's board holds ${refusal.max} tasks — finish or cancel some first`;
     case "board-unreadable":
       return `the board file could not be read and is not written to until fixed: ${refusal.error}`;
     case "unknown-task":

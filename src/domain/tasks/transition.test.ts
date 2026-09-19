@@ -52,7 +52,7 @@ describe("the ladder", () => {
     expect(t.updated).toBe(5_000);
   });
 
-  it("reserves acceptance, return, reopening and dropping for whoever hands out work", () => {
+  it("reserves acceptance, return, reopening and cancelling for whoever hands out work", () => {
     const inReview = task({ id: "task-1", status: "review", assignee: "impl-1" });
     expect(refusalOf(inReview, { kind: "status", to: "done" }, impl1)).toEqual({ kind: "review-not-yours" });
     expect(refusalOf(inReview, { kind: "status", to: "doing" }, impl1)).toEqual({ kind: "review-not-yours" });
@@ -65,8 +65,8 @@ describe("the ladder", () => {
     expect(moved(done, "todo", lead).status).toBe("todo");
 
     const doing = task({ id: "task-1", status: "doing", assignee: "impl-1" });
-    expect(refusalOf(doing, { kind: "status", to: "dropped" }, impl1)).toEqual({ kind: "review-not-yours" });
-    expect(moved(doing, "dropped", lead).status).toBe("dropped");
+    expect(refusalOf(doing, { kind: "status", to: "cancelled" }, impl1)).toEqual({ kind: "review-not-yours" });
+    expect(moved(doing, "cancelled", lead).status).toBe("cancelled");
   });
 
   it("refuses every edge the table does not name, and treats no-move as no-op", () => {
@@ -76,8 +76,8 @@ describe("the ladder", () => {
       ["doing", "done"],
       ["blocked", "review"],
       ["done", "doing"],
-      ["dropped", "done"],
-      ["done", "dropped"],
+      ["cancelled", "done"],
+      ["done", "cancelled"],
     ];
     for (const [from, to] of cases) {
       const t = task({ id: "task-1", status: from, assignee: "lead" });
@@ -134,8 +134,8 @@ describe("the ladder", () => {
       kind: "blocked-by-open",
       blockers: ["task-1"],
     });
-    const dropped = task({ id: "task-1", status: "dropped" });
-    expect(moved(t, "doing", impl1, ctx([dropped, t])).status).toBe("doing");
+    const cancelled = task({ id: "task-1", status: "cancelled" });
+    expect(moved(t, "doing", impl1, ctx([cancelled, t])).status).toBe("doing");
   });
 });
 
