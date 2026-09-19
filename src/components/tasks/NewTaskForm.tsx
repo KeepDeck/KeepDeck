@@ -25,6 +25,9 @@ export function NewTaskForm({ view, onCreate, onCancel }: NewTaskFormProps) {
   };
   return (
     <aside className="tasks__detail tasks__compose" aria-label="New task">
+      {/* The fields scroll; the actions do not — a Create button that has
+          to be scrolled to is a form that looks like it cannot be sent. */}
+      <div className="tasks__compose-body">
       <h3 className="tasks__detail-title">New task</h3>
       <p className="tasks__muted">Put work on the team's board — assign it now or leave it in the pool for whoever takes it.</p>
       <span className="tasks__section">Title</span>
@@ -61,7 +64,8 @@ export function NewTaskForm({ view, onCreate, onCancel }: NewTaskFormProps) {
       <span className="tasks__section">Assignee</span>
       <Dropdown ariaLabel="Assignee" options={view.assigneeOptions} value={assignee} onChange={setAssignee} className="tasks__pick" />
       <p className="tasks__muted">{view.addressHint}</p>
-      <div className="tasks__composer-actions">
+      </div>
+      <div className="tasks__composer-actions tasks__compose-actions">
         <Button variant="secondary" onClick={onCancel}>
           Cancel
         </Button>

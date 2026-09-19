@@ -557,8 +557,27 @@
 /* The compose panel: its own head with a ×, roomier fields, and the
    actions pinned under them rather than floating mid-panel. */
 .tasks__compose {
-  padding: 16px 18px;
+  padding: 0;
+  gap: 0;
+  /* The panel does not scroll as a whole: its body does, and its actions
+     stay put beneath it. */
+  overflow: hidden;
+}
+
+.tasks__compose-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
   gap: 8px;
+  min-height: 0;
+  padding: 16px 18px;
+  overflow-y: auto;
+}
+
+.tasks__compose-actions {
+  flex: none;
+  padding: 12px 18px;
+  border-top: 1px solid #1c2230;
 }
 
 .tasks__compose .form__input {
@@ -570,6 +589,3 @@
   min-height: 160px;
 }
 
-.tasks__compose .tasks__composer-actions {
-  margin-top: 8px;
-}
