@@ -38,8 +38,7 @@ import { artifactChanges } from "./artifacts/changes";
 import { artifactsEnableStatus } from "./artifacts/enableStatus";
 import { announceArtifact } from "./artifacts/producers";
 import { artifactsDisable, artifactsEnable, artifactDropWorkspace } from "../ipc/artifacts";
-import { createEnablePolicy } from "./enablePolicy";
-import { createTasksService, registerTaskCommands, type TasksService } from "./tasks";
+import { createTasksFeature } from "./tasks/tasksFeature";
 import { tasksEnableStatus } from "./tasks/enableStatus";
 import { announceTask } from "./tasks/producers";
 import { tasksDisable, tasksDropWorkspace, tasksEnable, tasksRead, tasksWrite } from "../ipc/tasks";
@@ -227,74 +226,24 @@ export function createAppRuntime(
     mcp.service.subscribe(reconcileArtifactCommands),
   ];
   reconcileArtifactCommands();
-  // Tasks: the board store's enable policy on the shared machine, the ONE
-  // owner that exists while the board is claimed, and the task_* commands
-  // that exist while the owner does AND the MCP socket is up — a tool that
-  // exists only to refuse advertises a capability the deck has switched
-  // off. The owner outlives the socket on purpose: the dialog reads the
-  // board through it, and a human's view must not go dark with the agents'
-  // door.
-  let tasksEnableOk: boolean | null = null;
-  let tasksService: TasksService | null = null;
-  let disposeTaskCommands: (() => void) | null = null;
-  const tasksListeners = new Set<() => void>();
-  const tasksChanged = () => {
-    for (const listener of [...tasksListeners]) listener();
-  };
-  const tasksPolicy = createEnablePolicy(
-    { desired: () => getSettings()?.tasks ?? null, subscribe: subscribeSettings },
-    {
+  // Tasks: the whole feature — its enable policy, the board owner, the
+  // task_* commands, the human's notifications, what a closing workspace
+  // forgets — as one owner; only its ports are bound here.
+  const tasks = createTasksFeature({
+    registry,
+    workspaces: () => deckStore.getSnapshot().workspaces,
+    settings: { tasks: () => getSettings()?.tasks ?? null, subscribe: subscribeSettings },
+    socket: { up: () => mcp.service.status().socket !== null, subscribe: mcp.service.subscribe },
+    store: {
+      read: tasksRead,
+      write: tasksWrite,
       enable: tasksEnable,
-      // Let queued writes land before the store closes under them.
-      disable: async () => {
-        await tasksService?.flush();
-        await tasksDisable();
-      },
+      disable: tasksDisable,
+      dropWorkspace: tasksDropWorkspace,
     },
-    (transition) => {
-      tasksEnableOk = transition.ok;
-      tasksEnableStatus.record(transition);
-      reconcileTasks();
-    },
-    { target: "web:tasks", feature: "tasks" },
-  );
-  const reconcileTasks = () => {
-    const wanted = (getSettings()?.tasks ?? false) && tasksEnableOk === true;
-    if (wanted && tasksService === null) {
-      tasksService = createTasksService({
-        workspaces: () => deckStore.getSnapshot().workspaces,
-        store: { read: tasksRead, write: tasksWrite },
-      });
-      // The human's three notifications ride the owner's events; they
-      // go with it when it is disposed.
-      tasksService.onEvent((event) =>
-        announceTask(event, { workspaces: () => deckStore.getSnapshot().workspaces }),
-      );
-      tasksChanged();
-    } else if (!wanted && tasksService !== null) {
-      disposeTaskCommands?.();
-      disposeTaskCommands = null;
-      tasksService.dispose();
-      tasksService = null;
-      tasksChanged();
-    }
-    const commandsWanted =
-      tasksService !== null && mcp.service.status().socket !== null;
-    if (commandsWanted && disposeTaskCommands === null && tasksService !== null) {
-      disposeTaskCommands = registerTaskCommands(registry, {
-        tasks: tasksService,
-        workspaces: () => deckStore.getSnapshot().workspaces,
-      });
-    } else if (!commandsWanted && disposeTaskCommands !== null) {
-      disposeTaskCommands();
-      disposeTaskCommands = null;
-    }
-  };
-  const stopTasksWiring = [
-    subscribeSettings(reconcileTasks),
-    mcp.service.subscribe(reconcileTasks),
-  ];
-  reconcileTasks();
+    announce: (event) => announceTask(event, { workspaces: () => deckStore.getSnapshot().workspaces }),
+    status: tasksEnableStatus,
+  });
   const journalPersistence = createJournalPersistence(
     deckStore,
     deckPersistence,
@@ -393,11 +342,8 @@ export function createAppRuntime(
       // hand every teamed pane an unsolicited briefing per launch.
       onRoleCatalogChanged: subscribeRoleCatalogChanges,
       board: {
-        on: () => tasksService !== null,
-        onChanged: (listener) => {
-          tasksListeners.add(listener);
-          return () => tasksListeners.delete(listener);
-        },
+        on: () => tasks.access.current() !== null,
+        onChanged: tasks.access.subscribe,
       },
       terminal: { wake: wakePaneForMail },
       bridge: { reply: replyToBridgeHook, nudge: nudgeBridgePane },
@@ -451,10 +397,7 @@ export function createAppRuntime(
     // knower of the live workspace set.
     workspaceForgetters: [
       artifactDropWorkspace,
-      async (wsId) => {
-        tasksService?.forget(wsId);
-        await tasksDropWorkspace(wsId);
-      },
+      tasks.forgetWorkspace,
       mcp.forgetWorkspace,
     ],
   });
@@ -578,12 +521,7 @@ export function createAppRuntime(
       // every window reload — the display server outlives the page and
       // dies with the process.
       artifactsPolicy.dispose();
-      disposeTaskCommands?.();
-      for (const stop of stopTasksWiring) stop();
-      tasksService?.dispose();
-      // NO final disable, for the artifacts reason: the claim dies with
-      // the process, and `beforeunload` fires on every dev reload.
-      tasksPolicy.dispose();
+      tasks.dispose();
       mcp.dispose();
       journalPersistence.dispose();
       sessionBinding?.dispose();
@@ -593,13 +531,7 @@ export function createAppRuntime(
     /** The task board's owner while the feature is on — null otherwise —
      * and the signal that it came or went. The dialog reads the live board
      * through it; nothing else holds it. */
-    tasks: {
-      current: () => tasksService,
-      subscribe(listener: () => void) {
-        tasksListeners.add(listener);
-        return () => tasksListeners.delete(listener);
-      },
-    },
+    tasks: tasks.access,
     // The "+ Team" and "Add member" doors as one owner: what a confirmed
     // dialog does, with the orchestrator's landings behind it.
     agentDoors: createAgentDoors({

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import type { TasksService } from "../../app/tasks";
+import type { TasksAccess } from "../../app/tasks/tasksFeature";
 import { useTasksBoardFeed } from "./useBoardState";
 import { artifactChanges } from "../../app/artifacts/changes";
 import { openArtifactByRef } from "../../app/artifacts/entryPoints";
@@ -29,12 +29,7 @@ import {
   type ArtifactRef,
 } from "../../presentation/tasks";
 
-/** The owner as the runtime hands it to surfaces: the current service, or
- * null while the feature is down, and the signal that it came or went. */
-export interface TasksAccess {
-  current(): TasksService | null;
-  subscribe(listener: () => void): () => void;
-}
+export type { TasksAccess } from "../../app/tasks/tasksFeature";
 
 export type TasksMode = "board" | "queues";
 
