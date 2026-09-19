@@ -1,7 +1,7 @@
 import type { BoardColumnView } from "../../presentation/tasks";
 import type { TaskStatus } from "../../domain/tasks";
 import { TaskCard } from "./TaskCard";
-import type { CardDrag } from "./useTasksBoard";
+import type { CardDrag, CardGrip } from "./useTasksBoard";
 
 interface BoardColumnsProps {
   columns: BoardColumnView[];
@@ -12,7 +12,7 @@ interface BoardColumnsProps {
   hover: TaskStatus | null;
   onSelect(id: string): void;
   onToggleColumn(status: TaskStatus): void;
-  onArm(id: string, x: number, y: number): void;
+  onArm(id: string, x: number, y: number, grip: CardGrip): void;
   onHover(status: TaskStatus | null): void;
   onDrop(status: TaskStatus): void;
 }

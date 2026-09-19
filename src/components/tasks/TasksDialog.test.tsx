@@ -230,7 +230,9 @@ describe("TasksDialog", () => {
       pointer("pointermove", window, 40, 40);
     });
     await flush();
-    expect(document.querySelector(".tasks__ghost")?.textContent).toBe("Draft the skill");
+    // The ghost is the card: same title line, same meta line.
+    expect(document.querySelector(".tasks__ghost .tasks__card-title")?.textContent).toBe("Draft the skill");
+    expect(document.querySelector(".tasks__ghost .tasks__card-meta")?.textContent).toContain("task-1 · impl-1");
     expect(column("Done").className).toContain("tasks__column--drop-ok");
     act(() => {
       pointer("pointerover", column("Done"), 300, 40);

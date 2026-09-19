@@ -1,4 +1,5 @@
 import type { TaskCardView } from "../../presentation/tasks";
+import type { CardGrip } from "./useTasksBoard";
 
 interface TaskCardProps {
   card: TaskCardView;
@@ -8,7 +9,7 @@ interface TaskCardProps {
   onSelect(id: string): void;
   /** Present where a card may be dragged (the board); absent in a lane.
    * A press arms a drag; the hook decides when it becomes one. */
-  onArm?(id: string, x: number, y: number): void;
+  onArm?(id: string, x: number, y: number, grip: CardGrip): void;
 }
 
 /** One task on the board or in a lane. The card IS the control — a list
@@ -23,7 +24,13 @@ export function TaskCard({ card, selected, dragging = false, onSelect, onArm }: 
       onPointerDown={
         onArm
           ? (event) => {
-              if (event.button === 0) onArm(card.id, event.clientX, event.clientY);
+              if (event.button !== 0) return;
+              const rect = event.currentTarget.getBoundingClientRect();
+              onArm(card.id, event.clientX, event.clientY, {
+                width: rect.width,
+                offsetX: event.clientX - rect.left,
+                offsetY: event.clientY - rect.top,
+              });
             }
           : undefined
       }

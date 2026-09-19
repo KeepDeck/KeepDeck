@@ -42,9 +42,16 @@ const CLICK_AFTER_DRAG_MS = 250;
 /** A card in flight: which, what it is called, where the pointer is, and
  * the columns it may land in — judged once, when the drag began, by the
  * same table the picker reads. */
-export interface CardDrag {
+/** Where the press landed on the card, and how wide the card was: the
+ * ghost is drawn at exactly that size, under exactly that point. */
+export interface CardGrip {
+  width: number;
+  offsetX: number;
+  offsetY: number;
+}
+
+export interface CardDrag extends CardGrip {
   id: string;
-  title: string;
   x: number;
   y: number;
   targets: ReadonlySet<TaskStatus>;
@@ -88,7 +95,7 @@ export function useTasksBoard(
   // Pointer events, not HTML5 drag: the webview hands the deck no native
   // drags (the OS drop router owns them), so a card is dragged the way a
   // pane is — pressed, moved past a threshold, released over a target.
-  const [armed, setArmed] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [armed, setArmed] = useState<({ id: string; x: number; y: number } & CardGrip) | null>(null);
   const [dragging, setDragging] = useState<CardDrag | null>(null);
   const [hover, setHover] = useState<TaskStatus | null>(null);
   const dragEndedAt = useRef(0);
@@ -140,9 +147,11 @@ export function useTasksBoard(
       if (!board || !task) return;
       setDragging({
         id: task.id,
-        title: task.title,
         x: event.clientX,
         y: event.clientY,
+        width: armed.width,
+        offsetX: armed.offsetX,
+        offsetY: armed.offsetY,
         targets: new Set(reachableStatuses(task, USER_ACTOR, { board, roster, at: now })),
       });
     };
@@ -234,7 +243,7 @@ export function useTasksBoard(
     dragging,
     hover,
     /** A card was pressed: it becomes a drag once the pointer travels. */
-    armDrag: (taskId: string, x: number, y: number) => setArmed({ id: taskId, x, y }),
+    armDrag: (taskId: string, x: number, y: number, grip: CardGrip) => setArmed({ id: taskId, x, y, ...grip }),
     /** The pointer is over a column, or over none. */
     hoverColumn: (status: TaskStatus | null) => {
       if (dragging) setHover(status);

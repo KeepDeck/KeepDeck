@@ -9,6 +9,7 @@ import { useWallClock } from "../../ui/useWallClock";
 import { BoardColumns } from "./BoardColumns";
 import { NewTaskForm } from "./NewTaskForm";
 import { QueuesLanes } from "./QueuesLanes";
+import { TaskCard } from "./TaskCard";
 import { TaskDetail } from "./TaskDetail";
 import { useTasksBoard, type TasksAccess, type TasksMode } from "./useTasksBoard";
 
@@ -25,6 +26,9 @@ interface TasksDialogProps {
   /** False while a transaction is stacked over this dialog. */
   canClose?: boolean;
 }
+
+/** The ghost is a picture; a click on it goes nowhere. */
+const noSelect = () => {};
 
 const MODES: readonly { value: TasksMode; label: string }[] = [
   { value: "board", label: "Board" },
@@ -51,6 +55,9 @@ export function TasksDialog({ tasks, workspace, focus, onFocus, onClose, canClos
   }, canClose);
   const { ladder } = board;
   const staged = ladder.kind === "board" || ladder.kind === "empty";
+  const ghostCard = board.dragging
+    ? board.columns.flatMap((column) => column.cards).find((card) => card.id === board.dragging?.id)
+    : undefined;
   const panel = board.composing ? (
     <NewTaskForm view={board.form} onCreate={(input) => void board.create(input)} onCancel={board.cancelCompose} />
   ) : board.detail ? (
@@ -75,11 +82,20 @@ export function TasksDialog({ tasks, workspace, focus, onFocus, onClose, canClos
         aria-modal="true"
         aria-label="Tasks"
       >
-        {/* The card in flight, as a ghost under the pointer — the board's
-            own card stays put, dimmed, until the drop moves it. */}
-        {board.dragging && (
-          <div className="tasks__ghost" style={{ left: board.dragging.x + 14, top: board.dragging.y + 10 }}>
-            {board.dragging.title}
+        {/* The card in flight: the SAME card, drawn by the same component
+            from the same view at the same width, under the point where it
+            was gripped — the board's own copy stays put, dimmed, until the
+            drop moves it. */}
+        {board.dragging && ghostCard && (
+          <div
+            className="tasks__ghost"
+            style={{
+              left: board.dragging.x - board.dragging.offsetX,
+              top: board.dragging.y - board.dragging.offsetY,
+              width: board.dragging.width,
+            }}
+          >
+            <TaskCard card={ghostCard} selected={false} onSelect={noSelect} />
           </div>
         )}
         <div className="tasks__head">
