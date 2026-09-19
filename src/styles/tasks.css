@@ -30,18 +30,65 @@
   min-width: 0;
 }
 
-.tasks__toolbar .form__types {
-  margin: 0;
-}
-
+/* The team: a compact pick when there is a choice, a word when there is
+   not — never a control that offers one option. */
 .tasks__team .dropdown__button {
-  min-width: 160px;
+  min-width: 0;
+  padding: 5px 10px;
+  font-size: 13px;
 }
 
-/* The one toggle in the bar that is a filter, not a view: dressed like
-   a segment so it reads as a peer of Board | Queues. */
-.tasks__filter {
-  margin-left: -4px;
+.tasks__team-name {
+  color: #8b93a3;
+  font-size: 13px;
+}
+
+/* Board | Queues as ONE control: joined halves sharing a border, the
+   active half lifted — not two pills with a gap. */
+.tasks__segment {
+  display: inline-flex;
+  border: 1px solid #1c2230;
+  border-radius: 8px;
+  background-color: #0e121a;
+  overflow: hidden;
+}
+
+.tasks__segment-btn {
+  padding: 5px 12px;
+  border: 0;
+  background: none;
+  color: #9aa3af;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.tasks__segment-btn + .tasks__segment-btn {
+  border-left: 1px solid #1c2230;
+}
+
+.tasks__segment-btn:hover {
+  color: #c5c8c6;
+}
+
+.tasks__segment-btn--active {
+  background-color: #161d29;
+  color: #c5c8c6;
+}
+
+.tasks__new {
+  margin-left: auto;
+}
+
+/* Under the columns, right-aligned: the one filter the board has. */
+.tasks__board-foot {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 6px;
+}
+
+.tasks__board-foot .tasks__column-toggle {
+  margin-left: 0;
 }
 
 .tasks__error {
@@ -83,11 +130,18 @@
 }
 
 .tasks__stage--panel {
-  grid-template-columns: minmax(0, 1fr) 340px;
+  grid-template-columns: minmax(0, 1fr) 360px;
+}
+
+/* The form gets more room than a task's details: a brief is typed here,
+   and a column made for reading one is cramped for writing one. */
+.tasks__stage--compose {
+  grid-template-columns: minmax(0, 1fr) minmax(420px, 44%);
 }
 
 .tasks__main {
   display: flex;
+  flex-direction: column;
   min-width: 0;
   min-height: 0;
   overflow: auto;
@@ -498,4 +552,31 @@
   font-size: 10px;
   font-weight: 700;
   line-height: 14px;
+}
+
+/* The compose panel: its own head with a ×, roomier fields, and the
+   actions pinned under them rather than floating mid-panel. */
+.tasks__compose {
+  padding: 16px 18px;
+  gap: 8px;
+}
+
+.tasks__compose-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tasks__compose .form__input {
+  padding: 10px 12px;
+  font-size: 14px;
+}
+
+.tasks__compose .tasks__composer {
+  min-height: 160px;
+}
+
+.tasks__compose .tasks__composer-actions {
+  margin-top: 8px;
 }

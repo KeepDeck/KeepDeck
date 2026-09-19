@@ -40,7 +40,10 @@ const MODES: readonly { value: TasksMode; label: string }[] = [
 export function TasksDialog({ tasks, workspace, focus, onFocus, onClose, canClose = true }: TasksDialogProps) {
   const now = useWallClock(0, true);
   const board = useTasksBoard(tasks, workspace, focus, onFocus, now);
-  useEscape(onClose, canClose);
+  // Escape peels one layer: the form when it is open, else the dialog.
+  // Closing the whole dialog out from under a half-typed brief is the
+  // one thing the key must never do.
+  useEscape(() => (board.composing ? board.cancelCompose() : onClose()), canClose);
   const { ladder } = board;
   const staged = ladder.kind === "board" || ladder.kind === "empty";
   const panel = board.composing ? (
@@ -61,40 +64,41 @@ export function TasksDialog({ tasks, workspace, focus, onFocus, onClose, canClos
       <div className="form tasks" role="dialog" aria-modal="true" aria-label="Tasks">
         <div className="tasks__head">
           <h2 className="form__title tasks__title">Tasks</h2>
+          {/* The same controls whatever the view: a bar whose buttons come
+              and go with the view reads as a bar that cannot be learned. */}
           {staged && (
             <div className="tasks__toolbar">
-              {board.teams.length > 0 && board.teamId !== null && (
+              {board.teams.length > 1 && board.teamId !== null && (
                 <Dropdown
                   ariaLabel="Team"
                   className="tasks__team"
-                  options={board.teams.map((team) => ({ value: team.id, label: `Team · ${team.name}` }))}
+                  options={board.teams.map((team) => ({ value: team.id, label: team.name }))}
                   value={board.teamId}
                   onChange={board.selectTeam}
                 />
               )}
-              <div className="form__types" role="group" aria-label="View">
+              {board.teams.length === 1 && <span className="tasks__team-name">{board.teams[0].name}</span>}
+              <div className="tasks__segment" role="group" aria-label="View">
                 {MODES.map((mode) => (
                   <button
                     key={mode.value}
                     type="button"
-                    className={`form__type${board.mode === mode.value ? " form__type--active" : ""}`}
+                    className={`tasks__segment-btn${board.mode === mode.value ? " tasks__segment-btn--active" : ""}`}
+                    aria-pressed={board.mode === mode.value}
                     onClick={() => board.setMode(mode.value)}
                   >
                     {mode.label}
                   </button>
                 ))}
               </div>
-              {board.mode === "board" && (
-                <button
-                  type="button"
-                  className={`form__type tasks__filter${board.showDropped ? " form__type--active" : ""}`}
-                  aria-pressed={board.showDropped}
-                  onClick={board.toggleDropped}
-                >
-                  Show dropped
-                </button>
-              )}
-              <Button size="sm" variant="primary" onClick={board.compose} disabled={board.teamId === null}>
+              <Button
+                size="sm"
+                variant="primary"
+                className="tasks__new"
+                aria-pressed={board.composing}
+                onClick={board.composing ? board.cancelCompose : board.compose}
+                disabled={board.teamId === null}
+              >
                 + Task
               </Button>
             </div>
@@ -122,7 +126,9 @@ export function TasksDialog({ tasks, workspace, focus, onFocus, onClose, canClos
             )}
           </div>
         ) : (
-          <div className={`tasks__stage${panel ? " tasks__stage--panel" : ""}`}>
+          <div
+            className={`tasks__stage${panel ? " tasks__stage--panel" : ""}${board.composing ? " tasks__stage--compose" : ""}`}
+          >
             <div className="tasks__main">
               {ladder.kind === "empty" ? (
                 <div className="tasks__placeholder">
@@ -130,12 +136,26 @@ export function TasksDialog({ tasks, workspace, focus, onFocus, onClose, canClos
                   <span>{LADDER_WORDS.empty.hint}</span>
                 </div>
               ) : board.mode === "board" ? (
-                <BoardColumns
-                  columns={board.columns}
-                  selectedId={board.detail?.id ?? null}
-                  onSelect={board.select}
-                  onToggleColumn={board.toggleColumn}
-                />
+                <>
+                  <BoardColumns
+                    columns={board.columns}
+                    selectedId={board.detail?.id ?? null}
+                    onSelect={board.select}
+                    onToggleColumn={board.toggleColumn}
+                  />
+                  {/* Beside the board, where its column appears — not in
+                      the bar, which must not change with the view. */}
+                  <div className="tasks__board-foot">
+                    <button
+                      type="button"
+                      className="tasks__column-toggle"
+                      aria-pressed={board.showDropped}
+                      onClick={board.toggleDropped}
+                    >
+                      {board.showDropped ? "Hide dropped" : "Show dropped"}
+                    </button>
+                  </div>
+                </>
               ) : (
                 <QueuesLanes lanes={board.lanes} selectedId={board.detail?.id ?? null} onSelect={board.select} />
               )}

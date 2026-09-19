@@ -3,6 +3,7 @@ import { Dropdown } from "@keepdeck/ui-kit";
 import type { CreateTaskInput, TaskPriority } from "../../domain/tasks";
 import type { NewTaskFormView } from "../../presentation/tasks";
 import { Button } from "../../ui/Button";
+import { CloseButton } from "../../ui/CloseButton";
 
 interface NewTaskFormProps {
   view: NewTaskFormView;
@@ -23,7 +24,10 @@ export function NewTaskForm({ view, onCreate, onCancel }: NewTaskFormProps) {
   };
   return (
     <aside className="tasks__detail tasks__compose" aria-label="New task">
-      <h3 className="tasks__detail-title">New task</h3>
+      <div className="tasks__compose-head">
+        <h3 className="tasks__detail-title">New task</h3>
+        <CloseButton label="Close the form" onClick={onCancel} />
+      </div>
       <p className="tasks__muted">Put work on the team's board — assign it now or leave it in the pool for whoever takes it.</p>
       <span className="tasks__section">Title</span>
       <input
@@ -60,10 +64,10 @@ export function NewTaskForm({ view, onCreate, onCancel }: NewTaskFormProps) {
       <Dropdown ariaLabel="Assignee" options={view.assigneeOptions} value={assignee} onChange={setAssignee} className="tasks__pick" />
       <p className="tasks__muted">{view.addressHint}</p>
       <div className="tasks__composer-actions">
-        <Button size="sm" variant="ghost" onClick={onCancel}>
+        <Button variant="secondary" onClick={onCancel}>
           Cancel
         </Button>
-        <Button size="sm" variant="primary" onClick={submit} disabled={title.trim() === ""}>
+        <Button variant="primary" onClick={submit} disabled={title.trim() === ""}>
           Create task
         </Button>
       </div>

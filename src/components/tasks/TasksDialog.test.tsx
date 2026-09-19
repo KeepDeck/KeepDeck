@@ -118,6 +118,48 @@ describe("TasksDialog", () => {
     expect(text()).toContain("task-3 · by you");
   });
 
+  it("the form can be put away three ways — its ×, + Task again, Escape — and Escape does not take the dialog with it", async () => {
+    const { service } = await seeded();
+    const onClose = vi.fn();
+    const render = () =>
+      act(() =>
+        root.render(
+          createElement(TasksDialog, {
+            tasks: access(service),
+            workspace: teamedWorkspaces()[0],
+            focus,
+            onFocus,
+            onClose,
+          }),
+        ),
+      );
+    render();
+    await flush();
+    const formOpen = () => document.querySelector('aside[aria-label="New task"]') !== null;
+
+    act(() => button("+ Task").click());
+    await flush();
+    expect(formOpen()).toBe(true);
+    act(() => button("+ Task").click());
+    await flush();
+    expect(formOpen()).toBe(false);
+
+    act(() => button("+ Task").click());
+    await flush();
+    act(() => document.querySelector<HTMLButtonElement>('button[aria-label="Close the form"]')!.click());
+    await flush();
+    expect(formOpen()).toBe(false);
+
+    act(() => button("+ Task").click());
+    await flush();
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    await flush();
+    expect(formOpen()).toBe(false);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it("the queues view lays out a lane per member and the pool", async () => {
     const { service } = await seeded();
     const render = mount(service);

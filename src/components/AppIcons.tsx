@@ -40,7 +40,8 @@ export function SkillsIcon() {
 }
 
 export function TasksIcon() {
-  // A board with a ticked line — work orders, one of them done.
+  // A ticked box — a work order, done. One stroke inside the square: a
+  // second one read as clutter at 15px.
   return (
     <svg
       viewBox="0 0 24 24"
@@ -54,8 +55,7 @@ export function TasksIcon() {
       aria-hidden
     >
       <rect x="4" y="4" width="16" height="16" rx="2" />
-      <path d="m8 12 2 2 4-4" />
-      <path d="M8 17h8" />
+      <path d="m8 12.5 2.5 2.5 5.5-6" />
     </svg>
   );
 }
