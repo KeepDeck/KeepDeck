@@ -118,7 +118,7 @@ describe("TasksDialog", () => {
     expect(text()).toContain("task-3 · by you");
   });
 
-  it("the form can be put away three ways — its ×, + Task again, Escape — and Escape does not take the dialog with it", async () => {
+  it("the form can be put away three ways — Cancel, + Task again, Escape — and Escape does not take the dialog with it", async () => {
     const { service } = await seeded();
     const onClose = vi.fn();
     const render = () =>
@@ -146,7 +146,7 @@ describe("TasksDialog", () => {
 
     act(() => button("+ Task").click());
     await flush();
-    act(() => document.querySelector<HTMLButtonElement>('button[aria-label="Close the form"]')!.click());
+    act(() => button("Cancel").click());
     await flush();
     expect(formOpen()).toBe(false);
 

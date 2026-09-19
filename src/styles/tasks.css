@@ -561,13 +561,6 @@
   gap: 8px;
 }
 
-.tasks__compose-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
 .tasks__compose .form__input {
   padding: 10px 12px;
   font-size: 14px;

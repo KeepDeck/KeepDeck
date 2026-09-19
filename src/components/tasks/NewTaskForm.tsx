@@ -3,7 +3,6 @@ import { Dropdown } from "@keepdeck/ui-kit";
 import type { CreateTaskInput, TaskPriority } from "../../domain/tasks";
 import type { NewTaskFormView } from "../../presentation/tasks";
 import { Button } from "../../ui/Button";
-import { CloseButton } from "../../ui/CloseButton";
 
 interface NewTaskFormProps {
   view: NewTaskFormView;
@@ -12,7 +11,9 @@ interface NewTaskFormProps {
 }
 
 /** The person's own door onto the board: they name the work and, if they
- * want, who does it. Nothing here delivers anything. */
+ * want, who does it. Nothing here delivers anything. No × of its own: the
+ * dialog's is right above it, and two stacked read as a mistake — Cancel,
+ * + Task again and Escape put the form away. */
 export function NewTaskForm({ view, onCreate, onCancel }: NewTaskFormProps) {
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
@@ -24,10 +25,7 @@ export function NewTaskForm({ view, onCreate, onCancel }: NewTaskFormProps) {
   };
   return (
     <aside className="tasks__detail tasks__compose" aria-label="New task">
-      <div className="tasks__compose-head">
-        <h3 className="tasks__detail-title">New task</h3>
-        <CloseButton label="Close the form" onClick={onCancel} />
-      </div>
+      <h3 className="tasks__detail-title">New task</h3>
       <p className="tasks__muted">Put work on the team's board — assign it now or leave it in the pool for whoever takes it.</p>
       <span className="tasks__section">Title</span>
       <input
