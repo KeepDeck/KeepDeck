@@ -73,6 +73,9 @@ export function TasksDialog({
     <NewTaskForm view={board.form} onCreate={(input) => void board.create(input)} onCancel={board.cancelCompose} />
   ) : board.detail ? (
     <TaskDetail
+      // Keyed by the task: the panel's own state — a draft comment — must
+      // not survive a switch to another task and be sent under its id.
+      key={board.detail.id}
       view={board.detail}
       wide={board.wide}
       onToggleWide={board.toggleWide}

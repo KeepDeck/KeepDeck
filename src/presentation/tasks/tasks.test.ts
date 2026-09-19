@@ -8,6 +8,7 @@ import { queuesView } from "./queuesView";
 import { taskCardView } from "./taskCardView";
 import { taskDetailView } from "./taskDetailView";
 import { teamCardTasksLine } from "./teamCardTasksLine";
+import { teamOnScreen } from "./teamOnScreen";
 import { personName, priorityMark, statusTone } from "./words";
 
 const NOW = 100_000;
@@ -180,6 +181,17 @@ describe("taskDetailView — artifacts", () => {
     expect(view.attachEmpty).toBeNull();
     expect(taskDetailView(b.tasks[0], b, ROSTER, NOW, []).attachEmpty).toContain("Nothing published");
     expect(taskDetailView(b.tasks[0], b, ROSTER, NOW, [registry[0]]).attachEmpty).toContain("Every artifact");
+  });
+});
+
+describe("teamOnScreen", () => {
+  it("follows the focused task's team, then the choice, then the first", () => {
+    const teams = ["team-1", "team-2"];
+    expect(teamOnScreen(teams, null, null)).toBe("team-1");
+    expect(teamOnScreen(teams, "team-2", null)).toBe("team-2");
+    expect(teamOnScreen(teams, "team-1", "team-2")).toBe("team-2");
+    expect(teamOnScreen(teams, "team-9", "team-9")).toBe("team-1");
+    expect(teamOnScreen([], "team-1", null)).toBeNull();
   });
 });
 

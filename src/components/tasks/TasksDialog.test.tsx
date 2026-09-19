@@ -326,6 +326,52 @@ describe("TasksDialog", () => {
     expect(done().className).not.toContain("collapsed");
   });
 
+  it("opens on a task of another team when a link names it — the board switches to that team", async () => {
+    const { service } = await seeded();
+    await service.create("ws-1", { teamId: "team-2", title: "Web's own" }, agentActor("lead", "team-2"));
+    focus = "task-3";
+    const render = mount(service);
+    render();
+    await flush();
+    expect(document.querySelector('aside[aria-label="Task task-3"]')).not.toBeNull();
+    expect(text()).toContain("Web's own");
+    expect(cards().map((c) => c.querySelector(".tasks__card-title")?.textContent)).toEqual(["Web's own"]);
+  });
+
+  it("keeps a refused comment in the composer, and a draft does not follow the person to another task", async () => {
+    const { service } = await seeded();
+    const render = mount(service);
+    render();
+    await flush();
+    act(() => cards()[0].click());
+    await flush();
+    const composer = () => document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Comment"]')!;
+    const type = (value: string) =>
+      act(() => {
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(composer(), value);
+        composer().dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    type("x".repeat(4001));
+    act(() => button("Comment").click());
+    await flush();
+    await flush();
+    expect(text()).toContain("comment must be at most 4000 characters");
+    expect(composer().value).toHaveLength(4001);
+
+    type("a note for task-1");
+    act(() => cards()[1].click());
+    await flush();
+    expect(composer().value).toBe("");
+    type("for task-2");
+    act(() => button("Comment").click());
+    await flush();
+    await flush();
+    const state = service.peek("ws-1");
+    expect(state?.kind === "ready" && state.board.tasks[1].comments.map((c) => c.body)).toEqual(["for task-2"]);
+    expect(state?.kind === "ready" && state.board.tasks[0].comments).toEqual([]);
+    expect(composer().value).toBe("");
+  });
+
   it("the queues view lays out a lane per member and the pool", async () => {
     const { service } = await seeded();
     const render = mount(service);

@@ -1,5 +1,6 @@
 import { formatAge } from "../../domain/usage";
 import {
+  TASK_CAPS,
   USER_ACTOR,
   findTask,
   issuable,
@@ -61,6 +62,8 @@ export interface TaskDetailView {
   attachEmpty: string | null;
   thread: { n: number; who: string; age: string; body: string }[];
   threadEmpty: string | null;
+  /** The composer's bound — the domain's, so the field cannot outgrow it. */
+  commentMax: number;
   log: { who: string; text: string; age: string }[];
 }
 
@@ -135,6 +138,7 @@ export function taskDetailView(
       body: comment.body,
     })),
     threadEmpty: task.comments.length === 0 ? "No comments yet" : null,
+    commentMax: TASK_CAPS.commentMax,
     log: task.log.map((entry) => ({
       who: personName(entry.from),
       text:

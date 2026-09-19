@@ -13,7 +13,9 @@ interface TaskDetailProps {
   onMove(taskId: string, to: TaskStatus): void;
   onAssign(taskId: string, assignee: string): void;
   onPriority(taskId: string, priority: TaskPriority): void;
-  onComment(taskId: string, body: string): void;
+  /** Resolves to whether the comment was accepted; the draft is cleared
+   * only then — a refused comment must not vanish with its refusal. */
+  onComment(taskId: string, body: string): Promise<boolean>;
   onSelect(taskId: string): void;
   onAttach(taskId: string, slug: string): void;
   onDetach(taskId: string, slug: string): void;
@@ -37,10 +39,14 @@ export function TaskDetail({
   onOpenArtifact,
 }: TaskDetailProps) {
   const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);
   const send = () => {
-    if (draft.trim() === "") return;
-    onComment(view.id, draft);
-    setDraft("");
+    if (draft.trim() === "" || sending) return;
+    setSending(true);
+    void onComment(view.id, draft).then((accepted) => {
+      setSending(false);
+      if (accepted) setDraft("");
+    });
   };
   return (
     <aside className={`tasks__detail${wide ? " tasks__detail--wide" : ""}`} aria-label={`Task ${view.id}`}>
@@ -194,10 +200,11 @@ export function TaskDetail({
         placeholder="Add a comment — it stays with the task"
         aria-label="Comment"
         value={draft}
+        maxLength={view.commentMax}
         onChange={(e) => setDraft(e.target.value)}
       />
       <div className="tasks__composer-actions">
-        <Button size="sm" onClick={send} disabled={draft.trim() === ""}>
+        <Button size="sm" onClick={send} disabled={draft.trim() === "" || sending}>
           Comment
         </Button>
       </div>

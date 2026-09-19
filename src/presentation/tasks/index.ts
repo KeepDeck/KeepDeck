@@ -7,3 +7,4 @@ export * from "./newTaskFormView";
 export * from "./ladderView";
 export * from "./doorBadge";
 export * from "./teamCardTasksLine";
+export * from "./teamOnScreen";

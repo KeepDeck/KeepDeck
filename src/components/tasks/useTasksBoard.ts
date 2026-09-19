@@ -23,6 +23,7 @@ import {
   queuesView,
   taskDetailView,
   tasksLadder,
+  teamOnScreen,
   unsavedBanner,
   type ArtifactRef,
 } from "../../presentation/tasks";
@@ -93,8 +94,6 @@ export function useTasksBoard(
   const workspaceId = workspace?.id ?? null;
   const teams = workspace ? teamsOf(workspace) : [];
   const [chosenTeam, setChosenTeam] = useState<string | null>(null);
-  // The team on screen: the one chosen, if it still exists, else the first.
-  const teamId = teams.some((team) => team.id === chosenTeam) ? chosenTeam : (teams[0]?.id ?? null);
   const [mode, setMode] = useState<TasksMode>("board");
   const [showCancelled, setShowCancelled] = useState(false);
   const [folds, setFolds] = useState<ReadonlyMap<TaskStatus, boolean>>(new Map());
@@ -157,6 +156,13 @@ export function useTasksBoard(
   );
   const board = state?.kind === "ready" ? state.board : null;
   const unsaved = state?.kind === "ready" && state.unsaved !== null ? unsavedBanner(state.unsaved) : null;
+  // The team on screen follows the task the dialog is on, then the choice.
+  const focusedTask = board && focus !== null ? (findTask(board, focus) ?? null) : null;
+  const teamId = teamOnScreen(
+    teams.map((team) => team.id),
+    chosenTeam,
+    focusedTask?.teamId ?? null,
+  );
   const teamTasks = useMemo(
     () => (board && teamId !== null ? tasksOfTeam(board, teamId) : []),
     [board, teamId],
@@ -210,7 +216,7 @@ export function useTasksBoard(
     taskCount: teamTasks.length,
   });
 
-  const selected = board && focus !== null ? (findTask(board, focus) ?? null) : null;
+  const selected = focusedTask;
   const detail =
     selected && selected.teamId === teamId ? taskDetailView(selected, board!, roster, now, knownArtifacts) : null;
   const columns = board ? boardView(teamTasks, board, { showCancelled, folds, now }) : [];
@@ -230,10 +236,11 @@ export function useTasksBoard(
     [],
   );
 
+  /** A change through the owner as the user; whether it was accepted. */
   const apply = useCallback(
-    (taskId: string, changes: TaskChange[]) => {
-      if (!service || workspaceId === null) return;
-      void write(() => service.apply(workspaceId, taskId, changes, USER_ACTOR));
+    (taskId: string, changes: TaskChange[]): Promise<boolean> => {
+      if (!service || workspaceId === null) return Promise.resolve(false);
+      return write(() => service.apply(workspaceId, taskId, changes, USER_ACTOR));
     },
     [service, workspaceId, write],
   );
@@ -286,7 +293,7 @@ export function useTasksBoard(
     },
     /** Released over a column: the move, if that column was a target. */
     dropOn: (status: TaskStatus) => {
-      if (dragging && dragging.targets.has(status)) apply(dragging.id, [{ kind: "status", to: status }]);
+      if (dragging && dragging.targets.has(status)) void apply(dragging.id, [{ kind: "status", to: status }]);
       endDrag();
     },
     composing,
@@ -303,19 +310,19 @@ export function useTasksBoard(
     form,
     error,
     unsaved,
-    move: (taskId: string, to: TaskStatus) => apply(taskId, [{ kind: "status", to }]),
-    assign: (taskId: string, assignee: string) => apply(taskId, [{ kind: "assign", assignee: assignee === "" ? null : assignee }]),
-    setPriority: (taskId: string, to: TaskPriority) => apply(taskId, [{ kind: "priority", to }]),
+    move: (taskId: string, to: TaskStatus) => void apply(taskId, [{ kind: "status", to }]),
+    assign: (taskId: string, assignee: string) => void apply(taskId, [{ kind: "assign", assignee: assignee === "" ? null : assignee }]),
+    setPriority: (taskId: string, to: TaskPriority) => void apply(taskId, [{ kind: "priority", to }]),
     comment: (taskId: string, body: string) => apply(taskId, [{ kind: "comment", body }]),
     attachArtifact: (taskId: string, slug: string) => {
       const task = board ? findTask(board, taskId) : undefined;
       if (!task) return;
-      apply(taskId, [{ kind: "artifacts", to: [...task.artifacts, slug] }]);
+      void apply(taskId, [{ kind: "artifacts", to: [...task.artifacts, slug] }]);
     },
     detachArtifact: (taskId: string, slug: string) => {
       const task = board ? findTask(board, taskId) : undefined;
       if (!task) return;
-      apply(taskId, [{ kind: "artifacts", to: task.artifacts.filter((other) => other !== slug) }]);
+      void apply(taskId, [{ kind: "artifacts", to: task.artifacts.filter((other) => other !== slug) }]);
     },
     /** Open an attached artifact in the browser — the registry's own
      * ladder resolves the live address at the click. */
