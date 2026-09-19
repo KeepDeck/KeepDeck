@@ -186,8 +186,8 @@ describe("taskDetailView — artifacts", () => {
     ];
     const view = taskDetailView(b.tasks[0], b, ROSTER, NOW, registry);
     expect(view.artifacts).toEqual([
-      { slug: "kd-tasks", title: "KeepDeck Tasks", known: true },
-      { slug: "gone", title: "gone", known: false },
+      { slug: "kd-tasks", title: "KeepDeck Tasks", known: true, openTitle: "Open in the browser", detachLabel: "Detach kd-tasks" },
+      { slug: "gone", title: "gone", known: false, openTitle: "No longer published", detachLabel: "Detach gone" },
     ]);
     expect(view.attachOptions).toEqual([{ value: "kd-tasks-ui", label: "UI prototypes" }]);
     expect(view.attachEmpty).toBeNull();

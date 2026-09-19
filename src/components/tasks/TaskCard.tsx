@@ -1,5 +1,5 @@
 import type { TaskCardView } from "../../presentation/tasks";
-import type { CardGrip } from "./useTasksBoard";
+import type { CardGrip } from "../../presentation/tasks";
 
 interface TaskCardProps {
   card: TaskCardView;

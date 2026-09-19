@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Dropdown } from "@keepdeck/ui-kit";
 import type { TaskPriority, TaskStatus } from "../../domain/tasks";
-import type { TaskDetailView } from "../../presentation/tasks";
+import { DIALOG_WORDS, canSendComment, type TaskDetailView } from "../../presentation/tasks";
 import { Button } from "../../ui/Button";
 
 interface TaskDetailProps {
@@ -40,8 +40,9 @@ export function TaskDetail({
 }: TaskDetailProps) {
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const sendable = canSendComment(draft, sending);
   const send = () => {
-    if (draft.trim() === "" || sending) return;
+    if (!sendable) return;
     setSending(true);
     void onComment(view.id, draft).then((accepted) => {
       setSending(false);
@@ -56,7 +57,7 @@ export function TaskDetail({
             stacked read as a mistake. */}
         <div className="tasks__detail-actions">
           <Button size="sm" variant="ghost" aria-pressed={wide} onClick={onToggleWide}>
-            {wide ? "Collapse" : "Expand"}
+            {DIALOG_WORDS.wide(wide)}
           </Button>
           <Button size="sm" variant="ghost" onClick={onClose}>
             Close
@@ -153,7 +154,7 @@ export function TaskDetail({
                 type="button"
                 className="tasks__link"
                 disabled={!artifact.known}
-                title={artifact.known ? "Open in the browser" : "No longer published"}
+                title={artifact.openTitle}
                 onClick={() => onOpenArtifact(artifact.slug)}
               >
                 {artifact.title} <code>{artifact.slug}</code>
@@ -161,7 +162,7 @@ export function TaskDetail({
               <button
                 type="button"
                 className="tasks__remove"
-                aria-label={`Detach ${artifact.slug}`}
+                aria-label={artifact.detachLabel}
                 title="Detach"
                 onClick={() => onDetach(view.id, artifact.slug)}
               >
@@ -204,7 +205,7 @@ export function TaskDetail({
         onChange={(e) => setDraft(e.target.value)}
       />
       <div className="tasks__composer-actions">
-        <Button size="sm" onClick={send} disabled={draft.trim() === "" || sending}>
+        <Button size="sm" onClick={send} disabled={!sendable}>
           Comment
         </Button>
       </div>

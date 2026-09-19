@@ -1,4 +1,4 @@
-import type { QueueLaneView } from "../../presentation/tasks";
+import { DIALOG_WORDS, type QueueLaneView } from "../../presentation/tasks";
 import { TaskCard } from "./TaskCard";
 
 interface QueuesLanesProps {
@@ -27,7 +27,7 @@ export function QueuesLanes({ lanes, selectedId, onSelect }: QueuesLanesProps) {
               </div>
             )}
             <div className="tasks__lane-queue">
-              <span className="tasks__lane-caption">{lane.isPool ? "Next up — anyone on the team can take it" : "Next up"}</span>
+              <span className="tasks__lane-caption">{DIALOG_WORDS.poolCaption(lane.isPool)}</span>
               {lane.queued.map((card) => (
                 <TaskCard key={card.id} card={card} selected={card.id === selectedId} onSelect={onSelect} />
               ))}

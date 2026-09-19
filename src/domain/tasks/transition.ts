@@ -128,6 +128,23 @@ function normalizeIds(ids: readonly string[]): string[] {
   return [...new Set(ids.map((id) => id.trim()).filter((id) => id !== ""))];
 }
 
+/** What is wrong with a title, or nothing — the rule the transition and
+ * the create apply, and the one a form asks before offering to submit. */
+export function titleProblem(title: string): TaskRefusal | null {
+  return validateTitle(title);
+}
+
+/** What is wrong with a comment, or nothing — same rule as the comment
+ * change applies. */
+export function commentProblem(body: string): TaskRefusal | null {
+  const trimmed = body.trim();
+  if (trimmed === "") return { kind: "blank", field: "comment" };
+  if (trimmed.length > TASK_CAPS.commentMax) {
+    return { kind: "field-cap", field: "comment", max: TASK_CAPS.commentMax };
+  }
+  return null;
+}
+
 function validateTitle(title: string): TaskRefusal | null {
   if (title.trim() === "") return { kind: "blank", field: "title" };
   if (title.length > TASK_CAPS.titleMax) {
@@ -315,11 +332,9 @@ export function transition(
       };
     }
     case "comment": {
+      const problem = commentProblem(change.body);
+      if (problem) return refuse(problem);
       const body = change.body.trim();
-      if (body === "") return refuse({ kind: "blank", field: "comment" });
-      if (body.length > TASK_CAPS.commentMax) {
-        return refuse({ kind: "field-cap", field: "comment", max: TASK_CAPS.commentMax });
-      }
       // Ordinals never repeat, even after the oldest fell off.
       const n = task.comments.reduce((top, c) => Math.max(top, c.n), 0) + 1;
       const comments = [...task.comments, { n, at, from: by, body }].slice(

@@ -52,7 +52,7 @@ export interface TaskDetailView {
   unblocks: { id: string; title: string }[];
   /** Attached artifacts, titled when the registry knows them; a slug the
    * registry no longer holds is still shown — the task said so. */
-  artifacts: { slug: string; title: string; known: boolean }[];
+  artifacts: { slug: string; title: string; known: boolean; openTitle: string; detachLabel: string }[];
   /** The workspace's artifacts not yet on this task — what may be attached. */
   attachOptions: ChoiceView[];
   attachEmpty: string | null;
@@ -116,7 +116,13 @@ export function taskDetailView(
     unblocks: unblocks(task, board).map((other) => ({ id: other.id, title: other.title })),
     artifacts: task.artifacts.map((slug) => {
       const known = artifacts.find((artifact) => artifact.id === slug);
-      return { slug, title: known?.title ?? slug, known: known !== undefined };
+      return {
+        slug,
+        title: known?.title ?? slug,
+        known: known !== undefined,
+        openTitle: known ? "Open in the browser" : "No longer published",
+        detachLabel: `Detach ${slug}`,
+      };
     }),
     attachOptions: artifacts
       .filter((artifact) => !task.artifacts.includes(artifact.id))

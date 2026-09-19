@@ -334,6 +334,7 @@
 /* The target under the pointer, singled out from the other targets. */
 .tasks__column--drop-over {
   border-color: var(--kd-ok-strong);
+  border-style: dashed;
   background-color: #10171f;
 }
 

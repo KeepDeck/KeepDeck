@@ -1,7 +1,7 @@
 import { Dropdown } from "@keepdeck/ui-kit";
 import type { ArtifactsRegistryReadPort } from "../../app/artifacts/registryRead";
 import type { Workspace } from "../../domain/deck";
-import { LADDER_WORDS } from "../../presentation/tasks";
+import { DIALOG_WORDS, LADDER_WORDS, MODE_CHOICES, cardOf, escapeTarget, ghostBox } from "../../presentation/tasks";
 import { Button } from "../../ui/Button";
 import { CloseButton } from "../../ui/CloseButton";
 import { ModalOverlay } from "../../ui/ModalOverlay";
@@ -12,7 +12,7 @@ import { NewTaskForm } from "./NewTaskForm";
 import { QueuesLanes } from "./QueuesLanes";
 import { TaskCard } from "./TaskCard";
 import { TaskDetail } from "./TaskDetail";
-import { useTasksBoard, type TasksAccess, type TasksMode } from "./useTasksBoard";
+import { useTasksBoard, type TasksAccess } from "./useTasksBoard";
 
 interface TasksDialogProps {
   /** The board's owner as the runtime hands it out. */
@@ -33,11 +33,6 @@ interface TasksDialogProps {
 /** The ghost is a picture; a click on it goes nowhere. */
 const noSelect = () => {};
 
-const MODES: readonly { value: TasksMode; label: string }[] = [
-  { value: "board", label: "Board" },
-  { value: "queues", label: "Queues" },
-];
-
 /**
  * The Tasks dialog — the person's view of a team's board: the ladder as
  * columns, or the load as lanes per member, with one task open on the
@@ -55,20 +50,23 @@ export function TasksDialog({
 }: TasksDialogProps) {
   const now = useWallClock(0, true);
   const board = useTasksBoard(tasks, workspace, focus, onFocus, now, artifactReads);
-  // Escape peels one layer: the form when it is open, then the wide view
-  // back to the board, then the dialog. Closing the whole dialog out from
-  // under a half-typed brief is the one thing the key must never do.
+  // Escape peels one layer; which one is the presentation's call.
   useEscape(() => {
-    if (board.composing) board.cancelCompose();
-    else if (board.wide) board.narrow();
-    else if (board.detail) board.close();
-    else onClose();
+    switch (escapeTarget({ composing: board.composing, wide: board.wide, detailOpen: board.detail !== null })) {
+      case "form":
+        return board.cancelCompose();
+      case "wide":
+        return board.narrow();
+      case "detail":
+        return board.close();
+      case "dialog":
+        return onClose();
+    }
   }, canClose);
   const { ladder } = board;
   const staged = ladder.kind === "board" || ladder.kind === "empty";
-  const ghostCard = board.dragging
-    ? board.columns.flatMap((column) => column.cards).find((card) => card.id === board.dragging?.id)
-    : undefined;
+  const ghost = ghostBox(board.drag);
+  const ghostCard = board.drag.kind === "dragging" ? cardOf(board.columns, board.drag.id) : undefined;
   const panel = board.composing ? (
     <NewTaskForm view={board.form} onCreate={(input) => void board.create(input)} onCancel={board.cancelCompose} />
   ) : board.detail ? (
@@ -94,7 +92,7 @@ export function TasksDialog({
   return (
     <ModalOverlay>
       <div
-        className={`form tasks${board.dragging ? " tasks--dragging" : ""}`}
+        className={`form tasks${board.drag.kind === "dragging" ? " tasks--dragging" : ""}`}
         role="dialog"
         aria-modal="true"
         aria-label="Tasks"
@@ -103,15 +101,8 @@ export function TasksDialog({
             from the same view at the same width, under the point where it
             was gripped — the board's own copy stays put, dimmed, until the
             drop moves it. */}
-        {board.dragging && ghostCard && (
-          <div
-            className="tasks__ghost"
-            style={{
-              left: board.dragging.x - board.dragging.offsetX,
-              top: board.dragging.y - board.dragging.offsetY,
-              width: board.dragging.width,
-            }}
-          >
+        {ghost && ghostCard && (
+          <div className="tasks__ghost" style={ghost}>
             <TaskCard card={ghostCard} selected={false} onSelect={noSelect} />
           </div>
         )}
@@ -132,7 +123,7 @@ export function TasksDialog({
               )}
               {board.teams.length === 1 && <span className="tasks__team-name">{board.teams[0].name}</span>}
               <div className="tasks__segment" role="group" aria-label="View">
-                {MODES.map((mode) => (
+                {MODE_CHOICES.map((mode) => (
                   <button
                     key={mode.value}
                     type="button"
@@ -149,11 +140,11 @@ export function TasksDialog({
                   type="button"
                   className={`tasks__segment-btn${board.showCancelled ? " tasks__segment-btn--active" : ""}`}
                   aria-pressed={board.showCancelled}
-                  disabled={board.mode !== "board"}
-                  title={board.mode === "board" ? undefined : "Cancelled tasks show on the board"}
+                  disabled={DIALOG_WORDS.cancelledFilterHint(board.mode) !== null}
+                  title={DIALOG_WORDS.cancelledFilterHint(board.mode) ?? undefined}
                   onClick={board.toggleCancelled}
                 >
-                  {board.showCancelled ? "Hide cancelled" : "Show cancelled"}
+                  {DIALOG_WORDS.cancelledFilter(board.showCancelled)}
                 </button>
               </div>
               <Button
@@ -210,7 +201,7 @@ export function TasksDialog({
                 <BoardColumns
                   columns={board.columns}
                   selectedId={board.detail?.id ?? null}
-                  dragging={board.dragging}
+                  drag={board.drag}
                   hover={board.hover}
                   onSelect={board.select}
                   onToggleColumn={board.toggleColumn}

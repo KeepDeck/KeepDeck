@@ -1,13 +1,12 @@
 import type { BoardColumnView } from "../../presentation/tasks";
+import { DIALOG_WORDS, dropStateOf, type CardGrip, type DragState } from "../../presentation/tasks";
 import type { TaskStatus } from "../../domain/tasks";
 import { TaskCard } from "./TaskCard";
-import type { CardDrag, CardGrip } from "./useTasksBoard";
 
 interface BoardColumnsProps {
   columns: BoardColumnView[];
   selectedId: string | null;
-  /** The card in flight and where it may land, or null. */
-  dragging: CardDrag | null;
+  drag: DragState;
   /** The column the pointer is over while a card is in flight. */
   hover: TaskStatus | null;
   onSelect(id: string): void;
@@ -17,17 +16,10 @@ interface BoardColumnsProps {
   onDrop(status: TaskStatus): void;
 }
 
-/** What a column is to a drag: a place it may land, one it may not, or
- * nothing while no card is in flight. */
-function dropState(column: BoardColumnView, dragging: CardDrag | null): "ok" | "no" | null {
-  if (dragging === null) return null;
-  return dragging.targets.has(column.status) ? "ok" : "no";
-}
-
 export function BoardColumns({
   columns,
   selectedId,
-  dragging,
+  drag,
   hover,
   onSelect,
   onToggleColumn,
@@ -38,12 +30,11 @@ export function BoardColumns({
   return (
     <div className="tasks__columns">
       {columns.map((column) => {
-        const drop = dropState(column, dragging);
-        const over = drop === "ok" && hover === column.status;
+        const drop = dropStateOf(column.status, drag, hover);
         return (
           <section
             key={column.status}
-            className={`tasks__column${column.collapsed ? " tasks__column--collapsed" : ""}${drop ? ` tasks__column--drop-${drop}` : ""}${over ? " tasks__column--drop-over" : ""}`}
+            className={`tasks__column${column.collapsed ? " tasks__column--collapsed" : ""}${drop ? ` tasks__column--drop-${drop}` : ""}`}
             aria-label={column.label}
             data-drop-status={column.status}
             onPointerOver={() => onHover(column.status)}
@@ -55,7 +46,7 @@ export function BoardColumns({
               <span className="tasks__column-count">{column.count}</span>
               {(column.status === "done" || column.status === "cancelled") && (
                 <button type="button" className="tasks__column-toggle" onClick={() => onToggleColumn(column.status)}>
-                  {column.collapsed ? "Show" : "Hide"}
+                  {DIALOG_WORDS.fold(column.collapsed)}
                 </button>
               )}
             </header>
@@ -66,7 +57,7 @@ export function BoardColumns({
                     key={card.id}
                     card={card}
                     selected={card.id === selectedId}
-                    dragging={dragging?.id === card.id}
+                    dragging={drag.kind === "dragging" && drag.id === card.id}
                     onSelect={onSelect}
                     onArm={onArm}
                   />

@@ -2,6 +2,7 @@ import { updateSettings } from "../../app/settingsManager";
 import { useMcpStatus } from "../../app/mcp/useMcpStatus";
 import { useSettings } from "../../app/useSettings";
 import { DEFAULT_SETTINGS } from "../../domain/settings";
+import { showTasksSocketHint } from "../../presentation/tasks";
 
 /**
  * Tasks in General ([F6]): the switch for the team-owned board of work
@@ -44,7 +45,7 @@ export function TasksRows() {
         releases it.
       </span>
 
-      {tasks && !served && (
+      {showTasksSocketHint(tasks, served) && (
         <span className="settings__hint">
           The deck’s MCP socket is down (see below): agents read and write
           the board by calling the deck, so they cannot until it is back.

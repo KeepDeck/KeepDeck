@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Dropdown } from "@keepdeck/ui-kit";
 import type { CreateTaskInput, TaskPriority } from "../../domain/tasks";
-import type { NewTaskFormView } from "../../presentation/tasks";
+import { canCreateTask, type NewTaskFormView } from "../../presentation/tasks";
 import { Button } from "../../ui/Button";
 
 interface NewTaskFormProps {
@@ -19,8 +19,9 @@ export function NewTaskForm({ view, onCreate, onCancel }: NewTaskFormProps) {
   const [body, setBody] = useState("");
   const [assignee, setAssignee] = useState("");
   const [priority, setPriority] = useState<TaskPriority>("normal");
+  const creatable = canCreateTask(title);
   const submit = () => {
-    if (title.trim() === "") return;
+    if (!creatable) return;
     onCreate({ title, body, assignee: assignee === "" ? null : assignee, priority });
   };
   return (
@@ -69,7 +70,7 @@ export function NewTaskForm({ view, onCreate, onCancel }: NewTaskFormProps) {
         <Button variant="secondary" onClick={onCancel}>
           Cancel
         </Button>
-        <Button variant="primary" onClick={submit} disabled={title.trim() === ""}>
+        <Button variant="primary" onClick={submit} disabled={!creatable}>
           Create task
         </Button>
       </div>

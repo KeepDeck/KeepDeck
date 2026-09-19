@@ -351,12 +351,25 @@ describe("TasksDialog", () => {
         Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(composer(), value);
         composer().dispatchEvent(new Event("input", { bubbles: true }));
       });
+    // Over the cap: the domain's own predicate keeps Comment off, and the
+    // draft stays.
     type("x".repeat(4001));
+    expect(button("Comment").disabled).toBe(true);
+    expect(composer().value).toHaveLength(4001);
+
+    // A refusal the composer could not foresee comes back from the owner:
+    // the draft stays, the refusal shows.
+    const realApply = service.apply.bind(service);
+    service.apply = async () => {
+      service.apply = realApply;
+      return { ok: false, refusal: { kind: "not-on-team" } };
+    };
+    type("a note the owner refuses");
     act(() => button("Comment").click());
     await flush();
     await flush();
-    expect(text()).toContain("comment must be at most 4000 characters");
-    expect(composer().value).toHaveLength(4001);
+    expect(text()).toContain("another team's board");
+    expect(composer().value).toBe("a note the owner refuses");
 
     type("a note for task-1");
     act(() => cards()[1].click());
