@@ -150,9 +150,19 @@ export function useTasksBoard(
     columns,
     lanes,
     detail,
+    /** Pick a task, or put it away: the open card pressed again closes. */
     select: (taskId: string | null) => {
       setComposing(false);
+      if (taskId !== null && taskId === focus) {
+        setWide(false);
+        onFocus(null);
+        return;
+      }
       onFocus(taskId);
+    },
+    close: () => {
+      setWide(false);
+      onFocus(null);
     },
     composing,
     compose: () => {

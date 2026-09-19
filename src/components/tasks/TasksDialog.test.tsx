@@ -166,6 +166,51 @@ describe("TasksDialog", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
+  it("an open task is put away by Close, by pressing its card again, or by Escape — which does not take the dialog", async () => {
+    const { service } = await seeded();
+    const onClose = vi.fn();
+    const render = () =>
+      act(() =>
+        root.render(
+          createElement(TasksDialog, {
+            tasks: access(service),
+            workspace: teamedWorkspaces()[0],
+            focus,
+            onFocus: (id: string | null) => {
+              onFocus(id);
+              render();
+            },
+            onClose,
+          }),
+        ),
+      );
+    render();
+    await flush();
+    const panel = () => document.querySelector('aside[aria-label="Task task-1"]');
+
+    act(() => cards()[0].click());
+    await flush();
+    expect(panel()).not.toBeNull();
+    act(() => button("Close").click());
+    await flush();
+    expect(panel()).toBeNull();
+
+    act(() => cards()[0].click());
+    await flush();
+    act(() => cards()[0].click());
+    await flush();
+    expect(panel()).toBeNull();
+
+    act(() => cards()[0].click());
+    await flush();
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    await flush();
+    expect(panel()).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it("the queues view lays out a lane per member and the pool", async () => {
     const { service } = await seeded();
     const render = mount(service);

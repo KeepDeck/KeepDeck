@@ -164,6 +164,12 @@
   gap: 12px;
 }
 
+.tasks__detail-actions {
+  display: flex;
+  flex: none;
+  gap: 4px;
+}
+
 .tasks__main {
   display: flex;
   flex-direction: column;
@@ -176,12 +182,15 @@
 .tasks__columns {
   display: grid;
   grid-auto-flow: column;
-  /* One fraction each, a folded column included: columns of different
-     widths read as columns of different importance. */
-  grid-auto-columns: minmax(0, 1fr);
+  /* A fixed width each, a folded column included: a column that changes
+     width when a panel opens beside it is a board that will not hold
+     still. The board scrolls sideways instead. */
+  grid-auto-columns: 260px;
   gap: 10px;
   flex: 1;
   min-height: 0;
+  width: max-content;
+  min-width: 100%;
 }
 
 .tasks__column {

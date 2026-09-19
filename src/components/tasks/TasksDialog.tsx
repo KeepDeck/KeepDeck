@@ -46,6 +46,7 @@ export function TasksDialog({ tasks, workspace, focus, onFocus, onClose, canClos
   useEscape(() => {
     if (board.composing) board.cancelCompose();
     else if (board.wide) board.narrow();
+    else if (board.detail) board.close();
     else onClose();
   }, canClose);
   const { ladder } = board;
@@ -57,6 +58,7 @@ export function TasksDialog({ tasks, workspace, focus, onFocus, onClose, canClos
       view={board.detail}
       wide={board.wide}
       onToggleWide={board.toggleWide}
+      onClose={board.close}
       onMove={board.move}
       onAssign={board.assign}
       onPriority={board.setPriority}

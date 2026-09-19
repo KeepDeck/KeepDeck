@@ -9,6 +9,7 @@ interface TaskDetailProps {
   /** Whether the task fills the stage; the head offers the way there and back. */
   wide: boolean;
   onToggleWide(): void;
+  onClose(): void;
   onMove(taskId: string, to: TaskStatus): void;
   onAssign(taskId: string, assignee: string): void;
   onPriority(taskId: string, priority: TaskPriority): void;
@@ -18,7 +19,7 @@ interface TaskDetailProps {
 
 /** The right panel: one task whole. Every word comes from the view; every
  * control emits an intent. */
-export function TaskDetail({ view, wide, onToggleWide, onMove, onAssign, onPriority, onComment, onSelect }: TaskDetailProps) {
+export function TaskDetail({ view, wide, onToggleWide, onClose, onMove, onAssign, onPriority, onComment, onSelect }: TaskDetailProps) {
   const [draft, setDraft] = useState("");
   const send = () => {
     if (draft.trim() === "") return;
@@ -29,9 +30,16 @@ export function TaskDetail({ view, wide, onToggleWide, onMove, onAssign, onPrior
     <aside className={`tasks__detail${wide ? " tasks__detail--wide" : ""}`} aria-label={`Task ${view.id}`}>
       <div className="tasks__detail-head">
         <h3 className="tasks__detail-title">{view.title}</h3>
-        <Button size="sm" variant="ghost" aria-pressed={wide} onClick={onToggleWide}>
-          {wide ? "Back to board" : "Expand"}
-        </Button>
+        {/* Words, not a ×: the dialog's own × sits right above, and two
+            stacked read as a mistake. */}
+        <div className="tasks__detail-actions">
+          <Button size="sm" variant="ghost" aria-pressed={wide} onClick={onToggleWide}>
+            {wide ? "Back to board" : "Expand"}
+          </Button>
+          <Button size="sm" variant="ghost" onClick={onClose}>
+            Close
+          </Button>
+        </div>
       </div>
       <p className="tasks__detail-meta">
         <code>{view.meta}</code>
