@@ -103,13 +103,25 @@ describe("queuesView", () => {
     ]);
     const lanes = queuesView(b, "team-1", ROSTER, NOW);
     expect(lanes.map((l) => l.key)).toEqual(["lead", "impl-1", "impl-2", "pool"]);
-    expect(lanes[0]).toMatchObject({ current: null, idleText: "Nothing in progress", queueEmptyText: "Nothing queued", summary: "0 queued" });
-    expect(lanes[1].current?.id).toBe("task-1");
+    expect(lanes[0]).toMatchObject({ current: [], idleText: "Nothing in progress", queueEmptyText: "Nothing queued", summary: "0 queued" });
+    expect(lanes[1].current.map((c) => c.id)).toEqual(["task-1"]);
     expect(lanes[1].queued.map((c) => c.id)).toEqual(["task-3", "task-2"]);
     expect(lanes[1].summary).toBe("2 queued");
     expect(lanes[2]).toMatchObject({ idleText: "Nothing in progress", queueEmptyText: "Nothing queued — task-4 waits in review" });
     expect(lanes[3]).toMatchObject({ isPool: true, summary: "1 queued · unassigned", queueEmptyText: null });
     expect(lanes[3].queued.map((c) => c.id)).toEqual(["task-5"]);
+  });
+
+  it("shows every task a member has in progress, and says how many", () => {
+    const b = board([
+      task({ id: "task-1", status: "in-progress", assignee: "impl-1", created: 2 }),
+      task({ id: "task-2", status: "in-progress", assignee: "impl-1", created: 1 }),
+      task({ id: "task-3", assignee: "impl-1" }),
+    ]);
+    const lane = queuesView(b, "team-1", ["impl-1"], NOW)[0];
+    expect(lane.current.map((c) => c.id)).toEqual(["task-2", "task-1"]);
+    expect(lane.summary).toBe("2 in progress · 1 queued");
+    expect(lane.idleText).toBeNull();
   });
 });
 

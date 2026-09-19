@@ -12,9 +12,12 @@ export interface QueueLaneView {
   key: string;
   name: string;
   isPool: boolean;
-  current: TaskCardView | null;
+  /** Everything the member has in progress — all of it. The domain sets
+   * no limit of one, and the person may move tasks freely, so a lane that
+   * showed one card hid the load this view exists to show. */
+  current: TaskCardView[];
   queued: TaskCardView[];
-  /** `1 queued`, `2 queued · unassigned`. */
+  /** `1 queued`, `2 in progress · 1 queued`, `2 queued · unassigned`. */
   summary: string;
   /** Where the current card would be, when there is none. */
   idleText: string | null;
@@ -35,17 +38,17 @@ export function queuesView(
 ): QueueLaneView[] {
   const team = tasksOfTeam(board, teamId);
   const lanes = roster.map((role): QueueLaneView => {
-    const doing = currentOf(board, teamId, role);
+    const current = currentOf(board, teamId, role);
     const queued = queueOf(board, teamId, role);
     const inReview = team.filter((task) => task.assignee === role && task.status === "review");
     return {
       key: role,
       name: role,
       isPool: false,
-      current: doing[0] ? taskCardView(doing[0], board, now) : null,
+      current: current.map((task) => taskCardView(task, board, now)),
       queued: queued.map((task) => taskCardView(task, board, now)),
-      summary: `${queued.length} queued`,
-      idleText: doing[0] ? null : queued.length > 0 ? `Nothing in progress · ${queued.length} queued` : "Nothing in progress",
+      summary: current.length > 1 ? `${current.length} in progress · ${queued.length} queued` : `${queued.length} queued`,
+      idleText: current.length > 0 ? null : queued.length > 0 ? `Nothing in progress · ${queued.length} queued` : "Nothing in progress",
       queueEmptyText:
         queued.length > 0
           ? null
@@ -59,7 +62,7 @@ export function queuesView(
     key: POOL_LABEL,
     name: POOL_LABEL,
     isPool: true,
-    current: null,
+    current: [],
     queued: pool.map((task) => taskCardView(task, board, now)),
     summary: `${pool.length} queued · unassigned`,
     idleText: null,

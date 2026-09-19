@@ -20,11 +20,10 @@ export function QueuesLanes({ lanes, selectedId, onSelect }: QueuesLanesProps) {
             {!lane.isPool && (
               <div className="tasks__lane-current">
                 <span className="tasks__lane-caption">Current</span>
-                {lane.current ? (
-                  <TaskCard card={lane.current} selected={lane.current.id === selectedId} onSelect={onSelect} />
-                ) : (
-                  <span className="tasks__lane-idle">{lane.idleText}</span>
-                )}
+                {lane.current.map((card) => (
+                  <TaskCard key={card.id} card={card} selected={card.id === selectedId} onSelect={onSelect} />
+                ))}
+                {lane.idleText && <span className="tasks__lane-idle">{lane.idleText}</span>}
               </div>
             )}
             <div className="tasks__lane-queue">
