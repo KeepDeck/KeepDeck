@@ -50,6 +50,18 @@ export type TaskField =
   | "blockedBy"
   | "artifacts";
 
+/** The same vocabulary as a list — what the codec checks a log entry
+ * against and what a command reports as changed. One home. */
+export const TASK_FIELDS: readonly TaskField[] = [
+  "status",
+  "assignee",
+  "priority",
+  "title",
+  "body",
+  "blockedBy",
+  "artifacts",
+];
+
 export interface TaskComment {
   /** Per-task ordinal, minted on append, never reused. */
   n: number;
@@ -136,6 +148,14 @@ export function agentActor(
     standing: role === undefined ? null : (parseRoleAddress(role)?.role.standing ?? null),
     teamId: teamId ?? null,
   };
+}
+
+/** Whether a role of this standing hands out work and accepts it — the
+ * lead, or a peer on a flat team. The ONE answer to that question: the
+ * transition table asks it for assigning and accepting, the board asks it
+ * for whose plate the team's review is on. */
+export function acceptsWork(standing: RoleStanding | null): boolean {
+  return standing === "leads" || standing === "peer";
 }
 
 /** The name an actor signs with in `author`, comments and the log. */

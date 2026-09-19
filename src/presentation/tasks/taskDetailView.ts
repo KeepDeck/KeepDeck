@@ -13,18 +13,14 @@ import {
 } from "../../domain/tasks";
 import {
   BOARD_ORDER,
-  PRIORITY_LABEL,
   POOL_LABEL,
   STATUS_LABEL,
+  priorityChoices,
+  type ChoiceView,
   personName,
   statusTone,
   type StatusTone,
 } from "./words";
-
-export interface ChoiceView {
-  value: string;
-  label: string;
-}
 
 /** A status the person may pick — where the task stands, and every rung
  * the transition table lets them move it to from here. */
@@ -109,7 +105,7 @@ export function taskDetailView(
       { value: "", label: `${POOL_LABEL} — unassigned` },
       ...assigneeValues.map((role) => ({ value: role, label: role })),
     ],
-    priorityOptions: (["high", "normal", "low"] as const).map((value) => ({ value, label: PRIORITY_LABEL[value] })),
+    priorityOptions: priorityChoices(),
     statusOptions,
     blockers: task.blockedBy.map((id) => {
       const blocker = findTask(board, id);

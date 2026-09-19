@@ -1,5 +1,25 @@
 import { leadRole } from "../../domain/mail";
+import type { DecodeFault } from "../../domain/tasks";
 import type { TaskProblem } from "./tasksService";
+
+/** Why a board file was refused, for the log and the dialog — the codec
+ * names the fault, this names it in words. */
+export function decodeFaultText(fault: DecodeFault): string {
+  switch (fault.kind) {
+    case "not-json":
+      return `board.json is not JSON: ${fault.detail}`;
+    case "not-object":
+      return "board.json is not an object";
+    case "tasks-not-array":
+      return "board.json: tasks must be an array";
+    case "bad-counter":
+      return `board.json: nextId must be a safe integer of at least ${fault.atLeast}, above every task id`;
+    case "bad-task":
+      return `board.json: tasks[${fault.index}]${fault.id ? ` (${fault.id})` : ""}: ${fault.field} does not fit`;
+    case "duplicate-id":
+      return `board.json: duplicate task id ${fault.id}`;
+  }
+}
 
 /**
  * A refusal, in the words the calling agent can act on. Facts about the
@@ -46,6 +66,8 @@ export function refusalText(refusal: TaskProblem): string {
       return `${refusal.field} must not be blank`;
     case "board-full":
       return `this workspace's board holds ${refusal.max} tasks — finish or cancel some first`;
+    case "counter-exhausted":
+      return "this board's id counter is exhausted — start a new workspace board";
     case "board-unreadable":
       return `the board file could not be read and is not written to until fixed: ${refusal.error}`;
     case "unknown-task":

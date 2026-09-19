@@ -36,6 +36,7 @@ import {
   type TaskRefusal,
 } from "../../domain/tasks";
 import { describeError, log } from "../../ipc/log";
+import { decodeFaultText } from "./refusalText";
 
 /** The store as this owner reads and writes it — a PORT, bound to IPC at
  * the composition root and nowhere else. */
@@ -172,8 +173,9 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
         if (json === null) return { kind: "ready", board: EMPTY_BOARD, unsaved: null };
         const decoded = decodeBoard(json);
         if (decoded.ok) return { kind: "ready", board: decoded.board, unsaved: null };
-        log.warn("web:tasks", `${workspaceId}: ${decoded.error} — the board is read-only until the file is fixed`);
-        return { kind: "unreadable", error: decoded.error };
+        const error = decodeFaultText(decoded.fault);
+        log.warn("web:tasks", `${workspaceId}: ${error} — the board is read-only until the file is fixed`);
+        return { kind: "unreadable", error };
       })
       .catch((e: unknown): BoardState => {
         const error = describeError(e);

@@ -14,6 +14,7 @@ import {
   DEFAULT_PRIORITY,
   TASK_CAPS,
   TASK_STATUSES,
+  acceptsWork,
   actorName,
   type Task,
   type TaskActor,
@@ -60,7 +61,10 @@ export type TaskRefusal =
   | { kind: "cyclic-blocker"; ids: readonly string[] }
   | { kind: "field-cap"; field: "title" | "body" | "comment"; max: number }
   | { kind: "blank"; field: "title" | "comment" }
-  | { kind: "board-full"; max: number };
+  | { kind: "board-full"; max: number }
+  /** The id counter cannot mint another safe integer. Unreachable by
+   * honest use; refused rather than overflowed. */
+  | { kind: "counter-exhausted" };
 
 export interface TransitionContext {
   board: TaskBoard;
@@ -77,9 +81,9 @@ type Refused = { ok: false; refusal: TaskRefusal };
 
 const refuse = (refusal: TaskRefusal): Refused => ({ ok: false, refusal });
 
-/** Whether this actor hands out work: the user, a lead, or a peer. */
+/** Whether this actor hands out work: the user, or a role that accepts it. */
 export function mayAssign(actor: TaskActor): boolean {
-  return actor.kind === "user" || actor.standing === "leads" || actor.standing === "peer";
+  return actor.kind === "user" || acceptsWork(actor.standing);
 }
 
 /** The user, or an agent standing on `teamId` under a role. */
@@ -410,6 +414,7 @@ export function createTask(
   if (ctx.board.tasks.length >= TASK_CAPS.tasksMax) {
     return refuse({ kind: "board-full", max: TASK_CAPS.tasksMax });
   }
+  if (!Number.isSafeInteger(ctx.board.nextId + 1)) return refuse({ kind: "counter-exhausted" });
   const badTitle = validateTitle(input.title);
   if (badTitle) return refuse(badTitle);
   const body = input.body ?? "";

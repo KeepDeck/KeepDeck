@@ -5,6 +5,7 @@
  */
 import type { RoleStanding } from "../mail/roles";
 import {
+  acceptsWork,
   blockerResolved,
   isOpen,
   type Task,
@@ -99,7 +100,7 @@ export function mine(
   role: string,
   standing: RoleStanding | null,
 ): Task[] {
-  const accepts = standing === "leads" || standing === "peer";
+  const accepts = acceptsWork(standing);
   return tasksOfTeam(board, teamId)
     .filter(
       (task) =>

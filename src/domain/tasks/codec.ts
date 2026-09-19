@@ -4,12 +4,18 @@
  * The store keeps bytes; this is the one place that says what bytes a
  * board is. Reading is UNTRUSTED: the file sits in the user's home where
  * any process of theirs can edit it, so every field is checked against the
- * vocabulary and a board that does not parse is refused WHOLE — cancelling
+ * vocabulary and a board that does not parse is refused WHOLE — dropping
  * the tasks that did not fit and writing the rest back would erase them
  * on the next save, and losing work quietly is the worse failure. The
  * owner turns a refusal into a board it will not write to.
+ *
+ * A fault is data, not English: the domain says WHAT did not fit and
+ * WHERE, and the layer that speaks to a person or an agent puts it in
+ * words.
  */
 import {
+  TASK_FIELDS,
+  isTaskId,
   isTaskPriority,
   isTaskStatus,
   type Task,
@@ -18,22 +24,31 @@ import {
   type TaskLogEntry,
 } from "./model";
 
-const TASK_FIELDS = new Set([
-  "status",
-  "assignee",
-  "priority",
-  "title",
-  "body",
-  "blockedBy",
-  "artifacts",
-]);
+const FIELDS = new Set<string>(TASK_FIELDS);
+
+/** What the codec can say about a file it refused. */
+export type DecodeFault =
+  | { kind: "not-json"; detail: string }
+  | { kind: "not-object" }
+  | { kind: "tasks-not-array" }
+  /** `nextId` is missing, not a safe positive integer, or would mint an
+   * id a task already holds — the counter must stand above every task. */
+  | { kind: "bad-counter"; atLeast: number }
+  /** One task did not fit the vocabulary: which, and which field. */
+  | { kind: "bad-task"; index: number; id: string | null; field: string }
+  | { kind: "duplicate-id"; id: string };
 
 export type DecodeResult =
   | { ok: true; board: TaskBoard }
-  | { ok: false; error: string };
+  | { ok: false; fault: DecodeFault };
 
 export function encodeBoard(board: TaskBoard): string {
   return JSON.stringify(board);
+}
+
+/** The number in a `task-N` id. */
+function numberOf(id: string): number {
+  return Number(id.slice("task-".length));
 }
 
 export function decodeBoard(json: string): DecodeResult {
@@ -41,41 +56,51 @@ export function decodeBoard(json: string): DecodeResult {
   try {
     raw = JSON.parse(json);
   } catch (e) {
-    return { ok: false, error: `board.json is not JSON: ${(e as Error).message}` };
+    return { ok: false, fault: { kind: "not-json", detail: (e as Error).message } };
   }
-  if (!isRecord(raw)) return { ok: false, error: "board.json is not an object" };
-  const nextId = raw.nextId;
-  if (!isCount(nextId) || nextId < 1) return { ok: false, error: "board.json: nextId must be a positive integer" };
-  if (!Array.isArray(raw.tasks)) return { ok: false, error: "board.json: tasks must be an array" };
+  if (!isRecord(raw)) return { ok: false, fault: { kind: "not-object" } };
+  if (!Array.isArray(raw.tasks)) return { ok: false, fault: { kind: "tasks-not-array" } };
   const tasks: Task[] = [];
   const seen = new Set<string>();
+  let highest = 0;
   for (const [i, entry] of raw.tasks.entries()) {
     const read = decodeTask(entry);
-    if (!read.ok) return { ok: false, error: `board.json: tasks[${i}] ${read.error}` };
-    if (seen.has(read.task.id)) return { ok: false, error: `board.json: duplicate task id ${read.task.id}` };
+    if (!read.ok) return { ok: false, fault: { kind: "bad-task", index: i, id: read.id, field: read.field } };
+    if (seen.has(read.task.id)) return { ok: false, fault: { kind: "duplicate-id", id: read.task.id } };
     seen.add(read.task.id);
+    highest = Math.max(highest, numberOf(read.task.id));
     tasks.push(read.task);
   }
-  return { ok: true, board: { nextId, tasks } };
+  // The counter must be a safe integer above every id on the board, or
+  // the next create mints a twin — which the next read then refuses.
+  const nextId = raw.nextId;
+  if (!Number.isSafeInteger(nextId) || (nextId as number) <= highest) {
+    return { ok: false, fault: { kind: "bad-counter", atLeast: highest + 1 } };
+  }
+  return { ok: true, board: { nextId: nextId as number, tasks } };
 }
 
-function decodeTask(raw: unknown): { ok: true; task: Task } | { ok: false; error: string } {
-  if (!isRecord(raw)) return { ok: false, error: "is not an object" };
+type TaskRead =
+  | { ok: true; task: Task }
+  | { ok: false; id: string | null; field: string };
+
+function decodeTask(raw: unknown): TaskRead {
+  if (!isRecord(raw)) return { ok: false, id: null, field: "shape" };
   const id = raw.id;
-  if (typeof id !== "string" || !/^task-\d+$/.test(id)) return { ok: false, error: "has no task id" };
-  const fail = (what: string) => ({ ok: false as const, error: `${id}: ${what}` });
-  if (typeof raw.teamId !== "string" || raw.teamId === "") return fail("teamId must be a string");
-  if (typeof raw.title !== "string") return fail("title must be a string");
-  if (typeof raw.body !== "string") return fail("body must be a string");
-  if (typeof raw.status !== "string" || !isTaskStatus(raw.status)) return fail("status is not one of the ladder");
-  if (typeof raw.priority !== "string" || !isTaskPriority(raw.priority)) return fail("priority is not high/normal/low");
-  if (raw.assignee !== null && typeof raw.assignee !== "string") return fail("assignee must be a string or null");
-  if (typeof raw.author !== "string") return fail("author must be a string");
-  if (!isStringArray(raw.blockedBy)) return fail("blockedBy must be an array of ids");
-  if (!isStringArray(raw.artifacts)) return fail("artifacts must be an array of ids");
-  if (!Array.isArray(raw.comments) || !raw.comments.every(isComment)) return fail("comments are malformed");
-  if (!Array.isArray(raw.log) || !raw.log.every(isLogEntry)) return fail("log is malformed");
-  if (!isCount(raw.created) || !isCount(raw.updated)) return fail("created/updated must be timestamps");
+  if (typeof id !== "string" || !isTaskId(id)) return { ok: false, id: null, field: "id" };
+  const fail = (field: string): TaskRead => ({ ok: false, id, field });
+  if (typeof raw.teamId !== "string" || raw.teamId === "") return fail("teamId");
+  if (typeof raw.title !== "string") return fail("title");
+  if (typeof raw.body !== "string") return fail("body");
+  if (typeof raw.status !== "string" || !isTaskStatus(raw.status)) return fail("status");
+  if (typeof raw.priority !== "string" || !isTaskPriority(raw.priority)) return fail("priority");
+  if (raw.assignee !== null && typeof raw.assignee !== "string") return fail("assignee");
+  if (typeof raw.author !== "string") return fail("author");
+  if (!isStringArray(raw.blockedBy)) return fail("blockedBy");
+  if (!isStringArray(raw.artifacts)) return fail("artifacts");
+  if (!Array.isArray(raw.comments) || !raw.comments.every(isComment)) return fail("comments");
+  if (!Array.isArray(raw.log) || !raw.log.every(isLogEntry)) return fail("log");
+  if (!isCount(raw.created) || !isCount(raw.updated)) return fail("created/updated");
   return {
     ok: true,
     task: {
@@ -102,7 +127,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isCount(value: unknown): value is number {
-  return typeof value === "number" && Number.isInteger(value) && value >= 0;
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
 function isStringArray(value: unknown): value is string[] {
@@ -125,7 +150,7 @@ function isLogEntry(value: unknown): value is TaskLogEntry {
     isCount(value.at) &&
     typeof value.from === "string" &&
     typeof value.field === "string" &&
-    TASK_FIELDS.has(value.field) &&
+    FIELDS.has(value.field) &&
     (value.was === null || typeof value.was === "string") &&
     (value.now === null || typeof value.now === "string")
   );

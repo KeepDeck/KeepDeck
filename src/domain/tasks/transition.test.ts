@@ -342,5 +342,8 @@ describe("createTask", () => {
     };
     const refused = createTask({ teamId: "team-1", title: "x" }, lead, full);
     expect(!refused.ok && refused.refusal).toEqual({ kind: "board-full", max: TASK_CAPS.tasksMax });
+    const edge = { ...empty, board: { nextId: Number.MAX_SAFE_INTEGER, tasks: [] } };
+    const exhausted = createTask({ teamId: "team-1", title: "x" }, lead, edge);
+    expect(!exhausted.ok && exhausted.refusal).toEqual({ kind: "counter-exhausted" });
   });
 });

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { TasksService } from "../../app/tasks";
+import { useTasksBoardFeed } from "./useBoardState";
 import { artifactChanges } from "../../app/artifacts/changes";
 import { openArtifactByRef } from "../../app/artifacts/entryPoints";
 import type { ArtifactsRegistryReadPort } from "../../app/artifacts/registryRead";
@@ -36,9 +37,6 @@ export interface TasksAccess {
 }
 
 export type TasksMode = "board" | "queues";
-
-const noop = () => () => {};
-const zero = () => 0;
 
 /** How far a pressed card travels before it is a drag and not a click. */
 const DRAG_THRESHOLD_PX = 6;
@@ -82,16 +80,11 @@ export function useTasksBoard(
    * task's attachments. Bound once at the composition root. */
   artifactReads: ArtifactsRegistryReadPort,
 ) {
-  const service = useSyncExternalStore(access.subscribe, access.current, access.current);
-  const revision = useSyncExternalStore(
-    service ? service.subscribe : noop,
-    service ? service.revision : zero,
-    service ? service.revision : zero,
-  );
+  const workspaceId = workspace?.id ?? null;
+  const { service, revision, state } = useTasksBoardFeed(access, workspaceId);
   const enableRefusal = refusalOf(
     useSyncExternalStore(tasksEnableStatus.subscribe, tasksEnableStatus.last, tasksEnableStatus.last),
   );
-  const workspaceId = workspace?.id ?? null;
   const teams = workspace ? teamsOf(workspace) : [];
   const [chosenTeam, setChosenTeam] = useState<string | null>(null);
   const [mode, setMode] = useState<TasksMode>("board");
@@ -142,18 +135,6 @@ export function useTasksBoard(
   }, []);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (service && workspaceId !== null) void service.ready(workspaceId);
-  }, [service, workspaceId]);
-
-  // `revision` is the board's clock: the state read below changes only
-  // when it ticks, so it is the dependency even though the read itself
-  // does not name it.
-  const state = useMemo(
-    () => (service && workspaceId !== null ? service.peek(workspaceId) : null),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [service, workspaceId, revision],
-  );
   const board = state?.kind === "ready" ? state.board : null;
   const unsaved = state?.kind === "ready" && state.unsaved !== null ? unsavedBanner(state.unsaved) : null;
   // The team on screen follows the task the dialog is on, then the choice.

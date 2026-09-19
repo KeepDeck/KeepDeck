@@ -28,6 +28,7 @@ import {
 } from "../../domain/deck";
 import { senderOf } from "../../domain/mail";
 import {
+  TASK_FIELDS,
   agentActor,
   compareQueue,
   findTask,
@@ -323,9 +324,7 @@ function updateCommand(deps: TaskCommandDeps): CommandSpec {
       const board = await boardOf(deps, who.workspace.id);
       const before = visible(board, id, team);
       const { task, saved, saveError } = settled(await deps.tasks.apply(who.workspace.id, id, changes, who.actor));
-      const changed = (["status", "assignee", "priority", "title", "body", "blockedBy", "artifacts"] as const).filter(
-        (field) => JSON.stringify(before[field]) !== JSON.stringify(task[field]),
-      );
+      const changed = TASK_FIELDS.filter((field) => JSON.stringify(before[field]) !== JSON.stringify(task[field]));
       return {
         id: task.id,
         changed,

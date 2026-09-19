@@ -1,6 +1,5 @@
-import { TASK_CAPS, TASK_PRIORITIES } from "../../domain/tasks";
-import { PRIORITY_LABEL, POOL_LABEL } from "./words";
-import type { ChoiceView } from "./taskDetailView";
+import { TASK_CAPS } from "../../domain/tasks";
+import { POOL_LABEL, priorityChoices, type ChoiceView } from "./words";
 
 export interface NewTaskFormView {
   assigneeOptions: ChoiceView[];
@@ -19,7 +18,7 @@ export function newTaskFormView(roster: readonly string[]): NewTaskFormView {
       { value: "", label: `${POOL_LABEL} — unassigned` },
       ...roster.map((role) => ({ value: role, label: role })),
     ],
-    priorityOptions: TASK_PRIORITIES.map((value) => ({ value, label: PRIORITY_LABEL[value] })),
+    priorityOptions: priorityChoices(),
     titleMax: TASK_CAPS.titleMax,
     bodyMax: TASK_CAPS.bodyMax,
     addressHint:

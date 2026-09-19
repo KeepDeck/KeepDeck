@@ -3,7 +3,7 @@
  * person is named, which hue a status wears. One home, so the board, the
  * queues, the detail and the card footer cannot disagree.
  */
-import { USER_NAME, type TaskPriority, type TaskStatus } from "../../domain/tasks";
+import { TASK_PRIORITIES, USER_NAME, type TaskPriority, type TaskStatus } from "../../domain/tasks";
 
 export const STATUS_LABEL: Record<TaskStatus, string> = {
   todo: "To do",
@@ -50,6 +50,17 @@ export const PRIORITY_LABEL: Record<TaskPriority, string> = {
   normal: "Normal",
   low: "Low",
 };
+
+/** One option a picker offers: the value it sends, the words it shows. */
+export interface ChoiceView {
+  value: string;
+  label: string;
+}
+
+/** The priority picker's options — the ONE list both forms offer. */
+export function priorityChoices(): ChoiceView[] {
+  return TASK_PRIORITIES.map((value) => ({ value, label: PRIORITY_LABEL[value] }));
+}
 
 /** What the dialog says over a board whose disk lags its memory. */
 export function unsavedBanner(error: string): string {

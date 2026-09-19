@@ -1,17 +1,20 @@
 import { useEffect, useMemo, useSyncExternalStore } from "react";
-import type { BoardState } from "../../app/tasks";
+import type { BoardState, TasksService } from "../../app/tasks";
 import type { TasksAccess } from "./useTasksBoard";
 
 const noop = () => () => {};
 const zero = () => 0;
 
 /**
- * One workspace's board as the owner holds it, kept live for a render —
- * the ONE way a surface outside the dialog reads the board (the door's
- * count, the team cards). Null while the feature is down; a render never
- * starts the load, the effect does.
+ * The board's feed — the ONE way any surface reads it: the owner as the
+ * runtime hands it out (null while the feature is down), its revision as
+ * the clock, and one workspace's board kept live for a render. The load
+ * is started by the effect, never by the render.
  */
-export function useTasksBoardState(access: TasksAccess, workspaceId: string | null): BoardState | null {
+export function useTasksBoardFeed(
+  access: TasksAccess,
+  workspaceId: string | null,
+): { service: TasksService | null; revision: number; state: BoardState | null } {
   const service = useSyncExternalStore(access.subscribe, access.current, access.current);
   const revision = useSyncExternalStore(
     service ? service.subscribe : noop,
@@ -22,9 +25,16 @@ export function useTasksBoardState(access: TasksAccess, workspaceId: string | nu
     if (service && workspaceId !== null) void service.ready(workspaceId);
   }, [service, workspaceId]);
   // `revision` is the board's clock: the read changes only when it ticks.
-  return useMemo(
+  const state = useMemo(
     () => (service && workspaceId !== null ? service.peek(workspaceId) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [service, workspaceId, revision],
   );
+  return { service, revision, state };
+}
+
+/** One workspace's board for a surface that only reads it — the door's
+ * count, the team cards. */
+export function useTasksBoardState(access: TasksAccess, workspaceId: string | null): BoardState | null {
+  return useTasksBoardFeed(access, workspaceId).state;
 }

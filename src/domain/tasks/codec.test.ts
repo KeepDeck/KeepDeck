@@ -21,35 +21,40 @@ describe("board codec", () => {
       ],
       7,
     );
-    const decoded = decodeBoard(encodeBoard(original));
-    expect(decoded).toEqual({ ok: true, board: original });
+    expect(decodeBoard(encodeBoard(original))).toEqual({ ok: true, board: original });
     expect(decodeBoard(encodeBoard(EMPTY_BOARD))).toEqual({ ok: true, board: EMPTY_BOARD });
   });
 
-  it("refuses the whole board when any task does not fit the vocabulary — and says which", () => {
+  it("refuses the whole board when any task does not fit the vocabulary — naming the task and the field", () => {
     const bad = (patch: Record<string, unknown>) =>
       JSON.stringify({ nextId: 2, tasks: [{ ...task({ id: "task-1" }), ...patch }] });
-    for (const [patch, words] of [
+    for (const [patch, field] of [
       [{ status: "waiting" }, "status"],
       [{ priority: "urgent" }, "priority"],
       [{ assignee: 3 }, "assignee"],
       [{ blockedBy: [1] }, "blockedBy"],
       [{ comments: [{ n: 1 }] }, "comments"],
       [{ log: [{ at: 1, from: "x", field: "colour", was: null, now: null }] }, "log"],
-      [{ id: "pane-1" }, "task id"],
     ] as const) {
-      const result = decodeBoard(bad(patch));
-      expect(result.ok).toBe(false);
-      if (!result.ok) expect(result.error).toContain(words);
+      expect(decodeBoard(bad(patch))).toEqual({ ok: false, fault: { kind: "bad-task", index: 0, id: "task-1", field } });
     }
+    expect(decodeBoard(bad({ id: "pane-1" }))).toEqual({ ok: false, fault: { kind: "bad-task", index: 0, id: null, field: "id" } });
   });
 
-  it("refuses non-JSON, a non-object, a bad counter and duplicate ids", () => {
-    expect(decodeBoard("{").ok).toBe(false);
-    expect(decodeBoard("[]").ok).toBe(false);
-    expect(decodeBoard('{"nextId":0,"tasks":[]}').ok).toBe(false);
+  it("refuses non-JSON, a non-object, duplicate ids", () => {
+    expect(decodeBoard("{")).toMatchObject({ ok: false, fault: { kind: "not-json" } });
+    expect(decodeBoard("[]")).toEqual({ ok: false, fault: { kind: "not-object" } });
+    expect(decodeBoard('{"nextId":1}')).toEqual({ ok: false, fault: { kind: "tasks-not-array" } });
     const twice = JSON.stringify({ nextId: 3, tasks: [task({ id: "task-1" }), task({ id: "task-1" })] });
-    const result = decodeBoard(twice);
-    expect(!result.ok && result.error).toContain("duplicate");
+    expect(decodeBoard(twice)).toEqual({ ok: false, fault: { kind: "duplicate-id", id: "task-1" } });
+  });
+
+  it("refuses a counter that would mint a twin, or is not a safe integer", () => {
+    const withOne = (nextId: unknown) => JSON.stringify({ nextId, tasks: [task({ id: "task-7" })] });
+    for (const nextId of [7, 1, 0, -1, 1.5, "8", undefined, 2 ** 53]) {
+      expect(decodeBoard(withOne(nextId))).toEqual({ ok: false, fault: { kind: "bad-counter", atLeast: 8 } });
+    }
+    expect(decodeBoard(withOne(8)).ok).toBe(true);
+    expect(decodeBoard(JSON.stringify({ nextId: 0, tasks: [] }))).toEqual({ ok: false, fault: { kind: "bad-counter", atLeast: 1 } });
   });
 });
