@@ -295,12 +295,11 @@
   opacity: 0.4;
 }
 
-/* While a card is in flight the whole dialog says so: the hand closes,
-   nothing gets selected by accident. */
+/* While a card is in flight the whole dialog says so: the hand closes.
+   Selectability is base.css's alone — nothing here touches it. */
 .tasks--dragging,
 .tasks--dragging .tasks__card {
   cursor: grabbing;
-  user-select: none;
 }
 
 /* The card in flight, following the pointer. Above the drawers, through
