@@ -134,11 +134,15 @@
   min-height: 0;
 }
 
-/* Wide: the drawer is the stage — the board is put away, not covered. */
-.tasks__detail--wide {
+/* Wide: the drawer is the stage — the board is put away, not covered.
+   Compound on purpose: this must outrank the drawer's own width below,
+   which at equal specificity won by source order and left the "wide"
+   panel 400px wide at the left edge. */
+.tasks__detail.tasks__detail--wide {
   left: 0;
   width: auto;
   padding: 20px 28px;
+  box-shadow: none;
 }
 
 .tasks__detail--wide .tasks__body {
