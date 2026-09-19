@@ -36,18 +36,18 @@ describe("team boundary", () => {
 });
 
 describe("the ladder", () => {
-  it("lets the assignee walk todo → doing → blocked → doing → review", () => {
+  it("lets the assignee walk todo → in-progress → blocked → in-progress → review", () => {
     let t = task({ id: "task-1", assignee: "impl-1" });
-    t = moved(t, "doing", impl1);
+    t = moved(t, "in-progress", impl1);
     t = moved(t, "blocked", impl1);
-    t = moved(t, "doing", impl1);
+    t = moved(t, "in-progress", impl1);
     t = moved(t, "review", impl1);
     expect(t.status).toBe("review");
     expect(t.log.map((e) => `${e.was}→${e.now}`)).toEqual([
-      "todo→doing",
-      "doing→blocked",
-      "blocked→doing",
-      "doing→review",
+      "todo→in-progress",
+      "in-progress→blocked",
+      "blocked→in-progress",
+      "in-progress→review",
     ]);
     expect(t.updated).toBe(5_000);
   });
@@ -55,27 +55,27 @@ describe("the ladder", () => {
   it("reserves acceptance, return, reopening and cancelling for whoever hands out work", () => {
     const inReview = task({ id: "task-1", status: "review", assignee: "impl-1" });
     expect(refusalOf(inReview, { kind: "status", to: "done" }, impl1)).toEqual({ kind: "review-not-yours" });
-    expect(refusalOf(inReview, { kind: "status", to: "doing" }, impl1)).toEqual({ kind: "review-not-yours" });
+    expect(refusalOf(inReview, { kind: "status", to: "in-progress" }, impl1)).toEqual({ kind: "review-not-yours" });
     expect(moved(inReview, "done", lead).status).toBe("done");
-    expect(moved(inReview, "doing", peer1).status).toBe("doing");
+    expect(moved(inReview, "in-progress", peer1).status).toBe("in-progress");
     expect(moved(inReview, "done", USER_ACTOR).status).toBe("done");
 
     const done = task({ id: "task-1", status: "done" });
     expect(refusalOf(done, { kind: "status", to: "todo" }, impl1)).toEqual({ kind: "review-not-yours" });
     expect(moved(done, "todo", lead).status).toBe("todo");
 
-    const doing = task({ id: "task-1", status: "doing", assignee: "impl-1" });
-    expect(refusalOf(doing, { kind: "status", to: "cancelled" }, impl1)).toEqual({ kind: "review-not-yours" });
-    expect(moved(doing, "cancelled", lead).status).toBe("cancelled");
+    const inProgress = task({ id: "task-1", status: "in-progress", assignee: "impl-1" });
+    expect(refusalOf(inProgress, { kind: "status", to: "cancelled" }, impl1)).toEqual({ kind: "review-not-yours" });
+    expect(moved(inProgress, "cancelled", lead).status).toBe("cancelled");
   });
 
   it("refuses every edge the table does not name, and treats no-move as no-op", () => {
     const cases: [TaskStatus, TaskStatus][] = [
       ["todo", "review"],
       ["todo", "done"],
-      ["doing", "done"],
+      ["in-progress", "done"],
       ["blocked", "review"],
-      ["done", "doing"],
+      ["done", "in-progress"],
       ["cancelled", "done"],
       ["done", "cancelled"],
     ];
@@ -83,36 +83,36 @@ describe("the ladder", () => {
       const t = task({ id: "task-1", status: from, assignee: "lead" });
       expect(refusalOf(t, { kind: "status", to }, lead)).toEqual({ kind: "illegal-transition", from, to });
     }
-    const t = task({ id: "task-1", status: "doing", assignee: "lead" });
-    const same = transition(t, { kind: "status", to: "doing" }, lead, ctx([t]));
+    const t = task({ id: "task-1", status: "in-progress", assignee: "lead" });
+    const same = transition(t, { kind: "status", to: "in-progress" }, lead, ctx([t]));
     expect(same.ok && same.task).toBe(t);
   });
 
   it("a working role moves only its own task", () => {
     const theirs = task({ id: "task-1", assignee: "impl-2" });
-    expect(refusalOf(theirs, { kind: "status", to: "doing" }, impl1)).toEqual({
+    expect(refusalOf(theirs, { kind: "status", to: "in-progress" }, impl1)).toEqual({
       kind: "not-your-task",
       assignee: "impl-2",
     });
-    const theirsDoing = task({ id: "task-1", status: "doing", assignee: "impl-2" });
+    const theirsDoing = task({ id: "task-1", status: "in-progress", assignee: "impl-2" });
     expect(refusalOf(theirsDoing, { kind: "status", to: "review" }, impl1)).toEqual({
       kind: "not-your-task",
       assignee: "impl-2",
     });
     // The lead moves anyone's.
-    expect(moved(theirs, "doing", lead).status).toBe("doing");
+    expect(moved(theirs, "in-progress", lead).status).toBe("in-progress");
   });
 
   it("starting a pool task takes it: the assignee is set and logged", () => {
     const pool = task({ id: "task-1" });
-    const t = moved(pool, "doing", impl1);
+    const t = moved(pool, "in-progress", impl1);
     expect(t.assignee).toBe("impl-1");
     expect(t.log.map((e) => e.field)).toEqual(["assignee", "status"]);
     expect(t.log[0]).toMatchObject({ was: null, now: "impl-1", from: "impl-1" });
   });
 
   it("a working role cannot take a pool task that is not in todo", () => {
-    const pooledDoing = task({ id: "task-1", status: "doing" });
+    const pooledDoing = task({ id: "task-1", status: "in-progress" });
     expect(refusalOf(pooledDoing, { kind: "status", to: "review" }, impl1)).toEqual({
       kind: "not-your-task",
       assignee: null,
@@ -120,32 +120,32 @@ describe("the ladder", () => {
   });
 
   it("a start waits for every blocker — for the lead and the user too", () => {
-    const blocker = task({ id: "task-1", status: "doing", assignee: "impl-2" });
+    const blocker = task({ id: "task-1", status: "in-progress", assignee: "impl-2" });
     const t = task({ id: "task-2", assignee: "impl-1", blockedBy: ["task-1"] });
     const c = ctx([blocker, t]);
     for (const actor of [impl1, lead, USER_ACTOR]) {
-      expect(refusalOf(t, { kind: "status", to: "doing" }, actor, c)).toEqual({
+      expect(refusalOf(t, { kind: "status", to: "in-progress" }, actor, c)).toEqual({
         kind: "blocked-by-open",
         blockers: ["task-1"],
       });
     }
     const resumed = task({ id: "task-2", status: "blocked", assignee: "impl-1", blockedBy: ["task-1"] });
-    expect(refusalOf(resumed, { kind: "status", to: "doing" }, impl1, ctx([blocker, resumed]))).toEqual({
+    expect(refusalOf(resumed, { kind: "status", to: "in-progress" }, impl1, ctx([blocker, resumed]))).toEqual({
       kind: "blocked-by-open",
       blockers: ["task-1"],
     });
     const cancelled = task({ id: "task-1", status: "cancelled" });
-    expect(moved(t, "doing", impl1, ctx([cancelled, t])).status).toBe("doing");
+    expect(moved(t, "in-progress", impl1, ctx([cancelled, t])).status).toBe("in-progress");
   });
 });
 
 describe("reachableStatuses", () => {
   it("lists, in ladder order, exactly the rungs the actor may move to", () => {
     const t = task({ id: "task-1", assignee: "impl-1" });
-    expect(reachableStatuses(t, impl1, ctx([t]))).toEqual(["doing"]);
-    expect(reachableStatuses(t, lead, ctx([t]))).toEqual(["doing", "cancelled"]);
+    expect(reachableStatuses(t, impl1, ctx([t]))).toEqual(["in-progress"]);
+    expect(reachableStatuses(t, lead, ctx([t]))).toEqual(["in-progress", "cancelled"]);
     const inReview = task({ id: "task-1", status: "review", assignee: "impl-1" });
-    expect(reachableStatuses(inReview, USER_ACTOR, ctx([inReview]))).toEqual(["doing", "done", "cancelled"]);
+    expect(reachableStatuses(inReview, USER_ACTOR, ctx([inReview]))).toEqual(["in-progress", "done", "cancelled"]);
     expect(reachableStatuses(inReview, impl1, ctx([inReview]))).toEqual([]);
   });
 });
@@ -176,7 +176,7 @@ describe("claim", () => {
     expect(refusalOf(task({ id: "task-1", status: "review" }), { kind: "claim" }, impl1)).toEqual({
       kind: "illegal-transition",
       from: "review",
-      to: "doing",
+      to: "in-progress",
     });
   });
 

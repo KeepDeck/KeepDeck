@@ -207,7 +207,7 @@
   color: #8b93a3;
 }
 
-.tasks__column-label--doing {
+.tasks__column-label--in-progress {
   color: var(--status-working);
 }
 

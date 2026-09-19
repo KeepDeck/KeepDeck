@@ -6,7 +6,7 @@ import {
   type TaskStatus,
 } from "../../domain/tasks";
 import { taskCardView, type TaskCardView } from "./taskCardView";
-import { STATUS_LABEL } from "./words";
+import { BOARD_ORDER, STATUS_LABEL } from "./words";
 
 export interface BoardColumnView {
   status: TaskStatus;
@@ -26,17 +26,14 @@ export interface BoardOptions {
   now: number;
 }
 
-/** The ladder's order, left to right. */
-const LADDER: readonly TaskStatus[] = ["todo", "doing", "blocked", "review", "done", "cancelled"];
-
 /**
- * The board: one column per status in ladder order. Open columns keep
+ * The board: one column per status in board order. Open columns keep
  * queue order (priority, then age), so the top card is what would be
  * handed out next; closed columns read newest first, the way a history
  * does.
  */
 export function boardView(tasks: readonly Task[], board: TaskBoard, options: BoardOptions): BoardColumnView[] {
-  return LADDER.filter((status) => status !== "cancelled" || options.showCancelled).map((status) => {
+  return BOARD_ORDER.filter((status) => status !== "cancelled" || options.showCancelled).map((status) => {
     const inColumn = tasks.filter((task) => task.status === status);
     const ordered = isOpen(status)
       ? [...inColumn].sort(compareQueue)

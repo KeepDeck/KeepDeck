@@ -11,6 +11,7 @@ import {
   type TaskStatus,
 } from "../../domain/tasks";
 import {
+  BOARD_ORDER,
   PRIORITY_LABEL,
   POOL_LABEL,
   STATUS_LABEL,
@@ -58,8 +59,6 @@ export interface TaskDetailView {
   log: { who: string; text: string; age: string }[];
 }
 
-/** The ladder's order — how the status picker lists what it offers. */
-const LADDER: readonly TaskStatus[] = ["todo", "doing", "blocked", "review", "done", "cancelled"];
 
 export function taskDetailView(
   task: Task,
@@ -69,7 +68,7 @@ export function taskDetailView(
 ): TaskDetailView {
   const ctx = { board, roster, at: now };
   const reachable = new Set(reachableStatuses(task, USER_ACTOR, ctx));
-  const statusOptions = LADDER.filter((to) => to === task.status || reachable.has(to)).map((to) => ({
+  const statusOptions = BOARD_ORDER.filter((to) => to === task.status || reachable.has(to)).map((to) => ({
     value: to,
     label: STATUS_LABEL[to],
     tone: statusTone(to),

@@ -67,8 +67,8 @@ describe("task commands", () => {
     const { refused, run } = setup();
     expect(await refused("task.create", { title: "x", assignee: "impl-2" }, IMPL1)).toContain("lead's to set");
     await run("task.create", { title: "Theirs", assignee: "impl-2" }, LEAD);
-    expect(await refused("task.update", { id: "task-1", status: "doing" }, IMPL1)).toContain("that task is impl-2's");
-    await run("task.update", { id: "task-1", status: "doing" }, IMPL2);
+    expect(await refused("task.update", { id: "task-1", status: "in-progress" }, IMPL1)).toContain("that task is impl-2's");
+    await run("task.update", { id: "task-1", status: "in-progress" }, IMPL2);
     await run("task.update", { id: "task-1", status: "review" }, IMPL2);
     expect(await refused("task.update", { id: "task-1", status: "done" }, IMPL2)).toContain("is lead's");
   });
@@ -88,7 +88,7 @@ describe("task commands", () => {
     const { run } = setup();
     await run("task.create", { title: "a", assignee: "impl-1", body: "secret brief" }, LEAD);
     await run("task.create", { title: "b" }, LEAD);
-    await run("task.update", { id: "task-1", status: "doing" }, IMPL1);
+    await run("task.update", { id: "task-1", status: "in-progress" }, IMPL1);
     const all = await run("task.list", {}, LEAD);
     expect(all.count).toBe(2);
     expect(JSON.stringify(all)).not.toContain("secret brief");
@@ -97,7 +97,7 @@ describe("task commands", () => {
       "task-2:true",
     ]);
     expect((await run("task.list", { assignee: "pool" }, LEAD)).count).toBe(1);
-    expect((await run("task.list", { status: "doing" }, LEAD)).count).toBe(1);
+    expect((await run("task.list", { status: "in-progress" }, LEAD)).count).toBe(1);
     expect((await run("task.list", { assignee: "impl-2" }, LEAD)).count).toBe(0);
   });
 
@@ -124,8 +124,8 @@ describe("task commands", () => {
     expect(changed).toEqual({ id: "task-1", changed: ["assignee", "priority", "title", "artifacts"], status: "todo", assignee: "impl-2", priority: "low" });
     expect((await run("task.update", { id: "task-1", assignee: "pool" }, LEAD)).assignee).toBeNull();
     expect(await refused("task.update", { id: "task-1" }, LEAD)).toContain("nothing to change");
-    expect(await refused("task.update", { id: "pane-1", status: "doing" }, LEAD)).toContain("not a task id");
-    expect(await refused("task.update", { id: "task-9", status: "doing" }, LEAD)).toContain("no such task");
+    expect(await refused("task.update", { id: "pane-1", status: "in-progress" }, LEAD)).toContain("not a task id");
+    expect(await refused("task.update", { id: "task-9", status: "in-progress" }, LEAD)).toContain("no such task");
     expect(await refused("task.update", { id: "task-1", status: "later" }, LEAD)).toContain("status must be");
     expect(await refused("task.create", { title: "x", priority: "urgent" }, LEAD)).toContain("priority must be");
   });
@@ -148,7 +148,7 @@ describe("task commands", () => {
     const { run } = setup();
     await run("task.create", { title: "a", assignee: "impl-1" }, LEAD);
     await run("task.create", { title: "b", assignee: "impl-2" }, LEAD);
-    await run("task.update", { id: "task-2", status: "doing" }, IMPL2);
+    await run("task.update", { id: "task-2", status: "in-progress" }, IMPL2);
     await run("task.update", { id: "task-2", status: "review" }, IMPL2);
     expect(((await run("task.mine", {}, IMPL1)).tasks as { id: string }[]).map((t) => t.id)).toEqual(["task-1"]);
     expect(((await run("task.mine", {}, LEAD)).tasks as { id: string }[]).map((t) => t.id)).toEqual(["task-2"]);

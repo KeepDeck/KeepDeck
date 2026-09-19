@@ -2,7 +2,7 @@
  * The task board's notification producer: the three events a human is
  * told about — a task an AGENT put on the board, a task stuck in
  * `blocked`, a task accepted into `done` — and nothing else (the user's
- * decision: not review, not doing, not the user's own creations, which
+ * decision: not review, not in progress, not the user's own creations, which
  * they can see). One slot per task: a task that flaps holds one line in
  * the center, not a column.
  */

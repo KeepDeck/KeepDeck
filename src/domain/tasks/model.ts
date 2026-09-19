@@ -22,11 +22,11 @@ import { parseRoleAddress, type RoleStanding } from "../mail/roles";
  * RESOLVE a blocker (see [`blockerResolved`]): a cancelled prerequisite
  * must not hold its dependants hostage forever.
  */
-export type TaskStatus = "todo" | "doing" | "blocked" | "review" | "done" | "cancelled";
+export type TaskStatus = "todo" | "in-progress" | "blocked" | "review" | "done" | "cancelled";
 
 export const TASK_STATUSES: readonly TaskStatus[] = [
   "todo",
-  "doing",
+  "in-progress",
   "blocked",
   "review",
   "done",

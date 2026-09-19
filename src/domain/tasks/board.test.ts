@@ -20,14 +20,14 @@ describe("issuable", () => {
   });
 
   it("is false for any status but todo", () => {
-    for (const status of ["doing", "blocked", "review", "done", "cancelled"] as const) {
+    for (const status of ["in-progress", "blocked", "review", "done", "cancelled"] as const) {
       const b = board([task({ id: "task-1", status })]);
       expect(issuable(b.tasks[0], b)).toBe(false);
     }
   });
 
   it("holds a todo task behind an open blocker, and releases it when the blocker is done OR cancelled", () => {
-    for (const blockerStatus of ["todo", "doing", "blocked", "review"] as const) {
+    for (const blockerStatus of ["todo", "in-progress", "blocked", "review"] as const) {
       const b = board([
         task({ id: "task-1", status: blockerStatus }),
         task({ id: "task-2", blockedBy: ["task-1"] }),
@@ -77,7 +77,7 @@ describe("compareQueue", () => {
 
 describe("queues", () => {
   const b = board([
-    task({ id: "task-1", status: "doing", assignee: "impl-1" }),
+    task({ id: "task-1", status: "in-progress", assignee: "impl-1" }),
     task({ id: "task-2", assignee: "impl-1", priority: "low" }),
     task({ id: "task-3", assignee: "impl-1", priority: "high", blockedBy: ["task-1"] }),
     task({ id: "task-4", assignee: "impl-1" }),
@@ -122,7 +122,7 @@ describe("counts", () => {
       task({ id: "task-5", status: "done" }),
       task({ id: "task-6", status: "cancelled" }),
     ];
-    expect(countByStatus(tasks)).toEqual({ todo: 1, doing: 0, blocked: 1, review: 2, done: 1, cancelled: 1 });
+    expect(countByStatus(tasks)).toEqual({ todo: 1, "in-progress": 0, blocked: 1, review: 2, done: 1, cancelled: 1 });
     expect(attentionCount(tasks)).toBe(3);
   });
 });

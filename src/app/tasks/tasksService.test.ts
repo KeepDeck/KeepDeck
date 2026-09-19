@@ -87,12 +87,12 @@ describe("createTasksService", () => {
     expect(!result.ok && result.refusal).toEqual({ kind: "unknown-task", id: "task-9" });
   });
 
-  it("emits blocked and done — and nothing for doing or review", async () => {
+  it("emits blocked and done — and nothing for in progress or review", async () => {
     const { service, events } = setup();
     await service.create("ws-1", { teamId: "team-1", title: "x", assignee: "impl-1" }, lead);
-    await service.apply("ws-1", "task-1", [{ kind: "status", to: "doing" }], impl1);
+    await service.apply("ws-1", "task-1", [{ kind: "status", to: "in-progress" }], impl1);
     await service.apply("ws-1", "task-1", [{ kind: "status", to: "blocked" }], impl1);
-    await service.apply("ws-1", "task-1", [{ kind: "status", to: "doing" }], impl1);
+    await service.apply("ws-1", "task-1", [{ kind: "status", to: "in-progress" }], impl1);
     await service.apply("ws-1", "task-1", [{ kind: "status", to: "review" }], impl1);
     await service.apply("ws-1", "task-1", [{ kind: "status", to: "done" }], USER_ACTOR);
     expect(events.map((e) => `${e.kind}:${e.actor.kind}`)).toEqual(["created:agent", "blocked:agent", "done:user"]);

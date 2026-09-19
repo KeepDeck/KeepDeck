@@ -7,7 +7,7 @@ import { USER_NAME, type TaskPriority, type TaskStatus } from "../../domain/task
 
 export const STATUS_LABEL: Record<TaskStatus, string> = {
   todo: "To do",
-  doing: "Doing",
+  "in-progress": "In progress",
   blocked: "Blocked",
   review: "Review",
   done: "Done",
@@ -21,7 +21,7 @@ export type StatusTone = "working" | "waiting" | "failed" | "done" | "none";
 
 export function statusTone(status: TaskStatus): StatusTone {
   switch (status) {
-    case "doing":
+    case "in-progress":
       return "working";
     case "review":
       return "waiting";
@@ -53,3 +53,15 @@ export const PRIORITY_LABEL: Record<TaskPriority, string> = {
 
 /** What the pool is called wherever an empty assignee is shown. */
 export const POOL_LABEL = "pool";
+
+/** The order the board reads in, left to right — and the order every
+ * status list follows. Blocked stands first: it is what waits on a
+ * person, and a board is read from the left. */
+export const BOARD_ORDER: readonly TaskStatus[] = [
+  "blocked",
+  "todo",
+  "in-progress",
+  "review",
+  "done",
+  "cancelled",
+];

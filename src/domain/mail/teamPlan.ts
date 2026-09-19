@@ -99,7 +99,7 @@ function boardLine(standing: RoleStanding | null): string {
       return "This team has a board. task.create puts work on it, task.mine shows what is yours, task.update moves it along; tell whoever should take it by mail — the board tells nobody by itself.";
     case "reports":
     case null:
-      return "This team has a board. task.mine lists what is yours, task.get reads a task whole, task.update moves yours along (doing, then review) and task.comment keeps the discussion with the task. A letter naming a task id points you at it; the board itself sends nothing.";
+      return "This team has a board. task.mine lists what is yours, task.get reads a task whole, task.update moves yours along (in progress, then review) and task.comment keeps the discussion with the task. A letter naming a task id points you at it; the board itself sends nothing.";
   }
 }
 

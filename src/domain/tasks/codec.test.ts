@@ -15,7 +15,7 @@ describe("board codec", () => {
           blockedBy: ["task-2"],
           artifacts: ["kd-tasks"],
           comments: [{ n: 1, at: 10, from: "lead", body: "go" }],
-          log: [{ at: 9, from: "lead", field: "status", was: "todo", now: "doing" }],
+          log: [{ at: 9, from: "lead", field: "status", was: "todo", now: "in-progress" }],
         }),
         task({ id: "task-2", status: "done" }),
       ],

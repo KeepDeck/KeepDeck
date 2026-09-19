@@ -87,16 +87,16 @@ describe("TasksDialog", () => {
     const options = () => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="option"]'));
     act(() => statusPicker().click());
     await flush();
-    expect(options().map((o) => o.textContent)).toEqual(["To do", "Doing", "Cancelled"]);
-    act(() => options().find((o) => o.textContent === "Doing")!.click());
+    expect(options().map((o) => o.textContent)).toEqual(["To do", "In progress", "Cancelled"]);
+    act(() => options().find((o) => o.textContent === "In progress")!.click());
     await flush();
     render();
     await flush();
     const state = service.peek("ws-1");
-    expect(state?.kind === "ready" && state.board.tasks[0].status).toBe("doing");
+    expect(state?.kind === "ready" && state.board.tasks[0].status).toBe("in-progress");
     act(() => statusPicker().click());
     await flush();
-    expect(options().map((o) => o.textContent)).toEqual(["Doing", "Blocked", "Review", "Cancelled"]);
+    expect(options().map((o) => o.textContent)).toEqual(["Blocked", "In progress", "Review", "Cancelled"]);
   });
 
   it("creates a task from the form as the user and opens it", async () => {
@@ -221,7 +221,7 @@ describe("TasksDialog", () => {
       cards()[0].dispatchEvent(new Event("dragstart", { bubbles: true }));
     });
     await flush();
-    expect(column("Doing").className).toContain("tasks__column--drop-ok");
+    expect(column("In progress").className).toContain("tasks__column--drop-ok");
     expect(column("Cancelled") ?? column("Done")).toBeTruthy();
     expect(column("Done").className).toContain("tasks__column--drop-no");
     expect(column("Review").className).toContain("tasks__column--drop-no");
@@ -239,12 +239,12 @@ describe("TasksDialog", () => {
     });
     await flush();
     act(() => {
-      column("Doing").dispatchEvent(new Event("drop", { bubbles: true }));
+      column("In progress").dispatchEvent(new Event("drop", { bubbles: true }));
     });
     await flush();
     state = service.peek("ws-1");
-    expect(state?.kind === "ready" && state.board.tasks[0].status).toBe("doing");
-    expect(column("Doing").className).not.toContain("drop-");
+    expect(state?.kind === "ready" && state.board.tasks[0].status).toBe("in-progress");
+    expect(column("In progress").className).not.toContain("drop-");
   });
 
   it("the queues view lays out a lane per member and the pool", async () => {

@@ -18,7 +18,7 @@ describe("words", () => {
     expect(personName("user")).toBe("you");
     expect(personName("impl-1")).toBe("impl-1");
     expect([priorityMark("high"), priorityMark("normal"), priorityMark("low")]).toEqual(["HIGH", null, "LOW"]);
-    expect(["doing", "review", "blocked", "done", "todo", "cancelled"].map((s) => statusTone(s as never))).toEqual([
+    expect(["in-progress", "review", "blocked", "done", "todo", "cancelled"].map((s) => statusTone(s as never))).toEqual([
       "working",
       "waiting",
       "failed",
@@ -32,7 +32,7 @@ describe("words", () => {
 describe("taskCardView", () => {
   it("reads id first, then the assignee or the pool, then the age; names open blockers only", () => {
     const b = board([
-      task({ id: "task-1", status: "doing", assignee: "impl-1" }),
+      task({ id: "task-1", status: "in-progress", assignee: "impl-1" }),
       task({ id: "task-2", status: "done" }),
       task({ id: "task-3", blockedBy: ["task-1", "task-2"], priority: "high", updated: NOW - 120_000 }),
     ]);
@@ -58,16 +58,16 @@ describe("boardView", () => {
     task({ id: "task-5", status: "cancelled" }),
   ]);
 
-  it("lays the ladder out left to right, open columns in queue order, closed ones newest first and folded", () => {
+  it("lays the board out blocked-first, open columns in queue order, closed ones newest first and folded", () => {
     const columns = boardView(b.tasks, b, { showCancelled: false, expanded: new Set(), now: NOW });
     expect(columns.map((c) => `${c.status}:${c.count}:${c.collapsed}`)).toEqual([
-      "todo:2:false",
-      "doing:0:false",
       "blocked:0:false",
+      "todo:2:false",
+      "in-progress:0:false",
       "review:0:false",
       "done:2:true",
     ]);
-    expect(columns[0].cards.map((c) => c.id)).toEqual(["task-2", "task-1"]);
+    expect(columns[1].cards.map((c) => c.id)).toEqual(["task-2", "task-1"]);
     expect(columns[4].cards.map((c) => c.id)).toEqual(["task-4", "task-3"]);
   });
 
@@ -83,7 +83,7 @@ describe("boardView", () => {
 describe("queuesView", () => {
   it("a lane per role — current, queue, why a queue is empty — then the pool", () => {
     const b = board([
-      task({ id: "task-1", status: "doing", assignee: "impl-1" }),
+      task({ id: "task-1", status: "in-progress", assignee: "impl-1" }),
       task({ id: "task-2", assignee: "impl-1", priority: "low" }),
       task({ id: "task-3", assignee: "impl-1", priority: "high" }),
       task({ id: "task-4", status: "review", assignee: "impl-2" }),
@@ -92,11 +92,11 @@ describe("queuesView", () => {
     ]);
     const lanes = queuesView(b, "team-1", ROSTER, NOW);
     expect(lanes.map((l) => l.key)).toEqual(["lead", "impl-1", "impl-2", "pool"]);
-    expect(lanes[0]).toMatchObject({ current: null, idleText: "Nothing in doing", queueEmptyText: "Nothing queued", summary: "0 queued" });
+    expect(lanes[0]).toMatchObject({ current: null, idleText: "Nothing in progress", queueEmptyText: "Nothing queued", summary: "0 queued" });
     expect(lanes[1].current?.id).toBe("task-1");
     expect(lanes[1].queued.map((c) => c.id)).toEqual(["task-3", "task-2"]);
     expect(lanes[1].summary).toBe("2 queued");
-    expect(lanes[2]).toMatchObject({ idleText: "Nothing in doing", queueEmptyText: "Nothing queued — task-4 waits in review" });
+    expect(lanes[2]).toMatchObject({ idleText: "Nothing in progress", queueEmptyText: "Nothing queued — task-4 waits in review" });
     expect(lanes[3]).toMatchObject({ isPool: true, summary: "1 queued · unassigned", queueEmptyText: null });
     expect(lanes[3].queued.map((c) => c.id)).toEqual(["task-5"]);
   });
@@ -107,10 +107,10 @@ describe("taskDetailView", () => {
     const b = board([task({ id: "task-1", assignee: "impl-1" })]);
     const fromTodo = taskDetailView(b.tasks[0], b, ROSTER, NOW);
     expect(fromTodo.status).toBe("todo");
-    expect(fromTodo.statusOptions.map((o) => `${o.value}:${o.tone}`)).toEqual(["todo:none", "doing:working", "cancelled:none"]);
+    expect(fromTodo.statusOptions.map((o) => `${o.value}:${o.tone}`)).toEqual(["todo:none", "in-progress:working", "cancelled:none"]);
     const inReview = board([task({ id: "task-1", status: "review", assignee: "impl-1" })]);
     expect(taskDetailView(inReview.tasks[0], inReview, ROSTER, NOW).statusOptions.map((o) => o.label)).toEqual([
-      "Doing",
+      "In progress",
       "Review",
       "Done",
       "Cancelled",
@@ -121,7 +121,7 @@ describe("taskDetailView", () => {
 
   it("a blocked start is not offered; blockers, what it unblocks, the thread and the log are worded", () => {
     const b = board([
-      task({ id: "task-1", status: "doing", assignee: "impl-2" }),
+      task({ id: "task-1", status: "in-progress", assignee: "impl-2" }),
       task({
         id: "task-2",
         author: "user",
@@ -137,7 +137,7 @@ describe("taskDetailView", () => {
     const view = taskDetailView(b.tasks[1], b, ROSTER, NOW);
     expect(view.statusOptions.map((o) => o.value)).toEqual(["todo", "cancelled"]);
     expect(view.meta).toBe("task-2 · by you · opened 1m ago · updated 1m ago");
-    expect(view.blockers).toEqual([{ id: "task-1", text: "task-1 · doing" }]);
+    expect(view.blockers).toEqual([{ id: "task-1", text: "task-1 · in progress" }]);
     expect(view.blockersEmpty).toBeNull();
     expect(view.unblocks).toEqual([{ id: "task-3", title: "Task task-3" }]);
     expect(view.thread).toEqual([{ n: 1, who: "you", age: "1m ago", body: "go" }]);
@@ -171,7 +171,7 @@ describe("teamCardTasksLine", () => {
     expect(
       teamCardTasksLine([
         task({ id: "task-1" }),
-        task({ id: "task-2", status: "doing" }),
+        task({ id: "task-2", status: "in-progress" }),
         task({ id: "task-3", status: "blocked" }),
         task({ id: "task-4", status: "review" }),
         task({ id: "task-5", status: "review" }),

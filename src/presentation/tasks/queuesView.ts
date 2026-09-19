@@ -45,7 +45,7 @@ export function queuesView(
       current: doing[0] ? taskCardView(doing[0], board, now) : null,
       queued: queued.map((task) => taskCardView(task, board, now)),
       summary: `${queued.length} queued`,
-      idleText: doing[0] ? null : queued.length > 0 ? `No task in doing · ${queued.length} queued` : "Nothing in doing",
+      idleText: doing[0] ? null : queued.length > 0 ? `Nothing in progress · ${queued.length} queued` : "Nothing in progress",
       queueEmptyText:
         queued.length > 0
           ? null

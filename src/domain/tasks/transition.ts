@@ -101,16 +101,16 @@ const EDGES: readonly {
   who: "worker" | "acceptor";
   needsBlockersResolved?: true;
 }[] = [
-  { from: "todo", to: "doing", who: "worker", needsBlockersResolved: true },
-  { from: "doing", to: "blocked", who: "worker" },
-  { from: "blocked", to: "doing", who: "worker", needsBlockersResolved: true },
-  { from: "doing", to: "review", who: "worker" },
+  { from: "todo", to: "in-progress", who: "worker", needsBlockersResolved: true },
+  { from: "in-progress", to: "blocked", who: "worker" },
+  { from: "blocked", to: "in-progress", who: "worker", needsBlockersResolved: true },
+  { from: "in-progress", to: "review", who: "worker" },
   { from: "review", to: "done", who: "acceptor" },
-  { from: "review", to: "doing", who: "acceptor" },
+  { from: "review", to: "in-progress", who: "acceptor" },
   { from: "done", to: "todo", who: "acceptor" },
   { from: "cancelled", to: "todo", who: "acceptor" },
   { from: "todo", to: "cancelled", who: "acceptor" },
-  { from: "doing", to: "cancelled", who: "acceptor" },
+  { from: "in-progress", to: "cancelled", who: "acceptor" },
   { from: "blocked", to: "cancelled", who: "acceptor" },
   { from: "review", to: "cancelled", who: "acceptor" },
 ];
@@ -209,7 +209,7 @@ export function transition(
         return refuse({ kind: "already-claimed", assignee: task.assignee });
       }
       if (task.status !== "todo") {
-        return refuse({ kind: "illegal-transition", from: task.status, to: "doing" });
+        return refuse({ kind: "illegal-transition", from: task.status, to: "in-progress" });
       }
       const open = openBlockersOf(task, ctx.board);
       if (open.length > 0) return refuse({ kind: "blocked-by-open", blockers: open });
