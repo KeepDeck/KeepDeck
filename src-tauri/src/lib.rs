@@ -34,6 +34,7 @@ mod sessions;
 mod roles;
 mod run_bounded;
 mod skills;
+mod tasks;
 mod voice;
 mod history;
 mod journal;
@@ -106,6 +107,7 @@ pub fn run() {
         .manage(history::HistoryIndex::default())
         .manage(session::SessionRegistry::default())
         .manage(artifacts::ArtifactsState::new())
+        .manage(tasks::TasksState::new())
         .manage(exec_once::OnceRunner::new())
         .manage(worktree::RepoLocks::default())
         .manage(skills::SkillsLocks::default())
@@ -187,6 +189,11 @@ pub fn run() {
             artifacts::artifact_delete,
             artifacts::artifact_resolve_urls,
             artifacts::artifact_drop_workspace,
+            tasks::tasks_enable,
+            tasks::tasks_disable,
+            tasks::tasks_read,
+            tasks::tasks_write,
+            tasks::tasks_drop_workspace,
             bridge::bridge_nudge,
             bridge::bridge_pane_dir,
             bridge::bridge_reply,
