@@ -120,6 +120,14 @@ export interface Settings {
    * Claude Code artifacts UX; republish never re-opens — the open tab
    * refreshes live). Inert while `artifacts` is off. Default on. */
   artifactAutoOpen: boolean;
+  /** Tasks ([F6] → General): the team-owned board of work orders — the
+   * task_* commands agents put work on and read it from, and the Tasks
+   * dialog behind the bar's door. A LIVE switch: On claims the board store
+   * and registers the commands; Off releases the store and unregisters
+   * them, so they stop being MCP tools the same turn. Nothing is delivered
+   * to an agent by the board itself — a task is told about by mail.
+   * Default off. */
+  tasks: boolean;
 }
 
 /** Every settings key. `keyof Settings` here, and the codec table is checked

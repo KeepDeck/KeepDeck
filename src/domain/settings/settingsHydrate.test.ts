@@ -62,9 +62,10 @@ describe("hydrateSettings", () => {
       parkAgentsOnLaunch: true,
       artifacts: true,
       artifactAutoOpen: true,
+      tasks: false,
     });
-    // Everything the file said is a decision; `remoteAgents` and
-    // `artifactAutoOpen`, which it did not mention, are not.
+    // Everything the file said is a decision; `remoteAgents`,
+    // `artifactAutoOpen` and `tasks`, which it did not mention, are not.
     expect(Object.keys(doc.chosen).sort()).toEqual(
       Object.keys(stored)
         .filter((key) => key !== "version")
