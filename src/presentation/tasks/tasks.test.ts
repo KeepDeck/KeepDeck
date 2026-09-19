@@ -71,6 +71,13 @@ describe("boardView", () => {
     expect(columns[4].cards.map((c) => c.id)).toEqual(["task-4", "task-3"]);
   });
 
+  it("unfolds the closed columns when nothing is open — a board of finished work is not a blank board", () => {
+    const finished = board([task({ id: "task-1", status: "done" }), task({ id: "task-2", status: "cancelled" })]);
+    const columns = boardView(finished.tasks, finished, { showCancelled: true, expanded: new Set(), now: NOW });
+    expect(columns.find((c) => c.status === "done")?.collapsed).toBe(false);
+    expect(columns.find((c) => c.status === "cancelled")?.collapsed).toBe(false);
+  });
+
   it("shows cancelled only behind the filter, and unfolds what the person opened", () => {
     const columns = boardView(b.tasks, b, { showCancelled: true, expanded: new Set(["done"] as const), now: NOW });
     expect(columns.map((c) => c.status)).toContain("cancelled");

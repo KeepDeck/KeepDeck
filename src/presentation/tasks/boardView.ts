@@ -33,6 +33,9 @@ export interface BoardOptions {
  * does.
  */
 export function boardView(tasks: readonly Task[], board: TaskBoard, options: BoardOptions): BoardColumnView[] {
+  // Closed columns fold only while there is open work to look at: a board
+  // whose every task is done showed five empty columns and a folded Done.
+  const anyOpen = tasks.some((task) => isOpen(task.status));
   return BOARD_ORDER.filter((status) => status !== "cancelled" || options.showCancelled).map((status) => {
     const inColumn = tasks.filter((task) => task.status === status);
     const ordered = isOpen(status)
@@ -43,7 +46,7 @@ export function boardView(tasks: readonly Task[], board: TaskBoard, options: Boa
       label: STATUS_LABEL[status],
       count: inColumn.length,
       cards: ordered.map((task) => taskCardView(task, board, options.now)),
-      collapsed: !isOpen(status) && !options.expanded.has(status),
+      collapsed: !isOpen(status) && anyOpen && !options.expanded.has(status),
     };
   });
 }
