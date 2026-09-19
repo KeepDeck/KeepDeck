@@ -123,9 +123,10 @@ export interface TasksService {
     actor: TaskActor,
   ): Promise<TaskResult>;
   onEvent(listener: (event: TaskEvent) => void): () => void;
-  /** Settles once every queued write has been tried — what a shutdown or
-   * a disable waits for, so a board is not left unsaved by the store
-   * closing under it. */
+  /** Settles once every queued write has been tried AND every board
+   * still unsaved has been written once more — what a disable waits for,
+   * so a board whose last write failed is not left behind by the store
+   * closing under it. A write that fails again stays unsaved. */
   flush(): Promise<void>;
   /** The workspace is gone: drop what is held for it. The disk half is the
    * forgetter's. */
@@ -332,7 +333,15 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
         task = result.task;
         board = replaceTask(board, task);
       }
-      if (task === before) return { ok: true, task, board, saved: true, saveError: null };
+      if (task === before) {
+        // Nothing to write — but "saved" is about the BOARD, not this call:
+        // after a failed write, repeating a change must not read as the
+        // durable success the first attempt was denied.
+        await writes.get(workspaceId);
+        const state = states.get(workspaceId);
+        const saveError = state?.kind === "ready" ? state.unsaved : null;
+        return { ok: true, task, board, saved: saveError === null, saveError };
+      }
       const pending = commit(workspaceId, board);
       if (task.status !== before.status) {
         if (task.status === "blocked") emit({ kind: "blocked", workspaceId, task, actor });
@@ -347,6 +356,13 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
     },
     async flush() {
       await Promise.all([...writes.values()]);
+      // What the queue could not land gets one more try, now — a retry
+      // timer would fire into a store that is closing.
+      const dirty = [...states.entries()].filter(
+        (entry): entry is [string, Extract<BoardState, { kind: "ready" }>] =>
+          entry[1].kind === "ready" && entry[1].unsaved !== null,
+      );
+      await Promise.all(dirty.map(([workspaceId, state]) => persist(workspaceId, state.board)));
     },
     forget(workspaceId) {
       retries.get(workspaceId)?.();

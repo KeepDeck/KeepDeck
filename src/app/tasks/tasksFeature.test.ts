@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createCommandRegistry } from "../../domain/commands";
 import { createEnableStatus } from "../enableStatus";
+import { USER_ACTOR } from "../../domain/tasks";
 import { createTasksFeature } from "./tasksFeature";
 import { fakeStore, teamedWorkspaces } from "./testSupport";
 
@@ -28,6 +29,8 @@ function setup() {
   const calls: { kind: "enable" | "disable"; gate: ReturnType<typeof gate>; settled: boolean }[] = [];
   const registry = createCommandRegistry();
   const announced: unknown[] = [];
+  /** Writes and disables, in the order the backend saw them. */
+  const order: ("write" | "disable")[] = [];
   const feature = createTasksFeature({
     registry,
     workspaces: () => teamedWorkspaces(),
@@ -53,7 +56,8 @@ function setup() {
       },
       write: async (args) => {
         if (!open) throw new Error("task board is off — turn Tasks on first");
-        return store.port.write(args);
+        await store.port.write(args);
+        order.push("write");
       },
       enable: () => {
         const g = gate();
@@ -63,6 +67,7 @@ function setup() {
         });
       },
       disable: () => {
+        order.push("disable");
         const g = gate();
         calls.push({ kind: "disable", gate: g, settled: false });
         return g.promise.then(() => {
@@ -79,6 +84,13 @@ function setup() {
     registry,
     announced,
     calls,
+    store,
+    order,
+    /** Flip the setting without yielding — for changes within one turn. */
+    setTasksSync(next: boolean | null) {
+      tasks = next;
+      for (const l of [...settingsListeners]) l();
+    },
     /** Flip the setting and let the policy's chain reach the backend. */
     async setTasks(next: boolean | null) {
       tasks = next;
@@ -167,6 +179,40 @@ describe("createTasksFeature", () => {
     expect(h.feature.access.current()).toBeNull();
     expect(h.calls.map((c) => c.kind)).toEqual(["enable", "disable", "enable"]);
     await h.settleNext(); // enable #3 — this generation's
+    expect(h.feature.access.current()).not.toBeNull();
+    expect(h.registry.has("task.create")).toBe(true);
+  });
+
+  it("Off saves a board whose last write failed before the store closes, then lets the owner go", async () => {
+    const h = setup();
+    await h.setTasks(true);
+    await h.settleNext();
+    const owner = h.feature.access.current()!;
+    h.store.failNextWrite("disk full");
+    const held = await owner.create("ws-1", { teamId: "team-1", title: "dirty" }, USER_ACTOR);
+    expect(held.ok && held.saved).toBe(false);
+    expect(h.store.files.get("ws-1")).toBeUndefined();
+    await h.setTasks(false);
+    expect(h.feature.access.current()).toBeNull();
+    // The disable's flush wrote the board BEFORE the store was told to close.
+    expect(h.store.files.get("ws-1")).toBeDefined();
+    expect(h.calls.map((c) => c.kind)).toEqual(["enable", "disable"]);
+    expect(h.order).toEqual(["write", "disable"]);
+  });
+
+  it("On, Off, On in one turn: the first enable carries the first generation and its answer opens nothing", async () => {
+    const h = setup();
+    // Three changes before any backend call starts.
+    h.setTasksSync(true);
+    h.setTasksSync(false);
+    h.setTasksSync(true);
+    await flush();
+    expect(h.calls.map((c) => c.kind)).toEqual(["enable"]);
+    await h.settleNext(); // enable #1 — queued for generation 1
+    expect(h.feature.access.current()).toBeNull();
+    expect(h.registry.has("task.create")).toBe(false);
+    await h.settleNext(); // the disable
+    await h.settleNext(); // enable #3
     expect(h.feature.access.current()).not.toBeNull();
     expect(h.registry.has("task.create")).toBe(true);
   });

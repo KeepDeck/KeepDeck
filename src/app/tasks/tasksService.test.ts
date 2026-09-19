@@ -177,6 +177,33 @@ describe("createTasksService", () => {
     expect((JSON.parse(store.files.get("ws-1")!) as TaskBoard).tasks.map((t) => t.title)).toEqual(["kept", "not saved yet"]);
   });
 
+  it("flush writes a board whose last write failed, once more, now", async () => {
+    const { service, store } = setup();
+    store.failNextWrite("disk full");
+    await service.create("ws-1", { teamId: "team-1", title: "dirty" }, lead);
+    expect(store.files.get("ws-1")).toBeUndefined();
+    await service.flush();
+    expect((JSON.parse(store.files.get("ws-1")!) as TaskBoard).tasks.map((t) => t.title)).toEqual(["dirty"]);
+    const state = service.peek("ws-1");
+    expect(state?.kind === "ready" && state.unsaved).toBeNull();
+  });
+
+  it("a change that changes nothing answers the board's real persistence state, not a success", async () => {
+    const { service } = setup();
+    store_fail_then_noop: {
+      const { service: s2, store } = setup();
+      await s2.create("ws-1", { teamId: "team-1", title: "a", assignee: "impl-1" }, lead);
+      store.failNextWrite("disk full");
+      const failed = await s2.apply("ws-1", "task-1", [{ kind: "priority", to: "high" }], lead);
+      expect(failed.ok && failed.saved).toBe(false);
+      const again = await s2.apply("ws-1", "task-1", [{ kind: "priority", to: "high" }], lead);
+      expect(again.ok && again.saved).toBe(false);
+      expect(again.ok && again.saveError).toBe("disk full");
+      break store_fail_then_noop;
+    }
+    void service;
+  });
+
   it("a later successful write clears the mark; a success that is not the latest write does not", async () => {
     const { service, store } = setup();
     store.failNextWrite("disk full");

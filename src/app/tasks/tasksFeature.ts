@@ -64,10 +64,13 @@ export function createTasksFeature(deps: TasksFeatureDeps): TasksFeature {
    * policy saw nothing to do and never reported again. */
   let generation = 0;
   let lastValue: boolean | null = deps.settings.tasks();
-  /** The generation the backend call now in flight was made for; a
-   * report is believed only when it is still the one that stands — the
-   * same boolean twice (On, Off, On) is two generations, and the first
-   * enable's answer says nothing about the third. */
+  /** The generations whose backend call has not started yet, in order.
+   * The policy queues one call per change of value; each call takes the
+   * generation it was QUEUED for, not the one standing when it runs — in
+   * one turn On, Off, On queues three calls, and the first must not carry
+   * the third's number. A report is believed only when its generation is
+   * still the one that stands. */
+  const intents: number[] = [];
   let calledFor = generation;
   let service: TasksService | null = null;
   /** The owner taken down on Off, held until the store's disable has
@@ -91,7 +94,10 @@ export function createTasksFeature(deps: TasksFeatureDeps): TasksFeature {
     } else if (!wanted && service !== null) {
       unregister?.();
       unregister = null;
-      service.dispose();
+      // Not disposed here: the store's disable flushes it first. An owner
+      // retired before is let go — its flush ran or the store never
+      // closed; either way the newer one holds the newer board.
+      retiring?.dispose();
       retiring = service;
       service = null;
       changed();
@@ -109,16 +115,19 @@ export function createTasksFeature(deps: TasksFeatureDeps): TasksFeature {
     { desired: deps.settings.tasks, subscribe: deps.settings.subscribe },
     {
       enable: () => {
-        calledFor = generation;
+        calledFor = intents.shift() ?? generation;
         return deps.store.enable();
       },
-      // Queued writes land before the store closes under them — the
-      // RETIRING owner's, which reconcile has already let go of.
+      // The RETIRING owner — which reconcile let go of for the surfaces —
+      // stays whole until its boards are on disk: flush writes what the
+      // queue could not, and only then is it disposed and the store
+      // closed under it.
       disable: async () => {
-        calledFor = generation;
-        const gone = retiring ?? service;
+        calledFor = intents.shift() ?? generation;
+        const gone = retiring;
         retiring = null;
         await gone?.flush();
+        gone?.dispose();
         await deps.store.disable();
       },
     },
@@ -142,6 +151,8 @@ export function createTasksFeature(deps: TasksFeatureDeps): TasksFeature {
       if (value === lastValue) return;
       lastValue = value;
       generation += 1;
+      // The policy queues a call for this change; it takes this number.
+      if (value !== null) intents.push(generation);
       storeOpen = null;
       reconcile();
     }),
@@ -169,6 +180,8 @@ export function createTasksFeature(deps: TasksFeatureDeps): TasksFeature {
       unregister = null;
       service?.dispose();
       service = null;
+      retiring?.dispose();
+      retiring = null;
       listeners.clear();
       policy.dispose();
     },
