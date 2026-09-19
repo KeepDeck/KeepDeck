@@ -214,6 +214,49 @@ describe("createTasksService", () => {
     expect((JSON.parse(store.files.get("ws-1")!) as TaskBoard).tasks.map((t) => t.title)).toEqual(["kept", "not saved yet"]);
   });
 
+  it("flush answers the boards it still could not write; a landed retry clears them", async () => {
+    const { service, store, tick } = setup();
+    store.failNextWrite("disk full");
+    const created = await service.create("ws-1", { teamId: "team-1", title: "a" }, lead);
+    expect(created.ok && created.saved).toBe(false);
+    store.failNextWrite("disk full");
+    expect(await service.flush()).toEqual([{ workspaceId: "ws-1", error: "disk full" }]);
+    expect(service.unsaved()).toEqual([{ workspaceId: "ws-1", error: "disk full" }]);
+    expect(store.files.has("ws-1")).toBe(false);
+    // The board is still whole in memory; the disk frees and the retry lands it.
+    tick();
+    await flush();
+    expect(service.unsaved()).toEqual([]);
+    expect(await service.flush()).toEqual([]);
+    expect((JSON.parse(store.files.get("ws-1")!) as TaskBoard).tasks.map((t) => t.title)).toEqual(["a"]);
+  });
+
+  it("flush waits for a workspace closing meanwhile: the store may not close under its drop", async () => {
+    const { service, store } = setup();
+    await service.ready("ws-1");
+    const releaseWrite = store.holdNextWrite();
+    const created = service.create("ws-1", { teamId: "team-1", title: "a" }, lead);
+    await flush();
+    let flushed = false;
+    const flushing = service.flush().then(() => {
+      flushed = true;
+    });
+    // The workspace closes while the flush waits on the held write; its
+    // drop is held too.
+    const releaseDrop = store.holdNextDrop();
+    const forgetting = service.forget("ws-1");
+    releaseWrite();
+    await created;
+    await flush();
+    expect(store.calls).toEqual(["write", "drop"]);
+    expect(flushed).toBe(false);
+    releaseDrop();
+    await forgetting;
+    await flushing;
+    expect(flushed).toBe(true);
+    expect(store.files.has("ws-1")).toBe(false);
+  });
+
   it("flush writes a board whose last write failed, once more, now", async () => {
     const { service, store } = setup();
     store.failNextWrite("disk full");

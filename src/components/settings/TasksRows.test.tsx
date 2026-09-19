@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Settings } from "../../domain/settings";
 import { DEFAULT_SETTINGS } from "../../domain/settings";
+import { tasksEnableStatus } from "../../app/tasks/enableStatus";
 import { TasksRows } from "./TasksRows";
 
 const settings = vi.hoisted(() => ({ current: null as Settings | null }));
@@ -64,6 +65,14 @@ describe("TasksRows", () => {
     mount();
     expect(host.textContent).toContain("from a teammate’s mail, never from the board");
     expect(host.textContent).not.toContain("experimental");
+  });
+
+  it("says why Off is waiting while the backend refused to close, and nothing once it did", () => {
+    tasksEnableStatus.record({ desired: false, ok: false, detail: "keepdeck's board — disk full" });
+    mount();
+    expect(host.textContent).toContain("Off is waiting: keepdeck's board — disk full.");
+    act(() => tasksEnableStatus.record({ desired: false, ok: true, detail: null }));
+    expect(host.textContent).not.toContain("Off is waiting");
   });
 
   it("says the socket is down only while it is, and only while tasks are on", () => {

@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createCommandRegistry } from "../../domain/commands";
 import { createEnableStatus } from "../enableStatus";
 import { USER_ACTOR } from "../../domain/tasks";
 import { createTasksFeature } from "./tasksFeature";
+import { RETRY_WRITE_MS } from "./tasksService";
 import { fakeStore, teamedWorkspaces } from "./testSupport";
 
 /** A promise handed out to be settled by the test — a backend call that
@@ -20,6 +21,9 @@ const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 function setup() {
   const store = fakeStore();
   let open = false;
+  /** A disk that refuses every write while set. */
+  let diskFull = false;
+  const status = createEnableStatus();
   // Unknown until the settings load, as at boot: the policy waits for a value.
   let tasks: boolean | null = null;
   let socket = true;
@@ -56,6 +60,7 @@ function setup() {
       },
       write: async (args) => {
         if (!open) throw new Error("task board is off — turn Tasks on first");
+        if (diskFull) throw new Error("disk full");
         await store.port.write(args);
         order.push("write");
       },
@@ -81,7 +86,7 @@ function setup() {
       },
     },
     announce: (event) => announced.push(event),
-    status: createEnableStatus(),
+    status,
   });
   return {
     feature,
@@ -90,6 +95,10 @@ function setup() {
     calls,
     store,
     order,
+    status,
+    setDiskFull(next: boolean) {
+      diskFull = next;
+    },
     /** Flip the setting without yielding — for changes within one turn. */
     setTasksSync(next: boolean | null) {
       tasks = next;
@@ -219,6 +228,119 @@ describe("createTasksFeature", () => {
     await h.settleNext(); // enable #3
     expect(h.feature.access.current()).not.toBeNull();
     expect(h.registry.has("task.create")).toBe(true);
+  });
+
+  it("an Off over a board the disk refuses is refused itself: the owner is held with its board, an On takes it back, and the next Off writes and closes", async () => {
+    const h = setup();
+    await h.setTasks(true);
+    await h.settleNext();
+    const service = h.feature.access.current()!;
+    h.setDiskFull(true);
+    const created = await service.create("ws-1", { teamId: "team-1", title: "a" }, USER_ACTOR);
+    expect(created.ok && created.saved).toBe(false);
+
+    await h.setTasks(false);
+    await flush();
+    await flush();
+    // Refused: the store was not told to close, the status says why by
+    // the workspace's name, and the surfaces read Off.
+    expect(h.calls.map((c) => c.kind)).toEqual(["enable"]);
+    expect(h.status.last()).toEqual({ desired: false, ok: false, detail: "keepdeck's board — disk full" });
+    expect(h.feature.access.current()).toBeNull();
+    expect(h.store.files.has("ws-1")).toBe(false);
+
+    // On takes the held owner back — the same one, its board still whole
+    // and still marked.
+    await h.setTasks(true);
+    await h.settleNext();
+    const back = h.feature.access.current();
+    expect(back).toBe(service);
+    const state = back!.peek("ws-1");
+    expect(state?.kind === "ready" && state.unsaved).toBe("disk full");
+    expect(state?.kind === "ready" && state.board.tasks.map((t) => t.title)).toEqual(["a"]);
+    expect(h.registry.has("task.create")).toBe(true);
+
+    // The disk frees: this Off writes the board, then closes the store.
+    h.setDiskFull(false);
+    await h.setTasks(false);
+    await flush();
+    await flush();
+    expect(h.order).toEqual(["write", "disable"]);
+    expect((JSON.parse(h.store.files.get("ws-1")!) as { tasks: { title: string }[] }).tasks.map((t) => t.title)).toEqual(["a"]);
+    await h.settleNext();
+    expect(h.status.last()).toEqual({ desired: false, ok: true, detail: null });
+  });
+
+  it("a refused Off completes on its own once the held owner's retry lands the board", async () => {
+    vi.useFakeTimers();
+    try {
+      const h = setup();
+      const tick = () => vi.advanceTimersByTimeAsync(0);
+      const settle = async (index: number) => {
+        h.calls[index].settled = true;
+        h.calls[index].gate.resolve();
+        await tick();
+      };
+      h.setTasksSync(true);
+      await tick();
+      await settle(0);
+      const service = h.feature.access.current()!;
+      h.setDiskFull(true);
+      await service.create("ws-1", { teamId: "team-1", title: "a" }, USER_ACTOR);
+      h.setTasksSync(false);
+      await tick();
+      await tick();
+      expect(h.calls.map((c) => c.kind)).toEqual(["enable"]);
+      expect(h.status.last()?.ok).toBe(false);
+
+      // The disk frees before anyone touches a setting: the owner's own
+      // retry lands the board, and that is the Off's cue.
+      h.setDiskFull(false);
+      await vi.advanceTimersByTimeAsync(RETRY_WRITE_MS);
+      await tick();
+      await tick();
+      expect(h.order).toEqual(["write", "disable"]);
+      expect(h.calls.map((c) => c.kind)).toEqual(["enable", "disable"]);
+      await settle(1);
+      expect(h.status.last()).toEqual({ desired: false, ok: true, detail: null });
+      expect((JSON.parse(h.store.files.get("ws-1")!) as { tasks: unknown[] }).tasks).toHaveLength(1);
+      h.feature.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a workspace closing while the retiring owner flushes reaches that owner: no write after the drop, the store closes after both, the id's new life is empty", async () => {
+    const h = setup();
+    await h.setTasks(true);
+    await h.settleNext();
+    const service = h.feature.access.current()!;
+    await service.ready("ws-1");
+    const release = h.store.holdNextWrite();
+    const first = service.create("ws-1", { teamId: "team-1", title: "a" }, USER_ACTOR);
+    await flush();
+    const second = service.create("ws-1", { teamId: "team-1", title: "b" }, USER_ACTOR);
+    await flush();
+    // Off: the owner retires and the disable is in its flush, waiting on
+    // the held write — the store has not been told to close.
+    await h.setTasks(false);
+    expect(h.feature.access.current()).toBeNull();
+    expect(h.calls.map((c) => c.kind)).toEqual(["enable"]);
+
+    const forgetting = h.feature.forgetWorkspace("ws-1");
+    release();
+    await forgetting;
+    await Promise.all([first, second]);
+    await flush();
+    await flush();
+    expect(h.store.calls).toEqual(["write", "drop"]);
+    expect(h.order).toEqual(["write", "drop", "disable"]);
+    expect(h.store.files.has("ws-1")).toBe(false);
+    await h.settleNext();
+
+    await h.setTasks(true);
+    await h.settleNext();
+    expect(await h.feature.access.current()!.ready("ws-1")).toEqual({ kind: "ready", board: { nextId: 1, tasks: [] }, unsaved: null });
   });
 
   it("forgets a workspace through the owner — after the write on the wire, before nothing else; dispose takes the owner and the commands down", async () => {

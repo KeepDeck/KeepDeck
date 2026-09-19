@@ -39,6 +39,10 @@ export interface EnableTransition {
 }
 
 export interface EnablePolicy {
+  /** Reconcile again now — for a feature whose failed transition has a
+   * signal of its own to retry on (a board that has since been saved),
+   * not only the next settings event. A no-op while nothing failed. */
+  retry(): void;
   dispose(): void;
 }
 
@@ -103,6 +107,7 @@ export function createEnablePolicy(
   reconcile();
 
   return {
+    retry: reconcile,
     dispose() {
       disposed = true;
       unsubscribe();

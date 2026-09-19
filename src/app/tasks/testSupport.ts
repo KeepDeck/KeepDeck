@@ -12,6 +12,8 @@ export function fakeStore(initial: Record<string, string> = {}) {
   let failNext: string | null = null;
   /** A write whose bytes land at once but whose answer waits. */
   let holdNext: Promise<void> | null = null;
+  /** A drop that removes the file at once but whose answer waits. */
+  let holdDrop: Promise<void> | null = null;
   const port: TasksStorePort = {
     read: async ({ workspaceId }) => files.get(workspaceId) ?? null,
     write: async (args) => {
@@ -32,6 +34,11 @@ export function fakeStore(initial: Record<string, string> = {}) {
     drop: async ({ workspaceId }) => {
       calls.push("drop");
       files.delete(workspaceId);
+      if (holdDrop !== null) {
+        const held = holdDrop;
+        holdDrop = null;
+        await held;
+      }
     },
   };
   return {
@@ -46,6 +53,14 @@ export function fakeStore(initial: Record<string, string> = {}) {
     holdNextWrite(): () => void {
       let release!: () => void;
       holdNext = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return release;
+    },
+    /** The next drop removes the file, but its answer waits for the release. */
+    holdNextDrop(): () => void {
+      let release!: () => void;
+      holdDrop = new Promise<void>((resolve) => {
         release = resolve;
       });
       return release;

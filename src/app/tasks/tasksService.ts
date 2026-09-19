@@ -62,6 +62,12 @@ export const RETRY_WRITE_MS = 3_000;
 /** What a write queued for a workspace that closed before its turn hears. */
 export const FORGOTTEN_WRITE = "the workspace closed before the board was written";
 
+/** A board whose disk lags its memory, and why. */
+export interface UnsavedBoard {
+  workspaceId: string;
+  error: string;
+}
+
 export type BoardState =
   | { kind: "loading" }
   | {
@@ -128,11 +134,14 @@ export interface TasksService {
     actor: TaskActor,
   ): Promise<TaskResult>;
   onEvent(listener: (event: TaskEvent) => void): () => void;
-  /** Settles once every queued write has been tried AND every board
-   * still unsaved has been written once more — what a disable waits for,
-   * so a board whose last write failed is not left behind by the store
-   * closing under it. A write that fails again stays unsaved. */
-  flush(): Promise<void>;
+  /** Settles once every disk operation issued — writes, workspace
+   * closings, and any issued while waiting — is done AND every board
+   * still unsaved has been written once more. Answers the boards that
+   * STILL could not be written: a store closing over them would lose
+   * them, and what an Off with those means is the caller's to decide. */
+  flush(): Promise<UnsavedBoard[]>;
+  /** The boards whose last write failed, right now. */
+  unsaved(): UnsavedBoard[];
   /** The workspace is gone: forget its board here, let the write already
    * on the wire land, annul the ones behind it, and only then drop the
    * file — a drop between a write and the next queued one let the next
@@ -163,6 +172,28 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
   const epochOf = (workspaceId: string) => epochs.get(workspaceId) ?? 0;
   /** Workspaces between forgotten and dropped: closed to loads. */
   const closing = new Set<string>();
+  /** Each closing workspace's forget, from the epoch move to the drop. */
+  const closings = new Map<string, Promise<void>>();
+
+  /** Settle every disk operation issued so far — and any issued while
+   * waiting, a workspace closing mid-flush among them. */
+  const drain = async () => {
+    const awaited = new Set<Promise<unknown>>();
+    for (;;) {
+      const fresh = [...writes.values(), ...closings.values()].filter((p) => !awaited.has(p));
+      if (fresh.length === 0) return;
+      for (const p of fresh) awaited.add(p);
+      // A closing that failed is its forgetter's to hear; here it only
+      // has to be over.
+      await Promise.allSettled(fresh);
+    }
+  };
+
+  const dirtyEntries = () =>
+    [...states.entries()].filter(
+      (entry): entry is [string, Extract<BoardState, { kind: "ready" }> & { unsaved: string }] =>
+        entry[1].kind === "ready" && entry[1].unsaved !== null,
+    );
   const listeners = new Set<() => void>();
   const eventListeners = new Set<(event: TaskEvent) => void>();
   let revision = 0;
@@ -378,16 +409,15 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
       return () => eventListeners.delete(listener);
     },
     async flush() {
-      await Promise.all([...writes.values()]);
+      await drain();
       // What the queue could not land gets one more try, now — a retry
       // timer would fire into a store that is closing.
-      const dirty = [...states.entries()].filter(
-        (entry): entry is [string, Extract<BoardState, { kind: "ready" }>] =>
-          entry[1].kind === "ready" && entry[1].unsaved !== null,
-      );
-      await Promise.all(dirty.map(([workspaceId, state]) => persist(workspaceId, state.board)));
+      await Promise.all(dirtyEntries().map(([workspaceId, state]) => persist(workspaceId, state.board)));
+      await drain();
+      return this.unsaved();
     },
-    async forget(workspaceId) {
+    unsaved: () => dirtyEntries().map(([workspaceId, state]) => ({ workspaceId, error: state.unsaved })),
+    forget(workspaceId) {
       // Closed first, synchronously: from here no write queued before
       // runs, no load starts, and the board is gone from every surface.
       epochs.set(workspaceId, epochOf(workspaceId) + 1);
@@ -398,16 +428,24 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
       loads.delete(workspaceId);
       changed();
       const chain = writes.get(workspaceId);
-      try {
-        // The write on the wire lands before the file goes: the store
-        // orders a drop against writes it has RECEIVED, and one it has
-        // not would recreate the board after the drop.
-        await chain;
-        await deps.store.drop({ workspaceId });
-      } finally {
-        closing.delete(workspaceId);
-        if (writes.get(workspaceId) === chain) writes.delete(workspaceId);
-      }
+      const close = async () => {
+        try {
+          // The write on the wire lands before the file goes: the store
+          // orders a drop against writes it has RECEIVED, and one it has
+          // not would recreate the board after the drop.
+          await chain;
+          await deps.store.drop({ workspaceId });
+        } finally {
+          closing.delete(workspaceId);
+          if (writes.get(workspaceId) === chain) writes.delete(workspaceId);
+          if (closings.get(workspaceId) === closingNow) closings.delete(workspaceId);
+        }
+      };
+      // A flush running now waits for this too: the store must not close
+      // under a drop.
+      const closingNow: Promise<void> = close();
+      closings.set(workspaceId, closingNow);
+      return closingNow;
     },
     dispose() {
       disposed = true;

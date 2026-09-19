@@ -1,6 +1,18 @@
+import type { Workspace } from "../../domain/deck";
 import { leadRole } from "../../domain/mail";
 import type { DecodeFault } from "../../domain/tasks";
-import type { TaskProblem } from "./tasksService";
+import type { TaskProblem, UnsavedBoard } from "./tasksService";
+
+/** Why an Off was refused: the boards the store would have closed over
+ * unsaved, by the workspace's name where it has one. */
+export function unsavedBoardsText(unsaved: readonly UnsavedBoard[], workspaces: readonly Workspace[]): string {
+  return unsaved
+    .map((board) => {
+      const name = workspaces.find((workspace) => workspace.id === board.workspaceId)?.name ?? board.workspaceId;
+      return `${name}'s board — ${board.error}`;
+    })
+    .join("; ");
+}
 
 /** Why a board file was refused, for the log and the dialog — the codec
  * names the fault, this names it in words. */

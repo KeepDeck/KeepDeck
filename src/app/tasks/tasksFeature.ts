@@ -17,6 +17,7 @@ import type { CommandRegistry } from "../../domain/commands";
 import type { Workspace } from "../../domain/deck";
 import { createEnablePolicy } from "../enablePolicy";
 import type { EnableStatus } from "../enableStatus";
+import { unsavedBoardsText } from "./refusalText";
 import { registerTaskCommands } from "./taskCommands";
 import { createTasksService, type TaskEvent, type TasksService, type TasksStorePort } from "./tasksService";
 
@@ -75,8 +76,15 @@ export function createTasksFeature(deps: TasksFeatureDeps): TasksFeature {
   let service: TasksService | null = null;
   /** The owner taken down on Off, held until the store's disable has
    * flushed its writes — the reconcile that retired it runs before the
-   * transport's disable ever does, so `service` is null by then. */
+   * transport's disable ever does, so `service` is null by then. Held
+   * LONGER when a board could not be written: closing the store over it
+   * would lose it, so that Off is refused, the owner stays whole with
+   * the store open and its retries armed, and the Off completes once
+   * its boards have landed. An On meanwhile takes it back. A closing
+   * workspace reaches it the whole time. */
   let retiring: TasksService | null = null;
+  /** Watching a held owner for the moment its boards are saved. */
+  let unhold: (() => void) | null = null;
   let unregister: (() => void) | null = null;
   let disposed = false;
   const listeners = new Set<() => void>();
@@ -88,16 +96,24 @@ export function createTasksFeature(deps: TasksFeatureDeps): TasksFeature {
     if (disposed) return;
     const wanted = (deps.settings.tasks() ?? false) && storeOpen === true;
     if (wanted && service === null) {
-      service = createTasksService({ workspaces: deps.workspaces, store: deps.store });
-      service.onEvent(deps.announce);
+      if (retiring !== null) {
+        // The owner held back from an Off it could not complete is taken
+        // back whole: its boards, the unsaved ones first, are the newest.
+        service = retiring;
+        retiring = null;
+        unhold?.();
+        unhold = null;
+      } else {
+        service = createTasksService({ workspaces: deps.workspaces, store: deps.store });
+        service.onEvent(deps.announce);
+      }
       changed();
     } else if (!wanted && service !== null) {
       unregister?.();
       unregister = null;
-      // Not disposed here: the store's disable flushes it first. An owner
-      // retired before is let go — its flush ran or the store never
-      // closed; either way the newer one holds the newer board.
-      retiring?.dispose();
+      // Not disposed here: the store's disable flushes it first. Nothing
+      // retires behind another — an On takes a held owner back before a
+      // new one can exist.
       retiring = service;
       service = null;
       changed();
@@ -111,6 +127,17 @@ export function createTasksFeature(deps: TasksFeatureDeps): TasksFeature {
     }
   };
 
+  /** Keep a refused owner until its boards land, then finish the Off. */
+  const hold = (owner: TasksService) => {
+    unhold?.();
+    unhold = owner.subscribe(() => {
+      if (owner.unsaved().length > 0) return;
+      unhold?.();
+      unhold = null;
+      policy.retry();
+    });
+  };
+
   const policy = createEnablePolicy(
     { desired: deps.settings.tasks, subscribe: deps.settings.subscribe },
     {
@@ -119,15 +146,24 @@ export function createTasksFeature(deps: TasksFeatureDeps): TasksFeature {
         return deps.store.enable();
       },
       // The RETIRING owner — which reconcile let go of for the surfaces —
-      // stays whole until its boards are on disk: flush writes what the
-      // queue could not, and only then is it disposed and the store
-      // closed under it.
+      // stays whole, and stays REACHABLE, until its boards are on disk:
+      // flush writes what the queue could not and waits for a workspace
+      // closing meanwhile, and only then is it disposed and the store
+      // closed under it. A board that still could not be written refuses
+      // the Off instead: the owner is held, and the Off is tried again
+      // when it reports clean.
       disable: async () => {
         calledFor = intents.shift() ?? generation;
         const gone = retiring;
-        retiring = null;
-        await gone?.flush();
-        gone?.dispose();
+        if (gone !== null) {
+          const unsaved = await gone.flush();
+          if (unsaved.length > 0) {
+            hold(gone);
+            throw new Error(unsavedBoardsText(unsaved, deps.workspaces()));
+          }
+          if (retiring === gone) retiring = null;
+          gone.dispose();
+        }
         await deps.store.disable();
       },
     },
@@ -184,6 +220,8 @@ export function createTasksFeature(deps: TasksFeatureDeps): TasksFeature {
       unregister = null;
       service?.dispose();
       service = null;
+      unhold?.();
+      unhold = null;
       retiring?.dispose();
       retiring = null;
       listeners.clear();

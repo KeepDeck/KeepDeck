@@ -6,7 +6,7 @@
  */
 import { createEnableStatus } from "../enableStatus";
 
-export { refusalOf } from "../enableStatus";
+export { offBlockedBy, refusalOf } from "../enableStatus";
 
 /** The app's one status. */
 export const tasksEnableStatus = createEnableStatus();

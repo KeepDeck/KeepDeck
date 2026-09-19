@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createEnableStatus, refusalOf } from "./enableStatus";
+import { createEnableStatus, offBlockedBy, refusalOf } from "./enableStatus";
 
 describe("createEnableStatus", () => {
   it("keeps the last transition whole and tells its readers", () => {
@@ -40,5 +40,16 @@ describe("refusalOf", () => {
     expect(refusalOf({ desired: false, ok: true, detail: null })).toBeNull();
     expect(refusalOf({ desired: true, ok: true, detail: "display server on port 1" })).toBeNull();
     expect(refusalOf(null)).toBeNull();
+  });
+});
+
+describe("offBlockedBy", () => {
+  it("names what keeps the backend open only when the app wanted it CLOSED and could not", () => {
+    expect(offBlockedBy({ desired: false, ok: false, detail: "keepdeck's board — disk full" })).toBe(
+      "keepdeck's board — disk full",
+    );
+    expect(offBlockedBy({ desired: false, ok: true, detail: null })).toBeNull();
+    expect(offBlockedBy({ desired: true, ok: false, detail: "owned by another process" })).toBeNull();
+    expect(offBlockedBy(null)).toBeNull();
   });
 });

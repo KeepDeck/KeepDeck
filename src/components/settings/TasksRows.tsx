@@ -1,8 +1,10 @@
+import { useSyncExternalStore } from "react";
 import { updateSettings } from "../../app/settingsManager";
 import { useMcpStatus } from "../../app/mcp/useMcpStatus";
+import { offBlockedBy, tasksEnableStatus } from "../../app/tasks/enableStatus";
 import { useSettings } from "../../app/useSettings";
 import { DEFAULT_SETTINGS } from "../../domain/settings";
-import { showTasksSocketHint } from "../../presentation/tasks";
+import { offWaitingHint, showTasksSocketHint } from "../../presentation/tasks";
 
 /**
  * Tasks in General ([F6]): the switch for the team-owned board of work
@@ -21,6 +23,11 @@ export function TasksRows() {
   const settings = useSettings();
   const tasks = settings?.tasks ?? DEFAULT_SETTINGS.tasks;
   const served = useMcpStatus().socket !== null;
+  // An Off the backend refused — a board it would have closed over
+  // unsaved — is the one state the toggle alone misstates.
+  const offWaiting = offWaitingHint(
+    offBlockedBy(useSyncExternalStore(tasksEnableStatus.subscribe, tasksEnableStatus.last, tasksEnableStatus.last)),
+  );
 
   return (
     <>
@@ -44,6 +51,8 @@ export function TasksRows() {
         mail, never from the board itself. On claims the board store; Off
         releases it.
       </span>
+
+      {offWaiting !== null && <span className="settings__hint">{offWaiting}</span>}
 
       {showTasksSocketHint(tasks, served) && (
         <span className="settings__hint">

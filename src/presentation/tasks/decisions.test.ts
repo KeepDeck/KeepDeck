@@ -18,7 +18,7 @@ import { canCreateTask, canSendComment } from "./composerView";
 import { DIALOG_WORDS, cardOf, escapeTarget, selectionAfterClick, teamControlView, toggledFold } from "./dialogState";
 import { EMPTY_TASK_DRAFT, assigneeOf, taskInputOf } from "./formDraft";
 import { INITIAL_SCREEN, screenReducer, wideView, type ScreenState } from "./screenState";
-import { showTasksSocketHint } from "./settingsView";
+import { offWaitingHint, showTasksSocketHint } from "./settingsView";
 
 const grip = { width: 200, offsetX: 20, offsetY: 10 };
 const targets = new Set(["in-progress", "done"] as const);
@@ -229,5 +229,12 @@ describe("settingsView", () => {
     expect(showTasksSocketHint(true, false)).toBe(true);
     expect(showTasksSocketHint(true, true)).toBe(false);
     expect(showTasksSocketHint(false, false)).toBe(false);
+  });
+
+  it("says why Off is waiting, and that it completes on its own — nothing when it is not", () => {
+    expect(offWaitingHint("keepdeck's board — disk full")).toBe(
+      "Off is waiting: keepdeck's board — disk full. The board keeps the changes and retries on its own; Off completes once they are saved.",
+    );
+    expect(offWaitingHint(null)).toBeNull();
   });
 });

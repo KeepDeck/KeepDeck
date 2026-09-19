@@ -49,3 +49,14 @@ export function refusalOf(last: EnableTransition | null): string | null {
   if (last === null || last.ok || !last.desired) return null;
   return last.detail;
 }
+
+/**
+ * Why the backend is still open when the setting reads Off — `null` while
+ * the last transition landed, none has happened yet, or the app wants it
+ * open. An Off refused over data the store would close over is the case:
+ * the toggle says Off, and this is what stands beside it.
+ */
+export function offBlockedBy(last: EnableTransition | null): string | null {
+  if (last === null || last.ok || last.desired) return null;
+  return last.detail;
+}
