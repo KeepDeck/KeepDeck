@@ -139,7 +139,7 @@ export function taskDetailView(
       who: personName(entry.from),
       text:
         entry.field === "body"
-          ? "edited the brief"
+          ? `edited the brief (the previous version is kept in the log: ${entry.was?.length ?? 0} characters)`
           : `${entry.field}: ${entry.was ?? "—"} → ${entry.now ?? "—"}`,
       age: formatAge(entry.at, now),
     })),

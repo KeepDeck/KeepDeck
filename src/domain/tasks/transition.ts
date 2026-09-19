@@ -269,11 +269,13 @@ export function transition(
       const bad = validateBody(change.to);
       if (bad) return refuse(bad);
       if (change.to === task.body) return { ok: true, task };
-      // The log names the field, not the words: a body is long, and the
-      // body itself is the current value.
+      // The PREVIOUS brief goes to the log, whole, and the new one is on
+      // the task: every version is kept exactly once, and a reviewer can
+      // read what the brief said before each edit. `now` is null because
+      // the current text is never a copy.
       return {
         ok: true,
-        task: logged(task, [{ at, from: by, field: "body", was: null, now: null }], at, {
+        task: logged(task, [{ at, from: by, field: "body", was: task.body, now: null }], at, {
           body: change.to,
         }),
       };

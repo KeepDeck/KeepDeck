@@ -276,6 +276,16 @@ describe("what every member may do", () => {
     expect(byUser.ok && byUser.task.comments[0].from).toBe("user");
   });
 
+  it("a brief edit keeps the previous brief in the log, whole, once", () => {
+    const t = task({ id: "task-1", assignee: "lead", body: "first" });
+    const once = transition(t, { kind: "body", to: "second" }, lead, ctx([t]));
+    if (!once.ok) throw new Error("refused");
+    expect(once.task.body).toBe("second");
+    expect(once.task.log).toEqual([{ at: 5_000, from: "lead", field: "body", was: "first", now: null }]);
+    const twice = transition(once.task, { kind: "body", to: "third" }, lead, ctx([once.task]));
+    expect(twice.ok && twice.task.log.map((e) => e.was)).toEqual(["first", "second"]);
+  });
+
   it("the log is bounded, oldest first to go", () => {
     let t = task({ id: "task-1", assignee: "lead" });
     for (let i = 0; i < TASK_CAPS.logMax + 5; i += 1) {

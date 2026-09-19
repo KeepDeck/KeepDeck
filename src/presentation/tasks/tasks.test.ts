@@ -147,7 +147,7 @@ describe("taskDetailView", () => {
     expect(view.thread).toEqual([{ n: 1, who: "you", age: "1m ago", body: "go" }]);
     expect(view.log).toEqual([
       { who: "lead", text: "assignee: — → impl-1", age: "1h ago" },
-      { who: "impl-1", text: "edited the brief", age: "1m ago" },
+      { who: "impl-1", text: "edited the brief (the previous version is kept in the log: 0 characters)", age: "1m ago" },
     ]);
     expect(view.assigneeOptions.map((o) => o.value)).toEqual(["", "lead", "impl-1", "impl-2"]);
   });

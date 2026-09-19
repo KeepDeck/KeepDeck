@@ -240,7 +240,8 @@ function createCommand(deps: TaskCommandDeps): CommandSpec {
 function listCommand(deps: TaskCommandDeps): CommandSpec {
   return {
     id: "task.list",
-    title: "List the team's tasks",
+    title:
+      "List the team's tasks — per task: id, title, status, priority, assignee (null = pool), author, blockedBy, issuable (can be started now: in todo with every blocker done or cancelled), counts of artifacts and comments, updated",
     args: [
       TEAM_ARG,
       { name: "assignee", type: "string", description: "Only this role's tasks; \"pool\" for the unassigned" },
@@ -265,7 +266,8 @@ function listCommand(deps: TaskCommandDeps): CommandSpec {
 function getCommand(deps: TaskCommandDeps): CommandSpec {
   return {
     id: "task.get",
-    title: "Read one task whole: brief, thread, log, blockers",
+    title:
+      "Read one task whole: brief, thread, log (a brief edit keeps the previous brief in `was`), blockers with their statuses, what it unblocks, issuable (can be started now)",
     args: [{ name: "id", type: "string", required: true, description: "The task id (task-N)" }],
     run: async (args, source) => {
       const who = caller(source, deps);
@@ -345,7 +347,7 @@ function commentCommand(deps: TaskCommandDeps): CommandSpec {
 function nextCommand(deps: TaskCommandDeps): CommandSpec {
   return {
     id: "task.next",
-    title: "The head of your queue: your first task that can be started",
+    title: "The head of your queue: your first issuable task — in todo with every blocker done or cancelled",
     args: [],
     run: async (_args, source) => {
       const who = caller(source, deps);
