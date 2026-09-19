@@ -160,6 +160,12 @@ function full(task: Task, board: TaskBoard) {
   };
 }
 
+/** The one sentence a caller hears when its change is held but not yet
+ * on disk. Empty when it landed. */
+function unsavedNote(saved: boolean, saveError: string | null): string {
+  return saved ? "" : ` — NOT saved to disk yet (${saveError ?? "unknown"}); the board keeps it in memory and retries`;
+}
+
 function settled(result: TaskResult): Extract<TaskResult, { ok: true }> {
   if (!result.ok) throw new Error(refusalText(result.refusal));
   return result;
@@ -205,7 +211,7 @@ function createCommand(deps: TaskCommandDeps): CommandSpec {
     run: async (args, source) => {
       const who = caller(source, deps);
       const team = teamFor(args, who);
-      const { task } = settled(
+      const { task, saved, saveError } = settled(
         await deps.tasks.create(
           who.workspace.id,
           {
@@ -226,12 +232,14 @@ function createCommand(deps: TaskCommandDeps): CommandSpec {
         status: task.status,
         priority: task.priority,
         assignee: task.assignee,
+        saved,
         // The board delivers nothing. Said once, as an offer — the
         // assignee learns of the task only if somebody tells them.
         note:
-          task.assignee === null
+          (task.assignee === null
             ? "in the team's pool — anyone on the team may take it; nobody is told by the board"
-            : `assigned to ${task.assignee} — the board tells nobody; you can tell them with mail.send, naming ${task.id}`,
+            : `assigned to ${task.assignee} — the board tells nobody; you can tell them with mail.send, naming ${task.id}`) +
+          unsavedNote(saved, saveError),
       };
     },
   };
@@ -314,11 +322,19 @@ function updateCommand(deps: TaskCommandDeps): CommandSpec {
       }
       const board = await boardOf(deps, who.workspace.id);
       const before = visible(board, id, team);
-      const { task } = settled(await deps.tasks.apply(who.workspace.id, id, changes, who.actor));
+      const { task, saved, saveError } = settled(await deps.tasks.apply(who.workspace.id, id, changes, who.actor));
       const changed = (["status", "assignee", "priority", "title", "body", "blockedBy", "artifacts"] as const).filter(
         (field) => JSON.stringify(before[field]) !== JSON.stringify(task[field]),
       );
-      return { id: task.id, changed, status: task.status, assignee: task.assignee, priority: task.priority };
+      return {
+        id: task.id,
+        changed,
+        status: task.status,
+        assignee: task.assignee,
+        priority: task.priority,
+        saved,
+        ...(saved ? {} : { note: unsavedNote(saved, saveError).trim() }),
+      };
     },
   };
 }
@@ -338,8 +354,15 @@ function commentCommand(deps: TaskCommandDeps): CommandSpec {
       const board = await boardOf(deps, who.workspace.id);
       visible(board, id, team);
       const body = typeof args.body === "string" ? args.body : "";
-      const { task } = settled(await deps.tasks.apply(who.workspace.id, id, [{ kind: "comment", body }], who.actor));
-      return { id: task.id, n: task.comments[task.comments.length - 1]?.n ?? 0 };
+      const { task, saved, saveError } = settled(
+        await deps.tasks.apply(who.workspace.id, id, [{ kind: "comment", body }], who.actor),
+      );
+      return {
+        id: task.id,
+        n: task.comments[task.comments.length - 1]?.n ?? 0,
+        saved,
+        ...(saved ? {} : { note: unsavedNote(saved, saveError).trim() }),
+      };
     },
   };
 }

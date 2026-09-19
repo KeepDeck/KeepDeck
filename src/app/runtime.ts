@@ -243,7 +243,14 @@ export function createAppRuntime(
   };
   const tasksPolicy = createEnablePolicy(
     { desired: () => getSettings()?.tasks ?? null, subscribe: subscribeSettings },
-    { enable: tasksEnable, disable: tasksDisable },
+    {
+      enable: tasksEnable,
+      // Let queued writes land before the store closes under them.
+      disable: async () => {
+        await tasksService?.flush();
+        await tasksDisable();
+      },
+    },
     (transition) => {
       tasksEnableOk = transition.ok;
       tasksEnableStatus.record(transition);

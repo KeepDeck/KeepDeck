@@ -173,6 +173,11 @@ export function TasksDialog({
             {board.error}
           </p>
         )}
+        {board.unsaved !== null && (
+          <p className="tasks__error kd-selectable" role="alert">
+            {board.unsaved}
+          </p>
+        )}
 
         {!staged ? (
           <div className="tasks__placeholder">

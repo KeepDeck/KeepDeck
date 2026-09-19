@@ -121,7 +121,14 @@ describe("task commands", () => {
       { id: "task-1", assignee: "impl-2", priority: "low", title: "renamed", artifacts: "kd-tasks, kd-tasks-ui" },
       LEAD,
     );
-    expect(changed).toEqual({ id: "task-1", changed: ["assignee", "priority", "title", "artifacts"], status: "todo", assignee: "impl-2", priority: "low" });
+    expect(changed).toEqual({
+      id: "task-1",
+      changed: ["assignee", "priority", "title", "artifacts"],
+      status: "todo",
+      assignee: "impl-2",
+      priority: "low",
+      saved: true,
+    });
     expect((await run("task.update", { id: "task-1", assignee: "pool" }, LEAD)).assignee).toBeNull();
     expect(await refused("task.update", { id: "task-1" }, LEAD)).toContain("nothing to change");
     expect(await refused("task.update", { id: "pane-1", status: "in-progress" }, LEAD)).toContain("not a task id");
@@ -152,6 +159,17 @@ describe("task commands", () => {
     await run("task.update", { id: "task-2", status: "review" }, IMPL2);
     expect(((await run("task.mine", {}, IMPL1)).tasks as { id: string }[]).map((t) => t.id)).toEqual(["task-1"]);
     expect(((await run("task.mine", {}, LEAD)).tasks as { id: string }[]).map((t) => t.id)).toEqual(["task-2"]);
+  });
+
+  it("tells the agent when its change is held but not on disk", async () => {
+    const { run, store } = setup();
+    const landed = await run("task.create", { title: "a" }, LEAD);
+    expect(landed.saved).toBe(true);
+    expect(landed.note).not.toContain("NOT saved");
+    store.failNextWrite("disk full");
+    const held = await run("task.update", { id: "task-1", priority: "high" }, LEAD);
+    expect(held.saved).toBe(false);
+    expect(held.note).toContain("NOT saved to disk yet (disk full)");
   });
 
   it("promises no delivery anywhere in what an agent reads", async () => {

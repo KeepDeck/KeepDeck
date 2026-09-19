@@ -12,9 +12,25 @@ function setup(files: Record<string, string> = {}) {
   const store = fakeStore(files);
   const workspaces = teamedWorkspaces();
   const events: TaskEvent[] = [];
-  const service = createTasksService({ workspaces: () => workspaces, store: store.port, now: () => 42 });
+  const timers: (() => void)[] = [];
+  const service = createTasksService({
+    workspaces: () => workspaces,
+    store: store.port,
+    now: () => 42,
+    schedule: (fn) => {
+      timers.push(fn);
+      return () => {
+        const at = timers.indexOf(fn);
+        if (at >= 0) timers.splice(at, 1);
+      };
+    },
+  });
   service.onEvent((event) => events.push(event));
-  return { service, store, events, workspaces };
+  /** Fire every armed retry once. */
+  const tick = () => {
+    for (const fn of timers.splice(0)) fn();
+  };
+  return { service, store, events, workspaces, tick };
 }
 
 describe("createTasksService", () => {
@@ -23,14 +39,14 @@ describe("createTasksService", () => {
     let told = 0;
     service.subscribe(() => (told += 1));
     expect(service.board("ws-1")).toEqual({ kind: "loading" });
-    expect(await service.ready("ws-1")).toEqual({ kind: "ready", board: { nextId: 1, tasks: [] } });
+    expect(await service.ready("ws-1")).toEqual({ kind: "ready", board: { nextId: 1, tasks: [] }, unsaved: null });
     expect(told).toBeGreaterThanOrEqual(2);
   });
 
   it("a stored board comes back decoded", async () => {
     const stored = board([task({ id: "task-1", assignee: "impl-1" })], 5);
     const { service } = setup({ "ws-1": encodeBoard(stored) });
-    expect(await service.ready("ws-1")).toEqual({ kind: "ready", board: stored });
+    expect(await service.ready("ws-1")).toEqual({ kind: "ready", board: stored, unsaved: null });
   });
 
   it("a board that does not decode is unreadable: refused for writing, never written back", async () => {
@@ -139,6 +155,37 @@ describe("createTasksService", () => {
     service.forget("ws-1");
     store.files.delete("ws-1");
     expect(service.board("ws-1")).toEqual({ kind: "loading" });
-    expect(await service.ready("ws-1")).toEqual({ kind: "ready", board: { nextId: 1, tasks: [] } });
+    expect(await service.ready("ws-1")).toEqual({ kind: "ready", board: { nextId: 1, tasks: [] }, unsaved: null });
+  });
+
+  it("a failed write is not a silent success: the caller hears it, the board shows it, and a retry lands it", async () => {
+    const { service, store, tick } = setup();
+    await service.create("ws-1", { teamId: "team-1", title: "kept" }, lead);
+    store.failNextWrite("disk full");
+    const result = await service.create("ws-1", { teamId: "team-1", title: "not saved yet" }, lead);
+    expect(result.ok && result.saved).toBe(false);
+    expect(result.ok && result.saveError).toBe("disk full");
+    let state = service.peek("ws-1");
+    expect(state?.kind === "ready" && state.unsaved).toBe("disk full");
+    expect((JSON.parse(store.files.get("ws-1")!) as TaskBoard).tasks).toHaveLength(1);
+    // The retry, when its time comes, writes the board memory holds.
+    tick();
+    await service.flush();
+    await flush();
+    state = service.peek("ws-1");
+    expect(state?.kind === "ready" && state.unsaved).toBeNull();
+    expect((JSON.parse(store.files.get("ws-1")!) as TaskBoard).tasks.map((t) => t.title)).toEqual(["kept", "not saved yet"]);
+  });
+
+  it("a later successful write clears the mark; a success that is not the latest write does not", async () => {
+    const { service, store } = setup();
+    store.failNextWrite("disk full");
+    const failed = await service.create("ws-1", { teamId: "team-1", title: "a" }, lead);
+    expect(failed.ok && failed.saved).toBe(false);
+    const landed = await service.create("ws-1", { teamId: "team-1", title: "b" }, lead);
+    expect(landed.ok && landed.saved).toBe(true);
+    const state = service.peek("ws-1");
+    expect(state?.kind === "ready" && state.unsaved).toBeNull();
+    expect((JSON.parse(store.files.get("ws-1")!) as TaskBoard).tasks.map((t) => t.title)).toEqual(["a", "b"]);
   });
 });

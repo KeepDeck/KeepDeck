@@ -23,6 +23,7 @@ import {
   queuesView,
   taskDetailView,
   tasksLadder,
+  unsavedBanner,
   type ArtifactRef,
 } from "../../presentation/tasks";
 
@@ -155,6 +156,7 @@ export function useTasksBoard(
     [service, workspaceId, revision],
   );
   const board = state?.kind === "ready" ? state.board : null;
+  const unsaved = state?.kind === "ready" && state.unsaved !== null ? unsavedBanner(state.unsaved) : null;
   const teamTasks = useMemo(
     () => (board && teamId !== null ? tasksOfTeam(board, teamId) : []),
     [board, teamId],
@@ -300,6 +302,7 @@ export function useTasksBoard(
     narrow: () => setWide(false),
     form,
     error,
+    unsaved,
     move: (taskId: string, to: TaskStatus) => apply(taskId, [{ kind: "status", to }]),
     assign: (taskId: string, assignee: string) => apply(taskId, [{ kind: "assign", assignee: assignee === "" ? null : assignee }]),
     setPriority: (taskId: string, to: TaskPriority) => apply(taskId, [{ kind: "priority", to }]),

@@ -211,7 +211,11 @@ describe("teamCardTasksLine", () => {
 });
 
 describe("ladder and badge", () => {
-  const ready = { kind: "ready" as const, board: board([task({ id: "task-1", status: "blocked" }), task({ id: "task-2", status: "review" }), task({ id: "task-3" })]) };
+  const ready = {
+    kind: "ready" as const,
+    board: board([task({ id: "task-1", status: "blocked" }), task({ id: "task-2", status: "review" }), task({ id: "task-3" })]),
+    unsaved: null,
+  };
   const base = { workspaceId: "ws-1", hasTeam: true, ownerUp: true, enableRefusal: null, state: ready, taskCount: 3 };
 
   it("classifies in order: no workspace, owner down (refusal or loading), no team, loading, unreadable, empty, board", () => {

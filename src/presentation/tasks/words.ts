@@ -51,6 +51,11 @@ export const PRIORITY_LABEL: Record<TaskPriority, string> = {
   low: "Low",
 };
 
+/** What the dialog says over a board whose disk lags its memory. */
+export function unsavedBanner(error: string): string {
+  return `Changes not saved yet — ${error}. The board keeps them and retries on its own.`;
+}
+
 /** What the pool is called wherever an empty assignee is shown. */
 export const POOL_LABEL = "pool";
 

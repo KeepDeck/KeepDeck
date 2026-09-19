@@ -49,11 +49,23 @@ export interface TasksServiceDeps {
   workspaces(): readonly Workspace[];
   store: TasksStorePort;
   now?(): number;
+  /** `setTimeout`, injected so tests drive the clock. Returns its cancel. */
+  schedule?(fn: () => void, ms: number): () => void;
 }
+
+/** How long after a failed write the board tries again on its own. */
+export const RETRY_WRITE_MS = 3_000;
 
 export type BoardState =
   | { kind: "loading" }
-  | { kind: "ready"; board: TaskBoard }
+  | {
+      kind: "ready";
+      board: TaskBoard;
+      /** Why the board on disk lags the one here — the last write's
+       * failure, verbatim — or null while disk and memory agree. The
+       * board retries on its own; this is how a surface says so. */
+      unsaved: string | null;
+    }
   /** The file did not decode; its words, verbatim. Read-only until fixed. */
   | { kind: "unreadable"; error: string };
 
@@ -65,7 +77,16 @@ export type TaskProblem =
   | { kind: "unknown-task"; id: string };
 
 export type TaskResult =
-  | { ok: true; task: Task; board: TaskBoard }
+  | {
+      ok: true;
+      task: Task;
+      board: TaskBoard;
+      /** Whether the write that carried this change landed. False means
+       * the board holds it in memory and retries — a caller that answers
+       * an agent must say so, or a work order is confirmed and lost. */
+      saved: boolean;
+      saveError: string | null;
+    }
   | { ok: false; refusal: TaskProblem };
 
 /** What the human is told about. Three events and no more: a task put on
@@ -101,6 +122,10 @@ export interface TasksService {
     actor: TaskActor,
   ): Promise<TaskResult>;
   onEvent(listener: (event: TaskEvent) => void): () => void;
+  /** Settles once every queued write has been tried — what a shutdown or
+   * a disable waits for, so a board is not left unsaved by the store
+   * closing under it. */
+  flush(): Promise<void>;
   /** The workspace is gone: drop what is held for it. The disk half is the
    * forgetter's. */
   forget(workspaceId: string): void;
@@ -109,10 +134,19 @@ export interface TasksService {
 
 export function createTasksService(deps: TasksServiceDeps): TasksService {
   const now = deps.now ?? (() => Date.now());
+  const schedule =
+    deps.schedule ??
+    ((fn: () => void, ms: number) => {
+      const handle = setTimeout(fn, ms);
+      return () => clearTimeout(handle);
+    });
   const states = new Map<string, BoardState>();
+  /** One armed retry per workspace whose last write failed. */
+  const retries = new Map<string, () => void>();
   const loads = new Map<string, Promise<BoardState>>();
-  /** The write chain per workspace — one board after another, in order. */
-  const writes = new Map<string, Promise<void>>();
+  /** The write chain per workspace — one board after another, in order;
+   * each settles to the error it hit, or null. */
+  const writes = new Map<string, Promise<string | null>>();
   const listeners = new Set<() => void>();
   const eventListeners = new Set<(event: TaskEvent) => void>();
   let revision = 0;
@@ -135,9 +169,9 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
     const loading = deps.store
       .read({ workspaceId })
       .then((json): BoardState => {
-        if (json === null) return { kind: "ready", board: EMPTY_BOARD };
+        if (json === null) return { kind: "ready", board: EMPTY_BOARD, unsaved: null };
         const decoded = decodeBoard(json);
-        if (decoded.ok) return { kind: "ready", board: decoded.board };
+        if (decoded.ok) return { kind: "ready", board: decoded.board, unsaved: null };
         log.warn("web:tasks", `${workspaceId}: ${decoded.error} — the board is read-only until the file is fixed`);
         return { kind: "unreadable", error: decoded.error };
       })
@@ -156,16 +190,52 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
     return loading;
   };
 
-  const persist = (workspaceId: string, board: TaskBoard) => {
+  /** Record whether disk and memory agree, when the board is still here. */
+  const markUnsaved = (workspaceId: string, error: string | null) => {
+    const state = states.get(workspaceId);
+    if (state?.kind !== "ready" || state.unsaved === error) return;
+    set(workspaceId, { ...state, unsaved: error });
+  };
+
+  /**
+   * Write one board, after every write queued before it, and say how it
+   * went. A failure is not swallowed: the board is marked unsaved for
+   * every surface to see, the caller hears it, and a retry is armed —
+   * the board in memory is the authority and the disk catches up.
+   */
+  const persist = (workspaceId: string, board: TaskBoard): Promise<string | null> => {
     const json = encodeBoard(board);
-    const previous = writes.get(workspaceId) ?? Promise.resolve();
-    const next = previous
+    const previous = writes.get(workspaceId) ?? Promise.resolve(null);
+    const next: Promise<string | null> = previous
       .then(() => deps.store.write({ workspaceId, json }))
-      .catch((e: unknown) => {
-        // The board in memory stands; the next change writes it again.
-        log.warn("web:tasks", `${workspaceId}: writing the board failed: ${describeError(e)}`);
-      });
+      .then(
+        () => {
+          // Only the LATEST write's success means disk and memory agree.
+          if (writes.get(workspaceId) === next) markUnsaved(workspaceId, null);
+          return null;
+        },
+        (e: unknown) => {
+          const error = describeError(e);
+          log.warn("web:tasks", `${workspaceId}: writing the board failed: ${error}`);
+          markUnsaved(workspaceId, error);
+          armRetry(workspaceId);
+          return error;
+        },
+      );
     writes.set(workspaceId, next);
+    return next;
+  };
+
+  const armRetry = (workspaceId: string) => {
+    if (disposed || retries.has(workspaceId)) return;
+    retries.set(
+      workspaceId,
+      schedule(() => {
+        retries.delete(workspaceId);
+        const state = states.get(workspaceId);
+        if (state?.kind === "ready" && state.unsaved !== null) void persist(workspaceId, state.board);
+      }, RETRY_WRITE_MS),
+    );
   };
 
   const emit = (event: TaskEvent) => {
@@ -193,9 +263,12 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
     return { ok: true, board: state.board };
   };
 
-  const commit = (workspaceId: string, board: TaskBoard) => {
-    set(workspaceId, { kind: "ready", board });
-    persist(workspaceId, board);
+  /** The board decided: held here at once, written after. The unsaved
+   * mark carries over until a write lands. */
+  const commit = (workspaceId: string, board: TaskBoard): Promise<string | null> => {
+    const state = states.get(workspaceId);
+    set(workspaceId, { kind: "ready", board, unsaved: state?.kind === "ready" ? state.unsaved : null });
+    return persist(workspaceId, board);
   };
 
   return {
@@ -235,9 +308,10 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
         at: now(),
       });
       if (!result.ok) return result;
-      commit(workspaceId, result.board);
+      const pending = commit(workspaceId, result.board);
       emit({ kind: "created", workspaceId, task: result.task, actor });
-      return { ok: true, task: result.task, board: result.board };
+      const saveError = await pending;
+      return { ok: true, task: result.task, board: result.board, saved: saveError === null, saveError };
     },
     async apply(workspaceId, taskId, changes, actor) {
       await load(workspaceId);
@@ -256,19 +330,25 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
         task = result.task;
         board = replaceTask(board, task);
       }
-      if (task === before) return { ok: true, task, board };
-      commit(workspaceId, board);
+      if (task === before) return { ok: true, task, board, saved: true, saveError: null };
+      const pending = commit(workspaceId, board);
       if (task.status !== before.status) {
         if (task.status === "blocked") emit({ kind: "blocked", workspaceId, task, actor });
         if (task.status === "done") emit({ kind: "done", workspaceId, task, actor });
       }
-      return { ok: true, task, board };
+      const saveError = await pending;
+      return { ok: true, task, board, saved: saveError === null, saveError };
     },
     onEvent(listener) {
       eventListeners.add(listener);
       return () => eventListeners.delete(listener);
     },
+    async flush() {
+      await Promise.all([...writes.values()]);
+    },
     forget(workspaceId) {
+      retries.get(workspaceId)?.();
+      retries.delete(workspaceId);
       states.delete(workspaceId);
       loads.delete(workspaceId);
       writes.delete(workspaceId);
@@ -276,6 +356,8 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
     },
     dispose() {
       disposed = true;
+      for (const cancel of retries.values()) cancel();
+      retries.clear();
       listeners.clear();
       eventListeners.clear();
     },
