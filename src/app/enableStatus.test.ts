@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { createArtifactsEnableStatus, refusalOf } from "./enableStatus";
+import { createEnableStatus, refusalOf } from "./enableStatus";
 
-describe("createArtifactsEnableStatus", () => {
+describe("createEnableStatus", () => {
   it("keeps the last transition whole and tells its readers", () => {
     // Verbatim on purpose: a settings row and a registry want different
     // sentences out of the same fact, so the store must not pre-chew it.
-    const status = createArtifactsEnableStatus();
+    const status = createEnableStatus();
     let told = 0;
     const stop = status.subscribe(() => {
       told += 1;
