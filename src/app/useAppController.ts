@@ -32,6 +32,7 @@ import { buildDockTabs } from "../components/dock/useDockTabs";
 import type { SessionHandle } from "../domain/journal";
 import { DEFAULT_SETTINGS } from "../domain/settings";
 import { artifactsDoorOpen } from "./artifacts/door";
+import { tasksDoorOpen } from "./tasks/door";
 import {
   closeHotkeyTarget,
   findWorkspace,
@@ -158,6 +159,7 @@ export function useAppController() {
     agents,
     openSettings: modal.openSettings,
     openStats: modal.openStats,
+    openTasks: modal.openTasks,
     pushAlert,
     requestCloseAgent: closeFlow.requestCloseAgent,
     requestDisbandTeam: closeFlow.requestDisbandTeam,
@@ -167,6 +169,7 @@ export function useAppController() {
     agents,
     openSettings: modal.openSettings,
     openStats: modal.openStats,
+    openTasks: modal.openTasks,
     pushAlert,
     requestCloseAgent: closeFlow.requestCloseAgent,
     requestDisbandTeam: closeFlow.requestDisbandTeam,
@@ -182,6 +185,7 @@ export function useAppController() {
       openSettings: (sectionId) =>
         current().openSettings(sectionId ?? undefined),
       openUsage: (tab) => current().openStats(tab),
+      openTasks: (taskId) => current().openTasks(taskId),
       setCreating: (next) => current().setCreating(next),
       pushAlert: (title, message) => current().pushAlert(title, message),
     });
@@ -438,6 +442,15 @@ export function useAppController() {
           }
         : null,
     closeArtifacts: modal.closeArtifacts,
+    /** The Tasks door, gated like the artifacts one: null while the
+     * feature is off, so the bar shows no way into a refusal. */
+    openTasks: tasksDoorOpen(settings)
+      ? (taskId?: string | null) => modal.openTasks(taskId)
+      : null,
+    closeTasks: modal.closeTasks,
+    tasksOpen: modal.tasksOpen,
+    tasksFocus: modal.tasksFocus,
+    focusTask: modal.focusTask,
     openStats: modal.openStats,
     closeStats: modal.closeStats,
     selectStatsTab: modal.selectStatsTab,

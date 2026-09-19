@@ -77,6 +77,12 @@ describe("addNotification", () => {
 });
 
 describe("bannerCooldownKey", () => {
+  it("a tasks entry cools on its workspace's board, whichever task moved", () => {
+    const workspace = { id: "ws-1", instance: ws1 };
+    expect(bannerCooldownKey({ source: { type: "tasks", workspace, taskId: "task-1" } })).toBe("tasks:ws-1");
+    expect(bannerCooldownKey({ source: { type: "tasks", workspace, taskId: "task-2" } })).toBe("tasks:ws-1");
+  });
+
   const otherPane = {
     type: "pane",
     workspace: { id: "ws-9", instance: ws1 },

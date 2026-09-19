@@ -2,8 +2,8 @@ import { useState } from "react";
 import { isStatsTab, type StatsTab } from "../domain/usage/statsTabs";
 
 /**
- * THE owner of the app-surface dialog layer: which of the five exclusive
- * dialogs (settings, statistics, skills, MCP servers, artifacts) is open, and every verb that
+ * THE owner of the app-surface dialog layer: which of the six exclusive
+ * dialogs (settings, statistics, skills, MCP servers, artifacts, tasks) is open, and every verb that
  * opens, closes or retargets one. All entry points — toolbar, hotkey,
  * update banner, notification deep link, future command — speak these
  * verbs, so the gate ("one dialog at a time, never over a transaction")
@@ -27,11 +27,14 @@ export function useModalRouter({
   const [skillsOpen, setSkillsOpen] = useState(false);
   const [mcpOpen, setMcpOpen] = useState(false);
   const [artifactsOpen, setArtifactsOpen] = useState(false);
+  const [tasksOpen, setTasksOpen] = useState(false);
+  /** The task the dialog should land on, when a door named one. */
+  const [tasksFocus, setTasksFocus] = useState<string | null>(null);
   const [statsOpen, setStatsOpen] = useState(false);
   const [statsTab, setStatsTab] = useState<StatsTab>("overview");
 
   const anyDialogOpen =
-    settingsOpen || statsOpen || skillsOpen || mcpOpen || artifactsOpen;
+    settingsOpen || statsOpen || skillsOpen || mcpOpen || artifactsOpen || tasksOpen;
   const canOpenDialog = !transactionOpen && !anyDialogOpen;
 
   const openSettings = (sectionId?: string): boolean => {
@@ -76,6 +79,28 @@ export function useModalRouter({
     setArtifactsOpen(false);
   };
 
+  /** Tasks, the Stats shape: a deep link naming a task while the dialog is
+   * already open refocuses it instead of being swallowed; closing forgets
+   * the focus. */
+  const openTasks = (taskId?: string | null): boolean => {
+    if (tasksOpen) {
+      if (taskId) setTasksFocus(taskId);
+      return true;
+    }
+    if (!canOpenDialog) return false;
+    setTasksFocus(taskId ?? null);
+    setTasksOpen(true);
+    return true;
+  };
+  const closeTasks = () => {
+    if (transactionOpen) return;
+    setTasksOpen(false);
+    setTasksFocus(null);
+  };
+  /** The dialog's own selection moves through the same seam the deep link
+   * uses, so one owner holds which task is open. */
+  const focusTask = (taskId: string | null) => setTasksFocus(taskId);
+
   /** The Stats trio: a deep link arriving while the dialog is already open
    * switches tabs instead of being swallowed; closing resets to Overview. */
   const openStats = (tab?: StatsTab | null): boolean => {
@@ -119,6 +144,11 @@ export function useModalRouter({
     artifactsOpen,
     openArtifacts,
     closeArtifacts,
+    tasksOpen,
+    tasksFocus,
+    openTasks,
+    closeTasks,
+    focusTask,
     statsOpen,
     statsTab,
     openStats,

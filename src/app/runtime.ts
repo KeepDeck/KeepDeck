@@ -41,6 +41,7 @@ import { artifactsDisable, artifactsEnable, artifactDropWorkspace } from "../ipc
 import { createEnablePolicy } from "./enablePolicy";
 import { createTasksService, registerTaskCommands, type TasksService } from "./tasks";
 import { tasksEnableStatus } from "./tasks/enableStatus";
+import { announceTask } from "./tasks/producers";
 import { tasksDisable, tasksDropWorkspace, tasksEnable, tasksRead, tasksWrite } from "../ipc/tasks";
 import { createPaneAttribution } from "./paneAttribution";
 import { createPluginDeckBridge } from "./pluginDeckBridge";
@@ -257,6 +258,11 @@ export function createAppRuntime(
         workspaces: () => deckStore.getSnapshot().workspaces,
         store: { read: tasksRead, write: tasksWrite },
       });
+      // The human's three notifications ride the owner's events; they
+      // go with it when it is disposed.
+      tasksService.onEvent((event) =>
+        announceTask(event, { workspaces: () => deckStore.getSnapshot().workspaces }),
+      );
       tasksChanged();
     } else if (!wanted && tasksService !== null) {
       disposeTaskCommands?.();
