@@ -20,22 +20,25 @@ import {
 } from "../../domain/tasks";
 import {
   IDLE,
+  INITIAL_SCREEN,
   armCard,
+  assigneeOf,
   boardView,
   clickDisbelieved,
   moveCard,
   newTaskFormView,
   queuesView,
   releaseCard,
-  selectionAfterClick,
+  screenReducer,
   taskDetailView,
   tasksLadder,
   teamOnScreen,
-  toggledFold,
   unsavedBanner,
+  wideView,
   type ArtifactRef,
   type CardGrip,
   type DragState,
+  type ScreenAction,
   type TasksMode,
 } from "../../presentation/tasks";
 
@@ -63,6 +66,8 @@ export function useTasksBoard(
   workspace: Workspace | null,
   focus: string | null,
   onFocus: (taskId: string | null) => void,
+  /** The dialog's own close — what an Escape with nothing left to peel does. */
+  onClose: () => void,
   now: number,
   /** The artifacts registry as this surface may read it — for the open
    * task's attachments. Bound once at the composition root. */
@@ -74,11 +79,23 @@ export function useTasksBoard(
     useSyncExternalStore(tasksEnableStatus.subscribe, tasksEnableStatus.last, tasksEnableStatus.last),
   );
   const teams = workspace ? teamsOf(workspace) : [];
-  const [chosenTeam, setChosenTeam] = useState<string | null>(null);
-  const [mode, setMode] = useState<TasksMode>("board");
-  const [showCancelled, setShowCancelled] = useState(false);
-  const [folds, setFolds] = useState<ReadonlyMap<TaskStatus, boolean>>(new Map());
-  const [composing, setComposing] = useState(false);
+  // The screen's state is ONE value and every transition is the
+  // presentation machine's; this hook applies what it answers. A ref
+  // mirrors it so a sequence of actions within one event sees its own
+  // effects, and no decision runs inside a React updater.
+  const [screen, setScreen] = useState(INITIAL_SCREEN);
+  const screenRef = useRef(screen);
+  const run = useCallback(
+    (action: ScreenAction) => {
+      const outcome = screenReducer(screenRef.current, action);
+      screenRef.current = outcome.state;
+      setScreen(outcome.state);
+      if (outcome.focus !== undefined) onFocus(outcome.focus);
+      if (outcome.closeDialog) onClose();
+    },
+    [onFocus, onClose],
+  );
+  const { mode, showCancelled, folds, chosenTeam, composing, hover } = screen;
   /** The workspace's artifacts, for the open task's attachments. Read
    * when a task is open and re-read when the registry changes; empty
    * (never an error) when the artifacts feature is off. */
@@ -104,14 +121,18 @@ export function useTasksBoard(
     };
   }, [artifactReads, workspaceId, focus, artifactRevision]);
   const knownArtifacts = artifacts !== null && artifacts.ws === workspaceId ? artifacts.list : [];
-  /** The open task filling the stage, the board put away behind it. */
-  const [wide, setWide] = useState(false);
   // Pointer events, not HTML5 drag: the webview hands the deck no native
   // drags (the OS drop router owns them), so a card is dragged the way a
   // pane is. What a press, a move and a release DO is the presentation
-  // machine's (`cardDrag`); this hook feeds it pointer facts.
+  // machine's (`cardDrag`); this hook feeds it pointer facts. The ref is
+  // the state read by handlers — never a React updater, which StrictMode
+  // runs twice and which must not perform IO.
   const [drag, setDrag] = useState<DragState>(IDLE);
-  const [hover, setHover] = useState<TaskStatus | null>(null);
+  const dragRef = useRef<DragState>(IDLE);
+  const updateDrag = (next: DragState) => {
+    dragRef.current = next;
+    setDrag(next);
+  };
   const dragEndedAt = useRef<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -142,7 +163,7 @@ export function useTasksBoard(
       const task = board ? findTask(board, id) : undefined;
       return board && task ? new Set(reachableStatuses(task, USER_ACTOR, { board, roster, at: now })) : null;
     };
-    const onMove = (event: PointerEvent) => setDrag((current) => moveCard(current, event.clientX, event.clientY, targetsOf));
+    const onMove = (event: PointerEvent) => updateDrag(moveCard(dragRef.current, event.clientX, event.clientY, targetsOf));
     // A release anywhere ends the drag; a column's own release handler
     // (the drop) runs first, in the bubble phase before the window's.
     const onUp = () => release(null);
@@ -173,15 +194,14 @@ export function useTasksBoard(
   const lanes = board && teamId !== null ? queuesView(board, teamId, roster, now) : [];
   const form = newTaskFormView(roster);
 
-  /** The pointer was released over `over` (a column, or nothing). */
+  /** The pointer was released over `over` (a column, or nothing). One
+   * release is one outcome: decided from the ref, applied once, here. */
   const release = (over: TaskStatus | null) => {
-    setDrag((current) => {
-      const outcome = releaseCard(current, over);
-      if (outcome.dragged) dragEndedAt.current = Date.now();
-      if (outcome.move) void apply(outcome.move.id, [{ kind: "status", to: outcome.move.to }]);
-      return outcome.state;
-    });
-    setHover(null);
+    const outcome = releaseCard(dragRef.current, over);
+    updateDrag(outcome.state);
+    if (outcome.dragged) dragEndedAt.current = Date.now();
+    if (outcome.move) void apply(outcome.move.id, [{ kind: "status", to: outcome.move.to }]);
+    run({ type: "hover", status: null, dragging: false });
   };
 
   const write = useCallback(
@@ -209,21 +229,13 @@ export function useTasksBoard(
   return {
     ladder,
     mode,
-    setMode,
+    setMode: (next: TasksMode) => run({ type: "mode", mode: next }),
     teams: teams.map((team) => ({ id: team.id, name: team.name })),
     teamId,
-    selectTeam: (id: string) => {
-      setChosenTeam(id);
-      onFocus(null);
-    },
+    selectTeam: (id: string) => run({ type: "team", id }),
     showCancelled,
-    toggleCancelled: () => setShowCancelled((current) => !current),
-    /** Hide or Show a closed column: what the press sets is the view's call. */
-    toggleColumn: (status: TaskStatus) => {
-      const fold = toggledFold(columns, status);
-      if (fold === null) return;
-      setFolds((current) => new Map(current).set(status, fold));
-    },
+    toggleCancelled: () => run({ type: "toggleCancelled" }),
+    toggleColumn: (status: TaskStatus) => run({ type: "fold", status, columns }),
     columns,
     lanes,
     detail,
@@ -231,41 +243,30 @@ export function useTasksBoard(
     select: (taskId: string) => {
       // The click that follows a drop is the same press that dragged.
       if (clickDisbelieved(dragEndedAt.current, Date.now())) return;
-      setComposing(false);
-      const next = selectionAfterClick(focus, taskId);
-      if (next === null) setWide(false);
-      onFocus(next);
+      run({ type: "card", id: taskId, open: focus });
     },
-    close: () => {
-      setWide(false);
-      onFocus(null);
-    },
+    close: () => run({ type: "close" }),
+    escape: () => run({ type: "escape", detailOpen: detail !== null }),
     drag,
     hover,
     /** A card was pressed: it becomes a drag once the pointer travels. */
-    armDrag: (taskId: string, x: number, y: number, grip: CardGrip) => setDrag(armCard(taskId, x, y, grip)),
+    armDrag: (taskId: string, x: number, y: number, grip: CardGrip) => updateDrag(armCard(taskId, x, y, grip)),
     /** The pointer is over a column, or over none. */
-    hoverColumn: (status: TaskStatus | null) => {
-      if (drag.kind === "dragging") setHover(status);
-    },
+    hoverColumn: (status: TaskStatus | null) => run({ type: "hover", status, dragging: dragRef.current.kind === "dragging" }),
     /** Released over a column. */
     dropOn: release,
     composing,
-    compose: () => {
-      onFocus(null);
-      setWide(false);
-      setComposing(true);
-    },
-    cancelCompose: () => setComposing(false),
-    /** Wide only while a task is open — a wide nothing is the board. */
-    wide: wide && detail !== null,
-    toggleWide: () => setWide((current) => !current),
-    narrow: () => setWide(false),
+    compose: () => run({ type: "compose" }),
+    cancelCompose: () => run({ type: "cancelCompose" }),
+    toggleCompose: () => run({ type: "toggleCompose" }),
+    wide: wideView(screen, detail !== null),
+    toggleWide: () => run({ type: "toggleWide", detailOpen: detail !== null }),
+    narrow: () => run({ type: "narrow" }),
     form,
     error,
     unsaved,
     move: (taskId: string, to: TaskStatus) => void apply(taskId, [{ kind: "status", to }]),
-    assign: (taskId: string, assignee: string) => void apply(taskId, [{ kind: "assign", assignee: assignee === "" ? null : assignee }]),
+    assign: (taskId: string, assignee: string) => void apply(taskId, [{ kind: "assign", assignee: assigneeOf(assignee) }]),
     setPriority: (taskId: string, to: TaskPriority) => void apply(taskId, [{ kind: "priority", to }]),
     comment: (taskId: string, body: string) => apply(taskId, [{ kind: "comment", body }]),
     attachArtifact: (taskId: string, slug: string) => {
@@ -288,12 +289,11 @@ export function useTasksBoard(
     },
     create: async (input: Omit<CreateTaskInput, "teamId">) => {
       if (!service || workspaceId === null || teamId === null) return;
-      const ok = await write(async () => {
+      await write(async () => {
         const result = await service.create(workspaceId, { ...input, teamId }, USER_ACTOR);
-        if (result.ok) onFocus(result.task.id);
+        if (result.ok) run({ type: "created", id: result.task.id });
         return result;
       });
-      if (ok) setComposing(false);
     },
   };
 }

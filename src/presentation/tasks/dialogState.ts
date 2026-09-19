@@ -53,6 +53,19 @@ export function cardOf(columns: readonly BoardColumnView[], id: string): TaskCar
   return undefined;
 }
 
+/** What the bar shows for the team: a pick among several, the one
+ * team's name as a word, or nothing on a workspace with none. */
+export function teamControlView(
+  teams: readonly { id: string; name: string }[],
+  teamId: string | null,
+): { kind: "pick"; options: { value: string; label: string }[]; value: string } | { kind: "word"; name: string } | { kind: "none" } {
+  if (teams.length > 1 && teamId !== null) {
+    return { kind: "pick", options: teams.map((team) => ({ value: team.id, label: team.name })), value: teamId };
+  }
+  if (teams.length === 1) return { kind: "word", name: teams[0].name };
+  return { kind: "none" };
+}
+
 /** The words of the bar and the panel head, by state. */
 export const DIALOG_WORDS = {
   cancelledFilter: (showCancelled: boolean) => (showCancelled ? "Hide cancelled" : "Show cancelled"),

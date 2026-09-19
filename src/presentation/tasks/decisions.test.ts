@@ -13,8 +13,11 @@ import {
   moveCard,
   releaseCard,
 } from "./cardDrag";
+import { EMPTY_COMPOSER, beginSend, composerCanSend, finishSend, typeDraft } from "./composer";
 import { canCreateTask, canSendComment } from "./composerView";
-import { DIALOG_WORDS, cardOf, escapeTarget, selectionAfterClick, toggledFold } from "./dialogState";
+import { DIALOG_WORDS, cardOf, escapeTarget, selectionAfterClick, teamControlView, toggledFold } from "./dialogState";
+import { EMPTY_TASK_DRAFT, assigneeOf, taskInputOf } from "./formDraft";
+import { INITIAL_SCREEN, screenReducer, wideView, type ScreenState } from "./screenState";
 import { showTasksSocketHint } from "./settingsView";
 
 const grip = { width: 200, offsetX: 20, offsetY: 10 };
@@ -76,6 +79,31 @@ describe("dialogState", () => {
     expect(cardOf(columns, "task-9")).toBeUndefined();
   });
 
+  it("only a closed column offers Hide/Show", () => {
+    const b = board([task({ id: "task-1" })]);
+    const columns = boardView(b.tasks, b, { showCancelled: true, folds: new Map(), now: 0 });
+    const foldable = columns.filter((column) => column.foldable).map((column) => column.status);
+    expect(foldable).toEqual(["done", "cancelled"]);
+  });
+
+  it("the team control is a pick among several, the one team's name as a word, or nothing", () => {
+    const teams = [
+      { id: "team-1", name: "Tasks" },
+      { id: "team-2", name: "Docs" },
+    ];
+    expect(teamControlView(teams, "team-2")).toEqual({
+      kind: "pick",
+      options: [
+        { value: "team-1", label: "Tasks" },
+        { value: "team-2", label: "Docs" },
+      ],
+      value: "team-2",
+    });
+    expect(teamControlView(teams, null)).toEqual({ kind: "none" });
+    expect(teamControlView([teams[0]], "team-1")).toEqual({ kind: "word", name: "Tasks" });
+    expect(teamControlView([], null)).toEqual({ kind: "none" });
+  });
+
   it("says the bar's and the head's words by state", () => {
     expect(DIALOG_WORDS.cancelledFilter(false)).toBe("Show cancelled");
     expect(DIALOG_WORDS.cancelledFilter(true)).toBe("Hide cancelled");
@@ -85,6 +113,98 @@ describe("dialogState", () => {
     expect(DIALOG_WORDS.wide(true)).toBe("Collapse");
     expect(DIALOG_WORDS.fold(true)).toBe("Show");
     expect(DIALOG_WORDS.poolCaption(true)).toContain("anyone on the team");
+  });
+});
+
+describe("screenState", () => {
+  const open: ScreenState = { ...INITIAL_SCREEN, composing: true, wide: true, chosenTeam: "team-1" };
+
+  it("a card click opens it, closing the form; the open card's click puts it away and narrows", () => {
+    const opened = screenReducer(open, { type: "card", id: "task-1", open: null });
+    expect(opened.focus).toBe("task-1");
+    expect(opened.state).toMatchObject({ composing: false, wide: true });
+    const closed = screenReducer(opened.state, { type: "card", id: "task-1", open: "task-1" });
+    expect(closed.focus).toBeNull();
+    expect(closed.state.wide).toBe(false);
+  });
+
+  it("composing puts the open task away; a created task opens with the form gone", () => {
+    const composing = screenReducer({ ...open, composing: false }, { type: "compose" });
+    expect(composing).toEqual({ state: { ...open, composing: true, wide: false }, focus: null });
+    expect(screenReducer(open, { type: "toggleCompose" }).state.composing).toBe(false);
+    expect(screenReducer({ ...open, composing: false }, { type: "toggleCompose" }).state.composing).toBe(true);
+    const created = screenReducer(open, { type: "created", id: "task-4" });
+    expect(created).toEqual({ state: { ...open, composing: false, wide: false }, focus: "task-4" });
+  });
+
+  it("wide is only with a task open, and only shows with one", () => {
+    expect(screenReducer(INITIAL_SCREEN, { type: "toggleWide", detailOpen: false }).state.wide).toBe(false);
+    expect(screenReducer(INITIAL_SCREEN, { type: "toggleWide", detailOpen: true }).state.wide).toBe(true);
+    expect(screenReducer(open, { type: "toggleWide", detailOpen: true }).state.wide).toBe(false);
+    expect(wideView(open, false)).toBe(false);
+    expect(wideView(open, true)).toBe(true);
+  });
+
+  it("Escape peels one layer at a time and only the last one closes the dialog", () => {
+    const form = screenReducer(open, { type: "escape", detailOpen: true });
+    expect(form).toEqual({ state: { ...open, composing: false } });
+    const wide = screenReducer(form.state, { type: "escape", detailOpen: true });
+    expect(wide).toEqual({ state: { ...open, composing: false, wide: false } });
+    const detail = screenReducer(wide.state, { type: "escape", detailOpen: true });
+    expect(detail).toEqual({ state: wide.state, focus: null });
+    expect(screenReducer(detail.state, { type: "escape", detailOpen: false })).toEqual({ state: detail.state, closeDialog: true });
+  });
+
+  it("another team takes the open task with it; a column hovers only under a drag", () => {
+    expect(screenReducer(open, { type: "team", id: "team-2" })).toEqual({ state: { ...open, chosenTeam: "team-2", wide: false }, focus: null });
+    expect(screenReducer(open, { type: "hover", status: "done", dragging: true }).state.hover).toBe("done");
+    expect(screenReducer(open, { type: "hover", status: "done", dragging: false }).state.hover).toBeNull();
+  });
+
+  it("folds, the filter and the mode are remembered as pressed", () => {
+    const b = board([task({ id: "task-1" }), task({ id: "task-2", status: "done" })]);
+    const columns = boardView(b.tasks, b, { showCancelled: false, folds: new Map(), now: 0 });
+    const folded = screenReducer(INITIAL_SCREEN, { type: "fold", status: "done", columns });
+    expect(folded.state.folds.get("done")).toBe(false);
+    expect(screenReducer(INITIAL_SCREEN, { type: "fold", status: "cancelled", columns }).state).toBe(INITIAL_SCREEN);
+    expect(screenReducer(INITIAL_SCREEN, { type: "toggleCancelled" }).state.showCancelled).toBe(true);
+    expect(screenReducer(INITIAL_SCREEN, { type: "mode", mode: "queues" }).state.mode).toBe("queues");
+  });
+});
+
+describe("composer", () => {
+  it("a send takes the draft as typed, and an accepted send clears only that text", () => {
+    const typed = typeDraft(EMPTY_COMPOSER, "first");
+    expect(composerCanSend(typed)).toBe(true);
+    const begun = beginSend(typed)!;
+    expect(begun.body).toBe("first");
+    expect(composerCanSend(begun.state)).toBe(false);
+    expect(beginSend(begun.state)).toBeNull();
+    expect(finishSend(begun.state, true)).toEqual(EMPTY_COMPOSER);
+  });
+
+  it("text typed while a send is out is kept — accepted or refused", () => {
+    const begun = beginSend(typeDraft(EMPTY_COMPOSER, "first"))!;
+    const typedMeanwhile = typeDraft(begun.state, "first and more");
+    expect(finishSend(typedMeanwhile, true)).toEqual({ draft: "first and more", sending: null });
+    expect(finishSend(typedMeanwhile, false)).toEqual({ draft: "first and more", sending: null });
+    expect(finishSend(begun.state, false)).toEqual({ draft: "first", sending: null });
+    expect(beginSend(EMPTY_COMPOSER)).toBeNull();
+  });
+});
+
+describe("formDraft", () => {
+  it("an empty form is the domain's defaults; an empty assignee pick is the pool", () => {
+    expect(EMPTY_TASK_DRAFT.priority).toBe("normal");
+    expect(assigneeOf("")).toBeNull();
+    expect(assigneeOf("impl-1")).toBe("impl-1");
+    expect(taskInputOf({ ...EMPTY_TASK_DRAFT, title: "Draft", assignee: "" })).toEqual({
+      title: "Draft",
+      body: "",
+      assignee: null,
+      priority: "normal",
+    });
+    expect(taskInputOf({ ...EMPTY_TASK_DRAFT, title: "Draft", assignee: "impl-2", priority: "high" }).assignee).toBe("impl-2");
   });
 });
 

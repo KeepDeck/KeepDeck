@@ -44,7 +44,7 @@ export function BoardColumns({
             <header className="tasks__column-head">
               <span className={`tasks__column-label tasks__column-label--${column.status}`}>{column.label}</span>
               <span className="tasks__column-count">{column.count}</span>
-              {(column.status === "done" || column.status === "cancelled") && (
+              {column.foldable && (
                 <button type="button" className="tasks__column-toggle" onClick={() => onToggleColumn(column.status)}>
                   {DIALOG_WORDS.fold(column.collapsed)}
                 </button>

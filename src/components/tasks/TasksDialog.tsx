@@ -1,7 +1,7 @@
 import { Dropdown } from "@keepdeck/ui-kit";
 import type { ArtifactsRegistryReadPort } from "../../app/artifacts/registryRead";
 import type { Workspace } from "../../domain/deck";
-import { DIALOG_WORDS, LADDER_WORDS, MODE_CHOICES, cardOf, escapeTarget, ghostBox } from "../../presentation/tasks";
+import { DIALOG_WORDS, LADDER_WORDS, MODE_CHOICES, cardOf, ghostBox, teamControlView } from "../../presentation/tasks";
 import { Button } from "../../ui/Button";
 import { CloseButton } from "../../ui/CloseButton";
 import { ModalOverlay } from "../../ui/ModalOverlay";
@@ -49,22 +49,13 @@ export function TasksDialog({
   artifactReads,
 }: TasksDialogProps) {
   const now = useWallClock(0, true);
-  const board = useTasksBoard(tasks, workspace, focus, onFocus, now, artifactReads);
-  // Escape peels one layer; which one is the presentation's call.
-  useEscape(() => {
-    switch (escapeTarget({ composing: board.composing, wide: board.wide, detailOpen: board.detail !== null })) {
-      case "form":
-        return board.cancelCompose();
-      case "wide":
-        return board.narrow();
-      case "detail":
-        return board.close();
-      case "dialog":
-        return onClose();
-    }
-  }, canClose);
+  const board = useTasksBoard(tasks, workspace, focus, onFocus, onClose, now, artifactReads);
+  // Escape peels one layer; which one, and whether that is the dialog
+  // itself, is the screen machine's call.
+  useEscape(board.escape, canClose);
   const { ladder } = board;
   const staged = ladder.kind === "board" || ladder.kind === "empty";
+  const teamControl = teamControlView(board.teams, board.teamId);
   const ghost = ghostBox(board.drag);
   const ghostCard = board.drag.kind === "dragging" ? cardOf(board.columns, board.drag.id) : undefined;
   const panel = board.composing ? (
@@ -112,16 +103,16 @@ export function TasksDialog({
               and go with the view reads as a bar that cannot be learned. */}
           {staged && (
             <div className="tasks__toolbar">
-              {board.teams.length > 1 && board.teamId !== null && (
+              {teamControl.kind === "pick" && (
                 <Dropdown
                   ariaLabel="Team"
                   className="tasks__team"
-                  options={board.teams.map((team) => ({ value: team.id, label: team.name }))}
-                  value={board.teamId}
+                  options={teamControl.options}
+                  value={teamControl.value}
                   onChange={board.selectTeam}
                 />
               )}
-              {board.teams.length === 1 && <span className="tasks__team-name">{board.teams[0].name}</span>}
+              {teamControl.kind === "word" && <span className="tasks__team-name">{teamControl.name}</span>}
               <div className="tasks__segment" role="group" aria-label="View">
                 {MODE_CHOICES.map((mode) => (
                   <button
@@ -152,7 +143,7 @@ export function TasksDialog({
                 variant="primary"
                 className="tasks__new"
                 aria-pressed={board.composing}
-                onClick={board.composing ? board.cancelCompose : board.compose}
+                onClick={board.toggleCompose}
                 disabled={board.teamId === null}
               >
                 + Task

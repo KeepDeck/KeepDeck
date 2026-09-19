@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Dropdown } from "@keepdeck/ui-kit";
 import type { CreateTaskInput, TaskPriority } from "../../domain/tasks";
-import { canCreateTask, type NewTaskFormView } from "../../presentation/tasks";
+import { EMPTY_TASK_DRAFT, canCreateTask, taskInputOf, type NewTaskFormView } from "../../presentation/tasks";
 import { Button } from "../../ui/Button";
 
 interface NewTaskFormProps {
@@ -15,14 +15,11 @@ interface NewTaskFormProps {
  * dialog's is right above it, and two stacked read as a mistake — Cancel,
  * + Task again and Escape put the form away. */
 export function NewTaskForm({ view, onCreate, onCancel }: NewTaskFormProps) {
-  const [title, setTitle] = useState("");
-  const [body, setBody] = useState("");
-  const [assignee, setAssignee] = useState("");
-  const [priority, setPriority] = useState<TaskPriority>("normal");
-  const creatable = canCreateTask(title);
+  const [draft, setDraft] = useState(EMPTY_TASK_DRAFT);
+  const creatable = canCreateTask(draft.title);
   const submit = () => {
     if (!creatable) return;
-    onCreate({ title, body, assignee: assignee === "" ? null : assignee, priority });
+    onCreate(taskInputOf(draft));
   };
   return (
     <aside className="tasks__detail tasks__compose" aria-label="New task">
@@ -35,9 +32,9 @@ export function NewTaskForm({ view, onCreate, onCancel }: NewTaskFormProps) {
       <input
         className="form__input"
         aria-label="Title"
-        value={title}
+        value={draft.title}
         maxLength={view.titleMax}
-        onChange={(e) => setTitle(e.target.value)}
+        onChange={(e) => setDraft({ ...draft, title: e.target.value })}
         autoFocus
       />
       <span className="tasks__section">Brief</span>
@@ -45,9 +42,9 @@ export function NewTaskForm({ view, onCreate, onCancel }: NewTaskFormProps) {
         className="form__input tasks__composer"
         aria-label="Brief"
         placeholder={view.bodyPlaceholder}
-        value={body}
+        value={draft.body}
         maxLength={view.bodyMax}
-        onChange={(e) => setBody(e.target.value)}
+        onChange={(e) => setDraft({ ...draft, body: e.target.value })}
       />
       <span className="tasks__section">Priority</span>
       <div className="form__types">
@@ -55,15 +52,21 @@ export function NewTaskForm({ view, onCreate, onCancel }: NewTaskFormProps) {
           <button
             key={option.value}
             type="button"
-            className={`form__type${option.value === priority ? " form__type--active" : ""}`}
-            onClick={() => setPriority(option.value as TaskPriority)}
+            className={`form__type${option.value === draft.priority ? " form__type--active" : ""}`}
+            onClick={() => setDraft({ ...draft, priority: option.value as TaskPriority })}
           >
             {option.label}
           </button>
         ))}
       </div>
       <span className="tasks__section">Assignee</span>
-      <Dropdown ariaLabel="Assignee" options={view.assigneeOptions} value={assignee} onChange={setAssignee} className="tasks__pick" />
+      <Dropdown
+        ariaLabel="Assignee"
+        options={view.assigneeOptions}
+        value={draft.assignee}
+        onChange={(assignee) => setDraft({ ...draft, assignee })}
+        className="tasks__pick"
+      />
       <p className="tasks__muted">{view.addressHint}</p>
       </div>
       <div className="tasks__composer-actions tasks__compose-actions">

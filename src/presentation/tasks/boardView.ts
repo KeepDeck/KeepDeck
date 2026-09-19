@@ -16,6 +16,8 @@ export interface BoardColumnView {
   /** A closed column folded to its header — Done by default, Cancelled
    * always behind the filter; the count still shows. */
   collapsed: boolean;
+  /** Whether the column offers Hide/Show at all: only a closed one. */
+  foldable: boolean;
 }
 
 export interface BoardOptions {
@@ -50,6 +52,7 @@ export function boardView(tasks: readonly Task[], board: TaskBoard, options: Boa
       count: inColumn.length,
       cards: ordered.map((task) => taskCardView(task, board, options.now)),
       collapsed: !isOpen(status) && (options.folds.get(status) ?? anyOpen),
+      foldable: !isOpen(status),
     };
   });
 }

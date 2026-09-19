@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, createElement } from "react";
+import { StrictMode, act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTasksService, type TasksService } from "../../app/tasks";
@@ -53,23 +53,21 @@ const button = (label: string) => {
 };
 const cards = () => Array.from(document.querySelectorAll<HTMLButtonElement>(".tasks__card"));
 
-function mount(service: TasksService | null, workspace = teamedWorkspaces()[0]) {
-  const render = () =>
-    act(() =>
-      root.render(
-        createElement(TasksDialog, {
-          tasks: access(service),
-          artifactReads,
-          workspace,
-          focus,
-          onFocus: (id: string | null) => {
-            onFocus(id);
-            render();
-          },
-          onClose: vi.fn(),
-        }),
-      ),
-    );
+function mount(service: TasksService | null, workspace = teamedWorkspaces()[0], strict = false) {
+  const render = () => {
+    const dialog = createElement(TasksDialog, {
+      tasks: access(service),
+      artifactReads,
+      workspace,
+      focus,
+      onFocus: (id: string | null) => {
+        onFocus(id);
+        render();
+      },
+      onClose: vi.fn(),
+    });
+    return act(() => root.render(strict ? createElement(StrictMode, null, dialog) : dialog));
+  };
   return render;
 }
 
@@ -280,6 +278,33 @@ describe("TasksDialog", () => {
     expect(focus).toBe("task-2");
   });
 
+  it("under StrictMode one release is one move: the drop's IO runs outside any React updater", async () => {
+    const { service } = await seeded();
+    const applies = vi.spyOn(service, "apply");
+    const render = mount(service, teamedWorkspaces()[0], true);
+    render();
+    await flush();
+    const column = document.querySelector<HTMLElement>('section[aria-label="Done"]')!;
+    const pointer = (type: string, target: EventTarget, x: number, y: number) =>
+      target.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0 }));
+    act(() => {
+      pointer("pointerdown", cards()[0], 10, 10);
+    });
+    await flush();
+    act(() => {
+      pointer("pointermove", window, 40, 40);
+    });
+    await flush();
+    act(() => {
+      pointer("pointerup", column, 300, 40);
+    });
+    await flush();
+    expect(applies).toHaveBeenCalledTimes(1);
+    expect(applies).toHaveBeenCalledWith("ws-1", "task-1", [{ kind: "status", to: "done" }], expect.anything());
+    const state = service.peek("ws-1");
+    expect(state?.kind === "ready" && state.board.tasks[0].log.filter((line) => line.field === "status")).toHaveLength(1);
+  });
+
   it("attaches an artifact from the registry, opens it on click, and detaches it", async () => {
     registry.rows = [{ id: "kd-tasks", title: "KeepDeck Tasks" }];
     const { service } = await seeded();
@@ -383,6 +408,44 @@ describe("TasksDialog", () => {
     expect(state?.kind === "ready" && state.board.tasks[1].comments.map((c) => c.body)).toEqual(["for task-2"]);
     expect(state?.kind === "ready" && state.board.tasks[0].comments).toEqual([]);
     expect(composer().value).toBe("");
+  });
+
+  it("text typed while a comment is being sent is not lost when the send lands", async () => {
+    const { service } = await seeded();
+    const render = mount(service);
+    render();
+    await flush();
+    act(() => cards()[0].click());
+    await flush();
+    const composer = () => document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Comment"]')!;
+    const type = (value: string) =>
+      act(() => {
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(composer(), value);
+        composer().dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    // The owner's answer is held: the send is out, the person keeps typing.
+    const realApply = service.apply.bind(service);
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    service.apply = async (...args) => {
+      service.apply = realApply;
+      await held;
+      return realApply(...args);
+    };
+    type("first");
+    act(() => button("Comment").click());
+    await flush();
+    expect(button("Comment").disabled).toBe(true);
+    type("second, typed meanwhile");
+    release();
+    await flush();
+    await flush();
+    const state = service.peek("ws-1");
+    expect(state?.kind === "ready" && state.board.tasks[0].comments.map((c) => c.body)).toEqual(["first"]);
+    expect(composer().value).toBe("second, typed meanwhile");
+    expect(button("Comment").disabled).toBe(false);
   });
 
   it("the queues view lays out a lane per member and the pool", async () => {

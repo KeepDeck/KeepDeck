@@ -1,7 +1,15 @@
 import { useState } from "react";
 import { Dropdown } from "@keepdeck/ui-kit";
 import type { TaskPriority, TaskStatus } from "../../domain/tasks";
-import { DIALOG_WORDS, canSendComment, type TaskDetailView } from "../../presentation/tasks";
+import {
+  DIALOG_WORDS,
+  EMPTY_COMPOSER,
+  beginSend,
+  composerCanSend,
+  finishSend,
+  typeDraft,
+  type TaskDetailView,
+} from "../../presentation/tasks";
 import { Button } from "../../ui/Button";
 
 interface TaskDetailProps {
@@ -38,15 +46,16 @@ export function TaskDetail({
   onDetach,
   onOpenArtifact,
 }: TaskDetailProps) {
-  const [draft, setDraft] = useState("");
-  const [sending, setSending] = useState(false);
-  const sendable = canSendComment(draft, sending);
+  const [composer, setComposer] = useState(EMPTY_COMPOSER);
+  const sendable = composerCanSend(composer);
   const send = () => {
-    if (!sendable) return;
-    setSending(true);
-    void onComment(view.id, draft).then((accepted) => {
-      setSending(false);
-      if (accepted) setDraft("");
+    const begun = beginSend(composer);
+    if (!begun) return;
+    setComposer(begun.state);
+    void onComment(view.id, begun.body).then((accepted) => {
+      // What a finished send may clear is the composer's own rule: the
+      // text it sent, when accepted — never what was typed since.
+      setComposer((current) => finishSend(current, accepted));
     });
   };
   return (
@@ -200,9 +209,9 @@ export function TaskDetail({
         className="form__input tasks__composer"
         placeholder="Add a comment — it stays with the task"
         aria-label="Comment"
-        value={draft}
+        value={composer.draft}
         maxLength={view.commentMax}
-        onChange={(e) => setDraft(e.target.value)}
+        onChange={(e) => setComposer((current) => typeDraft(current, e.target.value))}
       />
       <div className="tasks__composer-actions">
         <Button size="sm" onClick={send} disabled={!sendable}>
