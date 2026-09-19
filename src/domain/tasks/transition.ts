@@ -12,6 +12,7 @@ import { openBlockersOf, findTask } from "./board";
 import {
   DEFAULT_PRIORITY,
   TASK_CAPS,
+  TASK_STATUSES,
   actorName,
   type Task,
   type TaskActor,
@@ -356,6 +357,17 @@ function moveStatus(
   }
   entries.push({ at: ctx.at, from: by, field: "status", was: task.status, now: to });
   return { ok: true, task: logged(task, entries, ctx.at, { status: to, assignee }) };
+}
+
+/**
+ * The statuses `actor` may move `task` to from where it stands, in ladder
+ * order — the picker's options and the board's drop targets, asked of the
+ * same table so the two can never disagree.
+ */
+export function reachableStatuses(task: Task, actor: TaskActor, ctx: TransitionContext): TaskStatus[] {
+  return TASK_STATUSES.filter(
+    (to) => to !== task.status && transition(task, { kind: "status", to }, actor, ctx).ok,
+  );
 }
 
 export interface CreateTaskInput {

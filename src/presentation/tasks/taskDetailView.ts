@@ -3,7 +3,7 @@ import {
   USER_ACTOR,
   findTask,
   issuable,
-  transition,
+  reachableStatuses,
   unblocks,
   type Task,
   type TaskBoard,
@@ -68,9 +68,12 @@ export function taskDetailView(
   now: number,
 ): TaskDetailView {
   const ctx = { board, roster, at: now };
-  const statusOptions = LADDER.filter(
-    (to) => to === task.status || transition(task, { kind: "status", to }, USER_ACTOR, ctx).ok,
-  ).map((to) => ({ value: to, label: STATUS_LABEL[to], tone: statusTone(to) }));
+  const reachable = new Set(reachableStatuses(task, USER_ACTOR, ctx));
+  const statusOptions = LADDER.filter((to) => to === task.status || reachable.has(to)).map((to) => ({
+    value: to,
+    label: STATUS_LABEL[to],
+    tone: statusTone(to),
+  }));
   const assigneeValues = [...new Set([...roster, ...(task.assignee ? [task.assignee] : [])])];
   return {
     id: task.id,

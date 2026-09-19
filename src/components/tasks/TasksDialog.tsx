@@ -151,8 +151,12 @@ export function TasksDialog({ tasks, workspace, focus, onFocus, onClose, canClos
                   <BoardColumns
                     columns={board.columns}
                     selectedId={board.detail?.id ?? null}
+                    dragging={board.dragging}
                     onSelect={board.select}
                     onToggleColumn={board.toggleColumn}
+                    onDragStart={board.beginDrag}
+                    onDragEnd={board.endDrag}
+                    onDrop={board.dropOn}
                   />
                   {/* Beside the board, where its column appears — not in
                       the bar, which must not change with the view. */}

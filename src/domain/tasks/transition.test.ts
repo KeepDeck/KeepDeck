@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TASK_CAPS, USER_ACTOR, type TaskActor, type TaskStatus } from "./model";
-import { createTask, transition, type TaskChange, type TaskRefusal } from "./transition";
+import { createTask, reachableStatuses, transition, type TaskChange, type TaskRefusal } from "./transition";
 import { ROSTER, board, impl1, lead, noTeam, peer1, stranger, task } from "./testSupport";
 
 const ctx = (tasks = [task({ id: "task-1" })]) => ({ board: board(tasks), roster: ROSTER, at: 5_000 });
@@ -136,6 +136,17 @@ describe("the ladder", () => {
     });
     const cancelled = task({ id: "task-1", status: "cancelled" });
     expect(moved(t, "doing", impl1, ctx([cancelled, t])).status).toBe("doing");
+  });
+});
+
+describe("reachableStatuses", () => {
+  it("lists, in ladder order, exactly the rungs the actor may move to", () => {
+    const t = task({ id: "task-1", assignee: "impl-1" });
+    expect(reachableStatuses(t, impl1, ctx([t]))).toEqual(["doing"]);
+    expect(reachableStatuses(t, lead, ctx([t]))).toEqual(["doing", "cancelled"]);
+    const inReview = task({ id: "task-1", status: "review", assignee: "impl-1" });
+    expect(reachableStatuses(inReview, USER_ACTOR, ctx([inReview]))).toEqual(["doing", "done", "cancelled"]);
+    expect(reachableStatuses(inReview, impl1, ctx([inReview]))).toEqual([]);
   });
 });
 

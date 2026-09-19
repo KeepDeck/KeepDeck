@@ -211,6 +211,42 @@ describe("TasksDialog", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
+  it("a dragged card may land only where the table allows, and lands there", async () => {
+    const { service } = await seeded();
+    const render = mount(service);
+    render();
+    await flush();
+    const column = (label: string) => document.querySelector<HTMLElement>(`section[aria-label="${label}"]`)!;
+    act(() => {
+      cards()[0].dispatchEvent(new Event("dragstart", { bubbles: true }));
+    });
+    await flush();
+    expect(column("Doing").className).toContain("tasks__column--drop-ok");
+    expect(column("Cancelled") ?? column("Done")).toBeTruthy();
+    expect(column("Done").className).toContain("tasks__column--drop-no");
+    expect(column("Review").className).toContain("tasks__column--drop-no");
+
+    // A drop on a column that is not a target moves nothing.
+    act(() => {
+      column("Done").dispatchEvent(new Event("drop", { bubbles: true }));
+    });
+    await flush();
+    let state = service.peek("ws-1");
+    expect(state?.kind === "ready" && state.board.tasks[0].status).toBe("todo");
+
+    act(() => {
+      cards()[0].dispatchEvent(new Event("dragstart", { bubbles: true }));
+    });
+    await flush();
+    act(() => {
+      column("Doing").dispatchEvent(new Event("drop", { bubbles: true }));
+    });
+    await flush();
+    state = service.peek("ws-1");
+    expect(state?.kind === "ready" && state.board.tasks[0].status).toBe("doing");
+    expect(column("Doing").className).not.toContain("drop-");
+  });
+
   it("the queues view lays out a lane per member and the pool", async () => {
     const { service } = await seeded();
     const render = mount(service);

@@ -292,6 +292,25 @@
   outline-offset: -1px;
 }
 
+.tasks__card[draggable="true"] {
+  cursor: grab;
+}
+
+.tasks__card--dragging {
+  opacity: 0.5;
+}
+
+/* While a card is in flight: the columns it may land in open up, the
+   ones it may not step back — the transition table drawn on the board. */
+.tasks__column--drop-ok {
+  border-color: var(--kd-ok);
+  border-style: dashed;
+}
+
+.tasks__column--drop-no {
+  opacity: 0.45;
+}
+
 .tasks__card--cancelled .tasks__card-title {
   color: #565e6b;
   text-decoration: line-through;

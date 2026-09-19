@@ -6,6 +6,7 @@ import { teamsOf, type Workspace } from "../../domain/deck";
 import {
   USER_ACTOR,
   findTask,
+  reachableStatuses,
   tasksOfTeam,
   type CreateTaskInput,
   type TaskChange,
@@ -67,6 +68,9 @@ export function useTasksBoard(
   const [composing, setComposing] = useState(false);
   /** The open task filling the stage, the board put away behind it. */
   const [wide, setWide] = useState(false);
+  /** A card in flight, and the columns it may land in — judged when the
+   * drag starts, by the same table the picker reads. */
+  const [dragging, setDragging] = useState<{ id: string; targets: ReadonlySet<TaskStatus> } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -163,6 +167,21 @@ export function useTasksBoard(
     close: () => {
       setWide(false);
       onFocus(null);
+    },
+    dragging,
+    beginDrag: (taskId: string) => {
+      const task = board ? findTask(board, taskId) : undefined;
+      if (!board || !task) return;
+      setDragging({
+        id: taskId,
+        targets: new Set(reachableStatuses(task, USER_ACTOR, { board, roster, at: now })),
+      });
+    },
+    endDrag: () => setDragging(null),
+    /** A drop on a column: the move, if that column was a target. */
+    dropOn: (status: TaskStatus) => {
+      if (dragging && dragging.targets.has(status)) apply(dragging.id, [{ kind: "status", to: status }]);
+      setDragging(null);
     },
     composing,
     compose: () => {
