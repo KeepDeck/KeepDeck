@@ -96,7 +96,7 @@ export function useTasksBoard(
   const teamId = teams.some((team) => team.id === chosenTeam) ? chosenTeam : (teams[0]?.id ?? null);
   const [mode, setMode] = useState<TasksMode>("board");
   const [showCancelled, setShowCancelled] = useState(false);
-  const [expanded, setExpanded] = useState<ReadonlySet<TaskStatus>>(new Set());
+  const [folds, setFolds] = useState<ReadonlyMap<TaskStatus, boolean>>(new Map());
   const [composing, setComposing] = useState(false);
   /** The workspace's artifacts, for the open task's attachments. Read
    * when a task is open and re-read when the registry changes; empty
@@ -211,7 +211,7 @@ export function useTasksBoard(
   const selected = board && focus !== null ? (findTask(board, focus) ?? null) : null;
   const detail =
     selected && selected.teamId === teamId ? taskDetailView(selected, board!, roster, now, knownArtifacts) : null;
-  const columns = board ? boardView(teamTasks, board, { showCancelled, expanded, now }) : [];
+  const columns = board ? boardView(teamTasks, board, { showCancelled, folds, now }) : [];
   const lanes = board && teamId !== null ? queuesView(board, teamId, roster, now) : [];
   const form = newTaskFormView(roster);
 
@@ -248,13 +248,13 @@ export function useTasksBoard(
     },
     showCancelled,
     toggleCancelled: () => setShowCancelled((current) => !current),
-    toggleColumn: (status: TaskStatus) =>
-      setExpanded((current) => {
-        const next = new Set(current);
-        if (next.has(status)) next.delete(status);
-        else next.add(status);
-        return next;
-      }),
+    /** Hide or Show a closed column: the opposite of what it shows NOW,
+     * whichever way it got there — a default or an earlier choice. */
+    toggleColumn: (status: TaskStatus) => {
+      const shown = columns.find((column) => column.status === status);
+      if (!shown) return;
+      setFolds((current) => new Map(current).set(status, !shown.collapsed));
+    },
     columns,
     lanes,
     detail,

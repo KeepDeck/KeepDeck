@@ -309,6 +309,23 @@ describe("TasksDialog", () => {
     registry.rows = [];
   });
 
+  it("Hide folds a closed column even when the board unfolded it by default", async () => {
+    const { service } = await seeded();
+    await service.apply("ws-1", "task-1", [{ kind: "status", to: "done" }], USER_ACTOR);
+    await service.apply("ws-1", "task-2", [{ kind: "status", to: "cancelled" }], USER_ACTOR);
+    const render = mount(service);
+    render();
+    await flush();
+    const done = () => document.querySelector<HTMLElement>('section[aria-label="Done"]')!;
+    expect(done().className).not.toContain("collapsed");
+    act(() => button("Hide").click());
+    await flush();
+    expect(done().className).toContain("tasks__column--collapsed");
+    act(() => button("Show").click());
+    await flush();
+    expect(done().className).not.toContain("collapsed");
+  });
+
   it("the queues view lays out a lane per member and the pool", async () => {
     const { service } = await seeded();
     const render = mount(service);

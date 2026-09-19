@@ -21,8 +21,9 @@ export interface BoardColumnView {
 export interface BoardOptions {
   /** Whether the Cancelled column is on the board at all. */
   showCancelled: boolean;
-  /** Closed columns the person unfolded. */
-  expanded: ReadonlySet<TaskStatus>;
+  /** The person's explicit choices — folded or not — per closed column.
+   * A column they never touched takes the default below. */
+  folds: ReadonlyMap<TaskStatus, boolean>;
   now: number;
 }
 
@@ -33,8 +34,10 @@ export interface BoardOptions {
  * does.
  */
 export function boardView(tasks: readonly Task[], board: TaskBoard, options: BoardOptions): BoardColumnView[] {
-  // Closed columns fold only while there is open work to look at: a board
-  // whose every task is done showed five empty columns and a folded Done.
+  // The DEFAULT for a closed column: folded while there is open work to
+  // look at, unfolded when there is none — a board whose every task is
+  // done showed five empty columns and a folded Done. A default only: the
+  // person's own Hide or Show outranks it either way.
   const anyOpen = tasks.some((task) => isOpen(task.status));
   return BOARD_ORDER.filter((status) => status !== "cancelled" || options.showCancelled).map((status) => {
     const inColumn = tasks.filter((task) => task.status === status);
@@ -46,7 +49,7 @@ export function boardView(tasks: readonly Task[], board: TaskBoard, options: Boa
       label: STATUS_LABEL[status],
       count: inColumn.length,
       cards: ordered.map((task) => taskCardView(task, board, options.now)),
-      collapsed: !isOpen(status) && anyOpen && !options.expanded.has(status),
+      collapsed: !isOpen(status) && (options.folds.get(status) ?? anyOpen),
     };
   });
 }
