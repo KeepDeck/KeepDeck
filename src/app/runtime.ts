@@ -385,6 +385,13 @@ export function createAppRuntime(
       // catalog the panes were last briefed from, and re-stating it would
       // hand every teamed pane an unsolicited briefing per launch.
       onRoleCatalogChanged: subscribeRoleCatalogChanges,
+      board: {
+        on: () => tasksService !== null,
+        onChanged: (listener) => {
+          tasksListeners.add(listener);
+          return () => tasksListeners.delete(listener);
+        },
+      },
       terminal: { wake: wakePaneForMail },
       bridge: { reply: replyToBridgeHook, nudge: nudgeBridgePane },
     },

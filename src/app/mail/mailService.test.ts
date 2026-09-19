@@ -92,6 +92,7 @@ function setup() {
         return () => sessionListeners.delete(listener);
       },
       onRoleCatalogChanged: () => () => {},
+      board: { on: () => false, onChanged: () => () => {} },
       terminal: {
         wake: (paneId: string) => {
           woken.push(paneId);

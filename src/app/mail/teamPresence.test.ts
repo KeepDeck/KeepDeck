@@ -11,6 +11,8 @@ function setup(
   const catalog = new Set<() => void>();
   const roster = new Set<() => void>();
   const moves = new Set<(paneIds: readonly string[]) => void>();
+  const board = { on: false };
+  const boardListeners = new Set<() => void>();
   const presence = createTeamPresence({
     standingOf: standing,
     announce: (paneId, body) => said.push({ paneId, body }),
@@ -30,6 +32,11 @@ function setup(
       catalog.add(listener);
       return () => catalog.delete(listener);
     },
+    boardOn: () => board.on,
+    onBoardChanged: (listener) => {
+      boardListeners.add(listener);
+      return () => boardListeners.delete(listener);
+    },
     onRosterChanged: (listener) => {
       roster.add(listener);
       return () => roster.delete(listener);
@@ -44,6 +51,10 @@ function setup(
     catalogChanged: () => catalog.forEach((l) => l()),
     rosterChanged: () => roster.forEach((l) => l()),
     membershipMoved: (paneIds: string[]) => moves.forEach((l) => l(paneIds)),
+    boardChanged: (on: boolean) => {
+      board.on = on;
+      boardListeners.forEach((l) => l());
+    },
   };
 }
 
@@ -54,6 +65,18 @@ const ON_TEAM: TeamStanding = {
 };
 
 describe("createTeamPresence", () => {
+  it("re-states every teamed pane when the board comes or goes — with the board's sentence only while it is there", () => {
+    const h = setup(() => ON_TEAM, () => ["pane-1"]);
+    h.freshSession("pane-1");
+    expect(h.said[0].body).not.toContain("This team has a board");
+    h.boardChanged(true);
+    expect(h.said).toHaveLength(2);
+    expect(h.said[1].body).toContain("This team has a board");
+    h.boardChanged(false);
+    expect(h.said).toHaveLength(3);
+    expect(h.said[2].body).not.toContain("This team has a board");
+  });
+
   it("says it again when the conversation starts over", () => {
     // A pane restored without its history, or a `/clear`: the agent is
     // still on the team and has no idea, which is worse than never having

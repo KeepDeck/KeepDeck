@@ -278,6 +278,39 @@ describe("teamNamesIn", () => {
   });
 });
 
+describe("teamBriefing — the board", () => {
+  const roster = ["lead", "impl-1", "peer-1"];
+
+  it("says nothing about a board that is not there", () => {
+    for (const role of roster) {
+      expect(teamBriefing("api", role, roster)).not.toContain("board");
+      expect(teamBriefing("api", role, roster, { board: false })).not.toContain("board");
+    }
+  });
+
+  it("tells each standing what the board is to it, and that the board tells nobody", () => {
+    const lead = teamBriefing("api", "lead", roster, { board: true });
+    expect(lead).toContain("task.create");
+    expect(lead).toContain('mail.send kind "task", naming the task id');
+    expect(lead).toContain("the board tells nobody by itself");
+    const impl = teamBriefing("api", "impl-1", roster, { board: true });
+    expect(impl).toContain("task.mine lists what is yours");
+    expect(impl).not.toContain("task.create");
+    expect(impl).toContain("the board itself sends nothing");
+    const peer = teamBriefing("web", "peer-1", ["peer-1", "peer-2"], { board: true });
+    expect(peer).toContain("task.create puts work on it");
+    expect(peer).toContain("tells nobody");
+  });
+
+  it("promises no delivery in the board's own sentence", () => {
+    const lines = teamBriefing("api", "lead", roster, { board: true }).split("\n");
+    const board = lines.find((line) => line.startsWith("This team has a board"))!;
+    for (const promise of ["will reach", "next turn", "wakes", "delivered"]) {
+      expect(board).not.toContain(promise);
+    }
+  });
+});
+
 describe("teamBriefing", () => {
   it("says what choosing a kind means for a teammate", () => {
     // The briefing is the only text always in context — a tool's own

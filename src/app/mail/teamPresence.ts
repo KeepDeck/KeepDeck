@@ -48,6 +48,12 @@ export interface TeamPresenceDeps {
   /** The role catalog changed — the charters and summaries every live
    * briefing was built from may no longer be what the deck believes. */
   onCatalogChanged(listener: () => void): () => void;
+  /** Whether the team has a task board right now — a sentence of every
+   * briefing, said only while it is true. Read per call. */
+  boardOn(): boolean;
+  /** The board came or went — every live briefing gained or lost a
+   * sentence. */
+  onBoardChanged(listener: () => void): () => void;
   /** Everyone currently on any team — the panes whose briefing that change
    * may have rewritten. Read per call: membership moves. */
   teamedPanes(): string[];
@@ -69,7 +75,7 @@ export function createTeamPresence(deps: TeamPresenceDeps): { dispose(): void } 
     if (!standing) return;
     deps.announce(
       paneId,
-      teamBriefing(standing.team, standing.role, standing.everyRole),
+      teamBriefing(standing.team, standing.role, standing.everyRole, { board: deps.boardOn() }),
     );
   };
 
@@ -106,6 +112,7 @@ export function createTeamPresence(deps: TeamPresenceDeps): { dispose(): void } 
     // the queue — a pane that collects nothing meanwhile holds ONE
     // briefing, not a pile.
     deps.onCatalogChanged(() => sweep("the role catalog changed")),
+    deps.onBoardChanged(() => sweep("the board came or went")),
     deps.onRosterChanged(() => {
       if (owedSweep) sweep("the role catalog changed before the deck was up");
     }),
