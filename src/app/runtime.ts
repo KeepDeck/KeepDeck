@@ -239,7 +239,7 @@ export function createAppRuntime(
       write: tasksWrite,
       enable: tasksEnable,
       disable: tasksDisable,
-      dropWorkspace: tasksDropWorkspace,
+      drop: ({ workspaceId }) => tasksDropWorkspace(workspaceId),
     },
     announce: (event) => announceTask(event, { workspaces: () => deckStore.getSnapshot().workspaces }),
     status: tasksEnableStatus,

@@ -30,7 +30,6 @@ export interface TasksFeatureDeps {
   store: TasksStorePort & {
     enable(): Promise<unknown>;
     disable(): Promise<unknown>;
-    dropWorkspace(workspaceId: string): Promise<void>;
   };
   /** Where the three human notifications go. */
   announce(event: TaskEvent): void;
@@ -46,7 +45,8 @@ export interface TasksAccess {
 
 export interface TasksFeature {
   access: TasksAccess;
-  /** A closing workspace's board: forgotten here, dropped on disk. */
+  /** A closing workspace's board: forgotten by the owner that holds it,
+   * which drops it on disk once its writes are done. */
   forgetWorkspace(workspaceId: string): Promise<void>;
   /** Stops reconciling and takes the owner and the commands down. Does
    * NOT close the store: its life follows the setting and the process,
@@ -169,8 +169,12 @@ export function createTasksFeature(deps: TasksFeatureDeps): TasksFeature {
       },
     },
     async forgetWorkspace(workspaceId) {
-      service?.forget(workspaceId);
-      await deps.store.dropWorkspace(workspaceId);
+      // The owner holding the board closes it and drops the file in the
+      // right order — the retiring one too, whose flush may still be
+      // writing this workspace. With no owner up there is only the file.
+      const owner = service ?? retiring;
+      if (owner) await owner.forget(workspaceId);
+      else await deps.store.drop({ workspaceId });
     },
     dispose() {
       if (disposed) return;

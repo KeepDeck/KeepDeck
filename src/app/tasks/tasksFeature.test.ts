@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { createCommandRegistry } from "../../domain/commands";
 import { createEnableStatus } from "../enableStatus";
 import { USER_ACTOR } from "../../domain/tasks";
@@ -29,8 +29,8 @@ function setup() {
   const calls: { kind: "enable" | "disable"; gate: ReturnType<typeof gate>; settled: boolean }[] = [];
   const registry = createCommandRegistry();
   const announced: unknown[] = [];
-  /** Writes and disables, in the order the backend saw them. */
-  const order: ("write" | "disable")[] = [];
+  /** Writes, drops and disables, in the order the backend saw them. */
+  const order: ("write" | "drop" | "disable")[] = [];
   const feature = createTasksFeature({
     registry,
     workspaces: () => teamedWorkspaces(),
@@ -74,7 +74,11 @@ function setup() {
           open = false;
         });
       },
-      dropWorkspace: vi.fn(async () => {}),
+      drop: async (args) => {
+        if (!open) throw new Error("task board is off — turn Tasks on first");
+        await store.port.drop(args);
+        order.push("drop");
+      },
     },
     announce: (event) => announced.push(event),
     status: createEnableStatus(),
@@ -217,11 +221,32 @@ describe("createTasksFeature", () => {
     expect(h.registry.has("task.create")).toBe(true);
   });
 
-  it("forgets a workspace here and drops it on disk; dispose takes the owner and the commands down", async () => {
+  it("forgets a workspace through the owner — after the write on the wire, before nothing else; dispose takes the owner and the commands down", async () => {
     const h = setup();
     await h.setTasks(true);
     await h.settleNext();
-    await h.feature.forgetWorkspace("ws-1");
+    const service = h.feature.access.current()!;
+    await service.ready("ws-1");
+    const release = h.store.holdNextWrite();
+    const first = service.create("ws-1", { teamId: "team-1", title: "a" }, USER_ACTOR);
+    await flush();
+    const second = service.create("ws-1", { teamId: "team-1", title: "b" }, USER_ACTOR);
+    await flush();
+    let forgotten = false;
+    const forgetting = h.feature.forgetWorkspace("ws-1").then(() => {
+      forgotten = true;
+    });
+    await flush();
+    // The first write's bytes are down, its answer is not: the forget
+    // waits on it, and the backend has seen no drop.
+    expect(forgotten).toBe(false);
+    expect(h.store.calls).toEqual(["write"]);
+    expect(h.order).toEqual([]);
+    release();
+    await forgetting;
+    await Promise.all([first, second]);
+    expect(h.order).toEqual(["write", "drop"]);
+    expect(h.store.files.has("ws-1")).toBe(false);
     expect(h.feature.access.current()).not.toBeNull();
     h.feature.dispose();
     expect(h.feature.access.current()).toBeNull();

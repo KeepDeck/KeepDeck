@@ -3,11 +3,15 @@ import type { CommandSource } from "../../domain/commands";
 import { createWorkspaceInstance } from "../../domain/workspaceInstance";
 import type { TasksStorePort } from "./tasksService";
 
-/** A store in memory, with the writes it saw in order. */
+/** A store in memory, with the writes and drops it saw in order. */
 export function fakeStore(initial: Record<string, string> = {}) {
   const files = new Map(Object.entries(initial));
   const writes: { workspaceId: string; json: string }[] = [];
+  /** Every call that touched the disk, in order. */
+  const calls: ("write" | "drop")[] = [];
   let failNext: string | null = null;
+  /** A write whose bytes land at once but whose answer waits. */
+  let holdNext: Promise<void> | null = null;
   const port: TasksStorePort = {
     read: async ({ workspaceId }) => files.get(workspaceId) ?? null,
     write: async (args) => {
@@ -17,15 +21,34 @@ export function fakeStore(initial: Record<string, string> = {}) {
         throw new Error(why);
       }
       writes.push(args);
+      calls.push("write");
       files.set(args.workspaceId, args.json);
+      if (holdNext !== null) {
+        const held = holdNext;
+        holdNext = null;
+        await held;
+      }
+    },
+    drop: async ({ workspaceId }) => {
+      calls.push("drop");
+      files.delete(workspaceId);
     },
   };
   return {
     port,
     files,
     writes,
+    calls,
     failNextWrite(why: string) {
       failNext = why;
+    },
+    /** The next write's bytes land, but its answer waits for the release. */
+    holdNextWrite(): () => void {
+      let release!: () => void;
+      holdNext = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return release;
     },
   };
 }

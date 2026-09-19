@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { USER_ACTOR, agentActor, encodeBoard, type TaskBoard } from "../../domain/tasks";
 import { board, task } from "../../domain/tasks/testSupport";
-import { createTasksService, type TaskEvent } from "./tasksService";
+import { FORGOTTEN_WRITE, createTasksService, type TaskEvent } from "./tasksService";
 import { fakeStore, teamedWorkspaces } from "./testSupport";
 
 const lead = agentActor("lead", "team-1");
@@ -148,14 +148,51 @@ describe("createTasksService", () => {
     expect(last.tasks.map((t) => `${t.id}:${t.priority}`)).toEqual(["task-1:high", "task-2:normal", "task-3:normal"]);
   });
 
-  it("forgetting a workspace drops its board; the next ask loads afresh", async () => {
+  it("forgetting a workspace drops its board here and on disk; the next ask loads afresh", async () => {
     const { service, store } = setup();
     await service.create("ws-1", { teamId: "team-1", title: "a" }, lead);
     await flush();
-    service.forget("ws-1");
-    store.files.delete("ws-1");
+    await service.forget("ws-1");
+    expect(store.calls).toEqual(["write", "drop"]);
+    expect(store.files.has("ws-1")).toBe(false);
     expect(service.board("ws-1")).toEqual({ kind: "loading" });
     expect(await service.ready("ws-1")).toEqual({ kind: "ready", board: { nextId: 1, tasks: [] }, unsaved: null });
+  });
+
+  it("a write queued behind one still on the wire does not recreate a forgotten board", async () => {
+    const { service, store } = setup();
+    await service.ready("ws-1");
+    // The first write lands on disk but its answer is held; the second
+    // waits its turn in the queue behind it.
+    const release = store.holdNextWrite();
+    const first = service.create("ws-1", { teamId: "team-1", title: "a" }, lead);
+    await flush();
+    const second = service.create("ws-1", { teamId: "team-1", title: "b" }, lead);
+    await flush();
+    expect(store.writes).toHaveLength(1);
+    // The workspace closes now, between the two. Nothing is read or
+    // written for it from here — and the drop waits for the first write.
+    const forgotten = service.forget("ws-1");
+    expect(service.peek("ws-1")).toBeNull();
+    expect(service.board("ws-1")).toEqual({ kind: "loading" });
+    const late = await service.create("ws-1", { teamId: "team-1", title: "c" }, lead);
+    expect(late.ok).toBe(false);
+    expect(store.calls).toEqual(["write"]);
+    release();
+    await forgotten;
+    // One write, then the drop; the queued write was annulled, its caller
+    // told, and the file is gone for good.
+    expect(store.calls).toEqual(["write", "drop"]);
+    expect(store.files.has("ws-1")).toBe(false);
+    expect((await first).ok).toBe(true);
+    const queued = await second;
+    expect(queued.ok && queued.saved).toBe(false);
+    expect(queued.ok && queued.saveError).toBe(FORGOTTEN_WRITE);
+    // Afterwards the id is a fresh workspace: an empty board, its own writes.
+    expect(await service.ready("ws-1")).toEqual({ kind: "ready", board: { nextId: 1, tasks: [] }, unsaved: null });
+    await service.create("ws-1", { teamId: "team-1", title: "new" }, lead);
+    await flush();
+    expect((JSON.parse(store.files.get("ws-1")!) as TaskBoard).tasks.map((t) => t.title)).toEqual(["new"]);
   });
 
   it("a failed write is not a silent success: the caller hears it, the board shows it, and a retry lands it", async () => {

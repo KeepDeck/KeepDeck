@@ -43,6 +43,8 @@ import { decodeFaultText } from "./refusalText";
 export interface TasksStorePort {
   read(args: { workspaceId: string }): Promise<string | null>;
   write(args: { workspaceId: string; json: string }): Promise<void>;
+  /** Remove a workspace's board from disk. Idempotent. */
+  drop(args: { workspaceId: string }): Promise<void>;
 }
 
 export interface TasksServiceDeps {
@@ -56,6 +58,9 @@ export interface TasksServiceDeps {
 
 /** How long after a failed write the board tries again on its own. */
 export const RETRY_WRITE_MS = 3_000;
+
+/** What a write queued for a workspace that closed before its turn hears. */
+export const FORGOTTEN_WRITE = "the workspace closed before the board was written";
 
 export type BoardState =
   | { kind: "loading" }
@@ -128,9 +133,12 @@ export interface TasksService {
    * so a board whose last write failed is not left behind by the store
    * closing under it. A write that fails again stays unsaved. */
   flush(): Promise<void>;
-  /** The workspace is gone: drop what is held for it. The disk half is the
-   * forgetter's. */
-  forget(workspaceId: string): void;
+  /** The workspace is gone: forget its board here, let the write already
+   * on the wire land, annul the ones behind it, and only then drop the
+   * file — a drop between a write and the next queued one let the next
+   * recreate the board. While this runs the workspace is closed to
+   * reads and writes; afterwards its id may load afresh. */
+  forget(workspaceId: string): Promise<void>;
   dispose(): void;
 }
 
@@ -149,6 +157,12 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
   /** The write chain per workspace — one board after another, in order;
    * each settles to the error it hit, or null. */
   const writes = new Map<string, Promise<string | null>>();
+  /** A workspace's life here, bumped when it is forgotten: a write takes
+   * the epoch it was queued under and is annulled once that has passed. */
+  const epochs = new Map<string, number>();
+  const epochOf = (workspaceId: string) => epochs.get(workspaceId) ?? 0;
+  /** Workspaces between forgotten and dropped: closed to loads. */
+  const closing = new Set<string>();
   const listeners = new Set<() => void>();
   const eventListeners = new Set<(event: TaskEvent) => void>();
   let revision = 0;
@@ -167,6 +181,9 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
   const load = (workspaceId: string): Promise<BoardState> => {
     const pending = loads.get(workspaceId);
     if (pending) return pending;
+    // A workspace on its way out is read from nowhere: the file it still
+    // has is about to go, and a board read now would be written back.
+    if (closing.has(workspaceId)) return Promise.resolve({ kind: "loading" });
     set(workspaceId, { kind: "loading" });
     const loading = deps.store
       .read({ workspaceId })
@@ -208,23 +225,29 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
    */
   const persist = (workspaceId: string, board: TaskBoard): Promise<string | null> => {
     const json = encodeBoard(board);
+    const epoch = epochOf(workspaceId);
     const previous = writes.get(workspaceId) ?? Promise.resolve(null);
-    const next: Promise<string | null> = previous
-      .then(() => deps.store.write({ workspaceId, json }))
-      .then(
-        () => {
-          // Only the LATEST write's success means disk and memory agree.
-          if (writes.get(workspaceId) === next) markUnsaved(workspaceId, null);
-          return null;
-        },
-        (e: unknown) => {
-          const error = describeError(e);
-          log.warn("web:tasks", `${workspaceId}: writing the board failed: ${error}`);
+    const next: Promise<string | null> = previous.then(async () => {
+      // Its turn came after the workspace was forgotten: the board this
+      // would write is gone, and writing it would bring it back.
+      if (epochOf(workspaceId) !== epoch) return FORGOTTEN_WRITE;
+      try {
+        await deps.store.write({ workspaceId, json });
+      } catch (e: unknown) {
+        const error = describeError(e);
+        log.warn("web:tasks", `${workspaceId}: writing the board failed: ${error}`);
+        // A board forgotten while this was on the wire has nothing to
+        // mark and nothing to retry.
+        if (epochOf(workspaceId) === epoch) {
           markUnsaved(workspaceId, error);
           armRetry(workspaceId);
-          return error;
-        },
-      );
+        }
+        return error;
+      }
+      // Only the LATEST write's success means disk and memory agree.
+      if (epochOf(workspaceId) === epoch && writes.get(workspaceId) === next) markUnsaved(workspaceId, null);
+      return null;
+    });
     writes.set(workspaceId, next);
     return next;
   };
@@ -364,13 +387,27 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
       );
       await Promise.all(dirty.map(([workspaceId, state]) => persist(workspaceId, state.board)));
     },
-    forget(workspaceId) {
+    async forget(workspaceId) {
+      // Closed first, synchronously: from here no write queued before
+      // runs, no load starts, and the board is gone from every surface.
+      epochs.set(workspaceId, epochOf(workspaceId) + 1);
+      closing.add(workspaceId);
       retries.get(workspaceId)?.();
       retries.delete(workspaceId);
       states.delete(workspaceId);
       loads.delete(workspaceId);
-      writes.delete(workspaceId);
       changed();
+      const chain = writes.get(workspaceId);
+      try {
+        // The write on the wire lands before the file goes: the store
+        // orders a drop against writes it has RECEIVED, and one it has
+        // not would recreate the board after the drop.
+        await chain;
+        await deps.store.drop({ workspaceId });
+      } finally {
+        closing.delete(workspaceId);
+        if (writes.get(workspaceId) === chain) writes.delete(workspaceId);
+      }
     },
     dispose() {
       disposed = true;
