@@ -590,8 +590,49 @@
   color: #8b93a7;
 }
 
-.tasks__link:hover {
+.tasks__link:hover:not(:disabled) {
   color: #e6e9ef;
+}
+
+.tasks__link:disabled {
+  color: #565e6b;
+  cursor: default;
+}
+
+.tasks__artifact {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tasks__artifact .tasks__link {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The row-level detach: the small text × the artifacts registry uses. */
+.tasks__remove {
+  display: inline-flex;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #565e6b;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.tasks__remove:hover {
+  background-color: #2a1f1f;
+  color: #d98b7f;
 }
 
 .tasks__comment {

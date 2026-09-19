@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { TasksService } from "../../app/tasks";
+import { artifactChanges } from "../../app/artifacts/changes";
+import { openArtifactByRef } from "../../app/artifacts/entryPoints";
+import type { ArtifactsRegistryReadPort } from "../../app/artifacts/registryRead";
+import { describeError } from "../../ipc/log";
 import { refusalOf, tasksEnableStatus } from "../../app/tasks/enableStatus";
 import { refusalText } from "../../app/tasks/refusalText";
 import { teamsOf, type Workspace } from "../../domain/deck";
@@ -19,6 +23,7 @@ import {
   queuesView,
   taskDetailView,
   tasksLadder,
+  type ArtifactRef,
 } from "../../presentation/tasks";
 
 /** The owner as the runtime hands it to surfaces: the current service, or
@@ -71,6 +76,9 @@ export function useTasksBoard(
   focus: string | null,
   onFocus: (taskId: string | null) => void,
   now: number,
+  /** The artifacts registry as this surface may read it — for the open
+   * task's attachments. Bound once at the composition root. */
+  artifactReads: ArtifactsRegistryReadPort,
 ) {
   const service = useSyncExternalStore(access.subscribe, access.current, access.current);
   const revision = useSyncExternalStore(
@@ -90,6 +98,31 @@ export function useTasksBoard(
   const [showCancelled, setShowCancelled] = useState(false);
   const [expanded, setExpanded] = useState<ReadonlySet<TaskStatus>>(new Set());
   const [composing, setComposing] = useState(false);
+  /** The workspace's artifacts, for the open task's attachments. Read
+   * when a task is open and re-read when the registry changes; empty
+   * (never an error) when the artifacts feature is off. */
+  const [artifacts, setArtifacts] = useState<{ ws: string; list: ArtifactRef[] } | null>(null);
+  const artifactRevision = useSyncExternalStore(
+    artifactChanges.subscribe,
+    artifactChanges.revision,
+    artifactChanges.revision,
+  );
+  useEffect(() => {
+    if (workspaceId === null || focus === null) return;
+    let live = true;
+    void artifactReads
+      .list({ workspaceId })
+      .then((rows) => {
+        if (live) setArtifacts({ ws: workspaceId, list: rows.map((row) => ({ id: row.id, title: row.title })) });
+      })
+      .catch(() => {
+        if (live) setArtifacts({ ws: workspaceId, list: [] });
+      });
+    return () => {
+      live = false;
+    };
+  }, [artifactReads, workspaceId, focus, artifactRevision]);
+  const knownArtifacts = artifacts !== null && artifacts.ws === workspaceId ? artifacts.list : [];
   /** The open task filling the stage, the board put away behind it. */
   const [wide, setWide] = useState(false);
   // Pointer events, not HTML5 drag: the webview hands the deck no native
@@ -176,7 +209,8 @@ export function useTasksBoard(
   });
 
   const selected = board && focus !== null ? (findTask(board, focus) ?? null) : null;
-  const detail = selected && selected.teamId === teamId ? taskDetailView(selected, board!, roster, now) : null;
+  const detail =
+    selected && selected.teamId === teamId ? taskDetailView(selected, board!, roster, now, knownArtifacts) : null;
   const columns = board ? boardView(teamTasks, board, { showCancelled, expanded, now }) : [];
   const lanes = board && teamId !== null ? queuesView(board, teamId, roster, now) : [];
   const form = newTaskFormView(roster);
@@ -270,6 +304,24 @@ export function useTasksBoard(
     assign: (taskId: string, assignee: string) => apply(taskId, [{ kind: "assign", assignee: assignee === "" ? null : assignee }]),
     setPriority: (taskId: string, to: TaskPriority) => apply(taskId, [{ kind: "priority", to }]),
     comment: (taskId: string, body: string) => apply(taskId, [{ kind: "comment", body }]),
+    attachArtifact: (taskId: string, slug: string) => {
+      const task = board ? findTask(board, taskId) : undefined;
+      if (!task) return;
+      apply(taskId, [{ kind: "artifacts", to: [...task.artifacts, slug] }]);
+    },
+    detachArtifact: (taskId: string, slug: string) => {
+      const task = board ? findTask(board, taskId) : undefined;
+      if (!task) return;
+      apply(taskId, [{ kind: "artifacts", to: task.artifacts.filter((other) => other !== slug) }]);
+    },
+    /** Open an attached artifact in the browser — the registry's own
+     * ladder resolves the live address at the click. */
+    openArtifact: (slug: string) => {
+      if (workspaceId === null) return;
+      void openArtifactByRef(workspaceId, slug)
+        .then(() => setError(null))
+        .catch((e: unknown) => setError(describeError(e)));
+    },
     create: async (input: Omit<CreateTaskInput, "teamId">) => {
       if (!service || workspaceId === null || teamId === null) return;
       const ok = await write(async () => {

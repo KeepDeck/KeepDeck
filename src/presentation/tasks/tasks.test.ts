@@ -154,6 +154,25 @@ describe("taskDetailView", () => {
   });
 });
 
+describe("taskDetailView — artifacts", () => {
+  it("titles attached artifacts the registry knows, keeps unknown slugs, offers only what is not yet attached", () => {
+    const b = board([task({ id: "task-1", artifacts: ["kd-tasks", "gone"] })]);
+    const registry = [
+      { id: "kd-tasks", title: "KeepDeck Tasks" },
+      { id: "kd-tasks-ui", title: "UI prototypes" },
+    ];
+    const view = taskDetailView(b.tasks[0], b, ROSTER, NOW, registry);
+    expect(view.artifacts).toEqual([
+      { slug: "kd-tasks", title: "KeepDeck Tasks", known: true },
+      { slug: "gone", title: "gone", known: false },
+    ]);
+    expect(view.attachOptions).toEqual([{ value: "kd-tasks-ui", label: "UI prototypes" }]);
+    expect(view.attachEmpty).toBeNull();
+    expect(taskDetailView(b.tasks[0], b, ROSTER, NOW, []).attachEmpty).toContain("Nothing published");
+    expect(taskDetailView(b.tasks[0], b, ROSTER, NOW, [registry[0]]).attachEmpty).toContain("Every artifact");
+  });
+});
+
 describe("newTaskFormView", () => {
   it("offers the pool first, then the roster, and says which addresses teammates use", () => {
     const view = newTaskFormView(ROSTER);

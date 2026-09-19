@@ -15,11 +15,27 @@ interface TaskDetailProps {
   onPriority(taskId: string, priority: TaskPriority): void;
   onComment(taskId: string, body: string): void;
   onSelect(taskId: string): void;
+  onAttach(taskId: string, slug: string): void;
+  onDetach(taskId: string, slug: string): void;
+  onOpenArtifact(slug: string): void;
 }
 
 /** The right panel: one task whole. Every word comes from the view; every
  * control emits an intent. */
-export function TaskDetail({ view, wide, onToggleWide, onClose, onMove, onAssign, onPriority, onComment, onSelect }: TaskDetailProps) {
+export function TaskDetail({
+  view,
+  wide,
+  onToggleWide,
+  onClose,
+  onMove,
+  onAssign,
+  onPriority,
+  onComment,
+  onSelect,
+  onAttach,
+  onDetach,
+  onOpenArtifact,
+}: TaskDetailProps) {
   const [draft, setDraft] = useState("");
   const send = () => {
     if (draft.trim() === "") return;
@@ -119,17 +135,48 @@ export function TaskDetail({ view, wide, onToggleWide, onClose, onMove, onAssign
         </>
       )}
 
+      <span className="tasks__section">Artifacts</span>
       {view.artifacts.length > 0 && (
-        <>
-          <span className="tasks__section">Artifacts</span>
-          <ul className="tasks__links">
-            {view.artifacts.map((slug) => (
-              <li key={slug}>
-                <code>{slug}</code>
-              </li>
-            ))}
-          </ul>
-        </>
+        <ul className="tasks__links">
+          {view.artifacts.map((artifact) => (
+            <li key={artifact.slug} className="tasks__artifact">
+              {/* The title opens it; the slug is the durable half a
+                  teammate is given. A row the registry no longer holds
+                  still reads, but has nothing to open. */}
+              <button
+                type="button"
+                className="tasks__link"
+                disabled={!artifact.known}
+                title={artifact.known ? "Open in the browser" : "No longer published"}
+                onClick={() => onOpenArtifact(artifact.slug)}
+              >
+                {artifact.title} <code>{artifact.slug}</code>
+              </button>
+              <button
+                type="button"
+                className="tasks__remove"
+                aria-label={`Detach ${artifact.slug}`}
+                title="Detach"
+                onClick={() => onDetach(view.id, artifact.slug)}
+              >
+                ×
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {view.attachOptions.length > 0 ? (
+        <Dropdown
+          ariaLabel="Attach artifact"
+          options={[{ value: "", label: "Attach an artifact…" }, ...view.attachOptions]}
+          value=""
+          onChange={(slug) => {
+            if (slug !== "") onAttach(view.id, slug);
+          }}
+          className="tasks__pick"
+        />
+      ) : (
+        view.attachEmpty && <p className="tasks__muted">{view.attachEmpty}</p>
       )}
 
       <span className="tasks__section">Thread</span>

@@ -7,6 +7,18 @@ import { fakeStore, teamedWorkspaces } from "../../app/tasks/testSupport";
 import { USER_ACTOR, agentActor } from "../../domain/tasks";
 import { TasksDialog } from "./TasksDialog";
 import type { TasksAccess } from "./useTasksBoard";
+import type { ArtifactsRegistryReadPort } from "../../app/artifacts/registryRead";
+
+// The registry's reads are a port the dialog is handed; the open-by-identity
+// ladder is doubled at its IPC edge so a click on an attachment is observed.
+vi.mock("../../app/artifacts/entryPoints", () => ({ openArtifactByRef: vi.fn(async () => "http://x") }));
+import { openArtifactByRef } from "../../app/artifacts/entryPoints";
+
+const registry: { rows: { id: string; title: string }[] } = { rows: [] };
+const artifactReads: ArtifactsRegistryReadPort = {
+  list: async () => registry.rows.map((row) => ({ ...row, versionCount: 1, updatedAt: 0, generation: "g" })),
+  versions: async () => [],
+};
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -47,6 +59,7 @@ function mount(service: TasksService | null, workspace = teamedWorkspaces()[0]) 
       root.render(
         createElement(TasksDialog, {
           tasks: access(service),
+          artifactReads,
           workspace,
           focus,
           onFocus: (id: string | null) => {
@@ -133,6 +146,7 @@ describe("TasksDialog", () => {
         root.render(
           createElement(TasksDialog, {
             tasks: access(service),
+            artifactReads,
             workspace: teamedWorkspaces()[0],
             focus,
             onFocus,
@@ -175,6 +189,7 @@ describe("TasksDialog", () => {
         root.render(
           createElement(TasksDialog, {
             tasks: access(service),
+            artifactReads,
             workspace: teamedWorkspaces()[0],
             focus,
             onFocus: (id: string | null) => {
@@ -263,6 +278,35 @@ describe("TasksDialog", () => {
     act(() => cards()[0].click());
     await flush();
     expect(focus).toBe("task-2");
+  });
+
+  it("attaches an artifact from the registry, opens it on click, and detaches it", async () => {
+    registry.rows = [{ id: "kd-tasks", title: "KeepDeck Tasks" }];
+    const { service } = await seeded();
+    const render = mount(service);
+    render();
+    await flush();
+    act(() => cards()[0].click());
+    await flush();
+    await flush();
+    const picker = document.querySelector<HTMLButtonElement>('button[aria-label="Attach artifact"]')!;
+    act(() => picker.click());
+    await flush();
+    act(() => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="option"]')).find((o) => o.textContent === "KeepDeck Tasks")!.click());
+    await flush();
+    render();
+    await flush();
+    let state = service.peek("ws-1");
+    expect(state?.kind === "ready" && state.board.tasks[0].artifacts).toEqual(["kd-tasks"]);
+    // Attached: the picker has nothing left to offer; the row opens it.
+    expect(text()).toContain("Every artifact of this workspace is attached");
+    act(() => buttons().find((b) => b.textContent?.startsWith("KeepDeck Tasks"))!.click());
+    expect(openArtifactByRef).toHaveBeenCalledWith("ws-1", "kd-tasks");
+    act(() => document.querySelector<HTMLButtonElement>('button[aria-label="Detach kd-tasks"]')!.click());
+    await flush();
+    state = service.peek("ws-1");
+    expect(state?.kind === "ready" && state.board.tasks[0].artifacts).toEqual([]);
+    registry.rows = [];
   });
 
   it("the queues view lays out a lane per member and the pool", async () => {

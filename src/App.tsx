@@ -434,6 +434,7 @@ function App() {
           {tasksOpen && (
             <TasksDialog
               tasks={tasks}
+              artifactReads={registryReads}
               workspace={active}
               focus={tasksFocus}
               onFocus={focusTask}

@@ -1,4 +1,5 @@
 import { Dropdown } from "@keepdeck/ui-kit";
+import type { ArtifactsRegistryReadPort } from "../../app/artifacts/registryRead";
 import type { Workspace } from "../../domain/deck";
 import { LADDER_WORDS } from "../../presentation/tasks";
 import { Button } from "../../ui/Button";
@@ -25,6 +26,8 @@ interface TasksDialogProps {
   onClose(): void;
   /** False while a transaction is stacked over this dialog. */
   canClose?: boolean;
+  /** The artifacts registry's reads, bound once at the composition root. */
+  artifactReads: ArtifactsRegistryReadPort;
 }
 
 /** The ghost is a picture; a click on it goes nowhere. */
@@ -41,9 +44,17 @@ const MODES: readonly { value: TasksMode; label: string }[] = [
  * right. The shell renders and emits; every transition is the hook's and
  * every word the presentation's.
  */
-export function TasksDialog({ tasks, workspace, focus, onFocus, onClose, canClose = true }: TasksDialogProps) {
+export function TasksDialog({
+  tasks,
+  workspace,
+  focus,
+  onFocus,
+  onClose,
+  canClose = true,
+  artifactReads,
+}: TasksDialogProps) {
   const now = useWallClock(0, true);
-  const board = useTasksBoard(tasks, workspace, focus, onFocus, now);
+  const board = useTasksBoard(tasks, workspace, focus, onFocus, now, artifactReads);
   // Escape peels one layer: the form when it is open, then the wide view
   // back to the board, then the dialog. Closing the whole dialog out from
   // under a half-typed brief is the one thing the key must never do.
@@ -71,6 +82,9 @@ export function TasksDialog({ tasks, workspace, focus, onFocus, onClose, canClos
       onPriority={board.setPriority}
       onComment={board.comment}
       onSelect={board.select}
+      onAttach={board.attachArtifact}
+      onDetach={board.detachArtifact}
+      onOpenArtifact={board.openArtifact}
     />
   ) : null;
 

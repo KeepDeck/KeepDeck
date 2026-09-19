@@ -53,18 +53,32 @@ export interface TaskDetailView {
   blockers: { id: string; text: string }[];
   blockersEmpty: string | null;
   unblocks: { id: string; title: string }[];
-  artifacts: string[];
+  /** Attached artifacts, titled when the registry knows them; a slug the
+   * registry no longer holds is still shown — the task said so. */
+  artifacts: { slug: string; title: string; known: boolean }[];
+  /** The workspace's artifacts not yet on this task — what may be attached. */
+  attachOptions: ChoiceView[];
+  attachEmpty: string | null;
   thread: { n: number; who: string; age: string; body: string }[];
   threadEmpty: string | null;
   log: { who: string; text: string; age: string }[];
 }
 
 
+/** An artifact as the registry lists it — the two facts a task needs. */
+export interface ArtifactRef {
+  id: string;
+  title: string;
+}
+
 export function taskDetailView(
   task: Task,
   board: TaskBoard,
   roster: readonly string[],
   now: number,
+  /** The workspace's artifacts, as the registry lists them; empty when the
+   * feature is off or nothing is published. */
+  artifacts: readonly ArtifactRef[] = [],
 ): TaskDetailView {
   const ctx = { board, roster, at: now };
   const reachable = new Set(reachableStatuses(task, USER_ACTOR, ctx));
@@ -101,7 +115,19 @@ export function taskDetailView(
     blockersEmpty:
       task.blockedBy.length > 0 ? null : task.status === "todo" && issuable(task, board) ? "none — can start now" : "none",
     unblocks: unblocks(task, board).map((other) => ({ id: other.id, title: other.title })),
-    artifacts: [...task.artifacts],
+    artifacts: task.artifacts.map((slug) => {
+      const known = artifacts.find((artifact) => artifact.id === slug);
+      return { slug, title: known?.title ?? slug, known: known !== undefined };
+    }),
+    attachOptions: artifacts
+      .filter((artifact) => !task.artifacts.includes(artifact.id))
+      .map((artifact) => ({ value: artifact.id, label: artifact.title })),
+    attachEmpty:
+      artifacts.length === 0
+        ? "Nothing published in this workspace yet — agents attach with task.update artifacts=<id>"
+        : artifacts.every((artifact) => task.artifacts.includes(artifact.id))
+          ? "Every artifact of this workspace is attached"
+          : null,
     thread: task.comments.map((comment) => ({
       n: comment.n,
       who: personName(comment.from),
