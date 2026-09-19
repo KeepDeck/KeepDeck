@@ -141,6 +141,36 @@ describe("createTasksFeature", () => {
     expect(state.kind).toBe("ready");
   });
 
+  it("an unrelated setting moving changes nothing: same owner, same commands, no new enable", async () => {
+    const h = setup();
+    await h.setTasks(true);
+    await h.settleNext();
+    const owner = h.feature.access.current();
+    // The settings feed fires for every setting; the value of ours stands.
+    await h.setTasks(true);
+    await h.setTasks(true);
+    expect(h.feature.access.current()).toBe(owner);
+    expect(h.registry.has("task.create")).toBe(true);
+    expect(h.calls.map((c) => c.kind)).toEqual(["enable"]);
+  });
+
+  it("On (still pending) → Off → On: the first enable's answer is not believed for the third generation", async () => {
+    const h = setup();
+    await h.setTasks(true); // enable #1 out
+    await h.setTasks(false); // disable queued behind it
+    await h.setTasks(true); // enable #3 queued behind that
+    expect(h.calls.map((c) => c.kind)).toEqual(["enable"]);
+    await h.settleNext(); // enable #1 lands — for generation 1, not this one
+    expect(h.feature.access.current()).toBeNull();
+    expect(h.calls.map((c) => c.kind)).toEqual(["enable", "disable"]);
+    await h.settleNext(); // the disable lands — generation 2
+    expect(h.feature.access.current()).toBeNull();
+    expect(h.calls.map((c) => c.kind)).toEqual(["enable", "disable", "enable"]);
+    await h.settleNext(); // enable #3 — this generation's
+    expect(h.feature.access.current()).not.toBeNull();
+    expect(h.registry.has("task.create")).toBe(true);
+  });
+
   it("forgets a workspace here and drops it on disk; dispose takes the owner and the commands down", async () => {
     const h = setup();
     await h.setTasks(true);

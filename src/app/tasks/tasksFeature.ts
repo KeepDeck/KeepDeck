@@ -58,6 +58,17 @@ export function createTasksFeature(deps: TasksFeatureDeps): TasksFeature {
   /** Whether the store is open for the setting that stands NOW — null
    * while no answer for the current value has arrived. */
   let storeOpen: boolean | null = null;
+  /** The setting's generation: bumped only when its VALUE changes. The
+   * settings feed fires for every setting, and forgetting the store's
+   * answer on an unrelated change tore the owner down for good — the
+   * policy saw nothing to do and never reported again. */
+  let generation = 0;
+  let lastValue: boolean | null = deps.settings.tasks();
+  /** The generation the backend call now in flight was made for; a
+   * report is believed only when it is still the one that stands — the
+   * same boolean twice (On, Off, On) is two generations, and the first
+   * enable's answer says nothing about the third. */
+  let calledFor = generation;
   let service: TasksService | null = null;
   /** The owner taken down on Off, held until the store's disable has
    * flushed its writes — the reconcile that retired it runs before the
@@ -97,10 +108,14 @@ export function createTasksFeature(deps: TasksFeatureDeps): TasksFeature {
   const policy = createEnablePolicy(
     { desired: deps.settings.tasks, subscribe: deps.settings.subscribe },
     {
-      enable: deps.store.enable,
+      enable: () => {
+        calledFor = generation;
+        return deps.store.enable();
+      },
       // Queued writes land before the store closes under them — the
       // RETIRING owner's, which reconcile has already let go of.
       disable: async () => {
+        calledFor = generation;
         const gone = retiring ?? service;
         retiring = null;
         await gone?.flush();
@@ -108,11 +123,10 @@ export function createTasksFeature(deps: TasksFeatureDeps): TasksFeature {
       },
     },
     (transition) => {
-      // An answer counts only for the value that stands now: a report
-      // for the setting before this one says nothing about this one.
-      if (transition.desired !== (deps.settings.tasks() ?? false)) return;
-      storeOpen = transition.ok && transition.desired;
+      // An answer counts only for the generation that stands now.
       deps.status.record(transition);
+      if (calledFor !== generation) return;
+      storeOpen = transition.ok && transition.desired;
       reconcile();
     },
     { target: "web:tasks", feature: "tasks" },
@@ -120,9 +134,14 @@ export function createTasksFeature(deps: TasksFeatureDeps): TasksFeature {
 
   const stop = [
     deps.settings.subscribe(() => {
-      // The setting moved: whatever the store answered, it answered for
-      // the old value. Until the policy reports again, nothing is known —
-      // and nothing is created on an answer that is no longer about this.
+      // Only a change of THIS setting is a new generation: whatever the
+      // store answered, it answered for the old value, and nothing is
+      // known until the policy reports again. Any other setting moving is
+      // nothing to us.
+      const value = deps.settings.tasks();
+      if (value === lastValue) return;
+      lastValue = value;
+      generation += 1;
       storeOpen = null;
       reconcile();
     }),
