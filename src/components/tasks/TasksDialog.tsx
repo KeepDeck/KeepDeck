@@ -99,6 +99,18 @@ export function TasksDialog({ tasks, workspace, focus, onFocus, onClose, canClos
                   </button>
                 ))}
               </div>
+              <div className="tasks__filter">
+                <button
+                  type="button"
+                  className={`tasks__segment-btn${board.showCancelled ? " tasks__segment-btn--active" : ""}`}
+                  aria-pressed={board.showCancelled}
+                  disabled={board.mode !== "board"}
+                  title={board.mode === "board" ? undefined : "Cancelled tasks show on the board"}
+                  onClick={board.toggleCancelled}
+                >
+                  {board.showCancelled ? "Hide cancelled" : "Show cancelled"}
+                </button>
+              </div>
               <Button
                 size="sm"
                 variant="primary"
@@ -145,30 +157,16 @@ export function TasksDialog({ tasks, workspace, focus, onFocus, onClose, canClos
                   <span>{LADDER_WORDS.empty.hint}</span>
                 </div>
               ) : board.mode === "board" ? (
-                <>
-                  <BoardColumns
-                    columns={board.columns}
-                    selectedId={board.detail?.id ?? null}
-                    dragging={board.dragging}
-                    onSelect={board.select}
-                    onToggleColumn={board.toggleColumn}
-                    onDragStart={board.beginDrag}
-                    onDragEnd={board.endDrag}
-                    onDrop={board.dropOn}
-                  />
-                  {/* Beside the board, where its column appears — not in
-                      the bar, which must not change with the view. */}
-                  <div className="tasks__board-foot">
-                    <button
-                      type="button"
-                      className="tasks__column-toggle"
-                      aria-pressed={board.showCancelled}
-                      onClick={board.toggleCancelled}
-                    >
-                      {board.showCancelled ? "Hide cancelled" : "Show cancelled"}
-                    </button>
-                  </div>
-                </>
+                <BoardColumns
+                  columns={board.columns}
+                  selectedId={board.detail?.id ?? null}
+                  dragging={board.dragging}
+                  onSelect={board.select}
+                  onToggleColumn={board.toggleColumn}
+                  onDragStart={board.beginDrag}
+                  onDragEnd={board.endDrag}
+                  onDrop={board.dropOn}
+                />
               ) : (
                 <QueuesLanes lanes={board.lanes} selectedId={board.detail?.id ?? null} onSelect={board.select} />
               )}
