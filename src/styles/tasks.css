@@ -134,13 +134,13 @@
   min-height: 0;
 }
 
-/* Wide: the drawer is the stage — the board is put away, not covered.
-   Compound on purpose: this must outrank the drawer's own width below,
-   which at equal specificity won by source order and left the "wide"
-   panel 400px wide at the left edge. */
+/* Wide: the drawer grows from the right edge to the whole stage — the
+   board is put away, not covered. Compound on purpose: this must outrank
+   the drawer's own width below, which at equal specificity won by source
+   order and left the "wide" panel 400px wide at the left edge. Two
+   explicit widths, so the change between them animates. */
 .tasks__detail.tasks__detail--wide {
-  left: 0;
-  width: auto;
+  width: 100%;
   padding: 20px 28px;
   box-shadow: none;
 }
@@ -436,6 +436,15 @@
   background-color: #0e121a;
   box-shadow: -16px 0 32px rgba(0, 0, 0, 0.45);
   overflow-y: auto;
+  transition:
+    width 220ms ease,
+    padding 220ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tasks__detail {
+    transition: none;
+  }
 }
 
 .tasks__detail-title {
