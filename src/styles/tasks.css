@@ -139,6 +139,31 @@
   grid-template-columns: minmax(0, 1fr) minmax(420px, 44%);
 }
 
+/* Wide: the one panel is the stage. */
+.tasks__stage--wide {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.tasks__detail--wide {
+  padding: 20px 28px;
+}
+
+.tasks__detail--wide .tasks__body {
+  max-width: 80ch;
+  font-size: 14px;
+}
+
+.tasks__detail--wide .tasks__props {
+  max-width: 480px;
+}
+
+.tasks__detail-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .tasks__main {
   display: flex;
   flex-direction: column;
@@ -151,7 +176,9 @@
 .tasks__columns {
   display: grid;
   grid-auto-flow: column;
-  grid-auto-columns: minmax(180px, 1fr);
+  /* One fraction each, a folded column included: columns of different
+     widths read as columns of different importance. */
+  grid-auto-columns: minmax(0, 1fr);
   gap: 10px;
   flex: 1;
   min-height: 0;
@@ -165,11 +192,6 @@
   border: 1px solid #1c2230;
   border-radius: 8px;
   background-color: #0e121a;
-}
-
-.tasks__column--collapsed {
-  grid-auto-columns: max-content;
-  max-width: 150px;
 }
 
 .tasks__column-head {
@@ -208,11 +230,13 @@
 
 .tasks__column-toggle {
   margin-left: auto;
+  padding: 0;
   border: 0;
   background: none;
   color: #6b7280;
   font: inherit;
   font-size: 11px;
+  line-height: inherit;
   text-transform: none;
   letter-spacing: 0;
   cursor: pointer;

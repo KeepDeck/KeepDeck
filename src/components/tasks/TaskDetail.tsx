@@ -6,6 +6,9 @@ import { Button } from "../../ui/Button";
 
 interface TaskDetailProps {
   view: TaskDetailView;
+  /** Whether the task fills the stage; the head offers the way there and back. */
+  wide: boolean;
+  onToggleWide(): void;
   onMove(taskId: string, to: TaskStatus): void;
   onAssign(taskId: string, assignee: string): void;
   onPriority(taskId: string, priority: TaskPriority): void;
@@ -15,7 +18,7 @@ interface TaskDetailProps {
 
 /** The right panel: one task whole. Every word comes from the view; every
  * control emits an intent. */
-export function TaskDetail({ view, onMove, onAssign, onPriority, onComment, onSelect }: TaskDetailProps) {
+export function TaskDetail({ view, wide, onToggleWide, onMove, onAssign, onPriority, onComment, onSelect }: TaskDetailProps) {
   const [draft, setDraft] = useState("");
   const send = () => {
     if (draft.trim() === "") return;
@@ -23,8 +26,13 @@ export function TaskDetail({ view, onMove, onAssign, onPriority, onComment, onSe
     setDraft("");
   };
   return (
-    <aside className="tasks__detail" aria-label={`Task ${view.id}`}>
-      <h3 className="tasks__detail-title">{view.title}</h3>
+    <aside className={`tasks__detail${wide ? " tasks__detail--wide" : ""}`} aria-label={`Task ${view.id}`}>
+      <div className="tasks__detail-head">
+        <h3 className="tasks__detail-title">{view.title}</h3>
+        <Button size="sm" variant="ghost" aria-pressed={wide} onClick={onToggleWide}>
+          {wide ? "Back to board" : "Expand"}
+        </Button>
+      </div>
       <p className="tasks__detail-meta">
         <code>{view.meta}</code>
       </p>

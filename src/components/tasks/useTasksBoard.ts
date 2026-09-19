@@ -65,6 +65,8 @@ export function useTasksBoard(
   const [showDropped, setShowDropped] = useState(false);
   const [expanded, setExpanded] = useState<ReadonlySet<TaskStatus>>(new Set());
   const [composing, setComposing] = useState(false);
+  /** The open task filling the stage, the board put away behind it. */
+  const [wide, setWide] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -155,9 +157,14 @@ export function useTasksBoard(
     composing,
     compose: () => {
       onFocus(null);
+      setWide(false);
       setComposing(true);
     },
     cancelCompose: () => setComposing(false),
+    /** Wide only while a task is open — a wide nothing is the board. */
+    wide: wide && detail !== null,
+    toggleWide: () => setWide((current) => !current),
+    narrow: () => setWide(false),
     form,
     error,
     move: (taskId: string, to: TaskStatus) => apply(taskId, [{ kind: "status", to }]),

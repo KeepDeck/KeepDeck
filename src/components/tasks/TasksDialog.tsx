@@ -40,10 +40,14 @@ const MODES: readonly { value: TasksMode; label: string }[] = [
 export function TasksDialog({ tasks, workspace, focus, onFocus, onClose, canClose = true }: TasksDialogProps) {
   const now = useWallClock(0, true);
   const board = useTasksBoard(tasks, workspace, focus, onFocus, now);
-  // Escape peels one layer: the form when it is open, else the dialog.
-  // Closing the whole dialog out from under a half-typed brief is the
-  // one thing the key must never do.
-  useEscape(() => (board.composing ? board.cancelCompose() : onClose()), canClose);
+  // Escape peels one layer: the form when it is open, then the wide view
+  // back to the board, then the dialog. Closing the whole dialog out from
+  // under a half-typed brief is the one thing the key must never do.
+  useEscape(() => {
+    if (board.composing) board.cancelCompose();
+    else if (board.wide) board.narrow();
+    else onClose();
+  }, canClose);
   const { ladder } = board;
   const staged = ladder.kind === "board" || ladder.kind === "empty";
   const panel = board.composing ? (
@@ -51,6 +55,8 @@ export function TasksDialog({ tasks, workspace, focus, onFocus, onClose, canClos
   ) : board.detail ? (
     <TaskDetail
       view={board.detail}
+      wide={board.wide}
+      onToggleWide={board.toggleWide}
       onMove={board.move}
       onAssign={board.assign}
       onPriority={board.setPriority}
@@ -127,8 +133,11 @@ export function TasksDialog({ tasks, workspace, focus, onFocus, onClose, canClos
           </div>
         ) : (
           <div
-            className={`tasks__stage${panel ? " tasks__stage--panel" : ""}${board.composing ? " tasks__stage--compose" : ""}`}
+            className={`tasks__stage${panel ? " tasks__stage--panel" : ""}${board.composing ? " tasks__stage--compose" : ""}${board.wide ? " tasks__stage--wide" : ""}`}
           >
+            {/* Wide: the task fills the stage and the board is put away —
+                not hidden under it, gone until the person comes back. */}
+            {!board.wide && (
             <div className="tasks__main">
               {ladder.kind === "empty" ? (
                 <div className="tasks__placeholder">
@@ -160,6 +169,7 @@ export function TasksDialog({ tasks, workspace, focus, onFocus, onClose, canClos
                 <QueuesLanes lanes={board.lanes} selectedId={board.detail?.id ?? null} onSelect={board.select} />
               )}
             </div>
+            )}
             {panel}
           </div>
         )}
