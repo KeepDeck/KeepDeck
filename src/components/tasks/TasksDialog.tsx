@@ -69,7 +69,19 @@ export function TasksDialog({ tasks, workspace, focus, onFocus, onClose, canClos
 
   return (
     <ModalOverlay>
-      <div className="form tasks" role="dialog" aria-modal="true" aria-label="Tasks">
+      <div
+        className={`form tasks${board.dragging ? " tasks--dragging" : ""}`}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Tasks"
+      >
+        {/* The card in flight, as a ghost under the pointer — the board's
+            own card stays put, dimmed, until the drop moves it. */}
+        {board.dragging && (
+          <div className="tasks__ghost" style={{ left: board.dragging.x + 14, top: board.dragging.y + 10 }}>
+            {board.dragging.title}
+          </div>
+        )}
         <div className="tasks__head">
           <h2 className="form__title tasks__title">Tasks</h2>
           {/* The same controls whatever the view: a bar whose buttons come
@@ -161,10 +173,11 @@ export function TasksDialog({ tasks, workspace, focus, onFocus, onClose, canClos
                   columns={board.columns}
                   selectedId={board.detail?.id ?? null}
                   dragging={board.dragging}
+                  hover={board.hover}
                   onSelect={board.select}
                   onToggleColumn={board.toggleColumn}
-                  onDragStart={board.beginDrag}
-                  onDragEnd={board.endDrag}
+                  onArm={board.armDrag}
+                  onHover={board.hoverColumn}
                   onDrop={board.dropOn}
                 />
               ) : (

@@ -212,6 +212,57 @@ describe("TasksDialog", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
+  it("a card is dragged with the pointer and dropped on a column; a plain press still opens one", async () => {
+    const { service } = await seeded();
+    const render = mount(service);
+    render();
+    await flush();
+    const column = (label: string) => document.querySelector<HTMLElement>(`section[aria-label="${label}"]`)!;
+    const pointer = (type: string, target: EventTarget, x: number, y: number) =>
+      target.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0 }));
+
+    // Press, travel past the threshold: a drag, with a ghost and targets.
+    act(() => {
+      pointer("pointerdown", cards()[0], 10, 10);
+    });
+    await flush();
+    act(() => {
+      pointer("pointermove", window, 40, 40);
+    });
+    await flush();
+    expect(document.querySelector(".tasks__ghost")?.textContent).toBe("Draft the skill");
+    expect(column("Done").className).toContain("tasks__column--drop-ok");
+    act(() => {
+      pointer("pointerover", column("Done"), 300, 40);
+    });
+    await flush();
+    expect(column("Done").className).toContain("tasks__column--drop-over");
+
+    // Release over Done: the move lands, the flight ends, the click that
+    // follows the release opens nothing.
+    act(() => {
+      pointer("pointerup", column("Done"), 300, 40);
+    });
+    await flush();
+    act(() => cards()[0].click());
+    await flush();
+    const state = service.peek("ws-1");
+    expect(state?.kind === "ready" && state.board.tasks[0].status).toBe("done");
+    expect(document.querySelector(".tasks__ghost")).toBeNull();
+    expect(focus).toBeNull();
+
+    // A press that does not travel is a click: the card opens.
+    act(() => {
+      pointer("pointerdown", cards()[0], 10, 10);
+      pointer("pointerup", cards()[0], 10, 10);
+    });
+    await flush();
+    await new Promise((resolve) => setTimeout(resolve, 260));
+    act(() => cards()[0].click());
+    await flush();
+    expect(focus).toBe("task-2");
+  });
+
   it("the queues view lays out a lane per member and the pool", async () => {
     const { service } = await seeded();
     const render = mount(service);

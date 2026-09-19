@@ -6,34 +6,27 @@ interface TaskCardProps {
   /** Whether this card is the one in flight. */
   dragging?: boolean;
   onSelect(id: string): void;
-  /** Present where a card may be dragged (the board); absent in a lane. */
-  onDragStart?(id: string): void;
-  onDragEnd?(): void;
+  /** Present where a card may be dragged (the board); absent in a lane.
+   * A press arms a drag; the hook decides when it becomes one. */
+  onArm?(id: string, x: number, y: number): void;
 }
 
 /** One task on the board or in a lane. The card IS the control — a list
  * row is one of the archetypes the shared Button deliberately does not
  * cover, so it is spelled here and dressed by its column. */
-export function TaskCard({ card, selected, dragging = false, onSelect, onDragStart, onDragEnd }: TaskCardProps) {
-  const draggable = onDragStart !== undefined;
+export function TaskCard({ card, selected, dragging = false, onSelect, onArm }: TaskCardProps) {
   return (
     <button
       type="button"
-      className={`tasks__card tasks__card--${card.tone}${card.cancelled ? " tasks__card--cancelled" : ""}${dragging ? " tasks__card--dragging" : ""}`}
+      className={`tasks__card tasks__card--${card.tone}${card.cancelled ? " tasks__card--cancelled" : ""}${dragging ? " tasks__card--dragging" : ""}${onArm ? " tasks__card--grabbable" : ""}`}
       aria-pressed={selected}
-      draggable={draggable}
-      onDragStart={
-        draggable
+      onPointerDown={
+        onArm
           ? (event) => {
-              if (event.dataTransfer) {
-                event.dataTransfer.effectAllowed = "move";
-                event.dataTransfer.setData("text/plain", card.id);
-              }
-              onDragStart(card.id);
+              if (event.button === 0) onArm(card.id, event.clientX, event.clientY);
             }
           : undefined
       }
-      onDragEnd={onDragEnd}
       onClick={() => onSelect(card.id)}
     >
       <span className="tasks__card-title">{card.title}</span>

@@ -287,12 +287,39 @@
   outline-offset: -1px;
 }
 
-.tasks__card[draggable="true"] {
+.tasks__card--grabbable {
   cursor: grab;
 }
 
 .tasks__card--dragging {
-  opacity: 0.5;
+  opacity: 0.4;
+}
+
+/* While a card is in flight the whole dialog says so: the hand closes,
+   nothing gets selected by accident. */
+.tasks--dragging,
+.tasks--dragging .tasks__card {
+  cursor: grabbing;
+  user-select: none;
+}
+
+/* The card in flight, following the pointer. Above the drawers, through
+   to nothing: it is a picture, the columns take the release. */
+.tasks__ghost {
+  position: fixed;
+  z-index: 3;
+  max-width: 240px;
+  padding: 8px 10px;
+  border: 1px solid var(--kd-ok);
+  border-radius: 6px;
+  background-color: #161d29;
+  color: #e6e9ef;
+  font-size: 13px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 /* While a card is in flight: the columns it may land in open up, the
@@ -304,6 +331,12 @@
 
 .tasks__column--drop-no {
   opacity: 0.45;
+}
+
+/* The target under the pointer, singled out from the other targets. */
+.tasks__column--drop-over {
+  border-color: var(--kd-ok-strong);
+  background-color: #10171f;
 }
 
 .tasks__card--cancelled .tasks__card-title {

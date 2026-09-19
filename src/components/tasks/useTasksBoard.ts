@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { TasksService } from "../../app/tasks";
 import { refusalOf, tasksEnableStatus } from "../../app/tasks/enableStatus";
 import { refusalText } from "../../app/tasks/refusalText";
@@ -32,6 +32,23 @@ export type TasksMode = "board" | "queues";
 
 const noop = () => () => {};
 const zero = () => 0;
+
+/** How far a pressed card travels before it is a drag and not a click. */
+const DRAG_THRESHOLD_PX = 6;
+/** The click the browser fires after a release must not open the card
+ * that was just dropped; this is how long it is disbelieved. */
+const CLICK_AFTER_DRAG_MS = 250;
+
+/** A card in flight: which, what it is called, where the pointer is, and
+ * the columns it may land in — judged once, when the drag began, by the
+ * same table the picker reads. */
+export interface CardDrag {
+  id: string;
+  title: string;
+  x: number;
+  y: number;
+  targets: ReadonlySet<TaskStatus>;
+}
 
 /**
  * The dialog's machine: which team and view, what is selected, the form,
@@ -68,9 +85,21 @@ export function useTasksBoard(
   const [composing, setComposing] = useState(false);
   /** The open task filling the stage, the board put away behind it. */
   const [wide, setWide] = useState(false);
-  /** A card in flight, and the columns it may land in — judged when the
-   * drag starts, by the same table the picker reads. */
-  const [dragging, setDragging] = useState<{ id: string; targets: ReadonlySet<TaskStatus> } | null>(null);
+  // Pointer events, not HTML5 drag: the webview hands the deck no native
+  // drags (the OS drop router owns them), so a card is dragged the way a
+  // pane is — pressed, moved past a threshold, released over a target.
+  const [armed, setArmed] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [dragging, setDragging] = useState<CardDrag | null>(null);
+  const [hover, setHover] = useState<TaskStatus | null>(null);
+  const dragEndedAt = useRef(0);
+  const endDrag = useCallback(() => {
+    setDragging((current) => {
+      if (current) dragEndedAt.current = Date.now();
+      return null;
+    });
+    setArmed(null);
+    setHover(null);
+  }, []);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -95,6 +124,38 @@ export function useTasksBoard(
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [service, workspaceId, teamId, revision],
   );
+
+  // The drag's window listeners live only while a card is armed or in
+  // flight; they read the board and the roster, so they come after both.
+  useEffect(() => {
+    if (armed === null && dragging === null) return;
+    const onMove = (event: PointerEvent) => {
+      if (dragging) {
+        setDragging({ ...dragging, x: event.clientX, y: event.clientY });
+        return;
+      }
+      if (!armed || Math.hypot(event.clientX - armed.x, event.clientY - armed.y) < DRAG_THRESHOLD_PX) return;
+      const task = board ? findTask(board, armed.id) : undefined;
+      setArmed(null);
+      if (!board || !task) return;
+      setDragging({
+        id: task.id,
+        title: task.title,
+        x: event.clientX,
+        y: event.clientY,
+        targets: new Set(reachableStatuses(task, USER_ACTOR, { board, roster, at: now })),
+      });
+    };
+    // Bubble phase, so a column's own release handler (the drop) runs first.
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", endDrag);
+    window.addEventListener("pointercancel", endDrag);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", endDrag);
+      window.removeEventListener("pointercancel", endDrag);
+    };
+  }, [armed, dragging, board, roster, now, endDrag]);
 
   const ladder = tasksLadder({
     workspaceId,
@@ -156,6 +217,8 @@ export function useTasksBoard(
     detail,
     /** Pick a task, or put it away: the open card pressed again closes. */
     select: (taskId: string | null) => {
+      // The click that follows a drop is the same press that dragged.
+      if (Date.now() - dragEndedAt.current < CLICK_AFTER_DRAG_MS) return;
       setComposing(false);
       if (taskId !== null && taskId === focus) {
         setWide(false);
@@ -169,19 +232,17 @@ export function useTasksBoard(
       onFocus(null);
     },
     dragging,
-    beginDrag: (taskId: string) => {
-      const task = board ? findTask(board, taskId) : undefined;
-      if (!board || !task) return;
-      setDragging({
-        id: taskId,
-        targets: new Set(reachableStatuses(task, USER_ACTOR, { board, roster, at: now })),
-      });
+    hover,
+    /** A card was pressed: it becomes a drag once the pointer travels. */
+    armDrag: (taskId: string, x: number, y: number) => setArmed({ id: taskId, x, y }),
+    /** The pointer is over a column, or over none. */
+    hoverColumn: (status: TaskStatus | null) => {
+      if (dragging) setHover(status);
     },
-    endDrag: () => setDragging(null),
-    /** A drop on a column: the move, if that column was a target. */
+    /** Released over a column: the move, if that column was a target. */
     dropOn: (status: TaskStatus) => {
       if (dragging && dragging.targets.has(status)) apply(dragging.id, [{ kind: "status", to: status }]);
-      setDragging(null);
+      endDrag();
     },
     composing,
     compose: () => {
