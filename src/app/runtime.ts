@@ -38,6 +38,10 @@ import { artifactChanges } from "./artifacts/changes";
 import { artifactsEnableStatus } from "./artifacts/enableStatus";
 import { announceArtifact } from "./artifacts/producers";
 import { artifactsDisable, artifactsEnable, artifactDropWorkspace } from "../ipc/artifacts";
+import { createTasksFeature } from "./tasks/tasksFeature";
+import { tasksEnableStatus } from "./tasks/enableStatus";
+import { announceTask } from "./tasks/producers";
+import { tasksDisable, tasksDropWorkspace, tasksEnable, tasksRead, tasksWrite } from "../ipc/tasks";
 import { createPaneAttribution } from "./paneAttribution";
 import { createPluginDeckBridge } from "./pluginDeckBridge";
 import { createPluginManager } from "./pluginManager";
@@ -222,6 +226,24 @@ export function createAppRuntime(
     mcp.service.subscribe(reconcileArtifactCommands),
   ];
   reconcileArtifactCommands();
+  // Tasks: the whole feature — its enable policy, the board owner, the
+  // task_* commands, the human's notifications, what a closing workspace
+  // forgets — as one owner; only its ports are bound here.
+  const tasks = createTasksFeature({
+    registry,
+    workspaces: () => deckStore.getSnapshot().workspaces,
+    settings: { tasks: () => getSettings()?.tasks ?? null, subscribe: subscribeSettings },
+    socket: { up: () => mcp.service.status().socket !== null, subscribe: mcp.service.subscribe },
+    store: {
+      read: tasksRead,
+      write: tasksWrite,
+      enable: tasksEnable,
+      disable: tasksDisable,
+      drop: ({ workspaceId }) => tasksDropWorkspace(workspaceId),
+    },
+    announce: (event) => announceTask(event, { workspaces: () => deckStore.getSnapshot().workspaces }),
+    status: tasksEnableStatus,
+  });
   const journalPersistence = createJournalPersistence(
     deckStore,
     deckPersistence,
@@ -319,6 +341,10 @@ export function createAppRuntime(
       // catalog the panes were last briefed from, and re-stating it would
       // hand every teamed pane an unsolicited briefing per launch.
       onRoleCatalogChanged: subscribeRoleCatalogChanges,
+      board: {
+        on: () => tasks.access.current() !== null,
+        onChanged: tasks.access.subscribe,
+      },
       terminal: { wake: wakePaneForMail },
       bridge: { reply: replyToBridgeHook, nudge: nudgeBridgePane },
     },
@@ -369,7 +395,11 @@ export function createAppRuntime(
     // Workspace deletion forgets what the backend keeps per workspace — its
     // artifact store, its MCP library scope — the deck model being the only
     // knower of the live workspace set.
-    workspaceForgetters: [artifactDropWorkspace, mcp.forgetWorkspace],
+    workspaceForgetters: [
+      artifactDropWorkspace,
+      tasks.forgetWorkspace,
+      mcp.forgetWorkspace,
+    ],
   });
   const application = createApplicationController({
     registry,
@@ -491,12 +521,17 @@ export function createAppRuntime(
       // every window reload — the display server outlives the page and
       // dies with the process.
       artifactsPolicy.dispose();
+      tasks.dispose();
       mcp.dispose();
       journalPersistence.dispose();
       sessionBinding?.dispose();
       deckPersistence.dispose();
     },
     orchestrator,
+    /** The task board's owner while the feature is on — null otherwise —
+     * and the signal that it came or went. The dialog reads the live board
+     * through it; nothing else holds it. */
+    tasks: tasks.access,
     // The "+ Team" and "Add member" doors as one owner: what a confirmed
     // dialog does, with the orchestrator's landings behind it.
     agentDoors: createAgentDoors({

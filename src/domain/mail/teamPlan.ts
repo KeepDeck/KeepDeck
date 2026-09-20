@@ -86,6 +86,24 @@ function rosterLine(address: string): string {
 }
 
 /**
+ * What the board is to this member, by standing. Facts and offers, never
+ * obligations — and one promise the board keeps: it tells nobody anything.
+ * A task reaches an agent as a letter somebody chose to send (the user's
+ * decision), so the sentence that names the board names the letter too.
+ */
+function boardLine(standing: RoleStanding | null): string {
+  switch (standing) {
+    case "leads":
+      return 'This team has a board. Put work on it with task.create (task.update reassigns or reprioritises), then tell the assignee with mail.send kind "task", naming the task id — the board tells nobody by itself. task.list reads the board; what waits for your acceptance is in task.mine.';
+    case "peer":
+      return "This team has a board. task.create puts work on it, task.mine shows what is yours, task.update moves it along; tell whoever should take it by mail — the board tells nobody by itself.";
+    case "reports":
+    case null:
+      return "This team has a board. task.mine lists what is yours, task.get reads a task whole, task.update moves yours along (in progress, then review) and task.comment keeps the discussion with the task. A letter naming a task id points you at it; the board itself sends nothing.";
+  }
+}
+
+/**
  * What the deck tells an agent the moment it joins a team, or its role
  * changes under it.
  *
@@ -106,6 +124,12 @@ export function teamBriefing(
   team: string,
   role: string,
   everyRole: readonly string[],
+  options: {
+    /** Whether the team has a task board right now. Said only when true:
+     * the feature is a switch, and a briefing must not name tools that
+     * are not there. Re-stated when the board comes or goes. */
+    board?: boolean;
+  } = {},
 ): string {
   const mine = parseRoleAddress(role);
   const mates = everyRole.filter((other) => other !== role);
@@ -139,6 +163,7 @@ export function teamBriefing(
     // reach past what the agent thinks it already knows.
     `You are on the KeepDeck team "${team}", as "${role}"${mine ? ` — the ${mine.role.label}` : ""}. These are OTHER CLI agents running beside you in KeepDeck panes — not your subagents, and not your CLI's own teammates.`,
     ...(mine ? mine.role.charter : []),
+    ...(options.board ? [boardLine(mine?.role.standing ?? null)] : []),
     mates.length
       ? `The rest of the KeepDeck team, addressed by role:\n${mates.map(rosterLine).join("\n")}`
       : "You are its only member so far.",

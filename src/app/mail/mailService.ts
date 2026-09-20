@@ -92,6 +92,12 @@ export interface MailServiceDeps {
   /** The role catalog changed under every live team at once — the standing
    * presence re-states each member's briefing. */
   onRoleCatalogChanged(listener: () => void): () => void;
+  /** The task board: whether the team has one right now, and when that
+   * changes — a sentence of every briefing. */
+  board: {
+    on(): boolean;
+    onChanged(listener: () => void): () => void;
+  };
   terminal: {
     wake(paneId: string): boolean;
   };
@@ -236,6 +242,8 @@ export function createMailService(deps: MailServiceDeps): MailService {
       onContextRebuilt: deps.status.onContextRebuilt,
       onMembershipChanged: membership.onChanged,
       onCatalogChanged: deps.onRoleCatalogChanged,
+      boardOn: deps.board.on,
+      onBoardChanged: deps.board.onChanged,
       onRosterChanged: deps.deck.subscribe,
       teamedPanes: () =>
         deps.deck

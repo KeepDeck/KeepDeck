@@ -1,5 +1,7 @@
 import { askForPaneBack } from "./app/resumeOutcome";
 import { ArtifactsDialog } from "./components/artifacts/ArtifactsDialog";
+import { TasksDialog } from "./components/tasks/TasksDialog";
+import { useTasksAttention } from "./components/tasks/useTasksAttention";
 import { artifactsRegistryReads } from "./app/artifacts/registryRead";
 import { restartToUpdate } from "./app/updateManager";
 import { updateActionView } from "./app/updateAction";
@@ -43,7 +45,7 @@ const registryReads = artifactsRegistryReads();
 
 function App() {
   const controller = useAppController();
-  const { plugins } = useAppRuntime();
+  const { plugins, tasks } = useAppRuntime();
   // The resume picker's advisory live-registry ask — handed to the dialog
   // READY-MADE (the same seam the session search uses; a view never
   // touches a plugin). Stable identity: the dialog re-asks per agent, not
@@ -51,6 +53,12 @@ function App() {
   const liveOutside = useCallback(
     (agent: string) => liveOutsideSessions(plugins, agent),
     [plugins],
+  );
+  // Before the early return, like every hook: the door's count reads the
+  // board's owner whether or not the deck is ready to draw.
+  const tasksBadge = useTasksAttention(
+    tasks,
+    controller.ready ? (controller.active?.id ?? null) : null,
   );
   if (!controller.ready) return <div className="deck" />;
   const {
@@ -100,6 +108,11 @@ function App() {
     openArtifacts,
     dockControl,
     closeArtifacts,
+    openTasks,
+    closeTasks,
+    tasksOpen,
+    tasksFocus,
+    focusTask,
     openStats,
     closeStats,
     selectStatsTab,
@@ -148,6 +161,8 @@ function App() {
         onOpenSkills={() => void openSkills()}
         onOpenMcp={() => void openMcp()}
         onOpenArtifacts={openArtifacts}
+        onOpenTasks={openTasks ? () => void openTasks() : null}
+        tasksBadge={tasksBadge}
         onOpenSettings={() => void openSettings()}
         notifications={
           showBell
@@ -413,6 +428,17 @@ function App() {
               activeWs={active ? { id: active.id, name: active.name } : null}
               reads={registryReads}
               onClose={closeArtifacts}
+              canClose={canCloseDialog}
+            />
+          )}
+          {tasksOpen && (
+            <TasksDialog
+              tasks={tasks}
+              artifactReads={registryReads}
+              workspace={active}
+              focus={tasksFocus}
+              onFocus={focusTask}
+              onClose={closeTasks}
               canClose={canCloseDialog}
             />
           )}

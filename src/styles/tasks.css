@@ -1,0 +1,745 @@
+/* Tasks ([tasks]) — the person's view of a team's board: a wide .form
+   card holding a toolbar, the ladder as columns (or the load as lanes),
+   and one task open in a panel on the right. Status hues are the
+   ladder's own (status.css): a task in review wears the waiting hue a
+   pane waiting for the user wears. */
+.tasks {
+  width: min(1180px, 94vw);
+  max-width: none;
+  height: min(780px, 88vh);
+  display: flex;
+  flex-direction: column;
+}
+
+.tasks__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.tasks__title {
+  margin: 0;
+}
+
+.tasks__toolbar {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* The team: a compact pick when there is a choice, a word when there is
+   not — never a control that offers one option. */
+.tasks__team .dropdown__button {
+  min-width: 0;
+  padding: 5px 10px;
+  font-size: 13px;
+}
+
+.tasks__team-name {
+  color: #8b93a3;
+  font-size: 13px;
+}
+
+/* Board | Queues as ONE control: joined halves sharing a border, the
+   active half lifted — not two pills with a gap. */
+.tasks__segment {
+  display: inline-flex;
+  border: 1px solid #1c2230;
+  border-radius: 8px;
+  background-color: #0e121a;
+  overflow: hidden;
+}
+
+.tasks__segment-btn {
+  padding: 5px 12px;
+  border: 0;
+  background: none;
+  color: #9aa3af;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.tasks__segment-btn + .tasks__segment-btn {
+  border-left: 1px solid #1c2230;
+}
+
+.tasks__segment-btn:hover {
+  color: #c5c8c6;
+}
+
+.tasks__segment-btn--active {
+  background-color: #161d29;
+  color: #c5c8c6;
+}
+
+.tasks__new {
+  margin-left: auto;
+}
+
+/* A filter in the bar, dressed as the view control is — a single
+   segment that reads as on or off. Inert, not gone, in the view it does
+   not apply to: the bar must not change shape with the view. */
+.tasks__filter {
+  display: inline-flex;
+  border: 1px solid #1c2230;
+  border-radius: 8px;
+  background-color: #0e121a;
+  overflow: hidden;
+}
+
+.tasks__filter .tasks__segment-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.tasks__error {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border: 1px solid #4a2b28;
+  border-radius: 6px;
+  background-color: #1f1412;
+  color: #d98b7f;
+  font-size: 12px;
+}
+
+.tasks__placeholder {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  min-height: 120px;
+  padding: 24px 0;
+  color: #565e6b;
+  font-size: 13px;
+  text-align: center;
+}
+
+.tasks__placeholder-title {
+  color: #9aa0a6;
+  font-size: 14px;
+}
+
+/* The stage: the board (or lanes), and OVER its right edge — never
+   beside it — the open task or the form. A panel that took a column
+   moved every card on the board when it opened; a drawer moves nothing. */
+.tasks__stage {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Wide: the drawer grows from the right edge to the whole stage — the
+   board is put away, not covered. Compound on purpose: this must outrank
+   the drawer's own width below, which at equal specificity won by source
+   order and left the "wide" panel 400px wide at the left edge. Two
+   explicit widths, so the change between them animates. */
+.tasks__detail.tasks__detail--wide {
+  width: 100%;
+  padding: 20px 28px;
+  box-shadow: none;
+}
+
+.tasks__detail--wide .tasks__body {
+  max-width: 80ch;
+  font-size: 14px;
+}
+
+.tasks__detail--wide .tasks__props {
+  max-width: 480px;
+}
+
+.tasks__detail-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tasks__detail-actions {
+  display: flex;
+  flex: none;
+  gap: 4px;
+}
+
+.tasks__main {
+  display: flex;
+  /* The stage is a row now (the drawers lie over it); without this the
+     board shrank to its content and the columns went narrow. */
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* Columns: one per status, equal width, each scrolling on its own. */
+.tasks__columns {
+  display: grid;
+  grid-auto-flow: column;
+  /* One fraction each, a folded column included, so the board always
+     fits its stage with no sideways scroll. Nothing opens BESIDE the
+     board any more — the drawers lie over it — so its width holds still. */
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 10px;
+  flex: 1;
+  min-height: 0;
+}
+
+.tasks__column {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid #1c2230;
+  border-radius: 8px;
+  background-color: #0e121a;
+}
+
+.tasks__column-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid #1c2230;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #8b93a3;
+}
+
+.tasks__column-label--in-progress {
+  color: var(--status-working);
+}
+
+.tasks__column-label--review {
+  color: var(--status-waiting);
+}
+
+.tasks__column-label--blocked {
+  color: var(--status-failed);
+}
+
+.tasks__column-label--done {
+  color: var(--status-done);
+}
+
+.tasks__column-count {
+  color: #565e6b;
+  font-weight: 500;
+}
+
+.tasks__column-toggle {
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #6b7280;
+  font: inherit;
+  font-size: 11px;
+  line-height: inherit;
+  text-transform: none;
+  letter-spacing: 0;
+  cursor: pointer;
+}
+
+.tasks__column-toggle:hover {
+  color: #c5c8c6;
+}
+
+.tasks__column-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  overflow-y: auto;
+}
+
+/* The card IS the control: a bordered box whose rim takes the status hue
+   when selected, the way a pane's frame does. */
+.tasks__card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid #1c2230;
+  border-radius: 6px;
+  background-color: #111722;
+  color: #c5c8c6;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tasks__card:hover {
+  border-color: #2a3446;
+}
+
+.tasks__card[aria-pressed="true"] {
+  border-color: var(--kd-ok);
+}
+
+.tasks__card:focus-visible {
+  outline: 1px solid #3b82f6;
+  outline-offset: -1px;
+}
+
+.tasks__card--grabbable {
+  cursor: grab;
+}
+
+.tasks__card--dragging {
+  opacity: 0.4;
+}
+
+/* While a card is in flight the whole dialog says so: the hand closes.
+   Selectability is base.css's alone — nothing here touches it. */
+.tasks--dragging,
+.tasks--dragging .tasks__card {
+  cursor: grabbing;
+}
+
+/* The card in flight, following the pointer: the card itself, lifted.
+   Above the drawers, through to nothing — it is a picture, the columns
+   take the release. */
+.tasks__ghost {
+  position: fixed;
+  z-index: 3;
+  pointer-events: none;
+  filter: drop-shadow(0 12px 24px rgba(0, 0, 0, 0.55));
+}
+
+.tasks__ghost .tasks__card {
+  width: 100%;
+  border-color: var(--kd-ok);
+}
+
+/* While a card is in flight: the columns it may land in open up, the
+   ones it may not step back — the transition table drawn on the board. */
+.tasks__column--drop-ok {
+  border-color: var(--kd-ok);
+  border-style: dashed;
+}
+
+.tasks__column--drop-no {
+  opacity: 0.45;
+}
+
+/* The target under the pointer, singled out from the other targets. */
+.tasks__column--drop-over {
+  border-color: var(--kd-ok-strong);
+  border-style: dashed;
+  background-color: #10171f;
+}
+
+.tasks__card--cancelled .tasks__card-title {
+  color: #565e6b;
+  text-decoration: line-through;
+}
+
+.tasks__card-title {
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.tasks__card-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: #565e6b;
+  font-size: 11px;
+}
+
+.tasks__card-meta code {
+  color: #8b93a7;
+  font-size: 11px;
+}
+
+.tasks__mark {
+  color: var(--status-waiting);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.tasks__card-blocked {
+  color: var(--status-failed);
+  font-size: 11px;
+}
+
+/* Lanes: one per member, full width; the current card in a frame the
+   working hue, the queue beside it. */
+.tasks__lanes {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.tasks__lane {
+  border: 1px solid #1c2230;
+  border-radius: 8px;
+  background-color: #0e121a;
+}
+
+.tasks__lane-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid #1c2230;
+}
+
+.tasks__lane-name {
+  color: #c5c8c6;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+.tasks__lane-summary {
+  color: #565e6b;
+  font-size: 11px;
+}
+
+.tasks__lane-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+  padding: 10px 12px;
+}
+
+.tasks__lane--pool .tasks__lane-body {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.tasks__lane-current,
+.tasks__lane-queue {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.tasks__lane-current .tasks__card {
+  border-color: var(--status-working);
+}
+
+.tasks__lane-caption {
+  color: #565e6b;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.tasks__lane-idle {
+  padding: 8px 10px;
+  border: 1px dashed #1c2230;
+  border-radius: 6px;
+  color: #565e6b;
+  font-size: 12px;
+}
+
+/* The drawer: one task whole, over the board's right edge, scrolling on
+   its own. The board stays interactive beside it — a card can still be
+   picked or dragged while a task is open. */
+.tasks__detail {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
+  /* The width names the whole box, edges included — at 100% a content
+     box grew past its parent by its own padding and border. */
+  box-sizing: border-box;
+  width: min(400px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+  padding: 12px 14px;
+  border: 1px solid #1c2230;
+  border-radius: 8px;
+  background-color: #0e121a;
+  box-shadow: -16px 0 32px rgba(0, 0, 0, 0.45);
+  overflow-y: auto;
+  transition:
+    width 220ms ease,
+    padding 220ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tasks__detail {
+    transition: none;
+  }
+}
+
+.tasks__detail-title {
+  margin: 0;
+  color: #e6e9ef;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.tasks__detail-meta {
+  margin: 0;
+}
+
+.tasks__detail-meta code {
+  color: #8b93a7;
+  font-size: 11px;
+}
+
+.tasks__section {
+  margin-top: 10px;
+  color: #565e6b;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.tasks__body {
+  margin: 0;
+  color: #c5c8c6;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.tasks__muted {
+  margin: 0;
+  color: #565e6b;
+  font-size: 12px;
+}
+
+.tasks__pick .dropdown__button {
+  width: 100%;
+  padding: 6px 10px;
+  font-size: 13px;
+}
+
+/* The properties: label on the left, picker on the right, one row each —
+   the issue tracker's property list. */
+.tasks__props {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px 10px;
+  margin-top: 8px;
+}
+
+.tasks__prop-label {
+  color: #565e6b;
+  font-size: 12px;
+}
+
+.tasks__status-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* The status hue as a dot before the word, the ladder's four names. */
+.tasks__status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #3b4658;
+  flex: none;
+}
+
+.tasks__status-dot--working {
+  background-color: var(--status-working);
+}
+
+.tasks__status-dot--waiting {
+  background-color: var(--status-waiting);
+}
+
+.tasks__status-dot--failed {
+  background-color: var(--status-failed);
+}
+
+.tasks__status-dot--done {
+  background-color: var(--status-done);
+}
+
+.tasks__links {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tasks__link {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: #c5c8c6;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tasks__link code {
+  color: #8b93a7;
+}
+
+.tasks__link:hover:not(:disabled) {
+  color: #e6e9ef;
+}
+
+.tasks__link:disabled {
+  color: #565e6b;
+  cursor: default;
+}
+
+.tasks__artifact {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tasks__artifact .tasks__link {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The row-level detach: the small text × the artifacts registry uses. */
+.tasks__remove {
+  display: inline-flex;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #565e6b;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.tasks__remove:hover {
+  background-color: #2a1f1f;
+  color: #d98b7f;
+}
+
+.tasks__comment {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 0;
+  border-top: 1px solid #1c2230;
+}
+
+.tasks__comment-who {
+  color: #565e6b;
+  font-size: 11px;
+}
+
+.tasks__comment-body {
+  color: #c5c8c6;
+  font-size: 13px;
+  white-space: pre-wrap;
+}
+
+.tasks__composer {
+  min-height: 56px;
+  resize: vertical;
+}
+
+.tasks__composer-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.tasks__log {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 11px;
+}
+
+.tasks__log-who {
+  color: #8b93a7;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.tasks__log-text {
+  color: #9aa0a6;
+}
+
+.tasks__log-age {
+  color: #565e6b;
+}
+
+/* The door's count: what waits on a person, beside the glyph. */
+.tasks-door__count {
+  margin-left: 4px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background-color: var(--status-waiting);
+  color: #0b0e14;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 14px;
+}
+
+/* The compose panel: its own head with a ×, roomier fields, and the
+   actions pinned under them rather than floating mid-panel. */
+.tasks__compose {
+  /* A brief is typed here: more room than a task's details. */
+  width: min(540px, 100%);
+  padding: 0;
+  gap: 0;
+  /* The panel does not scroll as a whole: its body does, and its actions
+     stay put beneath it. */
+  overflow: hidden;
+}
+
+.tasks__compose-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  padding: 16px 18px;
+  overflow-y: auto;
+}
+
+.tasks__compose-actions {
+  flex: none;
+  padding: 12px 18px;
+  border-top: 1px solid #1c2230;
+}
+
+.tasks__compose .form__input {
+  padding: 10px 12px;
+  font-size: 14px;
+}
+
+.tasks__compose .tasks__composer {
+  min-height: 160px;
+}

@@ -38,6 +38,8 @@ const BASE: DeckBarProps = {
   onOpenSkills: () => {},
   onOpenMcp: () => {},
   onOpenArtifacts: null,
+  onOpenTasks: null,
+  tasksBadge: 0,
   onOpenSettings: () => {},
   notifications: null,
 };
@@ -147,6 +149,15 @@ describe("DeckBar", () => {
     );
   });
 
+  it("the tasks door shows what waits on a person, and nothing at zero", () => {
+    render({ onOpenTasks: () => {}, tasksBadge: 3 });
+    expect(byLabel("Open tasks")?.textContent).toContain("3");
+    render({ onOpenTasks: () => {}, tasksBadge: 0 });
+    expect(byLabel("Open tasks")?.textContent ?? "").not.toContain("0");
+    render({ onOpenTasks: null, tasksBadge: 3 });
+    expect(byLabel("Open tasks")).toBeFalsy();
+  });
+
   it("routes each control to its own callback", () => {
     // The failure this exists for: nine controls rearranged in one move, and
     // a crossed pair looks perfectly fine until somebody presses it.
@@ -158,6 +169,7 @@ describe("DeckBar", () => {
       onOpenSkills: () => calls.push("skills"),
       onOpenMcp: () => calls.push("mcp"),
       onOpenArtifacts: () => calls.push("artifacts"),
+      onOpenTasks: () => calls.push("tasks"),
       onOpenSettings: () => calls.push("settings"),
       dock: { open: false, onToggle: () => calls.push("dock") },
     });
@@ -168,6 +180,7 @@ describe("DeckBar", () => {
     act(() => byLabel("Open skills")?.click());
     act(() => byLabel("Open MCP servers")?.click());
     act(() => byLabel("Open artifacts")?.click());
+    act(() => byLabel("Open tasks")?.click());
     act(() => byLabel("Open settings")?.click());
     expect(calls).toEqual([
       "rail",
@@ -177,6 +190,7 @@ describe("DeckBar", () => {
       "skills",
       "mcp",
       "artifacts",
+      "tasks",
       "settings",
     ]);
     // And inside a team, the level's own two doors.

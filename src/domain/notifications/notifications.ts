@@ -43,7 +43,12 @@ export type NotificationSource =
    * session-scoped (ephemeral port), identity is the durable form; the
    * router resolves the live URL at click time. `artifactId` absent or
    * dead → the workspace INDEX; resolution failure → silent no-op. */
-  | { type: "artifacts"; workspace: NotificationWorkspace; artifactId?: string };
+  | { type: "artifacts"; workspace: NotificationWorkspace; artifactId?: string }
+  /** A task event on a workspace's board: put there by an agent, stuck,
+   * or accepted. The click target is the Tasks dialog on that task —
+   * identifiers only; the router resolves the live workspace at click
+   * time and opens the dialog focused on the id. */
+  | { type: "tasks"; workspace: NotificationWorkspace; taskId: string };
 
 export type NotificationSeverity = "info" | "warning" | "error";
 
@@ -101,6 +106,10 @@ export function bannerCooldownKey(
       // An artifacts event's flapping unit is its workspace — two panes
       // publishing in one workspace are one voice for the cooldown.
       return `artifacts:${source.workspace.id}`;
+    case "tasks":
+      // Likewise a board: every change on one workspace's board is one
+      // voice, so a team moving ten tasks does not banner ten times.
+      return `tasks:${source.workspace.id}`;
     case "stats":
       return "stats";
     case "app":

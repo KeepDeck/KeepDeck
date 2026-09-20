@@ -40,7 +40,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::state::write_atomic;
 
-use super::claim::{self, ClaimedRoot};
+use crate::fs_claim::{claim, ClaimedRoot};
 use super::token::{self, mint_token};
 
 /// Caps mirrored from the TS domain (its `model.ts` owns the canonical
@@ -177,7 +177,7 @@ impl ArtifactsStore {
         if enabled.is_some() {
             return Ok(());
         }
-        let claimed = claim::claim(root)?;
+        let claimed = claim(root, "artifact store")?;
         *enabled = Some(Enabled {
             _root: claimed,
             data: Mutex::new(()),

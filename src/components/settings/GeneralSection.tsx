@@ -11,6 +11,7 @@ import {
 } from "../../domain/settings";
 import { ArtifactsRows } from "./ArtifactsRows";
 import { McpServerRow } from "./McpServerRow";
+import { TasksRows } from "./TasksRows";
 
 /** Label + one-line explanation for each suspended-agent placement. */
 const SUSPENDED_OPTIONS: Record<
@@ -43,7 +44,8 @@ const DOCK_OPTIONS: Record<DockMode, { label: string; hint: string }> = {
 /**
  * General preferences: the default agent ([F6]/[F1]), where a suspended
  * agent stays, how the dock occupies the window, whether a restored deck
- * comes back running or stopped, and fleet artifacts ([`ArtifactsRows`]) —
+ * comes back running or stopped, fleet artifacts ([`ArtifactsRows`]) and
+ * the task board ([`TasksRows`]) —
  * then the MCP server's row, which is not a preference but a fact about the
  * running transport ([`McpServerRow`]). Fetches the catalog itself (per
  * mount, like WorkspaceForm) — opening settings re-detects a just-installed
@@ -162,6 +164,7 @@ export function GeneralSection() {
       </span>
 
       <ArtifactsRows />
+      <TasksRows />
       <McpServerRow />
     </>
   );

@@ -51,6 +51,7 @@ export const NON_DEFAULT: { [K in SettingsKey]: Settings[K] } = {
   parkAgentsOnLaunch: true,
   artifacts: true,
   artifactAutoOpen: false,
+  tasks: true,
 };
 
 export const SETTINGS_KEYS = Object.keys(DEFAULT_SETTINGS) as SettingsKey[];

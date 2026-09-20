@@ -22,6 +22,8 @@ const withRuntime = (el: ReactElement) =>
       runtime: {
         statusTracker,
         usageManager: createUsageManager(),
+        // The team cards read the board's owner; off here, so no board.
+        tasks: { current: () => null, subscribe: () => () => {} },
       } as unknown as AppRuntime,
     },
     el,

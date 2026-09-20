@@ -32,6 +32,8 @@ export interface ApplicationUi {
   requestDisbandTeam(wsId: string, teamId: string): void;
   openSettings(sectionId: string | null): boolean;
   openUsage(tab: StatsTab | null): boolean;
+  /** Open the Tasks dialog, on `taskId` when one is named. */
+  openTasks(taskId: string | null): boolean;
   setCreating(creating: boolean): void;
   pushAlert(title: string, message: string): void;
 }
@@ -225,6 +227,20 @@ export function createApplicationController({
                 workspace,
               ) !== null,
           );
+          return;
+        }
+        case "tasks": {
+          // An in-app destination: the board's workspace on screen, the
+          // dialog open on the task. A workspace that is gone has no board
+          // to show — a silent no-op, never an error dialog off a click.
+          const { workspace, taskId } = notification.source;
+          const target = workspaceForNotification(
+            deck.getSnapshot().workspaces,
+            workspace,
+          );
+          if (!target) return;
+          selectWorkspace(target.id);
+          ui?.openTasks(taskId);
           return;
         }
         default: {

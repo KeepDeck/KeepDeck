@@ -9,7 +9,6 @@
 //! pages — subscribers close before anything they observe changes
 //! shape), then releases the claim.
 
-mod claim;
 mod render;
 /// pub(crate): hosts the refresh asset and its server-side wrapper — the
 /// cross-module contract the skills tier's bundled content pins against.

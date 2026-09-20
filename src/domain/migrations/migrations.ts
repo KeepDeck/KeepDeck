@@ -467,6 +467,8 @@ const DECK_MIGRATIONS: Record<number, Migration> = {
  * 21 — − agentTeams: agent teams graduated from Experimental — roles,
  *       addressing by role and mail between teammates are simply on.
  *       Consumed like mcpServer.
+ * 22 — + tasks: the General toggle for the team-owned task board (the
+ *       task_* commands and the Tasks dialog — off by default).
  *
  * No ladder: the document is per-key tolerant (independent facts,
  * hand-editable), which IS its migration mechanism while changes stay
@@ -474,7 +476,7 @@ const DECK_MIGRATIONS: Record<number, Migration> = {
  * step that changes a field's meaning gets a `migrateSettingsFromV*toV*`
  * here, a ladder like the deck's, and a raised floor.
  */
-export const SETTINGS_VERSION = 21;
+export const SETTINGS_VERSION = 22;
 export const SETTINGS_MIN_READER = 1;
 
 /** The file's effective compatibility floor: what it declares, else its own

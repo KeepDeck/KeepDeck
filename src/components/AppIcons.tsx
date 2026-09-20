@@ -39,6 +39,27 @@ export function SkillsIcon() {
   );
 }
 
+export function TasksIcon() {
+  // A ticked box — a work order, done. One stroke inside the square: a
+  // second one read as clutter at 15px.
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={15}
+      height={15}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <rect x="4" y="4" width="16" height="16" rx="2" />
+      <path d="m8 12.5 2.5 2.5 5.5-6" />
+    </svg>
+  );
+}
+
 export function ArtifactsIcon() {
   // A page with a corner turned — a published document, not a file on disk.
   return (

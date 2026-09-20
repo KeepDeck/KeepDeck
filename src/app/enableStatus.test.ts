@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { createArtifactsEnableStatus, refusalOf } from "./enableStatus";
+import { createEnableStatus, offBlockedBy, refusalOf } from "./enableStatus";
 
-describe("createArtifactsEnableStatus", () => {
+describe("createEnableStatus", () => {
   it("keeps the last transition whole and tells its readers", () => {
     // Verbatim on purpose: a settings row and a registry want different
     // sentences out of the same fact, so the store must not pre-chew it.
-    const status = createArtifactsEnableStatus();
+    const status = createEnableStatus();
     let told = 0;
     const stop = status.subscribe(() => {
       told += 1;
@@ -40,5 +40,16 @@ describe("refusalOf", () => {
     expect(refusalOf({ desired: false, ok: true, detail: null })).toBeNull();
     expect(refusalOf({ desired: true, ok: true, detail: "display server on port 1" })).toBeNull();
     expect(refusalOf(null)).toBeNull();
+  });
+});
+
+describe("offBlockedBy", () => {
+  it("names what keeps the backend open only when the app wanted it CLOSED and could not", () => {
+    expect(offBlockedBy({ desired: false, ok: false, detail: "keepdeck's board — disk full" })).toBe(
+      "keepdeck's board — disk full",
+    );
+    expect(offBlockedBy({ desired: false, ok: true, detail: null })).toBeNull();
+    expect(offBlockedBy({ desired: true, ok: false, detail: "owned by another process" })).toBeNull();
+    expect(offBlockedBy(null)).toBeNull();
   });
 });

@@ -46,6 +46,7 @@ function ui() {
     requestDisbandTeam: vi.fn(),
     openSettings: vi.fn(() => true),
     openUsage: vi.fn(() => true),
+    openTasks: vi.fn(() => true),
     setCreating: vi.fn(),
     pushAlert: vi.fn(),
   };
@@ -188,6 +189,49 @@ describe("application controller", () => {
     expect(view.setCreating).toHaveBeenCalledWith(false);
     expect(revealPane).toHaveBeenCalledWith("ws-1", "pane-2");
     expect(focus.requestFocus).toHaveBeenCalledWith("pane-2");
+  });
+
+  it("routes a tasks notification to its workspace and opens the dialog on the task — silently when the workspace is gone", () => {
+    const target = workspace();
+    const other: Workspace = { ...workspace(), id: "ws-2", instance: createWorkspaceInstance(), panes: [] };
+    const deck = createDeckStore({
+      ...initialDeckState,
+      workspaces: [other, target],
+      activeId: "ws-2",
+    });
+    const { plugins, orchestrator } = dependencies();
+    const controller = createApplicationController({
+      deck,
+      plugins,
+      orchestrator,
+      paneInputFocus: paneInputFocus(),
+      paneView: paneView(),
+      skills: noSkills(),
+      mcpLibrary: noMcp(),
+      registry: createCommandRegistry(),
+    });
+    const view = ui();
+    controller.bindUi(view);
+
+    controller.openNotification({
+      source: {
+        type: "tasks",
+        workspace: { id: target.id, instance: target.instance },
+        taskId: "task-7",
+      },
+    } as Notification);
+    expect(deck.getSnapshot().activeId).toBe("ws-1");
+    expect(view.openTasks).toHaveBeenCalledWith("task-7");
+
+    // The same id, another lifetime: the workspace this spoke of is gone.
+    controller.openNotification({
+      source: {
+        type: "tasks",
+        workspace: { id: target.id, instance: createWorkspaceInstance() },
+        taskId: "task-7",
+      },
+    } as Notification);
+    expect(view.openTasks).toHaveBeenCalledTimes(1);
   });
 
   it("reports workspace-allocation failures through the bound UI", () => {
