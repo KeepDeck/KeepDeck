@@ -1,9 +1,7 @@
 /**
  * The dialog's own decisions, apart from the markup: what Escape peels,
- * what a click on a card does to the selection, what a fold toggle sets,
- * which card a ghost is, and the words the bar and the panel head say.
+ * what a click on a card does to the selection, which card a ghost is, and the words the bar and the panel head say.
  */
-import type { TaskStatus } from "../../domain/tasks";
 import type { BoardColumnView } from "./boardView";
 import type { TaskCardView } from "./taskCardView";
 
@@ -36,14 +34,6 @@ export function selectionAfterClick(open: string | null, clicked: string): strin
   return open === clicked ? null : clicked;
 }
 
-/** What a Hide/Show press sets for a closed column: the opposite of what
- * the column shows now — whichever way it got there. Null for a column
- * that is not on the board. */
-export function toggledFold(columns: readonly BoardColumnView[], status: TaskStatus): boolean | null {
-  const shown = columns.find((column) => column.status === status);
-  return shown ? !shown.collapsed : null;
-}
-
 /** The card with `id`, wherever its column is — what a ghost is drawn from. */
 export function cardOf(columns: readonly BoardColumnView[], id: string): TaskCardView | undefined {
   for (const column of columns) {
@@ -72,6 +62,5 @@ export const DIALOG_WORDS = {
   /** Why the filter is inert, or null where it applies. */
   cancelledFilterHint: (mode: TasksMode) => (mode === "board" ? null : "Cancelled tasks show on the board"),
   wide: (wide: boolean) => (wide ? "Collapse" : "Expand"),
-  fold: (collapsed: boolean) => (collapsed ? "Show" : "Hide"),
   poolCaption: (isPool: boolean) => (isPool ? "Next up — anyone on the team can take it" : "Next up"),
 } as const;

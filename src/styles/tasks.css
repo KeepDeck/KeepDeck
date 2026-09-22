@@ -235,24 +235,6 @@
   font-weight: 500;
 }
 
-.tasks__column-toggle {
-  margin-left: auto;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: #6b7280;
-  font: inherit;
-  font-size: 11px;
-  line-height: inherit;
-  text-transform: none;
-  letter-spacing: 0;
-  cursor: pointer;
-}
-
-.tasks__column-toggle:hover {
-  color: #c5c8c6;
-}
-
 .tasks__column-body {
   display: flex;
   flex-direction: column;

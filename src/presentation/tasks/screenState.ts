@@ -1,20 +1,17 @@
 /**
  * The dialog's screen as a state machine with no React in it: which
- * team, which view, what is folded, whether the form or the wide view is
+ * team, which view, whether cancelled shows, whether the form or the wide view is
  * up, which column a drag hovers — and every transition between them,
  * with the effects a transition owes the outside (the open task to set,
  * the dialog to close). The hook holds one state and applies what this
  * answers; it decides nothing.
  */
 import type { TaskStatus } from "../../domain/tasks";
-import type { BoardColumnView } from "./boardView";
-import { escapeTarget, selectionAfterClick, toggledFold, type TasksMode } from "./dialogState";
+import { escapeTarget, selectionAfterClick, type TasksMode } from "./dialogState";
 
 export interface ScreenState {
   mode: TasksMode;
   showCancelled: boolean;
-  /** The person's explicit Hide/Show per closed column. */
-  folds: ReadonlyMap<TaskStatus, boolean>;
   /** The team they picked; the team on screen is `teamOnScreen`'s call. */
   chosenTeam: string | null;
   /** The new-task form is up. */
@@ -29,7 +26,6 @@ export interface ScreenState {
 export const INITIAL_SCREEN: ScreenState = {
   mode: "board",
   showCancelled: false,
-  folds: new Map(),
   chosenTeam: null,
   composing: false,
   wide: false,
@@ -40,8 +36,7 @@ export const INITIAL_SCREEN: ScreenState = {
  * choice it starts from — the person was looking at that team. Null
  * at the cards level, and the board falls back to the first team. */
 export function initialScreen(stageTeam: string | null): ScreenState {
-  // A fresh Map: two dialogs never share one fold record.
-  return { ...INITIAL_SCREEN, folds: new Map(), chosenTeam: stageTeam };
+  return { ...INITIAL_SCREEN, chosenTeam: stageTeam };
 }
 
 export type ScreenAction =
@@ -59,7 +54,6 @@ export type ScreenAction =
   | { type: "team"; id: string }
   | { type: "mode"; mode: TasksMode }
   | { type: "toggleCancelled" }
-  | { type: "fold"; status: TaskStatus; columns: readonly BoardColumnView[] }
   | { type: "hover"; status: TaskStatus | null; dragging: boolean }
   /** A task was created from the form: it opens, the form goes. */
   | { type: "created"; id: string };
@@ -123,11 +117,6 @@ function step(state: ScreenState, action: ScreenAction): ScreenOutcome {
       return { state: { ...state, mode: action.mode } };
     case "toggleCancelled":
       return { state: { ...state, showCancelled: !state.showCancelled } };
-    case "fold": {
-      const fold = toggledFold(action.columns, action.status);
-      if (fold === null) return { state };
-      return { state: { ...state, folds: new Map(state.folds).set(action.status, fold) } };
-    }
     case "hover":
       // Only a card in flight has a column under it.
       return { state: { ...state, hover: action.dragging ? action.status : null } };

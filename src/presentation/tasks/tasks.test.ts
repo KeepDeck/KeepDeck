@@ -61,34 +61,23 @@ describe("boardView", () => {
     task({ id: "task-5", status: "cancelled" }),
   ]);
 
-  it("lays the board out blocked-first, open columns in queue order, closed ones newest first and folded", () => {
-    const columns = boardView(b.tasks, b, { showCancelled: false, folds: new Map(), now: NOW });
-    expect(columns.map((c) => `${c.status}:${c.count}:${c.collapsed}`)).toEqual([
-      "blocked:0:false",
-      "todo:2:false",
-      "in-progress:0:false",
-      "review:0:false",
-      "done:2:true",
+  it("lays the board out blocked-first, open columns in queue order, closed ones newest first — every column open", () => {
+    const columns = boardView(b.tasks, b, { showCancelled: false, now: NOW });
+    expect(columns.map((c) => `${c.status}:${c.count}`)).toEqual([
+      "blocked:0",
+      "todo:2",
+      "in-progress:0",
+      "review:0",
+      "done:2",
     ]);
     expect(columns[1].cards.map((c) => c.id)).toEqual(["task-2", "task-1"]);
+    // Done shows its cards: no column is folded away.
     expect(columns[4].cards.map((c) => c.id)).toEqual(["task-4", "task-3"]);
   });
 
-  it("unfolds the closed columns when nothing is open — a board of finished work is not a blank board", () => {
-    const finished = board([task({ id: "task-1", status: "done" }), task({ id: "task-2", status: "cancelled" })]);
-    const columns = boardView(finished.tasks, finished, { showCancelled: true, folds: new Map(), now: NOW });
-    expect(columns.find((c) => c.status === "done")?.collapsed).toBe(false);
-    expect(columns.find((c) => c.status === "cancelled")?.collapsed).toBe(false);
-    // The person's Hide outranks the default — on a finished board too.
-    const hidden = boardView(finished.tasks, finished, { showCancelled: true, folds: new Map([["done", true]]), now: NOW });
-    expect(hidden.find((c) => c.status === "done")?.collapsed).toBe(true);
-  });
-
-  it("shows cancelled only behind the filter, and unfolds what the person opened", () => {
-    const columns = boardView(b.tasks, b, { showCancelled: true, folds: new Map([["done", false]]), now: NOW });
-    expect(columns.map((c) => c.status)).toContain("cancelled");
-    expect(columns.find((c) => c.status === "done")?.collapsed).toBe(false);
-    expect(columns.find((c) => c.status === "cancelled")).toMatchObject({ collapsed: true, count: 1 });
+  it("shows cancelled only behind the filter, cards and all", () => {
+    const columns = boardView(b.tasks, b, { showCancelled: true, now: NOW });
+    expect(columns.find((c) => c.status === "cancelled")).toMatchObject({ count: 1 });
     expect(columns.find((c) => c.status === "cancelled")?.cards[0].cancelled).toBe(true);
   });
 });

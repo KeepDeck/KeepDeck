@@ -15,7 +15,7 @@ import {
 } from "./cardDrag";
 import { EMPTY_COMPOSER, beginSend, composerCanSend, finishSend, typeDraft } from "./composer";
 import { canCreateTask, canSendComment } from "./composerView";
-import { DIALOG_WORDS, cardOf, escapeTarget, selectionAfterClick, teamControlView, toggledFold } from "./dialogState";
+import { DIALOG_WORDS, cardOf, escapeTarget, selectionAfterClick, teamControlView } from "./dialogState";
 import { EMPTY_TASK_DRAFT, assigneeOf, taskInputOf } from "./formDraft";
 import { INITIAL_SCREEN, initialScreen, screenReducer, wideView, type ScreenState } from "./screenState";
 import { teamOnScreen } from "./teamOnScreen";
@@ -67,24 +67,14 @@ describe("dialogState", () => {
     expect(escapeTarget({ composing: false, wide: false, detailOpen: false })).toBe("dialog");
   });
 
-  it("a click opens a card or puts the open one away; a fold press sets the opposite of what shows", () => {
+  it("a click opens a card or puts the open one away; a card is found by id among the columns", () => {
     expect(selectionAfterClick(null, "task-1")).toBe("task-1");
     expect(selectionAfterClick("task-1", "task-1")).toBeNull();
     expect(selectionAfterClick("task-1", "task-2")).toBe("task-2");
     const b = board([task({ id: "task-1" }), task({ id: "task-2", status: "done" })]);
-    const columns = boardView(b.tasks, b, { showCancelled: false, folds: new Map(), now: 0 });
-    expect(toggledFold(columns, "done")).toBe(false); // folded by default → Show sets unfolded
-    expect(toggledFold(columns, "todo")).toBe(true);
-    expect(toggledFold(columns, "cancelled")).toBeNull();
+    const columns = boardView(b.tasks, b, { showCancelled: false, now: 0 });
     expect(cardOf(columns, "task-2")?.id).toBe("task-2");
     expect(cardOf(columns, "task-9")).toBeUndefined();
-  });
-
-  it("only a closed column offers Hide/Show", () => {
-    const b = board([task({ id: "task-1" })]);
-    const columns = boardView(b.tasks, b, { showCancelled: true, folds: new Map(), now: 0 });
-    const foldable = columns.filter((column) => column.foldable).map((column) => column.status);
-    expect(foldable).toEqual(["done", "cancelled"]);
   });
 
   it("the team control is a pick among several, the one team's name as a word, or nothing", () => {
@@ -112,7 +102,6 @@ describe("dialogState", () => {
     expect(DIALOG_WORDS.cancelledFilterHint("queues")).toContain("show on the board");
     expect(DIALOG_WORDS.wide(false)).toBe("Expand");
     expect(DIALOG_WORDS.wide(true)).toBe("Collapse");
-    expect(DIALOG_WORDS.fold(true)).toBe("Show");
     expect(DIALOG_WORDS.poolCaption(true)).toContain("anyone on the team");
   });
 });
@@ -185,10 +174,9 @@ describe("screenState", () => {
     expect(teamOnScreen(["team-1", "team-2"], ways[2].state.chosenTeam, null)).toBe("team-2");
   });
 
-  it("a dialog starts from the stage's open team; two dialogs share no fold record", () => {
+  it("a dialog starts from the stage's open team", () => {
     expect(initialScreen("team-2")).toEqual({ ...INITIAL_SCREEN, chosenTeam: "team-2" });
     expect(initialScreen(null)).toEqual(INITIAL_SCREEN);
-    expect(initialScreen(null).folds).not.toBe(initialScreen(null).folds);
   });
 
   it("an explicit pick outranks the pin, and a board with no team pins nothing", () => {
@@ -197,12 +185,7 @@ describe("screenState", () => {
     expect(screenReducer(chosen, { type: "close" }, null).state.chosenTeam).toBe("team-1");
   });
 
-  it("folds, the filter and the mode are remembered as pressed", () => {
-    const b = board([task({ id: "task-1" }), task({ id: "task-2", status: "done" })]);
-    const columns = boardView(b.tasks, b, { showCancelled: false, folds: new Map(), now: 0 });
-    const folded = screenReducer(INITIAL_SCREEN, { type: "fold", status: "done", columns }, null);
-    expect(folded.state.folds.get("done")).toBe(false);
-    expect(screenReducer(INITIAL_SCREEN, { type: "fold", status: "cancelled", columns }, null).state).toBe(INITIAL_SCREEN);
+  it("the filter and the mode are remembered as pressed", () => {
     expect(screenReducer(INITIAL_SCREEN, { type: "toggleCancelled" }, null).state.showCancelled).toBe(true);
     expect(screenReducer(INITIAL_SCREEN, { type: "mode", mode: "queues" }, null).state.mode).toBe("queues");
   });

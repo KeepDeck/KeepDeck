@@ -210,7 +210,6 @@ function WorkspaceBoard({
                   drag={board.drag}
                   hover={board.hover}
                   onSelect={board.select}
-                  onToggleColumn={board.toggleColumn}
                   onArm={board.armDrag}
                   onHover={board.hoverColumn}
                   onDrop={board.dropOn}
