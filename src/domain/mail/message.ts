@@ -64,9 +64,9 @@ export const SENDABLE_KINDS: readonly MailKind[] = ["task", "question", "answer"
  * The pane that sent it, as it read AT SEND TIME.
  *
  * `label` is copied rather than looked up on read for the reason the journal
- * copies it (`CommandSource.external.pane`): `pane-N` is a REUSABLE slot, so
- * a message that outlives its sender would otherwise name whoever inherited
- * the number.
+ * copies it (`CommandSource.external.pane`): a message outlives its sender's
+ * pane, and a lookup by id then finds nothing — or, across a restart that
+ * reissued the number, somebody else.
  */
 export interface MailSender {
   paneId: string;

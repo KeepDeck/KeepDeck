@@ -147,9 +147,10 @@ export function createMailService(deps: MailServiceDeps): MailService {
     return agentType ? deps.agents.statusOf(agentType) : undefined;
   };
 
-  /** The panes that exist right now. Sweeping is CORRECTNESS, not hygiene:
-   * `pane-N` is a reusable slot, so a queue left behind by a closed pane
-   * would be handed to whoever inherits its number. */
+  /** The panes that exist right now. A closed pane's queue, inbox and the
+   * debts drawn on it are swept, or they would sit for the rest of the run
+   * with nobody to deliver to. (Pane ids are not reissued within a run;
+   * across a restart they can be, and mail does not outlive one.) */
   const livePaneIds = () =>
     new Set(
       deps.deck

@@ -37,8 +37,10 @@ itself — a letter is how you learn of a task.
 
 ## Answering
 
-Reply with `mail.send`, addressing the **role** (`lead`, `impl-1`), and say
-what you are answering — the subject, not an id. A send that answers
+Reply with `mail.send` to the address the letter shows as its sender — the
+**role** (`lead`, `impl-1`) for a teammate, `role@<team id>` for anyone else,
+another workspace included — and say what you are answering: the subject,
+not an id. A send that answers
 `queued` has been accepted and will reach the other agent at its next turn —
 there is nothing for you to retry.
 

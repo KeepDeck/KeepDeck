@@ -145,7 +145,7 @@ function str(args: CommandArgs, name: string): string | undefined {
  *
  * `readerTeamId` is the team the READER stands on: the address is shown the
  * way this reader can answer it — a teammate's bare role, another team's
- * `role@team`.
+ * `role@<team id>`.
  */
 function wire(mail: Mail, readerTeamId: string | null) {
   return {
@@ -185,7 +185,7 @@ export function registerMailCommands(
           // teammate can be sure of, while the briefing taught roles — so
           // the two surfaces an agent reads disagreed about how to answer.
           description:
-            "Recipient's address in your own workspace: a teammate's role (lead, impl-1); a member of another team as role@team (impl-1@web) — the form a message from that team shows as `from.address`, so a reply copies it. A pane title or id also resolves, and is all there is for an agent on no team",
+            "Recipient's address: a teammate's role (lead, impl-1); a member of another team as role@<team id> (impl-1@team-3f9a1c20) — the form a message from that team shows as `from.address`, so a reply copies it. A team id reaches another workspace as well; workspace.list shows every team's id. Inside your own workspace a team's name also works (impl-1@web), and a pane title or id resolves for an agent on no team",
         },
         {
           name: "kind",

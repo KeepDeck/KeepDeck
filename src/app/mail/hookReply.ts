@@ -44,7 +44,7 @@ export interface HookReplyDeps {
   reply(paneId: string, correlation: string, body: string): Promise<boolean>;
   /** The team the reading pane stands on — its id, or null on none. A
    * sender is named relative to it: a teammate by its bare role, another
-   * team's member as `role@team` — the form this reader can answer. */
+   * team's member as `role@<team id>` — the form this reader can answer. */
   teamOf(paneId: string): string | null;
 }
 
