@@ -15,6 +15,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 const FILES = ["model.ts", "publish.ts", "delete.ts", "rowRef.ts"] as const;
@@ -24,15 +25,13 @@ const DOMAIN = resolve(HERE, "..");
 
 describe("domain/artifacts imports stay inside the domain", () => {
   it.each(FILES)("%s imports nothing outside the domain", (file) => {
-    const source = readFileSync(
-      fileURLToPath(new URL(`./${file}`, import.meta.url)),
-      "utf8",
-    );
-    const imports = [
-      ...source.matchAll(/from\s+"([^"]+)"/g),
-      ...source.matchAll(/import\s+"([^"]+)"/g),
-    ];
-    for (const [, specifier] of imports) {
+    const source = readFileSync(resolve(HERE, file), "utf8");
+    // The compiler's own scan, not a pattern: it sees every form a module
+    // can depend through — `import type`, `export … from`, a dynamic
+    // `import()` — in either quote style. A regex over one spelling let
+    // the others through.
+    const { importedFiles } = ts.preProcessFile(source, true, true);
+    for (const { fileName: specifier } of importedFiles) {
       const inside =
         specifier.startsWith(".") &&
         !relative(DOMAIN, resolve(HERE, specifier)).startsWith("..");
