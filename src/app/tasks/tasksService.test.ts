@@ -91,7 +91,7 @@ describe("createTasksService", () => {
       ],
       lead,
     );
-    expect(!result.ok && result.refusal).toEqual({ kind: "illegal-transition", from: "todo", to: "review" });
+    expect(!result.ok && result.refusal).toMatchObject({ kind: "illegal-transition", from: "todo", to: "review" });
     expect(service.board("ws-1")).toBe(before);
     await flush();
     expect(store.writes).toHaveLength(1);

@@ -50,7 +50,15 @@ export type TaskRefusal =
   | { kind: "not-yours-to-assign"; field: TaskField }
   /** A working role accepting, returning, reopening or cancelling. */
   | { kind: "review-not-yours" }
-  | { kind: "illegal-transition"; from: TaskStatus; to: TaskStatus }
+  | {
+      kind: "illegal-transition";
+      from: TaskStatus;
+      to: TaskStatus;
+      /** Where this actor MAY move the task from `from` — set on a status
+       * move, so a refusal teaches the ladder instead of leaving the
+       * caller to find it by trial. Absent for a claim, which is no move. */
+      reachable?: readonly TaskStatus[];
+    }
   | { kind: "blocked-by-open"; blockers: readonly string[] }
   | { kind: "already-claimed"; assignee: string }
   | { kind: "claim-needs-an-agent" }
@@ -257,8 +265,11 @@ export function transition(
         ),
       };
     }
-    case "status":
-      return moveStatus(task, change.to, actor, ctx, by);
+    case "status": {
+      const moved = moveStatus(task, change.to, actor, ctx, by);
+      if (moved.ok || moved.refusal.kind !== "illegal-transition") return moved;
+      return refuse({ ...moved.refusal, reachable: reachableStatuses(task, actor, ctx) });
+    }
     case "priority": {
       if (!mayAssign(actor)) return refuse({ kind: "not-yours-to-assign", field: "priority" });
       if (change.to === task.priority) return { ok: true, task };
@@ -395,8 +406,13 @@ function moveStatus(
  * same table so the two can never disagree.
  */
 export function reachableStatuses(task: Task, actor: TaskActor, ctx: TransitionContext): TaskStatus[] {
+  // `transition` less its refusal wording: the membership check, then the
+  // move itself — asked of `moveStatus` directly, because `transition`
+  // asks HERE to word an illegal move.
+  if (onTeam(actor, task.teamId)) return [];
+  const by = actorName(actor) ?? "";
   return TASK_STATUSES.filter(
-    (to) => to !== task.status && transition(task, { kind: "status", to }, actor, ctx).ok,
+    (to) => to !== task.status && moveStatus(task, to, actor, ctx, by).ok,
   );
 }
 
