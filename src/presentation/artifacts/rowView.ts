@@ -4,6 +4,7 @@ import type {
 } from "../../app/artifacts/registryRead";
 import { formatAge } from "../../domain/usage";
 import { rowMeta, versionsNewestFirst } from "./rowMeta";
+import { HISTORY_GONE, HISTORY_LOADING } from "./words";
 import { isRow, type RowRef } from "../../domain/artifacts/rowRef";
 
 /** An open history, and WHICH row it belongs to. The versions are null
@@ -21,11 +22,10 @@ export interface VersionLineView {
   message: string | null;
 }
 
-/** What sits under an open row. */
+/** What sits under an open row: a line saying why there are no versions
+ * to show — still reading, or the artifact went — or the versions. */
 export type HistoryView =
-  | { kind: "loading" }
-  /** The read came back empty: the artifact was deleted while it opened. */
-  | { kind: "gone" }
+  | { kind: "note"; text: string }
   | { kind: "versions"; lines: readonly VersionLineView[] };
 
 /**
@@ -71,8 +71,8 @@ export function artifactRowView(
 }
 
 function historyOf(open: OpenHistory, now: number): HistoryView {
-  if (open.versions === null) return { kind: "loading" };
-  if (open.versions.length === 0) return { kind: "gone" };
+  if (open.versions === null) return { kind: "note", text: HISTORY_LOADING };
+  if (open.versions.length === 0) return { kind: "note", text: HISTORY_GONE };
   return {
     kind: "versions",
     lines: versionsNewestFirst(open.versions).map((version) => ({

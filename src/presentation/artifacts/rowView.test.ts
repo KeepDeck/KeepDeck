@@ -4,6 +4,7 @@ import type {
   ArtifactVersionRow,
 } from "../../app/artifacts/registryRead";
 import { artifactRowView, type OpenHistory } from "./rowView";
+import { HISTORY_GONE, HISTORY_LOADING } from "./words";
 
 const NOW = 1_700_000_000_000;
 const row: ArtifactMetaRow = {
@@ -40,10 +41,12 @@ describe("artifactRowView", () => {
 
   it("tells a read still out apart from one that came back empty", () => {
     expect(artifactRowView(row, NOW, null, open(null)).history).toEqual({
-      kind: "loading",
+      kind: "note",
+      text: HISTORY_LOADING,
     });
     expect(artifactRowView(row, NOW, null, open([])).history).toEqual({
-      kind: "gone",
+      kind: "note",
+      text: HISTORY_GONE,
     });
   });
 

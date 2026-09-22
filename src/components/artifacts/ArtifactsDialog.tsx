@@ -6,7 +6,11 @@ import { ModalOverlay } from "../../ui/ModalOverlay";
 import { useEscape } from "../../ui/useEscape";
 import { useWallClock } from "../../ui/useWallClock";
 import { artifactRowView } from "../../presentation/artifacts/rowView";
-import { deleteQuestion, noMatchTitle } from "../../presentation/artifacts/words";
+import {
+  deleteQuestion,
+  placeholderWords,
+  type PlaceholderWords,
+} from "../../presentation/artifacts/words";
 import { useArtifactsRegistry } from "./useArtifactsRegistry";
 import { ARTIFACT_ROW_ESTIMATE_PX, artifactRowKey } from "../../presentation/artifacts/view";
 import { VirtualList } from "@keepdeck/ui-kit/VirtualList";
@@ -107,42 +111,7 @@ export function ArtifactsDialog({
 
         {view.kind !== "rows" ? (
           <div className="artifacts__body">
-          {view.kind === "noWorkspace" ? (
-            <div className="artifacts__placeholder">
-              <span className="artifacts__placeholder-title">
-                No workspace open
-              </span>
-              <span>Artifacts belong to a workspace — open one first</span>
-            </div>
-          ) : view.kind === "loading" ? (
-            <div className="artifacts__placeholder">Loading…</div>
-          ) : view.kind === "refusal" ? (
-            <div className="artifacts__placeholder">
-              <span
-                className="artifacts__placeholder-title kd-selectable"
-                role="alert"
-              >
-                {view.message}
-              </span>
-            </div>
-          ) : view.kind === "noMatch" ? (
-            <div className="artifacts__placeholder">
-              <span className="artifacts__placeholder-title">
-                {noMatchTitle(view.query)}
-              </span>
-              <span>This workspace has artifacts; none of them by that name</span>
-            </div>
-          ) : (
-            <div className="artifacts__placeholder">
-              <span className="artifacts__placeholder-title">
-                Nothing published yet
-              </span>
-              <span>
-                Agents publish pages here; they open in your browser and
-                refresh themselves as the agent iterates
-              </span>
-            </div>
-          )}
+            <Placeholder words={placeholderWords(view)} />
           </div>
         ) : (
           // The body IS the windowed list: the scroll container, a ul
@@ -217,11 +186,9 @@ export function ArtifactsDialog({
                     for, it wants the same treatment. */}
                 {item.history !== null && (
                   <div className="artifacts__history">
-                    {item.history.kind === "loading" ? (
-                      <span className="artifacts__history-note">Loading…</span>
-                    ) : item.history.kind === "gone" ? (
+                    {item.history.kind === "note" ? (
                       <span className="artifacts__history-note">
-                        No versions — the artifact went while this opened
+                        {item.history.text}
                       </span>
                     ) : (
                       item.history.lines.map((line) => (
@@ -261,5 +228,27 @@ export function ArtifactsDialog({
         />
       )}
     </ModalOverlay>
+  );
+}
+
+/** The body's one seat for the text states — loading, empty, no match,
+ * no workspace, a store's refusal — drawn from their words. */
+function Placeholder({ words }: { words: PlaceholderWords }) {
+  return (
+    <div className="artifacts__placeholder">
+      {words.title !== null && (
+        <span
+          className={
+            words.alert
+              ? "artifacts__placeholder-title kd-selectable"
+              : "artifacts__placeholder-title"
+          }
+          role={words.alert ? "alert" : undefined}
+        >
+          {words.title}
+        </span>
+      )}
+      {words.detail !== null && <span>{words.detail}</span>}
+    </div>
   );
 }
