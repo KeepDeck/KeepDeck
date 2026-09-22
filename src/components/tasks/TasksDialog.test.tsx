@@ -7,6 +7,7 @@ import { fakeStore, teamedWorkspaces } from "../../app/tasks/testSupport";
 import { USER_ACTOR, agentActor } from "../../domain/tasks";
 import { TasksDialog } from "./TasksDialog";
 import type { TasksAccess } from "./useTasksBoard";
+import type { Workspace } from "../../domain/deck";
 import type { ArtifactsRegistryReadPort } from "../../app/artifacts/registryRead";
 
 // The registry's reads are a port the dialog is handed; the open-by-identity
@@ -32,6 +33,8 @@ const flush = () => act(async () => {});
 let host: HTMLDivElement;
 let root: Root;
 let focus: string | null;
+/** The team the stage has open, as App hands it to the dialog. */
+let stageTeam: string | null;
 const onFocus = (id: string | null) => {
   focus = id;
 };
@@ -41,6 +44,7 @@ beforeEach(() => {
   host = document.body.appendChild(document.createElement("div"));
   root = createRoot(host);
   focus = null;
+  stageTeam = null;
 });
 afterEach(() => act(() => root.unmount()));
 
@@ -51,14 +55,18 @@ const button = (label: string) => {
   if (!found) throw new Error(`no button "${label}" among ${buttons().map((b) => b.textContent).join(" | ")}`);
   return found;
 };
+const teamPicked = () => document.querySelector('button[aria-label="Team"] .dropdown__label')?.textContent;
 const cards = () => Array.from(document.querySelectorAll<HTMLButtonElement>(".tasks__card"));
 
-function mount(service: TasksService | null, workspace = teamedWorkspaces()[0], strict = false) {
-  const render = () => {
+function mount(service: TasksService | null, initial = teamedWorkspaces()[0], strict = false) {
+  let workspace = initial;
+  const render = (next?: Workspace) => {
+    if (next) workspace = next;
     const dialog = createElement(TasksDialog, {
       tasks: access(service),
       artifactReads,
       workspace,
+      stageTeam,
       focus,
       onFocus: (id: string | null) => {
         onFocus(id);
@@ -146,6 +154,7 @@ describe("TasksDialog", () => {
             tasks: access(service),
             artifactReads,
             workspace: teamedWorkspaces()[0],
+            stageTeam,
             focus,
             onFocus,
             onClose,
@@ -189,6 +198,7 @@ describe("TasksDialog", () => {
             tasks: access(service),
             artifactReads,
             workspace: teamedWorkspaces()[0],
+            stageTeam,
             focus,
             onFocus: (id: string | null) => {
               onFocus(id);
@@ -361,6 +371,105 @@ describe("TasksDialog", () => {
     expect(document.querySelector('aside[aria-label="Task task-3"]')).not.toBeNull();
     expect(text()).toContain("Web's own");
     expect(cards().map((c) => c.querySelector(".tasks__card-title")?.textContent)).toEqual(["Web's own"]);
+  });
+
+  it("opens on the team the stage has open, and falls back to the first at the cards level", async () => {
+    const { service } = await seeded();
+    await service.create("ws-1", { teamId: "team-2", title: "Web's own" }, agentActor("lead", "team-2"));
+    stageTeam = "team-2";
+    mount(service)();
+    await flush();
+    expect(cards().map((c) => c.querySelector(".tasks__card-title")?.textContent)).toEqual(["Web's own"]);
+    act(() => root.unmount());
+    root = createRoot(host);
+    stageTeam = null;
+    mount(service)();
+    await flush();
+    expect(cards().map((c) => c.querySelector(".tasks__card-title")?.textContent)).toEqual(["Draft the skill", "Pooled work"]);
+  });
+
+  it("the stage moving under the open dialog does not move the board", async () => {
+    const { service } = await seeded();
+    await service.create("ws-1", { teamId: "team-2", title: "Web's own" }, agentActor("lead", "team-2"));
+    stageTeam = "team-2";
+    const render = mount(service);
+    render();
+    await flush();
+    stageTeam = "team-1";
+    render();
+    await flush();
+    expect(cards().map((c) => c.querySelector(".tasks__card-title")?.textContent)).toEqual(["Web's own"]);
+  });
+
+  it("another workspace under the open dialog opens its board from ITS stage, not the old choice", async () => {
+    const { service, workspaces } = await seeded();
+    // The same teams under another id: without the remount the old choice
+    // (web) would still name a team there and keep the board on it.
+    const twin = { ...workspaces[0], id: "ws-3" };
+    workspaces.push(twin);
+    stageTeam = "team-2";
+    const render = mount(service, workspaces[0]);
+    render();
+    await flush();
+    expect(teamPicked()).toBe("web");
+    stageTeam = "team-1";
+    render(twin);
+    await flush();
+    expect(teamPicked()).toBe("api");
+  });
+
+  it("a board a link opened on another team stays there when the task is put away", async () => {
+    const { service } = await seeded();
+    await service.create("ws-1", { teamId: "team-2", title: "Web's own" }, agentActor("lead", "team-2"));
+    focus = "task-3";
+    const render = mount(service);
+    render();
+    await flush();
+    act(() => button("Close").click());
+    await flush();
+    expect(focus).toBeNull();
+    expect(cards().map((c) => c.querySelector(".tasks__card-title")?.textContent)).toEqual(["Web's own"]);
+  });
+
+  it("a second link while the dialog is up moves the board to ITS task's team, pinned choice or not", async () => {
+    const { service } = await seeded();
+    await service.create("ws-1", { teamId: "team-2", title: "Web's own" }, agentActor("lead", "team-2"));
+    focus = "task-3";
+    const render = mount(service);
+    render();
+    await flush();
+    // Putting the task away pins web as the choice…
+    act(() => button("Close").click());
+    await flush();
+    expect(teamPicked()).toBe("web");
+    // …and a link to api's task still outranks it: the modal router only
+    // refocuses an open dialog, it does not remount it.
+    focus = "task-1";
+    render();
+    await flush();
+    expect(teamPicked()).toBe("api");
+    expect(document.querySelector('aside[aria-label="Task task-1"]')).not.toBeNull();
+  });
+
+  it("+ Task on a board a link opened creates into THAT team, not the first", async () => {
+    const { service } = await seeded();
+    await service.create("ws-1", { teamId: "team-2", title: "Web's own" }, agentActor("lead", "team-2"));
+    focus = "task-3";
+    const render = mount(service);
+    render();
+    await flush();
+    act(() => button("+ Task").click());
+    await flush();
+    const title = document.querySelector<HTMLInputElement>('input[aria-label="Title"]')!;
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(title, "Also web's");
+      title.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await flush();
+    act(() => button("Create task").click());
+    await flush();
+    const state = service.peek("ws-1");
+    expect(state?.kind === "ready" && state.board.tasks[3]).toMatchObject({ title: "Also web's", teamId: "team-2" });
   });
 
   it("keeps a refused comment in the composer, and a draft does not follow the person to another task", async () => {

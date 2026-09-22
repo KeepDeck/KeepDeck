@@ -19,6 +19,10 @@ interface TasksDialogProps {
   tasks: TasksAccess;
   /** The workspace whose boards these are; null when none is open. */
   workspace: Workspace | null;
+  /** The team the stage has open as the dialog opens — the board it
+   * starts on. Read once: the stage moving under the dialog (an agent
+   * focusing a pane) does not move the board. */
+  stageTeam: string | null;
   /** The task the dialog is on — the modal router's, so a notification and
    * a click select through one seam. */
   focus: string | null;
@@ -34,14 +38,25 @@ interface TasksDialogProps {
 const noSelect = () => {};
 
 /**
- * The Tasks dialog — the person's view of a team's board: the ladder as
- * columns, or the load as lanes per member, with one task open on the
- * right. The shell renders and emits; every transition is the hook's and
- * every word the presentation's.
+ * The Tasks dialog. Another workspace is another board: when the active
+ * workspace changes under it (an agent can switch it while the dialog is
+ * up), the board opens anew from that workspace's stage instead of
+ * keeping a choice that names a team the new one does not have. The open
+ * task is the modal router's and survives the remount.
  */
-export function TasksDialog({
+export function TasksDialog(props: TasksDialogProps) {
+  return <WorkspaceBoard key={props.workspace?.id ?? ""} {...props} />;
+}
+
+/**
+ * One workspace's boards — the ladder as columns, or the load as lanes
+ * per member, with one task open on the right. The shell renders and
+ * emits; every transition is the hook's and every word the presentation's.
+ */
+function WorkspaceBoard({
   tasks,
   workspace,
+  stageTeam,
   focus,
   onFocus,
   onClose,
@@ -49,7 +64,7 @@ export function TasksDialog({
   artifactReads,
 }: TasksDialogProps) {
   const now = useWallClock(0, true);
-  const board = useTasksBoard(tasks, workspace, focus, onFocus, onClose, now, artifactReads);
+  const board = useTasksBoard(tasks, workspace, stageTeam, focus, onFocus, onClose, now, artifactReads);
   // Escape peels one layer; which one, and whether that is the dialog
   // itself, is the screen machine's call.
   useEscape(board.escape, canClose);

@@ -20,11 +20,11 @@ import {
 } from "../../domain/tasks";
 import {
   IDLE,
-  INITIAL_SCREEN,
   armCard,
   assigneeOf,
   boardView,
   clickDisbelieved,
+  initialScreen,
   moveCard,
   newTaskFormView,
   queuesView,
@@ -64,6 +64,9 @@ export type { TasksMode, CardGrip } from "../../presentation/tasks";
 export function useTasksBoard(
   access: TasksAccess,
   workspace: Workspace | null,
+  /** The stage's open team as the dialog mounts — the screen's first
+   * choice; later values are not read. */
+  stageTeam: string | null,
   focus: string | null,
   onFocus: (taskId: string | null) => void,
   /** The dialog's own close — what an Escape with nothing left to peel does. */
@@ -83,11 +86,14 @@ export function useTasksBoard(
   // presentation machine's; this hook applies what it answers. A ref
   // mirrors it so a sequence of actions within one event sees its own
   // effects, and no decision runs inside a React updater.
-  const [screen, setScreen] = useState(INITIAL_SCREEN);
+  const [screen, setScreen] = useState(() => initialScreen(stageTeam));
   const screenRef = useRef(screen);
+  // The team the board resolved on the last render — what the person was
+  // looking at when they acted, and what the machine pins as their choice.
+  const teamIdRef = useRef<string | null>(null);
   const run = useCallback(
     (action: ScreenAction) => {
-      const outcome = screenReducer(screenRef.current, action);
+      const outcome = screenReducer(screenRef.current, action, teamIdRef.current);
       screenRef.current = outcome.state;
       setScreen(outcome.state);
       if (outcome.focus !== undefined) onFocus(outcome.focus);
@@ -145,6 +151,7 @@ export function useTasksBoard(
     chosenTeam,
     focusedTask?.teamId ?? null,
   );
+  teamIdRef.current = teamId;
   const teamTasks = useMemo(
     () => (board && teamId !== null ? tasksOfTeam(board, teamId) : []),
     [board, teamId],
