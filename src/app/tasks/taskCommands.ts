@@ -293,7 +293,7 @@ function updateCommand(deps: TaskCommandDeps): CommandSpec {
     title: "Change a task: move it along, reassign it, edit its fields",
     args: [
       { name: "id", type: "string", required: true, description: "The task id (task-N)" },
-      { name: "status", type: "string", description: "todo | in-progress | blocked | review | done | cancelled — the ladder decides which moves are yours" },
+      { name: "status", type: "string", description: "todo | in-progress | blocked | review | done | cancelled. One step at a time: todo → in-progress → review → done, in-progress ⇄ blocked; accepting, returning, reopening and cancelling are for whoever hands out work. A refused move says where the task can go from where it is" },
       { name: "assignee", type: "string", description: "A role address on the team; \"pool\" to unassign" },
       { name: "priority", type: "string", description: "high | normal | low" },
       { name: "title", type: "string", description: "A new title" },
@@ -369,7 +369,7 @@ function commentCommand(deps: TaskCommandDeps): CommandSpec {
 function nextCommand(deps: TaskCommandDeps): CommandSpec {
   return {
     id: "task.next",
-    title: "The head of your queue: your first issuable task — in todo with every blocker done or cancelled",
+    title: "The head of your queue: your first issuable task — in todo with every blocker done or cancelled. ONE task, chosen by priority then age, and where the pool stands; task.list is the whole board",
     args: [],
     run: async (_args, source) => {
       const who = caller(source, deps);
@@ -396,7 +396,7 @@ function nextCommand(deps: TaskCommandDeps): CommandSpec {
 function mineCommand(deps: TaskCommandDeps): CommandSpec {
   return {
     id: "task.mine",
-    title: "Everything on your plate: your open tasks, plus the team's review if you accept work",
+    title: "Everything on your plate: your open tasks, plus the team's review if you accept work — task.list with assignee=you drops the review and keeps what is closed",
     args: [],
     run: async (_args, source) => {
       const who = caller(source, deps);
