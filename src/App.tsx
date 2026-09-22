@@ -1,7 +1,7 @@
 import { askForPaneBack } from "./app/resumeOutcome";
 import { ArtifactsDialog } from "./components/artifacts/ArtifactsDialog";
 import { TasksDialog } from "./components/tasks/TasksDialog";
-import { useTasksAttention } from "./components/tasks/useTasksAttention";
+import { useTasksUnread } from "./components/tasks/useTasksUnread";
 import { artifactsRegistryReads } from "./app/artifacts/registryRead";
 import { restartToUpdate } from "./app/updateManager";
 import { updateActionView } from "./app/updateAction";
@@ -55,10 +55,12 @@ function App() {
     [plugins],
   );
   // Before the early return, like every hook: the door's count reads the
-  // board's owner whether or not the deck is ready to draw.
-  const tasksBadge = useTasksAttention(
-    tasks,
-    controller.ready ? (controller.active?.id ?? null) : null,
+  // notification center whether or not the deck is ready to draw.
+  const tasksBadge = useTasksUnread(
+    notificationCenter,
+    controller.ready && controller.active
+      ? { id: controller.active.id, instance: controller.active.instance }
+      : null,
   );
   if (!controller.ready) return <div className="deck" />;
   const {

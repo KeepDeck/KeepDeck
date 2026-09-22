@@ -73,6 +73,20 @@ describe("task commands", () => {
     expect(await refused("task.update", { id: "task-1", status: "done" }, IMPL2)).toContain("is lead's");
   });
 
+  it("an illegal move teaches the ladder: the refusal says where the task can go from here", async () => {
+    const { run, refused } = setup();
+    await run("task.create", { title: "Already shipped", assignee: "impl-1" }, LEAD);
+    expect(await refused("task.update", { id: "task-1", status: "done" }, LEAD)).toBe(
+      "a task cannot go from todo to done — from todo it can go to in-progress, cancelled",
+    );
+    await run("task.update", { id: "task-1", status: "in-progress" }, IMPL1);
+    await run("task.update", { id: "task-1", status: "review" }, IMPL1);
+    // Review is the lead's to accept: the worker's list is empty, and said so.
+    expect(await refused("task.update", { id: "task-1", status: "todo" }, IMPL1)).toBe(
+      "a task cannot go from review to todo, and from review no move is yours",
+    );
+  });
+
   it("a board is its team's: naming another team, or reading its task, is refused", async () => {
     const { refused, run } = setup();
     expect(await refused("task.list", { team: "web" }, LEAD)).toContain('you stand on "api", not "web"');

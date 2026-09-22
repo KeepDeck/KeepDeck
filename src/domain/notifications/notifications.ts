@@ -44,8 +44,8 @@ export type NotificationSource =
    * router resolves the live URL at click time. `artifactId` absent or
    * dead → the workspace INDEX; resolution failure → silent no-op. */
   | { type: "artifacts"; workspace: NotificationWorkspace; artifactId?: string }
-  /** A task event on a workspace's board: put there by an agent, stuck,
-   * or accepted. The click target is the Tasks dialog on that task —
+  /** A task event on a workspace's board: put there by an agent, or
+   * moved along the ladder. The click target is the Tasks dialog on that task —
    * identifiers only; the router resolves the live workspace at click
    * time and opens the dialog focused on the id. */
   | { type: "tasks"; workspace: NotificationWorkspace; taskId: string };
@@ -93,6 +93,11 @@ export const BANNER_COOLDOWN_MS = 5_000;
 export function bannerCooldownKey(
   notification: Pick<Notification, "tag" | "source">,
 ): string {
+  // A board is one voice even though every task on it keeps its own
+  // line in the list: its entries are tagged per task (the replace key),
+  // and letting that tag name the cooldown bannered once per task moved —
+  // a team moving ten tasks at once raised ten OS banners.
+  if (notification.source.type === "tasks") return `tasks:${notification.source.workspace.id}`;
   if (notification.tag !== undefined) return `tag:${notification.tag}`;
   const { source } = notification;
   switch (source.type) {
@@ -106,10 +111,6 @@ export function bannerCooldownKey(
       // An artifacts event's flapping unit is its workspace — two panes
       // publishing in one workspace are one voice for the cooldown.
       return `artifacts:${source.workspace.id}`;
-    case "tasks":
-      // Likewise a board: every change on one workspace's board is one
-      // voice, so a team moving ten tasks does not banner ten times.
-      return `tasks:${source.workspace.id}`;
     case "stats":
       return "stats";
     case "app":
@@ -147,13 +148,37 @@ export function markRead(
   return next;
 }
 
+/** Mark read every unread entry `match` picks. Same-reference no-op when
+ * it picks none, so subscribers skip a render. */
+export function markReadWhere(
+  items: readonly Notification[],
+  match: (n: Notification) => boolean,
+  at: number,
+): readonly Notification[] {
+  const picked = (n: Notification) => n.readAt === undefined && match(n);
+  if (!items.some(picked)) return items;
+  return items.map((n) => (picked(n) ? { ...n, readAt: at } : n));
+}
+
 /** Mark everything read. Same-reference no-op when nothing was unread. */
 export function markAllRead(
   items: readonly Notification[],
   at: number,
 ): readonly Notification[] {
-  if (!items.some((n) => n.readAt === undefined)) return items;
-  return items.map((n) => (n.readAt === undefined ? { ...n, readAt: at } : n));
+  return markReadWhere(items, () => true, at);
+}
+
+/** A task event about THIS workspace lifetime's board — the id alone is a
+ * reusable slot, so a board deleted and re-made under it is not this one. */
+export function isTaskNotificationOf(
+  n: Notification,
+  workspace: NotificationWorkspace,
+): boolean {
+  return (
+    n.source.type === "tasks" &&
+    n.source.workspace.id === workspace.id &&
+    n.source.workspace.instance === workspace.instance
+  );
 }
 
 /** Remove the center's runtime history. Same-reference no-op when empty. */

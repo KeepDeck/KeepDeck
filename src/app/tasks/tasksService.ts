@@ -34,6 +34,7 @@ import {
   type TaskBoard,
   type TaskChange,
   type TaskRefusal,
+  type TaskStatus,
 } from "../../domain/tasks";
 import { describeError, log } from "../../ipc/log";
 import { decodeFaultText } from "./refusalText";
@@ -101,14 +102,14 @@ export type TaskResult =
     }
   | { ok: false; refusal: TaskProblem };
 
-/** What the human is told about. Three events and no more: a task put on
- * the board by an agent, one stuck, one accepted. */
+/** What the human is told about: a task put on the board, and every move
+ * of one along the ladder — `task.status` is where it went, `from` where
+ * it stood. */
 export type TaskEvent = {
-  kind: "created" | "blocked" | "done";
   workspaceId: string;
   task: Task;
   actor: TaskActor;
-};
+} & ({ kind: "created" } | { kind: "moved"; from: TaskStatus });
 
 export interface TasksService {
   /** One workspace's board as held here. Asking for a board nobody asked
@@ -397,10 +398,7 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
         return { ok: true, task, board, saved: saveError === null, saveError };
       }
       const pending = commit(workspaceId, board);
-      if (task.status !== before.status) {
-        if (task.status === "blocked") emit({ kind: "blocked", workspaceId, task, actor });
-        if (task.status === "done") emit({ kind: "done", workspaceId, task, actor });
-      }
+      if (task.status !== before.status) emit({ kind: "moved", from: before.status, workspaceId, task, actor });
       const saveError = await pending;
       return { ok: true, task, board, saved: saveError === null, saveError };
     },

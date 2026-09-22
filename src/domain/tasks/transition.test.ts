@@ -81,11 +81,38 @@ describe("the ladder", () => {
     ];
     for (const [from, to] of cases) {
       const t = task({ id: "task-1", status: from, assignee: "lead" });
-      expect(refusalOf(t, { kind: "status", to }, lead)).toEqual({ kind: "illegal-transition", from, to });
+      // The refusal carries where the task CAN go — the same answer the
+      // picker reads, so the two cannot disagree.
+      expect(refusalOf(t, { kind: "status", to }, lead)).toEqual({
+        kind: "illegal-transition",
+        from,
+        to,
+        reachable: reachableStatuses(t, lead, ctx([t])),
+      });
     }
     const t = task({ id: "task-1", status: "in-progress", assignee: "lead" });
     const same = transition(t, { kind: "status", to: "in-progress" }, lead, ctx([t]));
     expect(same.ok && same.task).toBe(t);
+  });
+
+  it("an illegal move names where the task can go — for THIS actor, blockers counted", () => {
+    const t = task({ id: "task-2", assignee: "impl-1" });
+    expect(refusalOf(t, { kind: "status", to: "done" }, lead, ctx([t]))).toMatchObject({
+      reachable: ["in-progress", "cancelled"],
+    });
+    // A working role may not cancel: only the start is its to make.
+    expect(refusalOf(t, { kind: "status", to: "done" }, impl1, ctx([t]))).toMatchObject({
+      reachable: ["in-progress"],
+    });
+    // An open blocker takes the start away; what is left is still said.
+    const blocker = task({ id: "task-1" });
+    const held = task({ id: "task-2", assignee: "impl-1", blockedBy: ["task-1"] });
+    expect(refusalOf(held, { kind: "status", to: "done" }, impl1, ctx([blocker, held]))).toMatchObject({
+      reachable: [],
+    });
+    // A claim is not a move along the ladder: no list rides on it.
+    const claimed = refusalOf(task({ id: "task-1", status: "review" }), { kind: "claim" }, impl1);
+    expect(claimed).not.toHaveProperty("reachable");
   });
 
   it("a working role moves only its own task", () => {

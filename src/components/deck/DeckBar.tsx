@@ -415,7 +415,7 @@ export function DeckBar({
             >
               <TasksIcon />
               {tasksBadge > 0 && (
-                <span className="tasks-door__count" aria-label={`${tasksBadge} waiting`}>
+                <span className="tasks-door__count" aria-label={`${tasksBadge} unread`}>
                   {tasksBadge}
                 </span>
               )}

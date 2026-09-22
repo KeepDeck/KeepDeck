@@ -54,8 +54,13 @@ export function refusalText(refusal: TaskProblem): string {
       return `${refusal.field} is ${lead}'s to set on this team — you may create a task for yourself or the pool, or ask ${lead}`;
     case "review-not-yours":
       return `accepting, returning, reopening or cancelling a task is ${lead}'s — move yours to review and say so`;
-    case "illegal-transition":
-      return `a task cannot go from ${refusal.from} to ${refusal.to}`;
+    case "illegal-transition": {
+      const said = `a task cannot go from ${refusal.from} to ${refusal.to}`;
+      if (refusal.reachable === undefined) return said;
+      return refusal.reachable.length === 0
+        ? `${said}, and from ${refusal.from} no move is yours`
+        : `${said} — from ${refusal.from} it can go to ${refusal.reachable.join(", ")}`;
+    }
     case "blocked-by-open":
       return `still blocked by ${refusal.blockers.join(", ")} — they must be done or cancelled first`;
     case "already-claimed":

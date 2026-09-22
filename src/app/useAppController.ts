@@ -17,7 +17,8 @@ import { useDragDrop } from "./useDragDrop";
 import { useGitHead } from "./useGitHead";
 import { useMenuHotkeys } from "./useMenuHotkeys";
 import { useModalRouter } from "./useModalRouter";
-import { setSourceVisibilityProbe } from "./notificationCenter";
+import { markNotificationsReadWhere, setSourceVisibilityProbe } from "./notificationCenter";
+import { useBoardSeen } from "./tasks/useBoardSeen";
 import { useActivityNotifications } from "./useActivityNotifications";
 import { usePaneActivities } from "./usePaneActivities";
 import { workspaceForNotification } from "./notificationNavigation";
@@ -50,7 +51,7 @@ import {
 } from "../domain/deck";
 import type { AppInfo } from "../ipc/app";
 import { readAppInfo } from "./appInfo";
-import { layering, statsDeepLinkOnScreen } from "../presentation/layering";
+import { layering, statsDeepLinkOnScreen, tasksBoardOnScreen } from "../presentation/layering";
 import { anyOverlayCovers, subscribeOverlayCover } from "./overlayCover";
 import { describeError, log } from "../ipc/log";
 import { pluginCrashes, subscribePluginCrashes } from "./pluginHealth";
@@ -229,6 +230,7 @@ export function useAppController() {
     anyDialogOpen: modal.anyDialogOpen,
     statsOpen: modal.statsOpen,
     statsTab: modal.statsTab,
+    tasksOpen: modal.tasksOpen,
     dockMode,
     dockTabs: dockTabs.length,
     hasActive: !!active,
@@ -259,6 +261,18 @@ export function useAppController() {
         // up — unless a confirm dialog is painted over it.
         return statsDeepLinkOnScreen(visibilityRef.current.windows.stats, source.tab);
       }
+      if (source.type === "tasks") {
+        // The Tasks dialog open on that workspace's boards: the move
+        // happened in front of the person, and lands already read.
+        // tasksBoardOnScreen matches the id; the LIFETIME (id + instance)
+        // is the resolve below — dropping it would let a dead workspace's
+        // event land read under its successor.
+        const now = visibilityRef.current;
+        return (
+          tasksBoardOnScreen(now.windows.tasks, source.workspace.id, now.activeId) &&
+          workspaceForNotification(now.workspaces, source.workspace) !== null
+        );
+      }
       if (source.type !== "pane") return false;
       const now = visibilityRef.current;
       if (
@@ -277,6 +291,10 @@ export function useAppController() {
     });
     return () => setSourceVisibilityProbe(null);
   }, []);
+  useBoardSeen(
+    active && tasksBoardOnScreen(windows.tasks, active.id, deck.activeId) ? active : null,
+    markNotificationsReadWhere,
+  );
   // Announce the transitions worth leaving the app for: needs-you, finished,
   // failed.
   useActivityNotifications(deck.workspaces, agents);
