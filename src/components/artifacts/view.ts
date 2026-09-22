@@ -90,3 +90,15 @@ export function matching(
       row.id.toLowerCase().includes(needle),
   );
 }
+
+/** A row's identity in the windowed list — its id, never its index: a
+ * publish reorders the list (newest first), and an index key would hand
+ * one row's measured height — an open history's, at its tallest — to
+ * whatever slid into its place. */
+export function artifactRowKey(row: ArtifactMetaRow): string {
+  return row.id;
+}
+
+/** The first paint's guess at a row with nothing open under it, in
+ * pixels; measurement corrects it the moment a row reports its box. */
+export const ARTIFACT_ROW_ESTIMATE_PX = 56;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ArtifactMetaRow } from "../../app/artifacts/registryRead";
-import { matching, viewOf } from "./view";
+import { artifactRowKey, matching, viewOf } from "./view";
 
 const row = (id: string): ArtifactMetaRow => ({
   id,
@@ -84,5 +84,18 @@ describe("a failed read while a list is in hand", () => {
 
   it("is the whole body only when there is no list at all", () => {
     expect(viewOf("ws-1", [], "read failed", "zzz").kind).toBe("refusal");
+  });
+});
+
+describe("a row's identity in the windowed list", () => {
+  it("is the artifact's id, so two artifacts of one title never share a measured height", () => {
+    // Titles repeat — agents republish under the same words — and a key
+    // shared by two rows would hand one's measured height, an open
+    // history's included, to the other.
+    const twins = [
+      { ...row("plan-v1"), title: "Plan" },
+      { ...row("plan-v2"), title: "Plan" },
+    ];
+    expect(twins.map(artifactRowKey)).toEqual(["plan-v1", "plan-v2"]);
   });
 });

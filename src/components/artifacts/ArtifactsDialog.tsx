@@ -1,8 +1,5 @@
 import { formatAge } from "../../domain/usage";
-import type {
-  ArtifactMetaRow,
-  ArtifactsRegistryReadPort,
-} from "../../app/artifacts/registryRead";
+import type { ArtifactsRegistryReadPort } from "../../app/artifacts/registryRead";
 import { Button } from "../../ui/Button";
 import { CloseButton } from "../../ui/CloseButton";
 import { ConfirmDialog } from "../../ui/ConfirmDialog";
@@ -12,16 +9,8 @@ import { useWallClock } from "../../ui/useWallClock";
 import { isRow } from "./rowRef";
 import { rowMeta, versionsNewestFirst } from "./rowMeta";
 import { useArtifactsRegistry } from "./useArtifactsRegistry";
+import { ARTIFACT_ROW_ESTIMATE_PX, artifactRowKey } from "./view";
 import { VirtualList } from "@keepdeck/ui-kit/VirtualList";
-
-/** The artifact's id — never the index: a publish reorders the list
- * (newest first), and an index key would hand one row's measured height —
- * an open history's, at its tallest — to whatever slid into its place. */
-const artifactKey = (row: ArtifactMetaRow) => row.id;
-
-/** A row with nothing open under it; the first paint's guess, corrected
- * by measurement the moment a row reports its real box. */
-const ESTIMATED_ROW_PX = 56;
 
 interface ArtifactsDialogProps {
   /** The workspace whose artifacts these are; `null` when no workspace is
@@ -162,8 +151,8 @@ export function ArtifactsDialog({
           // view mounted as li items — the list stays ONE ul/li list.
           <VirtualList
             items={view.rows}
-            itemKey={artifactKey}
-            estimate={ESTIMATED_ROW_PX}
+            itemKey={artifactRowKey}
+            estimate={ARTIFACT_ROW_ESTIMATE_PX}
             className="artifacts__body"
             spacer={{ as: "ul", className: "artifacts__list" }}
             item={{ as: "li", className: "artifacts__item" }}
