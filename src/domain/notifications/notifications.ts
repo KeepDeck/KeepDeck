@@ -93,6 +93,11 @@ export const BANNER_COOLDOWN_MS = 5_000;
 export function bannerCooldownKey(
   notification: Pick<Notification, "tag" | "source">,
 ): string {
+  // A board is one voice even though every task on it keeps its own
+  // line in the list: its entries are tagged per task (the replace key),
+  // and letting that tag name the cooldown bannered once per task moved —
+  // a team moving ten tasks at once raised ten OS banners.
+  if (notification.source.type === "tasks") return `tasks:${notification.source.workspace.id}`;
   if (notification.tag !== undefined) return `tag:${notification.tag}`;
   const { source } = notification;
   switch (source.type) {
@@ -106,10 +111,6 @@ export function bannerCooldownKey(
       // An artifacts event's flapping unit is its workspace — two panes
       // publishing in one workspace are one voice for the cooldown.
       return `artifacts:${source.workspace.id}`;
-    case "tasks":
-      // Likewise a board: every change on one workspace's board is one
-      // voice, so a team moving ten tasks does not banner ten times.
-      return `tasks:${source.workspace.id}`;
     case "stats":
       return "stats";
     case "app":

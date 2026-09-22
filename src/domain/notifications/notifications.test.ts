@@ -83,6 +83,14 @@ describe("bannerCooldownKey", () => {
     const workspace = { id: "ws-1", instance: ws1 };
     expect(bannerCooldownKey({ source: { type: "tasks", workspace, taskId: "task-1" } })).toBe("tasks:ws-1");
     expect(bannerCooldownKey({ source: { type: "tasks", workspace, taskId: "task-2" } })).toBe("tasks:ws-1");
+    // Its entries are tagged per task (the list's replace key) — and the
+    // board is still the voice: ten tasks moving is one banner, not ten.
+    expect(
+      bannerCooldownKey({ tag: "tasks:ws-1:task-1", source: { type: "tasks", workspace, taskId: "task-1" } }),
+    ).toBe("tasks:ws-1");
+    expect(
+      bannerCooldownKey({ tag: "tasks:ws-1:task-2", source: { type: "tasks", workspace, taskId: "task-2" } }),
+    ).toBe("tasks:ws-1");
   });
 
   const otherPane = {
