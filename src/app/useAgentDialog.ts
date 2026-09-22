@@ -8,14 +8,13 @@ import {
   type SessionPickRow,
 } from "../domain/agents";
 import {
-  autoTeamName,
   baseName,
   directoryState,
   findTeam,
   findWorkspaceByRef,
   firstFreeTeamWorktree,
   membersOf,
-  nextTeamSeq,
+  nextAutoTeamName,
   paneId,
   parentDir,
   sessionClaimant,
@@ -214,7 +213,8 @@ export function useAgentDialog(
     // The workspace may have closed while repo/path IPC was in flight. Its
     // public id can already name a replacement, so only the exact lifetime is
     // allowed to open this dialog.
-    if (!findWorkspaceByRef(deckRef.current.workspaces, workspace)) return;
+    const live = findWorkspaceByRef(deckRef.current.workspaces, workspace);
+    if (!live) return;
     // A question about a directory is standing: it was asked for a create
     // this door would replace, and the person answers it first.
     if (askRef.current) return;
@@ -226,7 +226,7 @@ export function useAgentDialog(
       // filled and a person who does not care presses Create.
       target: {
         kind: "new-team",
-        suggestedName: autoTeamName(nextTeamSeq(deckRef.current.workspaces)),
+        suggestedName: nextAutoTeamName(live),
       },
       // A new team holds nothing yet: the picker opens on the lead.
       roles: roleChoiceView([]),

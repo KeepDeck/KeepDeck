@@ -62,19 +62,8 @@ export function membersOf(
   return ws.panes.filter((pane) => pane.team?.teamId === teamId);
 }
 
-/** One past the highest `team-N` any workspace holds — the seq the next
- * team is minted with, derived from the live deck rather than counted
- * separately, so there is one source of truth. Ids outside the scheme are
- * skipped rather than rejected: a mint must always produce something. */
-export function nextTeamSeq(
-  workspaces: readonly Pick<Workspace, "teams">[],
-): number {
-  let highest = 0;
-  for (const ws of workspaces) {
-    for (const team of teamsOf(ws)) {
-      const match = /^team-(\d+)$/.exec(team.id);
-      if (match) highest = Math.max(highest, Number(match[1]));
-    }
-  }
-  return highest + 1;
+/** Every team id the deck holds, across workspaces — what a fresh id
+ * must not repeat. */
+export function teamIdsOf(workspaces: readonly Pick<Workspace, "teams">[]): Set<string> {
+  return new Set(workspaces.flatMap((ws) => teamsOf(ws).map((team) => team.id)));
 }

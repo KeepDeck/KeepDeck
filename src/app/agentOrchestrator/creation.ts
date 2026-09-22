@@ -1,5 +1,4 @@
 import {
-  autoTeamName,
   autoWorkspaceName,
   birthRefusal,
   claimDirectory,
@@ -9,10 +8,10 @@ import {
   findWorkspaceByRef,
   membersOf,
   MAX_PANES,
-  nextTeamSeq,
+  nextAutoTeamName,
   normalizePath,
   teamHeldPath,
-  teamId,
+  teamIdsOf,
   teamNameTaken,
   teamOfPane,
   teamsOf,
@@ -37,6 +36,7 @@ import type {
 import type { DeckActions } from "../deckActions";
 import type { DeckStore } from "../deckStore";
 import { provisionTeamsInto } from "../provisioning";
+import { mintTeamId } from "../ids";
 import { dropPaneSpawnSpec } from "../spawnSpecs";
 import type { WorktreeProvisioner } from "../worktrees";
 
@@ -210,10 +210,13 @@ export function createAgentOrchestratorCreation({
       shared: request.shared === true,
     });
     if (refusal) return refusal;
-    const seq = nextTeamSeq(workspaces);
-    const name = request.name.trim() || autoTeamName(seq);
+    const name = request.name.trim() || nextAutoTeamName(current);
     if (teamNameTaken(current, name)) return { kind: "taken" };
-    const team: Team & { location: TeamLocation } = { id: teamId(seq), name, location: wanted };
+    const team: Team & { location: TeamLocation } = {
+      id: mintTeamId(teamIdsOf(workspaces)),
+      name,
+      location: wanted,
+    };
     actions.createTeam(current.id, team, { shared: request.shared });
     const settled = findWorkspaceByRef(deck.getSnapshot().workspaces, request.workspace);
     if (!settled || !findTeam(settled, team.id)) {
@@ -287,10 +290,9 @@ export function createAgentOrchestratorCreation({
       if (!location) return { refusal: "held", why: "refused" };
       team = { ...claim.team, location };
     } else {
-      const seq = nextTeamSeq(workspaces);
       const asked = (teamName ?? pane.name)?.trim();
-      const name = asked && !teamNameTaken(current, asked) ? asked : autoTeamName(seq);
-      team = { id: teamId(seq), name, location: wanted };
+      const name = asked && !teamNameTaken(current, asked) ? asked : nextAutoTeamName(current);
+      team = { id: mintTeamId(teamIdsOf(workspaces)), name, location: wanted };
       fresh = true;
     }
     const members = membersOf(current, team.id).filter((member) => member.id !== except);

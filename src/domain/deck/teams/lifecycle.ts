@@ -186,6 +186,19 @@ export function directoriesStillHeld(
 }
 
 /** Whether `name` is held by a team in the workspace other than `except`. */
+/**
+ * The auto name for a team in `ws`: "Team N" for the first N, counting on
+ * from how many teams the workspace has, that no other team there holds.
+ * Read from the names, never from ids: an id is a random token and says
+ * nothing about how many teams came before. `except` is a team being
+ * renamed, whose own name does not count against it.
+ */
+export function nextAutoTeamName(ws: Workspace, except?: string): string {
+  let n = teamsOf(ws).filter((team) => team.id !== except).length + 1;
+  while (teamNameTaken(ws, autoTeamName(n), except)) n += 1;
+  return autoTeamName(n);
+}
+
 export function teamNameTaken(
   ws: Workspace,
   name: string,
@@ -198,8 +211,8 @@ export function teamNameTaken(
 /**
  * Create a team that owns (or is about to own) a directory.
  *
- * The caller mints the id and the name — `teamId(nextTeamSeq(...))` and
- * `autoTeamName(seq)` when the person left it blank — because a dispatch
+ * The caller mints the id and the name — [`mintTeamId`] and
+ * [`nextAutoTeamName`] when the person left it blank — because a dispatch
  * cannot hand an id back, and the app needs it to issue the create behind
  * the card. Refused, with the SAME array back: an id already in use, a name
  * some team holds (by key), a blank name, or a directory some team already
@@ -290,8 +303,7 @@ export function renameTeam(
   const ws = workspaces.find((candidate) => candidate.id === workspaceId);
   const team = ws ? findTeam(ws, teamId) : undefined;
   if (!ws || !team) return workspaces;
-  const seq = /^team-(\d+)$/.exec(teamId);
-  const next = name.trim() || (seq ? autoTeamName(Number(seq[1])) : teamId);
+  const next = name.trim() || nextAutoTeamName(ws, teamId);
   if (next === team.name) return workspaces;
   if (teamNameTaken(ws, next, teamId)) return workspaces;
   return mapWorkspaceTeams(workspaces, workspaceId, (teams) =>

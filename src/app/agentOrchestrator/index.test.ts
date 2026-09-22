@@ -263,10 +263,12 @@ describe("agent orchestrator —session policy", () => {
     expect(moved.session).toBeUndefined();
     expect(moved.team?.teamId).not.toBe("team-1");
     expect(paneExecutionCwd(ws, moved)).toBe("/repo");
+    // The root's team is minted fresh: a random id, the old one untouched.
     expect(ws.teams?.map((team) => [team.id, team.location?.kind === "attached" ? team.location.cwd : null])).toEqual([
       ["team-1", "/repo/wt-gone"],
-      ["team-2", "/repo"],
+      [moved.team?.teamId, "/repo"],
     ]);
+    expect(moved.team?.teamId).toMatch(/^team-[0-9a-f]{8}$/);
     expect(agentRun.blocked).toEqual({});
   });
 
