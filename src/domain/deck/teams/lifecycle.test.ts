@@ -3,7 +3,7 @@ import { createWorkspaceInstance } from "../../workspaceInstance";
 import { MAX_PANES } from "../layout";
 import type { Pane } from "../panes/model";
 import type { Workspace } from "../workspaces";
-import { findTeam, membersOf, teamIdsOf } from "./collection";
+import { findTeam, findTeamInDeck, membersOf, teamIdsAreUnique, teamIdsOf } from "./collection";
 import {
   birthRefusal,
   claimDirectory,
@@ -510,6 +510,21 @@ describe("nextAutoTeamName and teamIdsOf", () => {
     expect(nextAutoTeamName(two)).toBe("Team 4");
     // A team being renamed does not count against itself.
     expect(nextAutoTeamName(two, "team-1")).toBe("Team 2");
+  });
+
+  it("finds a team anywhere in the deck by id alone — never by name", () => {
+    const deck = [ws("ws-1", [{ id: "team-1", name: "api", location: at("/a") }]), ws("ws-2", [{ id: "team-x", name: "web", location: at("/b") }])];
+    const found = findTeamInDeck(deck, "team-x");
+    expect(found?.workspace.id).toBe("ws-2");
+    expect(found?.team.name).toBe("web");
+    expect(findTeamInDeck(deck, "web")).toBeUndefined();
+    expect(findTeamInDeck(deck, "team-9")).toBeUndefined();
+  });
+
+  it("tells a deck whose team ids repeat across workspaces from one whose do not", () => {
+    const one = ws("ws-1", [{ id: "team-1", name: "a", location: at("/a") }]);
+    expect(teamIdsAreUnique([one, ws("ws-2", [{ id: "team-2", name: "a", location: at("/b") }])])).toBe(true);
+    expect(teamIdsAreUnique([one, ws("ws-2", [{ id: "team-1", name: "b", location: at("/b") }])])).toBe(false);
   });
 
   it("collects every team id across the deck — what a fresh id must not repeat", () => {

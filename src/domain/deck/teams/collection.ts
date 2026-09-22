@@ -25,6 +25,14 @@ export function findTeam(
   return teamsOf(ws).find((team) => team.id === id);
 }
 
+/** Whether no team id repeats anywhere in the deck. A team id routes mail
+ * across workspaces ([`findTeamInDeck`] takes the first match), so two
+ * teams sharing one is a deck to refuse, not one to read. */
+export function teamIdsAreUnique(workspaces: readonly Pick<Workspace, "teams">[]): boolean {
+  const ids = workspaces.flatMap((ws) => teamsOf(ws).map((team) => team.id));
+  return new Set(ids).size === ids.length;
+}
+
 /** The team with `id` anywhere in the deck, and the workspace holding it —
  * by id alone: an id is unique deck-wide, a name only inside a workspace. */
 export function findTeamInDeck<W extends Pick<Workspace, "teams">>(

@@ -185,7 +185,6 @@ export function directoriesStillHeld(
   return kept;
 }
 
-/** Whether `name` is held by a team in the workspace other than `except`. */
 /**
  * The auto name for a team in `ws`: "Team N" for the first N, counting on
  * from how many teams the workspace has, that no other team there holds.
@@ -199,6 +198,7 @@ export function nextAutoTeamName(ws: Workspace, except?: string): string {
   return autoTeamName(n);
 }
 
+/** Whether `name` is held by a team in the workspace other than `except`. */
 export function teamNameTaken(
   ws: Workspace,
   name: string,
