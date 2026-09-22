@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { layering, statsDeepLinkOnScreen, type LayeringInput } from "./layering";
+import { layering, statsDeepLinkOnScreen, tasksBoardOnScreen, type LayeringInput } from "./layering";
 
 /** Nothing up: one workspace, no form, no dialog, a docked dock with no tabs. */
 const quiet: LayeringInput = {
@@ -9,6 +9,7 @@ const quiet: LayeringInput = {
   anyDialogOpen: false,
   statsOpen: false,
   statsTab: null,
+  tasksOpen: false,
   dockMode: "docked",
   dockTabs: 0,
   hasActive: true,
@@ -23,6 +24,7 @@ describe("layering", () => {
       dockCovers: false,
       panesInteractive: true,
       stats: { open: false, tab: null, covered: false },
+      tasks: { open: false, covered: false },
     });
   });
 
@@ -114,5 +116,23 @@ describe("statsDeepLinkOnScreen — the probe's stats branch", () => {
     const stats = showing();
     expect(at({ statsOpen: true, anyDialogOpen: true }).modal).toBe(true);
     expect(statsDeepLinkOnScreen(stats, "limits")).toBe(true);
+  });
+});
+
+describe("tasksBoardOnScreen — the probe's tasks branch", () => {
+  it("sees a board when the dialog is open on the active workspace and nothing covers it", () => {
+    const open = at({ tasksOpen: true, anyDialogOpen: true });
+    // Its own router-dialog layer does not cover it — the stats mistake.
+    expect(open.modal).toBe(true);
+    expect(tasksBoardOnScreen(open.tasks, "ws-1", "ws-1")).toBe(true);
+    // Another workspace's board is not what the dialog shows.
+    expect(tasksBoardOnScreen(open.tasks, "ws-2", "ws-1")).toBe(false);
+    expect(tasksBoardOnScreen(open.tasks, "ws-1", null)).toBe(false);
+  });
+
+  it("a closed dialog, or one a transaction or the CREATE form paints over, shows nothing", () => {
+    expect(tasksBoardOnScreen(at({}).tasks, "ws-1", "ws-1")).toBe(false);
+    expect(tasksBoardOnScreen(at({ tasksOpen: true, dialogOpen: true }).tasks, "ws-1", "ws-1")).toBe(false);
+    expect(tasksBoardOnScreen(at({ tasksOpen: true, creating: true }).tasks, "ws-1", "ws-1")).toBe(false);
   });
 });

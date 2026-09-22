@@ -147,13 +147,37 @@ export function markRead(
   return next;
 }
 
+/** Mark read every unread entry `match` picks. Same-reference no-op when
+ * it picks none, so subscribers skip a render. */
+export function markReadWhere(
+  items: readonly Notification[],
+  match: (n: Notification) => boolean,
+  at: number,
+): readonly Notification[] {
+  const picked = (n: Notification) => n.readAt === undefined && match(n);
+  if (!items.some(picked)) return items;
+  return items.map((n) => (picked(n) ? { ...n, readAt: at } : n));
+}
+
 /** Mark everything read. Same-reference no-op when nothing was unread. */
 export function markAllRead(
   items: readonly Notification[],
   at: number,
 ): readonly Notification[] {
-  if (!items.some((n) => n.readAt === undefined)) return items;
-  return items.map((n) => (n.readAt === undefined ? { ...n, readAt: at } : n));
+  return markReadWhere(items, () => true, at);
+}
+
+/** A task event about THIS workspace lifetime's board — the id alone is a
+ * reusable slot, so a board deleted and re-made under it is not this one. */
+export function isTaskNotificationOf(
+  n: Notification,
+  workspace: NotificationWorkspace,
+): boolean {
+  return (
+    n.source.type === "tasks" &&
+    n.source.workspace.id === workspace.id &&
+    n.source.workspace.instance === workspace.instance
+  );
 }
 
 /** Remove the center's runtime history. Same-reference no-op when empty. */

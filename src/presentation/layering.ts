@@ -39,6 +39,7 @@ export interface LayeringInput {
   anyDialogOpen: boolean;
   statsOpen: boolean;
   statsTab: string | null;
+  tasksOpen: boolean;
   dockMode: DockMode;
   dockTabs: number;
   hasActive: boolean;
@@ -61,6 +62,8 @@ export interface WindowLayering {
     /** Something is painted over the stats dialog — see the z-order note. */
     covered: boolean;
   };
+  /** The Tasks dialog, covered by what covers any router dialog. */
+  tasks: { open: boolean; covered: boolean };
 }
 
 /**
@@ -77,6 +80,17 @@ export function statsDeepLinkOnScreen(
   return stats.open && !stats.covered && (tab === undefined || stats.tab === tab);
 }
 
+/** Whether the Tasks dialog shows the person this workspace's board: open,
+ * nothing painted over it, and the workspace the active one — the dialog
+ * shows the active workspace's boards. */
+export function tasksBoardOnScreen(
+  tasks: WindowLayering["tasks"],
+  workspaceId: string,
+  activeId: string | null,
+): boolean {
+  return tasks.open && !tasks.covered && workspaceId === activeId;
+}
+
 export function layering(input: LayeringInput): WindowLayering {
   const formIsModalLayer = input.creating && input.workspaceCount > 0;
   // A covering overlay is a modal layer to everything that asks: hotkeys
@@ -85,6 +99,9 @@ export function layering(input: LayeringInput): WindowLayering {
   // banners for the panes under it suppressed as if they were visible.
   const modal =
     formIsModalLayer || input.dialogOpen || input.anyDialogOpen || input.overlayCovers;
+  // What paints over a router dialog: a transaction, or the CREATE form
+  // (see the z-order note) — never the router dialog itself.
+  const dialogCovered = input.dialogOpen || input.creating;
   const dockCovers =
     input.dockMode === "floating" && input.dockTabs > 0 && input.hasActive;
   return {
@@ -94,7 +111,8 @@ export function layering(input: LayeringInput): WindowLayering {
     stats: {
       open: input.statsOpen,
       tab: input.statsTab,
-      covered: input.dialogOpen || input.creating,
+      covered: dialogCovered,
     },
+    tasks: { open: input.tasksOpen, covered: dialogCovered },
   };
 }

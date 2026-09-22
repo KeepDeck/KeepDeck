@@ -6,8 +6,10 @@ import {
   bannerCooldownKey,
   bannerVerdict,
   clearNotifications,
+  isTaskNotificationOf,
   markAllRead,
   markRead,
+  markReadWhere,
   NOTIFICATIONS_CAP,
   unreadCount,
   type Notification,
@@ -158,6 +160,24 @@ describe("read state", () => {
     const next = markAllRead(items, 50);
     expect(next.every((n) => n.readAt !== undefined)).toBe(true);
     expect(markAllRead(next, 60)).toBe(next);
+  });
+
+  it("markReadWhere stamps only the unread entries it picks, and no-ops by reference when it picks none", () => {
+    const task = (over: Partial<Notification> = {}) =>
+      make({ source: { type: "tasks", workspace: { id: "ws-1", instance: ws1 }, taskId: "task-1" }, ...over });
+    const items = [task(), make(), task({ readAt: 1 })];
+    const next = markReadWhere(items, (n) => n.source.type === "tasks", 70);
+    expect(next.map((n) => n.readAt)).toEqual([70, undefined, 1]);
+    expect(markReadWhere(next, (n) => n.source.type === "tasks", 80)).toBe(next);
+  });
+
+  it("a task notification is its workspace LIFETIME's: the same id under another instance is another board", () => {
+    const n = make({ source: { type: "tasks", workspace: { id: "ws-1", instance: ws1 }, taskId: "task-1" } });
+    expect(isTaskNotificationOf(n, { id: "ws-1", instance: ws1 })).toBe(true);
+    expect(isTaskNotificationOf(n, { id: "ws-1", instance: createWorkspaceInstance() })).toBe(false);
+    expect(isTaskNotificationOf(n, { id: "ws-2", instance: ws1 })).toBe(false);
+    // A pane's notification in the same workspace is not the board's.
+    expect(isTaskNotificationOf(make(), { id: "ws-1", instance: ws1 })).toBe(false);
   });
 
   it("unreadCount counts only unread", () => {

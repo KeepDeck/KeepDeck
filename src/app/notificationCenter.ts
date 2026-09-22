@@ -5,6 +5,7 @@ import {
   clearNotifications,
   markAllRead,
   markRead,
+  markReadWhere,
   seenInPlace,
   type Notification,
   type NotificationSeverity,
@@ -46,6 +47,9 @@ export interface NotificationCenter {
   subscribeNotifications(listener: () => void): () => void;
   markNotificationRead(id: string): void;
   markAllNotificationsRead(): void;
+  /** Mark read every unread entry `match` picks — what a surface does when
+   * it shows the person what those entries were about. */
+  markNotificationsReadWhere(match: (n: Notification) => boolean): void;
   clearAllNotifications(): void;
   setSourceVisibilityProbe(
     probe: ((source: NotificationSource) => boolean) | null,
@@ -186,6 +190,13 @@ export function createNotificationCenter(): NotificationCenter {
     emit();
   }
 
+  function markNotificationsReadWhere(match: (n: Notification) => boolean): void {
+    const next = markReadWhere(items, match, Date.now());
+    if (next === items) return;
+    items = next;
+    emit();
+  }
+
   /** Empty only the in-app history. Banner cooldowns deliberately survive:
    * clearing history is not an answer to anything, and a source that goes
    * on flapping right after a clear must not escape its cooldown window. */
@@ -210,6 +221,7 @@ export function createNotificationCenter(): NotificationCenter {
     subscribeNotifications,
     markNotificationRead,
     markAllNotificationsRead,
+    markNotificationsReadWhere,
     clearAllNotifications,
     setSourceVisibilityProbe,
   };
@@ -226,6 +238,7 @@ export const subscribeNotifications =
 export const markNotificationRead = notificationCenter.markNotificationRead;
 export const markAllNotificationsRead =
   notificationCenter.markAllNotificationsRead;
+export const markNotificationsReadWhere = notificationCenter.markNotificationsReadWhere;
 export const clearAllNotifications = notificationCenter.clearAllNotifications;
 export const setSourceVisibilityProbe =
   notificationCenter.setSourceVisibilityProbe;
