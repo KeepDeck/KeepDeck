@@ -32,6 +32,7 @@ import {
   kindGuidance,
   planTeam,
   leadRole,
+  resolveMailRecipient,
   resolveMailTarget,
   senderAddress,
   senderOf,
@@ -211,11 +212,10 @@ export function registerMailCommands(
             `unknown mail kind ${JSON.stringify(String(args.kind))} — expected one of ${SENDABLE_KINDS.join(", ")}`,
           );
         }
-        // The sender's OWN workspace, and nothing else, is where a recipient
-        // may be named. The workspace is the feature's hard boundary: an
-        // agent has no business reaching into a piece of work it is not part
-        // of, and with no permission gate anywhere in the registry yet, this
-        // resolution IS the boundary rather than a convenience.
+        // The sender's OWN workspace is where a recipient is named — and a
+        // team's id reaches one in another workspace (lead to lead across
+        // projects, the user's case). No consent gate: the user ruled one
+        // needless. See `resolveMailRecipient`.
         const { workspace, pane } = callerWorkspace(deps, from);
         // Stamp the ROLE the sender answers to, and the TEAM it answers on.
         // The receiver replies to whatever it is shown as the sender, so
@@ -229,7 +229,8 @@ export function registerMailCommands(
         // A teammate's ROLE outranks every other way to name a pane — see
         // `resolveMailTarget`. A workspace with no teams behaves exactly as
         // it did before teams existed.
-        const resolved = resolveMailTarget(
+        const resolved = resolveMailRecipient(
+          deps.workspaces(),
           workspace,
           deps.agents(),
           pane,
@@ -340,7 +341,8 @@ export function registerMailCommands(
           );
         }
         const { workspace, pane } = callerWorkspace(deps, from);
-        const resolved = resolveMailTarget(
+        const resolved = resolveMailRecipient(
+          deps.workspaces(),
           workspace,
           deps.agents(),
           pane,

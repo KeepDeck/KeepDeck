@@ -25,6 +25,19 @@ export function findTeam(
   return teamsOf(ws).find((team) => team.id === id);
 }
 
+/** The team with `id` anywhere in the deck, and the workspace holding it —
+ * by id alone: an id is unique deck-wide, a name only inside a workspace. */
+export function findTeamInDeck<W extends Pick<Workspace, "teams">>(
+  workspaces: readonly W[],
+  id: string,
+): { workspace: W; team: Team } | undefined {
+  for (const workspace of workspaces) {
+    const team = findTeam(workspace, id);
+    if (team) return { workspace, team };
+  }
+  return undefined;
+}
+
 /** The team a person means by `name` — matched by [`teamNameKey`], so "API"
  * finds the team they called "api". */
 export function findTeamByName(

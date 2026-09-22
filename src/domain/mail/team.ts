@@ -1,8 +1,10 @@
 /**
  * Teams, as far as mail is concerned: who may be named, and by what name.
  *
- * A team is a grouping INSIDE a workspace, never across one — the workspace
- * stays the hard boundary, and a team only narrows addressing within it. It
+ * A team is a grouping INSIDE a workspace, never across one. Mail may cross
+ * workspaces, but only by a team's ID (`role@<team id>`) — the one name
+ * unique deck-wide and untouched by a rename; everything else a sender can
+ * say (a bare role, a team name, a pane title) means its OWN workspace. It
  * exists because "ask impl-1" is what an agent can usefully be told, while
  * "ask the pane titled Claude 3" is a fact about a window.
  *
@@ -12,7 +14,7 @@
  * names to decide membership — the deck answers that once, by id.
  */
 import { resolvePaneRef, resolveTeamRef, type Resolved } from "../commands";
-import { membersOf, teamOfPane, type Pane, type Team, type Workspace } from "../deck";
+import { findTeamInDeck, membersOf, teamOfPane, type Pane, type Team, type Workspace } from "../deck";
 import { formatAddress, parseAddress } from "./address";
 
 export { teamNameKey, type TeamAssignment } from "../deck";
@@ -80,6 +82,39 @@ export function resolveMailTarget(
       ? `${fallback.message}; in team "${team.name}" you can write to: ${roles.join(", ")}`
       : fallback.message,
   };
+}
+
+/**
+ * Who a MESSAGE goes to: [`resolveMailTarget`] in the sender's own
+ * workspace first, its precedence untouched — and only when that finds
+ * nobody, a `role@<team id>` naming a team in another workspace. Only an id
+ * crosses: a team name, a bare role and a pane title are words of the
+ * sender's own workspace, and a name matched elsewhere could be anyone's.
+ *
+ * A sender on no team cannot write across: it is shown by its pane title,
+ * which the reader's workspace does not resolve — a letter nobody could
+ * answer. Kept apart from `resolveMailTarget`, which `team.role` also asks
+ * and which must never leave the caller's workspace.
+ */
+export function resolveMailRecipient(
+  workspaces: readonly Workspace[],
+  workspace: Workspace,
+  agents: readonly { id: string; label: string }[],
+  from: Pane,
+  ref: string,
+): Resolved<Pane> {
+  const own = resolveMailTarget(workspace, agents, from, ref);
+  if (own.ok) return own;
+  const named = parseAddress(ref);
+  const found = named ? findTeamInDeck(workspaces, named.team) : undefined;
+  if (!named || !found || found.workspace.id === workspace.id) return own;
+  if (!teamOfPane(workspace, from)) {
+    return {
+      ok: false,
+      message: `${ref} is on another workspace, and you are on no team — a reader there could not answer you`,
+    };
+  }
+  return memberByRole(found.workspace, found.team, named.role);
 }
 
 /** The member of `team` answering to `role`, however cased. */

@@ -165,10 +165,9 @@ describe("mail.send", () => {
     expect(mail.takeAtTurnEnd("pane-2")).toEqual([]);
   });
 
-  it("cannot reach a pane in another workspace", async () => {
-    // The workspace is the feature's hard boundary, and with no permission
-    // gate in the registry yet, this resolution IS the boundary. pane-9
-    // exists — it is simply not the caller's business.
+  it("cannot reach a pane in another workspace by its id", async () => {
+    // Only a team's id crosses a workspace — never a pane's: a pane id is a
+    // slot, not an address, and pane-9 is simply not reachable this way.
     const { registry, mail } = setup();
     const result = await run(
       registry,
@@ -743,5 +742,94 @@ describe("mail.cancel", () => {
     if (!result.ok) expect(result.error.message).toContain("went somewhere else");
     // And the message is untouched.
     expect(mail.takeAtTurnEnd("pane-2")).toHaveLength(1);
+  });
+});
+
+describe("mail between workspaces", () => {
+  /** Two projects: ws-1 holds api (team-1, lead pane-1) and a stray pane-7
+   * on no team; ws-2 holds team-x (lead pane-9) — and a team NAMED "api"
+   * too (team-y, lead pane-8), the collision a name-shown reply fell into. */
+  const projects = () => {
+    const workspaces = [
+      workspace(
+        "ws-1",
+        "keepdeck",
+        [pane("pane-1", { teamId: "team-1", role: "lead" }), pane("pane-7")],
+        [{ id: "team-1", name: "api", location: { kind: "attached", cwd: "/a" } }],
+      ),
+      workspace(
+        "ws-2",
+        "mocha",
+        [pane("pane-9", { teamId: "team-x", role: "lead" }), pane("pane-8", { teamId: "team-y", role: "lead" })],
+        [
+          { id: "team-x", name: "android", location: { kind: "attached", cwd: "/m" } },
+          { id: "team-y", name: "api", location: { kind: "attached", cwd: "/n" } },
+        ],
+      ),
+    ];
+    const mail = createMailManager({
+      activityOf: () => READY,
+      subscribeActivity: () => () => {},
+      subscribeChannels: () => () => {},
+      wake: () => true,
+      now: () => 1_000,
+      schedule: () => () => {},
+    });
+    const registry: CommandRegistry = createCommandRegistry();
+    registerMailCommands(registry, {
+      mail,
+      workspaces: () => workspaces,
+      agents: () => [{ id: "claude", label: "Claude" }],
+      settleRoster: () => {},
+    });
+    return { registry, mail };
+  };
+  const keepdeckLead = from("pane-1", "ws-1", "Agent 1");
+  const mochaLead = from("pane-9", "ws-2", "Agent 9");
+
+  it("a lead reaches another project's lead by role@<team id>, and a reply copying the shown address comes back — not to a same-named team there", async () => {
+    const { registry, mail } = projects();
+    const sent = await run(registry, "mail.send", { to: "lead@team-x", kind: "task", body: "feedback: three problems" }, keepdeckLead);
+    expect(sent.ok).toBe(true);
+    const read = await run(registry, "mail.inbox", {}, mochaLead);
+    if (!read.ok) throw new Error("inbox refused");
+    const { messages } = read.value as { messages: { kind: string; from: { address: string } }[] };
+    expect(messages[0]).toMatchObject({ kind: "task", from: { address: "lead@team-1" } });
+    // ws-2 has its own team named "api": a reply to "lead@api" would have
+    // reached pane-8. The id reaches the sender.
+    const reply = await run(registry, "mail.send", { to: messages[0].from.address, kind: "answer", body: "on it" }, mochaLead);
+    expect(reply.ok).toBe(true);
+    expect(mail.takeAtTurnEnd("pane-1").map((m) => m.kind)).toEqual(["answer"]);
+    expect(mail.takeAtTurnEnd("pane-8")).toEqual([]);
+  });
+
+  it("a team NAME never crosses: it means the sender's own workspace, where no such team is", async () => {
+    const { registry, mail } = projects();
+    const result = await run(registry, "mail.send", { to: "lead@android", kind: "note", body: "hi" }, keepdeckLead);
+    expect(result.ok).toBe(false);
+    expect(mail.takeAtTurnEnd("pane-9")).toEqual([]);
+  });
+
+  it("a sender on no team cannot write across — nobody there could answer it", async () => {
+    const { registry, mail } = projects();
+    const result = await run(registry, "mail.send", { to: "lead@team-x", kind: "note", body: "hi" }, from("pane-7", "ws-1", "Agent 7"));
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.message).toContain("on no team");
+    expect(mail.takeAtTurnEnd("pane-9")).toEqual([]);
+  });
+
+  it("takes back a message sent across by the same address", async () => {
+    const { registry } = projects();
+    const sent = await run(registry, "mail.send", { to: "lead@team-x", kind: "note", body: "draft" }, keepdeckLead);
+    if (!sent.ok) throw new Error("send refused");
+    const { id } = sent.value as { id: string };
+    const cancelled = await run(registry, "mail.cancel", { id, to: "lead@team-x" }, keepdeckLead);
+    expect(cancelled.ok).toBe(true);
+  });
+
+  it("team.role never leaves the caller's workspace, even by a team id", async () => {
+    const { registry } = projects();
+    const result = await run(registry, "team.role", { agent: "lead@team-x", role: "impl-1" }, keepdeckLead);
+    expect(result.ok).toBe(false);
   });
 });
