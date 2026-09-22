@@ -44,8 +44,8 @@ export type NotificationSource =
    * router resolves the live URL at click time. `artifactId` absent or
    * dead → the workspace INDEX; resolution failure → silent no-op. */
   | { type: "artifacts"; workspace: NotificationWorkspace; artifactId?: string }
-  /** A task event on a workspace's board: put there by an agent, stuck,
-   * or accepted. The click target is the Tasks dialog on that task —
+  /** A task event on a workspace's board: put there by an agent, or
+   * moved along the ladder. The click target is the Tasks dialog on that task —
    * identifiers only; the router resolves the live workspace at click
    * time and opens the dialog focused on the id. */
   | { type: "tasks"; workspace: NotificationWorkspace; taskId: string };

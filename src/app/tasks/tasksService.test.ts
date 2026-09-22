@@ -103,7 +103,7 @@ describe("createTasksService", () => {
     expect(!result.ok && result.refusal).toEqual({ kind: "unknown-task", id: "task-9" });
   });
 
-  it("emits blocked and done — and nothing for in progress or review", async () => {
+  it("emits every move along the ladder, from where to where; a change that moves nothing, or a refused one, emits nothing", async () => {
     const { service, events } = setup();
     await service.create("ws-1", { teamId: "team-1", title: "x", assignee: "impl-1" }, lead);
     await service.apply("ws-1", "task-1", [{ kind: "status", to: "in-progress" }], impl1);
@@ -111,7 +111,19 @@ describe("createTasksService", () => {
     await service.apply("ws-1", "task-1", [{ kind: "status", to: "in-progress" }], impl1);
     await service.apply("ws-1", "task-1", [{ kind: "status", to: "review" }], impl1);
     await service.apply("ws-1", "task-1", [{ kind: "status", to: "done" }], USER_ACTOR);
-    expect(events.map((e) => `${e.kind}:${e.actor.kind}`)).toEqual(["created:agent", "blocked:agent", "done:user"]);
+    // A change that moves nothing, and a refused one, say nothing.
+    await service.apply("ws-1", "task-1", [{ kind: "priority", to: "high" }], USER_ACTOR);
+    await service.apply("ws-1", "task-1", [{ kind: "status", to: "review" }], impl1);
+    const said = (e: TaskEvent) =>
+      e.kind === "moved" ? `${e.from}>${e.task.status}:${e.actor.kind}` : `created:${e.actor.kind}`;
+    expect(events.map(said)).toEqual([
+      "created:agent",
+      "todo>in-progress:agent",
+      "in-progress>blocked:agent",
+      "blocked>in-progress:agent",
+      "in-progress>review:agent",
+      "review>done:user",
+    ]);
   });
 
   it("writes one workspace's boards in order, and a failed write keeps the board in memory for the next", async () => {

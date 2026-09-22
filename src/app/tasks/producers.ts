@@ -1,13 +1,14 @@
 /**
- * The task board's notification producer: the three events a human is
- * told about — a task an AGENT put on the board, a task stuck in
- * `blocked`, a task accepted into `done` — and nothing else (the user's
- * decision: not review, not in progress, not the user's own creations, which
- * they can see). One slot per task: a task that flaps holds one line in
- * the center, not a column.
+ * The task board's notification producer: a task an AGENT put on the
+ * board, and every move of a task along the ladder (the user's decision —
+ * a board the person cannot see changing is one they cannot follow; the
+ * user's own creations are left out, they made them in front of the
+ * board). One slot per task: a task that flaps holds one line in the
+ * center, not a column.
  */
 import { findTeam, type Workspace } from "../../domain/deck";
 import type { NotificationSeverity } from "../../domain/notifications";
+import type { TaskStatus } from "../../domain/tasks";
 import { notify } from "../notificationCenter";
 import type { TaskEvent } from "./tasksService";
 
@@ -46,17 +47,29 @@ function wording(
         severity: "info",
       };
     }
-    case "blocked":
+    case "moved":
       return {
-        title: `${task.id} is blocked`,
+        title: moveTitle(task.id, event.from, task.status),
         body: `${task.title} · ${task.assignee ?? "unassigned"} · ${team}`,
-        severity: "warning",
+        severity: task.status === "blocked" ? "warning" : "info",
       };
+  }
+}
+
+/** What a move is called, from where it stood to where it went. */
+function moveTitle(id: string, from: TaskStatus, to: TaskStatus): string {
+  switch (to) {
+    case "todo":
+      return `${id} reopened`;
+    case "in-progress":
+      return from === "todo" ? `${id} started` : `${id} back in progress`;
+    case "blocked":
+      return `${id} is blocked`;
+    case "review":
+      return `${id} is ready for review`;
     case "done":
-      return {
-        title: `${task.id} accepted`,
-        body: `${task.title} · ${team}`,
-        severity: "info",
-      };
+      return `${id} accepted`;
+    case "cancelled":
+      return `${id} cancelled`;
   }
 }
