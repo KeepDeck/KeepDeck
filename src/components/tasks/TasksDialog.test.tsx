@@ -363,6 +363,40 @@ describe("TasksDialog", () => {
     expect(cards().map((c) => c.querySelector(".tasks__card-title")?.textContent)).toEqual(["Web's own"]);
   });
 
+  it("a board a link opened on another team stays there when the task is put away", async () => {
+    const { service } = await seeded();
+    await service.create("ws-1", { teamId: "team-2", title: "Web's own" }, agentActor("lead", "team-2"));
+    focus = "task-3";
+    const render = mount(service);
+    render();
+    await flush();
+    act(() => button("Close").click());
+    await flush();
+    expect(focus).toBeNull();
+    expect(cards().map((c) => c.querySelector(".tasks__card-title")?.textContent)).toEqual(["Web's own"]);
+  });
+
+  it("+ Task on a board a link opened creates into THAT team, not the first", async () => {
+    const { service } = await seeded();
+    await service.create("ws-1", { teamId: "team-2", title: "Web's own" }, agentActor("lead", "team-2"));
+    focus = "task-3";
+    const render = mount(service);
+    render();
+    await flush();
+    act(() => button("+ Task").click());
+    await flush();
+    const title = document.querySelector<HTMLInputElement>('input[aria-label="Title"]')!;
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(title, "Also web's");
+      title.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await flush();
+    act(() => button("Create task").click());
+    await flush();
+    const state = service.peek("ws-1");
+    expect(state?.kind === "ready" && state.board.tasks[3]).toMatchObject({ title: "Also web's", teamId: "team-2" });
+  });
+
   it("keeps a refused comment in the composer, and a draft does not follow the person to another task", async () => {
     const { service } = await seeded();
     const render = mount(service);

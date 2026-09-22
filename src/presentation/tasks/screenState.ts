@@ -64,7 +64,20 @@ export interface ScreenOutcome {
   closeDialog?: true;
 }
 
-export function screenReducer(state: ScreenState, action: ScreenAction): ScreenOutcome {
+/**
+ * The one way in. `onScreen` is the team the board shows as the person
+ * acts, null when it shows none: whatever that is becomes their choice
+ * from then on, so putting a task away or opening the form never moves
+ * the board — a board opened on another team's task by a link used to
+ * fall back to the first team the moment the task was put away, and the
+ * form on it created into that team. Pinned once, here, before `step`
+ * and every transition it delegates to.
+ */
+export function screenReducer(state: ScreenState, action: ScreenAction, onScreen: string | null): ScreenOutcome {
+  return step(onScreen === null || onScreen === state.chosenTeam ? state : { ...state, chosenTeam: onScreen }, action);
+}
+
+function step(state: ScreenState, action: ScreenAction): ScreenOutcome {
   switch (action.type) {
     case "card": {
       const focus = selectionAfterClick(action.open, action.id);
@@ -77,7 +90,7 @@ export function screenReducer(state: ScreenState, action: ScreenAction): ScreenO
     case "cancelCompose":
       return { state: { ...state, composing: false } };
     case "toggleCompose":
-      return screenReducer(state, { type: state.composing ? "cancelCompose" : "compose" });
+      return step(state, { type: state.composing ? "cancelCompose" : "compose" });
     case "toggleWide":
       // Wide only with a task to fill the stage.
       return { state: { ...state, wide: action.detailOpen ? !state.wide : false } };
@@ -86,11 +99,11 @@ export function screenReducer(state: ScreenState, action: ScreenAction): ScreenO
     case "escape":
       switch (escapeTarget({ composing: state.composing, wide: state.wide, detailOpen: action.detailOpen })) {
         case "form":
-          return screenReducer(state, { type: "cancelCompose" });
+          return step(state, { type: "cancelCompose" });
         case "wide":
-          return screenReducer(state, { type: "narrow" });
+          return step(state, { type: "narrow" });
         case "detail":
-          return screenReducer(state, { type: "close" });
+          return step(state, { type: "close" });
         case "dialog":
           return { state, closeDialog: true };
       }

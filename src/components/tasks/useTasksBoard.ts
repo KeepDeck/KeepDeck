@@ -85,9 +85,12 @@ export function useTasksBoard(
   // effects, and no decision runs inside a React updater.
   const [screen, setScreen] = useState(INITIAL_SCREEN);
   const screenRef = useRef(screen);
+  // The team the board resolved on the last render — what the person was
+  // looking at when they acted, and what the machine pins as their choice.
+  const teamIdRef = useRef<string | null>(null);
   const run = useCallback(
     (action: ScreenAction) => {
-      const outcome = screenReducer(screenRef.current, action);
+      const outcome = screenReducer(screenRef.current, action, teamIdRef.current);
       screenRef.current = outcome.state;
       setScreen(outcome.state);
       if (outcome.focus !== undefined) onFocus(outcome.focus);
@@ -145,6 +148,7 @@ export function useTasksBoard(
     chosenTeam,
     focusedTask?.teamId ?? null,
   );
+  teamIdRef.current = teamId;
   const teamTasks = useMemo(
     () => (board && teamId !== null ? tasksOfTeam(board, teamId) : []),
     [board, teamId],
