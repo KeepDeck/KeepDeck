@@ -264,6 +264,9 @@ export function useAppController() {
       if (source.type === "tasks") {
         // The Tasks dialog open on that workspace's boards: the move
         // happened in front of the person, and lands already read.
+        // tasksBoardOnScreen matches the id; the LIFETIME (id + instance)
+        // is the resolve below — dropping it would let a dead workspace's
+        // event land read under its successor.
         const now = visibilityRef.current;
         return (
           tasksBoardOnScreen(now.windows.tasks, source.workspace.id, now.activeId) &&

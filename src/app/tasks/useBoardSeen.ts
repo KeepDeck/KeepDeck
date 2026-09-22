@@ -1,19 +1,30 @@
-import { useEffect } from "react";
-import { isTaskNotificationOf, type Notification, type NotificationWorkspace } from "../../domain/notifications";
+import { useEffect, useSyncExternalStore } from "react";
+import {
+  isTaskNotificationOf,
+  seenInPlace,
+  type Notification,
+  type NotificationWorkspace,
+} from "../../domain/notifications";
+import { isWindowFocused, subscribeWindowFocus } from "../windowFocus";
 
 /**
  * Showing the person a workspace's boards answers what the notification
- * center said about them: while `shown` names a workspace whose boards are
- * on screen, its task notifications go read — once as the boards come up,
- * and again whenever another workspace's boards take their place. Events
- * that arrive while they stay up land read through the center's probe.
+ * center said about them. Seen is the center's own rule (`seenInPlace`):
+ * the boards on screen AND the window focused. So a workspace's task
+ * notifications go read as its boards come up, when another workspace's
+ * boards take their place, and when the person comes back to the window
+ * with the boards still up — moves that landed unread while they were
+ * away are in front of them now. Moves that arrive while they look land
+ * read through the center's probe.
  */
 export function useBoardSeen(
   shown: NotificationWorkspace | null,
   markReadWhere: (match: (n: Notification) => boolean) => void,
 ): void {
-  const id = shown?.id;
-  const instance = shown?.instance;
+  const focused = useSyncExternalStore(subscribeWindowFocus, isWindowFocused);
+  const seen = seenInPlace({ windowFocused: focused, sourceVisible: shown !== null });
+  const id = seen ? shown?.id : undefined;
+  const instance = seen ? shown?.instance : undefined;
   useEffect(() => {
     if (id === undefined || instance === undefined) return;
     markReadWhere((n) => isTaskNotificationOf(n, { id, instance }));
