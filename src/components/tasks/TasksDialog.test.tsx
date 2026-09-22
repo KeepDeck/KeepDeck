@@ -344,21 +344,15 @@ describe("TasksDialog", () => {
     registry.rows = [];
   });
 
-  it("Hide folds a closed column even when the board unfolded it by default", async () => {
+  it("closed columns show their cards and offer no Hide or Show", async () => {
     const { service } = await seeded();
     await service.apply("ws-1", "task-1", [{ kind: "status", to: "done" }], USER_ACTOR);
-    await service.apply("ws-1", "task-2", [{ kind: "status", to: "cancelled" }], USER_ACTOR);
     const render = mount(service);
     render();
     await flush();
-    const done = () => document.querySelector<HTMLElement>('section[aria-label="Done"]')!;
-    expect(done().className).not.toContain("collapsed");
-    act(() => button("Hide").click());
-    await flush();
-    expect(done().className).toContain("tasks__column--collapsed");
-    act(() => button("Show").click());
-    await flush();
-    expect(done().className).not.toContain("collapsed");
+    const done = document.querySelector<HTMLElement>('section[aria-label="Done"]')!;
+    expect(done.querySelectorAll(".tasks__card")).toHaveLength(1);
+    expect(buttons().some((b) => ["Hide", "Show"].includes(b.textContent?.trim() ?? ""))).toBe(false);
   });
 
   it("opens on a task of another team when a link names it — the board switches to that team", async () => {

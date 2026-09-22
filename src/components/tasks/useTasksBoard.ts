@@ -101,7 +101,7 @@ export function useTasksBoard(
     },
     [onFocus, onClose],
   );
-  const { mode, showCancelled, folds, chosenTeam, composing, hover } = screen;
+  const { mode, showCancelled, chosenTeam, composing, hover } = screen;
   /** The workspace's artifacts, for the open task's attachments. Read
    * when a task is open and re-read when the registry changes; empty
    * (never an error) when the artifacts feature is off. */
@@ -197,7 +197,7 @@ export function useTasksBoard(
   const selected = focusedTask;
   const detail =
     selected && selected.teamId === teamId ? taskDetailView(selected, board!, roster, now, knownArtifacts) : null;
-  const columns = board ? boardView(teamTasks, board, { showCancelled, folds, now }) : [];
+  const columns = board ? boardView(teamTasks, board, { showCancelled, now }) : [];
   const lanes = board && teamId !== null ? queuesView(board, teamId, roster, now) : [];
   const form = newTaskFormView(roster);
 
@@ -242,7 +242,6 @@ export function useTasksBoard(
     selectTeam: (id: string) => run({ type: "team", id }),
     showCancelled,
     toggleCancelled: () => run({ type: "toggleCancelled" }),
-    toggleColumn: (status: TaskStatus) => run({ type: "fold", status, columns }),
     columns,
     lanes,
     detail,
