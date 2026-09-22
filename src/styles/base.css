@@ -84,6 +84,20 @@ textarea {
   -webkit-user-select: text;
 }
 
+/* WebKit's own stylesheet gives every <button> `align-items: flex-start`;
+   Chromium's does not, so nothing seen in a Chromium check reveals it. In a
+   COLUMN flex button that default stops the children stretching across it:
+   each is as wide as its text, never narrower than the button, so a
+   `text-overflow: ellipsis` never fires and a long label runs out of the
+   button and under whatever sits beside it (the artifacts row's title slid
+   under its History and × this way). Put back to the spec's `normal` once,
+   here, for every button in the one document host and plugins share —
+   rows that want another alignment still say so with a class, which beats
+   this on specificity. Three rows used to patch it one at a time, two ways. */
+button {
+  align-items: normal;
+}
+
 /* THE two ways out of the baseline above — the only place in the app allowed
    to state `user-select`, enforced by src/styles/selection.test.ts.
 
