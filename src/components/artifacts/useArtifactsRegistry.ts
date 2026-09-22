@@ -19,8 +19,8 @@ import type {
   ArtifactsRegistryReadPort,
 } from "../../app/artifacts/registryRead";
 import { describeError } from "../../ipc/log";
-import { fateOf, type RowRef } from "./rowRef";
-import { viewOf, type ArtifactsView } from "./view";
+import { fateOf, type RowRef } from "../../presentation/artifacts/rowRef";
+import { viewOf, type ArtifactsView } from "../../presentation/artifacts/view";
 
 /** A deletion the user has been asked about, and WHICH row it was asked
  * about ([`RowRef`]) — plus the title, because that is what the question

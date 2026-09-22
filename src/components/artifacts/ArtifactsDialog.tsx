@@ -6,10 +6,10 @@ import { ConfirmDialog } from "../../ui/ConfirmDialog";
 import { ModalOverlay } from "../../ui/ModalOverlay";
 import { useEscape } from "../../ui/useEscape";
 import { useWallClock } from "../../ui/useWallClock";
-import { isRow } from "./rowRef";
-import { rowMeta, versionsNewestFirst } from "./rowMeta";
+import { isRow } from "../../presentation/artifacts/rowRef";
+import { rowMeta, versionsNewestFirst } from "../../presentation/artifacts/rowMeta";
 import { useArtifactsRegistry } from "./useArtifactsRegistry";
-import { ARTIFACT_ROW_ESTIMATE_PX, artifactRowKey } from "./view";
+import { ARTIFACT_ROW_ESTIMATE_PX, artifactRowKey } from "../../presentation/artifacts/view";
 import { VirtualList } from "@keepdeck/ui-kit/VirtualList";
 
 interface ArtifactsDialogProps {
