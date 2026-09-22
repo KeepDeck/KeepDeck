@@ -29,6 +29,9 @@ import type {
 } from "./testSupport";
 import type { TeamLocation, Workspace } from "../../domain/deck";
 
+/** What the app mints for a new team: `team-` and a random token. */
+const MINTED_TEAM_ID = /^team-[0-9a-f]{8}$/;
+
 describe("agent orchestrator —what resume answers", () => {
   let root: Root;
 
@@ -207,14 +210,16 @@ describe("agent orchestrator —a new pane arriving", () => {
         pane: { id: "pane-9", agentType: "claude" },
       });
     });
-    expect(outcome).toEqual({ kind: "created", teamId: "team-1" });
+    const minted = deck.workspaces[0].teams?.[0].id;
+    expect(minted).toMatch(MINTED_TEAM_ID);
+    expect(outcome).toEqual({ kind: "created", teamId: minted });
     expect(deck.workspaces[0].panes.map((p) => p.id)).toEqual(["pane-9"]);
     // A plain pane runs in the root — a directory like any other, so the
     // root's team is minted for it, attached to the workspace cwd.
     expect(deck.workspaces[0].teams).toEqual([
-      { id: "team-1", name: "Team 1", location: { kind: "attached", cwd: "/repo" } },
+      { id: minted, name: "Team 1", location: { kind: "attached", cwd: "/repo" } },
     ]);
-    expect(deck.workspaces[0].panes[0].team).toEqual({ teamId: "team-1", role: "lead" });
+    expect(deck.workspaces[0].panes[0].team).toEqual({ teamId: minted, role: "lead" });
     expect(provisions).toEqual([]);
   });
 
@@ -230,7 +235,7 @@ describe("agent orchestrator —a new pane arriving", () => {
     // The create is the TEAM's: the card's owner is the team minted for the
     // directory, and the pane lands without a placement of its own.
     expect(provisions).toHaveLength(1);
-    expect(provisions[0].map((request) => request.ownerId)).toEqual(["team-1"]);
+    expect(provisions[0].map((request) => request.ownerId)).toEqual([deck.workspaces[0].teams?.[0].id]);
     expect(deck.workspaces[0].teams?.[0].location).toEqual({
       kind: "provisioning",
       intent: { repo: "/repo", path: "/wt/a", index: 1 },
@@ -399,11 +404,15 @@ describe("agent orchestrator —a new pane arriving", () => {
         pane: plain(),
       });
     });
-    expect(outcome).toEqual({ kind: "created", teamId: "team-2" });
+    const minted = deck.workspaces[0].teams?.[0].id;
+    // A fresh id — never ws-2's team-1 — named from ws-1's own teams
+    // (none yet): "Team 1".
+    expect(minted).toMatch(MINTED_TEAM_ID);
+    expect(outcome).toEqual({ kind: "created", teamId: minted });
     expect(deck.workspaces[0].teams).toEqual([
-      { id: "team-2", name: "Team 2", location: { kind: "attached", cwd: "/repo" } },
+      { id: minted, name: "Team 1", location: { kind: "attached", cwd: "/repo" } },
     ]);
-    expect(deck.workspaces[0].panes[0].team).toEqual({ teamId: "team-2", role: "lead" });
+    expect(deck.workspaces[0].panes[0].team).toEqual({ teamId: minted, role: "lead" });
   });
 
   it("refuses a directory another workspace's team holds — a team never spans workspaces", async () => {
@@ -768,12 +777,30 @@ describe("agent orchestrator —a team born empty", () => {
         placement: { kind: "attached", cwd: "/repo" },
       });
     });
-    expect(outcome).toEqual({ kind: "created", teamId: "team-1" });
+    const minted = deck.workspaces[0].teams?.[0].id;
+    expect(minted).toMatch(MINTED_TEAM_ID);
+    expect(outcome).toEqual({ kind: "created", teamId: minted });
     expect(deck.workspaces[0].teams).toEqual([
-      { id: "team-1", name: "api", location: { kind: "attached", cwd: "/repo" } },
+      { id: minted, name: "api", location: { kind: "attached", cwd: "/repo" } },
     ]);
     expect(deck.workspaces[0].panes).toEqual([]);
     expect(provisions).toEqual([]);
+  });
+
+  it("a team made after one is gone gets a fresh id — nothing the old one left can pass to it", async () => {
+    act(() => deck.hydrate(seed()));
+    await act(async () => {
+      agentRun.createTeam({ workspace: ref(), name: "api", placement: { kind: "attached", cwd: "/repo" } });
+    });
+    const first = deck.workspaces[0].teams?.[0].id;
+    // The team is gone — the deck as a disband leaves it.
+    act(() => deck.hydrate(seed()));
+    await act(async () => {
+      agentRun.createTeam({ workspace: ref(), name: "api", placement: { kind: "attached", cwd: "/repo" } });
+    });
+    const second = deck.workspaces[0].teams?.[0].id;
+    expect(second).toMatch(MINTED_TEAM_ID);
+    expect(second).not.toBe(first);
   });
 
   it("starts the worktree create behind an empty team's card, and names a blank one itself", async () => {
@@ -781,13 +808,14 @@ describe("agent orchestrator —a team born empty", () => {
     await act(async () => {
       agentRun.createTeam({ workspace: ref(), name: "", placement: card() });
     });
+    const minted = deck.workspaces[0].teams?.[0].id;
     expect(deck.workspaces[0].teams?.[0]).toEqual({
-      id: "team-1",
+      id: expect.stringMatching(MINTED_TEAM_ID),
       name: "Team 1",
       location: card(),
     });
     expect(provisions).toHaveLength(1);
-    expect(provisions[0].map((request) => request.ownerId)).toEqual(["team-1"]);
+    expect(provisions[0].map((request) => request.ownerId)).toEqual([minted]);
   });
 
   it("asks before a second team in one directory, and refuses a worktree create onto it, a taken name and a gone workspace", async () => {

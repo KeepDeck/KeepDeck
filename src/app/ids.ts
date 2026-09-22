@@ -29,6 +29,20 @@ export function seedAgentSeq(min: number): void {
   nextAgentSeq = Math.max(nextAgentSeq, min);
 }
 
+/**
+ * Mint a team id: `team-` and a random token. Random rather than counted,
+ * so nothing a team leaves behind — its task board, the replies addressed
+ * to it — can pass to a later team: no counter to release on a disband or
+ * to forget across a restart. `taken` is every id the deck holds; a clash
+ * is drawn again.
+ */
+export function mintTeamId(taken: ReadonlySet<string>): string {
+  for (;;) {
+    const id = `team-${crypto.randomUUID().slice(0, 8)}`;
+    if (!taken.has(id)) return id;
+  }
+}
+
 /** Mint a per-pane MCP secret — what an injected client announces so the
  * deck can name the pane behind a connection (see `SpawnPlan.mcpToken`). */
 export function mintMcpToken(): string {

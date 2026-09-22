@@ -135,7 +135,7 @@ function trace(mail: Mail): string {
   // day the role started outranking the label — and a log that calls somebody
   // by a name the receiver never saw is worse than one that says nothing.
   // Read from no team, as a stranger would: a teamed sender logs as
-  // `role@team`, which says where it spoke from.
+  // `role@<team id>`, which says where it spoke from.
   return `${mail.id} ${mail.kind} ${senderName(mail, null) ?? "deck"} → ${mail.toPaneId}`;
 }
 
@@ -1046,9 +1046,8 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
        *
        * A report goes INTO its recipient's queue, so reporting mid-walk
        * recreated a queue keyed to a pane this very call had already passed
-       * or deleted — and `pane-N` is a slot a later pane inherits, so the
-       * next agent to occupy it was handed a delivery report about a message
-       * it never sent. */
+       * or deleted — a queue for a pane that no longer exists, which nothing
+       * would ever drain again. */
       const orphaned: Mail[] = [];
       for (const map of [queues, inboxes, lastWakeAt]) {
         for (const id of [...map.keys()]) {

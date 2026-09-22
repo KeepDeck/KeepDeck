@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Pane, Workspace } from "../deck";
 import { resolveNamedPanes } from "../deck/teams/testSupport";
 import { createWorkspaceInstance } from "../workspaceInstance";
-import { resolveMailTarget, teamNameKey, teamOf } from "./team";
+import { resolveMailRecipient, resolveMailTarget, teamNameKey, teamOf } from "./team";
 
 const AGENTS = [{ id: "claude", label: "Claude" }];
 
@@ -89,9 +89,11 @@ describe("resolveMailTarget", () => {
     const result = resolveMailTarget(ws, AGENTS, held(ws, "pane-1"), "impl-7@web");
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      // In the same form, so the sender copies one rather than guesses.
-      expect(result.message).toContain("lead@web");
-      expect(result.message).toContain("impl-1@web");
+      // In the form a reply is shown — by the team's id — so the sender
+      // copies one rather than guesses, and a rename cannot stale it.
+      const webId = ws.teams!.find((t) => t.name === "web")!.id;
+      expect(result.message).toContain(`lead@${webId}`);
+      expect(result.message).toContain(`impl-1@${webId}`);
     }
   });
 
@@ -143,5 +145,45 @@ describe("teamOf", () => {
     const ws = workspace([pane("pane-1", { name: "api", role: "lead" })]);
     const orphan = { ...held(ws, "pane-1"), team: { teamId: "team-404", role: "lead" } };
     expect(teamOf(ws, orphan)).toBeNull();
+  });
+});
+
+describe("resolveMailRecipient", () => {
+  /** Another project: its teams keep ids of their own (`far-…`), since a
+   * fixture's `team-N` restarts per workspace and the deck's never do. */
+  const other = (panes: Pane[]): Workspace => {
+    const ws = resolveNamedPanes({ id: "ws-2", instance: createWorkspaceInstance(), name: "mocha", cwd: "/m", worktreeBaseDir: null, panes } as Workspace);
+    const far = (id: string) => `far-${id}`;
+    return {
+      ...ws,
+      teams: ws.teams!.map((t) => ({ ...t, id: far(t.id) })),
+      panes: ws.panes.map((p) => (p.team ? { ...p, team: { ...p.team, teamId: far(p.team.teamId) } } : p)),
+    };
+  };
+
+  it("asks the sender's own workspace first — its answer stands, precedence and all", () => {
+    const ws = workspace([pane("pane-1", { name: "api", role: "lead" }), pane("pane-2", { name: "api", role: "impl-1" })]);
+    const far = other([pane("pane-9", { name: "android", role: "impl-1" })]);
+    // A bare role is the sender's own teammate, never another project's.
+    const result = resolveMailRecipient([ws, far], ws, AGENTS, held(ws, "pane-1"), "impl-1");
+    expect(result.ok && result.value.id).toBe("pane-2");
+  });
+
+  it("crosses only by a team id another workspace holds; an unknown id keeps the own-workspace refusal", () => {
+    const ws = workspace([pane("pane-1", { name: "api", role: "lead" })]);
+    const far = other([pane("pane-9", { name: "android", role: "lead" })]);
+    const farId = far.teams![0].id;
+    const reached = resolveMailRecipient([ws, far], ws, AGENTS, held(ws, "pane-1"), `lead@${farId}`);
+    expect(reached.ok && reached.value.id).toBe("pane-9");
+    const byName = resolveMailRecipient([ws, far], ws, AGENTS, held(ws, "pane-1"), "lead@android");
+    expect(byName).toEqual(resolveMailTarget(ws, AGENTS, held(ws, "pane-1"), "lead@android"));
+  });
+
+  it("refuses a sender on no team across workspaces, and names the refusal", () => {
+    const ws = workspace([pane("pane-7")]);
+    const far = other([pane("pane-9", { name: "android", role: "lead" })]);
+    const result = resolveMailRecipient([ws, far], ws, AGENTS, held(ws, "pane-7"), `lead@${far.teams![0].id}`);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.message).toContain("on no team");
   });
 });

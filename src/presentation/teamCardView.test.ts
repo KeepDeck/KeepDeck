@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Team, Workspace } from "../domain/deck";
 import type { PaneActivity } from "../domain/status";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
-import { teamCardView } from "./teamCardView";
+import { teamCardView, TEAM_CARD_WORDS } from "./teamCardView";
 
 const attached: Team = {
   id: "team-1",
@@ -111,5 +111,20 @@ describe("teamCardView", () => {
     expect({ ...one, size: 0 }).toEqual({ ...many, size: 0 });
     expect(one.size).toBe(1);
     expect(many.size).toBe(4);
+  });
+});
+
+describe("TEAM_CARD_WORDS", () => {
+  it("counts agents in words, one and many told apart, none said as such", () => {
+    expect(TEAM_CARD_WORDS.agents(0)).toBe("No agents");
+    expect(TEAM_CARD_WORDS.agents(1)).toBe("1 agent");
+    expect(TEAM_CARD_WORDS.agents(3)).toBe("3 agents");
+  });
+
+  it("names the card and its menu after the team, and says every dot and action", () => {
+    expect(TEAM_CARD_WORDS.card("api")).toBe("Team api");
+    expect(TEAM_CARD_WORDS.menu("api")).toBe("Team api actions");
+    expect(TEAM_CARD_WORDS.dot.failed).toBe("Needs attention");
+    expect(TEAM_CARD_WORDS.action.retry).toBe("Retry the worktree");
   });
 });

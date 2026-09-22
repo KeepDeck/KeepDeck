@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { mintAgentSeq, mintWorkspaceSeq } from "./ids";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { mintAgentSeq, mintTeamId, mintWorkspaceSeq } from "./ids";
 
 describe("id mints", () => {
   it("never hands the same agent seq out twice", () => {
@@ -29,5 +29,21 @@ describe("id mints", () => {
     expect(mintWorkspaceSeq([`ws-${Number.MAX_SAFE_INTEGER - 1}`])).toBe(
       Number.MAX_SAFE_INTEGER,
     );
+  });
+});
+
+describe("mintTeamId", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("mints team- and a random token, a fresh one each time", () => {
+    const a = mintTeamId(new Set());
+    expect(a).toMatch(/^team-[0-9a-f]{8}$/);
+    expect(mintTeamId(new Set())).not.toBe(a);
+  });
+
+  it("draws again on a clash with an id the deck holds — never hands a taken one out", () => {
+    const draws = ["aaaaaaaa-0000-4000-8000-000000000000", "bbbbbbbb-0000-4000-8000-000000000000"];
+    vi.spyOn(crypto, "randomUUID").mockImplementation(() => draws.shift() as `${string}-${string}-${string}-${string}-${string}`);
+    expect(mintTeamId(new Set(["team-aaaaaaaa"]))).toBe("team-bbbbbbbb");
   });
 });

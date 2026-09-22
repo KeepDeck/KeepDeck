@@ -8,6 +8,7 @@ import {
   findTeam,
   placementFromFields,
   placementToFields,
+  teamIdsAreUnique,
   teamsOf,
   type PlacementFields,
   type Team,
@@ -220,6 +221,11 @@ export function hydrateDeck(json: string): HydrateDeckResult {
   // several rows. Old buggy builds could persist them, so quarantine rather
   // than restoring a deck that violates the state owner's core invariant.
   if (!workspaceIdsAreUnique(workspaces)) return corrupt;
+  // The same for teams, deck-wide: a team id is a mail address across
+  // workspaces, and a repeated one would deliver to whichever came first.
+  // Every mint — the random one, and v10→v11's single deck-wide counter —
+  // keeps them unique, so only a damaged or hand-edited file trips this.
+  if (!teamIdsAreUnique(workspaces)) return corrupt;
 
   const nextAgentSeq = nextIdSequence(
     workspaces.flatMap((w) => w.panes.map((p) => p.id)),

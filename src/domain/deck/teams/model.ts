@@ -59,7 +59,11 @@ export type TeamLocation =
 export type TeamProvisioning = Extract<TeamLocation, { kind: "provisioning" }>;
 
 export interface Team {
-  /** `team-N` — the join key every member holds. Minted by [`teamId`]. */
+  /** The join key every member holds, and what a mail address names —
+   * `team-` and a random token, minted once by [`mintTeamId`] and kept
+   * for the team's life. Never handed to another team: a disbanded team's
+   * id frees nothing a later team could inherit (its task board, the
+   * replies addressed to it). Older decks hold `team-N`; those stay valid. */
   id: string;
   /** The name people address the team by. Compared through [`teamNameKey`];
    * stored as it was written. Always present: a team the person did not
@@ -83,17 +87,12 @@ export interface Team {
   extras?: Record<string, unknown>;
 }
 
-/** The id for the team numbered `seq` — the single mint point, like
- * [`paneId`]: every site that names a team must agree on the spelling. */
-export function teamId(seq: number): string {
-  return `team-${seq}`;
-}
-
 /** The name a team is born with when the person leaves the field blank —
- * "Team N" for `team-N`, by the "Agent N" precedent, so a team of one that
- * nobody bothered to name still has an address. */
-export function autoTeamName(seq: number): string {
-  return `Team ${seq}`;
+ * "Team N", by the "Agent N" precedent. A NAME only: the number says
+ * nothing about the team's id, which is minted apart ([`mintTeamId`]) and
+ * never read back out of a name. */
+export function autoTeamName(n: number): string {
+  return `Team ${n}`;
 }
 
 /**

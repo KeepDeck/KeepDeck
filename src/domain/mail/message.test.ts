@@ -42,11 +42,12 @@ describe("senderAddress", () => {
     expect(senderAddress(onApi, "team-1")).toBe("impl-1");
   });
 
-  it("answers anyone outside the team with role@team — the form that reaches back", () => {
+  it("answers anyone outside the team with role@<team id> — the form that reaches back, rename or not", () => {
     // Shown the bare role, a receiver on another team answered "lead" and
-    // reached its OWN lead. A reader on no team is outside every team.
-    expect(senderAddress(onApi, "team-2")).toBe("impl-1@api");
-    expect(senderAddress(onApi, null)).toBe("impl-1@api");
+    // reached its OWN lead. A reader on no team is outside every team. The
+    // team half is the id: shown the name, a reply broke on a rename.
+    expect(senderAddress(onApi, "team-2")).toBe("impl-1@team-1");
+    expect(senderAddress(onApi, null)).toBe("impl-1@team-1");
   });
 
   it("keeps a role stamped without its team bare — there is no team to qualify it by", () => {

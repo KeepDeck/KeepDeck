@@ -25,6 +25,27 @@ export function findTeam(
   return teamsOf(ws).find((team) => team.id === id);
 }
 
+/** Whether no team id repeats anywhere in the deck. A team id routes mail
+ * across workspaces ([`findTeamInDeck`] takes the first match), so two
+ * teams sharing one is a deck to refuse, not one to read. */
+export function teamIdsAreUnique(workspaces: readonly Pick<Workspace, "teams">[]): boolean {
+  const ids = workspaces.flatMap((ws) => teamsOf(ws).map((team) => team.id));
+  return new Set(ids).size === ids.length;
+}
+
+/** The team with `id` anywhere in the deck, and the workspace holding it —
+ * by id alone: an id is unique deck-wide, a name only inside a workspace. */
+export function findTeamInDeck<W extends Pick<Workspace, "teams">>(
+  workspaces: readonly W[],
+  id: string,
+): { workspace: W; team: Team } | undefined {
+  for (const workspace of workspaces) {
+    const team = findTeam(workspace, id);
+    if (team) return { workspace, team };
+  }
+  return undefined;
+}
+
 /** The team a person means by `name` — matched by [`teamNameKey`], so "API"
  * finds the team they called "api". */
 export function findTeamByName(
@@ -62,19 +83,8 @@ export function membersOf(
   return ws.panes.filter((pane) => pane.team?.teamId === teamId);
 }
 
-/** One past the highest `team-N` any workspace holds — the seq the next
- * team is minted with, derived from the live deck rather than counted
- * separately, so there is one source of truth. Ids outside the scheme are
- * skipped rather than rejected: a mint must always produce something. */
-export function nextTeamSeq(
-  workspaces: readonly Pick<Workspace, "teams">[],
-): number {
-  let highest = 0;
-  for (const ws of workspaces) {
-    for (const team of teamsOf(ws)) {
-      const match = /^team-(\d+)$/.exec(team.id);
-      if (match) highest = Math.max(highest, Number(match[1]));
-    }
-  }
-  return highest + 1;
+/** Every team id the deck holds, across workspaces — what a fresh id
+ * must not repeat. */
+export function teamIdsOf(workspaces: readonly Pick<Workspace, "teams">[]): Set<string> {
+  return new Set(workspaces.flatMap((ws) => teamsOf(ws).map((team) => team.id)));
 }

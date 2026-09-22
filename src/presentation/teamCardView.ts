@@ -50,6 +50,34 @@ export type TeamCardAction = "add-member" | "rename" | "disband" | "retry";
  * a line the person had to read past. */
 const EVERY_CARD: readonly TeamCardAction[] = ["add-member", "rename", "disband"];
 
+/** Every word a team card says — the card maps, it never spells. */
+export const TEAM_CARD_WORDS = {
+  /** The menu's line for each action. */
+  action: {
+    "add-member": "Add member",
+    rename: "Rename",
+    disband: "Disband",
+    retry: "Retry the worktree",
+  } satisfies Record<TeamCardAction, string>,
+  /** The dot's tooltip, and what a screen reader says for it. */
+  dot: {
+    failed: "Needs attention",
+    waiting: "Waiting for you",
+    creating: "Creating the worktree",
+    working: "Working",
+    done: "Done",
+    none: "Idle",
+  } satisfies Record<TeamCardDot, string>,
+  /** The card as a screen reader names it. */
+  card: (name: string) => `Team ${name}`,
+  /** The ⋯ menu as a screen reader names it. */
+  menu: (name: string) => `Team ${name} actions`,
+  /** How many agents are on the team. */
+  agents: (size: number) => (size === 0 ? "No agents" : `${size} agent${size === 1 ? "" : "s"}`),
+  renameField: "Rename team",
+  openHint: "Open the team — double-click to rename",
+} as const;
+
 export interface TeamCardView {
   id: string;
   name: string;

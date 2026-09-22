@@ -232,6 +232,7 @@ export function createAppRuntime(
   const tasks = createTasksFeature({
     registry,
     workspaces: () => deckStore.getSnapshot().workspaces,
+    subscribeWorkspaces: deckStore.subscribe,
     settings: { tasks: () => getSettings()?.tasks ?? null, subscribe: subscribeSettings },
     socket: { up: () => mcp.service.status().socket !== null, subscribe: mcp.service.subscribe },
     store: {

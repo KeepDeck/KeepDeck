@@ -34,6 +34,44 @@ function setup(files: Record<string, string> = {}) {
 }
 
 describe("createTasksService", () => {
+  it("a board read from disk sheds the tasks of teams its workspace no longer has, and is written without them", async () => {
+    // team-9 was disbanded while nobody held this board.
+    const onDisk = board([task({ id: "task-1", teamId: "team-1" }), task({ id: "task-2", teamId: "team-9" })], 3);
+    const { service, store } = setup({ "ws-1": encodeBoard(onDisk) });
+    const state = await service.ready("ws-1");
+    expect(state.kind === "ready" && state.board.tasks.map((t) => t.id)).toEqual(["task-1"]);
+    expect(state.kind === "ready" && state.board.nextId).toBe(3);
+    await flush();
+    expect(JSON.parse(store.files.get("ws-1")!).tasks.map((t: { id: string }) => t.id)).toEqual(["task-1"]);
+  });
+
+  it("a board the deck does not know the workspace of is left as it is — nothing is known to be gone", async () => {
+    const onDisk = encodeBoard(board([task({ id: "task-1", teamId: "team-9" })]));
+    const { service, store } = setup({ "ws-7": onDisk });
+    const state = await service.ready("ws-7");
+    expect(state.kind === "ready" && state.board.tasks).toHaveLength(1);
+    service.retainTeams();
+    await flush();
+    expect(store.writes).toEqual([]);
+  });
+
+  it("retainTeams drops a team the deck lost since the load; a board with nothing to drop is not written", async () => {
+    const { service, store, workspaces } = setup();
+    await service.create("ws-1", { teamId: "team-1", title: "api's" }, USER_ACTOR);
+    await service.create("ws-1", { teamId: "team-2", title: "web's" }, USER_ACTOR);
+    await flush();
+    const writesBefore = store.writes.length;
+    service.retainTeams();
+    await flush();
+    expect(store.writes).toHaveLength(writesBefore);
+    workspaces[0] = { ...workspaces[0], teams: workspaces[0].teams!.filter((t) => t.id !== "team-2") };
+    service.retainTeams();
+    await flush();
+    const state = service.peek("ws-1");
+    expect(state?.kind === "ready" && state.board.tasks.map((t) => t.title)).toEqual(["api's"]);
+    expect(store.writes).toHaveLength(writesBefore + 1);
+  });
+
   it("a workspace never written loads as an empty board, and asking is what starts the load", async () => {
     const { service } = setup();
     let told = 0;

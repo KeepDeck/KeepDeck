@@ -11,8 +11,8 @@
  */
 import type { Pane } from "../panes/model";
 import type { Workspace } from "../workspaces";
-import { findTeamByName, nextTeamSeq } from "./collection";
-import { teamId, type Team, type TeamAssignment } from "./model";
+import { findTeamByName, teamIdsOf } from "./collection";
+import type { Team, TeamAssignment } from "./model";
 import { mapWorkspaceTeams, setMembership } from "./transforms";
 
 /** A pane as a fixture spells it: membership by name, resolved later. */
@@ -32,7 +32,7 @@ export function resolveNamedPanes(ws: Workspace): Workspace {
     let team = findTeamByName(list[0], assignment.name);
     if (!team) {
       const minted: Team = {
-        id: teamId(nextTeamSeq(list)),
+        id: testTeamId(teamIdsOf(list)),
         name: assignment.name,
         location: { kind: "attached", cwd: ws.cwd },
       };
@@ -42,4 +42,13 @@ export function resolveNamedPanes(ws: Workspace): Workspace {
     list = setMembership(list, ws.id, paneId, { teamId: team.id, role: assignment.role });
   }
   return list[0];
+}
+
+/** A predictable team id for tests: the first `team-N` the deck does not
+ * hold. The app mints random ones (`mintTeamId`); a test names what it
+ * asserts. */
+export function testTeamId(taken: ReadonlySet<string>): string {
+  let n = 1;
+  while (taken.has(`team-${n}`)) n += 1;
+  return `team-${n}`;
 }

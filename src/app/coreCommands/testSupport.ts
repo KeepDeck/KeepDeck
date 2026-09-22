@@ -11,16 +11,16 @@ import { vi } from "vitest";
 import type { AgentInfo } from "../../domain/agents";
 import { createCommandRegistry } from "../../domain/commands";
 import {
-  autoTeamName,
   claimDirectory,
   MAX_PANES,
-  nextTeamSeq,
+  nextAutoTeamName,
   normalizePath,
   teamHeldPath,
-  teamId as teamId_,
+  teamIdsOf,
   teamNameTaken,
   type Workspace,
 } from "../../domain/deck";
+import { testTeamId } from "../../domain/deck/teams/testSupport";
 import { admitRole } from "../../domain/mail";
 import type { PaneActivity } from "../../domain/status";
 import { createWorkspaceInstance } from "../../domain/workspaceInstance";
@@ -172,7 +172,7 @@ export function setup(workspaces: Workspace[]) {
         }
         teamId = team;
       } else {
-        teamId = teamId_(nextTeamSeq(workspaces));
+        teamId = testTeamId(teamIdsOf(workspaces));
         ws.teams = [
           ...(ws.teams ?? []),
           {
@@ -199,10 +199,9 @@ export function setup(workspaces: Workspace[]) {
    * for, under the name it gave ("Team N" for none).
    *
    * Nothing the real door DECIDES is re-implemented here — the refusal comes
-   * from `teamCreateRefusal` over `claimDirectory`, and the id and auto-name
-   * from `nextTeamSeq`/`teamId`/`autoTeamName`, the same deck-global helpers
-   * production mints from. (A hand-rolled `ws.teams.length + 1` lived here
-   * and silently disagreed with them.) What it does NOT model, because a
+   * from `teamCreateRefusal` over `claimDirectory`, and the auto-name from
+   * `nextAutoTeamName`, the helper production names with. The id is the
+   * test's predictable `testTeamId` where production mints a random one. What it does NOT model, because a
    * command test has no running deck: a teardown holding the directory
    * (`holdsPath`) and the post-dispatch read-back. Reach those through the
    * orchestrator's own suite, or by stubbing this mock's return.
@@ -222,10 +221,9 @@ export function setup(workspaces: Workspace[]) {
         shared: shared === true,
       });
       if (refusal) return refusal;
-      const seq = nextTeamSeq(workspaces);
-      const teamName = name.trim() || autoTeamName(seq);
+      const teamName = name.trim() || nextAutoTeamName(ws);
       if (teamNameTaken(ws, teamName)) return { kind: "taken" };
-      const id = teamId_(seq);
+      const id = testTeamId(teamIdsOf(workspaces));
       ws.teams = [...(ws.teams ?? []), { id, name: teamName, location: placement }];
       return { kind: "created", teamId: id };
     },

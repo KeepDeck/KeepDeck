@@ -61,6 +61,18 @@ export function compareQueue(a: Task, b: Task): number {
   return a.id.localeCompare(b.id);
 }
 
+/**
+ * The board with only the tasks of `teamIds` — a team the deck no longer
+ * has takes its tasks with it (the user's decision: a disbanded team's
+ * board is deleted, not archived). Ids are never handed out again: the
+ * counter stays where it is. The SAME board when nothing goes, so a
+ * caller can tell a change from none by reference.
+ */
+export function keepTeams(board: TaskBoard, teamIds: ReadonlySet<string>): TaskBoard {
+  if (board.tasks.every((task) => teamIds.has(task.teamId))) return board;
+  return { ...board, tasks: board.tasks.filter((task) => teamIds.has(task.teamId)) };
+}
+
 /** A team's tasks, in board order. */
 export function tasksOfTeam(board: TaskBoard, teamId: string): Task[] {
   return board.tasks.filter((task) => task.teamId === teamId);

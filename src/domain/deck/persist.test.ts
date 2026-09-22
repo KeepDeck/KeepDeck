@@ -456,6 +456,16 @@ describe("team membership across a restart", () => {
     expect(hydrateDeck(doubled).kind).toBe("corrupt");
   });
 
+  it("quarantines a team id two WORKSPACES share — it would route mail to whichever came first", () => {
+    const [ws] = teamState.workspaces;
+    const twin = { ...ws, id: "ws-2", instance: createWorkspaceInstance(), cwd: "/s", panes: [] };
+    const deck = { ...teamState, workspaces: [ws, twin] };
+    expect(hydrateDeck(serializeDeck(deck)).kind).toBe("corrupt");
+    // The same deck with the twin's team re-keyed is a deck like any other.
+    const fine = { ...deck, workspaces: [ws, { ...twin, teams: [{ id: "team-2", name: "api" }] }] };
+    expect(hydrateDeck(serializeDeck(fine)).kind).not.toBe("corrupt");
+  });
+
   it("measures the cap per team, not per workspace", () => {
     // The grid is the team's: two full teams in one workspace are two
     // grids of sixteen, not a document to quarantine — while a seventeenth

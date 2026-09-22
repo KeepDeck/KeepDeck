@@ -3,7 +3,7 @@ import { createWorkspaceInstance } from "../../workspaceInstance";
 import { MAX_PANES } from "../layout";
 import type { Pane } from "../panes/model";
 import type { Workspace } from "../workspaces";
-import { findTeam, membersOf } from "./collection";
+import { findTeam, findTeamInDeck, membersOf, teamIdsAreUnique, teamIdsOf } from "./collection";
 import {
   birthRefusal,
   claimDirectory,
@@ -13,6 +13,7 @@ import {
   directoriesStillHeld,
   dissolveTeam,
   joinTeam,
+  nextAutoTeamName,
   renameTeam,
   resolveTeamProvisioning,
   roleTaken,
@@ -416,7 +417,9 @@ describe("renameTeam", () => {
 
   it("reverts an empty name to the auto name, and refuses a taken one", () => {
     let list = createTeam(base(), "ws-1", { id: "team-4", name: "web", location: attached("/wt/4") });
-    expect(findTeam(renameTeam(list, "ws-1", "team-3", "  ")[0], "team-3")?.name).toBe("Team 3");
+    // The auto name is read from the names the workspace holds, never from
+    // the id — an id is a random token. One other team here: "Team 2".
+    expect(findTeam(renameTeam(list, "ws-1", "team-3", "  ")[0], "team-3")?.name).toBe("Team 2");
     expect(renameTeam(list, "ws-1", "team-3", "WEB")).toBe(list);
     // Re-spelling its own name is a rename, not a collision.
     list = renameTeam(list, "ws-1", "team-3", "API");
@@ -482,5 +485,51 @@ describe("dissolveTeam", () => {
     expect(dissolveTeam(on, "ws-1", "team-1")).toBe(on);
     expect(dissolveTeam(base, "ws-1", "team-1")[0].teams).toBeUndefined();
     expect(dissolveTeam(base, "ws-1", "team-9")).toBe(base);
+  });
+});
+
+describe("nextAutoTeamName and teamIdsOf", () => {
+  const at = (cwd: string): TeamLocation => ({ kind: "attached", cwd });
+  const ws = (id: string, teams: Team[]): Workspace => ({
+    id,
+    instance: createWorkspaceInstance(),
+    name: id,
+    cwd: "/repo",
+    worktreeBaseDir: null,
+    panes: [],
+    teams,
+  });
+
+  it("counts on from the workspace's own teams, skipping a name some team holds — never reading an id", () => {
+    expect(nextAutoTeamName(ws("ws-1", []))).toBe("Team 1");
+    const two = ws("ws-1", [
+      { id: "team-9f3a1c20", name: "api", location: at("/a") },
+      { id: "team-1", name: "Team 3", location: at("/b") },
+    ]);
+    // Two teams → "Team 3", held → "Team 4".
+    expect(nextAutoTeamName(two)).toBe("Team 4");
+    // A team being renamed does not count against itself.
+    expect(nextAutoTeamName(two, "team-1")).toBe("Team 2");
+  });
+
+  it("finds a team anywhere in the deck by id alone — never by name", () => {
+    const deck = [ws("ws-1", [{ id: "team-1", name: "api", location: at("/a") }]), ws("ws-2", [{ id: "team-x", name: "web", location: at("/b") }])];
+    const found = findTeamInDeck(deck, "team-x");
+    expect(found?.workspace.id).toBe("ws-2");
+    expect(found?.team.name).toBe("web");
+    expect(findTeamInDeck(deck, "web")).toBeUndefined();
+    expect(findTeamInDeck(deck, "team-9")).toBeUndefined();
+  });
+
+  it("tells a deck whose team ids repeat across workspaces from one whose do not", () => {
+    const one = ws("ws-1", [{ id: "team-1", name: "a", location: at("/a") }]);
+    expect(teamIdsAreUnique([one, ws("ws-2", [{ id: "team-2", name: "a", location: at("/b") }])])).toBe(true);
+    expect(teamIdsAreUnique([one, ws("ws-2", [{ id: "team-1", name: "b", location: at("/b") }])])).toBe(false);
+  });
+
+  it("collects every team id across the deck — what a fresh id must not repeat", () => {
+    const deck = [ws("ws-1", [{ id: "team-1", name: "a", location: at("/a") }]), ws("ws-2", [{ id: "team-x", name: "b", location: at("/b") }])];
+    expect(teamIdsOf(deck)).toEqual(new Set(["team-1", "team-x"]));
+    expect(teamIdsOf([ws("ws-3", [])])).toEqual(new Set());
   });
 });
