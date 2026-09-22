@@ -2,11 +2,15 @@
  * The grammar of a mail address, in one place.
  *
  * A role names a teammate on the sender's OWN team — `impl-1`. A member of
- * another team in the same workspace is named through its team as well —
- * `impl-1@web` — where the team half is the name people address the team
- * by, or its id. The role half never holds an `@`: the catalog admits only
- * `[a-z][a-z0-9-]*` ids, numbered with `-N`. So the split is at the FIRST
- * `@`, and a team name may carry one of its own.
+ * another team is named through its team as well — `impl-1@team-3f9a1c20`
+ * — where the team half is the team's ID. An address is SHOWN only with
+ * the id: a name changes when the team is renamed, and a reply copied from
+ * a stale name reached nobody — or, in another workspace, a team that
+ * happened to share the name. A name is still READ as the team half, inside
+ * the sender's own workspace, for whoever types one. The role half never
+ * holds an `@`: the catalog admits only `[a-z][a-z0-9-]*` ids, numbered
+ * with `-N`. So the split is at the FIRST `@`, and a team name typed there
+ * may carry one of its own.
  *
  * Formatting and parsing sit together so the address a receiver is SHOWN
  * is one the resolver will READ. Two sites spelling the grammar is how one
@@ -19,9 +23,10 @@ export interface TeamAddress {
   team: string;
 }
 
-/** The address a member of `team` is reached by from outside it. */
-export function formatAddress(role: string, team: string): string {
-  return `${role}@${team}`;
+/** The address a member of `team` is reached by from outside it — by the
+ * team's id, never its name (see the grammar above). */
+export function formatAddress(role: string, team: { id: string }): string {
+  return `${role}@${team.id}`;
 }
 
 /**

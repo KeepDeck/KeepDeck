@@ -89,9 +89,11 @@ describe("resolveMailTarget", () => {
     const result = resolveMailTarget(ws, AGENTS, held(ws, "pane-1"), "impl-7@web");
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      // In the same form, so the sender copies one rather than guesses.
-      expect(result.message).toContain("lead@web");
-      expect(result.message).toContain("impl-1@web");
+      // In the form a reply is shown — by the team's id — so the sender
+      // copies one rather than guesses, and a rename cannot stale it.
+      const webId = ws.teams!.find((t) => t.name === "web")!.id;
+      expect(result.message).toContain(`lead@${webId}`);
+      expect(result.message).toContain(`impl-1@${webId}`);
     }
   });
 

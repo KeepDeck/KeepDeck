@@ -39,8 +39,9 @@ export { teamNameKey, type TeamAssignment } from "../deck";
  * terminal and change under them.
  *
  * `role@team` reaches a member of ANOTHER team in the workspace by its role
- * — the form a message from that team shows as its sender, so a reply is
- * addressed by copying what was shown. A bare role is never another team's:
+ * — `role@<team id>` is the form a message from that team shows as its
+ * sender, so a reply is addressed by copying what was shown; a team's name
+ * is read there too, for whoever types one. A bare role is never another team's:
  * two teams both have a lead, and the sender's own is the one it means.
  *
  * Everything else falls through to the ordinary pane reference (id, title,
@@ -99,8 +100,8 @@ function rolesOn(workspace: Workspace, team: Team, except?: string): string[] {
 }
 
 /** A member of another team by role, or the refusal naming the addresses
- * that WOULD reach that team — in the same `role@team` form, so the sender
- * can copy one rather than guess at the grammar. */
+ * that WOULD reach that team — in the `role@<team id>` form a sender is
+ * shown, so one can be copied rather than guessed at. */
 function memberByRole(workspace: Workspace, team: Team, role: string): Resolved<Pane> {
   const holder = roleHolder(workspace, team, role);
   if (holder) return { ok: true, value: holder };
@@ -109,7 +110,7 @@ function memberByRole(workspace: Workspace, team: Team, role: string): Resolved<
     ok: false,
     message: roles.length
       ? `no "${role}" on team "${team.name}" — you can write to: ${roles
-          .map((held) => formatAddress(held, team.name))
+          .map((held) => formatAddress(held, team))
           .join(", ")}`
       : `nobody is on team "${team.name}" yet`,
   };

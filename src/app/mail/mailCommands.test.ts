@@ -369,7 +369,7 @@ describe("mail between two teams of one workspace", () => {
     expect(read.ok).toBe(true);
     if (!read.ok) return;
     const { messages } = read.value as { messages: { from: { address: string } }[] };
-    expect(messages[0].from.address).toBe("lead@api");
+    expect(messages[0].from.address).toBe("lead@team-1");
     const reply = await run(
       registry,
       "mail.send",
@@ -414,7 +414,20 @@ describe("mail between two teams of one workspace", () => {
     expect(read.ok).toBe(true);
     if (!read.ok) return;
     const { messages } = read.value as { messages: { from: { address: string } }[] };
-    expect(messages[0].from.address).toBe("lead@api");
+    expect(messages[0].from.address).toBe("lead@team-1");
+  });
+
+  it("a reply copying the shown address reaches the sender even after its team was renamed", async () => {
+    const { registry, mail, workspaces } = twoTeams();
+    await run(registry, "mail.send", { to: "lead@web", kind: "question", body: "which port?" }, from("pane-1", "ws-1", "Agent 1"));
+    const read = await run(registry, "mail.inbox", {}, from("pane-3", "ws-1", "Agent 3"));
+    if (!read.ok) throw new Error("inbox refused");
+    const { messages } = read.value as { messages: { from: { address: string } }[] };
+    // api is renamed between the question and the answer.
+    workspaces[0].teams = workspaces[0].teams!.map((t) => (t.id === "team-1" ? { ...t, name: "backend" } : t));
+    const reply = await run(registry, "mail.send", { to: messages[0].from.address, kind: "answer", body: "8080" }, from("pane-3", "ws-1", "Agent 3"));
+    expect(reply.ok).toBe(true);
+    expect(mail.takeAtTurnEnd("pane-1").map((m) => m.toPaneId)).toEqual(["pane-1"]);
   });
 
   it("takes back a message to another team by the same address", async () => {

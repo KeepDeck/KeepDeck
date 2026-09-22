@@ -83,7 +83,7 @@ describe("a sender's address, relative to the reader", () => {
     const outside = createHookReplies({ ...h.deps, teamOf: () => "team-2" });
     h.manager.send({ from: LEAD_ON_API, toPaneId: "pane-2", kind: "question", body: "which port?" });
     await outside.answer("pane-2", asking());
-    expect(h.replies[0].body).toContain("/lead@api/");
+    expect(h.replies[0].body).toContain("/lead@team-1/");
 
     const inside = createHookReplies({ ...h.deps, teamOf: () => "team-1" });
     h.manager.send({ from: LEAD_ON_API, toPaneId: "pane-3", kind: "question", body: "and yours?" });

@@ -153,10 +153,11 @@ export function senderOf(source: CommandSource): MailSender | null {
  *
  * Read RELATIVE to the receiver, because a role is an address inside one
  * team: a teammate is shown the bare role, and a receiver on another team —
- * or on none — is shown `role@team`, the form the resolver reads across
- * teams. Shown the bare role, a receiver on another team answered "lead"
- * and reached its own lead. `readerTeamId` is the team the reader stands
- * on, null on none.
+ * or on none — is shown `role@<team id>`, the form the resolver reads
+ * across teams. Shown the bare role, a receiver on another team answered
+ * "lead" and reached its own lead; shown the team's NAME, a reply broke
+ * the moment the team was renamed. `readerTeamId` is the team the reader
+ * stands on, null on none.
  *
  * A fact about the SENDER and the reader, not about a channel, which is why
  * it lives here. The three read paths derived it independently once, each
@@ -168,7 +169,7 @@ export function senderOf(source: CommandSource): MailSender | null {
 export function senderAddress(sender: MailSender, readerTeamId: string | null): string {
   if (sender.role === undefined) return sender.label;
   if (sender.team === undefined || sender.team.id === readerTeamId) return sender.role;
-  return formatAddress(sender.role, sender.team.name);
+  return formatAddress(sender.role, sender.team);
 }
 
 /**
