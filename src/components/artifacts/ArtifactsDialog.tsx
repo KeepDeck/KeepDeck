@@ -6,13 +6,14 @@ import { ModalOverlay } from "../../ui/ModalOverlay";
 import { useEscape } from "../../ui/useEscape";
 import { useWallClock } from "../../ui/useWallClock";
 import { artifactRowView } from "../../presentation/artifacts/rowView";
-import {
-  deleteQuestion,
-  placeholderWords,
-  type PlaceholderWords,
-} from "../../presentation/artifacts/words";
+import { deleteQuestion } from "../../presentation/artifacts/words";
 import { useArtifactsRegistry } from "./useArtifactsRegistry";
-import { ARTIFACT_ROW_ESTIMATE_PX, artifactRowKey } from "../../presentation/artifacts/view";
+import {
+  ARTIFACT_ROW_ESTIMATE_PX,
+  artifactRowKey,
+  placeholderView,
+  type PlaceholderView,
+} from "../../presentation/artifacts/view";
 import { VirtualList } from "@keepdeck/ui-kit/VirtualList";
 
 interface ArtifactsDialogProps {
@@ -111,7 +112,7 @@ export function ArtifactsDialog({
 
         {view.kind !== "rows" ? (
           <div className="artifacts__body">
-            <Placeholder words={placeholderWords(view)} />
+            <Placeholder view={placeholderView(view)} />
           </div>
         ) : (
           // The body IS the windowed list: the scroll container, a ul
@@ -232,23 +233,16 @@ export function ArtifactsDialog({
 }
 
 /** The body's one seat for the text states — loading, empty, no match,
- * no workspace, a store's refusal — drawn from their words. */
-function Placeholder({ words }: { words: PlaceholderWords }) {
+ * no workspace, a store's refusal — drawn from their view. */
+function Placeholder({ view }: { view: PlaceholderView }) {
   return (
     <div className="artifacts__placeholder">
-      {words.title !== null && (
-        <span
-          className={
-            words.alert
-              ? "artifacts__placeholder-title kd-selectable"
-              : "artifacts__placeholder-title"
-          }
-          role={words.alert ? "alert" : undefined}
-        >
-          {words.title}
+      {view.title !== null && (
+        <span className={view.title.className} role={view.title.role}>
+          {view.title.text}
         </span>
       )}
-      {words.detail !== null && <span>{words.detail}</span>}
+      {view.detail !== null && <span>{view.detail}</span>}
     </div>
   );
 }
