@@ -112,6 +112,7 @@ function App() {
     closeTasks,
     tasksOpen,
     tasksFocus,
+    stageTeamId,
     focusTask,
     openStats,
     closeStats,
@@ -433,6 +434,7 @@ function App() {
           )}
           {tasksOpen && (
             <TasksDialog
+              stageTeam={stageTeamId}
               tasks={tasks}
               artifactReads={registryReads}
               workspace={active}

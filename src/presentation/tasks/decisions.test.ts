@@ -17,7 +17,7 @@ import { EMPTY_COMPOSER, beginSend, composerCanSend, finishSend, typeDraft } fro
 import { canCreateTask, canSendComment } from "./composerView";
 import { DIALOG_WORDS, cardOf, escapeTarget, selectionAfterClick, teamControlView, toggledFold } from "./dialogState";
 import { EMPTY_TASK_DRAFT, assigneeOf, taskInputOf } from "./formDraft";
-import { INITIAL_SCREEN, screenReducer, wideView, type ScreenState } from "./screenState";
+import { INITIAL_SCREEN, initialScreen, screenReducer, wideView, type ScreenState } from "./screenState";
 import { teamOnScreen } from "./teamOnScreen";
 import { offWaitingHint, showTasksSocketHint } from "./settingsView";
 
@@ -181,6 +181,12 @@ describe("screenState", () => {
     ];
     for (const outcome of ways) expect(outcome.state.chosenTeam).toBe("team-2");
     expect(teamOnScreen(["team-1", "team-2"], ways[2].state.chosenTeam, null)).toBe("team-2");
+  });
+
+  it("a dialog starts from the stage's open team; two dialogs share no fold record", () => {
+    expect(initialScreen("team-2")).toEqual({ ...INITIAL_SCREEN, chosenTeam: "team-2" });
+    expect(initialScreen(null)).toEqual(INITIAL_SCREEN);
+    expect(initialScreen(null).folds).not.toBe(initialScreen(null).folds);
   });
 
   it("an explicit pick outranks the pin, and a board with no team pins nothing", () => {

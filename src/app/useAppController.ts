@@ -450,6 +450,9 @@ export function useAppController() {
     closeTasks: modal.closeTasks,
     tasksOpen: modal.tasksOpen,
     tasksFocus: modal.tasksFocus,
+    /** The team the stage has open, or null at the cards level — the
+     * board the Tasks dialog opens on. */
+    stageTeamId: openTeam?.id ?? null,
     focusTask: modal.focusTask,
     openStats: modal.openStats,
     closeStats: modal.closeStats,

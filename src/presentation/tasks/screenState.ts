@@ -36,6 +36,14 @@ export const INITIAL_SCREEN: ScreenState = {
   hover: null,
 };
 
+/** The screen a dialog opens on: the team the stage has open is the
+ * choice it starts from — the person was looking at that team. Null
+ * at the cards level, and the board falls back to the first team. */
+export function initialScreen(stageTeam: string | null): ScreenState {
+  // A fresh Map: two dialogs never share one fold record.
+  return { ...INITIAL_SCREEN, folds: new Map(), chosenTeam: stageTeam };
+}
+
 export type ScreenAction =
   /** A card was clicked; `open` is the task open now, if any. */
   | { type: "card"; id: string; open: string | null }
