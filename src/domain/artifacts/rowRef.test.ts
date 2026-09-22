@@ -1,12 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { ArtifactMetaRow } from "../../app/artifacts/registryRead";
-import { fateOf, type RowRef } from "./rowRef";
+import { fateOf, type ArtifactIncarnation, type RowRef } from "./rowRef";
 
-const row = (id: string, generation: string): ArtifactMetaRow => ({
+const row = (id: string, generation: string): ArtifactIncarnation => ({
   id,
-  title: `The ${id}`,
-  versionCount: 2,
-  updatedAt: 1_700_000_000_000,
   generation,
 });
 

@@ -17,7 +17,7 @@ import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-const FILES = ["model.ts", "publish.ts", "delete.ts"] as const;
+const FILES = ["model.ts", "publish.ts", "delete.ts", "rowRef.ts"] as const;
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DOMAIN = resolve(HERE, "..");
@@ -50,10 +50,14 @@ describe("domain/artifacts is CONSUMED by production", () => {
       file: "../../app/artifacts/artifactCommands.ts",
       imports: ["isArtifactFormat", "validateTitle"],
     },
+    {
+      file: "../../components/artifacts/useArtifactsRegistry.ts",
+      imports: ["fateOf"],
+    },
   ];
 
   it.each(CONSUMERS.map((c) => [c.file, c.imports] as const))(
-    "%s imports the domain validators",
+    "%s imports its domain rules",
     (file, wanted) => {
       const source = readFileSync(
         fileURLToPath(new URL(`./${file}`, import.meta.url)),

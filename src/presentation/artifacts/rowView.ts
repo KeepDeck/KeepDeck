@@ -4,7 +4,7 @@ import type {
 } from "../../app/artifacts/registryRead";
 import { formatAge } from "../../domain/usage";
 import { rowMeta, versionsNewestFirst } from "./rowMeta";
-import { isRow, type RowRef } from "./rowRef";
+import { isRow, type RowRef } from "../../domain/artifacts/rowRef";
 
 /** An open history, and WHICH row it belongs to. The versions are null
  * while the read is still out. */

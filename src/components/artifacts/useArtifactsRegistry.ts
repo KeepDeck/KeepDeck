@@ -18,7 +18,7 @@ import type {
   ArtifactsRegistryReadPort,
 } from "../../app/artifacts/registryRead";
 import { describeError } from "../../ipc/log";
-import { fateOf, type RowRef } from "../../presentation/artifacts/rowRef";
+import { fateOf, type RowRef } from "../../domain/artifacts/rowRef";
 import type { OpenHistory } from "../../presentation/artifacts/rowView";
 import { viewOf, type ArtifactsView } from "../../presentation/artifacts/view";
 

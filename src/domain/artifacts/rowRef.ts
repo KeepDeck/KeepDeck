@@ -1,4 +1,12 @@
-import type { ArtifactMetaRow } from "../../app/artifacts/registryRead";
+/**
+ * What a listed artifact is, as far as holding a reference to it goes:
+ * the id it is named by, and which incarnation of that id it is. Any
+ * listing row carries both; nothing else of it matters here.
+ */
+export interface ArtifactIncarnation {
+  id: string;
+  generation: string;
+}
 
 /**
  * A reference to the row a surface is holding open — a question about it,
@@ -40,7 +48,7 @@ export type RowFate =
 export function fateOf(
   ref: RowRef,
   workspaceId: string | null,
-  rows: readonly ArtifactMetaRow[] | null,
+  rows: readonly ArtifactIncarnation[] | null,
 ): RowFate {
   if (ref.workspaceId !== workspaceId) return "gone";
   if (rows === null) return "unknown";
@@ -59,6 +67,6 @@ export function fateOf(
  * under another workspace's artifact of the same name, for the frame
  * between a list landing and the effect noticing.
  */
-export function isRow(ref: RowRef, row: ArtifactMetaRow): boolean {
+export function isRow(ref: RowRef, row: ArtifactIncarnation): boolean {
   return ref.id === row.id && ref.generation === row.generation;
 }
