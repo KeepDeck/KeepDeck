@@ -164,7 +164,9 @@ describe("screenState", () => {
 
   it("the team on screen when the person acts becomes their choice — putting a task away never moves the board", () => {
     // Opened by a link on team-2's task while the choice was elsewhere:
-    // every way the task goes away, direct or delegated, keeps team-2.
+    // every way the task goes away keeps team-2, and so does every
+    // delegated step (escape → narrow / cancelCompose / close,
+    // toggleCompose → compose) — the pin must survive the delegation.
     const linked: ScreenState = { ...INITIAL_SCREEN, chosenTeam: null };
     const wideOpen = { ...linked, wide: true };
     const composingOpen = { ...linked, composing: true };

@@ -431,6 +431,26 @@ describe("TasksDialog", () => {
     expect(cards().map((c) => c.querySelector(".tasks__card-title")?.textContent)).toEqual(["Web's own"]);
   });
 
+  it("a second link while the dialog is up moves the board to ITS task's team, pinned choice or not", async () => {
+    const { service } = await seeded();
+    await service.create("ws-1", { teamId: "team-2", title: "Web's own" }, agentActor("lead", "team-2"));
+    focus = "task-3";
+    const render = mount(service);
+    render();
+    await flush();
+    // Putting the task away pins web as the choice…
+    act(() => button("Close").click());
+    await flush();
+    expect(teamPicked()).toBe("web");
+    // …and a link to api's task still outranks it: the modal router only
+    // refocuses an open dialog, it does not remount it.
+    focus = "task-1";
+    render();
+    await flush();
+    expect(teamPicked()).toBe("api");
+    expect(document.querySelector('aside[aria-label="Task task-1"]')).not.toBeNull();
+  });
+
   it("+ Task on a board a link opened creates into THAT team, not the first", async () => {
     const { service } = await seeded();
     await service.create("ws-1", { teamId: "team-2", title: "Web's own" }, agentActor("lead", "team-2"));
