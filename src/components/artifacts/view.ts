@@ -100,5 +100,9 @@ export function artifactRowKey(row: ArtifactMetaRow): string {
 }
 
 /** The first paint's guess at a row with nothing open under it, in
- * pixels; measurement corrects it the moment a row reports its box. */
-export const ARTIFACT_ROW_ESTIMATE_PX = 56;
+ * pixels; measurement corrects it the moment a row reports its box. It is
+ * the TWO-line title's height, not the one-line one: agents' titles are
+ * mostly long, and a guess that overshoots only shrinks the scrollbar as
+ * rows land, where one that undershoots makes it jump away under the
+ * pointer. */
+export const ARTIFACT_ROW_ESTIMATE_PX = 74;

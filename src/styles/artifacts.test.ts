@@ -50,4 +50,16 @@ describe("Artifacts registry layout", () => {
     expect(style.flexGrow).toBe("1");
     expect(style.justifyContent).toBe("center");
   });
+
+  it("gives a title two lines before it cuts it", () => {
+    // One line cut agents' long titles to the same opening words; more
+    // than two would let one artifact crowd out its neighbours.
+    mountDialog();
+    const title = document.createElement("span");
+    title.className = "artifacts__row-title";
+    document.body.append(title);
+    expect(getComputedStyle(title).getPropertyValue("-webkit-line-clamp")).toBe(
+      "2",
+    );
+  });
 });
