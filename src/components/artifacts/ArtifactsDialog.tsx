@@ -1,4 +1,3 @@
-import { formatAge } from "../../domain/usage";
 import type { ArtifactsRegistryReadPort } from "../../app/artifacts/registryRead";
 import { Button } from "../../ui/Button";
 import { CloseButton } from "../../ui/CloseButton";
@@ -6,8 +5,8 @@ import { ConfirmDialog } from "../../ui/ConfirmDialog";
 import { ModalOverlay } from "../../ui/ModalOverlay";
 import { useEscape } from "../../ui/useEscape";
 import { useWallClock } from "../../ui/useWallClock";
-import { isRow } from "../../presentation/artifacts/rowRef";
-import { rowMeta, versionsNewestFirst } from "../../presentation/artifacts/rowMeta";
+import { artifactRowView } from "../../presentation/artifacts/rowView";
+import { deleteQuestion, noMatchTitle } from "../../presentation/artifacts/words";
 import { useArtifactsRegistry } from "./useArtifactsRegistry";
 import { ARTIFACT_ROW_ESTIMATE_PX, artifactRowKey } from "../../presentation/artifacts/view";
 import { VirtualList } from "@keepdeck/ui-kit/VirtualList";
@@ -129,7 +128,7 @@ export function ArtifactsDialog({
           ) : view.kind === "noMatch" ? (
             <div className="artifacts__placeholder">
               <span className="artifacts__placeholder-title">
-                Nothing matches “{view.query}”
+                {noMatchTitle(view.query)}
               </span>
               <span>This workspace has artifacts; none of them by that name</span>
             </div>
@@ -157,12 +156,7 @@ export function ArtifactsDialog({
             spacer={{ as: "ul", className: "artifacts__list" }}
             item={{ as: "li", className: "artifacts__item" }}
             render={(row) => {
-              const meta = rowMeta(row, now);
-              // The FULL ref, not the id: the effect that drops a
-              // stale history runs after paint, and an id alone would
-              // draw one workspace's versions under another's artifact
-              // of the same name for that frame.
-              const openHere = expanded !== null && isRow(expanded, row);
+              const item = artifactRowView(row, now, busyId, expanded);
               return (
                 // ONE measured box per artifact: the row, and the history
                 // when this is the open one. They are one item because
@@ -180,14 +174,14 @@ export function ArtifactsDialog({
                   <button
                     type="button"
                     className="artifacts__row-open"
-                    aria-label={`Open ${row.title}`}
-                    disabled={busyId === row.id}
+                    aria-label={item.openLabel}
+                    disabled={item.busy}
                     onClick={() => registry.open(row.id)}
                   >
-                    <span className="artifacts__row-title">{row.title}</span>
+                    <span className="artifacts__row-title">{item.title}</span>
                     <span className="artifacts__row-meta">
-                      <code>{meta.id}</code>
-                      {meta.tail}
+                      <code>{item.id}</code>
+                      {item.tail}
                     </span>
                   </button>
                   <div className="artifacts__row-actions">
@@ -196,7 +190,7 @@ export function ArtifactsDialog({
                       size="sm"
                       onClick={() => registry.toggleVersions(row.id)}
                     >
-                      {openHere ? "Hide history" : "History"}
+                      {item.toggleLabel}
                     </Button>
                     {/* The row-level delete idiom — a small text ×, the
                         one the workspaces rail and the journal rows use.
@@ -207,7 +201,7 @@ export function ArtifactsDialog({
                       type="button"
                       className="artifacts__remove"
                       title="Delete artifact"
-                      aria-label={`Delete ${row.title}`}
+                      aria-label={item.deleteLabel}
                       onClick={() => registry.requestDelete(row.id)}
                     >
                       ×
@@ -221,26 +215,26 @@ export function ArtifactsDialog({
                     one history is open at a time and they run to tens.
                     If one ever reaches the scale the LIST is windowed
                     for, it wants the same treatment. */}
-                {openHere && (
+                {item.history !== null && (
                   <div className="artifacts__history">
-                    {expanded.versions === null ? (
+                    {item.history.kind === "loading" ? (
                       <span className="artifacts__history-note">Loading…</span>
-                    ) : expanded.versions.length === 0 ? (
+                    ) : item.history.kind === "gone" ? (
                       <span className="artifacts__history-note">
                         No versions — the artifact went while this opened
                       </span>
                     ) : (
-                      versionsNewestFirst(expanded.versions).map((version) => (
-                        <div key={version.n} className="artifacts__version">
+                      item.history.lines.map((line) => (
+                        <div key={line.n} className="artifacts__version">
                           <span className="artifacts__version-n">
-                            v{version.n}
+                            {line.label}
                           </span>
                           <span className="artifacts__version-when">
-                            {formatAge(version.at, now)}
+                            {line.when}
                           </span>
-                          {version.message !== undefined && (
+                          {line.message !== null && (
                             <span className="artifacts__version-message">
-                              {version.message}
+                              {line.message}
                             </span>
                           )}
                         </div>
@@ -258,7 +252,7 @@ export function ArtifactsDialog({
       {confirm !== null && (
         <ConfirmDialog
           title="Delete artifact"
-          message={`Delete "${confirm.title}"? Every version goes, its open pages say goodbye, and the id stops resolving`}
+          message={deleteQuestion(confirm.title)}
           confirmLabel="Delete"
           cancelLabel="Cancel"
           destructive
