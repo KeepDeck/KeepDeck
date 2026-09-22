@@ -29,6 +29,8 @@ function setup() {
   let socket = true;
   const settingsListeners = new Set<() => void>();
   const socketListeners = new Set<() => void>();
+  let workspaces = teamedWorkspaces();
+  const deckListeners = new Set<() => void>();
   /** Enable/disable calls, each waiting on its own gate, in order. */
   const calls: { kind: "enable" | "disable"; gate: ReturnType<typeof gate>; settled: boolean }[] = [];
   const registry = createCommandRegistry();
@@ -37,7 +39,11 @@ function setup() {
   const order: ("write" | "drop" | "disable")[] = [];
   const feature = createTasksFeature({
     registry,
-    workspaces: () => teamedWorkspaces(),
+    workspaces: () => workspaces,
+    subscribeWorkspaces: (l) => {
+      deckListeners.add(l);
+      return () => deckListeners.delete(l);
+    },
     settings: {
       tasks: () => tasks,
       subscribe: (l) => {
@@ -110,6 +116,11 @@ function setup() {
       for (const l of [...settingsListeners]) l();
       await flush();
     },
+    /** The deck changes: `edit` rewrites the workspaces, listeners hear it. */
+    changeDeck(edit: (current: typeof workspaces) => typeof workspaces) {
+      workspaces = edit(workspaces);
+      for (const l of [...deckListeners]) l();
+    },
     setSocket(next: boolean) {
       socket = next;
       for (const l of [...socketListeners]) l();
@@ -141,6 +152,29 @@ describe("createTasksFeature", () => {
     expect(h.feature.access.current()).not.toBeNull();
     h.setSocket(true);
     expect(h.registry.has("task.create")).toBe(true);
+  });
+
+  it("a disbanded team takes its tasks with it: the deck change prunes the board and writes it", async () => {
+    const h = setup();
+    await h.setTasks(true);
+    await h.settleNext();
+    const service = h.feature.access.current()!;
+    await service.create("ws-1", { teamId: "team-1", title: "api's" }, USER_ACTOR);
+    await service.create("ws-1", { teamId: "team-2", title: "web's" }, USER_ACTOR);
+    await flush();
+    // web is disbanded: its members leave, then the team.
+    h.changeDeck((ws) =>
+      ws.map((w) =>
+        w.id !== "ws-1"
+          ? w
+          : { ...w, panes: w.panes.filter((p) => p.team?.teamId !== "team-2"), teams: w.teams!.filter((t) => t.id !== "team-2") },
+      ),
+    );
+    await flush();
+    const state = service.peek("ws-1");
+    expect(state?.kind === "ready" && state.board.tasks.map((t) => t.title)).toEqual(["api's"]);
+    // And the disk agrees: what was written last holds api's task alone.
+    expect(JSON.parse(h.store.writes[h.store.writes.length - 1].json).tasks.map((t: { title: string }) => t.title)).toEqual(["api's"]);
   });
 
   it("a fast Off→On does not create an owner on the previous On's answer — the board is readable afterwards", async () => {

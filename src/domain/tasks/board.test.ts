@@ -3,6 +3,7 @@ import {
   compareQueue,
   countByStatus,
   issuable,
+  keepTeams,
   mine,
   nextFor,
   openBlockersOf,
@@ -122,5 +123,20 @@ describe("counts", () => {
       task({ id: "task-6", status: "cancelled" }),
     ];
     expect(countByStatus(tasks)).toEqual({ todo: 1, "in-progress": 0, blocked: 1, review: 2, done: 1, cancelled: 1 });
+  });
+});
+
+describe("keepTeams", () => {
+  const b = board([task({ id: "task-1", teamId: "team-1" }), task({ id: "task-2", teamId: "team-2" })], 7);
+
+  it("keeps only the named teams' tasks, and never hands an id out again", () => {
+    const kept = keepTeams(b, new Set(["team-1"]));
+    expect(kept.tasks.map((t) => t.id)).toEqual(["task-1"]);
+    expect(kept.nextId).toBe(7);
+  });
+
+  it("hands the same board back when every task's team is kept — a change is told by reference", () => {
+    expect(keepTeams(b, new Set(["team-1", "team-2"]))).toBe(b);
+    expect(keepTeams(board([]), new Set())).toEqual(board([]));
   });
 });

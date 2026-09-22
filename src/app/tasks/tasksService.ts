@@ -19,13 +19,14 @@
  * user's decision). The events this owner emits are for the HUMAN's
  * notifications, and only three of them.
  */
-import { membersOf, type Workspace } from "../../domain/deck";
+import { membersOf, teamsOf, type Workspace } from "../../domain/deck";
 import {
   EMPTY_BOARD,
   createTask,
   decodeBoard,
   encodeBoard,
   findTask,
+  keepTeams,
   replaceTask,
   transition,
   type CreateTaskInput,
@@ -149,6 +150,10 @@ export interface TasksService {
    * recreate the board. While this runs the workspace is closed to
    * reads and writes; afterwards its id may load afresh. */
   forget(workspaceId: string): Promise<void>;
+  /** Hold every loaded board to the teams its workspace has NOW: a
+   * disbanded team's tasks go, and the board is written without them.
+   * The deck calls this on every change; a load does it on its own. */
+  retainTeams(): void;
   dispose(): void;
 }
 
@@ -235,8 +240,13 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
       .then((state) => {
         // A workspace forgotten (or the owner disposed) while its read was
         // out must not come back as a board.
-        if (!disposed && loads.get(workspaceId) === loading) set(workspaceId, state);
-        return state;
+        if (!disposed && loads.get(workspaceId) === loading) {
+          set(workspaceId, state);
+          // A team disbanded while nobody held this board — the feature
+          // off, the app closed — left its tasks in the file.
+          prune(workspaceId);
+        }
+        return states.get(workspaceId) ?? state;
       });
     loads.set(workspaceId, loading);
     return loading;
@@ -329,6 +339,21 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
     return persist(workspaceId, board);
   };
 
+  /**
+   * Drop the tasks of teams the workspace no longer has, and write the
+   * board without them. Nothing happens while the deck does not know the
+   * workspace — hydrating, or on its way out, which `forget` owns — since
+   * then no team is known to be gone. Synchronous from read to commit.
+   */
+  const prune = (workspaceId: string) => {
+    const state = states.get(workspaceId);
+    if (state?.kind !== "ready") return;
+    const workspace = deps.workspaces().find((candidate) => candidate.id === workspaceId);
+    if (!workspace) return;
+    const kept = keepTeams(state.board, new Set(teamsOf(workspace).map((team) => team.id)));
+    if (kept !== state.board) void commit(workspaceId, kept);
+  };
+
   return {
     board(workspaceId) {
       const state = states.get(workspaceId);
@@ -415,6 +440,9 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
       return this.unsaved();
     },
     unsaved: () => dirtyEntries().map(([workspaceId, state]) => ({ workspaceId, error: state.unsaved })),
+    retainTeams() {
+      for (const workspaceId of [...states.keys()]) prune(workspaceId);
+    },
     forget(workspaceId) {
       // Closed first, synchronously: from here no write queued before
       // runs, no load starts, and the board is gone from every surface.

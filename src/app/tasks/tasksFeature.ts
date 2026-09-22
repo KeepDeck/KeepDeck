@@ -24,6 +24,8 @@ import { createTasksService, type TaskEvent, type TasksService, type TasksStoreP
 export interface TasksFeatureDeps {
   registry: CommandRegistry;
   workspaces(): readonly Workspace[];
+  /** Hears every deck change — a team disbanded takes its tasks with it. */
+  subscribeWorkspaces(listener: () => void): () => void;
   /** The toggle: null until the settings load settles. */
   settings: { tasks(): boolean | null; subscribe(listener: () => void): () => void };
   /** The deck's MCP socket — the agents' door to the commands. */
@@ -178,6 +180,9 @@ export function createTasksFeature(deps: TasksFeatureDeps): TasksFeature {
   );
 
   const stop = [
+    // Swept on every deck change, not at the disband: one rule for every
+    // way a team leaves, held by the owner that holds the boards.
+    deps.subscribeWorkspaces(() => service?.retainTeams()),
     deps.settings.subscribe(() => {
       // Only a change of THIS setting is a new generation: whatever the
       // store answered, it answered for the old value, and nothing is
