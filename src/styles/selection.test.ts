@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { STYLES_DIR, appCss, stripComments } from "./testSupport";
 
-const PLUGINS_DIR = "plugins";
+const REPO_ROOT = join(STYLES_DIR, "..", "..");
+const PLUGINS_DIR = join(REPO_ROOT, "plugins");
 
 /**
  * Every stylesheet this repo AUTHORS — host, plugins and shared packages alike.
@@ -21,7 +22,7 @@ const PLUGINS_DIR = "plugins";
  * rule this file enforces is "nothing WE write states these properties outside
  * base.css" — not "nothing in the bundle does".
  */
-const SOURCE_ROOTS = [STYLES_DIR, PLUGINS_DIR, "packages"];
+const SOURCE_ROOTS = [STYLES_DIR, PLUGINS_DIR, join(REPO_ROOT, "packages")];
 const SKIP_DIRS = new Set(["node_modules", "dist", "target", ".git"]);
 
 function collectCss(dir: string, out: string[]): void {

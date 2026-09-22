@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -21,7 +22,7 @@ import { describe, expect, it } from "vitest";
  * is what keeps that rule from depending on everyone remembering it.
  */
 describe("the mail owner's synchronous contract", () => {
-  const OWNER = "src/app/mail/mailManager.ts";
+  const OWNER = fileURLToPath(new URL("./mailManager.ts", import.meta.url));
 
   it("has no await and no async function in it", () => {
     const source = readFileSync(OWNER, "utf8");
