@@ -118,10 +118,3 @@ export function countByStatus(tasks: readonly Task[]): StatusCounts {
   for (const task of tasks) counts[task.status] += 1;
   return counts;
 }
-
-/** What waits on a person: tasks stuck in `blocked` and tasks waiting to
- * be accepted in `review`. The door's badge and nothing else. */
-export function attentionCount(tasks: readonly Task[]): number {
-  const counts = countByStatus(tasks);
-  return counts.blocked + counts.review;
-}

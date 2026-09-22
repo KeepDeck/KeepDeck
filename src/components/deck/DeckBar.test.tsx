@@ -149,7 +149,7 @@ describe("DeckBar", () => {
     );
   });
 
-  it("the tasks door shows what waits on a person, and nothing at zero", () => {
+  it("the tasks door shows its unread count, and nothing at zero", () => {
     render({ onOpenTasks: () => {}, tasksBadge: 3 });
     expect(byLabel("Open tasks")?.textContent).toContain("3");
     render({ onOpenTasks: () => {}, tasksBadge: 0 });

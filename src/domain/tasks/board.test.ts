@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  attentionCount,
   compareQueue,
   countByStatus,
   issuable,
@@ -123,6 +122,5 @@ describe("counts", () => {
       task({ id: "task-6", status: "cancelled" }),
     ];
     expect(countByStatus(tasks)).toEqual({ todo: 1, "in-progress": 0, blocked: 1, review: 2, done: 1, cancelled: 1 });
-    expect(attentionCount(tasks)).toBe(3);
   });
 });
