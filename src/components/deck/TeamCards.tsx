@@ -26,9 +26,9 @@ import {
   type Workspace,
 } from "../../domain/deck";
 import {
+  TEAM_CARD_WORDS,
   teamCardView,
   type TeamCardAction,
-  type TeamCardDot,
   type TeamCardView,
 } from "../../presentation/teamCardView";
 import { BranchBadge } from "../../ui/badges";
@@ -51,27 +51,6 @@ export interface TeamCardsProps {
   /** Re-issue the failed worktree create behind a card. */
   onRetry(teamId: string): void;
 }
-
-/** The menu's words, one per described action. */
-const ACTION_LABEL: Record<TeamCardAction, string> = {
-  "add-member": "Add member",
-  rename: "Rename",
-  disband: "Disband",
-  retry: "Retry the worktree",
-};
-
-/** The dot's words — the tooltip, and what a screen reader says. */
-const DOT_LABEL: Record<TeamCardDot, string> = {
-  failed: "Needs attention",
-  waiting: "Waiting for you",
-  creating: "Creating the worktree",
-  working: "Working",
-  done: "Done",
-  none: "Idle",
-};
-
-const agentsOn = (size: number) =>
-  size === 0 ? "No agents" : `${size} agent${size === 1 ? "" : "s"}`;
 
 export function TeamCards({
   workspace,
@@ -163,7 +142,7 @@ function TeamCard({
   };
   const actions: MenuAction[] = card.actions.map((action) => ({
     id: action,
-    label: ACTION_LABEL[action],
+    label: TEAM_CARD_WORDS.action[action],
     onSelect: () => perform(action),
   }));
   const editing = rename.editing === card.id;
@@ -172,7 +151,7 @@ function TeamCard({
       className={`team-card team-card--${card.dot}${card.pending ? " team-card--pending" : ""}`}
       data-team-id={card.id}
       role="listitem"
-      aria-label={`Team ${card.name}`}
+      aria-label={TEAM_CARD_WORDS.card(card.name)}
       // The whole card is the way in; the menu below stops its own clicks.
       onClick={() => onEnter(card.id)}
     >
@@ -180,8 +159,8 @@ function TeamCard({
         <span
           className={`team-card__dot team-card__dot--${card.dot}`}
           role="img"
-          aria-label={DOT_LABEL[card.dot]}
-          title={DOT_LABEL[card.dot]}
+          aria-label={TEAM_CARD_WORDS.dot[card.dot]}
+          title={TEAM_CARD_WORDS.dot[card.dot]}
         />
         {editing ? (
           <input
@@ -189,7 +168,7 @@ function TeamCard({
             {...rename.inputProps}
             className="team-card__rename"
             autoFocus
-            aria-label="Rename team"
+            aria-label={TEAM_CARD_WORDS.renameField}
             onMouseDown={(event) => event.stopPropagation()}
             onClick={(event) => event.stopPropagation()}
           />
@@ -197,7 +176,7 @@ function TeamCard({
           <button
             type="button"
             className="team-card__open"
-            title="Open the team — double-click to rename"
+            title={TEAM_CARD_WORDS.openHint}
             onClick={(event) => {
               event.stopPropagation();
               onEnter(card.id);
@@ -215,7 +194,7 @@ function TeamCard({
             variant="ghost"
             size="sm"
             actions={actions}
-            ariaLabel={`Team ${card.name} actions`}
+            ariaLabel={TEAM_CARD_WORDS.menu(card.name)}
           >
             ⋯
           </MenuButton>
@@ -230,7 +209,7 @@ function TeamCard({
             title={card.branch}
           />
         )}
-        <span className="team-card__count">{agentsOn(card.size)}</span>
+        <span className="team-card__count">{TEAM_CARD_WORDS.agents(card.size)}</span>
       </div>
       <span className="team-card__dir" title={card.cwd}>
         {baseName(card.cwd)}
