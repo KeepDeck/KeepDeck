@@ -15,7 +15,7 @@ import {
 } from "./cardDrag";
 import { EMPTY_COMPOSER, beginSend, composerCanSend, finishSend, typeDraft } from "./composer";
 import { canCreateTask, canSendComment } from "./composerView";
-import { DIALOG_WORDS, cardOf, escapeTarget, selectionAfterClick, teamControlView } from "./dialogState";
+import { DIALOG_WORDS, cardOf, dialogClassName, escapeTarget, selectionAfterClick, teamControlView } from "./dialogState";
 import { EMPTY_TASK_DRAFT, assigneeOf, taskInputOf } from "./formDraft";
 import { INITIAL_SCREEN, initialScreen, screenReducer, wideView, type ScreenState } from "./screenState";
 import { teamOnScreen } from "./teamOnScreen";
@@ -95,14 +95,16 @@ describe("dialogState", () => {
     expect(teamControlView([], null)).toEqual({ kind: "none" });
   });
 
+  it("dims the board's own copy of a card only while one is in flight", () => {
+    expect(dialogClassName(false)).toBe("form tasks");
+    expect(dialogClassName(true)).toBe("form tasks tasks--dragging");
+  });
+
   it("says the bar's and the head's words by state", () => {
     expect(DIALOG_WORDS.cancelledFilter(false)).toBe("Show cancelled");
     expect(DIALOG_WORDS.cancelledFilter(true)).toBe("Hide cancelled");
-    expect(DIALOG_WORDS.cancelledFilterHint("board")).toBeNull();
-    expect(DIALOG_WORDS.cancelledFilterHint("queues")).toContain("show on the board");
     expect(DIALOG_WORDS.wide(false)).toBe("Expand");
     expect(DIALOG_WORDS.wide(true)).toBe("Collapse");
-    expect(DIALOG_WORDS.poolCaption(true)).toContain("anyone on the team");
   });
 });
 
@@ -185,9 +187,8 @@ describe("screenState", () => {
     expect(screenReducer(chosen, { type: "close" }, null).state.chosenTeam).toBe("team-1");
   });
 
-  it("the filter and the mode are remembered as pressed", () => {
+  it("the filter is remembered as pressed", () => {
     expect(screenReducer(INITIAL_SCREEN, { type: "toggleCancelled" }, null).state.showCancelled).toBe(true);
-    expect(screenReducer(INITIAL_SCREEN, { type: "mode", mode: "queues" }, null).state.mode).toBe("queues");
   });
 });
 

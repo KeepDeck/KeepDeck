@@ -1,7 +1,7 @@
 /**
  * The words the task surfaces share: what a status is called, how a
  * person is named, which hue a status wears. One home, so the board, the
- * queues, the detail and the card footer cannot disagree.
+ * detail and the card footer cannot disagree.
  */
 import { TASK_PRIORITIES, USER_NAME, type TaskPriority, type TaskStatus } from "../../domain/tasks";
 

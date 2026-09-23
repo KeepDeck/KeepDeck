@@ -551,16 +551,13 @@ describe("TasksDialog", () => {
     expect(button("Comment").disabled).toBe(false);
   });
 
-  it("the queues view lays out a lane per member and the pool", async () => {
+  it("is one board: no Board/Queues switch, no lanes — the columns are the only view", async () => {
     const { service } = await seeded();
-    const render = mount(service);
-    render();
+    mount(service)();
     await flush();
-    act(() => button("Queues").click());
-    await flush();
-    const lanes = Array.from(document.querySelectorAll(".tasks__lane-name")).map((el) => el.textContent);
-    expect(lanes).toEqual(["lead", "impl-1", "impl-2", "pool"]);
-    expect(text()).toContain("1 queued · unassigned");
+    expect(document.querySelector('[role="group"][aria-label="View"]')).toBeNull();
+    expect(buttons().some((b) => b.textContent?.trim() === "Queues")).toBe(false);
+    expect(document.querySelector(".tasks__columns")).not.toBeNull();
   });
 
   it("walks the ladder: no workspace, owner down, empty board", async () => {

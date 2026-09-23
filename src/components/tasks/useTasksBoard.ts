@@ -27,7 +27,6 @@ import {
   initialScreen,
   moveCard,
   newTaskFormView,
-  queuesView,
   releaseCard,
   screenReducer,
   taskDetailView,
@@ -39,12 +38,11 @@ import {
   type CardGrip,
   type DragState,
   type ScreenAction,
-  type TasksMode,
 } from "../../presentation/tasks";
 
 export type { TasksAccess } from "../../app/tasks/tasksFeature";
 
-export type { TasksMode, CardGrip } from "../../presentation/tasks";
+export type { CardGrip } from "../../presentation/tasks";
 
 
 
@@ -101,7 +99,7 @@ export function useTasksBoard(
     },
     [onFocus, onClose],
   );
-  const { mode, showCancelled, chosenTeam, composing, hover } = screen;
+  const { showCancelled, chosenTeam, composing, hover } = screen;
   /** The workspace's artifacts, for the open task's attachments. Read
    * when a task is open and re-read when the registry changes; empty
    * (never an error) when the artifacts feature is off. */
@@ -198,7 +196,6 @@ export function useTasksBoard(
   const detail =
     selected && selected.teamId === teamId ? taskDetailView(selected, board!, roster, now, knownArtifacts) : null;
   const columns = board ? boardView(teamTasks, board, { showCancelled, now }) : [];
-  const lanes = board && teamId !== null ? queuesView(board, teamId, roster, now) : [];
   const form = newTaskFormView(roster);
 
   /** The pointer was released over `over` (a column, or nothing). One
@@ -235,15 +232,12 @@ export function useTasksBoard(
 
   return {
     ladder,
-    mode,
-    setMode: (next: TasksMode) => run({ type: "mode", mode: next }),
     teams: teams.map((team) => ({ id: team.id, name: team.name })),
     teamId,
     selectTeam: (id: string) => run({ type: "team", id }),
     showCancelled,
     toggleCancelled: () => run({ type: "toggleCancelled" }),
     columns,
-    lanes,
     detail,
     /** A card was clicked: opened, or put away when it was the open one. */
     select: (taskId: string) => {

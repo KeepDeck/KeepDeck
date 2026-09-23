@@ -5,13 +5,6 @@
 import type { BoardColumnView } from "./boardView";
 import type { TaskCardView } from "./taskCardView";
 
-export type TasksMode = "board" | "queues";
-
-export const MODE_CHOICES: readonly { value: TasksMode; label: string }[] = [
-  { value: "board", label: "Board" },
-  { value: "queues", label: "Queues" },
-];
-
 /**
  * What one Escape press takes away: the form when it is open, then the
  * wide view back to the board, then the open task, then the dialog.
@@ -59,8 +52,10 @@ export function teamControlView(
 /** The words of the bar and the panel head, by state. */
 export const DIALOG_WORDS = {
   cancelledFilter: (showCancelled: boolean) => (showCancelled ? "Hide cancelled" : "Show cancelled"),
-  /** Why the filter is inert, or null where it applies. */
-  cancelledFilterHint: (mode: TasksMode) => (mode === "board" ? null : "Cancelled tasks show on the board"),
   wide: (wide: boolean) => (wide ? "Collapse" : "Expand"),
-  poolCaption: (isPool: boolean) => (isPool ? "Next up — anyone on the team can take it" : "Next up"),
 } as const;
+
+/** The dialog's classes: a card in flight dims the board's own copy of it. */
+export function dialogClassName(dragging: boolean): string {
+  return dragging ? "form tasks tasks--dragging" : "form tasks";
+}

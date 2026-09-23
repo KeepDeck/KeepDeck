@@ -1,7 +1,14 @@
 import { Dropdown } from "@keepdeck/ui-kit";
 import type { ArtifactsRegistryReadPort } from "../../app/artifacts/registryRead";
 import type { Workspace } from "../../domain/deck";
-import { DIALOG_WORDS, LADDER_WORDS, MODE_CHOICES, cardOf, ghostBox, teamControlView } from "../../presentation/tasks";
+import {
+  DIALOG_WORDS,
+  LADDER_WORDS,
+  cardOf,
+  dialogClassName,
+  ghostBox,
+  teamControlView,
+} from "../../presentation/tasks";
 import { Button } from "../../ui/Button";
 import { CloseButton } from "../../ui/CloseButton";
 import { ModalOverlay } from "../../ui/ModalOverlay";
@@ -9,7 +16,6 @@ import { useEscape } from "../../ui/useEscape";
 import { useWallClock } from "../../ui/useWallClock";
 import { BoardColumns } from "./BoardColumns";
 import { NewTaskForm } from "./NewTaskForm";
-import { QueuesLanes } from "./QueuesLanes";
 import { TaskCard } from "./TaskCard";
 import { TaskDetail } from "./TaskDetail";
 import { useTasksBoard, type TasksAccess } from "./useTasksBoard";
@@ -49,8 +55,8 @@ export function TasksDialog(props: TasksDialogProps) {
 }
 
 /**
- * One workspace's boards — the ladder as columns, or the load as lanes
- * per member, with one task open on the right. The shell renders and
+ * One workspace's boards — the ladder as columns, with one task open on
+ * the right. The shell renders and
  * emits; every transition is the hook's and every word the presentation's.
  */
 function WorkspaceBoard({
@@ -98,7 +104,7 @@ function WorkspaceBoard({
   return (
     <ModalOverlay>
       <div
-        className={`form tasks${board.drag.kind === "dragging" ? " tasks--dragging" : ""}`}
+        className={dialogClassName(board.drag.kind === "dragging")}
         role="dialog"
         aria-modal="true"
         aria-label="Tasks"
@@ -114,8 +120,6 @@ function WorkspaceBoard({
         )}
         <div className="tasks__head">
           <h2 className="form__title tasks__title">Tasks</h2>
-          {/* The same controls whatever the view: a bar whose buttons come
-              and go with the view reads as a bar that cannot be learned. */}
           {staged && (
             <div className="tasks__toolbar">
               {teamControl.kind === "pick" && (
@@ -128,26 +132,11 @@ function WorkspaceBoard({
                 />
               )}
               {teamControl.kind === "word" && <span className="tasks__team-name">{teamControl.name}</span>}
-              <div className="tasks__segment" role="group" aria-label="View">
-                {MODE_CHOICES.map((mode) => (
-                  <button
-                    key={mode.value}
-                    type="button"
-                    className={`tasks__segment-btn${board.mode === mode.value ? " tasks__segment-btn--active" : ""}`}
-                    aria-pressed={board.mode === mode.value}
-                    onClick={() => board.setMode(mode.value)}
-                  >
-                    {mode.label}
-                  </button>
-                ))}
-              </div>
               <div className="tasks__filter">
                 <button
                   type="button"
                   className={`tasks__segment-btn${board.showCancelled ? " tasks__segment-btn--active" : ""}`}
                   aria-pressed={board.showCancelled}
-                  disabled={DIALOG_WORDS.cancelledFilterHint(board.mode) !== null}
-                  title={DIALOG_WORDS.cancelledFilterHint(board.mode) ?? undefined}
                   onClick={board.toggleCancelled}
                 >
                   {DIALOG_WORDS.cancelledFilter(board.showCancelled)}
@@ -203,7 +192,7 @@ function WorkspaceBoard({
                   <span className="tasks__placeholder-title">{LADDER_WORDS.empty.title}</span>
                   <span>{LADDER_WORDS.empty.hint}</span>
                 </div>
-              ) : board.mode === "board" ? (
+              ) : (
                 <BoardColumns
                   columns={board.columns}
                   selectedId={board.detail?.id ?? null}
@@ -214,8 +203,6 @@ function WorkspaceBoard({
                   onHover={board.hoverColumn}
                   onDrop={board.dropOn}
                 />
-              ) : (
-                <QueuesLanes lanes={board.lanes} selectedId={board.detail?.id ?? null} onSelect={board.select} />
               )}
             </div>
             )}

@@ -1,7 +1,7 @@
 /**
  * Questions asked of a whole board: which task comes next, what is in a
- * queue, what a card's footer counts. One answer each, so the MCP
- * commands, the Queues view and the door badge cannot disagree.
+ * member's queue, what a card's footer counts. One answer each, so the
+ * MCP commands and the board's surfaces cannot disagree.
  */
 import type { RoleStanding } from "../mail/roles";
 import {
@@ -36,8 +36,8 @@ export function openBlockersOf(task: Task, board: TaskBoard): string[] {
 
 /**
  * Whether a task may be handed out or taken: waiting in `todo` with every
- * blocker resolved. THE rule `task.next`, the Queues view and the claim
- * all ask — a todo task with an open blocker stays in its column with a
+ * blocker resolved. THE rule `task.next` (its head and its pool count)
+ * and the claim both ask — a todo task with an open blocker stays in its column with a
  * mark, which is not the `blocked` status (that one is the assignee saying
  * "I am waiting").
  */
