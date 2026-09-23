@@ -39,7 +39,6 @@ const BASE: DeckBarProps = {
   onOpenMcp: () => {},
   onOpenArtifacts: null,
   onOpenTasks: null,
-  tasksBadge: 0,
   onOpenSettings: () => {},
   notifications: null,
 };
@@ -149,12 +148,11 @@ describe("DeckBar", () => {
     );
   });
 
-  it("the tasks door shows its unread count, and nothing at zero", () => {
-    render({ onOpenTasks: () => {}, tasksBadge: 3 });
-    expect(byLabel("Open tasks")?.textContent).toContain("3");
-    render({ onOpenTasks: () => {}, tasksBadge: 0 });
-    expect(byLabel("Open tasks")?.textContent ?? "").not.toContain("0");
-    render({ onOpenTasks: null, tasksBadge: 3 });
+  it("the tasks door is its glyph alone — no count; task news is the bell's", () => {
+    render({ onOpenTasks: () => {} });
+    expect(byLabel("Open tasks")?.textContent ?? "").not.toMatch(/\d/);
+    expect(document.querySelector(".tasks-door__count")).toBeNull();
+    render({ onOpenTasks: null });
     expect(byLabel("Open tasks")).toBeFalsy();
   });
 

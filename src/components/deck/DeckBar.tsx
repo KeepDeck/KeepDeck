@@ -122,8 +122,6 @@ export interface DeckBarProps {
   onOpenArtifacts: (() => void) | null;
   /** The task board, or null while Tasks are off — the same rule. */
   onOpenTasks: (() => void) | null;
-  /** How many tasks wait on a person in the active workspace; 0 shows nothing. */
-  tasksBadge: number;
   onOpenSettings(): void;
 
   /** The notification bell, or null when notifications are off or delegated
@@ -151,7 +149,6 @@ export function DeckBar({
   onOpenMcp,
   onOpenArtifacts,
   onOpenTasks,
-  tasksBadge,
   onOpenSettings,
   notifications,
 }: DeckBarProps) {
@@ -414,11 +411,6 @@ export function DeckBar({
               disabled={!canOpenDialog}
             >
               <TasksIcon />
-              {tasksBadge > 0 && (
-                <span className="tasks-door__count" aria-label={`${tasksBadge} unread`}>
-                  {tasksBadge}
-                </span>
-              )}
             </TipButton>
           )}
           <TipButton

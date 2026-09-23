@@ -1,7 +1,6 @@
 import { askForPaneBack } from "./app/resumeOutcome";
 import { ArtifactsDialog } from "./components/artifacts/ArtifactsDialog";
 import { TasksDialog } from "./components/tasks/TasksDialog";
-import { useTasksUnread } from "./components/tasks/useTasksUnread";
 import { artifactsRegistryReads } from "./app/artifacts/registryRead";
 import { restartToUpdate } from "./app/updateManager";
 import { updateActionView } from "./app/updateAction";
@@ -53,14 +52,6 @@ function App() {
   const liveOutside = useCallback(
     (agent: string) => liveOutsideSessions(plugins, agent),
     [plugins],
-  );
-  // Before the early return, like every hook: the door's count reads the
-  // notification center whether or not the deck is ready to draw.
-  const tasksBadge = useTasksUnread(
-    notificationCenter,
-    controller.ready && controller.active
-      ? { id: controller.active.id, instance: controller.active.instance }
-      : null,
   );
   if (!controller.ready) return <div className="deck" />;
   const {
@@ -165,7 +156,6 @@ function App() {
         onOpenMcp={() => void openMcp()}
         onOpenArtifacts={openArtifacts}
         onOpenTasks={openTasks ? () => void openTasks() : null}
-        tasksBadge={tasksBadge}
         onOpenSettings={() => void openSettings()}
         notifications={
           showBell

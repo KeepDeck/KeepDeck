@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { board, task } from "../../domain/tasks/testSupport";
 import { boardView } from "./boardView";
-import { tasksDoorBadge } from "./doorBadge";
-import type { Notification } from "../../domain/notifications";
-import { createWorkspaceInstance } from "../../domain/workspaceInstance";
 import { LADDER_WORDS, tasksLadder } from "./ladderView";
 import { newTaskFormView } from "./newTaskFormView";
 import { taskCardView } from "./taskCardView";
@@ -211,30 +208,5 @@ describe("ladder and badge", () => {
     expect(tasksLadder({ ...base, taskCount: 0 })).toEqual({ kind: "empty" });
     expect(tasksLadder(base)).toEqual({ kind: "board" });
     expect(LADDER_WORDS.empty.hint).toContain("agents read the board themselves");
-  });
-
-  it("the door counts the workspace's unread task notifications — nothing else, and nothing without a workspace", () => {
-    const ws = { id: "ws-1", instance: createWorkspaceInstance() };
-    const other = { id: "ws-2", instance: createWorkspaceInstance() };
-    let seq = 0;
-    const note = (over: Partial<Notification>): Notification => ({
-      id: `n-${(seq += 1)}`,
-      title: "t",
-      severity: "info",
-      at: seq,
-      source: { type: "tasks", workspace: ws, taskId: `task-${seq}` },
-      ...over,
-    });
-    const items = [
-      note({}),
-      note({}),
-      note({ readAt: 5 }),
-      note({ source: { type: "tasks", workspace: other, taskId: "task-9" } }),
-      note({ source: { type: "pane", workspace: ws, paneId: "pane-1" } }),
-    ];
-    expect(tasksDoorBadge(items, ws)).toBe(2);
-    expect(tasksDoorBadge(items, other)).toBe(1);
-    expect(tasksDoorBadge(items, null)).toBe(0);
-    expect(tasksDoorBadge([], ws)).toBe(0);
   });
 });
