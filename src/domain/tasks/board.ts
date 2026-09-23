@@ -85,13 +85,6 @@ export function queueOf(board: TaskBoard, teamId: string, assignee: string | nul
     .sort(compareQueue);
 }
 
-/** What one member is on right now — its `in-progress` tasks (normally one). */
-export function currentOf(board: TaskBoard, teamId: string, assignee: string): Task[] {
-  return tasksOfTeam(board, teamId)
-    .filter((task) => task.status === "in-progress" && task.assignee === assignee)
-    .sort(compareQueue);
-}
-
 /** The head of a member's queue: its first issuable task, or null. */
 export function nextFor(board: TaskBoard, teamId: string, assignee: string): Task | null {
   return queueOf(board, teamId, assignee).find((task) => issuable(task, board)) ?? null;
