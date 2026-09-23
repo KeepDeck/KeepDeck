@@ -39,6 +39,7 @@
 }
 
 .tasks__team-name {
+  min-width: 0;
   color: #8b93a3;
   font-size: 13px;
 }
@@ -227,7 +228,8 @@
 .tasks__log-text,
 .tasks__link,
 .tasks__error,
-.tasks__placeholder-title {
+.tasks__placeholder-title,
+.tasks__team-name {
   overflow-wrap: anywhere;
 }
 
@@ -490,12 +492,11 @@
   gap: 6px;
 }
 
+/* The row's text clamps to two lines (.kd-two-lines inside the link); the
+   link itself only takes the room left beside the ×. */
 .tasks__artifact .tasks__link {
   flex: 1;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* The row-level detach: the small text × the artifacts registry uses. */

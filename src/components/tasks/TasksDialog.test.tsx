@@ -335,7 +335,10 @@ describe("TasksDialog", () => {
     expect(state?.kind === "ready" && state.board.tasks[0].artifacts).toEqual(["kd-tasks"]);
     // Attached: the picker has nothing left to offer; the row opens it.
     expect(text()).toContain("Every artifact of this workspace is attached");
-    act(() => buttons().find((b) => b.textContent?.startsWith("KeepDeck Tasks"))!.click());
+    // The row wraps to two lines, then ellipsizes — never one cut line.
+    const row = buttons().find((b) => b.textContent?.startsWith("KeepDeck Tasks"))!;
+    expect(row.querySelector(".kd-two-lines")?.textContent).toContain("kd-tasks");
+    act(() => row.click());
     expect(openArtifactByRef).toHaveBeenCalledWith("ws-1", "kd-tasks");
     act(() => document.querySelector<HTMLButtonElement>('button[aria-label="Detach kd-tasks"]')!.click());
     await flush();

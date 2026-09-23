@@ -113,6 +113,8 @@ describe("ArtifactsDialog", () => {
     expect(first).toContain("The auth-flow");
     expect(first).toContain("auth-flow");
     expect(first).toContain("v3");
+    // The title clamps to two lines — the shared class, not a copy.
+    expect(rowsOnScreen()[0]?.querySelector(".artifacts__row-title")?.classList.contains("kd-two-lines")).toBe(true);
     expect(document.body.textContent).not.toContain("127.0.0.1");
   });
 

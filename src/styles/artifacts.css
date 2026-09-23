@@ -154,16 +154,9 @@
   outline-offset: -1px;
 }
 
-/* Up to two lines, then an ellipsis: agents write long titles, and one
-   line cut most of them to the same opening words. A single word longer
-   than the row breaks rather than widening it. */
+/* Clamped to two lines by .kd-two-lines: agents write long titles, and
+   one line cut most of them to the same opening words. */
 .artifacts__row-title {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  overflow: hidden;
-  overflow-wrap: anywhere;
   color: #c5c8c6;
   font-size: 14px;
 }

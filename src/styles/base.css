@@ -122,6 +122,19 @@ button {
   -webkit-user-select: text;
 }
 
+/* Up to two lines, then an ellipsis — for a list row that must stay
+   compact but whose text people and agents write at any length. A word
+   longer than the row breaks rather than widening it. One home, so every
+   row that clamps clamps the same way. */
+.kd-two-lines {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
 /* The opt-out, for chrome sitting INSIDE a .kd-selectable island: a diff's
    line-number gutter, a hunk header. Keeps them out of a copied selection, so
    a pasted hunk carries no line numbers, and keeps the cursor honest about

@@ -166,7 +166,9 @@ export function TaskDetail({
                 title={artifact.openTitle}
                 onClick={() => onOpenArtifact(artifact.slug)}
               >
-                {artifact.title} <code>{artifact.slug}</code>
+                <span className="kd-two-lines">
+                  {artifact.title} <code>{artifact.slug}</code>
+                </span>
               </button>
               <button
                 type="button"

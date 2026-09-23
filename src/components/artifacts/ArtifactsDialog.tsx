@@ -148,7 +148,7 @@ export function ArtifactsDialog({
                     disabled={item.busy}
                     onClick={() => registry.open(row.id)}
                   >
-                    <span className="artifacts__row-title">{item.title}</span>
+                    <span className="artifacts__row-title kd-two-lines">{item.title}</span>
                     <span className="artifacts__row-meta">
                       <code>{item.id}</code>
                       {item.tail}

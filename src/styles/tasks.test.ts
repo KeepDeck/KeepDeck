@@ -14,6 +14,7 @@ const WRITTEN_TEXT = [
   "tasks__link",
   "tasks__error",
   "tasks__placeholder-title",
+  "tasks__team-name",
 ];
 
 function mount(className: string): HTMLElement {
@@ -38,6 +39,16 @@ describe("Tasks text never widens its box", () => {
     // A path or a constant with no spaces spilled a card past its column
     // and gave the task panel a horizontal scroll.
     expect(getComputedStyle(mount(className)).overflowWrap).toBe("anywhere");
+  });
+
+  it("the task panel's artifact row no longer cuts to one line", () => {
+    // It clamps to two lines through .kd-two-lines inside it; a nowrap
+    // here would cut it to one again.
+    const row = mount("tasks__artifact");
+    const link = document.createElement("button");
+    link.className = "tasks__link";
+    row.append(link);
+    expect(getComputedStyle(link).whiteSpace).not.toBe("nowrap");
   });
 
   it("a card may shrink to its column — it never grows to its widest word", () => {
