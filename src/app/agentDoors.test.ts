@@ -198,7 +198,7 @@ describe("agent doors — a member", () => {
     const h = setup();
     h.createPane.mockReturnValueOnce({ kind: "full" });
     expect(await h.member()).toEqual({ kind: "refused", door: "member", message: TEAM_FULL_MESSAGE });
-    h.createPane.mockReturnValueOnce({ kind: "role", why: "taken", role: "lead" });
+    h.createPane.mockReturnValueOnce({ kind: "role", why: "taken", role: "lead", open: ["impl-1", "reviewer-1"] });
     expect(await h.member({ role: "lead" })).toMatchObject({
       kind: "refused",
       door: "member",

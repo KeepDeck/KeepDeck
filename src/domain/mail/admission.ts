@@ -36,7 +36,16 @@ export type RoleRefusal = "missing" | "taken" | "unknown" | "misfit";
 
 export type RoleAdmission =
   | { ok: true; role: string }
-  | { ok: false; why: RoleRefusal; role: string };
+  /** `open`: the addresses the team would take instead ([`rolesOpenTo`]),
+   * so a refusal can say what would be admitted. */
+  | { ok: false; why: RoleRefusal; role: string; open: string[] };
+
+const refusal = (why: RoleRefusal, role: string, held: readonly string[]): RoleAdmission => ({
+  ok: false,
+  why,
+  role,
+  open: rolesOpenTo(held).map(({ address }) => address),
+});
 
 /**
  * The role `asked` for on team `teamId` when it may be taken, else the
@@ -51,21 +60,16 @@ export function admitRole(
   asked: string | undefined,
   except?: string,
 ): RoleAdmission {
+  const held = rolesOnTeam(workspace, teamId, except);
   const trimmed = asked?.trim();
-  if (!trimmed) return { ok: false, why: "missing", role: "" };
+  if (!trimmed) return refusal("missing", "", held);
   const repeatable = roleById(trimmed.toLowerCase());
-  const wanted = repeatable?.repeatable
-    ? (mintRoleAddress(repeatable, rolesOnTeam(workspace, teamId, except)) ?? trimmed)
-    : trimmed;
-  if (!parseRoleAddress(wanted)) return { ok: false, why: "unknown", role: wanted };
-  if (roleTaken(workspace, teamId, wanted, except)) {
-    return { ok: false, why: "taken", role: wanted };
-  }
+  const wanted = repeatable?.repeatable ? (mintRoleAddress(repeatable, held) ?? trimmed) : trimmed;
+  if (!parseRoleAddress(wanted)) return refusal("unknown", wanted, held);
+  if (roleTaken(workspace, teamId, wanted, except)) return refusal("taken", wanted, held);
   // The team as it would be with the newcomer on it: the same grammar the
   // roster's own settling asks, so no door lets in a shape another refuses.
-  if (rosterProblem([...rolesOnTeam(workspace, teamId, except), wanted]) !== null) {
-    return { ok: false, why: "misfit", role: wanted };
-  }
+  if (rosterProblem([...held, wanted]) !== null) return refusal("misfit", wanted, held);
   return { ok: true, role: wanted };
 }
 
@@ -90,13 +94,13 @@ export function carryRole(
  * move would mint, which holds nobody yet. */
 export function carryRoleInto(held: readonly string[], role: string | undefined): RoleAdmission {
   // A pane on no team was never given a role, and none is made up for it.
-  if (!role) return { ok: false, why: "missing", role: "" };
+  if (!role) return refusal("missing", "", held);
   const known = parseRoleAddress(role);
-  if (!known) return { ok: false, why: "unknown", role };
+  if (!known) return refusal("unknown", role, held);
   const taken = held.some((address) => address.toLowerCase() === role.trim().toLowerCase());
   const address = taken ? mintRoleAddress(known.role, held) : role;
-  if (address === null) return { ok: false, why: "taken", role };
-  if (rosterProblem([...held, address]) !== null) return { ok: false, why: "misfit", role };
+  if (address === null) return refusal("taken", role, held);
+  if (rosterProblem([...held, address]) !== null) return refusal("misfit", role, held);
   return { ok: true, role: address };
 }
 
@@ -107,11 +111,20 @@ export function rolesOnTeam(workspace: Workspace, teamId: string, except?: strin
     .flatMap((member) => (member.team ? [member.team.role] : []));
 }
 
-/** The refusal in words — the same words whichever door asked. */
-export function roleRefusalMessage(why: RoleRefusal, role: string): string {
+/** The refusal in words — the same words whichever door asked — and,
+ * given the team's `open` addresses, what it would take instead. */
+export function roleRefusalMessage(why: RoleRefusal, role: string, open?: readonly string[]): string {
+  const base = refusalWords(why, role);
+  if (open === undefined) return base;
+  return open.length > 0
+    ? `${base}; this team is open to ${open.join(", ")}`
+    : `${base}; no role can join this team as its roster stands`;
+}
+
+function refusalWords(why: RoleRefusal, role: string): string {
   switch (why) {
     case "missing":
-      return `a member joins a team under a role somebody names — ${teamRoles().map((r) => r.id).join(", ")}`;
+      return "a member joins a team under a role somebody names";
     case "taken":
       return `role "${role}" is taken on that team — a role is an address, so it has to be unique`;
     case "unknown":

@@ -180,7 +180,7 @@ export type CreatePaneOutcome =
   /** The role the pane asked for cannot be its address on that team: it is
    * taken, or the catalog does not know it. Refused, never replaced — a
    * role asked for is honoured or refused ([`admitRole`]). */
-  | { kind: "role"; why: RoleRefusal; role: string };
+  | { kind: "role"; why: RoleRefusal; role: string; open: string[] };
 
 /** A team born with its directory and nobody on it — the "+ Team" door.
  * Agents come later, each through `createPane` naming the team. */

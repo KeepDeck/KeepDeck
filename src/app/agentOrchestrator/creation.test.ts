@@ -1114,7 +1114,7 @@ describe("agent orchestrator —a role at the landing", () => {
         team: "team-1",
       });
     });
-    expect(outcome).toEqual({ kind: "role", why: "missing", role: "" });
+    expect(outcome).toMatchObject({ kind: "role", why: "missing", role: "" });
     expect(deck.workspaces[0].panes.find((pane) => pane.id === "pane-9")).toBeUndefined();
   });
 });

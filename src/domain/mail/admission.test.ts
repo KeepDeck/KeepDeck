@@ -29,7 +29,7 @@ describe("admitRole", () => {
 
   it("refuses an asked-for role that is taken — never substitutes one", () => {
     // Compared the way addresses are: " Impl-1 " is impl-1.
-    expect(admitRole(workspace([on("pane-1", "impl-1")]), "team-1", " Impl-1 ")).toEqual({
+    expect(admitRole(workspace([on("pane-1", "impl-1")]), "team-1", " Impl-1 ")).toMatchObject({
       ok: false,
       why: "taken",
       role: "Impl-1",
@@ -46,7 +46,7 @@ describe("admitRole", () => {
   });
 
   it("refuses a role the catalog does not know", () => {
-    expect(admitRole(workspace([]), "team-1", "wizard-1")).toEqual({
+    expect(admitRole(workspace([]), "team-1", "wizard-1")).toMatchObject({
       ok: false,
       why: "unknown",
       role: "wizard-1",
@@ -55,8 +55,11 @@ describe("admitRole", () => {
 
   it("refuses a landing that names no role — nothing picks one — blank counts as none", () => {
     const ws = workspace([on("pane-1", "lead")]);
-    expect(admitRole(ws, "team-1", undefined)).toEqual({ ok: false, why: "missing", role: "" });
-    expect(admitRole(ws, "team-1", "  ")).toEqual({ ok: false, why: "missing", role: "" });
+    expect(admitRole(ws, "team-1", undefined)).toMatchObject({ ok: false, why: "missing", role: "" });
+    // The refusal carries what the team would take instead.
+    expect(admitRole(ws, "team-1", undefined)).toMatchObject({ open: expect.arrayContaining(["impl-1"]) });
+    expect(admitRole(ws, "team-1", undefined)).not.toMatchObject({ open: expect.arrayContaining(["lead"]) });
+    expect(admitRole(ws, "team-1", "  ")).toMatchObject({ ok: false, why: "missing", role: "" });
   });
 
   it("refuses a role the team's shape cannot take, the roster read with the newcomer on it", () => {
@@ -85,6 +88,9 @@ describe("admitRole", () => {
     expect(roleRefusalMessage("taken", "lead")).toContain("a role is an address");
     expect(roleRefusalMessage("unknown", "wizard")).toContain('"wizard" is not a role this deck knows');
     expect(roleRefusalMessage("missing", "")).toContain("a role somebody names");
+    // Given the team, it says what the team would take instead.
+    expect(roleRefusalMessage("missing", "", ["lead", "peer-1"])).toContain("this team is open to lead, peer-1");
+    expect(roleRefusalMessage("unknown", "x", [])).toContain("no role can join this team");
     expect(roleRefusalMessage("misfit", "peer-1")).toContain("led");
   });
 });
@@ -144,10 +150,10 @@ describe("carryRole — the role a moved member keeps", () => {
   });
 
   it("refuses a singleton already held, a shape the team refuses, and a member with no role at all", () => {
-    expect(moving("lead", ["lead"])).toEqual({ ok: false, why: "taken", role: "lead" });
-    expect(moving("peer-1", ["lead"])).toEqual({ ok: false, why: "misfit", role: "peer-1" });
-    expect(moving("impl-1", ["peer-1"])).toEqual({ ok: false, why: "misfit", role: "impl-1" });
-    expect(moving(undefined, ["lead"])).toEqual({ ok: false, why: "missing", role: "" });
+    expect(moving("lead", ["lead"])).toMatchObject({ ok: false, why: "taken", role: "lead" });
+    expect(moving("peer-1", ["lead"])).toMatchObject({ ok: false, why: "misfit", role: "peer-1" });
+    expect(moving("impl-1", ["peer-1"])).toMatchObject({ ok: false, why: "misfit", role: "impl-1" });
+    expect(moving(undefined, ["lead"])).toMatchObject({ ok: false, why: "missing", role: "" });
   });
 });
 
@@ -155,6 +161,6 @@ describe("carryRoleInto — a move onto a team the move mints", () => {
   it("carries what can open a team, and refuses a working role with no lead to report to", () => {
     expect(carryRoleInto([], "lead")).toEqual({ ok: true, role: "lead" });
     expect(carryRoleInto([], "peer-2")).toEqual({ ok: true, role: "peer-2" });
-    expect(carryRoleInto([], "impl-1")).toEqual({ ok: false, why: "misfit", role: "impl-1" });
+    expect(carryRoleInto([], "impl-1")).toMatchObject({ ok: false, why: "misfit", role: "impl-1" });
   });
 });

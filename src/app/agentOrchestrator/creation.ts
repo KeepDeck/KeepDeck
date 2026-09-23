@@ -383,7 +383,7 @@ export function createAgentOrchestratorCreation({
     const landing = resolveRequest(workspaces, current, request);
     if ("refusal" in landing) return refusalOutcome(landing);
     const admitted = admitRole(current, landing.team.id, request.role);
-    return admitted.ok ? null : { kind: "role", why: admitted.why, role: admitted.role };
+    return admitted.ok ? null : { kind: "role", why: admitted.why, role: admitted.role, open: admitted.open };
   }
 
   /**
@@ -404,7 +404,7 @@ export function createAgentOrchestratorCreation({
     // nothing to take back out.
     const admitted = admitRole(current, landing.team.id, request.role);
     if (!admitted.ok) {
-      return refuse(pane.id, { kind: "role", why: admitted.why, role: admitted.role });
+      return refuse(pane.id, { kind: "role", why: admitted.why, role: admitted.role, open: admitted.open });
     }
     actions.addAgentPane(current.id, pane);
     if (!join(current, pane, landing, postProvision, admitted.role)) {
@@ -441,7 +441,7 @@ export function createAgentOrchestratorCreation({
       role !== undefined
         ? admitRole(current, landing.team.id, role, pane.id)
         : carryRole(current, landing.team.id, pane.team?.role, pane.id);
-    if (!admitted.ok) return { kind: "role", why: admitted.why, role: admitted.role };
+    if (!admitted.ok) return { kind: "role", why: admitted.why, role: admitted.role, open: admitted.open };
     if (!join(current, pane, landing, undefined, admitted.role)) {
       return { kind: "held", why: "refused" };
     }

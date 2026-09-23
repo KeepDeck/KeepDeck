@@ -257,6 +257,9 @@ describe("team.add", () => {
     );
     expect(taken.ok).toBe(false);
     expect(message(taken)).toContain("taken");
+    // And what the team would take instead — its open roles, not the catalog.
+    expect(message(taken)).toContain("open to impl-1");
+    expect(message(taken)).not.toContain("peer");
     const unknown = await registry.execute(
       "team.add",
       { workspace: "web", team: "team-1", role: "wizard" },

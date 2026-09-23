@@ -27,7 +27,7 @@ export function createRefusalMessage(refusal: CreateRefusal): string {
     case "held":
       return placementRefusalMessage(refusal.why);
     case "role":
-      return roleRefusalMessage(refusal.why, refusal.role);
+      return roleRefusalMessage(refusal.why, refusal.role, refusal.open);
     default: {
       const unhandled: never = refusal;
       throw new Error(`unhandled create outcome: ${JSON.stringify(unhandled)}`);
