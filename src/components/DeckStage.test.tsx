@@ -67,13 +67,19 @@ vi.mock("../app/ptyManager", () => ({
 
 /** The empty team's list, as the stage hands it over: its own suite
  * covers what it does with it. */
-const teamSessions = vi.hoisted(() => ({ props: null as null | Record<string, unknown> }));
-vi.mock("./deck/TeamSessions", () => ({
-  TeamSessions: (props: Record<string, unknown>) => {
-    teamSessions.props = props;
-    return null;
-  },
-}));
+const teamSessions = vi.hoisted(() => ({ props: null as null | Record<string, unknown>, mounts: 0 }));
+vi.mock("./deck/TeamSessions", async () => {
+  const { useEffect } = await import("react");
+  return {
+    TeamSessions: (props: Record<string, unknown>) => {
+      teamSessions.props = props;
+      useEffect(() => {
+        teamSessions.mounts += 1;
+      }, []);
+      return null;
+    },
+  };
+});
 
 import { TerminalPane } from "./terminal/TerminalPane";
 import { DeckStage } from "./DeckStage";
@@ -571,6 +577,15 @@ describe("DeckStage — the teams level", () => {
     const record = { agent: "codex", sessionId: "s-1", cwd: "/repo" };
     (teamSessions.props!.onContinue as (...args: unknown[]) => void)("fork", record, "lead");
     expect(callbacks.onContinueSession).toHaveBeenCalledWith("ws-1", "team-1", "fork", record, "lead");
+  });
+
+  it("starts a fresh list — no role carried over — when the rail opens another empty team", () => {
+    const two = [{ ...workspaces[0], teams: [team("team-1", "/repo"), team("team-2", "/repo/b")], panes: [] }];
+    teamSessions.mounts = 0;
+    render({ workspaces: two, specByPane: {} });
+    render({ workspaces: two, specByPane: {}, viewByWs: { "ws-1": { teamOpen: "team-2" } } });
+    expect(teamSessions.props).toMatchObject({ cwd: "/repo/b" });
+    expect(teamSessions.mounts).toBe(2);
   });
 
   it("keeps the word, not the list, for an open team whose directory is being made", () => {

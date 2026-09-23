@@ -1,4 +1,5 @@
 import type { ResumeBlock } from "../../agents";
+import { journalRows, type JournalRecords, type SessionRecord } from "../../journal";
 import { normalizePath } from "./lifecycle";
 
 /** What is known about a session when somebody asks to resume it. */
@@ -42,4 +43,11 @@ export function resumeBlock(
  * [`resumeBlock`] a landing re-asks: a surface's answer is only advice. */
 export function recordedOnTeam(cwd: string, team: { cwd: string | null }): boolean {
   return team.cwd !== null && cwd !== "" && normalizePath(cwd) === normalizePath(team.cwd);
+}
+
+/** The workspace's recorded sessions that ran where `teamCwd` is — what an
+ * empty team's list pins first. Any other the workspace recorded ran on
+ * another team, and comes with the rest of the index. */
+export function teamJournalRows(journal: JournalRecords, wsId: string, teamCwd: string): SessionRecord[] {
+  return journalRows(journal, wsId).filter((record) => recordedOnTeam(record.cwd, { cwd: teamCwd }));
 }

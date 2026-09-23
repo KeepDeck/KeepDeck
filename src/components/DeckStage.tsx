@@ -512,6 +512,9 @@ export function DeckStage({
               )}
               {content.kind === "team-sessions" && (
                 <TeamSessions
+                  // One list per team: a role picked on one empty team is
+                  // not a pick on the next one the rail opens.
+                  key={content.teamId}
                   ws={ws}
                   cwd={content.cwd}
                   journal={journal}
