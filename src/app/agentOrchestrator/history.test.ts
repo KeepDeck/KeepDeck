@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { paneBranch, paneExecutionCwd, paneProvisioning } from "../../domain/deck";
+import { roleRefusalMessage } from "../../domain/mail";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -90,7 +91,7 @@ describe("agent orchestrator —continuing a recorded session", () => {
   });
 
   it("mints a pane carrying the record's shape and a pre-claimed session", async () => {
-    await act(async () => agentRun.resumeSession("ws-1", handle()));
+    await act(async () => agentRun.resumeSession("ws-1", handle(), { role: "lead" }));
 
     const panes = deck.workspaces[0].panes;
     expect(panes).toHaveLength(1);
@@ -114,7 +115,7 @@ describe("agent orchestrator —continuing a recorded session", () => {
 
   it("leaves a session recorded in the workspace's OWN folder a plain pane", async () => {
     await act(async () =>
-      agentRun.resumeSession("ws-1", handle({ cwd: "/repo", branch: undefined })),
+      agentRun.resumeSession("ws-1", handle({ cwd: "/repo", branch: undefined }), { role: "lead" }),
     );
     expect(deck.workspaces[0].panes[0].location).toBeUndefined();
   });
@@ -130,7 +131,7 @@ describe("agent orchestrator —continuing a recorded session", () => {
       }),
     );
     await expect(
-      act(async () => agentRun.resumeSession("ws-1", handle())),
+      act(async () => agentRun.resumeSession("ws-1", handle(), { role: "lead" })),
     ).rejects.toThrow("already running");
     expect(deck.workspaces[0].panes).toHaveLength(1);
     expect(vi.mocked(buildResumeSpec)).not.toHaveBeenCalled();
@@ -149,7 +150,7 @@ describe("agent orchestrator —continuing a recorded session", () => {
     act(() => deck.suspendPane("ws-1", "pane-77"));
 
     await expect(
-      act(async () => agentRun.resumeSession("ws-1", handle())),
+      act(async () => agentRun.resumeSession("ws-1", handle(), { role: "lead" })),
     ).rejects.toThrow("stopped pane");
   });
 
@@ -182,7 +183,7 @@ describe("agent orchestrator —continuing a recorded session", () => {
     expect(agentRun.blocked).toEqual({ "pane-77": "/gone/worktree" });
 
     await expect(
-      act(async () => agentRun.resumeSession("ws-1", handle())),
+      act(async () => agentRun.resumeSession("ws-1", handle(), { role: "lead" })),
     ).rejects.toThrow("stopped pane");
   });
 
@@ -197,10 +198,10 @@ describe("agent orchestrator —continuing a recorded session", () => {
       }),
     );
     act(() => {
-      void agentRun.forkSession("ws-1", handle(), { kind: "dir", cwd: "/x" });
+      void agentRun.forkSession("ws-1", handle(), { kind: "dir", cwd: "/x" }, { role: "lead" });
     });
 
-    await act(async () => agentRun.resumeSession("ws-1", handle()));
+    await act(async () => agentRun.resumeSession("ws-1", handle(), { role: "lead" }));
     expect(deck.workspaces[0].panes.some((p) => p.session?.id === "s-1")).toBe(
       true,
     );
@@ -210,7 +211,7 @@ describe("agent orchestrator —continuing a recorded session", () => {
   it("rejects — and mints no pane — when the plan cannot be prepared", async () => {
     vi.mocked(buildResumeSpec).mockResolvedValueOnce(false);
     await expect(
-      act(async () => agentRun.resumeSession("ws-1", handle())),
+      act(async () => agentRun.resumeSession("ws-1", handle(), { role: "lead" })),
     ).rejects.toThrow("resume plan");
     expect(deck.workspaces[0].panes).toHaveLength(0);
   });
@@ -225,7 +226,7 @@ describe("agent orchestrator —continuing a recorded session", () => {
       deck.addAgentPane("ws-1", { id: "pane-root", agentType: "claude" });
       deck.joinTeam("ws-1", "pane-root", "team-root", "lead");
     });
-    await act(async () => agentRun.resumeSession("ws-1", handle({ cwd: "/repo", branch: "main" })));
+    await act(async () => agentRun.resumeSession("ws-1", handle({ cwd: "/repo", branch: "main" }), { role: "impl-1" }));
     const ws = deck.workspaces[0];
     expect(ws.teams?.map((team) => team.id)).toEqual(["team-root"]);
     expect(ws.panes.map((pane) => pane.team?.teamId)).toEqual(["team-root", "team-root"]);
@@ -253,7 +254,7 @@ describe("agent orchestrator —continuing a recorded session", () => {
         panes: [],
       });
     });
-    await act(async () => agentRun.resumeSession("ws-2", handle({ cwd: "/repo" })));
+    await act(async () => agentRun.resumeSession("ws-2", handle({ cwd: "/repo" }), { role: "lead" }));
     const second = deck.workspaces[1];
     expect(second.teams?.map((team) => team.location)).toMatchObject([{ kind: "attached", cwd: "/repo" }]);
     expect(second.panes).toHaveLength(1);
@@ -271,7 +272,7 @@ describe("agent orchestrator —continuing a recorded session", () => {
         location: { kind: "attached", cwd: "/wt/api" },
       });
     });
-    await act(async () => agentRun.resumeSession("ws-1", handle(), { name: "api" }));
+    await act(async () => agentRun.resumeSession("ws-1", handle(), { name: "api", role: "lead" }));
     const ws = deck.workspaces[0];
     const resumed = ws.panes.find((pane) => pane.session?.id === "s-1")!;
     expect(resumed.team?.teamId).not.toBe("team-1");
@@ -299,11 +300,6 @@ describe("agent orchestrator —continuing a recorded session", () => {
     const first = deck.workspaces[0].panes.find((pane) => pane.session?.id === "s-1")!;
     expect(first.team).toEqual({ teamId: "team-1", role: "reviewer-1" });
 
-    // Asked for nothing, the roster suggests the next free address.
-    await act(async () => agentRun.resumeSession("ws-1", handle({ sessionId: "s-2" })));
-    const second = deck.workspaces[0].panes.find((pane) => pane.session?.id === "s-2")!;
-    expect(second.team).toEqual({ teamId: "team-1", role: "impl-1" });
-
     // A singleton the team already holds is REFUSED, the same as at every
     // other door — never quietly rewritten to the next free address, which
     // handed the person a role they did not pick under a "created" answer.
@@ -329,12 +325,19 @@ describe("agent orchestrator —continuing a recorded session", () => {
     expect(deck.workspaces[0].panes[0].team).toEqual({ teamId: "team-2", role: "lead" });
   });
 
+  it("refuses a resume that names no role — nothing picks one — and mints no pane", async () => {
+    await expect(act(async () => agentRun.resumeSession("ws-1", handle()))).rejects.toThrow(
+      roleRefusalMessage("missing", ""),
+    );
+    expect(deck.workspaces[0].panes).toHaveLength(0);
+  });
+
   it("fails a full team loudly instead of stranding the built plan", async () => {
     // The session ran in a directory whose team has no room: the resume
     // is refused whole rather than landing a seventeenth member.
     fillTeam("/repo/wt");
     await expect(
-      act(async () => agentRun.resumeSession("ws-1", handle())),
+      act(async () => agentRun.resumeSession("ws-1", handle(), { role: "lead" })),
     ).rejects.toThrow("full");
     expect(deck.workspaces[0].panes).toHaveLength(MAX_PANES);
   });
@@ -346,7 +349,7 @@ describe("agent orchestrator —continuing a recorded session", () => {
     });
     let pending!: Promise<void>;
     act(() => {
-      pending = agentRun.resumeSession("ws-1", handle());
+      pending = agentRun.resumeSession("ws-1", handle(), { role: "lead" });
     });
     // The session gets claimed DURING the build (a revive landed).
     act(() =>
@@ -371,7 +374,7 @@ describe("agent orchestrator —continuing a recorded session", () => {
     });
     let pending!: Promise<void>;
     act(() => {
-      pending = agentRun.resumeSession("ws-1", handle());
+      pending = agentRun.resumeSession("ws-1", handle(), { role: "lead" });
     });
     act(() => deck.closeWorkspace("ws-1"));
     await act(async () => {
@@ -389,7 +392,7 @@ describe("agent orchestrator —continuing a recorded session", () => {
   });
 
   it("asks about the recorded session's OWN directory as the landing cwd", async () => {
-    await act(async () => agentRun.resumeSession("ws-1", handle()));
+    await act(async () => agentRun.resumeSession("ws-1", handle(), { role: "lead" }));
 
     const calls = vi.mocked(buildResumeSpec).mock.calls;
     const facts = calls[calls.length - 1][2];
@@ -402,7 +405,7 @@ describe("agent orchestrator —continuing a recorded session", () => {
 
   it("a YOLO override reaches the pane AND the plan's facts", async () => {
     await act(async () =>
-      agentRun.resumeSession("ws-1", handle({ yolo: false }), { yolo: true }),
+      agentRun.resumeSession("ws-1", handle({ yolo: false }), { yolo: true, role: "lead" }),
     );
     expect(deck.workspaces[0].panes[0].yolo).toBe(true);
     expect(vi.mocked(buildResumeSpec).mock.calls[0][2]).toMatchObject({
@@ -412,7 +415,7 @@ describe("agent orchestrator —continuing a recorded session", () => {
 
   it("a YOLO override=false disarms a resume of a YOLO source session", async () => {
     await act(async () =>
-      agentRun.resumeSession("ws-1", handle({ yolo: true }), { yolo: false }),
+      agentRun.resumeSession("ws-1", handle({ yolo: true }), { yolo: false, role: "lead" }),
     );
     expect(deck.workspaces[0].panes[0].yolo).toBeUndefined();
     expect(vi.mocked(buildResumeSpec).mock.calls[0][2]).toMatchObject({
@@ -459,7 +462,7 @@ describe("agent orchestrator —forking a recorded session", () => {
 
   it("dir target: mints an UNBOUND pane in the chosen dir with the fork plan", async () => {
     await act(async () =>
-      agentRun.forkSession("ws-1", forked(), { kind: "dir", cwd: "/elsewhere" }),
+      agentRun.forkSession("ws-1", forked(), { kind: "dir", cwd: "/elsewhere" }, { role: "lead" }),
     );
 
     const pane = deck.workspaces[0].panes[0];
@@ -486,19 +489,21 @@ describe("agent orchestrator —forking a recorded session", () => {
 
   it("the workspace's own folder stays a plain pane", async () => {
     await act(async () =>
-      agentRun.forkSession("ws-1", forked(), { kind: "dir", cwd: "/repo" }),
+      agentRun.forkSession("ws-1", forked(), { kind: "dir", cwd: "/repo" }, { role: "lead" }),
     );
     expect(deck.workspaces[0].panes[0].location).toBeUndefined();
   });
 
   it("dir target: the role asked for rides to the team holding the directory", async () => {
-    act(() =>
+    act(() => {
       deck.createTeam("ws-1", {
         id: "team-1",
         name: "api",
         location: { kind: "attached", cwd: "/elsewhere" },
-      }),
-    );
+      });
+      deck.addAgentPane("ws-1", { id: "p-lead", agentType: "claude" });
+      deck.joinTeam("ws-1", "p-lead", "team-1", "lead");
+    });
     await act(async () =>
       agentRun.forkSession(
         "ws-1",
@@ -507,7 +512,7 @@ describe("agent orchestrator —forking a recorded session", () => {
         { role: "reviewer-1" },
       ),
     );
-    expect(deck.workspaces[0].panes[0].team).toEqual({ teamId: "team-1", role: "reviewer-1" });
+    expect(deck.workspaces[0].panes[1].team).toEqual({ teamId: "team-1", role: "reviewer-1" });
   });
 
   it("worktree target: a card first, and the surgery DEFERRED to a step", async () => {
@@ -516,7 +521,7 @@ describe("agent orchestrator —forking a recorded session", () => {
         kind: "worktree",
         path: "/repo-wt/fork-1",
         branch: "fork/auth",
-      }),
+      }, { role: "lead" }),
     );
 
     const pane = deck.workspaces[0].panes[0];
@@ -558,7 +563,7 @@ describe("agent orchestrator —forking a recorded session", () => {
         kind: "worktree",
         path: "/repo-wt/f",
         branch: "fork/x",
-      }),
+      }, { role: "lead" }),
     );
     // The runner relies on the throw to roll the worktree back and fail the
     // card (asserted in provisioning.test.ts); here: the step signals it.
@@ -576,7 +581,7 @@ describe("agent orchestrator —forking a recorded session", () => {
         kind: "worktree",
         path: "/repo-wt/f",
         branch: "fork/x",
-      }),
+      }, { role: "lead" }),
     );
     // No masking try/catch, so the runner surfaces the precise message
     // instead of the generic one.
@@ -603,7 +608,7 @@ describe("agent orchestrator —forking a recorded session", () => {
           kind: "worktree",
           path: "/repo-wt/f",
           branch: "fork/x",
-        }),
+        }, { role: "lead" }),
       ),
     ).rejects.toThrow("another workspace's team's");
     expect(provisions).toEqual([]);
@@ -631,7 +636,7 @@ describe("agent orchestrator —forking a recorded session", () => {
           kind: "worktree",
           path: "/repo-wt/f",
           branch: "fork/x",
-        }),
+        }, { role: "lead" }),
       ),
     ).rejects.toThrow("a worktree cannot be created in it");
     expect(vi.mocked(buildForkSpec)).not.toHaveBeenCalled();
@@ -670,7 +675,7 @@ describe("agent orchestrator —forking a recorded session", () => {
     fillTeam("/elsewhere");
     await expect(
       act(async () =>
-        agentRun.forkSession("ws-1", forked(), { kind: "dir", cwd: "/elsewhere" }),
+        agentRun.forkSession("ws-1", forked(), { kind: "dir", cwd: "/elsewhere" }, { role: "lead" }),
       ),
     ).rejects.toThrow("full");
     // export→rekey→import never runs, so there is no orphan clone.
@@ -696,7 +701,7 @@ describe("agent orchestrator —forking a recorded session", () => {
       pending = agentRun.forkSession("ws-1", forked(), {
         kind: "dir",
         cwd: "/elsewhere",
-      });
+      }, { role: "lead" });
     });
     act(() => deck.closeWorkspace("ws-1"));
     await act(async () => {
@@ -714,7 +719,7 @@ describe("agent orchestrator —forking a recorded session", () => {
     );
     await expect(
       act(async () =>
-        agentRun.forkSession("ws-1", forked(), { kind: "dir", cwd: "/x" }),
+        agentRun.forkSession("ws-1", forked(), { kind: "dir", cwd: "/x" }, { role: "lead" }),
       ),
     ).rejects.toThrow("unexpected store layout");
     expect(deck.workspaces[0].panes).toHaveLength(0);
@@ -724,7 +729,7 @@ describe("agent orchestrator —forking a recorded session", () => {
     vi.mocked(buildForkSpec).mockResolvedValueOnce(false);
     await expect(
       act(async () =>
-        agentRun.forkSession("ws-1", forked(), { kind: "dir", cwd: "/x" }),
+        agentRun.forkSession("ws-1", forked(), { kind: "dir", cwd: "/x" }, { role: "lead" }),
       ),
     ).rejects.toThrow("fork plan");
     expect(deck.workspaces[0].panes).toHaveLength(0);
@@ -737,8 +742,7 @@ describe("agent orchestrator —forking a recorded session", () => {
         "ws-1",
         forked(),
         { kind: "dir", cwd: "/x" },
-        { yolo: true },
-      ),
+        { yolo: true, role: "lead" }),
     );
     expect(deck.workspaces[0].panes[0].yolo).toBe(true);
     expect(vi.mocked(buildForkSpec).mock.calls[0][2]).toMatchObject({
@@ -752,8 +756,7 @@ describe("agent orchestrator —forking a recorded session", () => {
         "ws-1",
         handle({ agent: "claude", yolo: true }),
         { kind: "dir", cwd: "/x" },
-        { yolo: false },
-      ),
+        { yolo: false, role: "lead" }),
     );
     expect(deck.workspaces[0].panes[0].yolo).toBeUndefined();
     expect(vi.mocked(buildForkSpec).mock.calls[0][2]).toMatchObject({

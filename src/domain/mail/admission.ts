@@ -7,11 +7,12 @@
  * `agent.spawn`, a relocation — and the deck's reducer applies the answer
  * without judging it again.
  *
- * The policy, said once. A role that was ASKED FOR is honoured or refused,
- * never quietly replaced: a caller that asked for `impl-1` and was handed
- * `impl-2` under "created" was told a lie, and the person who picked the
- * role in a dialog was overruled in silence. A role nobody asked for is
- * suggested from the roster.
+ * The policy, said once. A role is always ASKED FOR, and honoured or
+ * refused, never quietly replaced: a caller that asked for `impl-1` and was
+ * handed `impl-2` under "created" was told a lie, and the person who picked
+ * the role in a dialog was overruled in silence. A landing that names no
+ * role is refused — nothing picks a role for a member — and so is one the
+ * team's shape cannot take ([`rosterProblem`]).
  *
  * It used to be decided four times, with three answers — the command threw,
  * the plan refused, the landing substituted, the reducer wrote nothing — and
@@ -23,13 +24,13 @@ import {
   mintRoleAddress,
   parseRoleAddress,
   peerRole,
-  suggestRoleAddress,
   teamRoles,
   type RoleStanding,
   type TeamRole,
 } from "./roles";
 
-/** Why an asked-for role cannot be taken. */
+/** Why a role cannot be taken: none was named, it is held, the catalog
+ * has no such role, or the team's shape cannot take it. */
 export type RoleRefusal = "missing" | "taken" | "unknown" | "misfit";
 
 export type RoleAdmission =
@@ -37,22 +38,26 @@ export type RoleAdmission =
   | { ok: false; why: RoleRefusal; role: string };
 
 /**
- * The role `asked` for on team `teamId` when it may be taken, the refusal
- * when it may not, or a suggested one when nothing was asked. `except` is
- * a pane whose own current role does not count as held — the pane being
- * moved onto the team.
+ * The role `asked` for on team `teamId` when it may be taken, else the
+ * refusal — asked for nothing included. `except` is a pane whose own
+ * current role does not count as held — the pane being moved onto the team.
  */
 export function admitRole(
   workspace: Workspace,
   teamId: string,
-  asked?: string,
+  asked: string | undefined,
   except?: string,
 ): RoleAdmission {
   const wanted = asked?.trim();
-  if (!wanted) return { ok: true, role: suggestRoleAddress(rolesOnTeam(workspace, teamId, except)) };
+  if (!wanted) return { ok: false, why: "missing", role: "" };
   if (!parseRoleAddress(wanted)) return { ok: false, why: "unknown", role: wanted };
   if (roleTaken(workspace, teamId, wanted, except)) {
     return { ok: false, why: "taken", role: wanted };
+  }
+  // The team as it would be with the newcomer on it: the same grammar the
+  // roster's own settling asks, so no door lets in a shape another refuses.
+  if (rosterProblem([...rolesOnTeam(workspace, teamId, except), wanted]) !== null) {
+    return { ok: false, why: "misfit", role: wanted };
   }
   return { ok: true, role: wanted };
 }

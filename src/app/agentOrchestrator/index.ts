@@ -67,7 +67,7 @@ export interface AgentOrchestrator {
   /** Continue a journal session in a new pane. `role` is the address the
    * pane asks for on the team it lands on — honoured when the catalog knows
    * it and it is free, refused otherwise ([`admitRole`], thrown as the
-   * refusal's words); absent, the roster suggests one. `team` is the team
+   * refusal's words) — absent included: nothing picks one. `team` is the team
    * it joins, by id; absent, the team holding the session's directory. */
   resumeSession(
     wsId: string,
@@ -151,9 +151,9 @@ export interface CreatePaneRequest {
    * included. Wins over `placement`. A team that is not here, holds no
    * directory, or is being closed refuses `held`. */
   team?: string;
-  /** The role the pane takes on its team, when the caller has one in mind:
-   * honoured when the catalog knows it and it is free on the team, refused
-   * otherwise (`role`). Absent, the roster suggests one. */
+  /** The role the pane takes on its team: honoured when the catalog knows
+   * it, it is free on the team and the team's shape can take it — refused
+   * otherwise (`role`), absent included: nothing picks one. */
   role?: string;
   /** The name for a team the landing MINTS — when the caller is creating
    * one and named it; the pane's own name otherwise. Ignored when the pane

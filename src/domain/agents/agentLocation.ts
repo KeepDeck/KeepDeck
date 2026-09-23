@@ -199,9 +199,9 @@ export interface AgentDialogResult {
    * a team that exists, and for a continuation. */
   teamName?: string;
   /** The role — the address teammates use — the agent takes on its team,
-   * minted free against the team's roster by the dialog. Absent for a
-   * continuation, which lands where its session was recorded and takes the
-   * address that team suggests. */
+   * picked in the dialog and minted free against the team's roster, for a
+   * continuation as for a fresh start. Absent only for "+ Team", which
+   * lands no agent. */
   role?: string;
 }
 

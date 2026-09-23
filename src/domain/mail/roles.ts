@@ -272,31 +272,6 @@ export function parseRoleAddress(
 }
 
 /**
- * The role a new member takes when nobody has said which.
- *
- * The lead while that is free — a team needs exactly one and it is the first
- * thing anyone fills — then the first repeatable role the catalog offers.
- * It lives here rather than in the dialog for the reason the whole file
- * exists: a surface that picked a default by name would be a second place
- * that knows role names, and the first to fall out of step with the catalog.
- */
-export function defaultRoleFor(taken: Iterable<string>): TeamRole {
-  const held = [...taken];
-  // A roster of peers is a FLAT team being built, and offering it the lead
-  // is offering it a refusal — peers stand only with peers. It grows with
-  // another peer.
-  if (
-    held.length > 0 &&
-    held.every((address) => parseRoleAddress(address)?.role.standing === "peer")
-  ) {
-    return peerRole();
-  }
-  const lead = leadRole();
-  if (mintRoleAddress(lead, held)) return lead;
-  return teamRoles().find((role) => role.repeatable) ?? lead;
-}
-
-/**
  * A free address for `role`, given what is already taken.
  *
  * Numbering is the deck's job, not the person's: an address has to be unique
@@ -304,16 +279,6 @@ export function defaultRoleFor(taken: Iterable<string>): TeamRole {
  * do bookkeeping the deck can see and they cannot. Null when a singleton role
  * is already held — the caller says so rather than minting a second `lead`.
  */
-/** The address a newcomer gets when nobody has picked one: the default
- * role for the roster as it stands, minted to the first free address — the
- * lead when the team has none, else the next `impl-N`, or a peer among
- * peers. WHICH role that is, and the numbering, both belong to the catalog;
- * this only says what the roster already holds. */
-export function suggestRoleAddress(taken: readonly string[]): string {
-  const role = defaultRoleFor(taken);
-  return mintRoleAddress(role, taken) ?? role.id;
-}
-
 export function mintRoleAddress(
   role: TeamRole,
   taken: Iterable<string>,

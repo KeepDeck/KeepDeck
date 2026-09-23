@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   builtInRoles,
-  defaultRoleFor,
   isLeadAddress,
   leadRole,
   mintRoleAddress,
@@ -130,26 +129,6 @@ describe("mintRoleAddress", () => {
   it("refuses a second holder of a singleton rather than minting lead-2", () => {
     expect(mintRoleAddress(leadRole(), [])).toBe("lead");
     expect(mintRoleAddress(leadRole(), ["lead"])).toBeNull();
-  });
-});
-
-describe("defaultRoleFor", () => {
-  it("grows a roster of peers with another peer, not with a refusal", () => {
-    // Offering the lead to a flat team offers it the shape rule's own "no":
-    // peers stand only with peers.
-    expect(defaultRoleFor(["peer-1"]).id).toBe("peer");
-    expect(defaultRoleFor(["peer-1", "peer-2"]).id).toBe("peer");
-  });
-
-  it("fills the lead first, then a repeatable role", () => {
-    // A team needs exactly one lead and it is the first thing anybody fills;
-    // after that, more of the same singleton would only be refused.
-    expect(defaultRoleFor([])).toBe(leadRole());
-    const second = defaultRoleFor(["lead"]);
-    expect(second).not.toBe(leadRole());
-    expect(second.repeatable).toBe(true);
-    // And it keeps answering that way however full the roster gets.
-    expect(defaultRoleFor(["lead", "impl-1", "impl-2"]).repeatable).toBe(true);
   });
 });
 

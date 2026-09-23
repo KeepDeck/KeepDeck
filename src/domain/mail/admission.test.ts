@@ -44,23 +44,39 @@ describe("admitRole", () => {
     });
   });
 
-  it("suggests a role when none was asked for — blank counts as none", () => {
+  it("refuses a landing that names no role — nothing picks one — blank counts as none", () => {
     const ws = workspace([on("pane-1", "lead")]);
-    expect(admitRole(ws, "team-1")).toEqual({ ok: true, role: "impl-1" });
-    expect(admitRole(ws, "team-1", "  ")).toEqual({ ok: true, role: "impl-1" });
+    expect(admitRole(ws, "team-1", undefined)).toEqual({ ok: false, why: "missing", role: "" });
+    expect(admitRole(ws, "team-1", "  ")).toEqual({ ok: false, why: "missing", role: "" });
+  });
+
+  it("refuses a role the team's shape cannot take, the roster read with the newcomer on it", () => {
+    expect(admitRole(workspace([]), "team-1", "impl-1")).toMatchObject({ ok: false, why: "misfit" });
+    expect(admitRole(workspace([on("pane-1", "lead")]), "team-1", "peer-1")).toMatchObject({
+      ok: false,
+      why: "misfit",
+    });
+    expect(admitRole(workspace([on("pane-1", "peer-1")]), "team-1", "lead")).toMatchObject({
+      ok: false,
+      why: "misfit",
+    });
+    // A team with nobody on it opens with a lead or a peer.
+    expect(admitRole(workspace([]), "team-1", "lead")).toEqual({ ok: true, role: "lead" });
+    expect(admitRole(workspace([]), "team-1", "peer-1")).toEqual({ ok: true, role: "peer-1" });
   });
 
   it("does not count the moving pane's own role as held", () => {
     // A pane relocating onto the team it already leads keeps its address.
     const ws = workspace([on("pane-1", "lead")]);
     expect(admitRole(ws, "team-1", "lead", "pane-1")).toEqual({ ok: true, role: "lead" });
-    expect(admitRole(ws, "team-1", undefined, "pane-1")).toEqual({ ok: true, role: "lead" });
   });
 
   it("says a refusal the same way whichever door asked", () => {
     expect(roleRefusalMessage("taken", "lead")).toContain("taken");
     expect(roleRefusalMessage("taken", "lead")).toContain("a role is an address");
     expect(roleRefusalMessage("unknown", "wizard")).toContain('"wizard" is not a role this deck knows');
+    expect(roleRefusalMessage("missing", "")).toContain("a role somebody names");
+    expect(roleRefusalMessage("misfit", "peer-1")).toContain("led");
   });
 });
 
