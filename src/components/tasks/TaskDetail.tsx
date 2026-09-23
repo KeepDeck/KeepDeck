@@ -4,9 +4,11 @@ import type { TaskPriority, TaskStatus } from "../../domain/tasks";
 import {
   DIALOG_WORDS,
   EMPTY_COMPOSER,
+  TASK_DETAIL_WORDS,
   beginSend,
   composerCanSend,
   finishSend,
+  taskDetailClassName,
   typeDraft,
   type TaskDetailView,
 } from "../../presentation/tasks";
@@ -59,7 +61,7 @@ export function TaskDetail({
     });
   };
   return (
-    <aside className={`tasks__detail${wide ? " tasks__detail--wide" : ""}`} aria-label={`Task ${view.id}`}>
+    <aside className={taskDetailClassName(wide)} aria-label={TASK_DETAIL_WORDS.panel(view.id)}>
       <div className="tasks__detail-head">
         <h3 className="tasks__detail-title">{view.title}</h3>
         {/* Words, not a ×: the dialog's own × sits right above, and two
@@ -69,7 +71,7 @@ export function TaskDetail({
             {DIALOG_WORDS.wide(wide)}
           </Button>
           <Button size="sm" variant="ghost" onClick={onClose}>
-            Close
+            {TASK_DETAIL_WORDS.close}
           </Button>
         </div>
       </div>
@@ -82,9 +84,9 @@ export function TaskDetail({
           may be picked is the transition table's answer, carried in the
           view — nothing here decides it. */}
       <div className="tasks__props">
-        <span className="tasks__prop-label">Status</span>
+        <span className="tasks__prop-label">{TASK_DETAIL_WORDS.status}</span>
         <Dropdown
-          ariaLabel="Status"
+          ariaLabel={TASK_DETAIL_WORDS.status}
           options={view.statusOptions.map((option) => ({
             value: option.value,
             label: (
@@ -100,17 +102,17 @@ export function TaskDetail({
           }}
           className="tasks__pick"
         />
-        <span className="tasks__prop-label">Priority</span>
+        <span className="tasks__prop-label">{TASK_DETAIL_WORDS.priority}</span>
         <Dropdown
-          ariaLabel="Priority"
+          ariaLabel={TASK_DETAIL_WORDS.priority}
           options={view.priorityOptions}
           value={view.priority}
           onChange={(value) => onPriority(view.id, value as TaskPriority)}
           className="tasks__pick"
         />
-        <span className="tasks__prop-label">Assignee</span>
+        <span className="tasks__prop-label">{TASK_DETAIL_WORDS.assignee}</span>
         <Dropdown
-          ariaLabel="Assignee"
+          ariaLabel={TASK_DETAIL_WORDS.assignee}
           options={view.assigneeOptions}
           value={view.assignee}
           onChange={(value) => onAssign(view.id, value)}
@@ -118,10 +120,10 @@ export function TaskDetail({
         />
       </div>
 
-      <span className="tasks__section">Brief</span>
+      <span className="tasks__section">{TASK_DETAIL_WORDS.brief}</span>
       {view.bodyEmpty ? <p className="tasks__muted">{view.bodyEmpty}</p> : <p className="tasks__body kd-selectable">{view.body}</p>}
 
-      <span className="tasks__section">Blockers</span>
+      <span className="tasks__section">{TASK_DETAIL_WORDS.blockers}</span>
       {view.blockersEmpty ? (
         <p className="tasks__muted">{view.blockersEmpty}</p>
       ) : (
@@ -138,7 +140,7 @@ export function TaskDetail({
 
       {view.unblocks.length > 0 && (
         <>
-          <span className="tasks__section">Unblocks</span>
+          <span className="tasks__section">{TASK_DETAIL_WORDS.unblocks}</span>
           <ul className="tasks__links">
             {view.unblocks.map((other) => (
               <li key={other.id}>
@@ -151,7 +153,7 @@ export function TaskDetail({
         </>
       )}
 
-      <span className="tasks__section">Artifacts</span>
+      <span className="tasks__section">{TASK_DETAIL_WORDS.artifacts}</span>
       {view.artifacts.length > 0 && (
         <ul className="tasks__links">
           {view.artifacts.map((artifact) => (
@@ -174,7 +176,7 @@ export function TaskDetail({
                 type="button"
                 className="tasks__remove"
                 aria-label={artifact.detachLabel}
-                title="Detach"
+                title={TASK_DETAIL_WORDS.detach}
                 onClick={() => onDetach(view.id, artifact.slug)}
               >
                 ×
@@ -185,8 +187,8 @@ export function TaskDetail({
       )}
       {view.attachOptions.length > 0 ? (
         <Dropdown
-          ariaLabel="Attach artifact"
-          options={[{ value: "", label: "Attach an artifact…" }, ...view.attachOptions]}
+          ariaLabel={TASK_DETAIL_WORDS.attach}
+          options={[{ value: "", label: TASK_DETAIL_WORDS.attachPrompt }, ...view.attachOptions]}
           value=""
           onChange={(slug) => {
             if (slug !== "") onAttach(view.id, slug);
@@ -197,7 +199,7 @@ export function TaskDetail({
         view.attachEmpty && <p className="tasks__muted">{view.attachEmpty}</p>
       )}
 
-      <span className="tasks__section">Thread</span>
+      <span className="tasks__section">{TASK_DETAIL_WORDS.thread}</span>
       {view.threadEmpty && <p className="tasks__muted">{view.threadEmpty}</p>}
       {view.thread.map((comment) => (
         <div key={comment.n} className="tasks__comment">
@@ -209,21 +211,21 @@ export function TaskDetail({
       ))}
       <textarea
         className="form__input tasks__composer"
-        placeholder="Add a comment — it stays with the task"
-        aria-label="Comment"
+        placeholder={TASK_DETAIL_WORDS.commentPlaceholder}
+        aria-label={TASK_DETAIL_WORDS.comment}
         value={composer.draft}
         maxLength={view.commentMax}
         onChange={(e) => setComposer((current) => typeDraft(current, e.target.value))}
       />
       <div className="tasks__composer-actions">
         <Button size="sm" onClick={send} disabled={!sendable}>
-          Comment
+          {TASK_DETAIL_WORDS.comment}
         </Button>
       </div>
 
       {view.log.length > 0 && (
         <>
-          <span className="tasks__section">Log</span>
+          <span className="tasks__section">{TASK_DETAIL_WORDS.log}</span>
           <ul className="tasks__log">
             {view.log.map((entry, i) => (
               <li key={i}>

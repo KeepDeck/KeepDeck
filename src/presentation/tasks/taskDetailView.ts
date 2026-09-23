@@ -63,6 +63,31 @@ export interface TaskDetailView {
   log: { who: string; text: string; age: string }[];
 }
 
+/** Every word the panel says that is not the task's own — the component
+ * maps these and spells nothing. */
+export const TASK_DETAIL_WORDS = {
+  panel: (id: string) => `Task ${id}`,
+  close: "Close",
+  status: "Status",
+  priority: "Priority",
+  assignee: "Assignee",
+  brief: "Brief",
+  blockers: "Blockers",
+  unblocks: "Unblocks",
+  artifacts: "Artifacts",
+  thread: "Thread",
+  log: "Log",
+  detach: "Detach",
+  attach: "Attach artifact",
+  attachPrompt: "Attach an artifact…",
+  commentPlaceholder: "Add a comment — it stays with the task",
+  comment: "Comment",
+} as const;
+
+/** The panel's classes: wide while the task fills the stage. */
+export function taskDetailClassName(wide: boolean): string {
+  return wide ? "tasks__detail tasks__detail--wide" : "tasks__detail";
+}
 
 /** An artifact as the registry lists it — the two facts a task needs. */
 export interface ArtifactRef {

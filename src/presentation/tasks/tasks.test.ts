@@ -4,7 +4,7 @@ import { boardView } from "./boardView";
 import { LADDER_WORDS, tasksLadder } from "./ladderView";
 import { newTaskFormView } from "./newTaskFormView";
 import { taskCardView, taskCardClassName } from "./taskCardView";
-import { taskDetailView } from "./taskDetailView";
+import { taskDetailView, TASK_DETAIL_WORDS, taskDetailClassName } from "./taskDetailView";
 import { teamCardTasksLine } from "./teamCardTasksLine";
 import { teamOnScreen } from "./teamOnScreen";
 import { personName, priorityMark, statusTone } from "./words";
@@ -85,6 +85,15 @@ describe("boardView", () => {
   it("always shows Cancelled, its cards marked as taken off the board", () => {
     const columns = boardView(b.tasks, b, NOW);
     expect(columns.find((c) => c.status === "cancelled")?.cards[0].cancelled).toBe(true);
+  });
+});
+
+describe("task panel words and classes", () => {
+  it("names the panel after its task and widens only when it fills the stage", () => {
+    expect(TASK_DETAIL_WORDS.panel("task-4")).toBe("Task task-4");
+    expect(taskDetailClassName(false)).toBe("tasks__detail");
+    expect(taskDetailClassName(true)).toBe("tasks__detail tasks__detail--wide");
+    expect([TASK_DETAIL_WORDS.brief, TASK_DETAIL_WORDS.close, TASK_DETAIL_WORDS.comment]).toEqual(["Brief", "Close", "Comment"]);
   });
 });
 
