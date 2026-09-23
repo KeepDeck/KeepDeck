@@ -589,6 +589,38 @@ describe("DeckStage — the teams level", () => {
     expect(document.querySelector(".deck__grid-empty-title")!.textContent).toBe("No agents on this team");
   });
 
+  it("asks the folder-gone card for a role when the pane's cannot come along to the root's team", () => {
+    const lost = {
+      ...workspaces[0],
+      teams: [...workspaces[0].teams, team("team-lost", "/repo/gone")],
+      panes: [
+        ...workspaces[0].panes,
+        {
+          id: "pane-3",
+          agentType: "codex",
+          idle: { reason: "suspended" as const, at: "2026-07-11T00:00:00Z" },
+          ...on("team-lost", "lead"),
+        },
+      ],
+    };
+    render({
+      workspaces: [lost],
+      idleBlocked: { "pane-3": "/repo/gone" },
+      viewByWs: { "ws-1": { teamOpen: "team-lost" } },
+    });
+    act(() => document.querySelector<HTMLButtonElement>(".pane__card-role .dropdown__button")!.click());
+    const impl = [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')].find(
+      (b) => b.textContent === "Implementer",
+    )!;
+    act(() => impl.click());
+    const startFresh = [...document.querySelectorAll<HTMLButtonElement>(".pane__card-action")].find((b) =>
+      b.textContent?.startsWith("Start fresh"),
+    )!;
+    act(() => startFresh.click());
+    // The root's team holds lead and impl-1: the pick lands past them.
+    expect(callbacks.onStartFresh).toHaveBeenCalledWith("ws-1", "pane-3", "impl-2");
+  });
+
   it("hides the cards while a team is open", () => {
     render({ workspaces: cards, viewByWs: { "ws-1": { teamOpen: "team-1" } } });
     expect(document.querySelector(".deck__teams")).toBeNull();

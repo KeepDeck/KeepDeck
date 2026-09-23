@@ -13,7 +13,6 @@ import {
   findTeam,
   findWorkspaceByRef,
   firstFreeTeamWorktree,
-  membersOf,
   nextAutoTeamName,
   paneId,
   parentDir,
@@ -21,6 +20,7 @@ import {
   type Workspace,
 } from "../domain/deck";
 import { handleFromHit } from "../domain/journal";
+import { rolesOnTeam } from "../domain/mail";
 import { describeError } from "../ipc/log";
 import { indexSearch } from "../ipc/history";
 import type { Page } from "./usePagedSessionSearch";
@@ -172,9 +172,7 @@ export function useAgentDialog(
           // Null while the create is out: nothing to resume in or fork into.
           cwd: team.location?.kind === "attached" ? team.location.cwd : null,
         },
-        roles: roleChoiceView(
-          membersOf(ws, team.id).flatMap((member) => (member.team ? [member.team.role] : [])),
-        ),
+        roles: roleChoiceView(rolesOnTeam(ws, team.id)),
         defaultAgentType: defaultType,
         defaultYolo: getSettings()?.defaultYolo ?? false,
         remoteEnabled: getSettings()?.remoteAgents === true,

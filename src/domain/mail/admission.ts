@@ -49,7 +49,7 @@ export function admitRole(
   except?: string,
 ): RoleAdmission {
   const wanted = asked?.trim();
-  if (!wanted) return { ok: true, role: suggestRoleAddress(rolesHeld(workspace, teamId, except)) };
+  if (!wanted) return { ok: true, role: suggestRoleAddress(rolesOnTeam(workspace, teamId, except)) };
   if (!parseRoleAddress(wanted)) return { ok: false, why: "unknown", role: wanted };
   if (roleTaken(workspace, teamId, wanted, except)) {
     return { ok: false, why: "taken", role: wanted };
@@ -71,18 +71,25 @@ export function carryRole(
   role: string | undefined,
   except: string,
 ): RoleAdmission {
+  return carryRoleInto(rolesOnTeam(workspace, teamId, except), role);
+}
+
+/** [`carryRole`] against a roster given as its addresses — for a team the
+ * move would mint, which holds nobody yet. */
+export function carryRoleInto(held: readonly string[], role: string | undefined): RoleAdmission {
   // A pane on no team was never given a role, and none is made up for it.
   if (!role) return { ok: false, why: "missing", role: "" };
   const known = parseRoleAddress(role);
   if (!known) return { ok: false, why: "unknown", role };
-  const held = rolesHeld(workspace, teamId, except);
-  const address = roleTaken(workspace, teamId, role, except) ? mintRoleAddress(known.role, held) : role;
+  const taken = held.some((address) => address.toLowerCase() === role.trim().toLowerCase());
+  const address = taken ? mintRoleAddress(known.role, held) : role;
   if (address === null) return { ok: false, why: "taken", role };
   if (rosterProblem([...held, address]) !== null) return { ok: false, why: "misfit", role };
   return { ok: true, role: address };
 }
 
-function rolesHeld(workspace: Workspace, teamId: string, except?: string): string[] {
+/** The addresses team `teamId` holds — but for `except`, a pane moving. */
+export function rolesOnTeam(workspace: Workspace, teamId: string, except?: string): string[] {
   return membersOf(workspace, teamId)
     .filter((member) => member.id !== except)
     .flatMap((member) => (member.team ? [member.team.role] : []));

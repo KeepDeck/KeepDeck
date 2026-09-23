@@ -1,5 +1,8 @@
 // @vitest-environment happy-dom
 import { act, createElement } from "react";
+import { roleChoiceView } from "../../presentation/roleChoiceView";
+import { START_FRESH_WORDS } from "../../presentation/startFreshView";
+import { roleById } from "../../domain/mail";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -1304,6 +1307,39 @@ describe("AgentPane — a refused resume explains itself", () => {
     expect(onStartFresh).not.toHaveBeenCalled();
 
     act(() => actions[1].click());
-    expect(onStartFresh).toHaveBeenCalledTimes(1);
+    expect(onStartFresh).toHaveBeenCalledExactlyOnceWith(undefined);
+  });
+
+  it("asks for the role first when the pane's own cannot come along, and says why a move was refused", () => {
+    const onStartFresh = vi.fn();
+    act(() =>
+      root.render(
+        createElement(PaneUnderTest, {
+          ...baseProps,
+          idle: { reason: "suspended", at: new Date().toISOString() } as const,
+          blockedDir: "/gone/worktree",
+          wakeError: 'role "lead" is taken on that team',
+          // The root's team has its lead already.
+          startFreshRoles: roleChoiceView(["lead"]),
+          onStartFresh,
+        }),
+      ),
+    );
+    expect(document.querySelector(".pane__wake-error")!.textContent).toContain('role "lead" is taken');
+    expect(document.body.textContent).toContain(START_FRESH_WORDS.pickRole);
+    const startFresh = () =>
+      [...document.querySelectorAll<HTMLButtonElement>(".pane__card-action")].find(
+        (b) => b.textContent === START_FRESH_WORDS.action,
+      )!;
+    expect(startFresh().disabled).toBe(true);
+
+    act(() => document.querySelector<HTMLButtonElement>(".pane__card-role .dropdown__button")!.click());
+    const impl = [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')].find(
+      (b) => b.textContent === roleById("impl")!.label,
+    )!;
+    act(() => impl.click());
+    expect(startFresh().disabled).toBe(false);
+    act(() => startFresh().click());
+    expect(onStartFresh).toHaveBeenCalledExactlyOnceWith("impl-1");
   });
 });

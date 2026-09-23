@@ -381,6 +381,13 @@ describe("agent orchestrator —session policy", () => {
       expect(agentRun.wakeFailed["pane-1"]).toContain('role "lead" is taken');
     });
 
+    it("takes the role the person picked instead, once the pane's own was refused", async () => {
+      await startFreshWith("lead", ["lead"]);
+      act(() => agentRun.startFresh("ws-1", "pane-1", "impl-1"));
+      await settle();
+      expect(deck.workspaces[0].panes[0].team).toEqual({ teamId: "team-root", role: "impl-1" });
+    });
+
     it("refuses a peer onto a led team", async () => {
       const moved = await startFreshWith("peer-1", ["lead"]);
       expect(moved.team).toEqual({ teamId: "team-1", role: "peer-1" });

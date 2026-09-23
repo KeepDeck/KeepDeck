@@ -514,7 +514,7 @@ export function createAgentOrchestratorRuntime(
     dismissOccupied: restart.dismissOccupied,
     resumeSession: continuations.resumeSession,
     forkSession: continuations.forkSession,
-    startFresh(wsId, paneId) {
+    startFresh(wsId, paneId, role) {
       const workspace = findWorkspace(deck.getSnapshot().workspaces, wsId);
       if (!workspace) return;
       // The move FIRST, and nothing else on a refusal: a directory-bound
@@ -529,6 +529,7 @@ export function createAgentOrchestratorRuntime(
         { id: workspace.id, instance: workspace.instance },
         paneId,
         { kind: "attached", cwd: workspace.cwd },
+        role,
       );
       if (moved.kind !== "created") {
         const why = createRefusalMessage(moved);

@@ -31,6 +31,7 @@ import { trayView, type ShelfEntry } from "../presentation/trayView";
 import type { JournalRecords, SessionHandle } from "../domain/journal";
 import type { BrowserSharedSeam } from "../app/useSessionsBrowser";
 import { stageContent } from "../presentation/stageView";
+import { startFreshRoles } from "../presentation/startFreshView";
 import { TeamSessions } from "./deck/TeamSessions";
 import type { RestartOutcome } from "../app/agentOrchestrator";
 
@@ -136,8 +137,9 @@ interface DeckStageProps {
    *  spawn-specs snapshot so a failure re-renders the deck with the set in
    *  hand (no module-state side-channel). */
   failedPanes: ReadonlySet<string>;
-  /** Detach a blocked pane from its gone worktree and start it fresh. */
-  onStartFresh(wsId: string, paneId: string): void;
+  /** Detach a blocked pane from its gone worktree and start it fresh —
+   * under `role` when its own could not come along. */
+  onStartFresh(wsId: string, paneId: string, role?: string): void;
   /** Wake a suspended (or parked) pane — the idle card's own gesture. */
   onResumeAgent(wsId: string, paneId: string): void;
   /** Re-issue a failed pane's worktree create (the failed card's Retry). */
@@ -465,7 +467,10 @@ export function DeckStage({
               onClose={() => onCloseAgent(ws.id, pane.id, displayTitle)}
               onRename={(name) => onRenamePane(ws.id, pane.id, name)}
               onTitle={(t) => onPaneTitle(ws.id, pane.id, t)}
-              onStartFresh={() => onStartFresh(ws.id, pane.id)}
+              startFreshRoles={
+                idleBlocked[pane.id] ? startFreshRoles(workspaces, ws, pane) : null
+              }
+              onStartFresh={(role) => onStartFresh(ws.id, pane.id, role)}
               onResume={() => onResumeAgent(ws.id, pane.id)}
               onRetryProvision={() => {
                 // The card, and its Retry, are the team's.

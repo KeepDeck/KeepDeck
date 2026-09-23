@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Pane, Workspace } from "../deck";
 import { createWorkspaceInstance } from "../workspaceInstance";
-import { admitRole, carryRole, roleRefusalMessage, rolesOpenTo, rosterProblem } from "./admission";
+import { admitRole, carryRole, carryRoleInto, roleRefusalMessage, rolesOpenTo, rosterProblem } from "./admission";
 
 const on = (id: string, role: string): Pane => ({
   id,
@@ -123,5 +123,13 @@ describe("carryRole — the role a moved member keeps", () => {
     expect(moving("peer-1", ["lead"])).toEqual({ ok: false, why: "misfit", role: "peer-1" });
     expect(moving("impl-1", ["peer-1"])).toEqual({ ok: false, why: "misfit", role: "impl-1" });
     expect(moving(undefined, ["lead"])).toEqual({ ok: false, why: "missing", role: "" });
+  });
+});
+
+describe("carryRoleInto — a move onto a team the move mints", () => {
+  it("carries what can open a team, and refuses a working role with no lead to report to", () => {
+    expect(carryRoleInto([], "lead")).toEqual({ ok: true, role: "lead" });
+    expect(carryRoleInto([], "peer-2")).toEqual({ ok: true, role: "peer-2" });
+    expect(carryRoleInto([], "impl-1")).toEqual({ ok: false, why: "misfit", role: "impl-1" });
   });
 });

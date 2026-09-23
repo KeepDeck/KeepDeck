@@ -1,4 +1,5 @@
 import { useRestart } from "./useRestart";
+import type { RoleChoice } from "../../presentation/roleChoiceView";
 import type { AgentRestartMode } from "../../domain/agents";
 import type { RestartOutcome } from "../../app/agentOrchestrator";
 import {
@@ -92,8 +93,12 @@ export interface AgentPaneProps {
   /** The missing directory blocking revival, when the pane can't wake where it
    * was ([F7] restore reconcile). */
   blockedDir?: string | null;
-  /** Detach from the missing worktree and start fresh in the workspace cwd. */
-  onStartFresh?(): void;
+  /** The roles Start fresh asks for, when the pane's own cannot come along
+   * to the workspace folder's team; null when it can. */
+  startFreshRoles?: RoleChoice | null;
+  /** Detach from the missing worktree and start fresh in the workspace cwd —
+   * under `role` when the card asked for one. */
+  onStartFresh?(role?: string): void;
   /** Ask for this pane back — the idle card's Resume and, on a pane whose
    * folder is gone, its "Look again". One gesture with two labels rather than
    * two props pointing at one handler: the card already knows which state it
@@ -213,6 +218,7 @@ export function AgentPane({
   onForkStalled,
   onRestart,
   onStartFresh,
+  startFreshRoles,
   onResume,
   onRetryProvision,
 }: AgentPaneProps) {
@@ -315,6 +321,7 @@ export function AgentPane({
             resumeSessionId={resumeSessionId}
             now={now}
             {...(onResume ? { onResume } : {})}
+            startFreshRoles={startFreshRoles ?? null}
             {...(onStartFresh ? { onStartFresh } : {})}
           />
         ) : body === "plan-failed" ? (

@@ -69,11 +69,14 @@ export interface AgentOrchestratorCreation {
   /** Move a pane already in the deck onto the team holding `placement` —
    * minting that team when nobody holds it — off whatever team it was on.
    * What "start fresh" on a pane whose directory is gone does: the pane
-   * comes back in the workspace root. The same refusals as a landing. */
+   * comes back in the workspace root. The same refusals as a landing. The
+   * pane keeps its role ([`carryRole`]) unless `role` names the one the
+   * person picked instead. */
   relocatePane(
     workspace: WorkspaceRef,
     paneId: string,
     placement: TeamLocation,
+    role?: string,
   ): CreatePaneOutcome;
   createWorkspace: AgentOrchestrator["createWorkspace"];
   retryProvisioning: AgentOrchestrator["retryProvisioning"];
@@ -417,6 +420,7 @@ export function createAgentOrchestratorCreation({
     workspace: WorkspaceRef,
     paneId: string,
     placement: TeamLocation,
+    role?: string,
   ): CreatePaneOutcome {
     const workspaces = deck.getSnapshot().workspaces;
     const current = findWorkspaceByRef(workspaces, workspace);
@@ -430,9 +434,13 @@ export function createAgentOrchestratorCreation({
     }
     // A pane holds ONE team: joining the new one is leaving the old one,
     // and a roster the old membership alone kept alive is pruned with it.
-    // The pane carries the role the person gave it; the pane's own current
-    // address does not count as held.
-    const admitted = carryRole(current, landing.team.id, pane.team?.role, pane.id);
+    // The pane carries the role the person gave it — or takes the one the
+    // person picked when that could not come along. Its own current address
+    // does not count as held.
+    const admitted =
+      role !== undefined
+        ? admitRole(current, landing.team.id, role, pane.id)
+        : carryRole(current, landing.team.id, pane.team?.role, pane.id);
     if (!admitted.ok) return { kind: "role", why: admitted.why, role: admitted.role };
     if (!join(current, pane, landing, undefined, admitted.role)) {
       return { kind: "held", why: "refused" };
