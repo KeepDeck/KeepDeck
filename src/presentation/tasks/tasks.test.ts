@@ -187,7 +187,7 @@ describe("teamCardTasksLine", () => {
   });
 });
 
-describe("ladder and badge", () => {
+describe("ladder", () => {
   const ready = {
     kind: "ready" as const,
     board: board([task({ id: "task-1", status: "blocked" }), task({ id: "task-2", status: "review" }), task({ id: "task-3" })]),

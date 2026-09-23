@@ -213,18 +213,21 @@
   cursor: pointer;
 }
 
-/* Text people and agents write — titles, briefs, comments, log lines,
-   links — breaks a long unbroken run (a path, a constant, a URL) rather
-   than widening its box: one such run spilled a card past its column and
-   gave the task panel a horizontal scroll. One rule, so the next text
-   block cannot be the one that forgets. */
+/* Text people, agents and the backend write — titles, briefs, comments,
+   log lines, links, a refusal or a failed read — breaks a long unbroken
+   run (a path, a constant, a URL) rather than widening its box: one such
+   run spilled a card past its column and gave the task panel a
+   horizontal scroll. One rule, so the next text block cannot be the one
+   that forgets. */
 .tasks__card-title,
 .tasks__card-blocked,
 .tasks__detail-title,
 .tasks__body,
 .tasks__comment-body,
 .tasks__log-text,
-.tasks__link {
+.tasks__link,
+.tasks__error,
+.tasks__placeholder-title {
   overflow-wrap: anywhere;
 }
 

@@ -2,7 +2,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { appCss } from "./testSupport";
 
-/** Every class that holds text a person or an agent wrote on the board. */
+/** Every class that holds text a person, an agent or the backend wrote —
+ * a refusal or a failed read can carry a path as long as any brief. */
 const WRITTEN_TEXT = [
   "tasks__card-title",
   "tasks__card-blocked",
@@ -11,6 +12,8 @@ const WRITTEN_TEXT = [
   "tasks__comment-body",
   "tasks__log-text",
   "tasks__link",
+  "tasks__error",
+  "tasks__placeholder-title",
 ];
 
 function mount(className: string): HTMLElement {
