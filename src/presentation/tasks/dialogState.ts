@@ -51,7 +51,6 @@ export function teamControlView(
 
 /** The words of the bar and the panel head, by state. */
 export const DIALOG_WORDS = {
-  cancelledFilter: (showCancelled: boolean) => (showCancelled ? "Hide cancelled" : "Show cancelled"),
   wide: (wide: boolean) => (wide ? "Collapse" : "Expand"),
 } as const;
 

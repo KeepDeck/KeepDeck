@@ -15,20 +15,14 @@ export interface BoardColumnView {
   cards: TaskCardView[];
 }
 
-export interface BoardOptions {
-  /** Whether the Cancelled column is on the board at all. */
-  showCancelled: boolean;
-  now: number;
-}
-
 /**
  * The board: one column per status in board order. Open columns keep
  * queue order (priority, then age), so the top card is what would be
  * handed out next; closed columns read newest first, the way a history
  * does.
  */
-export function boardView(tasks: readonly Task[], board: TaskBoard, options: BoardOptions): BoardColumnView[] {
-  return BOARD_ORDER.filter((status) => status !== "cancelled" || options.showCancelled).map((status) => {
+export function boardView(tasks: readonly Task[], board: TaskBoard, now: number): BoardColumnView[] {
+  return BOARD_ORDER.map((status) => {
     const inColumn = tasks.filter((task) => task.status === status);
     const ordered = isOpen(status)
       ? [...inColumn].sort(compareQueue)
@@ -37,7 +31,7 @@ export function boardView(tasks: readonly Task[], board: TaskBoard, options: Boa
       status,
       label: STATUS_LABEL[status],
       count: inColumn.length,
-      cards: ordered.map((task) => taskCardView(task, board, options.now)),
+      cards: ordered.map((task) => taskCardView(task, board, now)),
     };
   });
 }

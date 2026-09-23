@@ -99,7 +99,7 @@ export function useTasksBoard(
     },
     [onFocus, onClose],
   );
-  const { showCancelled, chosenTeam, composing, hover } = screen;
+  const { chosenTeam, composing, hover } = screen;
   /** The workspace's artifacts, for the open task's attachments. Read
    * when a task is open and re-read when the registry changes; empty
    * (never an error) when the artifacts feature is off. */
@@ -195,7 +195,7 @@ export function useTasksBoard(
   const selected = focusedTask;
   const detail =
     selected && selected.teamId === teamId ? taskDetailView(selected, board!, roster, now, knownArtifacts) : null;
-  const columns = board ? boardView(teamTasks, board, { showCancelled, now }) : [];
+  const columns = board ? boardView(teamTasks, board, now) : [];
   const form = newTaskFormView(roster);
 
   /** The pointer was released over `over` (a column, or nothing). One
@@ -235,8 +235,6 @@ export function useTasksBoard(
     teams: teams.map((team) => ({ id: team.id, name: team.name })),
     teamId,
     selectTeam: (id: string) => run({ type: "team", id }),
-    showCancelled,
-    toggleCancelled: () => run({ type: "toggleCancelled" }),
     columns,
     detail,
     /** A card was clicked: opened, or put away when it was the open one. */

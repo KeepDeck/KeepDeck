@@ -60,23 +60,23 @@ describe("boardView", () => {
     task({ id: "task-5", status: "cancelled" }),
   ]);
 
-  it("lays the board out blocked-first, open columns in queue order, closed ones newest first — every column open", () => {
-    const columns = boardView(b.tasks, b, { showCancelled: false, now: NOW });
+  it("lays the board out blocked-first, open columns in queue order, closed ones newest first — every column open, Cancelled included", () => {
+    const columns = boardView(b.tasks, b, NOW);
     expect(columns.map((c) => `${c.status}:${c.count}`)).toEqual([
       "blocked:0",
       "todo:2",
       "in-progress:0",
       "review:0",
       "done:2",
+      "cancelled:1",
     ]);
     expect(columns[1].cards.map((c) => c.id)).toEqual(["task-2", "task-1"]);
     // Done shows its cards: no column is folded away.
     expect(columns[4].cards.map((c) => c.id)).toEqual(["task-4", "task-3"]);
   });
 
-  it("shows cancelled only behind the filter, cards and all", () => {
-    const columns = boardView(b.tasks, b, { showCancelled: true, now: NOW });
-    expect(columns.find((c) => c.status === "cancelled")).toMatchObject({ count: 1 });
+  it("always shows Cancelled, its cards marked as taken off the board", () => {
+    const columns = boardView(b.tasks, b, NOW);
     expect(columns.find((c) => c.status === "cancelled")?.cards[0].cancelled).toBe(true);
   });
 });

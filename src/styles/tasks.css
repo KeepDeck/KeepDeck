@@ -43,36 +43,8 @@
   font-size: 13px;
 }
 
-.tasks__segment-btn {
-  padding: 5px 12px;
-  border: 0;
-  background: none;
-  color: #9aa3af;
-  font: inherit;
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.tasks__segment-btn:hover {
-  color: #c5c8c6;
-}
-
-.tasks__segment-btn--active {
-  background-color: #161d29;
-  color: #c5c8c6;
-}
-
 .tasks__new {
   margin-left: auto;
-}
-
-/* A filter in the bar: a single toggle that reads as on or off. */
-.tasks__filter {
-  display: inline-flex;
-  border: 1px solid #1c2230;
-  border-radius: 8px;
-  background-color: #0e121a;
-  overflow: hidden;
 }
 
 .tasks__error {

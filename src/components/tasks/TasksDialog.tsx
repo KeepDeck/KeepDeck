@@ -2,7 +2,6 @@ import { Dropdown } from "@keepdeck/ui-kit";
 import type { ArtifactsRegistryReadPort } from "../../app/artifacts/registryRead";
 import type { Workspace } from "../../domain/deck";
 import {
-  DIALOG_WORDS,
   LADDER_WORDS,
   cardOf,
   dialogClassName,
@@ -132,16 +131,6 @@ function WorkspaceBoard({
                 />
               )}
               {teamControl.kind === "word" && <span className="tasks__team-name">{teamControl.name}</span>}
-              <div className="tasks__filter">
-                <button
-                  type="button"
-                  className={`tasks__segment-btn${board.showCancelled ? " tasks__segment-btn--active" : ""}`}
-                  aria-pressed={board.showCancelled}
-                  onClick={board.toggleCancelled}
-                >
-                  {DIALOG_WORDS.cancelledFilter(board.showCancelled)}
-                </button>
-              </div>
               <Button
                 size="sm"
                 variant="primary"

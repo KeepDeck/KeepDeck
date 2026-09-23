@@ -551,6 +551,16 @@ describe("TasksDialog", () => {
     expect(button("Comment").disabled).toBe(false);
   });
 
+  it("always shows the Cancelled column with its cards — there is no filter to turn it on", async () => {
+    const { service } = await seeded();
+    await service.apply("ws-1", "task-2", [{ kind: "status", to: "cancelled" }], USER_ACTOR);
+    mount(service)();
+    await flush();
+    const cancelled = document.querySelector<HTMLElement>('section[aria-label="Cancelled"]');
+    expect(cancelled?.querySelectorAll(".tasks__card")).toHaveLength(1);
+    expect(buttons().some((b) => /cancelled/i.test(b.textContent ?? ""))).toBe(false);
+  });
+
   it("is one board: no Board/Queues switch, no lanes — the columns are the only view", async () => {
     const { service } = await seeded();
     mount(service)();
