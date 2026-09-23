@@ -125,7 +125,7 @@ function WorkspaceBoard({
                   onChange={board.selectTeam}
                 />
               )}
-              {view.team.kind === "word" && <span className="tasks__team-name">{view.team.name}</span>}
+              {view.team.kind === "word" && <span className="tasks__team-name kd-one-line">{view.team.name}</span>}
               <Button
                 size="sm"
                 variant="primary"

@@ -564,6 +564,25 @@ describe("TasksDialog", () => {
     expect(buttons().some((b) => /cancelled/i.test(b.textContent ?? ""))).toBe(false);
   });
 
+  it("keeps a card's title to one line; blocker rows clamp to two", async () => {
+    const { service } = await seeded();
+    await service.apply("ws-1", "task-1", [{ kind: "blockedBy", to: ["task-2"] }], USER_ACTOR);
+    focus = "task-1";
+    mount(service)();
+    await flush();
+    expect(cards().every((c) => c.querySelector(".tasks__card-title")?.classList.contains("kd-one-line"))).toBe(true);
+    const blockers = document.querySelector('aside[aria-label="Task task-1"] .tasks__links');
+    expect(blockers?.querySelector(".kd-two-lines")?.textContent).toContain("task-2");
+  });
+
+  it("names the one team as a word, kept to one line", async () => {
+    const { service } = await seeded();
+    const [ws] = teamedWorkspaces();
+    mount(service, { ...ws, teams: [ws.teams![0]] })();
+    await flush();
+    expect(document.querySelector(".tasks__team-name")?.classList.contains("kd-one-line")).toBe(true);
+  });
+
   it("is one board: no Board/Queues switch, no lanes — the columns are the only view", async () => {
     const { service } = await seeded();
     mount(service)();

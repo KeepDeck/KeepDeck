@@ -61,6 +61,6 @@ describe("Artifacts registry layout", () => {
     document.body.append(title);
     const style = getComputedStyle(title);
     expect(style.getPropertyValue("-webkit-line-clamp")).toBe("2");
-    expect(style.overflowWrap).toBe("anywhere");
+    expect(style.overflowWrap).toBe("break-word");
   });
 });

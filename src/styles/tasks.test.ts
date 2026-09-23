@@ -2,19 +2,16 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { appCss } from "./testSupport";
 
-/** Every class that holds text a person, an agent or the backend wrote —
+/** Every class that holds prose a person, an agent or the backend wrote —
  * a refusal or a failed read can carry a path as long as any brief. */
-const WRITTEN_TEXT = [
-  "tasks__card-title",
+const PROSE = [
   "tasks__card-blocked",
   "tasks__detail-title",
   "tasks__body",
   "tasks__comment-body",
   "tasks__log-text",
-  "tasks__link",
   "tasks__error",
   "tasks__placeholder-title",
-  "tasks__team-name",
 ];
 
 function mount(className: string): HTMLElement {
@@ -35,10 +32,18 @@ afterEach(() => {
 });
 
 describe("Tasks text never widens its box", () => {
-  it.each(WRITTEN_TEXT)("%s breaks a long unbroken run instead of overflowing", (className) => {
+  it.each(PROSE)("%s breaks a long unbroken run instead of overflowing", (className) => {
     // A path or a constant with no spaces spilled a card past its column
-    // and gave the task panel a horizontal scroll.
-    expect(getComputedStyle(mount(className)).overflowWrap).toBe("anywhere");
+    // and gave the task panel a horizontal scroll. break-word, not
+    // anywhere: anywhere let a flex item collapse to one letter wide.
+    expect(getComputedStyle(mount(className)).overflowWrap).toBe("break-word");
+  });
+
+  it("one line, then an ellipsis: .kd-one-line never wraps and may shrink", () => {
+    const style = getComputedStyle(mount("kd-one-line"));
+    expect(style.whiteSpace).toBe("nowrap");
+    expect(style.textOverflow).toBe("ellipsis");
+    expect(Number.parseFloat(style.minWidth)).toBe(0);
   });
 
   it("the task panel's artifact row no longer cuts to one line", () => {

@@ -131,7 +131,9 @@ export function TaskDetail({
           {view.blockers.map((blocker) => (
             <li key={blocker.id}>
               <button type="button" className="tasks__link" onClick={() => onSelect(blocker.id)}>
-                <code>{blocker.text}</code>
+                <span className="kd-two-lines">
+                  <code>{blocker.text}</code>
+                </span>
               </button>
             </li>
           ))}
@@ -145,7 +147,9 @@ export function TaskDetail({
             {view.unblocks.map((other) => (
               <li key={other.id}>
                 <button type="button" className="tasks__link" onClick={() => onSelect(other.id)}>
-                  <code>{other.id}</code> {other.title}
+                  <span className="kd-two-lines">
+                    <code>{other.id}</code> {other.title}
+                  </span>
                 </button>
               </li>
             ))}

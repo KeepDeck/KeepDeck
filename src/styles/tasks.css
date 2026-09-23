@@ -39,7 +39,6 @@
 }
 
 .tasks__team-name {
-  min-width: 0;
   color: #8b93a3;
   font-size: 13px;
 }
@@ -214,23 +213,21 @@
   cursor: pointer;
 }
 
-/* Text people, agents and the backend write — titles, briefs, comments,
-   log lines, links, a refusal or a failed read — breaks a long unbroken
-   run (a path, a constant, a URL) rather than widening its box: one such
-   run spilled a card past its column and gave the task panel a
-   horizontal scroll. One rule, so the next text block cannot be the one
-   that forgets. */
-.tasks__card-title,
+/* Prose people, agents and the backend write — a brief, comments, log
+   lines, a refusal or a failed read, the blocked-by line — wraps, and a
+   long unbroken run (a path, a constant) breaks rather than widening its
+   box. break-word, not anywhere: it breaks only a word that does not fit,
+   and leaves the box's own width alone. The card title, the team name and
+   the panel's link rows are not prose: they take .kd-one-line or
+   .kd-two-lines. */
 .tasks__card-blocked,
 .tasks__detail-title,
 .tasks__body,
 .tasks__comment-body,
 .tasks__log-text,
-.tasks__link,
 .tasks__error,
-.tasks__placeholder-title,
-.tasks__team-name {
-  overflow-wrap: anywhere;
+.tasks__placeholder-title {
+  overflow-wrap: break-word;
 }
 
 .tasks__card:hover {

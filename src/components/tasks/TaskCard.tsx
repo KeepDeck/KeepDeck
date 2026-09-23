@@ -35,7 +35,7 @@ export function TaskCard({ card, selected, dragging = false, onSelect, onArm }: 
       }
       onClick={() => onSelect(card.id)}
     >
-      <span className="tasks__card-title">{card.title}</span>
+      <span className="tasks__card-title kd-one-line">{card.title}</span>
       <span className="tasks__card-meta">
         <code>{card.meta}</code>
         {card.priority && <span className="tasks__mark">{card.priority}</span>}
