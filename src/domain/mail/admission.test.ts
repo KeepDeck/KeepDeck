@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Pane, Workspace } from "../deck";
 import { createWorkspaceInstance } from "../workspaceInstance";
-import { admitRole, roleRefusalMessage } from "./admission";
+import { admitRole, roleRefusalMessage, rolesOpenTo, rosterProblem } from "./admission";
 
 const on = (id: string, role: string): Pane => ({
   id,
@@ -61,5 +61,42 @@ describe("admitRole", () => {
     expect(roleRefusalMessage("taken", "lead")).toContain("taken");
     expect(roleRefusalMessage("taken", "lead")).toContain("a role is an address");
     expect(roleRefusalMessage("unknown", "wizard")).toContain('"wizard" is not a role this deck knows');
+  });
+});
+
+describe("rosterProblem — the one grammar of a team's shape", () => {
+  it("accepts an empty team, a lead alone, a led team, and peers alone", () => {
+    expect(rosterProblem([])).toBeNull();
+    expect(rosterProblem(["lead"])).toBeNull();
+    expect(rosterProblem(["lead", "impl-1", "reviewer-1"])).toBeNull();
+    expect(rosterProblem(["peer-1", "peer-2"])).toBeNull();
+  });
+
+  it("refuses a repeated address, an unknown role, a mixed shape, and working roles with no lead", () => {
+    expect(rosterProblem(["lead", "LEAD"])).toContain("share the role");
+    expect(rosterProblem(["wizard-1"])).toContain("not a role");
+    expect(rosterProblem(["peer-1", "lead"])).toContain("either led or flat");
+    expect(rosterProblem(["peer-1", "impl-1"])).toContain("either led or flat");
+    expect(rosterProblem(["impl-1"])).toContain("needs one lead");
+  });
+});
+
+describe("rolesOpenTo — what the next member may be", () => {
+  const ids = (held: string[]) => rolesOpenTo(held).map((open) => open.role.id);
+
+  it("offers an empty team a lead or a peer, and nothing a lone member could not be", () => {
+    expect(ids([])).toEqual(["lead", "peer"]);
+    expect(rolesOpenTo([]).map((open) => open.address)).toEqual(["lead", "peer-1"]);
+  });
+
+  it("offers a led team its working roles — never a second lead, never a peer — at the next free address", () => {
+    const open = rolesOpenTo(["lead", "impl-1"]);
+    expect(open.map((o) => o.role.id)).not.toContain("lead");
+    expect(open.map((o) => o.role.id)).not.toContain("peer");
+    expect(open.find((o) => o.role.id === "impl")?.address).toBe("impl-2");
+  });
+
+  it("offers a flat team only another peer", () => {
+    expect(rolesOpenTo(["peer-1"])).toEqual([expect.objectContaining({ address: "peer-2" })]);
   });
 });

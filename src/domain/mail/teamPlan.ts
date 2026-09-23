@@ -26,14 +26,13 @@ import {
   teamNameTaken,
   type Workspace,
 } from "../deck";
-import { roleRefusalMessage } from "./admission";
+import { rosterProblem } from "./admission";
 import { SENDABLE_KINDS } from "./message";
 import { kindGuidance } from "./policy";
 import {
   isLeadAddress,
   leadRole,
   parseRoleAddress,
-  peerRole,
   type RoleStanding,
 } from "./roles";
 
@@ -325,51 +324,10 @@ export function planTeam(
     };
   }
 
-  const seen = new Set<string>();
-  const standings: Record<RoleStanding, number> = { leads: 0, reports: 0, peer: 0 };
-  for (const { role } of [...members, ...recruits]) {
-    const key = role.toLowerCase();
-    if (seen.has(key)) {
-      return {
-        ok: false,
-        message: `two members share the role "${role}" — a role is an address, so it has to be unique`,
-      };
-    }
-    seen.add(key);
-    // Unknown roles are refused rather than carried: a role the catalog
-    // cannot account for has no charter, so its holder would be briefed with
-    // nothing said about what it is for — the exact state roles exist to end.
-    const known = parseRoleAddress(role);
-    if (!known) {
-      return { ok: false, message: roleRefusalMessage("unknown", role) };
-    }
-    standings[known.role.standing] += 1;
-  }
-  // A team has one of two SHAPES, and the roster itself says which: LED —
-  // one lead handing out work to members whose charters name it — or FLAT,
-  // peers only, where nobody assigns anything. The three rules below are
-  // those shapes; anything they refuse would brief somebody with a lie.
-  //
-  // An EMPTY roster is neither — a team with nobody on it yet, whose card
-  // stays until someone joins. Demanding a shape there would make an
-  // empty team un-renameable.
-  if (standings.peer > 0 && (standings.leads > 0 || standings.reports > 0)) {
-    return {
-      ok: false,
-      message: `a team is either led or flat: ${peerRole().id}s stand only with ${peerRole().id}s`,
-    };
-  }
-  if (standings.leads > 1) {
-    return { ok: false, message: `a team can only have one ${leadRole().id}` };
-  }
-  // A working role's charter takes direction from the lead, so without one
-  // every member would be briefed to follow a role that is not there.
-  if (standings.reports > 0 && standings.leads === 0) {
-    return {
-      ok: false,
-      message: `a team needs one ${leadRole().id} — it is the member that hands out the work`,
-    };
-  }
+  // The roster's shape — duplicates, unknown roles, led or flat — is the
+  // one grammar every door onto a team asks (`rosterProblem`).
+  const problem = rosterProblem([...members, ...recruits].map((entry) => entry.role));
+  if (problem !== null) return { ok: false, message: problem };
 
   return { ok: true, value: { teamId, name, members, recruits } };
 }

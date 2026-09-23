@@ -18,7 +18,16 @@
  * which one a caller met depended on the door it came through.
  */
 import { membersOf, roleTaken, type Workspace } from "../deck";
-import { parseRoleAddress, suggestRoleAddress } from "./roles";
+import {
+  leadRole,
+  mintRoleAddress,
+  parseRoleAddress,
+  peerRole,
+  suggestRoleAddress,
+  teamRoles,
+  type RoleStanding,
+  type TeamRole,
+} from "./roles";
 
 /** Why an asked-for role cannot be taken. */
 export type RoleRefusal = "taken" | "unknown";
@@ -61,4 +70,67 @@ export function roleRefusalMessage(why: RoleRefusal, role: string): string {
     case "unknown":
       return `"${role}" is not a role this deck knows`;
   }
+}
+
+/**
+ * What is wrong with a team whose members answer to `roles`, or null when
+ * nothing is — THE shape of a team, said once.
+ *
+ * A role is an address, so none repeats; it is the catalog's, so an unknown
+ * one has no charter to brief its holder with. And a team has one of two
+ * shapes, which the roster itself says: LED — one lead handing out work to
+ * members whose charters name it — or FLAT, peers only, where nobody
+ * assigns anything. An EMPTY roster is neither: a team with nobody on it
+ * yet, whose card stays until someone joins.
+ *
+ * `planTeam` asks it of a whole roster being settled; a landing asks it of
+ * the roster the team would have with the newcomer on it — one grammar, so
+ * a shape one door refuses cannot come in through another.
+ */
+export function rosterProblem(roles: readonly string[]): string | null {
+  const seen = new Set<string>();
+  const standings: Record<RoleStanding, number> = { leads: 0, reports: 0, peer: 0 };
+  for (const role of roles) {
+    const key = role.toLowerCase();
+    if (seen.has(key)) {
+      return `two members share the role "${role}" — a role is an address, so it has to be unique`;
+    }
+    seen.add(key);
+    const known = parseRoleAddress(role);
+    if (!known) return roleRefusalMessage("unknown", role);
+    standings[known.role.standing] += 1;
+  }
+  if (standings.peer > 0 && (standings.leads > 0 || standings.reports > 0)) {
+    return `a team is either led or flat: ${peerRole().id}s stand only with ${peerRole().id}s`;
+  }
+  // No "one lead" count: the lead is a singleton address, so a second one
+  // is the repeated address refused above.
+  // A working role's charter takes direction from the lead, so without one
+  // every member would be briefed to follow a role that is not there.
+  if (standings.reports > 0 && standings.leads === 0) {
+    return `a team needs one ${leadRole().id} — it is the member that hands out the work`;
+  }
+  return null;
+}
+
+/** A role a team can take next, and the address it would take it under. */
+export interface OpenRole {
+  role: TeamRole;
+  address: string;
+}
+
+/**
+ * The roles a team holding `held` can take its NEXT member under, in
+ * catalog order, each with the address it would be minted as. Only what
+ * `rosterProblem` accepts: an empty team is offered a lead or a peer, a led
+ * team its working roles (never a second lead, never a peer), a flat team
+ * another peer. What a picker offers and what the landing admits are
+ * therefore the same answer.
+ */
+export function rolesOpenTo(held: readonly string[]): OpenRole[] {
+  return teamRoles().flatMap((role) => {
+    const address = mintRoleAddress(role, held);
+    if (address === null || rosterProblem([...held, address]) !== null) return [];
+    return [{ role, address }];
+  });
 }
