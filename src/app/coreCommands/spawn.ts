@@ -27,7 +27,7 @@ const ROLE_ARG = {
   type: "string",
   required: true,
   description:
-    "The role it takes on its team — how teammates address it; nobody picks one for it. A team with nobody on it takes lead or peer-1; a led team its working roles, numbered (impl-1, reviewer-2); a flat team more peers. Refused when taken, unknown, or a shape the team cannot have",
+    "The role it takes on its team — how teammates address it; nobody picks one for it. An address (impl-2) as it is, or a role (impl, peer) at its next free address. A team with nobody on it takes lead or a peer; a led team its working roles; a flat team more peers. Refused when taken, unknown, or a shape the team cannot have",
 } as const;
 
 export function registerSpawnCommands(

@@ -24,6 +24,7 @@ import {
   mintRoleAddress,
   parseRoleAddress,
   peerRole,
+  roleById,
   teamRoles,
   type RoleStanding,
   type TeamRole,
@@ -39,8 +40,10 @@ export type RoleAdmission =
 
 /**
  * The role `asked` for on team `teamId` when it may be taken, else the
- * refusal — asked for nothing included. `except` is a pane whose own
- * current role does not count as held — the pane being moved onto the team.
+ * refusal — asked for nothing included. An address (`impl-2`) is honoured
+ * as it is; a repeatable ROLE (`impl`) asks for any member of it, and takes
+ * its next free address. `except` is a pane whose own current role does not
+ * count as held — the pane being moved onto the team.
  */
 export function admitRole(
   workspace: Workspace,
@@ -48,8 +51,12 @@ export function admitRole(
   asked: string | undefined,
   except?: string,
 ): RoleAdmission {
-  const wanted = asked?.trim();
-  if (!wanted) return { ok: false, why: "missing", role: "" };
+  const trimmed = asked?.trim();
+  if (!trimmed) return { ok: false, why: "missing", role: "" };
+  const repeatable = roleById(trimmed.toLowerCase());
+  const wanted = repeatable?.repeatable
+    ? (mintRoleAddress(repeatable, rolesOnTeam(workspace, teamId, except)) ?? trimmed)
+    : trimmed;
   if (!parseRoleAddress(wanted)) return { ok: false, why: "unknown", role: wanted };
   if (roleTaken(workspace, teamId, wanted, except)) {
     return { ok: false, why: "taken", role: wanted };

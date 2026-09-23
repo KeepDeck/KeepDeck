@@ -36,6 +36,15 @@ describe("admitRole", () => {
     });
   });
 
+  it("takes a repeatable ROLE at its next free address — and still refuses one the shape cannot take", () => {
+    expect(admitRole(workspace([on("pane-1", "lead"), on("pane-2", "impl-1")]), "team-1", "Impl")).toEqual({
+      ok: true,
+      role: "impl-2",
+    });
+    expect(admitRole(workspace([]), "team-1", "peer")).toEqual({ ok: true, role: "peer-1" });
+    expect(admitRole(workspace([on("pane-1", "lead")]), "team-1", "peer")).toMatchObject({ ok: false, why: "misfit" });
+  });
+
   it("refuses a role the catalog does not know", () => {
     expect(admitRole(workspace([]), "team-1", "wizard-1")).toEqual({
       ok: false,

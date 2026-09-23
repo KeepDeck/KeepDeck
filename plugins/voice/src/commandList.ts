@@ -12,8 +12,8 @@ export interface CommandDoc {
 }
 
 export const COMMAND_DOCS: CommandDoc[] = [
-  { template: "create a lead in <workspace>", effect: "spawn an agent on a team of its own, as its lead" },
-  { template: "create a peer in <workspace>", effect: "spawn one as a peer of a team of its own" },
+  { template: "create a lead in <workspace>", effect: "spawn an agent as its team's lead" },
+  { template: "create a peer in <workspace>", effect: "spawn an agent as a peer" },
   {
     template: "create a lead in <workspace> with task <what to do>",
     effect: "spawn one and give it a task",

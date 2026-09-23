@@ -6,8 +6,9 @@
  * fuzzy resolution against real names is the caller's job — the grammar
  * never guesses.
  */
-/** The role a spoken spawn names. A spawn makes a team of its own, and a
- * team with nobody on it takes a lead or a peer — nothing else. */
+/** The role a spoken spawn names — a lead or a peer, what a team starting
+ * with the spawned agent takes. The host mints the address and refuses a
+ * role the team it lands on cannot take. */
 export type SpokenRole = "lead" | "peer";
 
 export type Intent =

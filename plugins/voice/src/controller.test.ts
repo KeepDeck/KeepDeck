@@ -400,7 +400,7 @@ describe("createVoiceController", () => {
     await controller.stop();
     expect(host.executedCommands).toContainEqual({
       id: "agent.spawn",
-      args: { workspace: "ws-1", role: "peer-1" },
+      args: { workspace: "ws-1", role: "peer" },
     });
   });
 
