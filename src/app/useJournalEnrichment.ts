@@ -20,7 +20,7 @@ const NO_INVALIDATION: ReadonlySet<string> = new Set();
  *
  * The answers live in ONE keyed table (keyed by the ROW, "agent:sessionId"),
  * never in a shared "last response" cell: several lists stay mounted at
- * once (one per empty workspace, hidden not unmounted) with DIFFERENT rows,
+ * once (one per empty team, hidden not unmounted) with DIFFERENT rows,
  * and a last-response cell would let a hidden list's answer overwrite
  * another workspace's. Keyed by row, an answer can only ever land on the
  * row it was asked for — the same key in two workspaces' journals is the

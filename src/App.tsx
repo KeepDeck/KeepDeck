@@ -16,13 +16,11 @@ import { SkillsDialog } from "./components/skills/SkillsDialog";
 import { McpDialog } from "./components/mcp/McpDialog";
 import { StatsDialog } from "./components/stats/StatsDialog";
 import { AgentDialog } from "./components/workspace/AgentDialog";
-import { ForkTargetDialog } from "./components/workspace/ForkTargetDialog";
 import { WorkspacesRail } from "./components/workspace/WorkspacesRail";
 import { WorkspaceForm } from "./components/workspace/WorkspaceForm";
 import {
   DECK_STATE_VERSION,
   findWorkspace,
-  directoryState,
 } from "./domain/deck";
 import { pickFolder } from "./ipc/dialogs";
 import { describeError } from "./ipc/log";
@@ -71,7 +69,6 @@ function App() {
     dockTabs,
     error,
     failedPanes,
-    forkDialog,
     frozen,
     frozenAck,
     gitHeads,
@@ -89,7 +86,6 @@ function App() {
     runView,
     browserShared,
     setCreating,
-    setForkDialog,
     setFrozenAck,
     setRailCollapsed,
     openSettings,
@@ -110,7 +106,6 @@ function App() {
     openStats,
     closeStats,
     selectStatsTab,
-    settings,
     settingsOpen,
     settingsSection,
     showBell,
@@ -192,12 +187,10 @@ function App() {
             unavailableAgentReasons={unavailableReasons}
             gitHeads={gitHeads}
             journal={deck.journal.records}
-            onResumeSession={(wsId, record) =>
-              void orchestrator.resumeSession(wsId, record).catch((e: unknown) =>
-                pushAlert("Could not resume the session", describeError(e)),
-              )
-            }
-            onForkSession={(wsId, record) => setForkDialog({ wsId, record })}
+            onContinueSession={(wsId, teamId, mode, record, role) => {
+              const ws = findWorkspace(deck.workspaces, wsId);
+              if (ws) agentFlow.continueSession(ws, teamId, { mode, handle: record }, role);
+            }}
             browserShared={browserShared}
             onSelectPane={deck.selectPane}
             onToggleFocus={paneViewActions.toggleMaximize}
@@ -323,35 +316,6 @@ function App() {
               cancelLabel="Cancel"
               onConfirm={agentFlow.sharedAsk.confirm}
               onCancel={agentFlow.sharedAsk.cancel}
-            />
-          )}
-          {forkDialog && (
-            <ForkTargetDialog
-              record={forkDialog.record}
-              agents={agents}
-              workspaceCwd={
-                findWorkspace(deck.workspaces, forkDialog.wsId)?.cwd ?? ""
-              }
-              defaultYolo={settings.defaultYolo}
-              probe={probeWorktree}
-              directoryAt={(path) => {
-                const ws = findWorkspace(deck.workspaces, forkDialog.wsId);
-                return ws ? directoryState(deck.workspaces, ws, path) : "free";
-              }}
-              pickFolder={pickFolder}
-              onConfirm={({ target, yolo }) => {
-                const { wsId, record } = forkDialog;
-                setForkDialog(null);
-                void orchestrator
-                  .forkSession(wsId, record, target, { yolo })
-                  .catch((e: unknown) =>
-                    pushAlert(
-                      "Could not fork the session",
-                      describeError(e),
-                    ),
-                  );
-              }}
-              onCancel={() => setForkDialog(null)}
             />
           )}
           {error && (

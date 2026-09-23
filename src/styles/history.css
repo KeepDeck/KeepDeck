@@ -514,3 +514,30 @@
 .browser__turn--other {
   opacity: 0.7;
 }
+
+/* An empty team's sessions list: what it is, and the role its first member
+ * takes, above the browser. */
+.team-sessions__head {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.team-sessions__label {
+  margin: 10px 0 0;
+}
+
+.team-sessions__role {
+  width: min(280px, 100%);
+}
+
+.team-sessions__hint {
+  font-size: 12px;
+  line-height: 1.45;
+  color: #8b93a3;
+}
+
+.team-sessions__hint--error {
+  color: #e5736f;
+}

@@ -4,10 +4,8 @@ import type { Workspace } from "./workspaces";
 import type { Pane } from "./panes";
 import type { Team } from "./teams";
 import {
-  pathBelongsTo,
   skillRootsOf,
   workspaceDirectories,
-  withHistoricalDirectories,
 } from "./roots";
 
 const ws = (over: Partial<Workspace>): Workspace => ({
@@ -52,23 +50,14 @@ describe("workspaceDirectories", () => {
 
     const setA = workspaceDirectories(a);
     expect([...setA].sort()).toEqual(["/repo/a", "/wt/kd-a-1", "/wt/kd-a-2"]);
-    expect(pathBelongsTo(setA, "/wt/kd-b-1")).toBe(false);
-    expect(pathBelongsTo(setA, "/repo/b")).toBe(false);
-    expect(pathBelongsTo(workspaceDirectories(b), "/wt/kd-a-1")).toBe(false);
+    expect(setA.has("/wt/kd-b-1")).toBe(false);
+    expect(setA.has("/repo/b")).toBe(false);
+    expect(workspaceDirectories(b).has("/wt/kd-a-1")).toBe(false);
     expect([...workspaceDirectories(c)].sort()).toEqual(["/repo/c"]);
     // The base root itself is nobody's folder unless a team runs in it.
     for (const set of [setA, workspaceDirectories(b)]) {
-      expect(pathBelongsTo(set, base)).toBe(false);
+      expect(set.has(base)).toBe(false);
     }
-  });
-
-  it("membership is an exact path, not a stem", () => {
-    const set = workspaceDirectories(holding({ cwd: "/repo" }, [["p1", "/wt/kd-KeepDeck-12"]]));
-    expect(pathBelongsTo(set, "/wt/kd-KeepDeck-1")).toBe(false);
-    expect(pathBelongsTo(set, "/wt/kd-KeepDeck-12")).toBe(true);
-    expect(pathBelongsTo(set, "/wt/kd-KeepDeck-12/inner")).toBe(false);
-    // A session with no recorded directory belongs nowhere.
-    expect(pathBelongsTo(set, "")).toBe(false);
   });
 
   it("a team with nobody on it contributes nothing — no pane runs there", () => {
@@ -131,36 +120,5 @@ describe("skillRootsOf", () => {
       }),
     );
     expect(roots).toEqual(["/repo", "/wt/a"]);
-  });
-});
-
-describe("withHistoricalDirectories", () => {
-  it("blank journal paths never land in the set", () => {
-    const base = workspaceDirectories(ws({ cwd: "/repo" }));
-    const grown = withHistoricalDirectories(base, ["", "/gone/wt"]);
-    expect([...grown].sort()).toEqual(["/gone/wt", "/repo"]);
-    // The input set is never mutated — builders stay composable.
-    expect([...base]).toEqual(["/repo"]);
-  });
-
-  it("three builders, one predicate: each widening answers differently, the rule does not change", () => {
-    // The substitutability pin: own-only, plus current panes, plus history
-    // are three different SETS from three different builders, and the
-    // predicate is the same function over each — no builder leaks its
-    // method into the membership rule.
-    const w = holding({ cwd: "/repo", worktreeBaseDir: "/wt" }, [["p1", "/wt/kd-a-1"]]);
-    const own = new Set([w.cwd]);
-    const withPanes = workspaceDirectories(w);
-    const withHistory = withHistoricalDirectories(withPanes, ["/old/dir", ""]);
-
-    expect(pathBelongsTo(own, "/wt/kd-a-1")).toBe(false);
-    expect(pathBelongsTo(withPanes, "/wt/kd-a-1")).toBe(true);
-    expect(pathBelongsTo(withPanes, "/old/dir")).toBe(false);
-    expect(pathBelongsTo(withHistory, "/old/dir")).toBe(true);
-    expect(pathBelongsTo(withHistory, "")).toBe(false);
-    // Sizes strictly widen: three builders, three sets.
-    expect(own.size).toBe(1);
-    expect(withPanes.size).toBe(2);
-    expect(withHistory.size).toBe(3);
   });
 });

@@ -30,7 +30,6 @@ import { useSpawnContext } from "./useSpawnContext";
 import { suspendRefusalText } from "./suspendOutcome";
 import { useUpdate } from "./useUpdate";
 import { buildDockTabs } from "../components/dock/useDockTabs";
-import type { SessionHandle } from "../domain/journal";
 import { DEFAULT_SETTINGS } from "../domain/settings";
 import { artifactsDoorOpen } from "./artifacts/door";
 import { tasksDoorOpen } from "./tasks/door";
@@ -91,10 +90,6 @@ export function useAppController() {
   const orchestrator = runtime.orchestrator;
   const runView = useAgentRunView(orchestrator);
   const browserShared = useBrowserSharedSeam();
-  const [forkDialog, setForkDialog] = useState<{
-    wsId: string;
-    record: SessionHandle;
-  } | null>(null);
   const specByPane = runView.specs;
   const failedPanes = runView.planFailed;
   const usageLiveAgents = useMemo(() => {
@@ -147,7 +142,6 @@ export function useAppController() {
     // settings layer while it stands.
     agentFlow.sharedAsk,
     closeFlow.closing,
-    forkDialog,
     error,
     frozen && !frozenAck ? frozen : null,
   ];
@@ -413,7 +407,6 @@ export function useAppController() {
     dockTabs,
     error,
     failedPanes,
-    forkDialog,
     frozen,
     frozenAck,
     gitHeads,
@@ -432,7 +425,6 @@ export function useAppController() {
     runView,
     browserShared,
     setCreating,
-    setForkDialog,
     setFrozenAck,
     setRailCollapsed,
     canCloseDialog: modal.canCloseDialog,

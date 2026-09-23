@@ -65,8 +65,19 @@ vi.mock("../app/ptyManager", () => ({
   subscribeSessions: sessions.subscribe,
 }));
 
+/** The empty team's list, as the stage hands it over: its own suite
+ * covers what it does with it. */
+const teamSessions = vi.hoisted(() => ({ props: null as null | Record<string, unknown> }));
+vi.mock("./deck/TeamSessions", () => ({
+  TeamSessions: (props: Record<string, unknown>) => {
+    teamSessions.props = props;
+    return null;
+  },
+}));
+
 import { TerminalPane } from "./terminal/TerminalPane";
 import { DeckStage } from "./DeckStage";
+import { NO_TEAMS_WORD } from "../presentation/stageView";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
@@ -133,8 +144,7 @@ const openView = (viewByWs: Record<string, Record<string, unknown>> = {}) =>
   );
 
 const callbacks = {
-  onResumeSession: vi.fn(),
-  onForkSession: vi.fn(),
+  onContinueSession: vi.fn(),
   onSelectPane: vi.fn(),
   onToggleFocus: vi.fn(),
   onToggleMinimize: vi.fn(),
@@ -544,6 +554,39 @@ describe("DeckStage — the teams level", () => {
     });
     expect(card("team-1").querySelector(".team-card__count")!.textContent).toBe("No agents");
     expect(document.querySelector(".deck__setup")).toBeNull();
+  });
+
+  it("says there is no team in a workspace with none — no sessions list there", () => {
+    teamSessions.props = null;
+    render({ workspaces: [{ ...workspaces[0], teams: [], panes: [] }], specByPane: {} });
+    expect(document.querySelector(".deck__grid-empty-title")!.textContent).toBe(NO_TEAMS_WORD.title);
+    expect(teamSessions.props).toBeNull();
+  });
+
+  it("lists an open empty team's sessions in its directory, and continues them onto THAT team", () => {
+    teamSessions.props = null;
+    render({ workspaces: [{ ...workspaces[0], panes: [] }], specByPane: {} });
+    expect(teamSessions.props).toMatchObject({ cwd: "/repo" });
+    expect(document.querySelector(".deck__grid-empty")).toBeNull();
+    const record = { agent: "codex", sessionId: "s-1", cwd: "/repo" };
+    (teamSessions.props!.onContinue as (...args: unknown[]) => void)("fork", record, "lead");
+    expect(callbacks.onContinueSession).toHaveBeenCalledWith("ws-1", "team-1", "fork", record, "lead");
+  });
+
+  it("keeps the word, not the list, for an open team whose directory is being made", () => {
+    teamSessions.props = null;
+    render({
+      workspaces: [
+        {
+          ...workspaces[0],
+          teams: [{ id: "team-1", name: "team-1", location: { kind: "provisioning", intent: { repo: "/repo", path: "/wt/a", index: 1 } } }],
+          panes: [],
+        },
+      ],
+      specByPane: {},
+    });
+    expect(teamSessions.props).toBeNull();
+    expect(document.querySelector(".deck__grid-empty-title")!.textContent).toBe("No agents on this team");
   });
 
   it("hides the cards while a team is open", () => {

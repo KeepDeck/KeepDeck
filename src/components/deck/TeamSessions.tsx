@@ -1,0 +1,94 @@
+import { useMemo, useState } from "react";
+import type { AgentInfo } from "../../domain/agents";
+import { journalRows, type JournalRecords, type SessionHandle } from "../../domain/journal";
+import type { Workspace } from "../../domain/deck";
+import type { BrowserSharedSeam } from "../../app/useSessionsBrowser";
+import { NO_ROLE, ROLE_WORDS, roleChoiceView } from "../../presentation/roleChoiceView";
+import { TEAM_SESSIONS_WORDS, teamSessionsHint } from "../../presentation/stageView";
+import { Dropdown } from "../../ui/Dropdown";
+import { WorkspaceSessionsBrowser } from "../history/SessionsBrowser";
+
+interface TeamSessionsProps {
+  ws: Workspace;
+  /** The team's directory: its sessions pin first, and only they resume. */
+  cwd: string;
+  journal: JournalRecords;
+  browserShared: BrowserSharedSeam;
+  agents: AgentInfo[];
+  agentsReady: boolean;
+  /** Continue `record` onto the team under `role` — resumed, or forked into
+   * the team's directory. */
+  onContinue(mode: "resume" | "fork", record: SessionHandle, role: string): void;
+}
+
+/**
+ * An open team with nobody on it: the sessions it can continue, from every
+ * directory, and the role the first member takes. A team with nobody on it
+ * takes a lead or a peer, and neither is picked for the person — Resume and
+ * Fork wait for the pick.
+ */
+export function TeamSessions({
+  ws,
+  cwd,
+  journal,
+  browserShared,
+  agents,
+  agentsReady,
+  onContinue,
+}: TeamSessionsProps) {
+  const [roleId, setRoleId] = useState(NO_ROLE);
+  const [askedWithout, setAskedWithout] = useState(false);
+  // Nobody on the team: the roster is empty by the stage's own answer.
+  const roles = useMemo(() => roleChoiceView([]), []);
+  const address = roles.addressFor(roleId);
+  const hint = teamSessionsHint(address, askedWithout, roles.unpickedHint);
+  // Identity-stable: the browser's engines key on these.
+  const rows = useMemo(() => journalRows(journal, ws.id), [journal, ws.id]);
+  const dirs = useMemo(() => new Set([cwd]), [cwd]);
+  const team = useMemo(() => ({ cwd }), [cwd]);
+  const continueAs = (mode: "resume" | "fork") => (record: SessionHandle) => {
+    if (address === null) {
+      setAskedWithout(true);
+      return;
+    }
+    onContinue(mode, record, address);
+  };
+  return (
+    <div className="deck__setup">
+      <div className="deck__setup-col">
+        <div className="team-sessions__head">
+          <h2 className="history__title">{TEAM_SESSIONS_WORDS.title}</h2>
+          <p className="history__hint">{TEAM_SESSIONS_WORDS.sub}</p>
+          <span className="form__label team-sessions__label">{ROLE_WORDS.label}</span>
+          <Dropdown
+            className="team-sessions__role"
+            options={roles.optionsFor(roleId)}
+            value={roleId}
+            onChange={(picked) => {
+              setRoleId(picked);
+              setAskedWithout(false);
+            }}
+            ariaLabel={ROLE_WORDS.label}
+          />
+          {hint.kind === "address" ? (
+            <span className="team-sessions__hint">
+              {ROLE_WORDS.writeTo} <code className="form__role-address">{hint.address}</code>
+            </span>
+          ) : (
+            <span className={hint.className}>{hint.text}</span>
+          )}
+        </div>
+        <WorkspaceSessionsBrowser
+          shared={browserShared}
+          dirs={dirs}
+          agents={agents}
+          ready={agentsReady}
+          rows={rows}
+          team={team}
+          onResume={continueAs("resume")}
+          onFork={continueAs("fork")}
+        />
+      </div>
+    </div>
+  );
+}

@@ -31,9 +31,9 @@ interface SessionsBrowserProps {
   onFork(record: SessionHandle): void;
 }
 
-/** The component DeckStage mounts: one browser per empty workspace, its
- * engines scoped to that workspace's directories, over the ONE shared
- * seam (keyed enrichment, freshness, transcript dispatch). */
+/** The component an empty team mounts: its engines scoped to the team's
+ * directory, over the ONE shared seam (keyed enrichment, freshness,
+ * transcript dispatch). */
 export function WorkspaceSessionsBrowser({
   shared,
   dirs,
@@ -66,13 +66,14 @@ export function WorkspaceSessionsBrowser({
 export const hitRecord = handleFromHit;
 
 /**
- * The empty-workspace sessions surface ([F8]): ONE list with the search bar
- * on top. The workspace's own journal pins first — the sessions that ran
- * here — followed by every other session from every agent store. The two
- * search engines provide that order, while the queue renders one row
- * component for every source. Search hits only the Rust index;
- * opening a row reads the transcript live through the owning plugin. Resume
- * runs in the session's ORIGINAL directory; Fork picks a new home.
+ * An empty team's sessions surface ([F8]): ONE list with the search bar on
+ * top. The workspace's own journal pins first, then the sessions recorded
+ * in the scoped directories, followed by every other session from every
+ * agent store. The two search engines provide that order, while the queue
+ * renders one row component for every source. Search hits only the Rust
+ * index; opening a row reads the transcript live through the owning
+ * plugin. Resume runs in the session's ORIGINAL directory, so only a
+ * session recorded in the team's resumes; Fork copies any into it.
  */
 export function SessionsBrowser({
   api,

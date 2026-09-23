@@ -16,7 +16,9 @@
  * whether a question is standing — and asks here.
  */
 import type { AgentDialogResult, AgentDialogTarget } from "../domain/agents";
+import type { SessionHandle } from "../domain/journal";
 import {
+  findTeam,
   findWorkspaceByRef,
   paneFromAgentRequest,
   placementRefusalMessage,
@@ -57,8 +59,18 @@ export type DoorOutcome =
    * SAME create, re-issued with the answer. */
   | { kind: "ask-shared"; holder: DirectoryHolder; path: string; anyway(): DoorOutcome };
 
+/** A recorded session continued onto a team without the dialog — the
+ * empty team's sessions list, where the role is the one thing asked. */
+export interface ContinueRequest {
+  workspace: WorkspaceRef;
+  teamId: string;
+  session: { mode: "resume" | "fork"; handle: SessionHandle };
+  role: string;
+}
+
 export interface AgentDoors {
   confirm(request: DoorRequest): Promise<DoorOutcome>;
+  continueSession(request: ContinueRequest): Promise<DoorOutcome>;
 }
 
 export interface AgentDoorsDeps {
@@ -126,7 +138,43 @@ export function createAgentDoors(deps: AgentDoorsDeps): AgentDoors {
     return make();
   }
 
+  /** A recorded session continued onto a member's team — resumed in place,
+   * or forked INTO the team's directory. Both land on THIS team, by id: two
+   * teams can share a directory. The role rides along, and the landing
+   * honours it or refuses it. */
+  async function continueOnto(
+    workspace: WorkspaceRef,
+    team: { teamId: string; cwd: string | null },
+    session: ContinueRequest["session"],
+    opts: { name?: string; yolo?: boolean; role?: string },
+  ): Promise<DoorOutcome> {
+    const landing = { ...opts, team: team.teamId };
+    if (session.mode === "resume") {
+      try {
+        await orchestrator.resumeSession(workspace.id, session.handle, landing);
+        return DONE;
+      } catch (error: unknown) {
+        return refused("resume", describeError(error));
+      }
+    }
+    if (team.cwd === null) return refused("fork", "the team's directory is not there yet");
+    try {
+      await orchestrator.forkSession(workspace.id, session.handle, { kind: "dir", cwd: team.cwd }, landing);
+      return DONE;
+    } catch (error: unknown) {
+      return refused("fork", describeError(error));
+    }
+  }
+
   return {
+    async continueSession({ workspace, teamId, session, role }) {
+      const ws = findWorkspaceByRef(deck.workspaces(), workspace);
+      const team = ws ? findTeam(ws, teamId) : undefined;
+      if (!team) return refused(session.mode, WORKSPACE_GONE_MESSAGE);
+      const cwd = team.location?.kind === "attached" ? team.location.cwd : null;
+      return continueOnto(workspace, { teamId, cwd }, session, { role });
+    },
+
     async confirm(request) {
       const { workspace, target, result } = request;
       const ws = findWorkspaceByRef(deck.workspaces(), workspace);
@@ -144,38 +192,14 @@ export function createAgentDoors(deps: AgentDoorsDeps): AgentDoors {
 
       // A member runs where its team runs: a resume is offered only for a
       // session recorded in the team's directory, and a fork copies the
-      // session INTO that directory. Both land on THIS team, by id — two
-      // teams can share a directory. The role the person picked rides every
-      // way in, and the landing honours it or refuses it.
-      const name = result.name.trim() || undefined;
-      const opts = {
-        name,
-        yolo: result.yolo,
-        team: target.teamId,
-        ...(result.role !== undefined && { role: result.role }),
-      };
+      // session INTO that directory.
       const { session } = result;
-      if (session?.mode === "resume") {
-        try {
-          await orchestrator.resumeSession(workspace.id, session.handle, opts);
-          return DONE;
-        } catch (error: unknown) {
-          return refused("resume", describeError(error));
-        }
-      }
-      if (session?.mode === "fork") {
-        if (target.cwd === null) return refused("fork", "the team's directory is not there yet");
-        try {
-          await orchestrator.forkSession(
-            workspace.id,
-            session.handle,
-            { kind: "dir", cwd: target.cwd },
-            opts,
-          );
-          return DONE;
-        } catch (error: unknown) {
-          return refused("fork", describeError(error));
-        }
+      if (session) {
+        return continueOnto(workspace, target, session, {
+          name: result.name.trim() || undefined,
+          yolo: result.yolo,
+          ...(result.role !== undefined && { role: result.role }),
+        });
       }
       // A fresh member: the pane the request describes, joining its team by
       // id — the directory is the team's, not the dialog's to choose.

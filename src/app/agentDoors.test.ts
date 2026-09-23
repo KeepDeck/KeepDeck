@@ -66,7 +66,7 @@ function setup(ws: Workspace = workspace()) {
       target: { kind: "member", teamId: "team-1", teamName: "api", cwd },
       result: { ...fresh(), ...result },
     });
-  return { doors, createPane, createTeam, resumeSession, forkSession, openTeam, team, member };
+  return { doors, ref, createPane, createTeam, resumeSession, forkSession, openTeam, team, member };
 }
 
 describe("agent doors — a new team", () => {
@@ -280,5 +280,46 @@ describe("agent doors — a member", () => {
     expect(outcome).toEqual({ kind: "refused", door: "member", message: WORKSPACE_GONE_MESSAGE });
     expect(h.createPane).not.toHaveBeenCalled();
     expect(h.createTeam).not.toHaveBeenCalled();
+  });
+});
+
+describe("agent doors — an empty team's sessions list", () => {
+  const empty = (): Workspace => ({
+    ...workspace(),
+    panes: [],
+    teams: [
+      { id: "team-1", name: "api", location: { kind: "attached", cwd: "/repo/wt" } },
+      { id: "team-2", name: "web", location: { kind: "provisioning", intent: { repo: "/repo", path: "/base/w", index: 2 } } },
+    ],
+  });
+  const continued = (h: ReturnType<typeof setup>, teamId: string, mode: "resume" | "fork") =>
+    h.doors.continueSession({ workspace: h.ref, teamId, session: { mode, handle }, role: "lead" });
+
+  it("resumes onto THIS team, by id, under the role picked", async () => {
+    const h = setup(empty());
+    expect(await continued(h, "team-1", "resume")).toEqual({ kind: "done" });
+    expect(h.resumeSession).toHaveBeenCalledWith("ws-1", handle, { team: "team-1", role: "lead" });
+  });
+
+  it("forks INTO the team's directory, on the team by id", async () => {
+    const h = setup(empty());
+    expect(await continued(h, "team-1", "fork")).toEqual({ kind: "done" });
+    expect(h.forkSession).toHaveBeenCalledWith("ws-1", handle, { kind: "dir", cwd: "/repo/wt" }, { team: "team-1", role: "lead" });
+  });
+
+  it("refuses a fork while the team's directory is being made, and a team that is gone", async () => {
+    const h = setup(empty());
+    expect(await continued(h, "team-2", "fork")).toEqual({
+      kind: "refused",
+      door: "fork",
+      message: "the team's directory is not there yet",
+    });
+    expect(await continued(h, "team-9", "resume")).toEqual({
+      kind: "refused",
+      door: "resume",
+      message: WORKSPACE_GONE_MESSAGE,
+    });
+    expect(h.forkSession).not.toHaveBeenCalled();
+    expect(h.resumeSession).not.toHaveBeenCalled();
   });
 });

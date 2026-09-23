@@ -35,7 +35,7 @@ import {
 } from "./newAgentDefaults";
 import { useAppRuntime } from "./runtimeContext";
 import type { DirectoryHolder } from "./agentOrchestrator";
-import type { DoorName, DoorOutcome } from "./agentDoors";
+import type { ContinueRequest, DoorName, DoorOutcome } from "./agentDoors";
 import { roleChoiceView, type RoleChoice } from "../presentation/roleChoiceView";
 import type { Deck } from "./useDeck";
 
@@ -416,6 +416,20 @@ export function useAgentDialog(
 
   const cancel = () => setDialog(null);
 
+  /** The empty team's sessions list: a recorded session continued onto the
+   * team under the role picked there — the member door without its dialog,
+   * its answer shown the same way. */
+  const continueSession = (
+    ws: Workspace,
+    teamId: string,
+    session: ContinueRequest["session"],
+    role: string,
+  ) => {
+    void agentDoors
+      .continueSession({ workspace: { id: ws.id, instance: ws.instance }, teamId, session, role })
+      .then(show, (error: unknown) => notice(session.mode, describeError(error)));
+  };
+
   return {
     dialog,
     sharedAsk,
@@ -423,6 +437,7 @@ export function useAgentDialog(
     openFor,
     confirm,
     cancel,
+    continueSession,
     nextFree,
     branchFor,
     searchSessions,
