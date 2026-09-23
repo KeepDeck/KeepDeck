@@ -1,7 +1,6 @@
 export * from "./words";
 export * from "./taskCardView";
 export * from "./boardView";
-export * from "./queuesView";
 export * from "./taskDetailView";
 export * from "./newTaskFormView";
 export * from "./ladderView";
@@ -10,6 +9,7 @@ export * from "./teamCardTasksLine";
 export * from "./teamOnScreen";
 export * from "./cardDrag";
 export * from "./dialogState";
+export * from "./dialogView";
 export * from "./composerView";
 export * from "./settingsView";
 export * from "./screenState";

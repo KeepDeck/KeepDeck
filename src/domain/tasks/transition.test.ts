@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TASK_CAPS, USER_ACTOR, type TaskActor, type TaskStatus } from "./model";
-import { createTask, reachableStatuses, transition, type TaskChange, type TaskRefusal } from "./transition";
+import { attachArtifact, createTask, detachArtifact, reachableStatuses, transition, type TaskChange, type TaskRefusal } from "./transition";
 import { ROSTER, board, impl1, lead, noTeam, peer1, stranger, task } from "./testSupport";
 
 const ctx = (tasks = [task({ id: "task-1" })]) => ({ board: board(tasks), roster: ROSTER, at: 5_000 });
@@ -372,5 +372,22 @@ describe("createTask", () => {
     const edge = { ...empty, board: { nextId: Number.MAX_SAFE_INTEGER, tasks: [] } };
     const exhausted = createTask({ teamId: "team-1", title: "x" }, lead, edge);
     expect(!exhausted.ok && exhausted.refusal).toEqual({ kind: "counter-exhausted" });
+  });
+});
+
+describe("attachArtifact / detachArtifact", () => {
+  const t = task({ id: "task-1", artifacts: ["kd-a", "kd-b"] });
+
+  it("attaches a slug; attaching one already there changes nothing once the transition applies it", () => {
+    expect(attachArtifact(t, "kd-c")).toEqual({ kind: "artifacts", to: ["kd-a", "kd-b", "kd-c"] });
+    // The one normalization rule is the transition's: a repeat is folded
+    // there, and the task comes back as it was.
+    const again = transition(t, attachArtifact(t, "kd-a"), lead, ctx([t]));
+    expect(again.ok && again.task).toBe(t);
+  });
+
+  it("detaches only the slug named, and a slug not attached leaves the list as it is", () => {
+    expect(detachArtifact(t, "kd-a")).toEqual({ kind: "artifacts", to: ["kd-b"] });
+    expect(detachArtifact(t, "kd-z")).toEqual({ kind: "artifacts", to: ["kd-a", "kd-b"] });
   });
 });

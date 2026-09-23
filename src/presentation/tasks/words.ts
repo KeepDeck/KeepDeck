@@ -1,7 +1,7 @@
 /**
  * The words the task surfaces share: what a status is called, how a
  * person is named, which hue a status wears. One home, so the board, the
- * queues, the detail and the card footer cannot disagree.
+ * detail and the card footer cannot disagree.
  */
 import { TASK_PRIORITIES, USER_NAME, type TaskPriority, type TaskStatus } from "../../domain/tasks";
 
@@ -69,6 +69,9 @@ export function unsavedBanner(error: string): string {
 
 /** What the pool is called wherever an empty assignee is shown. */
 export const POOL_LABEL = "pool";
+
+/** The new-task button's label — and how a hint that points at it names it. */
+export const NEW_TASK_LABEL = "+ Task";
 
 /** The order the board reads in, left to right — and the order every
  * status list follows. Blocked stands first: it is what waits on a

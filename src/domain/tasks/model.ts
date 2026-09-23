@@ -3,7 +3,7 @@
  *
  * Mail is a message that lives only in the runtime; an artifact is a shared
  * object; a task is a WORK ORDER: durable, owned by a team, with a status
- * the board shows and an assignee the queues are read by. Nothing here
+ * the board shows and an assignee `task.next` and `task.mine` read by. Nothing here
  * reaches an agent on its own — the board is a record, and telling an
  * agent about its work is a letter somebody chooses to send (the user's
  * decision, 2026-09-19). So the model carries no delivery state at all: no

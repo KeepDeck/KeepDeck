@@ -551,16 +551,23 @@ describe("TasksDialog", () => {
     expect(button("Comment").disabled).toBe(false);
   });
 
-  it("the queues view lays out a lane per member and the pool", async () => {
+  it("always shows the Cancelled column with its cards — there is no filter to turn it on", async () => {
     const { service } = await seeded();
-    const render = mount(service);
-    render();
+    await service.apply("ws-1", "task-2", [{ kind: "status", to: "cancelled" }], USER_ACTOR);
+    mount(service)();
     await flush();
-    act(() => button("Queues").click());
+    const cancelled = document.querySelector<HTMLElement>('section[aria-label="Cancelled"]');
+    expect(cancelled?.querySelectorAll(".tasks__card")).toHaveLength(1);
+    expect(buttons().some((b) => /cancelled/i.test(b.textContent ?? ""))).toBe(false);
+  });
+
+  it("is one board: no Board/Queues switch, no lanes — the columns are the only view", async () => {
+    const { service } = await seeded();
+    mount(service)();
     await flush();
-    const lanes = Array.from(document.querySelectorAll(".tasks__lane-name")).map((el) => el.textContent);
-    expect(lanes).toEqual(["lead", "impl-1", "impl-2", "pool"]);
-    expect(text()).toContain("1 queued · unassigned");
+    expect(document.querySelector('[role="group"][aria-label="View"]')).toBeNull();
+    expect(buttons().some((b) => b.textContent?.trim() === "Queues")).toBe(false);
+    expect(document.querySelector(".tasks__columns")).not.toBeNull();
   });
 
   it("walks the ladder: no workspace, owner down, empty board", async () => {

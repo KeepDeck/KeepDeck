@@ -1,5 +1,5 @@
 /* Tasks ([tasks]) — the person's view of a team's board: a wide .form
-   card holding a toolbar, the ladder as columns (or the load as lanes),
+   card holding a toolbar, the ladder as columns,
    and one task open in a panel on the right. Status hues are the
    ladder's own (status.css): a task in review wears the waiting hue a
    pane waiting for the user wears. */
@@ -43,57 +43,8 @@
   font-size: 13px;
 }
 
-/* Board | Queues as ONE control: joined halves sharing a border, the
-   active half lifted — not two pills with a gap. */
-.tasks__segment {
-  display: inline-flex;
-  border: 1px solid #1c2230;
-  border-radius: 8px;
-  background-color: #0e121a;
-  overflow: hidden;
-}
-
-.tasks__segment-btn {
-  padding: 5px 12px;
-  border: 0;
-  background: none;
-  color: #9aa3af;
-  font: inherit;
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.tasks__segment-btn + .tasks__segment-btn {
-  border-left: 1px solid #1c2230;
-}
-
-.tasks__segment-btn:hover {
-  color: #c5c8c6;
-}
-
-.tasks__segment-btn--active {
-  background-color: #161d29;
-  color: #c5c8c6;
-}
-
 .tasks__new {
   margin-left: auto;
-}
-
-/* A filter in the bar, dressed as the view control is — a single
-   segment that reads as on or off. Inert, not gone, in the view it does
-   not apply to: the bar must not change shape with the view. */
-.tasks__filter {
-  display: inline-flex;
-  border: 1px solid #1c2230;
-  border-radius: 8px;
-  background-color: #0e121a;
-  overflow: hidden;
-}
-
-.tasks__filter .tasks__segment-btn:disabled {
-  opacity: 0.45;
-  cursor: default;
 }
 
 .tasks__error {
@@ -124,7 +75,7 @@
   font-size: 14px;
 }
 
-/* The stage: the board (or lanes), and OVER its right edge — never
+/* The stage: the board, and OVER its right edge — never
    beside it — the open task or the form. A panel that took a column
    moved every card on the board when it opened; a drawer moves nothing. */
 .tasks__stage {
@@ -354,82 +305,6 @@
   color: var(--status-failed);
   font-size: 11px;
 }
-
-/* Lanes: one per member, full width; the current card in a frame the
-   working hue, the queue beside it. */
-.tasks__lanes {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: 10px;
-  min-height: 0;
-  overflow-y: auto;
-}
-
-.tasks__lane {
-  border: 1px solid #1c2230;
-  border-radius: 8px;
-  background-color: #0e121a;
-}
-
-.tasks__lane-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 12px;
-  border-bottom: 1px solid #1c2230;
-}
-
-.tasks__lane-name {
-  color: #c5c8c6;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px;
-}
-
-.tasks__lane-summary {
-  color: #565e6b;
-  font-size: 11px;
-}
-
-.tasks__lane-body {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 12px;
-  padding: 10px 12px;
-}
-
-.tasks__lane--pool .tasks__lane-body {
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.tasks__lane-current,
-.tasks__lane-queue {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-}
-
-.tasks__lane-current .tasks__card {
-  border-color: var(--status-working);
-}
-
-.tasks__lane-caption {
-  color: #565e6b;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.tasks__lane-idle {
-  padding: 8px 10px;
-  border: 1px dashed #1c2230;
-  border-radius: 6px;
-  color: #565e6b;
-  font-size: 12px;
-}
-
 /* The drawer: one task whole, over the board's right edge, scrolling on
    its own. The board stays interactive beside it — a card can still be
    picked or dragged while a task is open. */

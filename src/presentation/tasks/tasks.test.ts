@@ -6,7 +6,6 @@ import type { Notification } from "../../domain/notifications";
 import { createWorkspaceInstance } from "../../domain/workspaceInstance";
 import { LADDER_WORDS, tasksLadder } from "./ladderView";
 import { newTaskFormView } from "./newTaskFormView";
-import { queuesView } from "./queuesView";
 import { taskCardView } from "./taskCardView";
 import { taskDetailView } from "./taskDetailView";
 import { teamCardTasksLine } from "./teamCardTasksLine";
@@ -61,58 +60,24 @@ describe("boardView", () => {
     task({ id: "task-5", status: "cancelled" }),
   ]);
 
-  it("lays the board out blocked-first, open columns in queue order, closed ones newest first — every column open", () => {
-    const columns = boardView(b.tasks, b, { showCancelled: false, now: NOW });
+  it("lays the board out blocked-first, open columns in queue order, closed ones newest first — every column open, Cancelled included", () => {
+    const columns = boardView(b.tasks, b, NOW);
     expect(columns.map((c) => `${c.status}:${c.count}`)).toEqual([
       "blocked:0",
       "todo:2",
       "in-progress:0",
       "review:0",
       "done:2",
+      "cancelled:1",
     ]);
     expect(columns[1].cards.map((c) => c.id)).toEqual(["task-2", "task-1"]);
     // Done shows its cards: no column is folded away.
     expect(columns[4].cards.map((c) => c.id)).toEqual(["task-4", "task-3"]);
   });
 
-  it("shows cancelled only behind the filter, cards and all", () => {
-    const columns = boardView(b.tasks, b, { showCancelled: true, now: NOW });
-    expect(columns.find((c) => c.status === "cancelled")).toMatchObject({ count: 1 });
+  it("always shows Cancelled, its cards marked as taken off the board", () => {
+    const columns = boardView(b.tasks, b, NOW);
     expect(columns.find((c) => c.status === "cancelled")?.cards[0].cancelled).toBe(true);
-  });
-});
-
-describe("queuesView", () => {
-  it("a lane per role — current, queue, why a queue is empty — then the pool", () => {
-    const b = board([
-      task({ id: "task-1", status: "in-progress", assignee: "impl-1" }),
-      task({ id: "task-2", assignee: "impl-1", priority: "low" }),
-      task({ id: "task-3", assignee: "impl-1", priority: "high" }),
-      task({ id: "task-4", status: "review", assignee: "impl-2" }),
-      task({ id: "task-5" }),
-      task({ id: "task-6", teamId: "team-2" }),
-    ]);
-    const lanes = queuesView(b, "team-1", ROSTER, NOW);
-    expect(lanes.map((l) => l.key)).toEqual(["lead", "impl-1", "impl-2", "pool"]);
-    expect(lanes[0]).toMatchObject({ current: [], idleText: "Nothing in progress", queueEmptyText: "Nothing queued", summary: "0 queued" });
-    expect(lanes[1].current.map((c) => c.id)).toEqual(["task-1"]);
-    expect(lanes[1].queued.map((c) => c.id)).toEqual(["task-3", "task-2"]);
-    expect(lanes[1].summary).toBe("2 queued");
-    expect(lanes[2]).toMatchObject({ idleText: "Nothing in progress", queueEmptyText: "Nothing queued — task-4 waits in review" });
-    expect(lanes[3]).toMatchObject({ isPool: true, summary: "1 queued · unassigned", queueEmptyText: null });
-    expect(lanes[3].queued.map((c) => c.id)).toEqual(["task-5"]);
-  });
-
-  it("shows every task a member has in progress, and says how many", () => {
-    const b = board([
-      task({ id: "task-1", status: "in-progress", assignee: "impl-1", created: 2 }),
-      task({ id: "task-2", status: "in-progress", assignee: "impl-1", created: 1 }),
-      task({ id: "task-3", assignee: "impl-1" }),
-    ]);
-    const lane = queuesView(b, "team-1", ["impl-1"], NOW)[0];
-    expect(lane.current.map((c) => c.id)).toEqual(["task-2", "task-1"]);
-    expect(lane.summary).toBe("2 in progress · 1 queued");
-    expect(lane.idleText).toBeNull();
   });
 });
 

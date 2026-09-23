@@ -1,16 +1,11 @@
 /**
  * The dialog's own decisions, apart from the markup: what Escape peels,
- * what a click on a card does to the selection, which card a ghost is, and the words the bar and the panel head say.
+ * what a click on a card does to the selection, which card a ghost is,
+ * what the team control is, and the dialog's words.
  */
 import type { BoardColumnView } from "./boardView";
+import { NEW_TASK_LABEL } from "./words";
 import type { TaskCardView } from "./taskCardView";
-
-export type TasksMode = "board" | "queues";
-
-export const MODE_CHOICES: readonly { value: TasksMode; label: string }[] = [
-  { value: "board", label: "Board" },
-  { value: "queues", label: "Queues" },
-];
 
 /**
  * What one Escape press takes away: the form when it is open, then the
@@ -56,11 +51,12 @@ export function teamControlView(
   return { kind: "none" };
 }
 
-/** The words of the bar and the panel head, by state. */
+/** The dialog's words: its title, the team pick's name, its two buttons,
+ * and the panel head's Expand/Collapse by state. */
 export const DIALOG_WORDS = {
-  cancelledFilter: (showCancelled: boolean) => (showCancelled ? "Hide cancelled" : "Show cancelled"),
-  /** Why the filter is inert, or null where it applies. */
-  cancelledFilterHint: (mode: TasksMode) => (mode === "board" ? null : "Cancelled tasks show on the board"),
+  title: "Tasks",
+  team: "Team",
+  newTask: NEW_TASK_LABEL,
+  close: "Close tasks",
   wide: (wide: boolean) => (wide ? "Collapse" : "Expand"),
-  poolCaption: (isPool: boolean) => (isPool ? "Next up — anyone on the team can take it" : "Next up"),
 } as const;

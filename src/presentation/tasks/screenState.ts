@@ -1,17 +1,15 @@
 /**
  * The dialog's screen as a state machine with no React in it: which
- * team, which view, whether cancelled shows, whether the form or the wide view is
- * up, which column a drag hovers — and every transition between them,
+ * team, whether the form or the wide view is up,
+ * which column a drag hovers — and every transition between them,
  * with the effects a transition owes the outside (the open task to set,
  * the dialog to close). The hook holds one state and applies what this
  * answers; it decides nothing.
  */
 import type { TaskStatus } from "../../domain/tasks";
-import { escapeTarget, selectionAfterClick, type TasksMode } from "./dialogState";
+import { escapeTarget, selectionAfterClick } from "./dialogState";
 
 export interface ScreenState {
-  mode: TasksMode;
-  showCancelled: boolean;
   /** The team they picked; the team on screen is `teamOnScreen`'s call. */
   chosenTeam: string | null;
   /** The new-task form is up. */
@@ -24,8 +22,6 @@ export interface ScreenState {
 }
 
 export const INITIAL_SCREEN: ScreenState = {
-  mode: "board",
-  showCancelled: false,
   chosenTeam: null,
   composing: false,
   wide: false,
@@ -52,8 +48,6 @@ export type ScreenAction =
   | { type: "narrow" }
   | { type: "escape"; detailOpen: boolean }
   | { type: "team"; id: string }
-  | { type: "mode"; mode: TasksMode }
-  | { type: "toggleCancelled" }
   | { type: "hover"; status: TaskStatus | null; dragging: boolean }
   /** A task was created from the form: it opens, the form goes. */
   | { type: "created"; id: string };
@@ -113,10 +107,6 @@ function step(state: ScreenState, action: ScreenAction): ScreenOutcome {
     case "team":
       // Another team's board: whatever was open belongs to the old one.
       return { state: { ...state, chosenTeam: action.id, wide: false }, focus: null };
-    case "mode":
-      return { state: { ...state, mode: action.mode } };
-    case "toggleCancelled":
-      return { state: { ...state, showCancelled: !state.showCancelled } };
     case "hover":
       // Only a card in flight has a column under it.
       return { state: { ...state, hover: action.dragging ? action.status : null } };

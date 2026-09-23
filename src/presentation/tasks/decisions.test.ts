@@ -72,7 +72,7 @@ describe("dialogState", () => {
     expect(selectionAfterClick("task-1", "task-1")).toBeNull();
     expect(selectionAfterClick("task-1", "task-2")).toBe("task-2");
     const b = board([task({ id: "task-1" }), task({ id: "task-2", status: "done" })]);
-    const columns = boardView(b.tasks, b, { showCancelled: false, now: 0 });
+    const columns = boardView(b.tasks, b, 0);
     expect(cardOf(columns, "task-2")?.id).toBe("task-2");
     expect(cardOf(columns, "task-9")).toBeUndefined();
   });
@@ -96,13 +96,9 @@ describe("dialogState", () => {
   });
 
   it("says the bar's and the head's words by state", () => {
-    expect(DIALOG_WORDS.cancelledFilter(false)).toBe("Show cancelled");
-    expect(DIALOG_WORDS.cancelledFilter(true)).toBe("Hide cancelled");
-    expect(DIALOG_WORDS.cancelledFilterHint("board")).toBeNull();
-    expect(DIALOG_WORDS.cancelledFilterHint("queues")).toContain("show on the board");
+    expect([DIALOG_WORDS.title, DIALOG_WORDS.team, DIALOG_WORDS.newTask, DIALOG_WORDS.close]).toEqual(["Tasks", "Team", "+ Task", "Close tasks"]);
     expect(DIALOG_WORDS.wide(false)).toBe("Expand");
     expect(DIALOG_WORDS.wide(true)).toBe("Collapse");
-    expect(DIALOG_WORDS.poolCaption(true)).toContain("anyone on the team");
   });
 });
 
@@ -183,11 +179,6 @@ describe("screenState", () => {
     const chosen: ScreenState = { ...INITIAL_SCREEN, chosenTeam: "team-1" };
     expect(screenReducer(chosen, { type: "team", id: "team-3" }, "team-2").state.chosenTeam).toBe("team-3");
     expect(screenReducer(chosen, { type: "close" }, null).state.chosenTeam).toBe("team-1");
-  });
-
-  it("the filter and the mode are remembered as pressed", () => {
-    expect(screenReducer(INITIAL_SCREEN, { type: "toggleCancelled" }, null).state.showCancelled).toBe(true);
-    expect(screenReducer(INITIAL_SCREEN, { type: "mode", mode: "queues" }, null).state.mode).toBe("queues");
   });
 });
 

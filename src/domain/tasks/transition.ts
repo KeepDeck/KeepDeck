@@ -37,6 +37,17 @@ export type TaskChange =
   | { kind: "artifacts"; to: readonly string[] }
   | { kind: "comment"; body: string };
 
+/** The change that attaches `slug` to `task`. A slug already there is
+ * the transition's to fold: it normalizes every artifacts list, once. */
+export function attachArtifact(task: Pick<Task, "artifacts">, slug: string): TaskChange {
+  return { kind: "artifacts", to: [...task.artifacts, slug] };
+}
+
+/** The change that takes `slug` off `task`'s attachments. */
+export function detachArtifact(task: Pick<Task, "artifacts">, slug: string): TaskChange {
+  return { kind: "artifacts", to: task.artifacts.filter((other) => other !== slug) };
+}
+
 /** Why a change was refused — data, so the rendering stays with the
  * surface that speaks to the caller. */
 export type TaskRefusal =
