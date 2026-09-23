@@ -58,14 +58,12 @@ interface CreationDeps {
 export interface AgentOrchestratorCreation {
   landPane(request: CreatePaneRequest): CreatePaneOutcome;
   createTeam(request: CreateTeamRequest): CreateTeamOutcome;
-  /** Whether `pane` could land at `placement` right now, without landing
-   * it — the refusal it would meet, or null. For a caller with an
-   * irreversible step to run BEFORE landing (a fork's store surgery) that
-   * must not run for a pane the team then refuses. */
+  /** Whether the request could land right now, without landing it — the
+   * refusal it would meet (its team, the team's room, the role), or null.
+   * For a caller with an irreversible step to run BEFORE landing (a fork's
+   * store surgery) that must not run for a pane the team then refuses. */
   roomFor(
-    workspace: WorkspaceRef,
-    pane: Pane,
-    placement: TeamLocation,
+    request: Pick<CreatePaneRequest, "workspace" | "pane" | "placement" | "team" | "role">,
   ): CreatePaneOutcome | null;
   landOrThrow(outcome: CreatePaneOutcome): void;
   /** Move a pane already in the deck onto the team holding `placement` —
@@ -374,15 +372,15 @@ export function createAgentOrchestratorCreation({
   }
 
   function roomFor(
-    workspace: WorkspaceRef,
-    pane: Pane,
-    placement: TeamLocation,
+    request: Pick<CreatePaneRequest, "workspace" | "pane" | "placement" | "team" | "role">,
   ): CreatePaneOutcome | null {
     const workspaces = deck.getSnapshot().workspaces;
-    const current = findWorkspaceByRef(workspaces, workspace);
+    const current = findWorkspaceByRef(workspaces, request.workspace);
     if (!current) return { kind: "gone" };
-    const landing = resolveLanding(workspaces, current, pane, placement);
-    return "refusal" in landing ? refusalOutcome(landing) : null;
+    const landing = resolveRequest(workspaces, current, request);
+    if ("refusal" in landing) return refusalOutcome(landing);
+    const admitted = admitRole(current, landing.team.id, request.role);
+    return admitted.ok ? null : { kind: "role", why: admitted.why, role: admitted.role };
   }
 
   /**

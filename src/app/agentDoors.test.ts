@@ -224,6 +224,7 @@ describe("agent doors — a member", () => {
     });
     expect(outcome).toEqual({ kind: "done" });
     expect(h.resumeSession).toHaveBeenCalledWith("ws-1", handle, {
+      team: "team-1",
       name: "Lead",
       yolo: true,
       role: "impl-1",
@@ -238,7 +239,7 @@ describe("agent doors — a member", () => {
       "ws-1",
       handle,
       { kind: "dir", cwd: "/repo" },
-      { name: undefined, yolo: false },
+      { name: undefined, yolo: false, team: "team-1" },
     );
 
     expect(await h.member({ session: { mode: "fork", handle } }, null)).toEqual({

@@ -144,12 +144,14 @@ export function createAgentDoors(deps: AgentDoorsDeps): AgentDoors {
 
       // A member runs where its team runs: a resume is offered only for a
       // session recorded in the team's directory, and a fork copies the
-      // session INTO that directory. The role the person picked rides every
+      // session INTO that directory. Both land on THIS team, by id — two
+      // teams can share a directory. The role the person picked rides every
       // way in, and the landing honours it or refuses it.
       const name = result.name.trim() || undefined;
       const opts = {
         name,
         yolo: result.yolo,
+        team: target.teamId,
         ...(result.role !== undefined && { role: result.role }),
       };
       const { session } = result;

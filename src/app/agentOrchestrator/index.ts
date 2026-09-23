@@ -75,19 +75,21 @@ export interface AgentOrchestrator {
   /** Continue a journal session in a new pane. `role` is the address the
    * pane asks for on the team it lands on — honoured when the catalog knows
    * it and it is free, refused otherwise ([`admitRole`], thrown as the
-   * refusal's words); absent, the roster suggests one. */
+   * refusal's words); absent, the roster suggests one. `team` is the team
+   * it joins, by id; absent, the team holding the session's directory. */
   resumeSession(
     wsId: string,
     record: SessionHandle,
-    opts?: { name?: string; yolo?: boolean; role?: string },
+    opts?: { name?: string; yolo?: boolean; role?: string; team?: string },
   ): Promise<void>;
   /** Fork a journal session into a new pane and target directory/worktree.
-   * `role` as for `resumeSession`. */
+   * `role` and `team` as for `resumeSession`; `team` goes with a `dir`
+   * target — the directory the copy is made in. */
   forkSession(
     wsId: string,
     record: SessionHandle,
     target: ForkTarget,
-    opts?: { name?: string; branch?: string; yolo?: boolean; role?: string },
+    opts?: { name?: string; branch?: string; yolo?: boolean; role?: string; team?: string },
   ): Promise<void>;
   /** Take a blocked pane off the team whose directory is gone, onto the
    * workspace root's, and start a fresh conversation there. The pane keeps

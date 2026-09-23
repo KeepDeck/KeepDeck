@@ -473,6 +473,7 @@ describe("useAgentDialog start-from routing", () => {
       }),
     );
     expect(resumeSession).toHaveBeenCalledExactlyOnceWith("ws-1", handle, {
+      team: "team-1",
       name: "api",
       yolo: false,
     });
@@ -496,6 +497,7 @@ describe("useAgentDialog start-from routing", () => {
     // The dialog already gates yolo on supportsYolo; confirm forwards the
     // resolved boolean verbatim — no re-gating in the handoff.
     expect(resumeSession).toHaveBeenLastCalledWith("ws-1", handle, {
+      team: "team-1",
       name: undefined,
       yolo: true,
     });
@@ -570,7 +572,7 @@ describe("useAgentDialog start-from routing", () => {
         "ws-1",
         handle,
         { kind: "dir", cwd: "/repo" },
-        { name: undefined, yolo: false },
+        { name: undefined, yolo: false, team: "team-1" },
       );
     }
     expect(createPane).not.toHaveBeenCalled();
@@ -594,7 +596,7 @@ describe("useAgentDialog start-from routing", () => {
       "ws-1",
       handle,
       { kind: "dir", cwd: "/repo" },
-      { name: undefined, yolo: true },
+      { name: undefined, yolo: true, team: "team-1" },
     );
   });
 
@@ -756,7 +758,7 @@ describe("useAgentDialog targets", () => {
       "ws-1",
       handle,
       { kind: "dir", cwd: "/base/kd-KeepDeck-1" },
-      { name: "copy", yolo: false, role: "impl-2" },
+      { name: "copy", yolo: false, team: "team-1", role: "impl-2" },
     );
     expect(createPane).not.toHaveBeenCalled();
 
@@ -765,6 +767,7 @@ describe("useAgentDialog targets", () => {
       flow.confirm({ ...fresh(), role: "lead", session: { mode: "resume", handle } }),
     );
     expect(resumeSession).toHaveBeenCalledWith("ws-1", handle, {
+      team: "team-1",
       name: undefined,
       yolo: false,
       role: "lead",

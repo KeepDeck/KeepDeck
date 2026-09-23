@@ -318,6 +318,17 @@ describe("agent orchestrator —continuing a recorded session", () => {
     expect(deck.workspaces[0].panes.find((pane) => pane.session?.id === "s-3")).toBeUndefined();
   });
 
+  it("lands on the team it was resumed INTO, by id — not the first team on the same directory", async () => {
+    // Two teams can share a directory; finding the team by the session's
+    // directory would put the pane on whichever came first.
+    act(() => {
+      deck.createTeam("ws-1", { id: "team-1", name: "api", location: { kind: "attached", cwd: "/repo/wt" } });
+      deck.createTeam("ws-1", { id: "team-2", name: "web", location: { kind: "attached", cwd: "/repo/wt" } }, { shared: true });
+    });
+    await act(async () => agentRun.resumeSession("ws-1", handle(), { team: "team-2", role: "lead" }));
+    expect(deck.workspaces[0].panes[0].team).toEqual({ teamId: "team-2", role: "lead" });
+  });
+
   it("fails a full team loudly instead of stranding the built plan", async () => {
     // The session ran in a directory whose team has no room: the resume
     // is refused whole rather than landing a seventeenth member.
@@ -628,6 +639,31 @@ describe("agent orchestrator —forking a recorded session", () => {
     expect(provisions).toEqual([]);
     expect(deck.workspaces[0].teams?.map((team) => team.id)).toEqual(["team-f"]);
     expect(deck.workspaces[0].panes).toEqual([]);
+  });
+
+  it("dir target: lands on the team named by id, not the first team on the same directory", async () => {
+    act(() => {
+      deck.createTeam("ws-1", { id: "team-1", name: "api", location: { kind: "attached", cwd: "/elsewhere" } });
+      deck.createTeam("ws-1", { id: "team-2", name: "web", location: { kind: "attached", cwd: "/elsewhere" } }, { shared: true });
+    });
+    await act(async () =>
+      agentRun.forkSession("ws-1", forked(), { kind: "dir", cwd: "/elsewhere" }, { team: "team-2", role: "peer-1" }),
+    );
+    expect(deck.workspaces[0].panes[0].team).toEqual({ teamId: "team-2", role: "peer-1" });
+  });
+
+  it("a role the team cannot take fails a DIR fork BEFORE the irreversible surgery", async () => {
+    act(() => {
+      deck.createTeam("ws-1", { id: "team-1", name: "api", location: { kind: "attached", cwd: "/elsewhere" } });
+      deck.addAgentPane("ws-1", { id: "p-lead", agentType: "claude" });
+      deck.joinTeam("ws-1", "p-lead", "team-1", "lead");
+    });
+    await expect(
+      act(async () =>
+        agentRun.forkSession("ws-1", forked(), { kind: "dir", cwd: "/elsewhere" }, { team: "team-1", role: "lead" }),
+      ),
+    ).rejects.toThrow('role "lead" is taken');
+    expect(vi.mocked(buildForkSpec)).not.toHaveBeenCalled();
   });
 
   it("a full team fails a DIR fork BEFORE the irreversible surgery", async () => {

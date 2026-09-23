@@ -115,9 +115,12 @@ export function createAgentOrchestratorContinuations({
       const name = opts?.name?.trim();
       const outcome = creation.landPane({
         workspace: { id: workspace.id, instance: workspace.instance },
-        // The directory the session ran in, with its branch — a resume
-        // lands on the team holding it, or on a team made for it.
-        placement: placementOfRecorded(record),
+        // The team the person resumed it INTO, by id — two teams can share
+        // a directory. Without one, the directory the session ran in, with
+        // its branch: the team holding it, or a team made for it.
+        ...(opts?.team !== undefined
+          ? { team: opts.team }
+          : { placement: placementOfRecorded(record) }),
         ...(opts?.role !== undefined && { role: opts.role }),
         pane: {
           id,
@@ -188,21 +191,30 @@ export function createAgentOrchestratorContinuations({
       };
       const role = opts?.role !== undefined ? { role: opts.role } : {};
       if (target.kind === "dir") {
-        const placement = placementOfRecorded({
-          cwd: target.cwd,
-          ...(opts?.branch && { branch: opts.branch }),
-        });
+        // The team the copy goes INTO, by id when the caller named one —
+        // two teams can share a directory — else the directory's team.
+        const request = {
+          workspace: workspaceRef,
+          pane,
+          ...role,
+          ...(opts?.team !== undefined
+            ? { team: opts.team }
+            : {
+                placement: placementOfRecorded({
+                  cwd: target.cwd,
+                  ...(opts?.branch && { branch: opts.branch }),
+                }),
+              }),
+        };
         // Asked BEFORE the irreversible surgery: a team with no room for
-        // the pane refuses now, not after the clone exists.
-        const refused = creation.roomFor(workspaceRef, pane, placement);
+        // the pane, or for its role, refuses now, not after the clone exists.
+        const refused = creation.roomFor(request);
         if (refused) creation.landOrThrow(refused);
         if (!(await surgery(target.cwd))) {
           dropPaneSpawnSpec(id);
           throw new Error("Agent could not prepare a fork plan");
         }
-        creation.landOrThrow(
-          creation.landPane({ workspace: workspaceRef, pane, placement, ...role }),
-        );
+        creation.landOrThrow(creation.landPane(request));
         return;
       }
 
