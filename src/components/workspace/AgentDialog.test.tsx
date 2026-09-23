@@ -130,6 +130,17 @@ const choiceBtn = (label: string) =>
   );
 const errorText = () => document.querySelector(".form__error")?.textContent;
 
+/** Pick the member's role — nothing is picked for it, so a member dialog
+ * that is to create anything has to. */
+function pickRole(label: string) {
+  act(() => document.querySelector<HTMLButtonElement>(".form__role-pick .dropdown__button")!.click());
+  const option = [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')].find(
+    (button) => button.textContent === label,
+  );
+  if (!option) throw new Error(`no role option "${label}"`);
+  act(() => option.click());
+}
+
 /** Type into a controlled React input: set via the native setter (bypassing
  * React's value tracker) and fire a bubbling `input` event. */
 function type(el: HTMLInputElement, text: string) {
@@ -530,8 +541,8 @@ describe("AgentDialog YOLO toggle", () => {
     catalog.supportsYolo = true;
   });
 
-  const mount = (defaultYolo: boolean) =>
-    act(async () =>
+  const mount = async (defaultYolo: boolean) => {
+    await act(async () =>
       root.render(
         createElement(AgentDialog, {
           defaultAgentType: "claude" as const,
@@ -556,6 +567,9 @@ describe("AgentDialog YOLO toggle", () => {
         }),
       ),
     );
+    // A member takes a role, picked — never one picked for it.
+    pickRole("Lead");
+  };
 
   const checkbox = () =>
     document.querySelector<HTMLInputElement>(".form__yolo input");
@@ -644,8 +658,8 @@ describe("AgentDialog start-from session picker", () => {
     catalog.extraAgents = [];
   });
 
-  const mount = (overrides: Record<string, unknown> = {}) =>
-    act(async () =>
+  const mount = async (overrides: Record<string, unknown> = {}) => {
+    await act(async () =>
       root.render(
         createElement(AgentDialog, {
           defaultAgentType: "claude" as const,
@@ -671,6 +685,9 @@ describe("AgentDialog start-from session picker", () => {
         }),
       ),
     );
+    // A member takes a role, picked — never one picked for it.
+    pickRole("Lead");
+  };
 
 
   const modeBtn = (label: string) =>
@@ -1286,8 +1303,8 @@ describe("remote gating (Experimental setting)", () => {
     catalog.extraAgents = []; // don't leak the codex entry into other suites
   });
 
-  const mount = (agent: string, remoteEnabled: boolean) =>
-    act(async () =>
+  const mount = async (agent: string, remoteEnabled: boolean) => {
+    await act(async () =>
       root.render(
         createElement(AgentDialog, {
           target: MEMBER,
@@ -1312,6 +1329,9 @@ describe("remote gating (Experimental setting)", () => {
         }),
       ),
     );
+    // A member takes a role, picked — never one picked for it.
+    pickRole("Lead");
+  };
 
   it("hides the Where option when the Experimental setting is off", async () => {
     catalog.extraAgents = [codexRemote];
@@ -1362,6 +1382,7 @@ describe("remote gating (Experimental setting)", () => {
         }),
       ),
     );
+    pickRole("Lead");
     // Remote is opt-in within the Where row (default Local) — click it to
     // reveal the endpoint field.
     const remoteBtn = Array.from(document.querySelectorAll("button")).find(

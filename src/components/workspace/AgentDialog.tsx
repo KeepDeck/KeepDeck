@@ -17,7 +17,7 @@ import {
   type SessionPickRow,
   type SessionStartMode,
 } from "../../domain/agents";
-import type { RoleChoice } from "../../presentation/roleChoiceView";
+import { NO_ROLE, ROLE_WORDS, type RoleChoice } from "../../presentation/roleChoiceView";
 import { rowKeyOf } from "../../domain/journal/sessionRow";
 import { formatAge } from "../../domain/usage/format";
 import { useAgents } from "../../app/useAgents";
@@ -43,8 +43,7 @@ interface AgentDialogProps {
    * lands where its session was recorded, which is a team of its own. */
   target: AgentDialogTarget;
   /** The role picker's data, built against what the target team holds:
-   * the roles on offer, the one to open on, and the address each pick
-   * would mint (null for a singleton the team already has). Data, so the
+   * the roles it is open to and the address each pick takes. Data, so the
    * view decides nothing about roles itself. */
   roles: RoleChoice;
   /** Pre-selected agent type. */
@@ -156,12 +155,11 @@ export function AgentDialog({
   const [teamName, setTeamName] = useState(
     target.kind === "new-team" ? target.suggestedName : "",
   );
-  // The role — picked, never typed: it carries what the member is FOR, and
-  // that only exists for a role the catalog has. Which role the picker
-  // opens on and which ADDRESS a pick mints (`impl-2` past a held
-  // `impl-1`; nothing for a singleton the team already holds) are the
-  // catalog's answers, handed in as `roles`; the form only shows them.
-  const [roleId, setRoleId] = useState(roles.defaultId);
+  // The role — picked, never typed, never picked for the person: it carries
+  // what the member is FOR. Which roles the team is open to and which
+  // ADDRESS a pick takes (`impl-2` past a held `impl-1`) are the domain's
+  // answers, handed in as `roles`; the form only shows them.
+  const [roleId, setRoleId] = useState(NO_ROLE);
   const roleAddress = roles.addressFor(roleId);
   // The toggle's state survives switching through a non-supporting agent —
   // only the SUBMITTED value is gated (see `supportsYolo` below).
@@ -389,27 +387,25 @@ export function AgentDialog({
 
         {member && (
           <>
-            <span className="form__label">Role</span>
+            <span className="form__label">{ROLE_WORDS.label}</span>
             <Dropdown
               className="form__role-pick"
-              options={roles.options}
+              options={roles.optionsFor(roleId)}
               value={roleId}
               onChange={setRoleId}
-              ariaLabel="Role"
+              ariaLabel={ROLE_WORDS.label}
             />
             {/* The ADDRESS under the field, said in words: the picker names
                 what the member is for; the address is what a teammate types,
                 and only it tells two implementers apart. Bare, it read as a
                 duplicate of the pick ("Lead … lead"); as a sentence it is
-                what it is. The refusal takes the same line. */}
+                what it is. */}
             {roleAddress !== null ? (
               <span className="form__role-hint">
-                Teammates write to <code className="form__role-address">{roleAddress}</code>
+                {ROLE_WORDS.writeTo} <code className="form__role-address">{roleAddress}</code>
               </span>
             ) : (
-              <span className="form__error">
-                {roles.labelOf(roleId)} is already on this team — pick another role
-              </span>
+              <span className="form__role-hint">{roles.unpickedHint}</span>
             )}
           </>
         )}

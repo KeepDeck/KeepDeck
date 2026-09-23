@@ -228,7 +228,8 @@ export function useAgentDialog(
         kind: "new-team",
         suggestedName: nextAutoTeamName(live),
       },
-      // A new team holds nothing yet: the picker opens on the lead.
+      // "+ Team" lands no agent, so it shows no picker; a team with nobody
+      // on it is what the data describes.
       roles: roleChoiceView([]),
       defaultAgentType: defaultType,
       defaultYolo: getSettings()?.defaultYolo ?? false,

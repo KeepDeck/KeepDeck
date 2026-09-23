@@ -708,7 +708,7 @@ describe("useAgentDialog targets", () => {
       suggestedPath: "",
     });
     // The picker's data is built against the roster the team holds.
-    expect(flow.dialog!.roles.defaultId).toBe("impl");
+    expect(flow.dialog!.roles.addressFor("lead")).toBeNull();
     expect(flow.dialog!.roles.addressFor("impl")).toBe("impl-1");
 
     await act(async () => flow.confirm({ ...fresh(), role: "impl-1" }));
@@ -782,7 +782,6 @@ describe("useAgentDialog targets", () => {
     expect(flow.dialog).toMatchObject({
       target: { kind: "new-team", suggestedName: "Team 2" },
     });
-    expect(flow.dialog!.roles.defaultId).toBe("lead");
 
     await act(async () =>
       flow.confirm({
