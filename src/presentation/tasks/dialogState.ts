@@ -4,6 +4,7 @@
  * what the team control is, and the dialog's words.
  */
 import type { BoardColumnView } from "./boardView";
+import { NEW_TASK_LABEL } from "./words";
 import type { TaskCardView } from "./taskCardView";
 
 /**
@@ -55,7 +56,7 @@ export function teamControlView(
 export const DIALOG_WORDS = {
   title: "Tasks",
   team: "Team",
-  newTask: "+ Task",
+  newTask: NEW_TASK_LABEL,
   close: "Close tasks",
   wide: (wide: boolean) => (wide ? "Collapse" : "Expand"),
 } as const;

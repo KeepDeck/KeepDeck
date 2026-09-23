@@ -378,9 +378,12 @@ describe("createTask", () => {
 describe("attachArtifact / detachArtifact", () => {
   const t = task({ id: "task-1", artifacts: ["kd-a", "kd-b"] });
 
-  it("attaches a slug once — a second attach changes nothing", () => {
+  it("attaches a slug; attaching one already there changes nothing once the transition applies it", () => {
     expect(attachArtifact(t, "kd-c")).toEqual({ kind: "artifacts", to: ["kd-a", "kd-b", "kd-c"] });
-    expect(attachArtifact(t, "kd-a")).toEqual({ kind: "artifacts", to: ["kd-a", "kd-b"] });
+    // The one normalization rule is the transition's: a repeat is folded
+    // there, and the task comes back as it was.
+    const again = transition(t, attachArtifact(t, "kd-a"), lead, ctx([t]));
+    expect(again.ok && again.task).toBe(t);
   });
 
   it("detaches only the slug named, and a slug not attached leaves the list as it is", () => {

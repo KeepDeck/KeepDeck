@@ -1,4 +1,5 @@
 import type { BoardState } from "../../app/tasks/tasksService";
+import { NEW_TASK_LABEL } from "./words";
 
 /**
  * Which of the dialog's states the body shows — the artifacts registry's
@@ -40,5 +41,8 @@ export const LADDER_WORDS: Record<Exclude<TasksLadder["kind"], "board" | "refusa
   noWorkspace: { title: "No workspace open", hint: "Tasks belong to a workspace — open one first" },
   noTeam: { title: "No team here", hint: "A board belongs to a team — start one and its board appears" },
   loading: { title: "Loading…", hint: "" },
-  empty: { title: "Nothing on the board yet", hint: "Put work here with + Task; agents read the board themselves — task.list, task.mine" },
+  empty: {
+    title: "Nothing on the board yet",
+    hint: `Put work here with ${NEW_TASK_LABEL}; agents read the board themselves — task.list, task.mine`,
+  },
 };

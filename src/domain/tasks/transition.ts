@@ -37,10 +37,10 @@ export type TaskChange =
   | { kind: "artifacts"; to: readonly string[] }
   | { kind: "comment"; body: string };
 
-/** The change that attaches `slug` to `task` — its list with the slug
- * added once; attaching what is already there changes nothing. */
+/** The change that attaches `slug` to `task`. A slug already there is
+ * the transition's to fold: it normalizes every artifacts list, once. */
 export function attachArtifact(task: Pick<Task, "artifacts">, slug: string): TaskChange {
-  return { kind: "artifacts", to: task.artifacts.includes(slug) ? task.artifacts : [...task.artifacts, slug] };
+  return { kind: "artifacts", to: [...task.artifacts, slug] };
 }
 
 /** The change that takes `slug` off `task`'s attachments. */
