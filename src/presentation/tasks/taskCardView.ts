@@ -17,6 +17,23 @@ export interface TaskCardView {
   cancelled: boolean;
 }
 
+/** The card's classes: its tone, and whether it is cancelled, the card in
+ * flight, or one a press can pick up. */
+export function taskCardClassName(
+  card: Pick<TaskCardView, "tone" | "cancelled">,
+  state: { dragging: boolean; grabbable: boolean },
+): string {
+  return [
+    "tasks__card",
+    `tasks__card--${card.tone}`,
+    card.cancelled && "tasks__card--cancelled",
+    state.dragging && "tasks__card--dragging",
+    state.grabbable && "tasks__card--grabbable",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
 export function taskCardView(task: Task, board: TaskBoard, now: number): TaskCardView {
   const open = openBlockersOf(task, board);
   return {

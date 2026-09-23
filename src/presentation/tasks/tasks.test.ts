@@ -3,7 +3,7 @@ import { board, task } from "../../domain/tasks/testSupport";
 import { boardView } from "./boardView";
 import { LADDER_WORDS, tasksLadder } from "./ladderView";
 import { newTaskFormView } from "./newTaskFormView";
-import { taskCardView } from "./taskCardView";
+import { taskCardView, taskCardClassName } from "./taskCardView";
 import { taskDetailView } from "./taskDetailView";
 import { teamCardTasksLine } from "./teamCardTasksLine";
 import { teamOnScreen } from "./teamOnScreen";
@@ -25,6 +25,16 @@ describe("words", () => {
       "none",
       "none",
     ]);
+  });
+});
+
+describe("taskCardClassName", () => {
+  it("names the tone always, and each of cancelled, in flight and grabbable only when it holds", () => {
+    const card = { tone: "working" as const, cancelled: false };
+    expect(taskCardClassName(card, { dragging: false, grabbable: false })).toBe("tasks__card tasks__card--working");
+    expect(taskCardClassName({ tone: "none", cancelled: true }, { dragging: true, grabbable: true })).toBe(
+      "tasks__card tasks__card--none tasks__card--cancelled tasks__card--dragging tasks__card--grabbable",
+    );
   });
 });
 
