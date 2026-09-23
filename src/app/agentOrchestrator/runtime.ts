@@ -217,17 +217,12 @@ export function createAgentOrchestratorRuntime(
     bumpEpoch: runView.bumpEpoch,
     publish: () => publish(),
     markOccupied: runView.markOccupied,
-    occupiedNote: runView.occupiedNote,
     clearNotes: runView.clearNotes,
     startOwed,
     skillsAsk,
     mcpAccess,
     schedule,
     lifecycle,
-    forks: {
-      forkSession: (wsId, record, target, opts) =>
-        continuations.forkSession(wsId, record, target, opts),
-    },
   });
   const continuations = createAgentOrchestratorContinuations({
     deck,
@@ -509,8 +504,6 @@ export function createAgentOrchestratorRuntime(
     restart: restart.restart,
     recoverRejectedResume: restart.recoverRejectedResume,
     retryPlanBuild: restart.retryPlanBuild,
-    forkOccupiedSession: restart.forkOccupiedSession,
-    forkStalledSession: restart.forkStalledSession,
     dismissOccupied: restart.dismissOccupied,
     resumeSession: continuations.resumeSession,
     forkSession: continuations.forkSession,

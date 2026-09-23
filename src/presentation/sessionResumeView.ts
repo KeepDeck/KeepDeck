@@ -30,3 +30,9 @@ export function resumeActionView(block: ResumeBlock, cwd: string): ResumeActionV
   const reason = resumeBlockReason(block);
   return reason === null ? { disabled: false, title: `Resume in ${cwd}` } : { disabled: true, title: reason };
 }
+
+/** Under a fork's list: which session the copy is made of — the picked one
+ * may be off the page, as a card's own session opened here is. */
+export function forkPickLine(handle: { title?: string; sessionId: string }): string {
+  return `✓ Forks ${handle.title ?? handle.sessionId} into this team`;
+}

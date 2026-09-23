@@ -131,6 +131,13 @@ export type ForkTarget =
  * a new one (fork) ([F8] spawn-time continuation). */
 export type SessionStartMode = "new" | "resume" | "fork";
 
+/** A session the member dialog opens with, already picked — a busy or
+ * stalled card forking its own, the role still to choose. */
+export interface SessionPreset {
+  mode: "fork";
+  handle: SessionHandle;
+}
+
 /** Why a listed session can't be RESUMED (forking stays possible — it is
  * exactly the escape hatch for these): its directory is gone, it never
  * recorded one, a pane already owns the binding — or an OUTSIDE process

@@ -4,7 +4,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentDialog } from "./AgentDialog";
 import { ROLE_WORDS, roleChoiceView } from "../../presentation/roleChoiceView";
-import type { AgentDialogResult, AgentDialogTarget, PathProbe } from "../../domain/agents";
+import { forkPickLine } from "../../presentation/sessionResumeView";
+import type { AgentDialogResult, AgentDialogTarget, PathProbe, SessionPreset } from "../../domain/agents";
 import { roleById } from "../../domain/mail";
 
 // React 19 requires this flag for act() outside a test-framework integration.
@@ -79,11 +80,13 @@ describe("AgentDialog targets", () => {
     target: AgentDialogTarget,
     repo: { cwd: string; branch: string | null } | null,
     heldRoles: readonly string[] = [],
+    preset?: SessionPreset,
   ) =>
     act(async () =>
       root.render(
         createElement(AgentDialog, {
           target,
+          ...(preset && { preset }),
           roles: roleChoiceView(heldRoles),
           defaultAgentType: "claude" as const,
           remoteEnabled: false,
@@ -211,6 +214,16 @@ describe("AgentDialog targets", () => {
     expect(roleAddress()).toBeNull();
     pickRole(roleById("peer")!.label);
     expect(roleAddress()).toBe("peer-1");
+  });
+
+  it("opens on a card's own session, picked to fork — and still asks for the role", async () => {
+    const handle = { agent: "claude" as const, sessionId: "s-9", cwd: "/repo/wt", title: "auth bug" };
+    await mount(member(), null, ["lead"], { mode: "fork", handle });
+    expect(text()).toContain(forkPickLine(handle));
+    expect(createBtn().disabled).toBe(true);
+    pickRole(roleById("impl")!.label);
+    submit();
+    expect(confirmed[0]).toMatchObject({ role: "impl-1", session: { mode: "fork", handle } });
   });
 
   it("offers no continuation while the team's directory is still being created", async () => {

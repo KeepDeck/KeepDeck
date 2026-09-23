@@ -119,13 +119,14 @@ interface DeckStageProps {
     string,
     { registry: "live" | "unknown"; name: string | null }
   >;
-  /** Fork the occupied card's live session into a copy (same directory). */
+  /** Fork the occupied card's live session — the member dialog, the session
+   * picked, the role to choose. */
   onForkOccupied(wsId: string, paneId: string): void;
   /** Panes waiting on a continuation to paint: paneId → when the wait began
    * and whether it has already outlasted a healthy start. */
   startupPanes: Record<string, { since: number; slow: boolean }>;
-  /** Fork the session of a pane whose start has gone quiet (same directory,
-   * nothing killed). */
+  /** Fork the session of a pane whose start has gone quiet — the member
+   * dialog, the session picked, nothing killed. */
   onForkStalled(wsId: string, paneId: string): void;
   /** Stop offering the occupied choice (pane stays visible and bound). */
   onDismissOccupied(paneId: string): void;

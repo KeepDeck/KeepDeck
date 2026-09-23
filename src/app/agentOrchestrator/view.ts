@@ -47,8 +47,6 @@ export interface RunViewStore {
   /** Whether this pane's directory is gone — the question the suspend refusal
    * and the resume claimant both ask. */
   isBlocked(paneId: string): boolean;
-  /** The occupied note, when the pane's card is offering the choice. */
-  occupiedNote(paneId: string): OccupiedNote | null;
   /** This pane's continuation-start note, while it is waiting. */
   startupNote(paneId: string): StartupNote | null;
   /** Forget this pane's start; `true` when there was one. Narrower than
@@ -121,7 +119,6 @@ export function createRunViewStore(deck: DeckStore): RunViewStore {
     },
     blockedDir: (paneId) => blocked.get(paneId) ?? null,
     isBlocked: (paneId) => blocked.has(paneId),
-    occupiedNote: (paneId) => occupied.get(paneId) ?? null,
     startupNote: (paneId) => startup.get(paneId) ?? null,
     clearStartup: (paneId) => startup.delete(paneId),
     clearNotes(paneId) {

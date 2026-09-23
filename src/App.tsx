@@ -23,7 +23,6 @@ import {
   findWorkspace,
 } from "./domain/deck";
 import { pickFolder } from "./ipc/dialogs";
-import { describeError } from "./ipc/log";
 import { inspectRepo, listBranches, probeWorktree } from "./ipc/worktree";
 import {
   notifyAgentCrashed,
@@ -209,18 +208,10 @@ function App() {
             idleBlocked={runView.blocked}
             wakeFailed={runView.wakeFailed}
             occupiedPanes={runView.occupied}
-            onForkOccupied={(wsId, paneId) => {
-              void orchestrator.forkOccupiedSession(wsId, paneId).catch((e: unknown) =>
-                pushAlert("Could not fork the session", describeError(e)),
-              );
-            }}
+            onForkOccupied={agentFlow.forkPaneSession}
             onDismissOccupied={orchestrator.dismissOccupied}
             startupPanes={runView.startup}
-            onForkStalled={(wsId, paneId) => {
-              void orchestrator.forkStalledSession(wsId, paneId).catch((e: unknown) =>
-                pushAlert("Could not fork the session", describeError(e)),
-              );
-            }}
+            onForkStalled={agentFlow.forkPaneSession}
             specByPane={specByPane}
             failedPanes={failedPanes}
             onStartFresh={orchestrator.startFresh}
@@ -288,6 +279,7 @@ function App() {
               target={agentFlow.dialog.target}
               roles={agentFlow.dialog.roles}
               defaultAgentType={agentFlow.dialog.defaultAgentType}
+              preset={agentFlow.dialog.preset}
               defaultYolo={agentFlow.dialog.defaultYolo}
               remoteEnabled={agentFlow.dialog.remoteEnabled}
               repo={agentFlow.dialog.repo}

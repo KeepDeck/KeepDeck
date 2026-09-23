@@ -6,17 +6,21 @@ import {
   type AgentType,
   type DirectoryState,
   type SessionPickRow,
+  type SessionPreset,
 } from "../domain/agents";
 import {
   baseName,
   directoryState,
   findTeam,
+  findWorkspace,
   findWorkspaceByRef,
   firstFreeTeamWorktree,
   nextAutoTeamName,
   paneId,
+  paneSessionHandle,
   parentDir,
   sessionClaimant,
+  teamOfPane,
   type Workspace,
 } from "../domain/deck";
 import { handleFromHit } from "../domain/journal";
@@ -75,7 +79,12 @@ export interface SharedDirectoryAsk {
 
 /** What the dialog is opened FOR, as the caller says it: a new team, or a
  * member of the team `teamId`. */
-export type AgentDialogOpening = { kind: "new-team" } | { kind: "member"; teamId: string };
+export type AgentDialogOpening =
+  | { kind: "new-team" }
+  /** `session`: a recorded session the dialog opens already picked — a
+   * busy or stalled card forking its own, the role still to choose. */
+  | { kind: "member"; teamId: string; session?: SessionPreset };
+
 
 /** Everything the agent dialog ("+ Team" / "Add member") needs to render,
  * captured at open time. */
@@ -90,6 +99,8 @@ export interface AgentDialogSpec {
    * the view decides nothing about roles itself. */
   roles: RoleChoice;
   defaultAgentType: AgentType;
+  /** A session the dialog opens with, already picked. */
+  preset?: SessionPreset;
   /** The YOLO toggle's starting position ([F6] global preference). */
   defaultYolo: boolean;
   /** Whether the Experimental “Remote agents” setting is on — gates the
@@ -173,7 +184,9 @@ export function useAgentDialog(
           cwd: team.location?.kind === "attached" ? team.location.cwd : null,
         },
         roles: roleChoiceView(rolesOnTeam(ws, team.id)),
-        defaultAgentType: defaultType,
+        // A preset session is one agent's: the dialog opens on that agent.
+        defaultAgentType: opening.session?.handle.agent ?? defaultType,
+        ...(opening.session && { preset: opening.session }),
         defaultYolo: getSettings()?.defaultYolo ?? false,
         remoteEnabled: getSettings()?.remoteAgents === true,
         repo: null,
@@ -414,6 +427,20 @@ export function useAgentDialog(
 
   const cancel = () => setDialog(null);
 
+  /** A busy or stalled card's Fork: the member dialog for the pane's team,
+   * its bound session already picked to fork — the role still the person's
+   * to choose. A pane on no team, or with nothing bound, has nothing to
+   * open it for. */
+  const forkPaneSession = (wsId: string, paneId: string) => {
+    const ws = findWorkspace(deckRef.current.workspaces, wsId);
+    const pane = ws?.panes.find((candidate) => candidate.id === paneId);
+    if (!ws || !pane) return;
+    const team = teamOfPane(ws, pane);
+    const handle = paneSessionHandle(ws, pane);
+    if (!team || !handle) return;
+    void openFor(ws, { kind: "member", teamId: team.id, session: { mode: "fork", handle } });
+  };
+
   /** The empty team's sessions list: a recorded session continued onto the
    * team under the role picked there — the member door without its dialog,
    * its answer shown the same way. */
@@ -436,6 +463,7 @@ export function useAgentDialog(
     confirm,
     cancel,
     continueSession,
+    forkPaneSession,
     nextFree,
     branchFor,
     searchSessions,

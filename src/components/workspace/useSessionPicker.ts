@@ -22,6 +22,7 @@ import type {
   SessionPickRow,
   SessionStartMode,
 } from "../../domain/agents";
+import type { SessionHandle } from "../../domain/journal";
 import { resumeBlock } from "../../domain/deck";
 import { dirPresent, useDirPresence } from "../history/useDirPresence";
 import { useScrollPaging } from "../../ui/useScrollPaging";
@@ -33,6 +34,8 @@ export function useSessionPicker(deps: {
   startMode: SessionStartMode;
   /** The team a member would join, when the dialog is for one. */
   member: { cwd: string | null } | null;
+  /** A session the picker opens on, already picked. */
+  preset: SessionHandle | null;
   searchSessions(
     agent: AgentType,
     query: string,
@@ -50,13 +53,16 @@ export function useSessionPicker(deps: {
     agentType,
     startMode,
     member,
+    preset,
     searchSessions,
     sessionClaim,
     liveOutside,
     onPrefill,
   } = deps;
   const [sessionQuery, setSessionQuery] = useState("");
-  const [picked, setPicked] = useState<SessionPickRow | null>(null);
+  const [picked, setPicked] = useState<SessionPickRow | null>(
+    preset ? { handle: preset, mtime: 0 } : null,
+  );
 
   // The picker's options, paged through the SAME engine as the global browser
   // ([[usePagedSessionSearch]]) — the fetcher is scoped to the selected agent
@@ -116,7 +122,11 @@ export function useSessionPicker(deps: {
   // A pick belongs to ONE agent's store — switching agents voids it (and the
   // typed filter; the fresh listing shouldn't open pre-narrowed). An
   // auto-filled (untouched) name came from that pick's title, so drop it too.
+  // A SWITCH, not the first agent: a preset pick is the opening agent's.
+  const pickedFor = useRef(agentType);
   useEffect(() => {
+    if (pickedFor.current === agentType) return;
+    pickedFor.current = agentType;
     setPicked(null);
     setSessionQuery("");
     onPrefill("");

@@ -8,7 +8,8 @@
  * is exactly how a pane ends up both "stopped" and "waking".
  */
 import type { AgentType, ResumeOrigin } from "../../agents";
-import { panePlacement } from "../roots";
+import type { SessionHandle } from "../../journal";
+import { paneBranch, paneExecutionCwd, panePlacement } from "../roots";
 import type { Workspace } from "../workspaces";
 
 /** The half of the workspace a placement question reads: its teams, whose
@@ -251,4 +252,21 @@ export function paneResumeSessionId(pane: Pane): string | null {
   // server, and handing a resume path a local session id would spawn locally
   // and silently drop the endpoint.
   return remoteEndpointOf(pane) !== null ? null : (pane.session?.id ?? null);
+}
+
+/** The session a pane is bound to, as the handle a continuation takes — or
+ * null while it has none to continue, or no directory yet to have run it in.
+ * What the busy and stalled cards hand the member dialog to fork. */
+export function paneSessionHandle(ws: Workspace, pane: Pane): SessionHandle | null {
+  const sessionId = paneResumeSessionId(pane);
+  const cwd = paneExecutionCwd(ws, pane);
+  if (sessionId === null || cwd === null) return null;
+  const branch = paneBranch(ws, pane);
+  return {
+    agent: paneAgentType(pane),
+    sessionId,
+    cwd,
+    ...(branch !== undefined && { branch }),
+    ...(pane.yolo && { yolo: true }),
+  };
 }

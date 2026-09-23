@@ -16,6 +16,7 @@ import {
   type PathProbe,
   type SessionPickRow,
   type SessionStartMode,
+  type SessionPreset,
 } from "../../domain/agents";
 import { NO_ROLE, ROLE_WORDS, type RoleChoice } from "../../presentation/roleChoiceView";
 import { rowKeyOf } from "../../domain/journal/sessionRow";
@@ -32,7 +33,7 @@ import { useWorktreeLocation } from "./useWorktreeLocation";
 import { Dropdown } from "../../ui/Dropdown";
 import { AgentGlyph } from "../../ui/AgentGlyph";
 import { YoloField } from "../../ui/YoloField";
-import { resumeBlockReason } from "../../presentation/sessionResumeView";
+import { forkPickLine, resumeBlockReason } from "../../presentation/sessionResumeView";
 
 export type { AgentDialogResult } from "../../domain/agents";
 
@@ -48,6 +49,8 @@ interface AgentDialogProps {
   roles: RoleChoice;
   /** Pre-selected agent type. */
   defaultAgentType: AgentType;
+  /** A session the dialog opens with, already picked. */
+  preset?: SessionPreset;
   /** The YOLO toggle's starting position (the global preference); shown only
    * while the selected agent's plugin declares YOLO support. */
   defaultYolo: boolean;
@@ -130,6 +133,7 @@ export function AgentDialog({
   target,
   roles,
   defaultAgentType,
+  preset,
   defaultYolo,
   remoteEnabled,
   repo,
@@ -179,7 +183,7 @@ export function AgentDialog({
   });
   // "Start from" ([F8] spawn-time continuation): fresh conversation, resume,
   // or fork of one of the SELECTED agent's indexed sessions.
-  const [startMode, setStartMode] = useState<SessionStartMode>("new");
+  const [startMode, setStartMode] = useState<SessionStartMode>(preset?.mode ?? "new");
   // "Where" — run locally (default) or against a remote native-server
   // endpoint. `remote` survives switching to a non-supporting agent; only
   // the SUBMITTED value is gated (see `canRemote`). Remote is fresh-session
@@ -243,6 +247,7 @@ export function AgentDialog({
   const picker = useSessionPicker({
     agentType,
     startMode,
+    preset: preset?.handle ?? null,
     member,
     searchSessions,
     sessionClaim,
@@ -547,6 +552,9 @@ export function AgentDialog({
                   Can't resume: {resumeBlockReason(pickedBlock)}
                 </span>
               )
+            )}
+            {startMode === "fork" && validPick && (
+              <span className="form__git">{forkPickLine(validPick.handle)}</span>
             )}
           </>
         )}

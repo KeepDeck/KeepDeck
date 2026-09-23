@@ -148,8 +148,8 @@ export interface AgentPaneProps {
    * Distinct from `idle`/`stopped`: the conversation is alive, just not
    * ours to resume. */
   occupied?: { registry: "live" | "unknown"; name: string | null } | null;
-  /** Fork the live session into a copy in the same directory (the
-   * occupied card's primary: a copy keeps reporting to the deck). */
+  /** Fork the live session into a copy on this pane's team (the occupied
+   * card's primary: a copy keeps reporting to the deck). */
   onForkOccupied?(): void;
   /** Stop offering the choice; the pane stays visible and bound. */
   onDismissOccupied?(): void;
@@ -158,7 +158,7 @@ export interface AgentPaneProps {
    * through to the terminal's launch overlay — the pane makes no decision
    * about it. */
   startup?: { since: number; slow: boolean } | null;
-  /** Fork the session this pane is bound to, same directory, nothing killed —
+  /** Fork the session this pane is bound to onto its team, nothing killed —
    * the way out offered beside a start that has gone quiet. */
   onForkStalled?(): void;
   /** Manually restart an exited agent, either from its binding or fresh. */

@@ -61,14 +61,6 @@ export interface AgentOrchestrator {
   ): boolean;
   /** Retry a failed spawn-plan build. */
   retryPlanBuild(paneId: string): void;
-  /** Fork the live session a refused-resume card holds into a copy in the
-   * SAME directory (the card never chooses one) — a new pane, the binding
-   * untouched. */
-  forkOccupiedSession(wsId: string, paneId: string): Promise<void>;
-  /** Fork the session a pane is bound to when its start has gone quiet: the
-   * same directory, nothing killed, so a person who cannot wait any longer
-   * has a way forward that costs nothing if the start was about to finish. */
-  forkStalledSession(wsId: string, paneId: string): Promise<void>;
   /** Stop offering the occupied choice: the pane stays visible and bound,
    * nothing is erased — the ordinary exit card takes over. */
   dismissOccupied(paneId: string): void;

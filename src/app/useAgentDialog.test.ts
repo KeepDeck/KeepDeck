@@ -694,6 +694,33 @@ describe("useAgentDialog targets", () => {
   });
   const handle = { agent: "claude", sessionId: "s-1", cwd: "/base/kd-KeepDeck-1", title: "t" };
 
+  it("opens a busy card's Fork as the member dialog, its bound session picked on its agent — the role left to choose", async () => {
+    const ws = workspace({
+      teams: [{ id: "team-1", name: "api", location: { kind: "attached", cwd: "/base/kd-KeepDeck-1" } }],
+      panes: [
+        {
+          id: "p1",
+          agentType: "codex",
+          session: { id: "s-9", boundAt: "t" },
+          team: { teamId: "team-1", role: "lead" },
+        },
+        // On no team: nothing to open the member dialog for.
+        { id: "p2", agentType: "claude", session: { id: "s-8", boundAt: "t" } },
+      ],
+    });
+    const deck = { workspaces: [ws], openTeam: vi.fn() } as unknown as Deck;
+    await act(async () => mountHost(root, Host, deck));
+    await act(async () => flow.forkPaneSession("ws-1", "p2"));
+    expect(flow.dialog).toBeNull();
+    await act(async () => flow.forkPaneSession("ws-1", "p1"));
+    expect(flow.dialog).toMatchObject({
+      target: { kind: "member", teamId: "team-1" },
+      defaultAgentType: "codex",
+      preset: { mode: "fork", handle: { agent: "codex", sessionId: "s-9", cwd: "/base/kd-KeepDeck-1" } },
+    });
+    expect(flow.dialog!.roles.addressFor("lead")).toBeNull();
+  });
+
   it("opens for a member with no location to ask about, and lands it on the team by id under the role picked", async () => {
     const ws = teamed();
     const deck = { workspaces: [ws], openTeam: vi.fn() } as unknown as Deck;
