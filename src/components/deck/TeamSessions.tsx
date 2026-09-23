@@ -6,6 +6,7 @@ import type { BrowserSharedSeam } from "../../app/useSessionsBrowser";
 import { NO_ROLE, ROLE_WORDS, roleChoiceView } from "../../presentation/roleChoiceView";
 import { TEAM_SESSIONS_WORDS, teamSessionsHint } from "../../presentation/stageView";
 import { Dropdown } from "../../ui/Dropdown";
+import { useRoleCatalog } from "../../app/useRoleCatalog";
 import { WorkspaceSessionsBrowser } from "../history/SessionsBrowser";
 
 interface TeamSessionsProps {
@@ -36,10 +37,15 @@ export function TeamSessions({
   agentsReady,
   onContinue,
 }: TeamSessionsProps) {
-  const [roleId, setRoleId] = useState(NO_ROLE);
+  const [picked, setPicked] = useState(NO_ROLE);
   const [askedWithout, setAskedWithout] = useState(false);
-  // Nobody on the team: the roster is empty by the stage's own answer.
-  const roles = useMemo(() => roleChoiceView([]), []);
+  // Nobody on the team: the roster is empty by the stage's own answer. The
+  // catalog is live — the role editor can add or drop a role while the
+  // list is open — so the choice is rebuilt with it, and a pick it lost
+  // is no pick.
+  const catalog = useRoleCatalog();
+  const roles = useMemo(() => roleChoiceView([]), [catalog]);
+  const roleId = roles.pickOf(picked);
   const address = roles.addressFor(roleId);
   const hint = teamSessionsHint(address, askedWithout, roles.unpickedHint);
   // Identity-stable: the browser's engines key on these.
@@ -64,8 +70,8 @@ export function TeamSessions({
             className="team-sessions__role"
             options={roles.optionsFor(roleId)}
             value={roleId}
-            onChange={(picked) => {
-              setRoleId(picked);
+            onChange={(next) => {
+              setPicked(next);
               setAskedWithout(false);
             }}
             ariaLabel={ROLE_WORDS.label}

@@ -33,6 +33,9 @@ export interface RoleChoice {
   optionsFor(picked: string): RoleOption[];
   /** The address a pick takes on the team, or null for no pick. */
   addressFor(roleId: string): string | null;
+  /** `picked` while the team is still open to it, else no pick — a role
+   * the catalog lost (or the roster closed) is not a pick any more. */
+  pickOf(picked: string): string;
   /** The line under the field while nothing is picked. */
   unpickedHint: string;
 }
@@ -44,6 +47,7 @@ export function roleChoiceView(heldRoles: readonly string[]): RoleChoice {
     optionsFor: (picked) =>
       picked === NO_ROLE ? [{ value: NO_ROLE, label: ROLE_WORDS.prompt }, ...options] : options,
     addressFor: (roleId) => open.find(({ role }) => role.id === roleId)?.address ?? null,
+    pickOf: (picked) => (open.some(({ role }) => role.id === picked) ? picked : NO_ROLE),
     unpickedHint: open.length > 0 ? ROLE_WORDS.unpicked : ROLE_WORDS.closed,
   };
 }

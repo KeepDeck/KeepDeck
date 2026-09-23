@@ -18,7 +18,12 @@ vi.mock("../history/SessionsBrowser", () => ({
   },
 }));
 
+/** The live catalog as the list reads it: a new snapshot per install. */
+const liveCatalog = vi.hoisted(() => ({ snapshot: {} as object }));
+vi.mock("../../app/useRoleCatalog", () => ({ useRoleCatalog: () => liveCatalog.snapshot }));
+
 import { TeamSessions } from "./TeamSessions";
+import { configureRoleCatalog, teamRoles } from "../../domain/mail";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -28,10 +33,7 @@ describe("TeamSessions — an empty team's sessions list", () => {
   let root: Root;
   const onContinue = vi.fn();
 
-  beforeEach(() => {
-    document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
-    onContinue.mockClear();
+  const render = () =>
     act(() =>
       root.render(
         createElement(TeamSessions, {
@@ -52,9 +54,18 @@ describe("TeamSessions — an empty team's sessions list", () => {
         }),
       ),
     );
+
+  beforeEach(() => {
+    document.body.innerHTML = "<div id='host'></div>";
+    root = createRoot(document.getElementById("host")!);
+    onContinue.mockClear();
+    render();
   });
 
-  afterEach(() => act(() => root.unmount()));
+  afterEach(() => {
+    act(() => root.unmount());
+    configureRoleCatalog(null);
+  });
 
   const picker = () => document.querySelector<HTMLButtonElement>(".team-sessions__role .dropdown__button")!;
   const options = () => {
@@ -99,5 +110,17 @@ describe("TeamSessions — an empty team's sessions list", () => {
       ["resume", record, "peer-1"],
       ["fork", record, "peer-1"],
     ]);
+  });
+
+  it("follows the live catalog: a picked role the catalog drops is no pick any more", () => {
+    const peerLabel = roleById("peer")!.label;
+    pick(peerLabel);
+    configureRoleCatalog(teamRoles().filter((role) => role.id !== "peer"));
+    liveCatalog.snapshot = {};
+    render();
+    expect(picker().textContent).toContain(ROLE_WORDS.prompt);
+    expect(options().map((button) => button.textContent)).not.toContain(peerLabel);
+    resume(record);
+    expect(onContinue).not.toHaveBeenCalled();
   });
 });

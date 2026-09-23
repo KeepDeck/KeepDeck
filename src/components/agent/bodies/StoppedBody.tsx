@@ -42,7 +42,10 @@ export function StoppedBody({
   /** Start fresh — under `role` when the card asked for one. */
   onStartFresh?: (role?: string) => void;
 }) {
-  const [roleId, setRoleId] = useState(NO_ROLE);
+  const [picked, setRoleId] = useState(NO_ROLE);
+  // The roster under the card can change while it stands: a pick the
+  // team is no longer open to is no pick.
+  const roleId = startFreshRoles ? startFreshRoles.pickOf(picked) : NO_ROLE;
   const pick = startFreshPick(startFreshRoles ?? null, roleId);
   return (
     <div className="pane__card" role="status">

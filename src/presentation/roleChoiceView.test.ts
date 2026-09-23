@@ -30,4 +30,10 @@ describe("roleChoiceView", () => {
     expect(roleChoiceView([]).unpickedHint).toBe(ROLE_WORDS.unpicked);
     expect(roleChoiceView(["wizard-1"]).unpickedHint).toBe(ROLE_WORDS.closed);
   });
+
+  it("keeps a pick only while the team is open to it", () => {
+    expect(roleChoiceView([]).pickOf("peer")).toBe("peer");
+    expect(roleChoiceView(["lead"]).pickOf("peer")).toBe(NO_ROLE);
+    expect(roleChoiceView([]).pickOf(NO_ROLE)).toBe(NO_ROLE);
+  });
 });
