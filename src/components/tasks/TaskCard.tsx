@@ -1,5 +1,4 @@
-import type { TaskCardView } from "../../presentation/tasks";
-import type { CardGrip } from "../../presentation/tasks";
+import { taskCardClassName, type CardGrip, type TaskCardView } from "../../presentation/tasks";
 
 interface TaskCardProps {
   card: TaskCardView;
@@ -7,19 +6,19 @@ interface TaskCardProps {
   /** Whether this card is the one in flight. */
   dragging?: boolean;
   onSelect(id: string): void;
-  /** Present where a card may be dragged (the board); absent in a lane.
+  /** Present where a card may be dragged (the board); absent on the ghost.
    * A press arms a drag; the hook decides when it becomes one. */
   onArm?(id: string, x: number, y: number, grip: CardGrip): void;
 }
 
-/** One task on the board or in a lane. The card IS the control — a list
+/** One task on the board. The card IS the control — a list
  * row is one of the archetypes the shared Button deliberately does not
  * cover, so it is spelled here and dressed by its column. */
 export function TaskCard({ card, selected, dragging = false, onSelect, onArm }: TaskCardProps) {
   return (
     <button
       type="button"
-      className={`tasks__card tasks__card--${card.tone}${card.cancelled ? " tasks__card--cancelled" : ""}${dragging ? " tasks__card--dragging" : ""}${onArm ? " tasks__card--grabbable" : ""}`}
+      className={taskCardClassName(card, { dragging, grabbable: onArm !== undefined })}
       aria-pressed={selected}
       onPointerDown={
         onArm
@@ -36,7 +35,7 @@ export function TaskCard({ card, selected, dragging = false, onSelect, onArm }: 
       }
       onClick={() => onSelect(card.id)}
     >
-      <span className="tasks__card-title">{card.title}</span>
+      <span className="tasks__card-title kd-one-line">{card.title}</span>
       <span className="tasks__card-meta">
         <code>{card.meta}</code>
         {card.priority && <span className="tasks__mark">{card.priority}</span>}

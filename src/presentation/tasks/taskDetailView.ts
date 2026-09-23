@@ -13,7 +13,7 @@ import {
 } from "../../domain/tasks";
 import {
   BOARD_ORDER,
-  POOL_LABEL,
+  POOL_CHOICE,
   STATUS_LABEL,
   priorityChoices,
   type ChoiceView,
@@ -27,6 +27,8 @@ import {
 export interface StatusChoiceView extends ChoiceView {
   value: TaskStatus;
   tone: StatusTone;
+  /** The dot beside the label, in the status's hue. */
+  dotClassName: string;
 }
 
 export interface TaskDetailView {
@@ -63,6 +65,39 @@ export interface TaskDetailView {
   log: { who: string; text: string; age: string }[];
 }
 
+/** Every word the panel says that is not the task's own — the component
+ * maps these and spells nothing. */
+export const TASK_DETAIL_WORDS = {
+  panel: (id: string) => `Task ${id}`,
+  close: "Close",
+  blockers: "Blockers",
+  unblocks: "Unblocks",
+  artifacts: "Artifacts",
+  thread: "Thread",
+  log: "Log",
+  detach: "Detach",
+  attach: "Attach artifact",
+  attachPrompt: "Attach an artifact…",
+  commentPlaceholder: "Add a comment — it stays with the task",
+  comment: "Comment",
+} as const;
+
+/** What a pick in the status picker asks for: a move, or nothing when the
+ * person picked where the task already stands. */
+export function pickedStatus(current: TaskStatus, picked: string): TaskStatus | null {
+  return picked === current ? null : (picked as TaskStatus);
+}
+
+/** What a pick in the attach picker asks for: the artifact, or nothing for
+ * the prompt line at its head. */
+export function pickedArtifact(picked: string): string | null {
+  return picked === "" ? null : picked;
+}
+
+/** The panel's classes: wide while the task fills the stage. */
+export function taskDetailClassName(wide: boolean): string {
+  return wide ? "tasks__detail tasks__detail--wide" : "tasks__detail";
+}
 
 /** An artifact as the registry lists it — the two facts a task needs. */
 export interface ArtifactRef {
@@ -85,6 +120,7 @@ export function taskDetailView(
     value: to,
     label: STATUS_LABEL[to],
     tone: statusTone(to),
+    dotClassName: `tasks__status-dot tasks__status-dot--${statusTone(to)}`,
   }));
   const assigneeValues = [...new Set([...roster, ...(task.assignee ? [task.assignee] : [])])];
   return {
@@ -102,7 +138,7 @@ export function taskDetailView(
     bodyEmpty: task.body.trim() === "" ? "No brief — the title is all there is" : null,
     assignee: task.assignee ?? "",
     assigneeOptions: [
-      { value: "", label: `${POOL_LABEL} — unassigned` },
+      POOL_CHOICE,
       ...assigneeValues.map((role) => ({ value: role, label: role })),
     ],
     priorityOptions: priorityChoices(),
@@ -121,7 +157,7 @@ export function taskDetailView(
         title: known?.title ?? slug,
         known: known !== undefined,
         openTitle: known ? "Open in the browser" : "No longer published",
-        detachLabel: `Detach ${slug}`,
+        detachLabel: `${TASK_DETAIL_WORDS.detach} ${slug}`,
       };
     }),
     attachOptions: artifacts

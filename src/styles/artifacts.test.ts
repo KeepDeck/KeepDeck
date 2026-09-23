@@ -51,15 +51,16 @@ describe("Artifacts registry layout", () => {
     expect(style.justifyContent).toBe("center");
   });
 
-  it("gives a title two lines before it cuts it", () => {
+  it("clamps a row to two lines with the shared .kd-two-lines, breaking a word longer than the row", () => {
     // One line cut agents' long titles to the same opening words; more
-    // than two would let one artifact crowd out its neighbours.
+    // than two would let one row crowd out its neighbours. Every row that
+    // clamps takes this one class — the artifacts dialog and the task panel.
     mountDialog();
     const title = document.createElement("span");
-    title.className = "artifacts__row-title";
+    title.className = "kd-two-lines";
     document.body.append(title);
-    expect(getComputedStyle(title).getPropertyValue("-webkit-line-clamp")).toBe(
-      "2",
-    );
+    const style = getComputedStyle(title);
+    expect(style.getPropertyValue("-webkit-line-clamp")).toBe("2");
+    expect(style.overflowWrap).toBe("break-word");
   });
 });

@@ -70,6 +70,19 @@ export function unsavedBanner(error: string): string {
 /** What the pool is called wherever an empty assignee is shown. */
 export const POOL_LABEL = "pool";
 
+/** The assignee choice that leaves a task to whoever takes it — the same
+ * line in the new-task form and in the task panel. */
+export const POOL_CHOICE: ChoiceView = { value: "", label: `${POOL_LABEL} — unassigned` };
+
+/** A task's fields, named once for every surface that edits them. */
+export const FIELD_WORDS = {
+  title: "Title",
+  brief: "Brief",
+  status: "Status",
+  priority: "Priority",
+  assignee: "Assignee",
+} as const;
+
 /** The new-task button's label — and how a hint that points at it names it. */
 export const NEW_TASK_LABEL = "+ Task";
 

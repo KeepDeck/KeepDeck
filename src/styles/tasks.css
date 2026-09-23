@@ -199,6 +199,9 @@
 .tasks__card {
   display: flex;
   flex-direction: column;
+  /* A grid track's item: without this it grows to its widest word and
+     the card spills past its column. */
+  min-width: 0;
   gap: 4px;
   padding: 8px 10px;
   border: 1px solid #1c2230;
@@ -208,6 +211,22 @@
   font: inherit;
   text-align: left;
   cursor: pointer;
+}
+
+/* Prose people, agents and the backend write — a brief, comments, log
+   lines, a refusal or a failed read, the blocked-by line — wraps, and a
+   long unbroken run (a path, a constant) breaks rather than widening its
+   box. break-word, not anywhere: it breaks only a word that does not fit,
+   and leaves the box's own width alone. The card title, the team name, the
+   panel's title and its link rows are not prose: they take .kd-one-line
+   or .kd-two-lines. */
+.tasks__card-blocked,
+.tasks__body,
+.tasks__comment-body,
+.tasks__log-text,
+.tasks__error,
+.tasks__placeholder-title {
+  overflow-wrap: break-word;
 }
 
 .tasks__card:hover {
@@ -469,12 +488,11 @@
   gap: 6px;
 }
 
+/* The row's text clamps to two lines (.kd-two-lines inside the link); the
+   link itself only takes the room left beside the ×. */
 .tasks__artifact .tasks__link {
   flex: 1;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* The row-level detach: the small text × the artifacts registry uses. */
@@ -550,18 +568,6 @@
 
 .tasks__log-age {
   color: #565e6b;
-}
-
-/* The door's count: what waits on a person, beside the glyph. */
-.tasks-door__count {
-  margin-left: 4px;
-  padding: 0 5px;
-  border-radius: 999px;
-  background-color: var(--status-waiting);
-  color: #0b0e14;
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 14px;
 }
 
 /* The compose panel: its own head with a ×, roomier fields, and the

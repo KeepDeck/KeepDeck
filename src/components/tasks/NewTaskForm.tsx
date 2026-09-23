@@ -1,7 +1,15 @@
 import { useState } from "react";
 import { Dropdown } from "@keepdeck/ui-kit";
 import type { CreateTaskInput, TaskPriority } from "../../domain/tasks";
-import { EMPTY_TASK_DRAFT, canCreateTask, taskInputOf, type NewTaskFormView } from "../../presentation/tasks";
+import {
+  EMPTY_TASK_DRAFT,
+  FIELD_WORDS,
+  NEW_TASK_WORDS,
+  canCreateTask,
+  priorityChoiceClassName,
+  taskInputOf,
+  type NewTaskFormView,
+} from "../../presentation/tasks";
 import { Button } from "../../ui/Button";
 
 interface NewTaskFormProps {
@@ -22,46 +30,46 @@ export function NewTaskForm({ view, onCreate, onCancel }: NewTaskFormProps) {
     onCreate(taskInputOf(draft));
   };
   return (
-    <aside className="tasks__detail tasks__compose" aria-label="New task">
+    <aside className="tasks__detail tasks__compose" aria-label={NEW_TASK_WORDS.panel}>
       {/* The fields scroll; the actions do not — a Create button that has
           to be scrolled to is a form that looks like it cannot be sent. */}
       <div className="tasks__compose-body">
-      <h3 className="tasks__detail-title">New task</h3>
-      <p className="tasks__muted">Put work on the team's board — assign it now or leave it in the pool for whoever takes it.</p>
-      <span className="tasks__section">Title</span>
+      <h3 className="tasks__detail-title">{NEW_TASK_WORDS.panel}</h3>
+      <p className="tasks__muted">{NEW_TASK_WORDS.intro}</p>
+      <span className="tasks__section">{FIELD_WORDS.title}</span>
       <input
         className="form__input"
-        aria-label="Title"
+        aria-label={FIELD_WORDS.title}
         value={draft.title}
         maxLength={view.titleMax}
         onChange={(e) => setDraft({ ...draft, title: e.target.value })}
         autoFocus
       />
-      <span className="tasks__section">Brief</span>
+      <span className="tasks__section">{FIELD_WORDS.brief}</span>
       <textarea
         className="form__input tasks__composer"
-        aria-label="Brief"
+        aria-label={FIELD_WORDS.brief}
         placeholder={view.bodyPlaceholder}
         value={draft.body}
         maxLength={view.bodyMax}
         onChange={(e) => setDraft({ ...draft, body: e.target.value })}
       />
-      <span className="tasks__section">Priority</span>
+      <span className="tasks__section">{FIELD_WORDS.priority}</span>
       <div className="form__types">
         {view.priorityOptions.map((option) => (
           <button
             key={option.value}
             type="button"
-            className={`form__type${option.value === draft.priority ? " form__type--active" : ""}`}
+            className={priorityChoiceClassName(option.value === draft.priority)}
             onClick={() => setDraft({ ...draft, priority: option.value as TaskPriority })}
           >
             {option.label}
           </button>
         ))}
       </div>
-      <span className="tasks__section">Assignee</span>
+      <span className="tasks__section">{FIELD_WORDS.assignee}</span>
       <Dropdown
-        ariaLabel="Assignee"
+        ariaLabel={FIELD_WORDS.assignee}
         options={view.assigneeOptions}
         value={draft.assignee}
         onChange={(assignee) => setDraft({ ...draft, assignee })}
@@ -71,10 +79,10 @@ export function NewTaskForm({ view, onCreate, onCancel }: NewTaskFormProps) {
       </div>
       <div className="tasks__composer-actions tasks__compose-actions">
         <Button variant="secondary" onClick={onCancel}>
-          Cancel
+          {NEW_TASK_WORDS.cancel}
         </Button>
         <Button variant="primary" onClick={submit} disabled={!creatable}>
-          Create task
+          {NEW_TASK_WORDS.create}
         </Button>
       </div>
     </aside>

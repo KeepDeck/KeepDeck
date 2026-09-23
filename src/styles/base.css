@@ -122,6 +122,29 @@ button {
   -webkit-user-select: text;
 }
 
+/* One line, then an ellipsis — text that must never wrap nor widen its
+   box: a control-row label, a card title the board keeps to one line. Its
+   box must be allowed to shrink (min-width: 0) for the cut to happen. */
+.kd-one-line {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Up to two lines, then an ellipsis — a list row whose text people and
+   agents write at any length. A word longer than the row breaks rather
+   than widening it. One home, so every row that clamps clamps the same
+   way. */
+.kd-two-lines {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: break-word;
+}
+
 /* The opt-out, for chrome sitting INSIDE a .kd-selectable island: a diff's
    line-number gutter, a hunk header. Keeps them out of a copied selection, so
    a pasted hunk carries no line numbers, and keeps the cursor honest about

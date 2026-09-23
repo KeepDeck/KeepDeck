@@ -335,7 +335,10 @@ describe("TasksDialog", () => {
     expect(state?.kind === "ready" && state.board.tasks[0].artifacts).toEqual(["kd-tasks"]);
     // Attached: the picker has nothing left to offer; the row opens it.
     expect(text()).toContain("Every artifact of this workspace is attached");
-    act(() => buttons().find((b) => b.textContent?.startsWith("KeepDeck Tasks"))!.click());
+    // The row wraps to two lines, then ellipsizes — never one cut line.
+    const row = buttons().find((b) => b.textContent?.startsWith("KeepDeck Tasks"))!;
+    expect(row.querySelector(".kd-two-lines")?.textContent).toContain("kd-tasks");
+    act(() => row.click());
     expect(openArtifactByRef).toHaveBeenCalledWith("ws-1", "kd-tasks");
     act(() => document.querySelector<HTMLButtonElement>('button[aria-label="Detach kd-tasks"]')!.click());
     await flush();
@@ -559,6 +562,27 @@ describe("TasksDialog", () => {
     const cancelled = document.querySelector<HTMLElement>('section[aria-label="Cancelled"]');
     expect(cancelled?.querySelectorAll(".tasks__card")).toHaveLength(1);
     expect(buttons().some((b) => /cancelled/i.test(b.textContent ?? ""))).toBe(false);
+  });
+
+  it("keeps a card's title to one line; the panel's title and blocker rows clamp to two", async () => {
+    const { service } = await seeded();
+    await service.apply("ws-1", "task-1", [{ kind: "blockedBy", to: ["task-2"] }], USER_ACTOR);
+    focus = "task-1";
+    mount(service)();
+    await flush();
+    expect(cards().every((c) => c.querySelector(".tasks__card-title")?.classList.contains("kd-one-line"))).toBe(true);
+    // The panel's title clamps to two lines.
+    expect(document.querySelector('aside[aria-label="Task task-1"] .tasks__detail-title')?.classList.contains("kd-two-lines")).toBe(true);
+    const blockers = document.querySelector('aside[aria-label="Task task-1"] .tasks__links');
+    expect(blockers?.querySelector(".kd-two-lines")?.textContent).toContain("task-2");
+  });
+
+  it("names the one team as a word, kept to one line", async () => {
+    const { service } = await seeded();
+    const [ws] = teamedWorkspaces();
+    mount(service, { ...ws, teams: [ws.teams![0]] })();
+    await flush();
+    expect(document.querySelector(".tasks__team-name")?.classList.contains("kd-one-line")).toBe(true);
   });
 
   it("is one board: no Board/Queues switch, no lanes — the columns are the only view", async () => {

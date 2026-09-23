@@ -1,16 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { board, task } from "../../domain/tasks/testSupport";
 import { boardView } from "./boardView";
-import { tasksDoorBadge } from "./doorBadge";
-import type { Notification } from "../../domain/notifications";
-import { createWorkspaceInstance } from "../../domain/workspaceInstance";
 import { LADDER_WORDS, tasksLadder } from "./ladderView";
-import { newTaskFormView } from "./newTaskFormView";
-import { taskCardView } from "./taskCardView";
-import { taskDetailView } from "./taskDetailView";
+import { newTaskFormView, NEW_TASK_WORDS, priorityChoiceClassName } from "./newTaskFormView";
+import { taskCardView, taskCardClassName } from "./taskCardView";
+import { TASK_DETAIL_WORDS, pickedArtifact, pickedStatus, taskDetailClassName, taskDetailView } from "./taskDetailView";
 import { teamCardTasksLine } from "./teamCardTasksLine";
 import { teamOnScreen } from "./teamOnScreen";
-import { personName, priorityMark, statusTone } from "./words";
+import { personName, priorityMark, statusTone, FIELD_WORDS, POOL_CHOICE } from "./words";
 
 const NOW = 100_000;
 const ROSTER = ["lead", "impl-1", "impl-2"];
@@ -28,6 +25,16 @@ describe("words", () => {
       "none",
       "none",
     ]);
+  });
+});
+
+describe("taskCardClassName", () => {
+  it("names the tone always, and each of cancelled, in flight and grabbable only when it holds", () => {
+    const card = { tone: "working" as const, cancelled: false };
+    expect(taskCardClassName(card, { dragging: false, grabbable: false })).toBe("tasks__card tasks__card--working");
+    expect(taskCardClassName({ tone: "none", cancelled: true }, { dragging: true, grabbable: true })).toBe(
+      "tasks__card tasks__card--none tasks__card--cancelled tasks__card--dragging tasks__card--grabbable",
+    );
   });
 });
 
@@ -78,6 +85,38 @@ describe("boardView", () => {
   it("always shows Cancelled, its cards marked as taken off the board", () => {
     const columns = boardView(b.tasks, b, NOW);
     expect(columns.find((c) => c.status === "cancelled")?.cards[0].cancelled).toBe(true);
+  });
+});
+
+describe("task panel and form words and classes", () => {
+  it("names the panel after its task and widens only when it fills the stage", () => {
+    expect(TASK_DETAIL_WORDS.panel("task-4")).toBe("Task task-4");
+    expect(taskDetailClassName(false)).toBe("tasks__detail");
+    expect(taskDetailClassName(true)).toBe("tasks__detail tasks__detail--wide");
+  });
+
+  it("the form and the panel share one pool line and one set of field names", () => {
+    const b = board([task({ id: "task-1", artifacts: ["kd-a"] })]);
+    const detail = taskDetailView(b.tasks[0], b, ["lead"], NOW, [{ id: "kd-a", title: "A" }]);
+    expect(newTaskFormView(["lead"]).assigneeOptions[0]).toBe(POOL_CHOICE);
+    expect(detail.assigneeOptions[0]).toBe(POOL_CHOICE);
+    expect(FIELD_WORDS).toEqual({ title: "Title", brief: "Brief", status: "Status", priority: "Priority", assignee: "Assignee" });
+    // The detach tooltip and its accessible label say the same word.
+    expect(detail.artifacts[0].detachLabel).toBe(`${TASK_DETAIL_WORDS.detach} kd-a`);
+    expect(detail.statusOptions[0].dotClassName).toBe(`tasks__status-dot tasks__status-dot--${detail.statusOptions[0].tone}`);
+  });
+
+  it("a pick asks for nothing when it changes nothing", () => {
+    expect(pickedStatus("todo", "todo")).toBeNull();
+    expect(pickedStatus("todo", "in-progress")).toBe("in-progress");
+    expect(pickedArtifact("")).toBeNull();
+    expect(pickedArtifact("kd-a")).toBe("kd-a");
+  });
+
+  it("lights the picked priority and names the form's own buttons", () => {
+    expect(priorityChoiceClassName(true)).toBe("form__type form__type--active");
+    expect(priorityChoiceClassName(false)).toBe("form__type");
+    expect([NEW_TASK_WORDS.panel, NEW_TASK_WORDS.cancel, NEW_TASK_WORDS.create]).toEqual(["New task", "Cancel", "Create task"]);
   });
 });
 
@@ -190,7 +229,7 @@ describe("teamCardTasksLine", () => {
   });
 });
 
-describe("ladder and badge", () => {
+describe("ladder", () => {
   const ready = {
     kind: "ready" as const,
     board: board([task({ id: "task-1", status: "blocked" }), task({ id: "task-2", status: "review" }), task({ id: "task-3" })]),
@@ -211,30 +250,5 @@ describe("ladder and badge", () => {
     expect(tasksLadder({ ...base, taskCount: 0 })).toEqual({ kind: "empty" });
     expect(tasksLadder(base)).toEqual({ kind: "board" });
     expect(LADDER_WORDS.empty.hint).toContain("agents read the board themselves");
-  });
-
-  it("the door counts the workspace's unread task notifications — nothing else, and nothing without a workspace", () => {
-    const ws = { id: "ws-1", instance: createWorkspaceInstance() };
-    const other = { id: "ws-2", instance: createWorkspaceInstance() };
-    let seq = 0;
-    const note = (over: Partial<Notification>): Notification => ({
-      id: `n-${(seq += 1)}`,
-      title: "t",
-      severity: "info",
-      at: seq,
-      source: { type: "tasks", workspace: ws, taskId: `task-${seq}` },
-      ...over,
-    });
-    const items = [
-      note({}),
-      note({}),
-      note({ readAt: 5 }),
-      note({ source: { type: "tasks", workspace: other, taskId: "task-9" } }),
-      note({ source: { type: "pane", workspace: ws, paneId: "pane-1" } }),
-    ];
-    expect(tasksDoorBadge(items, ws)).toBe(2);
-    expect(tasksDoorBadge(items, other)).toBe(1);
-    expect(tasksDoorBadge(items, null)).toBe(0);
-    expect(tasksDoorBadge([], ws)).toBe(0);
   });
 });
