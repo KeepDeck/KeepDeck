@@ -10,6 +10,8 @@ import { refusalText } from "../../app/tasks/refusalText";
 import { teamsOf, type Workspace } from "../../domain/deck";
 import {
   USER_ACTOR,
+  attachArtifact,
+  detachArtifact,
   findTask,
   reachableStatuses,
   tasksOfTeam,
@@ -270,12 +272,12 @@ export function useTasksBoard(
     attachArtifact: (taskId: string, slug: string) => {
       const task = board ? findTask(board, taskId) : undefined;
       if (!task) return;
-      void apply(taskId, [{ kind: "artifacts", to: [...task.artifacts, slug] }]);
+      void apply(taskId, [attachArtifact(task, slug)]);
     },
     detachArtifact: (taskId: string, slug: string) => {
       const task = board ? findTask(board, taskId) : undefined;
       if (!task) return;
-      void apply(taskId, [{ kind: "artifacts", to: task.artifacts.filter((other) => other !== slug) }]);
+      void apply(taskId, [detachArtifact(task, slug)]);
     },
     /** Open an attached artifact in the browser — the registry's own
      * ladder resolves the live address at the click. */
