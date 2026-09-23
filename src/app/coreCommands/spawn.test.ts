@@ -31,7 +31,7 @@ describe("agent.spawn", () => {
     const { registry, deck } = setup([workspace({})]);
     const result = await registry.execute(
       "agent.spawn",
-      { workspace: "web", agentType: "codex", name: "helper" },
+      { role: "lead", workspace: "web", agentType: "codex", name: "helper" },
       HOST,
     );
     expect(result.ok).toBe(true);
@@ -50,7 +50,7 @@ describe("agent.spawn", () => {
     const { registry, deck } = setup([
       workspace({ worktreeBaseDir: "/wt", panes: [{ id: "p0", agentType: "claude" }] }),
     ]);
-    const result = await registry.execute("agent.spawn", { workspace: "web" }, HOST);
+    const result = await registry.execute("agent.spawn", { role: "lead", workspace: "web" }, HOST);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const pane = deck.workspaces[0].panes[1];
@@ -88,12 +88,12 @@ describe("agent.spawn", () => {
     const { registry, createPane } = setup([workspace({})]);
 
     createPane.mockReturnValueOnce({ kind: "full" });
-    const full = await registry.execute("agent.spawn", { workspace: "web" }, HOST);
+    const full = await registry.execute("agent.spawn", { role: "lead", workspace: "web" }, HOST);
     expect(full.ok).toBe(false);
     if (!full.ok) expect(full.error.message).toBe(TEAM_FULL_MESSAGE);
 
     createPane.mockReturnValueOnce({ kind: "gone" });
-    const gone = await registry.execute("agent.spawn", { workspace: "web" }, HOST);
+    const gone = await registry.execute("agent.spawn", { role: "lead", workspace: "web" }, HOST);
     expect(gone.ok).toBe(false);
     if (!gone.ok) expect(gone.error.message).toBe(WORKSPACE_GONE_MESSAGE);
   });
@@ -104,14 +104,14 @@ describe("agent.spawn", () => {
 
     await registry.execute(
       "agent.spawn",
-      { workspace: "web", agentType: "claude" },
+      { role: "lead", workspace: "web", agentType: "claude" },
       HOST,
     );
     expect(deck.workspaces[0].panes[0].yolo).toBe(true);
 
     await registry.execute(
       "agent.spawn",
-      { workspace: "web", agentType: "codex" },
+      { role: "lead", workspace: "web", agentType: "codex" },
       HOST,
     );
     // codex's fixture declares no support — the default must not leak, and
@@ -126,7 +126,7 @@ describe("agent.spawn", () => {
     // — a pane spawned somewhere the caller never named, reported as success.
     const { registry, deck, createPane } = setup([workspace({})]);
 
-    const blank = await registry.execute("agent.spawn", { workspace: "  " }, HOST);
+    const blank = await registry.execute("agent.spawn", { role: "lead", workspace: "  " }, HOST);
 
     expect(blank.ok).toBe(false);
     if (!blank.ok) expect(blank.error.message).toBe('argument "workspace" must not be blank');
@@ -138,7 +138,7 @@ describe("agent.spawn", () => {
     const { registry } = setup([workspace({})]);
     const result = await registry.execute(
       "agent.spawn",
-      { workspace: "web", agentType: "gemini" },
+      { role: "lead", workspace: "web", agentType: "gemini" },
       HOST,
     );
     expect(result).toEqual({
@@ -156,7 +156,7 @@ describe("agent.spawn", () => {
     try {
       const result = await registry.execute(
         "agent.spawn",
-        { workspace: "web", agentType: "codex" },
+        { role: "lead", workspace: "web", agentType: "codex" },
         HOST,
       );
       expect(result).toEqual({
@@ -186,7 +186,7 @@ describe("agent.spawn", () => {
 
     const pending = registry.execute(
       "agent.spawn",
-      { workspace: "web", agentType: "codex" },
+      { role: "lead", workspace: "web", agentType: "codex" },
       HOST,
     );
     const replacement = workspace({ name: "replacement", cwd: "/replacement" });
@@ -212,7 +212,7 @@ describe("agent.spawn", () => {
     const { registry, deck } = setup([workspace({})]);
     const result = await registry.execute(
       "agent.spawn",
-      { workspace: "web", task: "fix the header" },
+      { role: "lead", workspace: "web", task: "fix the header" },
       HOST,
     );
     expect(result.ok).toBe(true);
