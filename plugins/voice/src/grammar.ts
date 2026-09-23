@@ -6,8 +6,13 @@
  * fuzzy resolution against real names is the caller's job — the grammar
  * never guesses.
  */
+/** The role a spoken spawn names. A spawn makes a team of its own, and a
+ * team with nobody on it takes a lead or a peer — nothing else. */
+export type SpokenRole = "lead" | "peer";
+
 export type Intent =
-  | { kind: "spawn"; workspace?: string; task?: string }
+  /** `role` absent: the phrase named none, and the spawn is refused. */
+  | { kind: "spawn"; role?: SpokenRole; workspace?: string; task?: string }
   | { kind: "switch"; workspace: string }
   | { kind: "focus"; agent: string }
   | { kind: "close"; agent?: string };
@@ -32,18 +37,32 @@ export function normalize(text: string): string {
     .trim();
 }
 
-const spawn = (g: Record<string, string | undefined>): Intent => ({
-  kind: "spawn",
-  ...(g.ws ? { workspace: g.ws } : {}),
-  ...(g.task ? { task: g.task } : {}),
-});
+/** A role word as either locale says it. */
+const ROLE_WORDS: Record<string, SpokenRole> = {
+  lead: "lead",
+  peer: "peer",
+  лид: "lead",
+  лида: "lead",
+  пир: "peer",
+  пира: "peer",
+};
+
+const spawn = (g: Record<string, string | undefined>): Intent => {
+  const role = ROLE_WORDS[g.role ?? g.role2 ?? ""];
+  return {
+    kind: "spawn",
+    ...(role ? { role } : {}),
+    ...(g.ws ? { workspace: g.ws } : {}),
+    ...(g.task ? { task: g.task } : {}),
+  };
+};
 
 export const EN: LocalePack = {
   locale: "en",
   rules: [
     {
       pattern:
-        /^(?:create|spawn|start|launch|add)(?: an?| a new| new)? agent(?: (?:in|at|on) (?<ws>.+?))?(?: (?:with(?: the)? task|and (?:tell|ask) (?:it|him|her|them) to) (?<task>.+))?$/,
+        /^(?:create|spawn|start|launch|add)(?: an?| a new| new)? (?:(?<role>lead|peer)(?: agent)?|agent)(?: (?:in|at|on) (?<ws>.+?))?(?: (?:with(?: the)? task|and (?:tell|ask) (?:it|him|her|them) to) (?<task>.+))?$/,
       map: spawn,
     },
     {
@@ -70,7 +89,7 @@ export const RU: LocalePack = {
   rules: [
     {
       pattern:
-        /^(?:создай|создать|запусти|запустить|добавь|добавить|подними)(?: нового| новых)? агента(?: (?:в|на) (?<ws>.+?))?(?: (?:с задачей|и скажи (?:ему|ей)|и попроси (?:его|её)|и пусть) (?<task>.+))?$/u,
+        /^(?:создай|создать|запусти|запустить|добавь|добавить|подними)(?: нового| новых)? (?:агента(?:-(?<role>лида|пира))?|(?<role2>лида|пира))(?: (?:в|на) (?<ws>.+?))?(?: (?:с задачей|и скажи (?:ему|ей)|и попроси (?:его|её)|и пусть) (?<task>.+))?$/u,
       map: spawn,
     },
     {

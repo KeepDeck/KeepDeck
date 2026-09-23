@@ -4,7 +4,7 @@ import type {
   SpeechCapture,
 } from "@keepdeck/plugin-api";
 import { bestMatch } from "./fuzzy";
-import { normalize, parseCommand, type Intent } from "./grammar";
+import { normalize, parseCommand, type Intent, type SpokenRole } from "./grammar";
 import type { VoiceModelInfo } from "./modelCatalog";
 
 /**
@@ -63,6 +63,13 @@ export interface VoiceController {
   /** Empty the heard/done log. */
   clearHistory(): void;
 }
+
+/** The address a spoken role takes: a spawn makes a team of its own, with
+ * nobody on it — so its lead is `lead`, and its first peer `peer-1`. */
+const SPAWNED_ADDRESS: Record<SpokenRole, string> = { lead: "lead", peer: "peer-1" };
+
+const SPAWN_NEEDS_ROLE =
+  'say what it is on its new team — "create a lead in <workspace>" or "create a peer in <workspace>"';
 
 export function createVoiceController(
   ctx: PluginContext,
@@ -167,7 +174,10 @@ export function createVoiceController(
         return execute("workspace.switch", { workspace: ws.id });
       }
       case "spawn": {
-        // No spoken workspace = the one on screen («запусти нового агента»).
+        // A role is never picked for the agent: a phrase that names none is
+        // refused, and says how to name one.
+        if (!intent.role) return push("error", SPAWN_NEEDS_ROLE);
+        // No spoken workspace = the one on screen («запусти нового лида»).
         const ws = intent.workspace ? resolveWs(intent.workspace) : activeWs();
         if (!ws)
           return push(
@@ -178,6 +188,7 @@ export function createVoiceController(
           );
         return execute("agent.spawn", {
           workspace: ws.id,
+          role: SPAWNED_ADDRESS[intent.role],
           ...(intent.task ? { task: intent.task } : {}),
         });
       }
