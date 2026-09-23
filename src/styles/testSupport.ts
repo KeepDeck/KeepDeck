@@ -1,7 +1,12 @@
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-export const STYLES_DIR = "src/styles";
+/** Found from this file, not from the working directory: a test that reads
+ *  the tree must not care where the runner was started. The module URL goes
+ *  to `fileURLToPath` as a string — under happy-dom the global `URL` is the
+ *  DOM's, and node refuses what it builds. */
+export const STYLES_DIR = dirname(fileURLToPath(import.meta.url));
 
 /**
  * CSS with its comments stripped. Some of these tests read the SOURCE rather

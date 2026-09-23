@@ -15,24 +15,18 @@ import { openArtifactByRef } from "../../app/artifacts/entryPoints";
 import { deleteArtifact } from "../../app/artifacts/remove";
 import type {
   ArtifactMetaRow,
-  ArtifactVersionRow,
   ArtifactsRegistryReadPort,
 } from "../../app/artifacts/registryRead";
 import { describeError } from "../../ipc/log";
-import { fateOf, type RowRef } from "./rowRef";
-import { viewOf, type ArtifactsView } from "./view";
+import { fateOf, type RowRef } from "../../domain/artifacts/rowRef";
+import type { OpenHistory } from "../../presentation/artifacts/rowView";
+import { viewOf, type ArtifactsView } from "../../presentation/artifacts/view";
 
 /** A deletion the user has been asked about, and WHICH row it was asked
  * about ([`RowRef`]) — plus the title, because that is what the question
  * has to name. */
 interface ArtifactConfirm extends RowRef {
   title: string;
-}
-
-/** An open history, and WHICH row it belongs to. The versions are null
- * while the read is still out. */
-interface ArtifactHistory extends RowRef {
-  versions: readonly ArtifactVersionRow[] | null;
 }
 
 export interface ArtifactsRegistry {
@@ -45,7 +39,7 @@ export interface ArtifactsRegistry {
   search(query: string): void;
   /** The open history, or null. Iteration history is the shape of an
    * artifact, and until now only agents could see it. */
-  expanded: ArtifactHistory | null;
+  expanded: OpenHistory | null;
   /** The deletion waiting for an answer, or null. What it carries and
    * why is [`ArtifactConfirm`]'s to say. */
   confirm: ArtifactConfirm | null;
@@ -96,7 +90,7 @@ export function useArtifactsRegistry(
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<ArtifactConfirm | null>(null);
-  const [expanded, setExpanded] = useState<ArtifactHistory | null>(null);
+  const [expanded, setExpanded] = useState<OpenHistory | null>(null);
   // The search lives HERE and nowhere on disk: the rows in hand are the
   // whole workspace, so a query is a filter over what is already read —
   // no index to build, nothing to invalidate, and one re-read of the

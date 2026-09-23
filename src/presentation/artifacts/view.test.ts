@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ArtifactMetaRow } from "../../app/artifacts/registryRead";
-import { matching, viewOf } from "./view";
+import { artifactRowKey, matching, placeholderView, viewOf } from "./view";
 
 const row = (id: string): ArtifactMetaRow => ({
   id,
@@ -84,5 +84,72 @@ describe("a failed read while a list is in hand", () => {
 
   it("is the whole body only when there is no list at all", () => {
     expect(viewOf("ws-1", [], "read failed", "zzz").kind).toBe("refusal");
+  });
+});
+
+describe("a row's identity in the windowed list", () => {
+  it("is the artifact's id, so two artifacts of one title never share a measured height", () => {
+    // Titles repeat — agents republish under the same words — and a key
+    // shared by two rows would hand one's measured height, an open
+    // history's included, to the other.
+    const twins = [
+      { ...row("plan-v1"), title: "Plan" },
+      { ...row("plan-v2"), title: "Plan" },
+    ];
+    expect(twins.map(artifactRowKey)).toEqual(["plan-v1", "plan-v2"]);
+  });
+});
+
+describe("placeholderView", () => {
+  const headline = (text: string) => ({
+    text,
+    className: "artifacts__placeholder-title",
+    role: undefined,
+  });
+
+  it("names the missing workspace and what to do about it", () => {
+    expect(placeholderView({ kind: "noWorkspace" })).toEqual({
+      title: headline("No workspace open"),
+      detail: "Artifacts belong to a workspace — open one first",
+    });
+  });
+
+  it("says loading as one quiet line, with no headline", () => {
+    expect(placeholderView({ kind: "loading" })).toEqual({
+      title: null,
+      detail: "Loading…",
+    });
+  });
+
+  it("announces a refusal in the store's own words, selectable for a report", () => {
+    expect(
+      placeholderView({ kind: "refusal", message: "store is locked" }),
+    ).toEqual({
+      title: {
+        text: "store is locked",
+        className: "artifacts__placeholder-title kd-selectable",
+        role: "alert",
+      },
+      detail: null,
+    });
+  });
+
+  it("quotes the query back, and says the workspace is not empty", () => {
+    // The second line is the whole difference from an empty workspace:
+    // it tells the user the search, not the workspace, came up empty.
+    expect(
+      placeholderView({ kind: "noMatch", query: "auth", banner: null }),
+    ).toEqual({
+      title: headline("Nothing matches “auth”"),
+      detail: "This workspace has artifacts; none of them by that name",
+    });
+  });
+
+  it("explains an empty workspace by what would fill it", () => {
+    expect(placeholderView({ kind: "empty" })).toEqual({
+      title: headline("Nothing published yet"),
+      detail:
+        "Agents publish pages here; they open in your browser and refresh themselves as the agent iterates",
+    });
   });
 });

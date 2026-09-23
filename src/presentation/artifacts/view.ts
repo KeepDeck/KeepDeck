@@ -90,3 +90,78 @@ export function matching(
       row.id.toLowerCase().includes(needle),
   );
 }
+
+/** A row's identity in the windowed list — its id, never its index: a
+ * publish reorders the list (newest first), and an index key would hand
+ * one row's measured height — an open history's, at its tallest — to
+ * whatever slid into its place. */
+export function artifactRowKey(row: ArtifactMetaRow): string {
+  return row.id;
+}
+
+/** The first paint's guess at a row with nothing open under it, in
+ * pixels; measurement corrects it the moment a row reports its box. It is
+ * the TWO-line title's height, not the one-line one: agents' titles are
+ * mostly long, and a guess that overshoots only shrinks the scrollbar as
+ * rows land, where one that undershoots makes it jump away under the
+ * pointer. */
+export const ARTIFACT_ROW_ESTIMATE_PX = 74;
+
+/** A placeholder headline, and how it is drawn. */
+export interface PlaceholderTitle {
+  text: string;
+  className: string;
+  /** A refusal is announced; the other headlines are not news. */
+  role: "alert" | undefined;
+}
+
+/** What the body shows when it has no rows: a headline, a line under it,
+ * or both. */
+export interface PlaceholderView {
+  title: PlaceholderTitle | null;
+  detail: string | null;
+}
+
+const TITLE_CLASS = "artifacts__placeholder-title";
+
+const headline = (text: string): PlaceholderTitle => ({
+  text,
+  className: TITLE_CLASS,
+  role: undefined,
+});
+
+/** The words for each text state, and how its headline is drawn. */
+export function placeholderView(
+  view: Exclude<ArtifactsView, { kind: "rows" }>,
+): PlaceholderView {
+  switch (view.kind) {
+    case "noWorkspace":
+      return {
+        title: headline("No workspace open"),
+        detail: "Artifacts belong to a workspace — open one first",
+      };
+    case "loading":
+      return { title: null, detail: "Loading…" };
+    case "refusal":
+      // The store's own words, selectable so they can go into a report.
+      return {
+        title: {
+          text: view.message,
+          className: `${TITLE_CLASS} kd-selectable`,
+          role: "alert",
+        },
+        detail: null,
+      };
+    case "noMatch":
+      return {
+        title: headline(`Nothing matches “${view.query}”`),
+        detail: "This workspace has artifacts; none of them by that name",
+      };
+    case "empty":
+      return {
+        title: headline("Nothing published yet"),
+        detail:
+          "Agents publish pages here; they open in your browser and refresh themselves as the agent iterates",
+      };
+  }
+}
