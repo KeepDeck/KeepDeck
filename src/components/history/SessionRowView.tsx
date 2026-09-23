@@ -79,9 +79,9 @@ export interface SessionRowViewProps {
 /**
  * The row's action buttons — Resume and Fork — as their OWN unit, so
  * the list row and the opened-session header render them from ONE
- * place. Whether a resume may happen is the domain's [`resumeBlock`] and
- * its words [`resumeActionView`]; what stays here is gathering the row's
- * facts and the wrong-owner lockout.
+ * place. What the row offers, and in what words, is
+ * [`sessionRowActionsView`]'s answer; what stays here is gathering the
+ * row's facts.
  */
 export function SessionRowActions({
   row,
