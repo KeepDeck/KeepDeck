@@ -332,6 +332,17 @@ describe("agent orchestrator —continuing a recorded session", () => {
     expect(deck.workspaces[0].panes).toHaveLength(0);
   });
 
+  it("refuses a resume onto a team whose directory is not the session's — before any plan is built", async () => {
+    act(() => {
+      deck.createTeam("ws-1", { id: "team-1", name: "api", location: { kind: "attached", cwd: "/repo/other" } });
+    });
+    await expect(
+      act(async () => agentRun.resumeSession("ws-1", handle(), { team: "team-1", role: "lead" })),
+    ).rejects.toThrow("recorded in another directory than the team's");
+    expect(vi.mocked(buildResumeSpec)).not.toHaveBeenCalled();
+    expect(deck.workspaces[0].panes).toHaveLength(0);
+  });
+
   it("fails a full team loudly instead of stranding the built plan", async () => {
     // The session ran in a directory whose team has no room: the resume
     // is refused whole rather than landing a seventeenth member.

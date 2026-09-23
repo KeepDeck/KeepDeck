@@ -33,8 +33,13 @@ export function resumeBlock(
   if (facts.claimed) return "claimed";
   if (facts.busyOutside) return "busy-outside";
   if (!facts.dirPresent) return "dir-gone";
-  if (team && (team.cwd === null || normalizePath(facts.cwd) !== normalizePath(team.cwd))) {
-    return "elsewhere";
-  }
+  if (team && !recordedOnTeam(facts.cwd, team)) return "elsewhere";
   return null;
+}
+
+/** Whether a session recorded in `cwd` runs where `team` runs — its
+ * directory there, and the same by the deck's key. The part of
+ * [`resumeBlock`] a landing re-asks: a surface's answer is only advice. */
+export function recordedOnTeam(cwd: string, team: { cwd: string | null }): boolean {
+  return team.cwd !== null && cwd !== "" && normalizePath(cwd) === normalizePath(team.cwd);
 }

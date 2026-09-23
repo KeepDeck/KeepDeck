@@ -1,6 +1,8 @@
 import type { ForkTarget } from "../../domain/agents";
 import {
+  findTeam,
   findWorkspace,
+  recordedOnTeam,
   paneId,
   placementOfRecorded,
   sessionClaimant,
@@ -43,6 +45,10 @@ export interface AgentOrchestratorContinuations {
   forkSession: AgentOrchestrator["forkSession"];
 }
 
+/** A resume asked onto a team whose directory is not the session's. */
+export const RESUMED_ELSEWHERE =
+  "The session was recorded in another directory than the team's — fork a copy into the team instead";
+
 export function createAgentOrchestratorContinuations({
   deck,
   spawnContext,
@@ -72,6 +78,14 @@ export function createAgentOrchestratorContinuations({
     if (!context) throw new Error("Agent spawn context is unavailable");
     const workspace = findWorkspace(deck.getSnapshot().workspaces, wsId);
     if (!workspace || resuming.has(record.sessionId)) return;
+    // A member runs where its team runs, and a resume runs where it was
+    // recorded: onto a team by id, the two have to be one directory. What
+    // a surface offered is advice; this is the rule.
+    if (opts?.team !== undefined) {
+      const team = findTeam(workspace, opts.team);
+      const cwd = team?.location?.kind === "attached" ? team.location.cwd : null;
+      if (!recordedOnTeam(record.cwd, { cwd })) throw new Error(RESUMED_ELSEWHERE);
+    }
     const claimant = claimantOf(record.sessionId);
     if (claimant) {
       throw new Error(
