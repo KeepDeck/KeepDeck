@@ -32,6 +32,7 @@ import { useWorktreeLocation } from "./useWorktreeLocation";
 import { Dropdown } from "../../ui/Dropdown";
 import { AgentGlyph } from "../../ui/AgentGlyph";
 import { YoloField } from "../../ui/YoloField";
+import { resumeBlockReason } from "../../presentation/sessionResumeView";
 
 export type { AgentDialogResult } from "../../domain/agents";
 
@@ -259,7 +260,6 @@ export function AgentDialog({
     listRef,
     onSessionsScroll,
     resumeBlockOf,
-    blockReason,
     pickSession,
   } = picker;
 
@@ -523,7 +523,7 @@ export function AgentDialog({
                       <span className="form__session-meta">
                         {baseName(row.handle.cwd) || "no directory"} ·{" "}
                         {formatAge(row.mtime, Date.now())}
-                        {block !== null && ` · ${blockReason(block)}`}
+                        {block !== null && ` · ${resumeBlockReason(block)}`}
                       </span>
                     </button>
                   </li>
@@ -548,7 +548,7 @@ export function AgentDialog({
                 </span>
               ) : (
                 <span className="form__error">
-                  Can't resume: {blockReason(pickedBlock)}
+                  Can't resume: {resumeBlockReason(pickedBlock)}
                 </span>
               )
             )}

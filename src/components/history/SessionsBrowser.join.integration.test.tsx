@@ -190,6 +190,7 @@ function Harness({ rows }: { rows: SessionRecord[] }) {
   const shared = useBrowserSharedSeam();
   const browserApi = useSessionsBrowser(HARNESS_DIRS, shared);
   return createElement(SessionsBrowser, {
+    team: null,
     api: browserApi,
     agents: AGENTS,
     ready: true,
@@ -394,6 +395,7 @@ describe("SessionsBrowser late-landing transition (E7 characterization)", () => 
       "div",
       null,
       createElement(SessionsBrowser, {
+        team: null,
         api,
         agents: AGENTS,
         ready: true,

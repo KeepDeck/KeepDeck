@@ -81,6 +81,7 @@ function WorkspaceSessionsScreen({
       agents={agents}
       ready={agentsReady}
       rows={rows}
+      team={null}
       onResume={(record) => onResumeSession(ws.id, record)}
       onFork={(record) => onForkSession(ws.id, record)}
     />

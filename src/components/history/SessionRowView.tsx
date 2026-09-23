@@ -4,7 +4,8 @@ import type { RowStatus, UnifiedSessionRow } from "../../domain/journal";
 import { rowKeyOf } from "../../domain/journal/sessionRow";
 import { formatAge } from "../../domain/usage/format";
 import { AgentGlyph } from "../../ui/AgentGlyph";
-import { baseName } from "../../domain/deck";
+import { baseName, resumeBlock } from "../../domain/deck";
+import { resumeActionView } from "../../presentation/sessionResumeView";
 import type { CSSProperties } from "react";
 
 /** The journal row's status chip — the visible stand-in for everything
@@ -51,6 +52,9 @@ export interface SessionRowViewProps {
   dirMissing: boolean;
   /** The row's last read by link fell — named on the row, as itself. */
   readFailed: boolean;
+  /** The team a resume would join — null when no team is asking. One
+   * object for the whole list, or the row's memo falls. */
+  team: { cwd: string | null } | null;
   /** One clock for the whole list — ages don't tick mid-render. */
   now: number;
   /** The virtual window's top offset for this row, in px (the
@@ -75,20 +79,23 @@ export interface SessionRowViewProps {
 /**
  * The row's action buttons — Resume and Fork — as their OWN unit, so
  * the list row and the opened-session header render them from ONE
- * place: the availability rules (source-aware resume gate, the
- * wrong-owner lockout, the dir gates) live here once and are never
- * re-derived per surface.
+ * place. Whether a resume may happen is the domain's [`resumeBlock`] and
+ * its words [`resumeActionView`]; what stays here is gathering the row's
+ * facts and the wrong-owner lockout.
  */
 export function SessionRowActions({
   row,
   agents,
   dirMissing,
+  team,
   onResume,
   onFork,
 }: {
   row: UnifiedSessionRow;
   agents: AgentInfo[];
   dirMissing: boolean;
+  /** The team a resume would join — null when no team is asking. */
+  team: { cwd: string | null } | null;
   onResume(row: UnifiedSessionRow): void;
   onFork(row: UnifiedSessionRow): void;
 }) {
@@ -97,8 +104,17 @@ export function SessionRowActions({
     fork: supportsFork,
   } = agentSessionCapabilities(agents, row.agent);
   const bound = row.kind === "bound" ? row : null;
-  const index = row.kind === "index" ? row : null;
   const wrongOwner = bound?.status === "wrong-owner";
+  // The resume rule is the domain's, the same one the member dialog's
+  // picker asks. An INDEX row has no liveness fact at all, so nothing
+  // claims it; a BOUND row live right now is claimed.
+  const resume = resumeActionView(
+    resumeBlock(
+      { cwd: row.cwd, claimed: bound?.liveness === "live", busyOutside: false, dirPresent: !dirMissing },
+      team,
+    ),
+    row.cwd,
+  );
   // STABLE per row-object: the row is a memoized composition output,
   // so these closures do not churn across unrelated re-renders.
   const handleResumeClick = useCallback(
@@ -122,23 +138,12 @@ export function SessionRowActions({
     // group keeps its cell even when empty (no button available) or
     // holding one — the row's shape never depends on availability.
     <span className="history__actions">
-      {/* The Resume gate, source-aware: a BOUND row resumes unless it is
-       * live right now; an INDEX row has no liveness fact AT ALL and
-       * resumes — most rows from the other source are exactly this. */}
-      {supportsResume &&
-      !wrongOwner &&
-      (index !== null || bound?.liveness !== "live") && (
+      {supportsResume && !wrongOwner && (
         <button
           type="button"
           className="history__resume"
-          disabled={dirMissing || row.cwd === ""}
-          title={
-            dirMissing
-              ? "The session's directory no longer exists"
-              : row.cwd === ""
-                ? "The session has no recorded directory"
-                : `Resume in ${row.cwd}`
-          }
+          disabled={resume.disabled}
+          title={resume.title}
           onClick={handleResumeClick}
         >
           Resume
@@ -177,6 +182,7 @@ export const SessionRowView = memo(function SessionRowView({
   agents,
   dirMissing,
   readFailed,
+  team,
   now,
   virtualStart,
   virtualIndex,
@@ -278,6 +284,7 @@ export const SessionRowView = memo(function SessionRowView({
         row={row}
         agents={agents}
         dirMissing={dirMissing}
+          team={team}
         onResume={onResume}
         onFork={onFork}
       />

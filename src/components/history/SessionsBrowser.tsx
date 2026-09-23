@@ -25,6 +25,8 @@ interface SessionsBrowserProps {
   /** The agent plugins finished activating — before that a scan would see
    * an empty registry and "successfully" index zero stores. */
   ready: boolean;
+  /** The team a resume would join — null when no team is asking. */
+  team: { cwd: string | null } | null;
   onResume(record: SessionHandle): void;
   onFork(record: SessionHandle): void;
 }
@@ -38,6 +40,7 @@ export function WorkspaceSessionsBrowser({
   agents,
   rows,
   ready,
+  team,
   onResume,
   onFork,
 }: Omit<SessionsBrowserProps, "api"> & {
@@ -51,6 +54,7 @@ export function WorkspaceSessionsBrowser({
       agents={agents}
       rows={rows}
       ready={ready}
+      team={team}
       onResume={onResume}
       onFork={onFork}
     />
@@ -75,6 +79,7 @@ export function SessionsBrowser({
   agents,
   rows,
   ready,
+  team,
   onResume,
   onFork,
 }: SessionsBrowserProps) {
@@ -225,6 +230,7 @@ export function SessionsBrowser({
               agents={agents}
               dirMissing={row.cwd !== "" && !dirPresent(presence, row.cwd)}
               readFailed={row.readLinks.some((link) => readFailed.has(link))}
+              team={team}
               now={now}
               onOpen={openRow}
               onResume={onResumeRow}
@@ -292,6 +298,7 @@ export function SessionsBrowser({
           presence={presence}
           readFailed={setReadFailed}
           viewSeq={viewSeq}
+          team={team}
           onClose={closeViewer}
           onResume={onResumeRow}
           onFork={onForkRow}

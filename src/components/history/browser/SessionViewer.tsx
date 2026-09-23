@@ -42,6 +42,8 @@ export interface SessionViewerProps {
   presence: ReadonlyMap<string, boolean>;
   readFailed: Dispatch<SetStateAction<ReadonlySet<string>>>;
   viewSeq: MutableRefObject<number>;
+  /** The team a resume would join — null when no team is asking. */
+  team: { cwd: string | null } | null;
   onClose(): void;
   onResume(row: UnifiedSessionRow): void;
   onFork(row: UnifiedSessionRow): void;
@@ -64,6 +66,7 @@ export function SessionViewer({
   presence,
   readFailed: setReadFailed,
   viewSeq,
+  team,
   onClose,
   onResume,
   onFork,
@@ -152,6 +155,7 @@ export function SessionViewer({
           dirMissing={
             target.row.cwd !== "" && !dirPresent(presence, target.row.cwd)
           }
+          team={team}
           onResume={onResume}
           onFork={onFork}
         />
