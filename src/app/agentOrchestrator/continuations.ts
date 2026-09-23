@@ -214,7 +214,13 @@ export function createAgentOrchestratorContinuations({
           dropPaneSpawnSpec(id);
           throw new Error("Agent could not prepare a fork plan");
         }
-        creation.landOrThrow(creation.landPane(request));
+        // A worktree target: a fork into a worktree of its own, on a team the
+      // landing mints. No surface asks for one today — the fork-target
+      // dialog that did is gone, and every fork now goes INTO a team's
+      // directory. Kept by the explicit-roles plan (task-28) as the one
+      // fork-into-a-new-worktree path: wire a future surface here rather
+      // than beside it, or remove it with ForkTarget's "worktree" kind.
+      creation.landOrThrow(creation.landPane(request));
         return;
       }
 
