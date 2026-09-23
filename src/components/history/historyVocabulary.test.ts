@@ -13,8 +13,6 @@ const liveUses: Array<{ path: string; text: RegExp }> = [
   { path: "src/components/history/useDirPresence.ts", text: /would block$/i },
   { path: "src/components/history/SessionRowView.tsx", text: /blocks Resume/i },
   { path: "src/components/history/SessionRowView.tsx", text: /Resume is blocked/i },
-  // The domain's resume rule, by name: why a session cannot resume.
-  { path: "src/components/history/SessionRowView.tsx", text: /\bresumeBlock\b/ },
 ];
 
 function sourceFiles(root: string): string[] {

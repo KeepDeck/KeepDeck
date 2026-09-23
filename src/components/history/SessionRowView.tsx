@@ -4,8 +4,8 @@ import type { RowStatus, UnifiedSessionRow } from "../../domain/journal";
 import { rowKeyOf } from "../../domain/journal/sessionRow";
 import { formatAge } from "../../domain/usage/format";
 import { AgentGlyph } from "../../ui/AgentGlyph";
-import { baseName, resumeBlock } from "../../domain/deck";
-import { resumeActionView } from "../../presentation/sessionResumeView";
+import { baseName } from "../../domain/deck";
+import { sessionRowActionsView } from "../../presentation/sessionResumeView";
 import type { CSSProperties } from "react";
 
 /** The journal row's status chip — the visible stand-in for everything
@@ -104,17 +104,17 @@ export function SessionRowActions({
     fork: supportsFork,
   } = agentSessionCapabilities(agents, row.agent);
   const bound = row.kind === "bound" ? row : null;
-  const wrongOwner = bound?.status === "wrong-owner";
-  // The resume rule is the domain's, the same one the member dialog's
-  // picker asks. An INDEX row has no liveness fact at all, so nothing
-  // claims it; a BOUND row live right now is claimed.
-  const resume = resumeActionView(
-    resumeBlock(
-      { cwd: row.cwd, claimed: bound?.liveness === "live", busyOutside: false, dirPresent: !dirMissing },
-      team,
-    ),
-    row.cwd,
-  );
+  // The row's facts; what it offers is the view's. An INDEX row has no
+  // liveness fact at all, so nothing claims it.
+  const actions = sessionRowActionsView({
+    cwd: row.cwd,
+    supportsResume,
+    supportsFork,
+    wrongOwner: bound?.status === "wrong-owner",
+    live: bound?.liveness === "live",
+    dirPresent: !dirMissing,
+    team,
+  });
   // STABLE per row-object: the row is a memoized composition output,
   // so these closures do not churn across unrelated re-renders.
   const handleResumeClick = useCallback(
@@ -138,25 +138,25 @@ export function SessionRowActions({
     // group keeps its cell even when empty (no button available) or
     // holding one — the row's shape never depends on availability.
     <span className="history__actions">
-      {supportsResume && !wrongOwner && (
+      {actions.resume && (
         <button
           type="button"
           className="history__resume"
-          disabled={resume.disabled}
-          title={resume.title}
+          disabled={actions.resume.disabled}
+          title={actions.resume.title}
           onClick={handleResumeClick}
         >
-          Resume
+          {actions.resume.label}
         </button>
       )}
-      {supportsFork && !wrongOwner && (
+      {actions.fork && (
         <button
           type="button"
           className="history__fork"
-          title="Fork — a new conversation continuing from this session"
+          title={actions.fork.title}
           onClick={handleForkClick}
         >
-          Fork
+          {actions.fork.label}
         </button>
       )}
     </span>
