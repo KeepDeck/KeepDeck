@@ -90,7 +90,8 @@ export interface AgentOrchestrator {
     opts?: { name?: string; branch?: string; yolo?: boolean; role?: string },
   ): Promise<void>;
   /** Take a blocked pane off the team whose directory is gone, onto the
-   * workspace root's, and start a fresh conversation there. */
+   * workspace root's, and start a fresh conversation there. The pane keeps
+   * its role ([`carryRole`]); one the root's team cannot take is refused. */
   startFresh(wsId: string, paneId: string): void;
   /** Ask for a stopped pane back and report whether it can rise. */
   resume(wsId: string, paneId: string): ResumeRequest;

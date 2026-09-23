@@ -318,6 +318,75 @@ describe("agent orchestrator —session policy", () => {
     expect(agentRun.blocked["pane-1"]).toBe("/repo/wt-gone");
     expect(agentRun.wakeFailed["pane-1"]).toContain("team is full");
   });
+
+  describe("start fresh carries the role the person gave the pane", () => {
+    // Nobody is there to ask on a move, so the pane keeps its role: the same
+    // address while it is free, the next number of the same role when only
+    // the number is taken. A role that cannot stand there is refused — the
+    // pane keeps its place and the card says why.
+    const blockedWithRoot = (role: string, rootRoles: string[]): DeckState => {
+      const base = restored(
+        { session: { id: "s-1", boundAt: "t" }, team: { teamId: "team-1", role } },
+        { kind: "attached", cwd: "/repo/wt-gone" },
+      );
+      return {
+        ...base,
+        workspaces: [
+          {
+            ...base.workspaces[0],
+            teams: [
+              ...(base.workspaces[0].teams ?? []),
+              { id: "team-root", name: "root", location: { kind: "attached", cwd: "/repo" } },
+            ],
+            panes: [
+              ...base.workspaces[0].panes,
+              ...rootRoles.map((rootRole, i) => ({
+                id: `root-${i}`,
+                agentType: "claude" as const,
+                team: { teamId: "team-root", role: rootRole },
+              })),
+            ],
+          },
+        ],
+      };
+    };
+
+    const startFreshWith = async (role: string, rootRoles: string[]) => {
+      ipc.probeWorktree.mockResolvedValue({ exists: false, isWorktree: false, empty: false, branch: null });
+      act(() => deck.hydrate(blockedWithRoot(role, rootRoles)));
+      await settle();
+      act(() => agentRun.startFresh("ws-1", "pane-1"));
+      await settle();
+      return deck.workspaces[0].panes[0];
+    };
+
+    it("keeps a free address, and renumbers one whose number is taken", async () => {
+      expect((await startFreshWith("impl-1", ["lead", "impl-1"])).team).toEqual({
+        teamId: "team-root",
+        role: "impl-2",
+      });
+    });
+
+    it("keeps the address as it is when nobody holds it", async () => {
+      expect((await startFreshWith("reviewer-1", ["lead"])).team).toEqual({
+        teamId: "team-root",
+        role: "reviewer-1",
+      });
+    });
+
+    it("refuses a lead onto a team that has one, and the pane stays put", async () => {
+      const moved = await startFreshWith("lead", ["lead"]);
+      expect(moved.team).toEqual({ teamId: "team-1", role: "lead" });
+      expect(moved.session).toEqual({ id: "s-1", boundAt: "t" });
+      expect(agentRun.wakeFailed["pane-1"]).toContain('role "lead" is taken');
+    });
+
+    it("refuses a peer onto a led team", async () => {
+      const moved = await startFreshWith("peer-1", ["lead"]);
+      expect(moved.team).toEqual({ teamId: "team-1", role: "peer-1" });
+      expect(agentRun.wakeFailed["pane-1"]).toContain("does not fit that team");
+    });
+  });
 });
 
 describe("agent orchestrator —resuming a suspended pane", () => {

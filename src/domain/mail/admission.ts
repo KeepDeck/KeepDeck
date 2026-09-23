@@ -30,7 +30,7 @@ import {
 } from "./roles";
 
 /** Why an asked-for role cannot be taken. */
-export type RoleRefusal = "taken" | "unknown";
+export type RoleRefusal = "missing" | "taken" | "unknown" | "misfit";
 
 export type RoleAdmission =
   | { ok: true; role: string }
@@ -49,12 +49,7 @@ export function admitRole(
   except?: string,
 ): RoleAdmission {
   const wanted = asked?.trim();
-  if (!wanted) {
-    const held = membersOf(workspace, teamId)
-      .filter((member) => member.id !== except)
-      .flatMap((member) => (member.team ? [member.team.role] : []));
-    return { ok: true, role: suggestRoleAddress(held) };
-  }
+  if (!wanted) return { ok: true, role: suggestRoleAddress(rolesHeld(workspace, teamId, except)) };
   if (!parseRoleAddress(wanted)) return { ok: false, why: "unknown", role: wanted };
   if (roleTaken(workspace, teamId, wanted, except)) {
     return { ok: false, why: "taken", role: wanted };
@@ -62,13 +57,48 @@ export function admitRole(
   return { ok: true, role: wanted };
 }
 
+/**
+ * The role a member keeps when it is MOVED onto team `teamId` — nobody is
+ * there to ask, so it is the role the person gave it: the same address
+ * while that is free, the next free number of the same role when only the
+ * number is taken (impl-1 lands as impl-2). A singleton already held, or a
+ * role the team's shape refuses, cannot be carried: the move is refused,
+ * and the person picks. `except` is the pane being moved.
+ */
+export function carryRole(
+  workspace: Workspace,
+  teamId: string,
+  role: string | undefined,
+  except: string,
+): RoleAdmission {
+  // A pane on no team was never given a role, and none is made up for it.
+  if (!role) return { ok: false, why: "missing", role: "" };
+  const known = parseRoleAddress(role);
+  if (!known) return { ok: false, why: "unknown", role };
+  const held = rolesHeld(workspace, teamId, except);
+  const address = roleTaken(workspace, teamId, role, except) ? mintRoleAddress(known.role, held) : role;
+  if (address === null) return { ok: false, why: "taken", role };
+  if (rosterProblem([...held, address]) !== null) return { ok: false, why: "misfit", role };
+  return { ok: true, role: address };
+}
+
+function rolesHeld(workspace: Workspace, teamId: string, except?: string): string[] {
+  return membersOf(workspace, teamId)
+    .filter((member) => member.id !== except)
+    .flatMap((member) => (member.team ? [member.team.role] : []));
+}
+
 /** The refusal in words — the same words whichever door asked. */
 export function roleRefusalMessage(why: RoleRefusal, role: string): string {
   switch (why) {
+    case "missing":
+      return `a member joins a team under a role somebody names — ${teamRoles().map((r) => r.id).join(", ")}`;
     case "taken":
       return `role "${role}" is taken on that team — a role is an address, so it has to be unique`;
     case "unknown":
       return `"${role}" is not a role this deck knows`;
+    case "misfit":
+      return `role "${role}" does not fit that team — a team is led (one lead, the working roles under it) or flat (peers only)`;
   }
 }
 

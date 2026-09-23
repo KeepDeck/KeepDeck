@@ -22,7 +22,7 @@ import {
   type TeamLocation,
   type Workspace,
 } from "../../domain/deck";
-import { admitRole } from "../../domain/mail";
+import { admitRole, carryRole } from "../../domain/mail";
 import { createRefusalMessage } from "./refusals";
 import { createWorkspaceInstance, type WorkspaceRef } from "../../domain/workspaceInstance";
 import { log } from "../../ipc/log";
@@ -432,9 +432,9 @@ export function createAgentOrchestratorCreation({
     }
     // A pane holds ONE team: joining the new one is leaving the old one,
     // and a roster the old membership alone kept alive is pruned with it.
-    // Nobody asked for a role here, so the roster suggests one; the pane's
-    // own current address does not count as held.
-    const admitted = admitRole(current, landing.team.id, undefined, pane.id);
+    // The pane carries the role the person gave it; the pane's own current
+    // address does not count as held.
+    const admitted = carryRole(current, landing.team.id, pane.team?.role, pane.id);
     if (!admitted.ok) return { kind: "role", why: admitted.why, role: admitted.role };
     if (!join(current, pane, landing, undefined, admitted.role)) {
       return { kind: "held", why: "refused" };

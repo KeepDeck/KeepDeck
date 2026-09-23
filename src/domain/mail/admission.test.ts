@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Pane, Workspace } from "../deck";
 import { createWorkspaceInstance } from "../workspaceInstance";
-import { admitRole, roleRefusalMessage, rolesOpenTo, rosterProblem } from "./admission";
+import { admitRole, carryRole, roleRefusalMessage, rolesOpenTo, rosterProblem } from "./admission";
 
 const on = (id: string, role: string): Pane => ({
   id,
@@ -98,5 +98,30 @@ describe("rolesOpenTo — what the next member may be", () => {
 
   it("offers a flat team only another peer", () => {
     expect(rolesOpenTo(["peer-1"])).toEqual([expect.objectContaining({ address: "peer-2" })]);
+  });
+});
+
+describe("carryRole — the role a moved member keeps", () => {
+  const moving = (role: string | undefined, onTeam: string[]) =>
+    carryRole(
+      workspace([
+        { id: "mover", agentType: "claude", ...(role ? { team: { teamId: "team-9", role } } : {}) },
+        ...onTeam.map((held, i) => on(`p${i}`, held)),
+      ]),
+      "team-1",
+      role,
+      "mover",
+    );
+
+  it("keeps a free address, and takes the next number of the same role when its number is held", () => {
+    expect(moving("reviewer-2", ["lead"])).toEqual({ ok: true, role: "reviewer-2" });
+    expect(moving("impl-1", ["lead", "impl-1", "impl-2"])).toEqual({ ok: true, role: "impl-3" });
+  });
+
+  it("refuses a singleton already held, a shape the team refuses, and a member with no role at all", () => {
+    expect(moving("lead", ["lead"])).toEqual({ ok: false, why: "taken", role: "lead" });
+    expect(moving("peer-1", ["lead"])).toEqual({ ok: false, why: "misfit", role: "peer-1" });
+    expect(moving("impl-1", ["peer-1"])).toEqual({ ok: false, why: "misfit", role: "impl-1" });
+    expect(moving(undefined, ["lead"])).toEqual({ ok: false, why: "missing", role: "" });
   });
 });
