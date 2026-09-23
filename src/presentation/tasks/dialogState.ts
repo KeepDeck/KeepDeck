@@ -1,6 +1,7 @@
 /**
  * The dialog's own decisions, apart from the markup: what Escape peels,
- * what a click on a card does to the selection, which card a ghost is, and the words the bar and the panel head say.
+ * what a click on a card does to the selection, which card a ghost is,
+ * what the team control is, and the dialog's words.
  */
 import type { BoardColumnView } from "./boardView";
 import type { TaskCardView } from "./taskCardView";
@@ -49,12 +50,12 @@ export function teamControlView(
   return { kind: "none" };
 }
 
-/** The words of the bar and the panel head, by state. */
+/** The dialog's words: its title, the team pick's name, its two buttons,
+ * and the panel head's Expand/Collapse by state. */
 export const DIALOG_WORDS = {
+  title: "Tasks",
+  team: "Team",
+  newTask: "+ Task",
+  close: "Close tasks",
   wide: (wide: boolean) => (wide ? "Collapse" : "Expand"),
 } as const;
-
-/** The dialog's classes: a card in flight dims the board's own copy of it. */
-export function dialogClassName(dragging: boolean): string {
-  return dragging ? "form tasks tasks--dragging" : "form tasks";
-}

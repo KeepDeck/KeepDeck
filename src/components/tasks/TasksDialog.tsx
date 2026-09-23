@@ -1,13 +1,7 @@
 import { Dropdown } from "@keepdeck/ui-kit";
 import type { ArtifactsRegistryReadPort } from "../../app/artifacts/registryRead";
 import type { Workspace } from "../../domain/deck";
-import {
-  LADDER_WORDS,
-  cardOf,
-  dialogClassName,
-  ghostBox,
-  teamControlView,
-} from "../../presentation/tasks";
+import { DIALOG_WORDS, tasksDialogView } from "../../presentation/tasks";
 import { Button } from "../../ui/Button";
 import { CloseButton } from "../../ui/CloseButton";
 import { ModalOverlay } from "../../ui/ModalOverlay";
@@ -73,14 +67,20 @@ function WorkspaceBoard({
   // Escape peels one layer; which one, and whether that is the dialog
   // itself, is the screen machine's call.
   useEscape(board.escape, canClose);
-  const { ladder } = board;
-  const staged = ladder.kind === "board" || ladder.kind === "empty";
-  const teamControl = teamControlView(board.teams, board.teamId);
-  const ghost = ghostBox(board.drag);
-  const ghostCard = board.drag.kind === "dragging" ? cardOf(board.columns, board.drag.id) : undefined;
-  const panel = board.composing ? (
+  const view = tasksDialogView({
+    ladder: board.ladder,
+    drag: board.drag,
+    columns: board.columns,
+    teams: board.teams,
+    teamId: board.teamId,
+    composing: board.composing,
+    detailOpen: board.detail !== null,
+    wide: board.wide,
+  });
+  const panel =
+    view.panel === "form" ? (
     <NewTaskForm view={board.form} onCreate={(input) => void board.create(input)} onCancel={board.cancelCompose} />
-  ) : board.detail ? (
+  ) : view.panel === "detail" && board.detail ? (
     <TaskDetail
       // Keyed by the task: the panel's own state — a draft comment — must
       // not survive a switch to another task and be sent under its id.
@@ -102,48 +102,43 @@ function WorkspaceBoard({
 
   return (
     <ModalOverlay>
-      <div
-        className={dialogClassName(board.drag.kind === "dragging")}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Tasks"
-      >
+      <div className={view.className} role="dialog" aria-modal="true" aria-label={DIALOG_WORDS.title}>
         {/* The card in flight: the SAME card, drawn by the same component
             from the same view at the same width, under the point where it
             was gripped — the board's own copy stays put, dimmed, until the
             drop moves it. */}
-        {ghost && ghostCard && (
-          <div className="tasks__ghost" style={ghost}>
-            <TaskCard card={ghostCard} selected={false} onSelect={noSelect} />
+        {view.ghost && (
+          <div className="tasks__ghost" style={view.ghost.box}>
+            <TaskCard card={view.ghost.card} selected={false} onSelect={noSelect} />
           </div>
         )}
         <div className="tasks__head">
-          <h2 className="form__title tasks__title">Tasks</h2>
-          {staged && (
+          <h2 className="form__title tasks__title">{DIALOG_WORDS.title}</h2>
+          {view.toolbar && (
             <div className="tasks__toolbar">
-              {teamControl.kind === "pick" && (
+              {view.team.kind === "pick" && (
                 <Dropdown
-                  ariaLabel="Team"
+                  ariaLabel={DIALOG_WORDS.team}
                   className="tasks__team"
-                  options={teamControl.options}
-                  value={teamControl.value}
+                  options={view.team.options}
+                  value={view.team.value}
                   onChange={board.selectTeam}
                 />
               )}
-              {teamControl.kind === "word" && <span className="tasks__team-name">{teamControl.name}</span>}
+              {view.team.kind === "word" && <span className="tasks__team-name">{view.team.name}</span>}
               <Button
                 size="sm"
                 variant="primary"
                 className="tasks__new"
                 aria-pressed={board.composing}
                 onClick={board.toggleCompose}
-                disabled={board.teamId === null}
+                disabled={view.newTaskDisabled}
               >
-                + Task
+                {DIALOG_WORDS.newTask}
               </Button>
             </div>
           )}
-          <CloseButton label="Close tasks" onClick={onClose} autoFocus />
+          <CloseButton label={DIALOG_WORDS.close} onClick={onClose} autoFocus />
         </div>
 
         {board.error !== null && (
@@ -157,31 +152,25 @@ function WorkspaceBoard({
           </p>
         )}
 
-        {!staged ? (
+        {view.body.kind === "placeholder" ? (
           <div className="tasks__placeholder">
-            {ladder.kind === "refusal" ? (
-              <span className="tasks__placeholder-title kd-selectable" role="alert">
-                {ladder.message}
-              </span>
-            ) : (
-              <>
-                <span className="tasks__placeholder-title">{LADDER_WORDS[ladder.kind].title}</span>
-                {LADDER_WORDS[ladder.kind].hint && <span>{LADDER_WORDS[ladder.kind].hint}</span>}
-              </>
-            )}
+            <span className={view.body.titleClassName} role={view.body.titleRole}>
+              {view.body.title}
+            </span>
+            {view.body.hint && <span>{view.body.hint}</span>}
           </div>
         ) : (
           <div className="tasks__stage">
-            {/* Wide: the task fills the stage and the board is put away —
-                not hidden under it, gone until the person comes back. */}
-            {!board.wide && (
-            <div className="tasks__main">
-              {ladder.kind === "empty" ? (
+            {view.body.main?.kind === "empty" && (
+              <div className="tasks__main">
                 <div className="tasks__placeholder">
-                  <span className="tasks__placeholder-title">{LADDER_WORDS.empty.title}</span>
-                  <span>{LADDER_WORDS.empty.hint}</span>
+                  <span className="tasks__placeholder-title">{view.body.main.title}</span>
+                  <span>{view.body.main.hint}</span>
                 </div>
-              ) : (
+              </div>
+            )}
+            {view.body.main?.kind === "columns" && (
+              <div className="tasks__main">
                 <BoardColumns
                   columns={board.columns}
                   selectedId={board.detail?.id ?? null}
@@ -192,8 +181,7 @@ function WorkspaceBoard({
                   onHover={board.hoverColumn}
                   onDrop={board.dropOn}
                 />
-              )}
-            </div>
+              </div>
             )}
             {panel}
           </div>

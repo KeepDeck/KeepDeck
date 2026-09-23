@@ -15,7 +15,7 @@ import {
 } from "./cardDrag";
 import { EMPTY_COMPOSER, beginSend, composerCanSend, finishSend, typeDraft } from "./composer";
 import { canCreateTask, canSendComment } from "./composerView";
-import { DIALOG_WORDS, cardOf, dialogClassName, escapeTarget, selectionAfterClick, teamControlView } from "./dialogState";
+import { DIALOG_WORDS, cardOf, escapeTarget, selectionAfterClick, teamControlView } from "./dialogState";
 import { EMPTY_TASK_DRAFT, assigneeOf, taskInputOf } from "./formDraft";
 import { INITIAL_SCREEN, initialScreen, screenReducer, wideView, type ScreenState } from "./screenState";
 import { teamOnScreen } from "./teamOnScreen";
@@ -95,12 +95,8 @@ describe("dialogState", () => {
     expect(teamControlView([], null)).toEqual({ kind: "none" });
   });
 
-  it("dims the board's own copy of a card only while one is in flight", () => {
-    expect(dialogClassName(false)).toBe("form tasks");
-    expect(dialogClassName(true)).toBe("form tasks tasks--dragging");
-  });
-
   it("says the bar's and the head's words by state", () => {
+    expect([DIALOG_WORDS.title, DIALOG_WORDS.team, DIALOG_WORDS.newTask, DIALOG_WORDS.close]).toEqual(["Tasks", "Team", "+ Task", "Close tasks"]);
     expect(DIALOG_WORDS.wide(false)).toBe("Expand");
     expect(DIALOG_WORDS.wide(true)).toBe("Collapse");
   });
