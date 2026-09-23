@@ -217,11 +217,10 @@
    lines, a refusal or a failed read, the blocked-by line — wraps, and a
    long unbroken run (a path, a constant) breaks rather than widening its
    box. break-word, not anywhere: it breaks only a word that does not fit,
-   and leaves the box's own width alone. The card title, the team name and
-   the panel's link rows are not prose: they take .kd-one-line or
-   .kd-two-lines. */
+   and leaves the box's own width alone. The card title, the team name, the
+   panel's title and its link rows are not prose: they take .kd-one-line
+   or .kd-two-lines. */
 .tasks__card-blocked,
-.tasks__detail-title,
 .tasks__body,
 .tasks__comment-body,
 .tasks__log-text,

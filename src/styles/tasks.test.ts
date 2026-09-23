@@ -6,7 +6,6 @@ import { appCss } from "./testSupport";
  * a refusal or a failed read can carry a path as long as any brief. */
 const PROSE = [
   "tasks__card-blocked",
-  "tasks__detail-title",
   "tasks__body",
   "tasks__comment-body",
   "tasks__log-text",

@@ -66,7 +66,7 @@ export function TaskDetail({
   return (
     <aside className={taskDetailClassName(wide)} aria-label={TASK_DETAIL_WORDS.panel(view.id)}>
       <div className="tasks__detail-head">
-        <h3 className="tasks__detail-title">{view.title}</h3>
+        <h3 className="tasks__detail-title kd-two-lines">{view.title}</h3>
         {/* Words, not a ×: the dialog's own × sits right above, and two
             stacked read as a mistake. */}
         <div className="tasks__detail-actions">
