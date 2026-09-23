@@ -2,12 +2,12 @@ import { describe, expect, it } from "vitest";
 import { board, task } from "../../domain/tasks/testSupport";
 import { boardView } from "./boardView";
 import { LADDER_WORDS, tasksLadder } from "./ladderView";
-import { newTaskFormView } from "./newTaskFormView";
+import { newTaskFormView, NEW_TASK_WORDS, priorityChoiceClassName } from "./newTaskFormView";
 import { taskCardView, taskCardClassName } from "./taskCardView";
-import { taskDetailView, TASK_DETAIL_WORDS, taskDetailClassName } from "./taskDetailView";
+import { TASK_DETAIL_WORDS, pickedArtifact, pickedStatus, taskDetailClassName, taskDetailView } from "./taskDetailView";
 import { teamCardTasksLine } from "./teamCardTasksLine";
 import { teamOnScreen } from "./teamOnScreen";
-import { personName, priorityMark, statusTone } from "./words";
+import { personName, priorityMark, statusTone, FIELD_WORDS, POOL_CHOICE } from "./words";
 
 const NOW = 100_000;
 const ROSTER = ["lead", "impl-1", "impl-2"];
@@ -88,12 +88,35 @@ describe("boardView", () => {
   });
 });
 
-describe("task panel words and classes", () => {
+describe("task panel and form words and classes", () => {
   it("names the panel after its task and widens only when it fills the stage", () => {
     expect(TASK_DETAIL_WORDS.panel("task-4")).toBe("Task task-4");
     expect(taskDetailClassName(false)).toBe("tasks__detail");
     expect(taskDetailClassName(true)).toBe("tasks__detail tasks__detail--wide");
-    expect([TASK_DETAIL_WORDS.brief, TASK_DETAIL_WORDS.close, TASK_DETAIL_WORDS.comment]).toEqual(["Brief", "Close", "Comment"]);
+  });
+
+  it("the form and the panel share one pool line and one set of field names", () => {
+    const b = board([task({ id: "task-1", artifacts: ["kd-a"] })]);
+    const detail = taskDetailView(b.tasks[0], b, ["lead"], NOW, [{ id: "kd-a", title: "A" }]);
+    expect(newTaskFormView(["lead"]).assigneeOptions[0]).toBe(POOL_CHOICE);
+    expect(detail.assigneeOptions[0]).toBe(POOL_CHOICE);
+    expect(FIELD_WORDS).toEqual({ title: "Title", brief: "Brief", status: "Status", priority: "Priority", assignee: "Assignee" });
+    // The detach tooltip and its accessible label say the same word.
+    expect(detail.artifacts[0].detachLabel).toBe(`${TASK_DETAIL_WORDS.detach} kd-a`);
+    expect(detail.statusOptions[0].dotClassName).toBe(`tasks__status-dot tasks__status-dot--${detail.statusOptions[0].tone}`);
+  });
+
+  it("a pick asks for nothing when it changes nothing", () => {
+    expect(pickedStatus("todo", "todo")).toBeNull();
+    expect(pickedStatus("todo", "in-progress")).toBe("in-progress");
+    expect(pickedArtifact("")).toBeNull();
+    expect(pickedArtifact("kd-a")).toBe("kd-a");
+  });
+
+  it("lights the picked priority and names the form's own buttons", () => {
+    expect(priorityChoiceClassName(true)).toBe("form__type form__type--active");
+    expect(priorityChoiceClassName(false)).toBe("form__type");
+    expect([NEW_TASK_WORDS.panel, NEW_TASK_WORDS.cancel, NEW_TASK_WORDS.create]).toEqual(["New task", "Cancel", "Create task"]);
   });
 });
 

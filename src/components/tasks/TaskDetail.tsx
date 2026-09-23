@@ -4,10 +4,13 @@ import type { TaskPriority, TaskStatus } from "../../domain/tasks";
 import {
   DIALOG_WORDS,
   EMPTY_COMPOSER,
+  FIELD_WORDS,
   TASK_DETAIL_WORDS,
   beginSend,
   composerCanSend,
   finishSend,
+  pickedArtifact,
+  pickedStatus,
   taskDetailClassName,
   typeDraft,
   type TaskDetailView,
@@ -84,35 +87,36 @@ export function TaskDetail({
           may be picked is the transition table's answer, carried in the
           view — nothing here decides it. */}
       <div className="tasks__props">
-        <span className="tasks__prop-label">{TASK_DETAIL_WORDS.status}</span>
+        <span className="tasks__prop-label">{FIELD_WORDS.status}</span>
         <Dropdown
-          ariaLabel={TASK_DETAIL_WORDS.status}
+          ariaLabel={FIELD_WORDS.status}
           options={view.statusOptions.map((option) => ({
             value: option.value,
             label: (
               <span className="tasks__status-choice">
-                <span className={`tasks__status-dot tasks__status-dot--${option.tone}`} />
+                <span className={option.dotClassName} />
                 {option.label}
               </span>
             ),
           }))}
           value={view.status}
           onChange={(value) => {
-            if (value !== view.status) onMove(view.id, value as TaskStatus);
+            const to = pickedStatus(view.status, value);
+            if (to !== null) onMove(view.id, to);
           }}
           className="tasks__pick"
         />
-        <span className="tasks__prop-label">{TASK_DETAIL_WORDS.priority}</span>
+        <span className="tasks__prop-label">{FIELD_WORDS.priority}</span>
         <Dropdown
-          ariaLabel={TASK_DETAIL_WORDS.priority}
+          ariaLabel={FIELD_WORDS.priority}
           options={view.priorityOptions}
           value={view.priority}
           onChange={(value) => onPriority(view.id, value as TaskPriority)}
           className="tasks__pick"
         />
-        <span className="tasks__prop-label">{TASK_DETAIL_WORDS.assignee}</span>
+        <span className="tasks__prop-label">{FIELD_WORDS.assignee}</span>
         <Dropdown
-          ariaLabel={TASK_DETAIL_WORDS.assignee}
+          ariaLabel={FIELD_WORDS.assignee}
           options={view.assigneeOptions}
           value={view.assignee}
           onChange={(value) => onAssign(view.id, value)}
@@ -120,7 +124,7 @@ export function TaskDetail({
         />
       </div>
 
-      <span className="tasks__section">{TASK_DETAIL_WORDS.brief}</span>
+      <span className="tasks__section">{FIELD_WORDS.brief}</span>
       {view.bodyEmpty ? <p className="tasks__muted">{view.bodyEmpty}</p> : <p className="tasks__body kd-selectable">{view.body}</p>}
 
       <span className="tasks__section">{TASK_DETAIL_WORDS.blockers}</span>
@@ -194,8 +198,9 @@ export function TaskDetail({
           ariaLabel={TASK_DETAIL_WORDS.attach}
           options={[{ value: "", label: TASK_DETAIL_WORDS.attachPrompt }, ...view.attachOptions]}
           value=""
-          onChange={(slug) => {
-            if (slug !== "") onAttach(view.id, slug);
+          onChange={(picked) => {
+            const slug = pickedArtifact(picked);
+            if (slug !== null) onAttach(view.id, slug);
           }}
           className="tasks__pick"
         />
