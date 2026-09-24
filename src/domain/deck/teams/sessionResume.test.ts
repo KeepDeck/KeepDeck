@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resumeBlock, teamJournalLanes, type ResumeFacts } from "./sessionResume";
+import { resumeBlock, sessionOffer, teamJournalLanes, type ResumeFacts } from "./sessionResume";
 
 const free: ResumeFacts = { cwd: "/repo/wt", claimed: false, busyOutside: false, dirPresent: true };
 
@@ -36,5 +36,21 @@ describe("teamJournalLanes — the workspace's recorded sessions, split by where
     const lanes = teamJournalLanes(journal, "ws-1", "/repo/wt");
     expect(lanes.own.map((r) => r.sessionId)).toEqual(["new", "old"]);
     expect(lanes.other.map((r) => r.sessionId)).toEqual(["other"]);
+  });
+});
+
+describe("sessionOffer — what a recorded session offers a team", () => {
+  const facts = { ...free, supportsResume: true, supportsFork: true, wrongOwner: false };
+
+  it("offers both, Resume held back by resumeBlock — a live session, another team's directory", () => {
+    expect(sessionOffer(facts, { cwd: "/repo/wt" })).toEqual({ resume: { block: null }, fork: true });
+    expect(sessionOffer({ ...facts, claimed: true }, { cwd: "/repo/wt" }).resume).toEqual({ block: "claimed" });
+    expect(sessionOffer(facts, { cwd: "/repo" })).toEqual({ resume: { block: "elsewhere" }, fork: true });
+  });
+
+  it("offers only what the agent supports, and nothing for a session filed under the wrong agent", () => {
+    expect(sessionOffer({ ...facts, supportsResume: false }, null).resume).toBeNull();
+    expect(sessionOffer({ ...facts, supportsFork: false }, null).fork).toBe(false);
+    expect(sessionOffer({ ...facts, wrongOwner: true }, null)).toEqual({ resume: null, fork: false });
   });
 });

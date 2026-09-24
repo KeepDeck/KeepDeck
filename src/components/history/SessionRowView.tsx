@@ -4,7 +4,7 @@ import type { RowStatus, UnifiedSessionRow } from "../../domain/journal";
 import { rowKeyOf } from "../../domain/journal/sessionRow";
 import { formatAge } from "../../domain/usage/format";
 import { AgentGlyph } from "../../ui/AgentGlyph";
-import { baseName } from "../../domain/deck";
+import { baseName, sessionOffer } from "../../domain/deck";
 import { sessionRowActionsView } from "../../presentation/sessionResumeView";
 import type { CSSProperties } from "react";
 
@@ -106,15 +106,22 @@ export function SessionRowActions({
   const bound = row.kind === "bound" ? row : null;
   // The row's facts; what it offers is the view's. An INDEX row has no
   // liveness fact at all, so nothing claims it.
-  const actions = sessionRowActionsView({
-    cwd: row.cwd,
-    supportsResume,
-    supportsFork,
-    wrongOwner: bound?.status === "wrong-owner",
-    live: bound?.liveness === "live",
-    dirPresent: !dirMissing,
-    team,
-  });
+  const actions = sessionRowActionsView(
+    sessionOffer(
+      {
+        cwd: row.cwd,
+        claimed: bound?.liveness === "live",
+        // No outside-process probe here — see `sessionOffer`.
+        busyOutside: false,
+        dirPresent: !dirMissing,
+        supportsResume,
+        supportsFork,
+        wrongOwner: bound?.status === "wrong-owner",
+      },
+      team,
+    ),
+    row.cwd,
+  );
   // STABLE per row-object: the row is a memoized composition output,
   // so these closures do not churn across unrelated re-renders.
   const handleResumeClick = useCallback(

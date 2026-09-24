@@ -1,5 +1,5 @@
 import type { ResumeBlock } from "../domain/agents";
-import { resumeBlock } from "../domain/deck";
+import type { SessionOffer } from "../domain/deck";
 
 /** Why a session cannot be resumed here, in the words every surface that
  * offers a resume uses — null when it can. */
@@ -46,31 +46,10 @@ export interface SessionRowActionsView {
   fork: { label: string; title: string } | null;
 }
 
-/**
- * What a session row offers, from the facts about it. Neither action while
- * the journal filed it under the wrong agent — continuing it would feed the
- * wrong plugin. Resume is the domain's rule ([`resumeBlock`]); the row has
- * no outside-process probe (one per list costs a CLI spawn per agent), so a
- * busy session is refused at the landing rather than here.
- */
-export function sessionRowActionsView(facts: {
-  cwd: string;
-  supportsResume: boolean;
-  supportsFork: boolean;
-  wrongOwner: boolean;
-  live: boolean;
-  dirPresent: boolean;
-  team: { cwd: string | null } | null;
-}): SessionRowActionsView {
-  if (facts.wrongOwner) return { resume: null, fork: null };
-  const block = resumeBlock(
-    { cwd: facts.cwd, claimed: facts.live, busyOutside: false, dirPresent: facts.dirPresent },
-    facts.team,
-  );
+/** The domain's [`SessionOffer`] for a row, in words. */
+export function sessionRowActionsView(offer: SessionOffer, cwd: string): SessionRowActionsView {
   return {
-    resume: facts.supportsResume ? { label: "Resume", ...resumeActionView(block, facts.cwd) } : null,
-    fork: facts.supportsFork
-      ? { label: "Fork", title: "Fork — a new conversation continuing from this session" }
-      : null,
+    resume: offer.resume ? { label: "Resume", ...resumeActionView(offer.resume.block, cwd) } : null,
+    fork: offer.fork ? { label: "Fork", title: "Fork — a new conversation continuing from this session" } : null,
   };
 }

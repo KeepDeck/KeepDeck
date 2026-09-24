@@ -38,6 +38,33 @@ export function resumeBlock(
   return null;
 }
 
+/** What a listed session offers: Resume (with why it is held back, if it
+ * is) and Fork — or neither. */
+export interface SessionOffer {
+  /** Null: no Resume at all. */
+  resume: { block: ResumeBlock } | null;
+  fork: boolean;
+}
+
+/**
+ * THE rule for what a recorded session offers a team. Neither action for a
+ * session the journal filed under the wrong agent — continuing it would feed
+ * the wrong plugin; each only where the agent supports it; Resume held back
+ * by [`resumeBlock`]. A surface that cannot tell an outside process holds
+ * the session says `busyOutside: false`: its resume is then refused by the
+ * agent itself, and the pane's card offers a fork.
+ */
+export function sessionOffer(
+  facts: ResumeFacts & { supportsResume: boolean; supportsFork: boolean; wrongOwner: boolean },
+  team: { cwd: string | null } | null,
+): SessionOffer {
+  if (facts.wrongOwner) return { resume: null, fork: false };
+  return {
+    resume: facts.supportsResume ? { block: resumeBlock(facts, team) } : null,
+    fork: facts.supportsFork,
+  };
+}
+
 /** Whether a session recorded in `cwd` runs where `team` runs — its
  * directory there, and the same by the deck's key. The part of
  * [`resumeBlock`] a landing re-asks: a surface's answer is only advice. */

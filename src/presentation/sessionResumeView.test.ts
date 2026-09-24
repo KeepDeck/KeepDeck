@@ -18,35 +18,16 @@ describe("session resume words", () => {
   });
 });
 
-describe("sessionRowActionsView — what a session row offers", () => {
-  const facts = {
-    cwd: "/repo/wt",
-    supportsResume: true,
-    supportsFork: true,
-    wrongOwner: false,
-    live: false,
-    dirPresent: true,
-    team: { cwd: "/repo/wt" },
-  };
-
-  it("offers both, Resume saying where it resumes", () => {
-    const view = sessionRowActionsView(facts);
-    expect(view.resume).toEqual({ label: "Resume", disabled: false, title: "Resume in /repo/wt" });
-    expect(view.fork?.label).toBe("Fork");
-  });
-
-  it("holds Resume back by the domain's rule — a live session, another team's directory — Fork stays", () => {
-    expect(sessionRowActionsView({ ...facts, live: true }).resume).toMatchObject({
-      disabled: true,
-      title: "already in a pane",
+describe("sessionRowActionsView — the domain's offer, in words", () => {
+  it("labels each action offered, Resume saying where it resumes or why it is held back", () => {
+    expect(sessionRowActionsView({ resume: { block: null }, fork: true }, "/repo/wt")).toEqual({
+      resume: { label: "Resume", disabled: false, title: "Resume in /repo/wt" },
+      fork: { label: "Fork", title: "Fork — a new conversation continuing from this session" },
     });
-    expect(sessionRowActionsView({ ...facts, team: { cwd: "/repo" } }).resume).toMatchObject({ disabled: true });
-    expect(sessionRowActionsView({ ...facts, team: { cwd: "/repo" } }).fork).not.toBeNull();
-  });
-
-  it("offers only what the agent supports, and nothing on a row filed under the wrong agent", () => {
-    expect(sessionRowActionsView({ ...facts, supportsResume: false }).resume).toBeNull();
-    expect(sessionRowActionsView({ ...facts, supportsFork: false }).fork).toBeNull();
-    expect(sessionRowActionsView({ ...facts, wrongOwner: true })).toEqual({ resume: null, fork: null });
+    expect(sessionRowActionsView({ resume: { block: "claimed" }, fork: false }, "/x")).toEqual({
+      resume: { label: "Resume", disabled: true, title: "already in a pane" },
+      fork: null,
+    });
+    expect(sessionRowActionsView({ resume: null, fork: false }, "/x")).toEqual({ resume: null, fork: null });
   });
 });
