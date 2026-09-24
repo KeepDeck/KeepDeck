@@ -516,35 +516,33 @@
 }
 
 /* An empty team's sessions list: what it is and the role its first member
- * takes, in ONE row above the browser — the list is what the space is for. */
+ * takes, in ONE row above the browser — the list is what the space is for.
+ * A grid, so title, label and field share one centre line, and the
+ * address or the error sits under the field alone. */
 .team-sessions__head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-
-.team-sessions__title {
-  margin: 6px 0 0;
-}
-
-/* The picker's column: label and field on one line, the address or the
- * error under the field. */
-.team-sessions__pick {
   display: grid;
-  grid-template-columns: auto minmax(0, 240px);
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 240px);
   align-items: center;
   column-gap: 10px;
   row-gap: 4px;
+}
+
+.team-sessions__title {
+  margin: 0;
 }
 
 .team-sessions__label {
   margin: 0;
 }
 
+/* The field outside a form: no form rhythm under it — that margin was
+   what pushed the label off the field's centre. */
+.team-sessions__role .form__input {
+  margin-bottom: 0;
+}
+
 .team-sessions__hint {
-  grid-column: 2;
+  grid-column: 3;
   font-size: 12px;
   line-height: 1.45;
   color: #8b93a3;

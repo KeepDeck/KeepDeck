@@ -67,27 +67,25 @@ export function TeamSessions({
       <div className="deck__setup-col">
         <div className="team-sessions__head">
           <h2 className="history__title team-sessions__title">{TEAM_SESSIONS_WORDS.title}</h2>
-          <div className="team-sessions__pick">
-            <span className="form__label team-sessions__label">{ROLE_WORDS.label}</span>
-            <Dropdown
-              className="team-sessions__role"
-              options={roles.optionsFor(roleId)}
-              value={roleId}
-              onChange={(next) => {
-                setPicked(next);
-                setAskedWithout(false);
-              }}
-              ariaLabel={ROLE_WORDS.label}
-            />
-            {hint?.kind === "address" && (
-              <span className="team-sessions__hint">
-                {ROLE_WORDS.writeTo} <code className="form__role-address">{hint.address}</code>
-              </span>
-            )}
-            {hint?.kind === "error" && (
-              <span className="team-sessions__hint team-sessions__hint--error">{hint.text}</span>
-            )}
-          </div>
+          <span className="form__label team-sessions__label">{ROLE_WORDS.label}</span>
+          <Dropdown
+            className="team-sessions__role"
+            options={roles.optionsFor(roleId)}
+            value={roleId}
+            onChange={(next) => {
+              setPicked(next);
+              setAskedWithout(false);
+            }}
+            ariaLabel={ROLE_WORDS.label}
+          />
+          {hint?.kind === "address" && (
+            <span className="team-sessions__hint">
+              {ROLE_WORDS.writeTo} <code className="form__role-address">{hint.address}</code>
+            </span>
+          )}
+          {hint?.kind === "error" && (
+            <span className="team-sessions__hint team-sessions__hint--error">{hint.text}</span>
+          )}
         </div>
         <WorkspaceSessionsBrowser
           shared={browserShared}
