@@ -161,6 +161,7 @@ describe("agent orchestrator —a new pane arriving", () => {
     let outcome;
     await act(async () => {
       outcome = agentRun.createPane({
+        role: "lead",
         workspace: { id: "ws-1", instance: instance() },
         pane: plain(),
         placement: { kind: "attached", cwd: "/wt/a" },
@@ -190,6 +191,7 @@ describe("agent orchestrator —a new pane arriving", () => {
     let outcome;
     await act(async () => {
       outcome = agentRun.createPane({
+        role: "lead",
         workspace: { id: "ws-1", instance: instance() },
         pane: plain(),
         placement: { kind: "attached", cwd: "/wt/a/" },
@@ -206,6 +208,7 @@ describe("agent orchestrator —a new pane arriving", () => {
     let outcome;
     await act(async () => {
       outcome = agentRun.createPane({
+        role: "lead",
         workspace: { id: "ws-1", instance: instance() },
         pane: { id: "pane-9", agentType: "claude" },
       });
@@ -227,6 +230,7 @@ describe("agent orchestrator —a new pane arriving", () => {
     act(() => deck.hydrate(seed()));
     await act(async () => {
       agentRun.createPane({
+        role: "lead",
         workspace: { id: "ws-1", instance: instance() },
         pane: plain(),
         placement: card(),
@@ -250,6 +254,7 @@ describe("agent orchestrator —a new pane arriving", () => {
     act(() => deck.renameWorkspace("ws-1", "renamed"));
     await act(async () => {
       agentRun.createPane({
+        role: "lead",
         workspace: { id: "ws-1", instance: instance() },
         pane: plain(),
         placement: card(),
@@ -269,6 +274,7 @@ describe("agent orchestrator —a new pane arriving", () => {
     let outcome;
     await act(async () => {
       outcome = agentRun.createPane({
+        role: "lead",
         workspace: { id: "ws-1", instance: stale },
         pane: plain(),
         placement: card(),
@@ -304,6 +310,7 @@ describe("agent orchestrator —a new pane arriving", () => {
     let outcome;
     await act(async () => {
       outcome = agentRun.createPane({
+        role: "lead",
         workspace: { id: "ws-1", instance: instance() },
         pane: plain(),
         placement: { kind: "attached", cwd: "/wt/a" },
@@ -331,6 +338,7 @@ describe("agent orchestrator —a new pane arriving", () => {
     let outcome;
     await act(async () => {
       outcome = agentRun.createPane({
+        role: "lead",
         workspace: { id: "ws-1", instance: instance() },
         pane: plain(),
         placement: card(),
@@ -368,6 +376,7 @@ describe("agent orchestrator —a new pane arriving", () => {
     let outcome;
     await act(async () => {
       outcome = agentRun.createPane({
+        role: "lead",
         workspace: { id: "ws-1", instance: instance() },
         pane: plain(),
         placement: { kind: "attached", cwd: "/wt/a" },
@@ -400,6 +409,7 @@ describe("agent orchestrator —a new pane arriving", () => {
     let outcome;
     await act(async () => {
       outcome = agentRun.createPane({
+        role: "lead",
         workspace: { id: "ws-1", instance: instance() },
         pane: plain(),
       });
@@ -437,6 +447,7 @@ describe("agent orchestrator —a new pane arriving", () => {
     let outcome;
     await act(async () => {
       outcome = agentRun.createPane({
+        role: "lead",
         workspace: { id: "ws-1", instance: instance() },
         pane: plain(),
         placement: card(),
@@ -468,6 +479,7 @@ describe("agent orchestrator —a new pane arriving", () => {
 
     await act(async () => {
       agentRun.createPane({
+        role: "lead",
         workspace: { id: "ws-1", instance: stale },
         pane: plain(),
         placement: card(),
@@ -1009,22 +1021,9 @@ describe("agent orchestrator —a team born empty", () => {
 });
 
 /**
- * RED until the landing admits a role by ONE rule, in one place.
- *
- * "A role is an address: known to the catalog, unique on its team" is
- * decided four times today, with three different answers. The `team.add`
- * command throws on a taken or unknown role (coreCommands/spawn.ts,
- * `askedRole`); `planTeam` refuses; the reducer silently writes nothing; and
- * THIS landing quietly hands out another role (`suggestRoleAddress`) — so a
- * caller that asked for `impl-1` can be given `impl-2` and told "created",
- * and a role the catalog has never heard of lands as-is, with no charter to
- * brief.
- *
- * The policy pinned here is the command door's, because it is the only one
- * that tells the truth: a role that was ASKED FOR is honoured or refused,
- * never substituted; a role nobody asked for is suggested. The refusal's
- * exact shape is the fix's to choose — these tests only insist that it is
- * not "created", and that nothing landed.
+ * The landing admits a role by ONE rule ([`admitRole`]): a role is always
+ * asked for, and honoured or refused — never substituted, never picked for
+ * the member. A refusal is not "created", and nothing lands.
  */
 describe("agent orchestrator —a role at the landing", () => {
   let root: Root;
@@ -1105,9 +1104,7 @@ describe("agent orchestrator —a role at the landing", () => {
     expect(deck.workspaces[0].panes.map((pane) => pane.id)).toEqual(["pane-1"]);
   });
 
-  it("suggests a role only when none was asked for", async () => {
-    // GREEN today — the other half of the policy, so the fix cannot answer
-    // the two above by refusing everything.
+  it("refuses a landing that names no role — nothing picks one — and adds nobody", async () => {
     act(() => deck.hydrate(teamWithImpl()));
     let outcome: ReturnType<typeof agentRun.createPane> | undefined;
     await act(async () => {
@@ -1117,13 +1114,7 @@ describe("agent orchestrator —a role at the landing", () => {
         team: "team-1",
       });
     });
-    expect(outcome).toEqual({ kind: "created", teamId: "team-1" });
-    const landed = deck.workspaces[0].panes.find((pane) => pane.id === "pane-9");
-    // WHICH free role the roster suggests is the domain's rule
-    // (`suggestRoleAddress`, pinned in its own suite); here only that one
-    // was suggested and that it is not the address already taken.
-    expect(landed?.team?.teamId).toBe("team-1");
-    expect(landed?.team?.role).toBeDefined();
-    expect(landed?.team?.role).not.toBe("impl-1");
+    expect(outcome).toMatchObject({ kind: "role", why: "missing", role: "" });
+    expect(deck.workspaces[0].panes.find((pane) => pane.id === "pane-9")).toBeUndefined();
   });
 });

@@ -90,7 +90,7 @@ const texts = (c: ReturnType<typeof createVoiceController>) =>
 describe("createVoiceController", () => {
   it("runs a spoken command end to end: heard → resolved → executed", async () => {
     const { host, controller } = setup({
-      text: "Create an agent in keep deck with task fix the header.",
+      text: "Create a lead in keep deck with task fix the header.",
       silence: false,
     });
     await controller.start("command");
@@ -102,12 +102,12 @@ describe("createVoiceController", () => {
       { id: "workspace.list", args: {} },
       {
         id: "agent.spawn",
-        args: { workspace: "ws-1", task: "fix the header" },
+        args: { workspace: "ws-1", role: "lead", task: "fix the header" },
       },
     ]);
     expect(texts(controller)).toEqual([
       ["done", "agent spawned, task queued"],
-      ["heard", "Create an agent in keep deck with task fix the header."],
+      ["heard", "Create a lead in keep deck with task fix the header."],
     ]);
     expect(controller.snapshot().phase).toBe("idle");
   });
@@ -391,17 +391,27 @@ describe("createVoiceController", () => {
     expect(text).toContain("Privacy & Security");
   });
 
-  it("spawns in the active workspace when none was spoken", async () => {
+  it("spawns in the active workspace when none was spoken — a peer as the new team's first", async () => {
     const { host, controller } = setup({
-      text: "запусти нового агента",
+      text: "запусти нового пира",
       silence: false,
     });
     await controller.start("command");
     await controller.stop();
     expect(host.executedCommands).toContainEqual({
       id: "agent.spawn",
-      args: { workspace: "ws-1" },
+      args: { workspace: "ws-1", role: "peer" },
     });
+  });
+
+  it("refuses a spawn that names no role, and says how to name one", async () => {
+    const { host, controller } = setup({ text: "create an agent in keep deck", silence: false });
+    await controller.start("command");
+    await controller.stop();
+    expect(host.executedCommands.some((command) => command.id === "agent.spawn")).toBe(false);
+    const [tone, text] = texts(controller)[0];
+    expect(tone).toBe("error");
+    expect(text).toContain("create a lead in <workspace>");
   });
 
   it("resolves 'the latest agent' positionally", async () => {

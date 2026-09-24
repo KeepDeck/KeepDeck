@@ -1,4 +1,3 @@
-import { useMemo } from "react";
 import type { AgentInfo, AgentRestartMode } from "../domain/agents";
 import type { SpawnPlan } from "../app/spawnSpecs";
 import {
@@ -17,12 +16,10 @@ import {
   type Pane,
   type Workspace,
   type WorkspaceView,
-  openTeamOf,
   paneBody,
   paneProvisioning,
   stagePanes,
   teamOfPane,
-  teamsOf,
 } from "../domain/deck";
 import type { PaneFramePlace } from "../domain/status";
 import { teamNamesIn, teamOf } from "../domain/mail";
@@ -30,62 +27,13 @@ import { gitBadge } from "../ui/gitBadge";
 import { AgentPane, type UnavailableAgent } from "./agent/AgentPane";
 import { MinimizedTray, type MinimizedTrayEntry } from "./deck/MinimizedTray";
 import { TeamCards } from "./deck/TeamCards";
-import { emptyGridMessage, trayView, type ShelfEntry } from "../presentation/trayView";
-import {
-  journalRows,
-  type JournalRecords,
-  type SessionHandle,
-} from "../domain/journal";
-import { useWorkspaceScope } from "../app/useWorkspaceScope";
-import { WorkspaceSessionsBrowser } from "./history/SessionsBrowser";
+import { trayView, type ShelfEntry } from "../presentation/trayView";
+import type { JournalRecords, SessionHandle } from "../domain/journal";
 import type { BrowserSharedSeam } from "../app/useSessionsBrowser";
+import { stageContent } from "../presentation/stageView";
+import { startFreshRoles } from "../presentation/startFreshView";
+import { TeamSessions } from "./deck/TeamSessions";
 import type { RestartOutcome } from "../app/agentOrchestrator";
-
-/** A pane-less workspace's sessions screen: the empty-deck browser with
- * the workspace's scope set. A component of its own so the scope hook
- * runs unconditionally per workspace (hooks in the map body would
- * violate the rules of hooks); inside, the scope policy is ONE call —
- * the rule lives in the domain, identity stability in the application
- * hook. NOTE: this renders only for pane-less workspaces, so the pane
- * source of the rule is empty here; the journal history is the one
- * live source of scope movement on this screen. */
-function WorkspaceSessionsScreen({
-  ws,
-  journal,
-  browserShared,
-  agents,
-  agentsReady,
-  onResumeSession,
-  onForkSession,
-}: {
-  ws: Workspace;
-  journal: JournalRecords;
-  browserShared: BrowserSharedSeam;
-  agents: AgentInfo[];
-  agentsReady: boolean;
-  onResumeSession: (wsId: string, record: SessionHandle) => void;
-  onForkSession: (wsId: string, record: SessionHandle) => void;
-}) {
-  // Rows identity-stable per (journal, workspace): the scope hook's
-  // memos key on this array's identity, and a fresh array per render
-  // would re-key the scope every render — an infinite reset loop (the
-  // scope-change effect fires, clears the rows, re-renders, fresh array
-  // again). The journal object is state-stable upstream, so this memo
-  // moves only when the journal truly moves.
-  const rows = useMemo(() => journalRows(journal, ws.id), [journal, ws.id]);
-  const dirs = useWorkspaceScope(ws, rows);
-  return (
-    <WorkspaceSessionsBrowser
-      shared={browserShared}
-      dirs={dirs}
-      agents={agents}
-      ready={agentsReady}
-      rows={rows}
-      onResume={(record) => onResumeSession(ws.id, record)}
-      onFork={(record) => onForkSession(ws.id, record)}
-    />
-  );
-}
 
 /** The per-pane positioning the grid resolves to; the rest of a pane's props
  * (command, spec, cwd, badge) are the same everywhere. */
@@ -124,12 +72,17 @@ interface DeckStageProps {
   unavailableAgentReasons: ReadonlyMap<string, string>;
   /** Runtime git HEAD observations, keyed by pane execution cwd. */
   gitHeads: ReadonlyMap<string, GitPosition>;
-  /** The session journal's folded records — the empty-workspace history. */
+  /** The session journal's folded records — an empty team's sessions. */
   journal: JournalRecords;
-  /** Resume a journal record into a new pane of its workspace. */
-  onResumeSession(wsId: string, record: SessionHandle): void;
-  /** Open the fork-target dialog for a journal record. */
-  onForkSession(wsId: string, record: SessionHandle): void;
+  /** Continue a recorded session onto an empty team, under the role picked
+   * there — resumed, or forked into the team's directory. */
+  onContinueSession(
+    wsId: string,
+    teamId: string,
+    mode: "resume" | "fork",
+    record: SessionHandle,
+    role: string,
+  ): void;
   /** The browser seam's shared half (keyed enrichment + freshness +
    * transcript dispatch) — one instance app-wide; each browser builds its
    * own folder-scoped engines on top of it. */
@@ -166,13 +119,14 @@ interface DeckStageProps {
     string,
     { registry: "live" | "unknown"; name: string | null }
   >;
-  /** Fork the occupied card's live session into a copy (same directory). */
+  /** Fork the occupied card's live session — the member dialog, the session
+   * picked, the role to choose. */
   onForkOccupied(wsId: string, paneId: string): void;
   /** Panes waiting on a continuation to paint: paneId → when the wait began
    * and whether it has already outlasted a healthy start. */
   startupPanes: Record<string, { since: number; slow: boolean }>;
-  /** Fork the session of a pane whose start has gone quiet (same directory,
-   * nothing killed). */
+  /** Fork the session of a pane whose start has gone quiet — the member
+   * dialog, the session picked, nothing killed. */
   onForkStalled(wsId: string, paneId: string): void;
   /** Stop offering the occupied choice (pane stays visible and bound). */
   onDismissOccupied(paneId: string): void;
@@ -184,8 +138,9 @@ interface DeckStageProps {
    *  spawn-specs snapshot so a failure re-renders the deck with the set in
    *  hand (no module-state side-channel). */
   failedPanes: ReadonlySet<string>;
-  /** Detach a blocked pane from its gone worktree and start it fresh. */
-  onStartFresh(wsId: string, paneId: string): void;
+  /** Detach a blocked pane from its gone worktree and start it fresh —
+   * under `role` when its own could not come along. */
+  onStartFresh(wsId: string, paneId: string, role?: string): void;
   /** Wake a suspended (or parked) pane — the idle card's own gesture. */
   onResumeAgent(wsId: string, paneId: string): void;
   /** Re-issue a failed pane's worktree create (the failed card's Retry). */
@@ -223,7 +178,8 @@ interface DeckStageProps {
  * tiles it hides are listed in that same tray as if minimized — restoring
  * one of them switches the spotlight to it instead of exiting maximize.
  * Under the optional Tray placement, explicitly suspended agents use the
- * same bottom shelf. An empty workspace shows its sessions browser instead.
+ * same bottom shelf. What goes over the grid — the team cards, an empty
+ * team's sessions, a word — is the stage model's answer ([`stageContent`]).
  */
 export function DeckStage({
   workspaces,
@@ -236,8 +192,7 @@ export function DeckStage({
   unavailableAgentReasons,
   gitHeads,
   journal,
-  onResumeSession,
-  onForkSession,
+  onContinueSession,
   browserShared,
   onSelectPane,
   onToggleFocus,
@@ -273,9 +228,23 @@ export function DeckStage({
       {workspaces.map((ws) => {
         const isActive = ws.id === activeId;
 
-        // A workspace with nothing in it — no team, no pane — shows its
-        // sessions; one with a team, however empty, shows the team's card.
-        if (ws.panes.length === 0 && teamsOf(ws).length === 0) {
+        const view = viewByWs[ws.id];
+        // ── The slice. ────────────────────────────────────────────────────
+        // The open team's members are what the stage lays out. Every other
+        // team's panes stay MOUNTED — a terminal is never torn down for a
+        // change of level — and merely are not on the grid, the shelf, or
+        // the empty-grid word: each of those reads the slice, never the
+        // workspace. The live (not minimized) panes tile; the minimized
+        // ones — and the panes of teams that are not open — are hidden but
+        // stay mounted.
+        const panes = stagePanes(ws, view);
+        const live = visiblePanes(panes, view);
+        // What goes over the grid, asked once.
+        const content = stageContent(ws, view, live.length);
+
+        // A workspace with no team: nothing to lay out, and the word for it.
+        if (content.kind === "no-teams") {
+          const { word } = content;
           return (
             <div
               key={ws.id}
@@ -286,22 +255,14 @@ export function DeckStage({
                 pointerEvents: isActive ? "auto" : "none",
               }}
             >
-              <div className="deck__setup-col">
-                <WorkspaceSessionsScreen
-                  ws={ws}
-                  journal={journal}
-                  browserShared={browserShared}
-                  agents={agents}
-                  agentsReady={agentsReady}
-                  onResumeSession={onResumeSession}
-                  onForkSession={onForkSession}
-                />
+              <div className="deck__grid-empty" role="status">
+                <span className="deck__grid-empty-title">{word.title}</span>
+                <span className="deck__grid-empty-sub">{word.sub}</span>
               </div>
             </div>
           );
         }
 
-        const view = viewByWs[ws.id];
         // Titles number by the pane's ORIGINAL position, so minimizing one
         // doesn't renumber the rest ("Claude 3" stays "Claude 3").
         const titleOf = (pane: Pane) =>
@@ -311,19 +272,7 @@ export function DeckStage({
           return gitBadge(cwd ? gitHeads.get(cwd) : undefined);
         };
 
-        // ── The slice. ────────────────────────────────────────────────────
-        // The open team's members are what the stage lays out. Every other
-        // team's panes stay MOUNTED — a terminal is never torn down for a
-        // change of level — and merely are not on the grid, the shelf, or
-        // the empty-grid word: each of those reads the slice, never the
-        // workspace.
-        const team = openTeamOf(ws, view);
-        const panes = stagePanes(ws, view);
-
         // ── Per-pane layout, resolved once per workspace. ─────────────────
-        // The live (not minimized) panes tile; the minimized ones — and the
-        // panes of teams that are not open — are hidden but stay mounted.
-        const live = visiblePanes(panes, view);
         const liveIndex = new Map(live.map((p, i) => [p.id, i] as const));
         const focusedHere = resolveFocus(live, view?.focus);
         const soloGrid = live.length === 1;
@@ -440,9 +389,6 @@ export function DeckStage({
           entryOf(paneById.get(entry.paneId)!, "Restore", restoreFor(entry)),
         );
         const trayStateLabel = shelf.stateLabel;
-        // The word for an empty grid is a word about the OPEN team — at the
-        // cards level the grid is empty by construction and says nothing.
-        const emptyGrid = team && live.length === 0 ? emptyGridMessage(panes, view) : null;
 
         // Asked once for the deck, not once per pane: a role is only an
         // identity while ONE team holds it, and with a second team running
@@ -522,7 +468,10 @@ export function DeckStage({
               onClose={() => onCloseAgent(ws.id, pane.id, displayTitle)}
               onRename={(name) => onRenamePane(ws.id, pane.id, name)}
               onTitle={(t) => onPaneTitle(ws.id, pane.id, t)}
-              onStartFresh={() => onStartFresh(ws.id, pane.id)}
+              startFreshRoles={
+                idleBlocked[pane.id] ? startFreshRoles(workspaces, ws, pane) : null
+              }
+              onStartFresh={(role) => onStartFresh(ws.id, pane.id, role)}
               onResume={() => onResumeAgent(ws.id, pane.id)}
               onRetryProvision={() => {
                 // The card, and its Retry, are the team's.
@@ -555,11 +504,27 @@ export function DeckStage({
               >
                 {ws.panes.map(renderPane)}
               </div>
-              {emptyGrid !== null && (
+              {content.kind === "word" && (
                 <div className="deck__grid-empty" role="status">
-                  <span className="deck__grid-empty-title">{emptyGrid.title}</span>
-                  <span className="deck__grid-empty-sub">{emptyGrid.sub}</span>
+                  <span className="deck__grid-empty-title">{content.word.title}</span>
+                  <span className="deck__grid-empty-sub">{content.word.sub}</span>
                 </div>
+              )}
+              {content.kind === "team-sessions" && (
+                <TeamSessions
+                  // One list per team: a role picked on one empty team is
+                  // not a pick on the next one the rail opens.
+                  key={content.teamId}
+                  ws={ws}
+                  cwd={content.cwd}
+                  journal={journal}
+                  browserShared={browserShared}
+                  agents={agents}
+                  agentsReady={agentsReady}
+                  onContinue={(mode, record, role) =>
+                    onContinueSession(ws.id, content.teamId, mode, record, role)
+                  }
+                />
               )}
               {/* The cards level, laid over the mounted grid while no team
                   is open — the same place the empty-grid word takes, for
@@ -567,7 +532,7 @@ export function DeckStage({
                   own component, so ONE status subscription serves every
                   card, and so the pane nodes above keep their container
                   (and their identity) through every change of level. */}
-              {team === undefined && (
+              {content.kind === "cards" && (
                 <TeamCards
                   workspace={ws}
                   gitHeads={gitHeads}

@@ -171,9 +171,9 @@ export function useSessionsBrowser(
   shared: BrowserSharedSeam,
 ): SessionsBrowserApi {
   // The dir LIST rides a memo keyed by the SET's identity: the set is
-  // identity-stable upstream (useWorkspaceScope), so an unchanged scope
-  // keeps one array and one scope callback — and a REAL scope change
-  // (the journal's late arrival) correctly makes both new. No
+  // identity-stable upstream (memoized on the team's directory), so an
+  // unchanged scope keeps one array and one scope callback — and a REAL
+  // scope change correctly makes both new. No
   // string-join encoding: a newline is legal in a path, "\n"-joined
   // dirs are ambiguous, and identity never needed the string anyway.
   const dirList = useMemo(() => [...dirs], [dirs]);

@@ -189,7 +189,7 @@ export function setup(workspaces: Workspace[]) {
       // re-spelled: a hand-rolled "taken → suggest" lived here once and
       // answered "created" for a role the landing would refuse.
       const admitted = admitRole(ws, teamId, role);
-      if (!admitted.ok) return { kind: "role", why: admitted.why, role: admitted.role };
+      if (!admitted.ok) return { kind: "role", why: admitted.why, role: admitted.role, open: admitted.open };
       ws.panes.push({ ...pane, team: { teamId, role: admitted.role } });
       return { kind: "created", teamId };
     },

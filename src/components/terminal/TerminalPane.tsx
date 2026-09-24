@@ -77,8 +77,8 @@ interface TerminalPaneProps {
   startupSince?: number;
   /** The application has judged this wait longer than a healthy start. */
   startupSlow?: boolean;
-  /** Fork the session this pane is bound to, into the same directory. Offered
-   * beside the slow-start hint; the view only says it was asked for. */
+  /** Fork the session this pane is bound to, onto its team. Offered beside
+   * the slow-start hint; the view only says it was asked for. */
   onForkStalled?: () => void;
 }
 

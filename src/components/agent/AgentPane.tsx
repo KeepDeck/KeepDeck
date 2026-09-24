@@ -1,4 +1,5 @@
 import { useRestart } from "./useRestart";
+import type { RoleChoice } from "../../presentation/roleChoiceView";
 import type { AgentRestartMode } from "../../domain/agents";
 import type { RestartOutcome } from "../../app/agentOrchestrator";
 import {
@@ -92,8 +93,12 @@ export interface AgentPaneProps {
   /** The missing directory blocking revival, when the pane can't wake where it
    * was ([F7] restore reconcile). */
   blockedDir?: string | null;
-  /** Detach from the missing worktree and start fresh in the workspace cwd. */
-  onStartFresh?(): void;
+  /** The roles Start fresh asks for, when the pane's own cannot come along
+   * to the workspace folder's team; null when it can. */
+  startFreshRoles?: RoleChoice | null;
+  /** Detach from the missing worktree and start fresh in the workspace cwd —
+   * under `role` when the card asked for one. */
+  onStartFresh?(role?: string): void;
   /** Ask for this pane back — the idle card's Resume and, on a pane whose
    * folder is gone, its "Look again". One gesture with two labels rather than
    * two props pointing at one handler: the card already knows which state it
@@ -143,8 +148,8 @@ export interface AgentPaneProps {
    * Distinct from `idle`/`stopped`: the conversation is alive, just not
    * ours to resume. */
   occupied?: { registry: "live" | "unknown"; name: string | null } | null;
-  /** Fork the live session into a copy in the same directory (the
-   * occupied card's primary: a copy keeps reporting to the deck). */
+  /** Fork the live session into a copy on this pane's team (the occupied
+   * card's primary: a copy keeps reporting to the deck). */
   onForkOccupied?(): void;
   /** Stop offering the choice; the pane stays visible and bound. */
   onDismissOccupied?(): void;
@@ -153,7 +158,7 @@ export interface AgentPaneProps {
    * through to the terminal's launch overlay — the pane makes no decision
    * about it. */
   startup?: { since: number; slow: boolean } | null;
-  /** Fork the session this pane is bound to, same directory, nothing killed —
+  /** Fork the session this pane is bound to onto its team, nothing killed —
    * the way out offered beside a start that has gone quiet. */
   onForkStalled?(): void;
   /** Manually restart an exited agent, either from its binding or fresh. */
@@ -213,6 +218,7 @@ export function AgentPane({
   onForkStalled,
   onRestart,
   onStartFresh,
+  startFreshRoles,
   onResume,
   onRetryProvision,
 }: AgentPaneProps) {
@@ -315,6 +321,7 @@ export function AgentPane({
             resumeSessionId={resumeSessionId}
             now={now}
             {...(onResume ? { onResume } : {})}
+            startFreshRoles={startFreshRoles ?? null}
             {...(onStartFresh ? { onStartFresh } : {})}
           />
         ) : body === "plan-failed" ? (

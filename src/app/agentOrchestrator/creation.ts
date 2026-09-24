@@ -22,7 +22,7 @@ import {
   type TeamLocation,
   type Workspace,
 } from "../../domain/deck";
-import { admitRole } from "../../domain/mail";
+import { admitRole, carryRole } from "../../domain/mail";
 import { createRefusalMessage } from "./refusals";
 import { createWorkspaceInstance, type WorkspaceRef } from "../../domain/workspaceInstance";
 import { log } from "../../ipc/log";
@@ -58,24 +58,25 @@ interface CreationDeps {
 export interface AgentOrchestratorCreation {
   landPane(request: CreatePaneRequest): CreatePaneOutcome;
   createTeam(request: CreateTeamRequest): CreateTeamOutcome;
-  /** Whether `pane` could land at `placement` right now, without landing
-   * it — the refusal it would meet, or null. For a caller with an
-   * irreversible step to run BEFORE landing (a fork's store surgery) that
-   * must not run for a pane the team then refuses. */
+  /** Whether the request could land right now, without landing it — the
+   * refusal it would meet (its team, the team's room, the role), or null.
+   * For a caller with an irreversible step to run BEFORE landing (a fork's
+   * store surgery) that must not run for a pane the team then refuses. */
   roomFor(
-    workspace: WorkspaceRef,
-    pane: Pane,
-    placement: TeamLocation,
+    request: Pick<CreatePaneRequest, "workspace" | "pane" | "placement" | "team" | "role">,
   ): CreatePaneOutcome | null;
   landOrThrow(outcome: CreatePaneOutcome): void;
   /** Move a pane already in the deck onto the team holding `placement` —
    * minting that team when nobody holds it — off whatever team it was on.
    * What "start fresh" on a pane whose directory is gone does: the pane
-   * comes back in the workspace root. The same refusals as a landing. */
+   * comes back in the workspace root. The same refusals as a landing. The
+   * pane keeps its role ([`carryRole`]) unless `role` names the one the
+   * person picked instead. */
   relocatePane(
     workspace: WorkspaceRef,
     paneId: string,
     placement: TeamLocation,
+    role?: string,
   ): CreatePaneOutcome;
   createWorkspace: AgentOrchestrator["createWorkspace"];
   retryProvisioning: AgentOrchestrator["retryProvisioning"];
@@ -374,15 +375,15 @@ export function createAgentOrchestratorCreation({
   }
 
   function roomFor(
-    workspace: WorkspaceRef,
-    pane: Pane,
-    placement: TeamLocation,
+    request: Pick<CreatePaneRequest, "workspace" | "pane" | "placement" | "team" | "role">,
   ): CreatePaneOutcome | null {
     const workspaces = deck.getSnapshot().workspaces;
-    const current = findWorkspaceByRef(workspaces, workspace);
+    const current = findWorkspaceByRef(workspaces, request.workspace);
     if (!current) return { kind: "gone" };
-    const landing = resolveLanding(workspaces, current, pane, placement);
-    return "refusal" in landing ? refusalOutcome(landing) : null;
+    const landing = resolveRequest(workspaces, current, request);
+    if ("refusal" in landing) return refusalOutcome(landing);
+    const admitted = admitRole(current, landing.team.id, request.role);
+    return admitted.ok ? null : { kind: "role", why: admitted.why, role: admitted.role, open: admitted.open };
   }
 
   /**
@@ -403,7 +404,7 @@ export function createAgentOrchestratorCreation({
     // nothing to take back out.
     const admitted = admitRole(current, landing.team.id, request.role);
     if (!admitted.ok) {
-      return refuse(pane.id, { kind: "role", why: admitted.why, role: admitted.role });
+      return refuse(pane.id, { kind: "role", why: admitted.why, role: admitted.role, open: admitted.open });
     }
     actions.addAgentPane(current.id, pane);
     if (!join(current, pane, landing, postProvision, admitted.role)) {
@@ -419,6 +420,7 @@ export function createAgentOrchestratorCreation({
     workspace: WorkspaceRef,
     paneId: string,
     placement: TeamLocation,
+    role?: string,
   ): CreatePaneOutcome {
     const workspaces = deck.getSnapshot().workspaces;
     const current = findWorkspaceByRef(workspaces, workspace);
@@ -432,10 +434,14 @@ export function createAgentOrchestratorCreation({
     }
     // A pane holds ONE team: joining the new one is leaving the old one,
     // and a roster the old membership alone kept alive is pruned with it.
-    // Nobody asked for a role here, so the roster suggests one; the pane's
-    // own current address does not count as held.
-    const admitted = admitRole(current, landing.team.id, undefined, pane.id);
-    if (!admitted.ok) return { kind: "role", why: admitted.why, role: admitted.role };
+    // The pane carries the role the person gave it — or takes the one the
+    // person picked when that could not come along. Its own current address
+    // does not count as held.
+    const admitted =
+      role !== undefined
+        ? admitRole(current, landing.team.id, role, pane.id)
+        : carryRole(current, landing.team.id, pane.team?.role, pane.id);
+    if (!admitted.ok) return { kind: "role", why: admitted.why, role: admitted.role, open: admitted.open };
     if (!join(current, pane, landing, undefined, admitted.role)) {
       return { kind: "held", why: "refused" };
     }

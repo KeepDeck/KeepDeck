@@ -7,8 +7,12 @@
  * active-workspace panes) and persists only when its directory is gone; the
  * other reasons wait for the user.
  */
+import { useState } from "react";
 import type { PaneIdle } from "../../../domain/deck";
 import { formatAge } from "../../../domain/usage";
+import { NO_ROLE, ROLE_WORDS, type RoleChoice } from "../../../presentation/roleChoiceView";
+import { START_FRESH_WORDS, startFreshPick } from "../../../presentation/startFreshView";
+import { Dropdown } from "../../../ui/Dropdown";
 
 export function StoppedBody({
   idle,
@@ -18,6 +22,7 @@ export function StoppedBody({
   resumeSessionId,
   now,
   onResume,
+  startFreshRoles,
   onStartFresh,
 }: {
   idle: PaneIdle;
@@ -31,8 +36,20 @@ export function StoppedBody({
   resumeSessionId?: string | null;
   now: number;
   onResume?: () => void;
-  onStartFresh?: () => void;
+  /** The roles to pick from before Start fresh, when the pane's own role
+   * cannot come along to the workspace folder's team; null when it can. */
+  startFreshRoles?: RoleChoice | null;
+  /** Start fresh — under `role` when the card asked for one. */
+  onStartFresh?: (role?: string) => void;
 }) {
+  const [picked, setRoleId] = useState(NO_ROLE);
+  // The roster under the card can change while it stands: a pick the
+  // team is no longer open to is no pick.
+  const roleId = startFreshRoles ? startFreshRoles.pickOf(picked) : NO_ROLE;
+  // A lost pick is discarded, not hidden: the role coming back later is
+  // not somebody choosing it again.
+  if (roleId !== picked) setRoleId(roleId);
+  const pick = startFreshPick(startFreshRoles ?? null, roleId);
   return (
     <div className="pane__card" role="status">
       {blockedDir ? (
@@ -49,13 +66,28 @@ export function StoppedBody({
               Look again
             </button>
           )}
+          {/* A refused move says why here, beside the button that asked. */}
+          {wakeError && <span className="pane__exit-sub pane__wake-error">{wakeError}</span>}
+          {onStartFresh && startFreshRoles && (
+            <>
+              <span className="pane__exit-sub">{START_FRESH_WORDS.pickRole}</span>
+              <Dropdown
+                className="pane__card-role"
+                options={startFreshRoles.optionsFor(roleId)}
+                value={roleId}
+                onChange={setRoleId}
+                ariaLabel={ROLE_WORDS.label}
+              />
+            </>
+          )}
           {onStartFresh && (
             <button
               type="button"
               className="pane__card-action"
-              onClick={onStartFresh}
+              disabled={!pick.ready}
+              onClick={() => onStartFresh(pick.role)}
             >
-              Start fresh in the workspace folder
+              {START_FRESH_WORDS.action}
             </button>
           )}
         </>

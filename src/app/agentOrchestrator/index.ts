@@ -61,37 +61,33 @@ export interface AgentOrchestrator {
   ): boolean;
   /** Retry a failed spawn-plan build. */
   retryPlanBuild(paneId: string): void;
-  /** Fork the live session a refused-resume card holds into a copy in the
-   * SAME directory (the card never chooses one) — a new pane, the binding
-   * untouched. */
-  forkOccupiedSession(wsId: string, paneId: string): Promise<void>;
-  /** Fork the session a pane is bound to when its start has gone quiet: the
-   * same directory, nothing killed, so a person who cannot wait any longer
-   * has a way forward that costs nothing if the start was about to finish. */
-  forkStalledSession(wsId: string, paneId: string): Promise<void>;
   /** Stop offering the occupied choice: the pane stays visible and bound,
    * nothing is erased — the ordinary exit card takes over. */
   dismissOccupied(paneId: string): void;
   /** Continue a journal session in a new pane. `role` is the address the
    * pane asks for on the team it lands on — honoured when the catalog knows
    * it and it is free, refused otherwise ([`admitRole`], thrown as the
-   * refusal's words); absent, the roster suggests one. */
+   * refusal's words) — absent included: nothing picks one. `team` is the team
+   * it joins, by id; absent, the team holding the session's directory. */
   resumeSession(
     wsId: string,
     record: SessionHandle,
-    opts?: { name?: string; yolo?: boolean; role?: string },
+    opts?: { name?: string; yolo?: boolean; role?: string; team?: string },
   ): Promise<void>;
   /** Fork a journal session into a new pane and target directory/worktree.
-   * `role` as for `resumeSession`. */
+   * `role` and `team` as for `resumeSession`; `team` goes with a `dir`
+   * target — the directory the copy is made in. */
   forkSession(
     wsId: string,
     record: SessionHandle,
     target: ForkTarget,
-    opts?: { name?: string; branch?: string; yolo?: boolean; role?: string },
+    opts?: { name?: string; branch?: string; yolo?: boolean; role?: string; team?: string },
   ): Promise<void>;
   /** Take a blocked pane off the team whose directory is gone, onto the
-   * workspace root's, and start a fresh conversation there. */
-  startFresh(wsId: string, paneId: string): void;
+   * workspace root's, and start a fresh conversation there. The pane keeps
+   * its role ([`carryRole`]); one the root's team cannot take is refused,
+   * and `role` is the one the person picks in its place. */
+  startFresh(wsId: string, paneId: string, role?: string): void;
   /** Ask for a stopped pane back and report whether it can rise. */
   resume(wsId: string, paneId: string): ResumeRequest;
 }
@@ -155,9 +151,9 @@ export interface CreatePaneRequest {
    * included. Wins over `placement`. A team that is not here, holds no
    * directory, or is being closed refuses `held`. */
   team?: string;
-  /** The role the pane takes on its team, when the caller has one in mind:
-   * honoured when the catalog knows it and it is free on the team, refused
-   * otherwise (`role`). Absent, the roster suggests one. */
+  /** The role the pane takes on its team: honoured when the catalog knows
+   * it, it is free on the team and the team's shape can take it — refused
+   * otherwise (`role`), absent included: nothing picks one. */
   role?: string;
   /** The name for a team the landing MINTS — when the caller is creating
    * one and named it; the pane's own name otherwise. Ignored when the pane
@@ -184,7 +180,7 @@ export type CreatePaneOutcome =
   /** The role the pane asked for cannot be its address on that team: it is
    * taken, or the catalog does not know it. Refused, never replaced — a
    * role asked for is honoured or refused ([`admitRole`]). */
-  | { kind: "role"; why: RoleRefusal; role: string };
+  | { kind: "role"; why: RoleRefusal; role: string; open: string[] };
 
 /** A team born with its directory and nobody on it — the "+ Team" door.
  * Agents come later, each through `createPane` naming the team. */

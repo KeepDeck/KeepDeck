@@ -1,6 +1,8 @@
 import type { ForkTarget } from "../../domain/agents";
 import {
+  findTeam,
   findWorkspace,
+  recordedOnTeam,
   paneId,
   placementOfRecorded,
   sessionClaimant,
@@ -43,6 +45,10 @@ export interface AgentOrchestratorContinuations {
   forkSession: AgentOrchestrator["forkSession"];
 }
 
+/** A resume asked onto a team whose directory is not the session's. */
+export const RESUMED_ELSEWHERE =
+  "The session was recorded in another directory than the team's — fork a copy into the team instead";
+
 export function createAgentOrchestratorContinuations({
   deck,
   spawnContext,
@@ -72,6 +78,14 @@ export function createAgentOrchestratorContinuations({
     if (!context) throw new Error("Agent spawn context is unavailable");
     const workspace = findWorkspace(deck.getSnapshot().workspaces, wsId);
     if (!workspace || resuming.has(record.sessionId)) return;
+    // A member runs where its team runs, and a resume runs where it was
+    // recorded: onto a team by id, the two have to be one directory. What
+    // a surface offered is advice; this is the rule.
+    if (opts?.team !== undefined) {
+      const team = findTeam(workspace, opts.team);
+      const cwd = team?.location?.kind === "attached" ? team.location.cwd : null;
+      if (!recordedOnTeam(record.cwd, { cwd })) throw new Error(RESUMED_ELSEWHERE);
+    }
     const claimant = claimantOf(record.sessionId);
     if (claimant) {
       throw new Error(
@@ -115,9 +129,12 @@ export function createAgentOrchestratorContinuations({
       const name = opts?.name?.trim();
       const outcome = creation.landPane({
         workspace: { id: workspace.id, instance: workspace.instance },
-        // The directory the session ran in, with its branch — a resume
-        // lands on the team holding it, or on a team made for it.
-        placement: placementOfRecorded(record),
+        // The team the person resumed it INTO, by id — two teams can share
+        // a directory. Without one, the directory the session ran in, with
+        // its branch: the team holding it, or a team made for it.
+        ...(opts?.team !== undefined
+          ? { team: opts.team }
+          : { placement: placementOfRecorded(record) }),
         ...(opts?.role !== undefined && { role: opts.role }),
         pane: {
           id,
@@ -188,21 +205,36 @@ export function createAgentOrchestratorContinuations({
       };
       const role = opts?.role !== undefined ? { role: opts.role } : {};
       if (target.kind === "dir") {
-        const placement = placementOfRecorded({
-          cwd: target.cwd,
-          ...(opts?.branch && { branch: opts.branch }),
-        });
+        // The team the copy goes INTO, by id when the caller named one —
+        // two teams can share a directory — else the directory's team.
+        const request = {
+          workspace: workspaceRef,
+          pane,
+          ...role,
+          ...(opts?.team !== undefined
+            ? { team: opts.team }
+            : {
+                placement: placementOfRecorded({
+                  cwd: target.cwd,
+                  ...(opts?.branch && { branch: opts.branch }),
+                }),
+              }),
+        };
         // Asked BEFORE the irreversible surgery: a team with no room for
-        // the pane refuses now, not after the clone exists.
-        const refused = creation.roomFor(workspaceRef, pane, placement);
+        // the pane, or for its role, refuses now, not after the clone exists.
+        const refused = creation.roomFor(request);
         if (refused) creation.landOrThrow(refused);
         if (!(await surgery(target.cwd))) {
           dropPaneSpawnSpec(id);
           throw new Error("Agent could not prepare a fork plan");
         }
-        creation.landOrThrow(
-          creation.landPane({ workspace: workspaceRef, pane, placement, ...role }),
-        );
+        // A worktree target: a fork into a worktree of its own, on a team the
+      // landing mints. No surface asks for one today — the fork-target
+      // dialog that did is gone, and every fork now goes INTO a team's
+      // directory. Kept by the explicit-roles plan (task-28) as the one
+      // fork-into-a-new-worktree path: wire a future surface here rather
+      // than beside it, or remove it with ForkTarget's "worktree" kind.
+      creation.landOrThrow(creation.landPane(request));
         return;
       }
 

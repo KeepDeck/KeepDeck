@@ -217,17 +217,12 @@ export function createAgentOrchestratorRuntime(
     bumpEpoch: runView.bumpEpoch,
     publish: () => publish(),
     markOccupied: runView.markOccupied,
-    occupiedNote: runView.occupiedNote,
     clearNotes: runView.clearNotes,
     startOwed,
     skillsAsk,
     mcpAccess,
     schedule,
     lifecycle,
-    forks: {
-      forkSession: (wsId, record, target, opts) =>
-        continuations.forkSession(wsId, record, target, opts),
-    },
   });
   const continuations = createAgentOrchestratorContinuations({
     deck,
@@ -509,26 +504,27 @@ export function createAgentOrchestratorRuntime(
     restart: restart.restart,
     recoverRejectedResume: restart.recoverRejectedResume,
     retryPlanBuild: restart.retryPlanBuild,
-    forkOccupiedSession: restart.forkOccupiedSession,
-    forkStalledSession: restart.forkStalledSession,
     dismissOccupied: restart.dismissOccupied,
     resumeSession: continuations.resumeSession,
     forkSession: continuations.forkSession,
-    startFresh(wsId, paneId) {
+    startFresh(wsId, paneId, role) {
       const workspace = findWorkspace(deck.getSnapshot().workspaces, wsId);
       if (!workspace) return;
       // The move FIRST, and nothing else on a refusal: a directory-bound
       // session cannot resume elsewhere, and the pane's team's directory is
       // what went missing, so the pane moves onto the workspace root's team
       // and starts a new conversation there — but the root's team can be
-      // full. Dropping the session and waking the pane before knowing would
-      // wake it back into the directory that is gone, with its session
-      // thrown away for nothing. The refusal reaches the card instead, and
+      // full, or unable to take the pane's role (a singleton it holds, a
+      // shape it cannot have; a number merely taken is renumbered).
+      // Dropping the session and waking the pane before knowing would wake
+      // it back into the directory that is gone, with its session thrown
+      // away for nothing. The refusal reaches the card instead, and
       // the pane keeps what it had.
       const moved = creation.relocatePane(
         { id: workspace.id, instance: workspace.instance },
         paneId,
         { kind: "attached", cwd: workspace.cwd },
+        role,
       );
       if (moved.kind !== "created") {
         const why = createRefusalMessage(moved);

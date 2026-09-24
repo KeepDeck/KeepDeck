@@ -335,8 +335,6 @@ export let agentRun: AgentRunView &
     | "retryProvisioning"
     | "resumeSession"
     | "forkSession"
-    | "forkOccupiedSession"
-    | "forkStalledSession"
     | "suspend"
     | "restart"
     | "recoverRejectedResume"
@@ -466,8 +464,6 @@ export function Probe() {
     retryProvisioning: wiring.orchestrator.retryProvisioning,
     resumeSession: wiring.orchestrator.resumeSession,
     forkSession: wiring.orchestrator.forkSession,
-    forkOccupiedSession: wiring.orchestrator.forkOccupiedSession,
-    forkStalledSession: wiring.orchestrator.forkStalledSession,
     suspend: wiring.orchestrator.suspend,
     restart: wiring.orchestrator.restart,
     recoverRejectedResume: wiring.orchestrator.recoverRejectedResume,

@@ -64,6 +64,9 @@ export interface VoiceController {
   clearHistory(): void;
 }
 
+const SPAWN_NEEDS_ROLE =
+  'say what it is on its team — "create a lead in <workspace>" or "create a peer in <workspace>"';
+
 export function createVoiceController(
   ctx: PluginContext,
   now: () => number = Date.now,
@@ -167,7 +170,10 @@ export function createVoiceController(
         return execute("workspace.switch", { workspace: ws.id });
       }
       case "spawn": {
-        // No spoken workspace = the one on screen («запусти нового агента»).
+        // A role is never picked for the agent: a phrase that names none is
+        // refused, and says how to name one.
+        if (!intent.role) return push("error", SPAWN_NEEDS_ROLE);
+        // No spoken workspace = the one on screen («запусти нового лида»).
         const ws = intent.workspace ? resolveWs(intent.workspace) : activeWs();
         if (!ws)
           return push(
@@ -178,6 +184,9 @@ export function createVoiceController(
           );
         return execute("agent.spawn", {
           workspace: ws.id,
+          // The ROLE, not an address: which address it takes, and whether
+          // the team it lands on can take it at all, are the host's.
+          role: intent.role,
           ...(intent.task ? { task: intent.task } : {}),
         });
       }

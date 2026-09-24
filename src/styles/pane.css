@@ -470,6 +470,18 @@
   border-color: #3a4658;
 }
 
+.pane__card-action:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* The role a pane takes when its own cannot come along — sized to the
+   card, not the pane. */
+.pane__card-role {
+  margin-top: 8px;
+  width: min(240px, 90%);
+}
+
 /* Worktree-provisioning card (optimistic provisioning): the pane appears the
    moment it's requested and this card fills it — thin indeterminate bar under
    the header, pulsing dots over the status line — until its worktree lands. */

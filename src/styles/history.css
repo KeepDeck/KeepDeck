@@ -514,3 +514,44 @@
 .browser__turn--other {
   opacity: 0.7;
 }
+
+/* An empty team's sessions list: what it is and the role its first member
+ * takes, in ONE row above the browser — the list is what the space is for.
+ * A grid, so title, label and field share one centre line, and the
+ * address or the error sits under the field alone. */
+.team-sessions__head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 240px);
+  align-items: center;
+  column-gap: 10px;
+  row-gap: 4px;
+}
+
+.team-sessions__title {
+  margin: 0;
+}
+
+/* Scoped under the head on purpose: `.form__label`'s bottom margin is one
+   class too and form.css loads later, so a bare `.team-sessions__label`
+   lost — and the label centred against itself plus that margin, riding
+   above the field's line. */
+.team-sessions__head .team-sessions__label {
+  margin: 0;
+}
+
+/* The field outside a form: no form rhythm under it — that margin was
+   what pushed the label off the field's centre. */
+.team-sessions__role .form__input {
+  margin-bottom: 0;
+}
+
+.team-sessions__hint {
+  grid-column: 3;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #8b93a3;
+}
+
+.team-sessions__hint--error {
+  color: #e5736f;
+}

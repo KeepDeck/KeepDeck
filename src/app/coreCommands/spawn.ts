@@ -20,6 +20,16 @@ import { targetTeam, targetWorkspace, worktreeAhead } from "./targets";
  * because they share the recruit (the agent, its mode, the task, the
  * landing and its refusals) and only differ in WHERE the pane asks to land.
  */
+/** One description for the role both doors take: nobody picks it for the
+ * agent, so the caller has to know what a team will accept. */
+const ROLE_ARG = {
+  name: "role",
+  type: "string",
+  required: true,
+  description:
+    "The role it takes on its team — how teammates address it; nobody picks one for it. An address (impl-2) as it is, or a role (impl, peer) at its next free address. A team with nobody on it takes lead or a peer; a led team its working roles; a flat team more peers. Refused when taken, unknown, or a shape the team cannot have",
+} as const;
+
 export function registerSpawnCommands(
   registry: CommandRegistry,
   deps: Pick<CoreCommandDeps, "deck" | "agents" | "createPane" | "createTeam">,
@@ -158,11 +168,7 @@ export function registerSpawnCommands(
           description: "Agent id from the catalog (claude, codex, opencode)",
         },
         { name: "name", type: "string", description: "Pane name" },
-        {
-          name: "role",
-          type: "string",
-          description: "The role it takes on its team — how teammates address it. Asked for, it is honoured or refused (taken, or not a role this deck knows); omitted, the roster suggests one",
-        },
+        ROLE_ARG,
         {
           name: "yolo",
           type: "boolean",
@@ -184,16 +190,13 @@ export function registerSpawnCommands(
           const ref = str(args, "team");
           // The role rides to the landing as asked: whether it is one the
           // deck knows and free on the team is the landing's one rule.
-          const role = str(args, "role");
+          const role = requiredStr(args, "role");
           if (ref !== undefined) {
             const team = targetTeam(current.workspace, ref);
-            return { team: team.id, ...(role !== undefined && { role }) };
+            return { team: team.id, role };
           }
           const placement = await freshWorktree(current, index);
-          return {
-            ...(placement !== undefined && { placement }),
-            ...(role !== undefined && { role }),
-          };
+          return { ...(placement !== undefined && { placement }), role };
         }),
     }),
     registry.register({
@@ -329,11 +332,7 @@ export function registerSpawnCommands(
           description: "Agent id from the catalog (claude, codex, opencode)",
         },
         { name: "name", type: "string", description: "Pane name" },
-        {
-          name: "role",
-          type: "string",
-          description: "The role it takes — how teammates address it. Asked for, it is honoured or refused (taken, or not a role this deck knows); omitted, the roster suggests one",
-        },
+        ROLE_ARG,
         {
           name: "yolo",
           type: "boolean",
@@ -346,8 +345,7 @@ export function registerSpawnCommands(
       run: (args) =>
         recruit(args, async (current) => {
           const team = targetTeam(current.workspace, requiredStr(args, "team"));
-          const role = str(args, "role");
-          return { team: team.id, ...(role !== undefined && { role }) };
+          return { team: team.id, role: requiredStr(args, "role") };
         }),
     }),
   ];

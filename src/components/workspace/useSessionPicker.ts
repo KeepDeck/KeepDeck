@@ -22,7 +22,8 @@ import type {
   SessionPickRow,
   SessionStartMode,
 } from "../../domain/agents";
-import { normalizePath } from "../../domain/deck";
+import type { SessionHandle } from "../../domain/journal";
+import { resumeBlock } from "../../domain/deck";
 import { dirPresent, useDirPresence } from "../history/useDirPresence";
 import { useScrollPaging } from "../../ui/useScrollPaging";
 import { usePagedSessionSearch, type Page } from "../../app/usePagedSessionSearch";
@@ -33,6 +34,8 @@ export function useSessionPicker(deps: {
   startMode: SessionStartMode;
   /** The team a member would join, when the dialog is for one. */
   member: { cwd: string | null } | null;
+  /** A session the picker opens on, already picked. */
+  preset: SessionHandle | null;
   searchSessions(
     agent: AgentType,
     query: string,
@@ -50,13 +53,16 @@ export function useSessionPicker(deps: {
     agentType,
     startMode,
     member,
+    preset,
     searchSessions,
     sessionClaim,
     liveOutside,
     onPrefill,
   } = deps;
   const [sessionQuery, setSessionQuery] = useState("");
-  const [picked, setPicked] = useState<SessionPickRow | null>(null);
+  const [picked, setPicked] = useState<SessionPickRow | null>(
+    preset ? { handle: preset, mtime: 0 } : null,
+  );
 
   // The picker's options, paged through the SAME engine as the global browser
   // ([[usePagedSessionSearch]]) — the fetcher is scoped to the selected agent
@@ -116,7 +122,11 @@ export function useSessionPicker(deps: {
   // A pick belongs to ONE agent's store — switching agents voids it (and the
   // typed filter; the fresh listing shouldn't open pre-narrowed). An
   // auto-filled (untouched) name came from that pick's title, so drop it too.
+  // A SWITCH, not the first agent: a preset pick is the opening agent's.
+  const pickedFor = useRef(agentType);
   useEffect(() => {
+    if (pickedFor.current === agentType) return;
+    pickedFor.current = agentType;
     setPicked(null);
     setSessionQuery("");
     onPrefill("");
@@ -149,44 +159,17 @@ export function useSessionPicker(deps: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startMode, agentType]);
 
-  const resumeBlockOf = (row: SessionPickRow): ResumeBlock => {
-    if (row.handle.cwd === "") return "no-cwd";
-    if (sessionClaim(row.handle.sessionId) !== null) return "claimed";
-    if (
-      liveOutsideIds !== "unknown" &&
-      liveOutsideIds.has(row.handle.sessionId)
-    )
-      return "busy-outside";
-    if (!dirPresent(presence, row.handle.cwd)) return "dir-gone";
-    // A member runs where its team runs: a session recorded anywhere else
-    // resumes into another team. Forking it HERE is what the copy is for.
-    // "The same directory" is the deck's key, not the raw strings: the
-    // journal records "/repo/wt/" where the team holds "/repo/wt", and the
-    // landing would put that resume on this team.
-    if (
-      member &&
-      member.cwd !== null &&
-      normalizePath(row.handle.cwd) !== normalizePath(member.cwd)
-    )
-      return "elsewhere";
-    return null;
-  };
-  const blockReason = (block: ResumeBlock): string | null => {
-    switch (block) {
-      case "no-cwd":
-        return "no recorded directory — fork instead";
-      case "claimed":
-        return "already in a pane";
-      case "busy-outside":
-        return "running in the background — fork a copy to continue here";
-      case "dir-gone":
-        return "directory is gone — fork instead";
-      case "elsewhere":
-        return "recorded in another directory — fork a copy into this team";
-      case null:
-        return null;
-    }
-  };
+  // The rule is the domain's; this hook only gathers the facts it reads.
+  const resumeBlockOf = (row: SessionPickRow): ResumeBlock =>
+    resumeBlock(
+      {
+        cwd: row.handle.cwd,
+        claimed: sessionClaim(row.handle.sessionId) !== null,
+        busyOutside: liveOutsideIds !== "unknown" && liveOutsideIds.has(row.handle.sessionId),
+        dirPresent: dirPresent(presence, row.handle.cwd),
+      },
+      member,
+    );
 
   const pickSession = (row: SessionPickRow) => {
     // Ignore a click on a row from a DIFFERENT agent than the selected one —
@@ -207,7 +190,6 @@ export function useSessionPicker(deps: {
     listRef,
     onSessionsScroll,
     resumeBlockOf,
-    blockReason,
     pickSession,
   };
 }

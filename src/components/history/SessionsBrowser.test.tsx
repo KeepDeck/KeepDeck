@@ -68,6 +68,10 @@ const hit = (over: Partial<SearchHit> = {}): SearchHit => ({
   ...over,
 });
 
+/** No other-lane journal records — ONE array, as the real host passes a
+ * memoized one: a fresh literal per render would churn the list's memos. */
+const NO_RECORDS: SessionRecord[] = [];
+
 const closed = (over: Partial<SessionRecord> = {}): SessionRecord =>
   ({
     agent: "claude",
@@ -202,6 +206,8 @@ describe("SessionsBrowser", () => {
     act(async () =>
       root.render(
         createElement(SessionsBrowser, {
+          team: null,
+          otherRecords: NO_RECORDS,
           api: a,
           agents: [CAPABLE_AGENT],
           ready: true,
@@ -219,6 +225,8 @@ describe("SessionsBrowser", () => {
     await act(async () =>
       root.render(
         createElement(SessionsBrowser, {
+          team: null,
+          otherRecords: NO_RECORDS,
           api: a,
           agents: [CAPABLE_AGENT],
           ready: true,
@@ -256,6 +264,8 @@ describe("SessionsBrowser", () => {
       api: a,
       agents: [CAPABLE_AGENT],
       rows: [],
+      team: null,
+      otherRecords: NO_RECORDS,
       onResume: vi.fn(),
       onFork: vi.fn(),
     };
@@ -334,6 +344,8 @@ describe("SessionsBrowser", () => {
     await act(async () =>
       root.render(
         createElement(SessionsBrowser, {
+          team: null,
+          otherRecords: NO_RECORDS,
           api: a,
           agents: [CAPABLE_AGENT],
           ready: true,
@@ -409,6 +421,8 @@ describe("SessionsBrowser", () => {
     await act(async () =>
       root.render(
         createElement(SessionsBrowser, {
+          team: null,
+          otherRecords: NO_RECORDS,
           api: a,
           agents: [
             {
@@ -711,6 +725,8 @@ describe("SessionsBrowser journal section", () => {
     const result = act(async () =>
       root.render(
         createElement(SessionsBrowser, {
+          team: null,
+          otherRecords: NO_RECORDS,
           api: a,
           agents: [CAPABLE_AGENT],
           ready: true,
@@ -796,7 +812,7 @@ describe("SessionsBrowser journal section", () => {
     expect(workspaceRows(0)).toHaveLength(2);
   });
 
-  it("a live journal row offers no Resume; a gone dir blocks it — Fork stays", async () => {
+  it("a live journal row and a gone dir hold Resume back, each saying why — Fork stays", async () => {
     worktreeIpc.probeWorktree.mockImplementation((path: string) =>
       Promise.resolve({ exists: path !== "/gone", isWorktree: false, branch: null }),
     );
@@ -816,7 +832,9 @@ describe("SessionsBrowser journal section", () => {
     const resumeOf = (row: Element) =>
       row.querySelector<HTMLButtonElement>(".history__resume");
     expect(resumeOf(byText("auth bug"))?.disabled).toBe(false);
-    expect(resumeOf(byText("s-live"))).toBeNull(); // the live row has none
+    // Live in a pane: the same rule and words as the member dialog's picker.
+    expect(resumeOf(byText("s-live"))?.disabled).toBe(true);
+    expect(resumeOf(byText("s-live"))?.title).toBe("already in a pane");
     expect(byText("s-3").querySelector(".history__meta-mark")?.textContent).toBe("dir gone");
     expect(resumeOf(byText("s-3"))?.disabled).toBe(true);
     expect(byText("s-3").querySelector(".history__fork")).not.toBeNull();
@@ -824,6 +842,34 @@ describe("SessionsBrowser journal section", () => {
     expect(onResume).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({ sessionId: "s-1", state: "closed" }),
     );
+  });
+
+  it("in a team, draws every journal session — Resume only for one recorded in the team's directory, any other Fork only, saying why", async () => {
+    worktreeIpc.probeWorktree.mockResolvedValue({ exists: true, isWorktree: false, branch: null });
+    await act(async () =>
+      root.render(
+        createElement(SessionsBrowser, {
+          team: { cwd: "/repo/wt" },
+          api: api([]),
+          agents: [CAPABLE_AGENT],
+          ready: true,
+          rows: [closed({ title: "here", cwd: "/repo/wt/" })],
+          // The workspace's other journal record: the index knows nothing
+          // of it (api([])), and the list still draws it.
+          otherRecords: [closed({ sessionId: "s-2", title: "there", cwd: "/repo" })],
+          onResume: vi.fn(),
+          onFork: vi.fn(),
+        }),
+      ),
+    );
+    await act(async () => {});
+    const byText = (frag: string) =>
+      [...document.querySelectorAll(".history__row")].find((r) => r.textContent?.includes(frag))!;
+    const resumeOf = (row: Element) => row.querySelector<HTMLButtonElement>(".history__resume")!;
+    expect(resumeOf(byText("here")).disabled).toBe(false);
+    expect(resumeOf(byText("there")).disabled).toBe(true);
+    expect(resumeOf(byText("there")).title).toBe("recorded in another directory — fork a copy into this team");
+    expect(byText("there").querySelector(".history__fork")).not.toBeNull();
   });
 
   it("a journal row OPENS on its joined read link — the journal path first, the index's reference in its absence", async () => {
@@ -929,6 +975,8 @@ describe("SessionsBrowser journal join", () => {
     act(async () =>
       root.render(
         createElement(SessionsBrowser, {
+          team: null,
+          otherRecords: NO_RECORDS,
           api: a,
           agents,
           ready: true,
@@ -996,6 +1044,8 @@ describe("SessionsBrowser journal join", () => {
     await act(async () =>
       root.render(
         createElement(SessionsBrowser, {
+          team: null,
+          otherRecords: NO_RECORDS,
           api: api(
             [],
             { scanning: false },
@@ -1065,6 +1115,8 @@ describe("SessionsBrowser journal join", () => {
     await act(async () =>
       root.render(
         createElement(SessionsBrowser, {
+          team: null,
+          otherRecords: NO_RECORDS,
           api: a,
           agents: [CAPABLE_AGENT],
           ready: true,
@@ -1154,6 +1206,8 @@ describe("SessionsBrowser journal join", () => {
       root.render(
         createElement("div", null, [
           createElement(SessionsBrowser, {
+            team: null,
+            otherRecords: NO_RECORDS,
             key: "ws-1",
             api: shared,
             agents,
@@ -1163,6 +1217,8 @@ describe("SessionsBrowser journal join", () => {
             onFork: vi.fn(),
           }),
           createElement(SessionsBrowser, {
+            team: null,
+            otherRecords: NO_RECORDS,
             key: "ws-2",
             api: shared,
             agents,
@@ -1299,6 +1355,8 @@ describe("SessionsBrowser journal join", () => {
       root.render(
         createElement("div", null, [
           createElement(SessionsBrowser, {
+            team: null,
+            otherRecords: NO_RECORDS,
             key: "ws-1",
             api: shared,
             agents: [CAPABLE_AGENT],
@@ -1308,6 +1366,8 @@ describe("SessionsBrowser journal join", () => {
             onFork: vi.fn(),
           }),
           createElement(SessionsBrowser, {
+            team: null,
+            otherRecords: NO_RECORDS,
             key: "ws-2",
             api: shared,
             agents: [CAPABLE_AGENT],
@@ -1344,6 +1404,8 @@ describe("SessionsBrowser journal join", () => {
     await act(async () =>
       root.render(
         createElement(SessionsBrowser, {
+          team: null,
+          otherRecords: NO_RECORDS,
           api: a,
           agents: [CAPABLE_AGENT],
           ready: true,
@@ -1516,6 +1578,8 @@ describe("row render stability — the effect, not the memo", () => {
     act(async () =>
       root.render(
         createElement(SessionsBrowser, {
+          team: null,
+          otherRecords: NO_RECORDS,
           api: a,
           agents: AGENTS_STABLE,
           ready: true,
@@ -1632,6 +1696,8 @@ describe("virtualized list — the window, not the pile", () => {
     act(async () =>
       root.render(
         createElement(SessionsBrowser, {
+          team: null,
+          otherRecords: NO_RECORDS,
           api: a,
           agents: [CAPABLE_AGENT],
           ready: true,
@@ -2092,6 +2158,8 @@ describe("virtualized list — the window, not the pile", () => {
       await act(async () =>
         root.render(
           createElement(SessionsBrowser, {
+            team: null,
+            otherRecords: NO_RECORDS,
             api: a,
             agents: [CAPABLE_AGENT],
             ready: true,
@@ -2176,6 +2244,8 @@ describe("unified row guard — both blocks, one markup", () => {
         createElement("div", null, [
           createElement("div", { key: "from-journal" },
             createElement(SessionsBrowser, {
+              team: null,
+              otherRecords: NO_RECORDS,
               api: api([]),
               agents: [CAPABLE_AGENT],
               ready: true,
@@ -2186,6 +2256,8 @@ describe("unified row guard — both blocks, one markup", () => {
           ),
           createElement("div", { key: "from-index" },
             createElement(SessionsBrowser, {
+              team: null,
+              otherRecords: NO_RECORDS,
               api: api(hits),
               agents: [CAPABLE_AGENT],
               ready: true,
@@ -2205,6 +2277,8 @@ describe("unified row guard — both blocks, one markup", () => {
     act(async () =>
       root.render(
         createElement(SessionsBrowser, {
+          team: null,
+          otherRecords: NO_RECORDS,
           api: a,
           agents: [CAPABLE_AGENT],
           ready: true,
@@ -2289,6 +2363,8 @@ describe("unified row guard — both blocks, one markup", () => {
         createElement("div", null, [
           createElement("div", { key: "j" },
             createElement(SessionsBrowser, {
+              team: null,
+              otherRecords: NO_RECORDS,
               api: api([]),
               agents: [CAPABLE_AGENT],
               ready: true,
@@ -2299,6 +2375,8 @@ describe("unified row guard — both blocks, one markup", () => {
           ),
           createElement("div", { key: "i" },
             createElement(SessionsBrowser, {
+              team: null,
+              otherRecords: NO_RECORDS,
               api: api([asHit]),
               agents: [CAPABLE_AGENT],
               ready: true,
@@ -2367,6 +2445,8 @@ describe("unified row guard — both blocks, one markup", () => {
     await act(async () =>
       root.render(
         createElement(SessionsBrowser, {
+          team: null,
+          otherRecords: NO_RECORDS,
           api: api([]),
           agents: [incapable],
           ready: true,
@@ -2468,7 +2548,7 @@ describe("unified row guard — both blocks, one markup", () => {
     expect(row.querySelector(".history__missing")).toBeNull();
     const resume = row.querySelector<HTMLButtonElement>(".history__resume")!;
     expect(resume.disabled).toBe(true);
-    expect(resume.title).toBe("The session has no recorded directory");
+    expect(resume.title).toBe("no recorded directory — fork instead");
     // The chip appears only for a NONEMPTY path that is gone.
     await act(async () => root.unmount());
     document.body.innerHTML = "<div id='host2'></div>";

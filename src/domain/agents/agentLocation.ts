@@ -126,47 +126,17 @@ export type ForkTarget =
   | { kind: "dir"; cwd: string }
   | { kind: "worktree"; path: string; branch: string; base?: string };
 
-/**
- * Where a fork of a session lands, given the location its surface resolved.
- *
- * The mapping is the product's, not either dialog's: the agent dialog and
- * the fork dialog both offer the same three choices and both had spelled the
- * translation out, which is how one of them came to carry the picked base
- * branch into a new worktree and the other to fork silently from HEAD.
- *
- * `main` means the workspace's own folder — the fork runs beside the agents
- * already there rather than in a worktree of its own.
- */
-export function forkTargetFor(
-  location: AgentLocation,
-  workspaceCwd: string,
-): ForkTarget {
-  if (location.kind === "new") {
-    return {
-      kind: "worktree",
-      path: location.path,
-      branch: location.branch,
-      // The base the user picked, when they picked one. Losing it here forks
-      // from whatever HEAD happens to be, which is not what they chose.
-      ...(location.baseBranch && { base: location.baseBranch }),
-    };
-  }
-  if (location.kind === "existing") return { kind: "dir", cwd: location.path };
-  return { kind: "dir", cwd: workspaceCwd };
-}
-
-/** The fork dialog's confirm payload — the chosen landing target plus the
- * resolved YOLO choice. Named so that dialog's output contract has one home,
- * mirroring [`AgentDialogResult`]. */
-export interface ForkTargetDialogResult {
-  target: ForkTarget;
-  yolo: boolean;
-}
-
 /** The dialog's "Start from" choice: a fresh conversation, or an existing
  * session of the SELECTED agent continued in place (resume) or copied into
  * a new one (fork) ([F8] spawn-time continuation). */
 export type SessionStartMode = "new" | "resume" | "fork";
+
+/** A session the member dialog opens with, already picked — a busy or
+ * stalled card forking its own, the role still to choose. */
+export interface SessionPreset {
+  mode: "fork";
+  handle: SessionHandle;
+}
 
 /** Why a listed session can't be RESUMED (forking stays possible — it is
  * exactly the escape hatch for these): its directory is gone, it never
@@ -229,9 +199,9 @@ export interface AgentDialogResult {
    * a team that exists, and for a continuation. */
   teamName?: string;
   /** The role — the address teammates use — the agent takes on its team,
-   * minted free against the team's roster by the dialog. Absent for a
-   * continuation, which lands where its session was recorded and takes the
-   * address that team suggests. */
+   * picked in the dialog and minted free against the team's roster, for a
+   * continuation as for a fresh start. Absent only for "+ Team", which
+   * lands no agent. */
   role?: string;
 }
 

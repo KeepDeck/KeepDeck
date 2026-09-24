@@ -9,3 +9,4 @@ export * from "./transforms";
 export * from "./lifecycle";
 export * from "./membership";
 export * from "./placement";
+export * from "./sessionResume";

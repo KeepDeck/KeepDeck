@@ -3,8 +3,9 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentDialog } from "./AgentDialog";
-import { roleChoiceView } from "../../presentation/roleChoiceView";
-import type { AgentDialogResult, AgentDialogTarget, PathProbe } from "../../domain/agents";
+import { ROLE_WORDS, roleChoiceView } from "../../presentation/roleChoiceView";
+import { forkPickLine } from "../../presentation/sessionResumeView";
+import type { AgentDialogResult, AgentDialogTarget, PathProbe, SessionPreset } from "../../domain/agents";
 import { roleById } from "../../domain/mail";
 
 // React 19 requires this flag for act() outside a test-framework integration.
@@ -79,11 +80,13 @@ describe("AgentDialog targets", () => {
     target: AgentDialogTarget,
     repo: { cwd: string; branch: string | null } | null,
     heldRoles: readonly string[] = [],
+    preset?: SessionPreset,
   ) =>
     act(async () =>
       root.render(
         createElement(AgentDialog, {
           target,
+          ...(preset && { preset }),
           roles: roleChoiceView(heldRoles),
           defaultAgentType: "claude" as const,
           remoteEnabled: false,
@@ -157,17 +160,25 @@ describe("AgentDialog targets", () => {
     expect(confirmed[0].teamName).toBe("Team 3");
   });
 
+  const roleOptions = () => {
+    act(() => rolePicker()!.click());
+    const labels = [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')].map((b) => b.textContent);
+    act(() => rolePicker()!.click());
+    return labels;
+  };
+
   it("a member joins the team named in the title, picks a role, and chooses no location", async () => {
     await mount(member(), null, ["lead"]);
     expect(text()).toContain("New member of “api”");
     expect(byLabel("Team name")).toBeNull();
     expect(byLabel("Worktree path")).toBeNull();
-    // The team has its lead: the picker opens on the next implementer, and
-    // the address is minted free of what the roster holds.
-    expect(rolePicker()!.textContent).toContain(roleById("impl")!.label);
-    expect(roleAddress()).toBe("impl-1");
-    // Said as what it is — a bare "impl-1" beside "Implementer" read as a
-    // duplicate of the pick.
+    // Nothing is picked for the person: no address, and nothing to add yet.
+    expect(rolePicker()!.textContent).toContain(ROLE_WORDS.prompt);
+    expect(roleAddress()).toBeNull();
+    expect(createBtn().disabled).toBe(true);
+    pickRole(roleById("impl")!.label);
+    // The address is minted free of what the roster holds, said as what it
+    // is — a bare "impl-1" beside "Implementer" read as a duplicate.
     expect(text()).toContain("Teammates write to impl-1");
     // A continuation is on offer — the team's directory is there.
     expect(text()).toContain("Start from");
@@ -177,12 +188,11 @@ describe("AgentDialog targets", () => {
     expect("teamName" in confirmed[0]).toBe(false);
   });
 
-  it("refuses a singleton the team already holds, in words, and mints past a held address", async () => {
+  it("offers a led team its working roles — never a second lead, never a peer — past the held addresses", async () => {
     await mount(member(), null, ["lead", "impl-1"]);
-    expect(roleAddress()).toBe("impl-2");
-    pickRole(roleById("lead")!.label);
-    expect(text()).toContain("already on this team");
-    expect(createBtn().disabled).toBe(true);
+    const offered = roleOptions();
+    expect(offered).not.toContain(roleById("lead")!.label);
+    expect(offered).not.toContain(roleById("peer")!.label);
     pickRole(roleById("impl")!.label);
     expect(roleAddress()).toBe("impl-2");
     expect(createBtn().disabled).toBe(false);
@@ -194,14 +204,26 @@ describe("AgentDialog targets", () => {
       (button) => button.textContent === "Resume",
     )!;
     act(() => resume.click());
-    expect(rolePicker()).not.toBeNull();
+    pickRole(roleById("impl")!.label);
     expect(roleAddress()).toBe("impl-1");
   });
 
-  it("opens on the lead for a team with nobody on it", async () => {
+  it("offers a team with nobody on it a lead or a peer, and picks neither", async () => {
     await mount(member(), null, []);
-    expect(rolePicker()!.textContent).toContain(roleById("lead")!.label);
-    expect(roleAddress()).toBe("lead");
+    expect(roleOptions()).toEqual([ROLE_WORDS.prompt, roleById("lead")!.label, roleById("peer")!.label]);
+    expect(roleAddress()).toBeNull();
+    pickRole(roleById("peer")!.label);
+    expect(roleAddress()).toBe("peer-1");
+  });
+
+  it("opens on a card's own session, picked to fork — and still asks for the role", async () => {
+    const handle = { agent: "claude" as const, sessionId: "s-9", cwd: "/repo/wt", title: "auth bug" };
+    await mount(member(), null, ["lead"], { mode: "fork", handle });
+    expect(text()).toContain(forkPickLine(handle));
+    expect(createBtn().disabled).toBe(true);
+    pickRole(roleById("impl")!.label);
+    submit();
+    expect(confirmed[0]).toMatchObject({ role: "impl-1", session: { mode: "fork", handle } });
   });
 
   it("offers no continuation while the team's directory is still being created", async () => {

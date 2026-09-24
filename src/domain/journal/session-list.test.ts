@@ -41,6 +41,7 @@ const hit = (over: {
 const compose = (over: Partial<Parameters<typeof composeSessionList>[0]> = {}) =>
   composeSessionList({
     records: [],
+    otherRecords: [],
     query: "",
     entries: NO_ENTRIES,
     agentLabel: LABEL,
@@ -378,5 +379,23 @@ describe("composeSessionList — the counters the composition itself returns", (
     expect(gap1).toBe(2);
     expect(gap2).toBe(1);
     expect(gap2).toBeLessThanOrEqual(gap1);
+  });
+});
+
+describe("composeSessionList — the workspace's records from elsewhere", () => {
+  it("draws an other-lane record the index does not know, and counts it", () => {
+    const composed = compose({ otherRecords: [record({ sessionId: "away", cwd: "/elsewhere" })] });
+    expect(composed.otherLane.rows.map(rowKeyOf)).toEqual([rowKeyOf(record({ sessionId: "away" }))]);
+    expect(composed.listCount).toEqual({ shown: 1, total: 1 });
+  });
+
+  it("leads the other lane with them, keeps the hits in the engine's order, and draws a twin once", () => {
+    const composed = compose({
+      otherRecords: [record({ sessionId: "away", cwd: "/elsewhere" })],
+      otherHits: [hit({ sessionId: "b", mtime: 1 }), hit({ sessionId: "away", mtime: 9 }), hit({ sessionId: "a", mtime: 5 })],
+      otherTotal: 3,
+    });
+    expect(composed.otherLane.rows.map((row) => row.sessionId)).toEqual(["away", "b", "a"]);
+    expect(composed.otherLane.total).toBe(3);
   });
 });

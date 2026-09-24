@@ -20,24 +20,32 @@ import { useSessionListWindow } from "./browser/useSessionListWindow";
 interface SessionsBrowserProps {
   api: SessionsBrowserApi;
   agents: AgentInfo[];
-  /** The workspace's journal, newest binding first (`journalRows`). */
+  /** The journal records this list is scoped to, newest binding first —
+   * its own lane's. */
   rows: SessionRecord[];
+  /** The rest of the workspace's journal — the other lane's, drawn with
+   * the index's other hits. */
+  otherRecords: SessionRecord[];
   /** The agent plugins finished activating — before that a scan would see
    * an empty registry and "successfully" index zero stores. */
   ready: boolean;
+  /** The team a resume would join — null when no team is asking. */
+  team: { cwd: string | null } | null;
   onResume(record: SessionHandle): void;
   onFork(record: SessionHandle): void;
 }
 
-/** The component DeckStage mounts: one browser per empty workspace, its
- * engines scoped to that workspace's directories, over the ONE shared
- * seam (keyed enrichment, freshness, transcript dispatch). */
+/** The component an empty team mounts: its engines scoped to the team's
+ * directory, over the ONE shared seam (keyed enrichment, freshness,
+ * transcript dispatch). */
 export function WorkspaceSessionsBrowser({
   shared,
   dirs,
   agents,
   rows,
+  otherRecords,
   ready,
+  team,
   onResume,
   onFork,
 }: Omit<SessionsBrowserProps, "api"> & {
@@ -50,7 +58,9 @@ export function WorkspaceSessionsBrowser({
       api={api}
       agents={agents}
       rows={rows}
+      otherRecords={otherRecords}
       ready={ready}
+      team={team}
       onResume={onResume}
       onFork={onFork}
     />
@@ -62,19 +72,22 @@ export function WorkspaceSessionsBrowser({
 export const hitRecord = handleFromHit;
 
 /**
- * The empty-workspace sessions surface ([F8]): ONE list with the search bar
- * on top. The workspace's own journal pins first — the sessions that ran
- * here — followed by every other session from every agent store. The two
- * search engines provide that order, while the queue renders one row
- * component for every source. Search hits only the Rust index;
- * opening a row reads the transcript live through the owning plugin. Resume
- * runs in the session's ORIGINAL directory; Fork picks a new home.
+ * An empty team's sessions surface ([F8]): ONE list with the search bar on
+ * top. The workspace's own journal pins first, then the sessions recorded
+ * in the scoped directories, followed by every other session from every
+ * agent store. The two search engines provide that order, while the queue
+ * renders one row component for every source. Search hits only the Rust
+ * index; opening a row reads the transcript live through the owning
+ * plugin. Resume runs in the session's ORIGINAL directory, so only a
+ * session recorded in the team's resumes; Fork copies any into it.
  */
 export function SessionsBrowser({
   api,
   agents,
   rows,
+  otherRecords,
   ready,
+  team,
   onResume,
   onFork,
 }: SessionsBrowserProps) {
@@ -92,13 +105,14 @@ export function SessionsBrowser({
   // ARRAY construction itself ran on every render (the minute tick
   // included) — an unrelated state change must not even walk the
   // inputs.
+  const allRows = useMemo(() => [...rows, ...otherRecords], [rows, otherRecords]);
   const presenceCwds = useMemo(
     () => [
-      ...rows.map((row) => row.cwd),
+      ...allRows.map((row) => row.cwd),
       ...api.workspace.hits.map((hit) => hit.cwd),
       ...api.other.hits.map((hit) => hit.cwd),
     ],
-    [rows, api.workspace.hits, api.other.hits],
+    [allRows, api.workspace.hits, api.other.hits],
   );
   const presence = useDirPresence(presenceCwds);
   const now = useBrowserClock();
@@ -116,8 +130,8 @@ export function SessionsBrowser({
   // seam, not here. Idempotent: every mounted list declares its own rows.
   const declare = api.enrichment.declare;
   useEffect(() => {
-    declare(rows.map((row) => ({ agent: row.agent, sessionId: row.sessionId })));
-  }, [declare, rows]);
+    declare(allRows.map((row) => ({ agent: row.agent, sessionId: row.sessionId })));
+  }, [declare, allRows]);
 
   // Lazy paging, driven by the VIRTUAL RANGE (never by a DOM node: the
   // last row of a lane unmounts by definition once scrolled past). Two
@@ -126,7 +140,7 @@ export function SessionsBrowser({
   // they read the stabilized queue.
   const listRef = useRef<HTMLUListElement | null>(null);
   const { workspaceRows, otherRows, listCount, emptyList } =
-    useSessionListComposition({ api, agents, rows });
+    useSessionListComposition({ api, agents, rows, otherRecords });
 
   const queue = useMemo(
     () => [...workspaceRows, ...otherRows],
@@ -225,6 +239,7 @@ export function SessionsBrowser({
               agents={agents}
               dirMissing={row.cwd !== "" && !dirPresent(presence, row.cwd)}
               readFailed={row.readLinks.some((link) => readFailed.has(link))}
+              team={team}
               now={now}
               onOpen={openRow}
               onResume={onResumeRow}
@@ -292,6 +307,7 @@ export function SessionsBrowser({
           presence={presence}
           readFailed={setReadFailed}
           viewSeq={viewSeq}
+          team={team}
           onClose={closeViewer}
           onResume={onResumeRow}
           onFork={onForkRow}

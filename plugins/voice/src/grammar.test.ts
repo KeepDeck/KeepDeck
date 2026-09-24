@@ -12,27 +12,34 @@ describe("normalize", () => {
 });
 
 describe("parseCommand — english", () => {
-  it("spawn with and without a task", () => {
+  it("spawn with and without a task, naming the role the agent takes", () => {
+    expect(parseCommand("Create a lead in KeepDeck.")).toEqual({
+      locale: "en",
+      intent: { kind: "spawn", role: "lead", workspace: "keepdeck" },
+    });
+    expect(
+      parseCommand("spawn peer agent in website with task fix the header"),
+    ).toEqual({
+      locale: "en",
+      intent: { kind: "spawn", role: "peer", workspace: "website", task: "fix the header" },
+    });
+    expect(
+      parseCommand("start a new lead in KeepDeck and tell it to run the tests"),
+    ).toEqual({
+      locale: "en",
+      intent: { kind: "spawn", role: "lead", workspace: "keepdeck", task: "run the tests" },
+    });
+    // No workspace spoken = the active one decides later.
+    expect(parseCommand("create a new peer")).toEqual({
+      locale: "en",
+      intent: { kind: "spawn", role: "peer" },
+    });
+  });
+
+  it("hears a spawn that names no role — for the controller to refuse", () => {
     expect(parseCommand("Create an agent in KeepDeck.")).toEqual({
       locale: "en",
       intent: { kind: "spawn", workspace: "keepdeck" },
-    });
-    expect(
-      parseCommand("spawn agent in website with task fix the header"),
-    ).toEqual({
-      locale: "en",
-      intent: { kind: "spawn", workspace: "website", task: "fix the header" },
-    });
-    expect(
-      parseCommand("start a new agent in KeepDeck and tell it to run the tests"),
-    ).toEqual({
-      locale: "en",
-      intent: { kind: "spawn", workspace: "keepdeck", task: "run the tests" },
-    });
-    // No workspace spoken = the active one decides later.
-    expect(parseCommand("create a new agent")).toEqual({
-      locale: "en",
-      intent: { kind: "spawn" },
     });
     expect(parseCommand("spawn agent with task fix the header")).toEqual({
       locale: "en",
@@ -74,22 +81,23 @@ describe("parseCommand — english", () => {
 
 describe("parseCommand — russian", () => {
   it("spawn with and without a task", () => {
-    expect(parseCommand("Создай агента в KeepDeck")).toEqual({
+    expect(parseCommand("Создай лида в KeepDeck")).toEqual({
       locale: "ru",
-      intent: { kind: "spawn", workspace: "keepdeck" },
+      intent: { kind: "spawn", role: "lead", workspace: "keepdeck" },
     });
     expect(
-      parseCommand("создай агента в вебсайте с задачей поправить хедер"),
+      parseCommand("создай агента-пира в вебсайте с задачей поправить хедер"),
     ).toEqual({
       locale: "ru",
-      intent: { kind: "spawn", workspace: "вебсайте", task: "поправить хедер" },
+      intent: { kind: "spawn", role: "peer", workspace: "вебсайте", task: "поправить хедер" },
     });
     expect(
-      parseCommand("запусти агента в keepdeck и скажи ему прогнать тесты"),
+      parseCommand("запусти лида в keepdeck и скажи ему прогнать тесты"),
     ).toEqual({
       locale: "ru",
-      intent: { kind: "spawn", workspace: "keepdeck", task: "прогнать тесты" },
+      intent: { kind: "spawn", role: "lead", workspace: "keepdeck", task: "прогнать тесты" },
     });
+    // No role named: heard, and refused by the controller.
     expect(parseCommand("Запусти нового агента.")).toEqual({
       locale: "ru",
       intent: { kind: "spawn" },

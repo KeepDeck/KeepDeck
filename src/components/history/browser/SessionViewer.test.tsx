@@ -88,6 +88,7 @@ const renderViewer = async ({
   await act(async () => {
     root.render(
       createElement(SessionViewer, {
+        team: null,
         target: viewTarget,
         api: { transcript },
         agents: [AGENT],

@@ -8,6 +8,7 @@ import {
   idleReadsAsStopped,
   paneSuspendBlock,
   paneResumeSessionId,
+  paneSessionHandle,
   paneWakeOrigin,
   paneWakesAutomatically,
   sessionClaimant,
@@ -221,6 +222,40 @@ describe("idleReadsAsStopped", () => {
     expect(idleReadsAsStopped({ reason: "waking", origin: "restore" }, true)).toBe(true);
     // But a LIVE pane is not stopped by a stale entry.
     expect(idleReadsAsStopped(undefined, true)).toBe(false);
+  });
+});
+
+describe("paneSessionHandle", () => {
+  const ws = {
+    id: "ws-1",
+    instance: "i",
+    name: "ws",
+    cwd: "/repo",
+    worktreeBaseDir: null,
+    teams: [
+      { id: "team-1", name: "api", location: { kind: "attached" as const, cwd: "/wt/a", branch: "kd/a" } },
+      { id: "team-2", name: "making", location: { kind: "provisioning" as const, intent: { repo: "/repo", path: "/wt/b", index: 2 } } },
+    ],
+    panes: [],
+  } as unknown as Parameters<typeof paneSessionHandle>[0];
+
+  it("is the pane's bound session where its team runs, as a continuation takes it", () => {
+    expect(
+      paneSessionHandle(ws, {
+        id: "p",
+        agentType: "codex",
+        yolo: true,
+        session: { id: "s-1", boundAt: "t" },
+        team: { teamId: "team-1", role: "lead" },
+      }),
+    ).toEqual({ agent: "codex", sessionId: "s-1", cwd: "/wt/a", branch: "kd/a", yolo: true });
+  });
+
+  it("is null with nothing bound, or no directory yet to have run it in", () => {
+    expect(paneSessionHandle(ws, { id: "p", team: { teamId: "team-1", role: "lead" } })).toBeNull();
+    expect(
+      paneSessionHandle(ws, { id: "p", team: { teamId: "team-2", role: "lead" }, session: { id: "s-1", boundAt: "t" } }),
+    ).toBeNull();
   });
 });
 

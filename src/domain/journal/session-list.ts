@@ -46,6 +46,11 @@ export interface ComposedLane {
 export interface ComposeSessionListInput {
   /** The workspace's journal records (newest binding first). */
   records: SessionRecord[];
+  /** Journal records that belong in the OTHER lane — recorded here, but
+   * not where this list is scoped (an empty team's list: the workspace's
+   * sessions from other directories). Drawn, never dropped: a record the
+   * index does not know is found nowhere else. */
+  otherRecords: SessionRecord[];
   /** The active query text, verbatim from the box. */
   query: string;
   /** The shared enrichment table's answers, keyed by [`rowKeyOf`]. */
@@ -96,6 +101,7 @@ export function composeSessionList(
 } {
   const {
     records,
+    otherRecords,
     query,
     entries,
     agentLabel,
@@ -107,10 +113,7 @@ export function composeSessionList(
   } = input;
 
   // ── The workspace lane's journal half ─────────────────────────────
-  const journalFiltered = records.filter((record) =>
-    journalRecordMatches(record, query),
-  );
-  const journalPart = journalFiltered.map((record) =>
+  const joined = (record: SessionRecord) =>
     rowOfJoined(
       joinJournalRow(
         record,
@@ -118,15 +121,22 @@ export function composeSessionList(
         agentLabel(record.agent),
         answerMayChange,
       ),
-    ),
+    );
+  const journalFiltered = records.filter((record) =>
+    journalRecordMatches(record, query),
   );
+  const journalPart = journalFiltered.map(joined);
+  const otherJournalFiltered = otherRecords.filter((record) =>
+    journalRecordMatches(record, query),
+  );
+  const otherJournalPart = otherJournalFiltered.map(joined);
 
   // The VISIBLE journal keys — the dedup base for BOTH index halves: an
   // index row the journal already shows is the workspace lane's by
   // binding FACT, wherever its (possibly EMPTY) cwd falls. Visible, not
   // full: a journal row the query hid (its match is content-only) must
   // still be findable through its index hit, not vanish from the list.
-  const journalKeys = new Set(journalFiltered.map(rowKeyOf));
+  const journalKeys = new Set([...journalFiltered, ...otherJournalFiltered].map(rowKeyOf));
 
   const workspaceKept = workspaceHits.filter(
     (hit) => !journalKeys.has(rowKeyOf(hit)),
@@ -148,6 +158,10 @@ export function composeSessionList(
   const workspaceRows = [...journalPart, ...workspaceKept].sort(
     (a, b) => (b.when ?? -Infinity) - (a.when ?? -Infinity),
   );
+  // The other lane keeps its hits in the engine's order (a query ranks
+  // them); the workspace's own records from elsewhere lead it — recorded
+  // here, and known to the index or not.
+  const otherRows = [...otherJournalPart, ...otherKept];
 
   // ── The counters, over exactly the drawn population ───────────────
   // Twins among the LOADED hits are rows the engines counted but this
@@ -166,7 +180,7 @@ export function composeSessionList(
     Math.max(workspaceTotal, workspaceHits.length) -
     workspaceTwins;
   const otherTotalShown =
-    Math.max(otherTotal, otherHits.length) - otherTwins;
+    otherJournalFiltered.length + Math.max(otherTotal, otherHits.length) - otherTwins;
 
   return {
     workspaceLane: {
@@ -175,8 +189,8 @@ export function composeSessionList(
       total: workspaceTotalShown,
     },
     otherLane: {
-      rows: otherKept,
-      shown: otherKept.length,
+      rows: otherRows,
+      shown: otherRows.length,
       total: otherTotalShown,
     },
     // The search field's count — the count of THIS LIST, the summary of
@@ -191,7 +205,7 @@ export function composeSessionList(
     // deductions and the max-floor above are already in them; the
     // engines' raw totals never enter this addition.
     listCount: {
-      shown: workspaceRows.length + otherKept.length,
+      shown: workspaceRows.length + otherRows.length,
       total: workspaceTotalShown + otherTotalShown,
     },
   };

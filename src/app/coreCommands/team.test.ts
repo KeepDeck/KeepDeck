@@ -224,8 +224,8 @@ describe("team.create", () => {
 describe("team.add", () => {
   it("puts a new agent on the team — by id or by name — under the role asked for", async () => {
     const { registry, deck } = setup([teamed()]);
-    // "reviewer-1", not the "impl-1" the roster would suggest beside a lone
-    // lead: the role ASKED for has to be the one that lands.
+    // "reviewer-1", not the first working role beside a lone lead: the role
+    // ASKED for has to be the one that lands.
     const byId = await registry.execute(
       "team.add",
       { workspace: "web", team: "team-1", agentType: "codex", role: "reviewer-1" },
@@ -235,20 +235,19 @@ describe("team.add", () => {
     expect(value(byId)).toMatchObject({ teamId: "team-1" });
     const byName = await registry.execute(
       "team.add",
-      { workspace: "web", team: " Api " },
+      { workspace: "web", team: " Api ", role: "impl-1" },
       HOST,
     );
     expect(byName.ok).toBe(true);
     const members = deck.workspaces[0].panes.map((pane) => pane.team);
     expect(members[1]).toEqual({ teamId: "team-1", role: "reviewer-1" });
-    // No role asked: the roster suggests the next free one.
     expect(members[2]).toEqual({ teamId: "team-1", role: "impl-1" });
     expect(deck.workspaces[0].teams).toHaveLength(1);
   });
 
   it("refuses a team that is not here, a taken role, and an unknown one", async () => {
     const { registry } = setup([teamed()]);
-    const missing = await registry.execute("team.add", { workspace: "web", team: "nope" }, HOST);
+    const missing = await registry.execute("team.add", { workspace: "web", team: "nope", role: "impl-1" }, HOST);
     expect(missing.ok).toBe(false);
     expect(message(missing)).toContain('no team "nope"');
     const taken = await registry.execute(
@@ -258,6 +257,9 @@ describe("team.add", () => {
     );
     expect(taken.ok).toBe(false);
     expect(message(taken)).toContain("taken");
+    // And what the team would take instead — its open roles, not the catalog.
+    expect(message(taken)).toContain("open to impl-1");
+    expect(message(taken)).not.toContain("peer");
     const unknown = await registry.execute(
       "team.add",
       { workspace: "web", team: "team-1", role: "wizard" },
@@ -273,10 +275,20 @@ describe("team.add", () => {
       team: { teamId: "team-1", role: i === 0 ? "lead" : `impl-${i}` },
     }));
     const { registry, deck } = setup([teamed({ panes: crowd })]);
-    const result = await registry.execute("team.add", { workspace: "web", team: "team-1" }, HOST);
+    const result = await registry.execute("team.add", { workspace: "web", team: "team-1", role: "reviewer-1" }, HOST);
     expect(result.ok).toBe(false);
     expect(message(result)).toContain("full");
     expect(deck.workspaces[0].panes).toHaveLength(16);
+  });
+  it("refuses an agent nobody named a role for — through either door, and adds nobody", async () => {
+    const { registry, deck } = setup([teamed()]);
+    const added = await registry.execute("team.add", { workspace: "web", team: "team-1" }, HOST);
+    expect(added.ok).toBe(false);
+    expect(message(added)).toContain('"role"');
+    const spawned = await registry.execute("agent.spawn", { workspace: "web" }, HOST);
+    expect(spawned.ok).toBe(false);
+    expect(message(spawned)).toContain('"role"');
+    expect(deck.workspaces[0].panes).toHaveLength(1);
   });
 });
 
@@ -294,7 +306,7 @@ describe("agent.spawn as the compatibility door", () => {
     expect(value(joined)).toMatchObject({ teamId: "team-1" });
     expect(deck.workspaces[0].panes[1].team).toEqual({ teamId: "team-1", role: "reviewer-1" });
 
-    const alone = await registry.execute("agent.spawn", { workspace: "web" }, HOST);
+    const alone = await registry.execute("agent.spawn", { workspace: "web", role: "lead" }, HOST);
     expect(alone.ok).toBe(true);
     expect(value(alone)).toMatchObject({ teamId: "team-2" });
     expect(deck.workspaces[0].teams?.[1].location).toEqual({ kind: "attached", cwd: "/repo" });

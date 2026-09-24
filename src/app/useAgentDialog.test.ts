@@ -473,6 +473,7 @@ describe("useAgentDialog start-from routing", () => {
       }),
     );
     expect(resumeSession).toHaveBeenCalledExactlyOnceWith("ws-1", handle, {
+      team: "team-1",
       name: "api",
       yolo: false,
     });
@@ -496,6 +497,7 @@ describe("useAgentDialog start-from routing", () => {
     // The dialog already gates yolo on supportsYolo; confirm forwards the
     // resolved boolean verbatim — no re-gating in the handoff.
     expect(resumeSession).toHaveBeenLastCalledWith("ws-1", handle, {
+      team: "team-1",
       name: undefined,
       yolo: true,
     });
@@ -570,7 +572,7 @@ describe("useAgentDialog start-from routing", () => {
         "ws-1",
         handle,
         { kind: "dir", cwd: "/repo" },
-        { name: undefined, yolo: false },
+        { name: undefined, yolo: false, team: "team-1" },
       );
     }
     expect(createPane).not.toHaveBeenCalled();
@@ -594,7 +596,7 @@ describe("useAgentDialog start-from routing", () => {
       "ws-1",
       handle,
       { kind: "dir", cwd: "/repo" },
-      { name: undefined, yolo: true },
+      { name: undefined, yolo: true, team: "team-1" },
     );
   });
 
@@ -692,6 +694,33 @@ describe("useAgentDialog targets", () => {
   });
   const handle = { agent: "claude", sessionId: "s-1", cwd: "/base/kd-KeepDeck-1", title: "t" };
 
+  it("opens a busy card's Fork as the member dialog, its bound session picked on its agent — the role left to choose", async () => {
+    const ws = workspace({
+      teams: [{ id: "team-1", name: "api", location: { kind: "attached", cwd: "/base/kd-KeepDeck-1" } }],
+      panes: [
+        {
+          id: "p1",
+          agentType: "codex",
+          session: { id: "s-9", boundAt: "t" },
+          team: { teamId: "team-1", role: "lead" },
+        },
+        // On no team: nothing to open the member dialog for.
+        { id: "p2", agentType: "claude", session: { id: "s-8", boundAt: "t" } },
+      ],
+    });
+    const deck = { workspaces: [ws], openTeam: vi.fn() } as unknown as Deck;
+    await act(async () => mountHost(root, Host, deck));
+    await act(async () => flow.forkPaneSession("ws-1", "p2"));
+    expect(flow.dialog).toBeNull();
+    await act(async () => flow.forkPaneSession("ws-1", "p1"));
+    expect(flow.dialog).toMatchObject({
+      target: { kind: "member", teamId: "team-1" },
+      defaultAgentType: "codex",
+      preset: { mode: "fork", handle: { agent: "codex", sessionId: "s-9", cwd: "/base/kd-KeepDeck-1" } },
+    });
+    expect(flow.dialog!.roles.addressFor("lead")).toBeNull();
+  });
+
   it("opens for a member with no location to ask about, and lands it on the team by id under the role picked", async () => {
     const ws = teamed();
     const deck = { workspaces: [ws], openTeam: vi.fn() } as unknown as Deck;
@@ -706,7 +735,7 @@ describe("useAgentDialog targets", () => {
       suggestedPath: "",
     });
     // The picker's data is built against the roster the team holds.
-    expect(flow.dialog!.roles.defaultId).toBe("impl");
+    expect(flow.dialog!.roles.addressFor("lead")).toBeNull();
     expect(flow.dialog!.roles.addressFor("impl")).toBe("impl-1");
 
     await act(async () => flow.confirm({ ...fresh(), role: "impl-1" }));
@@ -756,7 +785,7 @@ describe("useAgentDialog targets", () => {
       "ws-1",
       handle,
       { kind: "dir", cwd: "/base/kd-KeepDeck-1" },
-      { name: "copy", yolo: false, role: "impl-2" },
+      { name: "copy", yolo: false, team: "team-1", role: "impl-2" },
     );
     expect(createPane).not.toHaveBeenCalled();
 
@@ -765,6 +794,7 @@ describe("useAgentDialog targets", () => {
       flow.confirm({ ...fresh(), role: "lead", session: { mode: "resume", handle } }),
     );
     expect(resumeSession).toHaveBeenCalledWith("ws-1", handle, {
+      team: "team-1",
       name: undefined,
       yolo: false,
       role: "lead",
@@ -779,7 +809,6 @@ describe("useAgentDialog targets", () => {
     expect(flow.dialog).toMatchObject({
       target: { kind: "new-team", suggestedName: "Team 2" },
     });
-    expect(flow.dialog!.roles.defaultId).toBe("lead");
 
     await act(async () =>
       flow.confirm({

@@ -57,8 +57,6 @@ interface RestartDeps {
   publish(): void;
   /** The occupied note a live refusal leaves on the pane's card. */
   markOccupied(paneId: string, note: OccupiedNote): void;
-  /** The occupied note, when one is standing. */
-  occupiedNote(paneId: string): OccupiedNote | null;
   /** Forget a pane's notes (blocked / wake-failed / occupied). */
   clearNotes(paneId: string): boolean;
   startOwed: Set<string>;
@@ -66,19 +64,12 @@ interface RestartDeps {
   mcpAccess: McpAccessAsk;
   schedule(): void;
   lifecycle: PaneLifecyclePort;
-  /** The continuation flows (resume/fork into a new pane) — the occupied
-   * card's fork button rides the SAME path the dialog's fork does. */
-  forks: {
-    forkSession: AgentOrchestrator["forkSession"];
-  };
 }
 
 export interface AgentOrchestratorRestart {
   restart: AgentOrchestrator["restart"];
   recoverRejectedResume: AgentOrchestrator["recoverRejectedResume"];
   retryPlanBuild: AgentOrchestrator["retryPlanBuild"];
-  forkOccupiedSession: AgentOrchestrator["forkOccupiedSession"];
-  forkStalledSession: AgentOrchestrator["forkStalledSession"];
   dismissOccupied: AgentOrchestrator["dismissOccupied"];
   owns(paneId: string): boolean;
 }
@@ -104,14 +95,12 @@ export function createAgentOrchestratorRestart({
   bumpEpoch,
   publish,
   markOccupied,
-  occupiedNote,
   clearNotes,
   startOwed,
   skillsAsk,
   mcpAccess,
   schedule,
   lifecycle,
-  forks,
 }: RestartDeps): AgentOrchestratorRestart {
   const restarting = new Set<string>();
 
@@ -360,45 +349,6 @@ export function createAgentOrchestratorRestart({
     return true;
   };
 
-  /** Fork this pane's bound session into the same directory. The two callers
-   * differ only in what earns them the right to ask — the offer on an
-   * occupied card, and the offer on a start that has gone quiet — so the
-   * doing of it lives here once and each of them guards its own case. */
-  async function forkBoundSession(wsId: string, paneId: string): Promise<void> {
-    const target = targetOf(wsId, paneId);
-    if (typeof target === "string" || !target.sessionId) return;
-    // Same directory by definition — neither offer chooses one. The record
-    // carries no transcript path: the plugin's fork recipe owns its store
-    // layout and locates the source itself.
-    await forks.forkSession(
-      wsId,
-      {
-        agent: target.agentType,
-        sessionId: target.sessionId,
-        cwd: target.cwd,
-        ...(target.branch !== undefined && { branch: target.branch }),
-        ...(target.yolo && { yolo: true }),
-      },
-      { kind: "dir", cwd: target.cwd },
-    );
-  }
-
-  const forkOccupiedSession: AgentOrchestrator["forkOccupiedSession"] =
-    async (wsId, paneId) => {
-      if (!occupiedNote(paneId)) return;
-      await forkBoundSession(wsId, paneId);
-    };
-
-  const forkStalledSession: AgentOrchestrator["forkStalledSession"] = async (
-    wsId,
-    paneId,
-  ) => {
-    // No occupied note to check: this offer belongs to a pane that IS bound
-    // and simply has not painted. Reusing the occupied guard here would have
-    // made the button a silent no-op every single time.
-    await forkBoundSession(wsId, paneId);
-  };
-
   const dismissOccupied: AgentOrchestrator["dismissOccupied"] = (paneId) => {
     // The pane stays visible and bound; nothing is erased. Only the
     // offer goes — the ordinary exit card takes over, and a later
@@ -416,8 +366,6 @@ export function createAgentOrchestratorRestart({
     restart,
     recoverRejectedResume,
     retryPlanBuild,
-    forkOccupiedSession,
-    forkStalledSession,
     dismissOccupied,
     owns: (paneId) => restarting.has(paneId),
   };

@@ -289,6 +289,7 @@ describe("agent orchestrator —disbanding a team", () => {
     let outcome;
     await act(async () => {
       outcome = agentRun.createPane({
+        role: "lead",
         workspace: refOf("ws-1"),
         pane: { id: "pane-late", agentType: "claude" },
         placement: { kind: "attached", cwd: "/wt/2" },
@@ -492,6 +493,7 @@ describe("agent orchestrator —disbanding a team", () => {
     let outcome;
     await act(async () => {
       outcome = agentRun.createPane({
+        role: "lead",
         workspace: refOf("ws-1"),
         pane: { id: "pane-late", agentType: "claude" },
         placement: { kind: "attached", cwd: "/wt/2" },
@@ -508,6 +510,7 @@ describe("agent orchestrator —disbanding a team", () => {
     // Torn down: the directory is anybody's again.
     await act(async () => {
       outcome = agentRun.createPane({
+        role: "lead",
         workspace: refOf("ws-1"),
         pane: { id: "pane-late", agentType: "claude" },
         placement: { kind: "attached", cwd: "/wt/2" },
@@ -527,6 +530,7 @@ describe("agent orchestrator —disbanding a team", () => {
     let outcome;
     await act(async () => {
       outcome = agentRun.createPane({
+        role: "lead",
         workspace: refOf("ws-2"),
         pane: { id: "pane-late", agentType: "claude" },
         placement: { kind: "attached", cwd: "/wt/two-1" },
@@ -556,6 +560,7 @@ describe("agent orchestrator —disbanding a team", () => {
     let outcome;
     await act(async () => {
       outcome = agentRun.createPane({
+        role: "lead",
         workspace: refOf("ws-2"),
         pane: { id: "pane-late", agentType: "claude" },
         placement: { kind: "attached", cwd: "/wt/two-1" },
@@ -645,6 +650,7 @@ describe("agent orchestrator —closing a workspace", () => {
     let outcome;
     await act(async () => {
       outcome = agentRun.createPane({
+        role: "lead",
         workspace: refOf("ws-3"),
         pane: { id: "pane-late", agentType: "claude" },
         placement: { kind: "attached", cwd: "/wt/2" },
@@ -654,6 +660,7 @@ describe("agent orchestrator —closing a workspace", () => {
     // The root is not held: it is never torn down.
     await act(async () => {
       outcome = agentRun.createPane({
+        role: "lead",
         workspace: refOf("ws-3"),
         pane: { id: "pane-root", agentType: "claude" },
       });
@@ -667,6 +674,7 @@ describe("agent orchestrator —closing a workspace", () => {
     expect(discards).toEqual([[target]]);
     await act(async () => {
       outcome = agentRun.createPane({
+        role: "lead",
         workspace: refOf("ws-3"),
         pane: { id: "pane-late", agentType: "claude" },
         placement: { kind: "attached", cwd: "/wt/2" },
