@@ -45,9 +45,19 @@ export function recordedOnTeam(cwd: string, team: { cwd: string | null }): boole
   return team.cwd !== null && cwd !== "" && normalizePath(cwd) === normalizePath(team.cwd);
 }
 
-/** The workspace's recorded sessions that ran where `teamCwd` is — what an
- * empty team's list pins first. Any other the workspace recorded ran on
- * another team, and comes with the rest of the index. */
-export function teamJournalRows(journal: JournalRecords, wsId: string, teamCwd: string): SessionRecord[] {
-  return journalRows(journal, wsId).filter((record) => recordedOnTeam(record.cwd, { cwd: teamCwd }));
+/** The workspace's recorded sessions split by where they ran: `own` in
+ * the team's directory — what an empty team's list pins first — and
+ * `other` everywhere else, drawn with the rest of the index. None dropped:
+ * a record the index does not know is found nowhere else. */
+export function teamJournalLanes(
+  journal: JournalRecords,
+  wsId: string,
+  teamCwd: string,
+): { own: SessionRecord[]; other: SessionRecord[] } {
+  const own: SessionRecord[] = [];
+  const other: SessionRecord[] = [];
+  for (const record of journalRows(journal, wsId)) {
+    (recordedOnTeam(record.cwd, { cwd: teamCwd }) ? own : other).push(record);
+  }
+  return { own, other };
 }

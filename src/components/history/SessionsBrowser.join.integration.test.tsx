@@ -42,6 +42,9 @@ vi.mock("../../ipc/worktree", () => worktreeIpc);
 /** REAL plugin histories over recording fs doubles — the pair the
  * corrupted records straddle. Every readFile is remembered; that record
  * is what the wrong-owner case stands or falls on. */
+/** No other-lane journal records — one stable array. */
+const NO_RECORDS: SessionRecord[] = [];
+
 function recordingCtx(files: Record<string, string>): {
   ctx: PluginContext;
   reads: string[];
@@ -191,6 +194,7 @@ function Harness({ rows }: { rows: SessionRecord[] }) {
   const browserApi = useSessionsBrowser(HARNESS_DIRS, shared);
   return createElement(SessionsBrowser, {
     team: null,
+    otherRecords: NO_RECORDS,
     api: browserApi,
     agents: AGENTS,
     ready: true,
@@ -396,6 +400,7 @@ describe("SessionsBrowser late-landing transition (E7 characterization)", () => 
       null,
       createElement(SessionsBrowser, {
         team: null,
+        otherRecords: NO_RECORDS,
         api,
         agents: AGENTS,
         ready: true,

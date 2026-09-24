@@ -68,6 +68,10 @@ const hit = (over: Partial<SearchHit> = {}): SearchHit => ({
   ...over,
 });
 
+/** No other-lane journal records — ONE array, as the real host passes a
+ * memoized one: a fresh literal per render would churn the list's memos. */
+const NO_RECORDS: SessionRecord[] = [];
+
 const closed = (over: Partial<SessionRecord> = {}): SessionRecord =>
   ({
     agent: "claude",
@@ -203,6 +207,7 @@ describe("SessionsBrowser", () => {
       root.render(
         createElement(SessionsBrowser, {
           team: null,
+          otherRecords: NO_RECORDS,
           api: a,
           agents: [CAPABLE_AGENT],
           ready: true,
@@ -221,6 +226,7 @@ describe("SessionsBrowser", () => {
       root.render(
         createElement(SessionsBrowser, {
           team: null,
+          otherRecords: NO_RECORDS,
           api: a,
           agents: [CAPABLE_AGENT],
           ready: true,
@@ -259,6 +265,7 @@ describe("SessionsBrowser", () => {
       agents: [CAPABLE_AGENT],
       rows: [],
       team: null,
+      otherRecords: NO_RECORDS,
       onResume: vi.fn(),
       onFork: vi.fn(),
     };
@@ -338,6 +345,7 @@ describe("SessionsBrowser", () => {
       root.render(
         createElement(SessionsBrowser, {
           team: null,
+          otherRecords: NO_RECORDS,
           api: a,
           agents: [CAPABLE_AGENT],
           ready: true,
@@ -414,6 +422,7 @@ describe("SessionsBrowser", () => {
       root.render(
         createElement(SessionsBrowser, {
           team: null,
+          otherRecords: NO_RECORDS,
           api: a,
           agents: [
             {
@@ -717,6 +726,7 @@ describe("SessionsBrowser journal section", () => {
       root.render(
         createElement(SessionsBrowser, {
           team: null,
+          otherRecords: NO_RECORDS,
           api: a,
           agents: [CAPABLE_AGENT],
           ready: true,
@@ -834,7 +844,7 @@ describe("SessionsBrowser journal section", () => {
     );
   });
 
-  it("in a team, Resume only for a session recorded in the team's directory — any other is Fork only, saying why", async () => {
+  it("in a team, draws every journal session — Resume only for one recorded in the team's directory, any other Fork only, saying why", async () => {
     worktreeIpc.probeWorktree.mockResolvedValue({ exists: true, isWorktree: false, branch: null });
     await act(async () =>
       root.render(
@@ -843,7 +853,10 @@ describe("SessionsBrowser journal section", () => {
           api: api([]),
           agents: [CAPABLE_AGENT],
           ready: true,
-          rows: [closed({ title: "here", cwd: "/repo/wt/" }), closed({ sessionId: "s-2", title: "there", cwd: "/repo" })],
+          rows: [closed({ title: "here", cwd: "/repo/wt/" })],
+          // The workspace's other journal record: the index knows nothing
+          // of it (api([])), and the list still draws it.
+          otherRecords: [closed({ sessionId: "s-2", title: "there", cwd: "/repo" })],
           onResume: vi.fn(),
           onFork: vi.fn(),
         }),
@@ -963,6 +976,7 @@ describe("SessionsBrowser journal join", () => {
       root.render(
         createElement(SessionsBrowser, {
           team: null,
+          otherRecords: NO_RECORDS,
           api: a,
           agents,
           ready: true,
@@ -1031,6 +1045,7 @@ describe("SessionsBrowser journal join", () => {
       root.render(
         createElement(SessionsBrowser, {
           team: null,
+          otherRecords: NO_RECORDS,
           api: api(
             [],
             { scanning: false },
@@ -1101,6 +1116,7 @@ describe("SessionsBrowser journal join", () => {
       root.render(
         createElement(SessionsBrowser, {
           team: null,
+          otherRecords: NO_RECORDS,
           api: a,
           agents: [CAPABLE_AGENT],
           ready: true,
@@ -1191,6 +1207,7 @@ describe("SessionsBrowser journal join", () => {
         createElement("div", null, [
           createElement(SessionsBrowser, {
             team: null,
+            otherRecords: NO_RECORDS,
             key: "ws-1",
             api: shared,
             agents,
@@ -1201,6 +1218,7 @@ describe("SessionsBrowser journal join", () => {
           }),
           createElement(SessionsBrowser, {
             team: null,
+            otherRecords: NO_RECORDS,
             key: "ws-2",
             api: shared,
             agents,
@@ -1338,6 +1356,7 @@ describe("SessionsBrowser journal join", () => {
         createElement("div", null, [
           createElement(SessionsBrowser, {
             team: null,
+            otherRecords: NO_RECORDS,
             key: "ws-1",
             api: shared,
             agents: [CAPABLE_AGENT],
@@ -1348,6 +1367,7 @@ describe("SessionsBrowser journal join", () => {
           }),
           createElement(SessionsBrowser, {
             team: null,
+            otherRecords: NO_RECORDS,
             key: "ws-2",
             api: shared,
             agents: [CAPABLE_AGENT],
@@ -1385,6 +1405,7 @@ describe("SessionsBrowser journal join", () => {
       root.render(
         createElement(SessionsBrowser, {
           team: null,
+          otherRecords: NO_RECORDS,
           api: a,
           agents: [CAPABLE_AGENT],
           ready: true,
@@ -1558,6 +1579,7 @@ describe("row render stability — the effect, not the memo", () => {
       root.render(
         createElement(SessionsBrowser, {
           team: null,
+          otherRecords: NO_RECORDS,
           api: a,
           agents: AGENTS_STABLE,
           ready: true,
@@ -1675,6 +1697,7 @@ describe("virtualized list — the window, not the pile", () => {
       root.render(
         createElement(SessionsBrowser, {
           team: null,
+          otherRecords: NO_RECORDS,
           api: a,
           agents: [CAPABLE_AGENT],
           ready: true,
@@ -2136,6 +2159,7 @@ describe("virtualized list — the window, not the pile", () => {
         root.render(
           createElement(SessionsBrowser, {
             team: null,
+            otherRecords: NO_RECORDS,
             api: a,
             agents: [CAPABLE_AGENT],
             ready: true,
@@ -2221,6 +2245,7 @@ describe("unified row guard — both blocks, one markup", () => {
           createElement("div", { key: "from-journal" },
             createElement(SessionsBrowser, {
               team: null,
+              otherRecords: NO_RECORDS,
               api: api([]),
               agents: [CAPABLE_AGENT],
               ready: true,
@@ -2232,6 +2257,7 @@ describe("unified row guard — both blocks, one markup", () => {
           createElement("div", { key: "from-index" },
             createElement(SessionsBrowser, {
               team: null,
+              otherRecords: NO_RECORDS,
               api: api(hits),
               agents: [CAPABLE_AGENT],
               ready: true,
@@ -2252,6 +2278,7 @@ describe("unified row guard — both blocks, one markup", () => {
       root.render(
         createElement(SessionsBrowser, {
           team: null,
+          otherRecords: NO_RECORDS,
           api: a,
           agents: [CAPABLE_AGENT],
           ready: true,
@@ -2337,6 +2364,7 @@ describe("unified row guard — both blocks, one markup", () => {
           createElement("div", { key: "j" },
             createElement(SessionsBrowser, {
               team: null,
+              otherRecords: NO_RECORDS,
               api: api([]),
               agents: [CAPABLE_AGENT],
               ready: true,
@@ -2348,6 +2376,7 @@ describe("unified row guard — both blocks, one markup", () => {
           createElement("div", { key: "i" },
             createElement(SessionsBrowser, {
               team: null,
+              otherRecords: NO_RECORDS,
               api: api([asHit]),
               agents: [CAPABLE_AGENT],
               ready: true,
@@ -2417,6 +2446,7 @@ describe("unified row guard — both blocks, one markup", () => {
       root.render(
         createElement(SessionsBrowser, {
           team: null,
+          otherRecords: NO_RECORDS,
           api: api([]),
           agents: [incapable],
           ready: true,

@@ -13,6 +13,8 @@ interface SessionListCompositionInput {
   api: SessionsBrowserApi;
   agents: AgentInfo[];
   rows: SessionRecord[];
+  /** Journal records for the other lane ([`composeSessionList`]). */
+  otherRecords: SessionRecord[];
 }
 
 /** Compose the browser's two ordered lanes and keep unchanged row objects
@@ -23,6 +25,7 @@ export function useSessionListComposition({
   api,
   agents,
   rows,
+  otherRecords,
 }: SessionListCompositionInput) {
   // The list's composition lives in the domain (`composeSessionList`)
   // — one entry point owning the query predicate, the union, the dedup,
@@ -38,6 +41,7 @@ export function useSessionListComposition({
     () =>
       composeSessionList({
         records: rows,
+        otherRecords,
         query: api.query.trim(),
         entries: api.enrichment.entries,
         agentLabel: (agentId) => agents.find((a) => a.id === agentId)?.label,
@@ -52,6 +56,7 @@ export function useSessionListComposition({
     // arrays themselves are the engines' state — new page, new array.
     [
       rows,
+      otherRecords,
       api.query,
       api.enrichment.entries,
       api.enrichment.pending,
@@ -100,7 +105,7 @@ export function useSessionListComposition({
     const hitByKey = new Map<string, unknown>();
     for (const h of api.workspace.hits) hitByKey.set(rowKeyOf(h), h);
     for (const h of api.other.hits) hitByKey.set(rowKeyOf(h), h);
-    const recordByKey = new Map(rows.map((r) => [rowKeyOf(r), r]));
+    const recordByKey = new Map([...rows, ...otherRecords].map((r) => [rowKeyOf(r), r]));
     const entries = api.enrichment.entries;
     const sourceOfKey = (key: string): unknown =>
       recordByKey.has(key)
@@ -113,7 +118,7 @@ export function useSessionListComposition({
     // a new page or a landed answer is a new reference — exactly when
     // the source map SHOULD rebuild.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, api.workspace.hits, api.other.hits, api.enrichment.entries, answerMutable]);
+  }, [rows, otherRecords, api.workspace.hits, api.other.hits, api.enrichment.entries, answerMutable]);
   const workspaceRows = useMemo(
     () => workspaceRowsAll.map((row) => stabilize(row, sources.sourceOfKey(rowKeyOf(row)))),
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import type { AgentInfo } from "../../domain/agents";
 import type { JournalRecords, SessionHandle } from "../../domain/journal";
-import { teamJournalRows, type Workspace } from "../../domain/deck";
+import { teamJournalLanes, type Workspace } from "../../domain/deck";
 import type { BrowserSharedSeam } from "../../app/useSessionsBrowser";
 import { NO_ROLE, ROLE_WORDS, roleChoiceView } from "../../presentation/roleChoiceView";
 import { TEAM_SESSIONS_WORDS, teamSessionsHint } from "../../presentation/stageView";
@@ -49,7 +49,7 @@ export function TeamSessions({
   const address = roles.addressFor(roleId);
   const hint = teamSessionsHint(address, askedWithout, roles.unpickedHint);
   // Identity-stable: the browser's engines key on these.
-  const rows = useMemo(() => teamJournalRows(journal, ws.id, cwd), [journal, ws.id, cwd]);
+  const lanes = useMemo(() => teamJournalLanes(journal, ws.id, cwd), [journal, ws.id, cwd]);
   const dirs = useMemo(() => new Set([cwd]), [cwd]);
   const team = useMemo(() => ({ cwd }), [cwd]);
   const continueAs = (mode: "resume" | "fork") => (record: SessionHandle) => {
@@ -89,7 +89,8 @@ export function TeamSessions({
           dirs={dirs}
           agents={agents}
           ready={agentsReady}
-          rows={rows}
+          rows={lanes.own}
+          otherRecords={lanes.other}
           team={team}
           onResume={continueAs("resume")}
           onFork={continueAs("fork")}

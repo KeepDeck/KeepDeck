@@ -20,8 +20,12 @@ import { useSessionListWindow } from "./browser/useSessionListWindow";
 interface SessionsBrowserProps {
   api: SessionsBrowserApi;
   agents: AgentInfo[];
-  /** The workspace's journal, newest binding first (`journalRows`). */
+  /** The journal records this list is scoped to, newest binding first —
+   * its own lane's. */
   rows: SessionRecord[];
+  /** The rest of the workspace's journal — the other lane's, drawn with
+   * the index's other hits. */
+  otherRecords: SessionRecord[];
   /** The agent plugins finished activating — before that a scan would see
    * an empty registry and "successfully" index zero stores. */
   ready: boolean;
@@ -39,6 +43,7 @@ export function WorkspaceSessionsBrowser({
   dirs,
   agents,
   rows,
+  otherRecords,
   ready,
   team,
   onResume,
@@ -53,6 +58,7 @@ export function WorkspaceSessionsBrowser({
       api={api}
       agents={agents}
       rows={rows}
+      otherRecords={otherRecords}
       ready={ready}
       team={team}
       onResume={onResume}
@@ -79,6 +85,7 @@ export function SessionsBrowser({
   api,
   agents,
   rows,
+  otherRecords,
   ready,
   team,
   onResume,
@@ -98,13 +105,14 @@ export function SessionsBrowser({
   // ARRAY construction itself ran on every render (the minute tick
   // included) — an unrelated state change must not even walk the
   // inputs.
+  const allRows = useMemo(() => [...rows, ...otherRecords], [rows, otherRecords]);
   const presenceCwds = useMemo(
     () => [
-      ...rows.map((row) => row.cwd),
+      ...allRows.map((row) => row.cwd),
       ...api.workspace.hits.map((hit) => hit.cwd),
       ...api.other.hits.map((hit) => hit.cwd),
     ],
-    [rows, api.workspace.hits, api.other.hits],
+    [allRows, api.workspace.hits, api.other.hits],
   );
   const presence = useDirPresence(presenceCwds);
   const now = useBrowserClock();
@@ -122,8 +130,8 @@ export function SessionsBrowser({
   // seam, not here. Idempotent: every mounted list declares its own rows.
   const declare = api.enrichment.declare;
   useEffect(() => {
-    declare(rows.map((row) => ({ agent: row.agent, sessionId: row.sessionId })));
-  }, [declare, rows]);
+    declare(allRows.map((row) => ({ agent: row.agent, sessionId: row.sessionId })));
+  }, [declare, allRows]);
 
   // Lazy paging, driven by the VIRTUAL RANGE (never by a DOM node: the
   // last row of a lane unmounts by definition once scrolled past). Two
@@ -132,7 +140,7 @@ export function SessionsBrowser({
   // they read the stabilized queue.
   const listRef = useRef<HTMLUListElement | null>(null);
   const { workspaceRows, otherRows, listCount, emptyList } =
-    useSessionListComposition({ api, agents, rows });
+    useSessionListComposition({ api, agents, rows, otherRecords });
 
   const queue = useMemo(
     () => [...workspaceRows, ...otherRows],
