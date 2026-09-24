@@ -531,7 +531,11 @@
   margin: 0;
 }
 
-.team-sessions__label {
+/* Scoped under the head on purpose: `.form__label`'s bottom margin is one
+   class too and form.css loads later, so a bare `.team-sessions__label`
+   lost — and the label centred against itself plus that margin, riding
+   above the field's line. */
+.team-sessions__head .team-sessions__label {
   margin: 0;
 }
 
