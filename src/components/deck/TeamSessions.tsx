@@ -46,6 +46,9 @@ export function TeamSessions({
   const catalog = useRoleCatalog();
   const roles = useMemo(() => roleChoiceView([]), [catalog]);
   const roleId = roles.pickOf(picked);
+  // A lost pick is discarded, not hidden: the role coming back later is
+  // not somebody choosing it again.
+  if (roleId !== picked) setPicked(roleId);
   const address = roles.addressFor(roleId);
   const hint = teamSessionsHint(address, askedWithout, roles.unpickedHint);
   // Identity-stable: the browser's engines key on these.

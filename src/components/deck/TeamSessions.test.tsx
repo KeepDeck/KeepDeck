@@ -122,5 +122,11 @@ describe("TeamSessions — an empty team's sessions list", () => {
     expect(options().map((button) => button.textContent)).not.toContain(peerLabel);
     resume(record);
     expect(onContinue).not.toHaveBeenCalled();
+
+    // The role comes back: the pick that was dropped stays dropped.
+    configureRoleCatalog(null);
+    liveCatalog.snapshot = {};
+    render();
+    expect(picker().textContent).toContain(ROLE_WORDS.prompt);
   });
 });

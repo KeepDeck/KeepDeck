@@ -46,6 +46,9 @@ export function StoppedBody({
   // The roster under the card can change while it stands: a pick the
   // team is no longer open to is no pick.
   const roleId = startFreshRoles ? startFreshRoles.pickOf(picked) : NO_ROLE;
+  // A lost pick is discarded, not hidden: the role coming back later is
+  // not somebody choosing it again.
+  if (roleId !== picked) setRoleId(roleId);
   const pick = startFreshPick(startFreshRoles ?? null, roleId);
   return (
     <div className="pane__card" role="status">
