@@ -53,19 +53,11 @@ describe("stageContent — what goes over the grid", () => {
 
 describe("teamSessionsHint — the line under the empty team's role picker", () => {
   it("gives the address a pick takes", () => {
-    expect(teamSessionsHint("lead", true, "unpicked")).toEqual({ kind: "address", address: "lead" });
+    expect(teamSessionsHint("lead", true)).toEqual({ kind: "address", address: "lead" });
   });
 
-  it("before a pick, says what to do — as an error once Resume or Fork was pressed without one", () => {
-    expect(teamSessionsHint(null, false, "unpicked")).toEqual({
-      kind: "note",
-      text: "unpicked",
-      className: "team-sessions__hint",
-    });
-    expect(teamSessionsHint(null, true, "unpicked")).toEqual({
-      kind: "note",
-      text: TEAM_SESSIONS_WORDS.pickFirst,
-      className: "team-sessions__hint team-sessions__hint--error",
-    });
+  it("says nothing before a pick — the header stays one line — and the error once Resume or Fork was pressed without one", () => {
+    expect(teamSessionsHint(null, false)).toBeNull();
+    expect(teamSessionsHint(null, true)).toEqual({ kind: "error", text: TEAM_SESSIONS_WORDS.pickFirst });
   });
 });

@@ -89,6 +89,8 @@ describe("TeamSessions — an empty team's sessions list", () => {
 
   it("offers a lead or a peer, and picks neither", () => {
     expect(picker().textContent).toContain(ROLE_WORDS.prompt);
+    // One row: before a pick, no line under the picker.
+    expect(document.querySelector(".team-sessions__hint")).toBeNull();
     const labels = options().map((button) => button.textContent);
     expect(labels).toEqual([ROLE_WORDS.prompt, roleById("lead")!.label, roleById("peer")!.label]);
   });

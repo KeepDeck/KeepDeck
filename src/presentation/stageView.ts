@@ -31,28 +31,22 @@ export const NO_TEAMS_WORD: StageWord = {
 /** The empty team's sessions list — the words over it. */
 export const TEAM_SESSIONS_WORDS = {
   title: "Nobody on this team yet",
-  sub: "Continue a session on it — resume one recorded in its directory, or fork any other into it. A fresh agent comes in through “+ Member”.",
   /** Resume or Fork pressed before a role is picked. */
   pickFirst: "Pick a role first — nothing is chosen for it",
 } as const;
 
 /** The line under the empty team's role picker: the address a pick takes,
- * or — before one — what to do, said as an error once Resume or Fork was
- * pressed without it. */
-export type TeamSessionsHint =
-  | { kind: "address"; address: string }
-  | { kind: "note"; text: string; className: string };
+ * the error once Resume or Fork was pressed without one — or nothing,
+ * the header stays one line. */
+export type TeamSessionsHint = { kind: "address"; address: string } | { kind: "error"; text: string } | null;
 
 export function teamSessionsHint(
   address: string | null,
   /** Resume or Fork was pressed with no role picked. */
   askedWithout: boolean,
-  unpickedHint: string,
 ): TeamSessionsHint {
   if (address !== null) return { kind: "address", address };
-  return askedWithout
-    ? { kind: "note", text: TEAM_SESSIONS_WORDS.pickFirst, className: "team-sessions__hint team-sessions__hint--error" }
-    : { kind: "note", text: unpickedHint, className: "team-sessions__hint" };
+  return askedWithout ? { kind: "error", text: TEAM_SESSIONS_WORDS.pickFirst } : null;
 }
 
 export type StageContent =

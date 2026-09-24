@@ -50,7 +50,7 @@ export function TeamSessions({
   // not somebody choosing it again.
   if (roleId !== picked) setPicked(roleId);
   const address = roles.addressFor(roleId);
-  const hint = teamSessionsHint(address, askedWithout, roles.unpickedHint);
+  const hint = teamSessionsHint(address, askedWithout);
   // Identity-stable: the browser's engines key on these.
   const lanes = useMemo(() => teamJournalLanes(journal, ws.id, cwd), [journal, ws.id, cwd]);
   const dirs = useMemo(() => new Set([cwd]), [cwd]);
@@ -66,26 +66,28 @@ export function TeamSessions({
     <div className="deck__setup">
       <div className="deck__setup-col">
         <div className="team-sessions__head">
-          <h2 className="history__title">{TEAM_SESSIONS_WORDS.title}</h2>
-          <p className="history__hint">{TEAM_SESSIONS_WORDS.sub}</p>
-          <span className="form__label team-sessions__label">{ROLE_WORDS.label}</span>
-          <Dropdown
-            className="team-sessions__role"
-            options={roles.optionsFor(roleId)}
-            value={roleId}
-            onChange={(next) => {
-              setPicked(next);
-              setAskedWithout(false);
-            }}
-            ariaLabel={ROLE_WORDS.label}
-          />
-          {hint.kind === "address" ? (
-            <span className="team-sessions__hint">
-              {ROLE_WORDS.writeTo} <code className="form__role-address">{hint.address}</code>
-            </span>
-          ) : (
-            <span className={hint.className}>{hint.text}</span>
-          )}
+          <h2 className="history__title team-sessions__title">{TEAM_SESSIONS_WORDS.title}</h2>
+          <div className="team-sessions__pick">
+            <span className="form__label team-sessions__label">{ROLE_WORDS.label}</span>
+            <Dropdown
+              className="team-sessions__role"
+              options={roles.optionsFor(roleId)}
+              value={roleId}
+              onChange={(next) => {
+                setPicked(next);
+                setAskedWithout(false);
+              }}
+              ariaLabel={ROLE_WORDS.label}
+            />
+            {hint?.kind === "address" && (
+              <span className="team-sessions__hint">
+                {ROLE_WORDS.writeTo} <code className="form__role-address">{hint.address}</code>
+              </span>
+            )}
+            {hint?.kind === "error" && (
+              <span className="team-sessions__hint team-sessions__hint--error">{hint.text}</span>
+            )}
+          </div>
         </div>
         <WorkspaceSessionsBrowser
           shared={browserShared}
