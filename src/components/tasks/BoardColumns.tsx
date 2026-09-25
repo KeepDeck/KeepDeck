@@ -2,6 +2,7 @@ import type { BoardColumnView } from "../../presentation/tasks";
 import { VirtualList } from "@keepdeck/ui-kit/VirtualList";
 import {
   TASK_CARD_ESTIMATE_PX,
+  cardStateOf,
   columnClassName,
   columnLabelClassName,
   taskCardKey,
@@ -60,13 +61,7 @@ export function BoardColumns({
             className="tasks__column-body"
             item={{ className: "tasks__column-item" }}
             render={(card) => (
-              <TaskCard
-                card={card}
-                selected={card.id === selectedId}
-                dragging={drag.kind === "dragging" && drag.id === card.id}
-                onSelect={onSelect}
-                onArm={onArm}
-              />
+              <TaskCard card={card} {...cardStateOf(card.id, selectedId, drag)} onSelect={onSelect} onArm={onArm} />
             )}
           />
         </section>

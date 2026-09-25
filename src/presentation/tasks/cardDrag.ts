@@ -86,6 +86,16 @@ export function dropStateOf(
   return hover === status ? "over" : "ok";
 }
 
+/** What a card on the board is right now: the one open in the panel, the
+ * one in flight. */
+export function cardStateOf(
+  id: string,
+  selectedId: string | null,
+  state: DragState,
+): { selected: boolean; dragging: boolean } {
+  return { selected: id === selectedId, dragging: state.kind === "dragging" && state.id === id };
+}
+
 /** A column's classes: lit by its part in the drag in flight. */
 export function columnClassName(
   status: TaskStatus,

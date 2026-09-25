@@ -7,6 +7,7 @@ import {
   DRAG_THRESHOLD_PX,
   IDLE,
   armCard,
+  cardStateOf,
   clickDisbelieved,
   columnClassName,
   dropStateOf,
@@ -58,6 +59,10 @@ describe("cardDrag", () => {
     expect(columnClassName("done", dragging, "done")).toBe("tasks__column tasks__column--drop-over");
     expect(columnClassName("review", dragging, null)).toBe("tasks__column tasks__column--drop-no");
     expect(columnClassName("done", IDLE, "done")).toBe("tasks__column");
+    // A card knows whether it is the open one and whether it is in flight.
+    expect(cardStateOf("task-1", "task-1", dragging)).toEqual({ selected: true, dragging: true });
+    expect(cardStateOf("task-2", "task-1", dragging)).toEqual({ selected: false, dragging: false });
+    expect(cardStateOf("task-1", null, IDLE)).toEqual({ selected: false, dragging: false });
     expect(clickDisbelieved(1_000, 1_000 + CLICK_AFTER_DRAG_MS - 1)).toBe(true);
     expect(clickDisbelieved(1_000, 1_000 + CLICK_AFTER_DRAG_MS)).toBe(false);
     expect(clickDisbelieved(null, 5)).toBe(false);
