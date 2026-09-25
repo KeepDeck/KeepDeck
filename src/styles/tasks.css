@@ -186,12 +186,20 @@
   font-weight: 500;
 }
 
+/* The column's scroll container — a windowed list: only the cards in view
+   are mounted, absolutely placed in a spacer the height of them all. */
 .tasks__column-body {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  flex: 1;
+  min-height: 0;
   padding: 8px;
   overflow-y: auto;
+}
+
+/* The box the list places and measures around each card. Positioned
+   items take no flex gap, so the gap between cards is this padding —
+   inside the measured box, where a margin would not be. */
+.tasks__column-item {
+  padding-bottom: 6px;
 }
 
 /* The card IS the control: a bordered box whose rim takes the status hue

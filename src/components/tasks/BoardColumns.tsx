@@ -1,5 +1,12 @@
 import type { BoardColumnView } from "../../presentation/tasks";
-import { columnClassName, type CardGrip, type DragState } from "../../presentation/tasks";
+import { VirtualList } from "@keepdeck/ui-kit/VirtualList";
+import {
+  TASK_CARD_ESTIMATE_PX,
+  columnClassName,
+  taskCardKey,
+  type CardGrip,
+  type DragState,
+} from "../../presentation/tasks";
 import type { TaskStatus } from "../../domain/tasks";
 import { TaskCard } from "./TaskCard";
 
@@ -41,18 +48,26 @@ export function BoardColumns({
             <span className={`tasks__column-label tasks__column-label--${column.status}`}>{column.label}</span>
             <span className="tasks__column-count">{column.count}</span>
           </header>
-          <div className="tasks__column-body">
-            {column.cards.map((card) => (
+          {/* Windowed: a board holds up to TASK_CAPS.tasksMax tasks, and the
+              closed columns only grow. A card scrolled out is unmounted —
+              the drag does not hold it (the ghost is drawn from the view,
+              the pointer is followed on the window). */}
+          <VirtualList
+            items={column.cards}
+            itemKey={taskCardKey}
+            estimate={TASK_CARD_ESTIMATE_PX}
+            className="tasks__column-body"
+            item={{ className: "tasks__column-item" }}
+            render={(card) => (
               <TaskCard
-                key={card.id}
                 card={card}
                 selected={card.id === selectedId}
                 dragging={drag.kind === "dragging" && drag.id === card.id}
                 onSelect={onSelect}
                 onArm={onArm}
               />
-            ))}
-          </div>
+            )}
+          />
         </section>
       ))}
     </div>
