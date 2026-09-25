@@ -35,3 +35,8 @@ export function boardView(tasks: readonly Task[], board: TaskBoard, now: number)
     };
   });
 }
+
+/** A column's heading classes: the label, in its status's hue. */
+export function columnLabelClassName(status: TaskStatus): string {
+  return `tasks__column-label tasks__column-label--${status}`;
+}

@@ -3,6 +3,7 @@ import { VirtualList } from "@keepdeck/ui-kit/VirtualList";
 import {
   TASK_CARD_ESTIMATE_PX,
   columnClassName,
+  columnLabelClassName,
   taskCardKey,
   type CardGrip,
   type DragState,
@@ -45,7 +46,7 @@ export function BoardColumns({
           onPointerUp={() => onDrop(column.status)}
         >
           <header className="tasks__column-head">
-            <span className={`tasks__column-label tasks__column-label--${column.status}`}>{column.label}</span>
+            <span className={columnLabelClassName(column.status)}>{column.label}</span>
             <span className="tasks__column-count">{column.count}</span>
           </header>
           {/* Windowed: a board holds up to TASK_CAPS.tasksMax tasks, and the

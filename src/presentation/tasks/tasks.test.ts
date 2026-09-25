@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { board, task } from "../../domain/tasks/testSupport";
-import { boardView } from "./boardView";
+import { boardView, columnLabelClassName } from "./boardView";
 import { LADDER_WORDS, tasksLadder } from "./ladderView";
 import { newTaskFormView, NEW_TASK_WORDS, priorityChoiceClassName } from "./newTaskFormView";
 import { taskCardView, taskCardClassName } from "./taskCardView";
@@ -250,5 +250,11 @@ describe("ladder", () => {
     expect(tasksLadder({ ...base, taskCount: 0 })).toEqual({ kind: "empty" });
     expect(tasksLadder(base)).toEqual({ kind: "board" });
     expect(LADDER_WORDS.empty.hint).toContain("agents read the board themselves");
+  });
+});
+
+describe("columnLabelClassName", () => {
+  it("dresses a column's label in its status's hue", () => {
+    expect(columnLabelClassName("in-progress")).toBe("tasks__column-label tasks__column-label--in-progress");
   });
 });
