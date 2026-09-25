@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactNode } from "react";
+import { useFocusHandoff } from "./useFocusHandoff";
 import { useRowWindow } from "./useRowWindow";
 
 /** The elements a consumer's list is made of, when the defaults (plain
@@ -36,9 +37,10 @@ export interface VirtualListProps<T> extends VirtualListMarkup {
  * The windowed list as a component: the scroll container, a spacer the
  * height of every item, and only the items in view (plus a few beyond)
  * mounted, absolutely positioned inside it. The engine is `useRowWindow`;
- * a consumer whose rows must own their own element, or whose window drives
- * more than a list (the sessions browser's lane paging and focus
- * transfer), drives that engine directly with its own markup.
+ * the keyboard's place is kept by `useFocusHandoff` when a focused row
+ * scrolls out. A consumer whose rows must own their own element, or whose
+ * window drives more than a list (the sessions browser's lane paging),
+ * drives those directly with its own markup.
  */
 export function VirtualList<T>({
   items,
@@ -54,6 +56,8 @@ export function VirtualList<T>({
 }: VirtualListProps<T>) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const window = useRowWindow({ rows: items, keyOf: itemKey, estimate, scrollRef });
+  // A focused row scrolled out keeps the keyboard's place on the list.
+  useFocusHandoff(scrollRef);
 
   const { atEnd } = window;
   useEffect(() => {
@@ -63,7 +67,8 @@ export function VirtualList<T>({
   const Spacer = spacer?.as ?? "div";
   const Item = item?.as ?? "div";
   return (
-    <div className={className} ref={scrollRef} role={role} aria-label={ariaLabel}>
+    // Focusable by script only — the handoff's landing, never a Tab stop.
+    <div className={className} ref={scrollRef} role={role} aria-label={ariaLabel} tabIndex={-1}>
       <Spacer
         className={spacer?.className}
         style={{ height: `${window.totalSize}px`, position: "relative" }}

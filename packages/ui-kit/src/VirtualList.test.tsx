@@ -90,4 +90,72 @@ describe("VirtualList", () => {
     expect(spacer.style.height).toBe(`${3 * ROW}px`);
     expect(host.querySelectorAll("ul.list__spacer > li.list__item > .row").length).toBe(3);
   });
+
+  describe("the keyboard's place when a focused row scrolls out", () => {
+    const renderButtons = () =>
+      act(() =>
+        root.render(
+          createElement(VirtualList<string>, {
+            items,
+            itemKey: (item) => item,
+            estimate: () => ROW,
+            render: (item) => createElement("button", { className: "row" }, item),
+            className: "list",
+          }),
+        ),
+      );
+    const list = () => host.querySelector<HTMLElement>(".list")!;
+    const scrollFar = async () => {
+      await act(async () => {
+        list().scrollTop = 400 * ROW;
+        list().dispatchEvent(new Event("scroll"));
+      });
+      // The observer reports the removal in a microtask.
+      await act(async () => {});
+    };
+
+    it("lands focus on the list when the focused row unmounts, so the next Tab enters a mounted row", async () => {
+      restore = pinListViewport("list", 200, 300, ROW);
+      renderButtons();
+      const first = host.querySelector<HTMLButtonElement>(".row")!;
+      act(() => first.focus());
+      expect(document.activeElement).toBe(first);
+      await scrollFar();
+      expect(first.isConnected).toBe(false);
+      expect(document.activeElement).toBe(list());
+    });
+
+    it("takes nothing when no row was focused — a plain scroll is not a handoff", async () => {
+      restore = pinListViewport("list", 200, 300, ROW);
+      renderButtons();
+      await scrollFar();
+      expect(document.activeElement).toBe(document.body);
+    });
+
+    it("does not take focus the person moved out of the list", async () => {
+      restore = pinListViewport("list", 200, 300, ROW);
+      const outside = document.body.appendChild(document.createElement("button"));
+      renderButtons();
+      act(() => host.querySelector<HTMLButtonElement>(".row")!.focus());
+      act(() => outside.focus());
+      await scrollFar();
+      expect(document.activeElement).toBe(outside);
+    });
+
+    it("does not take focus that went elsewhere even when the list never heard it go", async () => {
+      restore = pinListViewport("list", 200, 300, ROW);
+      const outside = document.body.appendChild(document.createElement("button"));
+      renderButtons();
+      act(() => host.querySelector<HTMLButtonElement>(".row")!.focus());
+      // A departure whose focusout the list does not see (another browsing
+      // context reports no target): the memory stays, and only the
+      // browser's own answer — focus is not on <body> — keeps the list off.
+      const swallow = (e: Event) => e.stopPropagation();
+      document.addEventListener("focusout", swallow, true);
+      act(() => outside.focus());
+      document.removeEventListener("focusout", swallow, true);
+      await scrollFar();
+      expect(document.activeElement).toBe(outside);
+    });
+  });
 });
