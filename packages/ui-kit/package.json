@@ -23,6 +23,7 @@
     "./VirtualList": "./src/VirtualList.tsx",
     "./useRowWindow": "./src/useRowWindow.ts",
     "./useRowAnchoring": "./src/useRowAnchoring.ts",
+    "./useFocusHandoff": "./src/useFocusHandoff.ts",
     "./rowAnchor": "./src/rowAnchor.ts",
     "./virtualGeometry.test-support": "./src/virtualGeometry.test-support.ts"
   },

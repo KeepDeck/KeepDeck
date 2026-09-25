@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTasksService, type TasksService } from "../../app/tasks";
 import { fakeStore, teamedWorkspaces } from "../../app/tasks/testSupport";
 import { USER_ACTOR, agentActor } from "../../domain/tasks";
+import { installResizeObserver, pinListViewport } from "@keepdeck/ui-kit/virtualGeometry.test-support";
 import { TasksDialog } from "./TasksDialog";
 import type { TasksAccess } from "./useTasksBoard";
 import type { Workspace } from "../../domain/deck";
@@ -39,14 +40,23 @@ const onFocus = (id: string | null) => {
   focus = id;
 };
 
+/** The columns are windowed lists: happy-dom lays nothing out, so the
+ * browser's geometry is imitated — each column 600px tall, a card 64. */
+let restoreViewport: () => void;
+
 beforeEach(() => {
+  installResizeObserver();
+  restoreViewport = pinListViewport("tasks__column-body", 600);
   document.body.innerHTML = "";
   host = document.body.appendChild(document.createElement("div"));
   root = createRoot(host);
   focus = null;
   stageTeam = null;
 });
-afterEach(() => act(() => root.unmount()));
+afterEach(() => {
+  act(() => root.unmount());
+  restoreViewport();
+});
 
 const text = () => document.body.textContent ?? "";
 const buttons = () => Array.from(document.querySelectorAll<HTMLButtonElement>("button"));
@@ -233,6 +243,63 @@ describe("TasksDialog", () => {
     await flush();
     expect(panel()).toBeNull();
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  /** A board with `n` tasks in To do, titled "Task 0"… in queue order. */
+  async function crowded(n: number) {
+    const workspaces = teamedWorkspaces();
+    const service = createTasksService({ workspaces: () => workspaces, store: fakeStore().port, now: () => 1_000 });
+    for (let i = 0; i < n; i += 1) {
+      await service.create("ws-1", { teamId: "team-1", title: `Task ${i}` }, USER_ACTOR);
+    }
+    return service;
+  }
+  const columnBody = (label: string) =>
+    document.querySelector<HTMLElement>(`section[aria-label="${label}"] .tasks__column-body`)!;
+
+  it("a column mounts the cards in view, not its whole pile — and still counts them all", async () => {
+    const render = mount(await crowded(200));
+    render();
+    await flush();
+    const todo = document.querySelector<HTMLElement>('section[aria-label="To do"]')!;
+    expect(todo.querySelector(".tasks__column-count")?.textContent).toBe("200");
+    const mounted = todo.querySelectorAll(".tasks__card").length;
+    expect(mounted).toBeGreaterThan(0);
+    expect(mounted).toBeLessThan(40);
+  });
+
+  it("a drag survives its card scrolling out of the window: the ghost stays, the drop lands", async () => {
+    const service = await crowded(60);
+    const render = mount(service);
+    render();
+    await flush();
+    const pointer = (type: string, target: EventTarget, x: number, y: number) =>
+      target.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0 }));
+    const first = cards().find((c) => c.querySelector(".tasks__card-title")?.textContent === "Task 0")!;
+    act(() => pointer("pointerdown", first, 10, 10));
+    await flush();
+    act(() => pointer("pointermove", window, 40, 40));
+    await flush();
+
+    // Scroll To do far down: the card being dragged leaves the window.
+    const body = columnBody("To do");
+    act(() => {
+      body.scrollTop = 60 * 64 - 600;
+      body.dispatchEvent(new Event("scroll"));
+    });
+    await flush();
+    // The column's cards only — the ghost is a card too.
+    const titles = Array.from(body.querySelectorAll(".tasks__card-title")).map((t) => t.textContent);
+    expect(titles.length).toBeGreaterThan(0);
+    expect(titles).not.toContain("Task 0");
+    expect(document.querySelector(".tasks__ghost .tasks__card-title")?.textContent).toBe("Task 0");
+
+    const done = document.querySelector<HTMLElement>('section[aria-label="Done"]')!;
+    act(() => pointer("pointerover", done, 300, 40));
+    act(() => pointer("pointerup", done, 300, 40));
+    await flush();
+    const state = service.peek("ws-1");
+    expect(state?.kind === "ready" && state.board.tasks.find((t) => t.title === "Task 0")?.status).toBe("done");
   });
 
   it("a card is dragged with the pointer and dropped on a column; a plain press still opens one", async () => {
