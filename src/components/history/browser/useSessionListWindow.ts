@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect } from "react";
 import type { RefObject } from "react";
 import type { VirtualItem } from "@tanstack/react-virtual";
 import { useRowWindow } from "@keepdeck/ui-kit/useRowWindow";
+import { useFocusHandoff } from "@keepdeck/ui-kit/useFocusHandoff";
 import type { LaneApi } from "../../../app/useSessionsBrowser";
 import { rowKeyOf, type UnifiedSessionRow } from "../../../domain/journal";
 
@@ -37,9 +38,9 @@ export interface SessionListWindow {
  * then other rows — the composition's order, untouched). The engine —
  * the virtualizer, the measuring, the anchor-by-key correction that
  * keeps a watched row at its offset when a page lands above it — is the
- * app's shared `useRowWindow`; what is this list's own is below: the
- * two paging thresholds, one per lane, and the focus transfer for a
- * row that unmounts under the keyboard. Keys are agent:sessionId —
+ * app's shared `useRowWindow`, and the keyboard's place when a focused
+ * row unmounts is the shared `useFocusHandoff`; what is this list's own
+ * is the two paging thresholds, one per lane. Keys are agent:sessionId —
  * NEVER the index.
  *
  * A note the engine keeps for every list: the React "flushSync was
@@ -112,93 +113,9 @@ export function useSessionListWindow({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [checkPaging, workspace.hits.length, other.hits.length]);
 
-  // FOCUS TRANSFER: if the focused element lived inside a row that just
-  // UNMOUNTED (scrolled out of the window), focus fell to <body> — the
-  // tab walk restarts at the page top and the keyboard context is lost.
-  // The transfer lands focus on the LIST CONTAINER: the walk's place is
-  // kept, the next Tab enters the nearest visible row. The overscan
-  // buffer covers stepping; this covers the fling past it. Asymmetry
-  // argument (the circle's): the unmount-with-focus case is rare, while
-  // a lost focus on every focused scroll would meet the same person
-  // constantly.
-  //
-  // CONDITIONAL BY CONSTRUCTION: the transfer fires ONLY for the
-  // remembered, focused ELEMENT of a row — never because a mutation
-  // happened while activeElement happened to be body. The first cut
-  // here focused the list on ANY child mutation with focus in body:
-  // an ordinary mouse scroll (nothing ever focused in a row) landed a
-  // page and the list STOLE the focus. The remembered element is kept
-  // by a focusin listener (a passive post-render read misses focus
-  // set between renders), keyed by the row's COMPOSITE key — the row
-  // title alone (sessionId) never matched the window's
-  // agent:sessionId identities, so the old comparison described
-  // nothing.
-  const focusedElRef = useRef<HTMLElement | null>(null);
-  useEffect(() => {
-    const list = listRef.current;
-    if (!list) return;
-    const onFocusIn = (e: FocusEvent) => {
-      const target = e.target as HTMLElement | null;
-      focusedElRef.current =
-        target?.closest?.(".history__row") ? target : null;
-    };
-    // LEAVING the list clears the memory — but ONLY on a REAL move:
-    // focusout's relatedTarget tells where focus went. We TREAT a
-    // null relatedTarget as removal — a CONSERVATIVE CHOICE, not a
-    // signature: by spec, relatedTarget is also null when focus
-    // leaves for another browsing context or when no focusable target
-    // follows, so a real departure CAN arrive with a null target and
-    // leave the memory stale (a later removal with focus in body
-    // would then return focus to the list — the known edge, kept
-    // over the alternative of clearing on every focusout, which
-    // would break the observer's removal branch: when a node is
-    // REMOVED there may be no focusout at all, and a removal-fired
-    // one carries null without the user having gone anywhere). So:
-    // clear only when focus verifiably LANDED outside the list;
-    // null keeps the memory for the observer to act on.
-    const onFocusOut = (e: FocusEvent) => {
-      const wentTo = e.relatedTarget as HTMLElement | null;
-      if (wentTo && !list.contains(wentTo)) {
-        focusedElRef.current = null;
-      }
-    };
-    list.addEventListener("focusin", onFocusIn);
-    list.addEventListener("focusout", onFocusOut);
-    return () => {
-      list.removeEventListener("focusin", onFocusIn);
-      list.removeEventListener("focusout", onFocusOut);
-      focusedElRef.current = null;
-    };
-  }, []);
-  // The transfer: a REMOVED focused node fires no focusout in every
-  // engine, so removals are watched. The transfer lands ONLY when BOTH
-  // hold: the removed subtree contained the REMEMBERED focused
-  // element (a focusin-remembered node of a row — an ordinary scroll
-  // that never focused a row transfers NOTHING), AND the browser
-  // already dropped focus to body (another target means the user
-  // moved on — not ours to move). This is CONDITIONAL by
-  // construction; the first cut here focused the list on any
-  // mutation with focus in body and stole focus from plain mouse scrolls —
-  // pinned by the negative witness in the suite.
-  useEffect(() => {
-    const list = listRef.current;
-    if (!list || typeof MutationObserver === "undefined") return;
-    const observer = new MutationObserver(() => {
-      const remembered = focusedElRef.current;
-      if (
-        remembered &&
-        !remembered.isConnected &&
-        document.activeElement === document.body
-      ) {
-        list.focus({ preventScroll: true });
-        focusedElRef.current = null;
-      }
-      // Anything else — nothing remembered, still connected, focus
-      // elsewhere — is not a transfer case.
-    });
-    observer.observe(list, { childList: true, subtree: true });
-    return () => observer.disconnect();
-  }, []);
+  // A focused row scrolled out keeps the keyboard's place on the list —
+  // the app's one handoff, shared with every windowed list (ui-kit).
+  useFocusHandoff(listRef);
   const onListScroll = () => {
     remeasure();
     checkPaging();
