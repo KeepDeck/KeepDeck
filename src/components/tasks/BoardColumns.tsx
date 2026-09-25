@@ -1,5 +1,5 @@
 import type { BoardColumnView } from "../../presentation/tasks";
-import { dropStateOf, type CardGrip, type DragState } from "../../presentation/tasks";
+import { columnClassName, type CardGrip, type DragState } from "../../presentation/tasks";
 import type { TaskStatus } from "../../domain/tasks";
 import { TaskCard } from "./TaskCard";
 
@@ -27,37 +27,34 @@ export function BoardColumns({
 }: BoardColumnsProps) {
   return (
     <div className="tasks__columns">
-      {columns.map((column) => {
-        const drop = dropStateOf(column.status, drag, hover);
-        return (
-          <section
-            key={column.status}
-            className={`tasks__column${drop ? ` tasks__column--drop-${drop}` : ""}`}
-            aria-label={column.label}
-            data-drop-status={column.status}
-            onPointerOver={() => onHover(column.status)}
-            onPointerLeave={() => onHover(null)}
-            onPointerUp={() => onDrop(column.status)}
-          >
-            <header className="tasks__column-head">
-              <span className={`tasks__column-label tasks__column-label--${column.status}`}>{column.label}</span>
-              <span className="tasks__column-count">{column.count}</span>
-            </header>
-            <div className="tasks__column-body">
-              {column.cards.map((card) => (
-                <TaskCard
-                  key={card.id}
-                  card={card}
-                  selected={card.id === selectedId}
-                  dragging={drag.kind === "dragging" && drag.id === card.id}
-                  onSelect={onSelect}
-                  onArm={onArm}
-                />
-              ))}
-            </div>
-          </section>
-        );
-      })}
+      {columns.map((column) => (
+        <section
+          key={column.status}
+          className={columnClassName(column.status, drag, hover)}
+          aria-label={column.label}
+          data-drop-status={column.status}
+          onPointerOver={() => onHover(column.status)}
+          onPointerLeave={() => onHover(null)}
+          onPointerUp={() => onDrop(column.status)}
+        >
+          <header className="tasks__column-head">
+            <span className={`tasks__column-label tasks__column-label--${column.status}`}>{column.label}</span>
+            <span className="tasks__column-count">{column.count}</span>
+          </header>
+          <div className="tasks__column-body">
+            {column.cards.map((card) => (
+              <TaskCard
+                key={card.id}
+                card={card}
+                selected={card.id === selectedId}
+                dragging={drag.kind === "dragging" && drag.id === card.id}
+                onSelect={onSelect}
+                onArm={onArm}
+              />
+            ))}
+          </div>
+        </section>
+      ))}
     </div>
   );
 }

@@ -86,6 +86,16 @@ export function dropStateOf(
   return hover === status ? "over" : "ok";
 }
 
+/** A column's classes: lit by its part in the drag in flight. */
+export function columnClassName(
+  status: TaskStatus,
+  state: DragState,
+  hover: TaskStatus | null,
+): string {
+  const drop = dropStateOf(status, state, hover);
+  return drop ? `tasks__column tasks__column--drop-${drop}` : "tasks__column";
+}
+
 /** Whether a click arriving `now` is the tail of a drag that ended at
  * `dragEndedAt`, and must not select anything. */
 export function clickDisbelieved(dragEndedAt: number | null, now: number): boolean {

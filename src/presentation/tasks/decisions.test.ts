@@ -8,6 +8,7 @@ import {
   IDLE,
   armCard,
   clickDisbelieved,
+  columnClassName,
   dropStateOf,
   ghostBox,
   moveCard,
@@ -53,6 +54,10 @@ describe("cardDrag", () => {
     expect(dropStateOf("done", dragging, "done")).toBe("over");
     expect(dropStateOf("review", dragging, "review")).toBe("no");
     expect(dropStateOf("done", IDLE, "done")).toBeNull();
+    // …and wear it as their classes.
+    expect(columnClassName("done", dragging, "done")).toBe("tasks__column tasks__column--drop-over");
+    expect(columnClassName("review", dragging, null)).toBe("tasks__column tasks__column--drop-no");
+    expect(columnClassName("done", IDLE, "done")).toBe("tasks__column");
     expect(clickDisbelieved(1_000, 1_000 + CLICK_AFTER_DRAG_MS - 1)).toBe(true);
     expect(clickDisbelieved(1_000, 1_000 + CLICK_AFTER_DRAG_MS)).toBe(false);
     expect(clickDisbelieved(null, 5)).toBe(false);
