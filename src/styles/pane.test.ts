@@ -110,6 +110,7 @@ function renderStandIn(): void {
           paneId: "pane-1",
           title: "A deliberately long agent title that has to yield",
           gitBadge: { label: LONG_BRANCH, title: LONG_BRANCH },
+          yolo: true,
           label: "Restore the agent",
           active: true,
           onClick: () => {},
@@ -249,6 +250,6 @@ describe("pane header", () => {
     expect(styleOf(".pane__yolo").flexShrink).toBe("0");
 
     renderStandIn();
-    expect(styleOf(".minimized__branch").flexShrink).toBe("0");
+    expect(styleOf(".minimized__yolo").flexShrink).toBe("0");
   });
 });

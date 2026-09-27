@@ -112,25 +112,27 @@
   flex: none;
 }
 
-/* Stopped marker: muted, not a warning — a suspended agent is a normal
-   resting state, unlike the YOLO bolt it sits beside. */
-.minimized__stopped {
+/* The status dot leads the chip, as it leads the pane's header; its hue is
+   status.css's (.minimized__status--*). A stopped agent's dot is hollow. */
+.minimized__status {
   flex: none;
-  display: inline-flex;
-  align-items: center;
-  color: var(--kd-text-3);
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: currentColor;
 }
 
-.minimized__branch {
-  /* 120 is what the chip proved sufficient once the badge stopped shrinking:
-     at the 800px minimum window a docked dock and the rail leave a 258px
-     stage, and a stopped, YOLO-flagged agent on a long branch needs 107px
-     before the badge even starts. */
-  max-width: 120px;
-  overflow: hidden;
-  /* No `flex` here either — chip.css states once that a chip does not yield,
-     and the title beside it is what gives instead. */
-  color: var(--kd-text-2);
+.minimized__status--stopped {
+  background-color: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--kd-text-4);
+}
+
+/* The words, only for an agent that needs a person or has failed —
+   trayChipStatus decides; status.css colours them. */
+.minimized__word {
+  flex: none;
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .minimized__restore {

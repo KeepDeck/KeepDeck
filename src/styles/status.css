@@ -1,12 +1,11 @@
-/* The status frame ladder — the agent-status names (their hues come from
-   the one status palette in tokens.css) and rhythms, shared by every surface that renders `paneFrame()`: the pane
-   border, the minimized stand-in, and the rail dot. The domain ranks
-   (frame.ts); this file only paints.
+/* The status paint — the agent-status names (their hues come from the one
+   status palette in tokens.css), shared by every surface that renders
+   `paneFrame()`: the pane's rim, dot and word, the minimized stand-in, and
+   the rail dot. The domain ranks (frame.ts); this file only paints.
 
-   Rhythm is state IDENTITY, not urgency: failed always pulses at 1s,
-   waiting always breathes at 2s, working always glows at 1.6s — a frame
-   never changes rhythm, so the pace itself names the state from across
-   the room. */
+   Tiles and chips are static: the hue and the word name the state. Only
+   the rail's small dots still keep a rhythm, until the left strip is
+   redrawn. */
 :root {
   --status-working: var(--kd-working);
   --status-waiting: var(--kd-warn);
@@ -57,31 +56,25 @@
   border-color: var(--kd-err-line);
 }
 
-/* Minimized stand-ins wear the same ladder on their border — attention
-   must survive minimizing; these are exactly the panes nobody is watching.
-   The chip recolours the border it already has; the bar gains one inside
-   its border-box (its geometry never moves — minimize.css owns that). No
-   selection rung: a hidden pane is never the selected one. Doubled class
-   beats the chip's own border AND its :hover recolour at equal
-   specificity by source order. */
-.minimized.minimized--frame-done {
-  border: 1px solid var(--status-done);
-}
-
-.minimized.minimized--frame-working {
-  border: 1px solid var(--status-working);
-  animation: status-frame-working 1.6s ease-in-out infinite;
-}
-
+/* Minimized stand-ins: attention must survive minimizing — these are
+   exactly the panes nobody is watching — so a waiting or failed chip keeps a
+   rim, static like the tile's. Every state shows as the chip's dot; working
+   and done need no rim. Doubled class beats the chip's own border and its
+   :hover recolour at equal specificity by source order. */
 .minimized.minimized--frame-waiting {
-  border: 1px solid var(--status-waiting);
-  animation: status-frame-breathe 2s ease-in-out infinite;
+  border: 1px solid var(--kd-warn-line);
 }
 
 .minimized.minimized--frame-failed {
-  border: 1px solid var(--status-failed);
-  animation: status-frame-pulse 1s ease-in-out infinite;
+  border: 1px solid var(--kd-err-line);
 }
+
+.minimized__status--working { color: var(--status-working); }
+.minimized__status--waiting { color: var(--status-waiting); }
+.minimized__status--done { color: var(--status-done); }
+.minimized__status--failed { color: var(--status-failed); }
+.minimized__word--waiting { color: var(--status-waiting); }
+.minimized__word--failed { color: var(--status-failed); }
 
 /* The rail dot: the same ladder folded over a whole workspace (the
    domain's workspaceFrame). `selected` is the active workspace's green the
@@ -124,35 +117,8 @@
   }
 }
 
-/* The frame glows modulate the rung's own colour toward transparent
-   (color-mix): one keyframe pair per rung, carrying its palette variable
-   and fade depth (waiting and working both fade to 40% — a shared calm;
-   failed to 30% — an alarm). The RHYTHM that names the state (1s, 2s,
-   1.6s) lives on each surface's `animation` shorthand, not here, so a
-   surface that reuses a pair stays on palette and picks its own pace. */
-@keyframes status-frame-breathe {
-  50% {
-    border-color: color-mix(in srgb, var(--status-waiting) 40%, transparent);
-  }
-}
-
-@keyframes status-frame-working {
-  50% {
-    border-color: color-mix(in srgb, var(--status-working) 40%, transparent);
-  }
-}
-
-@keyframes status-frame-pulse {
-  50% {
-    border-color: color-mix(in srgb, var(--status-failed) 30%, transparent);
-  }
-}
-
 /* The state is still named by colour; only the rhythm rests. */
 @media (prefers-reduced-motion: reduce) {
-  .minimized.minimized--frame-waiting,
-  .minimized.minimized--frame-failed,
-  .minimized.minimized--frame-working,
   .rail__dot--waiting,
   .rail__dot--failed,
   .rail__dot--working {

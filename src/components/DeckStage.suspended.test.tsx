@@ -307,12 +307,12 @@ describe("DeckStage — suspended agents", () => {
       workspaces: suspended,
       viewByWs: { "ws-1": { minimized: ["pane-1"] } },
     });
-    expect(openOnlyTrayEntry().querySelector(".minimized__stopped")).not.toBeNull();
+    expect(openOnlyTrayEntry().querySelector(".minimized__status--stopped")).not.toBeNull();
   });
 
   it("leaves a running stand-in unmarked", () => {
     render({ viewByWs: { "ws-1": { minimized: ["pane-1"] } } });
-    expect(openOnlyTrayEntry().querySelector(".minimized__stopped")).toBeNull();
+    expect(openOnlyTrayEntry().querySelector(".minimized__status--stopped")).toBeNull();
   });
 
   it("does not mark a pane that is still waking", () => {
@@ -332,7 +332,7 @@ describe("DeckStage — suspended agents", () => {
       workspaces: waking,
       viewByWs: { "ws-1": { minimized: ["pane-1"] } },
     });
-    expect(openOnlyTrayEntry().querySelector(".minimized__stopped")).toBeNull();
+    expect(openOnlyTrayEntry().querySelector(".minimized__status--stopped")).toBeNull();
   });
 
   it("marks a waking pane that is blocked on a missing folder", () => {
@@ -353,7 +353,7 @@ describe("DeckStage — suspended agents", () => {
       idleBlocked: { "pane-1": "/gone/worktree" },
       viewByWs: { "ws-1": { minimized: ["pane-1"] } },
     });
-    expect(openOnlyTrayEntry().querySelector(".minimized__stopped")).not.toBeNull();
+    expect(openOnlyTrayEntry().querySelector(".minimized__status--stopped")).not.toBeNull();
   });
 
   it("shows only a local suspended pane's own session id", () => {

@@ -9,7 +9,7 @@ import {
 import { createPortal } from "react-dom";
 import type { GitBadge } from "../../ui/gitBadge";
 import type { AgentGlyphIcon } from "../../ui/AgentGlyph";
-import { MinimizedItem, MinimizedItemContent } from "./MinimizedItem";
+import { MinimizedItem, MinimizedItemMeasure } from "./MinimizedItem";
 import { isBehindModalLayer } from "../../ui/inertBackground";
 
 export const MINIMIZED_TRAY_ITEM_MAX_WIDTH = 272;
@@ -373,20 +373,15 @@ export function MinimizedTray({
       </span>
       <div ref={sizerRef} className="deck__tray-sizer" aria-hidden>
         {entries.map((entry) => (
-          <span
+          <MinimizedItemMeasure
             key={entry.id}
-            className="minimized minimized--chip minimized--measure"
-          >
-            <MinimizedItemContent
-              title={entry.title}
-              icon={entry.icon}
-              gitBadge={entry.gitBadge}
-              yolo={entry.yolo}
-              // The sizer measures the REAL chip: omitting the marker here
-              // would under-measure a stopped chip and clip it in the tray.
-              stopped={entry.stopped}
-            />
-          </span>
+            paneId={entry.id}
+            title={entry.title}
+            icon={entry.icon}
+            yolo={entry.yolo}
+            // The sizer measures the REAL chip, stopped dot included.
+            stopped={entry.stopped}
+          />
         ))}
       </div>
       <div ref={viewportRef} className="deck__tray-items">

@@ -26,6 +26,7 @@ import {
   type Pane,
   type PaneVisibilityView,
 } from "../domain/deck";
+import type { PaneActivity } from "../domain/status";
 
 export type ShelfReason = HideReason | "maximized";
 
@@ -120,4 +121,26 @@ export function emptyGridMessage(
       ? "Restore one below to inspect it"
       : "They keep running — restore one below to bring it back";
   return { title, sub };
+}
+
+/** What a tray chip says about its agent: a dot in the state's hue, and
+ * words only when the agent needs a person or has failed — those are the
+ * minimized panes nobody is watching. A stopped agent wears a hollow dot. */
+export interface TrayChipStatus {
+  tone: PaneActivity["state"] | "stopped";
+  word: string | null;
+}
+
+const TRAY_WORDS: Partial<Record<PaneActivity["state"], string>> = {
+  waiting: "needs you",
+  failed: "failed",
+};
+
+export function trayChipStatus(
+  activity: Pick<PaneActivity, "state"> | undefined,
+  stopped: boolean,
+): TrayChipStatus | null {
+  if (activity) return { tone: activity.state, word: TRAY_WORDS[activity.state] ?? null };
+  if (stopped) return { tone: "stopped", word: null };
+  return null;
 }
