@@ -51,3 +51,4 @@ export {
 } from "./terminalLinks";
 export { HINT_MS, PaneHintView, type PaneHint } from "./PaneHint";
 export { useTransient } from "./useTransient";
+export { TERMINAL_THEME, TERMINAL_FONT_FAMILY } from "./theme";

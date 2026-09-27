@@ -29,6 +29,8 @@ import {
   PaneHintView,
   useTransient,
   type PaneHint,
+  TERMINAL_FONT_FAMILY,
+  TERMINAL_THEME,
 } from "@keepdeck/terminal-kit";
 import { registerTerminalLinks } from "./terminalLinks";
 import { useAppRuntime } from "../../app/runtimeContext";
@@ -181,13 +183,13 @@ export function TerminalPane({
 
     const term = new Terminal({
       convertEol: true,
-      fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+      fontFamily: TERMINAL_FONT_FAMILY,
       fontSize: 13,
       cursorBlink: true,
       // xterm defaults to 1000 lines — too small for verbose agents. The
       // value is the [F6] setting.
       scrollback: scrollbackRef.current,
-      theme: { background: "#0b0e14", foreground: "#c5c8c6" },
+      theme: TERMINAL_THEME,
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
