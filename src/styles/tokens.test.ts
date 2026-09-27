@@ -63,6 +63,13 @@ describe("the design tokens", () => {
     ladder.slice(1).forEach((l, i) => expect(l).toBeGreaterThan(ladder[i]));
   });
 
+  it("set the UI in the bundled Inter, falling back to the system face", () => {
+    expect(declared(tokens, "--kd-font-ui")).toMatch(/^"Inter Variable",\s*ui-sans-serif/);
+    expect(declared(readStyles("base.css"), "font-family")).toBe("var(--kd-font-ui)");
+    const app = readFileSync(join(STYLES_DIR, "..", "App.tsx"), "utf8");
+    expect(app).toContain('import "@fontsource-variable/inter";');
+  });
+
   it("hold the chart's surface constant to the canvas it is drawn on", () => {
     expect(CHART_SURFACE).toBe(declared(tokens, "--kd-canvas"));
   });

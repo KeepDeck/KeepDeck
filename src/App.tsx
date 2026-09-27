@@ -33,6 +33,9 @@ import { useCallback } from "react";
 import { sharedDirectoryAsk } from "./app/sharedDirectoryMessage";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
 import { ModalOverlay } from "./ui/ModalOverlay";
+// The UI font (tokens.css --kd-font-ui) — its @font-face rules, before the
+// sheets that name it.
+import "@fontsource-variable/inter";
 import "./styles/index.css";
 
 /** The registry's reads, bound to IPC here and nowhere else — one object for

@@ -1,7 +1,7 @@
 :root {
   /* Every colour the chrome uses — surfaces, text and the status palette —
      lives in tokens.css, imported before this file. */
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-family: var(--kd-font-ui);
   color: #c5c8c6;
   background-color: var(--kd-bg);
   font-synthesis: none;

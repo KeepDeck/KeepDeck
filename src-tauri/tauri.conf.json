@@ -26,7 +26,10 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "resources": { "../dist/plugins": "plugins" },
+    "resources": {
+      "../dist/plugins": "plugins",
+      "../node_modules/@fontsource-variable/inter/LICENSE": "licenses/Inter-OFL.txt"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

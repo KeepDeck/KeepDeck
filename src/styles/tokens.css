@@ -45,6 +45,11 @@
   --kd-working: #72a5f3;
   --kd-info: var(--kd-working);
 
+  /* The UI face: Inter, bundled (App.tsx imports it; Latin and Cyrillic
+     load by unicode-range), falling back to the system face. The terminal
+     keeps its own monospace stack. */
+  --kd-font-ui: "Inter Variable", ui-sans-serif, system-ui, -apple-system, sans-serif;
+
   /* The page background, for opaque colour mixes that must track it. */
   --kd-bg: var(--kd-canvas);
 }
