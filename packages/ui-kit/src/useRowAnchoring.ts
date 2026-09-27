@@ -20,7 +20,7 @@ interface UseRowAnchoringInput<Row> {
   lastVirtualIndex: number;
   rowVirtualizer: Pick<
     ReactVirtualizer<HTMLElement, HTMLElement>,
-    "getOffsetForIndex"
+    "getOffsetForIndex" | "getTotalSize"
   >;
 }
 
@@ -56,7 +56,8 @@ export function useRowAnchoring<Row>({
   // window-only lookup would misread the SAME key as vanished and
   // hand the anchor to an inserted row — the very jump this exists to
   // prevent. The position comes from the library's getOffsetForIndex
-  // — it reads the full measured cache, window or no window; our own
+  // — it reads the full measured cache, window or no window (rebuilt
+  // first: see the compensation); our own
   // queue array supplies the key's index. The vanished/not-yet-
   // measured branch holds the offset and re-arms.
   const anchorRef = useRef<AnchorState | null>(null);
@@ -83,6 +84,13 @@ export function useRowAnchoring<Row>({
     const scrollTop = list.scrollTop;
     const nextIndex = queue.findIndex((r) => keyOf(r) === prev.key);
     if (nextIndex >= 0) {
+      // getOffsetForIndex reads the positions as they stood at the last
+      // rebuild — and the rows that just mounted above (in view at the
+      // top, say) have reported their heights since, in this very commit.
+      // getTotalSize rebuilds them from every height measured so far;
+      // without it the anchor is placed by the estimate the landed rows
+      // were painted with, off by the difference per row.
+      rowVirtualizer.getTotalSize();
       const at = rowVirtualizer.getOffsetForIndex(nextIndex, "start");
       if (at) {
         const target = at[0] - prev.offset;

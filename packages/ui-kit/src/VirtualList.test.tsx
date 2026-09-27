@@ -225,4 +225,20 @@ describe("VirtualList's measured heights", () => {
       expect(after.get(`row ${i + 1}`)! - after.get(`row ${i}`)!).toBe(MEASURED);
     }
   });
+
+  it("holds the row being read when the rows landing above it are measured in the same commit", async () => {
+    // At the very top, the landed rows mount in the window and report their
+    // real height before the anchoring runs. The anchoring must place the
+    // row by those heights, not by the estimate it painted with a moment
+    // earlier — or the row it holds lands a height difference per landed
+    // row off its place.
+    render(items);
+    const anchor = tops().get("row 0")! - list().scrollTop;
+    const landed = Array.from({ length: 5 }, (_, i) => `new ${i}`);
+
+    render([...landed, ...items]);
+    await act(async () => {});
+
+    expect(tops().get("row 0")! - list().scrollTop).toBe(anchor);
+  });
 });
