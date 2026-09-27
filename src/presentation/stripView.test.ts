@@ -57,20 +57,33 @@ describe("stripView marks", () => {
     ]);
   });
 
-  it("dots a workspace only for what needs the person, failed over waiting", () => {
+  it("dots a mark with its workspace's loudest state, idle while quiet, none when empty", () => {
+    // A mark is the only view into a workspace not on screen, so it says
+    // whatever is loudest there — work in progress included.
     const view = (activities: Record<string, keyof typeof ACTIVITY>) =>
-      stripView([THREE_TEAMS_OF_ONE], frames(activities), {}, "")?.marks[0];
-    expect(view({ "pane-4": "working", "pane-6": "done" }).dot).toBeNull();
+      stripView([THREE_TEAMS_OF_ONE], frames(activities), {}, "").marks[0];
+    expect(view({}).dot).toBe("idle");
+    expect(view({ "pane-6": "done" }).dot).toBe("done");
+    expect(view({ "pane-4": "working", "pane-6": "done" }).dot).toBe("working");
     expect(view({ "pane-4": "working", "pane-5": "waiting" }).dot).toBe("waiting");
     expect(view({ "pane-5": "waiting", "pane-6": "failed" })).toMatchObject({
       dot: "failed",
       label: "ws-b — something failed",
     });
+    expect(stripView([workspace("ws-e", [])], frames({}), {}, "").marks[0].dot).toBeNull();
   });
 
   it("says a failed worktree create as loudly as a failed turn, a create in flight not at all", () => {
     expect(stripView([creatingTeam("boom")], frames({}), {}, "").marks[0].dot).toBe("failed");
     expect(stripView([creatingTeam()], frames({}), {}, "").marks[0].dot).toBeNull();
+  });
+
+  it("offers to move the open workspace one place either way, refusing past an end", () => {
+    const deck = [ONE_TEAM_OF_THREE, THREE_TEAMS_OF_ONE, workspace("ws-e", [])];
+    const at = (id: string) => stripView(deck, frames({}), {}, id).teams!;
+    expect(at("ws-a")).toMatchObject({ moveUpTo: null, moveDownTo: 1 });
+    expect(at("ws-b")).toMatchObject({ moveUpTo: 0, moveDownTo: 2 });
+    expect(at("ws-e")).toMatchObject({ moveUpTo: 1, moveDownTo: null });
   });
 });
 
@@ -92,7 +105,7 @@ describe("stripView teams", () => {
     expect(teams?.rows.map((r) => r.open)).toEqual([true, false, false]);
   });
 
-  it("dots a row for attention only, dims a pending one, offers Retry for a failed create", () => {
+  it("dots a row for attention only — its tiles are on screen — dims a pending one, offers Retry", () => {
     const { teams } = stripView(
       [THREE_TEAMS_OF_ONE],
       frames({ "pane-4": "working", "pane-5": "waiting", "pane-6": "failed" }),

@@ -235,6 +235,7 @@ export function WorkspaceStrip({
           rename={rename}
           onToggleTeams={onToggleTeams}
           onClose={onClose}
+          onReorder={onReorder}
           onEnterTeam={onEnterTeam}
           onTeamAction={onTeamAction}
           onAddTeam={onAddTeam}
@@ -277,6 +278,7 @@ function TeamListPane({
   rename,
   onToggleTeams,
   onClose,
+  onReorder,
   onEnterTeam,
   onTeamAction,
   onAddTeam,
@@ -285,16 +287,30 @@ function TeamListPane({
   rename: ReturnType<typeof useInlineRename>;
   onToggleTeams(): void;
   onClose(id: string): void;
+  onReorder(id: string, toIndex: number): void;
   onEnterTeam(wsId: string, teamId: string): void;
   onTeamAction(wsId: string, teamId: string, action: Exclude<TeamAction, "rename">): void;
   onAddTeam: (() => void) | null;
 }) {
-  const { wsId, wsName, rows } = list;
+  const { wsId, wsName, rows, moveUpTo, moveDownTo } = list;
   const workspaceActions: MenuAction[] = [
     {
       id: "rename",
       label: STRIP_WORDS.renameWorkspace,
       onSelect: () => rename.start(workspaceKey(wsId), wsName),
+    },
+    // The keyboard's way to do what holding a mark and dragging it does.
+    {
+      id: "up",
+      label: STRIP_WORDS.moveUp,
+      disabled: moveUpTo === null,
+      onSelect: () => moveUpTo !== null && onReorder(wsId, moveUpTo),
+    },
+    {
+      id: "down",
+      label: STRIP_WORDS.moveDown,
+      disabled: moveDownTo === null,
+      onSelect: () => moveDownTo !== null && onReorder(wsId, moveDownTo),
     },
     { id: "close", label: STRIP_WORDS.closeWorkspace, onSelect: () => onClose(wsId) },
   ];

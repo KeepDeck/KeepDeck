@@ -29,6 +29,8 @@ const VIEW: StripView = {
   teams: {
     wsId: "a",
     wsName: "Alpha",
+    moveUpTo: null,
+    moveDownTo: 1,
     rows: [
       { id: "t1", name: "api", size: 3, open: true, pending: false, dot: null, actions: ["add-member", "rename", "disband"] },
       {
@@ -167,15 +169,29 @@ describe("WorkspaceStrip", () => {
   it("renames and closes the workspace from the list's head", () => {
     render();
     act(() => byLabel("Workspace Alpha actions")!.click());
-    expect(menuItems().map((i) => i.textContent)).toEqual(["Rename", "Close workspace"]);
+    expect(menuItems().map((i) => i.textContent)).toEqual([
+      "Rename",
+      "Move up",
+      "Move down",
+      "Close workspace",
+    ]);
     act(() => menuItems()[0].click());
     const input = host.querySelector<HTMLInputElement>("input[aria-label='Workspace name']")!;
     typeInto(input, "Omega");
     pressEnter(input);
     expect(callbacks.onRename).toHaveBeenCalledWith("a", "Omega");
     act(() => byLabel("Workspace Alpha actions")!.click());
-    act(() => menuItems()[1].click());
+    act(() => menuItems()[3].click());
     expect(callbacks.onClose).toHaveBeenCalledWith("a");
+  });
+
+  it("moves the workspace from its menu — the keyboard's way to reorder — refusing past an end", () => {
+    render();
+    act(() => byLabel("Workspace Alpha actions")!.click());
+    const [, up, down] = menuItems();
+    expect(up.disabled || up.getAttribute("aria-disabled") === "true").toBe(true);
+    act(() => down.click());
+    expect(callbacks.onReorder).toHaveBeenCalledWith("a", 1);
   });
 
   it("starts a team from the head only when one can be, and hides the list from there", () => {
@@ -196,7 +212,7 @@ describe("WorkspaceStrip", () => {
   });
 
   it("says a workspace has no teams in words", () => {
-    render({ view: { ...VIEW, teams: { wsId: "a", wsName: "Alpha", rows: [] } } });
+    render({ view: { ...VIEW, teams: { ...VIEW.teams!, rows: [] } } });
     expect(host.querySelector(".strip__empty")?.textContent).toBe("No teams yet");
   });
 

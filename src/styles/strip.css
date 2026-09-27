@@ -145,8 +145,9 @@
   text-overflow: ellipsis;
 }
 
-/* A dot says only that something needs the person: waiting or failed.
-   On a mark it sits on the tile's corner, ringed in the strip's colour. */
+/* A row's dot says only that something needs the person; a mark's says
+   its workspace's loudest state. On a mark it sits on the tile's corner,
+   ringed in the strip's colour. */
 .strip__dot {
   width: 6px;
   height: 6px;
@@ -169,6 +170,24 @@
 
 .strip__dot--failed {
   background-color: var(--kd-err);
+}
+
+.strip__dot--working {
+  background-color: var(--kd-working);
+}
+
+.strip__dot--done {
+  background-color: var(--kd-ok);
+}
+
+/* Somebody is there and nothing has been reported: hollow, not absent.
+   Only a mark says idle, and its own ring rule (above) would otherwise win
+   the box-shadow, so this matches at the mark's specificity. */
+.strip__tile .strip__dot--idle {
+  background-color: var(--kd-strip);
+  box-shadow:
+    inset 0 0 0 1.5px var(--kd-text-4),
+    0 0 0 2px var(--kd-strip);
 }
 
 /* ── The team list ──────────────────────────────────────────────────── */

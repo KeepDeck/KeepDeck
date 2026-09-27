@@ -7,10 +7,13 @@
  * team, never a level above one, so this list is the only place a team is
  * reached from.
  *
- * Both halves speak only when something needs the person: a mark or a row
- * wears a dot for a failed or waiting agent (or a failed worktree create),
- * and nothing for work in progress. Working and done are the tiles' and the
- * tray's to say; a column of dots that is always lit says nothing.
+ * The two halves dot differently, because they answer different questions.
+ * A MARK is the only view into a workspace that is not on screen, so it
+ * wears that workspace's loudest state, whatever it is — failed, waiting,
+ * working, done, or a hollow idle — and no dot only when nobody is there.
+ * A ROW is a team of the workspace already on screen, whose tiles say how
+ * each agent is doing; it speaks only when something needs the person —
+ * a failed or waiting agent, or a failed worktree create.
  *
  * The dots are folded HERE, from the live activities a single subscription
  * carries in ([`usePaneActivities`]): each team's from its own members
@@ -20,8 +23,11 @@ import { membersOf, openTeamOf, teamsOf, type Workspace, type WorkspaceViewMap }
 import type { PaneActivity } from "../domain/status";
 import { teamActions, teamDot, teamPending, type TeamAction, type TeamDot } from "./teamView";
 
-/** The only states the strip draws a dot for. */
+/** The only states a team row draws a dot for. */
 export type AttentionDot = "failed" | "waiting";
+
+/** A mark's dot: its workspace's loudest state. */
+export type MarkDot = "failed" | "waiting" | "working" | "done" | "idle";
 
 /** One workspace's mark in the column. */
 export interface WorkspaceMark {
@@ -30,7 +36,8 @@ export interface WorkspaceMark {
   /** Up to two letters, what the mark itself says. */
   initials: string;
   active: boolean;
-  dot: AttentionDot | null;
+  /** Null only for a workspace nobody is in. */
+  dot: MarkDot | null;
   /** The mark's tooltip and accessible name. */
   label: string;
 }
@@ -54,6 +61,10 @@ export interface TeamList {
   wsId: string;
   wsName: string;
   rows: readonly TeamRow[];
+  /** Where the workspace's menu can move it — the keyboard's way to do what
+   * a held mark's drag does — or null at that end of the column. */
+  moveUpTo: number | null;
+  moveDownTo: number | null;
 }
 
 export interface StripView {
@@ -70,13 +81,18 @@ export const STRIP_WORDS = {
   noTeams: "No teams yet",
   workspaceMenu: (name: string) => `Workspace ${name} actions`,
   renameWorkspace: "Rename",
+  moveUp: "Move up",
+  moveDown: "Move down",
   closeWorkspace: "Close workspace",
   renameField: "Workspace name",
 } as const;
 
-const DOT_WORDS: Record<AttentionDot, string> = {
+const DOT_WORDS: Record<MarkDot, string> = {
   failed: "something failed",
   waiting: "someone needs you",
+  working: "working",
+  done: "done",
+  idle: "idle",
 };
 
 /** The dot a team's own ladder earns in the strip: only what needs the
@@ -85,9 +101,13 @@ function attention(dot: TeamDot): AttentionDot | null {
   return dot === "failed" || dot === "waiting" ? dot : null;
 }
 
-/** The louder of a workspace's teams' dots — failed over waiting. */
-function loudest(dots: readonly (AttentionDot | null)[]): AttentionDot | null {
-  return dots.includes("failed") ? "failed" : dots.includes("waiting") ? "waiting" : null;
+const MARK_LADDER: readonly MarkDot[] = ["failed", "waiting", "working", "done"];
+
+/** A workspace's loudest state from its teams' dots — a create in flight
+ * says nothing yet — else idle while anyone is there, else no dot. */
+function markDot(teamDots: readonly TeamDot[], agents: number): MarkDot | null {
+  const loudest = MARK_LADDER.find((rung) => teamDots.includes(rung as TeamDot));
+  return loudest ?? (agents > 0 ? "idle" : null);
 }
 
 /**
@@ -113,23 +133,34 @@ export function stripView(
 ): StripView {
   const marks: WorkspaceMark[] = [];
   let teams: TeamList | null = null;
-  for (const ws of workspaces) {
+  workspaces.forEach((ws, index) => {
     const shown = openTeamOf(ws, viewByWs[ws.id]);
+    const teamDots: TeamDot[] = [];
     const rows = teamsOf(ws).map((team): TeamRow => {
       const members = membersOf(ws, team.id);
+      const dot = teamDot(team, members.map((pane) => activities.get(pane.id)));
+      teamDots.push(dot);
       return {
         id: team.id,
         name: team.name,
         size: members.length,
         open: team.id === shown?.id,
         pending: teamPending(team),
-        dot: attention(teamDot(team, members.map((pane) => activities.get(pane.id)))),
+        dot: attention(dot),
         actions: teamActions(team),
       };
     });
     const active = ws.id === activeId;
-    if (active) teams = { wsId: ws.id, wsName: ws.name, rows };
-    const dot = loudest(rows.map((row) => row.dot));
+    if (active) {
+      teams = {
+        wsId: ws.id,
+        wsName: ws.name,
+        rows,
+        moveUpTo: index > 0 ? index - 1 : null,
+        moveDownTo: index < workspaces.length - 1 ? index + 1 : null,
+      };
+    }
+    const dot = markDot(teamDots, ws.panes.length);
     marks.push({
       id: ws.id,
       name: ws.name,
@@ -138,6 +169,6 @@ export function stripView(
       dot,
       label: dot ? `${ws.name} — ${DOT_WORDS[dot]}` : ws.name,
     });
-  }
+  });
   return { marks, teams };
 }
