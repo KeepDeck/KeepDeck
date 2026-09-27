@@ -20,8 +20,8 @@
   height: 14px;
   padding: 0 3px;
   border-radius: 7px;
-  background-color: #b13c3c;
-  color: #eceff4;
+  background-color: var(--kd-err);
+  color: var(--kd-text);
   font-size: 9px;
   line-height: 14px;
   font-weight: 600;
@@ -41,9 +41,9 @@
   max-height: 420px;
   display: flex;
   flex-direction: column;
-  border: 1px solid #1c2230;
+  border: 1px solid var(--kd-seam);
   border-radius: 10px;
-  background-color: #0e121a;
+  background-color: var(--kd-strip);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
   overflow: hidden;
 }
@@ -53,13 +53,13 @@
   align-items: center;
   justify-content: space-between;
   padding: 10px 12px;
-  border-bottom: 1px solid #1c2230;
+  border-bottom: 1px solid var(--kd-seam);
 }
 
 .bell__title {
   font-size: 12px;
   font-weight: 600;
-  color: #c5c8c6;
+  color: var(--kd-text-2);
 }
 
 .bell__actions {
@@ -71,7 +71,7 @@
 .bell__action {
   border: 0;
   background: transparent;
-  color: #6b7280;
+  color: var(--kd-text-3);
   font-size: 11px;
   cursor: pointer;
   padding: 2px 4px;
@@ -79,14 +79,14 @@
 }
 
 .bell__action:hover {
-  color: #c5c8c6;
-  background-color: #1b2230;
+  color: var(--kd-text-2);
+  background-color: var(--kd-hover);
 }
 
 .bell__empty {
   padding: 24px 12px;
   text-align: center;
-  color: #6b7280;
+  color: var(--kd-text-3);
   font-size: 12px;
 }
 
@@ -107,17 +107,17 @@
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: #9aa2af;
+  color: var(--kd-text-3);
   text-align: left;
   cursor: pointer;
 }
 
 .bell__item:hover {
-  background-color: #1b2230;
+  background-color: var(--kd-hover);
 }
 
 .bell__item--unread {
-  color: #c5c8c6;
+  color: var(--kd-text-2);
 }
 
 .bell__leading {
@@ -141,11 +141,11 @@
 }
 
 .bell__dot--warning {
-  background-color: #c9a23c;
+  background-color: var(--kd-warn-tint);
 }
 
 .bell__dot--error {
-  background-color: #b13c3c;
+  background-color: var(--kd-err);
 }
 
 .bell__text {
@@ -170,7 +170,7 @@
 
 .bell__body {
   font-size: 11px;
-  color: #6b7280;
+  color: var(--kd-text-3);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -179,6 +179,6 @@
 .bell__age {
   font-size: 10px;
   line-height: 16px;
-  color: #6b7280;
+  color: var(--kd-text-3);
   font-variant-numeric: tabular-nums;
 }

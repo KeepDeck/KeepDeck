@@ -23,7 +23,7 @@
      never covers content and toggling focus causes no layout shift. */
   border: 2px solid transparent;
   transition: border-color 0.3s ease;
-  background-color: #0b0e14;
+  background-color: var(--kd-tile);
 }
 
 /* Hidden (maximized-away or minimized) but still mounted, so its session — and
@@ -49,8 +49,8 @@
   height: 30px;
   flex: none;
   padding: 0 7px 0 11px;
-  border-bottom: 1px solid #242a37;
-  background-color: #151923;
+  border-bottom: 1px solid var(--kd-seam);
+  background-color: var(--kd-tile);
   /* Query container for the header controls: a narrow pane collapses the branch
      badge to an icon-only chip and then sheds controls by priority (see the
      @container rules below). */
@@ -81,7 +81,7 @@
   align-items: center;
   flex: 0 0 auto;
   font-size: 13px;
-  color: #9aa3af;
+  color: var(--kd-text-3);
   margin-right: 7px;
 }
 
@@ -101,7 +101,7 @@
 .pane__title {
   font-size: 13px;
   font-weight: 500;
-  color: #d6d9df;
+  color: var(--kd-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -117,10 +117,10 @@
   flex: 1 1 auto;
   min-width: 0;
   padding: 1px 4px;
-  border: 1px solid #3a4658;
+  border: 1px solid var(--kd-seam-strong);
   border-radius: 4px;
-  background-color: #0b0e14;
-  color: #c5c8c6;
+  background-color: var(--kd-tile);
+  color: var(--kd-text-2);
   font: inherit;
   font-size: 12px;
   outline: none;
@@ -188,7 +188,7 @@
   font-weight: 600;
   line-height: 1;
   font-variant-numeric: tabular-nums;
-  color: #9aa3b2;
+  color: var(--kd-text-3);
 }
 
 /* The collapse ladder. Every rung's width is the width at which the state
@@ -285,7 +285,7 @@
   justify-content: center;
   border: 0;
   background: transparent;
-  color: #6b7280;
+  color: var(--kd-text-3);
   line-height: 1;
   width: 23px;
   height: 23px;
@@ -295,8 +295,8 @@
 }
 
 .pane__action:hover {
-  background-color: #1b2230;
-  color: #c5c8c6;
+  background-color: var(--kd-hover);
+  color: var(--kd-text-2);
 }
 
 .pane__body {
@@ -324,7 +324,7 @@
   align-items: center;
   justify-content: center;
   gap: 4px;
-  background-color: rgba(11, 14, 20, 0.82);
+  background-color: var(--kd-scrim-strong);
   /* Purely informational — never trap clicks; closing is in the pane header. */
   pointer-events: none;
 }
@@ -333,12 +333,12 @@
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.04em;
-  color: #8b93a3;
+  color: var(--kd-text-3);
 }
 
 .pane__exit-sub {
   font-size: 12px;
-  color: #6b7280;
+  color: var(--kd-text-3);
   font-variant-numeric: tabular-nums;
 }
 
@@ -378,25 +378,25 @@
 .pane__exit-action--primary {
   min-width: 112px;
   padding: 5px 13px;
-  border: 1px solid #3c6850;
-  background-color: #1b3026;
-  color: #d3e8da;
+  border: 1px solid var(--kd-ok-line);
+  background-color: var(--kd-ok-tint);
+  color: var(--kd-text);
 }
 
 .pane__exit-action--primary:hover:not(:disabled) {
-  border-color: #4d8867;
-  background-color: #234030;
+  border-color: var(--kd-ok-line);
+  background-color: var(--kd-ok-fill);
 }
 
 .pane__exit-action--secondary {
   padding: 2px 6px;
   border: 0;
   background: transparent;
-  color: #7f8899;
+  color: var(--kd-text-3);
 }
 
 .pane__exit-action--secondary:hover:not(:disabled) {
-  color: #b7bdc8;
+  color: var(--kd-text-2);
   text-decoration: underline;
 }
 
@@ -406,7 +406,7 @@
 }
 
 .pane__exit-restart-error {
-  color: #b66a6a;
+  color: var(--kd-err);
   font-size: 11px;
 }
 
@@ -431,7 +431,7 @@
   align-items: center;
   justify-content: center;
   gap: 4px;
-  background-color: #0b0e14;
+  background-color: var(--kd-tile);
 }
 
 .pane__card-path {
@@ -455,9 +455,9 @@
 
 .pane__card-action {
   margin-top: 10px;
-  border: 1px solid #2a3343;
-  background-color: #161b26;
-  color: #c5c8c6;
+  border: 1px solid var(--kd-seam);
+  background-color: var(--kd-tile);
+  color: var(--kd-text-2);
   font: inherit;
   font-size: 12px;
   padding: 4px 12px;
@@ -466,8 +466,8 @@
 }
 
 .pane__card-action:hover {
-  background-color: #1b2230;
-  border-color: #3a4658;
+  background-color: var(--kd-hover);
+  border-color: var(--kd-seam-strong);
 }
 
 .pane__card-action:disabled {
@@ -499,7 +499,7 @@
   display: block;
   height: 100%;
   width: 40%;
-  background: linear-gradient(90deg, transparent, #3a4658, transparent);
+  background: linear-gradient(90deg, transparent, var(--kd-seam-strong), transparent);
   animation: pane-provision-slide 1.4s ease-in-out infinite;
 }
 
@@ -522,7 +522,7 @@
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background-color: #8b93a3;
+  background-color: var(--kd-seam-strong);
   animation: pane-provision-pulse 1.2s ease-in-out infinite;
 }
 
@@ -550,5 +550,5 @@
    one line that is a problem rather than a state. */
 .pane__wake-error {
   max-width: 80%;
-  color: #b98b8b;
+  color: var(--kd-err);
 }

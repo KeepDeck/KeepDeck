@@ -16,7 +16,7 @@
   grid-auto-rows: max-content;
   align-content: start;
   gap: 12px;
-  background-color: #0b0e14;
+  background-color: var(--kd-canvas);
 }
 
 .team-card {
@@ -24,16 +24,16 @@
   flex-direction: column;
   gap: 10px;
   padding: 12px 14px;
-  border: 1px solid #1c2230;
+  border: 1px solid var(--kd-seam);
   border-radius: 8px;
-  background-color: #0e121a;
-  color: #c5c8c6;
+  background-color: var(--kd-strip);
+  color: var(--kd-text-2);
   cursor: pointer;
   min-width: 0;
 }
 
 .team-card:hover {
-  border-color: #2a3446;
+  border-color: var(--kd-seam-strong);
 }
 
 /* The directory is on its way, or its create failed: the rim says
@@ -53,7 +53,7 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background-color: #3b4658;
+  background-color: var(--kd-selected);
   flex: none;
 }
 
@@ -106,7 +106,7 @@
   display: block;
   font-size: 14px;
   font-weight: 600;
-  color: #e6e9ef;
+  color: var(--kd-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -117,10 +117,10 @@
   flex: 1 1 auto;
   min-width: 0;
   padding: 1px 4px;
-  border: 1px solid #3a4658;
+  border: 1px solid var(--kd-seam-strong);
   border-radius: 4px;
-  background-color: #0b0e14;
-  color: #c5c8c6;
+  background-color: var(--kd-canvas);
+  color: var(--kd-text-2);
   font: inherit;
   font-size: 13px;
   outline: none;
@@ -138,7 +138,7 @@
   gap: 8px;
   min-width: 0;
   font-size: 12px;
-  color: #8b93a3;
+  color: var(--kd-text-3);
 }
 
 .team-card__branch {
@@ -152,7 +152,7 @@
 .team-card__dir {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px;
-  color: #6b7280;
+  color: var(--kd-text-3);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -162,7 +162,7 @@
    Dimmer than the meta above it: a count, not a control. */
 .team-card__tasks {
   font-size: 12px;
-  color: #8b93a3;
+  color: var(--kd-text-3);
   font-variant-numeric: tabular-nums;
 }
 

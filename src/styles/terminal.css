@@ -3,7 +3,7 @@
   min-height: 0;
   min-width: 0;
   position: relative;
-  background-color: #0b0e14;
+  background-color: var(--kd-tile);
 }
 
 .terminal-pane__host {
@@ -25,11 +25,11 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  background-color: #0b0e14;
+  background-color: var(--kd-tile);
 }
 
 .terminal-pane__launching-label {
-  color: #8b93a3;
+  color: var(--kd-text-3);
   font-size: 13px;
 }
 
@@ -37,7 +37,7 @@
    sideways once a second while a person is watching it. */
 .terminal-pane__launching-elapsed {
   margin-left: 6px;
-  color: #6b7280;
+  color: var(--kd-text-3);
   font-variant-numeric: tabular-nums;
 }
 
@@ -46,23 +46,23 @@
    pointing someone at the terminal would point them at nothing. */
 .terminal-pane__launching-slow {
   margin-top: 8px;
-  color: #6b7280;
+  color: var(--kd-text-3);
   font-size: 11.5px;
 }
 
 .terminal-pane__launching-fork {
   margin-top: 11px;
   padding: 4px 13px;
-  border: 1px solid #3a5372;
+  border: 1px solid var(--kd-working-line);
   border-radius: 6px;
-  background-color: #17233a;
-  color: #cfe0ff;
+  background-color: var(--kd-working-tint);
+  color: var(--kd-text);
   font-size: 12px;
   cursor: pointer;
 }
 
 .terminal-pane__launching-fork:hover {
-  background-color: #1d2c48;
+  background-color: var(--kd-working-tint);
 }
 
 /* Transient notice over a terminal surface ([F16]) — e.g. "File not found"
@@ -77,10 +77,10 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   padding: 7px 14px;
-  border: 1px solid #2a3343;
+  border: 1px solid var(--kd-seam);
   border-radius: 6px;
-  background-color: #151a24;
-  color: #c5c8c6;
+  background-color: var(--kd-tile);
+  color: var(--kd-text-2);
   font-size: 13px;
   pointer-events: none;
   animation: hint-fade-in 120ms ease-out;

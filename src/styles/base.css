@@ -2,7 +2,7 @@
   /* Every colour the chrome uses — surfaces, text and the status palette —
      lives in tokens.css, imported before this file. */
   font-family: var(--kd-font-ui);
-  color: #c5c8c6;
+  color: var(--kd-text-2);
   background-color: var(--kd-bg);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -193,14 +193,14 @@ input[type="number"]::-webkit-outer-spin-button {
   border: 0;
   border-radius: 4px;
   background: transparent;
-  color: #6b7280;
+  color: var(--kd-text-3);
   line-height: 1;
   cursor: pointer;
 }
 
 .ui-close:hover {
-  background-color: #1b2230;
-  color: #c5c8c6;
+  background-color: var(--kd-hover);
+  color: var(--kd-text-2);
 }
 
 /* The floating label that follows the cursor while dragging a file (from the
@@ -215,9 +215,9 @@ input[type="number"]::-webkit-outer-spin-button {
   pointer-events: none;
   padding: 3px 9px;
   border-radius: 6px;
-  background-color: #1b2230;
-  border: 1px solid #2a3343;
-  color: #c5c8c6;
+  background-color: var(--kd-hover);
+  border: 1px solid var(--kd-seam);
+  color: var(--kd-text-2);
   font-size: 12px;
   white-space: nowrap;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);

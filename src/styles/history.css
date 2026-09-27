@@ -5,7 +5,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: #0b0e14;
+  background-color: var(--kd-canvas);
 }
 
 .history {
@@ -24,13 +24,13 @@
   margin: 0 0 4px;
   font-size: 18px;
   font-weight: 600;
-  color: #c5c8c6;
+  color: var(--kd-text-2);
 }
 
 .history__hint {
   margin: 0;
   font-size: 13px;
-  color: #6b7280;
+  color: var(--kd-text-3);
 }
 
 .history__list {
@@ -41,9 +41,9 @@
   /* Without a min-height floor the flex parent lets the list keep its full
    * content height and the scrollbar never appears — paging depends on it. */
   min-height: 0;
-  border: 1px solid #1c2230;
+  border: 1px solid var(--kd-seam);
   border-radius: 10px;
-  background-color: #0e121a;
+  background-color: var(--kd-strip);
 }
 
 .history__row {
@@ -51,7 +51,7 @@
   align-items: center;
   gap: 10px;
   padding: 10px 12px;
-  border-bottom: 1px solid #151a24;
+  border-bottom: 1px solid var(--kd-seam);
   min-width: 0;
 }
 
@@ -123,7 +123,7 @@
    * and is never cut; there is no track to clip it in. */
   min-width: 0;
   font-size: 11px;
-  color: #6b7280;
+  color: var(--kd-text-3);
 }
 
 .history__meta-folder,
@@ -158,7 +158,7 @@
   display: inline-flex;
   width: 16px;
   height: 16px;
-  color: #9aa3af;
+  color: var(--kd-text-3);
 }
 
 .history__glyph svg {
@@ -173,17 +173,17 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 13px;
-  color: #d6d9df;
+  color: var(--kd-text);
 }
 
 .history__resume,
 .history__fork {
   flex: none;
   padding: 3px 10px;
-  border: 1px solid #2b3446;
+  border: 1px solid var(--kd-seam);
   border-radius: 6px;
   background: none;
-  color: #9aa3af;
+  color: var(--kd-text-3);
   font-size: 12px;
   cursor: pointer;
   transition:
@@ -194,7 +194,7 @@
 .history__resume:hover,
 .history__fork:hover {
   border-color: var(--kd-ok);
-  color: #c5c8c6;
+  color: var(--kd-text-2);
 }
 
 
@@ -204,8 +204,8 @@
 }
 
 .history__resume:disabled:hover {
-  border-color: #2b3446;
-  color: #9aa3af;
+  border-color: var(--kd-seam);
+  color: var(--kd-text-3);
 }
 
 /* The unified sessions surface: the workspace's journal pinned above the
@@ -237,16 +237,16 @@
 .browser__search {
   flex: 1;
   padding: 8px 88px 8px 12px;
-  border: 1px solid #1c2230;
+  border: 1px solid var(--kd-seam);
   border-radius: 8px;
-  background-color: #0e121a;
-  color: #d6d9df;
+  background-color: var(--kd-strip);
+  color: var(--kd-text);
   font-size: 13px;
 }
 
 .browser__search:focus {
   outline: none;
-  border-color: #3a4658;
+  border-color: var(--kd-seam-strong);
 }
 
 .browser__meta {
@@ -263,13 +263,13 @@
 .browser__scanning,
 .browser__searching {
   font-size: 11px;
-  color: #6b7280;
+  color: var(--kd-text-3);
 }
 
 /* "shown X of N" — the paging denominator, never a cap. */
 .browser__count {
   font-size: 11px;
-  color: #6b7280;
+  color: var(--kd-text-3);
   font-variant-numeric: tabular-nums;
 }
 
@@ -286,7 +286,7 @@
 }
 
 .browser__list .history__row.history__row--open:hover {
-  background-color: #131926;
+  background-color: var(--kd-hover);
 }
 
 /* The open button is the row's name cell for every row; disabled is
@@ -306,7 +306,7 @@
   align-items: center;
   justify-content: center;
   padding: 8px 0;
-  color: #6b7280;
+  color: var(--kd-text-3);
   font-size: 12px;
 }
 
@@ -314,8 +314,8 @@
   flex: none;
   width: 14px;
   height: 14px;
-  border: 2px solid #2b3446;
-  border-top-color: #9aa3af;
+  border: 2px solid var(--kd-seam);
+  border-top-color: var(--kd-seam);
   border-radius: 50%;
   animation: browser-spin 0.7s linear infinite;
 }
@@ -349,7 +349,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 13px;
-  color: #d6d9df;
+  color: var(--kd-text);
 }
 
 .browser__snippet {
@@ -358,12 +358,12 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 11px;
-  color: #6b7280;
+  color: var(--kd-text-3);
 }
 
 .browser__empty {
   justify-content: center;
-  color: #6b7280;
+  color: var(--kd-text-3);
   font-size: 12px;
 }
 
@@ -373,14 +373,14 @@
    Sharing a class would be sharing a claim. */
 .browser__verdict {
   padding: 6px 12px;
-  color: #92722f;
+  color: var(--kd-warn);
   font-size: 11.5px;
 }
 
 /* The closing verdict sits under the last turn and reads as the end of the
    list, not as another turn. */
 .browser__verdict--end {
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--kd-text);
   margin-top: 4px;
   font-style: italic;
 }
@@ -390,8 +390,8 @@
   inset: 0;
   display: flex;
   flex-direction: column;
-  background-color: #0e121a;
-  border: 1px solid #242a37;
+  background-color: var(--kd-strip);
+  border: 1px solid var(--kd-seam);
   border-radius: 10px;
   /* Clip children to the rounded box — square row backgrounds must not
    * poke into the corner curves. The viewer itself never scrolls (the
@@ -417,7 +417,7 @@
   align-items: center;
   gap: 8px;
   padding: 0 12px;
-  border-bottom: 1px solid #1c2230;
+  border-bottom: 1px solid var(--kd-seam);
 }
 
 .browser__viewerbar .history__actions {
@@ -432,7 +432,7 @@
   min-width: 0;
   border: 0;
   background: transparent;
-  color: #8b93a3;
+  color: var(--kd-text-3);
   /* The label is a session TITLE, not the git plugin's short scope tag —
    * sentence case at content size, with a comfortable row height. Only
    * the VERTICAL padding stays on the button; the horizontal belongs to
@@ -445,7 +445,7 @@
 }
 
 .browser__back:hover {
-  color: #c5c8c6;
+  color: var(--kd-text-2);
 }
 
 .browser__backlabel {
@@ -453,11 +453,11 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: #c5c8c6;
+  color: var(--kd-text-2);
 }
 
 .browser__open:hover .browser__name {
-  color: #ffffff;
+  color: var(--kd-text);
 }
 
 /* The click already opened the viewer — a lingering WebKit focus ring on
@@ -467,7 +467,7 @@
 }
 
 .browser__open:focus-visible {
-  outline: 1px solid #3a4658;
+  outline: 1px solid var(--kd-seam-strong);
   outline-offset: 2px;
   border-radius: 4px;
 }
@@ -491,8 +491,8 @@
   flex: none;
   padding: 8px 10px;
   border-radius: 8px;
-  background-color: #11161f;
-  color: #c5c8c6;
+  background-color: var(--kd-tile);
+  color: var(--kd-text-2);
   /* On the TURN, not the container: selection/paint of the container's
    * inter-row whitespace must never show beside the rounded rows. */
   white-space: pre-wrap;
@@ -508,7 +508,7 @@
 }
 
 .browser__turn--assistant {
-  box-shadow: inset 2px 0 0 #3a4658;
+  box-shadow: inset 2px 0 0 var(--kd-seam);
 }
 
 .browser__turn--other {
@@ -549,9 +549,9 @@
   grid-column: 3;
   font-size: 12px;
   line-height: 1.45;
-  color: #8b93a3;
+  color: var(--kd-text-3);
 }
 
 .team-sessions__hint--error {
-  color: #e5736f;
+  color: var(--kd-err);
 }

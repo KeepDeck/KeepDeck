@@ -10,8 +10,8 @@
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
-  border-top: 1px solid #1c2230;
-  background-color: #0c1119;
+  border-top: 1px solid var(--kd-seam);
+  background-color: var(--kd-tile);
 }
 
 .deck__tray-sizer {
@@ -30,7 +30,7 @@
   font-size: 10px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: #5a6478;
+  color: var(--kd-text-4);
   padding-right: 2px;
 }
 
@@ -49,8 +49,8 @@
   align-items: center;
   gap: 8px;
   border: 0;
-  background-color: #151923;
-  color: #d6d9df;
+  background-color: var(--kd-tile);
+  color: var(--kd-text);
   font: inherit;
   cursor: pointer;
   min-width: 0;
@@ -67,15 +67,15 @@
   height: 26px;
   padding: 0 6px 0 9px;
   border-radius: 7px;
-  background-color: #131a26;
-  border: 1px solid #232c3b;
+  background-color: var(--kd-tile);
+  border: 1px solid var(--kd-seam);
   transition:
     border-color 0.15s ease,
     background-color 0.15s ease;
 }
 .minimized--chip:hover {
-  background-color: #182231;
-  border-color: #33405a;
+  background-color: var(--kd-hover);
+  border-color: var(--kd-seam-strong);
 }
 
 /* The agent's brand mark ahead of the title, same role as the pane header's. */
@@ -84,13 +84,13 @@
   align-items: center;
   flex: 0 0 auto;
   font-size: 12px;
-  color: #9aa3af;
+  color: var(--kd-text-3);
 }
 
 .minimized__title {
   font-size: 13px;
   font-weight: 500;
-  color: #d6d9df;
+  color: var(--kd-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -118,7 +118,7 @@
   flex: none;
   display: inline-flex;
   align-items: center;
-  color: #6b7280;
+  color: var(--kd-text-3);
 }
 
 .minimized__branch {
@@ -130,7 +130,7 @@
   overflow: hidden;
   /* No `flex` here either — chip.css states once that a chip does not yield,
      and the title beside it is what gives instead. */
-  color: #cdd2da;
+  color: var(--kd-text-2);
 }
 
 .minimized__restore {
@@ -141,13 +141,13 @@
   width: 22px;
   height: 22px;
   border-radius: 4px;
-  color: #6b7280;
+  color: var(--kd-text-3);
 }
 .minimized--chip .minimized__restore {
   margin-left: auto;
 }
 .minimized:hover .minimized__restore {
-  color: #c5c8c6;
+  color: var(--kd-text-2);
 }
 
 /* The direct tray stays one row high. The final fixed slot makes overflow
@@ -157,10 +157,10 @@
   flex: none;
   width: 48px;
   height: 26px;
-  border: 1px solid #2b3547;
+  border: 1px solid var(--kd-seam-strong);
   border-radius: 7px;
-  background-color: #131a26;
-  color: #8d97aa;
+  background-color: var(--kd-tile);
+  color: var(--kd-text-3);
   font: inherit;
   font-size: 12px;
   font-variant-numeric: tabular-nums;
@@ -168,9 +168,9 @@
 }
 .minimized-overflow__trigger:hover,
 .minimized-overflow__trigger[aria-expanded="true"] {
-  border-color: #3b4962;
-  background-color: #1a2433;
-  color: #d6d9df;
+  border-color: var(--kd-seam-strong);
+  background-color: var(--kd-hover);
+  color: var(--kd-text);
 }
 
 .minimized-overflow {
@@ -181,9 +181,9 @@
   flex-direction: column;
   width: 288px;
   padding: 7px;
-  border: 1px solid #2a3343;
+  border: 1px solid var(--kd-seam);
   border-radius: 9px;
-  background-color: #111722;
+  background-color: var(--kd-tile);
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.55);
 }
 
@@ -193,7 +193,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 2px 4px 7px;
-  color: #778195;
+  color: var(--kd-text-3);
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.08em;
@@ -225,10 +225,10 @@
   box-sizing: border-box;
   max-width: min(320px, calc(100vw - 16px));
   padding: 7px 9px;
-  border: 1px solid #303a4c;
+  border: 1px solid var(--kd-seam-strong);
   border-radius: 7px;
-  background-color: #171d28;
-  color: #d6d9df;
+  background-color: var(--kd-tile);
+  color: var(--kd-text);
   box-shadow: 0 8px 22px rgba(0, 0, 0, 0.48);
   overflow: hidden;
   pointer-events: none;
@@ -273,7 +273,7 @@
   align-items: center;
   gap: 6px;
   margin-top: 4px;
-  color: #9099aa;
+  color: var(--kd-text-3);
   font-size: 11px;
   line-height: 1.35;
   overflow-wrap: anywhere;
@@ -293,6 +293,6 @@
 /* "Stopped" in the hover details — the chip's inline marker is a glyph whose
    own title this tooltip suppresses, so the state is spelled out here. */
 .minimized-tooltip__stopped {
-  color: #8b93a3;
+  color: var(--kd-text-3);
   font-size: 11px;
 }

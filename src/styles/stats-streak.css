@@ -7,10 +7,10 @@
   align-items: center;
   gap: 4px;
   padding: 5px 12px;
-  border: 1px solid #1c2230;
+  border: 1px solid var(--kd-seam);
   border-radius: 999px;
   background: var(--kd-bg);
-  color: #9aa3af;
+  color: var(--kd-text-3);
   font-size: 12px;
   line-height: 1;
   /* A badge, not text — arrow cursor and no accidental selection, which the
@@ -18,14 +18,14 @@
 }
 
 .stats__streak b {
-  color: #c5c8c6;
+  color: var(--kd-text-2);
   font-size: 14px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
 
 .stats__streak small {
-  color: #596273;
+  color: var(--kd-text-4);
   font-size: 10px;
 }
 

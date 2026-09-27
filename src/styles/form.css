@@ -4,16 +4,16 @@
   width: 100%;
   max-width: 560px;
   padding: 28px;
-  border: 1px solid #1c2230;
+  border: 1px solid var(--kd-seam);
   border-radius: 12px;
-  background-color: #0e121a;
+  background-color: var(--kd-strip);
 }
 
 .form__title {
   margin: 0 0 20px;
   font-size: 18px;
   font-weight: 600;
-  color: #c5c8c6;
+  color: var(--kd-text-2);
 }
 
 .form__label {
@@ -21,23 +21,23 @@
   font-size: 11px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: #6b7280;
+  color: var(--kd-text-3);
 }
 
 .form__input {
   margin-bottom: 20px;
   padding: 8px 10px;
-  border: 1px solid #1c2230;
+  border: 1px solid var(--kd-seam);
   border-radius: 8px;
-  background-color: #0e121a;
-  color: #c5c8c6;
+  background-color: var(--kd-tile);
+  color: var(--kd-text-2);
   font: inherit;
   font-size: 13px;
   outline: none;
 }
 
 .form__input:focus {
-  border-color: #3a4658;
+  border-color: var(--kd-seam-strong);
 }
 
 .form__dir {
@@ -51,10 +51,10 @@
   flex: 1;
   min-width: 0;
   padding: 8px 10px;
-  border: 1px solid #1c2230;
+  border: 1px solid var(--kd-seam);
   border-radius: 8px;
-  background-color: #0e121a;
-  color: #c5c8c6;
+  background-color: var(--kd-tile);
+  color: var(--kd-text-2);
   font-size: 13px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -62,7 +62,7 @@
 }
 
 .form__dir-path--empty {
-  color: #6b7280;
+  color: var(--kd-text-3);
 }
 
 /* Worktree path picker ([F2]): a SuggestedInput plus a Choose… button.
@@ -112,15 +112,15 @@
   border: none;
   border-radius: 4px;
   background: transparent;
-  color: #6b7280;
+  color: var(--kd-text-3);
   font-size: 16px;
   line-height: 1;
   cursor: pointer;
 }
 
 .form__field-btn:hover {
-  color: #e6e8eb;
-  background-color: #1b2230;
+  color: var(--kd-text);
+  background-color: var(--kd-hover);
 }
 
 .form__field-btn--reset {
@@ -130,7 +130,7 @@
 /* The suggestion shown as a value: dimmed to placeholder color until the
    field is focused or edited. */
 .form__input--hint {
-  color: #6b7280;
+  color: var(--kd-text-3);
 }
 
 /* Dialog lede under the title (what this dialog does) — neutral text, not
@@ -140,7 +140,7 @@
   margin-top: -12px;
   margin-bottom: 20px;
   font-size: 12px;
-  color: #9aa3af;
+  color: var(--kd-text-3);
 }
 
 .form__git {
@@ -159,7 +159,7 @@
   margin-top: -12px;
   margin-bottom: 20px;
   font-size: 12px;
-  color: #e5736f;
+  color: var(--kd-err);
 }
 
 /* YOLO opt-in: checkbox + label with the warning tint — the mode disables the
@@ -175,7 +175,7 @@
 
 .form__yolo input {
   margin-top: 2px;
-  accent-color: #b8863b;
+  accent-color: var(--kd-warn);
   cursor: pointer;
 }
 
@@ -184,12 +184,12 @@
   flex-direction: column;
   gap: 2px;
   font-size: 13px;
-  color: #e0b568;
+  color: var(--kd-warn-strong);
 }
 
 .form__yolo-hint {
   font-size: 12px;
-  color: #9aa3af;
+  color: var(--kd-text-3);
 }
 
 /* Inline resolution actions under an occupied-path warning ("Use next
@@ -209,27 +209,27 @@
   justify-content: center;
   flex: none;
   padding: 5px 8px;
-  border: 1px solid #2a3343;
+  border: 1px solid var(--kd-seam);
   border-radius: 6px;
-  background-color: #161b26;
-  color: #9aa3af;
+  background-color: var(--kd-tile);
+  color: var(--kd-text-3);
   cursor: pointer;
 }
 
 .form__choice:hover {
-  background-color: #1b2230;
-  border-color: #3a4658;
-  color: #c5c8c6;
+  background-color: var(--kd-hover);
+  border-color: var(--kd-seam-strong);
+  color: var(--kd-text-2);
 }
 
 .form__dir-btn,
 .form__cancel {
   flex: none;
   padding: 8px 14px;
-  border: 1px solid #2a3343;
+  border: 1px solid var(--kd-seam);
   border-radius: 8px;
-  background-color: #161b26;
-  color: #c5c8c6;
+  background-color: var(--kd-tile);
+  color: var(--kd-text-2);
   font: inherit;
   font-size: 13px;
   cursor: pointer;
@@ -237,8 +237,8 @@
 
 .form__dir-btn:hover:not(:disabled),
 .form__cancel:hover:not(:disabled) {
-  background-color: #1b2230;
-  border-color: #3a4658;
+  background-color: var(--kd-hover);
+  border-color: var(--kd-seam-strong);
 }
 
 /* An action that doesn't apply right now (the close dialog's Suspend while
@@ -269,13 +269,13 @@
   margin: -12px 0 20px;
   font-size: 12px;
   line-height: 1.45;
-  color: #8b93a3;
+  color: var(--kd-text-3);
 }
 
 .form__role-address {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
-  color: #c5c8c6;
+  color: var(--kd-text-2);
 }
 
 .form__type {
@@ -283,18 +283,18 @@
   align-items: center;
   gap: 7px;
   padding: 8px 14px;
-  border: 1px solid #1c2230;
+  border: 1px solid var(--kd-seam);
   border-radius: 8px;
-  background-color: #0e121a;
-  color: #9aa3af;
+  background-color: var(--kd-tile);
+  color: var(--kd-text-3);
   font: inherit;
   font-size: 13px;
   cursor: pointer;
 }
 
 .form__type:hover:not(:disabled) {
-  border-color: #3a4658;
-  color: #c5c8c6;
+  border-color: var(--kd-seam-strong);
+  color: var(--kd-text-2);
 }
 
 /* A choice that doesn't apply right now (e.g. the minimize style outside the
@@ -305,9 +305,9 @@
 }
 
 .form__type--active {
-  border-color: #5a6b86;
-  background-color: #161d29;
-  color: #c5c8c6;
+  border-color: var(--kd-seam-strong);
+  background-color: var(--kd-tile);
+  color: var(--kd-text-2);
 }
 
 /* The "Start from" session picker ([F8] spawn-time continuation): a search
@@ -330,7 +330,7 @@
 .form__sessions-count {
   flex: none;
   font-size: 11px;
-  color: #6b7280;
+  color: var(--kd-text-3);
   font-variant-numeric: tabular-nums;
 }
 
@@ -340,9 +340,9 @@
   list-style: none;
   max-height: 180px;
   overflow-y: auto;
-  border: 1px solid #1c2230;
+  border: 1px solid var(--kd-seam);
   border-radius: 8px;
-  background-color: #0e121a;
+  background-color: var(--kd-strip);
 }
 
 .form__session {
@@ -352,7 +352,7 @@
   width: 100%;
   padding: 7px 10px;
   border: none;
-  border-bottom: 1px solid #151a24;
+  border-bottom: 1px solid var(--kd-seam);
   background: none;
   font: inherit;
   text-align: left;
@@ -364,11 +364,11 @@
 }
 
 .form__session:hover {
-  background-color: #131926;
+  background-color: var(--kd-hover);
 }
 
 .form__session--active {
-  background-color: #161d29;
+  background-color: var(--kd-tile);
 }
 
 /* Un-resumable rows stay CLICKABLE (picking one shows the full reason and
@@ -388,7 +388,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 13px;
-  color: #d6d9df;
+  color: var(--kd-text);
 }
 
 .form__session-meta {
@@ -396,14 +396,14 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 11px;
-  color: #6b7280;
+  color: var(--kd-text-3);
 }
 
 .form__session-empty {
   padding: 10px;
   text-align: center;
   font-size: 12px;
-  color: #6b7280;
+  color: var(--kd-text-3);
 }
 
 /* The loading tail — a spinner as the last row while the next page is
@@ -419,8 +419,8 @@
   flex: none;
   width: 14px;
   height: 14px;
-  border: 2px solid #2b3446;
-  border-top-color: #9aa3af;
+  border: 2px solid var(--kd-seam);
+  border-top-color: var(--kd-seam);
   border-radius: 50%;
   animation: browser-spin 0.7s linear infinite;
 }
@@ -436,8 +436,8 @@
   padding: 9px 18px;
   border: 0;
   border-radius: 8px;
-  background-color: #2f6f4f;
-  color: #eafff3;
+  background-color: var(--kd-ok-fill);
+  color: var(--kd-text);
   font: inherit;
   font-size: 13px;
   font-weight: 500;
@@ -445,7 +445,7 @@
 }
 
 .form__create:hover:not(:disabled) {
-  background-color: #38855f;
+  background-color: var(--kd-ok-line);
 }
 
 .form__create:disabled {
@@ -482,13 +482,13 @@
   border: none;
   border-radius: 4px;
   background: transparent;
-  color: #6b7280;
+  color: var(--kd-text-3);
   cursor: pointer;
 }
 
 .combobox__toggle:hover {
-  color: #c5c8c6;
-  background-color: #1b2230;
+  color: var(--kd-text-2);
+  background-color: var(--kd-hover);
 }
 
 /* In-app dropdown (ui/Dropdown.tsx): a form field that opens our own menu —
@@ -502,7 +502,7 @@
   width: 100%;
   text-align: left;
   cursor: pointer;
-  color: #c5c8c6;
+  color: var(--kd-text-2);
   /* form__input's field rhythm belongs to the wrapper (the call site owns
      spacing); a button margin would inflate a .dropdown flex item. */
   margin-bottom: 0;
@@ -510,7 +510,7 @@
 
 .dropdown__button svg {
   flex: none;
-  color: #6b7280;
+  color: var(--kd-text-3);
 }
 
 .dropdown__label {
@@ -523,9 +523,9 @@
   margin: 0;
   padding: 4px;
   list-style: none;
-  border: 1px solid #2a3343;
+  border: 1px solid var(--kd-seam);
   border-radius: 8px;
-  background-color: #151a24;
+  background-color: var(--kd-float);
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.5);
 }
 
@@ -574,7 +574,7 @@
   border: 0;
   border-radius: 5px;
   background: transparent;
-  color: #c5c8c6;
+  color: var(--kd-text-2);
   font: inherit;
   font-size: 13px;
   text-align: left;
@@ -585,10 +585,10 @@
 }
 
 .dropdown__option:hover {
-  background-color: #1b2230;
+  background-color: var(--kd-hover);
 }
 
 .dropdown__option--active {
-  background-color: #1b2230;
-  color: #eafff3;
+  background-color: var(--kd-selected);
+  color: var(--kd-text);
 }

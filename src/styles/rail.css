@@ -3,8 +3,8 @@
   flex: none;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid #1c2230;
-  background-color: #0e121a;
+  border-right: 1px solid var(--kd-seam);
+  background-color: var(--kd-strip);
 }
 
 .rail__head {
@@ -24,7 +24,7 @@
   margin-top: auto;
   padding: 8px 12px 10px;
   font-size: 11px;
-  color: #4b5362;
+  color: var(--kd-text-4);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   overflow: hidden;
@@ -35,7 +35,7 @@
   font-size: 11px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #6b7280;
+  color: var(--kd-text-3);
 }
 
 .rail__add {
@@ -47,15 +47,15 @@
   border: 0;
   border-radius: 5px;
   background: transparent;
-  color: #6b7280;
+  color: var(--kd-text-3);
   font-size: 16px;
   line-height: 1;
   cursor: pointer;
 }
 
 .rail__add:hover {
-  background-color: #151a24;
-  color: #c5c8c6;
+  background-color: var(--kd-hover);
+  color: var(--kd-text-2);
 }
 
 .rail__list {
@@ -92,11 +92,11 @@
 }
 
 .rail__item:hover .rail__row {
-  background-color: #151a24;
+  background-color: var(--kd-hover);
 }
 
 .rail__item--active > .rail__row {
-  background-color: #1b2230;
+  background-color: var(--kd-selected);
 }
 
 /* While dragging, the whole list shows the grab cursor so the reorder reads as
@@ -125,8 +125,8 @@
   box-sizing: border-box;
   padding: 7px 8px;
   border-radius: 6px;
-  background-color: #232c3b;
-  color: #c5c8c6;
+  background-color: var(--kd-seam);
+  color: var(--kd-text-2);
   font-size: 13px;
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.5);
   pointer-events: none;
@@ -135,7 +135,7 @@
 }
 
 .rail__ghost--active {
-  background-color: #2a3446;
+  background-color: var(--kd-selected);
 }
 
 .rail__ghost .rail__name {
@@ -159,11 +159,11 @@
   background: transparent;
   /* The mark is drawn, so the button carries no type metrics — only the
      colour the icon strokes with. */
-  color: #4b5362;
+  color: var(--kd-text-4);
 }
 
 .rail__chevron:hover:not(:disabled) {
-  color: #c5c8c6;
+  color: var(--kd-text-2);
 }
 
 .rail__chevron--empty {
@@ -196,7 +196,7 @@
   padding: 7px 8px 7px 2px;
   border: 0;
   background: transparent;
-  color: #c5c8c6;
+  color: var(--kd-text-2);
   font: inherit;
   font-size: 13px;
   text-align: left;
@@ -210,7 +210,7 @@
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background-color: #3b4658;
+  background-color: var(--kd-selected);
   flex: none;
 }
 
@@ -223,7 +223,7 @@
 
 .rail__count {
   font-size: 11px;
-  color: #6b7280;
+  color: var(--kd-text-3);
   font-variant-numeric: tabular-nums;
   padding: 0 4px;
 }
@@ -240,7 +240,7 @@
   border: 0;
   border-radius: 4px;
   background: transparent;
-  color: #6b7280;
+  color: var(--kd-text-3);
   font-size: 14px;
   line-height: 1;
   cursor: pointer;
@@ -248,8 +248,8 @@
 
 .rail__close:hover,
 .rail__team-close:hover {
-  background-color: #243044;
-  color: #c5c8c6;
+  background-color: var(--kd-hover);
+  color: var(--kd-text-2);
 }
 
 /* Show the × (and hide the count) when focused or hovered. Scoped to the
@@ -294,7 +294,7 @@
 }
 
 .rail__team-item:hover {
-  background-color: #161d29;
+  background-color: var(--kd-hover);
 }
 
 .rail__team {
@@ -307,14 +307,14 @@
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: #98a1af;
+  color: var(--kd-text-3);
   font: inherit;
   font-size: 12.5px;
   text-align: left;
 }
 
 .rail__team-item:hover .rail__team {
-  color: #c5c8c6;
+  color: var(--kd-text-2);
 }
 
 /* The team's dot, on the ladder the card already paints (teamCards.css):
@@ -324,7 +324,7 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background-color: #3b4658;
+  background-color: var(--kd-selected);
   flex: none;
 }
 
@@ -379,7 +379,7 @@
 
 .rail__team-size {
   font-size: 10.5px;
-  color: #59616f;
+  color: var(--kd-text-4);
   font-variant-numeric: tabular-nums;
 }
 
@@ -402,10 +402,10 @@
   min-width: 0;
   margin: 1px 0 1px 20px;
   padding: 4px 6px;
-  border: 1px solid #3a4658;
+  border: 1px solid var(--kd-seam-strong);
   border-radius: 5px;
-  background-color: #0b0e14;
-  color: #c5c8c6;
+  background-color: var(--kd-canvas);
+  color: var(--kd-text-2);
   font: inherit;
   font-size: 12.5px;
   outline: none;
@@ -416,10 +416,10 @@
   min-width: 0;
   margin: 2px 4px;
   padding: 5px 6px;
-  border: 1px solid #3a4658;
+  border: 1px solid var(--kd-seam-strong);
   border-radius: 5px;
-  background-color: #0b0e14;
-  color: #c5c8c6;
+  background-color: var(--kd-canvas);
+  color: var(--kd-text-2);
   font: inherit;
   font-size: 13px;
   outline: none;
