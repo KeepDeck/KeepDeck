@@ -39,8 +39,6 @@ export interface RowWindow {
    * the props and fell every row's memo on every parent render. The row
    * is resolved by its `data-index`. */
   measure(element: HTMLElement | null): void;
-  /** Re-read the geometry — after a programmatic scroll. */
-  remeasure(): void;
 }
 
 /**
@@ -91,6 +89,5 @@ export function useRowWindow<Row>({
     atEnd: rows.length > 0 && lastIndex === rows.length - 1,
     totalSize: virtualizer.getTotalSize(),
     measure,
-    remeasure: () => virtualizer.measure(),
   };
 }

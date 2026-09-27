@@ -62,7 +62,6 @@ export function useSessionListWindow({
     lastIndex: lastVirtualIndex,
     totalSize,
     measure: measureRow,
-    remeasure,
   } = useRowWindow({
     rows: queue,
     keyOf: rowKeyOf,
@@ -116,17 +115,14 @@ export function useSessionListWindow({
   // A focused row scrolled out keeps the keyboard's place on the list —
   // the app's one handoff, shared with every windowed list (ui-kit).
   useFocusHandoff(listRef);
-  const onListScroll = () => {
-    remeasure();
-    checkPaging();
-  };
-
   return {
     virtualItems,
     lastVirtualIndex,
     totalSize,
     measureRow,
-    onListScroll,
+    // A scroll asks only for paging: the virtualizer hears the scroll on
+    // its own, and keeps the heights it measured.
+    onListScroll: checkPaging,
     checkPaging,
   };
 }
