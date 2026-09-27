@@ -60,9 +60,9 @@
   width: 100%;
   padding: 6px 6px;
   border: 0;
-  border-top: 1px solid #1c2230;
-  background-color: #0e121a;
-  color: #8b93a3;
+  border-top: 1px solid var(--kd-seam);
+  background-color: var(--kd-strip);
+  color: var(--kd-text-3);
   font-size: 11.5px;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -76,7 +76,7 @@
 }
 
 .git__sechdr:hover {
-  color: #c5c8c6;
+  color: var(--kd-text-2);
 }
 
 /* The mark turns; the header does not. `display: flex` so the span is
@@ -86,7 +86,7 @@
 .git__chev {
   display: flex;
   flex: none;
-  color: #6b7280;
+  color: var(--kd-text-3);
   transform-origin: 50% 50%;
   transition: transform 140ms ease;
 }
@@ -109,7 +109,7 @@
 /* Ahead/behind beside the name — only when the branch stands somewhere. */
 .git__ab {
   flex: none;
-  color: #6b7280;
+  color: var(--kd-text-3);
   font-size: 11px;
   font-weight: 400;
   letter-spacing: 0;
@@ -122,8 +122,8 @@
   min-width: 18px;
   padding: 1px 6px;
   border-radius: 9px;
-  background-color: #243044;
-  color: #c5c8c6;
+  background-color: var(--kd-hover);
+  color: var(--kd-text-2);
   font-size: 11px;
   font-weight: 400;
   letter-spacing: 0;
@@ -190,12 +190,12 @@
 }
 
 .git__rootbranch {
-  color: #8b93a3;
+  color: var(--kd-text-3);
   font-size: 11px;
 }
 
 .git__rootfolder {
-  color: #6b7280;
+  color: var(--kd-text-3);
   font-size: 10.5px;
 }
 
@@ -218,18 +218,18 @@
   flex: none;
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   font-size: 11px;
-  color: #6b7280;
+  color: var(--kd-text-3);
 }
 
 .git__when {
   flex: none;
   font-size: 11px;
-  color: #6b7280;
+  color: var(--kd-text-3);
 }
 
 /* The pinned "Since fork" summary — set apart from the commits below it. */
 .git__row--pin {
-  border-bottom: 1px solid #1c2230;
+  border-bottom: 1px solid var(--kd-seam);
   border-radius: 5px 5px 0 0;
   margin-bottom: 4px;
 }
@@ -251,7 +251,7 @@
 .git__forkline::after {
   content: "";
   flex: 1 1 auto;
-  border-top: 1px solid #1c2230;
+  border-top: 1px solid var(--kd-seam);
 }
 
 /* The lazy-scroll sentinel: auto-fires when scrolled into view, clickable
@@ -262,7 +262,7 @@
   border: 0;
   border-radius: 5px;
   background: transparent;
-  color: #6b7280;
+  color: var(--kd-text-3);
   font-size: 11.5px;
   padding: 6px 8px;
   text-align: center;
@@ -270,13 +270,13 @@
 }
 
 .git__more:hover {
-  background-color: #151a24;
-  color: #c5c8c6;
+  background-color: var(--kd-hover);
+  color: var(--kd-text-2);
 }
 
 /* History rows' status letters — neutral, the range says what happened. */
 .git__code--history {
-  color: #8b93a3;
+  color: var(--kd-text-3);
 }
 
 .git__section {
@@ -288,7 +288,7 @@
   align-items: center;
   gap: 6px;
   padding: 4px 2px;
-  color: #8b93a3;
+  color: var(--kd-text-3);
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
@@ -296,7 +296,7 @@
 }
 
 .git__seccount {
-  color: #6b7280;
+  color: var(--kd-text-3);
   font-weight: 400;
 }
 
@@ -310,7 +310,7 @@
   border: 0;
   border-radius: 5px;
   background: transparent;
-  color: #c5c8c6;
+  color: var(--kd-text-2);
   font-size: 12.5px;
   line-height: 1.4;
   text-align: left;
@@ -319,7 +319,7 @@
 }
 
 .git__row:hover {
-  background-color: #151a24;
+  background-color: var(--kd-hover);
 }
 
 /* The porcelain code in its tone (presentation/codeTone: the row's section,
@@ -363,7 +363,7 @@
 }
 
 .git__dir {
-  color: #6b7280;
+  color: var(--kd-text-3);
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -374,7 +374,7 @@
 
 .git__empty {
   padding: 16px 8px;
-  color: #6b7280;
+  color: var(--kd-text-3);
   font-size: 12px;
 }
 
@@ -393,7 +393,7 @@
   align-items: baseline;
   gap: 6px;
   padding: 2px 2px 8px;
-  border-bottom: 1px solid #1c2230;
+  border-bottom: 1px solid var(--kd-seam);
   margin-bottom: 6px;
 }
 
@@ -402,7 +402,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: #c5c8c6;
+  color: var(--kd-text-2);
   font-size: 12px;
   font-weight: 600;
 }
@@ -412,12 +412,12 @@
   margin-left: auto;
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   font-size: 11px;
-  color: #6b7280;
+  color: var(--kd-text-3);
 }
 
 /* The rail row whose diff the peek is showing. */
 .git__row--on {
-  background-color: #1a2233;
+  background-color: var(--kd-hover);
 }
 
 /* The change-kind badge in the peek header's meta slot. */
@@ -425,8 +425,8 @@
   flex: none;
   padding: 1px 7px;
   border-radius: 9px;
-  background-color: #243044;
-  color: #9aa3af;
+  background-color: var(--kd-hover);
+  color: var(--kd-text-3);
   font-size: 11px;
 }
 
@@ -453,7 +453,7 @@
 .git__hunkhead {
   padding: 6px 12px;
   color: var(--kd-info);
-  background-color: #10151f;
+  background-color: var(--kd-hover);
   font-size: 11px;
 }
 
@@ -468,7 +468,7 @@
   width: 40px;
   padding-right: 8px;
   text-align: right;
-  color: #3b4658;
+  color: var(--kd-text-3);
   background-color: var(--kd-bg);
   /* Kept out of a copied hunk by .kd-inert on the element (DiffPeek.tsx). */
 }
@@ -484,7 +484,7 @@
 
 .git__linetext {
   flex: 1 1 auto;
-  color: #c5c8c6;
+  color: var(--kd-text-2);
   white-space: pre;
   /* The left gap stands in for the ± marker column the diff used to carry —
      the tinted rows say what happened, the glyphs just repeated it. */
@@ -507,9 +507,9 @@
 }
 
 .git__diffrow--add .git__lineno {
-  background-color: #192c23;
+  background-color: var(--kd-ok-tint);
   background-color: color-mix(in srgb, var(--kd-ok) 18%, var(--kd-bg));
-  color: #478254;
+  color: var(--kd-ok);
   color: color-mix(in srgb, var(--kd-ok-strong) 60%, var(--kd-bg));
 }
 
@@ -519,14 +519,14 @@
 }
 
 .git__diffrow--del .git__lineno {
-  background-color: #322024;
+  background-color: var(--kd-err-tint);
   background-color: color-mix(in srgb, var(--kd-err) 18%, var(--kd-bg));
-  color: #965959;
+  color: var(--kd-err);
   color: color-mix(in srgb, var(--kd-err-strong) 60%, var(--kd-bg));
 }
 
 .git__diffrow--meta .git__linetext {
-  color: #6b7280;
+  color: var(--kd-text-3);
 }
 
 

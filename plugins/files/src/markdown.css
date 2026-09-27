@@ -1,13 +1,13 @@
 /* The rendered-Markdown document inside the file preview (MarkdownView).
    Split from styles.css: this styles a DOCUMENT's typography, not the
-   plugin's chrome — a different vocabulary with its own rhythm. Palette
-   anchors match the peek body (#0b0e14) and the dock's text family so the
-   preview reads as native chrome, not an embedded web page. */
+   plugin's chrome — a different vocabulary with its own rhythm. Colours
+   are the host tokens the peek and the dock use, so the preview reads as
+   native chrome, not an embedded web page. */
 
 .files__md {
   max-width: 760px;
   padding: 18px 24px 28px;
-  color: #c5c8c6;
+  color: var(--kd-text-2);
   font-size: 13px;
   line-height: 1.65;
   /* The document is prose — the root's UI sans, not the code view's mono. */
@@ -22,7 +22,7 @@
 .files__md h5,
 .files__md h6 {
   margin: 1.4em 0 0.5em;
-  color: #dfe3e8;
+  color: var(--kd-text);
   font-weight: 600;
   line-height: 1.3;
 }
@@ -36,13 +36,13 @@
 .files__md h1 {
   font-size: 20px;
   padding-bottom: 0.3em;
-  border-bottom: 1px solid #1c2230;
+  border-bottom: 1px solid var(--kd-seam);
 }
 
 .files__md h2 {
   font-size: 16px;
   padding-bottom: 0.3em;
-  border-bottom: 1px solid #1c2230;
+  border-bottom: 1px solid var(--kd-seam);
 }
 
 .files__md h3 {
@@ -60,12 +60,12 @@
 }
 
 .files__md a {
-  color: #58b368;
+  color: var(--kd-ok);
   text-decoration: none;
 }
 
 .files__md a:hover {
-  color: #6fd07f;
+  color: var(--kd-ok-strong);
   text-decoration: underline;
 }
 
@@ -87,7 +87,7 @@
 }
 
 .files__md input[type="checkbox"] {
-  accent-color: #58b368;
+  accent-color: var(--kd-ok);
   margin-right: 6px;
   vertical-align: -1px;
 }
@@ -95,22 +95,22 @@
 .files__md blockquote {
   margin: 0.8em 0;
   padding: 2px 14px;
-  border-left: 3px solid #2a3446;
-  color: #9aa3af;
+  border-left: 3px solid var(--kd-seam-strong);
+  color: var(--kd-text-3);
 }
 
 .files__md hr {
   height: 1px;
   margin: 1.4em 0;
   border: 0;
-  background-color: #1c2230;
+  background-color: var(--kd-seam);
 }
 
 /* Inline code — a chip on the prose line. */
 .files__md code {
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   font-size: 12px;
-  background-color: #161c28;
+  background-color: var(--kd-hover);
   border-radius: 4px;
   padding: 1px 5px;
 }
@@ -120,8 +120,8 @@
 .files__md pre {
   margin: 0.8em 0;
   padding: 10px 14px;
-  background-color: #0e121a;
-  border: 1px solid #1c2230;
+  background-color: var(--kd-strip);
+  border: 1px solid var(--kd-seam);
   border-radius: 8px;
   overflow-x: auto;
   line-height: 1.5;
@@ -146,12 +146,12 @@
 .files__md th,
 .files__md td {
   padding: 5px 12px;
-  border: 1px solid #1c2230;
+  border: 1px solid var(--kd-seam);
 }
 
 .files__md th {
-  background-color: #11151d;
-  color: #dfe3e8;
+  background-color: var(--kd-tile);
+  color: var(--kd-text);
   font-weight: 600;
   text-align: left;
 }

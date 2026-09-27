@@ -2,7 +2,7 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  color: #c5c8c6;
+  color: var(--kd-text-2);
   font-size: 12px;
 }
 
@@ -10,30 +10,30 @@
   display: flex;
   align-items: center;
   gap: 9px;
-  border: 1px solid #493a22;
+  border: 1px solid var(--kd-warn-line);
   border-radius: 5px;
-  background: #1c1811;
+  background: var(--kd-warn-tint);
   padding: 9px 10px;
 }
 
 .kimi-setup__status--checking {
-  border-color: #303640;
-  background: #15191f;
+  border-color: var(--kd-seam);
+  background: var(--kd-tile);
 }
 
 .kimi-setup__status--ready {
-  border-color: #294331;
-  background: #111d16;
+  border-color: var(--kd-ok-line);
+  background: var(--kd-ok-tint);
 }
 
 .kimi-setup__status--error {
-  border-color: #51312e;
-  background: #211514;
+  border-color: var(--kd-err-line);
+  background: var(--kd-err-tint);
 }
 
 .kimi-setup__status--update {
-  border-color: #493a22;
-  background: #1c1811;
+  border-color: var(--kd-warn-line);
+  background: var(--kd-warn-tint);
 }
 
 .kimi-setup__status-icon {
@@ -44,24 +44,24 @@
   height: 18px;
   flex: none;
   border-radius: 50%;
-  background: #6f542e;
-  color: #f0cf91;
+  background: var(--kd-warn-tint);
+  color: var(--kd-warn-strong);
   font-weight: 700;
 }
 
 .kimi-setup__status--ready .kimi-setup__status-icon {
-  background: #58b368;
-  color: #0b1510;
+  background: var(--kd-ok);
+  color: var(--kd-ok);
 }
 
 .kimi-setup__status--checking .kimi-setup__status-icon {
-  background: #343b46;
-  color: #aab3c0;
+  background: var(--kd-seam);
+  color: var(--kd-text-3);
 }
 
 .kimi-setup__status--error .kimi-setup__status-icon {
-  background: #704038;
-  color: #f0aaa0;
+  background: var(--kd-err-line);
+  color: var(--kd-err-strong);
 }
 
 .kimi-setup__status-copy {
@@ -69,25 +69,25 @@
   min-width: 0;
   flex-direction: column;
   gap: 2px;
-  color: #8f98a5;
+  color: var(--kd-text-3);
   line-height: 1.35;
 }
 
 .kimi-setup__status-copy strong {
-  color: #e0bd7a;
+  color: var(--kd-warn-strong);
   font-weight: 600;
 }
 
 .kimi-setup__status--ready .kimi-setup__status-copy strong {
-  color: #83c98f;
+  color: var(--kd-ok-strong);
 }
 
 .kimi-setup__status--checking .kimi-setup__status-copy strong {
-  color: #aab3c0;
+  color: var(--kd-text-3);
 }
 
 .kimi-setup__status--error .kimi-setup__status-copy strong {
-  color: #e99587;
+  color: var(--kd-err-strong);
 }
 
 .kimi-setup__actions {
@@ -96,27 +96,27 @@
 }
 
 .kimi-setup__button {
-  border: 1px solid #2a3c31;
+  border: 1px solid var(--kd-ok-line);
   border-radius: 4px;
-  background: #12211a;
-  color: #7fb88a;
+  background: var(--kd-ok-tint);
+  color: var(--kd-ok-strong);
   padding: 5px 12px;
   cursor: pointer;
   font: inherit;
 }
 
 .kimi-setup__button:hover:not(:disabled) {
-  border-color: #3a5142;
+  border-color: var(--kd-ok-line);
 }
 
 .kimi-setup__button--remove {
-  border-color: #3d2929;
-  background: #211515;
-  color: #c77b70;
+  border-color: var(--kd-err-line);
+  background: var(--kd-err-tint);
+  color: var(--kd-err-strong);
 }
 
 .kimi-setup__button--remove:hover:not(:disabled) {
-  border-color: #5a3434;
+  border-color: var(--kd-err-line);
 }
 
 .kimi-setup__button:disabled {
