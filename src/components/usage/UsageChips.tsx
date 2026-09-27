@@ -1,18 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   AGENT_FEATURE,
   hasAgentFeature,
   type AgentInfo,
 } from "../../domain/agents";
 import { DEFAULT_SETTINGS, type UsageDisplay } from "../../domain/settings";
-import {
-  chipWindows,
-  formatAge,
-  latestReportedAt,
-  usageStale,
-  windowLabel,
-  type AccountUsage,
-} from "../../domain/usage";
+import { latestReportedAt, type AccountUsage } from "../../domain/usage";
+import { usageRingView } from "../../presentation/usageRingView";
 import { ledgerSeriesColors } from "../../domain/usage/chartPalette";
 import { useUsagePanelAnchor } from "./useUsagePanelAnchor";
 import { useSettings } from "../../app/useSettings";
@@ -58,43 +52,34 @@ function UsageChip({
   onToggle: () => void;
   open: boolean;
 }) {
-  const stale = account !== undefined && usageStale(account.reportedAt, now);
-  const windows = account ? chipWindows(account) : [];
-  const title = !account
-    ? `${agent.label}: waiting for the first report`
-    : stale
-      ? `${agent.label}: showing data from ${formatAge(account.reportedAt, now)}`
-      : `${agent.label} usage`;
+  const view = usageRingView(agent.label, account, now, display);
   return (
     <Chip
-      className={`usage-chip${stale ? " usage-chip--dim" : ""}`}
-      icon={<AgentGlyph icon={agent.icon} />}
+      className={`usage-chip${view.stale ? " usage-chip--dim" : ""}`}
       onClick={onToggle}
-      title={title}
+      title={view.title}
       aria-expanded={open}
-      /* Only while it is THIS chip's panel that exists. There is one panel id
-         and one panel at a time, so a chip that named it unconditionally was
-         either pointing at nothing (closed) or claiming another provider's
-         panel as its own (open, but a different chip). Same rule the menu
-         button follows: the reference exists exactly while its target does. */
+      /* Only while it is THIS chip's panel that exists — see the panel id. */
       aria-controls={open ? "usage-panel" : undefined}
       /* Named so the panel can find the chip that opened it and hang from
-         THAT one. Addressed by agent id rather than by position in the row:
-         the roster changes as agents come and go, and an index would quietly
-         start pointing at a neighbour. */
+         THAT one, by agent id rather than by position in the row. */
       data-usage-chip={agent.id}
     >
-      {windows.length === 0 ? (
-        <span className="usage-chip__na">···</span>
+      <span
+        className={`usage-ring${view.level ? ` usage-ring--${view.level}` : ""}`}
+        style={{ "--usage-fill": view.fill } as CSSProperties}
+        aria-hidden
+      >
+        <span className="usage-ring__glyph">
+          <AgentGlyph icon={agent.icon} />
+        </span>
+      </span>
+      {view.window ? (
+        <WindowValue window={view.window} display={display} now={now} />
       ) : (
-        windows.map((window, i) => (
-          <span key={i} className="usage-chip__win">
-            <span className="usage-chip__label">{windowLabel(window)}</span>
-            <WindowValue window={window} display={display} now={now} />
-          </span>
-        ))
+        <span className="usage-chip__na">···</span>
       )}
-      {stale && (
+      {view.stale && (
         <span className="usage-chip__stale" aria-hidden>
           ⚠
         </span>

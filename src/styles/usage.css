@@ -47,26 +47,49 @@
 }
 
 /* The agent glyph rides a notch below the chip's 11.5px text. */
-.usage-chip .chip__icon {
-  font-size: 11px;
+/* One ring per subscription: filled to the tightest window's use,
+   counter-clockwise from the top, the agent's mark inside. Calm until a
+   window runs close — then the ring takes the level's hue, as the number
+   beside it does (WindowValue). */
+.usage-ring {
+  --usage-ring-hue: var(--kd-text-3);
+  position: relative;
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: conic-gradient(
+    var(--usage-ring-hue) calc(var(--usage-fill) * 1%),
+    var(--kd-seam) 0
+  );
+  /* Mirrored so the fill runs counter-clockwise; the mark is mirrored back. */
+  transform: scaleX(-1);
 }
 
-.usage-chip__win {
+.usage-ring::before {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  border-radius: 50%;
+  background-color: var(--kd-strip);
+}
+
+.usage-ring--warn {
+  --usage-ring-hue: var(--kd-warn);
+}
+
+.usage-ring--critical {
+  --usage-ring-hue: var(--kd-err);
+}
+
+.usage-ring__glyph {
+  position: relative;
   display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
-/* Chips are numbers-only (bars live in the panel) — a soft dot keeps the
-   window pairs legible without them. No margin of its own: the chip's gap
-   before it and the win's gap after it are already the full spacing. */
-.usage-chip__win + .usage-chip__win::before {
-  content: "·";
-  color: var(--kd-text-3);
-}
-
-.usage-chip__label {
-  color: var(--kd-text-3);
+  font-size: 10px;
+  color: var(--kd-text-2);
+  transform: scaleX(-1);
 }
 
 .usage-chip__na {
@@ -376,14 +399,11 @@
    the second window first, then the labels; the chip keeps its glyph +
    first percentage, the title carries the rest. The panel is anchored and
    unaffected. */
-@media (max-width: 1100px) {
-  .usage-chip__win + .usage-chip__win {
-    display: none;
-  }
-}
 
 @media (max-width: 820px) {
-  .usage-chip__label {
+  /* The narrowest bar keeps the rings and drops the numbers — the hover
+     and the panel still have them. */
+  .usage-chip .usage-window__value {
     display: none;
   }
 }

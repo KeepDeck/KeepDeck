@@ -13,6 +13,7 @@ import {
   formatUsd,
   limitLevel,
   panelWindows,
+  tightestWindow,
   tokenBreakdown,
   tokenSegments,
   usageStale,
@@ -59,6 +60,19 @@ describe("chipWindows / panelWindows", () => {
     };
     expect(chipWindows(unavailable)).toEqual([]);
     expect(panelWindows(unavailable)).toEqual([]);
+  });
+});
+
+describe("tightestWindow", () => {
+  it("picks the chip window closest to its limit, ignoring scoped windows", () => {
+    expect(tightestWindow(account([FIVE_H, WEEKLY, QUOTA]))).toBe(WEEKLY);
+    expect(tightestWindow(account([{ ...FIVE_H, usedPct: 70 }, WEEKLY]))?.usedPct).toBe(70);
+  });
+
+  it("keeps the shorter window on a tie, and has nothing to say without a report", () => {
+    const tie = { ...WEEKLY, usedPct: 10 };
+    expect(tightestWindow(account([FIVE_H, tie]))).toBe(FIVE_H);
+    expect(tightestWindow({ kind: "unavailable" } as unknown as AccountUsage)).toBeNull();
   });
 });
 
