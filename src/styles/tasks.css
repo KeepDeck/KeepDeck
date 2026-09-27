@@ -210,9 +210,11 @@
   /* The card is a button, and a button's auto width is its content's:
      inside the windowed list's block item it grew to its one-line title
      and gave the column a sideways scroll. The item's width, always —
-     and never more than it: without min-width it grows to its widest
-     word. */
+     and never more than it: the width names the whole box, padding and
+     border included (the app has no global border-box), and without
+     min-width it grows to its widest word. */
   width: 100%;
+  box-sizing: border-box;
   min-width: 0;
   gap: 4px;
   padding: 8px 10px;

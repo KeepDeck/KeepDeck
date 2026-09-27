@@ -66,6 +66,10 @@ describe("Tasks text never widens its box", () => {
     const card = document.createElement("button");
     card.className = "tasks__card";
     mount("tasks__column-item").append(card);
-    expect(getComputedStyle(card).width).toBe("100%");
+    const style = getComputedStyle(card);
+    expect(style.width).toBe("100%");
+    // 100% of the item is the whole card, padding and border included —
+    // a content box would still overhang the column by its padding.
+    expect(style.boxSizing).toBe("border-box");
   });
 });
