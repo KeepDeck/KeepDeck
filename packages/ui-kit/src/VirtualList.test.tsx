@@ -241,4 +241,24 @@ describe("VirtualList's measured heights", () => {
 
     expect(tops().get("row 0")! - list().scrollTop).toBe(anchor);
   });
+
+  it("holds the row being read after the one it held before was removed", async () => {
+    // The held row leaves (a task moved to another column) while the scroll
+    // and the window's end stand still — the row under it moves up into
+    // its place. Rows landing above afterwards must not push THAT row away.
+    render(items);
+    await act(async () => {
+      list().scrollTop = 10 * MEASURED;
+      list().dispatchEvent(new Event("scroll"));
+    });
+    const withoutHeld = items.filter((item) => item !== "row 10");
+    render(withoutHeld);
+    await act(async () => {});
+    const anchor = tops().get("row 11")! - list().scrollTop;
+
+    render(["new 0", "new 1", ...withoutHeld]);
+    await act(async () => {});
+
+    expect(tops().get("row 11")! - list().scrollTop).toBe(anchor);
+  });
 });

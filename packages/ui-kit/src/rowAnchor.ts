@@ -21,7 +21,7 @@
  * the anchor's key leaves the queue (a real composition change:
  * search, scope, invalidation), the answer is HOLD THE CURRENT
  * OFFSET — whatever now occupies the viewport stays where it is, and
- * the next range change re-anchors on whatever is first visible. A
+ * the anchor moves at once to whatever is now first visible. A
  * jump to the top would decide for the user in the one moment we
  * ourselves do not know what happened. NOT-YET-MEASURED keys take
  * the same branch: an unmeasured key is the map's youth, not the

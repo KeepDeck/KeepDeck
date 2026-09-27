@@ -61,6 +61,15 @@ export function useRowAnchoring<Row>({
   // queue array supplies the key's index. The vanished/not-yet-
   // measured branch holds the offset and re-arms.
   const anchorRef = useRef<AnchorState | null>(null);
+  const windowRowsOf = () =>
+    virtualItems.map((v) => ({ key: v.key as string, start: v.start }));
+  // The full re-pick: the first fully visible row of this render's window.
+  const armFirstVisible = (list: HTMLElement) => {
+    const first = pickAnchor(windowRowsOf(), list.scrollTop);
+    anchorRef.current = first
+      ? { key: first.key, offset: first.start - list.scrollTop }
+      : null;
+  };
   // COMPENSATION FIRST, arming second — declaration order is the run
   // order of layout effects: when a landed page changes BOTH the
   // queue and the range in one commit, compensation must read the
@@ -111,8 +120,12 @@ export function useRowAnchoring<Row>({
         return; // the anchor held — key found, offset kept
       }
     }
-    // Vanished (or not yet measurable): hold the offset; the ARMING
-    // effect re-arms on the next range change.
+    // Vanished: hold the offset, and re-arm NOW on what is first
+    // visible. Waiting for the next range change left a dead key armed
+    // when the removal moved neither the scroll nor the window's end —
+    // and the next landing above found nothing to hold. A key still in
+    // the queue but not yet measurable keeps its anchor (rowAnchor.ts).
+    if (nextIndex < 0) armFirstVisible(list);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [queue]);
   // ARMING — on SCROLL POSITION, not the range's last index: a small
@@ -128,22 +141,15 @@ export function useRowAnchoring<Row>({
   useLayoutEffect(() => {
     const list = listRef.current;
     if (!list) return;
-    const windowRows = virtualItems.map((v) => ({
-      key: v.key as string,
-      start: v.start,
-    }));
     const prev = anchorRef.current;
     if (prev !== null) {
-      const still = windowRows.find((r) => r.key === prev.key);
+      const still = windowRowsOf().find((r) => r.key === prev.key);
       if (still) {
         anchorRef.current = { key: prev.key, offset: still.start - list.scrollTop };
         return;
       }
     }
-    const first = pickAnchor(windowRows, list.scrollTop);
-    anchorRef.current = first
-      ? { key: first.key, offset: first.start - list.scrollTop }
-      : null;
+    armFirstVisible(list);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [listRef.current?.scrollTop, lastVirtualIndex]);
 }
