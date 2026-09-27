@@ -3,4 +3,5 @@ packages:
   - plugins/*
 
 patchedDependencies:
+  '@xterm/addon-canvas@0.7.0': patches/@xterm__addon-canvas@0.7.0.patch
   '@xterm/xterm@5.5.0': patches/@xterm__xterm@5.5.0.patch
