@@ -1,6 +1,6 @@
 import type { ActivityBadge, ActivityTone } from "../domain/status";
 import { contextLevel, formatAge, type UsageLevel } from "../domain/usage";
-import { teamBadgeTitle } from "../ui/badges";
+import { teamBadgeTitle } from "@keepdeck/ui-kit/teamWords";
 
 /** What a pane's header shows, settled — the header maps it and decides
  * nothing. */

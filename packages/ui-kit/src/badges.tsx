@@ -6,6 +6,7 @@
  * class hook via `className` for layout extras (flex place, narrow-header
  * cascade, max-widths).
  */
+import { teamBadgeTitle } from "./teamWords";
 import { Chip } from "./Chip.tsx";
 import { BoltIcon, GitBranchIcon, PowerIcon, UsersIcon } from "./icons.tsx";
 
@@ -87,10 +88,6 @@ export function BranchBadge({
   );
 }
 
-/** One wording for the team badge wherever it stands. */
-export function teamBadgeTitle(team: string, role: string): string {
-  return `${role} on team ${team} — teammates address it by this role`;
-}
 
 export interface TeamBadgeProps {
   /** The team's name. */
@@ -169,3 +166,5 @@ export function StoppedMarker({ className }: StoppedMarkerProps) {
     </span>
   );
 }
+
+export { teamBadgeTitle };
