@@ -1,0 +1,357 @@
+/* The left strip (components/workspace/WorkspaceStrip.tsx): a column of
+   workspace marks, and beside it the open workspace's teams. One surface,
+   one line on its right edge; the list hides and the marks stay. */
+
+.strip {
+  flex: none;
+  display: flex;
+  min-height: 0;
+  background-color: var(--kd-strip);
+  box-shadow: inset -1px 0 0 var(--kd-seam);
+}
+
+/* ── The column of marks ────────────────────────────────────────────── */
+
+.strip__col {
+  width: 58px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 0 8px;
+  min-height: 0;
+}
+
+/* The list is the only positioned ancestor of the marks: the reorder's
+   hit-test and the ghost's landing both measure through it (railDnd.ts). */
+.strip__marks {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.strip__marks--reordering {
+  cursor: grabbing;
+}
+
+.strip__mark {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  width: 52px;
+  padding: 4px 0;
+  flex: none;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.strip__tile {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background-color: var(--kd-hover);
+  color: var(--kd-text-2);
+  font-size: 12.5px;
+  font-weight: 600;
+  transition: background-color 120ms ease-out, color 120ms ease-out;
+}
+
+.strip__mark:hover .strip__tile {
+  background-color: var(--kd-selected);
+  color: var(--kd-text);
+}
+
+/* The workspace on screen: the one light tile in the column. */
+.strip__mark--active .strip__tile,
+.strip__mark--active:hover .strip__tile {
+  background-color: var(--kd-text);
+  color: var(--kd-canvas);
+}
+
+.strip__name {
+  max-width: 52px;
+  font-size: 10px;
+  color: var(--kd-text-4);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.strip__mark--active .strip__name {
+  color: var(--kd-text-2);
+}
+
+/* «+» is pinned above the list, so it never scrolls away however many
+   workspaces there are. Drawn as an outline: a way to add one, not one. */
+.strip__mark--add {
+  padding: 0;
+  margin-bottom: 2px;
+}
+
+.strip__mark--add .strip__tile {
+  width: 30px;
+  height: 30px;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--kd-seam-strong);
+  color: var(--kd-text-3);
+  font-size: 16px;
+  font-weight: 400;
+}
+
+/* The mark being dragged leaves its slot empty; the ghost carries it. */
+.strip__mark--placeholder {
+  visibility: hidden;
+}
+
+.strip__ghost {
+  position: fixed;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 0;
+  opacity: 0.9;
+  transform: scale(1.04);
+  pointer-events: none;
+}
+
+/* The build number at the column's foot: read a few times a year, so it
+   costs nothing on every other day. */
+.strip__foot {
+  flex: none;
+  max-width: 54px;
+  font-size: 9.5px;
+  color: var(--kd-text-4);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A dot says only that something needs the person: waiting or failed.
+   On a mark it sits on the tile's corner, ringed in the strip's colour. */
+.strip__dot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+}
+
+.strip__tile .strip__dot {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 8px;
+  height: 8px;
+  box-shadow: 0 0 0 2px var(--kd-strip);
+}
+
+.strip__dot--waiting {
+  background-color: var(--kd-warn);
+}
+
+.strip__dot--failed {
+  background-color: var(--kd-err);
+}
+
+/* ── The team list ──────────────────────────────────────────────────── */
+
+.strip__teams {
+  width: 196px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 8px 8px 8px 4px;
+}
+
+.strip__head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 32px;
+  flex: none;
+  padding: 0 2px 0 8px;
+}
+
+.strip__ws-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--kd-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.strip__icon {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--kd-text-3);
+  font: inherit;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.strip__icon svg {
+  width: 13px;
+  height: 13px;
+}
+
+.strip__icon:hover {
+  background-color: var(--kd-hover);
+  color: var(--kd-text);
+}
+
+.strip__rename {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 0 7px;
+  border: 1px solid var(--kd-seam-strong);
+  border-radius: 6px;
+  background-color: var(--kd-tile);
+  color: var(--kd-text);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+
+.strip__rename:focus {
+  border-color: var(--kd-focus);
+}
+
+.strip__empty {
+  padding: 10px 8px;
+  font-size: 12px;
+  color: var(--kd-text-4);
+}
+
+.strip__list {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.strip__team {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: none;
+  height: 30px;
+  border-radius: 7px;
+}
+
+.strip__team:hover {
+  background-color: var(--kd-hover);
+}
+
+.strip__team--open,
+.strip__team--open:hover {
+  background-color: var(--kd-selected);
+}
+
+.strip__team-open {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--kd-text-2);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.strip__team:hover .strip__team-open,
+.strip__team--open .strip__team-open {
+  color: var(--kd-text);
+}
+
+/* A team whose directory is not there yet reads quieter until it is. */
+.strip__team--pending .strip__team-open {
+  color: var(--kd-text-3);
+  font-style: italic;
+}
+
+.strip__team-name {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.strip__team-size {
+  min-width: 12px;
+  font-size: 11.5px;
+  color: var(--kd-text-4);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* The row's menu takes the number's place while the row is pointed at or
+   the menu is open — one quiet control, not one per row at rest. */
+.strip__team-menu {
+  position: absolute;
+  right: 4px;
+  top: 4px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  opacity: 0;
+}
+
+.strip__team:hover .strip__team-menu,
+.strip__team-menu:focus-visible,
+.strip__team-menu[aria-expanded="true"] {
+  opacity: 1;
+}
+
+.strip__team:hover .strip__team-size {
+  visibility: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .strip__tile {
+    transition: none;
+  }
+}

@@ -111,8 +111,8 @@ export function createApplicationController({
   };
 
   // The team opens FIRST, then its workspace comes forward: `openTeam`
-  // names the workspace it acts on, so the level is already right when the
-  // stage appears and no frame renders the cards on the way through.
+  // names the workspace it acts on, so the right team is already open when
+  // the stage appears and no frame shows another on the way through.
   const activateTeam = (wsId: string, teamId: string) => {
     actions.openTeam(wsId, teamId);
     selectWorkspace(wsId);

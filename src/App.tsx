@@ -16,7 +16,7 @@ import { SkillsDialog } from "./components/skills/SkillsDialog";
 import { McpDialog } from "./components/mcp/McpDialog";
 import { StatsDialog } from "./components/stats/StatsDialog";
 import { AgentDialog } from "./components/workspace/AgentDialog";
-import { WorkspacesRail } from "./components/workspace/WorkspacesRail";
+import { WorkspaceStrip } from "./components/workspace/WorkspaceStrip";
 import { WorkspaceForm } from "./components/workspace/WorkspaceForm";
 import {
   DECK_STATE_VERSION,
@@ -61,7 +61,8 @@ function App() {
     agents,
     agentsLoading,
     alertSeq,
-    barLevel,
+    barTeam,
+    addTeam,
     canOpenDialog,
     canCloseDialog,
     closeFlow,
@@ -83,13 +84,14 @@ function App() {
     paneViewActions,
     pluginTopBarActions,
     pushAlert,
-    railCollapsed,
-    railWorkspaces,
+    teamsHidden,
+    strip,
+    teamAction,
     runView,
     browserShared,
     setCreating,
     setFrozenAck,
-    setRailCollapsed,
+    setTeamsHidden,
     openSettings,
     closeSettings,
     openSkills,
@@ -131,10 +133,26 @@ function App() {
   const updateAction = updateActionView(updateState);
   return (
     <div className="deck">
+      <WorkspaceStrip
+        view={strip}
+        teamsShown={!teamsHidden}
+        onToggleTeams={() => setTeamsHidden((hidden) => !hidden)}
+        onSelect={handleSelectWorkspace}
+        onAdd={() => setCreating(true)}
+        onClose={closeFlow.requestCloseWorkspace}
+        onRename={deck.renameWorkspace}
+        onReorder={deck.moveWorkspace}
+        onEnterTeam={handleEnterTeam}
+        onRenameTeam={deck.renameTeam}
+        onTeamAction={teamAction}
+        onAddTeam={addTeam}
+        version={info?.version ?? null}
+      />
+      <div className="deck__main">
       <DeckBar
-        railCollapsed={railCollapsed}
-        onToggleRail={() => setRailCollapsed((c) => !c)}
-        workspaceName={railCollapsed && active ? active.name : null}
+        teamsHidden={teamsHidden}
+        onShowTeams={() => setTeamsHidden(false)}
+        workspaceName={teamsHidden && active ? active.name : null}
         agents={agents}
         usageLiveAgents={usageLiveAgents}
         updateAction={updateAction}
@@ -145,7 +163,7 @@ function App() {
             openSettings("updates");
           }
         }}
-        level={barLevel}
+        team={barTeam}
         dock={dockControl}
         pluginActions={pluginTopBarActions}
         canOpenDialog={canOpenDialog}
@@ -163,22 +181,6 @@ function App() {
         }
       />
       <div className="deck__body">
-        {!railCollapsed && (
-          <WorkspacesRail
-            workspaces={railWorkspaces}
-            activeId={deck.activeId}
-            onSelect={handleSelectWorkspace}
-            onAdd={() => setCreating(true)}
-            onClose={closeFlow.requestCloseWorkspace}
-            onRename={deck.renameWorkspace}
-            onEnterTeam={handleEnterTeam}
-            onToggleTeams={deck.toggleRailTeams}
-            onRenameTeam={deck.renameTeam}
-            onDisbandTeam={closeFlow.requestDisbandTeam}
-            onReorder={deck.moveWorkspace}
-            version={info?.version ?? null}
-          />
-        )}
         <div className="deck__stage">
           <DeckStage
             workspaces={deck.workspaces}
@@ -202,13 +204,6 @@ function App() {
             onRestoreSuspendedPane={deck.restoreSuspendedPane}
             onCloseAgent={closeFlow.requestCloseAgent}
             onRenamePane={deck.renamePane}
-            onEnterTeam={deck.openTeam}
-            onAddTeamMember={(wsId, teamId) => {
-              const ws = findWorkspace(deck.workspaces, wsId);
-              if (ws) void agentFlow.openFor(ws, { kind: "member", teamId });
-            }}
-            onRenameTeam={deck.renameTeam}
-            onDisbandTeam={closeFlow.requestDisbandTeam}
             onPaneTitle={deck.setPaneAutoTitle}
             idleBlocked={runView.blocked}
             wakeFailed={runView.wakeFailed}
@@ -464,6 +459,7 @@ function App() {
             mode={dockMode}
           />
         )}
+      </div>
       </div>
       <PluginOverlays />
     </div>

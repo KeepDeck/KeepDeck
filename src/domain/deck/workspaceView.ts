@@ -11,18 +11,12 @@ export interface WorkspaceView {
   minimized?: string[];
   /** Placement produced by suspend-to-tray. Applies in either layout. */
   suspendedTray?: string[];
-  /** The team the stage has open, by id; absent at the cards level. A
-   * LEVEL, not a hide reason: the panes of every other team stay mounted
-   * and merely are not laid out (`stage.ts`). `select` is always one of
-   * the open team's members, or nothing — every writer that repairs it
-   * repairs it within the slice. */
+  /** The team the person put on the stage, by id; absent until they pick
+   * one, when the stage shows the workspace's first (`stage.ts`). Not a
+   * hide reason: the panes of every other team stay mounted and merely are
+   * not laid out. `select` is always one of the shown team's members, or
+   * nothing — every writer that repairs it repairs it within the slice. */
   teamOpen?: string;
-  /** Whether the rail lists this workspace's teams under its name. The
-   * person's own answer to "show me what is in there", so it is kept
-   * beside `teamOpen` in the durable half rather than with the dock: a
-   * launch puts back what they chose to have open, and only the
-   * circumstances of a run — geometry, placement — start over. */
-  railExpanded?: boolean;
 }
 
 export type WorkspaceViewMap = Record<string, WorkspaceView>;
@@ -36,8 +30,7 @@ function isEmptyView(view: WorkspaceView): boolean {
     view.dockTab === undefined &&
     view.minimized === undefined &&
     view.suspendedTray === undefined &&
-    view.teamOpen === undefined &&
-    view.railExpanded === undefined
+    view.teamOpen === undefined
   );
 }
 
@@ -98,7 +91,7 @@ export function hidePaneView(
 }
 
 /** Give a workspace with no highlight one: the open team's first member.
- * Nothing at the cards level — no pane is in front of the person there. */
+ * Nothing for a workspace with no team. */
 export function withDefaultSelection(
   viewByWs: WorkspaceViewMap,
   wsId: string,

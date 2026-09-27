@@ -26,7 +26,6 @@ import { teamNamesIn, teamOf } from "../domain/mail";
 import { gitBadge } from "../ui/gitBadge";
 import { AgentPane, type UnavailableAgent } from "./agent/AgentPane";
 import { MinimizedTray, type MinimizedTrayEntry } from "./deck/MinimizedTray";
-import { TeamCards } from "./deck/TeamCards";
 import { trayView, type ShelfEntry } from "../presentation/trayView";
 import type { JournalRecords, SessionHandle } from "../domain/journal";
 import type { BrowserSharedSeam } from "../app/useSessionsBrowser";
@@ -96,13 +95,6 @@ interface DeckStageProps {
   /** Ask to close a pane; `label` is its display title for the confirm. */
   onCloseAgent(wsId: string, paneId: string, label: string): void;
   onRenamePane(wsId: string, paneId: string, name: string): void;
-  /** Drill into a team from its card — the stage's level moves. */
-  onEnterTeam(wsId: string, teamId: string): void;
-  /** Put another agent on a team, from its card's menu. */
-  onAddTeamMember(wsId: string, teamId: string): void;
-  onRenameTeam(wsId: string, teamId: string, name: string): void;
-  /** Ask to disband a team — the close flow's own question. */
-  onDisbandTeam(wsId: string, teamId: string): void;
   /** Terminal title changed (OSC) — feeds auto-naming ([F11]). */
   onPaneTitle(wsId: string, paneId: string, title: string): void;
   /** Idle panes blocked from waking: paneId → the missing directory
@@ -178,8 +170,8 @@ interface DeckStageProps {
  * tiles it hides are listed in that same tray as if minimized — restoring
  * one of them switches the spotlight to it instead of exiting maximize.
  * Under the optional Tray placement, explicitly suspended agents use the
- * same bottom shelf. What goes over the grid — the team cards, an empty
- * team's sessions, a word — is the stage model's answer ([`stageContent`]).
+ * same bottom shelf. What goes over the grid — an empty team's sessions,
+ * a word — is the stage model's answer ([`stageContent`]).
  */
 export function DeckStage({
   workspaces,
@@ -200,10 +192,6 @@ export function DeckStage({
   onRestoreSuspendedPane,
   onCloseAgent,
   onRenamePane,
-  onEnterTeam,
-  onAddTeamMember,
-  onRenameTeam,
-  onDisbandTeam,
   onPaneTitle,
   idleBlocked,
   wakeFailed,
@@ -511,7 +499,7 @@ export function DeckStage({
               {content.kind === "team-sessions" && (
                 <TeamSessions
                   // One list per team: a role picked on one empty team is
-                  // not a pick on the next one the rail opens.
+                  // not a pick on the next one the strip opens.
                   key={content.teamId}
                   ws={ws}
                   cwd={content.cwd}
@@ -522,24 +510,6 @@ export function DeckStage({
                   onContinue={(mode, record, role) =>
                     onContinueSession(ws.id, content.teamId, mode, record, role)
                   }
-                />
-              )}
-              {/* The cards level, laid over the mounted grid while no team
-                  is open — the same place the empty-grid word takes, for
-                  the same reason: the panes underneath never unmount. Its
-                  own component, so ONE status subscription serves every
-                  card, and so the pane nodes above keep their container
-                  (and their identity) through every change of level. */}
-              {content.kind === "cards" && (
-                <TeamCards
-                  workspace={ws}
-                  gitHeads={gitHeads}
-                  keyboardFocusEnabled={keyboardFocusEnabled && isActive}
-                  onEnter={(teamId) => onEnterTeam(ws.id, teamId)}
-                  onAddMember={(teamId) => onAddTeamMember(ws.id, teamId)}
-                  onRename={(teamId, name) => onRenameTeam(ws.id, teamId, name)}
-                  onDisband={(teamId) => onDisbandTeam(ws.id, teamId)}
-                  onRetry={(teamId) => onRetryProvision(ws.id, teamId)}
                 />
               )}
             </div>

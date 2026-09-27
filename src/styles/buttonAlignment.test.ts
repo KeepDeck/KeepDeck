@@ -37,7 +37,7 @@ describe("button alignment under WebKit's default", () => {
   it("leaves a button that names its own alignment alone", () => {
     // An element rule must lose to a class, or the reset would flatten
     // every row that centres its icon against its label.
-    const row = mount("<button class='rail__select'></button>");
+    const row = mount("<button class='strip__team-open'></button>");
     expect(getComputedStyle(row).alignItems).toBe("center");
   });
 });

@@ -6,9 +6,8 @@ import type { PaneActivity } from "./activity";
  * rung compiles and renders UNSTYLED until status.css paints it — the
  * type cannot enforce the paint, only this sentence can warn about it.
  * The `selected` rung means "the surface the user's cursor owns": the
- * selected pane's border on the deck, the active workspace's green on
- * the rail — one rung, because it is one fact (where the cursor is), and
- * one hex on purpose. */
+ * selected pane's ring on the deck — one rung, because it is one fact
+ * (where the cursor is). */
 export type StatusFrame =
   | "failed"
   | "waiting"
@@ -110,35 +109,28 @@ export function paneFrame(facts: PaneFrameFacts): StatusFrame {
 }
 
 /**
- * The same ladder folded over many surfaces at once — the rail dot's one
- * answer. It takes STATES rather than activities so a caller that has
- * already folded once can fold again: a workspace's dot is the loudest of
- * its teams, and a team's is the loudest of its members, and max is
- * associative, so two rounds of this function rank exactly as one round
- * over every member would. A second ranking table for the second round is
- * what that avoids.
+ * The same ladder folded over many states at once — the loudest member's
+ * rung, which is a team's dot. It takes STATES rather than activities so a
+ * caller that has already folded once can fold again: max is associative,
+ * so two rounds rank exactly as one round over every member would.
  *
- * Literally [`paneFrame`] of the LOUDEST state under the surface's own facts (`selected: active` — the active dot's green
- * is the cursor rung; `fullBleed: false` — a rail dot is a small surface
- * that picks workspaces out, never the rim of what fills the stage), so
- * the two surfaces can never rank attention differently: any pane's
- * attention wins for the workspace (the ACTIVE workspace's dot goes
- * amber/red too — active is where the cursor is, not where the eyes
- * are), and working or done are worth a dot only on a background
- * workspace, exactly as they yield to selection on a pane.
+ * Literally [`paneFrame`] of the LOUDEST state, unselected and never
+ * full-bleed (a dot is a small surface, never the rim of what fills the
+ * stage), so a dot and a pane can never rank attention differently.
  */
-export function workspaceFrame(
+export function foldFrame(
   states: Iterable<PaneActivity["state"] | undefined>,
-  active: boolean,
-): StatusFrame {
+): Exclude<StatusFrame, "selected"> {
   let loudest: PaneActivity["state"] | undefined;
   for (const state of states) {
     if (!state) continue;
     if (!loudest || SEVERITY[state] > SEVERITY[loudest]) loudest = state;
   }
-  return paneFrame({
+  const frame = paneFrame({
     activity: loudest && { state: loudest },
-    selected: active,
+    selected: false,
     fullBleed: false,
   });
+  // Unselected, the ladder has no cursor rung to land on.
+  return frame === "selected" ? "none" : frame;
 }

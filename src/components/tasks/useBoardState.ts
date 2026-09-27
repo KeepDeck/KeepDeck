@@ -33,8 +33,7 @@ export function useTasksBoardFeed(
   return { service, revision, state };
 }
 
-/** One workspace's board for a surface that only reads it — the door's
- * count, the team cards. */
+/** One workspace's board for a surface that only reads it. */
 export function useTasksBoardState(access: TasksAccess, workspaceId: string | null): BoardState | null {
   return useTasksBoardFeed(access, workspaceId).state;
 }

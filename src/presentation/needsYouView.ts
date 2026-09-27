@@ -1,6 +1,6 @@
 /**
  * What the bar's attention control says — "N need you" and the list behind
- * it — decided apart from the markup, the [`railView`] precedent.
+ * it — decided apart from the markup, the [`stripView`] precedent.
  *
  * The list is the deck's answer to "who is blocked on me", across every
  * workspace: an agent waiting for a person, or one whose turn died. Failed

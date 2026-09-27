@@ -55,10 +55,10 @@ import { anyOverlayCovers, subscribeOverlayCover } from "./overlayCover";
 import { describeError, log } from "../ipc/log";
 import { pluginCrashes, subscribePluginCrashes } from "./pluginHealth";
 import { addTeamDoorOpen, bellDoorOpen, dockDoorOpen } from "./doors";
-import type { BarLevel } from "../components/deck/DeckBar";
-import { railView } from "../presentation/railView";
+import type { BarTeam } from "../components/deck/DeckBar";
+import { stripView } from "../presentation/stripView";
 import { needsYouRows, type NeedsYouRow } from "../presentation/needsYouView";
-import { teamBranchOf } from "../presentation/teamCardView";
+import { teamBranchOf, type TeamAction } from "../presentation/teamView";
 
 /** Shell/application wiring kept separate from the rendered app tree. */
 export function useAppController() {
@@ -105,7 +105,7 @@ export function useAppController() {
   }, [deck.workspaces]);
   const gitHeads = useGitHead(deck);
   const [creating, setCreating] = useState(false);
-  const [railCollapsed, setRailCollapsed] = useState(false);
+  const [teamsHidden, setTeamsHidden] = useState(false);
   const [alerts, setAlerts] = useState<{ title: string; message: string }[]>([]);
   const error = alerts[0] ?? null;
   const [alertSeq, setAlertSeq] = useState(0);
@@ -200,7 +200,7 @@ export function useAppController() {
   const dockOpen = activeView.dock ?? false;
   const showForm = creating || deck.workspaces.length === 0;
   // Resolved over the stage's slice: a highlight is only ever on a pane of
-  // the open team, and at the cards level there is none.
+  // the open team.
   const selectedPaneId =
     (active && resolveSelectedPaneId(stagePanes(active, activeView), activeView)) ?? null;
   const dockTabs = buildDockTabs({
@@ -211,8 +211,8 @@ export function useAppController() {
     open: dockOpen,
   });
   const activeCount = active?.panes.length ?? 0;
-  // The stage's level: the team in front of the person, or the cards. The
-  // cap is the TEAM's — the grid its members lay out on.
+  // The team in front of the person — opened, else the first. The cap is
+  // the TEAM's: the grid its members lay out on.
   const openTeam = active ? openTeamOf(active, activeView) : undefined;
   const teamCount = active && openTeam ? membersOf(active, openTeam.id).length : 0;
   const atCap = teamCount >= MAX_PANES;
@@ -293,8 +293,8 @@ export function useAppController() {
   // Announce the transitions worth leaving the app for: needs-you, finished,
   // failed.
   useActivityNotifications(deck.workspaces, agents);
-  // One subscription for the whole rail; what the activity MEANS for a row
-  // is `railView`'s.
+  // One subscription for the whole strip; what the activity MEANS for a mark
+  // or a row is `stripView`'s.
   const paneActivities = usePaneActivities();
   useMenuHotkeys({
     newWorkspace: () => {
@@ -302,8 +302,8 @@ export function useAppController() {
       setCreating(true);
     },
     newAgent: () => {
-      // The level decides what "new" means: a member inside a team, a team
-      // at the cards — the same two doors the bar offers.
+      // What "new" means: a member on the team the stage shows, or a team
+      // where the workspace has none yet.
       if (!active) return;
       if (openTeam) {
         if (canAddMember) void agentFlow.openFor(active, { kind: "member", teamId: openTeam.id });
@@ -364,7 +364,24 @@ export function useAppController() {
   const showBell = bellDoorOpen(notificationPrefs);
   const openNotification = runtime.application.openNotification;
   const handleCreateWorkspace = runtime.application.createWorkspace;
-  const railWorkspaces = railView(deck.workspaces, paneActivities, deck.viewByWs, deck.activeId);
+  const strip = stripView(deck.workspaces, paneActivities, deck.viewByWs, deck.activeId);
+  /** A team action from the strip's row menu, turned into the owner that
+   * performs it — the same doors the stage's own controls open. */
+  const teamAction = (wsId: string, teamId: string, action: Exclude<TeamAction, "rename">) => {
+    const ws = findWorkspace(deck.workspaces, wsId);
+    if (!ws) return;
+    switch (action) {
+      case "add-member":
+        if (!windows.modal) void agentFlow.openFor(ws, { kind: "member", teamId });
+        return;
+      case "disband":
+        closeFlow.requestDisbandTeam(wsId, teamId);
+        return;
+      case "retry":
+        orchestrator.retryProvisioning(wsId, teamId);
+        return;
+    }
+  };
   const needsYou = {
     rows: needsYouRows(deck.workspaces, paneActivities, agents),
     onOpen: (row: NeedsYouRow) =>
@@ -373,27 +390,24 @@ export function useAppController() {
   if (restoring || !spawnCtx || !settings) {
     return { ready: false as const };
   }
-  /** The bar's level, composed HERE like every other door: whether a
+  /** The bar's team, composed HERE like every other door: whether a
    * control exists is a policy about the app's state, and the bar's whole
    * say in it is a null check. */
-  const barLevel: BarLevel =
+  const barTeam: BarTeam | null =
     active && openTeam
       ? {
-          kind: "team",
           name: openTeam.name,
           branch: teamBranchOf(openTeam, gitHeads.get(teamHeldPath(openTeam) ?? active.cwd)),
-          onBack: () => deck.closeTeam(active.id),
           canAddMember,
           addMemberTitle: atCap ? `Max ${MAX_PANES} agents on a team` : "Add a member",
           onAddMember: () => {
             if (canAddMember) void agentFlow.openFor(active, { kind: "member", teamId: openTeam.id });
           },
         }
-      : {
-          kind: "teams",
-          onAddTeam:
-            active && canAddTeam ? () => void agentFlow.openFor(active, { kind: "new-team" }) : null,
-        };
+      : null;
+  /** The strip's «+ team», or null while no team can be started. */
+  const addTeam =
+    active && canAddTeam ? () => void agentFlow.openFor(active, { kind: "new-team" }) : null;
   return {
     ready: true as const,
     active,
@@ -403,7 +417,8 @@ export function useAppController() {
     agents,
     agentsLoading,
     alertSeq,
-    barLevel,
+    barTeam,
+    addTeam,
     canOpenDialog,
     closeFlow,
     deck,
@@ -427,13 +442,14 @@ export function useAppController() {
     pluginDockTabs,
     pluginTopBarActions,
     pushAlert,
-    railCollapsed,
-    railWorkspaces,
+    teamsHidden,
+    strip,
+    teamAction,
     runView,
     browserShared,
     setCreating,
     setFrozenAck,
-    setRailCollapsed,
+    setTeamsHidden,
     canCloseDialog: modal.canCloseDialog,
     openSettings: modal.openSettings,
     closeSettings: modal.closeSettings,
@@ -467,7 +483,7 @@ export function useAppController() {
     closeTasks: modal.closeTasks,
     tasksOpen: modal.tasksOpen,
     tasksFocus: modal.tasksFocus,
-    /** The team the stage has open, or null at the cards level — the
+    /** The team the stage shows, or null for a workspace with none — the
      * board the Tasks dialog opens on. */
     stageTeamId: openTeam?.id ?? null,
     focusTask: modal.focusTask,

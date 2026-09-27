@@ -103,12 +103,12 @@ describe("closeHotkeyTarget", () => {
     expect(closeHotkeyTarget([ws("ws-1", [])], "ws-1", v(), agents)).toBeNull();
   });
 
-  it("targets nothing at the cards level, whatever the stored selection says", () => {
-    // No team open: no pane is in front of the person, so a habituated
-    // ⌘W closes nothing — not the workspace, not a pane a stale view names.
+  it("targets the first team's pane when no team was opened — it is the one on the stage", () => {
     const workspaces = [ws("ws-1", [{ id: "pane-1" }])];
-    expect(closeHotkeyTarget(workspaces, "ws-1", {}, agents)).toBeNull();
-    expect(closeHotkeyTarget(workspaces, "ws-1", { "ws-1": { select: "pane-1" } }, agents)).toBeNull();
+    expect(closeHotkeyTarget(workspaces, "ws-1", {}, agents)).toMatchObject({ paneId: "pane-1" });
+    expect(
+      closeHotkeyTarget(workspaces, "ws-1", { "ws-1": { select: "pane-1" } }, agents),
+    ).toMatchObject({ paneId: "pane-1" });
   });
 
   it("never targets another team's pane, even the selected one", () => {
@@ -213,9 +213,9 @@ describe("paneHotkeyTarget", () => {
     });
   });
 
-  it("has nothing to act on at the cards level", () => {
+  it("acts on the first team when no team was opened", () => {
     const workspaces = [ws("ws-1", [{ id: "pane-1" }])];
-    expect(paneHotkeyTarget(workspaces, "ws-1", {}, agents)).toBeNull();
+    expect(paneHotkeyTarget(workspaces, "ws-1", {}, agents)).toMatchObject({ paneId: "pane-1" });
     expect(paneHotkeyTarget(workspaces, "ws-1", v(), agents)).toMatchObject({ paneId: "pane-1" });
   });
 
@@ -295,11 +295,13 @@ describe("maximizeHotkeyTarget", () => {
     ).toBeNull();
   });
 
-  it("returns null for an unknown active workspace, an empty one, or the cards level", () => {
+  it("returns null for an unknown active workspace or an empty one", () => {
     expect(maximizeHotkeyTarget([], "ws-1", {})).toBeNull();
     expect(maximizeHotkeyTarget([ws("ws-1", [])], "ws-1", v())).toBeNull();
-    // Two panes, but no team open: the slice is empty.
-    expect(maximizeHotkeyTarget(multi, "ws-1", { "ws-1": { select: "pane-2" } })).toBeNull();
+    // No team opened: the first team is on the stage, and its pane is the target.
+    expect(maximizeHotkeyTarget(multi, "ws-1", { "ws-1": { select: "pane-2" } })).toMatchObject({
+      paneId: "pane-2",
+    });
   });
 
   it("returns null when minimizing leaves one visible pane — already full-size", () => {

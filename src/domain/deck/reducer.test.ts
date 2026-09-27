@@ -166,7 +166,7 @@ const twoTeams = (): Workspace => ({
   ],
 });
 
-describe("deckReducer openTeam / closeTeam", () => {
+describe("deckReducer openTeam", () => {
   const at = "2026-01-01T00:00:00.000Z";
 
   it("opens a team and lands the highlight on its first member on the grid", () => {
@@ -214,25 +214,7 @@ describe("deckReducer openTeam / closeTeam", () => {
     expect(deckReducer(start, { type: "openTeam", wsId: "b", teamId: "team-1" })).toBe(start);
   });
 
-  it("closeTeam returns to the cards: no team open, nothing highlighted, the dock as it was", () => {
-    const next = deckReducer(
-      state({
-        workspaces: [twoTeams()],
-        activeId: "a",
-        viewByWs: { a: { teamOpen: "team-2", select: "a-2", dock: true } },
-      }),
-      { type: "closeTeam", wsId: "a" },
-    );
-    expect(next.viewByWs).toEqual({ a: { dock: true } });
-    // A view with nothing else in it is pruned, like every other emptying.
-    const pruned = deckReducer(
-      state({ workspaces: [twoTeams()], activeId: "a", viewByWs: { a: { teamOpen: "team-2", select: "a-2" } } }),
-      { type: "closeTeam", wsId: "a" },
-    );
-    expect(pruned.viewByWs).toEqual({});
-  });
-
-  it("dissolving the open team is the way back to the cards; another team's dissolve is not", () => {
+  it("dissolving the open team opens the first remaining one; another team's dissolve is not", () => {
     // Only a team with nobody on it dissolves: team-2 once its members are gone.
     const emptied = { ...twoTeams(), panes: [{ id: "a-1", team: { teamId: "team-1", role: "lead" } }] };
     const back = deckReducer(
@@ -240,7 +222,8 @@ describe("deckReducer openTeam / closeTeam", () => {
       { type: "dissolveTeam", wsId: "a", teamId: "team-2" },
     );
     expect(back.workspaces[0].teams?.map((candidate) => candidate.id)).toEqual(["team-1"]);
-    expect(back.viewByWs).toEqual({});
+    // Opened properly: the highlight lands on its grid.
+    expect(back.viewByWs).toEqual({ a: { teamOpen: "team-1", select: "a-1" } });
 
     const elsewhere = deckReducer(
       state({ workspaces: [emptied], activeId: "a", viewByWs: { a: { teamOpen: "team-1", select: "a-1" } } }),
@@ -413,12 +396,13 @@ describe("deckReducer selection", () => {
     );
     expect(kept.viewByWs).toEqual({ a: open({ select: "a-2" }) });
 
-    // At the cards level nothing is a pane to highlight.
-    const cards = deckReducer(state({ workspaces: [tws("a", ["a-1", "a-2"])] }), {
+    // No team opened: the first team is on the stage, and its first member
+    // takes the highlight the same way.
+    const first = deckReducer(state({ workspaces: [tws("a", ["a-1", "a-2"])] }), {
       type: "selectWorkspace",
       id: "a",
     });
-    expect(cards.viewByWs).toEqual({});
+    expect(first.viewByWs).toEqual({ a: { select: "a-1" } });
   });
 
   it("addAgentPane appends and selects it when it lands on the open team", () => {

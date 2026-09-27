@@ -12,8 +12,8 @@
  * only if the place it lands was already paid for.
  *
  * So the reckoning ran the other way. The pane count was already answered by
- * the rail's per-workspace numbers and by the panes being on screen — it is
- * gone rather than relocated. The build number went to the rail's own footer,
+ * the strip's per-team numbers and by the panes being on screen — it is
+ * gone rather than relocated. The build number went to the strip's own foot,
  * which is chrome that already exists. Quota stayed, because a subscription
  * running out is the one fact here that changes what you do next.
  *
@@ -22,7 +22,7 @@
  *
  * WHAT IT DOES NOT DECIDE, on purpose: whether a control is worth showing,
  * and what a press ultimately does. Both belong to the composition root —
- * `dock`, `notifications`, the level's door and `updateAction` arrive null
+ * `dock`, `notifications`, the team and `updateAction` arrive null
  * when their control has no business existing, and every action is a
  * callback. So
  * the bar itself reaches for no manager, no store and no router; it draws
@@ -65,32 +65,26 @@ import type { NeedsYouRow } from "../../presentation/needsYouView";
 import { UsageChips } from "../usage/UsageChips";
 
 /**
- * Where the stage is, as the bar says it. At the teams level the one door is
- * a new team (null while no workspace is active — nowhere to put it). Inside
- * a team: the way back, what the team is and where it works, and the door to
- * another member, with the refusal's words when the team is full.
+ * The team on the stage, as the bar says it: what the team is and where it
+ * works, and the door to another member, with the refusal's words when the
+ * team is full. Null for a workspace with no team.
  */
-export type BarLevel =
-  | { kind: "teams"; onAddTeam: (() => void) | null }
-  | {
-      kind: "team";
-      name: string;
-      branch: string | null;
-      onBack(): void;
-      canAddMember: boolean;
-      /** The add control's tooltip, which is also where a refusal is explained. */
-      addMemberTitle: string;
-      onAddMember(): void;
-    };
+export interface BarTeam {
+  name: string;
+  branch: string | null;
+  canAddMember: boolean;
+  /** The add control's tooltip, which is also where a refusal is explained. */
+  addMemberTitle: string;
+  onAddMember(): void;
+}
 
 export interface DeckBarProps {
-  /** Whether the workspaces rail is hidden — the toggle's own state. */
-  railCollapsed: boolean;
-  onToggleRail(): void;
-  /** The active workspace's name, or null when the rail is already showing it
-   *  (or nothing is active). The bar does not re-derive that: an open rail
-   *  highlights the active workspace two centimetres below, and repeating it
-   *  here is a second answer to a question nobody asked twice. */
+  /** Whether the strip's team list is hidden; the bar then carries the way
+   *  to show it again, since the list's own toggle went with it. */
+  teamsHidden: boolean;
+  onShowTeams(): void;
+  /** The active workspace's name, or null when the team list is already
+   *  showing it in its head (or nothing is active). */
   workspaceName: string | null;
 
   agents: AgentInfo[];
@@ -102,11 +96,9 @@ export interface DeckBarProps {
   updateAction: UpdateActionView | null;
   onUpdateAction(action: UpdateAction): void;
 
-  /** The level the stage is on, and the one affirmative act the bar offers
-   * there: at the teams level a new team; inside a team, another member —
-   * with the way back, the team's name and its branch, since the rail
-   * below says nothing about a team. */
-  level: BarLevel;
+  /** The team on the stage — named on the left, and the door to another
+   *  member on the right. */
+  team: BarTeam | null;
 
   /** The dock toggle, or null when no plugin contributes a dock tab. */
   dock: { open: boolean; onToggle(): void } | null;
@@ -142,14 +134,14 @@ export interface DeckBarProps {
 }
 
 export function DeckBar({
-  railCollapsed,
-  onToggleRail,
+  teamsHidden,
+  onShowTeams,
   workspaceName,
   agents,
   usageLiveAgents,
   updateAction,
   onUpdateAction,
-  level,
+  team,
   dock,
   pluginActions,
   canOpenDialog,
@@ -171,69 +163,41 @@ export function DeckBar({
   return (
     <header className="deck__bar">
       <div className="deck__bar-left">
-        {/* Who and where: the rail's own switch, the app, the project. */}
-        <div className="bar__group">
-          <TipButton
-            variant="ghost"
-            size="sm"
-            tip={railCollapsed ? "Show workspaces" : "Hide workspaces"}
-            label="Toggle workspaces panel"
-            onClick={onToggleRail}
-          >
-            <SidebarIcon />
-          </TipButton>
-          {workspaceName !== null && (
-            <span className="deck__active-ws">{workspaceName}</span>
-          )}
-        </div>
-        {level.kind === "team" && (
-          // Inside a team the rail says nothing about it, so this half does:
-          // the way back to the cards, the team's name, the branch it works
-          // on. Its own group, so the workspace's own words keep their seam.
-          //
-          // SEAMED while the rail is open: the group then starts at the rail's
-          // own right border, so what names the STAGE stands in the stage's
-          // column rather than over the rail's. The modifier is derived here
-          // rather than asked for, because the fact it needs — whether the
-          // rail is showing — is already handed to the bar, and a second prop
-          // saying the same thing would be a second answer to one question.
-          // Which is also why this is the bar's call and not the root's: the
-          // root decides whether a control is WORTH SHOWING; where a group
-          // sits is arrangement, and arrangement stays in this file.
-          <div
-            className={`bar__group deck__team-bar${
-              railCollapsed ? "" : " deck__team-bar--seamed"
-            }`}
-          >
+        {/* Where you are. The strip's team list names the workspace and
+            marks the open team; the bar names the team again only because
+            it is what the stage shows, with the branch it works on. With the
+            list hidden, the way back to it and the workspace's name stand
+            in front. */}
+        {teamsHidden && (
+          <div className="bar__group">
             <TipButton
               variant="ghost"
               size="sm"
-              tip="Back to the teams"
-              label="Back to teams"
-              onClick={level.onBack}
+              tip="Show teams"
+              label="Show teams"
+              onClick={onShowTeams}
             >
-              ←
+              <SidebarIcon />
             </TipButton>
-            {/* The app's own tip, not a `title`. This is the one place that
-                names the open team ON ITS OWN — the rail says nothing about
-                it, and a role badge names a team only where the deck runs
-                more than one, dimmed, as the tail of an address and the first
-                thing a narrow header clips. So an ellipsized name here is
-                recoverable nowhere worth calling a place. A `title` does not
-                recover it either:
-                this WebView draws no native tooltip (see TipButton), which is
-                exactly the trap that file was written about. The anchor
-                carries `min-width: 0`, so wrapping the name costs it none of
-                its room to ellipsize. */}
-            <Tooltip tip={level.name} delayMs={BAR_TIP_DELAY_MS}>
-              <span className="deck__team-name">{level.name}</span>
+            {workspaceName !== null && (
+              <span className="deck__active-ws">{workspaceName}</span>
+            )}
+          </div>
+        )}
+        {team && (
+          <div className="bar__group deck__team-bar">
+            {/* The app's own tip, not a `title`: this WebView draws no
+                native tooltip (see TipButton), and an ellipsized team name
+                must be recoverable somewhere. */}
+            <Tooltip tip={team.name} delayMs={BAR_TIP_DELAY_MS}>
+              <span className="deck__team-name">{team.name}</span>
             </Tooltip>
-            {level.branch !== null && (
+            {team.branch !== null && (
               <BranchBadge
                 className="deck__team-branch"
                 size="sm"
-                label={level.branch}
-                title={level.branch}
+                label={team.branch}
+                title={team.branch}
               />
             )}
           </div>
@@ -288,38 +252,22 @@ export function DeckBar({
           </div>
         )}
 
-        {/* CREATE — the bar's one affirmative act, and the only filled control
-            on it. ONE door per level: at the teams level a team is the only
-            thing to start (an agent is a team's first member, so the team is
-            born with it); inside a team, a member is the only thing to add.
-            No menu: the level already chose. */}
-        {level.kind === "team" ? (
+        {/* CREATE — the bar's one affirmative act, and the only filled
+            control on it: another member on the team the stage shows. A new
+            team starts from the strip's team list, where teams live. */}
+        {team && (
           <div className="bar__group">
             <TipButton
               variant="primary"
               size="sm"
-              onClick={level.onAddMember}
-              disabled={!level.canAddMember}
-              tip={level.addMemberTitle}
+              onClick={team.onAddMember}
+              disabled={!team.canAddMember}
+              tip={team.addMemberTitle}
               label="Add a member"
             >
               + Member
             </TipButton>
           </div>
-        ) : (
-          level.onAddTeam && (
-            <div className="bar__group">
-              <TipButton
-                variant="primary"
-                size="sm"
-                onClick={level.onAddTeam}
-                tip="Start a team — with its first agent and its directory"
-                label="Start a team"
-              >
-                + Team
-              </TipButton>
-            </div>
-          )
         )}
 
         {/* PANELS — what to show and hide. Nothing here changes the deck; it

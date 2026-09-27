@@ -1,21 +1,18 @@
 /**
  * What the stage shows over a workspace, decided once.
  *
- * The stage asked this in three places — a workspace with nothing in it
- * rendered a screen of its own, the cards level was a check beside the grid,
- * and the empty-grid word was a third — each spelling its own condition. One
- * answer here, and the stage only draws it:
+ * One answer here, and the stage only draws it. The stage always shows a
+ * team — the one opened, else the first (`openTeamOf`) — so:
  *
  * - no team at all: a word saying so — a team is where agents work, and the
  *   sessions a team can continue are shown inside one;
- * - no team open: the team cards;
  * - an open team with somebody on its grid: the grid;
  * - an open team with NOBODY on it, its directory in place: the sessions it
  *   can continue — the way to put its first member on it;
  * - any other open team with an empty grid — every member hidden, or its
  *   directory still being made: the word for that.
  */
-import { openTeamOf, stagePanes, teamsOf, type Workspace, type WorkspaceView } from "../domain/deck";
+import { openTeamOf, stagePanes, type Workspace, type WorkspaceView } from "../domain/deck";
 import { emptyGridMessage } from "./trayView";
 
 export interface StageWord {
@@ -25,7 +22,7 @@ export interface StageWord {
 
 export const NO_TEAMS_WORD: StageWord = {
   title: "No teams yet",
-  sub: "Start one with “+ Team” — open it, and it lists the sessions it can continue",
+  sub: "Start one with “+” beside the teams list — it lists the sessions it can continue",
 };
 
 /** The empty team's sessions list — the words over it. */
@@ -51,7 +48,6 @@ export function teamSessionsHint(
 
 export type StageContent =
   | { kind: "no-teams"; word: StageWord }
-  | { kind: "cards" }
   | { kind: "grid" }
   | { kind: "team-sessions"; teamId: string; cwd: string }
   | { kind: "word"; word: StageWord };
@@ -62,9 +58,8 @@ export function stageContent(
   /** How many of the open team's panes are live on its grid. */
   liveCount: number,
 ): StageContent {
-  if (teamsOf(ws).length === 0 && ws.panes.length === 0) return { kind: "no-teams", word: NO_TEAMS_WORD };
   const team = openTeamOf(ws, view);
-  if (!team) return { kind: "cards" };
+  if (!team) return { kind: "no-teams", word: NO_TEAMS_WORD };
   if (liveCount > 0) return { kind: "grid" };
   const panes = stagePanes(ws, view);
   if (panes.length === 0 && team.location?.kind === "attached") {

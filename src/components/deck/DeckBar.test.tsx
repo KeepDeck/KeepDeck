@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { UpdateAction } from "../../app/updateAction";
 import { BAR_TIP_DELAY_MS } from "../../ui/TipButton";
-import { DeckBar, type DeckBarProps } from "./DeckBar";
+import { DeckBar, type BarTeam, type DeckBarProps } from "./DeckBar";
 
 // React 19 requires this flag for act() outside a test-framework integration.
 (
@@ -26,15 +26,23 @@ vi.mock("../notifications/NotificationBell", () => ({
   },
 }));
 
+const TEAM: BarTeam = {
+  name: "api",
+  branch: "kd/api",
+  canAddMember: true,
+  addMemberTitle: "Add a member",
+  onAddMember: () => {},
+};
+
 const BASE: DeckBarProps = {
-  railCollapsed: false,
-  onToggleRail: () => {},
+  teamsHidden: false,
+  onShowTeams: () => {},
   workspaceName: null,
   agents: [],
   usageLiveAgents: new Set(),
   updateAction: null,
   onUpdateAction: () => {},
-  level: { kind: "teams", onAddTeam: () => {} },
+  team: TEAM,
   dock: null,
   pluginActions: [],
   canOpenDialog: true,
@@ -92,19 +100,20 @@ describe("DeckBar", () => {
     // Presence is the composition root's decision, and the bar's only say in
     // it is a null check — so a bar handed nothing optional shows exactly the
     // controls that are never optional.
-    render({ level: { kind: "teams", onAddTeam: null } });
-    expect(byText("+ Team")).toBeUndefined();
+    render({ team: null });
+    expect(byText("+ Member")).toBeUndefined();
+    expect(byLabel("Show teams")).toBeNull();
     expect(byLabel("Toggle dock panel")).toBeNull();
     // The artifacts door is one of these: the feature is off by default,
     // and a door to a feature that is not running leads to a refusal.
     expect(byLabel("Open artifacts")).toBeNull();
     render();
-    expect(byText("+ Team")).toBeDefined();
+    expect(byText("+ Member")).toBeDefined();
   });
 
   it("carries no pane count and no build number", () => {
-    // Both were answered elsewhere already — the rail numbers each workspace,
-    // the panes are on screen, and the build sits in the rail's footer. They
+    // Both were answered elsewhere already — the panes are on screen, and
+    // the build sits at the strip's foot. They
     // were removed rather than relocated, and their absence is the point of
     // the whole rearrangement, so it is worth an assertion.
     render();
@@ -119,6 +128,7 @@ describe("DeckBar", () => {
     // nothing else, which is the whole reason it can hold this — so "alone"
     // is asserted with the one control that used to share it present.
     render({
+      teamsHidden: true,
       workspaceName: "Personal project",
       updateAction: {
         label: "Update available",
@@ -157,12 +167,13 @@ describe("DeckBar", () => {
     const order = Array.from(right.querySelectorAll("button")).map(
       (button) => button.textContent,
     );
+    // The attention control (mocked here) leads; the update comes next.
     expect(order.indexOf("Update available")).toBe(0);
-    expect(order.indexOf("+ Team")).toBe(1);
+    expect(order.indexOf("+ Member")).toBe(1);
     // Its own group, so Create neither gains nor loses a neighbour when the
     // update comes and goes.
     expect(byText("Update available")!.closest(".bar__group")).not.toBe(
-      byText("+ Team")!.closest(".bar__group"),
+      byText("+ Member")!.closest(".bar__group"),
     );
   });
 
@@ -179,8 +190,9 @@ describe("DeckBar", () => {
     // a crossed pair looks perfectly fine until somebody presses it.
     const calls: string[] = [];
     render({
-      onToggleRail: () => calls.push("rail"),
-      level: { kind: "teams", onAddTeam: () => calls.push("team") },
+      teamsHidden: true,
+      onShowTeams: () => calls.push("teams"),
+      team: { ...TEAM, onAddMember: () => calls.push("member") },
       onOpenStats: () => calls.push("stats"),
       onOpenSkills: () => calls.push("skills"),
       onOpenMcp: () => calls.push("mcp"),
@@ -189,8 +201,8 @@ describe("DeckBar", () => {
       onOpenSettings: () => calls.push("settings"),
       dock: { open: false, onToggle: () => calls.push("dock") },
     });
-    act(() => byLabel("Toggle workspaces panel")?.click());
-    act(() => byLabel("Start a team")?.click());
+    act(() => byLabel("Show teams")?.click());
+    act(() => byLabel("Add a member")?.click());
     act(() => byLabel("Toggle dock panel")?.click());
     act(() => byLabel("Open statistics")?.click());
     act(() => byLabel("Open skills")?.click());
@@ -199,8 +211,8 @@ describe("DeckBar", () => {
     act(() => byLabel("Open tasks")?.click());
     act(() => byLabel("Open settings")?.click());
     expect(calls).toEqual([
-      "rail",
-      "team",
+      "teams",
+      "member",
       "dock",
       "stats",
       "skills",
@@ -209,103 +221,34 @@ describe("DeckBar", () => {
       "tasks",
       "settings",
     ]);
-    // And inside a team, the level's own two doors.
-    render({
-      level: {
-        kind: "team",
-        name: "api",
-        branch: "kd/api",
-        onBack: () => calls.push("back"),
-        canAddMember: true,
-        addMemberTitle: "Add a member",
-        onAddMember: () => calls.push("member"),
-      },
-    });
-    act(() => byLabel("Back to teams")?.click());
-    act(() => byLabel("Add a member")?.click());
-    expect(calls.slice(-2)).toEqual(["back", "member"]);
   });
 
-  it("inside a team, says where you are and offers a member — one door per level, no menu", () => {
-    // The rail says nothing about a team, so the bar does: the way back, the
-    // name, the branch. And the create control is a plain button either
-    // way: the level already chose what "new" means.
-    render({
-      level: {
-        kind: "team",
-        name: "api",
-        branch: "kd/api",
-        onBack: () => {},
-        canAddMember: true,
-        addMemberTitle: "Add a member",
-        onAddMember: () => {},
-      },
-    });
+  it("names the team on the stage and offers a member — no way back, no second door", () => {
+    // There is no level above a team to go back to, and a new team starts
+    // from the strip's list, where teams live.
+    render();
     const left = host.querySelector(".deck__bar-left")!;
     expect(left.querySelector(".deck__team-name")?.textContent).toBe("api");
     expect(left.querySelector(".deck__team-branch")?.textContent).toContain("kd/api");
-    expect(byLabel("Back to teams")).not.toBeNull();
-    expect(byText("+ Member")).toBeDefined();
-    expect(byText("+ Team")).toBeUndefined();
-    expect(byLabel("Create")).toBeNull();
-    // At the teams level none of that is said, and the door is the team's.
-    render();
-    expect(host.querySelector(".deck__team-name")).toBeNull();
     expect(byLabel("Back to teams")).toBeNull();
+    expect(byText("+ Team")).toBeUndefined();
+    expect(byText("+ Member")).toBeDefined();
+    // A workspace with no team: nothing to name, no member to add.
+    render({ team: null });
+    expect(host.querySelector(".deck__team-name")).toBeNull();
     expect(byText("+ Member")).toBeUndefined();
-    expect(byText("+ Team")).toBeDefined();
-  });
-
-  it("seams the team group to the rail's edge only while the rail is showing", () => {
-    // The seam exists to stand the team's name in the STAGE's column instead
-    // of over the rail's. With the rail hidden there is no rail column to
-    // clear — the stage starts at the window edge — so the offset would be
-    // an indent to nothing. Hence the modifier tracks the rail, not the level
-    // alone, and it is derived from the prop the bar already has rather than
-    // asked for a second time.
-    const team = {
-      kind: "team" as const,
-      name: "api",
-      branch: "kd/api",
-      onBack: () => {},
-      canAddMember: true,
-      addMemberTitle: "Add a member",
-      onAddMember: () => {},
-    };
-    const group = () => host.querySelector(".deck__team-bar");
-
-    render({ level: team, railCollapsed: false });
-    expect(group()?.classList.contains("deck__team-bar--seamed")).toBe(true);
-
-    render({ level: team, railCollapsed: true });
-    expect(group()?.classList.contains("deck__team-bar--seamed")).toBe(false);
-
-    // And with no team open there is nothing to seam either way: the group
-    // itself is what the level decides.
-    render({ railCollapsed: false });
-    expect(group()).toBeNull();
   });
 
   it("keeps the open team's name recoverable when it does not fit", () => {
-    // This is the one place the deck names the open team — the rail says
-    // nothing about it, and a role badge answers "which teammate", not
-    // "which team". So an ellipsized name here is recoverable nowhere else.
+    // With the team list hidden, this is the one place the deck names the
+    // open team, and a role badge answers "which teammate", not "which
+    // team". So an ellipsized name here must be recoverable.
     // Asserted through the app's own tip rather than a `title` attribute,
     // because a `title` is what this WebView draws nothing for: the check has
     // to be that something SHOWS, or it pins the very trap TipButton exists
     // to document.
     const name = "a team whose name is far too long for two hundred and forty pixels";
-    render({
-      level: {
-        kind: "team",
-        name,
-        branch: "kd/api",
-        onBack: () => {},
-        canAddMember: true,
-        addMemberTitle: "Add a member",
-        onAddMember: () => {},
-      },
-    });
+    render({ team: { ...TEAM, name } });
     vi.useFakeTimers();
     try {
       act(() => {
@@ -363,15 +306,7 @@ describe("DeckBar", () => {
     // an anchor exists would pass with any wording at all, this refusal
     // included by an empty one.
     render({
-      level: {
-        kind: "team",
-        name: "api",
-        branch: null,
-        onBack: () => {},
-        canAddMember: false,
-        addMemberTitle: "Max 16 agents on a team",
-        onAddMember: () => {},
-      },
+      team: { ...TEAM, branch: null, canAddMember: false, addMemberTitle: "Max 16 agents on a team" },
     });
     expect(byText("+ Member")?.disabled).toBe(true);
     vi.useFakeTimers();
@@ -412,12 +347,12 @@ describe("DeckBar", () => {
     // `canOpenDialog` is the modal layer's answer, and it has nothing to say
     // about adding an agent — that refusal has its own reason and its own
     // tooltip.
-    render({ canOpenDialog: false });
+    render({ canOpenDialog: false, teamsHidden: true });
     expect(byLabel("Open statistics")?.disabled).toBe(true);
     expect(byLabel("Open skills")?.disabled).toBe(true);
     expect(byLabel("Open settings")?.disabled).toBe(true);
-    expect(byText("+ Team")?.disabled).toBe(false);
-    expect(byLabel("Toggle workspaces panel")?.disabled).toBe(false);
+    expect(byText("+ Member")?.disabled).toBe(false);
+    expect(byLabel("Show teams")?.disabled).toBe(false);
   });
 
   it("names a plugin action by its title and falls back to its initial", () => {
@@ -435,10 +370,14 @@ describe("DeckBar", () => {
     expect(run).toHaveBeenCalledOnce();
   });
 
-  it("names the workspace only when the rail is not saying it", () => {
-    render({ railCollapsed: false, workspaceName: null });
+  it("offers the team list back, and names the workspace, only while the list is hidden", () => {
+    // The list's head names the workspace and carries its own hide toggle;
+    // hidden, both have to be somewhere, and the bar's left edge is where.
+    render({ teamsHidden: false, workspaceName: null });
     expect(host.querySelector(".deck__active-ws")).toBeNull();
-    render({ railCollapsed: true, workspaceName: "Personal project" });
+    expect(byLabel("Show teams")).toBeNull();
+    render({ teamsHidden: true, workspaceName: "Personal project" });
+    expect(byLabel("Show teams")).not.toBeNull();
     expect(host.querySelector(".deck__active-ws")?.textContent).toBe(
       "Personal project",
     );
