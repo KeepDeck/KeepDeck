@@ -20,7 +20,7 @@ interface UseRowAnchoringInput<Row> {
   lastVirtualIndex: number;
   rowVirtualizer: Pick<
     ReactVirtualizer<HTMLElement, HTMLElement>,
-    "getOffsetForIndex" | "measure"
+    "getOffsetForIndex" | "getTotalSize"
   >;
 }
 
@@ -56,10 +56,20 @@ export function useRowAnchoring<Row>({
   // window-only lookup would misread the SAME key as vanished and
   // hand the anchor to an inserted row — the very jump this exists to
   // prevent. The position comes from the library's getOffsetForIndex
-  // — it reads the full measured cache, window or no window; our own
+  // — it reads the full measured cache, window or no window (rebuilt
+  // first: see the compensation); our own
   // queue array supplies the key's index. The vanished/not-yet-
   // measured branch holds the offset and re-arms.
   const anchorRef = useRef<AnchorState | null>(null);
+  const windowRowsOf = () =>
+    virtualItems.map((v) => ({ key: v.key as string, start: v.start }));
+  // The full re-pick: the first fully visible row of this render's window.
+  const armFirstVisible = (list: HTMLElement) => {
+    const first = pickAnchor(windowRowsOf(), list.scrollTop);
+    anchorRef.current = first
+      ? { key: first.key, offset: first.start - list.scrollTop }
+      : null;
+  };
   // COMPENSATION FIRST, arming second — declaration order is the run
   // order of layout effects: when a landed page changes BOTH the
   // queue and the range in one commit, compensation must read the
@@ -83,6 +93,13 @@ export function useRowAnchoring<Row>({
     const scrollTop = list.scrollTop;
     const nextIndex = queue.findIndex((r) => keyOf(r) === prev.key);
     if (nextIndex >= 0) {
+      // getOffsetForIndex reads the positions as they stood at the last
+      // rebuild — and the rows that just mounted above (in view at the
+      // top, say) have reported their heights since, in this very commit.
+      // getTotalSize rebuilds them from every height measured so far;
+      // without it the anchor is placed by the estimate the landed rows
+      // were painted with, off by the difference per row.
+      rowVirtualizer.getTotalSize();
       const at = rowVirtualizer.getOffsetForIndex(nextIndex, "start");
       if (at) {
         const target = at[0] - prev.offset;
@@ -91,8 +108,11 @@ export function useRowAnchoring<Row>({
           // A programmatic scrollTop assignment fires a scroll event
           // in a real browser — dispatch it ourselves so the
           // virtualizer learns the new offset the way it would have.
+          // That is all the virtualizer needs. Never `measure()` here:
+          // it CLEARS every measured height, the mounted rows report
+          // none again (an observer speaks on a resize, a ref on a
+          // mount), and each stays at the estimate — a gap under it.
           list.dispatchEvent(new Event("scroll"));
-          rowVirtualizer.measure();
           // Re-arm at the corrected position: the same key, same
           // offset — the next range change re-arms naturally.
           anchorRef.current = { key: prev.key, offset: prev.offset };
@@ -100,8 +120,12 @@ export function useRowAnchoring<Row>({
         return; // the anchor held — key found, offset kept
       }
     }
-    // Vanished (or not yet measurable): hold the offset; the ARMING
-    // effect re-arms on the next range change.
+    // Vanished: hold the offset, and re-arm NOW on what is first
+    // visible. Waiting for the next range change left a dead key armed
+    // when the removal moved neither the scroll nor the window's end —
+    // and the next landing above found nothing to hold. A key still in
+    // the queue but not yet measurable keeps its anchor (rowAnchor.ts).
+    if (nextIndex < 0) armFirstVisible(list);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [queue]);
   // ARMING — on SCROLL POSITION, not the range's last index: a small
@@ -117,22 +141,15 @@ export function useRowAnchoring<Row>({
   useLayoutEffect(() => {
     const list = listRef.current;
     if (!list) return;
-    const windowRows = virtualItems.map((v) => ({
-      key: v.key as string,
-      start: v.start,
-    }));
     const prev = anchorRef.current;
     if (prev !== null) {
-      const still = windowRows.find((r) => r.key === prev.key);
+      const still = windowRowsOf().find((r) => r.key === prev.key);
       if (still) {
         anchorRef.current = { key: prev.key, offset: still.start - list.scrollTop };
         return;
       }
     }
-    const first = pickAnchor(windowRows, list.scrollTop);
-    anchorRef.current = first
-      ? { key: first.key, offset: first.start - list.scrollTop }
-      : null;
+    armFirstVisible(list);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [listRef.current?.scrollTop, lastVirtualIndex]);
 }

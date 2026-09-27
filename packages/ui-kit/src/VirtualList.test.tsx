@@ -159,3 +159,106 @@ describe("VirtualList", () => {
     });
   });
 });
+
+describe("VirtualList's measured heights", () => {
+  // Rows measure 20 but are estimated at 50: a row still placed at the
+  // estimate shows as a gap under a 20-pixel row.
+  const MEASURED = 20;
+  const ESTIMATE = 50;
+  let root: Root;
+  let host: HTMLElement;
+  let restore: () => void = () => {};
+
+  beforeEach(() => {
+    installResizeObserver();
+    document.body.innerHTML = "<div id='host'></div>";
+    host = document.getElementById("host")!;
+    root = createRoot(host);
+    restore = pinListViewport("list", 200, 300, MEASURED);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    restore();
+  });
+
+  const render = (list: readonly string[]) =>
+    act(() =>
+      root.render(
+        createElement(VirtualList<string>, {
+          items: list,
+          itemKey: (item) => item,
+          estimate: ESTIMATE,
+          render: (item) => createElement("span", { className: "row" }, item),
+          className: "list",
+        }),
+      ),
+    );
+  const list = () => host.querySelector<HTMLElement>(".list")!;
+  /** Each mounted row's top, by its text. */
+  const tops = () =>
+    new Map(
+      [...host.querySelectorAll<HTMLElement>(".list > div > div")].map((item) => [
+        item.textContent!,
+        Number(/translateY\((-?[\d.]+)px\)/.exec(item.style.transform)![1]),
+      ]),
+    );
+
+  it("keeps them when rows land above the one being read", async () => {
+    render(items);
+    await act(async () => {
+      list().scrollTop = 10 * MEASURED;
+      list().dispatchEvent(new Event("scroll"));
+    });
+    const before = tops();
+    const anchor = before.get("row 10")! - list().scrollTop;
+
+    // A row lands at the top: the list holds row 10 where it was — and the
+    // rows in view keep the heights they measured, rather than falling back
+    // to the estimate and opening a gap under every one of them.
+    render(["new row", ...items]);
+    await act(async () => {});
+
+    const after = tops();
+    expect(after.get("row 10")! - list().scrollTop).toBe(anchor);
+    for (let i = 10; i < 15; i++) {
+      expect(after.get(`row ${i + 1}`)! - after.get(`row ${i}`)!).toBe(MEASURED);
+    }
+  });
+
+  it("holds the row being read when the rows landing above it are measured in the same commit", async () => {
+    // At the very top, the landed rows mount in the window and report their
+    // real height before the anchoring runs. The anchoring must place the
+    // row by those heights, not by the estimate it painted with a moment
+    // earlier — or the row it holds lands a height difference per landed
+    // row off its place.
+    render(items);
+    const anchor = tops().get("row 0")! - list().scrollTop;
+    const landed = Array.from({ length: 5 }, (_, i) => `new ${i}`);
+
+    render([...landed, ...items]);
+    await act(async () => {});
+
+    expect(tops().get("row 0")! - list().scrollTop).toBe(anchor);
+  });
+
+  it("holds the row being read after the one it held before was removed", async () => {
+    // The held row leaves (a task moved to another column) while the scroll
+    // and the window's end stand still — the row under it moves up into
+    // its place. Rows landing above afterwards must not push THAT row away.
+    render(items);
+    await act(async () => {
+      list().scrollTop = 10 * MEASURED;
+      list().dispatchEvent(new Event("scroll"));
+    });
+    const withoutHeld = items.filter((item) => item !== "row 10");
+    render(withoutHeld);
+    await act(async () => {});
+    const anchor = tops().get("row 11")! - list().scrollTop;
+
+    render(["new 0", "new 1", ...withoutHeld]);
+    await act(async () => {});
+
+    expect(tops().get("row 11")! - list().scrollTop).toBe(anchor);
+  });
+});

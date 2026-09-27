@@ -58,4 +58,18 @@ describe("Tasks text never widens its box", () => {
   it("a card may shrink to its column — it never grows to its widest word", () => {
     expect(Number.parseFloat(getComputedStyle(mount("tasks__card")).minWidth)).toBe(0);
   });
+
+  it("a card takes its column's width, not its title's", () => {
+    // The card is a <button>, whose auto width is its content's: in the
+    // windowed list's block item it grew to its one-line title and the
+    // column scrolled sideways.
+    const card = document.createElement("button");
+    card.className = "tasks__card";
+    mount("tasks__column-item").append(card);
+    const style = getComputedStyle(card);
+    expect(style.width).toBe("100%");
+    // 100% of the item is the whole card, padding and border included —
+    // a content box would still overhang the column by its padding.
+    expect(style.boxSizing).toBe("border-box");
+  });
 });
