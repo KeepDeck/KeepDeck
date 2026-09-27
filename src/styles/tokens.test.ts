@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { TERMINAL_THEME } from "@keepdeck/terminal-kit";
 import * as chart from "../domain/usage/chartPalette";
-import { readStyles, STYLES_DIR } from "./testSupport";
+import { readStyles, ruleBody, STYLES_DIR } from "./testSupport";
 
 /**
  * tokens.css is the one home of the chrome's colours. These hold the promises
@@ -105,6 +105,17 @@ describe("the design tokens", () => {
   it("open the native window on the canvas, so launch shows no second colour", () => {
     const conf = JSON.parse(readFileSync(join(STYLES_DIR, "..", "..", "src-tauri", "tauri.conf.json"), "utf8"));
     expect(conf.app.windows[0].backgroundColor).toBe(declared(tokens, "--kd-canvas"));
+  });
+
+  it("float the dock and every dialog above the tiles, never below them", () => {
+    // One old hex painted both the structural strip (bar, rail) and the
+    // floating layers; the tiers split them, and this keeps them split.
+    const surface = (file: string, selector: string) =>
+      ruleBody(readStyles(file), selector)["background-color"];
+    expect(surface("dock.css", ".dock")).toBe("var(--kd-float)");
+    expect(surface("form.css", ".form")).toBe("var(--kd-float)");
+    expect(surface("confirm.css", ".confirm")).toBe("var(--kd-float)");
+    expect(surface("peek.css", ".peek__panel")).toBe("var(--kd-float)");
   });
 
   it("hold the chart's surface constant to the canvas it is drawn on", () => {

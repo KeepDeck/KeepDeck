@@ -68,7 +68,7 @@
    own right border, so the line already parting the rail from the stage runs
    on through the bar: what names the STAGE then stands in the stage's column,
    and the left half stops reading as one L-shaped surface with the rail under
-   it. The bar and the rail share a background (#0e121a here, rail.css) and the
+   it. The bar and the rail share a background (--kd-strip, here and in rail.css) and the
    same 1px seam colour, which is why nothing but a shared VERTICAL parted them
    before, and why the fix is geometry rather than another colour.
    The deck has met this before, from the other side: the quota chips were

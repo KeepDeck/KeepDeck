@@ -121,7 +121,7 @@
 .voice__help {
   position: fixed;
   z-index: 80;
-  background: var(--kd-strip);
+  background: var(--kd-tile);
   border: 1px solid var(--kd-seam-strong);
   border-radius: 6px;
   padding: 10px 12px;
@@ -521,7 +521,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  background: var(--kd-strip);
+  background: var(--kd-float);
   border: 1px solid var(--kd-seam-strong);
   border-radius: 999px;
   padding: 6px 14px;

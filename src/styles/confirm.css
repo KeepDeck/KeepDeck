@@ -4,7 +4,7 @@
   padding: 24px;
   border: 1px solid var(--kd-seam);
   border-radius: 12px;
-  background-color: var(--kd-strip);
+  background-color: var(--kd-float);
 }
 
 .confirm__title {

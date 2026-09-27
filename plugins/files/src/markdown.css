@@ -120,7 +120,7 @@
 .files__md pre {
   margin: 0.8em 0;
   padding: 10px 14px;
-  background-color: var(--kd-strip);
+  background-color: var(--kd-tile);
   border: 1px solid var(--kd-seam);
   border-radius: 8px;
   overflow-x: auto;

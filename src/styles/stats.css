@@ -323,7 +323,7 @@
   gap: 12px;
   min-height: 42px;
   padding: 6px 10px;
-  border-bottom: 1px solid var(--kd-tile);
+  border-bottom: 1px solid var(--kd-seam);
   font-size: 12px;
 }
 

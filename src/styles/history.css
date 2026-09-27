@@ -43,7 +43,7 @@
   min-height: 0;
   border: 1px solid var(--kd-seam);
   border-radius: 10px;
-  background-color: var(--kd-strip);
+  background-color: var(--kd-tile);
 }
 
 .history__row {
@@ -239,7 +239,7 @@
   padding: 8px 88px 8px 12px;
   border: 1px solid var(--kd-seam);
   border-radius: 8px;
-  background-color: var(--kd-strip);
+  background-color: var(--kd-tile);
   color: var(--kd-text);
   font-size: 13px;
 }
@@ -390,7 +390,7 @@
   inset: 0;
   display: flex;
   flex-direction: column;
-  background-color: var(--kd-strip);
+  background-color: var(--kd-tile);
   border: 1px solid var(--kd-seam);
   border-radius: 10px;
   /* Clip children to the rounded box — square row backgrounds must not

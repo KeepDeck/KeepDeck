@@ -61,7 +61,7 @@
   padding: 6px 6px;
   border: 0;
   border-top: 1px solid var(--kd-seam);
-  background-color: var(--kd-strip);
+  background-color: var(--kd-float);
   color: var(--kd-text-3);
   font-size: 11.5px;
   font-weight: 700;

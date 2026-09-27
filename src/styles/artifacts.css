@@ -28,7 +28,7 @@
   padding: 8px 12px;
   border: 1px solid var(--kd-seam);
   border-radius: 8px;
-  background-color: var(--kd-strip);
+  background-color: var(--kd-tile);
   color: var(--kd-text);
   font-size: 13px;
 }

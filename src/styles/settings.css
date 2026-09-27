@@ -135,7 +135,7 @@
   padding: 8px 10px;
   border: 1px solid var(--kd-seam);
   border-radius: 8px;
-  background-color: var(--kd-strip);
+  background-color: var(--kd-tile);
   color: var(--kd-text-2);
   font-size: 12px;
   line-height: 1.6;
@@ -545,7 +545,7 @@
   padding: 6px 10px;
   border: 1px solid var(--kd-seam);
   border-radius: 8px;
-  background-color: var(--kd-strip);
+  background-color: var(--kd-tile);
   color: var(--kd-text-2);
   font-size: 13px;
   text-align: left;

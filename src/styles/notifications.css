@@ -43,7 +43,7 @@
   flex-direction: column;
   border: 1px solid var(--kd-seam);
   border-radius: 10px;
-  background-color: var(--kd-strip);
+  background-color: var(--kd-float);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
   overflow: hidden;
 }
