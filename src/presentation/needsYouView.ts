@@ -115,3 +115,18 @@ export function attentionTrigger(
 
 /** What the notification feed says while it holds nothing. */
 export const FEED_EMPTY = "Nothing yet";
+
+/** Where ⌘J goes: the row after the agent the person is on, wrapping to the
+ * first — so repeated presses walk the list in its order (failed first) —
+ * or the first row when the person is on none of them. Null when nobody
+ * needs the person. */
+export function nextNeedsYou(
+  rows: readonly NeedsYouRow[],
+  current: { wsId: string; paneId: string } | null,
+): NeedsYouRow | null {
+  if (rows.length === 0) return null;
+  const at = current
+    ? rows.findIndex((row) => row.wsId === current.wsId && row.paneId === current.paneId)
+    : -1;
+  return rows[(at + 1) % rows.length];
+}

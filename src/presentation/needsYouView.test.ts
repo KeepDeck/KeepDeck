@@ -6,6 +6,7 @@ import {
   attentionTrigger,
   needsYouAge,
   needsYouRows,
+  nextNeedsYou,
   type NeedsYouRow,
 } from "./needsYouView";
 
@@ -108,5 +109,29 @@ describe("attentionTrigger", () => {
       label: "Notifications (120 unread)",
     });
     expect(attentionTrigger([], null)).toBeNull();
+  });
+});
+
+describe("nextNeedsYou", () => {
+  const at = (paneId: string): NeedsYouRow => ({
+    wsId: "w",
+    paneId,
+    tone: "waiting",
+    title: paneId,
+    where: "w",
+    label: "l",
+    since: 0,
+  });
+  const rows = [at("a"), at("b"), at("c")];
+
+  it("walks the list from the agent the person is on, wrapping at the end", () => {
+    expect(nextNeedsYou(rows, { wsId: "w", paneId: "a" })?.paneId).toBe("b");
+    expect(nextNeedsYou(rows, { wsId: "w", paneId: "c" })?.paneId).toBe("a");
+  });
+
+  it("starts at the top from anywhere else, and has nowhere to go with nobody waiting", () => {
+    expect(nextNeedsYou(rows, null)?.paneId).toBe("a");
+    expect(nextNeedsYou(rows, { wsId: "other", paneId: "a" })?.paneId).toBe("a");
+    expect(nextNeedsYou([], { wsId: "w", paneId: "a" })).toBeNull();
   });
 });

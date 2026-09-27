@@ -57,7 +57,7 @@ import { pluginCrashes, subscribePluginCrashes } from "./pluginHealth";
 import { addTeamDoorOpen, bellDoorOpen, dockDoorOpen } from "./doors";
 import type { BarTeam } from "../components/deck/DeckBar";
 import { stripView } from "../presentation/stripView";
-import { needsYouRows, type NeedsYouRow } from "../presentation/needsYouView";
+import { needsYouRows, nextNeedsYou, type NeedsYouRow } from "../presentation/needsYouView";
 import { teamBranchOf, type TeamAction } from "../presentation/teamView";
 
 /** Shell/application wiring kept separate from the rendered app tree. */
@@ -296,6 +296,11 @@ export function useAppController() {
   // One subscription for the whole strip; what the activity MEANS for a mark
   // or a row is `stripView`'s.
   const paneActivities = usePaneActivities();
+  const needsYou = {
+    rows: needsYouRows(deck.workspaces, paneActivities, agents),
+    onOpen: (row: NeedsYouRow) =>
+      runtime.application.activatePane(row.wsId, row.paneId),
+  };
   useMenuHotkeys({
     newWorkspace: () => {
       if (windows.modal) return;
@@ -351,6 +356,12 @@ export function useAppController() {
       );
       if (target) paneViewActions.toggleMaximize(target.wsId, target.paneId);
     },
+    nextNeedsYou: () => {
+      if (windows.modal) return;
+      const current = selectedPaneId ? { wsId: deck.activeId, paneId: selectedPaneId } : null;
+      const next = nextNeedsYou(needsYou.rows, current);
+      if (next) needsYou.onOpen(next);
+    },
     openSettings: () => void modal.openSettings(),
   });
   const handleSelectWorkspace = (id: string) => {
@@ -382,11 +393,7 @@ export function useAppController() {
         return;
     }
   };
-  const needsYou = {
-    rows: needsYouRows(deck.workspaces, paneActivities, agents),
-    onOpen: (row: NeedsYouRow) =>
-      runtime.application.activatePane(row.wsId, row.paneId),
-  };
+
   if (restoring || !spawnCtx || !settings) {
     return { ready: false as const };
   }
