@@ -400,10 +400,18 @@
    first percentage, the title carries the rest. The panel is anchored and
    unaffected. */
 
-@media (max-width: 820px) {
-  /* The narrowest bar keeps the rings and drops the numbers — the hover
-     and the panel still have them. */
+/* The bar's rungs (its `deck-bar` container, deck.css): below 700px the
+   rings keep their place and drop their numbers — the hover and the panel
+   still have them; below 580px — the 800px window with the team list open
+   — they close up too, so the right-hand controls keep their whole width. */
+@container deck-bar (max-width: 700px) {
   .usage-chip .usage-window__value {
     display: none;
+  }
+}
+
+@container deck-bar (max-width: 580px) {
+  .usage-chip {
+    padding: 0 3px;
   }
 }

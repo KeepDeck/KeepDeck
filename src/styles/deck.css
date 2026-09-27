@@ -16,17 +16,28 @@
 
 /* Top bar */
 /* Three zones, not two halves. A grid rather than a flex row because the
-   middle has to be centred against the WINDOW, not against whatever the two
-   sides happen to weigh — `1fr auto 1fr` gives the outer zones equal claim
-   and leaves the centre where the eye expects it, however long the workspace
-   name or however many icons the right-hand groups hold. */
+   middle has to be centred against the BAR, not against whatever the two
+   sides happen to weigh: while there is room the outer zones take equal
+   shares and the centre sits where the eye expects it.
+
+   When there is not — the 800px floor with the team list open leaves the
+   bar ~550px — the controls must not be the ones to give. The right zone
+   never shrinks below its content (its floor is `max-content`), so every
+   control stays whole and pressable; the centre drifts left of centre
+   rather than a button falling off the edge, and the left zone — words,
+   which ellipsize — takes what is left, down to nothing. */
 .deck__bar {
   display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  grid-template-columns: minmax(0, 1fr) auto minmax(max-content, 1fr);
   align-items: center;
   padding: 0 8px 0 12px;
   height: 40px;
   flex: none;
+  /* The bar's rungs answer to the BAR's width, not the window's: with the
+     team list open the same window leaves the bar ~200px less, and a rung
+     keyed to the window would shed too late there and too early without
+     it. Named, so a rung inside a pane header can never bind to this. */
+  container: deck-bar / inline-size;
   /* On the canvas, with no line under it: the tiles below are parted from
      it by the same air that parts them from each other. */
   background-color: var(--kd-canvas);
@@ -86,10 +97,11 @@
   max-width: 200px;
 }
 
-/* Narrow window: the branch goes, the name stays — a chip sheds whole
-   rather than shrinking, and every pane header on the team already works
-   on the same branch. */
-@media (max-width: 1100px) {
+/* Narrow bar: the branch goes, the name stays — a chip sheds whole rather
+   than shrinking, and every pane header on the team already works on the
+   same branch. 1100 is the three zones at full voice: the team's name and
+   branch, four rings with their values, and the right-hand run. */
+@container deck-bar (max-width: 1100px) {
   .deck__team-branch {
     display: none;
   }
