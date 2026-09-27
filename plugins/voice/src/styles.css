@@ -541,7 +541,7 @@
 }
 
 .voice-pill__dot--live {
-  background: var(--kd-err-fill);
+  background: var(--kd-err);
   animation: voice-pulse 1.2s ease-in-out infinite;
 }
 

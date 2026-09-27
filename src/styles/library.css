@@ -182,7 +182,7 @@
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background-color: var(--kd-warn-tint);
+  background-color: var(--kd-warn);
 }
 
 .library__scope {

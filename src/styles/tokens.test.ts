@@ -1,9 +1,9 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { TERMINAL_THEME } from "@keepdeck/terminal-kit";
 import * as chart from "../domain/usage/chartPalette";
-import { readStyles, ruleBody, STYLES_DIR } from "./testSupport";
+import { readStyles, ruleBody, STYLES_DIR, stripComments } from "./testSupport";
 
 /**
  * tokens.css is the one home of the chrome's colours. These hold the promises
@@ -134,5 +134,37 @@ describe("the design tokens", () => {
       [chart.CHART_TOOLTIP_BORDER, "--kd-seam"],
     ];
     for (const [value, token] of pairs) expect(value).toBe(declared(tokens, token));
+  });
+
+  it("paint a status dot in its hue, never in the tint meant for a surface", () => {
+    // The -tint and -fill rungs are the status hues pre-blended into a
+    // surface — backgrounds for a banner or a pill. On a 6px dot they read
+    // as a hole: the sweep once mapped four dots onto them, and a warning
+    // dot on the float became invisible.
+    const pluginsDir = join(STYLES_DIR, "../../plugins");
+    const sheets = [
+      ...readdirSync(STYLES_DIR)
+        .filter((f) => f.endsWith(".css"))
+        .map((f) => [f, readStyles(f)] as const),
+      ...readdirSync(pluginsDir).flatMap((plugin) => {
+        const dir = join(pluginsDir, plugin, "src");
+        try {
+          return readdirSync(dir)
+            .filter((f) => f.endsWith(".css"))
+            .map((f) => [`${plugin}/${f}`, stripComments(readFileSync(join(dir, f), "utf8"))] as const);
+        } catch {
+          return [];
+        }
+      }),
+    ];
+    const offenders: string[] = [];
+    for (const [file, css] of sheets) {
+      for (const [, selector, body] of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+        if (!/dot|__dirty/.test(selector)) continue;
+        if (/background(-color)?:\s*var\(--kd-\w+-(tint|fill)\)/.test(body))
+          offenders.push(`${file}: ${selector.trim()}`);
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 });

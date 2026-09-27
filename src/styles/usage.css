@@ -119,11 +119,11 @@
 }
 
 .usage-bar i.usage-level--warn {
-  background-color: var(--kd-warn-tint);
+  background-color: var(--kd-warn-line);
 }
 
 .usage-bar i.usage-level--critical {
-  background-color: var(--kd-err-fill);
+  background-color: var(--kd-err-line);
 }
 
 .usage-level--warn {
@@ -285,11 +285,11 @@
 }
 
 .usage-burn__dot--warn {
-  background: var(--kd-warn-tint);
+  background: var(--kd-warn);
 }
 
 .usage-burn__dot--critical {
-  background: var(--kd-err-tint);
+  background: var(--kd-err);
 }
 
 .usage-burn__cursor {

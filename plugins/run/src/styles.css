@@ -332,7 +332,7 @@
 }
 
 .run__dot--failed {
-  background-color: var(--kd-err-tint);
+  background-color: var(--kd-err);
 }
 
 /* ── The log: caption strip naming whose output this is, then xterm ─── */
