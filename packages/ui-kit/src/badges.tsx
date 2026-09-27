@@ -8,7 +8,7 @@
  */
 import { teamBadgeTitle } from "./teamWords";
 import { Chip } from "./Chip.tsx";
-import { BoltIcon, GitBranchIcon, PowerIcon, UsersIcon } from "./icons.tsx";
+import { BoltIcon, GitBranchIcon, UsersIcon } from "./icons.tsx";
 
 /** One wording for the YOLO warning wherever the badge stands. */
 export const YOLO_BADGE_TITLE = "YOLO mode — runs without permission prompts";
@@ -17,8 +17,6 @@ export const YOLO_BADGE_TITLE = "YOLO mode — runs without permission prompts";
  * gets this, sighted hover gets the fuller YOLO_BADGE_TITLE). */
 export const YOLO_BADGE_LABEL = "YOLO mode";
 
-/** One wording for the stopped stand-in marker wherever it stands. */
-export const STOPPED_MARKER_TITLE = "Stopped — resume to run it";
 
 export interface YoloBadgeProps {
   /** md in the pane header (default), sm in the minimized stand-in. */
@@ -151,20 +149,5 @@ export function TeamBadge({
   );
 }
 
-export interface StoppedMarkerProps {
-  /** Site class hook (the muted color, flex place). */
-  className?: string;
-}
-
-/** The bare power glyph marking a stand-in whose pane has no process. Bare by
- * design: a suspended agent is a normal resting state, not a warning — the
- * site hook owns the muted color. */
-export function StoppedMarker({ className }: StoppedMarkerProps) {
-  return (
-    <span className={className} title={STOPPED_MARKER_TITLE}>
-      <PowerIcon />
-    </span>
-  );
-}
 
 export { teamBadgeTitle };

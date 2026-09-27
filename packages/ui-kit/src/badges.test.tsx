@@ -4,12 +4,10 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   BranchBadge,
-  StoppedMarker,
   TeamBadge,
   YoloBadge,
   YOLO_BADGE_LABEL,
   YOLO_BADGE_TITLE,
-  STOPPED_MARKER_TITLE,
   teamBadgeTitle,
 } from "./badges";
 
@@ -153,17 +151,4 @@ describe("badges", () => {
     });
   });
 
-  describe("StoppedMarker", () => {
-    it("is a titled bare power glyph carrying only the site hook", () => {
-      act(() =>
-        root.render(
-          createElement(StoppedMarker, { className: "minimized__stopped" }),
-        ),
-      );
-      const marker = host.querySelector<HTMLElement>(".minimized__stopped")!;
-      expect(marker.tagName).toBe("SPAN");
-      expect(marker.title).toBe(STOPPED_MARKER_TITLE);
-      expect(marker.querySelector("svg")).not.toBeNull();
-    });
-  });
 });
