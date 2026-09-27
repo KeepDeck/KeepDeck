@@ -22,7 +22,7 @@
   /* A tile on the canvas. The 1px border is always reserved (transparent) so
      the rim status.css paints for focus and attention never shifts layout. */
   border: 1px solid transparent;
-  border-radius: 10px;
+  border-radius: var(--kd-radius-tile);
   transition: border-color 0.15s ease-out;
   background-color: var(--kd-tile);
 }

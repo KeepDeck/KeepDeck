@@ -181,7 +181,7 @@
   flex: none;
   padding: 3px 10px;
   border: 1px solid var(--kd-seam);
-  border-radius: 6px;
+  border-radius: var(--kd-radius-control);
   background: none;
   color: var(--kd-text-3);
   font-size: 12px;

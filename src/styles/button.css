@@ -35,13 +35,13 @@
 .kd-btn {
   font-size: 13px;
   padding: 9px 18px;
-  border-radius: 8px;
+  border-radius: var(--kd-radius-control);
 }
 
 .kd-btn--sm {
   font-size: 12px;
   padding: 3px 10px;
-  border-radius: 6px;
+  border-radius: var(--kd-radius-control);
 }
 
 /* ── variant: chrome ──────────────────────────────────────────────── */
@@ -76,7 +76,7 @@
   background: transparent;
   color: var(--kd-text-3);
   padding: 4px;
-  border-radius: 5px;
+  border-radius: var(--kd-radius-control);
 }
 
 .kd-btn--ghost:hover:not(:disabled) {

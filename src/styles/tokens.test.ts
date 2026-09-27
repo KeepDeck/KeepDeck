@@ -14,6 +14,27 @@ import { readStyles, ruleBody, STYLES_DIR, stripComments } from "./testSupport";
 
 const tokens = readStyles("tokens.css");
 
+/** Every host sheet but tokens.css, and every built-in plugin's, comments
+ * stripped — the plugins share this document and these tokens. */
+function allSheets(): (readonly [string, string])[] {
+  const pluginsDir = join(STYLES_DIR, "../../plugins");
+  return [
+    ...readdirSync(STYLES_DIR)
+      .filter((f) => f.endsWith(".css") && f !== "tokens.css")
+      .map((f) => [f, readStyles(f)] as const),
+    ...readdirSync(pluginsDir).flatMap((plugin) => {
+      const dir = join(pluginsDir, plugin, "src");
+      try {
+        return readdirSync(dir)
+          .filter((f) => f.endsWith(".css"))
+          .map((f) => [`${plugin}/${f}`, stripComments(readFileSync(join(dir, f), "utf8"))] as const);
+      } catch {
+        return [];
+      }
+    }),
+  ];
+}
+
 function declared(css: string, name: string): string {
   const match = new RegExp(`${name}:\\s*([^;]+);`).exec(css);
   if (!match) throw new Error(`${name} is not declared`);
@@ -141,22 +162,7 @@ describe("the design tokens", () => {
     // surface — backgrounds for a banner or a pill. On a 6px dot they read
     // as a hole: the sweep once mapped four dots onto them, and a warning
     // dot on the float became invisible.
-    const pluginsDir = join(STYLES_DIR, "../../plugins");
-    const sheets = [
-      ...readdirSync(STYLES_DIR)
-        .filter((f) => f.endsWith(".css"))
-        .map((f) => [f, readStyles(f)] as const),
-      ...readdirSync(pluginsDir).flatMap((plugin) => {
-        const dir = join(pluginsDir, plugin, "src");
-        try {
-          return readdirSync(dir)
-            .filter((f) => f.endsWith(".css"))
-            .map((f) => [`${plugin}/${f}`, stripComments(readFileSync(join(dir, f), "utf8"))] as const);
-        } catch {
-          return [];
-        }
-      }),
-    ];
+    const sheets = allSheets();
     const offenders: string[] = [];
     for (const [file, css] of sheets) {
       for (const [, selector, body] of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
@@ -190,14 +196,28 @@ describe("the design tokens", () => {
     }
     // A drop shadow in black anywhere else is a height of its own. The
     // pane being dragged is the one thing lifted higher than a dialog.
-    const stray = readdirSync(STYLES_DIR)
-      .filter((f) => f.endsWith(".css") && f !== "tokens.css")
-      .flatMap((f) =>
-        [...readStyles(f).matchAll(/([^{}]+)\{[^{}]*box-shadow:[^;]*rgba?\(0,? 0,? 0[^;]*;/g)].map(
-          ([, selector]) => `${f}: ${selector.trim()}`,
+    const stray = allSheets()
+      .flatMap(([file, css]) =>
+        [...css.matchAll(/([^{}]+)\{[^{}]*box-shadow:[^;]*rgba?\(0,? 0,? 0[^;]*;/g)].map(
+          ([, selector]) => `${file}: ${selector.trim()}`,
         ),
       )
       .filter((hit) => !hit.includes(".pane-drag-ghost"));
     expect(stray).toEqual([]);
+  });
+
+  it("round every control and every tile from its token", () => {
+    // Shape by role: a control is one radius wherever it is drawn, a tile
+    // another. A literal beside its own token is a copy waiting to drift.
+    const radius = (file: string, selector: string) =>
+      ruleBody(readStyles(file), selector)["border-radius"];
+    // Every radius the shared buttons declare is the control's.
+    for (const file of ["button.css", "buttons.css"]) {
+      const radii = [...readStyles(file).matchAll(/border-radius:\s*([^;]+);/g)].map(([, v]) => v);
+      expect(radii.length, file).toBeGreaterThan(0);
+      expect(new Set(radii), file).toEqual(new Set(["var(--kd-radius-control)"]));
+    }
+    expect(radius("history.css", ".history__fork")).toBe("var(--kd-radius-control)");
+    expect(radius("pane.css", ".pane")).toBe("var(--kd-radius-tile)");
   });
 });

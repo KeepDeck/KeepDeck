@@ -2,7 +2,7 @@
 .btn-destructive {
   padding: 9px 18px;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--kd-radius-control);
   background-color: var(--kd-err-fill);
   color: var(--kd-err-strong);
   font: inherit;
