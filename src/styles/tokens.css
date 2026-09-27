@@ -42,8 +42,33 @@
   --kd-warn: #e9ae48;
   --kd-err: #ef6f6f;
   --kd-err-strong: #f58f8f;
+  --kd-warn-strong: #eec070;
   --kd-working: #72a5f3;
   --kd-info: var(--kd-working);
+
+  /* Status on a surface — pre-blended over the tile rather than color-mix,
+     so a WebView without color-mix still paints them. -tint is a quiet
+     fill (12 % of the hue), -line a border (40 % over the seam), -fill an
+     affirming control (22 %) whose ink is the -strong or base hue. A new
+     status value means re-blending these four rows, nothing else. */
+  --kd-ok-tint: #192720;
+  --kd-ok-line: #39664d;
+  --kd-ok-fill: #1f382a;
+  --kd-err-tint: #2d1d1f;
+  --kd-err-line: #794649;
+  --kd-err-fill: #432628;
+  --kd-warn-tint: #2c251a;
+  --kd-warn-line: #765f39;
+  --kd-working-tint: #1e242f;
+  --kd-working-line: #475b7d;
+
+  /* Keyboard focus — the working blue, so a focused control reads as
+     "here" and never as a state. */
+  --kd-focus: var(--kd-working);
+
+  /* Scrims behind a modal and over a stopped pane's card. */
+  --kd-scrim: rgb(5 5 6 / 0.66);
+  --kd-scrim-strong: rgb(10 10 11 / 0.82);
 
   /* The UI face: Inter, bundled (App.tsx imports it; Latin and Cyrillic
      load by unicode-range), falling back to the system face. The terminal

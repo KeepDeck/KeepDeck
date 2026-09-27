@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { TERMINAL_THEME } from "@keepdeck/terminal-kit";
 import { CHART_SURFACE } from "../domain/usage/chartPalette";
 import { readStyles, STYLES_DIR } from "./testSupport";
 
@@ -17,6 +18,19 @@ function declared(css: string, name: string): string {
   const match = new RegExp(`${name}:\\s*([^;]+);`).exec(css);
   if (!match) throw new Error(`${name} is not declared`);
   return match[1].trim();
+}
+
+/** WCAG 2 contrast ratio of two sRGB hexes. */
+function contrast(a: string, b: string): number {
+  const lum = (hex: string) => {
+    const [r, g, bl] = [1, 3, 5].map((i) => {
+      const v = parseInt(hex.slice(i, i + 2), 16) / 255;
+      return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * bl;
+  };
+  const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
 }
 
 /** OKLab lightness of an sRGB hex — the scale on which "a step the eye can
@@ -58,7 +72,7 @@ describe("the design tokens", () => {
   });
 
   it("step every surface lighter than the one it sits on", () => {
-    const ladder = ["--kd-canvas", "--kd-strip", "--kd-tile", "--kd-float", "--kd-hover", "--kd-selected"]
+    const ladder = ["--kd-canvas", "--kd-strip", "--kd-tile", "--kd-float", "--kd-hover", "--kd-selected", "--kd-seam", "--kd-seam-strong"]
       .map((name) => lightness(declared(tokens, name)));
     ladder.slice(1).forEach((l, i) => expect(l).toBeGreaterThan(ladder[i]));
   });
@@ -68,6 +82,29 @@ describe("the design tokens", () => {
     expect(declared(readStyles("base.css"), "font-family")).toBe("var(--kd-font-ui)");
     const app = readFileSync(join(STYLES_DIR, "..", "App.tsx"), "utf8");
     expect(app).toContain('import "@fontsource-variable/inter";');
+  });
+
+  it("keep --kd-text-3, the floor for readable text, readable on a tile and a hover", () => {
+    const text3 = declared(tokens, "--kd-text-3");
+    expect(contrast(text3, declared(tokens, "--kd-tile"))).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(text3, declared(tokens, "--kd-hover"))).toBeGreaterThanOrEqual(4);
+  });
+
+  it("paint every terminal on the tile, in the status palette's hues", () => {
+    expect(TERMINAL_THEME.background).toBe(declared(tokens, "--kd-tile"));
+    expect(TERMINAL_THEME.cursor).toBe(declared(tokens, "--kd-text"));
+    expect(TERMINAL_THEME.red).toBe(declared(tokens, "--kd-err"));
+    expect(TERMINAL_THEME.green).toBe(declared(tokens, "--kd-ok"));
+    expect(TERMINAL_THEME.yellow).toBe(declared(tokens, "--kd-warn"));
+    expect(TERMINAL_THEME.blue).toBe(declared(tokens, "--kd-working"));
+    expect(TERMINAL_THEME.brightRed).toBe(declared(tokens, "--kd-err-strong"));
+    expect(TERMINAL_THEME.brightGreen).toBe(declared(tokens, "--kd-ok-strong"));
+    expect(TERMINAL_THEME.brightYellow).toBe(declared(tokens, "--kd-warn-strong"));
+  });
+
+  it("open the native window on the canvas, so launch shows no second colour", () => {
+    const conf = JSON.parse(readFileSync(join(STYLES_DIR, "..", "..", "src-tauri", "tauri.conf.json"), "utf8"));
+    expect(conf.app.windows[0].backgroundColor).toBe(declared(tokens, "--kd-canvas"));
   });
 
   it("hold the chart's surface constant to the canvas it is drawn on", () => {
