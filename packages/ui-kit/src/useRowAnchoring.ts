@@ -20,7 +20,7 @@ interface UseRowAnchoringInput<Row> {
   lastVirtualIndex: number;
   rowVirtualizer: Pick<
     ReactVirtualizer<HTMLElement, HTMLElement>,
-    "getOffsetForIndex" | "measure"
+    "getOffsetForIndex"
   >;
 }
 
@@ -91,8 +91,11 @@ export function useRowAnchoring<Row>({
           // A programmatic scrollTop assignment fires a scroll event
           // in a real browser — dispatch it ourselves so the
           // virtualizer learns the new offset the way it would have.
+          // That is all the virtualizer needs. Never `measure()` here:
+          // it CLEARS every measured height, the mounted rows report
+          // none again (an observer speaks on a resize, a ref on a
+          // mount), and each stays at the estimate — a gap under it.
           list.dispatchEvent(new Event("scroll"));
-          rowVirtualizer.measure();
           // Re-arm at the corrected position: the same key, same
           // offset — the next range change re-arms naturally.
           anchorRef.current = { key: prev.key, offset: prev.offset };

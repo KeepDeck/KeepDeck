@@ -73,11 +73,38 @@ export function pinListViewport(
         : (offsets.offsetWidth?.get?.call(this) ?? 0);
     },
   });
+  // The container's scroll extent: its viewport, and the content it
+  // scrolls over — the spacer's height. happy-dom answers 0 for both, and
+  // the virtualizer clamps every offset it hands out (the anchoring's
+  // getOffsetForIndex among them) to scrollHeight - clientHeight: an
+  // offset of 0 for every row, and a list flung to the top.
+  const scrolls = {
+    clientHeight: Object.getOwnPropertyDescriptor(Element.prototype, "clientHeight"),
+    scrollHeight: Object.getOwnPropertyDescriptor(Element.prototype, "scrollHeight"),
+  };
+  const content = (el: Element) =>
+    Math.max(height, Number.parseFloat((el.firstElementChild as HTMLElement | null)?.style.height ?? "") || 0);
+  Object.defineProperty(Element.prototype, "clientHeight", {
+    configurable: true,
+    get(this: Element) {
+      return this.classList?.contains(list) ? height : (scrolls.clientHeight?.get?.call(this) ?? 0);
+    },
+  });
+  Object.defineProperty(Element.prototype, "scrollHeight", {
+    configurable: true,
+    get(this: Element) {
+      return this.classList?.contains(list) ? content(this) : (scrolls.scrollHeight?.get?.call(this) ?? 0);
+    },
+  });
   return () => {
     Element.prototype.getBoundingClientRect = original;
     for (const [name, descriptor] of Object.entries(offsets)) {
       if (descriptor) Object.defineProperty(HTMLElement.prototype, name, descriptor);
       else delete (HTMLElement.prototype as unknown as Record<string, unknown>)[name];
+    }
+    for (const [name, descriptor] of Object.entries(scrolls)) {
+      if (descriptor) Object.defineProperty(Element.prototype, name, descriptor);
+      else delete (Element.prototype as unknown as Record<string, unknown>)[name];
     }
   };
 }
