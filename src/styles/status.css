@@ -17,37 +17,18 @@
   --status-selected: var(--kd-ok);
 }
 
-/* The header dot's hues — the SAME four names as the frames, so "change
-   the waiting colour" is one edit, never a near-match hunt across files.
-   Chip paints its icon slot structural gray by default; the yield rule
-   below is what lets these tones reach the dot at all. Working keeps its
-   own soft 1.6s pulse — a third rhythm on purpose: it must read as alive
-   without ever being mistaken for waiting's 2s breathe or failed's 1s
-   alarm. */
-.pane__activity .chip__icon {
-  color: inherit;
-}
+/* The header's dot and its state word take the SAME four names as the
+   frames, so "change the waiting colour" is one edit. Static: the deck at
+   rest does not pulse — the word, the rim and the hue carry the state. */
+.pane__status--working { color: var(--status-working); }
+.pane__status--waiting { color: var(--status-waiting); }
+.pane__status--done { color: var(--status-done); }
+.pane__status--failed { color: var(--status-failed); }
+.pane__state--waiting { color: var(--status-waiting); }
+.pane__state--failed { color: var(--status-failed); }
 
-.pane__activity--working {
-  color: var(--status-working);
-}
-
-.pane__activity--working .pane__activity-dot {
-  animation: status-dot-working 1.6s ease-in-out infinite;
-}
-
-.pane__activity--waiting {
-  color: var(--status-waiting);
-}
-
-.pane__activity--done {
-  color: var(--status-done);
-}
-
-.pane__activity--failed {
-  color: var(--status-failed);
-}
-
+/* The rail's working dot keeps its soft pulse until the left strip is
+   redrawn; the keyframes stay here, with the other status rhythms. */
 @keyframes status-dot-working {
   0%,
   100% {
@@ -58,31 +39,22 @@
   }
 }
 
-/* Pane frames: colour the reserved 2px border (.pane keeps the layout). */
+/* Pane frames: colour the reserved 1px border (.pane keeps the layout).
+   A tile wears a rim only for what the eye must find — the one it types
+   into, and an agent that needs a person or has failed. Working and done
+   stay rungs of the ladder (the rail and the tray still rank them) but a
+   tile says them with its dot, not its edge. The rims are static: the
+   colour already names the state. */
 .pane--frame-selected {
-  border-color: var(--status-selected);
-}
-
-.pane--frame-done {
-  border-color: var(--status-done);
-}
-
-/* Working's 1.6s glow — the same rhythm the header dot already names it
-   with, quieter than waiting's breathe because a running agent is a
-   normal sight, not a request. */
-.pane--frame-working {
-  border-color: var(--status-working);
-  animation: status-frame-working 1.6s ease-in-out infinite;
+  border-color: var(--kd-ring);
 }
 
 .pane--frame-waiting {
-  border-color: var(--status-waiting);
-  animation: status-frame-breathe 2s ease-in-out infinite;
+  border-color: var(--kd-warn-line);
 }
 
 .pane--frame-failed {
-  border-color: var(--status-failed);
-  animation: status-frame-pulse 1s ease-in-out infinite;
+  border-color: var(--kd-err-line);
 }
 
 /* Minimized stand-ins wear the same ladder on their border — attention
@@ -178,16 +150,12 @@
 
 /* The state is still named by colour; only the rhythm rests. */
 @media (prefers-reduced-motion: reduce) {
-  .pane--frame-waiting,
-  .pane--frame-failed,
-  .pane--frame-working,
   .minimized.minimized--frame-waiting,
   .minimized.minimized--frame-failed,
   .minimized.minimized--frame-working,
   .rail__dot--waiting,
   .rail__dot--failed,
-  .rail__dot--working,
-  .pane__activity--working .pane__activity-dot {
+  .rail__dot--working {
     animation: none;
   }
 }

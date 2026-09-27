@@ -66,6 +66,10 @@
      "here" and never as a state. */
   --kd-focus: var(--kd-working);
 
+  /* The focus rim of the tile you type into — neutral, so it never reads
+     as a state. */
+  --kd-ring: rgb(255 255 255 / 0.26);
+
   /* Scrims behind a modal and over a stopped pane's card. */
   --kd-scrim: rgb(5 5 6 / 0.66);
   --kd-scrim-strong: rgb(10 10 11 / 0.82);

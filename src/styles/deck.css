@@ -272,12 +272,15 @@
   min-width: 0;
 }
 
+/* Tiles on the canvas: the panes are separated by space, not drawn lines —
+   each tile carries its own rim when it has something to say. */
 .deck__grid {
   position: absolute;
   inset: 0;
   display: grid;
-  gap: 1px;
-  background-color: var(--kd-seam);
+  gap: 6px;
+  padding: 6px;
+  background-color: var(--kd-canvas);
 }
 
 /* Overlaid on the grid when every agent in a workspace is minimized (the
