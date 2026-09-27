@@ -57,6 +57,7 @@ import { pluginCrashes, subscribePluginCrashes } from "./pluginHealth";
 import { addTeamDoorOpen, bellDoorOpen, dockDoorOpen } from "./doors";
 import type { BarLevel } from "../components/deck/DeckBar";
 import { railView } from "../presentation/railView";
+import { needsYouRows, type NeedsYouRow } from "../presentation/needsYouView";
 import { teamBranchOf } from "../presentation/teamCardView";
 
 /** Shell/application wiring kept separate from the rendered app tree. */
@@ -364,6 +365,11 @@ export function useAppController() {
   const openNotification = runtime.application.openNotification;
   const handleCreateWorkspace = runtime.application.createWorkspace;
   const railWorkspaces = railView(deck.workspaces, paneActivities, deck.viewByWs, deck.activeId);
+  const needsYou = {
+    rows: needsYouRows(deck.workspaces, paneActivities, agents),
+    onOpen: (row: NeedsYouRow) =>
+      runtime.application.activatePane(row.wsId, row.paneId),
+  };
   if (restoring || !spawnCtx || !settings) {
     return { ready: false as const };
   }
@@ -415,6 +421,7 @@ export function useAppController() {
     handleSelectWorkspace,
     info,
     openNotification,
+    needsYou,
     orchestrator,
     paneViewActions,
     pluginDockTabs,

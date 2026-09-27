@@ -172,6 +172,18 @@
   border-left: 1px solid var(--kd-seam);
 }
 
+/* The attention control renders nothing while nobody needs the person and
+   the bell is off. Its group is then empty, and must not seam the group
+   after it — there is nothing to part it from. */
+.bar__group--attention:empty {
+  display: none;
+}
+
+.bar__group--attention:empty + .bar__group {
+  padding-left: 0;
+  border-left: 0;
+}
+
 .bar__action {
   border: 1px solid var(--kd-seam);
   background-color: var(--kd-tile);

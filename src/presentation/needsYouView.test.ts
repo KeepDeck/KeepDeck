@@ -1,0 +1,112 @@
+import { describe, expect, it } from "vitest";
+import { teamedWorkspace, workspace } from "../domain/deck/reducer.testSupport";
+import type { Workspace } from "../domain/deck";
+import type { PaneActivity } from "../domain/status";
+import {
+  attentionTrigger,
+  needsYouAge,
+  needsYouRows,
+  type NeedsYouRow,
+} from "./needsYouView";
+
+const MIN = 60_000;
+const NOW = 100 * MIN;
+const AGENTS = [{ id: "claude", label: "Claude" }];
+
+const waiting = (minsAgo: number): PaneActivity => ({
+  state: "waiting",
+  since: NOW - minsAgo * MIN,
+  reason: "permission",
+});
+const failed = (minsAgo: number): PaneActivity => ({
+  state: "failed",
+  at: NOW - minsAgo * MIN,
+  error: "rate_limit",
+});
+
+const TEAM: Workspace = teamedWorkspace("ws-a", ["p1", "p2", "p3", "p4"]);
+const LOOSE: Workspace = {
+  ...workspace("ws-b", []),
+  panes: [{ id: "p5", name: "scout" }, { id: "p6", idle: { reason: "suspended", at: "x" } }],
+};
+
+const rows = (activities: Record<string, PaneActivity>) =>
+  needsYouRows([TEAM, LOOSE], new Map(Object.entries(activities)), AGENTS);
+
+describe("needsYouRows", () => {
+  it("lists only waiting and failed agents, across every workspace", () => {
+    const found = rows({
+      p1: { state: "working", since: NOW },
+      p2: { state: "done", at: NOW, interrupted: false },
+      p3: waiting(2),
+      p5: failed(1),
+    });
+    expect(found.map((r) => r.paneId)).toEqual(["p5", "p3"]);
+  });
+
+  it("puts failed first, then the longest-blocked first within a tone", () => {
+    const found = rows({ p1: waiting(1), p2: failed(1), p3: waiting(9), p4: failed(5) });
+    expect(found.map((r) => r.paneId)).toEqual(["p4", "p2", "p3", "p1"]);
+  });
+
+  it("skips an idle pane whatever its last activity said", () => {
+    expect(rows({ p6: waiting(3) })).toEqual([]);
+  });
+
+  it("names the agent, where it is, why and for how long", () => {
+    const [teamed] = rows({ p3: waiting(4) });
+    expect(teamed).toEqual({
+      wsId: "ws-a",
+      paneId: "p3",
+      tone: "waiting",
+      title: "Claude 3",
+      where: "ws-a · team-1 · p3",
+      label: "Needs approval",
+      since: NOW - 4 * MIN,
+    } satisfies NeedsYouRow);
+    expect(needsYouAge(teamed, NOW)).toBe("4m");
+    const [loose] = rows({ p5: failed(0) });
+    expect(loose).toMatchObject({ title: "scout", where: "ws-b", tone: "failed" });
+    expect(needsYouAge(loose, NOW)).toBe("now");
+  });
+});
+
+describe("attentionTrigger", () => {
+  const row = (tone: NeedsYouRow["tone"]): NeedsYouRow => ({
+    wsId: "w",
+    paneId: "p",
+    tone,
+    title: "t",
+    where: "w",
+    label: "l",
+    since: 0,
+  });
+
+  it("counts who needs you, in the loudest tone, even with the bell off", () => {
+    expect(attentionTrigger([row("waiting")], null)).toEqual({
+      kind: "need",
+      tone: "waiting",
+      text: "1 needs you",
+      label: "1 agent needs you",
+    });
+    expect(attentionTrigger([row("waiting"), row("failed")], { unread: 3 })).toMatchObject({
+      kind: "need",
+      tone: "failed",
+      text: "2 need you",
+      label: "2 agents need you",
+    });
+  });
+
+  it("falls back to the bell with its unread badge, or to nothing", () => {
+    expect(attentionTrigger([], { unread: 0 })).toEqual({
+      kind: "bell",
+      badge: null,
+      label: "Notifications",
+    });
+    expect(attentionTrigger([], { unread: 120 })).toMatchObject({
+      badge: "99+",
+      label: "Notifications (120 unread)",
+    });
+    expect(attentionTrigger([], null)).toBeNull();
+  });
+});

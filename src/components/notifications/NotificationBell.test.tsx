@@ -8,6 +8,7 @@ import {
   type NotificationCenter,
   type NotifyInput,
 } from "../../app/notificationCenter";
+import type { NeedsYouRow } from "../../presentation/needsYouView";
 import { NotificationBell } from "./NotificationBell";
 
 vi.mock("../../ipc/notify", () => ({
@@ -31,16 +32,25 @@ describe("NotificationBell", () => {
   let root: Root;
   let center: NotificationCenter;
   const onOpen = vi.fn();
+  const onOpenRow = vi.fn();
   const notify = (input: NotifyInput) => center.notify(input);
+  const mount = (rows: readonly NeedsYouRow[], feedOn = true) =>
+    act(() => {
+      root.render(
+        createElement(NotificationBell, {
+          needsYou: { rows, onOpen: onOpenRow },
+          notifications: feedOn ? { center, onOpen } : null,
+        }),
+      );
+    });
 
   beforeEach(() => {
     center = createNotificationCenter();
     onOpen.mockClear();
+    onOpenRow.mockClear();
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
-    act(() => {
-      root.render(createElement(NotificationBell, { center, onOpen }));
-    });
+    mount([]);
   });
 
   afterEach(() => {
@@ -239,5 +249,56 @@ describe("NotificationBell", () => {
       );
     });
     expect(document.querySelector(".bell__panel")).toBeNull();
+  });
+
+  describe("who needs you", () => {
+    const row = (paneId: string, tone: NeedsYouRow["tone"]): NeedsYouRow => ({
+      wsId: "ws-1",
+      paneId,
+      tone,
+      title: `agent ${paneId}`,
+      where: "ws-1 · team",
+      label: tone === "failed" ? "Rate limited" : "Needs approval",
+      since: Date.now(),
+    });
+
+    it("turns the bell into the count, in the loudest tone", () => {
+      mount([row("p1", "waiting"), row("p2", "failed")]);
+      expect(bellButton().textContent).toBe("2 need you");
+      expect(bellButton().classList).toContain("bell__need--failed");
+      expect(bellButton().getAttribute("aria-label")).toBe("2 agents need you");
+      mount([]);
+      expect(bellButton().classList).not.toContain("bell__need");
+    });
+
+    it("lists the blocked agents above the feed; a click brings one forward", () => {
+      act(() => notify({ title: "older news", source: paneSource }));
+      mount([row("p1", "failed")]);
+      act(() => bellButton().click());
+      const sections = [...document.querySelectorAll(".bell__section")].map((el) =>
+        el.getAttribute("aria-label"),
+      );
+      expect(sections).toEqual(["Needs you", "Notifications"]);
+      const item = document.querySelector<HTMLButtonElement>(
+        ".bell__list--needs .bell__item",
+      )!;
+      expect(item.textContent).toContain("agent p1");
+      expect(item.textContent).toContain("Rate limited · ws-1 · team");
+      act(() => item.click());
+      expect(onOpenRow).toHaveBeenCalledWith(expect.objectContaining({ paneId: "p1" }));
+      expect(document.querySelector(".bell__panel")).toBeNull();
+    });
+
+    it("shows even with the notification list off, and nothing once nobody waits", () => {
+      mount([row("p1", "waiting")], false);
+      act(() => bellButton().click());
+      expect(document.querySelector(".bell__section--feed")).toBeNull();
+      expect(document.querySelectorAll(".bell__list--needs .bell__item")).toHaveLength(1);
+      mount([], false);
+      expect(document.querySelector(".bell")).toBeNull();
+      // Coming back, it does not come back already open.
+      mount([row("p1", "waiting")], false);
+      expect(document.querySelector(".bell__panel")).toBeNull();
+    });
   });
 });

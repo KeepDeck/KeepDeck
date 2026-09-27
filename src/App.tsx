@@ -111,6 +111,7 @@ function App() {
     settingsOpen,
     settingsSection,
     showBell,
+    needsYou,
     showForm,
     skillsOpen,
     mcpOpen,
@@ -154,6 +155,7 @@ function App() {
         onOpenArtifacts={openArtifacts}
         onOpenTasks={openTasks ? () => void openTasks() : null}
         onOpenSettings={() => void openSettings()}
+        needsYou={needsYou}
         notifications={
           showBell
             ? { center: notificationCenter, onOpen: openNotification }

@@ -61,6 +61,7 @@ import {
   TasksIcon,
 } from "../AppIcons";
 import { NotificationBell } from "../notifications/NotificationBell";
+import type { NeedsYouRow } from "../../presentation/needsYouView";
 import { UsageChips } from "../usage/UsageChips";
 
 /**
@@ -124,8 +125,16 @@ export interface DeckBarProps {
   onOpenTasks: (() => void) | null;
   onOpenSettings(): void;
 
-  /** The notification bell, or null when notifications are off or delegated
-   *  to the system. */
+  /** The agents blocked on the person, across every workspace, and how to
+   *  bring one forward. Always handed in: who needs you is live state, not
+   *  a notification preference. */
+  needsYou: {
+    rows: readonly NeedsYouRow[];
+    onOpen(row: NeedsYouRow): void;
+  };
+
+  /** The in-app notification list, or null when notifications are off or
+   *  delegated to the system. */
   notifications: {
     center: NotificationCenter;
     onOpen(notification: Notification): void;
@@ -150,6 +159,7 @@ export function DeckBar({
   onOpenArtifacts,
   onOpenTasks,
   onOpenSettings,
+  needsYou,
   notifications,
 }: DeckBarProps) {
   // The plugin group has a ceiling; whatever passes it folds into a menu, so
@@ -247,6 +257,13 @@ export function DeckBar({
         />
       </div>
       <div className="deck__bar-right">
+        {/* ATTENTION — who is blocked on you, first on the right because it
+            is the one thing here that asks something of the person. Reads
+            "N need you" while anyone does, else the notification bell; it
+            renders nothing when neither has anything to say. */}
+        <div className="bar__group bar__group--attention">
+          <NotificationBell needsYou={needsYou} notifications={notifications} />
+        </div>
         {/* UPDATE — a verb, so it lives among the verbs rather than beside a
             reading of the fleet. It leads the right-hand run, one seam in
             front of Create: the two are the only things here that CHANGE
@@ -367,12 +384,6 @@ export function DeckBar({
           >
             <StatsIcon />
           </TipButton>
-          {notifications && (
-            <NotificationBell
-              center={notifications.center}
-              onOpen={notifications.onOpen}
-            />
-          )}
           <TipButton
             variant="ghost"
             size="sm"

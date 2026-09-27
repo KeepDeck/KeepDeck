@@ -18,8 +18,12 @@ import { DeckBar, type DeckBarProps } from "./DeckBar";
 vi.mock("../usage/UsageChips", () => ({
   UsageChips: () => createElement("span", { "data-usage": "" }),
 }));
+const bellProps = vi.fn();
 vi.mock("../notifications/NotificationBell", () => ({
-  NotificationBell: () => createElement("span", { "data-bell": "" }),
+  NotificationBell: (props: unknown) => {
+    bellProps(props);
+    return createElement("span", { "data-bell": "" });
+  },
 }));
 
 const BASE: DeckBarProps = {
@@ -40,6 +44,7 @@ const BASE: DeckBarProps = {
   onOpenArtifacts: null,
   onOpenTasks: null,
   onOpenSettings: () => {},
+  needsYou: { rows: [], onOpen: () => {} },
   notifications: null,
 };
 
@@ -69,6 +74,20 @@ describe("DeckBar", () => {
       entry: { id: `p${i}`, title: `p${i}`, run: () => {} },
     }));
 
+  it("mounts the attention control first on the right, whatever the settings", () => {
+    // Who needs you is live state, not a notification preference: the
+    // control decides for itself whether it has anything to say, so the bar
+    // hands it the rows even with the notification list off.
+    bellProps.mockClear();
+    render();
+    const bell = host.querySelector(".deck__bar-right > .bar__group:first-child [data-bell]");
+    expect(bell).not.toBeNull();
+    expect(bellProps).toHaveBeenLastCalledWith({
+      needsYou: BASE.needsYou,
+      notifications: null,
+    });
+  });
+
   it("draws nothing for a control the caller left out", () => {
     // Presence is the composition root's decision, and the bar's only say in
     // it is a null check — so a bar handed nothing optional shows exactly the
@@ -76,7 +95,6 @@ describe("DeckBar", () => {
     render({ level: { kind: "teams", onAddTeam: null } });
     expect(byText("+ Team")).toBeUndefined();
     expect(byLabel("Toggle dock panel")).toBeNull();
-    expect(host.querySelector("[data-bell]")).toBeNull();
     // The artifacts door is one of these: the feature is off by default,
     // and a door to a feature that is not running leads to a refusal.
     expect(byLabel("Open artifacts")).toBeNull();

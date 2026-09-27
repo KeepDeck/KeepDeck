@@ -5,29 +5,59 @@ import type { NotificationCenter } from "../../app/notificationCenter";
 import { useNotifications } from "../../app/useNotifications";
 import { unreadCount, type Notification } from "../../domain/notifications";
 import { formatAge, formatTimestamp } from "../../domain/usage";
+import {
+  attentionTrigger,
+  needsYouAge,
+  type NeedsYouRow,
+} from "../../presentation/needsYouView";
 import { isBehindModalLayer } from "../../ui/inertBackground";
 
 interface NotificationBellProps {
-  center: NotificationCenter;
-  /** Navigate to the notification's source — the composition root resolves
-   * each origin (pane / plugin / app). Called after the entry is marked read
-   * and the panel closes. */
-  onOpen(notification: Notification): void;
+  /** The agents blocked on the person, across every workspace — shown
+   * whatever the notification settings say, because it is the deck's live
+   * state, not a feed. `onOpen` brings the agent forward. */
+  needsYou: {
+    rows: readonly NeedsYouRow[];
+    onOpen(row: NeedsYouRow): void;
+  };
+  /** The in-app notification list, or null when notifications are off or
+   * delegated to the system. */
+  notifications: {
+    center: NotificationCenter;
+    /** Navigate to the notification's source — the composition root
+     * resolves each origin (pane / plugin / app). Called after the entry is
+     * marked read and the panel closes. */
+    onOpen(notification: Notification): void;
+  } | null;
 }
 
 /**
- * The in-app notification center: a bell in the top bar with an unread badge,
- * opening an anchored panel listing the center's history (newest first).
- * Clicking an entry marks it read and navigates to its source; the bell
- * renders only in the modes that include the in-app channel (the caller
- * gates that).
+ * The bar's attention control. While any agent needs the person it reads
+ * "N need you"; otherwise it is the plain bell of the in-app notification
+ * list, and with that list off it is nothing. Its anchored panel lists the
+ * blocked agents first, then the notification history (newest first).
+ * Clicking an agent brings it forward; clicking an entry marks it read and
+ * navigates to its source.
  */
-export function NotificationBell({ center, onOpen }: NotificationBellProps) {
+export function NotificationBell({
+  needsYou,
+  notifications: feed,
+}: NotificationBellProps) {
+  const center = feed?.center ?? null;
   const notifications = useNotifications(center);
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLSpanElement>(null);
   const bellButtonRef = useRef<HTMLButtonElement>(null);
   const unread = unreadCount(notifications);
+  const trigger = attentionTrigger(needsYou.rows, center && { unread });
+  const rows = needsYou.rows;
+
+  // A trigger that goes away (the last blocked agent answered, the list
+  // off) takes its panel with it — it must not come back already open.
+  const shown = trigger !== null;
+  useEffect(() => {
+    if (!shown) setOpen(false);
+  }, [shown]);
 
   // Light-dismiss: any pointer press outside the bell (or Escape) closes the
   // panel — the same manners as a native menu. But a dialog can open over an
@@ -54,7 +84,11 @@ export function NotificationBell({ center, onOpen }: NotificationBellProps) {
     };
   }, [open]);
 
+  // Read as the panel renders — it is short-lived, and opening it is what
+  // renders it, so its ages are fresh whenever someone is looking.
   const now = Date.now();
+
+  if (!trigger) return null;
 
   return (
     <span className="bell" ref={rootRef}>
@@ -62,94 +96,149 @@ export function NotificationBell({ center, onOpen }: NotificationBellProps) {
         ref={bellButtonRef}
         variant="ghost"
         size="sm"
-        className="bell__button"
-        onClick={() => setOpen((o) => !o)}
-        title="Notifications"
-        label={
-          unread > 0 ? `Notifications (${unread} unread)` : "Notifications"
+        className={
+          trigger.kind === "need"
+            ? `bell__button bell__need bell__need--${trigger.tone}`
+            : "bell__button"
         }
+        onClick={() => setOpen((o) => !o)}
+        label={trigger.label}
         expanded={open}
       >
-        <BellIcon />
-        {unread > 0 && (
-          <span className="bell__badge" aria-hidden>
-            {unread > 99 ? "99+" : unread}
-          </span>
+        {trigger.kind === "need" ? (
+          <>
+            <span className="bell__need-dot" aria-hidden />
+            {trigger.text}
+          </>
+        ) : (
+          <>
+            <BellIcon />
+            {trigger.badge !== null && (
+              <span className="bell__badge" aria-hidden>
+                {trigger.badge}
+              </span>
+            )}
+          </>
         )}
       </Button>
       {open && (
         // Not role="menu": these are plain buttons in a disclosure, with no
         // menuitem semantics or roving focus — a "menu" announcement would
         // promise interactions that aren't there.
-        <div className="bell__panel" role="group" aria-label="Notifications">
-          <div className="bell__head">
-            <span className="bell__title">Notifications</span>
-            {notifications.length > 0 && (
-              <span className="bell__actions">
-                {unread > 0 && (
-                  <button
-                    type="button"
-                    className="bell__action bell__mark-read"
-                    onClick={() => center.markAllNotificationsRead()}
-                  >
-                    Mark all read
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className="bell__action bell__clear-all"
-                  onClick={() => {
-                    bellButtonRef.current?.focus();
-                    center.clearAllNotifications();
-                  }}
-                >
-                  Clear all
-                </button>
-              </span>
-            )}
-          </div>
-          {notifications.length === 0 ? (
-            <div className="bell__empty" role="status" aria-live="polite">
-              Nothing yet
-            </div>
-          ) : (
-            <ul className="bell__list">
-              {notifications.map((n) => (
-                <li key={n.id}>
-                  <button
-                    type="button"
-                    className={`bell__item${n.readAt === undefined ? " bell__item--unread" : ""}`}
-                    onClick={() => {
-                      center.markNotificationRead(n.id);
-                      setOpen(false);
-                      onOpen(n);
-                    }}
-                  >
-                    <span className="bell__leading" aria-hidden>
-                      {n.icon !== undefined ? (
-                        <span className="bell__icon">{n.icon}</span>
-                      ) : n.severity !== "info" ? (
-                        <span
-                          className={`bell__dot bell__dot--${n.severity}`}
-                        />
-                      ) : null}
-                    </span>
-                    <span className="bell__text">
-                      <span className="bell__item-title">{n.title}</span>
-                      {n.body !== undefined && (
-                        <span className="bell__body">{n.body}</span>
-                      )}
-                    </span>
-                    <span
-                      className="bell__age"
-                      title={formatAge(n.at, now, "ago")}
+        <div className="bell__panel" role="group" aria-label={trigger.label}>
+          {rows.length > 0 && (
+            <section className="bell__section" aria-label="Needs you">
+              <div className="bell__head">
+                <span className="bell__title">Needs you</span>
+              </div>
+              <ul className="bell__list bell__list--needs">
+                {rows.map((row) => (
+                  <li key={row.paneId}>
+                    <button
+                      type="button"
+                      className="bell__item bell__item--unread"
+                      onClick={() => {
+                        setOpen(false);
+                        needsYou.onOpen(row);
+                      }}
                     >
-                      {formatTimestamp(n.at, now)}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
+                      <span className="bell__leading" aria-hidden>
+                        <span className={`bell__dot bell__dot--${row.tone}`} />
+                      </span>
+                      <span className="bell__text">
+                        <span className="bell__item-title">{row.title}</span>
+                        <span className="bell__body">
+                          <span
+                            className={`bell__reason bell__reason--${row.tone}`}
+                          >
+                            {row.label}
+                          </span>
+                          {" · "}
+                          {row.where}
+                        </span>
+                      </span>
+                      <span className="bell__age">{needsYouAge(row, now)}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+          {feed && (
+            <section
+              className="bell__section bell__section--feed"
+              aria-label="Notifications"
+            >
+              <div className="bell__head">
+                <span className="bell__title">Notifications</span>
+                {notifications.length > 0 && (
+                  <span className="bell__actions">
+                    {unread > 0 && (
+                      <button
+                        type="button"
+                        className="bell__action bell__mark-read"
+                        onClick={() => feed.center.markAllNotificationsRead()}
+                      >
+                        Mark all read
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="bell__action bell__clear-all"
+                      onClick={() => {
+                        bellButtonRef.current?.focus();
+                        feed.center.clearAllNotifications();
+                      }}
+                    >
+                      Clear all
+                    </button>
+                  </span>
+                )}
+              </div>
+              {notifications.length === 0 ? (
+                <div className="bell__empty" role="status" aria-live="polite">
+                  Nothing yet
+                </div>
+              ) : (
+                <ul className="bell__list">
+                  {notifications.map((n) => (
+                    <li key={n.id}>
+                      <button
+                        type="button"
+                        className={`bell__item${n.readAt === undefined ? " bell__item--unread" : ""}`}
+                        onClick={() => {
+                          feed.center.markNotificationRead(n.id);
+                          setOpen(false);
+                          feed.onOpen(n);
+                        }}
+                      >
+                        <span className="bell__leading" aria-hidden>
+                          {n.icon !== undefined ? (
+                            <span className="bell__icon">{n.icon}</span>
+                          ) : n.severity !== "info" ? (
+                            <span
+                              className={`bell__dot bell__dot--${n.severity}`}
+                            />
+                          ) : null}
+                        </span>
+                        <span className="bell__text">
+                          <span className="bell__item-title">{n.title}</span>
+                          {n.body !== undefined && (
+                            <span className="bell__body">{n.body}</span>
+                          )}
+                        </span>
+                        <span
+                          className="bell__age"
+                          title={formatAge(n.at, now, "ago")}
+                        >
+                          {formatTimestamp(n.at, now)}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
           )}
         </div>
       )}
