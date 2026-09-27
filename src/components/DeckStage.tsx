@@ -425,7 +425,6 @@ export function DeckStage({
           });
           const displayTitle = titleOf(pane);
           const executionCwd = paneExecutionCwd(ws, pane);
-          const badge = badgeOf(pane);
           return (
             <AgentPane
               key={`${pane.id}#${restartEpochs[pane.id] ?? 0}`}
@@ -440,7 +439,6 @@ export function DeckStage({
               body={body}
               onRetryPlan={() => onRetryPlanBuild(pane.id)}
               cwd={executionCwd}
-              gitBadge={badge}
               yolo={pane.yolo}
               team={teamOf(ws, pane)}
               showTeamName={teamsHere > 1}

@@ -235,9 +235,9 @@ describe("AgentPane — header badges", () => {
 
     const ctx = document.querySelector<HTMLElement>(".pane__ctx");
     expect(ctx).not.toBeNull();
-    expect(ctx!.textContent).toBe("ctx 82%");
+    expect(ctx!.textContent).toBe("82%");
     // 82% is autocompact territory → amber, not calm.
-    expect(ctx!.className).toContain("usage-level--warn");
+    expect(ctx!.className).toContain("pane__ctx--warn");
   });
 
   it("names which teammate this pane is, and shows nothing when it is none", () => {
@@ -246,7 +246,7 @@ describe("AgentPane — header badges", () => {
     // cannot answer "are these roles unique", which is the question that
     // decides whether a team works.
     act(() => root.render(createElement(PaneUnderTest, baseProps)));
-    expect(document.querySelector(".pane__team")).toBeNull();
+    expect(document.querySelector(".pane__role")).toBeNull();
 
     act(() =>
       root.render(
@@ -256,7 +256,7 @@ describe("AgentPane — header badges", () => {
         }),
       ),
     );
-    const badge = document.querySelector<HTMLElement>(".pane__team");
+    const badge = document.querySelector<HTMLElement>(".pane__role");
     expect(badge!.textContent).toBe("impl-1");
     // The team name is the tooltip's job — the role is the address.
     expect(badge!.title).toContain("api");
@@ -385,28 +385,26 @@ describe("AgentPane — activity badge", () => {
   const reportEdge = (edge: AgentStatusEvent) =>
     act(() => statusTracker.report("ws:1", { agent: "claude", edge }));
 
-  it("shows a quiet working dot — label in the tooltip only", () => {
+  it("shows a quiet working dot — no words, no rim; the label rides the tooltip", () => {
     act(() => root.render(createElement(PaneUnderTest, baseProps)));
     reportEdge({ kind: "turn-start", at: Date.now() });
 
-    const badge = document.querySelector<HTMLElement>(".pane__activity");
+    const badge = document.querySelector<HTMLElement>(".pane__status");
     expect(badge).not.toBeNull();
-    expect(badge!.className).toContain("pane__activity--working");
+    expect(badge!.className).toContain("pane__status--working");
     expect(badge!.title).toBe("Working · now");
-    expect(badge!.textContent).toBe("");
+    expect(document.querySelector(".pane__state")).toBeNull();
   });
 
-  it("keeps the attention states at dot density — the frame carries them", () => {
+  it("says the attention states in words beside the dot, and rims the pane", () => {
     act(() => root.render(createElement(PaneUnderTest, baseProps)));
     reportEdge({ kind: "waiting", at: Date.now(), reason: "permission" });
 
-    let badge = document.querySelector<HTMLElement>(".pane__activity");
+    let badge = document.querySelector<HTMLElement>(".pane__status");
     // The tone class alone carries the hue (status.css owns the palette).
-    expect(badge!.className).toContain("pane__activity--waiting");
-    // No spelled label: the words live in the tooltip, the attention lives
-    // on the pane frame.
-    expect(badge!.textContent).toBe("");
+    expect(badge!.className).toContain("pane__status--waiting");
     expect(badge!.title).toBe("Needs approval · now");
+    expect(document.querySelector(".pane__state")!.textContent).toBe("Needs approval");
     let pane = document.querySelector<HTMLElement>(".pane");
     expect(pane!.className).toContain("pane--frame-waiting");
 
@@ -416,10 +414,10 @@ describe("AgentPane — activity badge", () => {
       error: "rate_limit",
       detail: "Weekly limit reached",
     });
-    badge = document.querySelector<HTMLElement>(".pane__activity");
-    expect(badge!.className).toContain("pane__activity--failed");
-    expect(badge!.textContent).toBe("");
-    // The prose rides the tooltip, not the header.
+    badge = document.querySelector<HTMLElement>(".pane__status");
+    expect(badge!.className).toContain("pane__status--failed");
+    // The label is said; the longer prose rides the tooltip.
+    expect(document.querySelector(".pane__state")!.textContent).toBe("Rate limited");
     expect(badge!.title).toBe("Rate limited — Weekly limit reached · now");
     pane = document.querySelector<HTMLElement>(".pane");
     expect(pane!.className).toContain("pane--frame-failed");
@@ -530,7 +528,7 @@ describe("AgentPane — activity badge", () => {
 
   it("shows nothing before the first edge, and renders the tracker verbatim", () => {
     act(() => root.render(createElement(PaneUnderTest, baseProps)));
-    expect(document.querySelector(".pane__activity")).toBeNull();
+    expect(document.querySelector(".pane__status")).toBeNull();
 
     // The tracker is the single liveness authority: suspending a pane goes
     // through the orchestrator's retire, which CLEARS its activity — the
@@ -541,7 +539,7 @@ describe("AgentPane — activity badge", () => {
     act(() =>
       root.render(createElement(PaneUnderTest, { ...baseProps, idle })),
     );
-    expect(document.querySelector(".pane__activity")).toBeNull();
+    expect(document.querySelector(".pane__status")).toBeNull();
   });
 });
 

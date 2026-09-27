@@ -1,12 +1,9 @@
-import type { ActivityBadge } from "../../domain/status";
-import { contextLevel, formatAge } from "../../domain/usage";
+import type { PaneHeaderView } from "../../presentation/paneHeaderView";
 import { noAutoCorrect } from "../../ui/inputProps";
 import { useInlineRename } from "../../ui/useInlineRename";
 import { MaximizeIcon, MinimizeIcon, RestoreIcon } from "../../ui/icons";
-import { BranchBadge, TeamBadge, YoloBadge } from "../../ui/badges";
+import { YoloBadge } from "../../ui/badges";
 import { CloseButton } from "../../ui/CloseButton";
-import { Chip } from "../../ui/Chip";
-import type { GitBadge } from "../../ui/gitBadge";
 import { AgentGlyph, type AgentGlyphIcon } from "../../ui/AgentGlyph";
 
 export interface AgentPaneHeaderProps {
@@ -17,22 +14,10 @@ export interface AgentPaneHeaderProps {
   agentLabel?: string;
   focused: boolean;
   solo: boolean;
-  /** Badges — every value arrives settled; this header only renders. */
-  activityView: ActivityBadge | null;
-  /** The minute clock the activity tooltip ages against. */
-  now: number;
-  ctxPct: number | undefined;
-  paneLive: boolean;
+  /** What the header shows — status, state word, role, context — settled
+   * by paneHeaderView; this header only maps it. */
+  view: PaneHeaderView;
   yolo?: boolean;
-  /** The pane's place on a team, when it is on one. Shown as the role,
-   * because the role is the address teammates use; the id is what the
-   * badge opens. */
-  team?: { id: string; name: string; role: string } | null;
-  /** Whether the badge must also name the team — true where this deck runs
-   * more than one, which is the only case where a role alone is not an
-   * identity. A settled fact about the WHOLE deck: a header sees one pane. */
-  showTeamName?: boolean;
-  gitBadge?: GitBadge | null;
   /** False while a modal or covering dock owns keyboard interaction — an
    * inline rename must not be left in flight underneath one. */
   keyboardFocusEnabled: boolean;
@@ -43,9 +28,10 @@ export interface AgentPaneHeaderProps {
 }
 
 /**
- * One pane's header bar: identity (glyph + inline-renamable title), the
- * badge cluster, and the window actions. Dumb by contract — every badge
- * value arrives settled; the only state here is the rename editor, which
+ * One pane's header bar: the status dot, identity (glyph, inline-renamable
+ * title, role), and the cluster — the state in words when it needs a
+ * person, YOLO, context, and the window actions. Dumb by contract — the
+ * view arrives settled; the only state here is the rename editor, which
  * means nothing while the header is unmounted.
  */
 export function AgentPaneHeader({
@@ -55,14 +41,8 @@ export function AgentPaneHeader({
   agentLabel,
   focused,
   solo,
-  activityView,
-  now,
-  ctxPct,
-  paneLive,
+  view,
   yolo,
-  team,
-  showTeamName,
-  gitBadge,
   keyboardFocusEnabled,
   onRename,
   onMinimize,
@@ -77,6 +57,14 @@ export function AgentPaneHeader({
   return (
     <header className="pane__bar">
       <div className="pane__identity">
+        {view.status && (
+          <span
+            className={`pane__status pane__status--${view.status.tone}`}
+            role="img"
+            aria-label={view.status.label}
+            title={view.status.tooltip}
+          />
+        )}
         <span className="pane__agent" title={agentLabel}>
           <AgentGlyph icon={agentIcon} />
         </span>
@@ -98,54 +86,23 @@ export function AgentPaneHeader({
             {title}
           </span>
         )}
+        {view.role && (
+          <span className="pane__role" title={view.role.title}>
+            {view.role.text}
+          </span>
+        )}
       </div>
       <div className="pane__actions">
-        {activityView && (
-          // A dot for every state — the frame ladder carries attention now,
-          // so the header stays at one density; words live in the tooltip.
-          <Chip
-            className={`pane__activity pane__activity--${activityView.tone}`}
-            role="img"
-            aria-label={activityView.label}
-            title={`${activityView.label}${
-              activityView.detail ? ` — ${activityView.detail}` : ""
-            } · ${formatAge(activityView.at, now)}`}
-            icon={<span className="pane__activity-dot" />}
-          />
-        )}
-        {ctxPct !== undefined && paneLive && (
-          <Chip
-            className={`pane__ctx${
-              contextLevel(ctxPct) === "ok"
-                ? ""
-                : ` usage-level--${contextLevel(ctxPct)}`
-            }`}
-            title={`Context ${Math.ceil(ctxPct)}% used`}
-            label={`ctx ${Math.ceil(ctxPct)}%`}
-          />
+        {view.status && view.stateWord && (
+          <span className={`pane__state pane__state--${view.status.tone}`}>
+            {view.stateWord}
+          </span>
         )}
         {yolo && <YoloBadge className="pane__yolo" />}
-        {team && (
-          // Which teammate this is — the role is the address a teammate
-          // types. A reading, not a door: a role is picked when the member
-          // is added, and the pane's team is the one the stage has open.
-          //
-          // Before the branch chip: which teammate this is outranks which
-          // branch it sits on when reading a deck mid-conversation, and the
-          // narrow-header cascade drops from the right.
-          <TeamBadge
-            className="pane__team"
-            team={team.name}
-            role={team.role}
-            showTeamName={showTeamName}
-          />
-        )}
-        {gitBadge && (
-          <BranchBadge
-            className="pane__branch"
-            title={gitBadge.title}
-            label={gitBadge.label}
-          />
+        {view.ctx && (
+          <span className={`pane__ctx pane__ctx--${view.ctx.level}`} title={view.ctx.title}>
+            {view.ctx.label}
+          </span>
         )}
         {onMinimize && !focused && (
           <button

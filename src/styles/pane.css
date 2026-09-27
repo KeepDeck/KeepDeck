@@ -19,10 +19,11 @@
      and xterm parks the textarea it focuses for keystrokes at `left: -9999em`
      (xterm.css) — focusing it would scroll the tile off its own terminal. */
   overflow: clip;
-  /* Always reserve the focus-border space (transparent) so the active border
-     never covers content and toggling focus causes no layout shift. */
-  border: 2px solid transparent;
-  transition: border-color 0.3s ease;
+  /* A tile on the canvas. The 1px border is always reserved (transparent) so
+     the rim status.css paints for focus and attention never shifts layout. */
+  border: 1px solid transparent;
+  border-radius: 10px;
+  transition: border-color 0.15s ease-out;
   background-color: var(--kd-tile);
 }
 
@@ -40,26 +41,24 @@
 }
 
 /* The reserved border is coloured by the status frame ladder — see
-   status.css (.pane--frame-*); the domain's paneFrame() decides which. */
+   status.css (.pane--frame-*); the domain's paneFrame() decides which, and
+   status.css paints only the rungs a tile wears: focus and attention. */
 
 .pane__bar {
   display: flex;
   align-items: center;
-  gap: 10px;
-  height: 30px;
+  gap: 8px;
+  height: 32px;
   flex: none;
-  padding: 0 7px 0 11px;
-  border-bottom: 1px solid var(--kd-seam);
+  padding: 0 6px 0 12px;
+  /* No band and no rule: the header is the top of the tile, set apart by
+     type, not by a second surface. */
   background-color: var(--kd-tile);
-  /* Query container for the header controls: a narrow pane collapses the branch
-     badge to an icon-only chip and then sheds controls by priority (see the
-     @container rules below). */
   /* Named, so the rungs below answer to THIS box and say so. An unnamed query
      binds to the nearest container ancestor, so giving .pane__actions a
-     container-type — the obvious next step, collapsing the cluster by its own
-     width — would silently retarget every rung to the cluster and change what
-     the never-hide guarantee means, with no test able to see it (happy-dom
-     evaluates no @container at all). */
+     container-type would silently retarget every rung to the cluster and
+     change what the never-hide guarantee means, with no test able to see it
+     (happy-dom evaluates no @container at all). */
   container: pane-header / inline-size;
   /* The hard floor: whatever the collapse cascade hasn't hidden yet may never
      paint past the pane's edge onto a neighbour or the dock. */
@@ -69,33 +68,29 @@
 .pane__identity {
   display: flex;
   align-items: center;
+  gap: 8px;
   flex: 1 1 auto;
   min-width: 0;
 }
 
-/* The agent's brand mark ahead of the title — who runs here at a glance,
-   whatever the pane was renamed to. Monochrome marks and the fallback take
-   this color; brand-tinted marks carry their own. */
+/* The status dot leads the header: how the agent is doing is the first thing
+   read, before who it is. Its hue is status.css's (.pane__status--*). */
+.pane__status {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: currentColor;
+}
+
+/* The agent's brand mark — who runs here, whatever the pane was renamed to.
+   Monochrome marks and the fallback take this colour. */
 .pane__agent {
   display: inline-flex;
   align-items: center;
   flex: 0 0 auto;
-  font-size: 13px;
+  font-size: 12px;
   color: var(--kd-text-3);
-  margin-right: 7px;
-}
-
-.pane__actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  /* Never shrinks. Every control inside it is flex-none, so a shrinkable
-     cluster cannot pass the pressure on — it just lets them overflow its own
-     box, and the bar's clip then cuts maximize and close, the two the
-     collapse cascade below promises never to hide. The title yields instead:
-     that is the priority the cascade already states in words. */
-  flex: none;
-  margin-left: auto;
 }
 
 .pane__title {
@@ -105,11 +100,8 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 0;
-  /* The shared optical nudge (--text-optical-nudge, chip.css) — the title
-     rides beside the header's centered chips, same as the stand-in's. */
-  transform: translateY(var(--text-optical-nudge));
 }
 
 /* Inline rename of the pane title ([F11]). */
@@ -126,152 +118,95 @@
   outline: none;
 }
 
-/* Live activity badge: what the agent is doing right now. A dot at every
-   state — the frame ladder carries attention, so the header keeps one
-   density and the words live in the tooltip. This block owns only the
-   badge's PLACE in the header; every hue and rhythm lives in status.css
-   (.pane__activity--*), the one home of the status palette. The circle comes
-   from the shared .chip--icon-only (chip.css), which ui-kit's Chip applies to
-   any chip carrying a glyph and nothing else — this one qualifies, so the
-   shape is not restated here. */
-.pane__activity {
-  flex: none;
+/* Which teammate this is — quiet text beside the name, not a pill. */
+.pane__role {
+  /* Yields after the title (both ellipsize) — never pushes the cluster. */
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 12px;
+  color: var(--kd-text-4);
 }
 
-.pane__activity-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: currentColor;
+.pane__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  /* Never shrinks — every control inside is flex-none, so a shrinkable
+     cluster would let them overflow and the bar's clip would cut maximize and
+     close. The title yields instead; the rungs below shed the rest. */
+  flex: none;
+  margin-left: auto;
 }
 
-/* Standing YOLO warning dot: the shared ui-kit YoloBadge. Its circle comes
-   from .chip--icon-only (chip.css), which Chip applies to any chip carrying a
-   glyph and nothing else — so this hook owns only its flex place and its spot
-   in the narrow-header cascade below (gone at ≤150px so maximize/close keep
-   their never-hide guarantee). */
+/* The state in words — only while the agent needs a person or has failed
+   (the view model decides). Its hue is status.css's (.pane__state--*). A
+   capped width: a CLI's own failure string can be long, and it ellipsizes
+   rather than pushing the controls. */
+.pane__state {
+  flex: none;
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* Standing YOLO warning dot: the shared ui-kit YoloBadge. */
 .pane__yolo {
   flex: none;
 }
 
-/* Same anatomy as the branch chip: a role is a short name that must still be
-   allowed to ellipsize rather than push the window controls off. It keeps its
-   own cap because a role is short by convention ("lead", "impl-1") while a
-   branch can be anything. */
-.pane__team {
-  overflow: hidden;
-  /* Room for the qualified form ("reviewer-1 · platform") the badge wears on
-     a deck running several teams. A cap costs nothing when unreached — the
-     chip is sized by its content — so the bare role still takes the width of
-     a bare role. */
-  max-width: min(160px, 34vw);
-  font-size: 12px;
-}
-
-.pane__branch {
-  overflow: hidden;
-  /* No `flex` here: a chip does not yield, and chip.css says so once for all
-     of them (a squeezed branch badge was the bug). This hook adds only the
-     cap the label ellipsizes inside; below it, the rung further down collapses
-     the whole chip to its glyph. */
-  max-width: min(180px, 44vw);
-  font-size: 12px;
-}
-
-/* Live context-occupancy meter, moved here off the usage popover (its
-   per-session rows crowded together). Text-only, calm by default — colour
-   appears only at the context thresholds via the shared .usage-level--*,
-   which win by import order (usage.css loads after pane.css). */
+/* Context occupancy — a number, calm until it runs high. A fixed box so the
+   cluster's width is a declaration the ladder below can count on. */
 .pane__ctx {
   flex: none;
-  font-weight: 600;
-  line-height: 1;
+  width: 34px;
+  text-align: right;
+  font-size: 11.5px;
   font-variant-numeric: tabular-nums;
   color: var(--kd-text-3);
 }
 
-/* The collapse ladder. Every rung's width is the width at which the state
-   ABOVE it stops fitting — not a round number — because nothing else can keep
-   the "maximize and close never hide" promise: the cluster no longer shrinks,
-   so whatever it still holds when the bar runs out is what the bar's clip
-   cuts, and it cuts from the right, where those two live.
+.pane__ctx--warn {
+  color: var(--kd-warn);
+}
 
-   The rungs are stated against the CONTAINER, which is `.pane__bar`'s CONTENT
-   box — size queries measure content, and the bar adds 18px of padding inside
-   a pane that adds 4px of border, so a rung of C answers to a pane of C + 22.
-   Getting that wrong is how the old single 280px rung left a hole: it fired at
-   a 302px pane while the cluster needed up to 428, so every pane between them
-   lost both buttons.
+.pane__ctx--critical {
+  color: var(--kd-err);
+}
 
-   What must fit, at 6px cluster gaps, plus the bar's own 10px gap and the
-   20px the agent glyph keeps in the identity:
-     everything    22 activity + 70 ctx + 22 yolo + 180 branch + 3×23 + 6×6
-                   = 399, so it needs 429  → shed ctx below that
-     without ctx   = 323, needs 353         → collapse the branch below that
-     branch a dot  = 165, needs 195         → the 200 rung already covers it
-     no branch or
-     activity      = 109, needs 139         → the 150 rung already covers it
-   The ctx figure is the one estimate here (its label is text, not a
-   declaration); every other number is read out of this file by pane.test.ts,
-   which fails if a chip or button grows without its rung growing too. */
-@container pane-header (max-width: 430px) {
-  /* The ctx meter is text with no icon to collapse to, and the least load-
-     bearing thing in the cluster — it yields first rather than staying
-     full-width and pushing the window controls off the edge. */
-  .pane__ctx {
+/* The collapse ladder. Each rung is the width at which the state ABOVE it
+   stops fitting, stated against `.pane__bar`'s CONTENT box (size queries
+   measure content): the cluster never shrinks, so whatever it still holds
+   when the bar runs out is what the clip cuts — from the right, where
+   maximize and close live. pane.test.ts reads every number below out of this
+   file and fails if a control grows without its rung.
+
+     everything     110 state + 20 yolo + 34 ctx + 3×23 + 5×6 gaps
+                    = 263, + 8 bar gap + 7 dot + 12 glyph + 2×8 identity gaps
+                    = 306  → shed ctx and role below 310
+     no ctx         = 223, + 43 = 266 → shed the state word, yolo and
+                                        minimize below 270
+     minimal        max + close = 52, + 43 = 95 — fits any real pane. */
+@container pane-header (max-width: 310px) {
+  .pane__ctx,
+  .pane__role {
     display: none;
   }
 }
 
-/* Narrower: drop the branch label and leave the chip on its icon alone, so
-   in a crowded header it reads as a clean icon dot instead of a clipped, shifted
-   badge. `display:none` (not ellipsis-to-nothing) takes the label out of the
-   flex flow entirely, so no leftover gap/padding pushes the icon off-center.
-
-   The three declarations below are the shared .chip--icon-only shape (chip.css)
-   restated, because this is the one site whose icon-only state is CONDITIONAL:
-   a container query can change this element's properties but cannot give it
-   that class, and CSS has no way to apply another rule's block. They are
-   copied on purpose, and chip.test.ts fails if the copy ever stops matching
-   the original. */
-@container pane-header (max-width: 355px) {
-  .pane__branch {
-    width: var(--chip-diameter);
-    padding: 0;
-    justify-content: center;
-  }
-
-  .pane__branch .chip__label {
-    display: none;
-  }
-
-  /* The role does NOT collapse to a glyph here, unlike the branch: a users
-     icon on its own says "on a team" and withholds the one thing worth
-     reading, which is WHICH teammate this is. It is short enough to keep. */
-}
-
-/* Narrower: the branch chip yields entirely — identity goes first, window
-   controls last. */
-@container pane-header (max-width: 200px) {
-  .pane__branch,
-  /* The role yields with the branch. It outranks the branch while both fit
-     — which is why it sits ahead of it in the header — but neither may
-     squeeze out maximize/close. */
-  .pane__team,
-  /* The activity dot yields with it: the FRAME still carries the state,
-     and a header this narrow must never squeeze maximize/close out. */
-  .pane__activity {
-    display: none;
-  }
-}
-
-/* Minimal header: minimize yields too, and the YOLO dot is the last chip to
-   go. Maximize and close never hide — a pane this narrow is exactly one you
-   want to maximize or close. */
-@container pane-header (max-width: 150px) {
-  .pane__action--minimize,
-  .pane__yolo {
+/* A narrow header keeps the dot (and the tile's rim) for the state, and
+   maximize and close — a pane this narrow is exactly one you want to
+   maximize or close. */
+@container pane-header (max-width: 270px) {
+  .pane__state,
+  .pane__yolo,
+  .pane__action--minimize {
     display: none;
   }
 }

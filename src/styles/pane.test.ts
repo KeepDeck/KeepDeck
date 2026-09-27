@@ -8,6 +8,7 @@ import { AppRuntimeProvider } from "../app/runtimeContext";
 import { createAgentStatusTracker } from "../app/agentStatusTracker";
 import type { AppRuntime } from "../app/runtime";
 import { appCss, px, readStyles, ruleBody } from "./testSupport";
+import { paneHeaderView } from "../presentation/paneHeaderView";
 
 (
   globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -71,17 +72,20 @@ function renderHeader(): void {
         keyboardFocusEnabled: true,
         focused: false,
         solo: false,
-        activityView: {
-          tone: "working",
-          label: "Working",
-          sentence: "working",
-          at: 1_754_000_000_000,
-        },
-        now: 1_754_000_000_000,
-        ctxPct: 100,
-        paneLive: true,
+        view: paneHeaderView({
+          activity: {
+            tone: "failed",
+            label: "A failure a CLI named at deliberate length",
+            sentence: "failed",
+            at: 1_754_000_000_000,
+          },
+          now: 1_754_000_000_000,
+          ctxPct: 100,
+          paneLive: true,
+          team: { name: "platform", role: "reviewer-1" },
+          showTeamName: true,
+        }),
         yolo: true,
-        gitBadge: { label: LONG_BRANCH, title: LONG_BRANCH },
         onRename: () => {},
         onMinimize: () => {},
         onToggleFocus: () => {},
@@ -186,60 +190,49 @@ describe("pane header", () => {
     expect(styleOf(".pane__actions").flexShrink).toBe("0");
   });
 
-  it("collapses the branch badge before the cluster outgrows the bar", () => {
-    // The promise the cascade states in words — maximize and close never hide —
-    // and the arithmetic that has to hold for it to be true. Nothing shrinks
-    // any more, so whatever the cluster still carries when the bar runs out is
+  it("sheds context and role, then the state word, before the cluster outgrows the bar", () => {
+    // The promise the ladder states in words — maximize and close never hide —
+    // and the arithmetic that has to hold for it to be true. Nothing in the
+    // cluster shrinks, so whatever it still carries when the bar runs out is
     // what the bar's clip cuts, from the right, where those two buttons are.
-    //
-    // The old single 280px rung was short by ~126px: size queries measure the
-    // container's CONTENT box, so it fired at a 302px pane while the cluster
-    // needed up to 428. Every pane between lost both buttons — the very report
-    // that started this branch.
-    //
-    // Read out of the source rather than restated here, so widening a chip or
-    // a button without widening its rung fails instead of shipping.
+    // Read out of the source rather than restated, so widening a control
+    // without widening its rung fails instead of shipping.
     const paneCss = readStyles("pane.css");
     const chipCss = readStyles("chip.css");
-
     const gap = px(ruleBody(paneCss, ".pane__actions").gap);
     const button = px(ruleBody(paneCss, ".pane__action").width);
-    // The ✕ is NOT a .pane__action — the header passes no class to CloseButton,
-    // so it wears .ui-close alone (base.css), whose width is equal only by
-    // convention and a comment. Reading it separately is the difference between
-    // a guard and a guess: widen one of the two and the sum still has to move.
     const close = px(ruleBody(readStyles("base.css"), ".ui-close").width);
-    const dot = px(ruleBody(chipCss, ".chip")["--chip-diameter"]);
-    const branch = px(ruleBody(paneCss, ".pane__branch")["max-width"]);
+    const state = px(ruleBody(paneCss, ".pane__state")["max-width"]);
+    const yolo = px(ruleBody(chipCss, ".chip")["--chip-diameter"]);
+    const ctx = px(ruleBody(paneCss, ".pane__ctx").width);
     const barGap = px(ruleBody(paneCss, ".pane__bar").gap);
-    // What the identity keeps even with its title fully ellipsized away.
-    const agent = ruleBody(paneCss, ".pane__agent");
-    const glyph = px(agent["font-size"]) + px(agent["margin-right"]);
+    // What the identity keeps with its title and role ellipsized away.
+    const idGap = px(ruleBody(paneCss, ".pane__identity").gap);
+    const identity =
+      px(ruleBody(paneCss, ".pane__status").width) +
+      px(ruleBody(paneCss, ".pane__agent")["font-size"]) +
+      2 * idGap;
+    const width = (items: number[]) =>
+      items.reduce((a, b) => a + b, 0) + gap * (items.length - 1) + barGap + identity;
 
-    // The widest state that must survive this rung: ctx already shed, the
-    // branch still wearing its label, both dots, minimize, maximize and close.
-    const items = [dot, dot, branch, button, button, close];
-    const needed =
-      items.reduce((a, b) => a + b, 0) +
-      gap * (items.length - 1) +
-      barGap +
-      glyph;
+    const rungOpening = (selector: string) =>
+      Number(
+        new RegExp(
+          `@container[^{(]*\\(max-width: (\\d+)px\\)\\s*\\{\\s*\\${selector}[\\s,{]`,
+        ).exec(paneCss)?.[1],
+      );
+    const ctxRung = rungOpening(".pane__ctx");
+    const stateRung = rungOpening(".pane__state");
+    expect(ctxRung, "the context rung is gone").toBeGreaterThan(0);
+    expect(stateRung, "the state-word rung is gone").toBeGreaterThan(0);
 
-    // The rung that OPENS with `.pane__branch`, not merely one that mentions it
-    // somewhere below: a lazy scan from the first `@container` in the file
-    // reads the ctx rung's width and passes on the wrong number — it did, and
-    // the mutation probe for this test is what caught it. No match here means
-    // NaN, and NaN fails both assertions loudly.
-    const rung = Number(
-      /@container[^{(]*\(max-width: (\d+)px\)\s*\{\s*\.pane__branch\s*\{/.exec(
-        paneCss,
-      )?.[1],
-    );
-    expect(rung, "the branch-collapse rung is gone").toBeGreaterThan(0);
-    expect(rung).toBeGreaterThanOrEqual(needed);
+    // Everything, down to the context rung.
+    expect(ctxRung).toBeGreaterThanOrEqual(width([state, yolo, ctx, button, button, close]));
+    // Without context, down to the state-word rung.
+    expect(stateRung).toBeGreaterThanOrEqual(width([state, yolo, button, button, close]));
   });
 
-  it("never squeezes a branch badge below its own glyph", () => {
+  it("never squeezes a badge below its own glyph", () => {
     // The chip cannot defend itself: the shared `.chip` sets `min-width: 0`
     // (chip.css), so a shrinkable branch badge collapses past its icon into a
     // sliver — still wearing `border-radius: 999px`, so it reads as a vertical
@@ -253,7 +246,6 @@ describe("pane header", () => {
     // does, once, which is the point: a new chip in a shrinkable row inherits
     // the fix instead of the trap.
     renderHeader();
-    expect(styleOf(".pane__branch").flexShrink).toBe("0");
     expect(styleOf(".pane__yolo").flexShrink).toBe("0");
 
     renderStandIn();
