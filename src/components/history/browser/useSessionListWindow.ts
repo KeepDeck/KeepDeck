@@ -26,11 +26,9 @@ export interface SessionListWindowInput {
 
 export interface SessionListWindow {
   virtualItems: readonly VirtualItem[];
-  lastVirtualIndex: number;
   totalSize: number;
   measureRow(element: HTMLLIElement | null): void;
   onListScroll(): void;
-  checkPaging(): void;
 }
 
 /**
@@ -117,12 +115,10 @@ export function useSessionListWindow({
   useFocusHandoff(listRef);
   return {
     virtualItems,
-    lastVirtualIndex,
     totalSize,
     measureRow,
     // A scroll asks only for paging: the virtualizer hears the scroll on
     // its own, and keeps the heights it measured.
     onListScroll: checkPaging,
-    checkPaging,
   };
 }
