@@ -1,0 +1,50 @@
+/* The deck's design tokens — the ONE home of every colour the chrome is
+   painted with. Imported first (index.css), so every stylesheet after it —
+   host and built-in plugins alike, which share this document — reads the
+   same values. A literal elsewhere that equals one of these is a copy
+   waiting to drift; it migrates to the token.
+
+   Two tiers, kept apart on purpose:
+   - SURFACES and TEXT: the neutral graphite the deck is built from. No hue —
+     colour on this app means state, never decoration.
+   - STATUS: one palette for every "how is it going" signal — the pane's
+     frame and dot, the rail's dots, git's codes, buttons that affirm. It is
+     the only colour in the chrome. */
+:root {
+  /* Surfaces, darkest first. Depth is a step in lightness, not a border:
+     the canvas holds everything, tiles and the strip sit on it, floating
+     layers (dialogs, popovers, the dock) sit above. */
+  --kd-canvas: #0a0a0b;
+  --kd-strip: #0f0f11;
+  --kd-tile: #121214;
+  --kd-float: #161618;
+
+  /* Hover and the seam are TWO tokens with a difference the eye can see:
+     a hovered row must not read as a line, nor a line as a hover. Hover is
+     a fill one step above the tile; the seam is a line two steps above it,
+     so it still reads where it crosses a hovered fill. */
+  --kd-hover: #1b1b1f;
+  --kd-selected: #242428;
+  --kd-seam: #2a2a2f;
+  --kd-seam-strong: #3a3a41;
+
+  /* Text, strongest first. t3 is the floor for anything a person reads;
+     t4 is for marks and disabled text only. */
+  --kd-text: #ececef;
+  --kd-text-2: #a6a6ae;
+  --kd-text-3: #7e7e87;
+  --kd-text-4: #55555c;
+
+  /* Status. -strong is the same hue lifted for small coloured text on a
+     dark tint, where the base tone drops below comfortable contrast. */
+  --kd-ok: #4fbf7a;
+  --kd-ok-strong: #6fd695;
+  --kd-warn: #e9ae48;
+  --kd-err: #ef6f6f;
+  --kd-err-strong: #f58f8f;
+  --kd-working: #72a5f3;
+  --kd-info: var(--kd-working);
+
+  /* The page background, for opaque colour mixes that must track it. */
+  --kd-bg: var(--kd-canvas);
+}

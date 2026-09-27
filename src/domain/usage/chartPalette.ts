@@ -36,10 +36,10 @@ export function ledgerSeriesColors(
 }
 export const OVERFLOW_COLOR = "#596273";
 
-/** The dialog card surface the palette was validated against. Duplicated as
- * a TS constant because SVG fill/stroke props cannot read a CSS custom
- * property — keep in sync with `--kd-bg` in base.css. */
-export const CHART_SURFACE = "#0b0e14";
+/** The surface the palette is drawn on. Duplicated as a TS constant because
+ * SVG fill/stroke props cannot read a CSS custom property; tokens.test.ts
+ * holds it to `--kd-canvas` in tokens.css. */
+export const CHART_SURFACE = "#0a0a0b";
 
 /** The chart's plot height; the Suspense placeholder builds the same box
  * from this constant so the overview cannot jump when the chunk lands. */

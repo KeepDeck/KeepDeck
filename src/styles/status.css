@@ -1,5 +1,5 @@
-/* The status frame ladder — the ONE home of the agent-status palette and
-   rhythms, shared by every surface that renders `paneFrame()`: the pane
+/* The status frame ladder — the agent-status names (their hues come from
+   the one status palette in tokens.css) and rhythms, shared by every surface that renders `paneFrame()`: the pane
    border, the minimized stand-in, and the rail dot. The domain ranks
    (frame.ts); this file only paints.
 
@@ -8,10 +8,10 @@
    never changes rhythm, so the pace itself names the state from across
    the room. */
 :root {
-  --status-working: #7aa2f7;
-  --status-waiting: #e0af68;
-  --status-failed: #f7768e;
-  --status-done: #9ece6a;
+  --status-working: var(--kd-working);
+  --status-waiting: var(--kd-warn);
+  --status-failed: var(--kd-err);
+  --status-done: var(--kd-ok);
   /* The selection hue's home is the base palette's --kd-ok (one hex for
      "good/live/chosen" across the app); this rung aliases it. */
   --status-selected: var(--kd-ok);
