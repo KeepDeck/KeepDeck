@@ -7,6 +7,7 @@ import { unreadCount, type Notification } from "../../domain/notifications";
 import { formatAge, formatTimestamp } from "../../domain/usage";
 import {
   attentionTrigger,
+  FEED_EMPTY,
   needsYouAge,
   type NeedsYouRow,
 } from "../../presentation/needsYouView";
@@ -46,6 +47,10 @@ export function NotificationBell({
   const center = feed?.center ?? null;
   const notifications = useNotifications(center);
   const [open, setOpen] = useState(false);
+  // The instant the panel opened: every age in it is worded against this
+  // one reading, taken by the click that opened it — so the render stays
+  // pure and a re-render while open (a new entry) does not re-age the rows.
+  const [openedAt, setOpenedAt] = useState(0);
   const rootRef = useRef<HTMLSpanElement>(null);
   const bellButtonRef = useRef<HTMLButtonElement>(null);
   const unread = unreadCount(notifications);
@@ -84,9 +89,7 @@ export function NotificationBell({
     };
   }, [open]);
 
-  // Read as the panel renders — it is short-lived, and opening it is what
-  // renders it, so its ages are fresh whenever someone is looking.
-  const now = Date.now();
+  const now = openedAt;
 
   if (!trigger) return null;
 
@@ -101,7 +104,10 @@ export function NotificationBell({
             ? `bell__button bell__need bell__need--${trigger.tone}`
             : "bell__button"
         }
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => {
+          if (!open) setOpenedAt(Date.now());
+          setOpen(!open);
+        }}
         label={trigger.label}
         expanded={open}
       >
@@ -197,7 +203,7 @@ export function NotificationBell({
               </div>
               {notifications.length === 0 ? (
                 <div className="bell__empty" role="status" aria-live="polite">
-                  Nothing yet
+                  {FEED_EMPTY}
                 </div>
               ) : (
                 <ul className="bell__list">

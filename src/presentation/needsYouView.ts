@@ -30,8 +30,8 @@ export interface NeedsYouRow {
   where: string;
   /** Why it needs you, in the header's words ("Needs approval"). */
   label: string;
-  /** When it became blocked — [`needsYouAge`] words it as the panel opens,
-   * so the rows need no clock and the app no tick to keep them current. */
+  /** When it became blocked — [`needsYouAge`] words it against the instant
+   * the panel opened, so the rows need no clock and the app no tick. */
   since: number;
 }
 
@@ -112,3 +112,6 @@ export function attentionTrigger(
     label: bell.unread > 0 ? `Notifications (${bell.unread} unread)` : "Notifications",
   };
 }
+
+/** What the notification feed says while it holds nothing. */
+export const FEED_EMPTY = "Nothing yet";

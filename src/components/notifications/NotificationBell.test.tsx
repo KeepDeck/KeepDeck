@@ -289,6 +289,28 @@ describe("NotificationBell", () => {
       expect(document.querySelector(".bell__panel")).toBeNull();
     });
 
+    it("ages the rows from the moment the panel opened, not on every render", () => {
+      vi.useFakeTimers();
+      try {
+        vi.setSystemTime(new Date(2026, 7, 19, 12, 0));
+        const blocked = { ...row("p1", "waiting"), since: Date.now() - 4 * 60_000 };
+        mount([blocked]);
+        act(() => bellButton().click());
+        const age = () => document.querySelector(".bell__list--needs .bell__age")?.textContent;
+        expect(age()).toBe("4m");
+        // An hour later something re-renders the open panel: the ages hold.
+        vi.setSystemTime(new Date(2026, 7, 19, 13, 0));
+        act(() => notify({ title: "news", source: paneSource }));
+        expect(age()).toBe("4m");
+        // Reopened, it reads the clock again.
+        act(() => bellButton().click());
+        act(() => bellButton().click());
+        expect(age()).toBe("1h");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it("shows even with the notification list off, and nothing once nobody waits", () => {
       mount([row("p1", "waiting")], false);
       act(() => bellButton().click());
