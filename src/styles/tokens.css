@@ -79,6 +79,18 @@
      keeps its own monospace stack. */
   --kd-font-ui: "Inter Variable", ui-sans-serif, system-ui, -apple-system, sans-serif;
 
+  /* Depth: tiles cast nothing; everything that FLOATS — dialogs, the dock,
+     popovers, menus, tooltips — casts this one shadow: a hairline that
+     parts it from whatever it covers, and a soft wide fall under it. */
+  --kd-shadow-float: 0 0 0 1px rgb(0 0 0 / 0.45), 0 16px 44px -12px rgb(0 0 0 / 0.65);
+
+  /* Shape, by what a thing is: a control, a row or a popover, a tile, a
+     dialog or a sheet. */
+  --kd-radius-control: 6px;
+  --kd-radius-pop: 8px;
+  --kd-radius-tile: 10px;
+  --kd-radius-dialog: 12px;
+
   /* The page background, for opaque colour mixes that must track it. */
   --kd-bg: var(--kd-canvas);
 }

@@ -3,7 +3,8 @@
   max-width: 420px;
   padding: 24px;
   border: 1px solid var(--kd-seam);
-  border-radius: 12px;
+  border-radius: var(--kd-radius-dialog);
+  box-shadow: var(--kd-shadow-float);
   background-color: var(--kd-float);
 }
 

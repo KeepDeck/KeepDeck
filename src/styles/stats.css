@@ -191,9 +191,9 @@
   gap: 2px 16px;
   padding: 8px 11px;
   border: 1px solid var(--kd-seam-strong);
-  border-radius: 8px;
+  border-radius: var(--kd-radius-pop);
   background: var(--kd-tile);
-  box-shadow: 0 8px 24px rgb(0 0 0 / 45%);
+  box-shadow: var(--kd-shadow-float);
   font-size: 11.5px;
   line-height: 1.45;
   pointer-events: none;

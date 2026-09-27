@@ -5,7 +5,8 @@
   max-width: 560px;
   padding: 28px;
   border: 1px solid var(--kd-seam);
-  border-radius: 12px;
+  border-radius: var(--kd-radius-dialog);
+  box-shadow: var(--kd-shadow-float);
   background-color: var(--kd-float);
 }
 
@@ -535,9 +536,9 @@
   padding: 4px;
   list-style: none;
   border: 1px solid var(--kd-seam);
-  border-radius: 8px;
+  border-radius: var(--kd-radius-pop);
   background-color: var(--kd-float);
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--kd-shadow-float);
 }
 
 /* The floating list arrives instead of appearing: a layer that snaps into

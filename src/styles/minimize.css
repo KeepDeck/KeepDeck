@@ -184,9 +184,9 @@
   width: 288px;
   padding: 7px;
   border: 1px solid var(--kd-seam);
-  border-radius: 9px;
+  border-radius: var(--kd-radius-pop);
   background-color: var(--kd-tile);
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.55);
+  box-shadow: var(--kd-shadow-float);
 }
 
 .minimized-overflow__header {
@@ -228,10 +228,10 @@
   max-width: min(320px, calc(100vw - 16px));
   padding: 7px 9px;
   border: 1px solid var(--kd-seam-strong);
-  border-radius: 7px;
+  border-radius: var(--kd-radius-pop);
   background-color: var(--kd-tile);
   color: var(--kd-text);
-  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.48);
+  box-shadow: var(--kd-shadow-float);
   overflow: hidden;
   pointer-events: none;
 }

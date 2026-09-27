@@ -15,9 +15,9 @@
   display: block;
   padding: 7px 10px;
   border: 1px solid var(--kd-seam);
-  border-radius: 8px;
+  border-radius: var(--kd-radius-pop);
   background: var(--kd-tile);
-  box-shadow: 0 6px 18px rgb(0 0 0 / 35%);
+  box-shadow: var(--kd-shadow-float);
   color: var(--kd-text-2);
   font-size: 11px;
   line-height: 1.5;

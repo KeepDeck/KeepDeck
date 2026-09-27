@@ -32,7 +32,7 @@
   inset: 0 0 0 auto;
   /* Depth the docked mode gets from the layout itself: with the grid running
      on underneath, only the shadow says which surface is in front. */
-  box-shadow: -14px 0 28px rgb(0 0 0 / 45%);
+  box-shadow: var(--kd-shadow-float);
 }
 
 .dock__tabs {

@@ -167,4 +167,37 @@ describe("the design tokens", () => {
     }
     expect(offenders).toEqual([]);
   });
+
+  it("cast ONE shadow from everything that floats, and no other black shadow", () => {
+    // Tiles cast nothing; a dialog, the dock, a popover, a menu and a
+    // tooltip all sit at the same height above them, so they share one
+    // shadow — twelve hand-tuned ones made twelve heights.
+    const floating: [string, string][] = [
+      ["form.css", ".form"],
+      ["confirm.css", ".confirm"],
+      ["dock.css", ".dock--floating"],
+      ["peek.css", ".peek__panel"],
+      ["usage.css", ".usage-panel"],
+      ["notifications.css", ".bell__panel"],
+      ["form.css", ".dropdown__menu"],
+      ["tooltip.css", ".kd-tip"],
+      ["minimize.css", ".minimized-overflow"],
+      ["minimize.css", ".minimized-tooltip"],
+      ["tasks.css", ".tasks__detail"],
+    ];
+    for (const [file, selector] of floating) {
+      expect(ruleBody(readStyles(file), selector)["box-shadow"], selector).toBe("var(--kd-shadow-float)");
+    }
+    // A drop shadow in black anywhere else is a height of its own. The
+    // pane being dragged is the one thing lifted higher than a dialog.
+    const stray = readdirSync(STYLES_DIR)
+      .filter((f) => f.endsWith(".css") && f !== "tokens.css")
+      .flatMap((f) =>
+        [...readStyles(f).matchAll(/([^{}]+)\{[^{}]*box-shadow:[^;]*rgba?\(0,? 0,? 0[^;]*;/g)].map(
+          ([, selector]) => `${f}: ${selector.trim()}`,
+        ),
+      )
+      .filter((hit) => !hit.includes(".pane-drag-ghost"));
+    expect(stray).toEqual([]);
+  });
 });
