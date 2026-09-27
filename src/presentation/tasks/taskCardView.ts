@@ -26,7 +26,8 @@ export function taskCardKey(card: Pick<TaskCardView, "id">): string {
 
 /** The first paint's guess at a card and the gap under it, in pixels;
  * measurement corrects it the moment a card reports its box. The tall
- * card's — a meta line wrapped, a blocker line under it — since a guess
+ * card's — a blocked-by line under the meta, wrapped when several
+ * blockers stand; the title and the meta never wrap — since a guess
  * that overshoots only shrinks the scrollbar as cards land, where one that
  * undershoots makes it jump away under the pointer. */
 export const TASK_CARD_ESTIMATE_PX = 90;
