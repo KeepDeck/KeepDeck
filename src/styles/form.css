@@ -265,6 +265,17 @@
   margin-bottom: 20px;
 }
 
+.form__agent-pick {
+  margin-bottom: 20px;
+}
+
+/* An agent in the list and in the closed control: its mark, then its name. */
+.form__agent-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .form__role-hint {
   margin: -12px 0 20px;
   font-size: 12px;
