@@ -46,17 +46,17 @@ export const CHART_SURFACE = "#0a0a0b";
 export const CHART_HEIGHT = 190;
 
 /* Chart CHROME — grid, axes, inks, tooltip surfaces. Beside the series
- * palette so a design pass finds every chart color in ONE module; these
- * mirror the stats stylesheets' values (SVG props cannot read CSS custom
- * properties — keep in sync when the sheets are recolored). */
-export const CHART_GRID = "#171d28";
-export const CHART_AXIS = "#1c2230";
-export const CHART_TICK_INK = "#596273";
-export const CHART_LEGEND_INK = "#9aa3af";
-export const CHART_ITEM_INK = "#c5c8c6";
-export const CHART_LABEL_INK = "#596273";
-export const CHART_TOOLTIP_BG = "#10141c";
-export const CHART_TOOLTIP_BORDER = "#1c2230";
+ * palette so a design pass finds every chart color in ONE module. SVG props
+ * cannot read CSS custom properties, so each is the value of a token in
+ * tokens.css, and tokens.test.ts holds it there. */
+export const CHART_GRID = "#1b1b1f";
+export const CHART_AXIS = "#2a2a2f";
+export const CHART_TICK_INK = "#55555c";
+export const CHART_LEGEND_INK = "#7e7e87";
+export const CHART_ITEM_INK = "#a6a6ae";
+export const CHART_LABEL_INK = "#55555c";
+export const CHART_TOOLTIP_BG = "#161618";
+export const CHART_TOOLTIP_BORDER = "#2a2a2f";
 export const CHART_CURSOR_FILL = "rgba(255, 255, 255, 0.04)";
 
 /** THE per-surface resolution: the ledger-roster color when the agent has

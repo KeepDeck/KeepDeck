@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { TERMINAL_THEME } from "@keepdeck/terminal-kit";
-import { CHART_SURFACE } from "../domain/usage/chartPalette";
+import * as chart from "../domain/usage/chartPalette";
 import { readStyles, STYLES_DIR } from "./testSupport";
 
 /**
@@ -108,6 +108,20 @@ describe("the design tokens", () => {
   });
 
   it("hold the chart's surface constant to the canvas it is drawn on", () => {
-    expect(CHART_SURFACE).toBe(declared(tokens, "--kd-canvas"));
+    expect(chart.CHART_SURFACE).toBe(declared(tokens, "--kd-canvas"));
+  });
+
+  it("draw the chart's chrome in the chrome's tokens", () => {
+    const pairs: [string, string][] = [
+      [chart.CHART_GRID, "--kd-hover"],
+      [chart.CHART_AXIS, "--kd-seam"],
+      [chart.CHART_TICK_INK, "--kd-text-4"],
+      [chart.CHART_LEGEND_INK, "--kd-text-3"],
+      [chart.CHART_ITEM_INK, "--kd-text-2"],
+      [chart.CHART_LABEL_INK, "--kd-text-4"],
+      [chart.CHART_TOOLTIP_BG, "--kd-float"],
+      [chart.CHART_TOOLTIP_BORDER, "--kd-seam"],
+    ];
+    for (const [value, token] of pairs) expect(value).toBe(declared(tokens, token));
   });
 });
