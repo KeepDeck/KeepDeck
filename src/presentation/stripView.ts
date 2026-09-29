@@ -62,6 +62,8 @@ export const WORKSPACE_WORDS = {
   moveDown: "Move down",
   close: "Close workspace",
   renameField: "Workspace name",
+  /** The name as a way back from a team to the workspace's team cards. */
+  up: (name: string) => `Back to the teams of ${name}`,
 } as const;
 
 /** One line of the workspace's menu, described — the crumb performs it. A

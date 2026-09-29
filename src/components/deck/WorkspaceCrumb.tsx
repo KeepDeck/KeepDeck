@@ -18,12 +18,22 @@ export interface WorkspaceCrumbProps {
 }
 
 /**
- * The workspace on screen, named at the start of the bar — the strip's
- * marks say only its initials — with the one menu that acts on it: rename
- * (also a double-click on the name), move up or down the column (the
- * keyboard's way to do what dragging a mark does), close.
+ * The first crumb of the bar: the workspace on screen — the strip's marks
+ * say only its initials — and the one menu that acts on it: rename, move
+ * up or down the column (the keyboard's way to do what dragging a mark
+ * does), close. Inside a team the name is also the way back up to the
+ * workspace's team cards, as a breadcrumb's parent is.
  */
-export function WorkspaceCrumb({ view: workspace, onRename, onMove, onClose }: WorkspaceCrumbProps) {
+export function WorkspaceCrumb({
+  view: workspace,
+  onRename,
+  onMove,
+  onClose,
+  onUp,
+}: WorkspaceCrumbProps & {
+  /** Back up to the team cards, or null at the cards already. */
+  onUp: (() => void) | null;
+}) {
   const rename = useInlineRename((_key, name) => onRename(name));
   const { name } = workspace;
   // Each described line → the callback it owns. A refused move is never
@@ -39,15 +49,21 @@ export function WorkspaceCrumb({ view: workspace, onRename, onMove, onClose }: W
     },
   }));
   return (
-    <div className="bar__group deck__ws">
+    <span className="deck__ws">
       {rename.editing === workspace.id ? (
         <RenameInput rename={rename} className="deck__ws-rename" label={WORKSPACE_WORDS.renameField} />
-      ) : (
-        <span
-          className="deck__ws-name"
-          title={name}
-          onDoubleClick={() => rename.start(workspace.id, name)}
+      ) : onUp ? (
+        <button
+          type="button"
+          className="deck__ws-name deck__ws-name--up"
+          onClick={onUp}
+          aria-label={WORKSPACE_WORDS.up(name)}
+          title={WORKSPACE_WORDS.up(name)}
         >
+          {name}
+        </button>
+      ) : (
+        <span className="deck__ws-name" title={name}>
           {name}
         </span>
       )}
@@ -60,6 +76,6 @@ export function WorkspaceCrumb({ view: workspace, onRename, onMove, onClose }: W
       >
         ⋯
       </MenuButton>
-    </div>
+    </span>
   );
 }

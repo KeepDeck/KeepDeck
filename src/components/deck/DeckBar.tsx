@@ -52,6 +52,7 @@ import { BAR_TIP_DELAY_MS, TipButton } from "../../ui/TipButton";
 import { Tooltip } from "../../ui/Tooltip";
 import {
   ArtifactsIcon,
+  ChevronIcon,
   DockIcon,
   GearIcon,
   McpIcon,
@@ -143,36 +144,35 @@ export function DeckBar({
   return (
     <header className="deck__bar">
       <div className="deck__bar-left">
-        {/* Where you are: the workspace (the strip's marks say only its
-            initials) with its menu, and inside a team the way back to the
-            cards, the team's name and the branch it works on. */}
-        {workspace && (
-          <WorkspaceCrumb {...workspace} />
-        )}
-        {level.kind === "team" && (
-          <div className="bar__group deck__team-bar">
-            <TipButton
-              variant="ghost"
-              size="sm"
-              tip={BAR_WORDS.backTip}
-              label={BAR_WORDS.back}
-              onClick={level.onBack}
-            >
-              {BAR_WORDS.backGlyph}
-            </TipButton>
-            {/* The app's own tip, not a `title`: this WebView draws no
-                native tooltip (see TipButton), and an ellipsized team name
-                must be recoverable somewhere. */}
-            <Tooltip tip={level.name} delayMs={BAR_TIP_DELAY_MS}>
-              <span className="deck__team-name">{level.name}</span>
-            </Tooltip>
-            {level.branch !== null && (
-              <BranchBadge
-                className="deck__team-branch"
-                size="sm"
-                label={level.branch}
-                title={level.branch}
-              />
+        {/* Where you are, as a breadcrumb: the workspace (the strip's marks
+            say only its initials) with its menu, and inside a team the
+            team with the branch it works on. The workspace's name is the
+            way back up to its team cards. */}
+        {(workspace || level.kind === "team") && (
+          <div className="bar__group deck__crumbs">
+            {workspace && (
+              <WorkspaceCrumb {...workspace} onUp={level.kind === "team" ? level.onBack : null} />
+            )}
+            {level.kind === "team" && (
+              <>
+                <span className="deck__crumb-sep" aria-hidden>
+                  <ChevronIcon />
+                </span>
+                {/* The app's own tip, not a `title`: this WebView draws no
+                    native tooltip (see TipButton), and an ellipsized team
+                    name must be recoverable somewhere. */}
+                <Tooltip tip={level.name} delayMs={BAR_TIP_DELAY_MS}>
+                  <span className="deck__team-name">{level.name}</span>
+                </Tooltip>
+                {level.branch !== null && (
+                  <BranchBadge
+                    className="deck__team-branch"
+                    size="sm"
+                    label={level.branch}
+                    title={level.branch}
+                  />
+                )}
+              </>
             )}
           </div>
         )}

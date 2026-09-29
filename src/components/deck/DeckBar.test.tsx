@@ -207,7 +207,7 @@ describe("DeckBar", () => {
       onOpenSettings: () => calls.push("settings"),
       dock: { open: false, onToggle: () => calls.push("dock") },
     });
-    act(() => byLabel("Back to teams")?.click());
+    act(() => byLabel("Back to the teams of Personal project")?.click());
     act(() => byLabel("Add a member")?.click());
     act(() => byLabel("Toggle dock panel")?.click());
     act(() => byLabel("Open statistics")?.click());
@@ -239,13 +239,15 @@ describe("DeckBar", () => {
     expect(left.querySelector(".deck__ws-name")?.textContent).toBe("Personal project");
     expect(left.querySelector(".deck__team-name")?.textContent).toBe("api");
     expect(left.querySelector(".deck__team-branch")?.textContent).toContain("kd/api");
-    expect(byLabel("Back to teams")).not.toBeNull();
+    expect(byLabel("Back to the teams of Personal project")).not.toBeNull();
+    // A breadcrumb: the workspace's name is the way back, the team follows it.
+    expect(host.querySelector(".deck__crumbs .deck__crumb-sep")).not.toBeNull();
     expect(byText("+ Member")).toBeDefined();
     expect(byText("+ Team")).toBeUndefined();
     // At the teams level none of that is said, and the door is the team's.
     render({ level: { kind: "teams", onAddTeam: () => {} } });
     expect(host.querySelector(".deck__team-name")).toBeNull();
-    expect(byLabel("Back to teams")).toBeNull();
+    expect(byLabel("Back to the teams of Personal project")).toBeNull();
     expect(byText("+ Member")).toBeUndefined();
     expect(byText("+ Team")).toBeDefined();
     // The workspace is named at both levels.
@@ -365,7 +367,7 @@ describe("DeckBar", () => {
     expect(byLabel("Open skills")?.disabled).toBe(true);
     expect(byLabel("Open settings")?.disabled).toBe(true);
     expect(byText("+ Member")?.disabled).toBe(false);
-    expect(byLabel("Back to teams")?.disabled).toBe(false);
+    expect(byLabel("Back to the teams of Personal project")?.disabled).toBe(false);
   });
 
   it("names a plugin action by its title and falls back to its initial", () => {

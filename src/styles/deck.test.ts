@@ -61,3 +61,18 @@ describe("the bar's height", () => {
     expect(ruleBody(deck, ".deck__grid").padding).toBe("0 6px 6px");
   });
 });
+
+describe("the breadcrumb", () => {
+  it("draws the workspace's name in one box, link or not, so a team opening moves nothing", () => {
+    // The name is a span at the cards and a button inside a team; a button
+    // with padding the span lacked shifted every crumb after it.
+    const base = ruleBody(deck, ".deck__ws-name");
+    for (const prop of ["padding", "margin", "border", "line-height", "font-size", "box-sizing"]) {
+      expect(base[prop], prop).toBeDefined();
+    }
+    const up = ruleBody(deck, "button.deck__ws-name--up");
+    for (const prop of ["padding", "margin", "border", "line-height", "font-size", "height"]) {
+      expect(up[prop], prop).toBeUndefined();
+    }
+  });
+});

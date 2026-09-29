@@ -25,9 +25,6 @@ export type BarLevel =
 
 /** The bar's words for its level controls. */
 export const BAR_WORDS = {
-  back: "Back to teams",
-  backGlyph: "←",
-  backTip: "Back to the teams",
   addTeam: "+ Team",
   addTeamLabel: "Start a team",
   addTeamTip: "Start a team — with its directory",

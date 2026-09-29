@@ -66,19 +66,62 @@
 }
 
 
-/* The workspace on screen: the strip's marks say only its initials, so the
-   bar names it, quieter than the team — it is where, not what. */
-.deck__ws {
+/* The breadcrumb: workspace ⋯ › team [branch], one group. The workspace
+   is quieter than the team — it is where, not what; inside a team its name
+   is the way back up to the cards. */
+.deck__crumbs {
   min-width: 0;
 }
 
+.deck__ws {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+/* ONE box whether the name is plain text (at the cards) or the way back
+   (inside a team): same padding, margin, border and line box, so opening
+   or leaving a team moves nothing in the crumbs. The padding is the link's
+   hover plate; the negative margin keeps the text on the bar's edge. */
 .deck__ws-name {
+  box-sizing: border-box;
+  display: inline-block;
+  padding: 2px 4px;
+  margin: 0 0 0 -4px;
+  border: 0;
+  border-radius: var(--kd-radius-control);
+  background: transparent;
+  font: inherit;
   font-size: 13px;
+  line-height: 18px;
   color: var(--kd-text-2);
   max-width: 200px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* The parent crumb as a link: a plain name that brightens under the
+   pointer, not a button shape. */
+button.deck__ws-name--up {
+  cursor: pointer;
+}
+
+button.deck__ws-name--up:hover {
+  color: var(--kd-text);
+  background-color: var(--kd-hover);
+}
+
+.deck__crumb-sep {
+  display: inline-flex;
+  flex: none;
+  color: var(--kd-text-4);
+}
+
+.deck__crumb-sep svg {
+  width: 10px;
+  height: 10px;
 }
 
 .deck__ws-rename {
@@ -98,12 +141,8 @@
   border-color: var(--kd-focus);
 }
 
-/* Inside a team: the way back, the team, its branch. The name is the
-   brightest word on the bar: it is what the stage is showing. */
-.deck__team-bar {
-  min-width: 0;
-}
-
+/* The team's crumb is the brightest word on the bar: it is what the stage
+   is showing. */
 .deck__team-name {
   font-size: 13px;
   font-weight: 600;
