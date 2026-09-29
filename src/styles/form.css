@@ -306,10 +306,16 @@
   cursor: default;
 }
 
-.form__type--active {
-  border-color: var(--kd-seam-strong);
-  background-color: var(--kd-tile);
-  color: var(--kd-text-2);
+/* The one chosen: a light plate with dark text — the deck's one way of
+   saying "this is the selected one" (the strip's active mark says it the
+   same way). It must never look like a hover, which only brightens the
+   rim; the pointer over it changes nothing. */
+.form__type--active,
+.form__type--active:hover:not(:disabled) {
+  border-color: var(--kd-text);
+  background-color: var(--kd-text);
+  color: var(--kd-canvas);
+  font-weight: 500;
 }
 
 /* The "Start from" session picker ([F8] spawn-time continuation): a search

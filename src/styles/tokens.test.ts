@@ -318,4 +318,14 @@ describe("the design tokens", () => {
     );
     expect(literal).toEqual([]);
   });
+
+  it("fill a chosen option — a choice must not look like a hover", () => {
+    const form = readStyles("form.css");
+    const rest = ruleBody(form, ".form__type");
+    const hover = ruleBody(form, ".form__type:hover:not(:disabled)");
+    const active = ruleBody(form, ".form__type--active,\n.form__type--active:hover:not(:disabled)");
+    expect(active["background-color"]).not.toBe(rest["background-color"]);
+    expect(active["background-color"]).not.toBe(hover["background-color"] ?? rest["background-color"]);
+    expect(active.color).not.toBe(hover.color);
+  });
 });
