@@ -196,13 +196,28 @@ export function dialogHost(): Root {
  * and the runtime context it reads — into this module's own evaluation, which
  * runs before the `vi.mock` registrations above and would hand it the real
  * one. */
+/** The dialog's module, loaded once per suite. Loaded late on purpose — a
+ * static import would pull the real modules in before the mocks above
+ * register — but its FIRST load transforms the dialog's whole graph (every
+ * section, the plugin host), which under a full parallel run can take longer
+ * than one test's timeout. Suites preload it in `beforeAll` with
+ * `DIALOG_LOAD_TIMEOUT_MS`, so no test pays for it. */
+let dialogModule: Promise<typeof import("./SettingsDialog")> | null = null;
+export function loadSettingsDialog(): Promise<typeof import("./SettingsDialog")> {
+  dialogModule ??= import("./SettingsDialog");
+  return dialogModule;
+}
+
+/** Room for the cold load of the dialog's module graph under full load. */
+export const DIALOG_LOAD_TIMEOUT_MS = 60_000;
+
 export async function mountDialog(
   root: Root,
   onClose: () => void,
   overrides: Partial<Settings> = {},
   initialSectionId?: string,
 ): Promise<void> {
-  const { SettingsDialog } = await import("./SettingsDialog");
+  const { SettingsDialog } = await loadSettingsDialog();
   await initSettings();
   if (Object.keys(overrides).length > 0) updateSettings(overrides);
   await new Promise((resolve) => setTimeout(resolve, 0));

@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { act, createElement, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { UsageEventV2 } from "../../domain/usage/history/event";
 
 const history = vi.hoisted(() => ({
@@ -101,6 +101,10 @@ const usageEvent = (over: Record<string, unknown> = {}): UsageEventV2 =>
  * A case that reads a number out of a panel's markup is in the wrong file:
  * the boundary only holds while nothing crosses it. */
 describe("UsageStats", () => {
+  // The chart's module (recharts) is heavy to load cold; its first load is
+  // the suite's, with room for a full parallel run, not the first test's.
+  beforeAll(() => import("./UsageChart"), 60_000);
+
   let root: Root;
   let host: HTMLElement;
 

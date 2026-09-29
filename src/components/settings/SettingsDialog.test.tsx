@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { act } from "react";
 import type { Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   agentsIpc,
   blur,
@@ -10,6 +10,8 @@ import {
   dialogHost,
   getSettings,
   ipc,
+  DIALOG_LOAD_TIMEOUT_MS,
+  loadSettingsDialog,
   mountDialog,
   panelOf,
   resetSettingsManager,
@@ -20,6 +22,9 @@ import {
 } from "./testSupport";
 
 describe("SettingsDialog", () => {
+  // The dialog's cold module load is the suite's, not the first test's.
+  beforeAll(() => loadSettingsDialog(), DIALOG_LOAD_TIMEOUT_MS);
+
   let root: Root;
   let closed: number;
 
