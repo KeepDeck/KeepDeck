@@ -26,19 +26,18 @@ export interface WorkspaceCrumbProps {
 export function WorkspaceCrumb({ view: workspace, onRename, onMove, onClose }: WorkspaceCrumbProps) {
   const rename = useInlineRename((_key, name) => onRename(name));
   const { name } = workspace;
-  // Each described line → the callback it owns.
-  const actions: MenuAction[] = workspaceMenuView(workspace).map((item, index) => {
-    switch (item.kind) {
-      case "rename":
-        return { id: `${index}`, label: item.label, onSelect: () => rename.start(workspace.id, name) };
-      case "move": {
-        const to = item.to;
-        return { id: `${index}`, label: item.label, disabled: to === null, onSelect: () => to !== null && onMove(to) };
-      }
-      case "close":
-        return { id: `${index}`, label: item.label, onSelect: onClose };
-    }
-  });
+  // Each described line → the callback it owns. A refused move is never
+  // selected (the menu disables it), so it has nowhere to go.
+  const actions: MenuAction[] = workspaceMenuView(workspace).map((item) => ({
+    id: item.id,
+    label: item.label,
+    disabled: item.disabled,
+    onSelect: () => {
+      if (item.kind === "rename") rename.start(workspace.id, name);
+      else if (item.kind === "close") onClose();
+      else if (item.to !== null) onMove(item.to);
+    },
+  }));
   return (
     <div className="bar__group deck__ws">
       {rename.editing === workspace.id ? (

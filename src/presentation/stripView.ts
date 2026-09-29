@@ -67,18 +67,25 @@ export const WORKSPACE_WORDS = {
 /** One line of the workspace's menu, described — the crumb performs it. A
  * move carries where it goes, or null when that end of the column is
  * already reached and the line is refused. */
-export type WorkspaceMenuItem =
-  | { kind: "rename"; label: string }
-  | { kind: "move"; label: string; to: number | null }
-  | { kind: "close"; label: string };
+export type WorkspaceMenuItem = { id: string; label: string; disabled: boolean } & (
+  | { kind: "rename" }
+  | { kind: "move"; to: number | null }
+  | { kind: "close" }
+);
 
 /** The workspace menu, in the order it is offered. */
 export function workspaceMenuView(active: ActiveWorkspace): WorkspaceMenuItem[] {
   return [
-    { kind: "rename", label: WORKSPACE_WORDS.rename },
-    { kind: "move", label: WORKSPACE_WORDS.moveUp, to: active.moveUpTo },
-    { kind: "move", label: WORKSPACE_WORDS.moveDown, to: active.moveDownTo },
-    { kind: "close", label: WORKSPACE_WORDS.close },
+    { id: "rename", kind: "rename", label: WORKSPACE_WORDS.rename, disabled: false },
+    { id: "up", kind: "move", label: WORKSPACE_WORDS.moveUp, to: active.moveUpTo, disabled: active.moveUpTo === null },
+    {
+      id: "down",
+      kind: "move",
+      label: WORKSPACE_WORDS.moveDown,
+      to: active.moveDownTo,
+      disabled: active.moveDownTo === null,
+    },
+    { id: "close", kind: "close", label: WORKSPACE_WORDS.close, disabled: false },
   ];
 }
 

@@ -158,7 +158,7 @@ export function DeckBar({
               label={BAR_WORDS.back}
               onClick={level.onBack}
             >
-              ←
+              {BAR_WORDS.backGlyph}
             </TipButton>
             {/* The app's own tip, not a `title`: this WebView draws no
                 native tooltip (see TipButton), and an ellipsized team name

@@ -5,8 +5,9 @@
  * file draws it and turns each described action into the callback it owns.
  * The card is seven things — dot, name, ⋯ menu, branch, how many agents,
  * the directory, the tasks line — and nothing else: no agent statuses, no
- * terminal, no error text, no buttons. Retry lives in the menu like everything else a card can
- * do. One anatomy for every state; a team of one is drawn like any other.
+ * terminal, no error text, no buttons. Retry lives in the menu like
+ * everything else a card can do. One anatomy for every state; a team of
+ * one is drawn like any other.
  *
  * One subscription for the whole layer (the `useWorkspaceFrames` shape): the
  * status snapshot is stable between edges, so the projection recomputes
