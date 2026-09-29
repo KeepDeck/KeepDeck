@@ -34,6 +34,14 @@ function isEmptyView(view: WorkspaceView): boolean {
   );
 }
 
+/** The view back at a workspace's team cards: no team open, and nothing
+ * highlighted — the cards level has no pane to highlight. The spotlight
+ * is kept: it names a member of the team just left, and reopening that
+ * team restores it, while opening another drops it. */
+export function backToCards(viewByWs: WorkspaceViewMap, wsId: string): WorkspaceViewMap {
+  return setViewField(setViewField(viewByWs, wsId, "teamOpen", undefined), wsId, "select", undefined);
+}
+
 /** Set one sparse field while preserving identity for a no-op. */
 export function setViewField<K extends keyof WorkspaceView>(
   viewByWs: WorkspaceViewMap,

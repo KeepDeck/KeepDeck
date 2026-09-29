@@ -22,6 +22,11 @@ const ws = (over: Partial<Workspace> = {}): Workspace => ({
 describe("stageContent — what goes over the grid", () => {
   it("says there is no team when the workspace has none", () => {
     expect(stageContent(ws({ teams: [] }), undefined, 0)).toEqual({ kind: "no-teams", word: NO_TEAMS_WORD });
+    // A pane outside every team (a legacy file) has no card to be reached
+    // from; the stage says there is no team rather than showing nothing.
+    expect(
+      stageContent(ws({ teams: [], panes: [{ id: "loose" }] }), undefined, 0),
+    ).toEqual({ kind: "no-teams", word: NO_TEAMS_WORD });
   });
 
   it("shows the cards while no team is open, and the grid while somebody is on it", () => {

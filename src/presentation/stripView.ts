@@ -64,6 +64,24 @@ export const WORKSPACE_WORDS = {
   renameField: "Workspace name",
 } as const;
 
+/** One line of the workspace's menu, described — the crumb performs it. A
+ * move carries where it goes, or null when that end of the column is
+ * already reached and the line is refused. */
+export type WorkspaceMenuItem =
+  | { kind: "rename"; label: string }
+  | { kind: "move"; label: string; to: number | null }
+  | { kind: "close"; label: string };
+
+/** The workspace menu, in the order it is offered. */
+export function workspaceMenuView(active: ActiveWorkspace): WorkspaceMenuItem[] {
+  return [
+    { kind: "rename", label: WORKSPACE_WORDS.rename },
+    { kind: "move", label: WORKSPACE_WORDS.moveUp, to: active.moveUpTo },
+    { kind: "move", label: WORKSPACE_WORDS.moveDown, to: active.moveDownTo },
+    { kind: "close", label: WORKSPACE_WORDS.close },
+  ];
+}
+
 const DOT_WORDS: Record<MarkDot, string> = {
   failed: "something failed",
   waiting: "someone needs you",

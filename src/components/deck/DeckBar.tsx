@@ -61,27 +61,9 @@ import {
 } from "../AppIcons";
 import { NotificationBell } from "../notifications/NotificationBell";
 import { WorkspaceCrumb, type WorkspaceCrumbProps } from "./WorkspaceCrumb";
+import { BAR_WORDS, type BarLevel } from "../../presentation/barView";
 import type { NeedsYouRow } from "../../presentation/needsYouView";
 import { UsageChips } from "../usage/UsageChips";
-
-/**
- * Where the stage is, as the bar says it. At the teams level the one door is
- * a new team (null while none can be started). Inside a team: the way back
- * to the cards, what the team is and where it works, and the door to another
- * member, with the refusal's words when the team is full.
- */
-export type BarLevel =
-  | { kind: "teams"; onAddTeam: (() => void) | null }
-  | {
-      kind: "team";
-      name: string;
-      branch: string | null;
-      onBack(): void;
-      canAddMember: boolean;
-      /** The add control's tooltip, which is also where a refusal is explained. */
-      addMemberTitle: string;
-      onAddMember(): void;
-    };
 
 export interface DeckBarProps {
   /** The workspace on screen and its menu, or null with none. */
@@ -172,8 +154,8 @@ export function DeckBar({
             <TipButton
               variant="ghost"
               size="sm"
-              tip="Back to the teams"
-              label="Back to teams"
+              tip={BAR_WORDS.backTip}
+              label={BAR_WORDS.back}
               onClick={level.onBack}
             >
               ←
@@ -249,9 +231,9 @@ export function DeckBar({
               onClick={level.onAddMember}
               disabled={!level.canAddMember}
               tip={level.addMemberTitle}
-              label="Add a member"
+              label={BAR_WORDS.addMemberLabel}
             >
-              + Member
+              {BAR_WORDS.addMember}
             </TipButton>
           </div>
         ) : (
@@ -261,10 +243,10 @@ export function DeckBar({
                 variant="primary"
                 size="sm"
                 onClick={level.onAddTeam}
-                tip="Start a team — with its directory"
-                label="Start a team"
+                tip={BAR_WORDS.addTeamTip}
+                label={BAR_WORDS.addTeamLabel}
               >
-                + Team
+                {BAR_WORDS.addTeam}
               </TipButton>
             </div>
           )

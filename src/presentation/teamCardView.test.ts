@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Team, Workspace } from "../domain/deck";
 import type { PaneActivity } from "../domain/status";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
-import { teamCardView, TEAM_CARD_WORDS } from "./teamCardView";
+import { teamCardView, teamCardsView, teamHead, TEAM_CARD_WORDS } from "./teamCardView";
 
 const attached: Team = {
   id: "team-1",
@@ -45,18 +45,27 @@ const done: PaneActivity = { state: "done", at: 3, interrupted: false };
 const crashed: PaneActivity = { state: "failed", at: 4, error: "rate_limit" };
 
 describe("teamCardView", () => {
-  it("is six things: dot, name, menu, branch, size, directory — and nothing about the members", () => {
+  it("is seven things: dot, name, menu, branch, size, directory, tasks — and nothing about the members", () => {
     const view = teamCardView(ws([attached], { "team-1": 3 }), attached, [working, done, undefined]);
     expect(view).toEqual({
       id: "team-1",
       name: "api",
       branch: "kd/api",
       cwd: "/repo/.wt/api",
+      dir: "api",
       size: 3,
       dot: "working",
       pending: false,
+      tasksLine: null,
+      className: "team-card team-card--working",
       actions: ["add-member", "rename", "disband"],
     });
+  });
+
+  it("wears its dot's tone and, while its directory is not there, the pending rim", () => {
+    expect(teamCardView(ws([creating], { "team-2": 1 }), creating, [undefined]).className).toBe(
+      "team-card team-card--creating team-card--pending",
+    );
   });
 
   it("prefers the live head's branch over the one on record, and has none for a bare directory", () => {
@@ -126,5 +135,36 @@ describe("TEAM_CARD_WORDS", () => {
     expect(TEAM_CARD_WORDS.menu("api")).toBe("Team api actions");
     expect(TEAM_CARD_WORDS.dot.failed).toBe("Needs attention");
     expect(TEAM_CARD_WORDS.action.retry).toBe("Retry the worktree");
+  });
+});
+
+describe("teamCardsView and teamHead", () => {
+  it("builds every card in deck order, each with its own head and its tasks line", () => {
+    const deck = ws([attached, creating], { "team-1": 2, "team-2": 0 });
+    const heads = new Map([["/repo/.wt/api", { branch: "kd/api-live", head: "abc" }]]);
+    const board = {
+      tasks: [
+        { id: "task-1", teamId: "team-1", status: "todo" },
+        { id: "task-2", teamId: "team-1", status: "review" },
+      ],
+    } as never;
+    const cards = teamCardsView(deck, new Map([["team-1-p1", working]]), heads, board);
+    expect(cards.map((c) => [c.id, c.branch, c.dot, c.tasksLine])).toEqual([
+      ["team-1", "kd/api-live", "working", "1 open · 1 in review"],
+      ["team-2", "kd/web", "creating", null],
+    ]);
+    // With no board read, no card says anything about tasks.
+    expect(teamCardsView(deck, new Map(), heads, null).map((c) => c.tasksLine)).toEqual([null, null]);
+  });
+
+  it("reads a team's head at its own directory, else at the workspace's", () => {
+    const heads = new Map([
+      ["/repo/.wt/api", { branch: "kd/api", head: "a" }],
+      ["/repo", { branch: "main", head: "b" }],
+    ]);
+    const deck = ws([attached], {});
+    expect(teamHead(deck, attached, heads)?.branch).toBe("kd/api");
+    const bare = { id: "t", name: "t" } as Team;
+    expect(teamHead(deck, bare, heads)?.branch).toBe("main");
   });
 });

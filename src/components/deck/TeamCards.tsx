@@ -3,9 +3,9 @@
  *
  * What a card SAYS is `teamCardView`'s (presentation/teamCardView.ts); this
  * file draws it and turns each described action into the callback it owns.
- * The card is six things — dot, name, ⋯ menu, branch, how many agents, the
- * directory — and nothing else: no agent statuses, no terminal, no error
- * text, no buttons. Retry lives in the menu like everything else a card can
+ * The card is seven things — dot, name, ⋯ menu, branch, how many agents,
+ * the directory, the tasks line — and nothing else: no agent statuses, no
+ * terminal, no error text, no buttons. Retry lives in the menu like everything else a card can
  * do. One anatomy for every state; a team of one is drawn like any other.
  *
  * One subscription for the whole layer (the `useWorkspaceFrames` shape): the
@@ -14,25 +14,17 @@
  */
 import { useMemo, useSyncExternalStore } from "react";
 import { useAppRuntime } from "../../app/runtimeContext";
-import { tasksOfTeam } from "../../domain/tasks";
-import { teamCardTasksLine } from "../../presentation/tasks";
+import { readyBoard } from "../../app/tasks/tasksService";
 import { useTasksBoardState } from "../tasks/useBoardState";
-import {
-  baseName,
-  membersOf,
-  teamHeldPath,
-  teamsOf,
-  type GitPosition,
-  type Workspace,
-} from "../../domain/deck";
+import type { GitPosition, Workspace } from "../../domain/deck";
 import {
   TEAM_CARD_WORDS,
-  teamCardView,
+  teamCardsView,
   type TeamCardAction,
   type TeamCardView,
 } from "../../presentation/teamCardView";
 import { BranchBadge } from "../../ui/badges";
-import { noAutoCorrect } from "../../ui/inputProps";
+import { RenameInput } from "../../ui/RenameInput";
 import { MenuButton, type MenuAction } from "../../ui/MenuButton";
 import { useInlineRename, type InlineRename } from "../../ui/useInlineRename";
 
@@ -65,18 +57,10 @@ export function TeamCards({
   const { statusTracker, tasks } = useAppRuntime();
   const snapshot = useSyncExternalStore(statusTracker.subscribe, statusTracker.getSnapshot);
   const boardState = useTasksBoardState(tasks, workspace.id);
-  const board = boardState?.kind === "ready" ? boardState.board : null;
+  const board = readyBoard(boardState);
   const cards = useMemo(
-    () =>
-      teamsOf(workspace).map((team) =>
-        teamCardView(
-          workspace,
-          team,
-          membersOf(workspace, team.id).map((pane) => snapshot.panes.get(pane.id)),
-          gitHeads.get(teamHeldPath(team) ?? workspace.cwd),
-        ),
-      ),
-    [workspace, gitHeads, snapshot],
+    () => teamCardsView(workspace, snapshot.panes, gitHeads, board),
+    [workspace, gitHeads, snapshot, board],
   );
   // One rename behaviour for every surface that has one ([F11]); an empty
   // commit is "back to the auto name", which renameTeam implements.
@@ -87,7 +71,6 @@ export function TeamCards({
         <TeamCard
           key={card.id}
           card={card}
-          tasksLine={board ? teamCardTasksLine(tasksOfTeam(board, card.id)) : null}
           rename={rename}
           onEnter={onEnter}
           onAddMember={onAddMember}
@@ -101,7 +84,6 @@ export function TeamCards({
 
 function TeamCard({
   card,
-  tasksLine,
   rename,
   onEnter,
   onAddMember,
@@ -109,8 +91,6 @@ function TeamCard({
   onRetry,
 }: {
   card: TeamCardView;
-  /** The card's line about its board, or null for a team with no tasks. */
-  tasksLine: string | null;
   rename: InlineRename;
   onEnter(teamId: string): void;
   onAddMember(teamId: string): void;
@@ -148,7 +128,7 @@ function TeamCard({
   const editing = rename.editing === card.id;
   return (
     <article
-      className={`team-card team-card--${card.dot}${card.pending ? " team-card--pending" : ""}`}
+      className={card.className}
       data-team-id={card.id}
       role="listitem"
       aria-label={TEAM_CARD_WORDS.card(card.name)}
@@ -163,14 +143,11 @@ function TeamCard({
           title={TEAM_CARD_WORDS.dot[card.dot]}
         />
         {editing ? (
-          <input
-            {...noAutoCorrect}
-            {...rename.inputProps}
+          <RenameInput
+            rename={rename}
             className="team-card__rename"
-            autoFocus
-            aria-label={TEAM_CARD_WORDS.renameField}
-            onMouseDown={(event) => event.stopPropagation()}
-            onClick={(event) => event.stopPropagation()}
+            label={TEAM_CARD_WORDS.renameField}
+            contained
           />
         ) : (
           <button
@@ -212,9 +189,9 @@ function TeamCard({
         <span className="team-card__count">{TEAM_CARD_WORDS.agents(card.size)}</span>
       </div>
       <span className="team-card__dir" title={card.cwd}>
-        {baseName(card.cwd)}
+        {card.dir}
       </span>
-      {tasksLine !== null && <div className="team-card__tasks">{tasksLine}</div>}
+      {card.tasksLine !== null && <div className="team-card__tasks">{card.tasksLine}</div>}
     </article>
   );
 }

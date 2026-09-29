@@ -1,13 +1,13 @@
 /* The left strip (components/workspace/WorkspaceStrip.tsx): a column of
-   workspace marks, one surface with one line on its right edge. Teams are
+   workspace marks on a surface one step above the canvas. Teams are
    reached on the stage's cards screen. */
 
 .strip {
   flex: none;
   display: flex;
   min-height: 0;
+  /* Parted from the canvas by its own surface step, not a drawn line. */
   background-color: var(--kd-strip);
-  box-shadow: inset -1px 0 0 var(--kd-seam);
 }
 
 /* ── The column of marks ────────────────────────────────────────────── */

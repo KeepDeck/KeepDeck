@@ -6,6 +6,7 @@ import { openArtifactByRef } from "../../app/artifacts/entryPoints";
 import type { ArtifactsRegistryReadPort } from "../../app/artifacts/registryRead";
 import { describeError } from "../../ipc/log";
 import { refusalOf, tasksEnableStatus } from "../../app/tasks/enableStatus";
+import { readyBoard } from "../../app/tasks/tasksService";
 import { refusalText } from "../../app/tasks/refusalText";
 import { teamsOf, type Workspace } from "../../domain/deck";
 import {
@@ -142,7 +143,7 @@ export function useTasksBoard(
   const dragEndedAt = useRef<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const board = state?.kind === "ready" ? state.board : null;
+  const board = readyBoard(state);
   const unsaved = state?.kind === "ready" && state.unsaved !== null ? unsavedBanner(state.unsaved) : null;
   // The team on screen follows the task the dialog is on, then the choice.
   const focusedTask = board && focus !== null ? (findTask(board, focus) ?? null) : null;

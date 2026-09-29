@@ -5,7 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { UpdateAction } from "../../app/updateAction";
 import { BAR_TIP_DELAY_MS } from "../../ui/TipButton";
-import { DeckBar, type BarLevel, type DeckBarProps } from "./DeckBar";
+import { DeckBar, type DeckBarProps } from "./DeckBar";
+import type { BarLevel } from "../../presentation/barView";
 
 // React 19 requires this flag for act() outside a test-framework integration.
 (

@@ -46,7 +46,6 @@ import {
   paneInFront,
   resolveSelectedPaneId,
   stagePanes,
-  teamHeldPath,
 } from "../domain/deck";
 import type { AppInfo } from "../ipc/app";
 import { readAppInfo } from "./appInfo";
@@ -55,11 +54,11 @@ import { anyOverlayCovers, subscribeOverlayCover } from "./overlayCover";
 import { describeError, log } from "../ipc/log";
 import { pluginCrashes, subscribePluginCrashes } from "./pluginHealth";
 import { addTeamDoorOpen, bellDoorOpen, dockDoorOpen } from "./doors";
-import type { BarLevel } from "../components/deck/DeckBar";
+import { BAR_WORDS, type BarLevel } from "../presentation/barView";
 import type { WorkspaceCrumbProps } from "../components/deck/WorkspaceCrumb";
 import { stripView } from "../presentation/stripView";
 import { needsYouRows, nextNeedsYou, type NeedsYouRow } from "../presentation/needsYouView";
-import { teamBranchOf } from "../presentation/teamCardView";
+import { teamBranchOf, teamHead } from "../presentation/teamCardView";
 
 /** Shell/application wiring kept separate from the rendered app tree. */
 export function useAppController() {
@@ -399,10 +398,10 @@ export function useAppController() {
       ? {
           kind: "team",
           name: openTeam.name,
-          branch: teamBranchOf(openTeam, gitHeads.get(teamHeldPath(openTeam) ?? active.cwd)),
+          branch: teamBranchOf(openTeam, teamHead(active, openTeam, gitHeads)),
           onBack: () => deck.closeTeam(active.id),
           canAddMember,
-          addMemberTitle: atCap ? `Max ${MAX_PANES} agents on a team` : "Add a member",
+          addMemberTitle: BAR_WORDS.addMemberTip(atCap, MAX_PANES),
           onAddMember: () => {
             if (canAddMember) void agentFlow.openFor(active, { kind: "member", teamId: openTeam.id });
           },

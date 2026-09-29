@@ -1,8 +1,9 @@
 /**
  * What a team's card says, decided apart from the markup that draws it.
  *
- * A card is six things and no more: a dot, the name, the ⋯ menu, the
- * branch, how many agents, and the directory. No agent statuses, no
+ * A card is seven things and no more: a dot, the name, the ⋯ menu, the
+ * branch, how many agents, the directory, and one line about the team's
+ * tasks when it has any. No agent statuses, no
  * terminal tail, no error text, no buttons — those live inside the team
  * and in the menu (the one decision the prototype rounds settled). One
  * anatomy for every state: a team whose directory is still being created,
@@ -26,14 +27,18 @@
  * nothing on the team can work.
  */
 import {
+  baseName,
   createFailed,
   membersOf,
   teamHeldPath,
+  teamsOf,
   type GitPosition,
   type Team,
   type Workspace,
 } from "../domain/deck";
 import { foldFrame, type PaneActivity } from "../domain/status";
+import { tasksOfTeam, type Task, type TaskBoard } from "../domain/tasks";
+import { teamCardTasksLine } from "./tasks/teamCardTasksLine";
 
 export type TeamCardDot =
   | "failed"
@@ -94,6 +99,14 @@ export interface TeamCardView {
   /** Whether the directory is not there yet — creating, or the create
    * failed. The card's rim says so; the dot says which. */
   pending: boolean;
+  /** The directory's last segment — what the card prints; `cwd` is its
+   * tooltip. */
+  dir: string;
+  /** The card's line about its board, or null for a team with no tasks
+   * (or while the board is not read). */
+  tasksLine: string | null;
+  /** The card's classes: its dot's tone, and the pending rim. */
+  className: string;
   actions: readonly TeamCardAction[];
 }
 
@@ -129,6 +142,36 @@ export function teamDot(
         : frame;
 }
 
+/** The live git head at a team's directory — the one answer to "which
+ * head belongs to this team", for the card and the bar alike. */
+export function teamHead(
+  ws: Pick<Workspace, "cwd">,
+  team: Team,
+  heads: ReadonlyMap<string, GitPosition>,
+): GitPosition | undefined {
+  return heads.get(teamHeldPath(team) ?? ws.cwd);
+}
+
+/** Every card of a workspace, in deck order. */
+export function teamCardsView(
+  ws: Workspace,
+  /** Live activity by pane — the tracker's snapshot. */
+  activities: ReadonlyMap<string, PaneActivity>,
+  heads: ReadonlyMap<string, GitPosition>,
+  /** The workspace's task board, or null while it is not read. */
+  board: TaskBoard | null,
+): TeamCardView[] {
+  return teamsOf(ws).map((team) =>
+    teamCardView(
+      ws,
+      team,
+      membersOf(ws, team.id).map((pane) => activities.get(pane.id)),
+      teamHead(ws, team, heads),
+      board ? tasksOfTeam(board, team.id) : null,
+    ),
+  );
+}
+
 export function teamCardView(
   ws: Workspace,
   team: Team,
@@ -136,19 +179,25 @@ export function teamCardView(
   activities: Iterable<PaneActivity | undefined>,
   /** The live git head at the team's directory, when the app has read one. */
   head?: GitPosition,
+  /** The team's tasks, or null while the board is not read. */
+  tasks: readonly Task[] | null = null,
 ): TeamCardView {
   const location = team.location;
   const creating = location?.kind === "provisioning";
   const treeFailed = createFailed(location);
   const dot = teamDot(team, activities);
+  const cwd = teamHeldPath(team) ?? ws.cwd;
   return {
     id: team.id,
     name: team.name,
     branch: teamBranchOf(team, head),
-    cwd: teamHeldPath(team) ?? ws.cwd,
+    cwd,
     size: membersOf(ws, team.id).length,
     dot,
     pending: creating,
+    dir: baseName(cwd),
+    tasksLine: tasks ? teamCardTasksLine(tasks) : null,
+    className: `team-card team-card--${dot}${creating ? " team-card--pending" : ""}`,
     actions: treeFailed ? [...EVERY_CARD, "retry"] : EVERY_CARD,
   };
 }

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { team, teamedWorkspace, workspace } from "../domain/deck/reducer.testSupport";
 import type { Workspace } from "../domain/deck";
 import type { PaneActivity } from "../domain/status";
-import { stripView, workspaceInitials } from "./stripView";
+import { stripView, workspaceInitials, workspaceMenuView } from "./stripView";
 
 const ONE_TEAM_OF_THREE = teamedWorkspace("ws-a", ["pane-1", "pane-2", "pane-3"]);
 
@@ -96,5 +96,16 @@ describe("workspaceInitials", () => {
     expect(workspaceInitials("web app")).toBe("wa");
     expect(workspaceInitials("mnemo")).toBe("mn");
     expect(workspaceInitials("")).toBe("?");
+  });
+});
+
+describe("workspaceMenuView", () => {
+  it("offers rename, both moves and close, a move refused past its end", () => {
+    expect(workspaceMenuView({ id: "a", name: "A", moveUpTo: null, moveDownTo: 1 })).toEqual([
+      { kind: "rename", label: "Rename" },
+      { kind: "move", label: "Move up", to: null },
+      { kind: "move", label: "Move down", to: 1 },
+      { kind: "close", label: "Close workspace" },
+    ]);
   });
 });

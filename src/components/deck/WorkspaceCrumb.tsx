@@ -1,7 +1,11 @@
 import { MenuButton, type MenuAction } from "../../ui/MenuButton";
-import { noAutoCorrect } from "../../ui/inputProps";
+import { RenameInput } from "../../ui/RenameInput";
 import { useInlineRename } from "../../ui/useInlineRename";
-import { WORKSPACE_WORDS, type ActiveWorkspace } from "../../presentation/stripView";
+import {
+  WORKSPACE_WORDS,
+  workspaceMenuView,
+  type ActiveWorkspace,
+} from "../../presentation/stripView";
 
 /** The crumb as the controller composes it and the bar passes it through. */
 export interface WorkspaceCrumbProps {
@@ -21,33 +25,24 @@ export interface WorkspaceCrumbProps {
  */
 export function WorkspaceCrumb({ view: workspace, onRename, onMove, onClose }: WorkspaceCrumbProps) {
   const rename = useInlineRename((_key, name) => onRename(name));
-  const { name, moveUpTo, moveDownTo } = workspace;
-  const actions: MenuAction[] = [
-    { id: "rename", label: WORKSPACE_WORDS.rename, onSelect: () => rename.start(workspace.id, name) },
-    {
-      id: "up",
-      label: WORKSPACE_WORDS.moveUp,
-      disabled: moveUpTo === null,
-      onSelect: () => moveUpTo !== null && onMove(moveUpTo),
-    },
-    {
-      id: "down",
-      label: WORKSPACE_WORDS.moveDown,
-      disabled: moveDownTo === null,
-      onSelect: () => moveDownTo !== null && onMove(moveDownTo),
-    },
-    { id: "close", label: WORKSPACE_WORDS.close, onSelect: onClose },
-  ];
+  const { name } = workspace;
+  // Each described line → the callback it owns.
+  const actions: MenuAction[] = workspaceMenuView(workspace).map((item, index) => {
+    switch (item.kind) {
+      case "rename":
+        return { id: `${index}`, label: item.label, onSelect: () => rename.start(workspace.id, name) };
+      case "move": {
+        const to = item.to;
+        return { id: `${index}`, label: item.label, disabled: to === null, onSelect: () => to !== null && onMove(to) };
+      }
+      case "close":
+        return { id: `${index}`, label: item.label, onSelect: onClose };
+    }
+  });
   return (
     <div className="bar__group deck__ws">
       {rename.editing === workspace.id ? (
-        <input
-          {...noAutoCorrect}
-          {...rename.inputProps}
-          className="deck__ws-rename"
-          autoFocus
-          aria-label={WORKSPACE_WORDS.renameField}
-        />
+        <RenameInput rename={rename} className="deck__ws-rename" label={WORKSPACE_WORDS.renameField} />
       ) : (
         <span
           className="deck__ws-name"

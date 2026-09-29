@@ -83,6 +83,12 @@ export type BoardState =
   /** The file did not decode; its words, verbatim. Read-only until fixed. */
   | { kind: "unreadable"; error: string };
 
+/** The board a surface can read, or null while it loads, will not decode,
+ * or no workspace is asked about. */
+export function readyBoard(state: BoardState | null | undefined): TaskBoard | null {
+  return state?.kind === "ready" ? state.board : null;
+}
+
 /** Why a command could not act — the domain's refusals plus the two only
  * this owner can raise. */
 export type TaskProblem =
