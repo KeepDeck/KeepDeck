@@ -220,4 +220,27 @@ describe("the design tokens", () => {
     expect(radius("history.css", ".history__fork")).toBe("var(--kd-radius-control)");
     expect(radius("pane.css", ".pane")).toBe("var(--kd-radius-tile)");
   });
+
+  it("load every stylesheet in the folder — one left out of index.css styles nothing", () => {
+    // The team cards' sheet came back to the tree without its import once,
+    // and the cards rendered bare.
+    const imported = new Set(
+      [...readStyles("index.css").matchAll(/@import\s+"\.\/([^"]+)"/g)].map(([, f]) => f),
+    );
+    const sheets = readdirSync(STYLES_DIR).filter((f) => f.endsWith(".css") && f !== "index.css");
+    expect(sheets.filter((f) => !imported.has(f))).toEqual([]);
+  });
+
+  it("start no animation whose keyframes are gone", () => {
+    const keyframes = new Set(
+      allSheets().flatMap(([, css]) => [...css.matchAll(/@keyframes\s+([\w-]+)/g)].map(([, n]) => n)),
+    );
+    const missing = allSheets().flatMap(([file, css]) =>
+      [...css.matchAll(/animation(?:-name)?:\s*([\w-]+)/g)]
+        .map(([, name]) => name)
+        .filter((name) => name !== "none" && !keyframes.has(name))
+        .map((name) => `${file}: ${name}`),
+    );
+    expect(missing).toEqual([]);
+  });
 });
