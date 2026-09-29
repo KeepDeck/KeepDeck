@@ -67,8 +67,8 @@
 
 .stats__period button:hover,
 .stats__period .stats__period--active {
-  background: var(--kd-tile);
-  color: var(--kd-text-2);
+  background: var(--kd-text);
+  color: var(--kd-canvas);
 }
 
 /* The active tab doesn't consume the period (Providers): the switcher goes

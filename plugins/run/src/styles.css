@@ -185,7 +185,8 @@
 }
 
 .run__cmd--active {
-  background-color: var(--kd-hover);
+  background-color: var(--kd-selected);
+  color: var(--kd-text);
 }
 
 /* An instance in another target: indented, labeled by its place. */

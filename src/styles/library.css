@@ -88,7 +88,8 @@
 }
 
 .library__item--active {
-  background-color: var(--kd-tile);
+  background-color: var(--kd-selected);
+  color: var(--kd-text);
 }
 
 .library__item-name {
@@ -96,9 +97,12 @@
   font-size: var(--kd-font-normal);
 }
 
-.library__item--active .library__item-name,
 .library__item:hover .library__item-name {
   color: var(--kd-text-2);
+}
+
+.library__item--active .library__item-name {
+  color: var(--kd-text);
 }
 
 .library__item-desc {

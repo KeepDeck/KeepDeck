@@ -60,8 +60,8 @@
 }
 
 .settings__nav-item--active {
-  background-color: var(--kd-tile);
-  color: var(--kd-text-2);
+  background-color: var(--kd-selected);
+  color: var(--kd-text);
 }
 
 /* The nav's Plugins group header: a muted tier label plus the global Rescan
@@ -558,7 +558,7 @@
 
 .roles__row--active {
   border-color: var(--kd-seam-strong);
-  background-color: var(--kd-tile);
+  background-color: var(--kd-selected);
 }
 
 /* The label gives way before the id or the notes do. */

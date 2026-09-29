@@ -376,7 +376,8 @@
 }
 
 .form__session--active {
-  background-color: var(--kd-tile);
+  background-color: var(--kd-selected);
+  color: var(--kd-text);
 }
 
 /* Un-resumable rows stay CLICKABLE (picking one shows the full reason and

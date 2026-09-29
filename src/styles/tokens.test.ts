@@ -328,4 +328,19 @@ describe("the design tokens", () => {
     expect(active["background-color"]).not.toBe(hover["background-color"] ?? rest["background-color"]);
     expect(active.color).not.toBe(hover.color);
   });
+
+  it("mark a selected row brighter than a hovered one, never darker", () => {
+    // The colour sweep once gave selected rows the tile — a step BELOW the
+    // hover — so the chosen item was the dimmest in its list.
+    const rows: [string, string][] = [
+      ["settings.css", ".settings__nav-item--active"],
+      ["library.css", ".library__item--active"],
+      ["form.css", ".form__session--active"],
+      ["settings.css", ".roles__row--active"],
+    ];
+    for (const [file, selector] of rows) {
+      expect(ruleBody(readStyles(file), selector)["background-color"], selector).toBe("var(--kd-selected)");
+    }
+    expect(lightness(declared(tokens, "--kd-selected"))).toBeGreaterThan(lightness(declared(tokens, "--kd-hover")));
+  });
 });
