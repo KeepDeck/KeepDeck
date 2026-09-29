@@ -19,14 +19,14 @@
 
 .stats__streak b {
   color: var(--kd-text-2);
-  font-size: var(--kd-font-large);
+  font-size: var(--kd-font-normal);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
 
 .stats__streak small {
   color: var(--kd-text-4);
-  font-size: var(--kd-font-micro);
+  font-size: var(--kd-font-small);
 }
 
 /* The tier mark: a coal, then hand-drawn SVG flames of growing ferocity. */

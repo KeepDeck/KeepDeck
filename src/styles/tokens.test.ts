@@ -285,32 +285,28 @@ describe("the design tokens", () => {
   });
 
   it("set every size in the chrome from the type scale, and draw the chart's text on it", () => {
-    // Six steps, named by use. A rendered Markdown document keeps its own
-    // heading scale; nothing else may bring a size of its own.
+    // Three steps, named by use and far enough apart to read as three. A
+    // rendered Markdown document keeps its own heading scale; nothing else
+    // may bring a size of its own.
     const steps = Object.fromEntries(
-      ["micro", "caption", "small", "normal", "large", "title"].map((n) => [n, declared(tokens, `--kd-font-${n}`)]),
+      ["small", "normal", "title"].map((n) => [n, declared(tokens, `--kd-font-${n}`)]),
     );
-    expect(steps).toEqual({
-      micro: "10px",
-      caption: "11px",
-      small: "12px",
-      normal: "13px",
-      large: "14px",
-      title: "16px",
-    });
+    expect(steps).toEqual({ small: "11px", normal: "13px", title: "16px" });
+    // Neighbouring steps at least 2px apart — a 1px step is one nobody sees.
+    const px = Object.values(steps).map((v) => parseFloat(v));
+    for (let i = 1; i < px.length; i++) expect(px[i] - px[i - 1]).toBeGreaterThanOrEqual(2);
     const literal = allSheets()
       .filter(([file]) => !file.endsWith("markdown.css"))
       .flatMap(([file, css]) =>
         [...css.matchAll(/font-size:\s*([^;]+);/g)]
           .map(([, v]) => v.trim())
-          .filter((v) => !/^var\(--kd-font-(micro|caption|small|normal|large|title)\)$/.test(v))
+          .filter((v) => !/^var\(--kd-font-(small|normal|title)\)$/.test(v))
           .map((v) => `${file}: ${v}`),
       );
     expect(literal).toEqual([]);
-    expect(`${chart.CHART_TICK_SIZE}px`).toBe(steps.micro);
+    expect(`${chart.CHART_TEXT_SIZE}px`).toBe(steps.small);
     expect(`${TERMINAL_FONT_SIZE}px`).toBe(steps.normal);
-    expect(`${TERMINAL_LOG_FONT_SIZE}px`).toBe(steps.caption);
-    expect(`${chart.CHART_LEGEND_SIZE}px`).toBe(steps.caption);
+    expect(`${TERMINAL_LOG_FONT_SIZE}px`).toBe(steps.small);
   });
 
   it("round everything from a radius step — circles and pills aside", () => {

@@ -93,14 +93,12 @@
   --kd-radius-tile: 10px;
   --kd-radius-dialog: 12px;
 
-  /* Type sizes: six steps, named by use. The chrome's text is one of
-     these; only a rendered document (the Markdown preview) keeps its own
-     heading scale. */
-  --kd-font-micro: 10px;
-  --kd-font-caption: 11px;
-  --kd-font-small: 12px;
+  /* Type sizes: three steps, far enough apart to read as three — the
+     secondary text (labels, badges, counts, hints), the text, and a
+     dialog's title. The chrome's text is one of these; only a rendered
+     document (the Markdown preview) keeps its own heading scale. */
+  --kd-font-small: 11px;
   --kd-font-normal: 13px;
-  --kd-font-large: 14px;
   --kd-font-title: 16px;
 
   /* The page background, for opaque colour mixes that must track it. */

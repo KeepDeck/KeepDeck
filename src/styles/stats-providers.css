@@ -39,14 +39,14 @@
 
 .stats__provider-head small {
   color: var(--kd-text-4);
-  font-size: var(--kd-font-micro);
+  font-size: var(--kd-font-small);
 }
 
 /* Why a card has nothing live to show, said once above its windows. */
 .stats__provider-idle {
   margin: 0;
   color: var(--kd-text-4);
-  font-size: var(--kd-font-caption);
+  font-size: var(--kd-font-small);
   line-height: 1.45;
 }
 
@@ -65,11 +65,11 @@
   display: flex;
   justify-content: space-between;
   color: var(--kd-text-3);
-  font-size: var(--kd-font-caption);
+  font-size: var(--kd-font-small);
   font-variant-numeric: tabular-nums;
 }
 
 .stats__window small {
   color: var(--kd-text-4);
-  font-size: var(--kd-font-micro);
+  font-size: var(--kd-font-small);
 }

@@ -106,7 +106,7 @@
 
 .team-card__name {
   display: block;
-  font-size: var(--kd-font-large);
+  font-size: var(--kd-font-normal);
   font-weight: 600;
   color: var(--kd-text);
   overflow: hidden;
@@ -153,7 +153,7 @@
 
 .team-card__dir {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: var(--kd-font-caption);
+  font-size: var(--kd-font-small);
   color: var(--kd-text-3);
   overflow: hidden;
   text-overflow: ellipsis;

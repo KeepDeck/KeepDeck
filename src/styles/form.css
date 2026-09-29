@@ -19,7 +19,7 @@
 
 .form__label {
   margin-bottom: 8px;
-  font-size: var(--kd-font-caption);
+  font-size: var(--kd-font-small);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--kd-text-3);
@@ -331,7 +331,7 @@
 
 .form__sessions-count {
   flex: none;
-  font-size: var(--kd-font-caption);
+  font-size: var(--kd-font-small);
   color: var(--kd-text-3);
   font-variant-numeric: tabular-nums;
 }
@@ -397,7 +397,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--kd-font-caption);
+  font-size: var(--kd-font-small);
   color: var(--kd-text-3);
 }
 

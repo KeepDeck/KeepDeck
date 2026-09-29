@@ -115,7 +115,7 @@
   margin-left: auto;
   padding-left: 6px;
   color: var(--kd-text-3);
-  font-size: var(--kd-font-caption);
+  font-size: var(--kd-font-small);
 }
 
 .files__hint--bad {

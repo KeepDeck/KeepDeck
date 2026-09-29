@@ -18,8 +18,7 @@ import {
   CHART_GRID,
   CHART_HEIGHT,
   CHART_LEGEND_INK,
-  CHART_LEGEND_SIZE,
-  CHART_TICK_SIZE,
+  CHART_TEXT_SIZE,
   CHART_SURFACE,
   CHART_TICK_INK,
 } from "../../domain/usage/chartPalette";
@@ -86,14 +85,14 @@ export function UsageChart({
             tickFormatter={(value: number) =>
               formatBucket(value, timeline.granularity)
             }
-            tick={{ fill: CHART_TICK_INK, fontSize: CHART_TICK_SIZE }}
+            tick={{ fill: CHART_TICK_INK, fontSize: CHART_TEXT_SIZE }}
             axisLine={{ stroke: CHART_AXIS }}
             tickLine={false}
             minTickGap={24}
           />
           <YAxis
             tickFormatter={(value: number) => formatTokens(value)}
-            tick={{ fill: CHART_TICK_INK, fontSize: CHART_TICK_SIZE }}
+            tick={{ fill: CHART_TICK_INK, fontSize: CHART_TEXT_SIZE }}
             axisLine={false}
             tickLine={false}
             width={44}
@@ -123,7 +122,7 @@ export function UsageChart({
           <Legend
             iconSize={8}
             formatter={(value: string) => (
-              <span style={{ color: CHART_LEGEND_INK, fontSize: CHART_LEGEND_SIZE }}>
+              <span style={{ color: CHART_LEGEND_INK, fontSize: CHART_TEXT_SIZE }}>
                 {value}
               </span>
             )}

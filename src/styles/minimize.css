@@ -29,7 +29,7 @@
 
 .deck__tray-label {
   flex: none;
-  font-size: var(--kd-font-micro);
+  font-size: var(--kd-font-small);
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--kd-text-4);
@@ -198,7 +198,7 @@
   justify-content: space-between;
   padding: 2px 4px 7px;
   color: var(--kd-text-3);
-  font-size: var(--kd-font-micro);
+  font-size: var(--kd-font-small);
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -254,7 +254,7 @@
    palette (status.css) under the same four tone names. */
 .minimized-tooltip__status {
   margin-top: 4px;
-  font-size: var(--kd-font-caption);
+  font-size: var(--kd-font-small);
   line-height: 1.35;
   overflow-wrap: anywhere;
 }
@@ -278,7 +278,7 @@
   gap: 6px;
   margin-top: 4px;
   color: var(--kd-text-3);
-  font-size: var(--kd-font-caption);
+  font-size: var(--kd-font-small);
   line-height: 1.35;
   overflow-wrap: anywhere;
 }
@@ -298,5 +298,5 @@
    own title this tooltip suppresses, so the state is spelled out here. */
 .minimized-tooltip__stopped {
   color: var(--kd-text-3);
-  font-size: var(--kd-font-caption);
+  font-size: var(--kd-font-small);
 }

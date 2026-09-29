@@ -129,7 +129,7 @@
 }
 
 .kd-menu__refusal {
-  font-size: var(--kd-font-caption);
+  font-size: var(--kd-font-small);
   line-height: 1.35;
   color: var(--kd-text-3);
   max-width: 34ch;

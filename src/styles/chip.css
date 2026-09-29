@@ -46,7 +46,7 @@
   background-color: rgba(255, 255, 255, 0.035);
   color: var(--kd-text);
   font: inherit;
-  font-size: var(--kd-font-caption);
+  font-size: var(--kd-font-small);
   font-weight: 500;
   white-space: nowrap;
   min-width: 0;

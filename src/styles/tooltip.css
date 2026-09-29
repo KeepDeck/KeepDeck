@@ -19,7 +19,7 @@
   background: var(--kd-tile);
   box-shadow: var(--kd-shadow-float);
   color: var(--kd-text-2);
-  font-size: var(--kd-font-caption);
+  font-size: var(--kd-font-small);
   line-height: 1.5;
   white-space: nowrap;
   max-width: min(320px, calc(100vw - 16px));

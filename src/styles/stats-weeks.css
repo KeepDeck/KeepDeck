@@ -131,7 +131,7 @@
   gap: 14px;
   padding-top: 8px;
   color: var(--kd-text-4);
-  font-size: var(--kd-font-caption);
+  font-size: var(--kd-font-small);
   font-variant-numeric: tabular-nums;
 }
 
@@ -140,7 +140,7 @@
   border: 0;
   background: none;
   color: var(--kd-working);
-  font-size: var(--kd-font-large);
+  font-size: var(--kd-font-normal);
   line-height: 1;
   cursor: pointer;
 }

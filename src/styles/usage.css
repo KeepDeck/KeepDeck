@@ -32,7 +32,7 @@
   background: transparent;
   border-radius: var(--kd-radius-control);
   color: var(--kd-text-3);
-  font-size: var(--kd-font-caption);
+  font-size: var(--kd-font-small);
   font-variant-numeric: tabular-nums;
 }
 
@@ -89,7 +89,7 @@
 .usage-ring__glyph {
   position: relative;
   display: inline-flex;
-  font-size: var(--kd-font-micro);
+  font-size: var(--kd-font-small);
   color: var(--kd-text-2);
   transform: scaleX(-1);
 }
@@ -176,7 +176,7 @@
   background: transparent;
   color: var(--kd-text-3);
   font: inherit;
-  font-size: var(--kd-font-caption);
+  font-size: var(--kd-font-small);
   cursor: pointer;
   padding: 2px 4px;
   border-radius: var(--kd-radius-mark);
@@ -207,7 +207,7 @@
   background: transparent;
   color: var(--kd-text-3);
   font: inherit;
-  font-size: var(--kd-font-caption);
+  font-size: var(--kd-font-small);
   text-align: left;
   cursor: pointer;
 }
@@ -232,7 +232,7 @@
 
 .usage-panel__ago {
   color: var(--kd-text-3);
-  font-size: var(--kd-font-caption);
+  font-size: var(--kd-font-small);
 }
 
 .usage-window {
@@ -324,7 +324,7 @@
   border: 1px solid;
   border-radius: var(--kd-radius-pop);
   box-shadow: var(--kd-shadow-float);
-  font-size: var(--kd-font-caption);
+  font-size: var(--kd-font-small);
   line-height: 1.4;
   pointer-events: none;
 }
@@ -361,7 +361,7 @@
   border-radius: var(--kd-radius-mark);
   background: var(--kd-bg);
   color: var(--kd-text-4);
-  font-size: var(--kd-font-micro);
+  font-size: var(--kd-font-small);
   line-height: 1;
 }
 
@@ -370,7 +370,7 @@
   justify-content: space-between;
   margin-top: 1px;
   color: var(--kd-text-4);
-  font-size: var(--kd-font-micro);
+  font-size: var(--kd-font-small);
   line-height: 1;
 }
 
@@ -394,7 +394,7 @@
 .usage-window__detail small {
   display: block;
   color: var(--kd-text-3);
-  font-size: var(--kd-font-micro);
+  font-size: var(--kd-font-small);
 }
 
 /* Narrow bar: shed chip detail before the cluster crowds the actions —

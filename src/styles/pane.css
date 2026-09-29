@@ -167,7 +167,7 @@
   flex: none;
   width: 34px;
   text-align: right;
-  font-size: var(--kd-font-caption);
+  font-size: var(--kd-font-small);
   font-variant-numeric: tabular-nums;
   color: var(--kd-text-3);
 }
@@ -342,7 +342,7 @@
 
 .pane__exit-restart-error {
   color: var(--kd-err);
-  font-size: var(--kd-font-caption);
+  font-size: var(--kd-font-small);
 }
 
 /* Every status card a pane shows INSTEAD of its terminal: a worktree being
@@ -385,7 +385,7 @@
    read its absence from this file as dead markup and delete it. */
 .pane__idle-session-id {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: var(--kd-font-caption);
+  font-size: var(--kd-font-small);
 }
 
 .pane__card-action {

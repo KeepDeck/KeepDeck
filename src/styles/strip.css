@@ -86,7 +86,7 @@
 
 .strip__name {
   max-width: 52px;
-  font-size: var(--kd-font-micro);
+  font-size: var(--kd-font-small);
   color: var(--kd-text-4);
   white-space: nowrap;
   overflow: hidden;
@@ -140,7 +140,7 @@
 .strip__foot {
   flex: none;
   max-width: 54px;
-  font-size: var(--kd-font-micro);
+  font-size: var(--kd-font-small);
   color: var(--kd-text-4);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;

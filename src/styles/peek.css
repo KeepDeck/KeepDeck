@@ -108,7 +108,7 @@
 .peek__meta {
   flex: none;
   color: var(--kd-text-3);
-  font-size: var(--kd-font-caption);
+  font-size: var(--kd-font-small);
 }
 
 /* A header action button (consumer-supplied: wrap toggle, open-external). */
@@ -149,7 +149,7 @@
   border-bottom: 1px solid var(--kd-seam);
   color: var(--kd-text-3);
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  font-size: var(--kd-font-caption);
+  font-size: var(--kd-font-small);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

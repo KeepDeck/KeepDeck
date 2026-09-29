@@ -23,7 +23,7 @@
   border-radius: var(--kd-radius-control);
   background-color: var(--kd-err);
   color: var(--kd-text);
-  font-size: var(--kd-font-micro);
+  font-size: var(--kd-font-small);
   line-height: 14px;
   font-weight: 600;
   text-align: center;
@@ -134,7 +134,7 @@
   border: 0;
   background: transparent;
   color: var(--kd-text-3);
-  font-size: var(--kd-font-caption);
+  font-size: var(--kd-font-small);
   cursor: pointer;
   padding: 2px 4px;
   border-radius: var(--kd-radius-mark);
@@ -233,7 +233,7 @@
 }
 
 .bell__body {
-  font-size: var(--kd-font-caption);
+  font-size: var(--kd-font-small);
   color: var(--kd-text-3);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -241,7 +241,7 @@
 }
 
 .bell__age {
-  font-size: var(--kd-font-micro);
+  font-size: var(--kd-font-small);
   line-height: 16px;
   color: var(--kd-text-3);
   font-variant-numeric: tabular-nums;

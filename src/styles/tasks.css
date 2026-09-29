@@ -72,7 +72,7 @@
 
 .tasks__placeholder-title {
   color: var(--kd-text-3);
-  font-size: var(--kd-font-large);
+  font-size: var(--kd-font-normal);
 }
 
 /* The stage: the board, and OVER its right edge — never
@@ -98,7 +98,7 @@
 
 .tasks__detail--wide .tasks__body {
   max-width: 80ch;
-  font-size: var(--kd-font-large);
+  font-size: var(--kd-font-normal);
 }
 
 .tasks__detail--wide .tasks__props {
@@ -158,7 +158,7 @@
   gap: 6px;
   padding: 8px 10px;
   border-bottom: 1px solid var(--kd-seam);
-  font-size: var(--kd-font-caption);
+  font-size: var(--kd-font-small);
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -318,24 +318,24 @@
   align-items: baseline;
   gap: 8px;
   color: var(--kd-text-4);
-  font-size: var(--kd-font-caption);
+  font-size: var(--kd-font-small);
 }
 
 .tasks__card-meta code {
   color: var(--kd-text-3);
-  font-size: var(--kd-font-caption);
+  font-size: var(--kd-font-small);
 }
 
 .tasks__mark {
   color: var(--status-waiting);
-  font-size: var(--kd-font-micro);
+  font-size: var(--kd-font-small);
   font-weight: 700;
   letter-spacing: 0.06em;
 }
 
 .tasks__card-blocked {
   color: var(--status-failed);
-  font-size: var(--kd-font-caption);
+  font-size: var(--kd-font-small);
 }
 /* The drawer: one task whole, over the board's right edge, scrolling on
    its own. The board stays interactive beside it — a card can still be
@@ -374,7 +374,7 @@
 .tasks__detail-title {
   margin: 0;
   color: var(--kd-text);
-  font-size: var(--kd-font-large);
+  font-size: var(--kd-font-normal);
   font-weight: 600;
 }
 
@@ -384,13 +384,13 @@
 
 .tasks__detail-meta code {
   color: var(--kd-text-3);
-  font-size: var(--kd-font-caption);
+  font-size: var(--kd-font-small);
 }
 
 .tasks__section {
   margin-top: 10px;
   color: var(--kd-text-4);
-  font-size: var(--kd-font-micro);
+  font-size: var(--kd-font-small);
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -520,7 +520,7 @@
   border-radius: var(--kd-radius-mark);
   background: transparent;
   color: var(--kd-text-4);
-  font-size: var(--kd-font-large);
+  font-size: var(--kd-font-normal);
   line-height: 1;
   cursor: pointer;
 }
@@ -540,7 +540,7 @@
 
 .tasks__comment-who {
   color: var(--kd-text-4);
-  font-size: var(--kd-font-caption);
+  font-size: var(--kd-font-small);
 }
 
 .tasks__comment-body {
@@ -567,7 +567,7 @@
   display: flex;
   flex-direction: column;
   gap: 3px;
-  font-size: var(--kd-font-caption);
+  font-size: var(--kd-font-small);
 }
 
 .tasks__log-who {
@@ -613,7 +613,7 @@
 
 .tasks__compose .form__input {
   padding: 10px 12px;
-  font-size: var(--kd-font-large);
+  font-size: var(--kd-font-normal);
 }
 
 .tasks__compose .tasks__composer {

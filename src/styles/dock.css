@@ -104,7 +104,7 @@
   border-radius: 50%;
   background-color: var(--kd-err);
   color: var(--kd-text);
-  font-size: var(--kd-font-micro);
+  font-size: var(--kd-font-small);
   font-weight: 700;
   line-height: 1;
   vertical-align: 1px;
@@ -144,7 +144,7 @@
   background-color: var(--kd-canvas);
   color: var(--kd-text-3);
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  font-size: var(--kd-font-caption);
+  font-size: var(--kd-font-small);
   line-height: 1.5;
   white-space: pre-wrap;
   overflow-wrap: anywhere;

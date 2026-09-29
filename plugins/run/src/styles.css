@@ -147,7 +147,7 @@
 
 .run__empty-sub code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: var(--kd-font-caption);
+  font-size: var(--kd-font-small);
   color: var(--kd-text-3);
 }
 
@@ -195,7 +195,7 @@
 
 .run__cmd--child .run__cmd-name {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: var(--kd-font-caption);
+  font-size: var(--kd-font-small);
   color: var(--kd-text-3);
 }
 
@@ -210,7 +210,7 @@
 .run__cmd-meta {
   flex: none;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: var(--kd-font-caption);
+  font-size: var(--kd-font-small);
   color: var(--kd-text-3);
   font-variant-numeric: tabular-nums;
 }
@@ -354,7 +354,7 @@
   border-bottom: 1px solid var(--kd-seam);
   background-color: var(--kd-tile);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: var(--kd-font-caption);
+  font-size: var(--kd-font-small);
   color: var(--kd-text-3);
   white-space: nowrap;
   overflow: hidden;

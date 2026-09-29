@@ -112,7 +112,7 @@
   /* Crowded meta wraps WHOLE to the next line — it never disappears
    * and is never cut; there is no track to clip it in. */
   min-width: 0;
-  font-size: var(--kd-font-caption);
+  font-size: var(--kd-font-small);
   color: var(--kd-text-3);
 }
 
@@ -241,13 +241,13 @@
 
 .browser__scanning,
 .browser__searching {
-  font-size: var(--kd-font-caption);
+  font-size: var(--kd-font-small);
   color: var(--kd-text-3);
 }
 
 /* "shown X of N" — the paging denominator, never a cap. */
 .browser__count {
-  font-size: var(--kd-font-caption);
+  font-size: var(--kd-font-small);
   color: var(--kd-text-3);
   font-variant-numeric: tabular-nums;
 }
@@ -336,7 +336,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--kd-font-caption);
+  font-size: var(--kd-font-small);
   color: var(--kd-text-3);
 }
 
@@ -353,7 +353,7 @@
 .browser__verdict {
   padding: 6px 12px;
   color: var(--kd-warn);
-  font-size: var(--kd-font-caption);
+  font-size: var(--kd-font-small);
 }
 
 /* The closing verdict sits under the last turn and reads as the end of the
