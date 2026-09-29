@@ -33,7 +33,7 @@
   width: 26px;
   height: 26px;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--kd-radius-mark);
   background: transparent;
   color: var(--kd-text-3);
   cursor: pointer;
@@ -65,9 +65,9 @@
   align-items: center;
   gap: 5px;
   padding: 3px 8px 3px 0;
-  border-radius: 5px;
+  border-radius: var(--kd-radius-control);
   color: var(--kd-text-2);
-  font-size: 12.5px;
+  font-size: var(--kd-font-small);
   line-height: 1.4;
   cursor: pointer;
   white-space: nowrap;
@@ -115,7 +115,7 @@
   margin-left: auto;
   padding-left: 6px;
   color: var(--kd-text-3);
-  font-size: 11px;
+  font-size: var(--kd-font-caption);
 }
 
 .files__hint--bad {
@@ -128,7 +128,7 @@
 
 .files__empty-sub {
   color: var(--kd-text-3);
-  font-size: 12px;
+  font-size: var(--kd-font-small);
 }
 
 /* The preview's shell (backdrop, header, body) is the shared .peek
@@ -138,7 +138,7 @@
   width: max-content;
   min-width: 100%;
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  font-size: 12px;
+  font-size: var(--kd-font-small);
   line-height: 1.5;
   padding: 8px 0;
 }

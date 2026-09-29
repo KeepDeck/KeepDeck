@@ -35,7 +35,7 @@
   height: 8px;
   margin-left: 4px;
   border: 1px dashed var(--kd-seam);
-  border-radius: 2px;
+  border-radius: var(--kd-radius-mark);
   /* Hatching, not a fill: an empty tint would read as a fourth provider. */
   background: repeating-linear-gradient(
     -45deg,
@@ -69,7 +69,7 @@
   align-self: center;
   justify-self: center;
   color: var(--kd-text-4);
-  font-size: 12px;
+  font-size: var(--kd-font-small);
   white-space: nowrap;
 }
 
@@ -94,7 +94,7 @@
 
 .stats__week-bar i {
   min-width: 2px;
-  border-radius: 2px;
+  border-radius: var(--kd-radius-mark);
 }
 
 .stats__week-delta {
@@ -131,7 +131,7 @@
   gap: 14px;
   padding-top: 8px;
   color: var(--kd-text-4);
-  font-size: 11px;
+  font-size: var(--kd-font-caption);
   font-variant-numeric: tabular-nums;
 }
 
@@ -140,7 +140,7 @@
   border: 0;
   background: none;
   color: var(--kd-working);
-  font-size: 14px;
+  font-size: var(--kd-font-large);
   line-height: 1;
   cursor: pointer;
 }
@@ -168,7 +168,7 @@
   width: 8px;
   height: 8px;
   margin-right: 6px;
-  border-radius: 2px;
+  border-radius: var(--kd-radius-mark);
   vertical-align: -1px;
 }
 

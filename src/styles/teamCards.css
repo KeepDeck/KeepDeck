@@ -101,12 +101,12 @@
 .team-card__open:focus-visible {
   outline: 2px solid var(--kd-ok);
   outline-offset: 2px;
-  border-radius: 3px;
+  border-radius: var(--kd-radius-mark);
 }
 
 .team-card__name {
   display: block;
-  font-size: 14px;
+  font-size: var(--kd-font-large);
   font-weight: 600;
   color: var(--kd-text);
   overflow: hidden;
@@ -120,11 +120,11 @@
   min-width: 0;
   padding: 1px 4px;
   border: 1px solid var(--kd-seam-strong);
-  border-radius: 4px;
+  border-radius: var(--kd-radius-mark);
   background-color: var(--kd-canvas);
   color: var(--kd-text-2);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--kd-font-normal);
   outline: none;
 }
 
@@ -139,7 +139,7 @@
   flex-wrap: wrap;
   gap: 8px;
   min-width: 0;
-  font-size: 12px;
+  font-size: var(--kd-font-small);
   color: var(--kd-text-3);
 }
 
@@ -153,7 +153,7 @@
 
 .team-card__dir {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
+  font-size: var(--kd-font-caption);
   color: var(--kd-text-3);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -163,7 +163,7 @@
 /* The card's line about its board — what is open, what waits on a person.
    Dimmer than the meta above it: a count, not a control. */
 .team-card__tasks {
-  font-size: 12px;
+  font-size: var(--kd-font-small);
   color: var(--kd-text-3);
   font-variant-numeric: tabular-nums;
 }

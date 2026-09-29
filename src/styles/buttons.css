@@ -6,7 +6,7 @@
   background-color: var(--kd-err-fill);
   color: var(--kd-err-strong);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--kd-font-normal);
   font-weight: 500;
   cursor: pointer;
 }

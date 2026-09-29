@@ -20,10 +20,10 @@
   min-width: 14px;
   height: 14px;
   padding: 0 3px;
-  border-radius: 7px;
+  border-radius: var(--kd-radius-control);
   background-color: var(--kd-err);
   color: var(--kd-text);
-  font-size: 9px;
+  font-size: var(--kd-font-micro);
   line-height: 14px;
   font-weight: 600;
   text-align: center;
@@ -38,7 +38,7 @@
   gap: 6px;
   padding: 0 9px;
   border-radius: 999px;
-  font-size: 12px;
+  font-size: var(--kd-font-small);
   font-weight: 500;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -119,7 +119,7 @@
 }
 
 .bell__title {
-  font-size: 12px;
+  font-size: var(--kd-font-small);
   font-weight: 600;
   color: var(--kd-text-2);
 }
@@ -134,10 +134,10 @@
   border: 0;
   background: transparent;
   color: var(--kd-text-3);
-  font-size: 11px;
+  font-size: var(--kd-font-caption);
   cursor: pointer;
   padding: 2px 4px;
-  border-radius: 4px;
+  border-radius: var(--kd-radius-mark);
 }
 
 .bell__action:hover {
@@ -149,7 +149,7 @@
   padding: 24px 12px;
   text-align: center;
   color: var(--kd-text-3);
-  font-size: 12px;
+  font-size: var(--kd-font-small);
 }
 
 .bell__list {
@@ -167,7 +167,7 @@
   width: 100%;
   padding: 8px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--kd-radius-control);
   background: transparent;
   color: var(--kd-text-3);
   text-align: left;
@@ -198,7 +198,7 @@
 /* Routine info needs no ornament. Exceptional severity and achievement emoji
    share one slot, centered on the title line rather than the whole row. */
 .bell__icon {
-  font-size: 13px;
+  font-size: var(--kd-font-normal);
   line-height: 1;
 }
 
@@ -221,7 +221,7 @@
 }
 
 .bell__item-title {
-  font-size: 12px;
+  font-size: var(--kd-font-small);
   line-height: 16px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -233,7 +233,7 @@
 }
 
 .bell__body {
-  font-size: 11px;
+  font-size: var(--kd-font-caption);
   color: var(--kd-text-3);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -241,7 +241,7 @@
 }
 
 .bell__age {
-  font-size: 10px;
+  font-size: var(--kd-font-micro);
   line-height: 16px;
   color: var(--kd-text-3);
   font-variant-numeric: tabular-nums;

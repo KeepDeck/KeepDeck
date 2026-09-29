@@ -89,12 +89,12 @@
   display: inline-flex;
   align-items: center;
   flex: 0 0 auto;
-  font-size: 12px;
+  font-size: var(--kd-font-small);
   color: var(--kd-text-3);
 }
 
 .pane__title {
-  font-size: 13px;
+  font-size: var(--kd-font-normal);
   font-weight: 500;
   color: var(--kd-text);
   overflow: hidden;
@@ -110,11 +110,11 @@
   min-width: 0;
   padding: 1px 4px;
   border: 1px solid var(--kd-seam-strong);
-  border-radius: 4px;
+  border-radius: var(--kd-radius-mark);
   background-color: var(--kd-tile);
   color: var(--kd-text-2);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--kd-font-small);
   outline: none;
 }
 
@@ -127,7 +127,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: var(--kd-font-small);
   color: var(--kd-text-4);
 }
 
@@ -152,7 +152,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: var(--kd-font-small);
   font-weight: 500;
 }
 
@@ -167,7 +167,7 @@
   flex: none;
   width: 34px;
   text-align: right;
-  font-size: 11.5px;
+  font-size: var(--kd-font-caption);
   font-variant-numeric: tabular-nums;
   color: var(--kd-text-3);
 }
@@ -225,7 +225,7 @@
   width: 23px;
   height: 23px;
   padding: 0;
-  border-radius: 4px;
+  border-radius: var(--kd-radius-mark);
   cursor: pointer;
 }
 
@@ -265,14 +265,14 @@
 }
 
 .pane__exit-title {
-  font-size: 13px;
+  font-size: var(--kd-font-normal);
   font-weight: 600;
   letter-spacing: 0.04em;
   color: var(--kd-text-3);
 }
 
 .pane__exit-sub {
-  font-size: 12px;
+  font-size: var(--kd-font-small);
   color: var(--kd-text-3);
   font-variant-numeric: tabular-nums;
 }
@@ -304,9 +304,9 @@
 
 .pane__exit-action {
   pointer-events: auto;
-  border-radius: 6px;
+  border-radius: var(--kd-radius-control);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--kd-font-small);
   cursor: pointer;
 }
 
@@ -342,7 +342,7 @@
 
 .pane__exit-restart-error {
   color: var(--kd-err);
-  font-size: 11px;
+  font-size: var(--kd-font-caption);
 }
 
 /* Every status card a pane shows INSTEAD of its terminal: a worktree being
@@ -385,7 +385,7 @@
    read its absence from this file as dead markup and delete it. */
 .pane__idle-session-id {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
+  font-size: var(--kd-font-caption);
 }
 
 .pane__card-action {
@@ -394,9 +394,9 @@
   background-color: var(--kd-tile);
   color: var(--kd-text-2);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--kd-font-small);
   padding: 4px 12px;
-  border-radius: 6px;
+  border-radius: var(--kd-radius-control);
   cursor: pointer;
 }
 

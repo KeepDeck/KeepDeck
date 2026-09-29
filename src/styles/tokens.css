@@ -84,12 +84,24 @@
      parts it from whatever it covers, and a soft wide fall under it. */
   --kd-shadow-float: 0 0 0 1px rgb(0 0 0 / 0.45), 0 16px 44px -12px rgb(0 0 0 / 0.65);
 
-  /* Shape, by what a thing is: a control, a row or a popover, a tile, a
-     dialog or a sheet. */
+  /* Shape, by what a thing is: a small mark (a badge, a meter, a key), a
+     control, a row or a popover, a tile, a dialog or a sheet. Circles
+     (50%) and pills (999px) are shapes, not steps, and stay literal. */
+  --kd-radius-mark: 4px;
   --kd-radius-control: 6px;
   --kd-radius-pop: 8px;
   --kd-radius-tile: 10px;
   --kd-radius-dialog: 12px;
+
+  /* Type sizes: six steps, named by use. The chrome's text is one of
+     these; only a rendered document (the Markdown preview) keeps its own
+     heading scale. */
+  --kd-font-micro: 10px;
+  --kd-font-caption: 11px;
+  --kd-font-small: 12px;
+  --kd-font-normal: 13px;
+  --kd-font-large: 14px;
+  --kd-font-title: 16px;
 
   /* The page background, for opaque colour mixes that must track it. */
   --kd-bg: var(--kd-canvas);

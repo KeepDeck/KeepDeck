@@ -65,6 +65,14 @@ export function ruleBody(
 
 /** A declaration's leading number, e.g. `23px` or `min(180px, 44vw)` → 23/180. */
 export function px(value: string): number {
+  // A token stands for its value: sizes live in tokens.css now, and a
+  // ladder that reads the source must read through them.
+  const token = /^var\((--kd-[\w-]+)\)$/.exec(value.trim());
+  if (token) {
+    const declared = new RegExp(`${token[1]}:\\s*([^;]+);`).exec(readStyles("tokens.css"));
+    if (!declared) throw new Error(`${token[1]} is not declared`);
+    return px(declared[1]);
+  }
   const match = /(\d+(?:\.\d+)?)px/.exec(value);
   if (!match) throw new Error(`no px length in "${value}"`);
   return Number(match[1]);

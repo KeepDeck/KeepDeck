@@ -63,7 +63,7 @@
   border-top: 1px solid var(--kd-seam);
   background-color: var(--kd-float);
   color: var(--kd-text-3);
-  font-size: 11.5px;
+  font-size: var(--kd-font-caption);
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -110,7 +110,7 @@
 .git__ab {
   flex: none;
   color: var(--kd-text-3);
-  font-size: 11px;
+  font-size: var(--kd-font-caption);
   font-weight: 400;
   letter-spacing: 0;
   text-transform: none;
@@ -121,10 +121,10 @@
   margin-left: auto;
   min-width: 18px;
   padding: 1px 6px;
-  border-radius: 9px;
+  border-radius: var(--kd-radius-pop);
   background-color: var(--kd-hover);
   color: var(--kd-text-2);
-  font-size: 11px;
+  font-size: var(--kd-font-caption);
   font-weight: 400;
   letter-spacing: 0;
   text-align: center;
@@ -191,12 +191,12 @@
 
 .git__rootbranch {
   color: var(--kd-text-3);
-  font-size: 11px;
+  font-size: var(--kd-font-caption);
 }
 
 .git__rootfolder {
   color: var(--kd-text-3);
-  font-size: 10.5px;
+  font-size: var(--kd-font-micro);
 }
 
 /* The closed control shows the branch alone — the folder line belongs to
@@ -217,20 +217,20 @@
 .git__sha {
   flex: none;
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  font-size: 11px;
+  font-size: var(--kd-font-caption);
   color: var(--kd-text-3);
 }
 
 .git__when {
   flex: none;
-  font-size: 11px;
+  font-size: var(--kd-font-caption);
   color: var(--kd-text-3);
 }
 
 /* The pinned "Since fork" summary — set apart from the commits below it. */
 .git__row--pin {
   border-bottom: 1px solid var(--kd-seam);
-  border-radius: 5px 5px 0 0;
+  border-radius: var(--kd-radius-control) var(--kd-radius-control) 0 0;
   margin-bottom: 4px;
 }
 
@@ -241,7 +241,7 @@
   gap: 8px;
   padding: 4px 2px;
   color: var(--kd-ok);
-  font-size: 10px;
+  font-size: var(--kd-font-micro);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -260,10 +260,10 @@
   display: block;
   width: 100%;
   border: 0;
-  border-radius: 5px;
+  border-radius: var(--kd-radius-control);
   background: transparent;
   color: var(--kd-text-3);
-  font-size: 11.5px;
+  font-size: var(--kd-font-caption);
   padding: 6px 8px;
   text-align: center;
   cursor: pointer;
@@ -289,7 +289,7 @@
   gap: 6px;
   padding: 4px 2px;
   color: var(--kd-text-3);
-  font-size: 11px;
+  font-size: var(--kd-font-caption);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -308,10 +308,10 @@
   width: 100%;
   padding: 3px 8px 3px 2px;
   border: 0;
-  border-radius: 5px;
+  border-radius: var(--kd-radius-control);
   background: transparent;
   color: var(--kd-text-2);
-  font-size: 12.5px;
+  font-size: var(--kd-font-small);
   line-height: 1.4;
   text-align: left;
   cursor: pointer;
@@ -330,7 +330,7 @@
   flex: none;
   min-width: 14px;
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  font-size: 11.5px;
+  font-size: var(--kd-font-caption);
   font-weight: 700;
   text-align: center;
 }
@@ -375,7 +375,7 @@
 .git__empty {
   padding: 16px 8px;
   color: var(--kd-text-3);
-  font-size: 12px;
+  font-size: var(--kd-font-small);
 }
 
 .git__empty--bad {
@@ -403,7 +403,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--kd-text-2);
-  font-size: 12px;
+  font-size: var(--kd-font-small);
   font-weight: 600;
 }
 
@@ -411,7 +411,7 @@
   flex: none;
   margin-left: auto;
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  font-size: 11px;
+  font-size: var(--kd-font-caption);
   color: var(--kd-text-3);
 }
 
@@ -424,10 +424,10 @@
 .git__badge {
   flex: none;
   padding: 1px 7px;
-  border-radius: 9px;
+  border-radius: var(--kd-radius-pop);
   background-color: var(--kd-hover);
   color: var(--kd-text-3);
-  font-size: 11px;
+  font-size: var(--kd-font-caption);
 }
 
 .git__badge--staged {
@@ -445,7 +445,7 @@
   width: max-content;
   min-width: 100%;
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  font-size: 12px;
+  font-size: var(--kd-font-small);
   line-height: 1.5;
   padding: 8px 0;
 }
@@ -454,7 +454,7 @@
   padding: 6px 12px;
   color: var(--kd-info);
   background-color: var(--kd-hover);
-  font-size: 11px;
+  font-size: var(--kd-font-caption);
 }
 
 .git__diffrow {

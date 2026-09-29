@@ -60,7 +60,7 @@
   gap: 4px;
   padding: 10px 12px;
   border: 1px solid var(--kd-seam);
-  border-radius: 10px;
+  border-radius: var(--kd-radius-tile);
   background: var(--kd-bg);
   /* A badge is not text — it keeps the arrow cursor and swallows selection,
      which is already what the whole document does (base.css). Nothing to
@@ -176,7 +176,7 @@
 
 .stats__achievement-rim::after {
   inset: 1.5px;
-  border-radius: 8.5px;
+  border-radius: var(--kd-radius-pop);
   background: var(--kd-bg);
 }
 
@@ -343,13 +343,13 @@
   gap: 3px;
   max-width: 240px;
   color: var(--kd-text-3);
-  font-size: 11px;
+  font-size: var(--kd-font-caption);
   white-space: normal;
 }
 
 .stats__achievement-tip b {
   color: var(--kd-text-2);
-  font-size: 12px;
+  font-size: var(--kd-font-small);
 }
 
 .stats__achievement-tip-icon {
@@ -364,19 +364,19 @@
 }
 
 .stats__achievement-icon {
-  font-size: 18px;
+  font-size: var(--kd-font-title);
   line-height: 1.2;
 }
 
 .stats__achievement b {
   color: var(--kd-text-2);
-  font-size: 12px;
+  font-size: var(--kd-font-small);
   font-weight: 600;
 }
 
 .stats__achievement small {
   color: var(--kd-text-4);
-  font-size: 10px;
+  font-size: var(--kd-font-micro);
 }
 
 .stats__achievement-earned {
@@ -408,7 +408,7 @@
   display: block;
   height: 3px;
   margin-top: 2px;
-  border-radius: 2px;
+  border-radius: var(--kd-radius-mark);
   background: var(--kd-seam);
   overflow: hidden;
 }
@@ -416,6 +416,6 @@
 .stats__achievement-progress i {
   position: absolute;
   inset: 0 auto 0 0;
-  border-radius: 2px;
+  border-radius: var(--kd-radius-mark);
   background: var(--kd-ok);
 }

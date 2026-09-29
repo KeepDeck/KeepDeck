@@ -51,7 +51,7 @@
   padding: 4px 0;
   flex: none;
   border: 0;
-  border-radius: 9px;
+  border-radius: var(--kd-radius-pop);
   background: transparent;
   color: inherit;
   font: inherit;
@@ -64,10 +64,10 @@
   height: 34px;
   display: grid;
   place-items: center;
-  border-radius: 9px;
+  border-radius: var(--kd-radius-pop);
   background-color: var(--kd-hover);
   color: var(--kd-text-2);
-  font-size: 12.5px;
+  font-size: var(--kd-font-small);
   font-weight: 600;
   transition: background-color 120ms ease-out, color 120ms ease-out;
 }
@@ -86,7 +86,7 @@
 
 .strip__name {
   max-width: 52px;
-  font-size: 10px;
+  font-size: var(--kd-font-micro);
   color: var(--kd-text-4);
   white-space: nowrap;
   overflow: hidden;
@@ -140,7 +140,7 @@
 .strip__foot {
   flex: none;
   max-width: 54px;
-  font-size: 9.5px;
+  font-size: var(--kd-font-micro);
   color: var(--kd-text-4);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;

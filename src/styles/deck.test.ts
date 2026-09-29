@@ -73,7 +73,7 @@ describe("the breadcrumb", () => {
       padding: "2px 4px",
       margin: "0 0 0 -4px",
       border: "0",
-      "font-size": "13px",
+      "font-size": "var(--kd-font-normal)",
       "line-height": "18px",
     });
     expect(base.height).toBeUndefined();

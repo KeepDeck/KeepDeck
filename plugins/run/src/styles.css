@@ -43,11 +43,11 @@
   flex: none;
   padding: 0 14px;
   border: 1px solid var(--kd-seam-strong);
-  border-radius: 8px;
+  border-radius: var(--kd-radius-pop);
   background: transparent;
   color: var(--kd-text-3);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--kd-font-small);
   cursor: pointer;
 }
 
@@ -76,10 +76,10 @@
   align-items: center;
   justify-content: center;
   border: 0;
-  border-radius: 5px;
+  border-radius: var(--kd-radius-control);
   background: transparent;
   color: var(--kd-text-3);
-  font-size: 16px;
+  font-size: var(--kd-font-title);
   line-height: 1;
   cursor: pointer;
 }
@@ -100,7 +100,7 @@
 /* Multi-line: a command can be a small script. */
 .run__command {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px;
+  font-size: var(--kd-font-small);
   resize: vertical;
   min-height: 60px;
 }
@@ -132,14 +132,14 @@
 }
 
 .run__empty-title {
-  font-size: 13px;
+  font-size: var(--kd-font-normal);
   font-weight: 600;
   letter-spacing: 0.04em;
   color: var(--kd-text-3);
 }
 
 .run__empty-sub {
-  font-size: 12px;
+  font-size: var(--kd-font-small);
   color: var(--kd-text-3);
   max-width: 30ch;
   line-height: 1.5;
@@ -147,7 +147,7 @@
 
 .run__empty-sub code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
+  font-size: var(--kd-font-caption);
   color: var(--kd-text-3);
 }
 
@@ -175,8 +175,8 @@
      and without this the row grew by the difference on every mouse-over. */
   min-height: 30px;
   padding: 0 8px;
-  border-radius: 6px;
-  font-size: 13px;
+  border-radius: var(--kd-radius-control);
+  font-size: var(--kd-font-normal);
   color: var(--kd-text-2);
 }
 
@@ -195,7 +195,7 @@
 
 .run__cmd--child .run__cmd-name {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
+  font-size: var(--kd-font-caption);
   color: var(--kd-text-3);
 }
 
@@ -210,7 +210,7 @@
 .run__cmd-meta {
   flex: none;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
+  font-size: var(--kd-font-caption);
   color: var(--kd-text-3);
   font-variant-numeric: tabular-nums;
 }
@@ -245,7 +245,7 @@
   align-items: center;
   justify-content: center;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--kd-radius-mark);
   background: transparent;
   color: var(--kd-text-3);
   padding: 0;
@@ -282,7 +282,7 @@
   width: 16px;
   height: 16px;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--kd-radius-mark);
   background: transparent;
   color: var(--kd-text-2);
   padding: 0;
@@ -344,7 +344,7 @@
   flex-direction: column;
   overflow: hidden;
   border: 1px solid var(--kd-seam);
-  border-radius: 6px;
+  border-radius: var(--kd-radius-control);
   background-color: var(--kd-canvas);
 }
 
@@ -354,7 +354,7 @@
   border-bottom: 1px solid var(--kd-seam);
   background-color: var(--kd-tile);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
+  font-size: var(--kd-font-caption);
   color: var(--kd-text-3);
   white-space: nowrap;
   overflow: hidden;
@@ -411,7 +411,7 @@
   align-items: center;
   justify-content: center;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--kd-radius-mark);
   background: transparent;
   color: var(--kd-text-3);
   padding: 0;

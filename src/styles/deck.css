@@ -93,7 +93,7 @@
   border-radius: var(--kd-radius-control);
   background: transparent;
   font: inherit;
-  font-size: 13px;
+  font-size: var(--kd-font-normal);
   line-height: 18px;
   color: var(--kd-text-2);
   max-width: 200px;
@@ -133,7 +133,7 @@ button.deck__ws-name--up:hover {
   background-color: var(--kd-tile);
   color: var(--kd-text);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--kd-font-normal);
   outline: none;
 }
 
@@ -144,7 +144,7 @@ button.deck__ws-name--up:hover {
 /* The team's crumb is the brightest word on the bar: it is what the stage
    is showing. */
 .deck__team-name {
-  font-size: 13px;
+  font-size: var(--kd-font-normal);
   font-weight: 600;
   color: var(--kd-text);
   max-width: 240px;
@@ -208,9 +208,9 @@ button.deck__ws-name--up:hover {
   background-color: var(--kd-tile);
   color: var(--kd-text-2);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--kd-font-small);
   padding: 3px 10px;
-  border-radius: 6px;
+  border-radius: var(--kd-radius-control);
   cursor: pointer;
 }
 
@@ -226,7 +226,7 @@ button.deck__ws-name--up:hover {
 
 
 .deck__status {
-  font-size: 12px;
+  font-size: var(--kd-font-small);
   color: var(--kd-text-3);
   font-variant-numeric: tabular-nums;
 }
@@ -328,12 +328,12 @@ button.deck__ws-name--up:hover {
   background-color: var(--kd-canvas);
 }
 .deck__grid-empty-title {
-  font-size: 13px;
+  font-size: var(--kd-font-normal);
   font-weight: 600;
   letter-spacing: 0.03em;
   color: var(--kd-text-3);
 }
 .deck__grid-empty-sub {
-  font-size: 12px;
+  font-size: var(--kd-font-small);
   color: var(--kd-text-3);
 }

@@ -30,7 +30,7 @@
 
 .terminal-pane__launching-label {
   color: var(--kd-text-3);
-  font-size: 13px;
+  font-size: var(--kd-font-normal);
 }
 
 /* The seconds tick, so they get tabular figures — otherwise the label jitters
@@ -47,17 +47,17 @@
 .terminal-pane__launching-slow {
   margin-top: 8px;
   color: var(--kd-text-3);
-  font-size: 11.5px;
+  font-size: var(--kd-font-caption);
 }
 
 .terminal-pane__launching-fork {
   margin-top: 11px;
   padding: 4px 13px;
   border: 1px solid var(--kd-working-line);
-  border-radius: 6px;
+  border-radius: var(--kd-radius-control);
   background-color: var(--kd-working-tint);
   color: var(--kd-text);
-  font-size: 12px;
+  font-size: var(--kd-font-small);
   cursor: pointer;
 }
 
@@ -78,10 +78,10 @@
   white-space: nowrap;
   padding: 7px 14px;
   border: 1px solid var(--kd-seam);
-  border-radius: 6px;
+  border-radius: var(--kd-radius-control);
   background-color: var(--kd-tile);
   color: var(--kd-text-2);
-  font-size: 13px;
+  font-size: var(--kd-font-normal);
   pointer-events: none;
   animation: hint-fade-in 120ms ease-out;
 }

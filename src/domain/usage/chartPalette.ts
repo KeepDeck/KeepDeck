@@ -53,6 +53,10 @@ export const CHART_GRID = "#1b1b1f";
 export const CHART_AXIS = "#2a2a2f";
 export const CHART_TICK_INK = "#55555c";
 export const CHART_LEGEND_INK = "#7e7e87";
+/** The chart's text sizes, in px: the tick labels are the chrome's micro
+ * step, the legend its caption step (tokens.css). */
+export const CHART_TICK_SIZE = 10;
+export const CHART_LEGEND_SIZE = 11;
 export const CHART_ITEM_INK = "#a6a6ae";
 export const CHART_LABEL_INK = "#55555c";
 export const CHART_TOOLTIP_BG = "#161618";

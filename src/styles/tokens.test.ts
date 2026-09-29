@@ -243,4 +243,41 @@ describe("the design tokens", () => {
     );
     expect(missing).toEqual([]);
   });
+
+  it("set every size in the chrome from the type scale, and draw the chart's text on it", () => {
+    // Six steps, named by use. A rendered Markdown document keeps its own
+    // heading scale; nothing else may bring a size of its own.
+    const steps = Object.fromEntries(
+      ["micro", "caption", "small", "normal", "large", "title"].map((n) => [n, declared(tokens, `--kd-font-${n}`)]),
+    );
+    expect(steps).toEqual({
+      micro: "10px",
+      caption: "11px",
+      small: "12px",
+      normal: "13px",
+      large: "14px",
+      title: "16px",
+    });
+    const literal = allSheets()
+      .filter(([file]) => !file.endsWith("markdown.css"))
+      .flatMap(([file, css]) =>
+        [...css.matchAll(/font-size:\s*([^;]+);/g)]
+          .map(([, v]) => v.trim())
+          .filter((v) => !/^var\(--kd-font-(micro|caption|small|normal|large|title)\)$/.test(v))
+          .map((v) => `${file}: ${v}`),
+      );
+    expect(literal).toEqual([]);
+    expect(`${chart.CHART_TICK_SIZE}px`).toBe(steps.micro);
+    expect(`${chart.CHART_LEGEND_SIZE}px`).toBe(steps.caption);
+  });
+
+  it("round everything from a radius step — circles and pills aside", () => {
+    const literal = allSheets().flatMap(([file, css]) =>
+      [...css.matchAll(/border-radius:\s*([^;]+);/g)]
+        .flatMap(([, v]) => v.trim().split(/\s+(?![^(]*\))/))
+        .filter((v) => !/^(var\(--kd-radius-(mark|control|pop|tile|dialog)\)|50%|999px|0|inherit)$/.test(v))
+        .map((v) => `${file}: ${v}`),
+    );
+    expect(literal).toEqual([]);
+  });
 });

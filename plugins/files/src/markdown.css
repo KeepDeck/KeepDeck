@@ -111,7 +111,7 @@
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   font-size: 12px;
   background-color: var(--kd-hover);
-  border-radius: 4px;
+  border-radius: var(--kd-radius-mark);
   padding: 1px 5px;
 }
 
@@ -122,7 +122,7 @@
   padding: 10px 14px;
   background-color: var(--kd-tile);
   border: 1px solid var(--kd-seam);
-  border-radius: 8px;
+  border-radius: var(--kd-radius-pop);
   overflow-x: auto;
   line-height: 1.5;
 }

@@ -3,7 +3,7 @@
   flex-direction: column;
   gap: 10px;
   color: var(--kd-text-2);
-  font-size: 12px;
+  font-size: var(--kd-font-small);
 }
 
 .kimi-setup__status {
@@ -11,7 +11,7 @@
   align-items: center;
   gap: 9px;
   border: 1px solid var(--kd-warn-line);
-  border-radius: 5px;
+  border-radius: var(--kd-radius-control);
   background: var(--kd-warn-tint);
   padding: 9px 10px;
 }
@@ -97,7 +97,7 @@
 
 .kimi-setup__button {
   border: 1px solid var(--kd-ok-line);
-  border-radius: 4px;
+  border-radius: var(--kd-radius-mark);
   background: var(--kd-ok-tint);
   color: var(--kd-ok-strong);
   padding: 5px 12px;

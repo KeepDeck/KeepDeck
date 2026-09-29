@@ -27,10 +27,10 @@
   margin-bottom: 10px;
   padding: 8px 12px;
   border: 1px solid var(--kd-seam);
-  border-radius: 8px;
+  border-radius: var(--kd-radius-pop);
   background-color: var(--kd-tile);
   color: var(--kd-text);
-  font-size: 13px;
+  font-size: var(--kd-font-normal);
 }
 
 .artifacts__search:focus {
@@ -41,7 +41,7 @@
 .artifacts__hint {
   margin: 0 0 16px;
   color: var(--kd-text-3);
-  font-size: 12px;
+  font-size: var(--kd-font-small);
   line-height: 1.5;
 }
 
@@ -49,10 +49,10 @@
   margin: 0 0 12px;
   padding: 8px 10px;
   border: 1px solid var(--kd-err-line);
-  border-radius: 6px;
+  border-radius: var(--kd-radius-control);
   background-color: var(--kd-err-tint);
   color: var(--kd-err-strong);
-  font-size: 12px;
+  font-size: var(--kd-font-small);
 }
 
 /* Reserves NOTHING: a list is as tall as it has rows, and one artifact
@@ -81,13 +81,13 @@
   min-height: 120px;
   padding: 24px 0;
   color: var(--kd-text-4);
-  font-size: 13px;
+  font-size: var(--kd-font-normal);
   text-align: center;
 }
 
 .artifacts__placeholder-title {
   color: var(--kd-text-3);
-  font-size: 14px;
+  font-size: var(--kd-font-large);
 }
 
 /* The window's spacer: its height is every row's measured sum and the
@@ -116,7 +116,7 @@
   align-items: center;
   gap: 8px;
   padding-right: 10px;
-  border-radius: 8px;
+  border-radius: var(--kd-radius-pop);
 }
 
 .artifacts__row:hover {
@@ -135,7 +135,7 @@
   min-width: 0;
   padding: 10px 2px 10px 12px;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--kd-radius-pop);
   background: none;
   font: inherit;
   text-align: left;
@@ -158,7 +158,7 @@
    one line cut most of them to the same opening words. */
 .artifacts__row-title {
   color: var(--kd-text-2);
-  font-size: 14px;
+  font-size: var(--kd-font-large);
 }
 
 /* The identity line — the durable half of an artifact, and the half a
@@ -166,14 +166,14 @@
 .artifacts__row-meta {
   overflow: hidden;
   color: var(--kd-text-4);
-  font-size: 12px;
+  font-size: var(--kd-font-small);
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
 .artifacts__row-meta code {
   color: var(--kd-text-3);
-  font-size: 12px;
+  font-size: var(--kd-font-small);
 }
 
 .artifacts__row-actions {
@@ -197,7 +197,7 @@
 
 .artifacts__history-note {
   color: var(--kd-text-4);
-  font-size: 12px;
+  font-size: var(--kd-font-small);
 }
 
 .artifacts__version {
@@ -205,7 +205,7 @@
   gap: 8px;
   align-items: baseline;
   min-width: 0;
-  font-size: 12px;
+  font-size: var(--kd-font-small);
 }
 
 .artifacts__version-n {
@@ -239,10 +239,10 @@
   align-items: center;
   justify-content: center;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--kd-radius-mark);
   background: transparent;
   color: var(--kd-text-4);
-  font-size: 15px;
+  font-size: var(--kd-font-large);
   line-height: 1;
   cursor: pointer;
 }

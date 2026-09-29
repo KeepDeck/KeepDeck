@@ -10,13 +10,13 @@
 
 .confirm__title {
   margin: 0 0 10px;
-  font-size: 16px;
+  font-size: var(--kd-font-title);
   color: var(--kd-text);
 }
 
 .confirm__message {
   margin: 0 0 20px;
-  font-size: 13px;
+  font-size: var(--kd-font-normal);
   line-height: 1.5;
   color: var(--kd-text-3);
   white-space: pre-line;
@@ -42,12 +42,12 @@
   display: flex;
   flex-direction: column;
   gap: 3px;
-  font-size: 13px;
+  font-size: var(--kd-font-normal);
   color: var(--kd-text-2);
 }
 
 .confirm__option-note {
-  font-size: 12px;
+  font-size: var(--kd-font-small);
   color: var(--kd-text-3);
 }
 
@@ -72,7 +72,7 @@
    control — the explanation has to be on screen or it doesn't exist. */
 .confirm__hint {
   margin: -8px 0 16px;
-  font-size: 12px;
+  font-size: var(--kd-font-small);
   line-height: 1.45;
   color: var(--kd-text-3);
 }

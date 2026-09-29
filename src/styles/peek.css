@@ -82,7 +82,7 @@
   width: 24px;
   height: 24px;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--kd-radius-mark);
   background: transparent;
   color: var(--kd-text-3);
   cursor: pointer;
@@ -97,7 +97,7 @@
   flex: 1 1 auto;
   min-width: 0;
   color: var(--kd-text-2);
-  font-size: 12.5px;
+  font-size: var(--kd-font-small);
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -108,7 +108,7 @@
 .peek__meta {
   flex: none;
   color: var(--kd-text-3);
-  font-size: 11px;
+  font-size: var(--kd-font-caption);
 }
 
 /* A header action button (consumer-supplied: wrap toggle, open-external). */
@@ -120,7 +120,7 @@
   width: 24px;
   height: 24px;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--kd-radius-mark);
   background: transparent;
   color: var(--kd-text-3);
   cursor: pointer;
@@ -149,7 +149,7 @@
   border-bottom: 1px solid var(--kd-seam);
   color: var(--kd-text-3);
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  font-size: 11px;
+  font-size: var(--kd-font-caption);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -189,7 +189,7 @@
   margin: 0;
   padding: 8px 12px;
   color: var(--kd-text-3);
-  font-size: 12px;
+  font-size: var(--kd-font-small);
 }
 
 .peek__note--bad {

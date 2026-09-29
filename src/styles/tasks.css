@@ -35,12 +35,12 @@
 .tasks__team .dropdown__button {
   min-width: 0;
   padding: 5px 10px;
-  font-size: 13px;
+  font-size: var(--kd-font-normal);
 }
 
 .tasks__team-name {
   color: var(--kd-text-3);
-  font-size: 13px;
+  font-size: var(--kd-font-normal);
 }
 
 .tasks__new {
@@ -51,10 +51,10 @@
   margin: 0 0 10px;
   padding: 8px 10px;
   border: 1px solid var(--kd-err-line);
-  border-radius: 6px;
+  border-radius: var(--kd-radius-control);
   background-color: var(--kd-err-tint);
   color: var(--kd-err-strong);
-  font-size: 12px;
+  font-size: var(--kd-font-small);
 }
 
 .tasks__placeholder {
@@ -66,13 +66,13 @@
   min-height: 120px;
   padding: 24px 0;
   color: var(--kd-text-4);
-  font-size: 13px;
+  font-size: var(--kd-font-normal);
   text-align: center;
 }
 
 .tasks__placeholder-title {
   color: var(--kd-text-3);
-  font-size: 14px;
+  font-size: var(--kd-font-large);
 }
 
 /* The stage: the board, and OVER its right edge — never
@@ -98,7 +98,7 @@
 
 .tasks__detail--wide .tasks__body {
   max-width: 80ch;
-  font-size: 14px;
+  font-size: var(--kd-font-large);
 }
 
 .tasks__detail--wide .tasks__props {
@@ -148,7 +148,7 @@
   min-width: 0;
   min-height: 0;
   border: 1px solid var(--kd-seam);
-  border-radius: 8px;
+  border-radius: var(--kd-radius-pop);
   background-color: var(--kd-tile);
 }
 
@@ -158,7 +158,7 @@
   gap: 6px;
   padding: 8px 10px;
   border-bottom: 1px solid var(--kd-seam);
-  font-size: 11px;
+  font-size: var(--kd-font-caption);
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -219,7 +219,7 @@
   gap: 4px;
   padding: 8px 10px;
   border: 1px solid var(--kd-seam);
-  border-radius: 6px;
+  border-radius: var(--kd-radius-control);
   background-color: var(--kd-tile);
   color: var(--kd-text-2);
   font: inherit;
@@ -309,7 +309,7 @@
 }
 
 .tasks__card-title {
-  font-size: 13px;
+  font-size: var(--kd-font-normal);
   line-height: 1.35;
 }
 
@@ -318,24 +318,24 @@
   align-items: baseline;
   gap: 8px;
   color: var(--kd-text-4);
-  font-size: 11px;
+  font-size: var(--kd-font-caption);
 }
 
 .tasks__card-meta code {
   color: var(--kd-text-3);
-  font-size: 11px;
+  font-size: var(--kd-font-caption);
 }
 
 .tasks__mark {
   color: var(--status-waiting);
-  font-size: 10px;
+  font-size: var(--kd-font-micro);
   font-weight: 700;
   letter-spacing: 0.06em;
 }
 
 .tasks__card-blocked {
   color: var(--status-failed);
-  font-size: 11px;
+  font-size: var(--kd-font-caption);
 }
 /* The drawer: one task whole, over the board's right edge, scrolling on
    its own. The board stays interactive beside it — a card can still be
@@ -356,7 +356,7 @@
   min-height: 0;
   padding: 12px 14px;
   border: 1px solid var(--kd-seam);
-  border-radius: 8px;
+  border-radius: var(--kd-radius-pop);
   background-color: var(--kd-tile);
   box-shadow: var(--kd-shadow-float);
   overflow-y: auto;
@@ -374,7 +374,7 @@
 .tasks__detail-title {
   margin: 0;
   color: var(--kd-text);
-  font-size: 15px;
+  font-size: var(--kd-font-large);
   font-weight: 600;
 }
 
@@ -384,13 +384,13 @@
 
 .tasks__detail-meta code {
   color: var(--kd-text-3);
-  font-size: 11px;
+  font-size: var(--kd-font-caption);
 }
 
 .tasks__section {
   margin-top: 10px;
   color: var(--kd-text-4);
-  font-size: 10px;
+  font-size: var(--kd-font-micro);
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -399,7 +399,7 @@
 .tasks__body {
   margin: 0;
   color: var(--kd-text-2);
-  font-size: 13px;
+  font-size: var(--kd-font-normal);
   line-height: 1.5;
   white-space: pre-wrap;
 }
@@ -407,13 +407,13 @@
 .tasks__muted {
   margin: 0;
   color: var(--kd-text-4);
-  font-size: 12px;
+  font-size: var(--kd-font-small);
 }
 
 .tasks__pick .dropdown__button {
   width: 100%;
   padding: 6px 10px;
-  font-size: 13px;
+  font-size: var(--kd-font-normal);
 }
 
 /* The properties: label on the left, picker on the right, one row each —
@@ -428,7 +428,7 @@
 
 .tasks__prop-label {
   color: var(--kd-text-4);
-  font-size: 12px;
+  font-size: var(--kd-font-small);
 }
 
 .tasks__status-choice {
@@ -477,7 +477,7 @@
   background: none;
   color: var(--kd-text-2);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--kd-font-small);
   text-align: left;
   cursor: pointer;
 }
@@ -517,10 +517,10 @@
   align-items: center;
   justify-content: center;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--kd-radius-mark);
   background: transparent;
   color: var(--kd-text-4);
-  font-size: 15px;
+  font-size: var(--kd-font-large);
   line-height: 1;
   cursor: pointer;
 }
@@ -540,12 +540,12 @@
 
 .tasks__comment-who {
   color: var(--kd-text-4);
-  font-size: 11px;
+  font-size: var(--kd-font-caption);
 }
 
 .tasks__comment-body {
   color: var(--kd-text-2);
-  font-size: 13px;
+  font-size: var(--kd-font-normal);
   white-space: pre-wrap;
 }
 
@@ -567,7 +567,7 @@
   display: flex;
   flex-direction: column;
   gap: 3px;
-  font-size: 11px;
+  font-size: var(--kd-font-caption);
 }
 
 .tasks__log-who {
@@ -613,7 +613,7 @@
 
 .tasks__compose .form__input {
   padding: 10px 12px;
-  font-size: 14px;
+  font-size: var(--kd-font-large);
 }
 
 .tasks__compose .tasks__composer {
