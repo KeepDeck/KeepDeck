@@ -195,17 +195,16 @@ export function WorkspaceStrip({ view, onSelect, onAdd, onReorder, version }: Wo
   );
 }
 
-/** A mark's face — the tile with its letters and dot, the name under it.
- * The mark and its drag ghost share it: the ghost is the mark's image. */
+/** A mark's face — the tile with its letters and dot. No name under it: at
+ * the strip's width a name only fits as an ellipsis, and the full one is
+ * the mark's tooltip and the bar's first crumb. The mark and its drag
+ * ghost share it: the ghost is the mark's image. */
 function MarkFace({ mark }: { mark: WorkspaceMark }) {
   return (
     <>
       <span className="strip__tile" aria-hidden>
         {mark.initials}
         {mark.dot && <span className={`strip__dot strip__dot--${mark.dot}`} />}
-      </span>
-      <span className="strip__name" aria-hidden>
-        {mark.name}
       </span>
     </>
   );

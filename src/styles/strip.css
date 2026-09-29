@@ -84,19 +84,6 @@
   color: var(--kd-canvas);
 }
 
-.strip__name {
-  max-width: 52px;
-  font-size: var(--kd-font-small);
-  color: var(--kd-text-4);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.strip__mark--active .strip__name {
-  color: var(--kd-text-2);
-}
-
 /* «+» is pinned above the list, so it never scrolls away however many
    workspaces there are. Drawn as an outline: a way to add one, not one. */
 .strip__mark--add {
