@@ -385,6 +385,8 @@ export function useAppController() {
     onRename: (name: string) => deck.renameWorkspace(shownWs.id, name),
     onMove: (toIndex: number) => deck.moveWorkspace(shownWs.id, toIndex),
     onClose: () => closeFlow.requestCloseWorkspace(shownWs.id),
+    // Inside a team the name is the way back up to the cards.
+    onUp: openTeam ? () => deck.closeTeam(shownWs.id) : null,
   };
 
   if (restoring || !spawnCtx || !settings) {
@@ -399,7 +401,6 @@ export function useAppController() {
           kind: "team",
           name: openTeam.name,
           branch: teamBranchOf(openTeam, teamHead(active, openTeam, gitHeads)),
-          onBack: () => deck.closeTeam(active.id),
           canAddMember,
           addMemberTitle: BAR_WORDS.addMemberTip(atCap, MAX_PANES),
           onAddMember: () => {

@@ -67,9 +67,16 @@ describe("the breadcrumb", () => {
     // The name is a span at the cards and a button inside a team; a button
     // with padding the span lacked shifted every crumb after it.
     const base = ruleBody(deck, ".deck__ws-name");
-    for (const prop of ["padding", "margin", "border", "line-height", "font-size", "box-sizing"]) {
-      expect(base[prop], prop).toBeDefined();
-    }
+    expect(base).toMatchObject({
+      "box-sizing": "border-box",
+      display: "inline-block",
+      padding: "2px 4px",
+      margin: "0 0 0 -4px",
+      border: "0",
+      "font-size": "13px",
+      "line-height": "18px",
+    });
+    expect(base.height).toBeUndefined();
     const up = ruleBody(deck, "button.deck__ws-name--up");
     for (const prop of ["padding", "margin", "border", "line-height", "font-size", "height"]) {
       expect(up[prop], prop).toBeUndefined();

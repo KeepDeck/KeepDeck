@@ -6,9 +6,9 @@
 
 /**
  * Where the stage is, as the bar says it. At the teams level the one door is
- * a new team (null while none can be started). Inside a team: the way back
- * to the cards, what the team is and where it works, and the door to another
- * member, with the refusal's words when the team is full.
+ * a new team (null while none can be started). Inside a team: what the team
+ * is and where it works, and the door to another member, with the refusal's
+ * words when the team is full. The way back up is the workspace crumb's.
  */
 export type BarLevel =
   | { kind: "teams"; onAddTeam: (() => void) | null }
@@ -16,7 +16,6 @@ export type BarLevel =
       kind: "team";
       name: string;
       branch: string | null;
-      onBack(): void;
       canAddMember: boolean;
       /** The add control's tooltip, which is also where a refusal is explained. */
       addMemberTitle: string;

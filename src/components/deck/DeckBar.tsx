@@ -149,9 +149,9 @@ export function DeckBar({
             team with the branch it works on. The workspace's name is the
             way back up to its team cards. */}
         {(workspace || level.kind === "team") && (
-          <div className="bar__group deck__crumbs">
+          <nav className="bar__group deck__crumbs" aria-label="Location">
             {workspace && (
-              <WorkspaceCrumb {...workspace} onUp={level.kind === "team" ? level.onBack : null} />
+              <WorkspaceCrumb {...workspace} />
             )}
             {level.kind === "team" && (
               <>
@@ -162,7 +162,9 @@ export function DeckBar({
                     native tooltip (see TipButton), and an ellipsized team
                     name must be recoverable somewhere. */}
                 <Tooltip tip={level.name} delayMs={BAR_TIP_DELAY_MS}>
-                  <span className="deck__team-name">{level.name}</span>
+                  <span className="deck__team-name" aria-current="page">
+                    {level.name}
+                  </span>
                 </Tooltip>
                 {level.branch !== null && (
                   <BranchBadge
@@ -174,7 +176,7 @@ export function DeckBar({
                 )}
               </>
             )}
-          </div>
+          </nav>
         )}
       </div>
 

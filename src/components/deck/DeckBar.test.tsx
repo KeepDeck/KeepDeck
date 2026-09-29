@@ -31,7 +31,6 @@ const TEAM: BarLevel = {
   kind: "team",
   name: "api",
   branch: "kd/api",
-  onBack: () => {},
   canAddMember: true,
   addMemberTitle: "Add a member",
   onAddMember: () => {},
@@ -42,6 +41,7 @@ const WORKSPACE: NonNullable<DeckBarProps["workspace"]> = {
   onRename: () => {},
   onMove: () => {},
   onClose: () => {},
+  onUp: () => {},
 };
 
 const BASE: DeckBarProps = {
@@ -198,7 +198,8 @@ describe("DeckBar", () => {
     // a crossed pair looks perfectly fine until somebody presses it.
     const calls: string[] = [];
     render({
-      level: { ...TEAM, onBack: () => calls.push("back"), onAddMember: () => calls.push("member") } as BarLevel,
+      workspace: { ...WORKSPACE, onUp: () => calls.push("back") },
+      level: { ...TEAM, onAddMember: () => calls.push("member") } as BarLevel,
       onOpenStats: () => calls.push("stats"),
       onOpenSkills: () => calls.push("skills"),
       onOpenMcp: () => calls.push("mcp"),
@@ -244,8 +245,9 @@ describe("DeckBar", () => {
     expect(host.querySelector(".deck__crumbs .deck__crumb-sep")).not.toBeNull();
     expect(byText("+ Member")).toBeDefined();
     expect(byText("+ Team")).toBeUndefined();
-    // At the teams level none of that is said, and the door is the team's.
-    render({ level: { kind: "teams", onAddTeam: () => {} } });
+    // At the teams level none of that is said, and the door is the team's;
+    // the workspace's name is only a name (the controller hands no way up).
+    render({ level: { kind: "teams", onAddTeam: () => {} }, workspace: { ...WORKSPACE, onUp: null } });
     expect(host.querySelector(".deck__team-name")).toBeNull();
     expect(byLabel("Back to the teams of Personal project")).toBeNull();
     expect(byText("+ Member")).toBeUndefined();
@@ -411,5 +413,21 @@ describe("DeckBar", () => {
     });
     act(() => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
     expect(calls).toEqual([["move", 1], ["close"], ["rename", "Work"]]);
+  });
+
+  it("renames the workspace on a double-click at the cards, never inside a team", () => {
+    // Inside a team the name is the way back, and a double-click would first
+    // fire the click that leaves the team.
+    const renameField = () => host.querySelector("input[aria-label='Workspace name']");
+    const dblclick = () =>
+      act(() => {
+        host.querySelector(".deck__ws-name")!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+      });
+    render({ level: { kind: "teams", onAddTeam: null }, workspace: { ...WORKSPACE, onUp: null } });
+    dblclick();
+    expect(renameField()).not.toBeNull();
+    render({ workspace: { ...WORKSPACE, view: { ...WORKSPACE.view, id: "ws-2" } } });
+    dblclick();
+    expect(renameField()).toBeNull();
   });
 });

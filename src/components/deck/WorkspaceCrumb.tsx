@@ -15,6 +15,9 @@ export interface WorkspaceCrumbProps {
   /** Move the workspace to `toIndex` in the strip's column. */
   onMove(toIndex: number): void;
   onClose(): void;
+  /** Back up to the team cards — the name is then a link — or null at the
+   * cards already. */
+  onUp: (() => void) | null;
 }
 
 /**
@@ -30,10 +33,7 @@ export function WorkspaceCrumb({
   onMove,
   onClose,
   onUp,
-}: WorkspaceCrumbProps & {
-  /** Back up to the team cards, or null at the cards already. */
-  onUp: (() => void) | null;
-}) {
+}: WorkspaceCrumbProps) {
   const rename = useInlineRename((_key, name) => onRename(name));
   const { name } = workspace;
   // Each described line → the callback it owns. A refused move is never
@@ -63,7 +63,14 @@ export function WorkspaceCrumb({
           {name}
         </button>
       ) : (
-        <span className="deck__ws-name" title={name}>
+        // At the cards the name is only a name, so a double-click renames it
+        // as it does a team card's; inside a team it is a link, and a
+        // double-click would first leave the team.
+        <span
+          className="deck__ws-name"
+          title={name}
+          onDoubleClick={() => rename.start(workspace.id, name)}
+        >
           {name}
         </span>
       )}
