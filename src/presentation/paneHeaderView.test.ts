@@ -60,4 +60,3 @@ describe("paneControlsView", () => {
     expect(paneControlsView({ ...base, canMinimize: false }).minimize).toBeNull();
   });
 });
-

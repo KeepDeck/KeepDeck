@@ -100,4 +100,3 @@ describe("a mark's initials", () => {
     expect(initials("")).toBe("?");
   });
 });
-

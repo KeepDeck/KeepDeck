@@ -1493,4 +1493,3 @@ describe("the retired rail expansion map", () => {
     expect(serializeDeck(restored.state, restored.docExtras)).not.toContain("railExpandedByWs");
   });
 });
-

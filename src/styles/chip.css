@@ -119,4 +119,3 @@ button.chip {
   /* See --text-optical-nudge at the top of this sheet. */
   transform: translateY(var(--text-optical-nudge));
 }
-
