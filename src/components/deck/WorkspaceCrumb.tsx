@@ -4,21 +4,9 @@ import { useInlineRename } from "../../ui/useInlineRename";
 import {
   WORKSPACE_WORDS,
   workspaceMenuView,
-  type ActiveWorkspace,
-} from "../../presentation/stripView";
+  type WorkspaceCrumbView,
+} from "../../presentation/workspaceCrumbView";
 
-/** The crumb as the controller composes it and the bar passes it through. */
-export interface WorkspaceCrumbProps {
-  view: ActiveWorkspace;
-  /** Empty = back to the auto name, which the domain rename implements. */
-  onRename(name: string): void;
-  /** Move the workspace to `toIndex` in the strip's column. */
-  onMove(toIndex: number): void;
-  onClose(): void;
-  /** Back up to the team cards — the name is then a link — or null at the
-   * cards already. */
-  onUp: (() => void) | null;
-}
 
 /**
  * The first crumb of the bar: the workspace on screen — the strip's marks
@@ -33,7 +21,7 @@ export function WorkspaceCrumb({
   onMove,
   onClose,
   onUp,
-}: WorkspaceCrumbProps) {
+}: WorkspaceCrumbView) {
   const rename = useInlineRename((_key, name) => onRename(name));
   const { name } = workspace;
   // Each described line → the callback it owns. A refused move is never

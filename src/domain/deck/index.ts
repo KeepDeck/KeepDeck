@@ -12,7 +12,7 @@ export * from "./paneBody";
 export * from "./panes";
 export * from "./paneVisibility";
 export * from "./persist";
-export * from "./railDnd";
+export * from "./stripDnd";
 export * from "./reducer";
 export * from "./runIntent";
 export * from "./stage";

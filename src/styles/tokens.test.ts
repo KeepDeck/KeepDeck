@@ -121,6 +121,21 @@ describe("the design tokens", () => {
     expect(TERMINAL_THEME.brightRed).toBe(declared(tokens, "--kd-err-strong"));
     expect(TERMINAL_THEME.brightGreen).toBe(declared(tokens, "--kd-ok-strong"));
     expect(TERMINAL_THEME.brightYellow).toBe(declared(tokens, "--kd-warn-strong"));
+    // The rest of the chrome's side of the terminal: the block cursor's ink
+    // is the tile it sits on, the ends of the ANSI ladder are the seam and
+    // the text, and a selection is the working hue over the tile.
+    expect(TERMINAL_THEME.cursorAccent).toBe(declared(tokens, "--kd-tile"));
+    expect(TERMINAL_THEME.black).toBe(declared(tokens, "--kd-seam"));
+    expect(TERMINAL_THEME.brightWhite).toBe(declared(tokens, "--kd-text"));
+    const working = declared(tokens, "--kd-working");
+    const rgb = [1, 3, 5].map((i) => parseInt(working.slice(i, i + 2), 16)).join(", ");
+    expect(TERMINAL_THEME.selectionBackground).toBe(`rgba(${rgb}, 0.32)`);
+    // The foreground is the terminal's own ink — between --kd-text and
+    // --kd-text-2, the brightness long output reads comfortably at — and
+    // must stay between them.
+    const fg = lightness(TERMINAL_THEME.foreground!);
+    expect(fg).toBeLessThan(lightness(declared(tokens, "--kd-text")));
+    expect(fg).toBeGreaterThan(lightness(declared(tokens, "--kd-text-2")));
   });
 
   it("open the native window on the canvas, so launch shows no second colour", () => {
@@ -204,7 +219,7 @@ describe("the design tokens", () => {
     // pane being dragged is the one thing lifted higher than a dialog.
     const stray = allSheets()
       .flatMap(([file, css]) =>
-        [...css.matchAll(/([^{}]+)\{[^{}]*box-shadow:[^;]*rgba?\(0,? 0,? 0[^;]*;/g)].map(
+        [...css.matchAll(/([^{}]+)\{[^{}]*box-shadow:[^;]*(?:rgba?\(0,? 0,? 0|#000\b|\bblack\b)[^;]*;/g)].map(
           ([, selector]) => `${file}: ${selector.trim()}`,
         ),
       )
@@ -225,6 +240,25 @@ describe("the design tokens", () => {
     }
     expect(radius("history.css", ".history__fork")).toBe("var(--kd-radius-control)");
     expect(radius("pane.css", ".pane")).toBe("var(--kd-radius-tile)");
+  });
+
+  it("define every token a sheet asks for", () => {
+    // An undefined var() falls back to nothing, silently: a colour becomes
+    // transparent, a size the inherited one.
+    // A sheet may declare a local one of its own (a rule's parameter, like
+    // a menu's slide-in offset); anything else must come from tokens.css.
+    const declaredNames = new Set(
+      [tokens, ...allSheets().map(([, css]) => css)].flatMap((css) =>
+        [...css.matchAll(/(--kd-[\w-]+)\s*:/g)].map(([, name]) => name),
+      ),
+    );
+    const undefinedRefs = allSheets().flatMap(([file, css]) =>
+      [...css.matchAll(/var\((--kd-[\w-]+)/g)]
+        .map(([, name]) => name)
+        .filter((name) => !declaredNames.has(name))
+        .map((name) => `${file}: ${name}`),
+    );
+    expect(undefinedRefs).toEqual([]);
   });
 
   it("load every stylesheet in the folder — one left out of index.css styles nothing", () => {

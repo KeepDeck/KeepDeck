@@ -120,6 +120,7 @@ const props = (overrides: Record<string, unknown> = {}) => ({
   agentsReady: true,
   unavailableAgentReasons: new Map(),
   gitHeads: new Map(),
+  activities: new Map(),
   idleBlocked: {},
   wakeFailed: {},
   occupiedPanes: {},

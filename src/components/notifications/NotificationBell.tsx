@@ -7,7 +7,7 @@ import { unreadCount, type Notification } from "../../domain/notifications";
 import { formatAge, formatTimestamp } from "../../domain/usage";
 import {
   attentionTrigger,
-  FEED_EMPTY,
+  ATTENTION_WORDS,
   needsYouAge,
   type NeedsYouRow,
 } from "../../presentation/needsYouView";
@@ -133,9 +133,9 @@ export function NotificationBell({
         // promise interactions that aren't there.
         <div className="bell__panel" role="group" aria-label={trigger.label}>
           {rows.length > 0 && (
-            <section className="bell__section" aria-label="Needs you">
+            <section className="bell__section" aria-label={ATTENTION_WORDS.needsYou}>
               <div className="bell__head">
-                <span className="bell__title">Needs you</span>
+                <span className="bell__title">{ATTENTION_WORDS.needsYou}</span>
               </div>
               <ul className="bell__list bell__list--needs">
                 {rows.map((row) => (
@@ -173,10 +173,10 @@ export function NotificationBell({
           {feed && (
             <section
               className="bell__section bell__section--feed"
-              aria-label="Notifications"
+              aria-label={ATTENTION_WORDS.notifications}
             >
               <div className="bell__head">
-                <span className="bell__title">Notifications</span>
+                <span className="bell__title">{ATTENTION_WORDS.notifications}</span>
                 {notifications.length > 0 && (
                   <span className="bell__actions">
                     {unread > 0 && (
@@ -185,7 +185,7 @@ export function NotificationBell({
                         className="bell__action bell__mark-read"
                         onClick={() => feed.center.markAllNotificationsRead()}
                       >
-                        Mark all read
+                        {ATTENTION_WORDS.markAllRead}
                       </button>
                     )}
                     <button
@@ -196,14 +196,14 @@ export function NotificationBell({
                         feed.center.clearAllNotifications();
                       }}
                     >
-                      Clear all
+                      {ATTENTION_WORDS.clearAll}
                     </button>
                   </span>
                 )}
               </div>
               {notifications.length === 0 ? (
                 <div className="bell__empty" role="status" aria-live="polite">
-                  {FEED_EMPTY}
+                  {ATTENTION_WORDS.feedEmpty}
                 </div>
               ) : (
                 <ul className="bell__list">

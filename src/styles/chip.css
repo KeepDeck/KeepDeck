@@ -120,10 +120,3 @@ button.chip {
   transform: translateY(var(--text-optical-nudge));
 }
 
-/* The team name the TeamBadge appends to a role where a deck runs more than
-   one team. Dimmed, and inside the label slot rather than beside it: it
-   qualifies the address, so it must read as one string with it and be the
-   part a narrow header clips first. */
-.team-badge__team {
-  color: var(--kd-text-3);
-}

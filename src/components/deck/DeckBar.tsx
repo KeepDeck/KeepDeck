@@ -61,14 +61,15 @@ import {
   TasksIcon,
 } from "../AppIcons";
 import { NotificationBell } from "../notifications/NotificationBell";
-import { WorkspaceCrumb, type WorkspaceCrumbProps } from "./WorkspaceCrumb";
+import { WorkspaceCrumb } from "./WorkspaceCrumb";
+import type { WorkspaceCrumbView } from "../../presentation/workspaceCrumbView";
 import { BAR_WORDS, type BarLevel } from "../../presentation/barView";
 import type { NeedsYouRow } from "../../presentation/needsYouView";
 import { UsageChips } from "../usage/UsageChips";
 
 export interface DeckBarProps {
   /** The workspace on screen and its menu, or null with none. */
-  workspace: WorkspaceCrumbProps | null;
+  workspace: WorkspaceCrumbView | null;
 
   agents: AgentInfo[];
   /** Agent ids with a pane in the deck — the roster the usage chips stand for. */
@@ -183,8 +184,7 @@ export function DeckBar({
       </div>
 
       {/* Quota sits in the MIDDLE, alone in its own zone.
-          Pinned left it landed directly above the rail's column and read as
-          the rail's own heading; pinned right it queued behind the verbs and
+          Pinned left it read as the heading of whatever stood under it; pinned right it queued behind the verbs and
           became one more thing to sort. The centre belongs to nothing else,
           so a reading of the fleet can hold it without borrowing meaning from
           a neighbour. True centring needs a grid: with a flex row the middle

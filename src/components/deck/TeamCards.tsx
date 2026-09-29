@@ -9,15 +9,17 @@
  * everything else a card can do. One anatomy for every state; a team of
  * one is drawn like any other.
  *
- * One subscription for the whole layer (the `useWorkspaceFrames` shape): the
- * status snapshot is stable between edges, so the projection recomputes
- * only when an edge lands, the deck changes shape, or a head moves.
+ * The live activity arrives from the controller's one subscription (the
+ * snapshot is stable between edges), so the projection recomputes only
+ * when an edge lands, the deck changes shape, or a head moves. The task
+ * board is a local store read where it is used, like the usage chips'.
  */
-import { useMemo, useSyncExternalStore } from "react";
+import { useMemo } from "react";
 import { useAppRuntime } from "../../app/runtimeContext";
 import { readyBoard } from "../../app/tasks/tasksService";
 import { useTasksBoardState } from "../tasks/useBoardState";
 import type { GitPosition, Workspace } from "../../domain/deck";
+import type { PaneActivity } from "../../domain/status";
 import {
   TEAM_CARD_WORDS,
   teamCardsView,
@@ -31,6 +33,9 @@ import { useInlineRename, type InlineRename } from "../../ui/useInlineRename";
 
 export interface TeamCardsProps {
   workspace: Workspace;
+  /** Every pane's live activity — the controller's one subscription, the
+   * same the strip reads (`usePaneActivities`). */
+  activities: ReadonlyMap<string, PaneActivity>;
   /** Live git heads by directory — a card's branch follows the head. */
   gitHeads: ReadonlyMap<string, GitPosition>;
   /** Whether this layer may hold the keyboard; a rename in flight is
@@ -47,6 +52,7 @@ export interface TeamCardsProps {
 
 export function TeamCards({
   workspace,
+  activities,
   gitHeads,
   keyboardFocusEnabled,
   onEnter,
@@ -55,13 +61,12 @@ export function TeamCards({
   onDisband,
   onRetry,
 }: TeamCardsProps) {
-  const { statusTracker, tasks } = useAppRuntime();
-  const snapshot = useSyncExternalStore(statusTracker.subscribe, statusTracker.getSnapshot);
+  const { tasks } = useAppRuntime();
   const boardState = useTasksBoardState(tasks, workspace.id);
   const board = readyBoard(boardState);
   const cards = useMemo(
-    () => teamCardsView(workspace, snapshot.panes, gitHeads, board),
-    [workspace, gitHeads, snapshot, board],
+    () => teamCardsView(workspace, activities, gitHeads, board),
+    [workspace, gitHeads, activities, board],
   );
   // One rename behaviour for every surface that has one ([F11]); an empty
   // commit is "back to the auto name", which renameTeam implements.

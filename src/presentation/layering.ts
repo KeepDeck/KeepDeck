@@ -14,7 +14,7 @@
  * - The workspace form has two shapes and only one is a modal layer. The
  *   CREATE variant rides a ModalOverlay portaled over the whole window; the
  *   zero-workspace variant renders in the deck overlay at z 10 and covers
- *   neither the top bar nor the rail. Counting the latter made the modal flag
+ *   neither the top bar nor the strip. Counting the latter made the modal flag
  *   claim a layer the user could tab straight past.
  * - What can paint OVER the Stats dialog is a transaction confirm, or the
  *   CREATE form — portaled after stats at the same z-index, so DOM order puts

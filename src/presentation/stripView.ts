@@ -10,11 +10,12 @@
  * carries in ([`usePaneActivities`]): each team's from its own members
  * ([`teamDot`]), then the workspace's from its teams'.
  *
- * It also describes the ACTIVE workspace for the bar's crumb, whose menu
- * renames, moves and closes it.
+ * It also names the ACTIVE workspace and where it sits, for the bar's crumb
+ * (`workspaceCrumbView`).
  */
 import { membersOf, teamsOf, type Workspace } from "../domain/deck";
 import { foldFrame, type PaneActivity } from "../domain/status";
+import type { ActiveWorkspace } from "./workspaceCrumbView";
 import { teamDot, type TeamCardDot } from "./teamCardView";
 
 /** A mark's dot: its workspace's loudest state. */
@@ -33,17 +34,6 @@ export interface WorkspaceMark {
   label: string;
 }
 
-/** The workspace on screen, as the bar's crumb names it and its menu acts
- * on it. */
-export interface ActiveWorkspace {
-  id: string;
-  name: string;
-  /** Where the menu can move it — the keyboard's way to do what a held
-   * mark's drag does — or null at that end of the column. */
-  moveUpTo: number | null;
-  moveDownTo: number | null;
-}
-
 export interface StripView {
   marks: readonly WorkspaceMark[];
   /** Null only for a deck with no workspace at all. */
@@ -51,45 +41,12 @@ export interface StripView {
 }
 
 export const STRIP_WORDS = {
+  /** The strip as a screen reader names it. */
+  nav: "Workspaces",
   addWorkspace: "New workspace",
+  /** The build at the strip's foot, in full. */
+  build: (version: string) => `KeepDeck ${version}`,
 } as const;
-
-/** The bar's crumb for the active workspace, and its menu. */
-export const WORKSPACE_WORDS = {
-  menu: (name: string) => `Workspace ${name} actions`,
-  rename: "Rename",
-  moveUp: "Move up",
-  moveDown: "Move down",
-  close: "Close workspace",
-  renameField: "Workspace name",
-  /** The name as a way back from a team to the workspace's team cards. */
-  up: (name: string) => `Back to the teams of ${name}`,
-} as const;
-
-/** One line of the workspace's menu, described — the crumb performs it. A
- * move carries where it goes, or null when that end of the column is
- * already reached and the line is refused. */
-export type WorkspaceMenuItem = { id: string; label: string; disabled: boolean } & (
-  | { kind: "rename" }
-  | { kind: "move"; to: number | null }
-  | { kind: "close" }
-);
-
-/** The workspace menu, in the order it is offered. */
-export function workspaceMenuView(active: ActiveWorkspace): WorkspaceMenuItem[] {
-  return [
-    { id: "rename", kind: "rename", label: WORKSPACE_WORDS.rename, disabled: false },
-    { id: "up", kind: "move", label: WORKSPACE_WORDS.moveUp, to: active.moveUpTo, disabled: active.moveUpTo === null },
-    {
-      id: "down",
-      kind: "move",
-      label: WORKSPACE_WORDS.moveDown,
-      to: active.moveDownTo,
-      disabled: active.moveDownTo === null,
-    },
-    { id: "close", kind: "close", label: WORKSPACE_WORDS.close, disabled: false },
-  ];
-}
 
 const DOT_WORDS: Record<MarkDot, string> = {
   failed: "something failed",
@@ -121,7 +78,7 @@ function markDot(teamDots: readonly TeamCardDot[], agents: number): MarkDot | nu
  * ("mnemo" → "mn"). Words part at spaces, dots, dashes, underscores and a
  * lower-to-upper case step.
  */
-export function workspaceInitials(name: string): string {
+function workspaceInitials(name: string): string {
   const words = name
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
     .split(/[\s._\-/]+/)

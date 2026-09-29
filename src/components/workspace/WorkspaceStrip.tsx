@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { PlusIcon } from "@keepdeck/ui-kit/icons";
-import { collectRailItemRects } from "../../app/railDnd";
+import { collectMarkRects } from "../../app/stripDnd";
 import {
   animateElementReorder,
   animateFixedElementToRect,
@@ -9,7 +9,7 @@ import {
   usePointerDrag,
   type ElementRectSnapshot,
 } from "../../app/dragManager";
-import { railItemAtY } from "../../domain/deck";
+import { markAtY } from "../../domain/deck";
 import { STRIP_WORDS, type StripView, type WorkspaceMark } from "../../presentation/stripView";
 
 interface WorkspaceStripProps {
@@ -115,8 +115,8 @@ export function WorkspaceStrip({ view, onSelect, onAdd, onReorder, version }: Wo
       }
       const list = listRef.current;
       if (!list) return;
-      const rects = collectRailItemRects(list);
-      const overId = railItemAtY(current.y, rects);
+      const rects = collectMarkRects(list);
+      const overId = markAtY(current.y, rects);
       if (!overId || overId === source.mark.id) return;
       const toIndex = rects.findIndex((r) => r.id === overId);
       if (toIndex < 0) return;
@@ -138,7 +138,7 @@ export function WorkspaceStrip({ view, onSelect, onAdd, onReorder, version }: Wo
   };
 
   return (
-    <nav className="strip" aria-label="Workspaces">
+    <nav className="strip" aria-label={STRIP_WORDS.nav}>
       <div className="strip__col">
         <button
           type="button"
@@ -174,7 +174,7 @@ export function WorkspaceStrip({ view, onSelect, onAdd, onReorder, version }: Wo
           ))}
         </div>
         {version !== null && (
-          <footer className="strip__foot" title={`KeepDeck ${version}`}>
+          <footer className="strip__foot" title={STRIP_WORDS.build(version)}>
             {version}
           </footer>
         )}

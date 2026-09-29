@@ -42,8 +42,8 @@ export function Section({
         aria-controls={bodyId}
         onClick={() => onToggle(id)}
       >
-        {/* One drawn mark, turned by CSS when open — the workspace rail's
-            chevron, not two glyphs swapping. */}
+        {/* One drawn mark, turned by CSS when open — ui-kit's chevron,
+            not two glyphs swapping. */}
         <span className="git__chev" aria-hidden>
           <ChevronIcon />
         </span>

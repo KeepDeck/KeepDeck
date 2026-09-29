@@ -83,6 +83,7 @@ function App() {
     pluginTopBarActions,
     pushAlert,
     strip,
+    paneActivities,
     workspaceCrumb,
     addTeamMember,
     runView,
@@ -179,6 +180,7 @@ function App() {
             agentsReady={!agentsLoading}
             unavailableAgentReasons={unavailableReasons}
             gitHeads={gitHeads}
+            activities={paneActivities}
             journal={deck.journal.records}
             onContinueSession={(wsId, teamId, mode, record, role) => {
               const ws = findWorkspace(deck.workspaces, wsId);

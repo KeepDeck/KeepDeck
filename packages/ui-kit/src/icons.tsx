@@ -236,7 +236,7 @@ export function BellIcon() {
 }
 
 /** A chevron pointing right, drawn CENTRED in its box — the mark of a thing
- * that opens (the workspace rail's teams, a plugin's sections), which the
+ * that opens (a plugin's sections, the bar's breadcrumb), which the
  * owner turns with CSS rather than swapping for a down chevron.
  *
  * ONE mark, turned. Two characters — a right chevron and a down one — are

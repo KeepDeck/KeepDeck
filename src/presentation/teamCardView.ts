@@ -97,9 +97,6 @@ export interface TeamCardView {
   /** How many agents are on it. */
   size: number;
   dot: TeamCardDot;
-  /** Whether the directory is not there yet — creating, or the create
-   * failed. The card's rim says so; the dot says which. */
-  pending: boolean;
   /** The directory's last segment — what the card prints; `cwd` is its
    * tooltip. */
   dir: string;
@@ -177,7 +174,7 @@ export function teamCardsView(
   );
 }
 
-export function teamCardView(
+function teamCardView(
   ws: Workspace,
   team: Team,
   /** The members' live activity, in any order; absent entries are fine. */
@@ -199,7 +196,6 @@ export function teamCardView(
     cwd,
     size: membersOf(ws, team.id).length,
     dot,
-    pending: creating,
     dir: baseName(cwd),
     tasksLine: tasks ? teamCardTasksLine(tasks) : null,
     className: `team-card team-card--${dot}${creating ? " team-card--pending" : ""}`,

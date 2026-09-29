@@ -1,5 +1,9 @@
-import type { PaneHeaderView } from "../../presentation/paneHeaderView";
-import { noAutoCorrect } from "../../ui/inputProps";
+import {
+  PANE_HEADER_WORDS,
+  paneControlsView,
+  type PaneHeaderView,
+} from "../../presentation/paneHeaderView";
+import { RenameInput } from "../../ui/RenameInput";
 import { useInlineRename } from "../../ui/useInlineRename";
 import { MaximizeIcon, MinimizeIcon, RestoreIcon } from "../../ui/icons";
 import { YoloBadge } from "../../ui/badges";
@@ -54,6 +58,7 @@ export function AgentPaneHeader({
     (_key, name) => onRename(name),
     keyboardFocusEnabled,
   );
+  const controls = paneControlsView({ title, focused, solo, canMinimize: onMinimize !== undefined });
   return (
     <header className="pane__bar">
       <div className="pane__identity">
@@ -69,18 +74,16 @@ export function AgentPaneHeader({
           <AgentGlyph icon={agentIcon} />
         </span>
         {rename.editing !== null ? (
-          <input
-            {...noAutoCorrect}
-            {...rename.inputProps}
+          <RenameInput
+            rename={rename}
             className="pane__rename"
-            autoFocus
-            aria-label="Rename agent"
-            onMouseDown={(e) => e.stopPropagation()}
+            label={PANE_HEADER_WORDS.renameField}
+            contained
           />
         ) : (
           <span
             className="pane__title"
-            title="Double-click to rename"
+            title={PANE_HEADER_WORDS.renameHint}
             onDoubleClick={() => rename.start(paneId, title)}
           >
             {title}
@@ -104,31 +107,31 @@ export function AgentPaneHeader({
             {view.ctx.label}
           </span>
         )}
-        {onMinimize && !focused && (
+        {controls.minimize && (
           <button
             type="button"
             // The modifier is load-bearing: the narrow-header cascade hides
             // minimize by this class (pane.css) while maximize stays.
             className="pane__action pane__action--minimize"
             onClick={onMinimize}
-            title="Minimize agent"
-            aria-label={`Minimize ${title}`}
+            title={controls.minimize.tip}
+            aria-label={controls.minimize.label}
           >
             <MinimizeIcon />
           </button>
         )}
-        {!solo && (
+        {controls.spotlight && (
           <button
             type="button"
             className="pane__action"
             onClick={onToggleFocus}
-            title={focused ? "Restore" : "Maximize"}
-            aria-label={focused ? `Restore ${title}` : `Maximize ${title}`}
+            title={controls.spotlight.tip}
+            aria-label={controls.spotlight.label}
           >
-            {focused ? <RestoreIcon /> : <MaximizeIcon />}
+            {controls.spotlight.restore ? <RestoreIcon /> : <MaximizeIcon />}
           </button>
         )}
-        <CloseButton label={`Close ${title}`} onClick={onClose} />
+        <CloseButton label={controls.close.label} onClick={onClose} />
       </div>
     </header>
   );

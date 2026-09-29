@@ -16,21 +16,11 @@
   padding: 24px;
 }
 
-.history--empty {
-  text-align: center;
-}
-
 .history__title {
   margin: 0 0 4px;
   font-size: var(--kd-font-title);
   font-weight: 600;
   color: var(--kd-text-2);
-}
-
-.history__hint {
-  margin: 0;
-  font-size: var(--kd-font-normal);
-  color: var(--kd-text-3);
 }
 
 .history__list {
@@ -166,16 +156,6 @@
   height: 100%;
 }
 
-.history__name {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--kd-font-normal);
-  color: var(--kd-text);
-}
-
 .history__resume,
 .history__fork {
   flex: none;
@@ -196,7 +176,6 @@
   border-color: var(--kd-ok);
   color: var(--kd-text-2);
 }
-
 
 .history__resume:disabled {
   opacity: 0.4;

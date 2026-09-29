@@ -28,11 +28,9 @@
 export { AgentGlyph, type AgentGlyphIcon } from "./AgentGlyph.tsx";
 export {
   BranchBadge,
-  TeamBadge,
   YoloBadge,
   teamBadgeTitle,
   type BranchBadgeProps,
-  type TeamBadgeProps,
   type YoloBadgeProps,
 } from "./badges.tsx";
 export {

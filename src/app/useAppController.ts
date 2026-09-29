@@ -54,7 +54,7 @@ import { describeError, log } from "../ipc/log";
 import { pluginCrashes, subscribePluginCrashes } from "./pluginHealth";
 import { addTeamDoorOpen, bellDoorOpen, dockDoorOpen, memberDoor } from "./doors";
 import { BAR_WORDS, type BarLevel } from "../presentation/barView";
-import type { WorkspaceCrumbProps } from "../components/deck/WorkspaceCrumb";
+import type { WorkspaceCrumbView } from "../presentation/workspaceCrumbView";
 import { stripView } from "../presentation/stripView";
 import { needsYouRows, nextNeedsYou, type NeedsYouRow } from "../presentation/needsYouView";
 import { teamBranchOf, teamHead } from "../presentation/teamCardView";
@@ -209,8 +209,7 @@ export function useAppController() {
     open: dockOpen,
   });
   const activeCount = active?.panes.length ?? 0;
-  // The team in front of the person — opened, else the first. The cap is
-  // the TEAM's: the grid its members lay out on.
+  // The team in front of the person, or none at the team cards.
   const openTeam = active ? openTeamOf(active, activeView) : undefined;
   // What is painted over what — decided once, in `layering`, for the render
   // and for the notification probe alike. The z-order reasoning lives there.
@@ -306,8 +305,8 @@ export function useAppController() {
       setCreating(true);
     },
     newAgent: () => {
-      // What "new" means: a member on the team the stage shows, or a team
-      // where the workspace has none yet.
+      // What "new" means: a member on the open team, or a new team at the
+      // team cards.
       if (!active) return;
       if (openTeam) {
         if (canAddMember) void agentFlow.openFor(active, { kind: "member", teamId: openTeam.id });
@@ -379,7 +378,7 @@ export function useAppController() {
   };
   /** The bar's crumb for the workspace on screen: its name and its menu. */
   const shownWs = strip.active;
-  const workspaceCrumb: WorkspaceCrumbProps | null = shownWs && {
+  const workspaceCrumb: WorkspaceCrumbView | null = shownWs && {
     view: shownWs,
     onRename: (name: string) => deck.renameWorkspace(shownWs.id, name),
     onMove: (toIndex: number) => deck.moveWorkspace(shownWs.id, toIndex),
@@ -444,6 +443,7 @@ export function useAppController() {
     pluginTopBarActions,
     pushAlert,
     strip,
+    paneActivities,
     workspaceCrumb,
     addTeamMember,
     runView,
@@ -483,8 +483,8 @@ export function useAppController() {
     closeTasks: modal.closeTasks,
     tasksOpen: modal.tasksOpen,
     tasksFocus: modal.tasksFocus,
-    /** The team the stage shows, or null for a workspace with none — the
-     * board the Tasks dialog opens on. */
+    /** The open team, or null at the team cards — the board the Tasks
+     * dialog opens on. */
     stageTeamId: openTeam?.id ?? null,
     focusTask: modal.focusTask,
     openStats: modal.openStats,

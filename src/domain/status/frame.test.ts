@@ -46,7 +46,7 @@ describe("paneFrame", () => {
 
   it("failed outranks waiting", () => {
     // One pane can't hold both states, but the ladder must still order
-    // them: a new caller aggregating panes (rail, tray) relies on it.
+    // them: a new caller aggregating panes (strip, tray) relies on it.
     expect(paneFrame(grid(failed, false))).toBe("failed");
   });
 

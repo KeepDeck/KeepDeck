@@ -228,8 +228,7 @@
   text-overflow: ellipsis;
 }
 
-/* The row-level delete: a small text ×, the idiom the workspaces rail and
-   the journal rows already use. Always present rather than revealed on
+/* The row-level delete: a small text ×, the idiom the journal rows already use. Always present rather than revealed on
    hover — a control that appears only under a pointer cannot be reached
    by a Tab at all. */
 .artifacts__remove {

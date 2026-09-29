@@ -71,7 +71,6 @@
   min-width: 0;
 }
 
-
 /* The breadcrumb: workspace ⋯ › team [branch], one group. The workspace
    is quieter than the team — it is where, not what; inside a team its name
    is the way back up to the cards. */
@@ -173,7 +172,6 @@ button.deck__ws-name--up:hover {
   }
 }
 
-
 /* Groups, not one run. The bar answers two questions — what to do, where to
    go — and the eye needs to see that before it reads any control: inside a
    group the gap is tight, between groups it is wide enough to read as a
@@ -207,34 +205,6 @@ button.deck__ws-name--up:hover {
 .bar__group + .bar__group {
   padding-left: 8px;
   border-left: 1px solid var(--kd-seam);
-}
-
-.bar__action {
-  border: 1px solid var(--kd-seam);
-  background-color: var(--kd-tile);
-  color: var(--kd-text-2);
-  font: inherit;
-  font-size: var(--kd-font-small);
-  padding: 3px 10px;
-  border-radius: var(--kd-radius-control);
-  cursor: pointer;
-}
-
-.bar__action:hover:not(:disabled) {
-  background-color: var(--kd-hover);
-  border-color: var(--kd-seam-strong);
-}
-
-.bar__action:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-
-.deck__status {
-  font-size: var(--kd-font-small);
-  color: var(--kd-text-3);
-  font-variant-numeric: tabular-nums;
 }
 
 /* An update sits downloaded and verified, and a single press restarts into

@@ -83,12 +83,22 @@ export function attentionTrigger(
   return {
     kind: "bell",
     badge: bell.unread > 0 ? (bell.unread > 99 ? "99+" : String(bell.unread)) : null,
-    label: bell.unread > 0 ? `Notifications (${bell.unread} unread)` : "Notifications",
+    label:
+      bell.unread > 0
+        ? `${ATTENTION_WORDS.notifications} (${bell.unread} unread)`
+        : ATTENTION_WORDS.notifications,
   };
 }
 
-/** What the notification feed says while it holds nothing. */
-export const FEED_EMPTY = "Nothing yet";
+/** Every word the attention panel says. */
+export const ATTENTION_WORDS = {
+  needsYou: "Needs you",
+  notifications: "Notifications",
+  markAllRead: "Mark all read",
+  clearAll: "Clear all",
+  /** What the notification feed says while it holds nothing. */
+  feedEmpty: "Nothing yet",
+} as const;
 
 /** Where ⌘J goes: the row after the agent the person is on, wrapping to the
  * first — so repeated presses walk the list in its order (failed first) —

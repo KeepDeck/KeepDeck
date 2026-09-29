@@ -1,5 +1,5 @@
-/* The dock: the collapsible tool panel on the right — the workspaces rail's
-   mirror. Tabs across the top; each tab's body scrolls on its own. */
+/* The dock: the collapsible tool panel floating on the right. Tabs across
+   the top; each tab's body scrolls on its own. */
 
 .dock {
   width: 340px;

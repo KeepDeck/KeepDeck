@@ -261,7 +261,7 @@ export function hydrateDeck(json: string): HydrateDeckResult {
   );
 
   // The team the stage had open must still be one the workspace has; a
-  // stale id is dropped, and the stage shows the first team.
+  // stale id is dropped, and the stage shows the team cards.
   const teamIdsByWs = new Map(
     workspaces.map((w) => [w.id, new Set(teamsOf(w).map((team) => team.id))]),
   );

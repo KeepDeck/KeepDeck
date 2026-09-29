@@ -2,10 +2,8 @@
  * imports read like the rest of the shared chrome. */
 export {
   BranchBadge,
-  TeamBadge,
   YoloBadge,
   teamBadgeTitle,
   type BranchBadgeProps,
-  type TeamBadgeProps,
   type YoloBadgeProps,
 } from "@keepdeck/ui-kit/badges";

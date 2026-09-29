@@ -21,7 +21,7 @@ import {
   stagePanes,
   teamOfPane,
 } from "../domain/deck";
-import type { PaneFramePlace } from "../domain/status";
+import type { PaneActivity, PaneFramePlace } from "../domain/status";
 import { teamNamesIn, teamOf } from "../domain/mail";
 import { gitBadge } from "../ui/gitBadge";
 import { AgentPane, type UnavailableAgent } from "./agent/AgentPane";
@@ -71,6 +71,8 @@ interface DeckStageProps {
    * CLI" apart from "no plugin provides this agent". */
   unavailableAgentReasons: ReadonlyMap<string, string>;
   /** Runtime git HEAD observations, keyed by pane execution cwd. */
+  /** Every pane's live activity — the controller's one subscription. */
+  activities: ReadonlyMap<string, PaneActivity>;
   gitHeads: ReadonlyMap<string, GitPosition>;
   /** The session journal's folded records — an empty team's sessions. */
   journal: JournalRecords;
@@ -191,6 +193,7 @@ export function DeckStage({
   agentsReady,
   unavailableAgentReasons,
   gitHeads,
+  activities,
   journal,
   onContinueSession,
   browserShared,
@@ -533,6 +536,7 @@ export function DeckStage({
               {content.kind === "cards" && (
                 <TeamCards
                   workspace={ws}
+                  activities={activities}
                   gitHeads={gitHeads}
                   keyboardFocusEnabled={keyboardFocusEnabled && isActive}
                   onEnter={(teamId) => onEnterTeam(ws.id, teamId)}

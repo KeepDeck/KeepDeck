@@ -38,4 +38,31 @@ describe("usageRingView", () => {
     expect(old.title).toContain("showing data from");
     expect(old.title).toContain("wk 71% left");
   });
+
+  it("goes critical at the red threshold and never fills past the ring", () => {
+    const over = usageRingView("Claude Code", account(12, 130), NOW, "used");
+    expect(over.fill).toBe(100);
+    expect(over.level).toBe("critical");
+  });
+
+  it("shows the live window when the tighter one has already reset", () => {
+    const reset: AccountUsage = {
+      kind: "reported",
+      windows: [
+        { usedPct: 97, resetsAt: NOW - 1_000, windowMinutes: 300 },
+        { usedPct: 85, resetsAt: NOW + 90 * 3_600_000, windowMinutes: 10_080 },
+      ],
+      reportedAt: NOW,
+      sourcePaneId: "",
+    };
+    const view = usageRingView("Claude Code", reset, NOW, "used");
+    expect(view.window?.windowMinutes).toBe(10_080);
+    expect(view.fill).toBe(85);
+    expect(view.level).toBe("critical");
+  });
+
+  it("is an empty ring for an account that reported no windows", () => {
+    const empty: AccountUsage = { kind: "reported", windows: [], reportedAt: NOW, sourcePaneId: "" };
+    expect(usageRingView("Codex", empty, NOW, "used")).toMatchObject({ fill: 0, window: null, level: null });
+  });
 });

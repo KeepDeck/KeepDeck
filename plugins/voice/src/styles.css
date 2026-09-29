@@ -143,10 +143,6 @@
   color: var(--kd-text-2);
 }
 
-.voice__help-ex {
-  color: var(--kd-text-3);
-}
-
 .voice__help-note {
   color: var(--kd-text-3);
   font-style: italic;

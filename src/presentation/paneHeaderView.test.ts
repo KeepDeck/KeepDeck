@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ActivityBadge } from "../domain/status";
-import { paneHeaderView, type PaneHeaderInput } from "./paneHeaderView";
+import { paneControlsView, paneHeaderView, type PaneHeaderInput } from "./paneHeaderView";
 
 const NOW = 1_700_000_000_000;
 const badge = (tone: ActivityBadge["tone"], label: string, detail?: string): ActivityBadge => ({
@@ -37,3 +37,27 @@ describe("paneHeaderView", () => {
     expect(paneHeaderView(input({ ctxPct: 80, paneLive: false })).ctx).toBeNull();
   });
 });
+
+describe("paneControlsView", () => {
+  const base = { title: "api", focused: false, solo: false, canMinimize: true };
+
+  it("offers minimize and maximize on a tiled pane, and always close", () => {
+    expect(paneControlsView(base)).toEqual({
+      minimize: { tip: "Minimize agent", label: "Minimize api" },
+      spotlight: { tip: "Maximize", label: "Maximize api", restore: false },
+      close: { label: "Close api" },
+    });
+  });
+
+  it("restores instead of maximizing a maximized pane, which cannot be minimized", () => {
+    const view = paneControlsView({ ...base, focused: true });
+    expect(view.minimize).toBeNull();
+    expect(view.spotlight).toEqual({ tip: "Restore", label: "Restore api", restore: true });
+  });
+
+  it("has no spotlight for a pane alone on the grid, and no minimize where none is wired", () => {
+    expect(paneControlsView({ ...base, solo: true }).spotlight).toBeNull();
+    expect(paneControlsView({ ...base, canMinimize: false }).minimize).toBeNull();
+  });
+});
+

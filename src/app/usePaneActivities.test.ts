@@ -20,7 +20,7 @@ import { usePaneActivities } from "./usePaneActivities";
  * The seam between the live tracker and whatever draws from it.
  *
  * The maths on either side is pinned pure — the ladder in `domain/status`,
- * the rows in `presentation/railView` — so what is left to hold here is the
+ * the marks in `presentation/stripView` — so what is left to hold here is the
  * one thing neither can: that an edge landing reaches a render at all, and
  * that the snapshot keeps its identity when nothing lands, which is what
  * lets one subscription serve a whole list of workspaces holding lists of

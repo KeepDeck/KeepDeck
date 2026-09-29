@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { team, teamedWorkspace, workspace } from "../domain/deck/reducer.testSupport";
 import type { Workspace } from "../domain/deck";
 import type { PaneActivity } from "../domain/status";
-import { stripView, workspaceInitials, workspaceMenuView } from "./stripView";
+import { stripView } from "./stripView";
 
 const ONE_TEAM_OF_THREE = teamedWorkspace("ws-a", ["pane-1", "pane-2", "pane-3"]);
 
@@ -89,23 +89,15 @@ describe("stripView active workspace", () => {
   });
 });
 
-describe("workspaceInitials", () => {
+describe("a mark's initials", () => {
   it("takes two words' initials, else a word's first two letters", () => {
-    expect(workspaceInitials("KeepDeck")).toBe("KD");
-    expect(workspaceInitials("keepdeck.ai")).toBe("ka");
-    expect(workspaceInitials("web app")).toBe("wa");
-    expect(workspaceInitials("mnemo")).toBe("mn");
-    expect(workspaceInitials("")).toBe("?");
+    const initials = (name: string) =>
+      stripView([{ ...workspace("w", []), name }], frames({}), "").marks[0].initials;
+    expect(initials("KeepDeck")).toBe("KD");
+    expect(initials("keepdeck.ai")).toBe("ka");
+    expect(initials("web app")).toBe("wa");
+    expect(initials("mnemo")).toBe("mn");
+    expect(initials("")).toBe("?");
   });
 });
 
-describe("workspaceMenuView", () => {
-  it("offers rename, both moves and close, a move refused past its end", () => {
-    expect(workspaceMenuView({ id: "a", name: "A", moveUpTo: null, moveDownTo: 1 })).toEqual([
-      { id: "rename", kind: "rename", label: "Rename", disabled: false },
-      { id: "up", kind: "move", label: "Move up", to: null, disabled: true },
-      { id: "down", kind: "move", label: "Move down", to: 1, disabled: false },
-      { id: "close", kind: "close", label: "Close workspace", disabled: false },
-    ]);
-  });
-});

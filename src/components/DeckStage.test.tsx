@@ -204,6 +204,7 @@ const props = (overrides: Record<string, unknown> = {}) => ({
   agentsReady: true,
   unavailableAgentReasons: new Map(),
   gitHeads: new Map(),
+  activities: new Map(),
   idleBlocked: {},
   wakeFailed: {},
   occupiedPanes: {},
@@ -579,7 +580,7 @@ describe("DeckStage — the teams level", () => {
     expect(callbacks.onContinueSession).toHaveBeenCalledWith("ws-1", "team-1", "fork", record, "lead");
   });
 
-  it("starts a fresh list — no role carried over — when the rail opens another empty team", () => {
+  it("starts a fresh list — no role carried over — when another empty team is opened", () => {
     const two = [{ ...workspaces[0], teams: [team("team-1", "/repo"), team("team-2", "/repo/b")], panes: [] }];
     teamSessions.mounts = 0;
     render({ workspaces: two, specByPane: {} });

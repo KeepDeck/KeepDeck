@@ -13,8 +13,8 @@ import type { HTMLAttributes, ReactNode } from "react";
  * raw. A chip with `onClick` renders a <button>, otherwise a <span>.
  *
  * A chip given an icon and nothing else collapses to the round icon-only
- * badge on its own (`chip--icon-only`) — the YOLO dot and the pane header's
- * activity dot are both that, and both used to restate the shape themselves.
+ * badge on its own (`chip--icon-only`) — the YOLO dot is that, and used to
+ * restate the shape itself.
  */
 export interface ChipProps
   extends Omit<HTMLAttributes<HTMLElement>, "children"> {

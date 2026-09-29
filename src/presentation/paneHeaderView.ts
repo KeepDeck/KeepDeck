@@ -54,3 +54,37 @@ export function paneHeaderView(input: PaneHeaderInput): PaneHeaderView {
         : null,
   };
 }
+
+/** The header's words that are not about the agent's state. */
+export const PANE_HEADER_WORDS = {
+  renameField: "Rename agent",
+  renameHint: "Double-click to rename",
+} as const;
+
+/** The header's window controls, decided: minimize only while the pane is
+ * not maximized and can be minimized; maximize/restore only when the pane
+ * is not alone on the grid; close always. */
+export interface PaneControlsView {
+  minimize: { tip: string; label: string } | null;
+  /** Maximize, or restore when already maximized. */
+  spotlight: { tip: string; label: string; restore: boolean } | null;
+  close: { label: string };
+}
+
+export function paneControlsView(input: {
+  title: string;
+  focused: boolean;
+  solo: boolean;
+  canMinimize: boolean;
+}): PaneControlsView {
+  const { title, focused, solo, canMinimize } = input;
+  return {
+    minimize: canMinimize && !focused ? { tip: "Minimize agent", label: `Minimize ${title}` } : null,
+    spotlight: solo
+      ? null
+      : focused
+        ? { tip: "Restore", label: `Restore ${title}`, restore: true }
+        : { tip: "Maximize", label: `Maximize ${title}`, restore: false },
+    close: { label: `Close ${title}` },
+  };
+}

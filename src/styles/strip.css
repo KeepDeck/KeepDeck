@@ -24,7 +24,7 @@
 }
 
 /* The list is the only positioned ancestor of the marks: the reorder's
-   hit-test and the ghost's landing both measure through it (railDnd.ts). */
+   hit-test and the ghost's landing both measure through it (stripDnd.ts). */
 .strip__marks {
   position: relative;
   flex: 1;

@@ -134,16 +134,6 @@
   color: var(--kd-text-3);
 }
 
-/* Dialog lede under the title (what this dialog does) — neutral text, not
-   the green of a status hint; same pull-up metrics as .form__git so the
-   rhythm matches when a form uses both. */
-.form__desc {
-  margin-top: -12px;
-  margin-bottom: 20px;
-  font-size: var(--kd-font-small);
-  color: var(--kd-text-3);
-}
-
 .form__git {
   margin-top: -12px;
   margin-bottom: 20px;
