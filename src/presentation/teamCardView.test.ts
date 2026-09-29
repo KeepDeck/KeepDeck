@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { Team, Workspace } from "../domain/deck";
+import { MAX_PANES, TEAM_FULL_MESSAGE, teamHeldPath, type GitPosition, type Team, type Workspace } from "../domain/deck";
 import type { PaneActivity } from "../domain/status";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
-import { teamCardView, TEAM_CARD_WORDS } from "./teamCardView";
+import { teamCardsView, teamHead, TEAM_CARD_WORDS } from "./teamCardView";
 
 const attached: Team = {
   id: "team-1",
@@ -44,70 +44,97 @@ const waiting: PaneActivity = { state: "waiting", since: 2, reason: "permission"
 const done: PaneActivity = { state: "done", at: 3, interrupted: false };
 const crashed: PaneActivity = { state: "failed", at: 4, error: "rate_limit" };
 
+
+/** One card through the public door: the team's members take `activities`
+ * in deck order, and the head, when given, sits at the team's directory. */
+function card(
+  deck: Workspace,
+  team: Team,
+  activities: (PaneActivity | undefined)[],
+  head?: GitPosition,
+) {
+  const members = deck.panes.filter((pane) => pane.team?.teamId === team.id);
+  const live = new Map<string, PaneActivity>();
+  members.forEach((pane, i) => {
+    const activity = activities[i];
+    if (activity) live.set(pane.id, activity);
+  });
+  const heads = new Map(head ? [[teamHeldPath(team) ?? deck.cwd, head]] : []);
+  return teamCardsView(deck, live, heads, null).find((c) => c.id === team.id)!;
+}
+
 describe("teamCardView", () => {
-  it("is six things: dot, name, menu, branch, size, directory — and nothing about the members", () => {
-    const view = teamCardView(ws([attached], { "team-1": 3 }), attached, [working, done, undefined]);
+  it("is seven things: dot, name, menu, branch, size, directory, tasks — and nothing about the members", () => {
+    const view = card(ws([attached], { "team-1": 3 }), attached, [working, done, undefined]);
     expect(view).toEqual({
       id: "team-1",
       name: "api",
       branch: "kd/api",
       cwd: "/repo/.wt/api",
+      dir: "api",
       size: 3,
       dot: "working",
-      pending: false,
+      tasksLine: null,
+      className: "team-card team-card--working",
       actions: ["add-member", "rename", "disband"],
+      refusals: {},
     });
+  });
+
+  it("wears its dot's tone and, while its directory is not there, the pending rim", () => {
+    expect(card(ws([creating], { "team-2": 1 }), creating, [undefined]).className).toBe(
+      "team-card team-card--creating team-card--pending",
+    );
   });
 
   it("prefers the live head's branch over the one on record, and has none for a bare directory", () => {
     const deck = ws([attached], { "team-1": 1 });
-    expect(teamCardView(deck, attached, [], { branch: "kd/api-v2", head: "abc" }).branch).toBe(
+    expect(card(deck, attached, [], { branch: "kd/api-v2", head: "abc" }).branch).toBe(
       "kd/api-v2",
     );
     // A detached head names no branch; the record still does.
-    expect(teamCardView(deck, attached, [], { head: "abc" }).branch).toBe("kd/api");
+    expect(card(deck, attached, [], { head: "abc" }).branch).toBe("kd/api");
     const root: Team = { id: "team-9", name: "root", location: { kind: "attached", cwd: "/repo" } };
-    expect(teamCardView(ws([root], {}), root, []).branch).toBeNull();
+    expect(card(ws([root], {}), root, []).branch).toBeNull();
   });
 
   it("shows a team whose directory is on its way as pending, at the path it is heading for", () => {
-    const view = teamCardView(ws([creating], { "team-2": 1 }), creating, [undefined]);
+    const view = card(ws([creating], { "team-2": 1 }), creating, [undefined]);
     expect(view).toMatchObject({
       branch: "kd/web",
       cwd: "/repo/.wt/web",
       dot: "creating",
-      pending: true,
       actions: ["add-member", "rename", "disband"],
     });
   });
 
   it("offers Retry — in the menu, and only — once the create failed", () => {
-    const view = teamCardView(ws([failed], { "team-3": 1 }), failed, [undefined]);
+    const view = card(ws([failed], { "team-3": 1 }), failed, [undefined]);
     expect(view.dot).toBe("failed");
-    expect(view.pending).toBe(true);
+    expect(view.className).toContain("team-card--pending");
     expect(view.actions).toEqual(["add-member", "rename", "disband", "retry"]);
     // The error's words are not the card's: nothing here carries them.
     expect(JSON.stringify(view)).not.toContain("branch exists");
   });
 
-  it("folds the members' activity to one dot on the rail's ladder, with the team's own rungs in it", () => {
+  it("folds the members' activity to one dot on the pane ladder, with the team's own rungs in it", () => {
     const deck = ws([attached, failed], { "team-1": 2, "team-3": 1 });
     // Louder member wins; a finished turn is the quietest thing said.
-    expect(teamCardView(deck, attached, [done, working]).dot).toBe("working");
-    expect(teamCardView(deck, attached, [done]).dot).toBe("done");
-    expect(teamCardView(deck, attached, []).dot).toBe("none");
-    expect(teamCardView(deck, attached, [working, waiting]).dot).toBe("waiting");
-    expect(teamCardView(deck, attached, [waiting, crashed]).dot).toBe("failed");
+    expect(card(deck, attached, [done, working]).dot).toBe("working");
+    expect(card(deck, attached, [done]).dot).toBe("done");
+    expect(card(deck, attached, []).dot).toBe("none");
+    expect(card(deck, attached, [working, waiting]).dot).toBe("waiting");
+    expect(card(deck, attached, [waiting, crashed]).dot).toBe("failed");
     // A member needing the person outranks a directory that is not there;
     // a failed create outranks any quieter member.
-    expect(teamCardView(deck, failed, [waiting]).dot).toBe("waiting");
-    expect(teamCardView(deck, failed, [working]).dot).toBe("failed");
+    expect(card(deck, failed, [waiting]).dot).toBe("waiting");
+    expect(card(deck, failed, [working]).dot).toBe("failed");
   });
 
   it("counts a team of one exactly like a team of many", () => {
     const deck = ws([attached], { "team-1": 1 });
-    const one = teamCardView(deck, attached, [working]);
-    const many = teamCardView(ws([attached], { "team-1": 4 }), attached, [working]);
+    const one = card(deck, attached, [working]);
+    const many = card(ws([attached], { "team-1": 4 }), attached, [working]);
     expect({ ...one, size: 0 }).toEqual({ ...many, size: 0 });
     expect(one.size).toBe(1);
     expect(many.size).toBe(4);
@@ -126,5 +153,45 @@ describe("TEAM_CARD_WORDS", () => {
     expect(TEAM_CARD_WORDS.menu("api")).toBe("Team api actions");
     expect(TEAM_CARD_WORDS.dot.failed).toBe("Needs attention");
     expect(TEAM_CARD_WORDS.action.retry).toBe("Retry the worktree");
+  });
+});
+
+describe("teamCardsView and teamHead", () => {
+  it("builds every card in deck order, each with its own head and its tasks line", () => {
+    const deck = ws([attached, creating], { "team-1": 2, "team-2": 0 });
+    const heads = new Map([["/repo/.wt/api", { branch: "kd/api-live", head: "abc" }]]);
+    const board = {
+      tasks: [
+        { id: "task-1", teamId: "team-1", status: "todo" },
+        { id: "task-2", teamId: "team-1", status: "review" },
+      ],
+    } as never;
+    const cards = teamCardsView(deck, new Map([["team-1-p1", working]]), heads, board);
+    expect(cards.map((c) => [c.id, c.branch, c.dot, c.tasksLine])).toEqual([
+      ["team-1", "kd/api-live", "working", "1 open · 1 in review"],
+      ["team-2", "kd/web", "creating", null],
+    ]);
+    // With no board read, no card says anything about tasks.
+    expect(teamCardsView(deck, new Map(), heads, null).map((c) => c.tasksLine)).toEqual([null, null]);
+  });
+
+  it("reads a team's head at its own directory, else at the workspace's", () => {
+    const heads = new Map([
+      ["/repo/.wt/api", { branch: "kd/api", head: "a" }],
+      ["/repo", { branch: "main", head: "b" }],
+    ]);
+    const deck = ws([attached], {});
+    expect(teamHead(deck, attached, heads)?.branch).toBe("kd/api");
+    const bare = { id: "t", name: "t" } as Team;
+    expect(teamHead(deck, bare, heads)?.branch).toBe("main");
+  });
+});
+
+describe("a full team's card", () => {
+  it("refuses a member in the cap's words, and nothing else", () => {
+    const full = ws([attached], { "team-1": MAX_PANES });
+    const view = card(full, attached, []);
+    expect(view.refusals).toEqual({ "add-member": TEAM_FULL_MESSAGE });
+    expect(view.actions).toContain("add-member");
   });
 });

@@ -35,12 +35,12 @@
 .tasks__team .dropdown__button {
   min-width: 0;
   padding: 5px 10px;
-  font-size: 13px;
+  font-size: var(--kd-font-normal);
 }
 
 .tasks__team-name {
-  color: #8b93a3;
-  font-size: 13px;
+  color: var(--kd-text-3);
+  font-size: var(--kd-font-normal);
 }
 
 .tasks__new {
@@ -50,11 +50,11 @@
 .tasks__error {
   margin: 0 0 10px;
   padding: 8px 10px;
-  border: 1px solid #4a2b28;
-  border-radius: 6px;
-  background-color: #1f1412;
-  color: #d98b7f;
-  font-size: 12px;
+  border: 1px solid var(--kd-err-line);
+  border-radius: var(--kd-radius-control);
+  background-color: var(--kd-err-tint);
+  color: var(--kd-err-strong);
+  font-size: var(--kd-font-small);
 }
 
 .tasks__placeholder {
@@ -65,14 +65,14 @@
   gap: 6px;
   min-height: 120px;
   padding: 24px 0;
-  color: #565e6b;
-  font-size: 13px;
+  color: var(--kd-text-4);
+  font-size: var(--kd-font-normal);
   text-align: center;
 }
 
 .tasks__placeholder-title {
-  color: #9aa0a6;
-  font-size: 14px;
+  color: var(--kd-text-3);
+  font-size: var(--kd-font-normal);
 }
 
 /* The stage: the board, and OVER its right edge — never
@@ -98,7 +98,7 @@
 
 .tasks__detail--wide .tasks__body {
   max-width: 80ch;
-  font-size: 14px;
+  font-size: var(--kd-font-normal);
 }
 
 .tasks__detail--wide .tasks__props {
@@ -147,9 +147,9 @@
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  border: 1px solid #1c2230;
-  border-radius: 8px;
-  background-color: #0e121a;
+  border: 1px solid var(--kd-seam);
+  border-radius: var(--kd-radius-pop);
+  background-color: var(--kd-tile);
 }
 
 .tasks__column-head {
@@ -157,12 +157,12 @@
   align-items: center;
   gap: 6px;
   padding: 8px 10px;
-  border-bottom: 1px solid #1c2230;
-  font-size: 11px;
+  border-bottom: 1px solid var(--kd-seam);
+  font-size: var(--kd-font-small);
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: #8b93a3;
+  color: var(--kd-text-3);
 }
 
 .tasks__column-label--in-progress {
@@ -182,7 +182,7 @@
 }
 
 .tasks__column-count {
-  color: #565e6b;
+  color: var(--kd-text-4);
   font-weight: 500;
 }
 
@@ -218,10 +218,10 @@
   min-width: 0;
   gap: 4px;
   padding: 8px 10px;
-  border: 1px solid #1c2230;
-  border-radius: 6px;
-  background-color: #111722;
-  color: #c5c8c6;
+  border: 1px solid var(--kd-seam);
+  border-radius: var(--kd-radius-control);
+  background-color: var(--kd-tile);
+  color: var(--kd-text-2);
   font: inherit;
   text-align: left;
   cursor: pointer;
@@ -244,7 +244,7 @@
 }
 
 .tasks__card:hover {
-  border-color: #2a3446;
+  border-color: var(--kd-seam-strong);
 }
 
 .tasks__card[aria-pressed="true"] {
@@ -252,7 +252,7 @@
 }
 
 .tasks__card:focus-visible {
-  outline: 1px solid #3b82f6;
+  outline: 1px solid var(--kd-focus);
   outline-offset: -1px;
 }
 
@@ -300,16 +300,16 @@
 .tasks__column--drop-over {
   border-color: var(--kd-ok-strong);
   border-style: dashed;
-  background-color: #10171f;
+  background-color: var(--kd-tile);
 }
 
 .tasks__card--cancelled .tasks__card-title {
-  color: #565e6b;
+  color: var(--kd-text-4);
   text-decoration: line-through;
 }
 
 .tasks__card-title {
-  font-size: 13px;
+  font-size: var(--kd-font-normal);
   line-height: 1.35;
 }
 
@@ -317,25 +317,25 @@
   display: flex;
   align-items: baseline;
   gap: 8px;
-  color: #565e6b;
-  font-size: 11px;
+  color: var(--kd-text-4);
+  font-size: var(--kd-font-small);
 }
 
 .tasks__card-meta code {
-  color: #8b93a7;
-  font-size: 11px;
+  color: var(--kd-text-3);
+  font-size: var(--kd-font-small);
 }
 
 .tasks__mark {
   color: var(--status-waiting);
-  font-size: 10px;
+  font-size: var(--kd-font-small);
   font-weight: 700;
   letter-spacing: 0.06em;
 }
 
 .tasks__card-blocked {
   color: var(--status-failed);
-  font-size: 11px;
+  font-size: var(--kd-font-small);
 }
 /* The drawer: one task whole, over the board's right edge, scrolling on
    its own. The board stays interactive beside it — a card can still be
@@ -355,10 +355,10 @@
   gap: 6px;
   min-height: 0;
   padding: 12px 14px;
-  border: 1px solid #1c2230;
-  border-radius: 8px;
-  background-color: #0e121a;
-  box-shadow: -16px 0 32px rgba(0, 0, 0, 0.45);
+  border: 1px solid var(--kd-seam);
+  border-radius: var(--kd-radius-pop);
+  background-color: var(--kd-tile);
+  box-shadow: var(--kd-shadow-float);
   overflow-y: auto;
   transition:
     width 220ms ease,
@@ -373,8 +373,8 @@
 
 .tasks__detail-title {
   margin: 0;
-  color: #e6e9ef;
-  font-size: 15px;
+  color: var(--kd-text);
+  font-size: var(--kd-font-normal);
   font-weight: 600;
 }
 
@@ -383,14 +383,14 @@
 }
 
 .tasks__detail-meta code {
-  color: #8b93a7;
-  font-size: 11px;
+  color: var(--kd-text-3);
+  font-size: var(--kd-font-small);
 }
 
 .tasks__section {
   margin-top: 10px;
-  color: #565e6b;
-  font-size: 10px;
+  color: var(--kd-text-4);
+  font-size: var(--kd-font-small);
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -398,22 +398,22 @@
 
 .tasks__body {
   margin: 0;
-  color: #c5c8c6;
-  font-size: 13px;
+  color: var(--kd-text-2);
+  font-size: var(--kd-font-normal);
   line-height: 1.5;
   white-space: pre-wrap;
 }
 
 .tasks__muted {
   margin: 0;
-  color: #565e6b;
-  font-size: 12px;
+  color: var(--kd-text-4);
+  font-size: var(--kd-font-small);
 }
 
 .tasks__pick .dropdown__button {
   width: 100%;
   padding: 6px 10px;
-  font-size: 13px;
+  font-size: var(--kd-font-normal);
 }
 
 /* The properties: label on the left, picker on the right, one row each —
@@ -427,8 +427,8 @@
 }
 
 .tasks__prop-label {
-  color: #565e6b;
-  font-size: 12px;
+  color: var(--kd-text-4);
+  font-size: var(--kd-font-small);
 }
 
 .tasks__status-choice {
@@ -442,7 +442,7 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background-color: #3b4658;
+  background-color: var(--kd-selected);
   flex: none;
 }
 
@@ -475,23 +475,23 @@
   border: 0;
   padding: 0;
   background: none;
-  color: #c5c8c6;
+  color: var(--kd-text-2);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--kd-font-small);
   text-align: left;
   cursor: pointer;
 }
 
 .tasks__link code {
-  color: #8b93a7;
+  color: var(--kd-text-3);
 }
 
 .tasks__link:hover:not(:disabled) {
-  color: #e6e9ef;
+  color: var(--kd-text);
 }
 
 .tasks__link:disabled {
-  color: #565e6b;
+  color: var(--kd-text-4);
   cursor: default;
 }
 
@@ -517,17 +517,17 @@
   align-items: center;
   justify-content: center;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--kd-radius-mark);
   background: transparent;
-  color: #565e6b;
-  font-size: 15px;
+  color: var(--kd-text-4);
+  font-size: var(--kd-font-normal);
   line-height: 1;
   cursor: pointer;
 }
 
 .tasks__remove:hover {
-  background-color: #2a1f1f;
-  color: #d98b7f;
+  background-color: var(--kd-err-tint);
+  color: var(--kd-err-strong);
 }
 
 .tasks__comment {
@@ -535,17 +535,17 @@
   flex-direction: column;
   gap: 2px;
   padding: 6px 0;
-  border-top: 1px solid #1c2230;
+  border-top: 1px solid var(--kd-seam);
 }
 
 .tasks__comment-who {
-  color: #565e6b;
-  font-size: 11px;
+  color: var(--kd-text-4);
+  font-size: var(--kd-font-small);
 }
 
 .tasks__comment-body {
-  color: #c5c8c6;
-  font-size: 13px;
+  color: var(--kd-text-2);
+  font-size: var(--kd-font-normal);
   white-space: pre-wrap;
 }
 
@@ -567,20 +567,20 @@
   display: flex;
   flex-direction: column;
   gap: 3px;
-  font-size: 11px;
+  font-size: var(--kd-font-small);
 }
 
 .tasks__log-who {
-  color: #8b93a7;
+  color: var(--kd-text-3);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 .tasks__log-text {
-  color: #9aa0a6;
+  color: var(--kd-text-3);
 }
 
 .tasks__log-age {
-  color: #565e6b;
+  color: var(--kd-text-4);
 }
 
 /* The compose panel: its own head with a ×, roomier fields, and the
@@ -608,12 +608,12 @@
 .tasks__compose-actions {
   flex: none;
   padding: 12px 18px;
-  border-top: 1px solid #1c2230;
+  border-top: 1px solid var(--kd-seam);
 }
 
 .tasks__compose .form__input {
   padding: 10px 12px;
-  font-size: 14px;
+  font-size: var(--kd-font-normal);
 }
 
 .tasks__compose .tasks__composer {

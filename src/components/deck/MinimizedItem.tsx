@@ -3,7 +3,8 @@ import type { MouseEvent } from "react";
 import { activityBadge, paneFrame } from "../../domain/status";
 import { usePaneActivity } from "../../app/usePaneActivity";
 import { RestoreUpIcon } from "../../ui/icons";
-import { BranchBadge, StoppedMarker, YoloBadge } from "../../ui/badges";
+import { YoloBadge } from "../../ui/badges";
+import { trayChipStatus, type TrayChipStatus } from "../../presentation/trayView";
 import type { GitBadge } from "../../ui/gitBadge";
 import { AgentGlyph, type AgentGlyphIcon } from "../../ui/AgentGlyph";
 import { MinimizedDetailsTooltip } from "./MinimizedDetailsTooltip";
@@ -39,44 +40,67 @@ interface MinimizedItemContentProps {
   title: string;
   /** The agent's brand mark; absent/null draws the neutral fallback. */
   icon?: AgentGlyphIcon | null;
-  gitBadge?: GitBadge | null;
+  /** The dot and, when it needs a person, the words — settled by
+   * trayChipStatus. The branch and the stopped marker are the hover
+   * details' to say; the chip keeps to who and how. */
+  status: TrayChipStatus | null;
   yolo?: boolean;
-  /** The pane behind this stand-in has no process ([`MinimizedTrayEntry`]). */
-  stopped?: boolean;
 }
 
 /** Shared visual payload for the live control and the tray's hidden sizer. */
 export function MinimizedItemContent({
   title,
   icon,
-  gitBadge,
+  status,
   yolo,
-  stopped,
 }: MinimizedItemContentProps) {
   return (
     <>
+      {status && (
+        <span className={`minimized__status minimized__status--${status.tone}`} aria-hidden />
+      )}
       <span className="minimized__agent" aria-hidden>
         <AgentGlyph icon={icon} />
       </span>
       <span className="minimized__title">{title}</span>
-      {/* State markers ride right of the title, in the same order the pane
-          header carries them beside its own title. */}
-      {stopped && <StoppedMarker className="minimized__stopped" />}
+      {status?.word && (
+        <span className={`minimized__word minimized__word--${status.tone}`}>{status.word}</span>
+      )}
       {yolo && (
         <YoloBadge size="sm" decorative className="minimized__yolo" />
-      )}
-      {gitBadge && (
-        <BranchBadge
-          size="sm"
-          decorative
-          className="minimized__branch"
-          label={gitBadge.label}
-        />
       )}
       <span className="minimized__restore" aria-hidden>
         <RestoreUpIcon />
       </span>
     </>
+  );
+}
+
+/** The sizer's copy of one chip: the same content, reading the same live
+ * activity, so a chip that grows a "needs you" is measured with it. */
+export function MinimizedItemMeasure({
+  paneId,
+  title,
+  icon,
+  yolo,
+  stopped,
+}: {
+  paneId: string;
+  title: string;
+  icon?: AgentGlyphIcon | null;
+  yolo?: boolean;
+  stopped?: boolean;
+}) {
+  const activity = usePaneActivity(paneId);
+  return (
+    <span className="minimized minimized--chip minimized--measure">
+      <MinimizedItemContent
+        title={title}
+        icon={icon}
+        status={trayChipStatus(activity, Boolean(stopped))}
+        yolo={yolo}
+      />
+    </span>
   );
 }
 
@@ -168,9 +192,8 @@ export function MinimizedItem({
         <MinimizedItemContent
           title={title}
           icon={icon}
-          gitBadge={gitBadge}
+          status={trayChipStatus(activity, Boolean(stopped))}
           yolo={yolo}
-          stopped={stopped}
         />
       </button>
       {active && tooltipAnchor && (

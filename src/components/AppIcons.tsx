@@ -120,25 +120,6 @@ export function DockIcon() {
   );
 }
 
-export function SidebarIcon() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width={15}
-      height={15}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <rect x="3" y="4" width="18" height="16" rx="2" />
-      <line x1="9" y1="4" x2="9" y2="20" />
-    </svg>
-  );
-}
-
 export function McpIcon() {
   // A plug — a server the agents connect to.
   return (
@@ -161,6 +142,6 @@ export function McpIcon() {
   );
 }
 
-/** The turning chevron lives in ui-kit: the rail's teams and a plugin's
- * sections open under the same mark. */
+/** The chevron lives in ui-kit: the bar's breadcrumb parts its crumbs
+ * with it, and a plugin's sections open under the same mark. */
 export { ChevronIcon } from "@keepdeck/ui-kit/icons";

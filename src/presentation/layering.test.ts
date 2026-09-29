@@ -40,7 +40,7 @@ describe("layering", () => {
   });
 
   it("(а) the zero-workspace form is not a modal layer and covers nothing", () => {
-    // It renders in the deck overlay at z 10, under the top bar, the rail and
+    // It renders in the deck overlay at z 10, under the top bar, the strip and
     // any portaled dialog: a flag that counted it claimed a layer the user
     // could tab straight past.
     const zero = at({ workspaceCount: 0, hasActive: false });

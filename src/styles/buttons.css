@@ -2,17 +2,17 @@
 .btn-destructive {
   padding: 9px 18px;
   border: 0;
-  border-radius: 8px;
-  background-color: #7a2f2f;
-  color: #ffe9e9;
+  border-radius: var(--kd-radius-control);
+  background-color: var(--kd-err-fill);
+  color: var(--kd-err-strong);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--kd-font-normal);
   font-weight: 500;
   cursor: pointer;
 }
 
 .btn-destructive:hover:not(:disabled) {
-  background-color: #933a3a;
+  background-color: var(--kd-err-line);
 }
 
 .btn-destructive:disabled {

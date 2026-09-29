@@ -4,6 +4,7 @@ import {
   CLOSE_AGENT_EVENT,
   NEW_AGENT_EVENT,
   NEW_WORKSPACE_EVENT,
+  NEXT_NEEDS_YOU_EVENT,
   SETTINGS_EVENT,
   SUSPEND_AGENT_EVENT,
   TOGGLE_MAXIMIZE_EVENT,
@@ -21,6 +22,8 @@ export interface MenuActions {
   suspendAgent(): void;
   /** View → Toggle Maximize Agent (⇧⌘M). */
   toggleMaximize(): void;
+  /** View → Next Agent Needing You (⌘J). */
+  nextNeedsYou(): void;
   /** Settings… (⌘,) — the app submenu on macOS, File elsewhere ([F6]). */
   openSettings(): void;
 }
@@ -52,6 +55,7 @@ export function useMenuHotkeys(actions: MenuActions) {
     subscribe(CLOSE_AGENT_EVENT, "closeAgent");
     subscribe(SUSPEND_AGENT_EVENT, "suspendAgent");
     subscribe(TOGGLE_MAXIMIZE_EVENT, "toggleMaximize");
+    subscribe(NEXT_NEEDS_YOU_EVENT, "nextNeedsYou");
     subscribe(SETTINGS_EVENT, "openSettings");
     return () => {
       cancelled = true;

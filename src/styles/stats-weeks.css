@@ -34,19 +34,19 @@
   min-width: 8px;
   height: 8px;
   margin-left: 4px;
-  border: 1px dashed #232c3d;
-  border-radius: 2px;
+  border: 1px dashed var(--kd-seam);
+  border-radius: var(--kd-radius-mark);
   /* Hatching, not a fill: an empty tint would read as a fourth provider. */
   background: repeating-linear-gradient(
     -45deg,
-    #182031 0 3px,
+    var(--kd-hover) 0 3px,
     transparent 3px 6px
   );
   box-sizing: border-box;
 }
 
 .stats__week-progress {
-  color: #596273;
+  color: var(--kd-text-4);
   font-variant-numeric: tabular-nums;
   text-align: right;
   white-space: nowrap;
@@ -59,7 +59,7 @@
 }
 
 .stats__week-label b {
-  color: #c5c8c6;
+  color: var(--kd-text-2);
   font-weight: 500;
   white-space: nowrap;
 }
@@ -68,13 +68,13 @@
   grid-column: 2 / -1;
   align-self: center;
   justify-self: center;
-  color: #596273;
-  font-size: 12px;
+  color: var(--kd-text-4);
+  font-size: var(--kd-font-small);
   white-space: nowrap;
 }
 
 .stats__week-tokens {
-  color: #c5c8c6;
+  color: var(--kd-text-2);
   font-variant-numeric: tabular-nums;
   font-weight: 600;
   text-align: right;
@@ -94,11 +94,11 @@
 
 .stats__week-bar i {
   min-width: 2px;
-  border-radius: 2px;
+  border-radius: var(--kd-radius-mark);
 }
 
 .stats__week-delta {
-  color: #9aa3af;
+  color: var(--kd-text-3);
   font-variant-numeric: tabular-nums;
   text-align: right;
   white-space: nowrap;
@@ -109,7 +109,7 @@
   gap: 5px;
   align-items: baseline;
   min-width: 0;
-  color: #9aa3af;
+  color: var(--kd-text-3);
   white-space: nowrap;
 }
 
@@ -119,7 +119,7 @@
 }
 
 .stats__week-cost {
-  color: #9aa3af;
+  color: var(--kd-text-3);
   font-variant-numeric: tabular-nums;
   text-align: right;
 }
@@ -130,8 +130,8 @@
   justify-content: center;
   gap: 14px;
   padding-top: 8px;
-  color: #596273;
-  font-size: 11px;
+  color: var(--kd-text-4);
+  font-size: var(--kd-font-small);
   font-variant-numeric: tabular-nums;
 }
 
@@ -139,14 +139,14 @@
   padding: 0 8px;
   border: 0;
   background: none;
-  color: #4f8fdd;
-  font-size: 14px;
+  color: var(--kd-working);
+  font-size: var(--kd-font-normal);
   line-height: 1;
   cursor: pointer;
 }
 
 .stats__weeks-pager button:disabled {
-  color: #2b3242;
+  color: var(--kd-seam);
   cursor: default;
 }
 
@@ -159,7 +159,7 @@
 
 .stats__week-tip b {
   margin-bottom: 2px;
-  color: #e6e8eb;
+  color: var(--kd-text);
   font-weight: 600;
 }
 
@@ -168,7 +168,7 @@
   width: 8px;
   height: 8px;
   margin-right: 6px;
-  border-radius: 2px;
+  border-radius: var(--kd-radius-mark);
   vertical-align: -1px;
 }
 

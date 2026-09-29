@@ -23,7 +23,7 @@ export type CloseTarget =
  * screen, including a suspended pane represented only in the tray, nor a
  * pane of a team that is not open. An empty workspace — no team, no pane —
  * has nothing but itself to close, so ⌘W targets the workspace — same as
- * the rail's close button. At the cards level, or inside a team with nobody
+ * the workspace menu's Close. At the cards level, or inside a team with nobody
  * on it, there is nothing in front of the person to close: null, the same
  * as a stale selection. Null too when there is no active workspace or a
  * stale/absent selection leaves several candidates. Pure.

@@ -41,12 +41,12 @@
   box-sizing: border-box;
   height: var(--chip-diameter);
   padding: 0 9px;
-  border: 1px solid #3b4250;
+  border: 1px solid var(--kd-seam-strong);
   border-radius: 999px;
   background-color: rgba(255, 255, 255, 0.035);
-  color: #e5e7eb;
+  color: var(--kd-text);
   font: inherit;
-  font-size: 11px;
+  font-size: var(--kd-font-small);
   font-weight: 500;
   white-space: nowrap;
   min-width: 0;
@@ -58,7 +58,7 @@ button.chip {
 
 /* sm: the minimized stand-in's badge — a notch tighter than the header's. */
 .chip--sm {
-  --chip-diameter: 20px;
+  --chip-diameter: 18px;
   padding: 0 8px;
 }
 
@@ -69,15 +69,15 @@ button.chip {
 }
 
 .chip--warn {
-  color: #e0b568;
-  background-color: rgba(224, 181, 104, 0.08);
-  border-color: #6b5327;
+  color: var(--kd-warn-strong);
+  background-color: var(--kd-warn-tint);
+  border-color: var(--kd-warn-line);
 }
 
 .chip--error {
-  color: #d98c8c;
-  background-color: rgba(177, 60, 60, 0.12);
-  border-color: #5a2e2e;
+  color: var(--kd-err-strong);
+  background-color: var(--kd-err-tint);
+  border-color: var(--kd-err-line);
 }
 
 /* A chip collapsed to its glyph: the height becomes the diameter, so the
@@ -103,7 +103,7 @@ button.chip {
   flex: none;
   display: inline-flex;
   align-items: center;
-  color: #c3c8d4;
+  color: var(--kd-text-2);
 }
 /* A toned chip tints its glyph with the tone, not the structural gray. */
 .chip--warn .chip__icon,
@@ -118,12 +118,4 @@ button.chip {
   min-width: 0;
   /* See --text-optical-nudge at the top of this sheet. */
   transform: translateY(var(--text-optical-nudge));
-}
-
-/* The team name the TeamBadge appends to a role where a deck runs more than
-   one team. Dimmed, and inside the label slot rather than beside it: it
-   qualifies the address, so it must read as one string with it and be the
-   part a narrow header clips first. */
-.team-badge__team {
-  color: #8b93a3;
 }

@@ -14,12 +14,12 @@
   z-index: 200;
   display: block;
   padding: 7px 10px;
-  border: 1px solid #1c2230;
-  border-radius: 8px;
-  background: #10141c;
-  box-shadow: 0 6px 18px rgb(0 0 0 / 35%);
-  color: #c5c8c6;
-  font-size: 11px;
+  border: 1px solid var(--kd-seam);
+  border-radius: var(--kd-radius-pop);
+  background: var(--kd-tile);
+  box-shadow: var(--kd-shadow-float);
+  color: var(--kd-text-2);
+  font-size: var(--kd-font-small);
   line-height: 1.5;
   white-space: nowrap;
   max-width: min(320px, calc(100vw - 16px));

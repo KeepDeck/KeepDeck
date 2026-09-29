@@ -1,193 +1,61 @@
-/* The status frame ladder — the ONE home of the agent-status palette and
-   rhythms, shared by every surface that renders `paneFrame()`: the pane
-   border, the minimized stand-in, and the rail dot. The domain ranks
-   (frame.ts); this file only paints.
+/* The status paint — the agent-status names (their hues come from the one
+   status palette in tokens.css), shared by every surface that renders
+   `paneFrame()`: the pane's rim, dot and word, and the minimized stand-in.
+   The domain ranks (frame.ts); this file only paints.
 
-   Rhythm is state IDENTITY, not urgency: failed always pulses at 1s,
-   waiting always breathes at 2s, working always glows at 1.6s — a frame
-   never changes rhythm, so the pace itself names the state from across
-   the room. */
+   Everything is static: the hue and the word name the state, and nothing
+   at rest pulses. */
 :root {
-  --status-working: #7aa2f7;
-  --status-waiting: #e0af68;
-  --status-failed: #f7768e;
-  --status-done: #9ece6a;
-  /* The selection hue's home is the base palette's --kd-ok (one hex for
-     "good/live/chosen" across the app); this rung aliases it. */
-  --status-selected: var(--kd-ok);
+  --status-working: var(--kd-working);
+  --status-waiting: var(--kd-warn);
+  --status-failed: var(--kd-err);
+  --status-done: var(--kd-ok);
 }
 
-/* The header dot's hues — the SAME four names as the frames, so "change
-   the waiting colour" is one edit, never a near-match hunt across files.
-   Chip paints its icon slot structural gray by default; the yield rule
-   below is what lets these tones reach the dot at all. Working keeps its
-   own soft 1.6s pulse — a third rhythm on purpose: it must read as alive
-   without ever being mistaken for waiting's 2s breathe or failed's 1s
-   alarm. */
-.pane__activity .chip__icon {
-  color: inherit;
-}
+/* The header's dot and its state word take the SAME four names as the
+   frames, so "change the waiting colour" is one edit. Static: the deck at
+   rest does not pulse — the word, the rim and the hue carry the state. */
+.pane__status--working { color: var(--status-working); }
+.pane__status--waiting { color: var(--status-waiting); }
+.pane__status--done { color: var(--status-done); }
+.pane__status--failed { color: var(--status-failed); }
+.pane__state--waiting { color: var(--status-waiting); }
+.pane__state--failed { color: var(--status-failed); }
 
-.pane__activity--working {
-  color: var(--status-working);
-}
-
-.pane__activity--working .pane__activity-dot {
-  animation: status-dot-working 1.6s ease-in-out infinite;
-}
-
-.pane__activity--waiting {
-  color: var(--status-waiting);
-}
-
-.pane__activity--done {
-  color: var(--status-done);
-}
-
-.pane__activity--failed {
-  color: var(--status-failed);
-}
-
-@keyframes status-dot-working {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.35;
-  }
-}
-
-/* Pane frames: colour the reserved 2px border (.pane keeps the layout). */
+/* Pane frames: colour the reserved 1px border (.pane keeps the layout).
+   A tile wears a rim only for what the eye must find — the one it types
+   into, and an agent that needs a person or has failed. Working and done
+   stay rungs of the ladder (the strip's marks and the tray still rank them) but a
+   tile says them with its dot, not its edge. The rims are static: the
+   colour already names the state. */
 .pane--frame-selected {
-  border-color: var(--status-selected);
-}
-
-.pane--frame-done {
-  border-color: var(--status-done);
-}
-
-/* Working's 1.6s glow — the same rhythm the header dot already names it
-   with, quieter than waiting's breathe because a running agent is a
-   normal sight, not a request. */
-.pane--frame-working {
-  border-color: var(--status-working);
-  animation: status-frame-working 1.6s ease-in-out infinite;
+  border-color: var(--kd-ring);
 }
 
 .pane--frame-waiting {
-  border-color: var(--status-waiting);
-  animation: status-frame-breathe 2s ease-in-out infinite;
+  border-color: var(--kd-warn-line);
 }
 
 .pane--frame-failed {
-  border-color: var(--status-failed);
-  animation: status-frame-pulse 1s ease-in-out infinite;
+  border-color: var(--kd-err-line);
 }
 
-/* Minimized stand-ins wear the same ladder on their border — attention
-   must survive minimizing; these are exactly the panes nobody is watching.
-   The chip recolours the border it already has; the bar gains one inside
-   its border-box (its geometry never moves — minimize.css owns that). No
-   selection rung: a hidden pane is never the selected one. Doubled class
-   beats the chip's own border AND its :hover recolour at equal
-   specificity by source order. */
-.minimized.minimized--frame-done {
-  border: 1px solid var(--status-done);
-}
-
-.minimized.minimized--frame-working {
-  border: 1px solid var(--status-working);
-  animation: status-frame-working 1.6s ease-in-out infinite;
-}
-
+/* Minimized stand-ins: attention must survive minimizing — these are
+   exactly the panes nobody is watching — so a waiting or failed chip keeps a
+   rim, static like the tile's. Every state shows as the chip's dot; working
+   and done need no rim. Doubled class beats the chip's own border and its
+   :hover recolour at equal specificity by source order. */
 .minimized.minimized--frame-waiting {
-  border: 1px solid var(--status-waiting);
-  animation: status-frame-breathe 2s ease-in-out infinite;
+  border: 1px solid var(--kd-warn-line);
 }
 
 .minimized.minimized--frame-failed {
-  border: 1px solid var(--status-failed);
-  animation: status-frame-pulse 1s ease-in-out infinite;
+  border: 1px solid var(--kd-err-line);
 }
 
-/* The rail dot: the same ladder folded over a whole workspace (the
-   domain's workspaceFrame). `selected` is the active workspace's green the
-   dot has always shown. It is the row's ONLY dot — the unread-notification
-   dot that used to sit beside the agent count is gone, so nothing here
-   competes for the reader's eye. A dot has no border to modulate, so its
-   rhythms ride opacity — same 2s/1s identities. */
-.rail__dot--selected {
-  background-color: var(--status-selected);
-}
-
-.rail__dot--done {
-  background-color: var(--status-done);
-}
-
-.rail__dot--working {
-  background-color: var(--status-working);
-  animation: status-dot-working 1.6s ease-in-out infinite;
-}
-
-.rail__dot--waiting {
-  background-color: var(--status-waiting);
-  animation: status-dot-breathe 2s ease-in-out infinite;
-}
-
-.rail__dot--failed {
-  background-color: var(--status-failed);
-  animation: status-dot-pulse 1s ease-in-out infinite;
-}
-
-@keyframes status-dot-breathe {
-  50% {
-    opacity: 0.4;
-  }
-}
-
-@keyframes status-dot-pulse {
-  50% {
-    opacity: 0.3;
-  }
-}
-
-/* The frame glows modulate the rung's own colour toward transparent
-   (color-mix): one keyframe pair per rung, carrying its palette variable
-   and fade depth (waiting and working both fade to 40% — a shared calm;
-   failed to 30% — an alarm). The RHYTHM that names the state (1s, 2s,
-   1.6s) lives on each surface's `animation` shorthand, not here, so a
-   surface that reuses a pair stays on palette and picks its own pace. */
-@keyframes status-frame-breathe {
-  50% {
-    border-color: color-mix(in srgb, var(--status-waiting) 40%, transparent);
-  }
-}
-
-@keyframes status-frame-working {
-  50% {
-    border-color: color-mix(in srgb, var(--status-working) 40%, transparent);
-  }
-}
-
-@keyframes status-frame-pulse {
-  50% {
-    border-color: color-mix(in srgb, var(--status-failed) 30%, transparent);
-  }
-}
-
-/* The state is still named by colour; only the rhythm rests. */
-@media (prefers-reduced-motion: reduce) {
-  .pane--frame-waiting,
-  .pane--frame-failed,
-  .pane--frame-working,
-  .minimized.minimized--frame-waiting,
-  .minimized.minimized--frame-failed,
-  .minimized.minimized--frame-working,
-  .rail__dot--waiting,
-  .rail__dot--failed,
-  .rail__dot--working,
-  .pane__activity--working .pane__activity-dot {
-    animation: none;
-  }
-}
+.minimized__status--working { color: var(--status-working); }
+.minimized__status--waiting { color: var(--status-waiting); }
+.minimized__status--done { color: var(--status-done); }
+.minimized__status--failed { color: var(--status-failed); }
+.minimized__word--waiting { color: var(--status-waiting); }
+.minimized__word--failed { color: var(--status-failed); }

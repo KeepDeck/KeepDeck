@@ -16,7 +16,7 @@ import { SkillsDialog } from "./components/skills/SkillsDialog";
 import { McpDialog } from "./components/mcp/McpDialog";
 import { StatsDialog } from "./components/stats/StatsDialog";
 import { AgentDialog } from "./components/workspace/AgentDialog";
-import { WorkspacesRail } from "./components/workspace/WorkspacesRail";
+import { WorkspaceStrip } from "./components/workspace/WorkspaceStrip";
 import { WorkspaceForm } from "./components/workspace/WorkspaceForm";
 import {
   DECK_STATE_VERSION,
@@ -33,6 +33,9 @@ import { useCallback } from "react";
 import { sharedDirectoryAsk } from "./app/sharedDirectoryMessage";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
 import { ModalOverlay } from "./ui/ModalOverlay";
+// The UI font (tokens.css --kd-font-ui) — its @font-face rules, before the
+// sheets that name it.
+import "@fontsource-variable/inter";
 import "./styles/index.css";
 
 /** The registry's reads, bound to IPC here and nowhere else — one object for
@@ -72,7 +75,6 @@ function App() {
     frozenAck,
     gitHeads,
     handleCreateWorkspace,
-    handleEnterTeam,
     handleSelectWorkspace,
     info,
     openNotification,
@@ -80,13 +82,14 @@ function App() {
     paneViewActions,
     pluginTopBarActions,
     pushAlert,
-    railCollapsed,
-    railWorkspaces,
+    strip,
+    paneActivities,
+    workspaceCrumb,
+    addTeamMember,
     runView,
     browserShared,
     setCreating,
     setFrozenAck,
-    setRailCollapsed,
     openSettings,
     closeSettings,
     openSkills,
@@ -108,6 +111,7 @@ function App() {
     settingsOpen,
     settingsSection,
     showBell,
+    needsYou,
     showForm,
     skillsOpen,
     mcpOpen,
@@ -127,10 +131,16 @@ function App() {
   const updateAction = updateActionView(updateState);
   return (
     <div className="deck">
+      <WorkspaceStrip
+        view={strip}
+        onSelect={handleSelectWorkspace}
+        onAdd={() => setCreating(true)}
+        onReorder={deck.moveWorkspace}
+        version={info?.version ?? null}
+      />
+      <div className="deck__main">
       <DeckBar
-        railCollapsed={railCollapsed}
-        onToggleRail={() => setRailCollapsed((c) => !c)}
-        workspaceName={railCollapsed && active ? active.name : null}
+        workspace={workspaceCrumb}
         agents={agents}
         usageLiveAgents={usageLiveAgents}
         updateAction={updateAction}
@@ -151,6 +161,7 @@ function App() {
         onOpenArtifacts={openArtifacts}
         onOpenTasks={openTasks ? () => void openTasks() : null}
         onOpenSettings={() => void openSettings()}
+        needsYou={needsYou}
         notifications={
           showBell
             ? { center: notificationCenter, onOpen: openNotification }
@@ -158,22 +169,6 @@ function App() {
         }
       />
       <div className="deck__body">
-        {!railCollapsed && (
-          <WorkspacesRail
-            workspaces={railWorkspaces}
-            activeId={deck.activeId}
-            onSelect={handleSelectWorkspace}
-            onAdd={() => setCreating(true)}
-            onClose={closeFlow.requestCloseWorkspace}
-            onRename={deck.renameWorkspace}
-            onEnterTeam={handleEnterTeam}
-            onToggleTeams={deck.toggleRailTeams}
-            onRenameTeam={deck.renameTeam}
-            onDisbandTeam={closeFlow.requestDisbandTeam}
-            onReorder={deck.moveWorkspace}
-            version={info?.version ?? null}
-          />
-        )}
         <div className="deck__stage">
           <DeckStage
             workspaces={deck.workspaces}
@@ -185,6 +180,7 @@ function App() {
             agentsReady={!agentsLoading}
             unavailableAgentReasons={unavailableReasons}
             gitHeads={gitHeads}
+            activities={paneActivities}
             journal={deck.journal.records}
             onContinueSession={(wsId, teamId, mode, record, role) => {
               const ws = findWorkspace(deck.workspaces, wsId);
@@ -198,10 +194,7 @@ function App() {
             onCloseAgent={closeFlow.requestCloseAgent}
             onRenamePane={deck.renamePane}
             onEnterTeam={deck.openTeam}
-            onAddTeamMember={(wsId, teamId) => {
-              const ws = findWorkspace(deck.workspaces, wsId);
-              if (ws) void agentFlow.openFor(ws, { kind: "member", teamId });
-            }}
+            onAddTeamMember={addTeamMember}
             onRenameTeam={deck.renameTeam}
             onDisbandTeam={closeFlow.requestDisbandTeam}
             onPaneTitle={deck.setPaneAutoTitle}
@@ -459,6 +452,7 @@ function App() {
             mode={dockMode}
           />
         )}
+      </div>
       </div>
       <PluginOverlays />
     </div>

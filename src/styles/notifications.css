@@ -1,7 +1,8 @@
-/* Notification bell + anchored panel (components/notifications/). The bell is
-   one of the bar's quiet controls (a ghost Button, like its neighbours); what
-   is here is only what makes it a BELL — the badge it carries and the panel
-   that drops below it. */
+/* The bar's attention control + anchored panel (components/notifications/).
+   At rest it is the bell, one of the bar's quiet controls (a ghost Button,
+   like its neighbours); while agents are blocked it becomes the "N need you"
+   pill. What is here is what makes it either — the badge, the pill, and the
+   panel that drops below it. */
 
 .bell {
   position: relative;
@@ -19,15 +20,47 @@
   min-width: 14px;
   height: 14px;
   padding: 0 3px;
-  border-radius: 7px;
-  background-color: #b13c3c;
-  color: #eceff4;
-  font-size: 9px;
+  border-radius: var(--kd-radius-control);
+  background-color: var(--kd-err);
+  color: var(--kd-text);
+  font-size: var(--kd-font-small);
   line-height: 14px;
   font-weight: 600;
   text-align: center;
   font-variant-numeric: tabular-nums;
   pointer-events: none;
+}
+
+/* "N need you": the one control on the bar that speaks in a status hue,
+   because it is the one that asks something of the person. A tinted pill
+   with its dot — never animated; the count and the colour carry it. */
+.bell__need {
+  gap: 6px;
+  padding: 0 9px;
+  border-radius: 999px;
+  font-size: var(--kd-font-small);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.bell__need-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: currentColor;
+}
+
+.bell__need--waiting {
+  color: var(--kd-warn-strong);
+  background-color: var(--kd-warn-tint);
+  box-shadow: inset 0 0 0 1px var(--kd-warn-line);
+}
+
+.bell__need--failed {
+  color: var(--kd-err-strong);
+  background-color: var(--kd-err-tint);
+  box-shadow: inset 0 0 0 1px var(--kd-err-line);
 }
 
 .bell__panel {
@@ -41,11 +74,40 @@
   max-height: 420px;
   display: flex;
   flex-direction: column;
-  border: 1px solid #1c2230;
-  border-radius: 10px;
-  background-color: #0e121a;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  border: 1px solid var(--kd-seam);
+  border-radius: var(--kd-radius-pop);
+  background-color: var(--kd-float);
+  box-shadow: var(--kd-shadow-float);
   overflow: hidden;
+}
+
+/* The panel's two lists — who needs you, then the feed — each a section
+   under its own head; the feed's head draws the seam between them. */
+.bell__section {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.bell__section--feed {
+  flex: 1;
+}
+
+.bell__section + .bell__section .bell__head {
+  border-top: 1px solid var(--kd-seam);
+}
+
+.bell__list--needs {
+  flex-shrink: 0;
+  max-height: 200px;
+}
+
+.bell__reason--waiting {
+  color: var(--kd-warn);
+}
+
+.bell__reason--failed {
+  color: var(--kd-err);
 }
 
 .bell__head {
@@ -53,13 +115,13 @@
   align-items: center;
   justify-content: space-between;
   padding: 10px 12px;
-  border-bottom: 1px solid #1c2230;
+  border-bottom: 1px solid var(--kd-seam);
 }
 
 .bell__title {
-  font-size: 12px;
+  font-size: var(--kd-font-small);
   font-weight: 600;
-  color: #c5c8c6;
+  color: var(--kd-text-2);
 }
 
 .bell__actions {
@@ -71,23 +133,23 @@
 .bell__action {
   border: 0;
   background: transparent;
-  color: #6b7280;
-  font-size: 11px;
+  color: var(--kd-text-3);
+  font-size: var(--kd-font-small);
   cursor: pointer;
   padding: 2px 4px;
-  border-radius: 4px;
+  border-radius: var(--kd-radius-mark);
 }
 
 .bell__action:hover {
-  color: #c5c8c6;
-  background-color: #1b2230;
+  color: var(--kd-text-2);
+  background-color: var(--kd-hover);
 }
 
 .bell__empty {
   padding: 24px 12px;
   text-align: center;
-  color: #6b7280;
-  font-size: 12px;
+  color: var(--kd-text-3);
+  font-size: var(--kd-font-small);
 }
 
 .bell__list {
@@ -105,19 +167,19 @@
   width: 100%;
   padding: 8px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--kd-radius-control);
   background: transparent;
-  color: #9aa2af;
+  color: var(--kd-text-3);
   text-align: left;
   cursor: pointer;
 }
 
 .bell__item:hover {
-  background-color: #1b2230;
+  background-color: var(--kd-hover);
 }
 
 .bell__item--unread {
-  color: #c5c8c6;
+  color: var(--kd-text-2);
 }
 
 .bell__leading {
@@ -136,16 +198,18 @@
 /* Routine info needs no ornament. Exceptional severity and achievement emoji
    share one slot, centered on the title line rather than the whole row. */
 .bell__icon {
-  font-size: 13px;
+  font-size: var(--kd-font-normal);
   line-height: 1;
 }
 
-.bell__dot--warning {
-  background-color: #c9a23c;
+.bell__dot--warning,
+.bell__dot--waiting {
+  background-color: var(--kd-warn);
 }
 
-.bell__dot--error {
-  background-color: #b13c3c;
+.bell__dot--error,
+.bell__dot--failed {
+  background-color: var(--kd-err);
 }
 
 .bell__text {
@@ -157,7 +221,7 @@
 }
 
 .bell__item-title {
-  font-size: 12px;
+  font-size: var(--kd-font-small);
   line-height: 16px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -169,16 +233,16 @@
 }
 
 .bell__body {
-  font-size: 11px;
-  color: #6b7280;
+  font-size: var(--kd-font-small);
+  color: var(--kd-text-3);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .bell__age {
-  font-size: 10px;
+  font-size: var(--kd-font-small);
   line-height: 16px;
-  color: #6b7280;
+  color: var(--kd-text-3);
   font-variant-numeric: tabular-nums;
 }

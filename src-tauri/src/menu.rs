@@ -2,8 +2,9 @@
 //!
 //! Replaces Tauri's default menu so the deck owns its hotkeys: ⌘N creates a
 //! workspace, ⌘T spawns an agent, ⌘W closes the selected one (an empty
-//! workspace: the workspace itself), ⇧⌘W suspends it and ⇧⌘M toggles its
-//! maximize. The default menu binds ⌘W to "Close Window", and macOS
+//! workspace: the workspace itself), ⇧⌘W suspends it, ⇧⌘M toggles its
+//! maximize, ⌘J goes to the next agent that needs the person, and ⌘,
+//! opens Settings. The default menu binds ⌘W to "Close Window", and macOS
 //! resolves menu accelerators before the webview ever sees the key — so the
 //! deck can only own these chords by owning the menu. The custom items don't
 //! act here: each emits an event the webview handles, where the React side
@@ -32,6 +33,10 @@ pub const SUSPEND_AGENT_EVENT: &str = "deck://menu/suspend-agent";
 const TOGGLE_MAXIMIZE_ID: &str = "toggle-maximize";
 /// Webview event for [`TOGGLE_MAXIMIZE_ID`]; mirrored in `src/ipc/menu.ts`.
 pub const TOGGLE_MAXIMIZE_EVENT: &str = "deck://menu/toggle-maximize";
+/// Menu item id for "View → Next Agent Needing You" (⌘J).
+const NEXT_NEEDS_YOU_ID: &str = "next-needs-you";
+/// Webview event for [`NEXT_NEEDS_YOU_ID`]; mirrored in `src/ipc/menu.ts`.
+pub const NEXT_NEEDS_YOU_EVENT: &str = "deck://menu/next-needs-you";
 /// Menu item id for "Settings…" (⌘,) — the app submenu on macOS, File elsewhere.
 const SETTINGS_ID: &str = "settings";
 /// Webview event for [`SETTINGS_ID`]; mirrored in `src/ipc/menu.ts`.
@@ -60,6 +65,11 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         .build(app)?;
     let toggle_maximize = MenuItemBuilder::with_id(TOGGLE_MAXIMIZE_ID, "Toggle Maximize Agent")
         .accelerator("CmdOrCtrl+Shift+M")
+        .build(app)?;
+    // The keyboard's way through the bar's "N need you": each press brings
+    // the next blocked agent forward, across workspaces.
+    let next_needs_you = MenuItemBuilder::with_id(NEXT_NEEDS_YOU_ID, "Next Agent Needing You")
+        .accelerator("CmdOrCtrl+J")
         .build(app)?;
     let settings = MenuItemBuilder::with_id(SETTINGS_ID, "Settings…")
         .accelerator("CmdOrCtrl+,")
@@ -111,6 +121,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     menu.append(
         &SubmenuBuilder::new(app, "View")
             .item(&toggle_maximize)
+            .item(&next_needs_you)
             .separator()
             .fullscreen()
             .build()?,
@@ -133,6 +144,7 @@ fn event_for(id: &str) -> Option<&'static str> {
         CLOSE_AGENT_ID => Some(CLOSE_AGENT_EVENT),
         SUSPEND_AGENT_ID => Some(SUSPEND_AGENT_EVENT),
         TOGGLE_MAXIMIZE_ID => Some(TOGGLE_MAXIMIZE_EVENT),
+        NEXT_NEEDS_YOU_ID => Some(NEXT_NEEDS_YOU_EVENT),
         SETTINGS_ID => Some(SETTINGS_EVENT),
         _ => None,
     }
@@ -145,5 +157,27 @@ pub fn handle_event<R: Runtime>(app: &AppHandle<R>, id: &str) {
         if let Err(e) = app.emit(event, ()) {
             log::warn!("menu: emitting {event} failed: {e}");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_item_of_ours_maps_to_its_own_event() {
+        let pairs = [
+            (NEW_WORKSPACE_ID, NEW_WORKSPACE_EVENT),
+            (NEW_AGENT_ID, NEW_AGENT_EVENT),
+            (CLOSE_AGENT_ID, CLOSE_AGENT_EVENT),
+            (SUSPEND_AGENT_ID, SUSPEND_AGENT_EVENT),
+            (TOGGLE_MAXIMIZE_ID, TOGGLE_MAXIMIZE_EVENT),
+            (NEXT_NEEDS_YOU_ID, NEXT_NEEDS_YOU_EVENT),
+            (SETTINGS_ID, SETTINGS_EVENT),
+        ];
+        for (id, event) in pairs {
+            assert_eq!(event_for(id), Some(event), "{id}");
+        }
+        assert_eq!(event_for("copy"), None);
     }
 }

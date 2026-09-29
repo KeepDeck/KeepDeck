@@ -42,19 +42,19 @@
 .run__open-go {
   flex: none;
   padding: 0 14px;
-  border: 1px solid #2a3446;
-  border-radius: 8px;
+  border: 1px solid var(--kd-seam-strong);
+  border-radius: var(--kd-radius-pop);
   background: transparent;
-  color: #9aa3af;
+  color: var(--kd-text-3);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--kd-font-small);
   cursor: pointer;
 }
 
 .run__open-go:hover {
-  background-color: #1b2230;
-  color: #c5c8c6;
-  border-color: #3a4658;
+  background-color: var(--kd-hover);
+  color: var(--kd-text-2);
+  border-color: var(--kd-seam-strong);
 }
 
 /* Section head with the rail's "+" idiom. */
@@ -76,18 +76,18 @@
   align-items: center;
   justify-content: center;
   border: 0;
-  border-radius: 5px;
+  border-radius: var(--kd-radius-control);
   background: transparent;
-  color: #6b7280;
-  font-size: 16px;
+  color: var(--kd-text-3);
+  font-size: var(--kd-font-title);
   line-height: 1;
   cursor: pointer;
 }
 
 .run__sect-add:hover,
 .run__sect-add[aria-expanded="true"] {
-  background-color: #1b2230;
-  color: #c5c8c6;
+  background-color: var(--kd-hover);
+  color: var(--kd-text-2);
 }
 
 /* ── The command form (opens above the list, only while in use) ─────── */
@@ -100,7 +100,7 @@
 /* Multi-line: a command can be a small script. */
 .run__command {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px;
+  font-size: var(--kd-font-small);
   resize: vertical;
   min-height: 60px;
 }
@@ -132,23 +132,23 @@
 }
 
 .run__empty-title {
-  font-size: 13px;
+  font-size: var(--kd-font-normal);
   font-weight: 600;
   letter-spacing: 0.04em;
-  color: #8b93a3;
+  color: var(--kd-text-3);
 }
 
 .run__empty-sub {
-  font-size: 12px;
-  color: #6b7280;
+  font-size: var(--kd-font-small);
+  color: var(--kd-text-3);
   max-width: 30ch;
   line-height: 1.5;
 }
 
 .run__empty-sub code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
-  color: #9aa3af;
+  font-size: var(--kd-font-small);
+  color: var(--kd-text-3);
 }
 
 /* ── The merged Commands list: rail-language rows ───────────────────── */
@@ -175,17 +175,18 @@
      and without this the row grew by the difference on every mouse-over. */
   min-height: 30px;
   padding: 0 8px;
-  border-radius: 6px;
-  font-size: 13px;
-  color: #c5c8c6;
+  border-radius: var(--kd-radius-control);
+  font-size: var(--kd-font-normal);
+  color: var(--kd-text-2);
 }
 
 .run__cmd:hover {
-  background-color: #151a24;
+  background-color: var(--kd-hover);
 }
 
 .run__cmd--active {
-  background-color: #1b2230;
+  background-color: var(--kd-selected);
+  color: var(--kd-text);
 }
 
 /* An instance in another target: indented, labeled by its place. */
@@ -195,8 +196,8 @@
 
 .run__cmd--child .run__cmd-name {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
-  color: #9aa3af;
+  font-size: var(--kd-font-small);
+  color: var(--kd-text-3);
 }
 
 .run__cmd-name {
@@ -210,13 +211,13 @@
 .run__cmd-meta {
   flex: none;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
-  color: #6b7280;
+  font-size: var(--kd-font-small);
+  color: var(--kd-text-3);
   font-variant-numeric: tabular-nums;
 }
 
 .run__cmd-meta--bad {
-  color: #e5736f;
+  color: var(--kd-err);
 }
 
 /* The rail idiom: hover swaps the muted meta for the action cluster —
@@ -245,16 +246,16 @@
   align-items: center;
   justify-content: center;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--kd-radius-mark);
   background: transparent;
-  color: #6b7280;
+  color: var(--kd-text-3);
   padding: 0;
   cursor: pointer;
 }
 
 .run__act:hover {
-  background-color: #243044;
-  color: #c5c8c6;
+  background-color: var(--kd-hover);
+  color: var(--kd-text-2);
 }
 
 /* ── The state glyph: rest face = state, hover face = its control ───── */
@@ -272,7 +273,7 @@
 }
 
 .run__g-idle {
-  color: #6b7280;
+  color: var(--kd-text-3);
 }
 
 .run__g-act {
@@ -282,9 +283,9 @@
   width: 16px;
   height: 16px;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--kd-radius-mark);
   background: transparent;
-  color: #c5c8c6;
+  color: var(--kd-text-2);
   padding: 0;
   cursor: pointer;
 }
@@ -310,7 +311,7 @@
 }
 
 .run__g-act:hover {
-  background-color: #243044;
+  background-color: var(--kd-hover);
 }
 
 .run__dot {
@@ -320,19 +321,19 @@
 }
 
 .run__dot--running {
-  background-color: #58b368;
+  background-color: var(--kd-ok);
 }
 
 .run__dot--stopping {
-  background-color: #d9a24a;
+  background-color: var(--kd-warn);
 }
 
 .run__dot--exited {
-  background-color: #3b4658;
+  background-color: var(--kd-selected);
 }
 
 .run__dot--failed {
-  background-color: #e5736f;
+  background-color: var(--kd-err);
 }
 
 /* ── The log: caption strip naming whose output this is, then xterm ─── */
@@ -343,26 +344,26 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid #1c2230;
-  border-radius: 6px;
-  background-color: #0b0e14;
+  border: 1px solid var(--kd-seam);
+  border-radius: var(--kd-radius-control);
+  background-color: var(--kd-canvas);
 }
 
 .run__logcap {
   flex: none;
   padding: 4px 10px;
-  border-bottom: 1px solid #1c2230;
-  background-color: #11151d;
+  border-bottom: 1px solid var(--kd-seam);
+  background-color: var(--kd-tile);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
-  color: #6b7280;
+  font-size: var(--kd-font-small);
+  color: var(--kd-text-3);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .run__logcap b {
-  color: #9aa3af;
+  color: var(--kd-text-3);
   font-weight: 500;
 }
 
@@ -411,16 +412,16 @@
   align-items: center;
   justify-content: center;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--kd-radius-mark);
   background: transparent;
-  color: #6b7280;
+  color: var(--kd-text-3);
   padding: 0;
   cursor: pointer;
 }
 
 .run__logcap-act:hover {
-  background-color: #243044;
-  color: #c5c8c6;
+  background-color: var(--kd-hover);
+  color: var(--kd-text-2);
 }
 
 /* Armed for input: keystrokes go into the PTY. A lit blue border + toggle
@@ -428,11 +429,11 @@
    not the running dot's green, so "live process" and "typing into it" read
    as different states. */
 .run__logbox--interactive {
-  border-color: #3d6fb0;
-  box-shadow: inset 0 0 0 1px rgba(90, 162, 240, 0.25);
+  border-color: var(--kd-working-line);
+  box-shadow: inset 0 0 0 1px rgba(114, 165, 243, 0.25);
 }
 
 .run__logcap-act--on,
 .run__logcap-act--on:hover {
-  color: #5aa2f0;
+  color: var(--kd-working);
 }

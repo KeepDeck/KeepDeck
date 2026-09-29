@@ -2,7 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ActivityBadge } from "../../domain/status";
+import type { PaneHeaderView } from "../../presentation/paneHeaderView";
 import {
   AgentPaneHeader,
   type AgentPaneHeaderProps,
@@ -12,7 +12,6 @@ import {
   globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
-const NOW = 1_754_000_000_000;
 
 const baseProps: AgentPaneHeaderProps = {
   paneId: "pane-1",
@@ -20,20 +19,14 @@ const baseProps: AgentPaneHeaderProps = {
   keyboardFocusEnabled: true,
   focused: false,
   solo: false,
-  activityView: null,
-  now: NOW,
-  ctxPct: undefined,
-  paneLive: true,
+  view: { status: null, stateWord: null, role: null, ctx: null },
   onRename: () => {},
   onToggleFocus: () => {},
   onClose: () => {},
 };
 
-const badge = (over: Partial<ActivityBadge> = {}): ActivityBadge => ({
-  tone: "working",
-  label: "Working",
-  sentence: "working",
-  at: NOW,
+const view = (over: Partial<PaneHeaderView> = {}): PaneHeaderView => ({
+  ...baseProps.view,
   ...over,
 });
 
@@ -63,60 +56,44 @@ describe("AgentPaneHeader", () => {
     act(() => root.unmount());
   });
 
-  it("renders every activity state as a dot, words in the tooltip", () => {
-    render({ activityView: badge() });
-    let chip = host.querySelector<HTMLElement>(".pane__activity")!;
-    expect(chip.className).toContain("pane__activity--working");
-    expect(chip.textContent).toBe("");
-    expect(chip.title).toBe("Working · now");
+  it("leads with the status dot, its words in the tooltip, and maps the tone to a class", () => {
+    render({ view: view({ status: { tone: "working", label: "Working", tooltip: "Working · now" } }) });
+    const dot = host.querySelector<HTMLElement>(".pane__status")!;
+    expect(dot.className).toBe("pane__status pane__status--working");
+    expect(dot.textContent).toBe("");
+    expect(dot.title).toBe("Working · now");
+    // First in the identity: how the agent is doing reads before who it is.
+    expect(host.querySelector(".pane__identity")!.firstElementChild).toBe(dot);
 
-    render({
-      activityView: badge({ tone: "waiting", label: "Needs approval" }),
-    });
-    chip = host.querySelector<HTMLElement>(".pane__activity")!;
-    // The tone class alone carries the hue — status.css owns the palette.
-    expect(chip.className).toContain("pane__activity--waiting");
-    expect(chip.textContent).toBe("");
-
-    render({
-      activityView: badge({
-        tone: "failed",
-        label: "Rate limited",
-        detail: "Weekly limit reached",
-      }),
-    });
-    chip = host.querySelector<HTMLElement>(".pane__activity")!;
-    expect(chip.className).toContain("pane__activity--failed");
-    expect(chip.title).toBe("Rate limited — Weekly limit reached · now");
-
-    render({ activityView: null });
-    expect(host.querySelector(".pane__activity")).toBeNull();
+    render();
+    expect(host.querySelector(".pane__status")).toBeNull();
   });
 
-  it("shows the ctx meter only for a live pane, with its level class", () => {
-    render({ ctxPct: 82 });
-    let ctx = host.querySelector<HTMLElement>(".pane__ctx")!;
-    expect(ctx.textContent).toBe("ctx 82%");
-    expect(ctx.className).toContain("usage-level--warn");
+  it("says the state in words only when the view hands it a word", () => {
+    const status = { tone: "waiting" as const, label: "Needs approval", tooltip: "" };
+    render({ view: view({ status, stateWord: "Needs approval" }) });
+    const word = host.querySelector<HTMLElement>(".pane__state")!;
+    expect(word.textContent).toBe("Needs approval");
+    expect(word.className).toBe("pane__state pane__state--waiting");
 
-    // Calm (< 75%) → no usage-level--* suffix appended.
-    render({ ctxPct: 40 });
-    ctx = host.querySelector<HTMLElement>(".pane__ctx")!;
-    expect(ctx.textContent).toBe("ctx 40%");
-    expect(ctx.className).toBe("chip pane__ctx");
+    render({ view: view({ status }) });
+    expect(host.querySelector(".pane__state")).toBeNull();
+  });
 
-    // The liveness verdict arrives SETTLED — the header only obeys it.
-    render({ ctxPct: 82, paneLive: false });
+  it("shows context as a number with its level class, only when the view has it", () => {
+    render({ view: view({ ctx: { label: "82%", title: "Context 82% used", level: "warn" } }) });
+    const ctx = host.querySelector<HTMLElement>(".pane__ctx")!;
+    expect(ctx.textContent).toBe("82%");
+    expect(ctx.className).toBe("pane__ctx pane__ctx--warn");
+    expect(ctx.title).toBe("Context 82% used");
+
+    render();
     expect(host.querySelector(".pane__ctx")).toBeNull();
   });
 
-  it("renders the git badge and leads the actions cluster with it", () => {
-    render({ gitBadge: { label: "main", title: "main" } });
-    const branch = host.querySelector<HTMLElement>(".pane__branch")!;
-    expect(branch.textContent).toBe("main");
-    expect(branch.title).toBe("main");
-    const actions = host.querySelector(".pane__actions")!;
-    expect(actions.children[0]?.className).toBe("chip pane__branch");
+  it("carries no branch: the branch is the team's, said once above the deck", () => {
+    render({ view: view({ role: { text: "impl-1", title: "" } }) });
+    expect(host.querySelector(".pane__branch")).toBeNull();
   });
 
   it("renames inline: double-click edits, Enter commits, Escape abandons", () => {
@@ -163,14 +140,15 @@ describe("AgentPaneHeader", () => {
     // The role is the address teammates use, so the header says it. It
     // opens nothing: a role is picked when the member is added, and the
     // pane's team is the one the stage has open.
-    render({ team: { id: "team-1", name: "api", role: "impl-1" } });
-    const badge = host.querySelector<HTMLElement>(".pane__team")!;
-    expect(badge.textContent).toContain("impl-1");
-    expect(badge.closest("button")).toBeNull();
+    render({ view: view({ role: { text: "impl-1", title: "impl-1 on team api" } }) });
+    const role = host.querySelector<HTMLElement>(".pane__role")!;
+    expect(role.textContent).toBe("impl-1");
+    expect(role.title).toBe("impl-1 on team api");
+    expect(role.closest("button")).toBeNull();
   });
 
   it("shows no badge for a pane on no team", () => {
-    render({ team: null });
-    expect(host.querySelector(".pane__team")).toBeNull();
+    render();
+    expect(host.querySelector(".pane__role")).toBeNull();
   });
 });

@@ -6,6 +6,7 @@
    Built-in plugins' own class families are NOT here: each plugin ships its
    stylesheet in its bundle (plugins/<name>/src/styles.css), loaded after all
    of these — the same tail position the old run/files/git imports held. */
+@import "./tokens.css";
 @import "./base.css";
 /* Shared primitives before the feature areas: the vocabulary a screen is
    built FROM, so a feature file that has a genuine one-off still wins on
@@ -13,13 +14,13 @@
 @import "./button.css";
 @import "./chip.css";
 @import "./deck.css";
-@import "./rail.css";
+@import "./strip.css";
 @import "./pane.css";
 @import "./minimize.css";
 /* After pane.css AND minimize.css: the frame classes recolour borders those
    files declare, at equal specificity — source order is the tiebreak. */
 @import "./status.css";
-/* After status.css: the team cards' dots ride the ladder's tokens and rhythms. */
+/* After status.css: the team cards' dots ride the ladder's tokens. */
 @import "./teamCards.css";
 @import "./terminal.css";
 @import "./history.css";

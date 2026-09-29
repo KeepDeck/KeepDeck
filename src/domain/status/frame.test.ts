@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PaneActivity } from "./activity";
-import { paneFrame, workspaceFrame, type PaneFrameFacts } from "./frame";
+import { bySeverity, foldFrame, needsPerson, paneFrame, type PaneFrameFacts } from "./frame";
 
 const working: PaneActivity = { state: "working", since: 1 };
 const waiting: PaneActivity = { state: "waiting", since: 1, reason: "permission" };
@@ -46,7 +46,7 @@ describe("paneFrame", () => {
 
   it("failed outranks waiting", () => {
     // One pane can't hold both states, but the ladder must still order
-    // them: a new caller aggregating panes (rail, tray) relies on it.
+    // them: a new caller aggregating panes (strip, tray) relies on it.
     expect(paneFrame(grid(failed, false))).toBe("failed");
   });
 
@@ -76,36 +76,32 @@ describe("paneFrame", () => {
   });
 });
 
-describe("workspaceFrame", () => {
-  it("any pane's attention wins for the workspace, failed over waiting", () => {
-    expect(workspaceFrame([working.state, waiting.state, done.state], false)).toBe("waiting");
-    expect(workspaceFrame([waiting.state, failed.state, undefined], false)).toBe("failed");
-  });
-
-  it("attention pierces the active workspace's green", () => {
-    expect(workspaceFrame([waiting.state], true)).toBe("waiting");
-    expect(workspaceFrame([failed.state], true)).toBe("failed");
+describe("foldFrame", () => {
+  it("any member's attention wins, failed over waiting", () => {
+    expect(foldFrame([working.state, waiting.state, done.state])).toBe("waiting");
+    expect(foldFrame([waiting.state, failed.state, undefined])).toBe("failed");
   });
 
   it("a live fact outranks a finished turn's tail in the fold", () => {
-    expect(workspaceFrame([working.state], false)).toBe("working");
-    expect(workspaceFrame([done.state, working.state], false)).toBe("working");
-    expect(workspaceFrame([working.state, waiting.state, done.state], false)).toBe("waiting");
+    expect(foldFrame([working.state])).toBe("working");
+    expect(foldFrame([done.state, working.state])).toBe("working");
+    expect(foldFrame([done.state])).toBe("done");
   });
 
-  it("working and done mark only a background workspace — the active one is on screen", () => {
-    expect(workspaceFrame([done.state], false)).toBe("done");
-    expect(workspaceFrame([working.state, done.state], true)).toBe("selected");
-    expect(workspaceFrame([working.state], true)).toBe("selected");
+  it("a quiet or empty set folds to none, never to the cursor rung", () => {
+    expect(foldFrame([undefined])).toBe("none");
+    expect(foldFrame([])).toBe("none");
   });
+});
 
-  it("a quiet pane leaves the dot to the active/none default", () => {
-    expect(workspaceFrame([undefined], true)).toBe("selected");
-    expect(workspaceFrame([undefined], false)).toBe("none");
-  });
-
-  it("an empty workspace still answers: active green, background gray", () => {
-    expect(workspaceFrame([], true)).toBe("selected");
-    expect(workspaceFrame([], false)).toBe("none");
+describe("needsPerson and bySeverity", () => {
+  it("name the attention states and rank the ladder as a sort", () => {
+    expect((["failed", "waiting", "working", "done"] as const).filter(needsPerson)).toEqual(["failed", "waiting"]);
+    expect((["done", "waiting", "working", "failed"] as const).slice().sort(bySeverity)).toEqual([
+      "failed",
+      "waiting",
+      "working",
+      "done",
+    ]);
   });
 });

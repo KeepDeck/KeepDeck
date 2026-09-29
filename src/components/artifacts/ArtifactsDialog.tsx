@@ -163,7 +163,7 @@ export function ArtifactsDialog({
                       {item.toggleLabel}
                     </Button>
                     {/* The row-level delete idiom — a small text ×, the
-                        one the workspaces rail and the journal rows use.
+                        one the journal rows use.
                         The header's shared close glyph means "close this
                         surface" and must not come to mean "destroy this
                         thing". */}

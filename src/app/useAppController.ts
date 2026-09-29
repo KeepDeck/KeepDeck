@@ -36,17 +36,15 @@ import { tasksDoorOpen } from "./tasks/door";
 import {
   closeHotkeyTarget,
   findWorkspace,
-  MAX_PANES,
   maximizeHotkeyTarget,
   paneAgentType,
   paneHasProcess,
   paneHotkeyTarget,
-  membersOf,
   openTeamOf,
   paneInFront,
   resolveSelectedPaneId,
   stagePanes,
-  teamHeldPath,
+  type Workspace,
 } from "../domain/deck";
 import type { AppInfo } from "../ipc/app";
 import { readAppInfo } from "./appInfo";
@@ -54,10 +52,12 @@ import { layering, statsDeepLinkOnScreen, tasksBoardOnScreen } from "../presenta
 import { anyOverlayCovers, subscribeOverlayCover } from "./overlayCover";
 import { describeError, log } from "../ipc/log";
 import { pluginCrashes, subscribePluginCrashes } from "./pluginHealth";
-import { addTeamDoorOpen, bellDoorOpen, dockDoorOpen } from "./doors";
-import type { BarLevel } from "../components/deck/DeckBar";
-import { railView } from "../presentation/railView";
-import { teamBranchOf } from "../presentation/teamCardView";
+import { addTeamDoorOpen, bellDoorOpen, dockDoorOpen, memberDoor } from "./doors";
+import { BAR_WORDS, type BarLevel } from "../presentation/barView";
+import type { WorkspaceCrumbView } from "../presentation/workspaceCrumbView";
+import { stripView } from "../presentation/stripView";
+import { needsYouRows, nextNeedsYou, type NeedsYouRow } from "../presentation/needsYouView";
+import { teamBranchOf, teamHead } from "../presentation/teamCardView";
 
 /** Shell/application wiring kept separate from the rendered app tree. */
 export function useAppController() {
@@ -104,7 +104,6 @@ export function useAppController() {
   }, [deck.workspaces]);
   const gitHeads = useGitHead(deck);
   const [creating, setCreating] = useState(false);
-  const [railCollapsed, setRailCollapsed] = useState(false);
   const [alerts, setAlerts] = useState<{ title: string; message: string }[]>([]);
   const error = alerts[0] ?? null;
   const [alertSeq, setAlertSeq] = useState(0);
@@ -199,7 +198,7 @@ export function useAppController() {
   const dockOpen = activeView.dock ?? false;
   const showForm = creating || deck.workspaces.length === 0;
   // Resolved over the stage's slice: a highlight is only ever on a pane of
-  // the open team, and at the cards level there is none.
+  // the open team.
   const selectedPaneId =
     (active && resolveSelectedPaneId(stagePanes(active, activeView), activeView)) ?? null;
   const dockTabs = buildDockTabs({
@@ -210,11 +209,8 @@ export function useAppController() {
     open: dockOpen,
   });
   const activeCount = active?.panes.length ?? 0;
-  // The stage's level: the team in front of the person, or the cards. The
-  // cap is the TEAM's — the grid its members lay out on.
+  // The team in front of the person, or none at the team cards.
   const openTeam = active ? openTeamOf(active, activeView) : undefined;
-  const teamCount = active && openTeam ? membersOf(active, openTeam.id).length : 0;
-  const atCap = teamCount >= MAX_PANES;
   // What is painted over what — decided once, in `layering`, for the render
   // and for the notification probe alike. The z-order reasoning lives there.
   const windows = layering({
@@ -230,7 +226,10 @@ export function useAppController() {
     hasActive: !!active,
     overlayCovers,
   });
-  const canAddMember = !!openTeam && !atCap && !windows.modal;
+  // The one door to another member, for the bar, ⌘T and the cards alike.
+  const openMemberDoor = (ws: Workspace, teamId: string) => memberDoor(ws, teamId, windows.modal);
+  const barMemberDoor = active && openTeam ? openMemberDoor(active, openTeam.id) : null;
+  const canAddMember = barMemberDoor?.open ?? false;
   const canAddTeam = !!active && addTeamDoorOpen(active) && !windows.modal;
   // The probe reads the LAST RENDER's decision, not a copy of its inputs:
   // `windows` rides the ref whole, so a layer the render learns about is a
@@ -292,20 +291,28 @@ export function useAppController() {
   // Announce the transitions worth leaving the app for: needs-you, finished,
   // failed.
   useActivityNotifications(deck.workspaces, agents);
-  // One subscription for the whole rail; what the activity MEANS for a row
-  // is `railView`'s.
+  // One subscription for the whole strip; what the activity MEANS for a mark
+  // is `stripView`'s.
   const paneActivities = usePaneActivities();
+  const needsYou = {
+    rows: needsYouRows(deck.workspaces, paneActivities, agents),
+    onOpen: (row: NeedsYouRow) =>
+      runtime.application.activatePane(row.wsId, row.paneId),
+  };
   useMenuHotkeys({
     newWorkspace: () => {
       if (windows.modal) return;
       setCreating(true);
     },
     newAgent: () => {
-      // The level decides what "new" means: a member inside a team, a team
-      // at the cards — the same two doors the bar offers.
+      // What "new" means: a member on the open team, or a new team at the
+      // team cards.
       if (!active) return;
       if (openTeam) {
+        // The door's refusal is said here too: a chord that silently does
+        // nothing reads as a broken key.
         if (canAddMember) void agentFlow.openFor(active, { kind: "member", teamId: openTeam.id });
+        else if (barMemberDoor?.refusal) pushAlert(BAR_WORDS.addMemberRefused, barMemberDoor.refusal);
       } else if (canAddTeam) {
         void agentFlow.openFor(active, { kind: "new-team" });
       }
@@ -350,20 +357,39 @@ export function useAppController() {
       );
       if (target) paneViewActions.toggleMaximize(target.wsId, target.paneId);
     },
+    nextNeedsYou: () => {
+      if (windows.modal) return;
+      const current = selectedPaneId ? { wsId: deck.activeId, paneId: selectedPaneId } : null;
+      const next = nextNeedsYou(needsYou.rows, current);
+      if (next) needsYou.onOpen(next);
+    },
     openSettings: () => void modal.openSettings(),
   });
   const handleSelectWorkspace = (id: string) => {
     runtime.application.selectWorkspace(id);
-  };
-  const handleEnterTeam = (wsId: string, teamId: string) => {
-    runtime.application.activateTeam(wsId, teamId);
   };
   const notificationPrefs =
     settings?.notifications ?? DEFAULT_SETTINGS.notifications;
   const showBell = bellDoorOpen(notificationPrefs);
   const openNotification = runtime.application.openNotification;
   const handleCreateWorkspace = runtime.application.createWorkspace;
-  const railWorkspaces = railView(deck.workspaces, paneActivities, deck.viewByWs, deck.activeId);
+  const strip = stripView(deck.workspaces, paneActivities, deck.activeId);
+  /** A card's "Add member": the same door as the bar's and ⌘T's. */
+  const addTeamMember = (wsId: string, teamId: string) => {
+    const ws = findWorkspace(deck.workspaces, wsId);
+    if (ws && openMemberDoor(ws, teamId).open) void agentFlow.openFor(ws, { kind: "member", teamId });
+  };
+  /** The bar's crumb for the workspace on screen: its name and its menu. */
+  const shownWs = strip.active;
+  const workspaceCrumb: WorkspaceCrumbView | null = shownWs && {
+    view: shownWs,
+    onRename: (name: string) => deck.renameWorkspace(shownWs.id, name),
+    onMove: (toIndex: number) => deck.moveWorkspace(shownWs.id, toIndex),
+    onClose: () => closeFlow.requestCloseWorkspace(shownWs.id),
+    // Inside a team the name is the way back up to the cards.
+    onUp: openTeam ? () => deck.closeTeam(shownWs.id) : null,
+  };
+
   if (restoring || !spawnCtx || !settings) {
     return { ready: false as const };
   }
@@ -375,10 +401,9 @@ export function useAppController() {
       ? {
           kind: "team",
           name: openTeam.name,
-          branch: teamBranchOf(openTeam, gitHeads.get(teamHeldPath(openTeam) ?? active.cwd)),
-          onBack: () => deck.closeTeam(active.id),
+          branch: teamBranchOf(openTeam, teamHead(active, openTeam, gitHeads)),
           canAddMember,
-          addMemberTitle: atCap ? `Max ${MAX_PANES} agents on a team` : "Add a member",
+          addMemberTitle: barMemberDoor?.refusal ?? BAR_WORDS.addMemberLabel,
           onAddMember: () => {
             if (canAddMember) void agentFlow.openFor(active, { kind: "member", teamId: openTeam.id });
           },
@@ -411,22 +436,23 @@ export function useAppController() {
     frozenAck,
     gitHeads,
     handleCreateWorkspace,
-    handleEnterTeam,
     handleSelectWorkspace,
     info,
     openNotification,
+    needsYou,
     orchestrator,
     paneViewActions,
     pluginDockTabs,
     pluginTopBarActions,
     pushAlert,
-    railCollapsed,
-    railWorkspaces,
+    strip,
+    paneActivities,
+    workspaceCrumb,
+    addTeamMember,
     runView,
     browserShared,
     setCreating,
     setFrozenAck,
-    setRailCollapsed,
     canCloseDialog: modal.canCloseDialog,
     openSettings: modal.openSettings,
     closeSettings: modal.closeSettings,
@@ -460,8 +486,8 @@ export function useAppController() {
     closeTasks: modal.closeTasks,
     tasksOpen: modal.tasksOpen,
     tasksFocus: modal.tasksFocus,
-    /** The team the stage has open, or null at the cards level — the
-     * board the Tasks dialog opens on. */
+    /** The open team, or null at the team cards — the board the Tasks
+     * dialog opens on. */
     stageTeamId: openTeam?.id ?? null,
     focusTask: modal.focusTask,
     openStats: modal.openStats,

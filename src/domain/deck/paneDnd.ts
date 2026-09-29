@@ -1,5 +1,5 @@
 /** Pure hit-test geometry for dropping files onto the pane grid — the pane
- * half of what `railDnd.ts` does for the workspaces rail. The DOM read feeding
+ * half of what `stripDnd.ts` does for the workspace strip. The DOM read feeding
  * it lives in `app/dragDrop.ts`. */
 
 /** A rectangle in viewport CSS pixels. */

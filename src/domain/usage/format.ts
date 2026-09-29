@@ -40,6 +40,21 @@ export function chipWindows(account: AccountUsage, max = 2): UsageWindow[] {
     .slice(0, max);
 }
 
+/** The chip's windows folded to the one closest to its limit — what a
+ * single glance (the top-bar ring) has to say. A window that has already
+ * reset is not a limit any more: its last reading is history, so the live
+ * windows are ranked, and only when every window has reset does the ring
+ * fall back to them. A tie keeps the shorter window, the one that resets
+ * sooner. */
+export function tightestWindow(account: AccountUsage, now: number): UsageWindow | null {
+  const windows = chipWindows(account);
+  const live = windows.filter((w) => !windowExpired(w, now));
+  return (live.length > 0 ? live : windows).reduce<UsageWindow | null>(
+    (tightest, w) => (tightest === null || w.usedPct > tightest.usedPct ? w : tightest),
+    null,
+  );
+}
+
 /** Shortest window first; duration-less windows last, as EQUALS — spelled
  * out, because `Infinity - Infinity` is NaN and the old subtraction only
  * kept insertion order by a SortCompare footnote (NaN coerces to +0). */

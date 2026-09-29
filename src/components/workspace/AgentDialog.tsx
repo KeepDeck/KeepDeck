@@ -374,19 +374,24 @@ export function AgentDialog({
             />
 
             <span className="form__label">Agent</span>
-            <div className="form__types">
-              {agentOptions.map((a) => (
-                <button
-                  key={a.id}
-                  type="button"
-                  className={`form__type${a.id === agentType ? " form__type--active" : ""}`}
-                  onClick={() => setAgentType(a.id)}
-                >
-                  <AgentGlyph icon={a.icon} />
-                  {a.label}
-                </button>
-              ))}
-            </div>
+            {/* A list, not a row of buttons: installed agents grow with the
+                plugins, and a row wraps into a wall where a list just gains
+                a line. */}
+            <Dropdown
+              className="form__agent-pick"
+              ariaLabel="Agent"
+              options={agentOptions.map((a) => ({
+                value: a.id,
+                label: (
+                  <span className="form__agent-option">
+                    <AgentGlyph icon={a.icon} />
+                    {a.label}
+                  </span>
+                ),
+              }))}
+              value={agentType}
+              onChange={setAgentType}
+            />
           </>
         )}
 

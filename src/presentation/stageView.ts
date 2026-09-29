@@ -62,7 +62,10 @@ export function stageContent(
   /** How many of the open team's panes are live on its grid. */
   liveCount: number,
 ): StageContent {
-  if (teamsOf(ws).length === 0 && ws.panes.length === 0) return { kind: "no-teams", word: NO_TEAMS_WORD };
+  // No team is no team, whatever panes a legacy file still carries: a pane
+  // outside every team has no card to be reached from, so the cards level
+  // would be a blank stage. The word says what to do instead.
+  if (teamsOf(ws).length === 0) return { kind: "no-teams", word: NO_TEAMS_WORD };
   const team = openTeamOf(ws, view);
   if (!team) return { kind: "cards" };
   if (liveCount > 0) return { kind: "grid" };

@@ -1,10 +1,12 @@
 // @vitest-environment happy-dom
 import { act } from "react";
 import type { Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   button,
   dialogHost,
+  DIALOG_LOAD_TIMEOUT_MS,
+  loadSettingsDialog,
   mountDialog,
   panelOf,
   pluginRegistries,
@@ -107,6 +109,9 @@ const YOLO_ONLY_PLUGIN = {
 };
 
 describe("SettingsDialog — plugin sections", () => {
+  // The dialog's cold module load is the suite's, not the first test's.
+  beforeAll(() => loadSettingsDialog(), DIALOG_LOAD_TIMEOUT_MS);
+
   let root: Root;
   let closed: number;
 

@@ -12,8 +12,8 @@
  * only if the place it lands was already paid for.
  *
  * So the reckoning ran the other way. The pane count was already answered by
- * the rail's per-workspace numbers and by the panes being on screen — it is
- * gone rather than relocated. The build number went to the rail's own footer,
+ * the team cards' agent counts and by the panes being on screen — it is
+ * gone rather than relocated. The build number went to the strip's own foot,
  * which is chrome that already exists. Quota stayed, because a subscription
  * running out is the one fact here that changes what you do next.
  *
@@ -22,7 +22,7 @@
  *
  * WHAT IT DOES NOT DECIDE, on purpose: whether a control is worth showing,
  * and what a press ultimately does. Both belong to the composition root —
- * `dock`, `notifications`, the level's door and `updateAction` arrive null
+ * `dock`, `notifications`, the team and `updateAction` arrive null
  * when their control has no business existing, and every action is a
  * callback. So
  * the bar itself reaches for no manager, no store and no router; it draws
@@ -52,45 +52,24 @@ import { BAR_TIP_DELAY_MS, TipButton } from "../../ui/TipButton";
 import { Tooltip } from "../../ui/Tooltip";
 import {
   ArtifactsIcon,
+  ChevronIcon,
   DockIcon,
   GearIcon,
   McpIcon,
-  SidebarIcon,
   SkillsIcon,
   StatsIcon,
   TasksIcon,
 } from "../AppIcons";
 import { NotificationBell } from "../notifications/NotificationBell";
+import { WorkspaceCrumb } from "./WorkspaceCrumb";
+import type { WorkspaceCrumbView } from "../../presentation/workspaceCrumbView";
+import { BAR_WORDS, type BarLevel } from "../../presentation/barView";
+import type { NeedsYouRow } from "../../presentation/needsYouView";
 import { UsageChips } from "../usage/UsageChips";
 
-/**
- * Where the stage is, as the bar says it. At the teams level the one door is
- * a new team (null while no workspace is active — nowhere to put it). Inside
- * a team: the way back, what the team is and where it works, and the door to
- * another member, with the refusal's words when the team is full.
- */
-export type BarLevel =
-  | { kind: "teams"; onAddTeam: (() => void) | null }
-  | {
-      kind: "team";
-      name: string;
-      branch: string | null;
-      onBack(): void;
-      canAddMember: boolean;
-      /** The add control's tooltip, which is also where a refusal is explained. */
-      addMemberTitle: string;
-      onAddMember(): void;
-    };
-
 export interface DeckBarProps {
-  /** Whether the workspaces rail is hidden — the toggle's own state. */
-  railCollapsed: boolean;
-  onToggleRail(): void;
-  /** The active workspace's name, or null when the rail is already showing it
-   *  (or nothing is active). The bar does not re-derive that: an open rail
-   *  highlights the active workspace two centimetres below, and repeating it
-   *  here is a second answer to a question nobody asked twice. */
-  workspaceName: string | null;
+  /** The workspace on screen and its menu, or null with none. */
+  workspace: WorkspaceCrumbView | null;
 
   agents: AgentInfo[];
   /** Agent ids with a pane in the deck — the roster the usage chips stand for. */
@@ -102,9 +81,7 @@ export interface DeckBarProps {
   onUpdateAction(action: UpdateAction): void;
 
   /** The level the stage is on, and the one affirmative act the bar offers
-   * there: at the teams level a new team; inside a team, another member —
-   * with the way back, the team's name and its branch, since the rail
-   * below says nothing about a team. */
+   *  there: at the teams level a new team; inside a team, another member. */
   level: BarLevel;
 
   /** The dock toggle, or null when no plugin contributes a dock tab. */
@@ -124,8 +101,16 @@ export interface DeckBarProps {
   onOpenTasks: (() => void) | null;
   onOpenSettings(): void;
 
-  /** The notification bell, or null when notifications are off or delegated
-   *  to the system. */
+  /** The agents blocked on the person, across every workspace, and how to
+   *  bring one forward. Always handed in: who needs you is live state, not
+   *  a notification preference. */
+  needsYou: {
+    rows: readonly NeedsYouRow[];
+    onOpen(row: NeedsYouRow): void;
+  };
+
+  /** The in-app notification list, or null when notifications are off or
+   *  delegated to the system. */
   notifications: {
     center: NotificationCenter;
     onOpen(notification: Notification): void;
@@ -133,9 +118,7 @@ export interface DeckBarProps {
 }
 
 export function DeckBar({
-  railCollapsed,
-  onToggleRail,
-  workspaceName,
+  workspace,
   agents,
   usageLiveAgents,
   updateAction,
@@ -150,6 +133,7 @@ export function DeckBar({
   onOpenArtifacts,
   onOpenTasks,
   onOpenSettings,
+  needsYou,
   notifications,
 }: DeckBarProps) {
   // The plugin group has a ceiling; whatever passes it folds into a menu, so
@@ -161,78 +145,46 @@ export function DeckBar({
   return (
     <header className="deck__bar">
       <div className="deck__bar-left">
-        {/* Who and where: the rail's own switch, the app, the project. */}
-        <div className="bar__group">
-          <TipButton
-            variant="ghost"
-            size="sm"
-            tip={railCollapsed ? "Show workspaces" : "Hide workspaces"}
-            label="Toggle workspaces panel"
-            onClick={onToggleRail}
-          >
-            <SidebarIcon />
-          </TipButton>
-          {workspaceName !== null && (
-            <span className="deck__active-ws">{workspaceName}</span>
-          )}
-        </div>
-        {level.kind === "team" && (
-          // Inside a team the rail says nothing about it, so this half does:
-          // the way back to the cards, the team's name, the branch it works
-          // on. Its own group, so the workspace's own words keep their seam.
-          //
-          // SEAMED while the rail is open: the group then starts at the rail's
-          // own right border, so what names the STAGE stands in the stage's
-          // column rather than over the rail's. The modifier is derived here
-          // rather than asked for, because the fact it needs — whether the
-          // rail is showing — is already handed to the bar, and a second prop
-          // saying the same thing would be a second answer to one question.
-          // Which is also why this is the bar's call and not the root's: the
-          // root decides whether a control is WORTH SHOWING; where a group
-          // sits is arrangement, and arrangement stays in this file.
-          <div
-            className={`bar__group deck__team-bar${
-              railCollapsed ? "" : " deck__team-bar--seamed"
-            }`}
-          >
-            <TipButton
-              variant="ghost"
-              size="sm"
-              tip="Back to the teams"
-              label="Back to teams"
-              onClick={level.onBack}
-            >
-              ←
-            </TipButton>
-            {/* The app's own tip, not a `title`. This is the one place that
-                names the open team ON ITS OWN — the rail says nothing about
-                it, and a role badge names a team only where the deck runs
-                more than one, dimmed, as the tail of an address and the first
-                thing a narrow header clips. So an ellipsized name here is
-                recoverable nowhere worth calling a place. A `title` does not
-                recover it either:
-                this WebView draws no native tooltip (see TipButton), which is
-                exactly the trap that file was written about. The anchor
-                carries `min-width: 0`, so wrapping the name costs it none of
-                its room to ellipsize. */}
-            <Tooltip tip={level.name} delayMs={BAR_TIP_DELAY_MS}>
-              <span className="deck__team-name">{level.name}</span>
-            </Tooltip>
-            {level.branch !== null && (
-              <BranchBadge
-                className="deck__team-branch"
-                size="sm"
-                label={level.branch}
-                title={level.branch}
-              />
+        {/* Where you are, as a breadcrumb: the workspace (the strip's marks
+            say only its initials) with its menu, and inside a team the
+            team with the branch it works on. The workspace's name is the
+            way back up to its team cards. */}
+        {(workspace || level.kind === "team") && (
+          <nav className="bar__group deck__crumbs" aria-label="Location">
+            {workspace && (
+              // Keyed by workspace: a rename left open on one must not
+              // survive a switch and reappear, draft and all, on the next.
+              <WorkspaceCrumb key={workspace.view.id} {...workspace} />
             )}
-          </div>
+            {level.kind === "team" && (
+              <>
+                <span className="deck__crumb-sep" aria-hidden>
+                  <ChevronIcon />
+                </span>
+                {/* The app's own tip, not a `title`: this WebView draws no
+                    native tooltip (see TipButton), and an ellipsized team
+                    name must be recoverable somewhere. */}
+                <Tooltip tip={level.name} delayMs={BAR_TIP_DELAY_MS}>
+                  <span className="deck__team-name" aria-current="page">
+                    {level.name}
+                  </span>
+                </Tooltip>
+                {level.branch !== null && (
+                  <BranchBadge
+                    className="deck__team-branch"
+                    size="sm"
+                    label={level.branch}
+                    title={level.branch}
+                  />
+                )}
+              </>
+            )}
+          </nav>
         )}
       </div>
 
       {/* Quota sits in the MIDDLE, alone in its own zone.
-          Pinned left it landed directly above the rail's column and read as
-          the rail's own heading; pinned right it queued behind the verbs and
+          Pinned left it read as the heading of whatever stood under it; pinned right it queued behind the verbs and
           became one more thing to sort. The centre belongs to nothing else,
           so a reading of the fleet can hold it without borrowing meaning from
           a neighbour. True centring needs a grid: with a flex row the middle
@@ -273,8 +225,7 @@ export function DeckBar({
 
         {/* CREATE — the bar's one affirmative act, and the only filled control
             on it. ONE door per level: at the teams level a team is the only
-            thing to start (an agent is a team's first member, so the team is
-            born with it); inside a team, a member is the only thing to add.
+            thing to start; inside a team, a member is the only thing to add.
             No menu: the level already chose. */}
         {level.kind === "team" ? (
           <div className="bar__group">
@@ -284,9 +235,9 @@ export function DeckBar({
               onClick={level.onAddMember}
               disabled={!level.canAddMember}
               tip={level.addMemberTitle}
-              label="Add a member"
+              label={BAR_WORDS.addMemberLabel}
             >
-              + Member
+              {BAR_WORDS.addMember}
             </TipButton>
           </div>
         ) : (
@@ -296,10 +247,10 @@ export function DeckBar({
                 variant="primary"
                 size="sm"
                 onClick={level.onAddTeam}
-                tip="Start a team — with its first agent and its directory"
-                label="Start a team"
+                tip={BAR_WORDS.addTeamTip}
+                label={BAR_WORDS.addTeamLabel}
               >
-                + Team
+                {BAR_WORDS.addTeam}
               </TipButton>
             </div>
           )
@@ -367,12 +318,10 @@ export function DeckBar({
           >
             <StatsIcon />
           </TipButton>
-          {notifications && (
-            <NotificationBell
-              center={notifications.center}
-              onOpen={notifications.onOpen}
-            />
-          )}
+          {/* Who needs you — "N need you" while anyone does, else the
+              notification bell; it draws nothing when neither has anything
+              to say. */}
+          <NotificationBell needsYou={needsYou} notifications={notifications} />
           <TipButton
             variant="ghost"
             size="sm"

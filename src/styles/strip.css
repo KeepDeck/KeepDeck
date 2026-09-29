@@ -1,0 +1,186 @@
+/* The left strip (components/workspace/WorkspaceStrip.tsx): a column of
+   workspace marks on a surface one step above the canvas. Teams are
+   reached on the stage's cards screen. */
+
+.strip {
+  flex: none;
+  display: flex;
+  min-height: 0;
+  /* Parted from the canvas by its own surface step, not a drawn line. */
+  background-color: var(--kd-strip);
+}
+
+/* ── The column of marks ────────────────────────────────────────────── */
+
+.strip__col {
+  width: 58px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 0 8px;
+  min-height: 0;
+}
+
+/* The list is the only positioned ancestor of the marks: the reorder's
+   hit-test and the ghost's landing both measure through it (stripDnd.ts). */
+.strip__marks {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.strip__marks--reordering {
+  cursor: grabbing;
+}
+
+.strip__mark {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  width: 52px;
+  padding: 4px 0;
+  flex: none;
+  border: 0;
+  border-radius: var(--kd-radius-pop);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.strip__tile {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--kd-radius-pop);
+  background-color: var(--kd-hover);
+  color: var(--kd-text-2);
+  font-size: var(--kd-font-small);
+  font-weight: 600;
+  transition: background-color 120ms ease-out, color 120ms ease-out;
+}
+
+.strip__mark:hover .strip__tile {
+  background-color: var(--kd-selected);
+  color: var(--kd-text);
+}
+
+/* The workspace on screen: the one light tile in the column. */
+.strip__mark--active .strip__tile,
+.strip__mark--active:hover .strip__tile {
+  background-color: var(--kd-text);
+  color: var(--kd-canvas);
+}
+
+/* «+» is pinned above the list, so it never scrolls away however many
+   workspaces there are. Drawn as an outline: a way to add one, not one. */
+.strip__mark--add {
+  padding: 0;
+  margin-bottom: 2px;
+}
+
+.strip__mark--add .strip__tile {
+  width: 30px;
+  height: 30px;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--kd-seam-strong);
+  color: var(--kd-text-3);
+}
+
+.strip__mark--add svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* The mark being dragged leaves its slot empty; the ghost carries it. */
+.strip__mark--placeholder {
+  visibility: hidden;
+}
+
+.strip__ghost {
+  position: fixed;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 0;
+  opacity: 0.9;
+  transform: scale(1.04);
+  pointer-events: none;
+}
+
+/* The build number at the column's foot: read a few times a year, so it
+   costs nothing on every other day. */
+.strip__foot {
+  flex: none;
+  max-width: 54px;
+  font-size: var(--kd-font-small);
+  color: var(--kd-text-4);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A mark's dot says its workspace's loudest state, on the tile's corner,
+   ringed in the strip's colour. */
+.strip__dot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+}
+
+.strip__tile .strip__dot {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 8px;
+  height: 8px;
+  box-shadow: 0 0 0 2px var(--kd-strip);
+}
+
+.strip__dot--waiting {
+  background-color: var(--kd-warn);
+}
+
+.strip__dot--failed {
+  background-color: var(--kd-err);
+}
+
+.strip__dot--working {
+  background-color: var(--kd-working);
+}
+
+.strip__dot--done {
+  background-color: var(--kd-ok);
+}
+
+/* Somebody is there and nothing has been reported: hollow, not absent.
+   Only a mark says idle, and its own ring rule (above) would otherwise win
+   the box-shadow, so this matches at the mark's specificity. */
+.strip__tile .strip__dot--idle {
+  background-color: var(--kd-strip);
+  box-shadow:
+    inset 0 0 0 1.5px var(--kd-text-4),
+    0 0 0 2px var(--kd-strip);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .strip__tile {
+    transition: none;
+  }
+}

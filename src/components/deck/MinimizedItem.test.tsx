@@ -62,25 +62,32 @@ describe("MinimizedItem", () => {
     vi.useRealTimers();
   });
 
-  it("places the stopped marker right of the title, before the badges", () => {
+  it("leads with a hollow dot for a stopped agent, and keeps the branch to the details", () => {
     render({
       paneId: "pane-1",
       title: "Claude 1",
       label: "Restore Claude 1",
       stopped: true,
-      yolo: true,
+      gitBadge: { label: "main", title: "main" },
       active: true,
       onClick,
     });
-    const title = document.querySelector(".minimized__title")!;
-    const marker = document.querySelector(".minimized__stopped")!;
-    const yolo = document.querySelector(".minimized__yolo")!;
-    expect(
-      title.compareDocumentPosition(marker) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-    expect(
-      marker.compareDocumentPosition(yolo) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+    const chip = document.querySelector(".minimized")!;
+    expect(chip.firstElementChild!.className).toBe("minimized__status minimized__status--stopped");
+    expect(chip.querySelector(".minimized__branch")).toBeNull();
+    expect(chip.querySelector(".minimized__word")).toBeNull();
+  });
+
+  it("says in words that an agent needs you, or has failed", () => {
+    act(() =>
+      statusTracker.report("pane-1", {
+        agent: "claude",
+        edge: { kind: "waiting", at: Date.now(), reason: "permission" },
+      }),
+    );
+    const word = document.querySelector<HTMLElement>(".minimized__word")!;
+    expect(word.textContent).toBe("needs you");
+    expect(word.className).toBe("minimized__word minimized__word--waiting");
   });
 
   it("a YOLO pane keeps its warning marker in the stand-in; a plain one doesn't", () => {

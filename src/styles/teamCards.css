@@ -5,18 +5,23 @@
  * team is open. A grid of cards, never a list — one anatomy per card, and
  * the only thing a state changes is the dot's colour and, for a directory
  * not there yet, the rim going dashed. Dot hues are the status ladder's
- * (status.css), the same four names as every other surface. */
+ * (status.css), the same four names as every other surface, and they are
+ * static: nothing on the deck pulses at rest.
+ *
+ * A card is a tile on the canvas, drawn like the panes' tiles: no rim at
+ * rest, one under the pointer. */
 .deck__teams {
   position: absolute;
   inset: 0;
   overflow-y: auto;
-  padding: 16px;
+  /* The panes' grid rhythm: nothing on top, 6px at the sides and below. */
+  padding: 0 6px 6px;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   grid-auto-rows: max-content;
   align-content: start;
-  gap: 12px;
-  background-color: #0b0e14;
+  gap: 6px;
+  background-color: var(--kd-canvas);
 }
 
 .team-card {
@@ -24,22 +29,23 @@
   flex-direction: column;
   gap: 10px;
   padding: 12px 14px;
-  border: 1px solid #1c2230;
-  border-radius: 8px;
-  background-color: #0e121a;
-  color: #c5c8c6;
+  border: 1px solid transparent;
+  border-radius: var(--kd-radius-tile);
+  background-color: var(--kd-tile);
+  color: var(--kd-text-2);
   cursor: pointer;
   min-width: 0;
 }
 
 .team-card:hover {
-  border-color: #2a3446;
+  border-color: var(--kd-seam-strong);
 }
 
 /* The directory is on its way, or its create failed: the rim says
    "not there yet", the dot says which. */
 .team-card--pending {
   border-style: dashed;
+  border-color: var(--kd-seam-strong);
 }
 
 .team-card__head {
@@ -53,7 +59,7 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background-color: #3b4658;
+  background-color: var(--kd-selected);
   flex: none;
 }
 
@@ -63,23 +69,19 @@
 
 .team-card__dot--working {
   background-color: var(--status-working);
-  animation: status-dot-working 1.6s ease-in-out infinite;
 }
 
 .team-card__dot--waiting {
   background-color: var(--status-waiting);
-  animation: status-dot-breathe 2s ease-in-out infinite;
 }
 
 .team-card__dot--failed {
   background-color: var(--status-failed);
-  animation: status-dot-pulse 1s ease-in-out infinite;
 }
 
 /* A create in flight breathes like a wait — something is being waited
    for — in the quiet gray, so it never reads as the person's turn. */
 .team-card__dot--creating {
-  animation: status-dot-breathe 2s ease-in-out infinite;
 }
 
 /* The name is the way in: a button drawn as text, so a keyboard reaches
@@ -99,14 +101,14 @@
 .team-card__open:focus-visible {
   outline: 2px solid var(--kd-ok);
   outline-offset: 2px;
-  border-radius: 3px;
+  border-radius: var(--kd-radius-mark);
 }
 
 .team-card__name {
   display: block;
-  font-size: 14px;
+  font-size: var(--kd-font-normal);
   font-weight: 600;
-  color: #e6e9ef;
+  color: var(--kd-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -117,12 +119,12 @@
   flex: 1 1 auto;
   min-width: 0;
   padding: 1px 4px;
-  border: 1px solid #3a4658;
-  border-radius: 4px;
-  background-color: #0b0e14;
-  color: #c5c8c6;
+  border: 1px solid var(--kd-seam-strong);
+  border-radius: var(--kd-radius-mark);
+  background-color: var(--kd-canvas);
+  color: var(--kd-text-2);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--kd-font-normal);
   outline: none;
 }
 
@@ -137,8 +139,8 @@
   flex-wrap: wrap;
   gap: 8px;
   min-width: 0;
-  font-size: 12px;
-  color: #8b93a3;
+  font-size: var(--kd-font-small);
+  color: var(--kd-text-3);
 }
 
 .team-card__branch {
@@ -151,8 +153,8 @@
 
 .team-card__dir {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
-  color: #6b7280;
+  font-size: var(--kd-font-small);
+  color: var(--kd-text-3);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -161,16 +163,7 @@
 /* The card's line about its board — what is open, what waits on a person.
    Dimmer than the meta above it: a count, not a control. */
 .team-card__tasks {
-  font-size: 12px;
-  color: #8b93a3;
+  font-size: var(--kd-font-small);
+  color: var(--kd-text-3);
   font-variant-numeric: tabular-nums;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .team-card__dot--working,
-  .team-card__dot--waiting,
-  .team-card__dot--failed,
-  .team-card__dot--creating {
-    animation: none;
-  }
 }

@@ -19,7 +19,7 @@ import { usePaneContextPct } from "../../app/usePaneContextPct";
 import { usePaneSessionState } from "../../app/usePaneSessionState";
 import { TerminalPane } from "../terminal/TerminalPane";
 import { AgentPaneHeader } from "./AgentPaneHeader";
-import type { GitBadge } from "../../ui/gitBadge";
+import { paneHeaderView } from "../../presentation/paneHeaderView";
 import type { AgentGlyphIcon } from "../../ui/AgentGlyph";
 import { ProvisioningBody } from "./bodies/ProvisioningBody";
 import { StoppedBody } from "./bodies/StoppedBody";
@@ -46,8 +46,6 @@ export interface AgentPaneProps {
   envDefaults?: [string, string][];
   /** Working directory for the session. */
   cwd?: string | null;
-  /** Runtime git badge derived from this pane's effective cwd. */
-  gitBadge?: GitBadge | null;
   /** The pane runs in YOLO mode — a standing warning chip in the header, so
    * the disabled-prompts state stays visible for the pane's whole life. */
   yolo?: boolean;
@@ -183,7 +181,6 @@ export function AgentPane({
   env,
   envDefaults,
   cwd,
-  gitBadge,
   yolo,
   team,
   showTeamName,
@@ -290,15 +287,16 @@ export function AgentPane({
         agentLabel={agentLabel}
         focused={focused}
         solo={solo}
-        activityView={activityView}
-        now={now}
+        view={paneHeaderView({
+          activity: activityView,
+          now,
+          ctxPct,
+          paneLive,
+          team,
+          showTeamName,
+        })}
         keyboardFocusEnabled={keyboardFocusEnabled}
-        ctxPct={ctxPct}
-        paneLive={paneLive}
         yolo={yolo}
-        team={team}
-        showTeamName={showTeamName}
-        gitBadge={gitBadge}
         onRename={onRename}
         onMinimize={onMinimize}
         onToggleFocus={onToggleFocus}

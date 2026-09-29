@@ -10,13 +10,27 @@
  * root already holds these facts, and a door that reached for them itself
  * would be a door that could not be asked in a test.
  */
-import type { Workspace } from "../domain/deck";
+import { memberRefusal, type Workspace } from "../domain/deck";
 import type { NotificationsMode } from "../domain/settings";
 
 /** A team is born inside a workspace, with its directory and its first
  * agent. With none live there is nowhere to put it. */
 export function addTeamDoorOpen(active: Workspace | null): boolean {
   return active !== null;
+}
+
+/** Whether a member can be added to `teamId` now, and why not when it is
+ * refused for a reason the person can act on. The ONE door the bar's
+ * «+ Member», a card's "Add member" and ⌘T all open: a full team is
+ * refused in words (the cap's own message); a dialog owning the modal layer
+ * refuses silently — nothing is wrong, the person is busy elsewhere. */
+export function memberDoor(
+  ws: Pick<Workspace, "panes">,
+  teamId: string,
+  modalOpen: boolean,
+): { open: boolean; refusal: string | null } {
+  const refusal = memberRefusal(ws, teamId);
+  return { open: refusal === null && !modalOpen, refusal };
 }
 
 /** The dock toggle opens onto the tabs plugins contribute. With none, the

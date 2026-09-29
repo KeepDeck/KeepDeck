@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { visiblePanes, type Pane, type PaneVisibilityView } from "../domain/deck";
-import { emptyGridMessage, trayView } from "./trayView";
+import { emptyGridMessage, trayChipStatus, trayView } from "./trayView";
 
 const pane = (id: string, suspended = false): Pane => ({
   id,
@@ -119,5 +119,19 @@ describe("emptyGridMessage", () => {
     expect(emptyGridMessage(panes, { minimized: ["a", "b"], suspendedTray: ["c"] }).sub).toBe(
       "Restore one below to inspect it",
     );
+  });
+});
+
+describe("trayChipStatus", () => {
+  it("speaks only for the agents that need a person or have failed", () => {
+    expect(trayChipStatus({ state: "waiting" }, false)).toEqual({ tone: "waiting", word: "needs you" });
+    expect(trayChipStatus({ state: "failed" }, false)).toEqual({ tone: "failed", word: "failed" });
+    expect(trayChipStatus({ state: "working" }, false)).toEqual({ tone: "working", word: null });
+    expect(trayChipStatus({ state: "done" }, false)).toEqual({ tone: "done", word: null });
+  });
+
+  it("marks a stopped agent with no activity, and says nothing for an unreported one", () => {
+    expect(trayChipStatus(undefined, true)).toEqual({ tone: "stopped", word: null });
+    expect(trayChipStatus(undefined, false)).toBeNull();
   });
 });

@@ -13,6 +13,7 @@ import {
   formatUsd,
   limitLevel,
   panelWindows,
+  tightestWindow,
   tokenBreakdown,
   tokenSegments,
   usageStale,
@@ -59,6 +60,32 @@ describe("chipWindows / panelWindows", () => {
     };
     expect(chipWindows(unavailable)).toEqual([]);
     expect(panelWindows(unavailable)).toEqual([]);
+  });
+});
+
+describe("tightestWindow", () => {
+  it("picks the chip window closest to its limit, ignoring scoped windows", () => {
+    expect(tightestWindow(account([FIVE_H, WEEKLY, QUOTA]), 0)).toBe(WEEKLY);
+    expect(tightestWindow(account([{ ...FIVE_H, usedPct: 70 }, WEEKLY]), 0)?.usedPct).toBe(70);
+  });
+
+  it("keeps the shorter window on a tie, and has nothing to say without a report", () => {
+    const tie = { ...WEEKLY, usedPct: 10 };
+    expect(tightestWindow(account([FIVE_H, tie]), 0)).toBe(FIVE_H);
+    expect(tightestWindow({ kind: "unavailable" } as unknown as AccountUsage, 0)).toBeNull();
+  });
+
+  it("ranks only the live windows: one that has reset is history, not a limit", () => {
+    // 5h at 97% has already reset; the week at 85% is live — the ring must
+    // show the week, in its warning colour, not a reading that is over.
+    const reset = { ...FIVE_H, usedPct: 97, resetsAt: 1_000 };
+    const live = { ...WEEKLY, usedPct: 85, resetsAt: 9_000 };
+    expect(tightestWindow(account([reset, live]), 2_000)).toBe(live);
+    // Before the reset, the 5h window is the tighter one.
+    expect(tightestWindow(account([reset, live]), 500)).toBe(reset);
+    // Every window reset: the last readings are all there is to show.
+    const oldWeek = { ...live, resetsAt: 1_500 };
+    expect(tightestWindow(account([reset, oldWeek]), 2_000)).toBe(reset);
   });
 });
 

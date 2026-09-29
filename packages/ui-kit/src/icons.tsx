@@ -48,6 +48,17 @@ export function CloseIcon() {
   );
 }
 
+/** Add — drawn, not typed: a typed "+" sits where the font's metrics put
+ * it, which is below the middle of any box it is centred in. */
+export function PlusIcon() {
+  return (
+    <svg {...iconProps}>
+      <line x1="12" y1="5" x2="12" y2="19" />
+      <line x1="5" y1="12" x2="19" y2="12" />
+    </svg>
+  );
+}
+
 /** Back out of a drilled-in view to its list — a left chevron. The same
  * glyph the git plugin draws for its drill-back rows; drill-in navigation
  * backs out at the top LEFT, it does not "close". */
@@ -153,19 +164,6 @@ export function PlayFillIcon() {
   );
 }
 
-/** Power — stop this agent, keeping the pane (Lucide `power`, ISC). Chosen
- * over a pause glyph deliberately: the process is ENDED and resumed through
- * its session later, not frozen in place, and a pause bar would promise the
- * latter. */
-export function PowerIcon() {
-  return (
-    <svg {...iconProps}>
-      <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
-      <line x1="12" y1="2" x2="12" y2="12" />
-    </svg>
-  );
-}
-
 /** Filled stop square — the running glyph's ACTION face. */
 export function StopFillIcon() {
   return (
@@ -238,7 +236,7 @@ export function BellIcon() {
 }
 
 /** A chevron pointing right, drawn CENTRED in its box — the mark of a thing
- * that opens (the workspace rail's teams, a plugin's sections), which the
+ * that opens (a plugin's sections, the bar's breadcrumb), which the
  * owner turns with CSS rather than swapping for a down chevron.
  *
  * ONE mark, turned. Two characters — a right chevron and a down one — are

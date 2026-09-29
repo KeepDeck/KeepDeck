@@ -26,33 +26,33 @@
 .artifacts__search {
   margin-bottom: 10px;
   padding: 8px 12px;
-  border: 1px solid #1c2230;
-  border-radius: 8px;
-  background-color: #0e121a;
-  color: #d6d9df;
-  font-size: 13px;
+  border: 1px solid var(--kd-seam);
+  border-radius: var(--kd-radius-pop);
+  background-color: var(--kd-tile);
+  color: var(--kd-text);
+  font-size: var(--kd-font-normal);
 }
 
 .artifacts__search:focus {
   outline: none;
-  border-color: #3a4658;
+  border-color: var(--kd-seam-strong);
 }
 
 .artifacts__hint {
   margin: 0 0 16px;
-  color: #6b7280;
-  font-size: 12px;
+  color: var(--kd-text-3);
+  font-size: var(--kd-font-small);
   line-height: 1.5;
 }
 
 .artifacts__error {
   margin: 0 0 12px;
   padding: 8px 10px;
-  border: 1px solid #4a2b28;
-  border-radius: 6px;
-  background-color: #1f1412;
-  color: #d98b7f;
-  font-size: 12px;
+  border: 1px solid var(--kd-err-line);
+  border-radius: var(--kd-radius-control);
+  background-color: var(--kd-err-tint);
+  color: var(--kd-err-strong);
+  font-size: var(--kd-font-small);
 }
 
 /* Reserves NOTHING: a list is as tall as it has rows, and one artifact
@@ -80,14 +80,14 @@
   gap: 6px;
   min-height: 120px;
   padding: 24px 0;
-  color: #565e6b;
-  font-size: 13px;
+  color: var(--kd-text-4);
+  font-size: var(--kd-font-normal);
   text-align: center;
 }
 
 .artifacts__placeholder-title {
-  color: #9aa0a6;
-  font-size: 14px;
+  color: var(--kd-text-3);
+  font-size: var(--kd-font-normal);
 }
 
 /* The window's spacer: its height is every row's measured sum and the
@@ -116,11 +116,11 @@
   align-items: center;
   gap: 8px;
   padding-right: 10px;
-  border-radius: 8px;
+  border-radius: var(--kd-radius-pop);
 }
 
 .artifacts__row:hover {
-  background-color: #161c28;
+  background-color: var(--kd-hover);
 }
 
 /* The row IS the control. Stripped to nothing and dressed by the row
@@ -135,7 +135,7 @@
   min-width: 0;
   padding: 10px 2px 10px 12px;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--kd-radius-pop);
   background: none;
   font: inherit;
   text-align: left;
@@ -150,30 +150,30 @@
 /* Keyboard reach has to be visible: the row's own hover says nothing to
    a Tab. */
 .artifacts__row-open:focus-visible {
-  outline: 1px solid #3b82f6;
+  outline: 1px solid var(--kd-focus);
   outline-offset: -1px;
 }
 
 /* Clamped to two lines by .kd-two-lines: agents write long titles, and
    one line cut most of them to the same opening words. */
 .artifacts__row-title {
-  color: #c5c8c6;
-  font-size: 14px;
+  color: var(--kd-text-2);
+  font-size: var(--kd-font-normal);
 }
 
 /* The identity line — the durable half of an artifact, and the half a
    teammate is given. The id leads it for exactly that reason. */
 .artifacts__row-meta {
   overflow: hidden;
-  color: #565e6b;
-  font-size: 12px;
+  color: var(--kd-text-4);
+  font-size: var(--kd-font-small);
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
 .artifacts__row-meta code {
-  color: #8b93a7;
-  font-size: 12px;
+  color: var(--kd-text-3);
+  font-size: var(--kd-font-small);
 }
 
 .artifacts__row-actions {
@@ -191,13 +191,13 @@
   gap: 4px;
   margin: 0 0 4px;
   padding: 8px 12px 10px 24px;
-  border-left: 1px solid #262d3d;
+  border-left: 1px solid var(--kd-seam);
   margin-left: 12px;
 }
 
 .artifacts__history-note {
-  color: #565e6b;
-  font-size: 12px;
+  color: var(--kd-text-4);
+  font-size: var(--kd-font-small);
 }
 
 .artifacts__version {
@@ -205,31 +205,30 @@
   gap: 8px;
   align-items: baseline;
   min-width: 0;
-  font-size: 12px;
+  font-size: var(--kd-font-small);
 }
 
 .artifacts__version-n {
   flex: none;
   width: 32px;
-  color: #8b93a7;
+  color: var(--kd-text-3);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 .artifacts__version-when {
   flex: none;
-  color: #565e6b;
+  color: var(--kd-text-4);
 }
 
 /* The one part that can be long: an agent's note about what changed. */
 .artifacts__version-message {
   overflow: hidden;
-  color: #9aa0a6;
+  color: var(--kd-text-3);
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
-/* The row-level delete: a small text ×, the idiom the workspaces rail and
-   the journal rows already use. Always present rather than revealed on
+/* The row-level delete: a small text ×, the idiom the journal rows already use. Always present rather than revealed on
    hover — a control that appears only under a pointer cannot be reached
    by a Tab at all. */
 .artifacts__remove {
@@ -239,17 +238,17 @@
   align-items: center;
   justify-content: center;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--kd-radius-mark);
   background: transparent;
-  color: #565e6b;
-  font-size: 15px;
+  color: var(--kd-text-4);
+  font-size: var(--kd-font-normal);
   line-height: 1;
   cursor: pointer;
 }
 
 .artifacts__remove:hover,
 .artifacts__remove:focus-visible {
-  background-color: #2a1f1f;
-  color: #d98b7f;
+  background-color: var(--kd-err-tint);
+  color: var(--kd-err-strong);
   outline: none;
 }

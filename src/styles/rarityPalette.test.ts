@@ -21,7 +21,7 @@ function customProperty(css: string, name: string): string {
 
 describe("the rarity palette", () => {
   const achievements = readStyles("stats-achievements.css");
-  const base = readStyles("base.css");
+  const tokens = readStyles("tokens.css");
 
   it("draws four of its five levels from tokens the app already has", () => {
     expect(customProperty(achievements, "--rarity-uncommon")).toBe("var(--kd-ok)");
@@ -42,7 +42,7 @@ describe("the rarity palette", () => {
     // The canvas reads the live custom property at mount; this literal is
     // only the answer for a DOM that computes no styles. It still has to be
     // the RIGHT answer, or a stylesheet-less render burns a different colour.
-    const warn = customProperty(base, "--kd-warn");
+    const warn = customProperty(tokens, "--kd-warn");
     const hex = `#${FALLBACK_GOLD.map((channel) =>
       channel.toString(16).padStart(2, "0"),
     ).join("")}`;

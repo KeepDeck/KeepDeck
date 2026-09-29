@@ -18,6 +18,7 @@
     "build:macos": "./build-macos.sh"
   },
   "dependencies": {
+    "@fontsource-variable/inter": "5.3.0",
     "@keepdeck/plugin-api": "workspace:*",
     "@keepdeck/terminal-kit": "workspace:*",
     "@keepdeck/ui-kit": "workspace:*",

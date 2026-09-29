@@ -516,7 +516,7 @@ describe("AgentDialog agent picker", () => {
         }),
       ),
     );
-    const button = document.querySelector(".form__type")!;
+    const button = document.querySelector(".form__agent-pick .dropdown__button")!;
     expect(button.textContent).toContain("Claude Code");
     const path = button.querySelector("svg path")!;
     expect(path.getAttribute("fill")).toBe("#D97757");
@@ -932,9 +932,10 @@ describe("AgentDialog start-from session picker", () => {
     act(() => modeBtn("Fork").click()); // any section change…
     expect(sessionIndex.ensureFresh).toHaveBeenCalledTimes(1); // …rescans nothing
 
-    const codex = [
-      ...document.querySelectorAll<HTMLButtonElement>(".form__type"),
-    ].find((b) => b.textContent === "Codex")!;
+    act(() => document.querySelector<HTMLButtonElement>(".form__agent-pick .dropdown__button")!.click());
+    const codex = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
+      (o) => o.textContent === "Codex",
+    )!;
     act(() => codex.click());
     expect(sessionIndex.ensureFresh).toHaveBeenCalledTimes(2);
     expect(sessionIndex.ensureFresh).toHaveBeenLastCalledWith("codex");
@@ -1185,6 +1186,15 @@ describe("AgentDialog cross-agent pick guard", () => {
     [...document.querySelectorAll<HTMLButtonElement>(".form__type")].find(
       (b) => b.textContent === text || b.textContent?.includes(text),
     )!;
+  /** Pick an agent from the Agent list. */
+  const pickAgent = (text: string) => {
+    act(() => document.querySelector<HTMLButtonElement>(".form__agent-pick .dropdown__button")!.click());
+    act(() =>
+      [...document.querySelectorAll<HTMLElement>('[role="option"]')]
+        .find((o) => o.textContent?.includes(text))!
+        .click(),
+    );
+  };
 
   const mount = () =>
     act(async () =>
@@ -1235,7 +1245,7 @@ describe("AgentDialog cross-agent pick guard", () => {
     await mount();
 
     // Select codex, open Fork, pick the (claude) row.
-    act(() => typeBtn("Codex").click());
+    pickAgent("Codex");
     act(() => typeBtn("Fork").click());
     await settle();
 
@@ -1259,7 +1269,7 @@ describe("AgentDialog cross-agent pick guard", () => {
     await pickFirstRow();
     expect(nameField().value).toBe("claude work");
     // Switching agents voids the pick — the untouched name goes with it.
-    act(() => typeBtn("Codex").click());
+    pickAgent("Codex");
     expect(nameField().value).toBe("");
   });
 
@@ -1269,7 +1279,7 @@ describe("AgentDialog cross-agent pick guard", () => {
     await settle();
     await pickFirstRow();
     type(nameField(), "my agent");
-    act(() => typeBtn("Codex").click());
+    pickAgent("Codex");
     expect(nameField().value).toBe("my agent");
   });
 });
@@ -1571,8 +1581,9 @@ describe("AgentDialog picker ↔ sessionIndexManager (integration)", () => {
     act(() => modeBtn("Fork").click());
     await settle();
 
-    const codex = [...document.querySelectorAll<HTMLButtonElement>(".form__type")].find(
-      (b) => b.textContent === "Codex",
+    act(() => document.querySelector<HTMLButtonElement>(".form__agent-pick .dropdown__button")!.click());
+    const codex = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
+      (o) => o.textContent === "Codex",
     );
     act(() => codex!.click());
     await act(async () => {});

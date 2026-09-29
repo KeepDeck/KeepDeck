@@ -3,6 +3,7 @@
  * deck reducer, hit-test geometry for pane/rail drag-and-drop, close-hotkey
  * policy, and the deck document's schema + tolerant codec (persist).
  */
+export * from "./attention";
 export * from "./hotkeys";
 export * from "./layout";
 export * from "./placementRefusals";
@@ -11,7 +12,7 @@ export * from "./paneBody";
 export * from "./panes";
 export * from "./paneVisibility";
 export * from "./persist";
-export * from "./railDnd";
+export * from "./stripDnd";
 export * from "./reducer";
 export * from "./runIntent";
 export * from "./stage";

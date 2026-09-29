@@ -1,13 +1,13 @@
-/* Voice plugin chrome — palette per App.css (bg #0b0e14, panel #0e121a,
-   seams #1c2230, text #c5c8c6/#9aa3af, accent #58b368). */
+/* Voice plugin chrome — every colour is a host token (src/styles/tokens.css);
+   the plugin shares the host document, so they cascade here. */
 
 .voice {
   display: flex;
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  color: #c5c8c6;
-  font-size: 12px;
+  color: var(--kd-text-2);
+  font-size: var(--kd-font-small);
 }
 
 .voice__bar {
@@ -27,44 +27,44 @@
 }
 
 .voice__setup-title {
-  color: #c5c8c6;
-  font-size: 13px;
+  color: var(--kd-text-2);
+  font-size: var(--kd-font-normal);
   font-weight: 600;
 }
 
 .voice__setup-text {
-  color: #9aa3af;
+  color: var(--kd-text-3);
   line-height: 1.5;
 }
 
 .voice__setup-btn {
-  background: #12211a;
-  color: #7fb88a;
-  border: 1px solid #2a3c31;
-  border-radius: 4px;
+  background: var(--kd-ok-tint);
+  color: var(--kd-ok-strong);
+  border: 1px solid var(--kd-ok-line);
+  border-radius: var(--kd-radius-mark);
   padding: 5px 12px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--kd-font-small);
 }
 
 .voice__setup-btn:hover {
-  border-color: #3a5142;
+  border-color: var(--kd-ok-line);
 }
 
 .voice__mic {
-  background: #12211a;
-  color: #7fb88a;
-  border: 1px solid #2a3c31;
-  border-radius: 4px;
+  background: var(--kd-ok-tint);
+  color: var(--kd-ok-strong);
+  border: 1px solid var(--kd-ok-line);
+  border-radius: var(--kd-radius-mark);
   padding: 3px 10px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--kd-font-small);
 }
 
 .voice__mic--on {
-  background: #2a1515;
-  color: #e0806f;
-  border-color: #4a2626;
+  background: var(--kd-err-tint);
+  color: var(--kd-err-strong);
+  border-color: var(--kd-err-line);
 }
 
 .voice__mic:disabled {
@@ -75,9 +75,9 @@
 /* Full-width line under the bar — hints and state WRAP instead of
    truncating in the narrow dock. */
 .voice__status {
-  color: #6b7280;
+  color: var(--kd-text-3);
   padding: 0 8px 8px;
-  border-bottom: 1px solid #1c2230;
+  border-bottom: 1px solid var(--kd-seam);
   line-height: 1.4;
 }
 
@@ -94,8 +94,8 @@
   padding: 0;
   background: none;
   border: none;
-  border-radius: 4px;
-  color: #6b7280;
+  border-radius: var(--kd-radius-mark);
+  color: var(--kd-text-3);
   cursor: pointer;
   flex: none;
 }
@@ -107,13 +107,13 @@
 }
 
 .voice__info:hover {
-  color: #c5c8c6;
-  background: #161b26;
+  color: var(--kd-text-2);
+  background: var(--kd-tile);
 }
 
 .voice__info--on {
-  color: #c5c8c6;
-  background: #161b26;
+  color: var(--kd-text-2);
+  background: var(--kd-tile);
 }
 
 /* The floating help card — portaled to the body, above everything the dock
@@ -121,14 +121,14 @@
 .voice__help {
   position: fixed;
   z-index: 80;
-  background: #0e121a;
-  border: 1px solid #2a3346;
-  border-radius: 6px;
+  background: var(--kd-tile);
+  border: 1px solid var(--kd-seam-strong);
+  border-radius: var(--kd-radius-control);
   padding: 10px 12px;
-  color: #c5c8c6;
-  font-size: 12px;
+  color: var(--kd-text-2);
+  font-size: var(--kd-font-small);
   line-height: 1.5;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.55);
+  box-shadow: var(--kd-shadow-float);
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -136,21 +136,17 @@
 
 .voice__help kbd {
   font-family: inherit;
-  background: #161b26;
-  border: 1px solid #2a3346;
-  border-radius: 3px;
+  background: var(--kd-tile);
+  border: 1px solid var(--kd-seam-strong);
+  border-radius: var(--kd-radius-mark);
   padding: 0 5px;
-  color: #c5c8c6;
-}
-
-.voice__help-ex {
-  color: #6b7280;
+  color: var(--kd-text-2);
 }
 
 .voice__help-note {
-  color: #6b7280;
+  color: var(--kd-text-3);
   font-style: italic;
-  border-top: 1px solid #1c2230;
+  border-top: 1px solid var(--kd-seam);
   padding-top: 6px;
 }
 
@@ -158,8 +154,8 @@
 .voice-pill__meter {
   width: 64px;
   height: 6px;
-  background: #1c2230;
-  border-radius: 3px;
+  background: var(--kd-seam);
+  border-radius: var(--kd-radius-mark);
   overflow: hidden;
   flex: none;
 }
@@ -168,7 +164,7 @@
 .voice-pill__meter-fill {
   display: block;
   height: 100%;
-  background: #58b368;
+  background: var(--kd-ok);
   transition: width 60ms linear;
 }
 
@@ -185,22 +181,22 @@
 }
 
 .voice__empty {
-  color: #6b7280;
+  color: var(--kd-text-3);
   line-height: 1.7;
 }
 
 .voice__empty kbd,
 .voice__help kbd {
   font-family: inherit;
-  background: #161b26;
-  border: 1px solid #2a3346;
-  border-radius: 3px;
+  background: var(--kd-tile);
+  border: 1px solid var(--kd-seam-strong);
+  border-radius: var(--kd-radius-mark);
   padding: 0 5px;
-  color: #c5c8c6;
+  color: var(--kd-text-2);
 }
 
 .voice__empty-i {
-  color: #9aa3af;
+  color: var(--kd-text-3);
 }
 
 .voice__help-list {
@@ -210,11 +206,11 @@
   display: flex;
   flex-direction: column;
   gap: 3px;
-  color: #c5c8c6;
+  color: var(--kd-text-2);
 }
 
 .voice__help-slot {
-  color: #6b7280;
+  color: var(--kd-text-3);
   font-style: italic;
 }
 
@@ -226,19 +222,19 @@
      visual gap to neighbors identical now that the row carries its own padding
      + rounded background. */
   cursor: pointer;
-  border-radius: 4px;
+  border-radius: var(--kd-radius-mark);
   padding: 2px 4px;
   margin: -2px -4px;
   transition: background-color 90ms linear;
 }
 
 .voice__entry:hover {
-  background: #161b26;
+  background: var(--kd-tile);
 }
 
 /* Keyboard focus ring for the clickable rows — Tab into the log to copy. */
 .voice__entry:focus-visible {
-  outline: 1px solid #3a4763;
+  outline: 1px solid var(--kd-working-line);
   outline-offset: -1px;
 }
 
@@ -250,12 +246,12 @@
    cascade — a row carries BOTH its tone class and the feedback class. */
 .voice__entry--copied,
 .voice__entry--copied:hover {
-  background: #12211a;
+  background: var(--kd-ok-tint);
 }
 
 .voice__entry--failed,
 .voice__entry--failed:hover {
-  background: #2a1515;
+  background: var(--kd-err-tint);
 }
 
 .voice__tone {
@@ -265,21 +261,21 @@
 }
 
 .voice__entry--heard .voice__text {
-  color: #c5c8c6;
+  color: var(--kd-text-2);
 }
 
 .voice__entry--done .voice__tone,
 .voice__entry--done .voice__text {
-  color: #7fb88a;
+  color: var(--kd-ok-strong);
 }
 
 .voice__entry--error .voice__tone,
 .voice__entry--error .voice__text {
-  color: #e0806f;
+  color: var(--kd-err-strong);
 }
 
 .voice__entry--info .voice__text {
-  color: #9aa3af;
+  color: var(--kd-text-3);
 }
 
 /* Feedback word color — MUST follow the tone rules above: the selectors are
@@ -288,27 +284,27 @@
    override the green/red confirmation word on heard/info rows (and invert it
    for done+failed / error+copied). */
 .voice__entry--copied .voice__text {
-  color: #7fb88a;
+  color: var(--kd-ok-strong);
 }
 
 .voice__entry--failed .voice__text {
-  color: #e0806f;
+  color: var(--kd-err-strong);
 }
 
 .voice__model-btn {
   background: none;
-  border: 1px solid #1c2230;
-  color: #9aa3af;
-  border-radius: 4px;
+  border: 1px solid var(--kd-seam);
+  color: var(--kd-text-3);
+  border-radius: var(--kd-radius-mark);
   padding: 2px 8px;
   cursor: pointer;
-  font-size: 11px;
+  font-size: var(--kd-font-small);
   flex: none;
 }
 
 .voice__model-btn:hover {
-  color: #c5c8c6;
-  border-color: #2a3346;
+  color: var(--kd-text-2);
+  border-color: var(--kd-seam-strong);
 }
 
 /* Model manager cards (the plugin's settings section). */
@@ -319,47 +315,47 @@
 }
 
 .voice-models__error {
-  color: #e0806f;
-  font-size: 12px;
+  color: var(--kd-err-strong);
+  font-size: var(--kd-font-small);
   /* A humanized message stays short, but nothing that lands here may ever
      explode the settings column sideways again. */
   overflow-wrap: anywhere;
 }
 
 .voice-models__warn {
-  color: #e0a06f;
-  background: #3a2417;
-  border-radius: 4px;
+  color: var(--kd-warn-strong);
+  background: var(--kd-warn-tint);
+  border-radius: var(--kd-radius-mark);
   padding: 8px 10px;
-  font-size: 12px;
+  font-size: var(--kd-font-small);
   line-height: 1.4;
 }
 
 .voice-models__badge--legacy {
-  background: #1c2230;
-  color: #9aa3af;
-  border-color: #2a3346;
+  background: var(--kd-seam);
+  color: var(--kd-text-3);
+  border-color: var(--kd-seam-strong);
 }
 
 .voice-models__card {
-  border: 1px solid #1c2230;
-  border-radius: 6px;
+  border: 1px solid var(--kd-seam);
+  border-radius: var(--kd-radius-control);
   padding: 10px 12px;
   display: flex;
   flex-direction: column;
   gap: 6px;
-  font-size: 12px;
-  color: #c5c8c6;
+  font-size: var(--kd-font-small);
+  color: var(--kd-text-2);
   cursor: pointer;
 }
 
 .voice-models__card:hover {
-  border-color: #2a3346;
+  border-color: var(--kd-seam-strong);
 }
 
 .voice-models__card--active {
-  border-color: #2a3c31;
-  background: #101612;
+  border-color: var(--kd-ok-line);
+  background: var(--kd-ok-tint);
 }
 
 .voice-models__head,
@@ -380,24 +376,24 @@
 }
 
 .voice-models__badge {
-  background: #12211a;
-  color: #7fb88a;
-  border: 1px solid #2a3c31;
+  background: var(--kd-ok-tint);
+  color: var(--kd-ok-strong);
+  border: 1px solid var(--kd-ok-line);
   border-radius: 999px;
   padding: 0 8px;
-  font-size: 10px;
+  font-size: var(--kd-font-small);
   font-weight: 400;
   flex: none;
 }
 
 .voice-models__blurb {
-  color: #9aa3af;
+  color: var(--kd-text-3);
   min-width: 0;
 }
 
 .voice-models__foot {
-  color: #6b7280;
-  font-size: 11px;
+  color: var(--kd-text-3);
+  font-size: var(--kd-font-small);
 }
 
 .voice-models__foot-right {
@@ -409,34 +405,34 @@
 
 .voice-models__act {
   background: none;
-  border: 1px solid #1c2230;
-  color: #9aa3af;
-  border-radius: 4px;
+  border: 1px solid var(--kd-seam);
+  color: var(--kd-text-3);
+  border-radius: var(--kd-radius-mark);
   padding: 2px 8px;
   cursor: pointer;
-  font-size: 11px;
+  font-size: var(--kd-font-small);
 }
 
 .voice-models__act:hover {
-  color: #c5c8c6;
-  border-color: #2a3346;
+  color: var(--kd-text-2);
+  border-color: var(--kd-seam-strong);
 }
 
 .voice-models__act--delete:hover {
-  color: #e0806f;
-  border-color: #4a2626;
+  color: var(--kd-err-strong);
+  border-color: var(--kd-err-line);
 }
 
 .voice-models__progress {
-  color: #58b368;
+  color: var(--kd-ok);
 }
 
 /* Cumulative progress bar under a downloading card, and the dock strip. */
 .voice-models__bar {
   display: block;
   height: 3px;
-  border-radius: 2px;
-  background: #1c2230;
+  border-radius: var(--kd-radius-mark);
+  background: var(--kd-seam);
   overflow: hidden;
   margin-top: 2px;
 }
@@ -444,14 +440,14 @@
 .voice-models__bar-fill {
   display: block;
   height: 100%;
-  background: #58b368;
-  border-radius: 2px;
+  background: var(--kd-ok);
+  border-radius: var(--kd-radius-mark);
   transition: width 120ms linear;
 }
 
 .voice-models__card-error {
-  color: #e0806f;
-  font-size: 11px;
+  color: var(--kd-err-strong);
+  font-size: var(--kd-font-small);
   overflow-wrap: anywhere;
 }
 
@@ -459,7 +455,7 @@
    visible after settings close. */
 .voice__downloads {
   padding: 6px 8px;
-  border-bottom: 1px solid #1c2230;
+  border-bottom: 1px solid var(--kd-seam);
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -470,8 +466,8 @@
   grid-template-columns: 1fr auto;
   align-items: center;
   gap: 8px;
-  font-size: 11px;
-  color: #9aa3af;
+  font-size: var(--kd-font-small);
+  color: var(--kd-text-3);
 }
 
 .voice__download-name {
@@ -493,23 +489,23 @@
 }
 
 .voice-models__rating-label {
-  color: #6b7280;
-  font-size: 10px;
+  color: var(--kd-text-3);
+  font-size: var(--kd-font-small);
 }
 
 .voice-models__rating-track {
   width: 72px;
   height: 5px;
-  border-radius: 3px;
-  background: #1c2230;
+  border-radius: var(--kd-radius-mark);
+  background: var(--kd-seam);
   overflow: hidden;
 }
 
 .voice-models__rating-fill {
   display: block;
   height: 100%;
-  background: #58b368;
-  border-radius: 3px;
+  background: var(--kd-ok);
+  border-radius: var(--kd-radius-mark);
 }
 
 /* The listening pill — bottom-center of the window, above the grid. */
@@ -521,14 +517,14 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  background: #0e121a;
-  border: 1px solid #2a3346;
+  background: var(--kd-float);
+  border: 1px solid var(--kd-seam-strong);
   border-radius: 999px;
   padding: 6px 14px;
-  color: #c5c8c6;
-  font-size: 12px;
+  color: var(--kd-text-2);
+  font-size: var(--kd-font-small);
   z-index: 60;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--kd-shadow-float);
   pointer-events: none;
 }
 
@@ -536,12 +532,12 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #9aa3af;
+  background: var(--kd-seam);
   flex: none;
 }
 
 .voice-pill__dot--live {
-  background: #e0806f;
+  background: var(--kd-err);
   animation: voice-pulse 1.2s ease-in-out infinite;
 }
 
@@ -559,8 +555,8 @@
 }
 
 .voice-hotkeys__intro {
-  color: #9aa3af;
-  font-size: 12px;
+  color: var(--kd-text-3);
+  font-size: var(--kd-font-small);
   line-height: 1.5;
 }
 
@@ -581,13 +577,13 @@
 
 .voice-hotkeys__label {
   font-weight: 600;
-  color: #c5c8c6;
-  font-size: 13px;
+  color: var(--kd-text-2);
+  font-size: var(--kd-font-normal);
 }
 
 .voice-hotkeys__hint {
-  color: #6b7280;
-  font-size: 11px;
+  color: var(--kd-text-3);
+  font-size: var(--kd-font-small);
 }
 
 .voice-hotkeys__controls {
@@ -600,51 +596,51 @@
 .voice-hotkeys__chord {
   font-family: inherit;
   min-width: 96px;
-  background: #161b26;
-  border: 1px solid #2a3346;
-  border-radius: 4px;
+  background: var(--kd-tile);
+  border: 1px solid var(--kd-seam-strong);
+  border-radius: var(--kd-radius-mark);
   padding: 4px 10px;
-  color: #c5c8c6;
-  font-size: 12px;
+  color: var(--kd-text-2);
+  font-size: var(--kd-font-small);
   cursor: pointer;
 }
 
 .voice-hotkeys__chord:hover {
-  border-color: #3a4763;
+  border-color: var(--kd-working-line);
 }
 
 .voice-hotkeys__chord--recording {
   border-style: dashed;
-  border-color: #7fb88a;
-  color: #7fb88a;
+  border-color: var(--kd-ok-line);
+  color: var(--kd-ok-strong);
 }
 
 .voice-hotkeys__reset {
   background: none;
-  border: 1px solid #1c2230;
-  color: #9aa3af;
-  border-radius: 4px;
+  border: 1px solid var(--kd-seam);
+  color: var(--kd-text-3);
+  border-radius: var(--kd-radius-mark);
   padding: 3px 8px;
   cursor: pointer;
-  font-size: 11px;
+  font-size: var(--kd-font-small);
 }
 
 .voice-hotkeys__reset:hover {
-  color: #c5c8c6;
-  border-color: #2a3346;
+  color: var(--kd-text-2);
+  border-color: var(--kd-seam-strong);
 }
 
 .voice-hotkeys__error {
   flex-basis: 100%;
-  color: #e0806f;
-  font-size: 12px;
+  color: var(--kd-err-strong);
+  font-size: var(--kd-font-small);
   /* Never let a message explode the settings column sideways. */
   overflow-wrap: anywhere;
 }
 
 .voice-hotkeys__warn {
   flex-basis: 100%;
-  color: #e0a06f;
-  font-size: 11px;
+  color: var(--kd-warn-strong);
+  font-size: var(--kd-font-small);
   overflow-wrap: anywhere;
 }

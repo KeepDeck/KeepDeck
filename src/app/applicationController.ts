@@ -47,6 +47,9 @@ export interface ApplicationController {
    * the `activatePane` precedent — because the order is policy, not
    * rendering. */
   activateTeam(wsId: string, teamId: string): void;
+  /** Bring one agent in front of the person: its workspace on screen, the
+   * pane revealed, selected and taking the keyboard. */
+  activatePane(wsId: string, paneId: string): void;
   openNotification(notification: Notification): void;
   createWorkspace(config: SpawnConfig): void;
   dispose(): void;
@@ -108,8 +111,8 @@ export function createApplicationController({
   };
 
   // The team opens FIRST, then its workspace comes forward: `openTeam`
-  // names the workspace it acts on, so the level is already right when the
-  // stage appears and no frame renders the cards on the way through.
+  // names the workspace it acts on, so the right team is already open when
+  // the stage appears and no frame shows another on the way through.
   const activateTeam = (wsId: string, teamId: string) => {
     actions.openTeam(wsId, teamId);
     selectWorkspace(wsId);
@@ -160,6 +163,8 @@ export function createApplicationController({
     selectWorkspace,
 
     activateTeam,
+
+    activatePane,
 
     openNotification(notification) {
       switch (notification.source.type) {

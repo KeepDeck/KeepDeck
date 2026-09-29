@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from "vitest";
-import { collectRailItemRects } from "./railDnd";
+import { collectMarkRects } from "./stripDnd";
 
 function rect(top: number): DOMRect {
   return {
@@ -16,7 +16,7 @@ function rect(top: number): DOMRect {
   } as DOMRect;
 }
 
-describe("collectRailItemRects (real DOM)", () => {
+describe("collectMarkRects (real DOM)", () => {
   afterEach(() => {
     document.body.innerHTML = "";
   });
@@ -42,7 +42,7 @@ describe("collectRailItemRects (real DOM)", () => {
       configurable: true,
       value: 30,
     });
-    const rects = collectRailItemRects(list);
+    const rects = collectMarkRects(list);
     expect(rects).toEqual([
       { id: "ws-1", top: 105, bottom: 135 },
       { id: "ws-2", top: 137, bottom: 167 },
@@ -64,7 +64,7 @@ describe("collectRailItemRects (real DOM)", () => {
     });
     item.getBoundingClientRect = () => rect(520);
 
-    expect(collectRailItemRects(list)).toEqual([
+    expect(collectMarkRects(list)).toEqual([
       { id: "ws-1", top: 30, bottom: 60 },
     ]);
   });

@@ -4,40 +4,41 @@
   width: 100%;
   max-width: 560px;
   padding: 28px;
-  border: 1px solid #1c2230;
-  border-radius: 12px;
-  background-color: #0e121a;
+  border: 1px solid var(--kd-seam);
+  border-radius: var(--kd-radius-dialog);
+  box-shadow: var(--kd-shadow-float);
+  background-color: var(--kd-float);
 }
 
 .form__title {
   margin: 0 0 20px;
-  font-size: 18px;
+  font-size: var(--kd-font-title);
   font-weight: 600;
-  color: #c5c8c6;
+  color: var(--kd-text-2);
 }
 
 .form__label {
   margin-bottom: 8px;
-  font-size: 11px;
+  font-size: var(--kd-font-small);
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: #6b7280;
+  color: var(--kd-text-3);
 }
 
 .form__input {
   margin-bottom: 20px;
   padding: 8px 10px;
-  border: 1px solid #1c2230;
-  border-radius: 8px;
-  background-color: #0e121a;
-  color: #c5c8c6;
+  border: 1px solid var(--kd-seam);
+  border-radius: var(--kd-radius-pop);
+  background-color: var(--kd-tile);
+  color: var(--kd-text-2);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--kd-font-normal);
   outline: none;
 }
 
 .form__input:focus {
-  border-color: #3a4658;
+  border-color: var(--kd-seam-strong);
 }
 
 .form__dir {
@@ -51,18 +52,18 @@
   flex: 1;
   min-width: 0;
   padding: 8px 10px;
-  border: 1px solid #1c2230;
-  border-radius: 8px;
-  background-color: #0e121a;
-  color: #c5c8c6;
-  font-size: 13px;
+  border: 1px solid var(--kd-seam);
+  border-radius: var(--kd-radius-pop);
+  background-color: var(--kd-tile);
+  color: var(--kd-text-2);
+  font-size: var(--kd-font-normal);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .form__dir-path--empty {
-  color: #6b7280;
+  color: var(--kd-text-3);
 }
 
 /* Worktree path picker ([F2]): a SuggestedInput plus a Choose… button.
@@ -110,43 +111,33 @@
   height: 18px;
   padding: 0;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--kd-radius-mark);
   background: transparent;
-  color: #6b7280;
-  font-size: 16px;
+  color: var(--kd-text-3);
+  font-size: var(--kd-font-title);
   line-height: 1;
   cursor: pointer;
 }
 
 .form__field-btn:hover {
-  color: #e6e8eb;
-  background-color: #1b2230;
+  color: var(--kd-text);
+  background-color: var(--kd-hover);
 }
 
 .form__field-btn--reset {
-  font-size: 13px; /* ↺ renders larger than × at equal font size */
+  font-size: var(--kd-font-normal); /* ↺ renders larger than × at equal font size */
 }
 
 /* The suggestion shown as a value: dimmed to placeholder color until the
    field is focused or edited. */
 .form__input--hint {
-  color: #6b7280;
-}
-
-/* Dialog lede under the title (what this dialog does) — neutral text, not
-   the green of a status hint; same pull-up metrics as .form__git so the
-   rhythm matches when a form uses both. */
-.form__desc {
-  margin-top: -12px;
-  margin-bottom: 20px;
-  font-size: 12px;
-  color: #9aa3af;
+  color: var(--kd-text-3);
 }
 
 .form__git {
   margin-top: -12px;
   margin-bottom: 20px;
-  font-size: 12px;
+  font-size: var(--kd-font-small);
   color: var(--kd-ok);
   /* Hints carry paths — clip an over-long one instead of letting it push
      past the dialog edge; call sites put the full text in `title`. */
@@ -158,8 +149,8 @@
 .form__error {
   margin-top: -12px;
   margin-bottom: 20px;
-  font-size: 12px;
-  color: #e5736f;
+  font-size: var(--kd-font-small);
+  color: var(--kd-err);
 }
 
 /* YOLO opt-in: checkbox + label with the warning tint — the mode disables the
@@ -175,7 +166,7 @@
 
 .form__yolo input {
   margin-top: 2px;
-  accent-color: #b8863b;
+  accent-color: var(--kd-warn);
   cursor: pointer;
 }
 
@@ -183,13 +174,13 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  font-size: 13px;
-  color: #e0b568;
+  font-size: var(--kd-font-normal);
+  color: var(--kd-warn-strong);
 }
 
 .form__yolo-hint {
-  font-size: 12px;
-  color: #9aa3af;
+  font-size: var(--kd-font-small);
+  color: var(--kd-text-3);
 }
 
 /* Inline resolution actions under an occupied-path warning ("Use next
@@ -209,36 +200,36 @@
   justify-content: center;
   flex: none;
   padding: 5px 8px;
-  border: 1px solid #2a3343;
-  border-radius: 6px;
-  background-color: #161b26;
-  color: #9aa3af;
+  border: 1px solid var(--kd-seam);
+  border-radius: var(--kd-radius-control);
+  background-color: var(--kd-tile);
+  color: var(--kd-text-3);
   cursor: pointer;
 }
 
 .form__choice:hover {
-  background-color: #1b2230;
-  border-color: #3a4658;
-  color: #c5c8c6;
+  background-color: var(--kd-hover);
+  border-color: var(--kd-seam-strong);
+  color: var(--kd-text-2);
 }
 
 .form__dir-btn,
 .form__cancel {
   flex: none;
   padding: 8px 14px;
-  border: 1px solid #2a3343;
-  border-radius: 8px;
-  background-color: #161b26;
-  color: #c5c8c6;
+  border: 1px solid var(--kd-seam);
+  border-radius: var(--kd-radius-pop);
+  background-color: var(--kd-tile);
+  color: var(--kd-text-2);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--kd-font-normal);
   cursor: pointer;
 }
 
 .form__dir-btn:hover:not(:disabled),
 .form__cancel:hover:not(:disabled) {
-  background-color: #1b2230;
-  border-color: #3a4658;
+  background-color: var(--kd-hover);
+  border-color: var(--kd-seam-strong);
 }
 
 /* An action that doesn't apply right now (the close dialog's Suspend while
@@ -265,17 +256,28 @@
   margin-bottom: 20px;
 }
 
+.form__agent-pick {
+  margin-bottom: 20px;
+}
+
+/* An agent in the list and in the closed control: its mark, then its name. */
+.form__agent-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .form__role-hint {
   margin: -12px 0 20px;
-  font-size: 12px;
+  font-size: var(--kd-font-small);
   line-height: 1.45;
-  color: #8b93a3;
+  color: var(--kd-text-3);
 }
 
 .form__role-address {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px;
-  color: #c5c8c6;
+  font-size: var(--kd-font-small);
+  color: var(--kd-text-2);
 }
 
 .form__type {
@@ -283,18 +285,18 @@
   align-items: center;
   gap: 7px;
   padding: 8px 14px;
-  border: 1px solid #1c2230;
-  border-radius: 8px;
-  background-color: #0e121a;
-  color: #9aa3af;
+  border: 1px solid var(--kd-seam);
+  border-radius: var(--kd-radius-pop);
+  background-color: var(--kd-tile);
+  color: var(--kd-text-3);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--kd-font-normal);
   cursor: pointer;
 }
 
 .form__type:hover:not(:disabled) {
-  border-color: #3a4658;
-  color: #c5c8c6;
+  border-color: var(--kd-seam-strong);
+  color: var(--kd-text-2);
 }
 
 /* A choice that doesn't apply right now (e.g. the minimize style outside the
@@ -304,10 +306,16 @@
   cursor: default;
 }
 
-.form__type--active {
-  border-color: #5a6b86;
-  background-color: #161d29;
-  color: #c5c8c6;
+/* The one chosen: a light plate with dark text — the deck's one way of
+   saying "this is the selected one" (the strip's active mark says it the
+   same way). It must never look like a hover, which only brightens the
+   rim; the pointer over it changes nothing. */
+.form__type--active,
+.form__type--active:hover:not(:disabled) {
+  border-color: var(--kd-text);
+  background-color: var(--kd-text);
+  color: var(--kd-canvas);
+  font-weight: 500;
 }
 
 /* The "Start from" session picker ([F8] spawn-time continuation): a search
@@ -329,8 +337,8 @@
 
 .form__sessions-count {
   flex: none;
-  font-size: 11px;
-  color: #6b7280;
+  font-size: var(--kd-font-small);
+  color: var(--kd-text-3);
   font-variant-numeric: tabular-nums;
 }
 
@@ -340,9 +348,9 @@
   list-style: none;
   max-height: 180px;
   overflow-y: auto;
-  border: 1px solid #1c2230;
-  border-radius: 8px;
-  background-color: #0e121a;
+  border: 1px solid var(--kd-seam);
+  border-radius: var(--kd-radius-pop);
+  background-color: var(--kd-tile);
 }
 
 .form__session {
@@ -352,7 +360,7 @@
   width: 100%;
   padding: 7px 10px;
   border: none;
-  border-bottom: 1px solid #151a24;
+  border-bottom: 1px solid var(--kd-seam);
   background: none;
   font: inherit;
   text-align: left;
@@ -364,11 +372,12 @@
 }
 
 .form__session:hover {
-  background-color: #131926;
+  background-color: var(--kd-hover);
 }
 
 .form__session--active {
-  background-color: #161d29;
+  background-color: var(--kd-selected);
+  color: var(--kd-text);
 }
 
 /* Un-resumable rows stay CLICKABLE (picking one shows the full reason and
@@ -387,23 +396,23 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
-  color: #d6d9df;
+  font-size: var(--kd-font-normal);
+  color: var(--kd-text);
 }
 
 .form__session-meta {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 11px;
-  color: #6b7280;
+  font-size: var(--kd-font-small);
+  color: var(--kd-text-3);
 }
 
 .form__session-empty {
   padding: 10px;
   text-align: center;
-  font-size: 12px;
-  color: #6b7280;
+  font-size: var(--kd-font-small);
+  color: var(--kd-text-3);
 }
 
 /* The loading tail — a spinner as the last row while the next page is
@@ -419,8 +428,8 @@
   flex: none;
   width: 14px;
   height: 14px;
-  border: 2px solid #2b3446;
-  border-top-color: #9aa3af;
+  border: 2px solid var(--kd-seam);
+  border-top-color: var(--kd-seam);
   border-radius: 50%;
   animation: browser-spin 0.7s linear infinite;
 }
@@ -435,17 +444,17 @@
 .form__create {
   padding: 9px 18px;
   border: 0;
-  border-radius: 8px;
-  background-color: #2f6f4f;
-  color: #eafff3;
+  border-radius: var(--kd-radius-pop);
+  background-color: var(--kd-ok-fill);
+  color: var(--kd-text);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--kd-font-normal);
   font-weight: 500;
   cursor: pointer;
 }
 
 .form__create:hover:not(:disabled) {
-  background-color: #38855f;
+  background-color: var(--kd-ok-line);
 }
 
 .form__create:disabled {
@@ -480,15 +489,15 @@
   height: 18px;
   padding: 0;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--kd-radius-mark);
   background: transparent;
-  color: #6b7280;
+  color: var(--kd-text-3);
   cursor: pointer;
 }
 
 .combobox__toggle:hover {
-  color: #c5c8c6;
-  background-color: #1b2230;
+  color: var(--kd-text-2);
+  background-color: var(--kd-hover);
 }
 
 /* In-app dropdown (ui/Dropdown.tsx): a form field that opens our own menu —
@@ -502,7 +511,7 @@
   width: 100%;
   text-align: left;
   cursor: pointer;
-  color: #c5c8c6;
+  color: var(--kd-text-2);
   /* form__input's field rhythm belongs to the wrapper (the call site owns
      spacing); a button margin would inflate a .dropdown flex item. */
   margin-bottom: 0;
@@ -510,7 +519,7 @@
 
 .dropdown__button svg {
   flex: none;
-  color: #6b7280;
+  color: var(--kd-text-3);
 }
 
 .dropdown__label {
@@ -523,10 +532,10 @@
   margin: 0;
   padding: 4px;
   list-style: none;
-  border: 1px solid #2a3343;
-  border-radius: 8px;
-  background-color: #151a24;
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.5);
+  border: 1px solid var(--kd-seam);
+  border-radius: var(--kd-radius-pop);
+  background-color: var(--kd-float);
+  box-shadow: var(--kd-shadow-float);
 }
 
 /* The floating list arrives instead of appearing: a layer that snaps into
@@ -572,11 +581,11 @@
   width: 100%;
   padding: 7px 8px;
   border: 0;
-  border-radius: 5px;
+  border-radius: var(--kd-radius-control);
   background: transparent;
-  color: #c5c8c6;
+  color: var(--kd-text-2);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--kd-font-normal);
   text-align: left;
   cursor: pointer;
   overflow: hidden;
@@ -585,10 +594,10 @@
 }
 
 .dropdown__option:hover {
-  background-color: #1b2230;
+  background-color: var(--kd-hover);
 }
 
 .dropdown__option--active {
-  background-color: #1b2230;
-  color: #eafff3;
+  background-color: var(--kd-selected);
+  color: var(--kd-text);
 }

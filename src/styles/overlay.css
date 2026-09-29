@@ -7,7 +7,7 @@
   align-items: center;
   justify-content: center;
   overflow: auto;
-  background-color: #0b0e14;
+  background-color: var(--kd-canvas);
 }
 
 /* Translucent backdrop for true dialogs (confirm/error, "+ Agent", and the
@@ -23,7 +23,7 @@
   align-items: center;
   justify-content: center;
   overflow: auto;
-  background-color: rgba(7, 9, 13, 0.66);
+  background-color: var(--kd-scrim);
   -webkit-backdrop-filter: blur(2px);
   backdrop-filter: blur(2px);
   /* The backdrop is tabindex=-1 and takes the keyboard itself when the dialog

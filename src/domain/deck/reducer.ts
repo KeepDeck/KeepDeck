@@ -52,6 +52,7 @@ import {
 } from "./teams/lifecycle";
 import type { DeckAction } from "./reducerActions";
 import {
+  backToCards,
   hidePaneView,
   setViewField,
   withDefaultSelection,
@@ -408,24 +409,8 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
       }
       return withView(state, viewByWs);
     }
-    case "toggleRailTeams": {
-      // Collapsing is the absence of the field, not `false`: the sparse view
-      // drops an empty record entirely, so a workspace nobody expanded costs
-      // nothing on disk and reads the same as one that was collapsed again.
-      const open = state.viewByWs[action.wsId]?.railExpanded ?? false;
-      return withView(
-        state,
-        setViewField(state.viewByWs, action.wsId, "railExpanded", open ? undefined : true),
-      );
-    }
-    case "closeTeam": {
-      // Back to the cards, where nothing is a pane to highlight. The
-      // spotlight is kept: it names a member of the team just left, and
-      // reopening that team restores it, while opening another drops it.
-      let viewByWs = setViewField(state.viewByWs, action.wsId, "teamOpen", undefined);
-      viewByWs = setViewField(viewByWs, action.wsId, "select", undefined);
-      return withView(state, viewByWs);
-    }
+    case "closeTeam":
+      return withView(state, backToCards(state.viewByWs, action.wsId));
     case "toggleDock": {
       const open = state.viewByWs[action.wsId]?.dock ?? false;
       return withView(
@@ -603,11 +588,10 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
       const workspaces = dissolveTeam(state.workspaces, action.wsId, action.teamId);
       if (workspaces === state.workspaces) return state;
       // The open team going is the person's way back to the cards.
-      let viewByWs = state.viewByWs;
-      if (viewByWs[action.wsId]?.teamOpen === action.teamId) {
-        viewByWs = setViewField(viewByWs, action.wsId, "teamOpen", undefined);
-        viewByWs = setViewField(viewByWs, action.wsId, "select", undefined);
-      }
+      const viewByWs =
+        state.viewByWs[action.wsId]?.teamOpen === action.teamId
+          ? backToCards(state.viewByWs, action.wsId)
+          : state.viewByWs;
       return { ...state, workspaces, viewByWs };
     }
     case "setWorkspacePluginSlot":

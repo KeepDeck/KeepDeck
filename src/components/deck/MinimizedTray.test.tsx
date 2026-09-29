@@ -53,6 +53,7 @@ describe("MinimizedTray", () => {
   let viewportWidth: number;
   let measuredItemWidths: number[];
   let resizeCallback: ResizeObserverCallback = () => {};
+  let observed: Element[] = [];
   let rectSpy: ReturnType<typeof vi.spyOn>;
   const restores = [vi.fn(), vi.fn(), vi.fn(), vi.fn()];
 
@@ -115,11 +116,12 @@ describe("MinimizedTray", () => {
       constructor(callback: ResizeObserverCallback) {
         resizeCallback = callback;
       }
-      observe = vi.fn();
+      observe = vi.fn((element: Element) => observed.push(element));
       unobserve = vi.fn();
       disconnect = vi.fn();
     }
     vi.stubGlobal("ResizeObserver", ResizeObserverMock);
+    observed = [];
     root = createRoot(document.getElementById("host")!);
   });
 
@@ -129,6 +131,17 @@ describe("MinimizedTray", () => {
     vi.unstubAllGlobals();
     Reflect.deleteProperty(document.documentElement, "clientWidth");
     Reflect.deleteProperty(document.documentElement, "clientHeight");
+  });
+
+  it("re-measures when one chip changes width, not only the whole shelf", () => {
+    // A chip's word ("needs you") comes and goes with its agent's status; a
+    // chip narrower than the widest changes size without the sizer moving.
+    act(() =>
+      root.render(withRuntime(createElement(MinimizedTray, { entries, active: true }))),
+    );
+    const chips = [...document.querySelectorAll(".minimized--measure")];
+    expect(chips).toHaveLength(entries.length);
+    for (const chip of chips) expect(observed).toContain(chip);
   });
 
   it("keeps one row and exposes only the entries represented by +N", async () => {

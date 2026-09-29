@@ -33,39 +33,39 @@
 /* ── size: geometry ───────────────────────────────────────────────── */
 
 .kd-btn {
-  font-size: 13px;
+  font-size: var(--kd-font-normal);
   padding: 9px 18px;
-  border-radius: 8px;
+  border-radius: var(--kd-radius-control);
 }
 
 .kd-btn--sm {
-  font-size: 12px;
+  font-size: var(--kd-font-small);
   padding: 3px 10px;
-  border-radius: 6px;
+  border-radius: var(--kd-radius-control);
 }
 
 /* ── variant: chrome ──────────────────────────────────────────────── */
 
 .kd-btn--primary {
   border: 0;
-  background-color: #2f6f4f;
-  color: #eafff3;
+  background-color: var(--kd-ok-fill);
+  color: var(--kd-ok-strong);
   font-weight: 500;
 }
 
 .kd-btn--primary:hover:not(:disabled) {
-  background-color: #38855f;
+  background-color: var(--kd-ok-line);
 }
 
 .kd-btn--secondary {
-  border: 1px solid #2a3343;
-  background-color: #161b26;
-  color: #c5c8c6;
+  border: 1px solid var(--kd-seam);
+  background-color: var(--kd-tile);
+  color: var(--kd-text-2);
 }
 
 .kd-btn--secondary:hover:not(:disabled) {
-  background-color: #1b2230;
-  border-color: #3a4658;
+  background-color: var(--kd-hover);
+  border-color: var(--kd-seam-strong);
 }
 
 /* Chrome that should disappear until reached for. Its padding is symmetric
@@ -74,14 +74,14 @@
 .kd-btn--ghost {
   border: 0;
   background: transparent;
-  color: #6b7280;
+  color: var(--kd-text-3);
   padding: 4px;
-  border-radius: 5px;
+  border-radius: var(--kd-radius-control);
 }
 
 .kd-btn--ghost:hover:not(:disabled) {
-  background-color: #1b2230;
-  color: #c5c8c6;
+  background-color: var(--kd-hover);
+  color: var(--kd-text-2);
 }
 
 /* ── the menu a button opens (@keepdeck/ui-kit MenuButton) ────────── */
@@ -105,15 +105,15 @@
   padding: 6px 12px;
   border: 0;
   background: transparent;
-  color: #c5c8c6;
+  color: var(--kd-text-2);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--kd-font-normal);
   text-align: left;
   cursor: pointer;
 }
 
 .kd-menu__item:hover:not([aria-disabled="true"]) {
-  background-color: #1b2230;
+  background-color: var(--kd-hover);
 }
 
 /* A refused item stays in the menu and stays reachable — it is the only place
@@ -129,9 +129,9 @@
 }
 
 .kd-menu__refusal {
-  font-size: 11.5px;
+  font-size: var(--kd-font-small);
   line-height: 1.35;
-  color: #8b93a3;
+  color: var(--kd-text-3);
   max-width: 34ch;
   text-wrap: pretty;
 }

@@ -204,6 +204,7 @@ const props = (overrides: Record<string, unknown> = {}) => ({
   agentsReady: true,
   unavailableAgentReasons: new Map(),
   gitHeads: new Map(),
+  activities: new Map(),
   idleBlocked: {},
   wakeFailed: {},
   occupiedPanes: {},
@@ -579,7 +580,7 @@ describe("DeckStage — the teams level", () => {
     expect(callbacks.onContinueSession).toHaveBeenCalledWith("ws-1", "team-1", "fork", record, "lead");
   });
 
-  it("starts a fresh list — no role carried over — when the rail opens another empty team", () => {
+  it("starts a fresh list — no role carried over — when another empty team is opened", () => {
     const two = [{ ...workspaces[0], teams: [team("team-1", "/repo"), team("team-2", "/repo/b")], panes: [] }];
     teamSessions.mounts = 0;
     render({ workspaces: two, specByPane: {} });
@@ -717,7 +718,7 @@ describe("DeckStage — agent identity on the pane header", () => {
 
   const teamLabel = (paneId: string) =>
     document.querySelector<HTMLElement>(
-      `[data-pane-id='${paneId}'] .pane__team .chip__label`,
+      `[data-pane-id='${paneId}'] .pane__role`,
     )!.textContent;
 
   it("names each pane's team once the deck runs more than one", () => {
@@ -764,7 +765,7 @@ describe("DeckStage — agent identity on the pane header", () => {
     expect(teamLabel("pane-2")).toBe("impl-1");
     // The name is still one hover away, on every badge.
     expect(
-      document.querySelector<HTMLElement>("[data-pane-id='pane-1'] .pane__team")!
+      document.querySelector<HTMLElement>("[data-pane-id='pane-1'] .pane__role")!
         .title,
     ).toContain("api");
   });

@@ -8,6 +8,9 @@ import {
   registerTerminalLinks,
   useTransient,
   type PaneHint,
+  TERMINAL_FONT_FAMILY,
+  TERMINAL_LOG_FONT_SIZE,
+  TERMINAL_THEME,
 } from "@keepdeck/terminal-kit";
 import { getRuntime } from "../runtime";
 
@@ -67,9 +70,9 @@ export function RunLog({
         disableStdin: !interactiveRef.current,
         cursorBlink: interactiveRef.current,
         scrollback: terminalScrollback,
-        fontSize: 11,
-        fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-        theme: { background: "#0b0e14" },
+        fontSize: TERMINAL_LOG_FONT_SIZE,
+        fontFamily: TERMINAL_FONT_FAMILY,
+        theme: TERMINAL_THEME,
       });
       const fit = new FitAddon();
       term.loadAddon(fit);

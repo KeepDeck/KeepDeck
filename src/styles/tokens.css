@@ -1,0 +1,106 @@
+/* The deck's design tokens — the ONE home of every colour the chrome is
+   painted with. Imported first (index.css), so every stylesheet after it —
+   host and built-in plugins alike, which share this document — reads the
+   same values. A literal elsewhere that equals one of these is a copy
+   waiting to drift; it migrates to the token.
+
+   Two tiers, kept apart on purpose:
+   - SURFACES and TEXT: the neutral graphite the deck is built from. No hue —
+     colour on this app means state, never decoration.
+   - STATUS: one palette for every "how is it going" signal — the pane's
+     frame and dot, the strip's marks, git's codes, buttons that affirm. It is
+     the only colour in the chrome. */
+:root {
+  /* Surfaces, darkest first. Depth is a step in lightness, not a border:
+     the canvas holds everything, tiles and the strip sit on it, floating
+     layers (dialogs, popovers, the dock) sit above. */
+  --kd-canvas: #0a0a0b;
+  --kd-strip: #0f0f11;
+  --kd-tile: #121214;
+  --kd-float: #161618;
+
+  /* Hover and the seam are TWO tokens with a difference the eye can see:
+     a hovered row must not read as a line, nor a line as a hover. Hover is
+     a fill one step above the tile; the seam is a line two steps above it,
+     so it still reads where it crosses a hovered fill. */
+  --kd-hover: #1b1b1f;
+  --kd-selected: #242428;
+  --kd-seam: #2a2a2f;
+  --kd-seam-strong: #3a3a41;
+
+  /* Text, strongest first. t3 is the floor for anything a person reads;
+     t4 is for marks and disabled text only. */
+  --kd-text: #ececef;
+  --kd-text-2: #a6a6ae;
+  --kd-text-3: #7e7e87;
+  --kd-text-4: #55555c;
+
+  /* Status. -strong is the same hue lifted for small coloured text on a
+     dark tint, where the base tone drops below comfortable contrast. */
+  --kd-ok: #4fbf7a;
+  --kd-ok-strong: #6fd695;
+  --kd-warn: #e9ae48;
+  --kd-err: #ef6f6f;
+  --kd-err-strong: #f58f8f;
+  --kd-warn-strong: #eec070;
+  --kd-working: #72a5f3;
+  --kd-info: var(--kd-working);
+
+  /* Status on a surface — pre-blended over the tile rather than color-mix,
+     so a WebView without color-mix still paints them. -tint is a quiet
+     fill (12 % of the hue), -line a border (40 % over the seam), -fill an
+     affirming control (22 %) whose ink is the -strong or base hue. A new
+     status value means re-blending these four rows, nothing else. */
+  --kd-ok-tint: #192720;
+  --kd-ok-line: #39664d;
+  --kd-ok-fill: #1f382a;
+  --kd-err-tint: #2d1d1f;
+  --kd-err-line: #794649;
+  --kd-err-fill: #432628;
+  --kd-warn-tint: #2c251a;
+  --kd-warn-line: #765f39;
+  --kd-working-tint: #1e242f;
+  --kd-working-line: #475b7d;
+
+  /* Keyboard focus — the working blue, so a focused control reads as
+     "here" and never as a state. */
+  --kd-focus: var(--kd-working);
+
+  /* The focus rim of the tile you type into — neutral, so it never reads
+     as a state. */
+  --kd-ring: rgb(255 255 255 / 0.26);
+
+  /* Scrims behind a modal and over a stopped pane's card. */
+  --kd-scrim: rgb(5 5 6 / 0.66);
+  --kd-scrim-strong: rgb(10 10 11 / 0.82);
+
+  /* The UI face: Inter, bundled (App.tsx imports it; Latin and Cyrillic
+     load by unicode-range), falling back to the system face. The terminal
+     keeps its own monospace stack. */
+  --kd-font-ui: "Inter Variable", ui-sans-serif, system-ui, -apple-system, sans-serif;
+
+  /* Depth: tiles cast nothing; everything that FLOATS — dialogs, the dock,
+     popovers, menus, tooltips — casts this one shadow: a hairline that
+     parts it from whatever it covers, and a soft wide fall under it. */
+  --kd-shadow-float: 0 0 0 1px rgb(0 0 0 / 0.45), 0 16px 44px -12px rgb(0 0 0 / 0.65);
+
+  /* Shape, by what a thing is: a small mark (a badge, a meter, a key), a
+     control, a row or a popover, a tile, a dialog or a sheet. Circles
+     (50%) and pills (999px) are shapes, not steps, and stay literal. */
+  --kd-radius-mark: 4px;
+  --kd-radius-control: 6px;
+  --kd-radius-pop: 8px;
+  --kd-radius-tile: 10px;
+  --kd-radius-dialog: 12px;
+
+  /* Type sizes: three steps, far enough apart to read as three — the
+     secondary text (labels, badges, counts, hints), the text, and a
+     dialog's title. The chrome's text is one of these; only a rendered
+     document (the Markdown preview) keeps its own heading scale. */
+  --kd-font-small: 11px;
+  --kd-font-normal: 13px;
+  --kd-font-title: 16px;
+
+  /* The page background, for opaque colour mixes that must track it. */
+  --kd-bg: var(--kd-canvas);
+}

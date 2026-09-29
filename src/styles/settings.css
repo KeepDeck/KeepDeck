@@ -39,29 +39,29 @@
   gap: 4px;
   min-height: 0;
   padding: 0 16px 20px 0;
-  border-right: 1px solid #1c2230;
+  border-right: 1px solid var(--kd-seam);
   overflow-y: auto;
 }
 
 .settings__nav-item {
   padding: 7px 10px;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--kd-radius-control);
   background: none;
-  color: #6b7280;
+  color: var(--kd-text-3);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--kd-font-normal);
   text-align: left;
   cursor: pointer;
 }
 
 .settings__nav-item:hover {
-  color: #c5c8c6;
+  color: var(--kd-text-2);
 }
 
 .settings__nav-item--active {
-  background-color: #1c2230;
-  color: #c5c8c6;
+  background-color: var(--kd-selected);
+  color: var(--kd-text);
 }
 
 /* The nav's Plugins group header: a muted tier label plus the global Rescan
@@ -72,12 +72,12 @@
   justify-content: space-between;
   margin-top: 12px;
   padding: 8px 4px 2px 10px;
-  border-top: 1px solid #1c2230;
+  border-top: 1px solid var(--kd-seam);
 }
 
 .settings__nav-group-label {
-  color: #4b5563;
-  font-size: 10px;
+  color: var(--kd-text-4);
+  font-size: var(--kd-font-small);
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -108,8 +108,8 @@
 .settings__hint {
   margin-top: -12px;
   margin-bottom: 20px;
-  font-size: 12px;
-  color: #6b7280;
+  font-size: var(--kd-font-small);
+  color: var(--kd-text-3);
 }
 
 /* The -12px above is tuned to follow a control with a 20px bottom margin
@@ -121,7 +121,7 @@
 
 /* An honest warning line (e.g. the OS is blocking notifications). */
 .settings__hint--warn {
-  color: #c9a23c;
+  color: var(--kd-warn);
 }
 
 /* A command the user copies rather than edits (the MCP connect line). Same
@@ -133,11 +133,11 @@
 .settings__command {
   margin-bottom: 8px;
   padding: 8px 10px;
-  border: 1px solid #1c2230;
-  border-radius: 8px;
-  background-color: #0e121a;
-  color: #c5c8c6;
-  font-size: 12px;
+  border: 1px solid var(--kd-seam);
+  border-radius: var(--kd-radius-pop);
+  background-color: var(--kd-tile);
+  color: var(--kd-text-2);
+  font-size: var(--kd-font-small);
   line-height: 1.6;
   overflow-wrap: anywhere;
 }
@@ -160,8 +160,8 @@
    inherits the hint's pull-up margin. */
 .settings__value {
   margin-bottom: 20px;
-  font-size: 13px;
-  color: #c5c8c6;
+  font-size: var(--kd-font-normal);
+  color: var(--kd-text-2);
 }
 
 /* Accumulated release notes for an available/ready update. Shown only when
@@ -182,9 +182,9 @@
 .settings__changelog-entry {
   /* Markdown bodies need their own block formatting context for lists/code. */
   min-width: 0;
-  font-size: 13px;
+  font-size: var(--kd-font-normal);
   line-height: 1.5;
-  color: #c5c8c6;
+  color: var(--kd-text-2);
 }
 
 .settings__changelog-version {
@@ -197,8 +197,8 @@
 
 .settings__changelog-date {
   font-weight: 400;
-  font-size: 11px;
-  color: #6b7280;
+  font-size: var(--kd-font-small);
+  color: var(--kd-text-3);
 }
 
 /* The release notes are Markdown; keep their blocks tight inside the entry. */
@@ -212,13 +212,13 @@
 
 .settings__changelog-entry code {
   padding: 1px 4px;
-  border-radius: 4px;
-  background: #1c2230;
-  font-size: 12px;
+  border-radius: var(--kd-radius-mark);
+  background: var(--kd-tile);
+  font-size: var(--kd-font-small);
 }
 
 .settings__changelog-entry a {
-  color: #6f9fd8;
+  color: var(--kd-working);
 }
 
 /* Experiment toggle: checkbox + label with an explanatory hint below. */
@@ -231,7 +231,7 @@
 
 .settings__toggle input {
   margin-top: 2px;
-  accent-color: #2f6f4f;
+  accent-color: var(--kd-ok);
   cursor: pointer;
 }
 
@@ -239,8 +239,8 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: 13px;
-  color: #c5c8c6;
+  font-size: var(--kd-font-normal);
+  color: var(--kd-text-2);
 }
 
 .settings__toggle-text .settings__hint {
@@ -264,10 +264,10 @@
   align-items: center;
   gap: 8px;
   padding: 6px 10px;
-  border: 1px solid #1c2230;
-  border-radius: 8px;
-  font-size: 13px;
-  color: #c5c8c6;
+  border: 1px solid var(--kd-seam);
+  border-radius: var(--kd-radius-pop);
+  font-size: var(--kd-font-normal);
+  color: var(--kd-text-2);
 }
 
 .settings__list-entry {
@@ -286,17 +286,17 @@
   align-items: center;
   justify-content: center;
   border: 0;
-  border-radius: 5px;
+  border-radius: var(--kd-radius-control);
   background: transparent;
-  color: #6b7280;
-  font-size: 14px;
+  color: var(--kd-text-3);
+  font-size: var(--kd-font-normal);
   line-height: 1;
   cursor: pointer;
 }
 
 .settings__list-remove:hover {
-  background-color: #1b2230;
-  color: #c5c8c6;
+  background-color: var(--kd-hover);
+  color: var(--kd-text-2);
 }
 
 .settings__list-add {
@@ -314,19 +314,19 @@
 .settings__list-add-btn {
   flex: none;
   padding: 0 14px;
-  border: 1px solid #2a3446;
-  border-radius: 8px;
+  border: 1px solid var(--kd-seam-strong);
+  border-radius: var(--kd-radius-pop);
   background: transparent;
-  color: #9aa3af;
+  color: var(--kd-text-3);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--kd-font-small);
   cursor: pointer;
 }
 
 .settings__list-add-btn:hover:not(:disabled) {
-  background-color: #1b2230;
-  color: #c5c8c6;
-  border-color: #3a4658;
+  background-color: var(--kd-hover);
+  color: var(--kd-text-2);
+  border-color: var(--kd-seam-strong);
 }
 
 .settings__list-add-btn:disabled {
@@ -394,7 +394,7 @@
   gap: 8px;
   margin-top: 14px;
   padding-top: 14px;
-  border-top: 1px solid #1c2230;
+  border-top: 1px solid var(--kd-seam);
 }
 
 .settings__plugin-about {
@@ -413,20 +413,20 @@
 .settings__plugin-notifications {
   margin-top: 14px;
   padding-top: 12px;
-  border-top: 1px solid #1c2230;
+  border-top: 1px solid var(--kd-seam);
 }
 
 .settings__agent-features {
   margin-top: 14px;
   padding-top: 14px;
-  border-top: 1px solid #1c2230;
+  border-top: 1px solid var(--kd-seam);
 }
 
 .settings__subheading {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--kd-font-normal);
   font-weight: 600;
-  color: #d7dce5;
+  color: var(--kd-text-2);
 }
 
 .settings__features-empty {
@@ -442,15 +442,15 @@
 
 .settings__feature-agent {
   overflow: hidden;
-  border: 1px solid #252c3a;
-  border-radius: 6px;
-  background: #111620;
+  border: 1px solid var(--kd-seam);
+  border-radius: var(--kd-radius-control);
+  background: var(--kd-tile);
 }
 
 .settings__feature-agent-name {
   padding: 6px 10px;
-  border-bottom: 1px solid #252c3a;
-  font-size: 12px;
+  border-bottom: 1px solid var(--kd-seam);
+  font-size: var(--kd-font-small);
   font-weight: 600;
 }
 
@@ -464,11 +464,11 @@
   justify-content: space-between;
   gap: 16px;
   padding: 6px 10px;
-  font-size: 12px;
+  font-size: var(--kd-font-small);
 }
 
 .settings__feature-row + .settings__feature-row {
-  border-top: 1px solid #1a202b;
+  border-top: 1px solid var(--kd-seam);
 }
 
 .settings__feature-row dt,
@@ -484,12 +484,12 @@
 
 .settings__feature-state {
   flex: 1 1 55%;
-  color: #7f8999;
+  color: var(--kd-text-3);
   text-align: right;
 }
 
 .settings__feature-state--yes {
-  color: #70c995;
+  color: var(--kd-ok-strong);
 }
 
 .settings__features-legacy {
@@ -504,24 +504,24 @@
 }
 
 .settings__badge {
-  font-size: 10px;
+  font-size: var(--kd-font-small);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   padding: 1px 6px;
-  border-radius: 4px;
-  background: #2a2f3a;
-  color: #9aa3b2;
+  border-radius: var(--kd-radius-mark);
+  background: var(--kd-seam);
+  color: var(--kd-text-3);
 }
 
 .settings__badge--experimental {
-  background: #3a2417;
-  color: #e0a06f;
+  background: var(--kd-warn-tint);
+  color: var(--kd-warn-strong);
 }
 
 .settings__plugin-restart {
   flex: none;
   padding: 4px 10px;
-  font-size: 12px;
+  font-size: var(--kd-font-small);
 }
 
 /* ---- Team roles: the role catalog editor ---- */
@@ -543,22 +543,22 @@
   gap: 10px;
   width: 100%;
   padding: 6px 10px;
-  border: 1px solid #1c2230;
-  border-radius: 8px;
-  background-color: #0e121a;
-  color: #c5c8c6;
-  font-size: 13px;
+  border: 1px solid var(--kd-seam);
+  border-radius: var(--kd-radius-pop);
+  background-color: var(--kd-tile);
+  color: var(--kd-text-2);
+  font-size: var(--kd-font-normal);
   text-align: left;
   cursor: pointer;
 }
 
 .roles__row:hover {
-  border-color: #2a3346;
+  border-color: var(--kd-seam);
 }
 
 .roles__row--active {
-  border-color: #5a6b86;
-  background-color: #161d29;
+  border-color: var(--kd-seam-strong);
+  background-color: var(--kd-selected);
 }
 
 /* The label gives way before the id or the notes do. */
@@ -571,21 +571,21 @@
 
 .roles__row-id {
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 12px;
-  color: #8b93a7;
+  font-size: var(--kd-font-small);
+  color: var(--kd-text-3);
 }
 
 .roles__row-standing {
-  font-size: 11px;
-  color: #6b7280;
+  font-size: var(--kd-font-small);
+  color: var(--kd-text-3);
 }
 
 /* Provenance, pushed to the row's far end: "edited" for a built-in with a
    record, "yours" for a custom role. */
 .roles__row-note {
   margin-left: auto;
-  font-size: 11px;
-  color: #9aa3b2;
+  font-size: var(--kd-font-small);
+  color: var(--kd-text-3);
 }
 
 /* A stored record the merge refused whole (unparseable JSON): not a role,
@@ -595,14 +595,14 @@
   align-items: center;
   gap: 10px;
   padding: 4px 10px;
-  font-size: 12px;
-  color: #6b7280;
+  font-size: var(--kd-font-small);
+  color: var(--kd-text-3);
 }
 
 .roles__editor {
   display: flex;
   flex-direction: column;
-  border-top: 1px solid #1c2230;
+  border-top: 1px solid var(--kd-seam);
   padding-top: 14px;
 }
 
@@ -619,8 +619,8 @@
   align-items: center;
   gap: 8px;
   margin-bottom: 20px;
-  font-size: 12px;
-  color: #9aa3b2;
+  font-size: var(--kd-font-small);
+  color: var(--kd-text-3);
   cursor: pointer;
 }
 
