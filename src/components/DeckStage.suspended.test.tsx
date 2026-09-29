@@ -66,6 +66,10 @@ const openView = (viewByWs: Record<string, Record<string, unknown>> = {}) => ({
 });
 
 const callbacks = {
+  onEnterTeam: vi.fn(),
+  onAddTeamMember: vi.fn(),
+  onRenameTeam: vi.fn(),
+  onDisbandTeam: vi.fn(),
   onContinueSession: vi.fn(),
   onSelectPane: vi.fn(),
   onToggleFocus: vi.fn(),

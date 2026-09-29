@@ -47,7 +47,6 @@ describe("stripView marks", () => {
     const { marks } = stripView(
       [THREE_TEAMS_OF_ONE, workspace("ws-empty", []), ONE_TEAM_OF_THREE],
       frames({}),
-      {},
       "ws-a",
     );
     expect(marks.map((m) => [m.id, m.active])).toEqual([
@@ -61,7 +60,7 @@ describe("stripView marks", () => {
     // A mark is the only view into a workspace not on screen, so it says
     // whatever is loudest there — work in progress included.
     const view = (activities: Record<string, keyof typeof ACTIVITY>) =>
-      stripView([THREE_TEAMS_OF_ONE], frames(activities), {}, "").marks[0];
+      stripView([THREE_TEAMS_OF_ONE], frames(activities), "").marks[0];
     expect(view({}).dot).toBe("idle");
     expect(view({ "pane-6": "done" }).dot).toBe("done");
     expect(view({ "pane-4": "working", "pane-6": "done" }).dot).toBe("working");
@@ -70,57 +69,23 @@ describe("stripView marks", () => {
       dot: "failed",
       label: "ws-b — something failed",
     });
-    expect(stripView([workspace("ws-e", [])], frames({}), {}, "").marks[0].dot).toBeNull();
+    expect(stripView([workspace("ws-e", [])], frames({}), "").marks[0].dot).toBeNull();
   });
 
   it("says a failed worktree create as loudly as a failed turn, a create in flight not at all", () => {
-    expect(stripView([creatingTeam("boom")], frames({}), {}, "").marks[0].dot).toBe("failed");
-    expect(stripView([creatingTeam()], frames({}), {}, "").marks[0].dot).toBeNull();
-  });
-
-  it("offers to move the open workspace one place either way, refusing past an end", () => {
-    const deck = [ONE_TEAM_OF_THREE, THREE_TEAMS_OF_ONE, workspace("ws-e", [])];
-    const at = (id: string) => stripView(deck, frames({}), {}, id).teams!;
-    expect(at("ws-a")).toMatchObject({ moveUpTo: null, moveDownTo: 1 });
-    expect(at("ws-b")).toMatchObject({ moveUpTo: 0, moveDownTo: 2 });
-    expect(at("ws-e")).toMatchObject({ moveUpTo: 1, moveDownTo: null });
+    expect(stripView([creatingTeam("boom")], frames({}), "").marks[0].dot).toBe("failed");
+    expect(stripView([creatingTeam()], frames({}), "").marks[0].dot).toBeNull();
   });
 });
 
-describe("stripView teams", () => {
-  it("lists the active workspace's teams, with the one on the stage open", () => {
-    const { teams } = stripView([ONE_TEAM_OF_THREE, THREE_TEAMS_OF_ONE], frames({}), {
-      "ws-b": { teamOpen: "team-2" },
-    }, "ws-b");
-    expect(teams?.wsId).toBe("ws-b");
-    expect(teams?.rows.map((r) => [r.id, r.open, r.size])).toEqual([
-      ["team-1", false, 1],
-      ["team-2", true, 1],
-      ["team-3", false, 1],
-    ]);
-  });
-
-  it("opens the first team when none was picked — there is no level above a team", () => {
-    const { teams } = stripView([THREE_TEAMS_OF_ONE], frames({}), {}, "ws-b");
-    expect(teams?.rows.map((r) => r.open)).toEqual([true, false, false]);
-  });
-
-  it("dots a row for attention only — its tiles are on screen — dims a pending one, offers Retry", () => {
-    const { teams } = stripView(
-      [THREE_TEAMS_OF_ONE],
-      frames({ "pane-4": "working", "pane-5": "waiting", "pane-6": "failed" }),
-      {},
-      "ws-b",
-    );
-    expect(teams?.rows.map((r) => r.dot)).toEqual([null, "waiting", "failed"]);
-    const [failedCreate] = stripView([creatingTeam("boom")], frames({}), {}, "ws-c").teams!.rows;
-    expect(failedCreate).toMatchObject({ pending: true, dot: "failed" });
-    expect(failedCreate.actions).toContain("retry");
-  });
-
-  it("has no list for a deck with no workspace, and an empty one for a bare workspace", () => {
-    expect(stripView([], frames({}), {}, "").teams).toBeNull();
-    expect(stripView([workspace("ws-e", [])], frames({}), {}, "ws-e").teams?.rows).toEqual([]);
+describe("stripView active workspace", () => {
+  it("names the one on screen and where its menu can move it, refusing past an end", () => {
+    const deck = [ONE_TEAM_OF_THREE, THREE_TEAMS_OF_ONE, workspace("ws-e", [])];
+    const at = (id: string) => stripView(deck, frames({}), id).active;
+    expect(at("ws-a")).toEqual({ id: "ws-a", name: "ws-a", moveUpTo: null, moveDownTo: 1 });
+    expect(at("ws-b")).toMatchObject({ moveUpTo: 0, moveDownTo: 2 });
+    expect(at("ws-e")).toMatchObject({ moveUpTo: 1, moveDownTo: null });
+    expect(stripView([], frames({}), "").active).toBeNull();
   });
 });
 

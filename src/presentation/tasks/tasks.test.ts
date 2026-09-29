@@ -5,6 +5,7 @@ import { LADDER_WORDS, tasksLadder } from "./ladderView";
 import { newTaskFormView, NEW_TASK_WORDS, priorityChoiceClassName } from "./newTaskFormView";
 import { taskCardView, taskCardClassName } from "./taskCardView";
 import { TASK_DETAIL_WORDS, pickedArtifact, pickedStatus, taskDetailClassName, taskDetailView } from "./taskDetailView";
+import { teamCardTasksLine } from "./teamCardTasksLine";
 import { teamOnScreen } from "./teamOnScreen";
 import { personName, priorityMark, statusTone, FIELD_WORDS, POOL_CHOICE } from "./words";
 
@@ -210,6 +211,23 @@ describe("newTaskFormView", () => {
   });
 });
 
+describe("teamCardTasksLine", () => {
+  it("counts what is open and what waits on a person; a finished board says done; an empty one says nothing", () => {
+    expect(
+      teamCardTasksLine([
+        task({ id: "task-1" }),
+        task({ id: "task-2", status: "in-progress" }),
+        task({ id: "task-3", status: "blocked" }),
+        task({ id: "task-4", status: "review" }),
+        task({ id: "task-5", status: "review" }),
+        task({ id: "task-6", status: "done" }),
+      ]),
+    ).toBe("2 open · 1 blocked · 2 in review");
+    expect(teamCardTasksLine([task({ id: "task-1" })])).toBe("1 open");
+    expect(teamCardTasksLine([task({ id: "task-1", status: "done" }), task({ id: "task-2", status: "cancelled" })])).toBe("1 done");
+    expect(teamCardTasksLine([])).toBeNull();
+  });
+});
 
 describe("ladder", () => {
   const ready = {

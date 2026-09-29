@@ -48,6 +48,17 @@ export function CloseIcon() {
   );
 }
 
+/** Add — drawn, not typed: a typed "+" sits where the font's metrics put
+ * it, which is below the middle of any box it is centred in. */
+export function PlusIcon() {
+  return (
+    <svg {...iconProps}>
+      <line x1="12" y1="5" x2="12" y2="19" />
+      <line x1="5" y1="12" x2="19" y2="12" />
+    </svg>
+  );
+}
+
 /** Back out of a drilled-in view to its list — a left chevron. The same
  * glyph the git plugin draws for its drill-back rows; drill-in navigation
  * backs out at the top LEFT, it does not "close". */

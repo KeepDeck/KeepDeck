@@ -15,28 +15,20 @@ const twoTeams = (): Workspace => ({
 });
 
 describe("stagePanes", () => {
-  it("lays out one team's members: the opened team's, else the first team's", () => {
-    // There is no level above a team: a workspace with teams always has one
-    // on the stage.
+  it("lays out nothing at the cards level, and one team's members inside it", () => {
     const ws = twoTeams();
-    expect(stagePanes(ws, undefined).map((pane) => pane.id)).toEqual(["a-1"]);
-    expect(stagePanes(ws, {}).map((pane) => pane.id)).toEqual(["a-1"]);
+    expect(stagePanes(ws, undefined)).toEqual([]);
+    expect(stagePanes(ws, {})).toEqual([]);
     expect(stagePanes(ws, { teamOpen: "team-2" }).map((pane) => pane.id)).toEqual(["a-2", "a-3"]);
     expect(stagePanes(ws, { teamOpen: "team-1" }).map((pane) => pane.id)).toEqual(["a-1"]);
   });
 
-  it("reads a team the workspace no longer has as the first team", () => {
+  it("reads a team the workspace no longer has as the cards level", () => {
     // A persisted id can outlive its team; an open nothing would lay out
-    // nothing, so the first team stands in.
+    // nothing AND offer no way back, so it is the cards level instead.
     const ws = twoTeams();
-    expect(openTeamOf(ws, { teamOpen: "team-404" })?.id).toBe("team-1");
-    expect(stagePanes(ws, { teamOpen: "team-404" }).map((pane) => pane.id)).toEqual(["a-1"]);
-  });
-
-  it("has no team and lays out nothing only for a workspace with no team", () => {
-    const bare: Workspace = { ...twoTeams(), teams: [], panes: [] };
-    expect(openTeamOf(bare, undefined)).toBeUndefined();
-    expect(stagePanes(bare, undefined)).toEqual([]);
+    expect(openTeamOf(ws, { teamOpen: "team-404" })).toBeUndefined();
+    expect(stagePanes(ws, { teamOpen: "team-404" })).toEqual([]);
   });
 });
 
@@ -51,8 +43,8 @@ describe("paneInFront", () => {
     expect(paneInFront(ws, { teamOpen: "team-2", minimized: ["a-2"] }, "a-2")).toBe(false);
     // A spotlight on a teammate covers it.
     expect(paneInFront(ws, { teamOpen: "team-2", focus: "a-3" }, "a-2")).toBe(false);
-    // With none opened, the first team is the one in front.
+    // At the cards level nobody is in front.
     expect(paneInFront(ws, {}, "a-2")).toBe(false);
-    expect(paneInFront(ws, undefined, "a-1")).toBe(true);
+    expect(paneInFront(ws, undefined, "a-1")).toBe(false);
   });
 });

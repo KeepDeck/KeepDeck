@@ -54,7 +54,7 @@ export interface CoreCommandDeps {
    * way one asked for by hand is: empty, agents to follow one at a time. */
   createTeam(request: CreateTeamRequest): CreateTeamOutcome;
   /** Put the person inside a team — its workspace on screen, the team open
-   * on the stage — the operation the strip's team row performs. */
+   * on the stage — the operation a team card performs. */
   activateTeam(wsId: string, teamId: string): void;
   /** Open the disband-confirm flow — the dialog the card's Disband opens,
    * worktree offer and all, so the destructive step keeps its human

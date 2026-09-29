@@ -24,9 +24,8 @@ describe("stageContent — what goes over the grid", () => {
     expect(stageContent(ws({ teams: [] }), undefined, 0)).toEqual({ kind: "no-teams", word: NO_TEAMS_WORD });
   });
 
-  it("shows the first team while none was opened, and the grid while somebody is on it", () => {
-    // No level above a team: with none opened, the first team is the stage.
-    expect(stageContent(ws(), undefined, 0)).toMatchObject({ kind: "team-sessions", teamId: "team-1" });
+  it("shows the cards while no team is open, and the grid while somebody is on it", () => {
+    expect(stageContent(ws(), undefined, 0)).toEqual({ kind: "cards" });
     const led = ws({ panes: [member("p1", "team-1", "lead")] });
     expect(stageContent(led, { teamOpen: "team-1" }, 1)).toEqual({ kind: "grid" });
   });

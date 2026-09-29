@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { UpdateAction } from "../../app/updateAction";
 import { BAR_TIP_DELAY_MS } from "../../ui/TipButton";
-import { DeckBar, type BarTeam, type DeckBarProps } from "./DeckBar";
+import { DeckBar, type BarLevel, type DeckBarProps } from "./DeckBar";
 
 // React 19 requires this flag for act() outside a test-framework integration.
 (
@@ -26,23 +26,30 @@ vi.mock("../notifications/NotificationBell", () => ({
   },
 }));
 
-const TEAM: BarTeam = {
+const TEAM: BarLevel = {
+  kind: "team",
   name: "api",
   branch: "kd/api",
+  onBack: () => {},
   canAddMember: true,
   addMemberTitle: "Add a member",
   onAddMember: () => {},
 };
 
+const WORKSPACE: NonNullable<DeckBarProps["workspace"]> = {
+  view: { id: "ws-1", name: "Personal project", moveUpTo: null, moveDownTo: 1 },
+  onRename: () => {},
+  onMove: () => {},
+  onClose: () => {},
+};
+
 const BASE: DeckBarProps = {
-  teamsHidden: false,
-  onShowTeams: () => {},
-  workspaceName: null,
+  workspace: WORKSPACE,
   agents: [],
   usageLiveAgents: new Set(),
   updateAction: null,
   onUpdateAction: () => {},
-  team: TEAM,
+  level: TEAM,
   dock: null,
   pluginActions: [],
   canOpenDialog: true,
@@ -82,14 +89,15 @@ describe("DeckBar", () => {
       entry: { id: `p${i}`, title: `p${i}`, run: () => {} },
     }));
 
-  it("mounts the attention control first on the right, whatever the settings", () => {
+  it("mounts the attention control among the places, after statistics, whatever the settings", () => {
     // Who needs you is live state, not a notification preference: the
     // control decides for itself whether it has anything to say, so the bar
     // hands it the rows even with the notification list off.
     bellProps.mockClear();
     render();
-    const bell = host.querySelector(".deck__bar-right > .bar__group:first-child [data-bell]");
-    expect(bell).not.toBeNull();
+    const bell = host.querySelector("[data-bell]")!;
+    expect(bell.closest(".bar__group")).toBe(byLabel("Open skills")!.closest(".bar__group"));
+    expect(bell.previousElementSibling?.contains(byLabel("Open statistics"))).toBe(true);
     expect(bellProps).toHaveBeenLastCalledWith({
       needsYou: BASE.needsYou,
       notifications: null,
@@ -100,9 +108,10 @@ describe("DeckBar", () => {
     // Presence is the composition root's decision, and the bar's only say in
     // it is a null check — so a bar handed nothing optional shows exactly the
     // controls that are never optional.
-    render({ team: null });
+    render({ level: { kind: "teams", onAddTeam: null }, workspace: null });
     expect(byText("+ Member")).toBeUndefined();
-    expect(byLabel("Show teams")).toBeNull();
+    expect(byText("+ Team")).toBeUndefined();
+    expect(host.querySelector(".deck__ws")).toBeNull();
     expect(byLabel("Toggle dock panel")).toBeNull();
     // The artifacts door is one of these: the feature is off by default,
     // and a door to a feature that is not running leads to a refusal.
@@ -128,8 +137,6 @@ describe("DeckBar", () => {
     // nothing else, which is the whole reason it can hold this — so "alone"
     // is asserted with the one control that used to share it present.
     render({
-      teamsHidden: true,
-      workspaceName: "Personal project",
       updateAction: {
         label: "Update available",
         title: "Version 0.22.0 is available",
@@ -190,9 +197,7 @@ describe("DeckBar", () => {
     // a crossed pair looks perfectly fine until somebody presses it.
     const calls: string[] = [];
     render({
-      teamsHidden: true,
-      onShowTeams: () => calls.push("teams"),
-      team: { ...TEAM, onAddMember: () => calls.push("member") },
+      level: { ...TEAM, onBack: () => calls.push("back"), onAddMember: () => calls.push("member") } as BarLevel,
       onOpenStats: () => calls.push("stats"),
       onOpenSkills: () => calls.push("skills"),
       onOpenMcp: () => calls.push("mcp"),
@@ -201,7 +206,7 @@ describe("DeckBar", () => {
       onOpenSettings: () => calls.push("settings"),
       dock: { open: false, onToggle: () => calls.push("dock") },
     });
-    act(() => byLabel("Show teams")?.click());
+    act(() => byLabel("Back to teams")?.click());
     act(() => byLabel("Add a member")?.click());
     act(() => byLabel("Toggle dock panel")?.click());
     act(() => byLabel("Open statistics")?.click());
@@ -211,7 +216,7 @@ describe("DeckBar", () => {
     act(() => byLabel("Open tasks")?.click());
     act(() => byLabel("Open settings")?.click());
     expect(calls).toEqual([
-      "teams",
+      "back",
       "member",
       "dock",
       "stats",
@@ -221,22 +226,29 @@ describe("DeckBar", () => {
       "tasks",
       "settings",
     ]);
+    // At the teams level the one door is a new team.
+    render({ level: { kind: "teams", onAddTeam: () => calls.push("team") } });
+    act(() => byLabel("Start a team")?.click());
+    expect(calls[calls.length - 1]).toBe("team");
   });
 
-  it("names the team on the stage and offers a member — no way back, no second door", () => {
-    // There is no level above a team to go back to, and a new team starts
-    // from the strip's list, where teams live.
+  it("inside a team, says where you are and offers a member — one door per level, no menu", () => {
     render();
     const left = host.querySelector(".deck__bar-left")!;
+    expect(left.querySelector(".deck__ws-name")?.textContent).toBe("Personal project");
     expect(left.querySelector(".deck__team-name")?.textContent).toBe("api");
     expect(left.querySelector(".deck__team-branch")?.textContent).toContain("kd/api");
-    expect(byLabel("Back to teams")).toBeNull();
-    expect(byText("+ Team")).toBeUndefined();
+    expect(byLabel("Back to teams")).not.toBeNull();
     expect(byText("+ Member")).toBeDefined();
-    // A workspace with no team: nothing to name, no member to add.
-    render({ team: null });
+    expect(byText("+ Team")).toBeUndefined();
+    // At the teams level none of that is said, and the door is the team's.
+    render({ level: { kind: "teams", onAddTeam: () => {} } });
     expect(host.querySelector(".deck__team-name")).toBeNull();
+    expect(byLabel("Back to teams")).toBeNull();
     expect(byText("+ Member")).toBeUndefined();
+    expect(byText("+ Team")).toBeDefined();
+    // The workspace is named at both levels.
+    expect(host.querySelector(".deck__ws-name")?.textContent).toBe("Personal project");
   });
 
   it("keeps the open team's name recoverable when it does not fit", () => {
@@ -248,7 +260,7 @@ describe("DeckBar", () => {
     // to be that something SHOWS, or it pins the very trap TipButton exists
     // to document.
     const name = "a team whose name is far too long for two hundred and forty pixels";
-    render({ team: { ...TEAM, name } });
+    render({ level: { ...TEAM, name } as BarLevel });
     vi.useFakeTimers();
     try {
       act(() => {
@@ -306,7 +318,7 @@ describe("DeckBar", () => {
     // an anchor exists would pass with any wording at all, this refusal
     // included by an empty one.
     render({
-      team: { ...TEAM, branch: null, canAddMember: false, addMemberTitle: "Max 16 agents on a team" },
+      level: { ...TEAM, branch: null, canAddMember: false, addMemberTitle: "Max 16 agents on a team" } as BarLevel,
     });
     expect(byText("+ Member")?.disabled).toBe(true);
     vi.useFakeTimers();
@@ -347,12 +359,12 @@ describe("DeckBar", () => {
     // `canOpenDialog` is the modal layer's answer, and it has nothing to say
     // about adding an agent — that refusal has its own reason and its own
     // tooltip.
-    render({ canOpenDialog: false, teamsHidden: true });
+    render({ canOpenDialog: false });
     expect(byLabel("Open statistics")?.disabled).toBe(true);
     expect(byLabel("Open skills")?.disabled).toBe(true);
     expect(byLabel("Open settings")?.disabled).toBe(true);
     expect(byText("+ Member")?.disabled).toBe(false);
-    expect(byLabel("Show teams")?.disabled).toBe(false);
+    expect(byLabel("Back to teams")?.disabled).toBe(false);
   });
 
   it("names a plugin action by its title and falls back to its initial", () => {
@@ -370,16 +382,31 @@ describe("DeckBar", () => {
     expect(run).toHaveBeenCalledOnce();
   });
 
-  it("offers the team list back, and names the workspace, only while the list is hidden", () => {
-    // The list's head names the workspace and carries its own hide toggle;
-    // hidden, both have to be somewhere, and the bar's left edge is where.
-    render({ teamsHidden: false, workspaceName: null });
-    expect(host.querySelector(".deck__active-ws")).toBeNull();
-    expect(byLabel("Show teams")).toBeNull();
-    render({ teamsHidden: true, workspaceName: "Personal project" });
-    expect(byLabel("Show teams")).not.toBeNull();
-    expect(host.querySelector(".deck__active-ws")?.textContent).toBe(
-      "Personal project",
-    );
+  it("renames, moves and closes the workspace from its crumb's menu", () => {
+    const calls: unknown[] = [];
+    render({
+      workspace: {
+        ...WORKSPACE,
+        onRename: (name) => calls.push(["rename", name]),
+        onMove: (to) => calls.push(["move", to]),
+        onClose: () => calls.push(["close"]),
+      },
+    });
+    const items = () => [...document.querySelectorAll<HTMLButtonElement>("[role='menuitem']")];
+    act(() => byLabel("Workspace Personal project actions")!.click());
+    expect(items().map((i) => i.textContent)).toEqual(["Rename", "Move up", "Move down", "Close workspace"]);
+    act(() => items()[2].click());
+    act(() => byLabel("Workspace Personal project actions")!.click());
+    act(() => items()[3].click());
+    act(() => byLabel("Workspace Personal project actions")!.click());
+    act(() => items()[0].click());
+    const input = host.querySelector<HTMLInputElement>("input[aria-label='Workspace name']")!;
+    expect(input.value).toBe("Personal project");
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, " Work ");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+    expect(calls).toEqual([["move", 1], ["close"], ["rename", "Work"]]);
   });
 });

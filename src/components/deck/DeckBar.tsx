@@ -55,37 +55,43 @@ import {
   DockIcon,
   GearIcon,
   McpIcon,
-  SidebarIcon,
   SkillsIcon,
   StatsIcon,
   TasksIcon,
 } from "../AppIcons";
 import { NotificationBell } from "../notifications/NotificationBell";
+import type { ActiveWorkspace } from "../../presentation/stripView";
+import { WorkspaceCrumb } from "./WorkspaceCrumb";
 import type { NeedsYouRow } from "../../presentation/needsYouView";
 import { UsageChips } from "../usage/UsageChips";
 
 /**
- * The team on the stage, as the bar says it: what the team is and where it
- * works, and the door to another member, with the refusal's words when the
- * team is full. Null for a workspace with no team.
+ * Where the stage is, as the bar says it. At the teams level the one door is
+ * a new team (null while none can be started). Inside a team: the way back
+ * to the cards, what the team is and where it works, and the door to another
+ * member, with the refusal's words when the team is full.
  */
-export interface BarTeam {
-  name: string;
-  branch: string | null;
-  canAddMember: boolean;
-  /** The add control's tooltip, which is also where a refusal is explained. */
-  addMemberTitle: string;
-  onAddMember(): void;
-}
+export type BarLevel =
+  | { kind: "teams"; onAddTeam: (() => void) | null }
+  | {
+      kind: "team";
+      name: string;
+      branch: string | null;
+      onBack(): void;
+      canAddMember: boolean;
+      /** The add control's tooltip, which is also where a refusal is explained. */
+      addMemberTitle: string;
+      onAddMember(): void;
+    };
 
 export interface DeckBarProps {
-  /** Whether the strip's team list is hidden; the bar then carries the way
-   *  to show it again, since the list's own toggle went with it. */
-  teamsHidden: boolean;
-  onShowTeams(): void;
-  /** The active workspace's name, or null when the team list is already
-   *  showing it in its head (or nothing is active). */
-  workspaceName: string | null;
+  /** The workspace on screen and its menu, or null with none. */
+  workspace: {
+    view: ActiveWorkspace;
+    onRename(name: string): void;
+    onMove(toIndex: number): void;
+    onClose(): void;
+  } | null;
 
   agents: AgentInfo[];
   /** Agent ids with a pane in the deck — the roster the usage chips stand for. */
@@ -96,9 +102,9 @@ export interface DeckBarProps {
   updateAction: UpdateActionView | null;
   onUpdateAction(action: UpdateAction): void;
 
-  /** The team on the stage — named on the left, and the door to another
-   *  member on the right. */
-  team: BarTeam | null;
+  /** The level the stage is on, and the one affirmative act the bar offers
+   *  there: at the teams level a new team; inside a team, another member. */
+  level: BarLevel;
 
   /** The dock toggle, or null when no plugin contributes a dock tab. */
   dock: { open: boolean; onToggle(): void } | null;
@@ -134,14 +140,12 @@ export interface DeckBarProps {
 }
 
 export function DeckBar({
-  teamsHidden,
-  onShowTeams,
-  workspaceName,
+  workspace,
   agents,
   usageLiveAgents,
   updateAction,
   onUpdateAction,
-  team,
+  level,
   dock,
   pluginActions,
   canOpenDialog,
@@ -163,41 +167,40 @@ export function DeckBar({
   return (
     <header className="deck__bar">
       <div className="deck__bar-left">
-        {/* Where you are. The strip's team list names the workspace and
-            marks the open team; the bar names the team again only because
-            it is what the stage shows, with the branch it works on. With the
-            list hidden, the way back to it and the workspace's name stand
-            in front. */}
-        {teamsHidden && (
-          <div className="bar__group">
+        {/* Where you are: the workspace (the strip's marks say only its
+            initials) with its menu, and inside a team the way back to the
+            cards, the team's name and the branch it works on. */}
+        {workspace && (
+          <WorkspaceCrumb
+            workspace={workspace.view}
+            onRename={workspace.onRename}
+            onMove={workspace.onMove}
+            onClose={workspace.onClose}
+          />
+        )}
+        {level.kind === "team" && (
+          <div className="bar__group deck__team-bar">
             <TipButton
               variant="ghost"
               size="sm"
-              tip="Show teams"
-              label="Show teams"
-              onClick={onShowTeams}
+              tip="Back to the teams"
+              label="Back to teams"
+              onClick={level.onBack}
             >
-              <SidebarIcon />
+              ←
             </TipButton>
-            {workspaceName !== null && (
-              <span className="deck__active-ws">{workspaceName}</span>
-            )}
-          </div>
-        )}
-        {team && (
-          <div className="bar__group deck__team-bar">
             {/* The app's own tip, not a `title`: this WebView draws no
                 native tooltip (see TipButton), and an ellipsized team name
                 must be recoverable somewhere. */}
-            <Tooltip tip={team.name} delayMs={BAR_TIP_DELAY_MS}>
-              <span className="deck__team-name">{team.name}</span>
+            <Tooltip tip={level.name} delayMs={BAR_TIP_DELAY_MS}>
+              <span className="deck__team-name">{level.name}</span>
             </Tooltip>
-            {team.branch !== null && (
+            {level.branch !== null && (
               <BranchBadge
                 className="deck__team-branch"
                 size="sm"
-                label={team.branch}
-                title={team.branch}
+                label={level.branch}
+                title={level.branch}
               />
             )}
           </div>
@@ -221,13 +224,6 @@ export function DeckBar({
         />
       </div>
       <div className="deck__bar-right">
-        {/* ATTENTION — who is blocked on you, first on the right because it
-            is the one thing here that asks something of the person. Reads
-            "N need you" while anyone does, else the notification bell; it
-            renders nothing when neither has anything to say. */}
-        <div className="bar__group bar__group--attention">
-          <NotificationBell needsYou={needsYou} notifications={notifications} />
-        </div>
         {/* UPDATE — a verb, so it lives among the verbs rather than beside a
             reading of the fleet. It leads the right-hand run, one seam in
             front of Create: the two are the only things here that CHANGE
@@ -252,22 +248,37 @@ export function DeckBar({
           </div>
         )}
 
-        {/* CREATE — the bar's one affirmative act, and the only filled
-            control on it: another member on the team the stage shows. A new
-            team starts from the strip's team list, where teams live. */}
-        {team && (
+        {/* CREATE — the bar's one affirmative act, and the only filled control
+            on it. ONE door per level: at the teams level a team is the only
+            thing to start; inside a team, a member is the only thing to add.
+            No menu: the level already chose. */}
+        {level.kind === "team" ? (
           <div className="bar__group">
             <TipButton
               variant="primary"
               size="sm"
-              onClick={team.onAddMember}
-              disabled={!team.canAddMember}
-              tip={team.addMemberTitle}
+              onClick={level.onAddMember}
+              disabled={!level.canAddMember}
+              tip={level.addMemberTitle}
               label="Add a member"
             >
               + Member
             </TipButton>
           </div>
+        ) : (
+          level.onAddTeam && (
+            <div className="bar__group">
+              <TipButton
+                variant="primary"
+                size="sm"
+                onClick={level.onAddTeam}
+                tip="Start a team — with its directory"
+                label="Start a team"
+              >
+                + Team
+              </TipButton>
+            </div>
+          )
         )}
 
         {/* PANELS — what to show and hide. Nothing here changes the deck; it
@@ -332,6 +343,10 @@ export function DeckBar({
           >
             <StatsIcon />
           </TipButton>
+          {/* Who needs you — "N need you" while anyone does, else the
+              notification bell; it draws nothing when neither has anything
+              to say. */}
+          <NotificationBell needsYou={needsYou} notifications={notifications} />
           <TipButton
             variant="ghost"
             size="sm"

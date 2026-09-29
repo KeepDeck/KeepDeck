@@ -157,6 +157,10 @@ const callbacks = {
   onRestoreSuspendedPane: vi.fn(),
   onCloseAgent: vi.fn(),
   onRenamePane: vi.fn(),
+  onEnterTeam: vi.fn(),
+  onAddTeamMember: vi.fn(),
+  onRenameTeam: vi.fn(),
+  onDisbandTeam: vi.fn(),
   onPaneTitle: vi.fn(),
   onStartFresh: vi.fn(),
   onResumeAgent: vi.fn(),
@@ -393,20 +397,20 @@ describe("DeckStage — the open team's slice", () => {
     expect(document.querySelector(".deck__tray-label")!.textContent).toBe("Minimized · 2");
   });
 
-  it("lays out the first team while none was opened — there is no level above a team", () => {
+  it("lays out nothing at the cards level, and says nothing about an empty grid", () => {
     render({
       workspaces: twoTeams,
       specByPane: specs,
       viewByWs: { "ws-1": { teamOpen: undefined } },
     });
-    expect(paneEl("pane-1").classList.contains("pane--hidden")).toBe(false);
-    for (const paneId of ["pane-2", "pane-3"]) {
+    for (const paneId of ["pane-1", "pane-2", "pane-3"]) {
       expect(paneEl(paneId).classList.contains("pane--hidden")).toBe(true);
     }
     expect(document.querySelector(".deck__grid-empty")).toBeNull();
+    expect(document.querySelector(".deck__tray")).toBeNull();
   });
 
-  it("keeps a pane's node through a change of team and a rename of its team", () => {
+  it("keeps a pane's node through the drill-down, the return, and a rename of its team", () => {
     // The mount contract: a terminal is never torn down for a change of
     // level. The node is the proof — a layer that unmounted the closed
     // teams' panes, or keyed its container on the team's name, hands back
@@ -434,7 +438,7 @@ describe("DeckStage — the open team's slice", () => {
   });
 });
 
-describe("DeckStage — what a workspace's stage shows", () => {
+describe("DeckStage — the teams level", () => {
   let root: Root;
 
   beforeEach(() => {
@@ -450,6 +454,113 @@ describe("DeckStage — what a workspace's stage shows", () => {
 
   const render = (overrides: Record<string, unknown> = {}) =>
     act(() => root.render(withRuntime(createElement(DeckStage, props(overrides)))));
+
+  const card = (teamId: string) =>
+    document.querySelector<HTMLElement>(`[data-team-id='${teamId}']`)!;
+  const menuItems = () =>
+    [...document.querySelectorAll<HTMLButtonElement>("[role='menuitem']")].map(
+      (item) => item.textContent,
+    );
+
+  /** api on its worktree (two agents), and docs whose worktree create failed. */
+  const cards = [
+    {
+      ...workspaces[0],
+      teams: [
+        { id: "team-1", name: "api", location: { kind: "attached" as const, cwd: "/repo/.wt/api", branch: "kd/api" } },
+        {
+          id: "team-2",
+          name: "docs",
+          location: {
+            kind: "provisioning" as const,
+            intent: { repo: "/repo", path: "/repo/.wt/docs", branch: "kd/docs", index: 2 },
+            error: "branch exists",
+          },
+        },
+      ],
+      panes: [
+        { id: "pane-1", agentType: "codex", ...on("team-1", "lead") },
+        { id: "pane-2", agentType: "codex", ...on("team-1", "impl-1") },
+      ],
+    },
+  ];
+
+  it("draws one card per team with its six things, and the whole card is the way in", () => {
+    render({ workspaces: cards, viewByWs: { "ws-1": { teamOpen: undefined } } });
+    const api = card("team-1");
+    expect(api.querySelector(".team-card__name")!.textContent).toBe("api");
+    expect(api.querySelector(".team-card__dot")!.classList.contains("team-card__dot--none")).toBe(true);
+    expect(api.querySelector(".team-card__branch")!.textContent).toContain("kd/api");
+    expect(api.querySelector(".team-card__count")!.textContent).toBe("2 agents");
+    expect(api.querySelector(".team-card__dir")!.textContent).toBe("api");
+    expect(api.querySelector<HTMLElement>(".team-card__dir")!.title).toBe("/repo/.wt/api");
+    expect(api.classList.contains("team-card--pending")).toBe(false);
+    // Nothing on the card but the menu is a control.
+    expect(api.querySelectorAll("button")).toHaveLength(2);
+
+    const docs = card("team-2");
+    expect(docs.classList.contains("team-card--pending")).toBe(true);
+    expect(docs.querySelector(".team-card__dot")!.classList.contains("team-card__dot--failed")).toBe(true);
+    expect(docs.querySelector(".team-card__count")!.textContent).toBe("No agents");
+    expect(docs.textContent).not.toContain("branch exists");
+
+    act(() => api.click());
+    expect(callbacks.onEnterTeam).toHaveBeenCalledWith("ws-1", "team-1");
+    act(() => docs.querySelector<HTMLButtonElement>(".team-card__open")!.click());
+    expect(callbacks.onEnterTeam).toHaveBeenLastCalledWith("ws-1", "team-2");
+  });
+
+  it("offers one menu on every card, with Retry only where the create failed, and performs each pick", () => {
+    render({ workspaces: cards, viewByWs: { "ws-1": { teamOpen: undefined } } });
+    const menuOf = (label: string) =>
+      act(() => card(label).querySelector<HTMLButtonElement>(`button[aria-label='Team ${label === "team-1" ? "api" : "docs"} actions']`)!.click());
+    menuOf("team-1");
+    // No "Open" line: the whole card is the way in. Opening the menu is not
+    // entering the team either.
+    expect(menuItems()).toEqual(["Add member", "Rename", "Disband"]);
+    expect(callbacks.onEnterTeam).not.toHaveBeenCalled();
+    act(() => [...document.querySelectorAll<HTMLButtonElement>("[role='menuitem']")][2].click());
+    expect(callbacks.onDisbandTeam).toHaveBeenCalledWith("ws-1", "team-1");
+
+    menuOf("team-2");
+    expect(menuItems()).toEqual(["Add member", "Rename", "Disband", "Retry the worktree"]);
+    act(() => [...document.querySelectorAll<HTMLButtonElement>("[role='menuitem']")][3].click());
+    expect(callbacks.onRetryProvision).toHaveBeenCalledWith("ws-1", "team-2");
+
+    menuOf("team-2");
+    act(() => [...document.querySelectorAll<HTMLButtonElement>("[role='menuitem']")][0].click());
+    expect(callbacks.onAddTeamMember).toHaveBeenCalledWith("ws-1", "team-2");
+    expect(callbacks.onEnterTeam).not.toHaveBeenCalled();
+  });
+
+  it("renames inline from the menu: Enter commits the trimmed draft to the team by id", () => {
+    render({ workspaces: cards, viewByWs: { "ws-1": { teamOpen: undefined } } });
+    act(() => card("team-1").querySelector<HTMLButtonElement>("button[aria-label='Team api actions']")!.click());
+    act(() => [...document.querySelectorAll<HTMLButtonElement>("[role='menuitem']")][1].click());
+    const input = card("team-1").querySelector<HTMLInputElement>(".team-card__rename")!;
+    expect(input.value).toBe("api");
+    act(() => {
+      // Through the prototype's setter: React's value tracker ignores a
+      // value written on the instance, and would see no change to report.
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(
+        input,
+        " platform ",
+      );
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+    expect(callbacks.onRenameTeam).toHaveBeenCalledWith("ws-1", "team-1", "platform");
+  });
+
+  it("shows a workspace with an empty team as its card, not as the sessions screen", () => {
+    render({
+      workspaces: [{ ...workspaces[0], panes: [] }],
+      specByPane: {},
+      viewByWs: { "ws-1": { teamOpen: undefined } },
+    });
+    expect(card("team-1").querySelector(".team-card__count")!.textContent).toBe("No agents");
+    expect(document.querySelector(".deck__setup")).toBeNull();
+  });
 
   it("says there is no team in a workspace with none — no sessions list there", () => {
     teamSessions.props = null;
@@ -525,6 +636,10 @@ describe("DeckStage — what a workspace's stage shows", () => {
     expect(callbacks.onStartFresh).toHaveBeenCalledWith("ws-1", "pane-3", "impl-2");
   });
 
+  it("hides the cards while a team is open", () => {
+    render({ workspaces: cards, viewByWs: { "ws-1": { teamOpen: "team-1" } } });
+    expect(document.querySelector(".deck__teams")).toBeNull();
+  });
 });
 
 describe("DeckStage — agent identity on the pane header", () => {

@@ -25,7 +25,7 @@
 /* Pane frames: colour the reserved 1px border (.pane keeps the layout).
    A tile wears a rim only for what the eye must find — the one it types
    into, and an agent that needs a person or has failed. Working and done
-   stay rungs of the ladder (the rail and the tray still rank them) but a
+   stay rungs of the ladder (the strip's marks and the tray still rank them) but a
    tile says them with its dot, not its edge. The rims are static: the
    colour already names the state. */
 .pane--frame-selected {

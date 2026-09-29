@@ -39,8 +39,8 @@ import {
   suspendPane,
 } from "./panes";
 import { paneBranch, paneExecutionCwd } from "./roots";
-import { openTeamOf, stagePanes } from "./stage";
-import { findTeam, teamNameOf, teamsOf } from "./teams/collection";
+import { stagePanes } from "./stage";
+import { findTeam, teamNameOf } from "./teams/collection";
 import {
   createTeam,
   dissolveTeam,
@@ -56,7 +56,6 @@ import {
   setViewField,
   withDefaultSelection,
   type WorkspaceView,
-  type WorkspaceViewMap,
 } from "./workspaceView";
 
 export type { DeckAction } from "./reducerActions";
@@ -386,8 +385,37 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         state,
         setViewField(state.viewByWs, action.wsId, "select", action.paneId),
       );
-    case "openTeam":
-      return withView(state, openTeamView(state, action.wsId, action.teamId));
+    case "openTeam": {
+      const { wsId, teamId } = action;
+      const ws = state.workspaces.find((w) => w.id === wsId);
+      if (!ws || !findTeam(ws, teamId)) return state;
+      let viewByWs = setViewField(state.viewByWs, wsId, "teamOpen", teamId);
+      const view = viewByWs[wsId];
+      const roster = stagePanes(ws, view);
+      // The highlight lands on the team: kept where it already names a
+      // member on the grid, else the first member on it — the repair
+      // `hidePaneView` makes, for the same reason: ⌘W must never target a
+      // pane the person cannot see.
+      const hidden = new Set([...(view?.minimized ?? []), ...(view?.suspendedTray ?? [])]);
+      const onGrid = roster.filter((pane) => !hidden.has(pane.id));
+      if (!onGrid.some((pane) => pane.id === view?.select)) {
+        viewByWs = setViewField(viewByWs, wsId, "select", onGrid[0]?.id);
+      }
+      // A spotlight on another team's pane would cover this team with a
+      // pane that is not laid out; one on this team's stays.
+      if (view?.focus !== undefined && !roster.some((pane) => pane.id === view.focus)) {
+        viewByWs = setViewField(viewByWs, wsId, "focus", undefined);
+      }
+      return withView(state, viewByWs);
+    }
+    case "closeTeam": {
+      // Back to the cards, where nothing is a pane to highlight. The
+      // spotlight is kept: it names a member of the team just left, and
+      // reopening that team restores it, while opening another drops it.
+      let viewByWs = setViewField(state.viewByWs, action.wsId, "teamOpen", undefined);
+      viewByWs = setViewField(viewByWs, action.wsId, "select", undefined);
+      return withView(state, viewByWs);
+    }
     case "toggleDock": {
       const open = state.viewByWs[action.wsId]?.dock ?? false;
       return withView(
@@ -564,25 +592,13 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
     case "dissolveTeam": {
       const workspaces = dissolveTeam(state.workspaces, action.wsId, action.teamId);
       if (workspaces === state.workspaces) return state;
-      const next = { ...state, workspaces };
-      const before = state.workspaces.find((w) => w.id === action.wsId);
-      if (!before || openTeamOf(before, state.viewByWs[action.wsId])?.id !== action.teamId) {
-        return next;
+      // The open team going is the person's way back to the cards.
+      let viewByWs = state.viewByWs;
+      if (viewByWs[action.wsId]?.teamOpen === action.teamId) {
+        viewByWs = setViewField(viewByWs, action.wsId, "teamOpen", undefined);
+        viewByWs = setViewField(viewByWs, action.wsId, "select", undefined);
       }
-      // The team on the stage going puts the first remaining one there —
-      // opened properly, so the highlight lands on its grid rather than
-      // naming a pane of the team that went.
-      const cleared = setViewField(
-        setViewField(state.viewByWs, action.wsId, "teamOpen", undefined),
-        action.wsId,
-        "select",
-        undefined,
-      );
-      const first = teamsOf(workspaces.find((w) => w.id === action.wsId) ?? { teams: [] })[0];
-      return withView(
-        next,
-        first ? openTeamView({ ...next, viewByWs: cleared }, action.wsId, first.id) : cleared,
-      );
+      return { ...state, workspaces, viewByWs };
     }
     case "setWorkspacePluginSlot":
       if (
@@ -623,29 +639,4 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
       return journal === state.journal ? state : { ...state, journal };
     }
   }
-}
-
-/**
- * The view with `teamId` open on `wsId`'s stage. The highlight lands on the
- * team: kept where it already names a member on the grid, else the first
- * member on it — the repair `hidePaneView` makes, for the same reason: ⌘W
- * must never target a pane the person cannot see. A spotlight on another
- * team's pane would cover this team with a pane that is not laid out; one
- * on this team's stays.
- */
-function openTeamView(state: DeckState, wsId: string, teamId: string): WorkspaceViewMap {
-  const ws = state.workspaces.find((w) => w.id === wsId);
-  if (!ws || !findTeam(ws, teamId)) return state.viewByWs;
-  let viewByWs = setViewField(state.viewByWs, wsId, "teamOpen", teamId);
-  const view = viewByWs[wsId];
-  const roster = stagePanes(ws, view);
-  const hidden = new Set([...(view?.minimized ?? []), ...(view?.suspendedTray ?? [])]);
-  const onGrid = roster.filter((pane) => !hidden.has(pane.id));
-  if (!onGrid.some((pane) => pane.id === view?.select)) {
-    viewByWs = setViewField(viewByWs, wsId, "select", onGrid[0]?.id);
-  }
-  if (view?.focus !== undefined && !roster.some((pane) => pane.id === view.focus)) {
-    viewByWs = setViewField(viewByWs, wsId, "focus", undefined);
-  }
-  return viewByWs;
 }

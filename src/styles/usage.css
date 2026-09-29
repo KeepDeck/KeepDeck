@@ -2,11 +2,13 @@
    top bar left of "+ Agent"; the panel drops below it (bell geometry). Calm
    by default: structural grays, color only at the 60/80 thresholds. */
 
+/* No gap between chips: each chip's own padding is the space between two
+   accounts, so the hover plate of one runs right up to the next and the
+   row reads as one reading, not as spaced-out buttons. */
 .usage {
   position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
 }
 
 .usage-chip {
@@ -24,8 +26,8 @@
 
      Not a one-off: this is exactly how the bar's other quiet controls behave
      (`kd-btn--ghost`), so the strip has ONE way of saying "pressable, but not
-     shouting". What separates one account from the next is the gap and the
-     agent glyph, which always leads. */
+     shouting". What separates one account from the next is the chip's own
+     padding and the agent glyph, which always leads. */
   border-color: transparent;
   background: transparent;
   border-radius: 5px;
@@ -402,8 +404,8 @@
 
 /* The bar's rungs (its `deck-bar` container, deck.css): below 700px the
    rings keep their place and drop their numbers — the hover and the panel
-   still have them; below 580px — the 800px window with the team list open
-   — they close up too, so the right-hand controls keep their whole width. */
+   still have them; below 580px they close up too, so the right-hand
+   controls keep their whole width. */
 @container deck-bar (max-width: 700px) {
   .usage-chip .usage-window__value {
     display: none;

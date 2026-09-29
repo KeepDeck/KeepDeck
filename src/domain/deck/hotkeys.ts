@@ -23,8 +23,8 @@ export type CloseTarget =
  * screen, including a suspended pane represented only in the tray, nor a
  * pane of a team that is not open. An empty workspace — no team, no pane —
  * has nothing but itself to close, so ⌘W targets the workspace — same as
- * the strip's Close workspace. Inside a team with nobody on it there is
- * nothing in front of the person to close: null, the same
+ * the workspace menu's Close. At the cards level, or inside a team with nobody
+ * on it, there is nothing in front of the person to close: null, the same
  * as a stale selection. Null too when there is no active workspace or a
  * stale/absent selection leaves several candidates. Pure.
  */
@@ -95,7 +95,7 @@ export function paneHotkeyTarget(
  * the survivor is already full-size, and writing a focus the render masks
  * would spring a surprise maximize on the next restore. Null for a
  * visible-solo pane, a stale/absent selection among several panes, or no
- * active workspace. Pure.
+ * active workspace — and at the cards level, where the slice is empty. Pure.
  */
 export function maximizeHotkeyTarget(
   workspaces: Workspace[],

@@ -44,3 +44,11 @@ describe("the bar's rungs", () => {
     expect(usage).toMatch(/@container deck-bar \(max-width: 700px\)\s*\{\s*\.usage-chip \.usage-window__value/);
   });
 });
+
+describe("the usage chips", () => {
+  it("sit flush: a chip's own padding is the only space between two accounts", () => {
+    const usage = readStyles("usage.css");
+    expect(ruleBody(usage, ".usage").gap).toBeUndefined();
+    expect(ruleBody(usage, ".usage-chip").padding).toBe("0 7px");
+  });
+});

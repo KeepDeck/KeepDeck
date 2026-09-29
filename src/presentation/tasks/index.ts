@@ -4,6 +4,7 @@ export * from "./boardView";
 export * from "./taskDetailView";
 export * from "./newTaskFormView";
 export * from "./ladderView";
+export * from "./teamCardTasksLine";
 export * from "./teamOnScreen";
 export * from "./cardDrag";
 export * from "./dialogState";

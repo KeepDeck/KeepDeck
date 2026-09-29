@@ -61,8 +61,7 @@ function App() {
     agents,
     agentsLoading,
     alertSeq,
-    barTeam,
-    addTeam,
+    barLevel,
     canOpenDialog,
     canCloseDialog,
     closeFlow,
@@ -76,7 +75,6 @@ function App() {
     frozenAck,
     gitHeads,
     handleCreateWorkspace,
-    handleEnterTeam,
     handleSelectWorkspace,
     info,
     openNotification,
@@ -84,14 +82,12 @@ function App() {
     paneViewActions,
     pluginTopBarActions,
     pushAlert,
-    teamsHidden,
     strip,
-    teamAction,
+    workspaceCrumb,
     runView,
     browserShared,
     setCreating,
     setFrozenAck,
-    setTeamsHidden,
     openSettings,
     closeSettings,
     openSkills,
@@ -135,24 +131,14 @@ function App() {
     <div className="deck">
       <WorkspaceStrip
         view={strip}
-        teamsShown={!teamsHidden}
-        onToggleTeams={() => setTeamsHidden((hidden) => !hidden)}
         onSelect={handleSelectWorkspace}
         onAdd={() => setCreating(true)}
-        onClose={closeFlow.requestCloseWorkspace}
-        onRename={deck.renameWorkspace}
         onReorder={deck.moveWorkspace}
-        onEnterTeam={handleEnterTeam}
-        onRenameTeam={deck.renameTeam}
-        onTeamAction={teamAction}
-        onAddTeam={addTeam}
         version={info?.version ?? null}
       />
       <div className="deck__main">
       <DeckBar
-        teamsHidden={teamsHidden}
-        onShowTeams={() => setTeamsHidden(false)}
-        workspaceName={teamsHidden && active ? active.name : null}
+        workspace={workspaceCrumb}
         agents={agents}
         usageLiveAgents={usageLiveAgents}
         updateAction={updateAction}
@@ -163,7 +149,7 @@ function App() {
             openSettings("updates");
           }
         }}
-        team={barTeam}
+        level={barLevel}
         dock={dockControl}
         pluginActions={pluginTopBarActions}
         canOpenDialog={canOpenDialog}
@@ -204,6 +190,13 @@ function App() {
             onRestoreSuspendedPane={deck.restoreSuspendedPane}
             onCloseAgent={closeFlow.requestCloseAgent}
             onRenamePane={deck.renamePane}
+            onEnterTeam={deck.openTeam}
+            onAddTeamMember={(wsId, teamId) => {
+              const ws = findWorkspace(deck.workspaces, wsId);
+              if (ws) void agentFlow.openFor(ws, { kind: "member", teamId });
+            }}
+            onRenameTeam={deck.renameTeam}
+            onDisbandTeam={closeFlow.requestDisbandTeam}
             onPaneTitle={deck.setPaneAutoTitle}
             idleBlocked={runView.blocked}
             wakeFailed={runView.wakeFailed}

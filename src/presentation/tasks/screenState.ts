@@ -29,8 +29,8 @@ export const INITIAL_SCREEN: ScreenState = {
 };
 
 /** The screen a dialog opens on: the team the stage has open is the
- * choice it starts from — the person was looking at that team. Null for
- * a workspace with no team. */
+ * choice it starts from — the person was looking at that team. Null
+ * at the cards level, and the board falls back to the first team. */
 export function initialScreen(stageTeam: string | null): ScreenState {
   return { ...INITIAL_SCREEN, chosenTeam: stageTeam };
 }

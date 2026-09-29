@@ -8,7 +8,7 @@
    - SURFACES and TEXT: the neutral graphite the deck is built from. No hue —
      colour on this app means state, never decoration.
    - STATUS: one palette for every "how is it going" signal — the pane's
-     frame and dot, the rail's dots, git's codes, buttons that affirm. It is
+     frame and dot, the strip's marks, git's codes, buttons that affirm. It is
      the only colour in the chrome. */
 :root {
   /* Surfaces, darkest first. Depth is a step in lightness, not a border:
