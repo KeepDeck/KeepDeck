@@ -11,7 +11,7 @@
   font-size: 13px;
   line-height: 1.65;
   /* The document is prose — the root's UI sans, not the code view's mono. */
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-family: var(--kd-font-ui);
   overflow-wrap: break-word;
 }
 

@@ -6,8 +6,7 @@ import {
   findTeam,
   findWorkspace,
   findWorkspaceByRef,
-  membersOf,
-  MAX_PANES,
+  teamFull,
   nextAutoTeamName,
   normalizePath,
   teamHeldPath,
@@ -296,8 +295,7 @@ export function createAgentOrchestratorCreation({
       team = { id: mintTeamId(teamIdsOf(workspaces)), name, location: wanted };
       fresh = true;
     }
-    const members = membersOf(current, team.id).filter((member) => member.id !== except);
-    if (members.length >= MAX_PANES) return { refusal: "full" };
+    if (teamFull(current, team.id, except)) return { refusal: "full" };
     return { team, fresh };
   }
 
@@ -311,8 +309,7 @@ export function createAgentOrchestratorCreation({
     if (closing({ id: current.id, instance: current.instance }, team.id)) {
       return { refusal: "held", why: "ending" };
     }
-    const members = membersOf(current, team.id).filter((member) => member.id !== except);
-    if (members.length >= MAX_PANES) return { refusal: "full" };
+    if (teamFull(current, team.id, except)) return { refusal: "full" };
     return { team: { ...team, location: team.location }, fresh: false };
   }
 

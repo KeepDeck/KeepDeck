@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Team, Workspace } from "../domain/deck";
+import { MAX_PANES, TEAM_FULL_MESSAGE, type Team, type Workspace } from "../domain/deck";
 import type { PaneActivity } from "../domain/status";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import { teamCardView, teamCardsView, teamHead, TEAM_CARD_WORDS } from "./teamCardView";
@@ -59,6 +59,7 @@ describe("teamCardView", () => {
       tasksLine: null,
       className: "team-card team-card--working",
       actions: ["add-member", "rename", "disband"],
+      refusals: {},
     });
   });
 
@@ -166,5 +167,14 @@ describe("teamCardsView and teamHead", () => {
     expect(teamHead(deck, attached, heads)?.branch).toBe("kd/api");
     const bare = { id: "t", name: "t" } as Team;
     expect(teamHead(deck, bare, heads)?.branch).toBe("main");
+  });
+});
+
+describe("a full team's card", () => {
+  it("refuses a member in the cap's words, and nothing else", () => {
+    const full = ws([attached], { "team-1": MAX_PANES });
+    const view = teamCardView(full, attached, []);
+    expect(view.refusals).toEqual({ "add-member": TEAM_FULL_MESSAGE });
+    expect(view.actions).toContain("add-member");
   });
 });

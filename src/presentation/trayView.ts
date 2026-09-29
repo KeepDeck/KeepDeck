@@ -26,7 +26,7 @@ import {
   type Pane,
   type PaneVisibilityView,
 } from "../domain/deck";
-import type { PaneActivity } from "../domain/status";
+import { needsPerson, type PaneActivity } from "../domain/status";
 
 export type ShelfReason = HideReason | "maximized";
 
@@ -131,6 +131,8 @@ export interface TrayChipStatus {
   word: string | null;
 }
 
+/** The word for each state that needs a person (`needsPerson` decides
+ * which do; a state added above the floor must be given one here). */
 const TRAY_WORDS: Partial<Record<PaneActivity["state"], string>> = {
   waiting: "needs you",
   failed: "failed",
@@ -140,7 +142,12 @@ export function trayChipStatus(
   activity: Pick<PaneActivity, "state"> | undefined,
   stopped: boolean,
 ): TrayChipStatus | null {
-  if (activity) return { tone: activity.state, word: TRAY_WORDS[activity.state] ?? null };
+  if (activity) {
+    return {
+      tone: activity.state,
+      word: needsPerson(activity.state) ? (TRAY_WORDS[activity.state] ?? null) : null,
+    };
+  }
   if (stopped) return { tone: "stopped", word: null };
   return null;
 }

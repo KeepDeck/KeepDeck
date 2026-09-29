@@ -333,6 +333,10 @@ export function MinimizedTray({
       : null;
     observer?.observe(viewport);
     observer?.observe(sizer);
+    // Each chip too: a chip's width follows its agent's live status (the
+    // word "needs you" comes and goes), and a chip narrower than the widest
+    // changes size without the sizer's own box moving.
+    for (const child of Array.from(sizer.children)) observer?.observe(child);
     window.addEventListener("resize", measure);
     return () => {
       observer?.disconnect();

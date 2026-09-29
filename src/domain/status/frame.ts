@@ -35,6 +35,20 @@ const SEVERITY: Record<PaneActivity["state"], number> = {
  * Selection's place in the ladder is this constant and nowhere else. */
 const ATTENTION_FLOOR = 3;
 
+/** Whether a state needs a PERSON — at or above the attention floor. The
+ * one answer every surface asks: the frame, the tray's words, the header's
+ * word, the "N need you" list and ⌘J; a state added above the floor joins
+ * all of them at once. */
+export function needsPerson(state: PaneActivity["state"]): boolean {
+  return SEVERITY[state] >= ATTENTION_FLOOR;
+}
+
+/** Louder first — the ladder as a sort order, for a caller that ranks many
+ * states (failed before waiting) without a table of its own. */
+export function bySeverity(a: PaneActivity["state"], b: PaneActivity["state"]): number {
+  return SEVERITY[b] - SEVERITY[a];
+}
+
 /** Everything the ladder ranks about one pane — its live activity plus
  * its place on the deck, as FACTS. The view states what IS (the domain
  * defines the vocabulary, the deck answers it); every rule about what
@@ -99,7 +113,7 @@ export type PaneFramePlace = Pick<PaneFrameFacts, "selected" | "fullBleed">;
  */
 export function paneFrame(facts: PaneFrameFacts): StatusFrame {
   const { activity, selected, fullBleed } = facts;
-  if (activity && SEVERITY[activity.state] >= ATTENTION_FLOOR) {
+  if (activity && needsPerson(activity.state)) {
     return activity.state;
   }
   if (fullBleed) return "none";

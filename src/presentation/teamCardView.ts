@@ -29,6 +29,7 @@
 import {
   baseName,
   createFailed,
+  memberRefusal,
   membersOf,
   teamHeldPath,
   teamsOf,
@@ -108,6 +109,10 @@ export interface TeamCardView {
   /** The card's classes: its dot's tone, and the pending rim. */
   className: string;
   actions: readonly TeamCardAction[];
+  /** Why an offered action is refused right now, by action — the menu
+   * shows it disabled with these words. A full team refuses a member in
+   * the cap's own message, the one every door says it with. */
+  refusals: Partial<Record<TeamCardAction, string>>;
 }
 
 /** The branch a team works on, as every surface says it: the live head's
@@ -199,5 +204,11 @@ export function teamCardView(
     tasksLine: tasks ? teamCardTasksLine(tasks) : null,
     className: `team-card team-card--${dot}${creating ? " team-card--pending" : ""}`,
     actions: treeFailed ? [...EVERY_CARD, "retry"] : EVERY_CARD,
+    refusals: refusalsFor(ws, team),
   };
+}
+
+function refusalsFor(ws: Workspace, team: Team): Partial<Record<TeamCardAction, string>> {
+  const full = memberRefusal(ws, team.id);
+  return full === null ? {} : { "add-member": full };
 }

@@ -1,4 +1,4 @@
-import type { ActivityBadge, ActivityTone } from "../domain/status";
+import { needsPerson, type ActivityBadge, type ActivityTone } from "../domain/status";
 import { contextLevel, formatAge, type UsageLevel } from "../domain/usage";
 import { teamBadgeTitle } from "@keepdeck/ui-kit/teamWords";
 
@@ -28,7 +28,6 @@ export interface PaneHeaderInput {
   showTeamName: boolean | undefined;
 }
 
-const SPOKEN: ReadonlySet<ActivityTone> = new Set(["waiting", "failed"]);
 
 export function paneHeaderView(input: PaneHeaderInput): PaneHeaderView {
   const { activity, now, ctxPct, paneLive, team, showTeamName } = input;
@@ -38,7 +37,7 @@ export function paneHeaderView(input: PaneHeaderInput): PaneHeaderView {
       label: activity.label,
       tooltip: `${activity.label}${activity.detail ? ` — ${activity.detail}` : ""} · ${formatAge(activity.at, now)}`,
     },
-    stateWord: activity && SPOKEN.has(activity.tone) ? activity.label : null,
+    stateWord: activity && needsPerson(activity.tone) ? activity.label : null,
     role: team
       ? {
           text: showTeamName ? `${team.role} · ${team.name}` : team.role,

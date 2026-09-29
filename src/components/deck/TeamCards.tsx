@@ -124,6 +124,8 @@ function TeamCard({
   const actions: MenuAction[] = card.actions.map((action) => ({
     id: action,
     label: TEAM_CARD_WORDS.action[action],
+    disabled: card.refusals[action] !== undefined,
+    refusal: card.refusals[action],
     onSelect: () => perform(action),
   }));
   const editing = rename.editing === card.id;

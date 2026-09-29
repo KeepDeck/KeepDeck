@@ -36,16 +36,15 @@ import { tasksDoorOpen } from "./tasks/door";
 import {
   closeHotkeyTarget,
   findWorkspace,
-  MAX_PANES,
   maximizeHotkeyTarget,
   paneAgentType,
   paneHasProcess,
   paneHotkeyTarget,
-  membersOf,
   openTeamOf,
   paneInFront,
   resolveSelectedPaneId,
   stagePanes,
+  type Workspace,
 } from "../domain/deck";
 import type { AppInfo } from "../ipc/app";
 import { readAppInfo } from "./appInfo";
@@ -53,7 +52,7 @@ import { layering, statsDeepLinkOnScreen, tasksBoardOnScreen } from "../presenta
 import { anyOverlayCovers, subscribeOverlayCover } from "./overlayCover";
 import { describeError, log } from "../ipc/log";
 import { pluginCrashes, subscribePluginCrashes } from "./pluginHealth";
-import { addTeamDoorOpen, bellDoorOpen, dockDoorOpen } from "./doors";
+import { addTeamDoorOpen, bellDoorOpen, dockDoorOpen, memberDoor } from "./doors";
 import { BAR_WORDS, type BarLevel } from "../presentation/barView";
 import type { WorkspaceCrumbProps } from "../components/deck/WorkspaceCrumb";
 import { stripView } from "../presentation/stripView";
@@ -213,8 +212,6 @@ export function useAppController() {
   // The team in front of the person — opened, else the first. The cap is
   // the TEAM's: the grid its members lay out on.
   const openTeam = active ? openTeamOf(active, activeView) : undefined;
-  const teamCount = active && openTeam ? membersOf(active, openTeam.id).length : 0;
-  const atCap = teamCount >= MAX_PANES;
   // What is painted over what — decided once, in `layering`, for the render
   // and for the notification probe alike. The z-order reasoning lives there.
   const windows = layering({
@@ -230,7 +227,10 @@ export function useAppController() {
     hasActive: !!active,
     overlayCovers,
   });
-  const canAddMember = !!openTeam && !atCap && !windows.modal;
+  // The one door to another member, for the bar, ⌘T and the cards alike.
+  const openMemberDoor = (ws: Workspace, teamId: string) => memberDoor(ws, teamId, windows.modal);
+  const barMemberDoor = active && openTeam ? openMemberDoor(active, openTeam.id) : null;
+  const canAddMember = barMemberDoor?.open ?? false;
   const canAddTeam = !!active && addTeamDoorOpen(active) && !windows.modal;
   // The probe reads the LAST RENDER's decision, not a copy of its inputs:
   // `windows` rides the ref whole, so a layer the render learns about is a
@@ -372,11 +372,10 @@ export function useAppController() {
   const openNotification = runtime.application.openNotification;
   const handleCreateWorkspace = runtime.application.createWorkspace;
   const strip = stripView(deck.workspaces, paneActivities, deck.activeId);
-  /** A card's "Add member": the same door as the bar's, refused while a
-   * dialog owns the modal layer. */
+  /** A card's "Add member": the same door as the bar's and ⌘T's. */
   const addTeamMember = (wsId: string, teamId: string) => {
     const ws = findWorkspace(deck.workspaces, wsId);
-    if (ws && !windows.modal) void agentFlow.openFor(ws, { kind: "member", teamId });
+    if (ws && openMemberDoor(ws, teamId).open) void agentFlow.openFor(ws, { kind: "member", teamId });
   };
   /** The bar's crumb for the workspace on screen: its name and its menu. */
   const shownWs = strip.active;
@@ -402,7 +401,7 @@ export function useAppController() {
           name: openTeam.name,
           branch: teamBranchOf(openTeam, teamHead(active, openTeam, gitHeads)),
           canAddMember,
-          addMemberTitle: BAR_WORDS.addMemberTip(atCap, MAX_PANES),
+          addMemberTitle: barMemberDoor?.refusal ?? BAR_WORDS.addMemberLabel,
           onAddMember: () => {
             if (canAddMember) void agentFlow.openFor(active, { kind: "member", teamId: openTeam.id });
           },

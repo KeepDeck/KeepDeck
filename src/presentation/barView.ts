@@ -29,6 +29,4 @@ export const BAR_WORDS = {
   addTeamTip: "Start a team — with its directory",
   addMember: "+ Member",
   addMemberLabel: "Add a member",
-  /** The add-member tip: why it is refused when the team is full. */
-  addMemberTip: (full: boolean, max: number) => (full ? `Max ${max} agents on a team` : "Add a member"),
 } as const;

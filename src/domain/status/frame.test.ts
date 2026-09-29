@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PaneActivity } from "./activity";
-import { foldFrame, paneFrame, type PaneFrameFacts } from "./frame";
+import { bySeverity, foldFrame, needsPerson, paneFrame, type PaneFrameFacts } from "./frame";
 
 const working: PaneActivity = { state: "working", since: 1 };
 const waiting: PaneActivity = { state: "waiting", since: 1, reason: "permission" };
@@ -94,3 +94,14 @@ describe("foldFrame", () => {
   });
 });
 
+describe("needsPerson and bySeverity", () => {
+  it("name the attention states and rank the ladder as a sort", () => {
+    expect((["failed", "waiting", "working", "done"] as const).filter(needsPerson)).toEqual(["failed", "waiting"]);
+    expect((["done", "waiting", "working", "failed"] as const).slice().sort(bySeverity)).toEqual([
+      "failed",
+      "waiting",
+      "working",
+      "done",
+    ]);
+  });
+});

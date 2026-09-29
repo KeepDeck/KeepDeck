@@ -9,15 +9,12 @@
  * here — the tiles and the tray already say them, and a list of everything
  * is a list of nothing.
  */
-import {
-  paneDisplayTitle,
-  teamOfPane,
-  type Workspace,
-} from "../domain/deck";
+import { blockedAgents, paneDisplayTitle, type Workspace } from "../domain/deck";
 import { activityBadge, type PaneActivity } from "../domain/status";
 import { formatAge } from "../domain/usage";
 
-export type NeedsYouTone = "failed" | "waiting";
+/** A row's state — one that needs a person (`needsPerson`). */
+export type NeedsYouTone = PaneActivity["state"];
 
 /** One agent that is blocked on the person. */
 export interface NeedsYouRow {
@@ -26,7 +23,7 @@ export interface NeedsYouRow {
   tone: NeedsYouTone;
   /** The agent's name, as its tile says it. */
   title: string;
-  /** Where it is: the workspace, and the team and role when it is on one. */
+  /** Where it is: the workspace, its team and its role. */
   where: string;
   /** Why it needs you, in the header's words ("Needs approval"). */
   label: string;
@@ -42,46 +39,22 @@ export type AttentionTrigger =
   | { kind: "bell"; badge: string | null; label: string }
   | null;
 
-const RANK: Record<NeedsYouTone, number> = { failed: 0, waiting: 1 };
-
-function blockedSince(activity: PaneActivity): { tone: NeedsYouTone; at: number } | null {
-  switch (activity.state) {
-    case "failed":
-      return { tone: "failed", at: activity.at };
-    case "waiting":
-      return { tone: "waiting", at: activity.since };
-    default:
-      return null;
-  }
-}
-
+/** The blocked agents (domain `blockedAgents`: who, and in what order), in
+ * words. */
 export function needsYouRows(
   workspaces: readonly Workspace[],
   activities: ReadonlyMap<string, PaneActivity>,
   agents: readonly { id: string; label: string }[],
 ): NeedsYouRow[] {
-  const found: NeedsYouRow[] = [];
-  for (const ws of workspaces) {
-    ws.panes.forEach((pane, index) => {
-      // An idle pane (exited, suspended) has no process to answer; its own
-      // card says so, and a stale "waiting" from before is not a request.
-      if (pane.idle) return;
-      const activity = activities.get(pane.id);
-      const blocked = activity && blockedSince(activity);
-      if (!activity || !blocked) return;
-      const team = teamOfPane(ws, pane);
-      found.push({
-        wsId: ws.id,
-        paneId: pane.id,
-        tone: blocked.tone,
-        title: paneDisplayTitle(pane, index, agents),
-        where: [ws.name, team?.name, pane.team?.role].filter(Boolean).join(" · "),
-        label: activityBadge(activity).label,
-        since: blocked.at,
-      });
-    });
-  }
-  return found.sort((a, b) => RANK[a.tone] - RANK[b.tone] || a.since - b.since);
+  return blockedAgents(workspaces, activities).map(({ ws, pane, index, team, activity, since }) => ({
+    wsId: ws.id,
+    paneId: pane.id,
+    tone: activity.state,
+    title: paneDisplayTitle(pane, index, agents),
+    where: [ws.name, team.name, pane.team?.role].filter(Boolean).join(" · "),
+    label: activityBadge(activity).label,
+    since,
+  }));
 }
 
 /** How long `row`'s agent has been blocked, as of `now` ("4m"). */
@@ -100,7 +73,8 @@ export function attentionTrigger(
     const text = `${n} need${n === 1 ? "s" : ""} you`;
     return {
       kind: "need",
-      tone: rows.some((r) => r.tone === "failed") ? "failed" : "waiting",
+      // The rows come louder first, so the first row's tone is the loudest.
+      tone: rows[0].tone,
       text,
       label: `${n === 1 ? "1 agent needs" : `${n} agents need`} you`,
     };

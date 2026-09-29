@@ -3,7 +3,8 @@
 //! Replaces Tauri's default menu so the deck owns its hotkeys: ⌘N creates a
 //! workspace, ⌘T spawns an agent, ⌘W closes the selected one (an empty
 //! workspace: the workspace itself), ⇧⌘W suspends it, ⇧⌘M toggles its
-//! maximize and ⌘J goes to the next agent that needs the person. The default menu binds ⌘W to "Close Window", and macOS
+//! maximize, ⌘J goes to the next agent that needs the person, and ⌘,
+//! opens Settings. The default menu binds ⌘W to "Close Window", and macOS
 //! resolves menu accelerators before the webview ever sees the key — so the
 //! deck can only own these chords by owning the menu. The custom items don't
 //! act here: each emits an event the webview handles, where the React side
@@ -156,5 +157,27 @@ pub fn handle_event<R: Runtime>(app: &AppHandle<R>, id: &str) {
         if let Err(e) = app.emit(event, ()) {
             log::warn!("menu: emitting {event} failed: {e}");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_item_of_ours_maps_to_its_own_event() {
+        let pairs = [
+            (NEW_WORKSPACE_ID, NEW_WORKSPACE_EVENT),
+            (NEW_AGENT_ID, NEW_AGENT_EVENT),
+            (CLOSE_AGENT_ID, CLOSE_AGENT_EVENT),
+            (SUSPEND_AGENT_ID, SUSPEND_AGENT_EVENT),
+            (TOGGLE_MAXIMIZE_ID, TOGGLE_MAXIMIZE_EVENT),
+            (NEXT_NEEDS_YOU_ID, NEXT_NEEDS_YOU_EVENT),
+            (SETTINGS_ID, SETTINGS_EVENT),
+        ];
+        for (id, event) in pairs {
+            assert_eq!(event_for(id), Some(event), "{id}");
+        }
+        assert_eq!(event_for("copy"), None);
     }
 }

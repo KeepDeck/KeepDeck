@@ -38,3 +38,9 @@ export const TERMINAL_THEME: ITheme = {
 
 /** The terminal face: the system monospace, the same in every terminal. */
 export const TERMINAL_FONT_FAMILY = "ui-monospace, SFMono-Regular, Menlo, monospace";
+
+/** xterm takes numbers, not `var()`: an agent's terminal is set at the
+ * chrome's normal step (13px), a run log at its caption step (11px). The
+ * host's tokens.test holds both equal to tokens.css. */
+export const TERMINAL_FONT_SIZE = 13;
+export const TERMINAL_LOG_FONT_SIZE = 11;

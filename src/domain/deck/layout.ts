@@ -1,4 +1,6 @@
 import { teamFullMessage } from "./placementRefusals";
+import { membersOf } from "./teams/collection";
+import type { Workspace } from "./workspaces";
 
 /** Max agents ONE TEAM holds at once — a hard product cap, measured where
  * a pane joins a team. A workspace holds as many teams as it likes. */
@@ -9,6 +11,23 @@ export const MAX_PANES = 16;
  * cap. The wording lives with the other refusals; the cap lives here, with
  * the grid it is a property of. */
 export const TEAM_FULL_MESSAGE = teamFullMessage(MAX_PANES);
+
+/** Whether `teamId` already holds `MAX_PANES` agents — the one cap rule, for
+ * the doors that offer a member and the seam that lands one. `except` is a
+ * pane already counted that is moving rather than joining. */
+export function teamFull(
+  ws: Pick<Workspace, "panes">,
+  teamId: string,
+  except?: string,
+): boolean {
+  return membersOf(ws, teamId).filter((member) => member.id !== except).length >= MAX_PANES;
+}
+
+/** Why no member can be added to `teamId`, in the words every door says it
+ * with — or null when one can. */
+export function memberRefusal(ws: Pick<Workspace, "panes">, teamId: string): string | null {
+  return teamFull(ws, teamId) ? TEAM_FULL_MESSAGE : null;
+}
 
 /** Geometry of the deck grid: a square-ish column count, filled row by row. */
 export interface GridGeometry {

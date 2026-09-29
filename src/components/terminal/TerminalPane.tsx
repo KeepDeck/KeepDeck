@@ -30,6 +30,7 @@ import {
   useTransient,
   type PaneHint,
   TERMINAL_FONT_FAMILY,
+  TERMINAL_FONT_SIZE,
   TERMINAL_THEME,
 } from "@keepdeck/terminal-kit";
 import { registerTerminalLinks } from "./terminalLinks";
@@ -184,7 +185,7 @@ export function TerminalPane({
     const term = new Terminal({
       convertEol: true,
       fontFamily: TERMINAL_FONT_FAMILY,
-      fontSize: 13,
+      fontSize: TERMINAL_FONT_SIZE,
       cursorBlink: true,
       // xterm defaults to 1000 lines — too small for verbose agents. The
       // value is the [F6] setting.

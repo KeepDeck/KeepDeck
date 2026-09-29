@@ -151,7 +151,9 @@ export function DeckBar({
         {(workspace || level.kind === "team") && (
           <nav className="bar__group deck__crumbs" aria-label="Location">
             {workspace && (
-              <WorkspaceCrumb {...workspace} />
+              // Keyed by workspace: a rename left open on one must not
+              // survive a switch and reappear, draft and all, on the next.
+              <WorkspaceCrumb key={workspace.view.id} {...workspace} />
             )}
             {level.kind === "team" && (
               <>

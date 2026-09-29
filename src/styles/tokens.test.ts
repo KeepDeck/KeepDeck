@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { TERMINAL_THEME } from "@keepdeck/terminal-kit";
+import { TERMINAL_FONT_SIZE, TERMINAL_LOG_FONT_SIZE, TERMINAL_THEME } from "@keepdeck/terminal-kit";
 import * as chart from "../domain/usage/chartPalette";
 import { readStyles, ruleBody, STYLES_DIR, stripComments } from "./testSupport";
 
@@ -126,6 +126,12 @@ describe("the design tokens", () => {
   it("open the native window on the canvas, so launch shows no second colour", () => {
     const conf = JSON.parse(readFileSync(join(STYLES_DIR, "..", "..", "src-tauri", "tauri.conf.json"), "utf8"));
     expect(conf.app.windows[0].backgroundColor).toBe(declared(tokens, "--kd-canvas"));
+    // And the page painted before the stylesheet loads — the splash — or
+    // launch flashes a second colour between the window and the app.
+    const page = readFileSync(join(STYLES_DIR, "..", "..", "index.html"), "utf8");
+    const backgrounds = [...page.matchAll(/background:\s*(#[0-9a-fA-F]{6})/g)].map(([, hex]) => hex);
+    expect(backgrounds.length).toBeGreaterThan(0);
+    expect(new Set(backgrounds)).toEqual(new Set([declared(tokens, "--kd-canvas")]));
   });
 
   it("float the dock and every dialog above the tiles, never below them", () => {
@@ -268,6 +274,8 @@ describe("the design tokens", () => {
       );
     expect(literal).toEqual([]);
     expect(`${chart.CHART_TICK_SIZE}px`).toBe(steps.micro);
+    expect(`${TERMINAL_FONT_SIZE}px`).toBe(steps.normal);
+    expect(`${TERMINAL_LOG_FONT_SIZE}px`).toBe(steps.caption);
     expect(`${chart.CHART_LEGEND_SIZE}px`).toBe(steps.caption);
   });
 

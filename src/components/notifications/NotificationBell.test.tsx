@@ -263,7 +263,8 @@ describe("NotificationBell", () => {
     });
 
     it("turns the bell into the count, in the loudest tone", () => {
-      mount([row("p1", "waiting"), row("p2", "failed")]);
+      // Rows arrive louder first (domain blockedAgents).
+      mount([row("p2", "failed"), row("p1", "waiting")]);
       expect(bellButton().textContent).toBe("2 need you");
       expect(bellButton().classList).toContain("bell__need--failed");
       expect(bellButton().getAttribute("aria-label")).toBe("2 agents need you");

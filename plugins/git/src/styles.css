@@ -502,7 +502,7 @@
    bundle's floor is macOS 11, whose Safari ends at 16.1 — older engines
    drop the mix line and keep the literal. */
 .git__diffrow--add {
-  background-color: rgba(88, 179, 104, 0.15);
+  background-color: rgba(79, 191, 122, 0.15);
   background-color: color-mix(in srgb, var(--kd-ok) 15%, transparent);
 }
 
@@ -514,7 +514,7 @@
 }
 
 .git__diffrow--del {
-  background-color: rgba(229, 115, 111, 0.15);
+  background-color: rgba(239, 111, 111, 0.15);
   background-color: color-mix(in srgb, var(--kd-err) 15%, transparent);
 }
 

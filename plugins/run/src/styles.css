@@ -429,7 +429,7 @@
    as different states. */
 .run__logbox--interactive {
   border-color: var(--kd-working-line);
-  box-shadow: inset 0 0 0 1px rgba(90, 162, 240, 0.25);
+  box-shadow: inset 0 0 0 1px rgba(114, 165, 243, 0.25);
 }
 
 .run__logcap-act--on,

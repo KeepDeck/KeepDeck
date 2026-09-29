@@ -38,6 +38,12 @@
      have to know that. Named, so a rung inside a pane header can never
      bind to this. */
   container: deck-bar / inline-size;
+  /* A size container is also a stacking context, and the stage after it in
+     the tree (isolated, relative) would otherwise paint over what the bar
+     drops below itself — the bell's panel, the usage panel. One step up
+     keeps them above the tiles; plugin overlays (100) still cover them. */
+  position: relative;
+  z-index: 1;
   /* On the canvas, with no line under it: the tiles below are parted from
      it by the same air that parts them from each other. */
   background-color: var(--kd-canvas);

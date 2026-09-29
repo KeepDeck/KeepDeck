@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { teamedWorkspace, workspace } from "../domain/deck/reducer.testSupport";
+import { team, teamedWorkspace, workspace } from "../domain/deck/reducer.testSupport";
 import type { Workspace } from "../domain/deck";
 import type { PaneActivity } from "../domain/status";
 import {
@@ -28,7 +28,13 @@ const failed = (minsAgo: number): PaneActivity => ({
 const TEAM: Workspace = teamedWorkspace("ws-a", ["p1", "p2", "p3", "p4"]);
 const LOOSE: Workspace = {
   ...workspace("ws-b", []),
-  panes: [{ id: "p5", name: "scout" }, { id: "p6", idle: { reason: "suspended", at: "x" } }],
+  teams: [team("t-b")],
+  panes: [
+    { id: "p5", name: "scout", team: { teamId: "t-b", role: "lead" } },
+    { id: "p6", idle: { reason: "suspended", at: "x" }, team: { teamId: "t-b", role: "impl-1" } },
+    // Legacy: a pane outside every team has no card to be reached from.
+    { id: "p7" },
+  ],
 };
 
 const rows = (activities: Record<string, PaneActivity>) =>
@@ -50,8 +56,8 @@ describe("needsYouRows", () => {
     expect(found.map((r) => r.paneId)).toEqual(["p4", "p2", "p3", "p1"]);
   });
 
-  it("skips an idle pane whatever its last activity said", () => {
-    expect(rows({ p6: waiting(3) })).toEqual([]);
+  it("skips an idle pane whatever its last activity said, and a pane outside every team", () => {
+    expect(rows({ p6: waiting(3), p7: failed(2) })).toEqual([]);
   });
 
   it("names the agent, where it is, why and for how long", () => {
@@ -67,7 +73,7 @@ describe("needsYouRows", () => {
     } satisfies NeedsYouRow);
     expect(needsYouAge(teamed, NOW)).toBe("4m");
     const [loose] = rows({ p5: failed(0) });
-    expect(loose).toMatchObject({ title: "scout", where: "ws-b", tone: "failed" });
+    expect(loose).toMatchObject({ title: "scout", where: "ws-b · t-b · lead", tone: "failed" });
     expect(needsYouAge(loose, NOW)).toBe("now");
   });
 });
@@ -90,7 +96,8 @@ describe("attentionTrigger", () => {
       text: "1 needs you",
       label: "1 agent needs you",
     });
-    expect(attentionTrigger([row("waiting"), row("failed")], { unread: 3 })).toMatchObject({
+    // Rows arrive louder first (domain blockedAgents), so the first is loudest.
+    expect(attentionTrigger([row("failed"), row("waiting")], { unread: 3 })).toMatchObject({
       kind: "need",
       tone: "failed",
       text: "2 need you",

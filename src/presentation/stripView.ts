@@ -14,7 +14,7 @@
  * renames, moves and closes it.
  */
 import { membersOf, teamsOf, type Workspace } from "../domain/deck";
-import type { PaneActivity } from "../domain/status";
+import { foldFrame, type PaneActivity } from "../domain/status";
 import { teamDot, type TeamCardDot } from "./teamCardView";
 
 /** A mark's dot: its workspace's loudest state. */
@@ -99,13 +99,20 @@ const DOT_WORDS: Record<MarkDot, string> = {
   idle: "idle",
 };
 
-const MARK_LADDER: readonly MarkDot[] = ["failed", "waiting", "working", "done"];
+/** A team dot as a rung of the pane ladder, so the workspace folds its
+ * teams through the ONE ladder (`foldFrame`) instead of a second table. A
+ * failed create is `failed`, loud as a failed turn; a create in flight is
+ * nothing yet — the card says it, a mark has no room to say it gently. */
+function asState(dot: TeamCardDot): PaneActivity["state"] | undefined {
+  return dot === "creating" || dot === "none" ? undefined : dot;
+}
 
-/** A workspace's loudest state from its teams' dots — a create in flight
- * says nothing yet — else idle while anyone is there, else no dot. */
+/** A workspace's loudest state from its teams' dots, else idle while
+ * anyone is there, else no dot. */
 function markDot(teamDots: readonly TeamCardDot[], agents: number): MarkDot | null {
-  const loudest = MARK_LADDER.find((rung) => teamDots.includes(rung as TeamCardDot));
-  return loudest ?? (agents > 0 ? "idle" : null);
+  const frame = foldFrame(teamDots.map(asState));
+  if (frame !== "none") return frame;
+  return agents > 0 ? "idle" : null;
 }
 
 /**

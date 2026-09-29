@@ -33,7 +33,7 @@ export function usageRingView(
   now: number,
   display: UsageDisplay,
 ): UsageRingView {
-  const window = account ? tightestWindow(account) : null;
+  const window = account ? tightestWindow(account, now) : null;
   const stale = account !== undefined && usageStale(account.reportedAt, now);
   const windows = account ? chipWindows(account) : [];
   const readings = windows.map((w) => `${windowLabel(w)} ${formatPct(w.usedPct, display)}`).join(" · ");
