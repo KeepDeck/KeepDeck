@@ -309,7 +309,10 @@ export function useAppController() {
       // team cards.
       if (!active) return;
       if (openTeam) {
+        // The door's refusal is said here too: a chord that silently does
+        // nothing reads as a broken key.
         if (canAddMember) void agentFlow.openFor(active, { kind: "member", teamId: openTeam.id });
+        else if (barMemberDoor?.refusal) pushAlert(BAR_WORDS.addMemberRefused, barMemberDoor.refusal);
       } else if (canAddTeam) {
         void agentFlow.openFor(active, { kind: "new-team" });
       }

@@ -142,6 +142,6 @@ export function McpIcon() {
   );
 }
 
-/** The turning chevron lives in ui-kit: the rail's teams and a plugin's
- * sections open under the same mark. */
+/** The chevron lives in ui-kit: the bar's breadcrumb parts its crumbs
+ * with it, and a plugin's sections open under the same mark. */
 export { ChevronIcon } from "@keepdeck/ui-kit/icons";

@@ -29,4 +29,6 @@ export const BAR_WORDS = {
   addTeamTip: "Start a team — with its directory",
   addMember: "+ Member",
   addMemberLabel: "Add a member",
+  /** The alert's title when ⌘T asks for a member the door refuses. */
+  addMemberRefused: "Can't add a member",
 } as const;
