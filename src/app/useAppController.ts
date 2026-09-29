@@ -56,6 +56,7 @@ import { describeError, log } from "../ipc/log";
 import { pluginCrashes, subscribePluginCrashes } from "./pluginHealth";
 import { addTeamDoorOpen, bellDoorOpen, dockDoorOpen } from "./doors";
 import type { BarLevel } from "../components/deck/DeckBar";
+import type { WorkspaceCrumbProps } from "../components/deck/WorkspaceCrumb";
 import { stripView } from "../presentation/stripView";
 import { needsYouRows, nextNeedsYou, type NeedsYouRow } from "../presentation/needsYouView";
 import { teamBranchOf } from "../presentation/teamCardView";
@@ -372,9 +373,15 @@ export function useAppController() {
   const openNotification = runtime.application.openNotification;
   const handleCreateWorkspace = runtime.application.createWorkspace;
   const strip = stripView(deck.workspaces, paneActivities, deck.activeId);
+  /** A card's "Add member": the same door as the bar's, refused while a
+   * dialog owns the modal layer. */
+  const addTeamMember = (wsId: string, teamId: string) => {
+    const ws = findWorkspace(deck.workspaces, wsId);
+    if (ws && !windows.modal) void agentFlow.openFor(ws, { kind: "member", teamId });
+  };
   /** The bar's crumb for the workspace on screen: its name and its menu. */
   const shownWs = strip.active;
-  const workspaceCrumb = shownWs && {
+  const workspaceCrumb: WorkspaceCrumbProps | null = shownWs && {
     view: shownWs,
     onRename: (name: string) => deck.renameWorkspace(shownWs.id, name),
     onMove: (toIndex: number) => deck.moveWorkspace(shownWs.id, toIndex),
@@ -439,6 +446,7 @@ export function useAppController() {
     pushAlert,
     strip,
     workspaceCrumb,
+    addTeamMember,
     runView,
     browserShared,
     setCreating,

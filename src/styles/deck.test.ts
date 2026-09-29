@@ -52,3 +52,12 @@ describe("the usage chips", () => {
     expect(ruleBody(usage, ".usage-chip").padding).toBe("0 7px");
   });
 });
+
+describe("the bar's height", () => {
+  it("is the bar alone: the grid adds no strip of canvas under it", () => {
+    // A top padding on the grid is canvas continuing the bar, so the bar
+    // reads taller than it is and its controls sit high in it.
+    expect(ruleBody(deck, ".deck__bar").height).toBe("30px");
+    expect(ruleBody(deck, ".deck__grid").padding).toBe("0 6px 6px");
+  });
+});

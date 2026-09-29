@@ -31,7 +31,7 @@
   grid-template-columns: minmax(0, 1fr) auto minmax(max-content, 1fr);
   align-items: center;
   padding: 0 8px 0 12px;
-  height: 34px;
+  height: 30px;
   flex: none;
   /* The bar's rungs answer to the BAR's width, not the window's: the strip
      beside it takes its share first, and a rung keyed to the window would
@@ -264,13 +264,15 @@
 }
 
 /* Tiles on the canvas: the panes are separated by space, not drawn lines —
-   each tile carries its own rim when it has something to say. */
+   each tile carries its own rim when it has something to say. No space on
+   top: the bar above is already canvas, and a gap there only reads as a
+   taller bar whose contents sit high in it. */
 .deck__grid {
   position: absolute;
   inset: 0;
   display: grid;
   gap: 6px;
-  padding: 6px;
+  padding: 0 6px 6px;
   background-color: var(--kd-canvas);
 }
 

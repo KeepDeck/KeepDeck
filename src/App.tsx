@@ -84,6 +84,7 @@ function App() {
     pushAlert,
     strip,
     workspaceCrumb,
+    addTeamMember,
     runView,
     browserShared,
     setCreating,
@@ -191,10 +192,7 @@ function App() {
             onCloseAgent={closeFlow.requestCloseAgent}
             onRenamePane={deck.renamePane}
             onEnterTeam={deck.openTeam}
-            onAddTeamMember={(wsId, teamId) => {
-              const ws = findWorkspace(deck.workspaces, wsId);
-              if (ws) void agentFlow.openFor(ws, { kind: "member", teamId });
-            }}
+            onAddTeamMember={addTeamMember}
             onRenameTeam={deck.renameTeam}
             onDisbandTeam={closeFlow.requestDisbandTeam}
             onPaneTitle={deck.setPaneAutoTitle}

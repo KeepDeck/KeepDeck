@@ -3,8 +3,9 @@ import { noAutoCorrect } from "../../ui/inputProps";
 import { useInlineRename } from "../../ui/useInlineRename";
 import { WORKSPACE_WORDS, type ActiveWorkspace } from "../../presentation/stripView";
 
-interface WorkspaceCrumbProps {
-  workspace: ActiveWorkspace;
+/** The crumb as the controller composes it and the bar passes it through. */
+export interface WorkspaceCrumbProps {
+  view: ActiveWorkspace;
   /** Empty = back to the auto name, which the domain rename implements. */
   onRename(name: string): void;
   /** Move the workspace to `toIndex` in the strip's column. */
@@ -18,7 +19,7 @@ interface WorkspaceCrumbProps {
  * (also a double-click on the name), move up or down the column (the
  * keyboard's way to do what dragging a mark does), close.
  */
-export function WorkspaceCrumb({ workspace, onRename, onMove, onClose }: WorkspaceCrumbProps) {
+export function WorkspaceCrumb({ view: workspace, onRename, onMove, onClose }: WorkspaceCrumbProps) {
   const rename = useInlineRename((_key, name) => onRename(name));
   const { name, moveUpTo, moveDownTo } = workspace;
   const actions: MenuAction[] = [

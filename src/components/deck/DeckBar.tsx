@@ -12,7 +12,7 @@
  * only if the place it lands was already paid for.
  *
  * So the reckoning ran the other way. The pane count was already answered by
- * the strip's per-team numbers and by the panes being on screen — it is
+ * the team cards' agent counts and by the panes being on screen — it is
  * gone rather than relocated. The build number went to the strip's own foot,
  * which is chrome that already exists. Quota stayed, because a subscription
  * running out is the one fact here that changes what you do next.
@@ -60,8 +60,7 @@ import {
   TasksIcon,
 } from "../AppIcons";
 import { NotificationBell } from "../notifications/NotificationBell";
-import type { ActiveWorkspace } from "../../presentation/stripView";
-import { WorkspaceCrumb } from "./WorkspaceCrumb";
+import { WorkspaceCrumb, type WorkspaceCrumbProps } from "./WorkspaceCrumb";
 import type { NeedsYouRow } from "../../presentation/needsYouView";
 import { UsageChips } from "../usage/UsageChips";
 
@@ -86,12 +85,7 @@ export type BarLevel =
 
 export interface DeckBarProps {
   /** The workspace on screen and its menu, or null with none. */
-  workspace: {
-    view: ActiveWorkspace;
-    onRename(name: string): void;
-    onMove(toIndex: number): void;
-    onClose(): void;
-  } | null;
+  workspace: WorkspaceCrumbProps | null;
 
   agents: AgentInfo[];
   /** Agent ids with a pane in the deck — the roster the usage chips stand for. */
@@ -171,12 +165,7 @@ export function DeckBar({
             initials) with its menu, and inside a team the way back to the
             cards, the team's name and the branch it works on. */}
         {workspace && (
-          <WorkspaceCrumb
-            workspace={workspace.view}
-            onRename={workspace.onRename}
-            onMove={workspace.onMove}
-            onClose={workspace.onClose}
-          />
+          <WorkspaceCrumb {...workspace} />
         )}
         {level.kind === "team" && (
           <div className="bar__group deck__team-bar">
