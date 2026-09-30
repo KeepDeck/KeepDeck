@@ -169,7 +169,9 @@
   min-width: 0;
   min-height: 0;
   overflow: auto;
-  background-color: var(--kd-canvas);
+  /* A tile in the panel's float — the code gutters (git, files) paint the
+     same tile to stay opaque over the text scrolling under them. */
+  background-color: var(--kd-tile);
   outline: none;
 }
 

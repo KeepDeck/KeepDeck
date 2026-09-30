@@ -31,7 +31,6 @@
   /* Without a min-height floor the flex parent lets the list keep its full
    * content height and the scrollbar never appears — paging depends on it. */
   min-height: 0;
-  border: 1px solid var(--kd-seam);
   border-radius: var(--kd-radius-tile);
   background-color: var(--kd-tile);
 }
@@ -370,7 +369,6 @@
   display: flex;
   flex-direction: column;
   background-color: var(--kd-tile);
-  border: 1px solid var(--kd-seam);
   border-radius: var(--kd-radius-tile);
   /* Clip children to the rounded box — square row backgrounds must not
    * poke into the corner curves. The viewer itself never scrolls (the

@@ -147,8 +147,7 @@
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  border: 1px solid var(--kd-seam);
-  border-radius: var(--kd-radius-pop);
+  border-radius: var(--kd-radius-tile);
   background-color: var(--kd-tile);
 }
 
@@ -202,8 +201,9 @@
   padding-bottom: 6px;
 }
 
-/* The card IS the control: a bordered box whose rim takes the status hue
-   when selected, the way a pane's frame does. */
+/* The card IS the control: a step above its column's tile, filled — not
+   boxed — and its rim takes the status hue when selected, the way a pane's
+   frame does. The 1px edge is reserved, transparent at rest, for that rim. */
 .tasks__card {
   display: flex;
   flex-direction: column;
@@ -218,9 +218,9 @@
   min-width: 0;
   gap: 4px;
   padding: 8px 10px;
-  border: 1px solid var(--kd-seam);
+  border: 1px solid transparent;
   border-radius: var(--kd-radius-control);
-  background-color: var(--kd-tile);
+  background-color: var(--kd-hover);
   color: var(--kd-text-2);
   font: inherit;
   text-align: left;
@@ -243,8 +243,9 @@
   overflow-wrap: break-word;
 }
 
-.tasks__card:hover {
-  border-color: var(--kd-seam-strong);
+.tasks__card:hover,
+.tasks__card[aria-pressed="true"] {
+  background-color: var(--kd-selected);
 }
 
 .tasks__card[aria-pressed="true"] {
@@ -357,7 +358,7 @@
   padding: 12px 14px;
   border: 1px solid var(--kd-seam);
   border-radius: var(--kd-radius-pop);
-  background-color: var(--kd-tile);
+  background-color: var(--kd-float);
   box-shadow: var(--kd-shadow-float);
   overflow-y: auto;
   transition:

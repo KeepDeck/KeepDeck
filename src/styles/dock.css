@@ -139,9 +139,8 @@
   padding: 10px;
   max-height: 260px;
   overflow: auto;
-  border: 1px solid var(--kd-seam);
-  border-radius: var(--kd-radius-pop);
-  background-color: var(--kd-canvas);
+  border-radius: var(--kd-radius-tile);
+  background-color: var(--kd-tile);
   color: var(--kd-text-3);
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   font-size: var(--kd-font-small);
