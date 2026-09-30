@@ -105,6 +105,8 @@ describe("AgentPaneHeader", () => {
     );
     const input = host.querySelector<HTMLInputElement>(".pane__rename")!;
     expect(input.value).toBe("Claude 1");
+    // The shared field's look, not a pane-private copy of it.
+    expect(input.classList.contains("rename-input")).toBe(true);
 
     act(() => {
       // Through the native setter: React's value tracker dedupes a plain

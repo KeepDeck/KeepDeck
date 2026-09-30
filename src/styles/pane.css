@@ -107,19 +107,8 @@
 /* Inline rename of the pane title ([F11]). */
 .pane__rename {
   flex: 1 1 auto;
-  min-width: 0;
   padding: 1px 4px;
-  border: 1px solid var(--kd-seam-strong);
-  border-radius: var(--kd-radius-mark);
-  background-color: var(--kd-tile);
-  color: var(--kd-text-2);
-  font: inherit;
   font-size: var(--kd-font-small);
-  outline: none;
-}
-
-.pane__rename:focus {
-  border-color: var(--kd-focus);
 }
 
 /* Which teammate this is — quiet text beside the name, not a pill. */

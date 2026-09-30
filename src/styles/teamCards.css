@@ -121,19 +121,8 @@
 /* Inline rename of the name — the pane title's field, at the card's size. */
 .team-card__rename {
   flex: 1 1 auto;
-  min-width: 0;
   padding: 1px 4px;
-  border: 1px solid var(--kd-seam-strong);
-  border-radius: var(--kd-radius-control);
-  background-color: var(--kd-hover);
-  color: var(--kd-text-2);
-  font: inherit;
   font-size: var(--kd-font-normal);
-  outline: none;
-}
-
-.team-card__rename:focus {
-  border-color: var(--kd-focus);
 }
 
 .team-card__menu {

@@ -1,0 +1,19 @@
+/* The inline-rename field (ui/RenameInput.tsx) — ONE look for every
+   surface that renames something in place: the workspace crumb, a pane's
+   title, a team card's name. It was three copies, and they drifted: a
+   canvas hole on one, a tile on another, two radii, one without a focus
+   state. Each site keeps only its size and place (its own class). */
+.rename-input {
+  min-width: 0;
+  border: 1px solid var(--kd-seam-strong);
+  border-radius: var(--kd-radius-control);
+  /* A step above whatever it sits on — the bar's canvas or a tile. */
+  background-color: var(--kd-hover);
+  color: var(--kd-text);
+  font: inherit;
+  outline: none;
+}
+
+.rename-input:focus {
+  border-color: var(--kd-focus);
+}
