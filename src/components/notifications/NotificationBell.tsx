@@ -43,6 +43,8 @@ export function NotificationBell({
   needsYou,
   notifications: feed,
 }: NotificationBellProps) {
+  // Read before the early return below (a hook), so it takes the null a
+  // list that is off hands it.
   const center = feed?.center ?? null;
   const notifications = useNotifications(center);
   const [open, setOpen] = useState(false);
@@ -156,82 +158,80 @@ export function NotificationBell({
               </ul>
             </section>
           )}
-          {feed && (
-            <section
-              className="bell__section bell__section--feed"
-              aria-label={ATTENTION_WORDS.notifications}
-            >
-              <div className="bell__head">
-                <span className="bell__title">{ATTENTION_WORDS.notifications}</span>
-                {notifications.length > 0 && (
-                  <span className="bell__actions">
-                    {unread > 0 && (
-                      <button
-                        type="button"
-                        className="bell__action bell__mark-read"
-                        onClick={() => feed.center.markAllNotificationsRead()}
-                      >
-                        {ATTENTION_WORDS.markAllRead}
-                      </button>
-                    )}
+          <section
+            className="bell__section bell__section--feed"
+            aria-label={ATTENTION_WORDS.notifications}
+          >
+            <div className="bell__head">
+              <span className="bell__title">{ATTENTION_WORDS.notifications}</span>
+              {notifications.length > 0 && (
+                <span className="bell__actions">
+                  {unread > 0 && (
                     <button
                       type="button"
-                      className="bell__action bell__clear-all"
+                      className="bell__action bell__mark-read"
+                      onClick={() => feed.center.markAllNotificationsRead()}
+                    >
+                      {ATTENTION_WORDS.markAllRead}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="bell__action bell__clear-all"
+                    onClick={() => {
+                      bellButtonRef.current?.focus();
+                      feed.center.clearAllNotifications();
+                    }}
+                  >
+                    {ATTENTION_WORDS.clearAll}
+                  </button>
+                </span>
+              )}
+            </div>
+            {notifications.length === 0 ? (
+              <div className="bell__empty" role="status" aria-live="polite">
+                {ATTENTION_WORDS.feedEmpty}
+              </div>
+            ) : (
+              <ul className="bell__list">
+                {notifications.map((n) => (
+                  <li key={n.id}>
+                    <button
+                      type="button"
+                      className={`bell__item${n.readAt === undefined ? " bell__item--unread" : ""}`}
                       onClick={() => {
-                        bellButtonRef.current?.focus();
-                        feed.center.clearAllNotifications();
+                        feed.center.markNotificationRead(n.id);
+                        setOpen(false);
+                        feed.onOpen(n);
                       }}
                     >
-                      {ATTENTION_WORDS.clearAll}
-                    </button>
-                  </span>
-                )}
-              </div>
-              {notifications.length === 0 ? (
-                <div className="bell__empty" role="status" aria-live="polite">
-                  {ATTENTION_WORDS.feedEmpty}
-                </div>
-              ) : (
-                <ul className="bell__list">
-                  {notifications.map((n) => (
-                    <li key={n.id}>
-                      <button
-                        type="button"
-                        className={`bell__item${n.readAt === undefined ? " bell__item--unread" : ""}`}
-                        onClick={() => {
-                          feed.center.markNotificationRead(n.id);
-                          setOpen(false);
-                          feed.onOpen(n);
-                        }}
+                      <span className="bell__leading" aria-hidden>
+                        {n.icon !== undefined ? (
+                          <span className="bell__icon">{n.icon}</span>
+                        ) : n.severity !== "info" ? (
+                          <span
+                            className={`bell__dot bell__dot--${n.severity}`}
+                          />
+                        ) : null}
+                      </span>
+                      <span className="bell__text">
+                        <span className="bell__item-title">{n.title}</span>
+                        {n.body !== undefined && (
+                          <span className="bell__body">{n.body}</span>
+                        )}
+                      </span>
+                      <span
+                        className="bell__age"
+                        title={formatAge(n.at, now, "ago")}
                       >
-                        <span className="bell__leading" aria-hidden>
-                          {n.icon !== undefined ? (
-                            <span className="bell__icon">{n.icon}</span>
-                          ) : n.severity !== "info" ? (
-                            <span
-                              className={`bell__dot bell__dot--${n.severity}`}
-                            />
-                          ) : null}
-                        </span>
-                        <span className="bell__text">
-                          <span className="bell__item-title">{n.title}</span>
-                          {n.body !== undefined && (
-                            <span className="bell__body">{n.body}</span>
-                          )}
-                        </span>
-                        <span
-                          className="bell__age"
-                          title={formatAge(n.at, now, "ago")}
-                        >
-                          {formatTimestamp(n.at, now)}
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          )}
+                        {formatTimestamp(n.at, now)}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
         </div>
       )}
     </span>
