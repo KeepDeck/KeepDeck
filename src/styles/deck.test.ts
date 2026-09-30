@@ -51,6 +51,27 @@ describe("the usage chips", () => {
     expect(ruleBody(usage, ".usage").gap).toBeUndefined();
     expect(ruleBody(usage, ".usage-chip").padding).toBe("0 7px");
   });
+
+  it("centre each agent's mark in its ring, free of any line box", () => {
+    // An inline svg sits on the font's baseline and drifts by its descent.
+    const ring = readStyles("progressRing.css");
+    expect(ruleBody(ring, ".progress-ring")).toMatchObject({ display: "inline-grid", "place-items": "center" });
+    expect(ruleBody(ring, ".progress-ring__mark")).toMatchObject({
+      display: "grid",
+      "place-items": "center",
+      "line-height": "0",
+    });
+    expect(ruleBody(ring, ".progress-ring__mark svg").display).toBe("block");
+  });
+
+  it("move a ring to a new reading instead of jumping to it", () => {
+    // A custom property animates only once registered with a type; it
+    // inherits so the painted track follows the value the ring transitions.
+    const ring = readStyles("progressRing.css");
+    expect(ring).toMatch(/@property --progress-ring-fill\s*\{[^}]*syntax:\s*"<number>"[^}]*inherits:\s*true/);
+    expect(ruleBody(ring, ".progress-ring").transition).toMatch(/^--progress-ring-fill \d+ms ease-out$/);
+    expect(ring).toMatch(/prefers-reduced-motion: reduce\)\s*\{\s*\.progress-ring\s*\{\s*transition: none/);
+  });
 });
 
 describe("the bar's height", () => {

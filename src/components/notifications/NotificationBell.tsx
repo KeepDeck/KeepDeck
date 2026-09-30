@@ -6,7 +6,7 @@ import { useNotifications } from "../../app/useNotifications";
 import { unreadCount, type Notification } from "../../domain/notifications";
 import { formatAge, formatTimestamp } from "../../domain/usage";
 import {
-  attentionTrigger,
+  bellTrigger,
   ATTENTION_WORDS,
   needsYouAge,
   type NeedsYouRow,
@@ -14,9 +14,8 @@ import {
 import { isBehindModalLayer } from "../../ui/inertBackground";
 
 interface NotificationBellProps {
-  /** The agents blocked on the person, across every workspace — shown
-   * whatever the notification settings say, because it is the deck's live
-   * state, not a feed. `onOpen` brings the agent forward. */
+  /** The agents blocked on the person, across every workspace — listed at
+   * the top of the panel. `onOpen` brings the agent forward. */
   needsYou: {
     rows: readonly NeedsYouRow[];
     onOpen(row: NeedsYouRow): void;
@@ -33,10 +32,10 @@ interface NotificationBellProps {
 }
 
 /**
- * The bar's attention control. While any agent needs the person it reads
- * "N need you"; otherwise it is the plain bell of the in-app notification
- * list, and with that list off it is nothing. Its anchored panel lists the
- * blocked agents first, then the notification history (newest first).
+ * The notification bell — the in-app list's, so with that list off there is
+ * no bell. Its badge counts unread notifications. Its anchored panel lists
+ * the agents that need the person first, then the notification history
+ * (newest first).
  * Clicking an agent brings it forward; clicking an entry marks it read and
  * navigates to its source.
  */
@@ -44,6 +43,8 @@ export function NotificationBell({
   needsYou,
   notifications: feed,
 }: NotificationBellProps) {
+  // Read before the early return below (a hook), so it takes the null a
+  // list that is off hands it.
   const center = feed?.center ?? null;
   const notifications = useNotifications(center);
   const [open, setOpen] = useState(false);
@@ -54,12 +55,12 @@ export function NotificationBell({
   const rootRef = useRef<HTMLSpanElement>(null);
   const bellButtonRef = useRef<HTMLButtonElement>(null);
   const unread = unreadCount(notifications);
-  const trigger = attentionTrigger(needsYou.rows, center && { unread });
+  const trigger = bellTrigger(unread);
   const rows = needsYou.rows;
 
-  // A trigger that goes away (the last blocked agent answered, the list
-  // off) takes its panel with it — it must not come back already open.
-  const shown = trigger !== null;
+  // Turning the in-app list off takes the bell and its panel away — and
+  // turning it back on must not bring the panel back already open.
+  const shown = feed !== null;
   useEffect(() => {
     if (!shown) setOpen(false);
   }, [shown]);
@@ -91,7 +92,7 @@ export function NotificationBell({
 
   const now = openedAt;
 
-  if (!trigger) return null;
+  if (!feed) return null;
 
   return (
     <span className="bell" ref={rootRef}>
@@ -99,11 +100,7 @@ export function NotificationBell({
         ref={bellButtonRef}
         variant="ghost"
         size="sm"
-        className={
-          trigger.kind === "need"
-            ? `bell__button bell__need bell__need--${trigger.tone}`
-            : "bell__button"
-        }
+        className="bell__button"
         onClick={() => {
           if (!open) setOpenedAt(Date.now());
           setOpen(!open);
@@ -111,20 +108,11 @@ export function NotificationBell({
         label={trigger.label}
         expanded={open}
       >
-        {trigger.kind === "need" ? (
-          <>
-            <span className="bell__need-dot" aria-hidden />
-            {trigger.text}
-          </>
-        ) : (
-          <>
-            <BellIcon />
-            {trigger.badge !== null && (
-              <span className="bell__badge" aria-hidden>
-                {trigger.badge}
-              </span>
-            )}
-          </>
+        <BellIcon />
+        {trigger.badge !== null && (
+          <span className="bell__badge" aria-hidden>
+            {trigger.badge}
+          </span>
         )}
       </Button>
       {open && (
@@ -170,82 +158,80 @@ export function NotificationBell({
               </ul>
             </section>
           )}
-          {feed && (
-            <section
-              className="bell__section bell__section--feed"
-              aria-label={ATTENTION_WORDS.notifications}
-            >
-              <div className="bell__head">
-                <span className="bell__title">{ATTENTION_WORDS.notifications}</span>
-                {notifications.length > 0 && (
-                  <span className="bell__actions">
-                    {unread > 0 && (
-                      <button
-                        type="button"
-                        className="bell__action bell__mark-read"
-                        onClick={() => feed.center.markAllNotificationsRead()}
-                      >
-                        {ATTENTION_WORDS.markAllRead}
-                      </button>
-                    )}
+          <section
+            className="bell__section bell__section--feed"
+            aria-label={ATTENTION_WORDS.notifications}
+          >
+            <div className="bell__head">
+              <span className="bell__title">{ATTENTION_WORDS.notifications}</span>
+              {notifications.length > 0 && (
+                <span className="bell__actions">
+                  {unread > 0 && (
                     <button
                       type="button"
-                      className="bell__action bell__clear-all"
+                      className="bell__action bell__mark-read"
+                      onClick={() => feed.center.markAllNotificationsRead()}
+                    >
+                      {ATTENTION_WORDS.markAllRead}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="bell__action bell__clear-all"
+                    onClick={() => {
+                      bellButtonRef.current?.focus();
+                      feed.center.clearAllNotifications();
+                    }}
+                  >
+                    {ATTENTION_WORDS.clearAll}
+                  </button>
+                </span>
+              )}
+            </div>
+            {notifications.length === 0 ? (
+              <div className="bell__empty" role="status" aria-live="polite">
+                {ATTENTION_WORDS.feedEmpty}
+              </div>
+            ) : (
+              <ul className="bell__list">
+                {notifications.map((n) => (
+                  <li key={n.id}>
+                    <button
+                      type="button"
+                      className={`bell__item${n.readAt === undefined ? " bell__item--unread" : ""}`}
                       onClick={() => {
-                        bellButtonRef.current?.focus();
-                        feed.center.clearAllNotifications();
+                        feed.center.markNotificationRead(n.id);
+                        setOpen(false);
+                        feed.onOpen(n);
                       }}
                     >
-                      {ATTENTION_WORDS.clearAll}
-                    </button>
-                  </span>
-                )}
-              </div>
-              {notifications.length === 0 ? (
-                <div className="bell__empty" role="status" aria-live="polite">
-                  {ATTENTION_WORDS.feedEmpty}
-                </div>
-              ) : (
-                <ul className="bell__list">
-                  {notifications.map((n) => (
-                    <li key={n.id}>
-                      <button
-                        type="button"
-                        className={`bell__item${n.readAt === undefined ? " bell__item--unread" : ""}`}
-                        onClick={() => {
-                          feed.center.markNotificationRead(n.id);
-                          setOpen(false);
-                          feed.onOpen(n);
-                        }}
+                      <span className="bell__leading" aria-hidden>
+                        {n.icon !== undefined ? (
+                          <span className="bell__icon">{n.icon}</span>
+                        ) : n.severity !== "info" ? (
+                          <span
+                            className={`bell__dot bell__dot--${n.severity}`}
+                          />
+                        ) : null}
+                      </span>
+                      <span className="bell__text">
+                        <span className="bell__item-title">{n.title}</span>
+                        {n.body !== undefined && (
+                          <span className="bell__body">{n.body}</span>
+                        )}
+                      </span>
+                      <span
+                        className="bell__age"
+                        title={formatAge(n.at, now, "ago")}
                       >
-                        <span className="bell__leading" aria-hidden>
-                          {n.icon !== undefined ? (
-                            <span className="bell__icon">{n.icon}</span>
-                          ) : n.severity !== "info" ? (
-                            <span
-                              className={`bell__dot bell__dot--${n.severity}`}
-                            />
-                          ) : null}
-                        </span>
-                        <span className="bell__text">
-                          <span className="bell__item-title">{n.title}</span>
-                          {n.body !== undefined && (
-                            <span className="bell__body">{n.body}</span>
-                          )}
-                        </span>
-                        <span
-                          className="bell__age"
-                          title={formatAge(n.at, now, "ago")}
-                        >
-                          {formatTimestamp(n.at, now)}
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          )}
+                        {formatTimestamp(n.at, now)}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
         </div>
       )}
     </span>

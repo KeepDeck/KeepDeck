@@ -5,8 +5,8 @@
  * team is open. A grid of cards, never a list — one anatomy per card, and
  * the only thing a state changes is the dot's colour and, for a directory
  * not there yet, the rim going dashed. Dot hues are the status ladder's
- * (status.css), the same four names as every other surface, and they are
- * static: nothing on the deck pulses at rest.
+ * (status.css), the same four names as every other surface, pulsing in
+ * status.css's rhythms: the pace names the state.
  *
  * A card is a tile on the canvas, drawn like the panes' tiles: no rim at
  * rest, one under the pointer. */
@@ -69,19 +69,23 @@
 
 .team-card__dot--working {
   background-color: var(--status-working);
+  animation: status-dot-working 1.6s ease-in-out infinite;
 }
 
 .team-card__dot--waiting {
   background-color: var(--status-waiting);
+  animation: status-dot-breathe 2s ease-in-out infinite;
 }
 
 .team-card__dot--failed {
   background-color: var(--status-failed);
+  animation: status-dot-pulse 1s ease-in-out infinite;
 }
 
 /* A create in flight breathes like a wait — something is being waited
    for — in the quiet gray, so it never reads as the person's turn. */
 .team-card__dot--creating {
+  animation: status-dot-breathe 2s ease-in-out infinite;
 }
 
 /* The name is the way in: a button drawn as text, so a keyboard reaches

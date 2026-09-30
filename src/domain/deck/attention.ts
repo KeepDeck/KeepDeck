@@ -1,6 +1,6 @@
 /**
  * Who is blocked on the person, across the deck — the rule behind the
- * bar's "N need you" and ⌘J, and what any other surface (a command, an
+ * bell's "Needs you" list, and what any other surface (a command, an
  * agent asking "who waits on me") would ask. Words are not here; the
  * presentation says them.
  *

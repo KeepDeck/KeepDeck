@@ -37,7 +37,7 @@ const ATTENTION_FLOOR = 3;
 
 /** Whether a state needs a PERSON — at or above the attention floor. The
  * one answer every surface asks: the frame, the tray's words, the header's
- * word, the "N need you" list and ⌘J; a state added above the floor joins
+ * word, and the bell's "Needs you" list; a state added above the floor joins
  * all of them at once. */
 export function needsPerson(state: PaneActivity["state"]): boolean {
   return SEVERITY[state] >= ATTENTION_FLOOR;

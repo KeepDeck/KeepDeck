@@ -1,8 +1,7 @@
-/* The bar's attention control + anchored panel (components/notifications/).
-   At rest it is the bell, one of the bar's quiet controls (a ghost Button,
-   like its neighbours); while agents are blocked it becomes the "N need you"
-   pill. What is here is what makes it either — the badge, the pill, and the
-   panel that drops below it. */
+/* The notification bell + anchored panel (components/notifications/). The
+   bell is one of the bar's quiet controls (a ghost Button, like its
+   neighbours) and stays a bell; what is here is its badge and the panel that
+   drops below it — the agents that need the person, then the feed. */
 
 .bell {
   position: relative;
@@ -29,38 +28,6 @@
   text-align: center;
   font-variant-numeric: tabular-nums;
   pointer-events: none;
-}
-
-/* "N need you": the one control on the bar that speaks in a status hue,
-   because it is the one that asks something of the person. A tinted pill
-   with its dot — never animated; the count and the colour carry it. */
-.bell__need {
-  gap: 6px;
-  padding: 0 9px;
-  border-radius: 999px;
-  font-size: var(--kd-font-small);
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.bell__need-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background-color: currentColor;
-}
-
-.bell__need--waiting {
-  color: var(--kd-warn-strong);
-  background-color: var(--kd-warn-tint);
-  box-shadow: inset 0 0 0 1px var(--kd-warn-line);
-}
-
-.bell__need--failed {
-  color: var(--kd-err-strong);
-  background-color: var(--kd-err-tint);
-  box-shadow: inset 0 0 0 1px var(--kd-err-line);
 }
 
 .bell__panel {

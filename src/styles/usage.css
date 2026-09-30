@@ -53,47 +53,6 @@
    counter-clockwise from the top, the agent's mark inside. Calm until a
    window runs close — then the ring takes the level's hue, as the number
    beside it does (WindowValue). */
-.usage-ring {
-  --usage-ring-hue: var(--kd-text-3);
-  position: relative;
-  flex: none;
-  display: inline-grid;
-  place-items: center;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: conic-gradient(
-    var(--usage-ring-hue) calc(var(--usage-fill) * 1%),
-    var(--kd-seam) 0
-  );
-  /* Mirrored so the fill runs counter-clockwise; the mark is mirrored back. */
-  transform: scaleX(-1);
-}
-
-.usage-ring::before {
-  content: "";
-  position: absolute;
-  inset: 2px;
-  border-radius: 50%;
-  background-color: var(--kd-strip);
-}
-
-.usage-ring--warn {
-  --usage-ring-hue: var(--kd-warn);
-}
-
-.usage-ring--critical {
-  --usage-ring-hue: var(--kd-err);
-}
-
-.usage-ring__glyph {
-  position: relative;
-  display: inline-flex;
-  font-size: var(--kd-font-small);
-  color: var(--kd-text-2);
-  transform: scaleX(-1);
-}
-
 .usage-chip__na {
   color: inherit;
 }

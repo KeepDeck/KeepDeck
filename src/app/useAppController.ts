@@ -56,7 +56,7 @@ import { addTeamDoorOpen, bellDoorOpen, dockDoorOpen, memberDoor } from "./doors
 import { BAR_WORDS, type BarLevel } from "../presentation/barView";
 import type { WorkspaceCrumbView } from "../presentation/workspaceCrumbView";
 import { stripView } from "../presentation/stripView";
-import { needsYouRows, nextNeedsYou, type NeedsYouRow } from "../presentation/needsYouView";
+import { needsYouRows, type NeedsYouRow } from "../presentation/needsYouView";
 import { teamBranchOf, teamHead } from "../presentation/teamCardView";
 
 /** Shell/application wiring kept separate from the rendered app tree. */
@@ -356,12 +356,6 @@ export function useAppController() {
         deck.viewByWs,
       );
       if (target) paneViewActions.toggleMaximize(target.wsId, target.paneId);
-    },
-    nextNeedsYou: () => {
-      if (windows.modal) return;
-      const current = selectedPaneId ? { wsId: deck.activeId, paneId: selectedPaneId } : null;
-      const next = nextNeedsYou(needsYou.rows, current);
-      if (next) needsYou.onOpen(next);
     },
     openSettings: () => void modal.openSettings(),
   });

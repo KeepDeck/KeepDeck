@@ -17,11 +17,11 @@ vi.mock("../ipc/menu", async (original) => ({
 }));
 
 describe("useMenuHotkeys", () => {
-  it("routes every menu event to its own action — ⌘J to the next agent that needs you", async () => {
+  it("routes every menu event to its own action", async () => {
     const calls: string[] = [];
     const actions = Object.fromEntries(
       (
-        ["newWorkspace", "newAgent", "closeAgent", "suspendAgent", "toggleMaximize", "nextNeedsYou", "openSettings"] as const
+        ["newWorkspace", "newAgent", "closeAgent", "suspendAgent", "toggleMaximize", "openSettings"] as const
       ).map((name) => [name, () => calls.push(name)]),
     ) as unknown as MenuActions;
     function Probe() {
@@ -36,7 +36,6 @@ describe("useMenuHotkeys", () => {
       [menu.CLOSE_AGENT_EVENT, "closeAgent"],
       [menu.SUSPEND_AGENT_EVENT, "suspendAgent"],
       [menu.TOGGLE_MAXIMIZE_EVENT, "toggleMaximize"],
-      [menu.NEXT_NEEDS_YOU_EVENT, "nextNeedsYou"],
       [menu.SETTINGS_EVENT, "openSettings"],
     ];
     for (const [event] of pairs) handlers.get(event)?.();

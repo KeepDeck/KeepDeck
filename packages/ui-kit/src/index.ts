@@ -52,3 +52,4 @@ export { Peek, type PeekProps } from "./Peek.tsx";
 export { noAutoCorrect } from "./inputProps.ts";
 export { shortPath } from "./paths.ts";
 export * from "./icons.tsx";
+export { ProgressRing, type ProgressRingProps, type ProgressRingTone } from "./ProgressRing.tsx";

@@ -13,6 +13,7 @@
    source order. */
 @import "./button.css";
 @import "./chip.css";
+@import "./progressRing.css";
 @import "./deck.css";
 @import "./strip.css";
 @import "./pane.css";
