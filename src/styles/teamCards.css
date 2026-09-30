@@ -84,8 +84,6 @@
 
 /* A create in flight breathes like a wait — something is being waited
    for — in the quiet gray, so it never reads as the person's turn. */
-/* A create in flight breathes like a wait — something is being waited
-   for — in the quiet gray, so it never reads as the person's turn. */
 .team-card__dot--creating {
   animation: status-dot-breathe 2s ease-in-out infinite;
 }

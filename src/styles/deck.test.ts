@@ -63,6 +63,14 @@ describe("the usage chips", () => {
     });
     expect(ruleBody(usage, ".usage-ring__glyph svg").display).toBe("block");
   });
+
+  it("move a ring to a new reading instead of jumping to it", () => {
+    // A custom property animates only once registered with a type.
+    const usage = readStyles("usage.css");
+    expect(usage).toMatch(/@property --usage-fill\s*\{[^}]*syntax:\s*"<number>"/);
+    expect(ruleBody(usage, ".usage-ring").transition).toMatch(/^--usage-fill \d+ms ease-out$/);
+    expect(usage).toMatch(/prefers-reduced-motion: reduce\)\s*\{\s*\.usage-ring\s*\{\s*transition: none/);
+  });
 });
 
 describe("the bar's height", () => {

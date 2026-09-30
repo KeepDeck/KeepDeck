@@ -53,6 +53,16 @@
    counter-clockwise from the top, the agent's mark inside. Calm until a
    window runs close — then the ring takes the level's hue, as the number
    beside it does (WindowValue). */
+/* The ring's fill is a registered number, so a new reading ANIMATES to its
+   value instead of jumping: a custom property is otherwise untyped and
+   cannot be interpolated. An engine without @property shows the new value
+   at once — the reading is still right, only the motion is lost. */
+@property --usage-fill {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 0;
+}
+
 .usage-ring {
   --usage-ring-hue: var(--kd-text-3);
   position: relative;
@@ -68,6 +78,14 @@
   );
   /* Mirrored so the fill runs counter-clockwise; the mark is mirrored back. */
   transform: scaleX(-1);
+  /* Value-based: the ring travels from the old reading to the new one. */
+  transition: --usage-fill 600ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .usage-ring {
+    transition: none;
+  }
 }
 
 /* The ring's hole: the bar's own surface, so only the ring reads. */
