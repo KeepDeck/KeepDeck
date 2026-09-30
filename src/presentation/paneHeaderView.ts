@@ -57,6 +57,8 @@ export function paneHeaderView(input: PaneHeaderInput): PaneHeaderView {
 
 /** The header's words that are not about the agent's state. */
 export const PANE_HEADER_WORDS = {
+  /** The dim mark between the title and the role. */
+  separator: "·",
   renameField: "Rename agent",
   renameHint: "Double-click to rename",
 } as const;

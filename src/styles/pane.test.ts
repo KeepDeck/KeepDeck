@@ -254,6 +254,8 @@ describe("pane header", () => {
     expect(ctxRung).toBeGreaterThanOrEqual(width([state, ctx, yolo, button, button, close]));
     // Without context, down to the state-word rung.
     expect(stateRung).toBeGreaterThanOrEqual(width([state, yolo, button, button, close]));
+    // And context goes first: the state word says a person is needed.
+    expect(ctxRung).toBeGreaterThan(stateRung);
   });
 
   it("never squeezes a badge below its own glyph", () => {

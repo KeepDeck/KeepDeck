@@ -113,11 +113,11 @@
   font-size: var(--kd-font-small);
 }
 
-/* The dim dot between the title and the role — a mark, not words. */
+/* The dim dot that leads the role — a mark, not words. It lives inside the
+   role, so it shrinks and hides with it and costs the ladder nothing. */
 .pane__sep {
-  flex: none;
+  margin-right: 6px;
   color: var(--kd-text-4);
-  font-size: var(--kd-font-small);
 }
 
 /* Which teammate this is — quiet text beside the name, not a pill. */
@@ -198,7 +198,6 @@
      minimal        max + close = 50, + 42 = 92 — fits any real pane. */
 @container pane-header (max-width: 310px) {
   .pane__ctx,
-  .pane__sep,
   .pane__role {
     display: none;
   }

@@ -99,12 +99,14 @@ describe("AgentPaneHeader", () => {
         ctx: { label: "49%", title: "Context 49% used", level: "ok" },
       }),
     });
-    // The role is identity: after the title, behind a silent separator.
+    // The role is identity: after the title, led by a silent separator it
+    // carries inside itself (so the ladder never counts a separate item).
     const identity = [...host.querySelector(".pane__identity")!.children].map(
       (el) => el.className.split(" ")[0],
     );
-    expect(identity.slice(-3)).toEqual(["pane__title", "pane__sep", "pane__role"]);
-    expect(host.querySelector(".pane__sep")!.getAttribute("aria-hidden")).toBe("true");
+    expect(identity.slice(-2)).toEqual(["pane__title", "pane__role"]);
+    const sep = host.querySelector(".pane__role > .pane__sep")!;
+    expect(sep.getAttribute("aria-hidden")).toBe("true");
     // Context is the session's reading, not its name: in the cluster, just
     // before the bolt.
     const actions = [...host.querySelector(".pane__actions")!.children].map(
@@ -166,7 +168,7 @@ describe("AgentPaneHeader", () => {
     // pane's team is the one the stage has open.
     render({ view: view({ role: { text: "impl-1", title: "impl-1 on team api" } }) });
     const role = host.querySelector<HTMLElement>(".pane__role")!;
-    expect(role.textContent).toBe("impl-1");
+    expect(role.querySelector(".pane__role-text")!.textContent).toBe("impl-1");
     expect(role.title).toBe("impl-1 on team api");
     expect(role.closest("button")).toBeNull();
   });

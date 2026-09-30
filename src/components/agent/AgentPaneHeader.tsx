@@ -91,16 +91,15 @@ export function AgentPaneHeader({
           </span>
         )}
         {view.role && (
-          <>
-            {/* A real, silent separator: generated content would be read
-                aloud, and a screen reader has the role's own name. */}
+          <span className="pane__role" title={view.role.title}>
+            {/* A real, silent separator INSIDE the role: generated content
+                would be read aloud, and a sibling would be one more fixed
+                item the collapse ladder has to count. */}
             <span className="pane__sep" aria-hidden>
-              ·
+              {PANE_HEADER_WORDS.separator}
             </span>
-            <span className="pane__role" title={view.role.title}>
-              {view.role.text}
-            </span>
-          </>
+            <span className="pane__role-text">{view.role.text}</span>
+          </span>
         )}
       </div>
       <div className="pane__actions">
