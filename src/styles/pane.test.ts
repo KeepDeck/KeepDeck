@@ -191,6 +191,13 @@ describe("pane header", () => {
     expect(styleOf(".pane__actions").flexShrink).toBe("0");
   });
 
+  it("stays under the app bar and still holds its window controls", () => {
+    const paneCss = readStyles("pane.css");
+    const header = px(ruleBody(paneCss, ".pane__bar").height);
+    expect(header).toBeLessThan(px(ruleBody(readStyles("deck.css"), ".deck__bar").height));
+    expect(header).toBeGreaterThan(px(ruleBody(paneCss, ".pane__action").height));
+  });
+
   it("sheds context and role, then the state word, before the cluster outgrows the bar", () => {
     // The promise the ladder states in words — maximize and close never hide —
     // and the arithmetic that has to hold for it to be true. Nothing in the

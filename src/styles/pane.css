@@ -48,7 +48,9 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 32px;
+  /* A notch under the app bar's 30px: the tile's header is the smaller
+     frame, and still holds the 23px window controls with air to spare. */
+  height: 28px;
   flex: none;
   padding: 0 6px 0 12px;
   /* No band and no rule: the header is the top of the tile, set apart by
