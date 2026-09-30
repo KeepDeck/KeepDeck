@@ -118,6 +118,10 @@
   outline: none;
 }
 
+.pane__rename:focus {
+  border-color: var(--kd-focus);
+}
+
 /* Which teammate this is — quiet text beside the name, not a pill. */
 .pane__role {
   /* Yields after the title (both ellipsize) — never pushes the cluster. */
@@ -128,7 +132,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--kd-font-small);
-  color: var(--kd-text-4);
+  color: var(--kd-text-3);
 }
 
 .pane__actions {
@@ -391,7 +395,7 @@
 .pane__card-action {
   margin-top: 10px;
   border: 1px solid var(--kd-seam);
-  background-color: var(--kd-tile);
+  background-color: var(--kd-hover);
   color: var(--kd-text-2);
   font: inherit;
   font-size: var(--kd-font-small);
@@ -401,7 +405,7 @@
 }
 
 .pane__card-action:hover {
-  background-color: var(--kd-hover);
+  background-color: var(--kd-selected);
   border-color: var(--kd-seam-strong);
 }
 

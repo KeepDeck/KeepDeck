@@ -103,8 +103,8 @@
 }
 
 .team-card__open:focus-visible {
-  outline: 2px solid var(--kd-ok);
-  outline-offset: 2px;
+  outline: 1px solid var(--kd-focus);
+  outline-offset: -1px;
   border-radius: var(--kd-radius-mark);
 }
 
@@ -124,12 +124,16 @@
   min-width: 0;
   padding: 1px 4px;
   border: 1px solid var(--kd-seam-strong);
-  border-radius: var(--kd-radius-mark);
-  background-color: var(--kd-canvas);
+  border-radius: var(--kd-radius-control);
+  background-color: var(--kd-hover);
   color: var(--kd-text-2);
   font: inherit;
   font-size: var(--kd-font-normal);
   outline: none;
+}
+
+.team-card__rename:focus {
+  border-color: var(--kd-focus);
 }
 
 .team-card__menu {

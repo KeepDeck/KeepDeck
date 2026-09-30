@@ -41,7 +41,7 @@
 }
 
 .usage-chip--dim {
-  color: var(--kd-text-4);
+  color: var(--kd-text-3);
 }
 
 .usage-chip--dim .chip__icon {
@@ -75,8 +75,10 @@
 .usage-bar i {
   position: absolute;
   inset: 0 auto 0 0;
+  /* Lighter than the seam track, as every meter's fill is (tokens.css) —
+     the ProgressRing's calm pair. */
   border-radius: var(--kd-radius-mark);
-  background-color: var(--kd-selected);
+  background-color: var(--kd-text-3);
 }
 
 .usage-bar i.usage-level--warn {
@@ -96,7 +98,7 @@
 }
 
 .usage-window--expired {
-  color: var(--kd-text-4);
+  color: var(--kd-text-3);
 }
 
 /* Anchored panel — the bell's geometry and manners. */
@@ -113,6 +115,8 @@
   background-color: var(--kd-float);
   box-shadow: var(--kd-shadow-float);
   font-size: var(--kd-font-small);
+  /* The burn chart's ground here (see .usage-burn__ymax). */
+  --burn-ground: var(--kd-float);
   color: var(--kd-text-2);
   text-align: left;
 }
@@ -172,7 +176,7 @@
 }
 
 .usage-panel__stats:hover {
-  background-color: var(--kd-tile);
+  background-color: var(--kd-hover);
   color: var(--kd-text-2);
 }
 
@@ -266,7 +270,9 @@
 .usage-burn__dot--active {
   width: 7px;
   height: 7px;
-  border: 1px solid var(--kd-bg);
+  /* The halo wears the chart's ground: float in the usage panel, tile on
+     the statistics provider cards (the default). */
+  border: 1px solid var(--burn-ground, var(--kd-tile));
   box-shadow: 0 0 0 1px var(--kd-seam);
   pointer-events: none;
 }
@@ -318,8 +324,8 @@
   left: 2px;
   padding: 1px 3px;
   border-radius: var(--kd-radius-mark);
-  background: var(--kd-bg);
-  color: var(--kd-text-4);
+  background: var(--burn-ground, var(--kd-tile));
+  color: var(--kd-text-3);
   font-size: var(--kd-font-small);
   line-height: 1;
 }
@@ -328,7 +334,7 @@
   display: flex;
   justify-content: space-between;
   margin-top: 1px;
-  color: var(--kd-text-4);
+  color: var(--kd-text-3);
   font-size: var(--kd-font-small);
   line-height: 1;
 }

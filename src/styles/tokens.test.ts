@@ -213,15 +213,13 @@ describe("the design tokens", () => {
     for (const [file, selector] of floating) {
       expect(ruleBody(readStyles(file), selector)["box-shadow"], selector).toBe("var(--kd-shadow-float)");
     }
-    // A drop shadow in black anywhere else is a height of its own. The
-    // pane being dragged is the one thing lifted higher than a dialog.
+    // A drop shadow in black anywhere else is a height of its own.
     const stray = allSheets()
       .flatMap(([file, css]) =>
         [...css.matchAll(/([^{}]+)\{[^{}]*box-shadow:[^;]*(?:rgba?\(0,? 0,? 0|#000\b|\bblack\b)[^;]*;/g)].map(
           ([, selector]) => `${file}: ${selector.trim()}`,
         ),
-      )
-      .filter((hit) => !hit.includes(".pane-drag-ghost"));
+      );
     expect(stray).toEqual([]);
   });
 

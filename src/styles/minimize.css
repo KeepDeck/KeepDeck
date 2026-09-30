@@ -32,7 +32,7 @@
   font-size: var(--kd-font-small);
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--kd-text-4);
+  color: var(--kd-text-3);
   padding-right: 2px;
 }
 
@@ -187,7 +187,7 @@
   padding: 7px;
   border: 1px solid var(--kd-seam);
   border-radius: var(--kd-radius-pop);
-  background-color: var(--kd-tile);
+  background-color: var(--kd-float);
   box-shadow: var(--kd-shadow-float);
 }
 
@@ -231,7 +231,7 @@
   padding: 7px 9px;
   border: 1px solid var(--kd-seam-strong);
   border-radius: var(--kd-radius-pop);
-  background-color: var(--kd-tile);
+  background-color: var(--kd-float);
   color: var(--kd-text);
   box-shadow: var(--kd-shadow-float);
   overflow: hidden;
