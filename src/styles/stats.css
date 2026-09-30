@@ -145,14 +145,15 @@
   margin-bottom: 18px;
 }
 
+/* The concept's tile: a step down from the dialog's float surface, no
+   border — depth by lightness, the chrome's rule. */
 .stats__card {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 10px 12px;
-  border: 1px solid var(--kd-seam);
-  border-radius: var(--kd-radius-pop);
-  background: var(--kd-bg);
+  padding: 14px 16px;
+  border-radius: var(--kd-radius-tile);
+  background: var(--kd-tile);
 }
 
 .stats__card span {
