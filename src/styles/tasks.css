@@ -360,10 +360,7 @@
   gap: 6px;
   min-height: 0;
   padding: 12px 14px;
-  border: 1px solid var(--kd-seam);
   border-radius: var(--kd-radius-pop);
-  background-color: var(--kd-float);
-  box-shadow: var(--kd-shadow-float);
   overflow-y: auto;
   transition:
     width 220ms ease,

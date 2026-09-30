@@ -106,10 +106,7 @@
   width: 320px;
   max-height: 420px;
   overflow-y: auto;
-  border: 1px solid var(--kd-seam);
   border-radius: var(--kd-radius-pop);
-  background-color: var(--kd-float);
-  box-shadow: var(--kd-shadow-float);
   font-size: var(--kd-font-small);
   /* The burn chart's ground here (see .usage-burn__ymax). */
   --burn-ground: var(--kd-float);

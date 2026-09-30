@@ -41,10 +41,7 @@
   max-height: 420px;
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--kd-seam);
   border-radius: var(--kd-radius-pop);
-  background-color: var(--kd-float);
-  box-shadow: var(--kd-shadow-float);
   overflow: hidden;
 }
 

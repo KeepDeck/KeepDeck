@@ -14,7 +14,7 @@ export function VoiceOverlay() {
 
   const width = Math.min(100, Math.round(snap.level * 400));
   return (
-    <div className="voice-pill" role="status">
+    <div className="voice-pill kd-float" role="status">
       <span
         className={`voice-pill__dot${
           snap.phase === "listening" ? " voice-pill__dot--live" : ""

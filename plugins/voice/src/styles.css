@@ -121,14 +121,12 @@
 .voice__help {
   position: fixed;
   z-index: 80;
-  background: var(--kd-tile);
-  border: 1px solid var(--kd-seam-strong);
-  border-radius: var(--kd-radius-control);
+  /* Surface, edge and shadow: the .kd-float shell (host float.css). */
+  border-radius: var(--kd-radius-pop);
   padding: 10px 12px;
   color: var(--kd-text-2);
   font-size: var(--kd-font-small);
   line-height: 1.5;
-  box-shadow: var(--kd-shadow-float);
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -517,14 +515,12 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  background: var(--kd-float);
-  border: 1px solid var(--kd-seam-strong);
+  /* Surface, edge and shadow: the .kd-float shell (host float.css). */
   border-radius: 999px;
   padding: 6px 14px;
   color: var(--kd-text-2);
   font-size: var(--kd-font-small);
   z-index: 60;
-  box-shadow: var(--kd-shadow-float);
   pointer-events: none;
 }
 

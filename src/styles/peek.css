@@ -22,11 +22,8 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  background-color: var(--kd-float);
-  border: 1px solid var(--kd-seam);
   border-radius: var(--kd-radius-dialog);
   overflow: hidden;
-  box-shadow: var(--kd-shadow-float);
   animation: peek-pop 140ms ease-out;
   /* Selection is re-enabled by .kd-selectable on the element (Peek.tsx), so
      peeked content — code, a diff, paths — can be selected and copied.

@@ -199,10 +199,7 @@
   grid-template-columns: minmax(0, 1fr) max-content;
   gap: 2px 16px;
   padding: 8px 11px;
-  border: 1px solid var(--kd-seam-strong);
   border-radius: var(--kd-radius-pop);
-  background: var(--kd-tile);
-  box-shadow: var(--kd-shadow-float);
   font-size: var(--kd-font-small);
   line-height: 1.45;
   pointer-events: none;
