@@ -131,4 +131,13 @@ describe("the workspace strip's open column", () => {
     expect(ruleBody(strip, ".strip--revealed .strip__col")["z-index"]).toBeUndefined();
     expect(col.transition).toMatch(/\bwidth\b/);
   });
+
+  it("uncovers the names with its edge, not with a fade of their own", () => {
+    // A per-name fade runs on each name's own clock, and a mark that was
+    // just dragged starts it late: its name pops in behind the others.
+    expect(ruleBody(strip, ".strip__col").overflow).toBe("hidden");
+    const name = ruleBody(strip, ".strip__name");
+    expect(name.opacity).toBeUndefined();
+    expect(name.transition).toBeUndefined();
+  });
 });
