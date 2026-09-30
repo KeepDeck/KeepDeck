@@ -105,6 +105,13 @@
   transition: background-color 120ms ease-out, color 120ms ease-out;
 }
 
+/* Keyboard focus: the house ring (tasks.css, artifacts.css) — inset, so
+   the column's clipping edge never cuts it. */
+.strip__mark:focus-visible {
+  outline: 1px solid var(--kd-focus);
+  outline-offset: -1px;
+}
+
 .strip__mark:hover .strip__tile {
   background-color: var(--kd-selected);
   color: var(--kd-text);

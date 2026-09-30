@@ -141,6 +141,13 @@ describe("the workspace strip's open column", () => {
     expect(name.transition).toBeUndefined();
   });
 
+  it("rings a keyboard-focused mark with the house focus ring, inside the clip", () => {
+    const focus = ruleBody(strip, ".strip__mark:focus-visible");
+    expect(focus.outline).toBe("1px solid var(--kd-focus)");
+    // Inset: the column clips (overflow hidden), so an outset ring is cut.
+    expect(focus["outline-offset"]).toBe("-1px");
+  });
+
   it("hides every name wholly behind the shut edge", () => {
     // The name starts at the mark's inset plus its own offset; any of it
     // inside the shut column shows as a sliver beside every mark.
