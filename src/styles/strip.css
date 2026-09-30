@@ -155,14 +155,17 @@
 
 .strip__dot--waiting {
   background-color: var(--kd-warn);
+  animation: status-dot-breathe 2s ease-in-out infinite;
 }
 
 .strip__dot--failed {
   background-color: var(--kd-err);
+  animation: status-dot-pulse 1s ease-in-out infinite;
 }
 
 .strip__dot--working {
   background-color: var(--kd-working);
+  animation: status-dot-working 1.6s ease-in-out infinite;
 }
 
 .strip__dot--done {

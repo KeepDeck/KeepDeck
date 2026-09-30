@@ -344,13 +344,22 @@ describe("the design tokens", () => {
     expect(lightness(declared(tokens, "--kd-selected"))).toBeGreaterThan(lightness(declared(tokens, "--kd-hover")));
   });
 
-  it("rim a minimized chip in every state its agent can be in", () => {
+  it("rim a minimized chip in every state, and pulse every live one in its own rhythm", () => {
     // The tray holds the panes nobody is watching; its chip's rim is how a
     // glance reads them — working and done as much as waiting and failed.
     const status = readStyles("status.css");
     for (const state of ["working", "done", "waiting", "failed"]) {
       const rim = ruleBody(status, `.minimized.minimized--frame-${state}`).border;
-      expect(rim, state).toMatch(/^1px solid var\(--kd-\w+-line\)$/);
+      expect(rim, state).toBe(`1px solid var(--status-${state})`);
     }
+    // Rhythm is the state's identity, on the tile and the chip alike:
+    // failed 1s, waiting 2s, working 1.6s; done holds still.
+    const rhythm: Record<string, string> = { failed: " 1s ", waiting: " 2s ", working: " 1.6s " };
+    for (const [state, pace] of Object.entries(rhythm)) {
+      for (const selector of [`.pane--frame-${state}`, `.minimized.minimized--frame-${state}`]) {
+        expect(ruleBody(status, selector).animation ?? "", selector).toContain(pace);
+      }
+    }
+    expect(ruleBody(status, ".pane--frame-done").animation).toBeUndefined();
   });
 });
