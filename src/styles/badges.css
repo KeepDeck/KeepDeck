@@ -1,0 +1,34 @@
+/* The pane-chrome state marks that are not chips (ui-kit badges.tsx). */
+
+/* YOLO: the bolt, bare, in the warn hue — a glyph among the header's glyphs,
+   not a ringed badge. A fixed box so the header's collapse ladder can count
+   on its width (pane.test.ts reads it). */
+.yolo-mark {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: var(--kd-warn);
+}
+
+/* The glyph lets the pointer through to the mark: hovering an SVG shape
+   does not reach its HTML parent's title, and the bolt fills most of the
+   box — so without this the mark's label almost never showed. */
+.yolo-mark svg {
+  width: 12px;
+  height: 12px;
+  pointer-events: none;
+}
+
+/* sm: the tray stand-in's, a notch smaller like its other marks. */
+.yolo-mark--sm {
+  width: 14px;
+  height: 14px;
+}
+
+.yolo-mark--sm svg {
+  width: 10px;
+  height: 10px;
+}

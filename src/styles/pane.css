@@ -48,7 +48,9 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 32px;
+  /* A notch under the app bar's 30px: the tile's header is the smaller
+     frame, and still holds the 22px window controls with air to spare. */
+  height: 28px;
   flex: none;
   padding: 0 6px 0 12px;
   /* No band and no rule: the header is the top of the tile, set apart by
@@ -111,6 +113,13 @@
   font-size: var(--kd-font-small);
 }
 
+/* The dim dot that leads the role — a mark, not words. It lives inside the
+   role, so it shrinks and hides with it and costs the ladder nothing. */
+.pane__sep {
+  margin-right: 6px;
+  color: var(--kd-text-4);
+}
+
 /* Which teammate this is — quiet text beside the name, not a pill. */
 .pane__role {
   /* Yields after the title (both ellipsize) — never pushes the cluster. */
@@ -149,13 +158,14 @@
   font-weight: 500;
 }
 
-/* Standing YOLO warning dot: the shared ui-kit YoloBadge. */
+/* Standing YOLO mark: the shared ui-kit YoloBadge (badges.css). */
 .pane__yolo {
   flex: none;
 }
 
-/* Context occupancy — a number, calm until it runs high. A fixed box so the
-   cluster's width is a declaration the ladder below can count on. */
+/* Context occupancy — plain text in the cluster, left of YOLO, calm until it
+   runs high. A fixed box, right-aligned, so the cluster's width is a
+   declaration the ladder below can count on and the number never jumps. */
 .pane__ctx {
   flex: none;
   width: 34px;
@@ -180,12 +190,12 @@
    maximize and close live. pane.test.ts reads every number below out of this
    file and fails if a control grows without its rung.
 
-     everything     110 state + 20 yolo + 34 ctx + 3×23 + 5×6 gaps
-                    = 263, + 8 bar gap + 7 dot + 12 glyph + 2×8 identity gaps
-                    = 306  → shed ctx and role below 310
-     no ctx         = 223, + 43 = 266 → shed the state word, yolo and
+     everything     110 state + 34 ctx + 16 yolo + 3×22 + 5×6 gaps = 256,
+                    + 8 bar gap + 7 dot + 11 glyph + 2×8 identity gaps
+                    = 298  → shed context and the role below 310
+     no ctx         = 216, + 42 = 258 → shed the state word, yolo and
                                         minimize below 270
-     minimal        max + close = 52, + 43 = 95 — fits any real pane. */
+     minimal        max + close = 50, + 42 = 92 — fits any real pane. */
 @container pane-header (max-width: 310px) {
   .pane__ctx,
   .pane__role {
@@ -215,11 +225,18 @@
   background: transparent;
   color: var(--kd-text-3);
   line-height: 1;
-  width: 23px;
-  height: 23px;
+  width: 22px;
+  height: 22px;
   padding: 0;
   border-radius: var(--kd-radius-mark);
   cursor: pointer;
+}
+
+/* The glyph at an even size in the even box — the ✕ beside it does the
+   same (base.css .ui-close svg). */
+.pane__action svg {
+  width: 14px;
+  height: 14px;
 }
 
 .pane__action:hover {

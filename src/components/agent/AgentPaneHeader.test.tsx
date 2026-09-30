@@ -91,6 +91,30 @@ describe("AgentPaneHeader", () => {
     expect(host.querySelector(".pane__ctx")).toBeNull();
   });
 
+  it("names the role after the title, and reads context as plain text left of YOLO", () => {
+    render({
+      yolo: true,
+      view: view({
+        role: { text: "lead", title: "" },
+        ctx: { label: "49%", title: "Context 49% used", level: "ok" },
+      }),
+    });
+    // The role is identity: after the title, led by a silent separator it
+    // carries inside itself (so the ladder never counts a separate item).
+    const identity = [...host.querySelector(".pane__identity")!.children].map(
+      (el) => el.className.split(" ")[0],
+    );
+    expect(identity.slice(-2)).toEqual(["pane__title", "pane__role"]);
+    const sep = host.querySelector(".pane__role > .pane__sep")!;
+    expect(sep.getAttribute("aria-hidden")).toBe("true");
+    // Context is the session's reading, not its name: in the cluster, just
+    // before the bolt.
+    const actions = [...host.querySelector(".pane__actions")!.children].map(
+      (el) => el.className.split(" ")[0],
+    );
+    expect(actions.indexOf("pane__ctx")).toBe(actions.indexOf("yolo-mark") - 1);
+  });
+
   it("carries no branch: the branch is the team's, said once above the deck", () => {
     render({ view: view({ role: { text: "impl-1", title: "" } }) });
     expect(host.querySelector(".pane__branch")).toBeNull();
@@ -144,7 +168,7 @@ describe("AgentPaneHeader", () => {
     // pane's team is the one the stage has open.
     render({ view: view({ role: { text: "impl-1", title: "impl-1 on team api" } }) });
     const role = host.querySelector<HTMLElement>(".pane__role")!;
-    expect(role.textContent).toBe("impl-1");
+    expect(role.querySelector(".pane__role-text")!.textContent).toBe("impl-1");
     expect(role.title).toBe("impl-1 on team api");
     expect(role.closest("button")).toBeNull();
   });

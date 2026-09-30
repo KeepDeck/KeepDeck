@@ -28,31 +28,32 @@ describe("badges", () => {
   });
 
   describe("YoloBadge", () => {
-    it("is an icon-only warn chip naming the mode to assistive tech", () => {
+    it("is the bare bolt — no chip — naming the mode to assistive tech", () => {
       act(() => root.render(createElement(YoloBadge, {})));
-      const badge = host.querySelector<HTMLElement>(".yolo-badge")!;
-      expect(badge.className).toBe("chip chip--warn chip--icon-only yolo-badge");
-      expect(badge.querySelector(".chip__icon svg")).not.toBeNull();
-      expect(badge.querySelector(".chip__label")).toBeNull();
-      expect(badge.title).toBe(YOLO_BADGE_TITLE);
-      expect(badge.getAttribute("role")).toBe("img");
-      expect(badge.getAttribute("aria-label")).toBe(YOLO_BADGE_LABEL);
+      const mark = host.querySelector<HTMLElement>(".yolo-mark")!;
+      expect(mark.className).toBe("yolo-mark");
+      // Not a ringed chip any more: a glyph among the header's glyphs.
+      expect(mark.classList.contains("chip")).toBe(false);
+      expect(mark.querySelector("svg")).not.toBeNull();
+      expect(mark.title).toBe(YOLO_BADGE_TITLE);
+      expect(mark.getAttribute("role")).toBe("img");
+      expect(mark.getAttribute("aria-label")).toBe(YOLO_BADGE_LABEL);
     });
 
-    it("sizes through the shared anatomy and carries the site hook", () => {
+    it("takes the small size and the site hook", () => {
       act(() =>
         root.render(
           createElement(YoloBadge, { size: "sm", className: "minimized__yolo" }),
         ),
       );
-      expect(host.querySelector(".yolo-badge")!.className).toBe(
-        "chip chip--sm chip--warn chip--icon-only yolo-badge minimized__yolo",
+      expect(host.querySelector(".yolo-mark")!.className).toBe(
+        "yolo-mark yolo-mark--sm minimized__yolo",
       );
     });
 
     it("goes decorative inside an already-labeled control", () => {
       act(() => root.render(createElement(YoloBadge, { decorative: true })));
-      const badge = host.querySelector<HTMLElement>(".yolo-badge")!;
+      const badge = host.querySelector<HTMLElement>(".yolo-mark")!;
       expect(badge.getAttribute("aria-hidden")).toBe("true");
       expect(badge.getAttribute("role")).toBeNull();
       expect(badge.getAttribute("aria-label")).toBeNull();

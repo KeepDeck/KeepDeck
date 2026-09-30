@@ -2,7 +2,8 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { YoloBadge } from "../ui/badges";
+import { Chip } from "@keepdeck/ui-kit/Chip";
+import { BoltIcon } from "@keepdeck/ui-kit/icons";
 import { appCss } from "./testSupport";
 
 (
@@ -41,8 +42,12 @@ describe("icon-only chip", () => {
     // to be found.
     const seen = new Set<string>();
     for (const size of [undefined, "sm"] as const) {
-      act(() => root.render(createElement(YoloBadge, { size })));
-      const badge = getComputedStyle(host.querySelector(".yolo-badge")!);
+      act(() =>
+        root.render(
+          createElement(Chip, { size, className: "probe", icon: createElement(BoltIcon) }),
+        ),
+      );
+      const badge = getComputedStyle(host.querySelector(".probe")!);
       const label = size ?? "md";
       expect(badge.width, `${label} has no width`).toMatch(/^\d+px$/);
       expect(badge.height, `${label} is not square`).toBe(badge.width);

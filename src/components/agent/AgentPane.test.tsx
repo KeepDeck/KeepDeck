@@ -257,7 +257,7 @@ describe("AgentPane — header badges", () => {
       ),
     );
     const badge = document.querySelector<HTMLElement>(".pane__role");
-    expect(badge!.textContent).toBe("impl-1");
+    expect(badge!.querySelector(".pane__role-text")!.textContent).toBe("impl-1");
     // The team name is the tooltip's job — the role is the address.
     expect(badge!.title).toContain("api");
   });

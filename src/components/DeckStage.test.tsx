@@ -718,7 +718,7 @@ describe("DeckStage — agent identity on the pane header", () => {
 
   const teamLabel = (paneId: string) =>
     document.querySelector<HTMLElement>(
-      `[data-pane-id='${paneId}'] .pane__role`,
+      `[data-pane-id='${paneId}'] .pane__role-text`,
     )!.textContent;
 
   it("names each pane's team once the deck runs more than one", () => {

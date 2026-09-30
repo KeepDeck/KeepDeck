@@ -41,12 +41,11 @@ export interface ButtonProps {
   size?: ButtonSize;
   /** Native tooltip. Free to change with state — a toggle's does.
    *
-   *  Be careful what you put here in the HOST: its WebView draws no native
-   *  tooltip at all, so this is an accessible description and nothing a
-   *  sighted user will ever see. Anything that has to be READ goes through
-   *  `TipButton`, which renders the app's own tip and deliberately does not
-   *  forward this — two tips over one control is the failure it exists to
-   *  avoid. */
+   *  In the HOST the WebView does draw it, after the system's long hover
+   *  delay and in the system's look. Where a control must be read quickly
+   *  (an icon-only toolbar), use `TipButton`: the app's own tip, which
+   *  deliberately does not forward this, because two tips over one control
+   *  is the failure it exists to avoid. */
   title?: string;
   /** Accessible name. Defaults to `title`, and is passed separately exactly
    *  when the two must differ: an icon-only toggle's tooltip says what

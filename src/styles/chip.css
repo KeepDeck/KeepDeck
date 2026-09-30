@@ -83,9 +83,8 @@ button.chip {
 /* A chip collapsed to its glyph: the height becomes the diameter, so the
    width matches it and the side padding that makes a pill goes away —
    otherwise the padding pushes the glyph off centre and the 999px radius
-   draws a stadium instead of a circle. The YOLO dot and the pane header's
-   activity dot are both this, and ui-kit's Chip applies the class itself for
-   any chip given an icon and nothing else.
+   draws a stadium instead of a circle. ui-kit's Chip applies the class
+   itself for any chip given an icon and nothing else.
 
    ONE site restates these declarations instead of wearing the class: the
    branch badge, which is icon-only only while its pane header is too narrow
