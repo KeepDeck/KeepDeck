@@ -198,6 +198,23 @@ describe("pane header", () => {
     expect(header).toBeGreaterThan(px(ruleBody(paneCss, ".pane__action").height));
   });
 
+  it("centres every window-control glyph on whole pixels", () => {
+    // Even box, even glyph: an odd one in an even box sits half a pixel off
+    // and renders soft. The ✕ and the arrows are one family and match.
+    const paneCss = readStyles("pane.css");
+    const baseCss = readStyles("base.css");
+    const sites: [string, string][] = [
+      [paneCss, ".pane__action"],
+      [baseCss, ".ui-close"],
+    ];
+    for (const [css, selector] of sites) {
+      const box = px(ruleBody(css, selector).width);
+      const glyph = px(ruleBody(css, `${selector} svg`).width);
+      expect((box - glyph) % 2, selector).toBe(0);
+      expect(box, selector).toBe(px(ruleBody(paneCss, ".pane__action").width));
+    }
+  });
+
   it("sheds context and role, then the state word, before the cluster outgrows the bar", () => {
     // The promise the ladder states in words — maximize and close never hide —
     // and the arithmetic that has to hold for it to be true. Nothing in the
