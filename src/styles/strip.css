@@ -29,7 +29,13 @@
   padding: 8px 0 8px 3px;
   min-height: 0;
   background-color: var(--kd-strip);
-  transition: width 140ms ease-out;
+  /* Closing keeps the column's layer until it has finished narrowing:
+     dropped at once, the shrinking column falls UNDER the stage and the
+     close shows no motion at all. */
+  transition:
+    width 140ms ease-out,
+    box-shadow 140ms ease-out,
+    z-index 0s linear 140ms;
 }
 
 /* Open: every workspace's full name beside its mark, over the stage — the
@@ -39,6 +45,11 @@
   z-index: 50;
   width: 220px;
   box-shadow: var(--kd-shadow-float);
+  /* Opening takes the layer at once, before it widens. */
+  transition:
+    width 140ms ease-out,
+    box-shadow 140ms ease-out,
+    z-index 0s;
 }
 
 /* The list is the only positioned ancestor of the marks: the reorder's
@@ -237,6 +248,7 @@
 @media (prefers-reduced-motion: reduce) {
   .strip__tile,
   .strip__col,
+  .strip--revealed .strip__col,
   .strip__name {
     transition: none;
   }
