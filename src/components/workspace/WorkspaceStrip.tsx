@@ -11,6 +11,7 @@ import {
 } from "../../app/dragManager";
 import { markAtY } from "../../domain/deck";
 import { STRIP_WORDS, type StripView, type WorkspaceMark } from "../../presentation/stripView";
+import { useStripReveal } from "./useStripReveal";
 
 interface WorkspaceStripProps {
   view: StripView;
@@ -48,10 +49,13 @@ interface DragGhost {
 /**
  * The left strip: a column of workspace marks — «+» pinned on top, the
  * marks under it (press-and-hold one to drag it to a new place), the build
- * at the foot. Teams are reached on the stage's cards screen.
+ * at the foot. Teams are reached on the stage's cards screen. Resting the
+ * pointer on it opens it over the stage with each workspace's full name
+ * beside its mark (`useStripReveal`) — the stage does not move.
  */
 export function WorkspaceStrip({ view, onSelect, onAdd, onReorder, version }: WorkspaceStripProps) {
   const [ghost, setGhost] = useState<DragGhost | null>(null);
+  const reveal = useStripReveal(ghost !== null);
 
   const listRef = useRef<HTMLDivElement>(null);
   const ghostRef = useRef<HTMLDivElement>(null);
@@ -138,8 +142,11 @@ export function WorkspaceStrip({ view, onSelect, onAdd, onReorder, version }: Wo
   };
 
   return (
-    <nav className="strip" aria-label={STRIP_WORDS.nav}>
-      <div className="strip__col">
+    <nav
+      className={`strip${reveal.open ? " strip--revealed" : ""}`}
+      aria-label={STRIP_WORDS.nav}
+    >
+      <div className="strip__col" {...reveal.handlers}>
         <button
           type="button"
           className="strip__mark strip__mark--add"
@@ -149,6 +156,9 @@ export function WorkspaceStrip({ view, onSelect, onAdd, onReorder, version }: Wo
         >
           <span className="strip__tile" aria-hidden>
             <PlusIcon />
+          </span>
+          <span className="strip__name" aria-hidden>
+            {STRIP_WORDS.addWorkspace}
           </span>
         </button>
         <div
@@ -170,6 +180,9 @@ export function WorkspaceStrip({ view, onSelect, onAdd, onReorder, version }: Wo
               title={mark.label}
             >
               <MarkFace mark={mark} />
+              <span className="strip__name" aria-hidden>
+                {mark.name}
+              </span>
             </button>
           ))}
         </div>
@@ -196,9 +209,9 @@ export function WorkspaceStrip({ view, onSelect, onAdd, onReorder, version }: Wo
 }
 
 /** A mark's face — the tile with its letters and dot. No name under it: at
- * the strip's width a name only fits as an ellipsis, and the full one is
- * the mark's tooltip and the bar's first crumb. The mark and its drag
- * ghost share it: the ghost is the mark's image. */
+ * the strip's width a name only fits as an ellipsis; the full one shows
+ * beside the mark while the strip is open, and in the bar's first crumb.
+ * The mark and its drag ghost share it: the ghost is the mark's image. */
 function MarkFace({ mark }: { mark: WorkspaceMark }) {
   return (
     <>

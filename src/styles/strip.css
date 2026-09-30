@@ -3,8 +3,9 @@
    reached on the stage's cards screen. */
 
 .strip {
+  position: relative;
   flex: none;
-  display: flex;
+  width: 58px;
   min-height: 0;
   /* Parted from the canvas by its own surface step, not a drawn line. */
   background-color: var(--kd-strip);
@@ -12,15 +13,32 @@
 
 /* ── The column of marks ────────────────────────────────────────────── */
 
+/* The column lies OVER the strip's slot rather than in it, so opening it
+   (below) widens it across the stage without moving the stage. Its
+   children sit on the left, where centring in 58px put them (3px in), so
+   nothing shifts when it widens. */
 .strip__col {
+  position: absolute;
+  inset: 0 auto 0 0;
   width: 58px;
-  flex: none;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
   gap: 6px;
-  padding: 8px 0 8px;
+  padding: 8px 0 8px 3px;
   min-height: 0;
+  background-color: var(--kd-strip);
+  transition: width 140ms ease-out;
+}
+
+/* Open: every workspace's full name beside its mark, over the stage — the
+   one place a workspace that is not on screen is named. Above the bar and
+   the stage (1), under dialogs and plugin overlays (100). */
+.strip--revealed .strip__col {
+  z-index: 50;
+  width: 220px;
+  box-shadow: var(--kd-shadow-float);
 }
 
 /* The list is the only positioned ancestor of the marks: the reorder's
@@ -32,9 +50,12 @@
   width: 100%;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
   gap: 6px;
   overflow-y: auto;
+  /* The hidden names reach past the closed column; they must not make it
+     scroll sideways. */
+  overflow-x: hidden;
   scrollbar-width: none;
 }
 
@@ -43,6 +64,7 @@
 }
 
 .strip__mark {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -122,11 +144,41 @@
   pointer-events: none;
 }
 
+/* A mark's full name, beside its tile: shown only while the strip is open.
+   Inside the mark's button, so the name is as clickable as the tile. */
+.strip__name {
+  position: absolute;
+  top: 50%;
+  left: 50px;
+  max-width: 150px;
+  overflow: hidden;
+  color: var(--kd-text-2);
+  font-size: var(--kd-font-normal);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateY(-50%);
+  pointer-events: none;
+  transition: opacity 120ms ease-out;
+}
+
+.strip--revealed .strip__name {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.strip__mark:hover .strip__name,
+.strip__mark--active .strip__name {
+  color: var(--kd-text);
+}
+
 /* The build number at the column's foot: read a few times a year, so it
    costs nothing on every other day. */
 .strip__foot {
   flex: none;
-  max-width: 54px;
+  width: 52px;
+  text-align: center;
   font-size: var(--kd-font-small);
   color: var(--kd-text-3);
   font-variant-numeric: tabular-nums;
@@ -183,7 +235,9 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .strip__tile {
+  .strip__tile,
+  .strip__col,
+  .strip__name {
     transition: none;
   }
 }
