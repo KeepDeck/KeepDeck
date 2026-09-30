@@ -29,27 +29,23 @@
   padding: 8px 0 8px 3px;
   min-height: 0;
   background-color: var(--kd-strip);
-  /* Closing keeps the column's layer until it has finished narrowing:
-     dropped at once, the shrinking column falls UNDER the stage and the
-     close shows no motion at all. */
+  /* ONE layer, open or shut, above the bar and the stage (1) and under
+     dialogs and plugin overlays (100). It must not change on close: a
+     layer that drops as the column starts narrowing puts the column under
+     the stage, and the close shows no motion. Nor can a delayed drop do it
+     — `auto` to a number is not interpolated, so the delay is ignored.
+     Shut, the column covers only its own slot, so the layer costs nothing. */
+  z-index: 50;
   transition:
     width 140ms ease-out,
-    box-shadow 140ms ease-out,
-    z-index 0s linear 140ms;
+    box-shadow 140ms ease-out;
 }
 
 /* Open: every workspace's full name beside its mark, over the stage — the
-   one place a workspace that is not on screen is named. Above the bar and
-   the stage (1), under dialogs and plugin overlays (100). */
+   one place a workspace that is not on screen is named. */
 .strip--revealed .strip__col {
-  z-index: 50;
   width: 220px;
   box-shadow: var(--kd-shadow-float);
-  /* Opening takes the layer at once, before it widens. */
-  transition:
-    width 140ms ease-out,
-    box-shadow 140ms ease-out,
-    z-index 0s;
 }
 
 /* The list is the only positioned ancestor of the marks: the reorder's
@@ -248,7 +244,6 @@
 @media (prefers-reduced-motion: reduce) {
   .strip__tile,
   .strip__col,
-  .strip--revealed .strip__col,
   .strip__name {
     transition: none;
   }

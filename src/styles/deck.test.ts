@@ -118,3 +118,17 @@ describe("the breadcrumb", () => {
     }
   });
 });
+
+describe("the workspace strip's open column", () => {
+  const strip = readStyles("strip.css");
+
+  it("keeps one numeric layer open and shut, so closing animates", () => {
+    // A layer that changes on close drops the narrowing column under the
+    // stage — and `auto` ↔ a number is not interpolated, so no transition
+    // delay can save it. The layer is set once, on the column itself.
+    const col = ruleBody(strip, ".strip__col");
+    expect(col["z-index"]).toMatch(/^\d+$/);
+    expect(ruleBody(strip, ".strip--revealed .strip__col")["z-index"]).toBeUndefined();
+    expect(col.transition).toMatch(/\bwidth\b/);
+  });
+});
