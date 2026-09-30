@@ -3,6 +3,7 @@ import {
   downloadPercent,
   type CustomSettingsFieldProps,
 } from "@keepdeck/plugin-api";
+import { Button } from "@keepdeck/ui-kit/Button";
 import { DEFAULT_MODEL, MODEL_KEY } from "../controller";
 import { runtime } from "../runtime";
 
@@ -116,14 +117,18 @@ export function ModelsSection({ values, write }: CustomSettingsFieldProps) {
             </div>
             <div className="voice-models__foot">
               <span>{meta?.langs ?? ""}</span>
-              <span className="voice-models__foot-right">
+              {/* The card's click picks the model; a press on one of its own
+                  actions must not also pick it — the Delete of an
+                  installed model least of all. */}
+              <span
+                className="voice-models__foot-right"
+                onClick={(e) => e.stopPropagation()}
+              >
                 <span>{m.sizeMb} MB</span>
                 {m.installed ? (
-                  <button
-                    type="button"
-                    className="voice-models__act voice-models__act--delete"
-                    onClick={(e) => {
-                      e.stopPropagation();
+                  <Button
+                    size="sm"
+                    onClick={() => {
                       void ctx.services.downloads
                         .remove(m.target)
                         .then(() => store.refresh())
@@ -135,35 +140,24 @@ export function ModelsSection({ values, write }: CustomSettingsFieldProps) {
                     }}
                   >
                     Delete
-                  </button>
+                  </Button>
                 ) : downloading ? (
                   <>
                     <span className="voice-models__progress">
                       {percent === null ? "…" : `${percent}%`}
                     </span>
-                    <button
-                      type="button"
-                      className="voice-models__act voice-models__act--delete"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        cancel(m.id);
-                      }}
+                    <Button
+                      size="sm"
+                      onClick={() => cancel(m.id)}
                       title="Stop — the next Download resumes from here"
                     >
                       ✕
-                    </button>
+                    </Button>
                   </>
                 ) : m.retired ? null : (
-                  <button
-                    type="button"
-                    className="voice-models__act"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      download(m.id);
-                    }}
-                  >
+                  <Button size="sm" onClick={() => download(m.id)}>
                     {error ? "Retry" : "Download"}
-                  </button>
+                  </Button>
                 )}
               </span>
             </div>

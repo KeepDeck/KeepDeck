@@ -289,20 +289,9 @@
   color: var(--kd-err-strong);
 }
 
+/* The shared Button dresses it; this only keeps it from shrinking. */
 .voice__model-btn {
-  background: none;
-  border: 1px solid var(--kd-seam);
-  color: var(--kd-text-3);
-  border-radius: var(--kd-radius-mark);
-  padding: 2px 8px;
-  cursor: pointer;
-  font-size: var(--kd-font-small);
   flex: none;
-}
-
-.voice__model-btn:hover {
-  color: var(--kd-text-2);
-  border-color: var(--kd-seam-strong);
 }
 
 /* Model manager cards (the plugin's settings section). */
@@ -399,26 +388,6 @@
   align-items: center;
   gap: 10px;
   flex: none;
-}
-
-.voice-models__act {
-  background: none;
-  border: 1px solid var(--kd-seam);
-  color: var(--kd-text-3);
-  border-radius: var(--kd-radius-mark);
-  padding: 2px 8px;
-  cursor: pointer;
-  font-size: var(--kd-font-small);
-}
-
-.voice-models__act:hover {
-  color: var(--kd-text-2);
-  border-color: var(--kd-seam-strong);
-}
-
-.voice-models__act--delete:hover {
-  color: var(--kd-err-strong);
-  border-color: var(--kd-err-line);
 }
 
 .voice-models__progress {
@@ -609,21 +578,6 @@
   border-style: dashed;
   border-color: var(--kd-ok-line);
   color: var(--kd-ok-strong);
-}
-
-.voice-hotkeys__reset {
-  background: none;
-  border: 1px solid var(--kd-seam);
-  color: var(--kd-text-3);
-  border-radius: var(--kd-radius-mark);
-  padding: 3px 8px;
-  cursor: pointer;
-  font-size: var(--kd-font-small);
-}
-
-.voice-hotkeys__reset:hover {
-  color: var(--kd-text-2);
-  border-color: var(--kd-seam-strong);
 }
 
 .voice-hotkeys__error {
