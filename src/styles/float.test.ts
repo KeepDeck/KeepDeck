@@ -54,4 +54,24 @@ describe("the float shell", () => {
       );
     expect(copies).toEqual([]);
   });
+
+  it("is not restated by any of its wearers — surface, edge or shadow", () => {
+    // The drift this shell ended was RESTATED parts: tooltips on tile, edges
+    // on seam-strong. A rule for a shell selector anywhere else that sets
+    // any part of the shell is that drift coming back.
+    const head = /([^{}]+)\{[^{}]*box-shadow:\s*var\(--kd-shadow-float\)/.exec(readStyles("float.css"))!;
+    const wearers = head[1].split(",").map((selector) => selector.trim());
+    const parts = /(?:^|;)\s*(border|border-color|border-width|border-style|background|background-color|box-shadow)\s*:/;
+    const restated = sheets()
+      .filter(([file]) => file !== "float.css")
+      .flatMap(([file, css]) =>
+        [...css.matchAll(/([^{}@;]+)\{([^{}]*)\}/g)]
+          .filter(([, selectors, body]) =>
+            selectors.split(",").some((selector) => wearers.includes(selector.trim())) &&
+            parts.test(body),
+          )
+          .map(([, selectors]) => `${file}: ${selectors.trim()}`),
+      );
+    expect(restated).toEqual([]);
+  });
 });

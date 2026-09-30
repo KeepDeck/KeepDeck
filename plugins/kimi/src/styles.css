@@ -106,7 +106,7 @@
 }
 
 .kimi-setup__button:hover:not(:disabled) {
-  border-color: var(--kd-ok-line);
+  background: var(--kd-ok-fill);
 }
 
 .kimi-setup__button--remove {
@@ -116,7 +116,7 @@
 }
 
 .kimi-setup__button--remove:hover:not(:disabled) {
-  border-color: var(--kd-err-line);
+  background: var(--kd-err-fill);
 }
 
 .kimi-setup__button:disabled {

@@ -29,3 +29,9 @@ export function exitNote(opts: { stopped: boolean; code?: number | null }): stri
 export function spawnFailedNote(message: string): string {
   return `\x1b[31mspawn failed: ${message}\x1b[0m\r\n`;
 }
+
+/** What the "Open in" button says it will do — its tooltip and accessible
+ * name. */
+export function openInTitle(target: string, app: string): string {
+  return `Open ${target} in ${app}`;
+}

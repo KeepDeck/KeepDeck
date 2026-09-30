@@ -85,13 +85,13 @@ export function VoiceTab() {
           Voice commands and dictation need a local speech-to-text model.
           Download one to get started — it stays on your machine.
         </div>
-        <button
-          type="button"
-          className="voice__setup-btn"
+        <Button
+          variant="primary"
+          size="sm"
           onClick={() => void ctx.commands.execute("settings.open", {})}
         >
           Choose a model…
-        </button>
+        </Button>
       </div>
     );
   }

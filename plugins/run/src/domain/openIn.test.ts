@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { openAppsFrom, openInFailed, openInTitle, resolveOpenApp } from "./openIn";
+import { openAppsFrom, openInFailed, resolveOpenApp } from "./openIn";
 
 describe("openAppsFrom", () => {
   it("reads the configured list in stored order", () => {
@@ -39,11 +39,7 @@ describe("resolveOpenApp", () => {
   });
 });
 
-describe("the Open in words", () => {
-  it("names the target and the app it opens in", () => {
-    expect(openInTitle("/wt/b", "IntelliJ IDEA")).toBe("Open /wt/b in IntelliJ IDEA");
-  });
-
+describe("openInFailed", () => {
   it("logs a refusal with the app, the target and the error", () => {
     expect(openInFailed("/wt/b", "Zed", { code: 2 })).toBe(
       'Open in Zed failed for /wt/b: {"code":2}',

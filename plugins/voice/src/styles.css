@@ -37,20 +37,6 @@
   line-height: 1.5;
 }
 
-.voice__setup-btn {
-  background: var(--kd-ok-tint);
-  color: var(--kd-ok-strong);
-  border: 1px solid var(--kd-ok-line);
-  border-radius: var(--kd-radius-mark);
-  padding: 5px 12px;
-  cursor: pointer;
-  font-size: var(--kd-font-small);
-}
-
-.voice__setup-btn:hover {
-  background: var(--kd-ok-fill);
-}
-
 .voice__mic {
   background: var(--kd-ok-tint);
   color: var(--kd-ok-strong);
@@ -383,7 +369,8 @@
   font-size: var(--kd-font-small);
 }
 
-.voice-models__foot-right {
+.voice-models__foot-right,
+.voice-models__acts {
   display: inline-flex;
   align-items: center;
   gap: 10px;

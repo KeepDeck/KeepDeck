@@ -77,6 +77,14 @@ describe("ModelsSection", () => {
     expect(write).toHaveBeenCalledWith(MODEL_KEY, "parakeet-tdt-0.6b-v3");
   });
 
+  it("still picks from the card's size — only its actions are contained", () => {
+    const size = [...card(/Parakeet/i).querySelectorAll(".voice-models__foot-right > span")].find(
+      (span) => /MB$/.test(span.textContent ?? ""),
+    )!;
+    click(size);
+    expect(write).toHaveBeenCalledWith(MODEL_KEY, "parakeet-tdt-0.6b-v3");
+  });
+
   it("deletes without also picking the model it is deleting", () => {
     const deleteButton = [...card(/Parakeet/i).querySelectorAll("button")].find(
       (button) => button.textContent === "Delete",

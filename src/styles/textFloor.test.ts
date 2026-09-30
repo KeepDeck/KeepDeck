@@ -48,4 +48,15 @@ describe("the reading floor", () => {
     );
     expect(offenders).toEqual([]);
   });
+
+  it("keeps no stale allowance — every allowed selector still paints text-4", () => {
+    const painting = new Set(
+      sheets().flatMap(([, css]) =>
+        [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+          .filter(([, , body]) => body.includes("var(--kd-text-4)"))
+          .map(([, selector]) => selector.trim().replace(/\s+/g, " ")),
+      ),
+    );
+    expect(MARKS_AND_DISABLED.filter((selector) => !painting.has(selector))).toEqual([]);
+  });
 });

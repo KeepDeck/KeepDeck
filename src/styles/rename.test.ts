@@ -17,8 +17,22 @@ describe("the inline-rename field", () => {
     ];
     for (const [file, selector] of sites) {
       const body = ruleBody(readStyles(file), selector);
-      for (const look of ["border", "border-radius", "background-color", "color", "outline"]) {
+      for (const look of [
+        "border",
+        "border-color",
+        "border-radius",
+        "background",
+        "background-color",
+        "color",
+        "font",
+        "min-width",
+        "outline",
+      ]) {
         expect(body[look], `${selector} restates ${look}`).toBeUndefined();
+      }
+      // Nor a state of its own: focus belongs to the one field.
+      for (const state of [":focus", ":hover", ":focus-visible"]) {
+        expect(readStyles(file).includes(`${selector}${state}`), `${selector}${state}`).toBe(false);
       }
     }
   });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { commandBanner, exitNote, spawnFailedNote } from "./presentation";
+import { commandBanner, exitNote, openInTitle, spawnFailedNote } from "./presentation";
 
 describe("commandBanner", () => {
   it("wraps the command in a dim [run] echo terminated by CRLF", () => {
@@ -35,5 +35,11 @@ describe("spawnFailedNote", () => {
     expect(spawnFailedNote("no such file or directory")).toBe(
       "\x1b[31mspawn failed: no such file or directory\x1b[0m\r\n",
     );
+  });
+});
+
+describe("openInTitle", () => {
+  it("names the target and the app it opens in", () => {
+    expect(openInTitle("/wt/b", "IntelliJ IDEA")).toBe("Open /wt/b in IntelliJ IDEA");
   });
 });

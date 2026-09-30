@@ -117,48 +117,51 @@ export function ModelsSection({ values, write }: CustomSettingsFieldProps) {
             </div>
             <div className="voice-models__foot">
               <span>{meta?.langs ?? ""}</span>
-              {/* The card's click picks the model; a press on one of its own
-                  actions must not also pick it — the Delete of an
-                  installed model least of all. */}
-              <span
-                className="voice-models__foot-right"
-                onClick={(e) => e.stopPropagation()}
-              >
+              <span className="voice-models__foot-right">
                 <span>{m.sizeMb} MB</span>
-                {m.installed ? (
-                  <Button
-                    size="sm"
-                    onClick={() => {
-                      void ctx.services.downloads
-                        .remove(m.target)
-                        .then(() => store.refresh())
-                        .catch((error) =>
-                          ctx.log.warn(
-                            `model removal failed: ${error instanceof Error ? error.message : String(error)}`,
-                          ),
-                        );
-                    }}
-                  >
-                    Delete
-                  </Button>
-                ) : downloading ? (
-                  <>
-                    <span className="voice-models__progress">
-                      {percent === null ? "…" : `${percent}%`}
-                    </span>
+                {/* The card's click picks the model; a press on one of its
+                    own actions must not also pick it — the Delete of an
+                    installed model least of all. Only the actions are
+                    contained: the size beside them still picks. */}
+                <span
+                  className="voice-models__acts"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {m.installed ? (
                     <Button
                       size="sm"
-                      onClick={() => cancel(m.id)}
-                      title="Stop — the next Download resumes from here"
+                      onClick={() => {
+                        void ctx.services.downloads
+                          .remove(m.target)
+                          .then(() => store.refresh())
+                          .catch((error) =>
+                            ctx.log.warn(
+                              `model removal failed: ${error instanceof Error ? error.message : String(error)}`,
+                            ),
+                          );
+                      }}
                     >
-                      ✕
+                      Delete
                     </Button>
-                  </>
-                ) : m.retired ? null : (
-                  <Button size="sm" onClick={() => download(m.id)}>
-                    {error ? "Retry" : "Download"}
-                  </Button>
-                )}
+                  ) : downloading ? (
+                    <>
+                      <span className="voice-models__progress">
+                        {percent === null ? "…" : `${percent}%`}
+                      </span>
+                      <Button
+                        size="sm"
+                        onClick={() => cancel(m.id)}
+                        title="Stop — the next Download resumes from here"
+                      >
+                        ✕
+                      </Button>
+                    </>
+                  ) : m.retired ? null : (
+                    <Button size="sm" onClick={() => download(m.id)}>
+                      {error ? "Retry" : "Download"}
+                    </Button>
+                  )}
+                </span>
               </span>
             </div>
             {downloading && (

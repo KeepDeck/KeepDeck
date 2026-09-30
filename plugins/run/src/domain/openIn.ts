@@ -32,11 +32,6 @@ export function resolveOpenApp(pick: unknown, apps: string[]): string | null {
   return apps[0] ?? null;
 }
 
-/** What the Open button says it will do — its tooltip and accessible name. */
-export function openInTitle(target: string, app: string): string {
-  return `Open ${target} in ${app}`;
-}
-
 /** The log line for an open the OS refused. */
 export function openInFailed(target: string, app: string, error: unknown): string {
   return `Open in ${app} failed for ${target}: ${JSON.stringify(error)}`;
