@@ -40,11 +40,19 @@
   border-color: var(--kd-err-line);
 }
 
-/* Minimized stand-ins: attention must survive minimizing — these are
-   exactly the panes nobody is watching — so a waiting or failed chip keeps a
-   rim, static like the tile's. Every state shows as the chip's dot; working
-   and done need no rim. Doubled class beats the chip's own border and its
-   :hover recolour at equal specificity by source order. */
+/* Minimized stand-ins: these are exactly the panes nobody is watching, so
+   a chip wears its agent's state as a rim in every state — working, done,
+   waiting, failed — static like the tile's, the hue naming it. Doubled
+   class beats the chip's own border and its :hover recolour at equal
+   specificity by source order. */
+.minimized.minimized--frame-working {
+  border: 1px solid var(--kd-working-line);
+}
+
+.minimized.minimized--frame-done {
+  border: 1px solid var(--kd-ok-line);
+}
+
 .minimized.minimized--frame-waiting {
   border: 1px solid var(--kd-warn-line);
 }

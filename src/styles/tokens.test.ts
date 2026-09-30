@@ -343,4 +343,14 @@ describe("the design tokens", () => {
     }
     expect(lightness(declared(tokens, "--kd-selected"))).toBeGreaterThan(lightness(declared(tokens, "--kd-hover")));
   });
+
+  it("rim a minimized chip in every state its agent can be in", () => {
+    // The tray holds the panes nobody is watching; its chip's rim is how a
+    // glance reads them — working and done as much as waiting and failed.
+    const status = readStyles("status.css");
+    for (const state of ["working", "done", "waiting", "failed"]) {
+      const rim = ruleBody(status, `.minimized.minimized--frame-${state}`).border;
+      expect(rim, state).toMatch(/^1px solid var\(--kd-\w+-line\)$/);
+    }
+  });
 });
