@@ -174,7 +174,7 @@
    reads as one number at a glance, and NOT uppercase — the label above is
    a name, this is a value. */
 .stats__card-detail {
-  color: var(--kd-text-4);
+  color: var(--kd-text-3);
   font-size: var(--kd-font-small);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -359,7 +359,7 @@
 }
 
 .stats__row small {
-  color: var(--kd-text-4);
+  color: var(--kd-text-3);
   font-size: var(--kd-font-small);
 }
 

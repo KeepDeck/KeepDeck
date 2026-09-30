@@ -217,7 +217,7 @@
 
 .artifacts__version-when {
   flex: none;
-  color: var(--kd-text-4);
+  color: var(--kd-text-3);
 }
 
 /* The one part that can be long: an agent's note about what changed. */

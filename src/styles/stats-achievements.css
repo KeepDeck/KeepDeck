@@ -377,7 +377,7 @@
 }
 
 .stats__achievement small {
-  color: var(--kd-text-4);
+  color: var(--kd-text-3);
   font-size: var(--kd-font-small);
 }
 

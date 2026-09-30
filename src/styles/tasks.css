@@ -65,7 +65,7 @@
   gap: 6px;
   min-height: 120px;
   padding: 24px 0;
-  color: var(--kd-text-4);
+  color: var(--kd-text-3);
   font-size: var(--kd-font-normal);
   text-align: center;
 }
@@ -185,7 +185,7 @@
 }
 
 .tasks__column-count {
-  color: var(--kd-text-4);
+  color: var(--kd-text-3);
   font-weight: 500;
 }
 
@@ -322,7 +322,7 @@
   display: flex;
   align-items: baseline;
   gap: 8px;
-  color: var(--kd-text-4);
+  color: var(--kd-text-3);
   font-size: var(--kd-font-small);
 }
 
@@ -391,7 +391,7 @@
 
 .tasks__section {
   margin-top: 10px;
-  color: var(--kd-text-4);
+  color: var(--kd-text-3);
   font-size: var(--kd-font-small);
   font-weight: 600;
   letter-spacing: 0.06em;
@@ -408,7 +408,7 @@
 
 .tasks__muted {
   margin: 0;
-  color: var(--kd-text-4);
+  color: var(--kd-text-3);
   font-size: var(--kd-font-small);
 }
 
@@ -429,7 +429,7 @@
 }
 
 .tasks__prop-label {
-  color: var(--kd-text-4);
+  color: var(--kd-text-3);
   font-size: var(--kd-font-small);
 }
 
@@ -541,7 +541,7 @@
 }
 
 .tasks__comment-who {
-  color: var(--kd-text-4);
+  color: var(--kd-text-3);
   font-size: var(--kd-font-small);
 }
 
@@ -582,7 +582,7 @@
 }
 
 .tasks__log-age {
-  color: var(--kd-text-4);
+  color: var(--kd-text-3);
 }
 
 /* The compose panel: its own head with a ×, roomier fields, and the
