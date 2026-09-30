@@ -39,22 +39,9 @@
   min-width: 0;
 }
 
+/* The shared Button dresses it; this only keeps it from shrinking. */
 .run__open-go {
   flex: none;
-  padding: 0 14px;
-  border: 1px solid var(--kd-seam-strong);
-  border-radius: var(--kd-radius-pop);
-  background: transparent;
-  color: var(--kd-text-3);
-  font: inherit;
-  font-size: var(--kd-font-small);
-  cursor: pointer;
-}
-
-.run__open-go:hover {
-  background-color: var(--kd-hover);
-  color: var(--kd-text-2);
-  border-color: var(--kd-seam-strong);
 }
 
 /* Section head with the rail's "+" idiom. */
@@ -344,9 +331,11 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid var(--kd-seam);
-  border-radius: var(--kd-radius-control);
-  background-color: var(--kd-canvas);
+  /* A tile in the dock's float, borderless — the 1px edge stays, transparent,
+     so the armed state below can light it. */
+  border: 1px solid transparent;
+  border-radius: var(--kd-radius-tile);
+  background-color: var(--kd-tile);
 }
 
 .run__logcap {
@@ -430,7 +419,6 @@
    as different states. */
 .run__logbox--interactive {
   border-color: var(--kd-working-line);
-  box-shadow: inset 0 0 0 1px rgba(114, 165, 243, 0.25);
 }
 
 .run__logcap-act--on,

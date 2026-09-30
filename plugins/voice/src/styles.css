@@ -229,7 +229,7 @@
 }
 
 .voice__entry:hover {
-  background: var(--kd-tile);
+  background: var(--kd-hover);
 }
 
 /* Keyboard focus ring for the clickable rows — Tab into the log to copy. */
@@ -606,7 +606,7 @@
 }
 
 .voice-hotkeys__chord:hover {
-  border-color: var(--kd-working-line);
+  border-color: var(--kd-seam-strong);
 }
 
 .voice-hotkeys__chord--recording {

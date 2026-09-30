@@ -156,7 +156,7 @@
   padding-right: 12px;
   text-align: right;
   color: var(--kd-text-3);
-  background-color: var(--kd-canvas);
+  background-color: var(--kd-float);
   /* Kept out of a copied selection by .kd-inert on the element
      (FileViewer.tsx), so a pasted file body carries no line numbers. */
 }

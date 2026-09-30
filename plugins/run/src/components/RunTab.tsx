@@ -14,6 +14,7 @@ import { useOpenApp } from "./useOpenApp";
 import { useOpenApps } from "./useOpenApps";
 import { usePresets } from "./usePresets";
 import { useRunSessions } from "./useRunSessions";
+import { Button } from "@keepdeck/ui-kit/Button";
 import { Dropdown } from "@keepdeck/ui-kit/Dropdown";
 import { noAutoCorrect } from "@keepdeck/ui-kit/inputProps";
 import { shortPath } from "@keepdeck/ui-kit/paths";
@@ -265,8 +266,8 @@ export function RunTab({ workspace, selectedPaneId }: DockTabProps) {
                 onChange={setOpenPick}
                 ariaLabel="Application to open the target in"
               />
-              <button
-                type="button"
+              <Button
+                size="sm"
                 className="run__open-go"
                 onClick={() =>
                   void ctx.services.opener
@@ -280,7 +281,7 @@ export function RunTab({ workspace, selectedPaneId }: DockTabProps) {
                 title={`Open ${target} in ${openApp}`}
               >
                 Open
-              </button>
+              </Button>
             </div>
           </>
         )}

@@ -120,7 +120,7 @@
   margin-left: auto;
   min-width: 18px;
   padding: 1px 6px;
-  border-radius: var(--kd-radius-pop);
+  border-radius: var(--kd-radius-mark);
   background-color: var(--kd-hover);
   color: var(--kd-text-2);
   font-size: var(--kd-font-small);
@@ -468,7 +468,7 @@
   padding-right: 8px;
   text-align: right;
   color: var(--kd-text-3);
-  background-color: var(--kd-bg);
+  background-color: var(--kd-float);
   /* Kept out of a copied hunk by .kd-inert on the element (DiffPeek.tsx). */
 }
 
@@ -495,7 +495,7 @@
    pin through horizontal scroll, so they double as the row's always-visible
    colored edge. Which gutter holds a number is the hue-free cue: dels keep
    only the old number, adds only the new (DiffPeek renders it that way for
-   this reason). Gutter mixes go over --kd-bg, never transparent: a sticky
+   this reason). Gutter mixes go over --kd-float (the panel they sit in), never transparent: a sticky
    gutter must stay opaque to cover the text scrolling under it. Each mix
    rides on its pre-blended literal: color-mix needs WebKit 16.2 and the
    bundle's floor is macOS 11, whose Safari ends at 16.1 — older engines
@@ -507,9 +507,9 @@
 
 .git__diffrow--add .git__lineno {
   background-color: var(--kd-ok-tint);
-  background-color: color-mix(in srgb, var(--kd-ok) 18%, var(--kd-bg));
+  background-color: color-mix(in srgb, var(--kd-ok) 18%, var(--kd-float));
   color: var(--kd-ok);
-  color: color-mix(in srgb, var(--kd-ok-strong) 60%, var(--kd-bg));
+  color: color-mix(in srgb, var(--kd-ok-strong) 60%, var(--kd-float));
 }
 
 .git__diffrow--del {
@@ -519,9 +519,9 @@
 
 .git__diffrow--del .git__lineno {
   background-color: var(--kd-err-tint);
-  background-color: color-mix(in srgb, var(--kd-err) 18%, var(--kd-bg));
+  background-color: color-mix(in srgb, var(--kd-err) 18%, var(--kd-float));
   color: var(--kd-err);
-  color: color-mix(in srgb, var(--kd-err-strong) 60%, var(--kd-bg));
+  color: color-mix(in srgb, var(--kd-err-strong) 60%, var(--kd-float));
 }
 
 .git__diffrow--meta .git__linetext {
