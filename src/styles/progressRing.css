@@ -65,10 +65,13 @@
   color: var(--kd-text-2);
 }
 
+/* The svg fills its box exactly, and ring − box is even: every centring
+   divides by two into whole pixels, so no mark lands on a half pixel and
+   rounds off-centre. */
 .progress-ring__mark svg {
   display: block;
-  width: 11px;
-  height: 11px;
+  width: 12px;
+  height: 12px;
 }
 
 @media (prefers-reduced-motion: reduce) {

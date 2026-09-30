@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readStyles, ruleBody } from "./testSupport";
+import { px, readStyles, ruleBody } from "./testSupport";
 
 const deck = readStyles("deck.css");
 
@@ -62,6 +62,20 @@ describe("the usage chips", () => {
       "line-height": "0",
     });
     expect(ruleBody(ring, ".progress-ring__mark svg").display).toBe("block");
+  });
+
+  it("centre on whole pixels: the mark fills its box, and ring minus box is even", () => {
+    // A half-pixel offset rounds one way or the other per mark — the eye
+    // reads that as a mark sitting off-centre.
+    const ring = readStyles("progressRing.css");
+    const size = (sel: string, prop: string) => px(ruleBody(ring, sel)[prop]);
+    for (const prop of ["width", "height"]) {
+      const outer = size(".progress-ring", prop);
+      const box = size(".progress-ring__mark", prop);
+      expect(size(".progress-ring__mark svg", prop), prop).toBe(box);
+      expect((outer - box) % 2, prop).toBe(0);
+      expect(Number.isInteger(outer) && Number.isInteger(box), prop).toBe(true);
+    }
   });
 
   it("move a ring to a new reading instead of jumping to it", () => {
