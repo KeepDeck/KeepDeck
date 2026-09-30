@@ -29,26 +29,25 @@ export interface YoloBadgeProps {
 }
 
 /**
- * The standing "runs without permission prompts" warning dot.
- *
- * `yolo-badge` is a NAME, not a style hook: the shape comes from
- * `chip--icon-only`, which Chip derives, and the site hook carries the layout.
- * No stylesheet selects it and none should — it is how this badge is found in
- * devtools and in the tests that pin its wording and its role. Its absence
- * from every .css file is not a sign that it is dead markup.
+ * The standing "runs without permission prompts" mark: the bolt, bare. It
+ * was a ringed warn chip — a fourth shape in a header already mixing a dot,
+ * text and icon buttons — and now it is one more glyph among the header's
+ * glyphs, in the warn hue that says what it warns of. Styled once by the
+ * host (badges.css `.yolo-mark`); the site hook keeps only its place.
  */
 export function YoloBadge({ size, className, decorative }: YoloBadgeProps) {
   return (
-    <Chip
-      tone="warn"
-      size={size}
-      className={["yolo-badge", className].filter(Boolean).join(" ")}
-      icon={<BoltIcon />}
+    <span
+      className={["yolo-mark", size === "sm" && "yolo-mark--sm", className]
+        .filter(Boolean)
+        .join(" ")}
       title={YOLO_BADGE_TITLE}
       {...(decorative
         ? { "aria-hidden": true }
         : { role: "img", "aria-label": YOLO_BADGE_LABEL })}
-    />
+    >
+      <BoltIcon />
+    </span>
   );
 }
 

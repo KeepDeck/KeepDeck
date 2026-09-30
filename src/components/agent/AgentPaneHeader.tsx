@@ -33,8 +33,9 @@ export interface AgentPaneHeaderProps {
 
 /**
  * One pane's header bar: the status dot, identity (glyph, inline-renamable
- * title, role), and the cluster — the state in words when it needs a
- * person, YOLO, context, and the window actions. Dumb by contract — the
+ * title, then role and context as one quiet run after it), and the cluster
+ * — the state in words when it needs a person, YOLO, and the window
+ * actions. Dumb by contract — the
  * view arrives settled; the only state here is the rename editor, which
  * means nothing while the header is unmounted.
  */
@@ -94,6 +95,11 @@ export function AgentPaneHeader({
             {view.role.text}
           </span>
         )}
+        {view.ctx && (
+          <span className={`pane__ctx pane__ctx--${view.ctx.level}`} title={view.ctx.title}>
+            {view.ctx.label}
+          </span>
+        )}
       </div>
       <div className="pane__actions">
         {view.status && view.stateWord && (
@@ -102,11 +108,6 @@ export function AgentPaneHeader({
           </span>
         )}
         {yolo && <YoloBadge className="pane__yolo" />}
-        {view.ctx && (
-          <span className={`pane__ctx pane__ctx--${view.ctx.level}`} title={view.ctx.title}>
-            {view.ctx.label}
-          </span>
-        )}
         {controls.minimize && (
           <button
             type="button"

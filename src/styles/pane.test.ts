@@ -191,7 +191,7 @@ describe("pane header", () => {
     expect(styleOf(".pane__actions").flexShrink).toBe("0");
   });
 
-  it("sheds context and role, then the state word, before the cluster outgrows the bar", () => {
+  it("sheds role and context, then the state word, before the cluster outgrows the bar", () => {
     // The promise the ladder states in words — maximize and close never hide —
     // and the arithmetic that has to hold for it to be true. Nothing in the
     // cluster shrinks, so whatever it still carries when the bar runs out is
@@ -199,13 +199,11 @@ describe("pane header", () => {
     // Read out of the source rather than restated, so widening a control
     // without widening its rung fails instead of shipping.
     const paneCss = readStyles("pane.css");
-    const chipCss = readStyles("chip.css");
     const gap = px(ruleBody(paneCss, ".pane__actions").gap);
     const button = px(ruleBody(paneCss, ".pane__action").width);
     const close = px(ruleBody(readStyles("base.css"), ".ui-close").width);
     const state = px(ruleBody(paneCss, ".pane__state")["max-width"]);
-    const yolo = px(ruleBody(chipCss, ".chip")["--chip-diameter"]);
-    const ctx = px(ruleBody(paneCss, ".pane__ctx").width);
+    const yolo = px(ruleBody(readStyles("badges.css"), ".yolo-mark").width);
     const barGap = px(ruleBody(paneCss, ".pane__bar").gap);
     // What the identity keeps with its title and role ellipsized away.
     const idGap = px(ruleBody(paneCss, ".pane__identity").gap);
@@ -227,10 +225,11 @@ describe("pane header", () => {
     expect(ctxRung, "the context rung is gone").toBeGreaterThan(0);
     expect(stateRung, "the state-word rung is gone").toBeGreaterThan(0);
 
-    // Everything, down to the context rung.
-    expect(ctxRung).toBeGreaterThanOrEqual(width([state, yolo, ctx, button, button, close]));
-    // Without context, down to the state-word rung.
+    // The whole cluster, down to the state-word rung. Role and context ride
+    // the title in the identity, so they are not in the cluster's sum...
     expect(stateRung).toBeGreaterThanOrEqual(width([state, yolo, button, button, close]));
+    // ...and they go first, so the room left goes to the name.
+    expect(ctxRung).toBeGreaterThan(stateRung);
   });
 
   it("never squeezes a badge below its own glyph", () => {

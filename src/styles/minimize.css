@@ -108,8 +108,8 @@
   max-width: 96px;
 }
 
-/* The header's YOLO warning survives minimizing as the same warn dot, sm-sized
-   (shared ui-kit YoloBadge); this hook keeps only its flex place. */
+/* The header's YOLO warning survives minimizing as the same bare bolt,
+   sm-sized (shared ui-kit YoloBadge); this hook keeps only its flex place. */
 .minimized__yolo {
   flex: none;
 }

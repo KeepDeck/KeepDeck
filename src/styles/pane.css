@@ -111,6 +111,14 @@
   font-size: var(--kd-font-small);
 }
 
+/* Role and context ride the title as one quiet run — "Name · lead · 49%" —
+   each led by a dim separator; no pills, no boxes. */
+.pane__role::before, .pane__ctx::before {
+  content: "·";
+  margin-right: 6px;
+  color: var(--kd-text-4);
+}
+
 /* Which teammate this is — quiet text beside the name, not a pill. */
 .pane__role {
   /* Yields after the title (both ellipsize) — never pushes the cluster. */
@@ -149,17 +157,16 @@
   font-weight: 500;
 }
 
-/* Standing YOLO warning dot: the shared ui-kit YoloBadge. */
+/* Standing YOLO mark: the shared ui-kit YoloBadge (badges.css). */
 .pane__yolo {
   flex: none;
 }
 
-/* Context occupancy — a number, calm until it runs high. A fixed box so the
-   cluster's width is a declaration the ladder below can count on. */
+/* Context occupancy — a number after the role, calm until it runs high. It
+   never ellipsizes: a clipped number is a wrong number. */
 .pane__ctx {
   flex: none;
-  width: 34px;
-  text-align: right;
+  white-space: nowrap;
   font-size: var(--kd-font-small);
   font-variant-numeric: tabular-nums;
   color: var(--kd-text-3);
@@ -180,12 +187,13 @@
    maximize and close live. pane.test.ts reads every number below out of this
    file and fails if a control grows without its rung.
 
-     everything     110 state + 20 yolo + 34 ctx + 3×23 + 5×6 gaps
-                    = 263, + 8 bar gap + 7 dot + 12 glyph + 2×8 identity gaps
-                    = 306  → shed ctx and role below 310
-     no ctx         = 223, + 43 = 266 → shed the state word, yolo and
-                                        minimize below 270
-     minimal        max + close = 52, + 43 = 95 — fits any real pane. */
+     cluster        110 state + 16 yolo + 3×23 + 4×6 gaps = 219,
+                    + 8 bar gap + 7 dot + 11 glyph + 2×8 identity gaps
+                    = 261  → shed the state word, yolo and minimize below 270
+     minimal        max + close = 52, + 42 = 94 — fits any real pane.
+   Role and context ride the title in the identity, which yields — they
+   cost the cluster nothing — and go first, below 310, so what room is left
+   goes to the name. */
 @container pane-header (max-width: 310px) {
   .pane__ctx,
   .pane__role {
