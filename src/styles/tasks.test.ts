@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from "vitest";
-import { appCss } from "./testSupport";
+import { appCss, readStyles, ruleBody } from "./testSupport";
 
 /** Every class that holds prose a person, an agent or the backend wrote —
  * a refusal or a failed read can carry a path as long as any brief. */
@@ -71,5 +71,20 @@ describe("Tasks text never widens its box", () => {
     // 100% of the item is the whole card, padding and border included —
     // a content box would still overhang the column by its padding.
     expect(style.boxSizing).toBe("border-box");
+  });
+});
+
+describe("a board column's edge", () => {
+  it("is reserved at rest, so a drag's dashed edge does not resize it", () => {
+    // The drop states colour and dash the edge; they set no width. With no
+    // width reserved at rest they would draw the initial 3px and shift the
+    // board 6px under the card in flight.
+    const css = readStyles("tasks.css");
+    expect(ruleBody(css, ".tasks__column").border).toBe("1px solid transparent");
+    for (const state of [".tasks__column--drop-ok", ".tasks__column--drop-over"]) {
+      const body = ruleBody(css, state);
+      expect(body["border-width"], state).toBeUndefined();
+      expect(body.border, state).toBeUndefined();
+    }
   });
 });

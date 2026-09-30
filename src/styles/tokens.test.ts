@@ -69,6 +69,23 @@ function lightness(hex: string): number {
 }
 
 describe("the design tokens", () => {
+  it("fill every meter lighter than its seam track", () => {
+    // tokens.css: the seam is every meter's track, and the fill over it is
+    // always the lighter of the two — a fill darker than the empty part
+    // reads as the empty part.
+    const value = (token: string) => declared(tokens, token);
+    const track = value("--kd-seam");
+    const fills = {
+      "usage bar": ruleBody(readStyles("usage.css"), ".usage-bar i")["background-color"],
+      "progress ring": declared(readStyles("progressRing.css"), "--progress-ring-hue"),
+    };
+    for (const [meter, fill] of Object.entries(fills)) {
+      const token = /^var\((--kd-[a-z0-9-]+)\)$/.exec(fill)?.[1];
+      expect(token, meter).toBeDefined();
+      expect(lightness(value(token!)), meter).toBeGreaterThan(lightness(track));
+    }
+  });
+
   it("load before every stylesheet that reads them", () => {
     const index = readFileSync(join(STYLES_DIR, "index.css"), "utf8");
     const imports = [...index.matchAll(/@import\s+"([^"]+)"/g)].map((m) => m[1]);

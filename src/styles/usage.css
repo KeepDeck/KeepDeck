@@ -40,10 +40,6 @@
   background-color: var(--kd-hover);
 }
 
-.usage-chip--dim {
-  color: var(--kd-text-3);
-}
-
 .usage-chip--dim .chip__icon {
   opacity: 0.45;
 }
@@ -72,11 +68,11 @@
   overflow: hidden;
 }
 
+/* The fill: lighter than the seam track, as every meter's is (tokens.css)
+   — the ProgressRing's calm pair. */
 .usage-bar i {
   position: absolute;
   inset: 0 auto 0 0;
-  /* Lighter than the seam track, as every meter's fill is (tokens.css) —
-     the ProgressRing's calm pair. */
   border-radius: var(--kd-radius-mark);
   background-color: var(--kd-text-3);
 }
@@ -231,7 +227,7 @@
 }
 
 .usage-burn__plot:focus-visible {
-  outline: 1px solid var(--kd-seam-strong);
+  outline: 1px solid var(--kd-focus);
   outline-offset: 2px;
   border-radius: var(--kd-radius-mark);
 }

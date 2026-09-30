@@ -606,7 +606,7 @@
 }
 
 .voice-hotkeys__chord:hover {
-  border-color: var(--kd-seam-strong);
+  background-color: var(--kd-hover);
 }
 
 .voice-hotkeys__chord--recording {

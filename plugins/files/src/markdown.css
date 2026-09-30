@@ -120,7 +120,8 @@
 .files__md pre {
   margin: 0.8em 0;
   padding: 10px 14px;
-  background-color: var(--kd-tile);
+  /* A step above the peek body's tile, which it sits on. */
+  background-color: var(--kd-hover);
   border: 1px solid var(--kd-seam);
   border-radius: var(--kd-radius-pop);
   overflow-x: auto;
@@ -150,7 +151,7 @@
 }
 
 .files__md th {
-  background-color: var(--kd-tile);
+  background-color: var(--kd-hover);
   color: var(--kd-text);
   font-weight: 600;
   text-align: left;

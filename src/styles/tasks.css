@@ -147,6 +147,10 @@
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  /* Borderless at rest, but the 1px edge is RESERVED, transparent: the
+     drop states below colour it. Without a width of its own they would
+     draw the initial 3px and shove the board 6px mid-drag. */
+  border: 1px solid transparent;
   border-radius: var(--kd-radius-tile);
   background-color: var(--kd-tile);
 }

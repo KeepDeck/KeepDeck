@@ -444,7 +444,7 @@
 }
 
 .browser__open:focus-visible {
-  outline: 1px solid var(--kd-seam-strong);
+  outline: 1px solid var(--kd-focus);
   outline-offset: 2px;
   border-radius: var(--kd-radius-mark);
 }
