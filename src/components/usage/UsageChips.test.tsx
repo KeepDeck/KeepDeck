@@ -171,9 +171,9 @@ describe("UsageChips", () => {
     // One number: the window closest to its limit (5h at 42%, week at 13%).
     expect(chip.textContent).toBe("42%");
     expect(chip.title).toBe("Claude Code · 5h 42% · wk 13%");
-    const ring = chip.querySelector<HTMLElement>(".usage-ring")!;
-    expect(ring.style.getPropertyValue("--usage-fill")).toBe("42");
-    expect(ring.className).toBe("usage-ring");
+    const ring = chip.querySelector<HTMLElement>(".progress-ring")!;
+    expect(ring.style.getPropertyValue("--progress-ring-fill")).toBe("42");
+    expect(ring.className).toBe("progress-ring");
     expect(chip.querySelector(".usage-level--warn")).toBeNull();
     expect(chip.className).not.toContain("usage-chip--dim");
     // Chips are numbers-only — fill bars belong to the panel.
@@ -184,7 +184,7 @@ describe("UsageChips", () => {
     usage.report("pane-1",limitsReport(91), AT);
     render();
     expect(host.querySelector(".usage-level--critical")).not.toBeNull();
-    expect(host.querySelector(".usage-ring")!.className).toBe("usage-ring usage-ring--critical");
+    expect(host.querySelector(".progress-ring")!.className).toBe("progress-ring progress-ring--critical");
   });
 
   it("renders no chip for a paneless provider without a REPORTED account", () => {

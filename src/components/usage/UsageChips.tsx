@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AGENT_FEATURE,
   hasAgentFeature,
@@ -17,6 +17,7 @@ import { UsagePanel } from "./UsagePanel";
 import { WindowValue } from "./WindowValue";
 import { AgentGlyph } from "../../ui/AgentGlyph";
 import { Chip } from "../../ui/Chip";
+import { ProgressRing } from "../../ui/ProgressRing";
 import { useWallClock } from "../../ui/useWallClock";
 import { isBehindModalLayer } from "../../ui/inertBackground";
 
@@ -65,15 +66,9 @@ function UsageChip({
          THAT one, by agent id rather than by position in the row. */
       data-usage-chip={agent.id}
     >
-      <span
-        className={`usage-ring${view.level ? ` usage-ring--${view.level}` : ""}`}
-        style={{ "--usage-fill": view.fill } as CSSProperties}
-        aria-hidden
-      >
-        <span className="usage-ring__glyph">
-          <AgentGlyph icon={agent.icon} />
-        </span>
-      </span>
+      <ProgressRing value={view.fill} tone={view.level}>
+        <AgentGlyph icon={agent.icon} />
+      </ProgressRing>
       {view.window ? (
         <WindowValue window={view.window} display={display} now={now} />
       ) : (

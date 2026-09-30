@@ -1,0 +1,76 @@
+/* The circular progress ring (ui-kit ProgressRing): a thin track filled
+   counter-clockwise to --progress-ring-fill (0–100), with an optional mark
+   dead centre. Sized by width/height (20px here); a site class may change
+   them.
+
+   The fill is a registered number, so a new value ANIMATES to its reading
+   instead of jumping — an unregistered custom property is untyped and cannot
+   be interpolated. It inherits so the ring's ::before (the painted track)
+   follows the value the ring itself transitions. An engine without
+   @property shows the new value at once: the reading is still right, only
+   the motion is lost. */
+@property --progress-ring-fill {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
+
+.progress-ring {
+  --progress-ring-hue: var(--kd-text-3);
+  position: relative;
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  transition: --progress-ring-fill 600ms ease-out;
+}
+
+/* The track, cut to a 2px band by a mask — no painted hole, so the ring
+   sits on any surface. Mirrored so the fill runs counter-clockwise. */
+.progress-ring::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(
+    var(--progress-ring-hue) calc(var(--progress-ring-fill) * 1%),
+    var(--kd-seam) 0
+  );
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px));
+  transform: scaleX(-1);
+}
+
+.progress-ring--warn {
+  --progress-ring-hue: var(--kd-warn);
+}
+
+.progress-ring--critical {
+  --progress-ring-hue: var(--kd-err);
+}
+
+/* The mark sits dead centre: a fixed square box the ring's grid centres,
+   the mark centred in it, and no line box around the svg — an inline svg
+   sits on the font's baseline and drifts by its descent. */
+.progress-ring__mark {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 12px;
+  height: 12px;
+  line-height: 0;
+  color: var(--kd-text-2);
+}
+
+.progress-ring__mark svg {
+  display: block;
+  width: 11px;
+  height: 11px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress-ring {
+    transition: none;
+  }
+}
