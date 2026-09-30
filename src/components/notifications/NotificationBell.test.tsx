@@ -262,14 +262,12 @@ describe("NotificationBell", () => {
       since: Date.now(),
     });
 
-    it("turns the bell into the count, in the loudest tone", () => {
-      // Rows arrive louder first (domain blockedAgents).
-      mount([row("p2", "failed"), row("p1", "waiting")]);
-      expect(bellButton().textContent).toBe("2 need you");
-      expect(bellButton().classList).toContain("bell__need--failed");
+    it("stays a bell — the count is a badge, never words", () => {
+      mount([row("p2", "failed"), row("p1", "waiting")], false);
+      expect(bellButton().querySelector("svg")).not.toBeNull();
+      expect(bellButton().textContent).toBe("2");
       expect(bellButton().getAttribute("aria-label")).toBe("2 agents need you");
-      mount([]);
-      expect(bellButton().classList).not.toContain("bell__need");
+      expect(document.querySelector(".bell__need")).toBeNull();
     });
 
     it("lists the blocked agents above the feed; a click brings one forward", () => {

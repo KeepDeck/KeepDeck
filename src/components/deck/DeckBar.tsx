@@ -318,8 +318,8 @@ export function DeckBar({
           >
             <StatsIcon />
           </TipButton>
-          {/* Who needs you — "N need you" while anyone does, else the
-              notification bell; it draws nothing when neither has anything
+          {/* The bell: notifications, and the agents that need you at the
+              top of its panel; it draws nothing when neither has anything
               to say. */}
           <NotificationBell needsYou={needsYou} notifications={notifications} />
           <TipButton

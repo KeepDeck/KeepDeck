@@ -1,6 +1,5 @@
 /**
- * What the bar's attention control says — "N need you" and the list behind
- * it — decided apart from the markup, the [`stripView`] precedent.
+ * What the bell says — its badge and the "Needs you" list in its panel — decided apart from the markup, the [`stripView`] precedent.
  *
  * The list is the deck's answer to "who is blocked on me", across every
  * workspace: an agent waiting for a person, or one whose turn died. Failed
@@ -32,12 +31,11 @@ export interface NeedsYouRow {
   since: number;
 }
 
-/** What the bar's trigger shows: the count while anyone needs you, else the
- * plain bell where the in-app list is on, else nothing at all. */
-export type AttentionTrigger =
-  | { kind: "need"; tone: NeedsYouTone; text: string; label: string }
-  | { kind: "bell"; badge: string | null; label: string }
-  | null;
+/** What the bar's trigger shows: always the bell, never words — with the
+ * unread count where the in-app list is on, else the count of agents that
+ * need the person (the only thing its panel then holds); nothing at all
+ * when there is neither a list nor anyone waiting. */
+export type AttentionTrigger = { badge: string | null; label: string } | null;
 
 /** The blocked agents (domain `blockedAgents`: who, and in what order), in
  * words. */
@@ -68,26 +66,14 @@ export function attentionTrigger(
   rows: readonly NeedsYouRow[],
   bell: { unread: number } | null,
 ): AttentionTrigger {
-  if (rows.length > 0) {
-    const n = rows.length;
-    const text = `${n} need${n === 1 ? "s" : ""} you`;
-    return {
-      kind: "need",
-      // The rows come louder first, so the first row's tone is the loudest.
-      tone: rows[0].tone,
-      text,
-      label: `${n === 1 ? "1 agent needs" : `${n} agents need`} you`,
-    };
-  }
-  if (!bell) return null;
-  return {
-    kind: "bell",
-    badge: bell.unread > 0 ? (bell.unread > 99 ? "99+" : String(bell.unread)) : null,
-    label:
-      bell.unread > 0
-        ? `${ATTENTION_WORDS.notifications} (${bell.unread} unread)`
-        : ATTENTION_WORDS.notifications,
-  };
+  if (!bell && rows.length === 0) return null;
+  const count = bell ? bell.unread : rows.length;
+  const label = bell
+    ? count > 0
+      ? `${ATTENTION_WORDS.notifications} (${count} unread)`
+      : ATTENTION_WORDS.notifications
+    : `${count === 1 ? "1 agent needs" : `${count} agents need`} you`;
+  return { badge: count > 0 ? (count > 99 ? "99+" : String(count)) : null, label };
 }
 
 /** Every word the attention panel says. */
@@ -99,18 +85,3 @@ export const ATTENTION_WORDS = {
   /** What the notification feed says while it holds nothing. */
   feedEmpty: "Nothing yet",
 } as const;
-
-/** Where ⌘J goes: the row after the agent the person is on, wrapping to the
- * first — so repeated presses walk the list in its order (failed first) —
- * or the first row when the person is on none of them. Null when nobody
- * needs the person. */
-export function nextNeedsYou(
-  rows: readonly NeedsYouRow[],
-  current: { wsId: string; paneId: string } | null,
-): NeedsYouRow | null {
-  if (rows.length === 0) return null;
-  const at = current
-    ? rows.findIndex((row) => row.wsId === current.wsId && row.paneId === current.paneId)
-    : -1;
-  return rows[(at + 1) % rows.length];
-}

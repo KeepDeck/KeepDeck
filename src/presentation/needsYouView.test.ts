@@ -6,7 +6,6 @@ import {
   attentionTrigger,
   needsYouAge,
   needsYouRows,
-  nextNeedsYou,
   type NeedsYouRow,
 } from "./needsYouView";
 
@@ -89,56 +88,21 @@ describe("attentionTrigger", () => {
     since: 0,
   });
 
-  it("counts who needs you, in the loudest tone, even with the bell off", () => {
-    expect(attentionTrigger([row("waiting")], null)).toEqual({
-      kind: "need",
-      tone: "waiting",
-      text: "1 needs you",
-      label: "1 agent needs you",
+  it("is always the bell — never words — counting unread where the list is on", () => {
+    expect(attentionTrigger([row("failed"), row("waiting")], { unread: 3 })).toEqual({
+      badge: "3",
+      label: "Notifications (3 unread)",
     });
-    // Rows arrive louder first (domain blockedAgents), so the first is loudest.
-    expect(attentionTrigger([row("failed"), row("waiting")], { unread: 3 })).toMatchObject({
-      kind: "need",
-      tone: "failed",
-      text: "2 need you",
+    expect(attentionTrigger([], { unread: 0 })).toEqual({ badge: null, label: "Notifications" });
+    expect(attentionTrigger([], { unread: 120 })).toMatchObject({ badge: "99+" });
+  });
+
+  it("with the list off, counts the agents that need you, and is nothing when none do", () => {
+    expect(attentionTrigger([row("waiting")], null)).toEqual({ badge: "1", label: "1 agent needs you" });
+    expect(attentionTrigger([row("failed"), row("waiting")], null)).toEqual({
+      badge: "2",
       label: "2 agents need you",
     });
-  });
-
-  it("falls back to the bell with its unread badge, or to nothing", () => {
-    expect(attentionTrigger([], { unread: 0 })).toEqual({
-      kind: "bell",
-      badge: null,
-      label: "Notifications",
-    });
-    expect(attentionTrigger([], { unread: 120 })).toMatchObject({
-      badge: "99+",
-      label: "Notifications (120 unread)",
-    });
     expect(attentionTrigger([], null)).toBeNull();
-  });
-});
-
-describe("nextNeedsYou", () => {
-  const at = (paneId: string): NeedsYouRow => ({
-    wsId: "w",
-    paneId,
-    tone: "waiting",
-    title: paneId,
-    where: "w",
-    label: "l",
-    since: 0,
-  });
-  const rows = [at("a"), at("b"), at("c")];
-
-  it("walks the list from the agent the person is on, wrapping at the end", () => {
-    expect(nextNeedsYou(rows, { wsId: "w", paneId: "a" })?.paneId).toBe("b");
-    expect(nextNeedsYou(rows, { wsId: "w", paneId: "c" })?.paneId).toBe("a");
-  });
-
-  it("starts at the top from anywhere else, and has nowhere to go with nobody waiting", () => {
-    expect(nextNeedsYou(rows, null)?.paneId).toBe("a");
-    expect(nextNeedsYou(rows, { wsId: "other", paneId: "a" })?.paneId).toBe("a");
-    expect(nextNeedsYou([], { wsId: "w", paneId: "a" })).toBeNull();
   });
 });

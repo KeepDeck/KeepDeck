@@ -9,7 +9,6 @@ export const NEW_AGENT_EVENT = "deck://menu/new-agent";
 export const CLOSE_AGENT_EVENT = "deck://menu/close-agent";
 export const SUSPEND_AGENT_EVENT = "deck://menu/suspend-agent";
 export const TOGGLE_MAXIMIZE_EVENT = "deck://menu/toggle-maximize";
-export const NEXT_NEEDS_YOU_EVENT = "deck://menu/next-needs-you";
 export const SETTINGS_EVENT = "deck://menu/settings";
 
 /** Subscribe to one of the menu events; resolves to an unlisten fn. */

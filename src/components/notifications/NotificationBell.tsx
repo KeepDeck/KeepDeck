@@ -33,10 +33,10 @@ interface NotificationBellProps {
 }
 
 /**
- * The bar's attention control. While any agent needs the person it reads
- * "N need you"; otherwise it is the plain bell of the in-app notification
- * list, and with that list off it is nothing. Its anchored panel lists the
- * blocked agents first, then the notification history (newest first).
+ * The notification bell. Always a bell — the count is its badge, never
+ * words — and absent only with the in-app list off and nobody waiting. Its
+ * anchored panel lists the agents that need the person first, then the
+ * notification history (newest first).
  * Clicking an agent brings it forward; clicking an entry marks it read and
  * navigates to its source.
  */
@@ -99,11 +99,7 @@ export function NotificationBell({
         ref={bellButtonRef}
         variant="ghost"
         size="sm"
-        className={
-          trigger.kind === "need"
-            ? `bell__button bell__need bell__need--${trigger.tone}`
-            : "bell__button"
-        }
+        className="bell__button"
         onClick={() => {
           if (!open) setOpenedAt(Date.now());
           setOpen(!open);
@@ -111,20 +107,11 @@ export function NotificationBell({
         label={trigger.label}
         expanded={open}
       >
-        {trigger.kind === "need" ? (
-          <>
-            <span className="bell__need-dot" aria-hidden />
-            {trigger.text}
-          </>
-        ) : (
-          <>
-            <BellIcon />
-            {trigger.badge !== null && (
-              <span className="bell__badge" aria-hidden>
-                {trigger.badge}
-              </span>
-            )}
-          </>
+        <BellIcon />
+        {trigger.badge !== null && (
+          <span className="bell__badge" aria-hidden>
+            {trigger.badge}
+          </span>
         )}
       </Button>
       {open && (
