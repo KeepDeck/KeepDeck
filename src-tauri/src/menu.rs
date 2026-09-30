@@ -3,11 +3,11 @@
 //! Replaces Tauri's default menu so the deck owns its hotkeys: ⌘N creates a
 //! workspace, ⌘T spawns an agent, ⌘W closes the selected one (an empty
 //! workspace: the workspace itself), ⇧⌘W suspends it, ⇧⌘M toggles its
-//! maximize, and ⌘, opens Settings. The default menu binds ⌘W to "Close Window", and macOS
-//! resolves menu accelerators before the webview ever sees the key — so the
-//! deck can only own these chords by owning the menu. The custom items don't
-//! act here: each emits an event the webview handles, where the React side
-//! knows what's open, selected, or at cap.
+//! maximize, and ⌘, opens Settings. The default menu binds ⌘W to "Close
+//! Window", and macOS resolves menu accelerators before the webview ever
+//! sees the key — so the deck can only own these chords by owning the menu.
+//! The custom items don't act here: each emits an event the webview handles,
+//! where the React side knows what's open, selected, or at cap.
 
 use tauri::menu::{Menu, MenuItemBuilder, SubmenuBuilder};
 use tauri::{AppHandle, Emitter, Runtime};

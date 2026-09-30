@@ -57,8 +57,9 @@ export function NotificationBell({
   const trigger = attentionTrigger(needsYou.rows, center && { unread });
   const rows = needsYou.rows;
 
-  // A trigger that goes away (the last blocked agent answered, the list
-  // off) takes its panel with it — it must not come back already open.
+  // With the in-app list off, the bell goes when the last blocked agent is
+  // answered, and takes its panel with it — it must not come back already
+  // open.
   const shown = trigger !== null;
   useEffect(() => {
     if (!shown) setOpen(false);

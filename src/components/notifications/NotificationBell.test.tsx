@@ -267,7 +267,13 @@ describe("NotificationBell", () => {
       expect(bellButton().querySelector("svg")).not.toBeNull();
       expect(bellButton().textContent).toBe("2");
       expect(bellButton().getAttribute("aria-label")).toBe("2 agents need you");
-      expect(document.querySelector(".bell__need")).toBeNull();
+    });
+
+    it("with the list on, counts only unread notifications — waiting agents are in its panel", () => {
+      mount([row("p1", "waiting")], true);
+      expect(bellButton().querySelector("svg")).not.toBeNull();
+      expect(bellButton().querySelector(".bell__badge")).toBeNull();
+      expect(bellButton().getAttribute("aria-label")).toBe("Notifications");
     });
 
     it("lists the blocked agents above the feed; a click brings one forward", () => {
