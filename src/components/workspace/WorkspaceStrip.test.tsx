@@ -181,6 +181,32 @@ describe("WorkspaceStrip drag reorder", () => {
     [...document.querySelectorAll<HTMLElement>("[data-ws-id]")].map((m) => m.dataset.wsId);
   const markEl = (id: string) => document.querySelector<HTMLElement>(`[data-ws-id="${id}"]`)!;
 
+  it("closes an open strip when a hold turns into a drag", () => {
+    act(() => root.render(createElement(Harness)));
+    const col = document.querySelector(".strip__col")!;
+    act(() => {
+      col.dispatchEvent(
+        new PointerEvent("pointerover", { bubbles: true, relatedTarget: document.body }),
+      );
+      vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS);
+    });
+    expect(document.querySelector(".strip--revealed")).not.toBeNull();
+    act(() => {
+      markEl("b").dispatchEvent(pointerEvent("pointerdown", { clientY: 70 }));
+      vi.advanceTimersByTime(300);
+    });
+    expect(document.querySelector(".strip__ghost")).not.toBeNull();
+    expect(document.querySelector(".strip--revealed")).toBeNull();
+    // And it stays shut once the drop settles — the drag closed it, it did
+    // not merely hide it for the drag's length.
+    act(() => {
+      window.dispatchEvent(pointerEvent("pointerup", { clientY: 70 }));
+      vi.advanceTimersByTime(1000);
+    });
+    expect(document.querySelector(".strip__ghost")).toBeNull();
+    expect(document.querySelector(".strip--revealed")).toBeNull();
+  });
+
   it("moves a held mark through the column, its ghost wearing its face", () => {
     act(() => root.render(createElement(Harness)));
     act(() => {
@@ -285,6 +311,15 @@ describe("WorkspaceStrip opening on approach", () => {
     pointer("down", host.querySelector("[data-ws-id='b']")!);
     act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS * 2));
     expect(revealed()).toBe(false);
+  });
+
+  it("leaves no pending open behind when it goes away", () => {
+    render();
+    pointer("enter");
+    expect(vi.getTimerCount()).toBe(1);
+    act(() => root.unmount());
+    expect(vi.getTimerCount()).toBe(0);
+    root = createRoot(host);
   });
 
   it("keeps the name out of the drag ghost — the ghost is the mark's image", () => {
