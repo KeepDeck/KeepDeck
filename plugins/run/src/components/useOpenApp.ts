@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { WorkspaceRef } from "@keepdeck/plugin-api";
+import { openInFailed } from "../domain";
 import { getRuntime } from "../runtime";
 
 /**
@@ -9,11 +10,15 @@ import { getRuntime } from "../runtime";
  * resolves it via `resolveOpenApp`, so a pick temporarily missing from the
  * list survives in storage and comes back when the app is re-added.
  * Same hydration idiom as `usePresets`: read on mount, re-read on every
- * `onDeckChanged`, mirror writes into local state.
+ * `onDeckChanged`, mirror writes into local state. It also owns the act of
+ * opening — the opener call and what a refusal leaves in the log — so the
+ * tab only says "open this, in that".
  */
-export function useOpenApp(
-  workspace: WorkspaceRef,
-): [string | null, (app: string) => void] {
+export function useOpenApp(workspace: WorkspaceRef): {
+  pick: string | null;
+  setPick(app: string): void;
+  open(target: string, app: string): void;
+} {
   const { ctx } = getRuntime();
   const [pick, setPick] = useState<string | null>(null);
 
@@ -41,5 +46,14 @@ export function useOpenApp(
     [ctx, workspace.id, workspace.instance],
   );
 
-  return [pick, save];
+  const open = useCallback(
+    (target: string, app: string) => {
+      void ctx.services.opener
+        .openPathWith(target, app)
+        .catch((error) => ctx.log.warn(openInFailed(target, app, error)));
+    },
+    [ctx],
+  );
+
+  return { pick, setPick: save, open };
 }

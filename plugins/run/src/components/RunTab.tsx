@@ -3,6 +3,7 @@ import type { DockTabProps } from "@keepdeck/plugin-api";
 import {
   addPreset,
   commandRows,
+  openInTitle,
   removePreset,
   resolveOpenApp,
   sameWorkspace,
@@ -41,14 +42,14 @@ import { RunLog } from "./RunLog";
  * (`usePresets`), not in props.
  */
 export function RunTab({ workspace, selectedPaneId }: DockTabProps) {
-  const { manager, ctx } = getRuntime();
+  const { manager } = getRuntime();
   const [presets, savePresets] = usePresets(workspace);
   // The "Open in" applications from the plugin's settings; the workspace's
   // own pick out of that list rides its storage slot. An emptied list hides
   // the row (openApp = null).
   const apps = useOpenApps();
-  const [openPick, setOpenPick] = useOpenApp(workspace);
-  const openApp = resolveOpenApp(openPick, apps);
+  const openIn = useOpenApp(workspace);
+  const openApp = resolveOpenApp(openIn.pick, apps);
 
   // Distinct run targets: each pane worktree once, the workspace folder last
   // (dropped from the pane pass so an attached-to-main pane can't duplicate it).
@@ -263,22 +264,14 @@ export function RunTab({ workspace, selectedPaneId }: DockTabProps) {
                 className="run__open-app"
                 options={apps.map((app) => ({ value: app, label: app }))}
                 value={openApp}
-                onChange={setOpenPick}
+                onChange={openIn.setPick}
                 ariaLabel="Application to open the target in"
               />
               <Button
                 size="sm"
                 className="run__open-go"
-                onClick={() =>
-                  void ctx.services.opener
-                    .openPathWith(target, openApp)
-                    .catch((e) =>
-                      ctx.log.warn(
-                        `Open in ${openApp} failed for ${target}: ${JSON.stringify(e)}`,
-                      ),
-                    )
-                }
-                title={`Open ${target} in ${openApp}`}
+                onClick={() => openIn.open(target, openApp)}
+                title={openInTitle(target, openApp)}
               >
                 Open
               </Button>
