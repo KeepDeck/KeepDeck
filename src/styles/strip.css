@@ -161,7 +161,10 @@
 .strip__name {
   position: absolute;
   top: 50%;
-  left: 50px;
+  /* Past the shut edge: the mark sits 3px in, so 56px puts the name's
+     first pixel at 59 — clear of the 58px column, where 50 left a sliver
+     of every name showing. */
+  left: 56px;
   max-width: 150px;
   overflow: hidden;
   color: var(--kd-text-2);

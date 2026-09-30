@@ -140,4 +140,13 @@ describe("the workspace strip's open column", () => {
     expect(name.opacity).toBeUndefined();
     expect(name.transition).toBeUndefined();
   });
+
+  it("hides every name wholly behind the shut edge", () => {
+    // The name starts at the mark's inset plus its own offset; any of it
+    // inside the shut column shows as a sliver beside every mark.
+    const col = ruleBody(strip, ".strip__col");
+    const inset = px(col.padding.split(/\s+/)[3]);
+    const nameStart = inset + px(ruleBody(strip, ".strip__name").left);
+    expect(nameStart).toBeGreaterThanOrEqual(px(col.width));
+  });
 });
