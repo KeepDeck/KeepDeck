@@ -33,9 +33,9 @@ export interface AgentPaneHeaderProps {
 
 /**
  * One pane's header bar: the status dot, identity (glyph, inline-renamable
- * title, then role and context as one quiet run after it), and the cluster
- * — the state in words when it needs a person, YOLO, and the window
- * actions. Dumb by contract — the
+ * title, then the role after a quiet separator), and the cluster — the
+ * state in words when it needs a person, context as plain text, YOLO, and
+ * the window actions. Dumb by contract — the
  * view arrives settled; the only state here is the rename editor, which
  * means nothing while the header is unmounted.
  */
@@ -91,20 +91,27 @@ export function AgentPaneHeader({
           </span>
         )}
         {view.role && (
-          <span className="pane__role" title={view.role.title}>
-            {view.role.text}
-          </span>
-        )}
-        {view.ctx && (
-          <span className={`pane__ctx pane__ctx--${view.ctx.level}`} title={view.ctx.title}>
-            {view.ctx.label}
-          </span>
+          <>
+            {/* A real, silent separator: generated content would be read
+                aloud, and a screen reader has the role's own name. */}
+            <span className="pane__sep" aria-hidden>
+              ·
+            </span>
+            <span className="pane__role" title={view.role.title}>
+              {view.role.text}
+            </span>
+          </>
         )}
       </div>
       <div className="pane__actions">
         {view.status && view.stateWord && (
           <span className={`pane__state pane__state--${view.status.tone}`}>
             {view.stateWord}
+          </span>
+        )}
+        {view.ctx && (
+          <span className={`pane__ctx pane__ctx--${view.ctx.level}`} title={view.ctx.title}>
+            {view.ctx.label}
           </span>
         )}
         {yolo && <YoloBadge className="pane__yolo" />}

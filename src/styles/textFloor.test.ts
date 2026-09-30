@@ -8,7 +8,7 @@ import { readStyles, STYLES_DIR, stripComments } from "./testSupport";
  * at --kd-text-3 or above (tokens.css). Classified in task-140. */
 const MARKS_AND_DISABLED = [
   ".deck__crumb-sep", // the "/" between crumbs
-  ".pane__role::before, .pane__ctx::before", // the "·" before role and context
+  ".pane__sep", // the "·" between a pane's title and its role
   ".strip__tile .strip__dot--idle", // the idle dot's hollow ring
   ".minimized__status--stopped", // the stopped dot's hollow ring
   ".tasks__remove", // the × that detaches a row

@@ -13,9 +13,13 @@
   color: var(--kd-warn);
 }
 
+/* The glyph lets the pointer through to the mark: hovering an SVG shape
+   does not reach its HTML parent's title, and the bolt fills most of the
+   box — so without this the mark's label almost never showed. */
 .yolo-mark svg {
   width: 12px;
   height: 12px;
+  pointer-events: none;
 }
 
 /* sm: the tray stand-in's, a notch smaller like its other marks. */

@@ -111,12 +111,11 @@
   font-size: var(--kd-font-small);
 }
 
-/* Role and context ride the title as one quiet run — "Name · lead · 49%" —
-   each led by a dim separator; no pills, no boxes. */
-.pane__role::before, .pane__ctx::before {
-  content: "·";
-  margin-right: 6px;
+/* The dim dot between the title and the role — a mark, not words. */
+.pane__sep {
+  flex: none;
   color: var(--kd-text-4);
+  font-size: var(--kd-font-small);
 }
 
 /* Which teammate this is — quiet text beside the name, not a pill. */
@@ -162,11 +161,13 @@
   flex: none;
 }
 
-/* Context occupancy — a number after the role, calm until it runs high. It
-   never ellipsizes: a clipped number is a wrong number. */
+/* Context occupancy — plain text in the cluster, left of YOLO, calm until it
+   runs high. A fixed box, right-aligned, so the cluster's width is a
+   declaration the ladder below can count on and the number never jumps. */
 .pane__ctx {
   flex: none;
-  white-space: nowrap;
+  width: 34px;
+  text-align: right;
   font-size: var(--kd-font-small);
   font-variant-numeric: tabular-nums;
   color: var(--kd-text-3);
@@ -187,15 +188,15 @@
    maximize and close live. pane.test.ts reads every number below out of this
    file and fails if a control grows without its rung.
 
-     cluster        110 state + 16 yolo + 3×23 + 4×6 gaps = 219,
+     everything     110 state + 34 ctx + 16 yolo + 3×23 + 5×6 gaps = 259,
                     + 8 bar gap + 7 dot + 11 glyph + 2×8 identity gaps
-                    = 261  → shed the state word, yolo and minimize below 270
-     minimal        max + close = 52, + 42 = 94 — fits any real pane.
-   Role and context ride the title in the identity, which yields — they
-   cost the cluster nothing — and go first, below 310, so what room is left
-   goes to the name. */
+                    = 301  → shed context and the role below 310
+     no ctx         = 219, + 42 = 261 → shed the state word, yolo and
+                                        minimize below 270
+     minimal        max + close = 52, + 42 = 94 — fits any real pane. */
 @container pane-header (max-width: 310px) {
   .pane__ctx,
+  .pane__sep,
   .pane__role {
     display: none;
   }

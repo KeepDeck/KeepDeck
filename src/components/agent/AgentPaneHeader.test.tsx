@@ -91,17 +91,26 @@ describe("AgentPaneHeader", () => {
     expect(host.querySelector(".pane__ctx")).toBeNull();
   });
 
-  it("runs role and context after the title, as one quiet line — not in the controls", () => {
+  it("names the role after the title, and reads context as plain text left of YOLO", () => {
     render({
+      yolo: true,
       view: view({
         role: { text: "lead", title: "" },
         ctx: { label: "49%", title: "Context 49% used", level: "ok" },
       }),
     });
-    const identity = host.querySelector(".pane__identity")!;
-    const order = [...identity.children].map((el) => el.className.split(" ")[0]);
-    expect(order.slice(-3)).toEqual(["pane__title", "pane__role", "pane__ctx"]);
-    expect(host.querySelector(".pane__actions .pane__ctx")).toBeNull();
+    // The role is identity: after the title, behind a silent separator.
+    const identity = [...host.querySelector(".pane__identity")!.children].map(
+      (el) => el.className.split(" ")[0],
+    );
+    expect(identity.slice(-3)).toEqual(["pane__title", "pane__sep", "pane__role"]);
+    expect(host.querySelector(".pane__sep")!.getAttribute("aria-hidden")).toBe("true");
+    // Context is the session's reading, not its name: in the cluster, just
+    // before the bolt.
+    const actions = [...host.querySelector(".pane__actions")!.children].map(
+      (el) => el.className.split(" ")[0],
+    );
+    expect(actions.indexOf("pane__ctx")).toBe(actions.indexOf("yolo-mark") - 1);
   });
 
   it("carries no branch: the branch is the team's, said once above the deck", () => {
