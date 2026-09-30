@@ -2,28 +2,27 @@ import { useMemo, type CSSProperties } from "react";
 import {
   Bar,
   BarChart,
-  CartesianGrid,
   Legend,
+  Rectangle,
   ResponsiveContainer,
   Tooltip,
   XAxis,
-  YAxis,
+  type BarShapeProps,
 } from "recharts";
 import { formatBucket, formatTokens, tokenSegments } from "../../domain/usage";
 import {
   ledgerSeriesColors,
   seriesColorFor,
-  CHART_AXIS,
+  CHART_BAR_RADIUS,
   CHART_CURSOR_FILL,
-  CHART_GRID,
   CHART_HEIGHT,
   CHART_LEGEND_INK,
   CHART_TEXT_SIZE,
-  CHART_SURFACE,
   CHART_TICK_INK,
 } from "../../domain/usage/chartPalette";
 import {
   bucketShares,
+  stackTop,
   usageTimeline,
   type TimelineBucket,
   type UsageTimeline,
@@ -32,7 +31,9 @@ import type { UsageEventV2 } from "../../domain/usage/history/event";
 import type { UsageStatsPeriod } from "../../domain/usage/history/query";
 
 /**
- * Tokens over time, stacked by provider. Colors come from the domain's
+ * Tokens over time, stacked by provider — wide flush columns, the stack's
+ * cap rounded, no grid and no value axis: the shape is the reading, and the
+ * exact numbers live in the hover card. Colors come from the domain's
  * roster-stable palette (see chartPalette.ts) — series AND chrome — keyed
  * on the FULL ledger roster so period switches never repaint a provider.
  * Buckets are rendered as-is; series read through accessor functions, so
@@ -71,31 +72,23 @@ export function UsageChart({
   const title = TITLES[timeline.granularity];
 
   return (
-    <section className="stats__section" aria-label={title}>
+    <section className="stats__section stats__chart" aria-label={title}>
       <h3>{title}</h3>
       <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
         <BarChart
           data={timeline.buckets as TimelineBucket[]}
-          margin={{ top: 4, right: 4, left: 0, bottom: 0 }}
-          barCategoryGap="30%"
+          margin={{ top: 4, right: 0, left: 0, bottom: 0 }}
+          barCategoryGap="12%"
         >
-          <CartesianGrid vertical={false} stroke={CHART_GRID} />
           <XAxis
             dataKey="start"
             tickFormatter={(value: number) =>
               formatBucket(value, timeline.granularity)
             }
             tick={{ fill: CHART_TICK_INK, fontSize: CHART_TEXT_SIZE }}
-            axisLine={{ stroke: CHART_AXIS }}
-            tickLine={false}
-            minTickGap={24}
-          />
-          <YAxis
-            tickFormatter={(value: number) => formatTokens(value)}
-            tick={{ fill: CHART_TICK_INK, fontSize: CHART_TEXT_SIZE }}
             axisLine={false}
             tickLine={false}
-            width={44}
+            minTickGap={24}
           />
           <Tooltip
             cursor={{ fill: CHART_CURSOR_FILL }}
@@ -136,9 +129,17 @@ export function UsageChart({
               }
               stackId="tokens"
               fill={colors.get(agent)}
-              stroke={CHART_SURFACE}
-              strokeWidth={1}
-              maxBarSize={28}
+              shape={(props: BarShapeProps) => (
+                <Rectangle
+                  {...props}
+                  radius={
+                    stackTop(props.payload as TimelineBucket, timeline.agents) ===
+                    agent
+                      ? [CHART_BAR_RADIUS, CHART_BAR_RADIUS, 0, 0]
+                      : 0
+                  }
+                />
+              )}
               isAnimationActive={false}
             />
           ))}

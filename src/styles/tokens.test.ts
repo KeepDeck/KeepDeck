@@ -160,14 +160,12 @@ describe("the design tokens", () => {
     expect(surface("peek.css", ".peek__panel")).toBe("var(--kd-float)");
   });
 
-  it("hold the chart's surface constant to the canvas it is drawn on", () => {
-    expect(chart.CHART_SURFACE).toBe(declared(tokens, "--kd-canvas"));
+  it("round the chart's stack caps with the chrome's mark radius", () => {
+    expect(`${chart.CHART_BAR_RADIUS}px`).toBe(declared(tokens, "--kd-radius-mark"));
   });
 
   it("draw the chart's chrome in the chrome's tokens", () => {
     const pairs: [string, string][] = [
-      [chart.CHART_GRID, "--kd-hover"],
-      [chart.CHART_AXIS, "--kd-seam"],
       [chart.CHART_TICK_INK, "--kd-text-4"],
       [chart.CHART_LEGEND_INK, "--kd-text-3"],
       [chart.CHART_ITEM_INK, "--kd-text-2"],

@@ -180,6 +180,14 @@
   text-overflow: ellipsis;
 }
 
+/* The Overview chart sits on its own tile: depth by a step down to the
+   canvas, no border. */
+.stats__chart {
+  padding: 14px 16px 10px;
+  border-radius: var(--kd-radius-tile);
+  background: var(--kd-bg);
+}
+
 /* The Overview chart's hover card. Shaped after usage.css's burn tooltip —
    same chrome, same 11px rhythm — but laid out as a grid, because each
    provider now carries a second line and the totals must stay in a column

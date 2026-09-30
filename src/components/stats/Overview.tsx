@@ -95,7 +95,7 @@ export function Overview({
  * instead of asserting a hand-measured pixel count across three files. */
 function ChartPlaceholder() {
   return (
-    <section className="stats__section" aria-hidden>
+    <section className="stats__section stats__chart" aria-hidden>
       <h3>{" "}</h3>
       <div style={{ height: CHART_HEIGHT }} />
     </section>
