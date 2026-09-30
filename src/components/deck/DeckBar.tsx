@@ -161,9 +161,9 @@ export function DeckBar({
                 <span className="deck__crumb-sep" aria-hidden>
                   <ChevronIcon />
                 </span>
-                {/* The app's own tip, not a `title`: this WebView draws no
-                    native tooltip (see TipButton), and an ellipsized team
-                    name must be recoverable somewhere. */}
+                {/* The app's own tip, not a `title`: the native one only
+                    comes after the system's long delay (see TipButton), and
+                    an ellipsized team name must be quick to recover. */}
                 <Tooltip tip={level.name} delayMs={BAR_TIP_DELAY_MS}>
                   <span className="deck__team-name" aria-current="page">
                     {level.name}
