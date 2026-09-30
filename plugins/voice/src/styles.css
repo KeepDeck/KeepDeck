@@ -48,7 +48,7 @@
 }
 
 .voice__setup-btn:hover {
-  border-color: var(--kd-ok-line);
+  background: var(--kd-ok-fill);
 }
 
 .voice__mic {
