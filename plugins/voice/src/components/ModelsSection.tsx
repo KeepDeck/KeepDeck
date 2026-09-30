@@ -3,6 +3,7 @@ import {
   downloadPercent,
   type CustomSettingsFieldProps,
 } from "@keepdeck/plugin-api";
+import { Button } from "@keepdeck/ui-kit/Button";
 import { DEFAULT_MODEL, MODEL_KEY } from "../controller";
 import { runtime } from "../runtime";
 
@@ -118,53 +119,49 @@ export function ModelsSection({ values, write }: CustomSettingsFieldProps) {
               <span>{meta?.langs ?? ""}</span>
               <span className="voice-models__foot-right">
                 <span>{m.sizeMb} MB</span>
-                {m.installed ? (
-                  <button
-                    type="button"
-                    className="voice-models__act voice-models__act--delete"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void ctx.services.downloads
-                        .remove(m.target)
-                        .then(() => store.refresh())
-                        .catch((error) =>
-                          ctx.log.warn(
-                            `model removal failed: ${error instanceof Error ? error.message : String(error)}`,
-                          ),
-                        );
-                    }}
-                  >
-                    Delete
-                  </button>
-                ) : downloading ? (
-                  <>
-                    <span className="voice-models__progress">
-                      {percent === null ? "…" : `${percent}%`}
-                    </span>
-                    <button
-                      type="button"
-                      className="voice-models__act voice-models__act--delete"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        cancel(m.id);
+                {/* The card's click picks the model; a press on one of its
+                    own actions must not also pick it — the Delete of an
+                    installed model least of all. Only the actions are
+                    contained: the size beside them still picks. */}
+                <span
+                  className="voice-models__acts"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {m.installed ? (
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        void ctx.services.downloads
+                          .remove(m.target)
+                          .then(() => store.refresh())
+                          .catch((error) =>
+                            ctx.log.warn(
+                              `model removal failed: ${error instanceof Error ? error.message : String(error)}`,
+                            ),
+                          );
                       }}
-                      title="Stop — the next Download resumes from here"
                     >
-                      ✕
-                    </button>
-                  </>
-                ) : m.retired ? null : (
-                  <button
-                    type="button"
-                    className="voice-models__act"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      download(m.id);
-                    }}
-                  >
-                    {error ? "Retry" : "Download"}
-                  </button>
-                )}
+                      Delete
+                    </Button>
+                  ) : downloading ? (
+                    <>
+                      <span className="voice-models__progress">
+                        {percent === null ? "…" : `${percent}%`}
+                      </span>
+                      <Button
+                        size="sm"
+                        onClick={() => cancel(m.id)}
+                        title="Stop — the next Download resumes from here"
+                      >
+                        ✕
+                      </Button>
+                    </>
+                  ) : m.retired ? null : (
+                    <Button size="sm" onClick={() => download(m.id)}>
+                      {error ? "Retry" : "Download"}
+                    </Button>
+                  )}
+                </span>
               </span>
             </div>
             {downloading && (

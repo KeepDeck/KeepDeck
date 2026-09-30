@@ -31,3 +31,8 @@ export function resolveOpenApp(pick: unknown, apps: string[]): string | null {
   if (typeof pick === "string" && apps.includes(pick)) return pick;
   return apps[0] ?? null;
 }
+
+/** The log line for an open the OS refused. */
+export function openInFailed(target: string, app: string, error: unknown): string {
+  return `Open in ${app} failed for ${target}: ${JSON.stringify(error)}`;
+}

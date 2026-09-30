@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { openAppsFrom, resolveOpenApp } from "./openIn";
+import { openAppsFrom, openInFailed, resolveOpenApp } from "./openIn";
 
 describe("openAppsFrom", () => {
   it("reads the configured list in stored order", () => {
@@ -36,5 +36,13 @@ describe("resolveOpenApp", () => {
 
   it("resolves to null when nothing is configured — the row hides", () => {
     expect(resolveOpenApp("Zed", [])).toBeNull();
+  });
+});
+
+describe("openInFailed", () => {
+  it("logs a refusal with the app, the target and the error", () => {
+    expect(openInFailed("/wt/b", "Zed", { code: 2 })).toBe(
+      'Open in Zed failed for /wt/b: {"code":2}',
+    );
   });
 });

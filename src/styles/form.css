@@ -4,10 +4,7 @@
   width: 100%;
   max-width: 560px;
   padding: 28px;
-  border: 1px solid var(--kd-seam);
   border-radius: var(--kd-radius-dialog);
-  box-shadow: var(--kd-shadow-float);
-  background-color: var(--kd-float);
 }
 
 .form__title {
@@ -532,10 +529,7 @@
   margin: 0;
   padding: 4px;
   list-style: none;
-  border: 1px solid var(--kd-seam);
   border-radius: var(--kd-radius-pop);
-  background-color: var(--kd-float);
-  box-shadow: var(--kd-shadow-float);
 }
 
 /* The floating list arrives instead of appearing: a layer that snaps into

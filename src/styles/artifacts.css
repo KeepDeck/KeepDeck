@@ -80,7 +80,7 @@
   gap: 6px;
   min-height: 120px;
   padding: 24px 0;
-  color: var(--kd-text-4);
+  color: var(--kd-text-3);
   font-size: var(--kd-font-normal);
   text-align: center;
 }
@@ -165,7 +165,7 @@
    teammate is given. The id leads it for exactly that reason. */
 .artifacts__row-meta {
   overflow: hidden;
-  color: var(--kd-text-4);
+  color: var(--kd-text-3);
   font-size: var(--kd-font-small);
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -196,7 +196,7 @@
 }
 
 .artifacts__history-note {
-  color: var(--kd-text-4);
+  color: var(--kd-text-3);
   font-size: var(--kd-font-small);
 }
 
@@ -217,7 +217,7 @@
 
 .artifacts__version-when {
   flex: none;
-  color: var(--kd-text-4);
+  color: var(--kd-text-3);
 }
 
 /* The one part that can be long: an agent's note about what changed. */

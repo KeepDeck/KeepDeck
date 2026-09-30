@@ -37,20 +37,6 @@
   line-height: 1.5;
 }
 
-.voice__setup-btn {
-  background: var(--kd-ok-tint);
-  color: var(--kd-ok-strong);
-  border: 1px solid var(--kd-ok-line);
-  border-radius: var(--kd-radius-mark);
-  padding: 5px 12px;
-  cursor: pointer;
-  font-size: var(--kd-font-small);
-}
-
-.voice__setup-btn:hover {
-  border-color: var(--kd-ok-line);
-}
-
 .voice__mic {
   background: var(--kd-ok-tint);
   color: var(--kd-ok-strong);
@@ -121,14 +107,12 @@
 .voice__help {
   position: fixed;
   z-index: 80;
-  background: var(--kd-tile);
-  border: 1px solid var(--kd-seam-strong);
-  border-radius: var(--kd-radius-control);
+  /* Surface, edge and shadow: the .kd-float shell (host float.css). */
+  border-radius: var(--kd-radius-pop);
   padding: 10px 12px;
   color: var(--kd-text-2);
   font-size: var(--kd-font-small);
   line-height: 1.5;
-  box-shadow: var(--kd-shadow-float);
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -229,7 +213,7 @@
 }
 
 .voice__entry:hover {
-  background: var(--kd-tile);
+  background: var(--kd-hover);
 }
 
 /* Keyboard focus ring for the clickable rows — Tab into the log to copy. */
@@ -291,20 +275,9 @@
   color: var(--kd-err-strong);
 }
 
+/* The shared Button dresses it; this only keeps it from shrinking. */
 .voice__model-btn {
-  background: none;
-  border: 1px solid var(--kd-seam);
-  color: var(--kd-text-3);
-  border-radius: var(--kd-radius-mark);
-  padding: 2px 8px;
-  cursor: pointer;
-  font-size: var(--kd-font-small);
   flex: none;
-}
-
-.voice__model-btn:hover {
-  color: var(--kd-text-2);
-  border-color: var(--kd-seam-strong);
 }
 
 /* Model manager cards (the plugin's settings section). */
@@ -396,31 +369,12 @@
   font-size: var(--kd-font-small);
 }
 
-.voice-models__foot-right {
+.voice-models__foot-right,
+.voice-models__acts {
   display: inline-flex;
   align-items: center;
   gap: 10px;
   flex: none;
-}
-
-.voice-models__act {
-  background: none;
-  border: 1px solid var(--kd-seam);
-  color: var(--kd-text-3);
-  border-radius: var(--kd-radius-mark);
-  padding: 2px 8px;
-  cursor: pointer;
-  font-size: var(--kd-font-small);
-}
-
-.voice-models__act:hover {
-  color: var(--kd-text-2);
-  border-color: var(--kd-seam-strong);
-}
-
-.voice-models__act--delete:hover {
-  color: var(--kd-err-strong);
-  border-color: var(--kd-err-line);
 }
 
 .voice-models__progress {
@@ -517,14 +471,12 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  background: var(--kd-float);
-  border: 1px solid var(--kd-seam-strong);
+  /* Surface, edge and shadow: the .kd-float shell (host float.css). */
   border-radius: 999px;
   padding: 6px 14px;
   color: var(--kd-text-2);
   font-size: var(--kd-font-small);
   z-index: 60;
-  box-shadow: var(--kd-shadow-float);
   pointer-events: none;
 }
 
@@ -606,28 +558,13 @@
 }
 
 .voice-hotkeys__chord:hover {
-  border-color: var(--kd-working-line);
+  background-color: var(--kd-hover);
 }
 
 .voice-hotkeys__chord--recording {
   border-style: dashed;
   border-color: var(--kd-ok-line);
   color: var(--kd-ok-strong);
-}
-
-.voice-hotkeys__reset {
-  background: none;
-  border: 1px solid var(--kd-seam);
-  color: var(--kd-text-3);
-  border-radius: var(--kd-radius-mark);
-  padding: 3px 8px;
-  cursor: pointer;
-  font-size: var(--kd-font-small);
-}
-
-.voice-hotkeys__reset:hover {
-  color: var(--kd-text-2);
-  border-color: var(--kd-seam-strong);
 }
 
 .voice-hotkeys__error {

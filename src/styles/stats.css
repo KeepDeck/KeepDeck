@@ -49,9 +49,8 @@
   display: inline-flex;
   flex: none;
   padding: 2px;
-  border: 1px solid var(--kd-seam);
   border-radius: var(--kd-radius-control);
-  background: var(--kd-bg);
+  background: var(--kd-tile);
 }
 
 .stats__period button {
@@ -145,14 +144,17 @@
   margin-bottom: 18px;
 }
 
+/* EVERY block in the statistics dialog — cards, chart, tables, provider
+   cards, achievements, the period switcher — sits on the concept's tile: a
+   step down from the dialog's float surface, no border. Depth by lightness,
+   the chrome's rule. */
 .stats__card {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 10px 12px;
-  border: 1px solid var(--kd-seam);
-  border-radius: var(--kd-radius-pop);
-  background: var(--kd-bg);
+  padding: 14px 16px;
+  border-radius: var(--kd-radius-tile);
+  background: var(--kd-tile);
 }
 
 .stats__card span {
@@ -172,12 +174,19 @@
    reads as one number at a glance, and NOT uppercase — the label above is
    a name, this is a value. */
 .stats__card-detail {
-  color: var(--kd-text-4);
+  color: var(--kd-text-3);
   font-size: var(--kd-font-small);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* The Overview chart sits on its own tile (see .stats__card). */
+.stats__chart {
+  padding: 14px 16px 10px;
+  border-radius: var(--kd-radius-tile);
+  background: var(--kd-tile);
 }
 
 /* The Overview chart's hover card. Shaped after usage.css's burn tooltip —
@@ -190,10 +199,7 @@
   grid-template-columns: minmax(0, 1fr) max-content;
   gap: 2px 16px;
   padding: 8px 11px;
-  border: 1px solid var(--kd-seam-strong);
   border-radius: var(--kd-radius-pop);
-  background: var(--kd-tile);
-  box-shadow: var(--kd-shadow-float);
   font-size: var(--kd-font-small);
   line-height: 1.45;
   pointer-events: none;
@@ -311,8 +317,8 @@
 }
 
 .stats__table {
-  border: 1px solid var(--kd-seam);
-  border-radius: var(--kd-radius-pop);
+  border-radius: var(--kd-radius-tile);
+  background: var(--kd-tile);
   overflow: hidden;
 }
 
@@ -353,7 +359,7 @@
 }
 
 .stats__row small {
-  color: var(--kd-text-4);
+  color: var(--kd-text-3);
   font-size: var(--kd-font-small);
 }
 

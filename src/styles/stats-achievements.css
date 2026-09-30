@@ -8,7 +8,7 @@
 
      Four are existing app tokens. Epic is chartPalette's spare violet
      (SPARE_SLOTS[2]) written out, for the same reason chartPalette itself
-     writes out --kd-bg: the two live in different languages and cannot
+     writes out its chrome inks: the two live in different languages and cannot
      import each other — keep in sync with src/domain/usage/chartPalette.ts. */
   --rarity-uncommon: var(--kd-ok);
   --rarity-rare: var(--kd-info);
@@ -59,9 +59,11 @@
   flex-direction: column;
   gap: 4px;
   padding: 10px 12px;
-  border: 1px solid var(--kd-seam);
+  /* The dialog's tile, borderless like every stats block — the edge stays
+     1px wide but transparent, so the rarity tiers below still colour it. */
+  border: 1px solid transparent;
   border-radius: var(--kd-radius-tile);
-  background: var(--kd-bg);
+  background: var(--kd-tile);
   /* A badge is not text — it keeps the arrow cursor and swallows selection,
      which is already what the whole document does (base.css). Nothing to
      restate here; only an island of real text opts out of that, and this
@@ -177,7 +179,7 @@
 .stats__achievement-rim::after {
   inset: 1.5px;
   border-radius: var(--kd-radius-pop);
-  background: var(--kd-bg);
+  background: var(--kd-tile);
 }
 
 .stats__achievement--epic .stats__achievement-rim::before {
@@ -375,7 +377,7 @@
 }
 
 .stats__achievement small {
-  color: var(--kd-text-4);
+  color: var(--kd-text-3);
   font-size: var(--kd-font-small);
 }
 

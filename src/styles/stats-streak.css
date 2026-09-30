@@ -6,10 +6,8 @@
   flex: none;
   align-items: center;
   gap: 4px;
-  padding: 5px 12px;
-  border: 1px solid var(--kd-seam);
-  border-radius: 999px;
-  background: var(--kd-bg);
+  /* Bare, no pill: the fire is the ornament, a chip around it was a second
+     one. */
   color: var(--kd-text-3);
   font-size: var(--kd-font-small);
   line-height: 1;
@@ -25,7 +23,7 @@
 }
 
 .stats__streak small {
-  color: var(--kd-text-4);
+  color: var(--kd-text-3);
   font-size: var(--kd-font-small);
 }
 
@@ -109,17 +107,12 @@
   transform-box: fill-box;
 }
 
-/* The chip carries stats__streak--{none,ember,flame,blaze,inferno} for
-   every tier; only blaze and inferno style the OUTER chip (molten /
-   shimmering number). The lower tiers are differentiated entirely by the
-   inner mark (.stats__streak-coal / .stats__streak-fire) — their modifiers
-   are intentionally rule-less state hooks, not dead selectors. */
+/* The streak carries stats__streak--{none,ember,flame,blaze,inferno} for
+   every tier; only blaze and inferno style its NUMBER (molten /
+   shimmering). The lower tiers are differentiated entirely by the inner
+   mark (.stats__streak-coal / .stats__streak-fire) — their modifiers are
+   intentionally rule-less state hooks, not dead selectors. */
 /* blaze (30+): the number goes molten. */
-.stats__streak--blaze,
-.stats__streak--inferno {
-  border-color: #4a2f1a;
-}
-
 .stats__streak--blaze b {
   background: linear-gradient(180deg, #ffd28a, #ff9e42 55%, #e0501e);
   background-clip: text;

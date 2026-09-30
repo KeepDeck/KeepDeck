@@ -107,7 +107,7 @@
 
 .library__item-desc {
   overflow: hidden;
-  color: var(--kd-text-4);
+  color: var(--kd-text-3);
   font-size: var(--kd-font-small);
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -115,7 +115,7 @@
 
 .library__empty-group {
   padding: 4px 10px;
-  color: var(--kd-text-4);
+  color: var(--kd-text-3);
   font-size: var(--kd-font-small);
   line-height: 1.4;
 }
@@ -278,9 +278,9 @@
   margin: 6px 0 0;
   padding: 8px 12px;
   border: 1px solid var(--kd-warn-line);
-  border-radius: var(--kd-radius-pop);
+  border-radius: var(--kd-radius-control);
   background: var(--kd-warn-tint);
-  color: var(--kd-warn);
+  color: var(--kd-warn-strong);
   font-size: var(--kd-font-small);
   line-height: 1.5;
 }

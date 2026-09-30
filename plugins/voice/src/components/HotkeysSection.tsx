@@ -1,5 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import type { CustomSettingsFieldProps } from "@keepdeck/plugin-api";
+import { Button } from "@keepdeck/ui-kit/Button";
 import {
   blockingIssue,
   chordFromEvent,
@@ -124,14 +125,14 @@ export function HotkeysSection({ write }: CustomSettingsFieldProps) {
               >
                 {isRecording ? "Press keys…" : formatChord(bindings[row.slot])}
               </button>
-              <button
-                type="button"
+              <Button
+                size="sm"
                 className="voice-hotkeys__reset"
                 onClick={() => reset(row.slot)}
                 title="Reset to default"
               >
                 Reset
-              </button>
+              </Button>
             </div>
             {isRecording && error && (
               <div className="voice-hotkeys__error">{error}</div>

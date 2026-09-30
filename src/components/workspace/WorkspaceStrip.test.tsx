@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { StripView, WorkspaceMark } from "../../presentation/stripView";
 import { WorkspaceStrip } from "./WorkspaceStrip";
+import { STRIP_REVEAL_DWELL_MS } from "./useStripReveal";
 
 (
   globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -180,6 +181,56 @@ describe("WorkspaceStrip drag reorder", () => {
     [...document.querySelectorAll<HTMLElement>("[data-ws-id]")].map((m) => m.dataset.wsId);
   const markEl = (id: string) => document.querySelector<HTMLElement>(`[data-ws-id="${id}"]`)!;
 
+  it("closes an open strip when a hold turns into a drag", () => {
+    act(() => root.render(createElement(Harness)));
+    const col = document.querySelector(".strip__col")!;
+    act(() => {
+      col.dispatchEvent(
+        new PointerEvent("pointerover", { bubbles: true, relatedTarget: document.body }),
+      );
+      vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS);
+    });
+    expect(document.querySelector(".strip--revealed")).not.toBeNull();
+    act(() => {
+      markEl("b").dispatchEvent(pointerEvent("pointerdown", { clientY: 70 }));
+      vi.advanceTimersByTime(300);
+    });
+    expect(document.querySelector(".strip__ghost")).not.toBeNull();
+    expect(document.querySelector(".strip--revealed")).toBeNull();
+    // The drop settles (140ms + its 100ms safety) with the pointer still on
+    // the column: the strip is SHUT — the drag closed it rather than hiding
+    // it for the drag's length — and a fresh rest opens it again, though no
+    // pointer ever re-entered.
+    act(() => {
+      window.dispatchEvent(pointerEvent("pointerup", { clientY: 70 }));
+      vi.advanceTimersByTime(240);
+    });
+    expect(document.querySelector(".strip__ghost")).toBeNull();
+    expect(document.querySelector(".strip--revealed")).toBeNull();
+    act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS));
+    expect(document.querySelector(".strip--revealed")).not.toBeNull();
+  });
+
+  it("stays shut after a drop that ends off the column", () => {
+    act(() => root.render(createElement(Harness)));
+    const col = document.querySelector(".strip__col")!;
+    act(() => {
+      col.dispatchEvent(
+        new PointerEvent("pointerover", { bubbles: true, relatedTarget: document.body }),
+      );
+      markEl("b").dispatchEvent(pointerEvent("pointerdown", { clientY: 70 }));
+      vi.advanceTimersByTime(300);
+    });
+    act(() => {
+      col.dispatchEvent(
+        new PointerEvent("pointerout", { bubbles: true, relatedTarget: document.body }),
+      );
+      window.dispatchEvent(pointerEvent("pointerup", { clientY: 70 }));
+      vi.advanceTimersByTime(1000);
+    });
+    expect(document.querySelector(".strip--revealed")).toBeNull();
+  });
+
   it("moves a held mark through the column, its ghost wearing its face", () => {
     act(() => root.render(createElement(Harness)));
     act(() => {
@@ -222,5 +273,83 @@ describe("WorkspaceStrip «+»", () => {
     expect(tile.querySelector("svg")).not.toBeNull();
     expect(tile.textContent).toBe("");
     act(() => root.unmount());
+  });
+});
+
+describe("WorkspaceStrip opening on approach", () => {
+  let host: HTMLDivElement;
+  let root: Root;
+  const render = () =>
+    act(() =>
+      root.render(createElement(WorkspaceStrip, { view: VIEW, version: null, ...callbacks })),
+    );
+  const col = () => host.querySelector<HTMLElement>(".strip__col")!;
+  const revealed = () => host.querySelector(".strip--revealed") !== null;
+  // React derives enter/leave from over/out with a relatedTarget outside.
+  const pointer = (type: "enter" | "leave" | "down", target: Element = col()) =>
+    act(() => {
+      const [name, relatedTarget] =
+        type === "enter"
+          ? ["pointerover", document.body]
+          : type === "leave"
+            ? ["pointerout", document.body]
+            : ["pointerdown", null];
+      target.dispatchEvent(new PointerEvent(name, { bubbles: true, relatedTarget }));
+    });
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    host = document.body.appendChild(document.createElement("div"));
+    root = createRoot(host);
+  });
+  afterEach(() => {
+    act(() => root.unmount());
+    document.body.innerHTML = "";
+    vi.useRealTimers();
+  });
+
+  it("names every workspace beside its mark once the pointer rests on the column", () => {
+    render();
+    const names = [...host.querySelectorAll(".strip__marks .strip__name")].map(
+      (el) => el.textContent,
+    );
+    expect(names).toEqual(["Alpha", "Beta", "Gamma", "Delta"]);
+    pointer("enter");
+    act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS - 1));
+    expect(revealed()).toBe(false);
+    act(() => void vi.advanceTimersByTime(1));
+    expect(revealed()).toBe(true);
+  });
+
+  it("closes the moment the pointer leaves", () => {
+    render();
+    pointer("enter");
+    act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS));
+    pointer("leave");
+    expect(revealed()).toBe(false);
+  });
+
+  it("does not open under a press — a click or the start of a hold-to-drag", () => {
+    render();
+    pointer("enter");
+    pointer("down", host.querySelector("[data-ws-id='b']")!);
+    act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS * 2));
+    expect(revealed()).toBe(false);
+  });
+
+  it("leaves no pending open behind when it goes away", () => {
+    render();
+    pointer("enter");
+    expect(vi.getTimerCount()).toBe(1);
+    act(() => root.unmount());
+    expect(vi.getTimerCount()).toBe(0);
+    root = createRoot(host);
+  });
+
+  it("keeps the name out of the drag ghost — the ghost is the mark's image", () => {
+    render();
+    // The face the ghost shares is the tile alone.
+    const face = host.querySelector("[data-ws-id='b'] .strip__tile")!;
+    expect(face.querySelector(".strip__name")).toBeNull();
   });
 });

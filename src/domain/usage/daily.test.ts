@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bucketShares, usageAgents, usageTimeline } from "./daily";
+import { bucketShares, stackTop, usageAgents, usageTimeline } from "./daily";
 
 const HOUR = 60 * 60 * 1_000;
 const DAY = 24 * HOUR;
@@ -125,6 +125,25 @@ describe("usageTimeline", () => {
     ]);
     // A silent bucket has nobody to name, so the card renders nothing.
     expect(bucketShares(timeline.buckets[1], timeline.agents)).toEqual([]);
+  });
+
+  it("caps each stack with the last roster agent that burned anything", () => {
+    const timeline = usageTimeline(
+      [
+        event({ occurredAt: NOW - 1_000, agent: "claude", tokens: { input: 40 } }),
+        event({ occurredAt: NOW - 1_500, agent: "codex", tokens: { input: 5 } }),
+        event({ occurredAt: NOW - DAY - 1_000, agent: "claude", tokens: { input: 9 } }),
+        // On the roster, silent in both buckets above: never the cap.
+        event({ occurredAt: NOW - 3 * DAY, agent: "kimi", tokens: { input: 7 } }),
+      ],
+      7,
+      NOW,
+    );
+    const at = (back: number) => timeline.buckets[timeline.buckets.length - 1 - back];
+    // Stacked in roster order, so the top is the LAST agent, not the largest.
+    expect(stackTop(at(0), timeline.agents)).toBe("codex");
+    expect(stackTop(at(1), timeline.agents)).toBe("claude");
+    expect(stackTop(at(2), timeline.agents)).toBeNull();
   });
 
   it("spans from the first recorded bucket for the all period", () => {

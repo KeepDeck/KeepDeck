@@ -14,10 +14,7 @@
   z-index: 200;
   display: block;
   padding: 7px 10px;
-  border: 1px solid var(--kd-seam);
   border-radius: var(--kd-radius-pop);
-  background: var(--kd-tile);
-  box-shadow: var(--kd-shadow-float);
   color: var(--kd-text-2);
   font-size: var(--kd-font-small);
   line-height: 1.5;

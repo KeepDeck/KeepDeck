@@ -76,7 +76,7 @@
 }
 
 .settings__nav-group-label {
-  color: var(--kd-text-4);
+  color: var(--kd-text-3);
   font-size: var(--kd-font-small);
   font-weight: 600;
   letter-spacing: 0.08em;
@@ -133,8 +133,7 @@
 .settings__command {
   margin-bottom: 8px;
   padding: 8px 10px;
-  border: 1px solid var(--kd-seam);
-  border-radius: var(--kd-radius-pop);
+  border-radius: var(--kd-radius-tile);
   background-color: var(--kd-tile);
   color: var(--kd-text-2);
   font-size: var(--kd-font-small);
@@ -264,8 +263,8 @@
   align-items: center;
   gap: 8px;
   padding: 6px 10px;
-  border: 1px solid var(--kd-seam);
-  border-radius: var(--kd-radius-pop);
+  border-radius: var(--kd-radius-control);
+  background-color: var(--kd-tile);
   font-size: var(--kd-font-normal);
   color: var(--kd-text-2);
 }
@@ -442,8 +441,7 @@
 
 .settings__feature-agent {
   overflow: hidden;
-  border: 1px solid var(--kd-seam);
-  border-radius: var(--kd-radius-control);
+  border-radius: var(--kd-radius-tile);
   background: var(--kd-tile);
 }
 
@@ -543,8 +541,8 @@
   gap: 10px;
   width: 100%;
   padding: 6px 10px;
-  border: 1px solid var(--kd-seam);
-  border-radius: var(--kd-radius-pop);
+  border: 0;
+  border-radius: var(--kd-radius-control);
   background-color: var(--kd-tile);
   color: var(--kd-text-2);
   font-size: var(--kd-font-normal);
@@ -553,11 +551,10 @@
 }
 
 .roles__row:hover {
-  border-color: var(--kd-seam);
+  background-color: var(--kd-hover);
 }
 
 .roles__row--active {
-  border-color: var(--kd-seam-strong);
   background-color: var(--kd-selected);
 }
 

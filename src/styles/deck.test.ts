@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readStyles, ruleBody } from "./testSupport";
+import { px, readStyles, ruleBody } from "./testSupport";
 
 const deck = readStyles("deck.css");
 
@@ -64,6 +64,20 @@ describe("the usage chips", () => {
     expect(ruleBody(ring, ".progress-ring__mark svg").display).toBe("block");
   });
 
+  it("centre on whole pixels: the mark fills its box, and ring minus box is even", () => {
+    // A half-pixel offset rounds one way or the other per mark — the eye
+    // reads that as a mark sitting off-centre.
+    const ring = readStyles("progressRing.css");
+    const size = (sel: string, prop: string) => px(ruleBody(ring, sel)[prop]);
+    for (const prop of ["width", "height"]) {
+      const outer = size(".progress-ring", prop);
+      const box = size(".progress-ring__mark", prop);
+      expect(size(".progress-ring__mark svg", prop), prop).toBe(box);
+      expect((outer - box) % 2, prop).toBe(0);
+      expect(Number.isInteger(outer) && Number.isInteger(box), prop).toBe(true);
+    }
+  });
+
   it("move a ring to a new reading instead of jumping to it", () => {
     // A custom property animates only once registered with a type; it
     // inherits so the painted track follows the value the ring transitions.
@@ -102,5 +116,44 @@ describe("the breadcrumb", () => {
     for (const prop of ["padding", "margin", "border", "line-height", "font-size", "height"]) {
       expect(up[prop], prop).toBeUndefined();
     }
+  });
+});
+
+describe("the workspace strip's open column", () => {
+  const strip = readStyles("strip.css");
+
+  it("keeps one numeric layer open and shut, so closing animates", () => {
+    // A layer that changes on close drops the narrowing column under the
+    // stage — and `auto` ↔ a number is not interpolated, so no transition
+    // delay can save it. The layer is set once, on the column itself.
+    const col = ruleBody(strip, ".strip__col");
+    expect(col["z-index"]).toMatch(/^\d+$/);
+    expect(ruleBody(strip, ".strip--revealed .strip__col")["z-index"]).toBeUndefined();
+    expect(col.transition).toMatch(/\bwidth\b/);
+  });
+
+  it("uncovers the names with its edge, not with a fade of their own", () => {
+    // A per-name fade runs on each name's own clock, and a mark that was
+    // just dragged starts it late: its name pops in behind the others.
+    expect(ruleBody(strip, ".strip__col").overflow).toBe("hidden");
+    const name = ruleBody(strip, ".strip__name");
+    expect(name.opacity).toBeUndefined();
+    expect(name.transition).toBeUndefined();
+  });
+
+  it("rings a keyboard-focused mark with the house focus ring, inside the clip", () => {
+    const focus = ruleBody(strip, ".strip__mark:focus-visible");
+    expect(focus.outline).toBe("1px solid var(--kd-focus)");
+    // Inset: the column clips (overflow hidden), so an outset ring is cut.
+    expect(focus["outline-offset"]).toBe("-1px");
+  });
+
+  it("hides every name wholly behind the shut edge", () => {
+    // The name starts at the mark's inset plus its own offset; any of it
+    // inside the shut column shows as a sliver beside every mark.
+    const col = ruleBody(strip, ".strip__col");
+    const inset = px(col.padding.split(/\s+/)[3]);
+    const nameStart = inset + px(ruleBody(strip, ".strip__name").left);
+    expect(nameStart).toBeGreaterThanOrEqual(px(col.width));
   });
 });

@@ -1,0 +1,28 @@
+/* THE float shell — the one look of everything that floats over the deck:
+   dialogs, popovers, menus, tooltips, the hint over a terminal, a drag's
+   label. Float surface, the seam edge, and the float shadow (whose black
+   ring outside the edge is the other half of it, tokens.css). Radius is
+   NOT here: it is the kind's (dialog, pop, control), stated by each site.
+
+   It was hand-copied into thirteen sheets and drifted — two tooltips on
+   tile, two edges on seam-strong. Host shells are named here; plugins and
+   anything else wear the .kd-float utility in their markup. A site that
+   restates any of the three is a copy again (float.test.ts). */
+.kd-float,
+.form,
+.confirm,
+.dropdown__menu,
+.peek__panel,
+.kd-tip,
+.bell__panel,
+.usage-panel,
+.minimized-overflow,
+.minimized-tooltip,
+.tasks__detail,
+.stats__chart-tip,
+.pane-hint,
+.pane-drag-ghost {
+  border: 1px solid var(--kd-seam);
+  background-color: var(--kd-float);
+  box-shadow: var(--kd-shadow-float);
+}

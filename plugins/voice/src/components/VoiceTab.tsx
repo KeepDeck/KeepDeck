@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { downloadPercent, type DownloadState } from "@keepdeck/plugin-api";
 import { formatChord } from "../binding";
 import { runtime } from "../runtime";
+import { Button } from "@keepdeck/ui-kit/Button";
 import { HelpPopover, InfoIcon } from "./HelpPopover";
 
 /**
@@ -84,13 +85,13 @@ export function VoiceTab() {
           Voice commands and dictation need a local speech-to-text model.
           Download one to get started — it stays on your machine.
         </div>
-        <button
-          type="button"
-          className="voice__setup-btn"
+        <Button
+          variant="primary"
+          size="sm"
           onClick={() => void ctx.commands.execute("settings.open", {})}
         >
           Choose a model…
-        </button>
+        </Button>
       </div>
     );
   }
@@ -129,14 +130,14 @@ export function VoiceTab() {
           <InfoIcon />
         </button>
         {snap.history.length > 0 && snap.phase === "idle" && (
-          <button
-            type="button"
+          <Button
+            size="sm"
             className="voice__model-btn"
             onClick={() => controller.clearHistory()}
             title="Clear the history"
           >
             Clear
-          </button>
+          </Button>
         )}
       </div>
       {snap.phase !== "idle" && (
@@ -250,14 +251,14 @@ function DownloadStrip({
             <span className="voice__download-name">
               Downloading {modelName(id)}…{percent !== null && ` ${percent}%`}
             </span>
-            <button
-              type="button"
+            <Button
+              size="sm"
               className="voice__model-btn"
               onClick={() => downloads.cancel(id)}
               title="Stop — the next Download resumes from here"
             >
               ✕
-            </button>
+            </Button>
             <span className="voice-models__bar">
               <span
                 className="voice-models__bar-fill"

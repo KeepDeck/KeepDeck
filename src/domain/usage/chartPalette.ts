@@ -36,21 +36,18 @@ export function ledgerSeriesColors(
 }
 export const OVERFLOW_COLOR = "#596273";
 
-/** The surface the palette is drawn on. Duplicated as a TS constant because
- * SVG fill/stroke props cannot read a CSS custom property; tokens.test.ts
- * holds it to `--kd-canvas` in tokens.css. */
-export const CHART_SURFACE = "#0a0a0b";
-
 /** The chart's plot height; the Suspense placeholder builds the same box
  * from this constant so the overview cannot jump when the chunk lands. */
-export const CHART_HEIGHT = 190;
+export const CHART_HEIGHT = 240;
+
+/** The stack's rounded cap, in px — the chrome's mark radius
+ * (`--kd-radius-mark`); tokens.test.ts holds it there. */
+export const CHART_BAR_RADIUS = 4;
 
 /* Chart CHROME — grid, axes, inks, tooltip surfaces. Beside the series
  * palette so a design pass finds every chart color in ONE module. SVG props
  * cannot read CSS custom properties, so each is the value of a token in
  * tokens.css, and tokens.test.ts holds it there. */
-export const CHART_GRID = "#1b1b1f";
-export const CHART_AXIS = "#2a2a2f";
 export const CHART_TICK_INK = "#55555c";
 export const CHART_LEGEND_INK = "#7e7e87";
 /** The chart's text size, in px — the chrome's small step (tokens.css),

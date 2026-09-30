@@ -114,7 +114,7 @@ export function HelpPopover({
   return createPortal(
     <div
       ref={cardRef}
-      className="voice__help"
+      className="voice__help kd-float"
       role="dialog"
       aria-label="How to use voice"
       onMouseEnter={onPointerStay}

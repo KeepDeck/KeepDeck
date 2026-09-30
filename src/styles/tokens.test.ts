@@ -16,6 +16,14 @@ const tokens = readStyles("tokens.css");
 
 /** Every host sheet but tokens.css, and every built-in plugin's, comments
  * stripped — the plugins share this document and these tokens. */
+/** The selectors that wear the one float shell (float.css). */
+function floatShell(): string[] {
+  const css = readStyles("float.css");
+  const head = /([^{}]+)\{[^{}]*box-shadow:\s*var\(--kd-shadow-float\)/.exec(css);
+  if (!head) throw new Error("float.css has no shell");
+  return head[1].split(",").map((selector) => selector.trim());
+}
+
 function allSheets(): (readonly [string, string])[] {
   const pluginsDir = join(STYLES_DIR, "../../plugins");
   return [
@@ -69,6 +77,23 @@ function lightness(hex: string): number {
 }
 
 describe("the design tokens", () => {
+  it("fill every meter lighter than its seam track", () => {
+    // tokens.css: the seam is every meter's track, and the fill over it is
+    // always the lighter of the two — a fill darker than the empty part
+    // reads as the empty part.
+    const value = (token: string) => declared(tokens, token);
+    const track = value("--kd-seam");
+    const fills = {
+      "usage bar": ruleBody(readStyles("usage.css"), ".usage-bar i")["background-color"],
+      "progress ring": declared(readStyles("progressRing.css"), "--progress-ring-hue"),
+    };
+    for (const [meter, fill] of Object.entries(fills)) {
+      const token = /^var\((--kd-[a-z0-9-]+)\)$/.exec(fill)?.[1];
+      expect(token, meter).toBeDefined();
+      expect(lightness(value(token!)), meter).toBeGreaterThan(lightness(track));
+    }
+  });
+
   it("load before every stylesheet that reads them", () => {
     const index = readFileSync(join(STYLES_DIR, "index.css"), "utf8");
     const imports = [...index.matchAll(/@import\s+"([^"]+)"/g)].map((m) => m[1]);
@@ -155,19 +180,22 @@ describe("the design tokens", () => {
     const surface = (file: string, selector: string) =>
       ruleBody(readStyles(file), selector)["background-color"];
     expect(surface("dock.css", ".dock")).toBe("var(--kd-float)");
-    expect(surface("form.css", ".form")).toBe("var(--kd-float)");
-    expect(surface("confirm.css", ".confirm")).toBe("var(--kd-float)");
-    expect(surface("peek.css", ".peek__panel")).toBe("var(--kd-float)");
+    // The dialogs take it from the one float shell.
+    // (ruleBody reads the group through its last selector.)
+    expect(ruleBody(readStyles("float.css"), ".pane-drag-ghost")["background-color"]).toBe(
+      "var(--kd-float)",
+    );
+    for (const dialog of [".form", ".confirm", ".peek__panel"]) {
+      expect(floatShell(), dialog).toContain(dialog);
+    }
   });
 
-  it("hold the chart's surface constant to the canvas it is drawn on", () => {
-    expect(chart.CHART_SURFACE).toBe(declared(tokens, "--kd-canvas"));
+  it("round the chart's stack caps with the chrome's mark radius", () => {
+    expect(`${chart.CHART_BAR_RADIUS}px`).toBe(declared(tokens, "--kd-radius-mark"));
   });
 
   it("draw the chart's chrome in the chrome's tokens", () => {
     const pairs: [string, string][] = [
-      [chart.CHART_GRID, "--kd-hover"],
-      [chart.CHART_AXIS, "--kd-seam"],
       [chart.CHART_TICK_INK, "--kd-text-4"],
       [chart.CHART_LEGEND_INK, "--kd-text-3"],
       [chart.CHART_ITEM_INK, "--kd-text-2"],
@@ -199,31 +227,31 @@ describe("the design tokens", () => {
     // Tiles cast nothing; a dialog, the dock, a popover, a menu and a
     // tooltip all sit at the same height above them, so they share one
     // shadow — twelve hand-tuned ones made twelve heights.
-    const floating: [string, string][] = [
-      ["form.css", ".form"],
-      ["confirm.css", ".confirm"],
-      ["dock.css", ".dock--floating"],
-      ["peek.css", ".peek__panel"],
-      ["usage.css", ".usage-panel"],
-      ["notifications.css", ".bell__panel"],
-      ["form.css", ".dropdown__menu"],
-      ["tooltip.css", ".kd-tip"],
-      ["minimize.css", ".minimized-overflow"],
-      ["minimize.css", ".minimized-tooltip"],
-      ["tasks.css", ".tasks__detail"],
-    ];
-    for (const [file, selector] of floating) {
-      expect(ruleBody(readStyles(file), selector)["box-shadow"], selector).toBe("var(--kd-shadow-float)");
+    expect(ruleBody(readStyles("dock.css"), ".dock--floating")["box-shadow"]).toBe(
+      "var(--kd-shadow-float)",
+    );
+    // Every other floating thing wears it through the one shell (float.css).
+    for (const selector of [
+      ".form",
+      ".confirm",
+      ".peek__panel",
+      ".usage-panel",
+      ".bell__panel",
+      ".dropdown__menu",
+      ".kd-tip",
+      ".minimized-overflow",
+      ".minimized-tooltip",
+      ".tasks__detail",
+    ]) {
+      expect(floatShell(), selector).toContain(selector);
     }
-    // A drop shadow in black anywhere else is a height of its own. The
-    // pane being dragged is the one thing lifted higher than a dialog.
+    // A drop shadow in black anywhere else is a height of its own.
     const stray = allSheets()
       .flatMap(([file, css]) =>
         [...css.matchAll(/([^{}]+)\{[^{}]*box-shadow:[^;]*(?:rgba?\(0,? 0,? 0|#000\b|\bblack\b)[^;]*;/g)].map(
           ([, selector]) => `${file}: ${selector.trim()}`,
         ),
-      )
-      .filter((hit) => !hit.includes(".pane-drag-ghost"));
+      );
     expect(stray).toEqual([]);
   });
 

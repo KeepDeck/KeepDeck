@@ -4,6 +4,8 @@ import type { InlineRename } from "./useInlineRename";
 interface RenameInputProps {
   /** The rename in progress — its draft and its commit/cancel keys. */
   rename: InlineRename;
+  /** The site's own class — its size and place in the row. The field's
+   * look is `.rename-input`'s (rename.css), the same everywhere. */
   className: string;
   /** What a screen reader calls the field. */
   label: string;
@@ -21,7 +23,7 @@ export function RenameInput({ rename, className, label, contained }: RenameInput
     <input
       {...noAutoCorrect}
       {...rename.inputProps}
-      className={className}
+      className={`rename-input ${className}`}
       autoFocus
       aria-label={label}
       onMouseDown={stop}

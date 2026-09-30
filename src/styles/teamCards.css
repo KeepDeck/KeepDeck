@@ -103,8 +103,8 @@
 }
 
 .team-card__open:focus-visible {
-  outline: 2px solid var(--kd-ok);
-  outline-offset: 2px;
+  outline: 1px solid var(--kd-focus);
+  outline-offset: -1px;
   border-radius: var(--kd-radius-mark);
 }
 
@@ -121,15 +121,8 @@
 /* Inline rename of the name — the pane title's field, at the card's size. */
 .team-card__rename {
   flex: 1 1 auto;
-  min-width: 0;
   padding: 1px 4px;
-  border: 1px solid var(--kd-seam-strong);
-  border-radius: var(--kd-radius-mark);
-  background-color: var(--kd-canvas);
-  color: var(--kd-text-2);
-  font: inherit;
   font-size: var(--kd-font-normal);
-  outline: none;
 }
 
 .team-card__menu {

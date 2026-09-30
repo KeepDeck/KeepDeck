@@ -22,7 +22,9 @@
   /* Hover and the seam are TWO tokens with a difference the eye can see:
      a hovered row must not read as a line, nor a line as a hover. Hover is
      a fill one step above the tile; the seam is a line two steps above it,
-     so it still reads where it crosses a hovered fill. */
+     so it still reads where it crosses a hovered fill. The seam is also
+     every meter's TRACK (progress ring, usage and voice bars): the fill
+     over it is always lighter than it. */
   --kd-hover: #1b1b1f;
   --kd-selected: #242428;
   --kd-seam: #2a2a2f;

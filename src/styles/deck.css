@@ -133,17 +133,7 @@ button.deck__ws-name--up:hover {
   width: 180px;
   height: 26px;
   padding: 0 7px;
-  border: 1px solid var(--kd-seam-strong);
-  border-radius: var(--kd-radius-control);
-  background-color: var(--kd-tile);
-  color: var(--kd-text);
-  font: inherit;
   font-size: var(--kd-font-normal);
-  outline: none;
-}
-
-.deck__ws-rename:focus {
-  border-color: var(--kd-focus);
 }
 
 /* The team's crumb is the brightest word on the bar: it is what the stage

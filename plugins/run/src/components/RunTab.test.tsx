@@ -489,6 +489,15 @@ describe("RunTab — Open in", () => {
 
   const row = () => document.querySelector<HTMLElement>(".run__open");
 
+  it("logs an open the OS refuses, naming the app and the target", async () => {
+    opener.openPathWith.mockRejectedValueOnce({ code: 2 });
+    await mount();
+    await act(async () => byText("Open")!.click());
+    expect(ctx.log.warn).toHaveBeenCalledWith(
+      'Open in Visual Studio Code failed for /wt/b: {"code":2}',
+    );
+  });
+
   it("opens the CURRENT target in the list's first app when nothing is picked", async () => {
     await mount(); // pane-2 highlighted → target /wt/b
     act(() => byText("Open")!.click());
