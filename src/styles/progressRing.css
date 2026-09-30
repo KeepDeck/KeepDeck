@@ -27,7 +27,9 @@
 }
 
 /* The track, cut to a 2px band by a mask — no painted hole, so the ring
-   sits on any surface. Mirrored so the fill runs counter-clockwise. */
+   sits on any surface. Mirrored so the fill runs counter-clockwise. The
+   mask's #000 is ink, not paint: a mask reads only alpha, so it is no
+   colour and no token. */
 .progress-ring::before {
   content: "";
   position: absolute;
