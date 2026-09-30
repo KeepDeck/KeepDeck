@@ -3,7 +3,7 @@ import { team, teamedWorkspace, workspace } from "../domain/deck/reducer.testSup
 import type { Workspace } from "../domain/deck";
 import type { PaneActivity } from "../domain/status";
 import {
-  attentionTrigger,
+  bellTrigger,
   needsYouAge,
   needsYouRows,
   type NeedsYouRow,
@@ -77,32 +77,10 @@ describe("needsYouRows", () => {
   });
 });
 
-describe("attentionTrigger", () => {
-  const row = (tone: NeedsYouRow["tone"]): NeedsYouRow => ({
-    wsId: "w",
-    paneId: "p",
-    tone,
-    title: "t",
-    where: "w",
-    label: "l",
-    since: 0,
-  });
-
-  it("is always the bell — never words — counting unread where the list is on", () => {
-    expect(attentionTrigger([row("failed"), row("waiting")], { unread: 3 })).toEqual({
-      badge: "3",
-      label: "Notifications (3 unread)",
-    });
-    expect(attentionTrigger([], { unread: 0 })).toEqual({ badge: null, label: "Notifications" });
-    expect(attentionTrigger([], { unread: 120 })).toMatchObject({ badge: "99+" });
-  });
-
-  it("with the list off, counts the agents that need you, and is nothing when none do", () => {
-    expect(attentionTrigger([row("waiting")], null)).toEqual({ badge: "1", label: "1 agent needs you" });
-    expect(attentionTrigger([row("failed"), row("waiting")], null)).toEqual({
-      badge: "2",
-      label: "2 agents need you",
-    });
-    expect(attentionTrigger([], null)).toBeNull();
+describe("bellTrigger", () => {
+  it("counts unread notifications, capped for the badge, and names itself", () => {
+    expect(bellTrigger(0)).toEqual({ badge: null, label: "Notifications" });
+    expect(bellTrigger(3)).toEqual({ badge: "3", label: "Notifications (3 unread)" });
+    expect(bellTrigger(120)).toMatchObject({ badge: "99+" });
   });
 });

@@ -6,7 +6,7 @@ import { useNotifications } from "../../app/useNotifications";
 import { unreadCount, type Notification } from "../../domain/notifications";
 import { formatAge, formatTimestamp } from "../../domain/usage";
 import {
-  attentionTrigger,
+  bellTrigger,
   ATTENTION_WORDS,
   needsYouAge,
   type NeedsYouRow,
@@ -14,9 +14,8 @@ import {
 import { isBehindModalLayer } from "../../ui/inertBackground";
 
 interface NotificationBellProps {
-  /** The agents blocked on the person, across every workspace — shown
-   * whatever the notification settings say, because it is the deck's live
-   * state, not a feed. `onOpen` brings the agent forward. */
+  /** The agents blocked on the person, across every workspace — listed at
+   * the top of the panel. `onOpen` brings the agent forward. */
   needsYou: {
     rows: readonly NeedsYouRow[];
     onOpen(row: NeedsYouRow): void;
@@ -33,10 +32,10 @@ interface NotificationBellProps {
 }
 
 /**
- * The notification bell. Always a bell — the count is its badge, never
- * words — and absent only with the in-app list off and nobody waiting. Its
- * anchored panel lists the agents that need the person first, then the
- * notification history (newest first).
+ * The notification bell — the in-app list's, so with that list off there is
+ * no bell. Its badge counts unread notifications. Its anchored panel lists
+ * the agents that need the person first, then the notification history
+ * (newest first).
  * Clicking an agent brings it forward; clicking an entry marks it read and
  * navigates to its source.
  */
@@ -54,13 +53,12 @@ export function NotificationBell({
   const rootRef = useRef<HTMLSpanElement>(null);
   const bellButtonRef = useRef<HTMLButtonElement>(null);
   const unread = unreadCount(notifications);
-  const trigger = attentionTrigger(needsYou.rows, center && { unread });
+  const trigger = bellTrigger(unread);
   const rows = needsYou.rows;
 
-  // With the in-app list off, the bell goes when the last blocked agent is
-  // answered, and takes its panel with it — it must not come back already
-  // open.
-  const shown = trigger !== null;
+  // Turning the in-app list off takes the bell and its panel away — and
+  // turning it back on must not bring the panel back already open.
+  const shown = feed !== null;
   useEffect(() => {
     if (!shown) setOpen(false);
   }, [shown]);
@@ -92,7 +90,7 @@ export function NotificationBell({
 
   const now = openedAt;
 
-  if (!trigger) return null;
+  if (!feed) return null;
 
   return (
     <span className="bell" ref={rootRef}>

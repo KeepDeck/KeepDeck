@@ -262,14 +262,7 @@ describe("NotificationBell", () => {
       since: Date.now(),
     });
 
-    it("stays a bell — the count is a badge, never words", () => {
-      mount([row("p2", "failed"), row("p1", "waiting")], false);
-      expect(bellButton().querySelector("svg")).not.toBeNull();
-      expect(bellButton().textContent).toBe("2");
-      expect(bellButton().getAttribute("aria-label")).toBe("2 agents need you");
-    });
-
-    it("with the list on, counts only unread notifications — waiting agents are in its panel", () => {
+    it("stays a bell counting unread notifications — waiting agents are in its panel", () => {
       mount([row("p1", "waiting")], true);
       expect(bellButton().querySelector("svg")).not.toBeNull();
       expect(bellButton().querySelector(".bell__badge")).toBeNull();
@@ -316,15 +309,14 @@ describe("NotificationBell", () => {
       }
     });
 
-    it("shows even with the notification list off, and nothing once nobody waits", () => {
+    it("is not there with the notification list off, however many agents wait", () => {
       mount([row("p1", "waiting")], false);
-      act(() => bellButton().click());
-      expect(document.querySelector(".bell__section--feed")).toBeNull();
-      expect(document.querySelectorAll(".bell__list--needs .bell__item")).toHaveLength(1);
-      mount([], false);
       expect(document.querySelector(".bell")).toBeNull();
-      // Coming back, it does not come back already open.
+      // Turned back on after being opened, it does not come back open.
+      mount([row("p1", "waiting")], true);
+      act(() => bellButton().click());
       mount([row("p1", "waiting")], false);
+      mount([row("p1", "waiting")], true);
       expect(document.querySelector(".bell__panel")).toBeNull();
     });
   });

@@ -1,5 +1,5 @@
 /**
- * What the bell says — its badge and the "Needs you" list in its panel — decided apart from the markup, the [`stripView`] precedent.
+ * What the bell says — its badge, and the "Needs you" list in its panel — decided apart from the markup, the [`stripView`] precedent.
  *
  * The list is the deck's answer to "who is blocked on me", across every
  * workspace: an agent waiting for a person, or one whose turn died. Failed
@@ -31,11 +31,13 @@ export interface NeedsYouRow {
   since: number;
 }
 
-/** What the bar's trigger shows: always the bell, never words — with the
- * unread count where the in-app list is on, else the count of agents that
- * need the person (the only thing its panel then holds); nothing at all
- * when there is neither a list nor anyone waiting. */
-export type AttentionTrigger = { badge: string | null; label: string } | null;
+/** What the bell shows: its unread badge and its name. The bell is the
+ * in-app notification list's — with the list off there is no bell — and
+ * the agents that need the person sit at the top of its panel, not on it. */
+export interface BellTrigger {
+  badge: string | null;
+  label: string;
+}
 
 /** The blocked agents (domain `blockedAgents`: who, and in what order), in
  * words. */
@@ -60,20 +62,12 @@ export function needsYouAge(row: NeedsYouRow, now: number): string {
   return formatAge(row.since, now, "bare");
 }
 
-/** The trigger for `rows`, given whether the in-app notification list is on
- * and how much of it is unread. */
-export function attentionTrigger(
-  rows: readonly NeedsYouRow[],
-  bell: { unread: number } | null,
-): AttentionTrigger {
-  if (!bell && rows.length === 0) return null;
-  const count = bell ? bell.unread : rows.length;
-  const label = bell
-    ? count > 0
-      ? `${ATTENTION_WORDS.notifications} (${count} unread)`
-      : ATTENTION_WORDS.notifications
-    : `${count === 1 ? "1 agent needs" : `${count} agents need`} you`;
-  return { badge: count > 0 ? (count > 99 ? "99+" : String(count)) : null, label };
+/** The bell for `unread` unread notifications. */
+export function bellTrigger(unread: number): BellTrigger {
+  return {
+    badge: unread > 0 ? (unread > 99 ? "99+" : String(unread)) : null,
+    label: unread > 0 ? `${ATTENTION_WORDS.notifications} (${unread} unread)` : ATTENTION_WORDS.notifications,
+  };
 }
 
 /** Every word the attention panel says. */
