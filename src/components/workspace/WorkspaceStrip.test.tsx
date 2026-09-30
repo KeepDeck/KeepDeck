@@ -197,13 +197,37 @@ describe("WorkspaceStrip drag reorder", () => {
     });
     expect(document.querySelector(".strip__ghost")).not.toBeNull();
     expect(document.querySelector(".strip--revealed")).toBeNull();
-    // And it stays shut once the drop settles — the drag closed it, it did
-    // not merely hide it for the drag's length.
+    // The drop settles (140ms + its 100ms safety) with the pointer still on
+    // the column: the strip is SHUT — the drag closed it rather than hiding
+    // it for the drag's length — and a fresh rest opens it again, though no
+    // pointer ever re-entered.
     act(() => {
+      window.dispatchEvent(pointerEvent("pointerup", { clientY: 70 }));
+      vi.advanceTimersByTime(240);
+    });
+    expect(document.querySelector(".strip__ghost")).toBeNull();
+    expect(document.querySelector(".strip--revealed")).toBeNull();
+    act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS));
+    expect(document.querySelector(".strip--revealed")).not.toBeNull();
+  });
+
+  it("stays shut after a drop that ends off the column", () => {
+    act(() => root.render(createElement(Harness)));
+    const col = document.querySelector(".strip__col")!;
+    act(() => {
+      col.dispatchEvent(
+        new PointerEvent("pointerover", { bubbles: true, relatedTarget: document.body }),
+      );
+      markEl("b").dispatchEvent(pointerEvent("pointerdown", { clientY: 70 }));
+      vi.advanceTimersByTime(300);
+    });
+    act(() => {
+      col.dispatchEvent(
+        new PointerEvent("pointerout", { bubbles: true, relatedTarget: document.body }),
+      );
       window.dispatchEvent(pointerEvent("pointerup", { clientY: 70 }));
       vi.advanceTimersByTime(1000);
     });
-    expect(document.querySelector(".strip__ghost")).toBeNull();
     expect(document.querySelector(".strip--revealed")).toBeNull();
   });
 
