@@ -51,6 +51,18 @@ describe("the usage chips", () => {
     expect(ruleBody(usage, ".usage").gap).toBeUndefined();
     expect(ruleBody(usage, ".usage-chip").padding).toBe("0 7px");
   });
+
+  it("centre each agent's mark in its ring, free of any line box", () => {
+    // An inline svg sits on the font's baseline and drifts by its descent.
+    const usage = readStyles("usage.css");
+    expect(ruleBody(usage, ".usage-ring")).toMatchObject({ display: "inline-grid", "place-items": "center" });
+    expect(ruleBody(usage, ".usage-ring__glyph")).toMatchObject({
+      display: "grid",
+      "place-items": "center",
+      "line-height": "0",
+    });
+    expect(ruleBody(usage, ".usage-ring__glyph svg").display).toBe("block");
+  });
 });
 
 describe("the bar's height", () => {

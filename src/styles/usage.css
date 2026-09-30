@@ -70,12 +70,13 @@
   transform: scaleX(-1);
 }
 
+/* The ring's hole: the bar's own surface, so only the ring reads. */
 .usage-ring::before {
   content: "";
   position: absolute;
   inset: 2px;
   border-radius: 50%;
-  background-color: var(--kd-strip);
+  background-color: var(--kd-canvas);
 }
 
 .usage-ring--warn {
@@ -86,12 +87,24 @@
   --usage-ring-hue: var(--kd-err);
 }
 
+/* The mark sits dead centre in the ring: a fixed square box centred by the
+   ring's grid, the mark centred in it, and no line box around the svg —
+   an inline svg sits on the font's baseline and drifts by its descent. */
 .usage-ring__glyph {
   position: relative;
-  display: inline-flex;
-  font-size: var(--kd-font-small);
+  display: grid;
+  place-items: center;
+  width: 12px;
+  height: 12px;
+  line-height: 0;
   color: var(--kd-text-2);
   transform: scaleX(-1);
+}
+
+.usage-ring__glyph svg {
+  display: block;
+  width: 11px;
+  height: 11px;
 }
 
 .usage-chip__na {
