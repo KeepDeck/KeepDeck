@@ -49,9 +49,8 @@
   display: inline-flex;
   flex: none;
   padding: 2px;
-  border: 1px solid var(--kd-seam);
   border-radius: var(--kd-radius-control);
-  background: var(--kd-bg);
+  background: var(--kd-tile);
 }
 
 .stats__period button {
@@ -145,8 +144,10 @@
   margin-bottom: 18px;
 }
 
-/* The concept's tile: a step down from the dialog's float surface, no
-   border — depth by lightness, the chrome's rule. */
+/* EVERY block in the statistics dialog — cards, chart, tables, provider
+   cards, achievements, the period switcher — sits on the concept's tile: a
+   step down from the dialog's float surface, no border. Depth by lightness,
+   the chrome's rule. */
 .stats__card {
   display: flex;
   flex-direction: column;
@@ -181,12 +182,11 @@
   text-overflow: ellipsis;
 }
 
-/* The Overview chart sits on its own tile: depth by a step down to the
-   canvas, no border. */
+/* The Overview chart sits on its own tile (see .stats__card). */
 .stats__chart {
   padding: 14px 16px 10px;
   border-radius: var(--kd-radius-tile);
-  background: var(--kd-bg);
+  background: var(--kd-tile);
 }
 
 /* The Overview chart's hover card. Shaped after usage.css's burn tooltip —
@@ -320,8 +320,8 @@
 }
 
 .stats__table {
-  border: 1px solid var(--kd-seam);
-  border-radius: var(--kd-radius-pop);
+  border-radius: var(--kd-radius-tile);
+  background: var(--kd-tile);
   overflow: hidden;
 }
 

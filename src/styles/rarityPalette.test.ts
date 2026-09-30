@@ -34,7 +34,7 @@ describe("the rarity palette", () => {
   it("keeps epic on the same violet chartPalette spends", () => {
     // Written out rather than shared, because the two live in different
     // languages and neither can import the other — the same reason
-    // chartPalette itself writes out --kd-bg.
+    // chartPalette itself writes out its chrome inks.
     expect(customProperty(achievements, "--rarity-epic")).toBe(SPARE_SLOTS[2]);
   });
 
