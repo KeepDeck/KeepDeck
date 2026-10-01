@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { StripTeam, StripView, WorkspaceMark } from "../../presentation/stripView";
 import { WorkspaceStrip } from "./WorkspaceStrip";
-import { STRIP_REVEAL_DWELL_MS, STRIP_REVEAL_GRACE_MS } from "./useStripReveal";
+import { STRIP_REVEAL_DWELL_MS, STRIP_REVEAL_GRACE_MS } from "../../presentation/stripReveal";
 
 (
   globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -74,6 +74,8 @@ describe("WorkspaceStrip", () => {
     const marks = groups.map((group) => group.querySelector<HTMLElement>(".strip__mark")!);
     expect(marks[0].classList.contains("strip__mark--active")).toBe(true);
     expect(marks[0].getAttribute("aria-current")).toBe("true");
+    // Not "false" on every other mark: no attribute at all.
+    expect(marks[1].hasAttribute("aria-current")).toBe(false);
     expect(marks[1].querySelector(".strip__dot")?.className).toBe("strip__dot strip__dot--waiting");
     expect(marks[1].getAttribute("aria-label")).toBe("Beta — someone needs you");
     expect(marks[2].querySelector(".strip__dot")).toBeNull();
@@ -199,8 +201,8 @@ describe("WorkspaceStrip drag reorder", () => {
       col.dispatchEvent(
         new PointerEvent("pointerover", { bubbles: true, relatedTarget: document.body }),
       );
-      vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS);
     });
+    act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS));
     act(() => {
       markEl("b").dispatchEvent(pointerEvent("pointerdown", { clientY: 70 }));
       vi.advanceTimersByTime(300);
@@ -226,9 +228,11 @@ describe("WorkspaceStrip drag reorder", () => {
     act(() => root.render(createElement(Harness)));
     const col = document.querySelector(".strip__col")!;
     act(() => {
-      col.dispatchEvent(new PointerEvent("pointerover", { bubbles: true, relatedTarget: document.body }));
-      vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS);
+      col.dispatchEvent(
+        new PointerEvent("pointerover", { bubbles: true, relatedTarget: document.body }),
+      );
     });
+    act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS));
     act(() => {
       markEl("b").dispatchEvent(pointerEvent("pointerdown", { clientY: 70 }));
       vi.advanceTimersByTime(300);
@@ -471,8 +475,9 @@ describe("WorkspaceStrip as the team switcher", () => {
   it("keeps a shut strip marks only: no team rows, and no toggle in reach", () => {
     render();
     expect(host.querySelector(".strip__teams")).toBeNull();
-    expect(toggleOf("a")!.tabIndex).toBe(-1);
-    expect(toggleOf("a")!.getAttribute("aria-hidden")).toBe("true");
+    // Inert, not merely skipped by Tab: no click, no script, no reader
+    // reaches a control past the shut edge.
+    expect(toggleOf("a")!.inert).toBe(true);
     // A workspace with no teams has nothing to toggle.
     expect(toggleOf("c")).toBeNull();
   });
@@ -482,6 +487,8 @@ describe("WorkspaceStrip as the team switcher", () => {
     openStrip();
     expect(listed()).toEqual(["a"]);
     expect(toggleOf("a")!.getAttribute("aria-expanded")).toBe("true");
+    expect(toggleOf("a")!.inert).toBe(false);
+    expect(host.querySelector(".strip__teams")!.getAttribute("aria-label")).toBe("Alpha");
     const rows = [...host.querySelectorAll<HTMLButtonElement>(".strip__team")];
     expect(rows.map((row) => row.textContent)).toEqual(["api", "web"]);
     expect(rows[0].getAttribute("aria-current")).toBe("true");
@@ -646,8 +653,8 @@ describe("WorkspaceStrip dragging from the open strip", () => {
       document.querySelector(".strip__col")!.dispatchEvent(
         new PointerEvent("pointerover", { bubbles: true, relatedTarget: document.body }),
       );
-      vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS);
     });
+    act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS));
     act(() => {
       markOf("b").dispatchEvent(pointerEvent("pointerdown", { clientY: 120 }));
       vi.advanceTimersByTime(300);
@@ -662,8 +669,8 @@ describe("WorkspaceStrip dragging from the open strip", () => {
       document.querySelector(".strip__col")!.dispatchEvent(
         new PointerEvent("pointerover", { bubbles: true, relatedTarget: document.body }),
       );
-      vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS);
     });
+    act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS));
     const alphaRows = () => document.querySelectorAll('[data-ws-id="a"] .strip__team').length;
     expect(alphaRows()).toBe(2);
     act(() => {
@@ -691,8 +698,8 @@ describe("WorkspaceStrip dragging from the open strip", () => {
       document.querySelector(".strip__col")!.dispatchEvent(
         new PointerEvent("pointerover", { bubbles: true, relatedTarget: document.body }),
       );
-      vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS);
     });
+    act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS));
     // Alpha lists two teams: Gamma sits at 50 + 56 + 50 = 156.
     act(() => {
       markOf("c").dispatchEvent(pointerEvent("pointerdown", { clientY: 170 }));

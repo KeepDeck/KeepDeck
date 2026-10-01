@@ -60,6 +60,9 @@ export interface MotionHandle {
   /** Stop where it is, without landing or reporting done — a motion the
    * other way takes over from the height it reached. */
   stop(): void;
+  /** Keep moving the height, but stop writing the scroll — another motion
+   * now owns the scroll, and two writing it every frame would fight. */
+  releaseScroll(): void;
 }
 
 /** Run one list motion. */
@@ -70,11 +73,12 @@ export function animateTeamList(
 ): MotionHandle {
   const { block, list, from, to, scrollTo, durationMs } = motion;
   const scrollFrom = list.scrollTop;
+  let scrollTarget = scrollTo;
   let frame: number | null = null;
   let done = false;
   const land = (progress: number) => {
     block.style.height = `${from + (to - from) * progress}px`;
-    if (scrollTo !== null) list.scrollTop = scrollFrom + (scrollTo - scrollFrom) * progress;
+    if (scrollTarget !== null) list.scrollTop = scrollFrom + (scrollTarget - scrollFrom) * progress;
   };
   const finish = () => {
     if (done) return;
@@ -83,6 +87,9 @@ export function animateTeamList(
     land(1);
     onDone?.();
   };
+  const releaseScroll = () => {
+    scrollTarget = null;
+  };
   const stop = () => {
     if (done) return;
     done = true;
@@ -90,7 +97,7 @@ export function animateTeamList(
   };
   if (durationMs <= 0) {
     finish();
-    return { finish, stop };
+    return { finish, stop, releaseScroll };
   }
   const start = clock.now();
   const step = (time: number) => {
@@ -103,5 +110,5 @@ export function animateTeamList(
   };
   land(0);
   frame = clock.frame(step);
-  return { finish, stop };
+  return { finish, stop, releaseScroll };
 }

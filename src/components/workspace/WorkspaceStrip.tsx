@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronIcon, PlusIcon } from "@keepdeck/ui-kit/icons";
-import { collectMarkRects } from "../../app/stripDnd";
+import { collectMarkRects, markGroups } from "../../app/stripDnd";
 import {
   animateElementReorder,
   animateFixedElementToRect,
@@ -11,9 +11,11 @@ import {
 } from "../../app/dragManager";
 import { markAtY } from "../../domain/deck";
 import { STRIP_WORDS, type StripView, type WorkspaceMark } from "../../presentation/stripView";
-import { teamsToggleView } from "../../presentation/stripExpand";
+import { stripGroupView } from "../../presentation/stripExpand";
 import { useStripReveal } from "./useStripReveal";
 import { stripTeamsId, useStripTeams } from "./useStripTeams";
+import { STRIP_MOTION_MS } from "../../app/stripTeamsMotion";
+import { useKeepActiveInView } from "./useKeepActiveInView";
 
 interface WorkspaceStripProps {
   view: StripView;
@@ -34,7 +36,8 @@ interface WorkspaceStripProps {
 const LONG_PRESS_MS = 300;
 /** Moving more than this before the hold arms cancels it — it wasn't a hold. */
 const MOVE_CANCEL_PX = 10;
-const REORDER_ANIMATION_MS = 140;
+/** The reorder's motion runs on the strip's one clock. */
+const REORDER_ANIMATION_MS = STRIP_MOTION_MS;
 
 interface DragSource {
   mark: WorkspaceMark;
@@ -59,10 +62,12 @@ interface DragGhost {
  * marks under it (press-and-hold one to drag it to a new place), the build
  * at the foot. Resting the pointer on it opens it over the stage — the
  * stage does not move (`useStripReveal`) — as the team switcher: each
- * workspace's full name beside its mark, and one workspace's teams under
- * it (`useStripTeams`). A mark goes to its workspace (the team it last had
- * open, or its cards screen); a chevron moves the one list; a team row
- * goes to that team. The cards screen stays the keyboard's way to a team.
+ * workspace's full name beside its mark, and the teams of every workspace
+ * whose list is open under it (`useStripTeams`). A mark goes to its
+ * workspace (the team it last had open, or its cards screen); a chevron
+ * opens or folds its own list; a team row goes to that team. A drag holds
+ * the strip as it is, folding only the dragged workspace's own list. The
+ * cards screen stays the keyboard's way to a team.
  */
 export function WorkspaceStrip({
   view,
@@ -75,8 +80,13 @@ export function WorkspaceStrip({
   const [ghost, setGhost] = useState<DragGhost | null>(null);
   const reveal = useStripReveal(ghost !== null);
 
-  const listRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
   const teams = useStripTeams(reveal.open, ghost?.mark.id ?? null, view, listRef);
+  useKeepActiveInView(
+    listRef,
+    view.marks.find((mark) => mark.active)?.id ?? null,
+    !reveal.open && ghost === null,
+  );
   const ghostRef = useRef<HTMLDivElement>(null);
   const flipBefore = useRef<ElementRectSnapshot | null>(null);
   const cancelSettle = useRef<(() => void) | null>(null);
@@ -92,7 +102,7 @@ export function WorkspaceStrip({
     if (!list || !flipBefore.current) return;
     const before = flipBefore.current;
     flipBefore.current = null;
-    animateElementReorder(markElements(list), markId, before, {
+    animateElementReorder(markGroups(list), markId, before, {
       durationMs: REORDER_ANIMATION_MS,
     });
   }, [view.marks]);
@@ -107,7 +117,7 @@ export function WorkspaceStrip({
 
   const settleGhost = (id: string) => {
     const ghostEl = ghostRef.current;
-    const slot = markElements(listRef.current).find((el) => markId(el) === id);
+    const slot = markGroups(listRef.current).find((el) => markId(el) === id);
     if (!ghostEl || !slot) {
       setGhost(null);
       return;
@@ -151,7 +161,7 @@ export function WorkspaceStrip({
       if (!overId || overId === source.mark.id) return;
       const toIndex = rects.findIndex((r) => r.id === overId);
       if (toIndex < 0) return;
-      flipBefore.current = snapshotElementRects(markElements(list), markId);
+      flipBefore.current = snapshotElementRects(markGroups(list), markId);
       onReorder(source.mark.id, toIndex);
     },
     onDrop: ({ source }) => settleGhost(source.mark.id),
@@ -188,26 +198,26 @@ export function WorkspaceStrip({
             {STRIP_WORDS.addWorkspace}
           </span>
         </button>
-        <div
+        <ul
           ref={listRef}
           className={`strip__marks${ghost ? " strip__marks--reordering" : ""}`}
         >
           {view.marks.map((mark) => {
-            const expanded = teams.isExpanded(mark.id);
-            const toggle = teamsToggleView(mark, expanded);
+            const group = stripGroupView(
+              mark,
+              { expanded: teams.isExpanded(mark.id), drawn: teams.isDrawn(mark.id) },
+              { open: reveal.open, draggedId: ghost?.mark.id ?? null },
+            );
+            const toggle = group.toggle;
             const listId = stripTeamsId(mark.id);
-            // Drawn while listed and while folding away.
-            const drawn = teams.isDrawn(mark.id);
             return (
               // The GROUP is the reorder's item (data-ws-id), unpositioned
               // so the list stays the offsetParent the hit-test measures
               // through — and a reorder carries the teams with their mark.
-              <div
+              <li
                 key={mark.id}
                 data-ws-id={mark.id}
-                className={`strip__group${
-                  mark.id === ghost?.mark.id ? " strip__group--placeholder" : ""
-                }`}
+                className={`strip__group${group.placeholder ? " strip__group--placeholder" : ""}`}
               >
                 <div className="strip__head">
                   <button
@@ -218,7 +228,7 @@ export function WorkspaceStrip({
                       reveal.dismiss();
                     }}
                     onPointerDown={(e) => onMarkPointerDown(e, mark)}
-                    aria-current={mark.active}
+                    aria-current={mark.active || undefined}
                     aria-label={mark.label}
                     title={mark.label}
                   >
@@ -234,12 +244,9 @@ export function WorkspaceStrip({
                       onClick={() => teams.toggle(mark.id)}
                       aria-label={toggle.label}
                       title={toggle.label}
-                      aria-expanded={expanded}
-                      aria-controls={expanded ? listId : undefined}
-                      // Past the shut edge it is out of sight: out of reach
-                      // too, until the strip opens.
-                      tabIndex={reveal.open ? 0 : -1}
-                      aria-hidden={!reveal.open}
+                      aria-expanded={toggle.expanded}
+                      aria-controls={toggle.expanded ? listId : undefined}
+                      inert={!toggle.reachable}
                     >
                       {toggle.count !== null && (
                         <span className="strip__count">{toggle.count}</span>
@@ -248,10 +255,10 @@ export function WorkspaceStrip({
                     </button>
                   )}
                 </div>
-                {drawn && (
+                {group.listDrawn && (
                   // Rendered only while listed: a shut strip holds no
                   // hidden rows to tab into.
-                  <ul id={listId} className="strip__teams">
+                  <ul id={listId} className="strip__teams" aria-label={mark.name}>
                     {mark.teams.map((team) => (
                       <li key={team.id}>
                         <button
@@ -261,7 +268,7 @@ export function WorkspaceStrip({
                             onEnterTeam(mark.id, team.id);
                             reveal.dismiss();
                           }}
-                          aria-current={team.open}
+                          aria-current={team.open || undefined}
                           aria-label={team.label}
                           title={team.label}
                         >
@@ -272,10 +279,10 @@ export function WorkspaceStrip({
                     ))}
                   </ul>
                 )}
-              </div>
+              </li>
             );
           })}
-        </div>
+        </ul>
         {version !== null && (
           <footer className="strip__foot" title={STRIP_WORDS.build(version)}>
             {version}
@@ -318,10 +325,6 @@ function MarkFace({ mark }: { mark: WorkspaceMark }) {
   );
 }
 
-function markElements(list: HTMLElement | null): HTMLElement[] {
-  if (!list) return [];
-  return [...list.querySelectorAll<HTMLElement>("[data-ws-id]")];
-}
 
 function markId(element: HTMLElement): string {
   return element.dataset.wsId ?? "";

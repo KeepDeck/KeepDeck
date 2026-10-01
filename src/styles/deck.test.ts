@@ -158,6 +158,14 @@ describe("the workspace strip's open column", () => {
     expect(focus["outline-offset"]).toBe("-1px");
   });
 
+  it("runs every strip motion on the one clock and curve", () => {
+    // The column's shadow and the chevron's turn too — a literal left
+    // behind drifts the moment the clock changes.
+    const curve = `${STRIP_MOTION_MS}ms cubic-bezier(0.33, 1, 0.68, 1)`;
+    expect(ruleBody(strip, ".strip__col").transition).toContain(`box-shadow ${curve}`);
+    expect(ruleBody(strip, ".strip__toggle svg").transition).toBe(`transform ${curve}`);
+  });
+
   it("widens on the clock its team lists move on, so the edge and a list arrive together", () => {
     const transition = ruleBody(strip, ".strip__col").transition;
     // Same duration AND the same curve: the lists move on 1 − (1 − x)³.
@@ -169,11 +177,12 @@ describe("the workspace strip's open column", () => {
     // painted over the marks below, and no margin may sit outside the box.
     const teams = ruleBody(strip, ".strip__teams");
     expect(teams.overflow).toBe("hidden");
-    // The motion writes scrollHeight (padding included) as the height: a
-    // content-box would add the padding twice and bounce at the end.
-    expect(teams["box-sizing"]).toBe("border-box");
-    expect(teams.margin ?? "0").toBe("0");
-    expect(teams["margin-bottom"]).toBeUndefined();
+    // No padding or margin on the driven box: its own padding would hold a
+    // "0" height at 4px (a twitch on every mount and fold end), and a
+    // margin sits outside the motion. The room is the last row's, inside.
+    expect(teams.padding).toBe("0");
+    expect(teams.margin).toBe("0");
+    expect(ruleBody(strip, ".strip__teams > li:last-child")["padding-bottom"]).toBe("4px");
   });
 
   it("rests the chevron's turn under reduced motion, with the strip's other motion", () => {

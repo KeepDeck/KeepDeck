@@ -2,9 +2,8 @@ import { useEffect, useLayoutEffect, useReducer, useRef, type RefObject } from "
 import {
   NOTHING_LISTED,
   expandTeams,
-  revealScrollTarget,
-  scrollAfterCollapse,
-  scrollToShow,
+  listChanges,
+  planListMotions,
 } from "../../presentation/stripExpand";
 import type { StripView } from "../../presentation/stripView";
 import {
@@ -23,8 +22,9 @@ export const stripTeamsId = (wsId: string) => `strip-teams-${wsId}`;
  * The slid-open strip's team lists: which are listed (`expandTeams`
  * decides) and how they move. Opening lists the active workspace's teams
  * and the ones kept open last time; a chevron opens or folds any list;
- * shutting folds them away with the strip. A drag changes nothing here:
- * the strip holds open through it, lists and all.
+ * shutting folds them away with the strip. A drag holds the strip as it
+ * is — except the dragged workspace's own list, which folds out of the way
+ * and reopens where it lands.
  *
  * Every list motion runs height and scroll on one curve
  * (`animateTeamList`), to the numbers `stripExpand` computes — the row a
@@ -33,9 +33,8 @@ export const stripTeamsId = (wsId: string) => `strip-teams-${wsId}`;
  */
 export function useStripTeams(
   open: boolean,
-  /** The workspace a drag holds, or null. Its own list folds out of the
-   * way at once and reopens where it lands; while a drag is in flight the
-   * resting scroll-into-view holds off. */
+  /** The workspace a drag holds, or null: its own list folds out of the
+   * way, and reopens where it lands. */
   dragged: string | null,
   view: StripView,
   listRef: RefObject<HTMLElement | null>,
@@ -48,7 +47,11 @@ export function useStripTeams(
   useLayoutEffect(() => {
     dispatch(
       open
-        ? { kind: "open", activeId: active?.id ?? "", activeHasTeams: (active?.teams.length ?? 0) > 0 }
+        ? {
+            kind: "open",
+            activeId: active?.id ?? "",
+            listable: view.marks.filter((mark) => mark.teams.length > 0).map((mark) => mark.id),
+          }
         : { kind: "close" },
     );
     // Only the strip opening or shutting re-decides: the active mark's
@@ -67,124 +70,92 @@ export function useStripTeams(
   /** One running motion per list: lists open and fold independently. */
   const motions = useRef(new Map<string, MotionHandle>());
 
+  /** The ONE motion writing the scroll, across every commit: a new
+   * scroll-driving motion takes the scroll from it rather than fight it. */
+  const scrollOwner = useRef<MotionHandle | null>(null);
   const stopMotion = (id: string) => {
     motions.current.get(id)?.stop();
     motions.current.delete(id);
   };
+  const start = (id: string, handle: MotionHandle, drivesScroll: boolean) => {
+    motions.current.set(id, handle);
+    if (!drivesScroll) return;
+    scrollOwner.current?.releaseScroll();
+    scrollOwner.current = handle;
+  };
 
+  // Measure, plan, run: the plan (which lists move, which ONE carries the
+  // scroll) is stripExpand's; this reads the DOM it needs and starts the
+  // motions it decided.
   useLayoutEffect(() => {
     const list = listRef.current;
     const was = before.current;
     before.current = state;
     if (!list) return;
     const block = (id: string) => document.getElementById(stripTeamsId(id));
-    const durationMs = prefersReducedMotion() ? 0 : STRIP_MOTION_MS;
+    const { opened, folding } = listChanges(was, state);
+    if (opened.length === 0 && folding.length === 0) return;
+    const listBox = list.getBoundingClientRect();
+    const elements = new Map<string, HTMLElement>();
 
-    // Lists newly opened. Only ONE motion may drive the scroll: the list
-    // the person just asked for (a chevron), or the active workspace's
-    // when the strip opens.
-    const opened = state.expanded.filter((id) => !was.expanded.includes(id));
-    const scrollOwner =
-      opened.length === 1 ? opened[0] : opened.find((id) => id === active?.id) ?? null;
-    for (const id of opened) {
-      stopMotion(id);
+    // Two passes for the openers: every one measured at where it starts
+    // before any row is read, so all rows come from ONE layout.
+    const starts = opened.flatMap((id) => {
       const el = block(id);
-      if (!el) continue;
+      if (!el) return [];
+      elements.set(id, el);
       // A list caught mid-fold opens from the height it reached, not from
       // nothing — reopening under the pointer must not snap it shut first.
       const reached = el.style.height === "" ? 0 : parseFloat(el.style.height) || 0;
       el.style.height = "auto";
       const full = el.scrollHeight;
       el.style.height = `${reached}px`;
-      const head = el.previousElementSibling ?? el;
-      const listBox = list.getBoundingClientRect();
+      return [{ id, reached, full }];
+    });
+    const opening = starts.map((start) => {
+      const head = elements.get(start.id)!.previousElementSibling ?? elements.get(start.id)!;
       const row = head.getBoundingClientRect();
-      motions.current.set(
-        id,
-        animateTeamList(
-          {
-            block: el,
-            list,
-            from: reached,
-            to: full,
-            scrollTo:
-              id === scrollOwner
-                ? revealScrollTarget(
-                    list.scrollTop,
-                    list.clientHeight,
-                    { top: row.top - listBox.top, bottom: row.bottom - listBox.top },
-                    full - reached,
-                  )
-                : null,
-            durationMs,
-          },
-          browserClock,
-          // Settled: back to its natural height, so a team added or gone
-          // while it is open simply grows or shrinks it.
-          () => {
-            motions.current.delete(id);
-            el.style.height = "";
-          },
-        ),
-      );
-    }
-
-    // Lists newly folding. Their combined loss may clamp the scroll; ONE
-    // of them carries the scroll there on the shared curve.
-    const folding = state.leaving.filter((id) => !was.leaving.includes(id));
-    const elements = folding.map((id) => [id, block(id)] as const);
-    const loss = elements.reduce((sum, [, el]) => sum + (el?.offsetHeight ?? 0), 0);
-    const foldScroll = scrollAfterCollapse(list.scrollTop, list.scrollHeight, list.clientHeight, loss);
-    elements.forEach(([id, el], index) => {
-      stopMotion(id);
+      return { ...start, row: { top: row.top - listBox.top, bottom: row.bottom - listBox.top } };
+    });
+    const folds = folding.flatMap((id) => {
+      const el = block(id);
       if (!el) {
         dispatch({ kind: "settled", wsId: id });
-        return;
+        return [];
       }
-      motions.current.set(
-        id,
-        animateTeamList(
-          {
-            block: el,
-            list,
-            from: el.offsetHeight,
-            to: 0,
-            scrollTo: index === 0 ? foldScroll : null,
-            durationMs,
-          },
-          browserClock,
-          () => {
-            motions.current.delete(id);
-            dispatch({ kind: "settled", wsId: id });
-          },
-        ),
-      );
+      elements.set(id, el);
+      return [{ id, height: el.offsetHeight }];
     });
+
+    const plans = planListMotions(
+      opening,
+      folds,
+      active?.id ?? null,
+      view.marks.map((mark) => mark.id),
+      { scrollTop: list.scrollTop, viewportHeight: list.clientHeight, contentHeight: list.scrollHeight },
+    );
+    const durationMs = prefersReducedMotion() ? 0 : STRIP_MOTION_MS;
+    for (const plan of plans) {
+      const el = elements.get(plan.id)!;
+      const opens = plan.to > 0;
+      stopMotion(plan.id);
+      start(
+        plan.id,
+        animateTeamList({ block: el, list, ...plan, durationMs }, browserClock, () => {
+          motions.current.delete(plan.id);
+          if (opens) {
+            // Settled: back to its natural height, so a team added or gone
+            // while it is open simply grows or shrinks it.
+            el.style.height = "";
+          } else {
+            dispatch({ kind: "settled", wsId: plan.id });
+          }
+        }),
+        plan.scrollTo !== null,
+      );
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.expanded, state.leaving]);
-
-  // At rest the column shows the workspace on screen: when the active one
-  // changes (a hotkey, a notification, the crumb) and its mark is scrolled
-  // out of the column, bring it in. Not while open — the person is reading
-  // it — and not under a drag, which owns the column then.
-  const activeId = active?.id ?? null;
-  useLayoutEffect(() => {
-    const list = listRef.current;
-    // A column with no height yet (not laid out) has no view to keep.
-    if (!list || open || dragged !== null || activeId === null || list.clientHeight === 0) return;
-    const mark = [...list.querySelectorAll<HTMLElement>("[data-ws-id]")].find(
-      (el) => el.dataset.wsId === activeId,
-    );
-    if (!mark) return;
-    const listBox = list.getBoundingClientRect();
-    const row = mark.getBoundingClientRect();
-    const target = scrollToShow(list.scrollTop, list.clientHeight, {
-      top: row.top - listBox.top,
-      bottom: row.top - listBox.top + mark.offsetHeight,
-    });
-    if (target !== null) list.scrollTop = target;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeId]);
 
   // A person scrolling takes over: the motion lands at once rather than
   // keep writing a scroll under the wheel.

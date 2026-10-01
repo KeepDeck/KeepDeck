@@ -95,4 +95,19 @@ describe("a team list's motion", () => {
     tick(200);
     expect(done).toHaveBeenCalledTimes(1);
   });
+
+  it("stops writing the scroll once it is released, and keeps moving the height", () => {
+    const { clock, tick } = steppedClock();
+    const t = target(0);
+    const motion = animateTeamList({ ...t, from: 0, to: 100, scrollTo: 100, durationMs: 100 }, clock);
+    tick(30);
+    const reached = t.list.scrollTop;
+    motion.releaseScroll();
+    // Another owner writes the scroll now; this motion must leave it be.
+    t.list.scrollTop = 7;
+    tick(70);
+    expect(t.list.scrollTop).toBe(7);
+    expect(t.block.style.height).toBe("100px");
+    expect(reached).toBeGreaterThan(0);
+  });
 });

@@ -1,8 +1,9 @@
 /* The left strip (components/workspace/WorkspaceStrip.tsx): a column of
    workspace marks on a surface one step above the canvas. At rest, marks
    only. Slid open on approach, it is the team switcher: every workspace's
-   name, and ONE workspace's teams under it (user decision 2026-10-01). The
-   stage's cards screen remains the keyboard's way to a team. */
+   name, and the teams of any workspace whose list is open under it (user
+   decision 2026-10-01). The stage's cards screen remains the keyboard's way
+   to a team. */
 
 .strip {
   position: relative;
@@ -61,6 +62,9 @@
    hit-test and the ghost's landing both measure through it (stripDnd.ts). */
 .strip__marks {
   position: relative;
+  margin: 0;
+  padding: 0;
+  list-style: none;
   flex: 1;
   min-height: 0;
   width: 100%;
@@ -214,20 +218,23 @@
   transform: rotate(90deg);
 }
 
-/* A workspace's teams, under its row, lined up with its name. */
-/* Its box IS what the motion drives: rows past a shrinking height are cut,
-   never painted over the marks below — and its breathing room sits inside,
-   so the box's height is all the room it takes. */
+/* A workspace's teams, under its row, lined up with its name. Its box IS
+   what the motion drives, so it has no padding and no margin of its own:
+   rows past a shrinking height are cut (never painted over the marks
+   below), a height of 0 is truly 0 (a box's own padding would hold it at
+   4px — the list would mount, and finish folding, 4px tall), and the
+   height written is exactly the room it takes. Its breathing room is
+   CONTENT, on the last row, inside the clipped box where scrollHeight
+   counts it. */
 .strip__teams {
-  /* The height the motion writes is the WHOLE box, padding included — it
-     measures scrollHeight, which counts the padding. Content-box would add
-     the padding again: the list would run 4px tall and drop back when the
-     motion let go, bouncing every mark below it. */
-  box-sizing: border-box;
   margin: 0;
-  padding: 0 0 4px;
+  padding: 0;
   overflow: hidden;
   list-style: none;
+}
+
+.strip__teams > li:last-child {
+  padding-bottom: 4px;
 }
 
 /* A team: a quiet line under its workspace's name, starting where the
