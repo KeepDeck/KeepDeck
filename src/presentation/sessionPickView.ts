@@ -21,6 +21,8 @@ export type SessionPickItem =
       blocked: boolean;
       /** Held by a process outside the app — dimmed less: a fork is legal. */
       busy: boolean;
+      /** A line under it: something follows in the list. */
+      seam: boolean;
     }
   | { kind: "more"; key: string }
   | { kind: "empty"; key: string };
@@ -36,7 +38,7 @@ export function sessionPickItems(
     now: number;
   },
 ): SessionPickItem[] {
-  const items: SessionPickItem[] = rows.map((row) => {
+  const items: SessionPickItem[] = rows.map((row, index) => {
     const block = facts.blockOf ? facts.blockOf(row) : null;
     const reason = resumeBlockReason(block);
     const where = baseName(row.handle.cwd) || "no directory";
@@ -49,6 +51,7 @@ export function sessionPickItems(
       active: facts.pickedId === row.handle.sessionId,
       blocked: block !== null,
       busy: block === "busy-outside",
+      seam: index < rows.length - 1 || facts.loadingMore,
     };
   });
   if (facts.loadingMore) items.push({ kind: "more", key: "more" });

@@ -363,15 +363,17 @@
   width: 100%;
   padding: 7px 10px;
   border: none;
-  border-bottom: 1px solid var(--kd-seam);
   background: none;
   font: inherit;
   text-align: left;
   cursor: pointer;
 }
 
-.form__sessions-list li:last-child .form__session {
-  border-bottom: none;
+/* The seam under a row — every row but the list's last (sessionPickView
+   says which): the list is windowed, so the last MOUNTED row is not the
+   last row, and :last-child would cut a seam mid-list. */
+.form__session--seam {
+  border-bottom: 1px solid var(--kd-seam);
 }
 
 .form__session:hover {

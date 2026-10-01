@@ -46,6 +46,14 @@ describe("sessionPickItems — the Start-from picker's list", () => {
     expect(forks[0].kind === "session" && forks[0].blocked).toBe(false);
   });
 
+  it("draws a seam under every row something follows — the last only while a page loads under it", () => {
+    const rows = [row("a"), row("b")];
+    const seams = (loadingMore: boolean) =>
+      sessionPickItems(rows, facts({ loadingMore })).flatMap((i) => (i.kind === "session" ? [i.seam] : []));
+    expect(seams(false)).toEqual([true, false]);
+    expect(seams(true)).toEqual([true, true]);
+  });
+
   it("marks the picked row only", () => {
     const items = sessionPickItems([row("a"), row("b")], facts({ pickedId: "b" }));
     expect(items.map((i) => i.kind === "session" && i.active)).toEqual([false, true]);

@@ -301,11 +301,14 @@ export function AgentDialog({
   const validPick =
     picked && picked.handle.agent === agentType ? picked : null;
   const pickedBlock = validPick ? resumeBlockOf(validPick) : null;
+  // The sessions' ages are read against the moment the dialog opened — a
+  // clock read in render would re-word every row on every keystroke.
+  const [openedAt] = useState(Date.now);
   const pickItems = sessionPickItems(sessions, {
     loadingMore: pagedSessions.loadingMore,
     blockOf: startMode === "resume" ? resumeBlockOf : null,
     pickedId: validPick?.handle.sessionId ?? null,
-    now: Date.now(),
+    now: openedAt,
   });
   const sessionOk = canStartFromSession(startMode, validPick !== null, pickedBlock);
   // Resume ignores the location entirely (locked to the recorded cwd — the
@@ -535,7 +538,9 @@ export function AgentDialog({
                     type="button"
                     className={`form__session${item.active ? " form__session--active" : ""}${
                       item.blocked ? " form__session--blocked" : ""
-                    }${item.busy ? " form__session--busy" : ""}`}
+                    }${item.busy ? " form__session--busy" : ""}${
+                      item.seam ? " form__session--seam" : ""
+                    }`}
                     onClick={() => pickSession(item.row)}
                   >
                     <span className="form__session-name">{item.name}</span>
