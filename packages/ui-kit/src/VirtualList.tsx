@@ -74,6 +74,8 @@ export function VirtualList<T>({
   useEffect(() => {
     if (revealKey === null) return;
     const index = items.findIndex((it) => itemKey(it) === revealKey);
+    // A key not (yet) among the items is not revealed later: the key must
+    // name an item of the same render that sets it.
     if (index >= 0) reveal(index);
     // A change of the key, never of the items: see `revealKey`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
