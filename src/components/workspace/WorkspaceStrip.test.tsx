@@ -17,6 +17,7 @@ const mark = (id: string, name: string, extra: Partial<WorkspaceMark> = {}): Wor
   active: false,
   dot: null,
   label: name,
+  teams: [],
   ...extra,
 });
 

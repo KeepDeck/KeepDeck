@@ -367,7 +367,7 @@ export function useAppController() {
   const showBell = bellDoorOpen(notificationPrefs);
   const openNotification = runtime.application.openNotification;
   const handleCreateWorkspace = runtime.application.createWorkspace;
-  const strip = stripView(deck.workspaces, paneActivities, deck.activeId);
+  const strip = stripView(deck.workspaces, paneActivities, deck.activeId, deck.viewByWs);
   /** A card's "Add member": the same door as the bar's and ⌘T's. */
   const addTeamMember = (wsId: string, teamId: string) => {
     const ws = findWorkspace(deck.workspaces, wsId);

@@ -48,6 +48,7 @@ describe("stripView marks", () => {
       [THREE_TEAMS_OF_ONE, workspace("ws-empty", []), ONE_TEAM_OF_THREE],
       frames({}),
       "ws-a",
+      {},
     );
     expect(marks.map((m) => [m.id, m.active])).toEqual([
       ["ws-b", false],
@@ -60,7 +61,7 @@ describe("stripView marks", () => {
     // A mark is the only view into a workspace not on screen, so it says
     // whatever is loudest there — work in progress included.
     const view = (activities: Record<string, keyof typeof ACTIVITY>) =>
-      stripView([THREE_TEAMS_OF_ONE], frames(activities), "").marks[0];
+      stripView([THREE_TEAMS_OF_ONE], frames(activities), "", {}).marks[0];
     expect(view({}).dot).toBe("idle");
     expect(view({ "pane-6": "done" }).dot).toBe("done");
     expect(view({ "pane-4": "working", "pane-6": "done" }).dot).toBe("working");
@@ -69,34 +70,83 @@ describe("stripView marks", () => {
       dot: "failed",
       label: "ws-b — something failed",
     });
-    expect(stripView([workspace("ws-e", [])], frames({}), "").marks[0].dot).toBeNull();
+    expect(stripView([workspace("ws-e", [])], frames({}), "", {}).marks[0].dot).toBeNull();
   });
 
   it("says a failed worktree create as loudly as a failed turn, a create in flight not at all", () => {
-    expect(stripView([creatingTeam("boom")], frames({}), "").marks[0].dot).toBe("failed");
-    expect(stripView([creatingTeam()], frames({}), "").marks[0].dot).toBeNull();
+    expect(stripView([creatingTeam("boom")], frames({}), "", {}).marks[0].dot).toBe("failed");
+    expect(stripView([creatingTeam()], frames({}), "", {}).marks[0].dot).toBeNull();
   });
 });
 
 describe("stripView active workspace", () => {
   it("names the one on screen and where its menu can move it, refusing past an end", () => {
     const deck = [ONE_TEAM_OF_THREE, THREE_TEAMS_OF_ONE, workspace("ws-e", [])];
-    const at = (id: string) => stripView(deck, frames({}), id).active;
+    const at = (id: string) => stripView(deck, frames({}), id, {}).active;
     expect(at("ws-a")).toEqual({ id: "ws-a", name: "ws-a", moveUpTo: null, moveDownTo: 1 });
     expect(at("ws-b")).toMatchObject({ moveUpTo: 0, moveDownTo: 2 });
     expect(at("ws-e")).toMatchObject({ moveUpTo: 1, moveDownTo: null });
-    expect(stripView([], frames({}), "").active).toBeNull();
+    expect(stripView([], frames({}), "", {}).active).toBeNull();
   });
 });
 
 describe("a mark's initials", () => {
   it("takes two words' initials, else a word's first two letters", () => {
     const initials = (name: string) =>
-      stripView([{ ...workspace("w", []), name }], frames({}), "").marks[0].initials;
+      stripView([{ ...workspace("w", []), name }], frames({}), "", {}).marks[0].initials;
     expect(initials("KeepDeck")).toBe("KD");
     expect(initials("keepdeck.ai")).toBe("ka");
     expect(initials("web app")).toBe("wa");
     expect(initials("mnemo")).toBe("mn");
     expect(initials("")).toBe("?");
+  });
+});
+
+describe("a mark's teams, for the slid-open strip", () => {
+  it("lists each team in deck order with its own dot, the open one marked", () => {
+    const { teams } = stripView(
+      [THREE_TEAMS_OF_ONE],
+      frames({ "pane-4": "working", "pane-5": "waiting" }),
+      "ws-b",
+      { "ws-b": { teamOpen: "team-2" } },
+    ).marks[0];
+    expect(teams.map((t) => [t.id, t.dot, t.open])).toEqual([
+      ["team-1", "working", false],
+      ["team-2", "waiting", true],
+      ["team-3", "none", false],
+    ]);
+    expect(teams[1].label).toBe("team-2 — Waiting for you");
+  });
+
+  it("folds the mark's dot from the very dots the rows wear", () => {
+    // One pass, not two: a row and its mark can never rank a team apart.
+    const mark = stripView(
+      [THREE_TEAMS_OF_ONE],
+      frames({ "pane-4": "done", "pane-6": "failed" }),
+      "",
+      {},
+    ).marks[0];
+    expect(mark.teams.map((t) => t.dot)).toEqual(["done", "none", "failed"]);
+    expect(mark.dot).toBe("failed");
+  });
+
+  it("keeps a creating team's dot unreduced, where the mark folds it away", () => {
+    const mark = stripView([creatingTeam()], frames({}), "", {}).marks[0];
+    expect(mark.teams[0].dot).toBe("creating");
+    expect(mark.dot).toBeNull();
+  });
+
+  it("marks nothing open at the cards level, or for a team the workspace lost", () => {
+    const open = (teamOpen?: string) =>
+      stripView([THREE_TEAMS_OF_ONE], frames({}), "", { "ws-b": { teamOpen } }).marks[0].teams.some(
+        (t) => t.open,
+      );
+    expect(open(undefined)).toBe(false);
+    expect(open("team-gone")).toBe(false);
+    expect(open("team-3")).toBe(true);
+  });
+
+  it("has no teams to list for a workspace without any", () => {
+    expect(stripView([workspace("ws-e", [])], frames({}), "", {}).marks[0].teams).toEqual([]);
   });
 });
