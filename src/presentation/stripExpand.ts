@@ -5,6 +5,22 @@
  * state and drives the motion; every number it moves to comes from here.
  */
 
+import { STRIP_WORDS, type WorkspaceMark } from "./stripView";
+
+/** The chevron beside a workspace in the slid-open strip, decided: none
+ * for a workspace without teams; otherwise its words, and the count it
+ * shows while its list is closed (an open list counts itself). */
+export function teamsToggleView(
+  mark: Pick<WorkspaceMark, "name" | "teams">,
+  expanded: boolean,
+): { label: string; count: string | null } | null {
+  if (mark.teams.length === 0) return null;
+  return {
+    label: expanded ? STRIP_WORDS.hideTeams(mark.name) : STRIP_WORDS.showTeams(mark.name),
+    count: expanded ? null : STRIP_WORDS.teamCount(mark.teams.length),
+  };
+}
+
 /** The one workspace whose teams are listed, or null — ONE at a time. */
 export type ExpandedTeams = string | null;
 

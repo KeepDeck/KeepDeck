@@ -4,6 +4,7 @@ import {
   revealScrollTarget,
   scrollAfterCollapse,
   scrollAfterInstantCollapse,
+  teamsToggleView,
 } from "./stripExpand";
 
 describe("which workspace lists its teams", () => {
@@ -52,5 +53,24 @@ describe("keeping the row under the pointer still", () => {
     expect(scrollAfterCollapse(550, 1000, 400, 200)).toBe(400);
     expect(scrollAfterCollapse(300, 1000, 400, 200)).toBeNull();
     expect(scrollAfterCollapse(100, 450, 400, 200)).toBe(0);
+  });
+});
+
+describe("a workspace's teams toggle", () => {
+  const teams = [{ id: "t1", name: "api", dot: "none" as const, open: false, label: "" }];
+
+  it("is not there for a workspace without teams", () => {
+    expect(teamsToggleView({ name: "KeepDeck", teams: [] }, false)).toBeNull();
+  });
+
+  it("counts a closed list and names what it will do", () => {
+    expect(teamsToggleView({ name: "KeepDeck", teams }, false)).toEqual({
+      label: "Show teams of KeepDeck",
+      count: "1",
+    });
+    expect(teamsToggleView({ name: "KeepDeck", teams }, true)).toEqual({
+      label: "Hide teams of KeepDeck",
+      count: null,
+    });
   });
 });

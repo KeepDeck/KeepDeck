@@ -130,6 +130,41 @@
   }
 }
 
+/* A TEAM's dot — one look wherever a team is drawn: the stage's team cards
+   and the team rows of the slid-open strip. Its own ladder (teamDot):
+   failed, waiting, creating, working, done, none — creating breathes like a
+   wait in the quiet gray, so it never reads as the person's turn. */
+.team-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--kd-selected);
+}
+
+.team-dot--done {
+  background-color: var(--status-done);
+}
+
+.team-dot--working {
+  background-color: var(--status-working);
+  animation: status-dot-working 1.6s ease-in-out infinite;
+}
+
+.team-dot--waiting {
+  background-color: var(--status-waiting);
+  animation: status-dot-breathe 2s ease-in-out infinite;
+}
+
+.team-dot--failed {
+  background-color: var(--status-failed);
+  animation: status-dot-pulse 1s ease-in-out infinite;
+}
+
+.team-dot--creating {
+  animation: status-dot-breathe 2s ease-in-out infinite;
+}
+
 /* The state is still named by colour; only the rhythm rests. */
 @media (prefers-reduced-motion: reduce) {
   .pane--frame-waiting,
@@ -142,10 +177,10 @@
   .strip__dot--working,
   .strip__dot--waiting,
   .strip__dot--failed,
-  .team-card__dot--working,
-  .team-card__dot--waiting,
-  .team-card__dot--failed,
-  .team-card__dot--creating {
+  .team-dot--working,
+  .team-dot--waiting,
+  .team-dot--failed,
+  .team-dot--creating {
     animation: none;
   }
 }

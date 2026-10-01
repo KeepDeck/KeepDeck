@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { PlusIcon } from "@keepdeck/ui-kit/icons";
+import { ChevronIcon, PlusIcon } from "@keepdeck/ui-kit/icons";
 import { collectMarkRects } from "../../app/stripDnd";
 import {
   animateElementReorder,
@@ -11,11 +11,16 @@ import {
 } from "../../app/dragManager";
 import { markAtY } from "../../domain/deck";
 import { STRIP_WORDS, type StripView, type WorkspaceMark } from "../../presentation/stripView";
+import { teamsToggleView } from "../../presentation/stripExpand";
 import { useStripReveal } from "./useStripReveal";
+import { useStripTeams } from "./useStripTeams";
 
 interface WorkspaceStripProps {
   view: StripView;
   onSelect(id: string): void;
+  /** Open team `teamId` of workspace `wsId` — a team row of the slid-open
+   * strip. */
+  onEnterTeam(wsId: string, teamId: string): void;
   onAdd(): void;
   /** Move workspace `id` to `toIndex` (long-press drag reorder). */
   onReorder(id: string, toIndex: number): void;
@@ -53,9 +58,17 @@ interface DragGhost {
  * pointer on it opens it over the stage with each workspace's full name
  * beside its mark (`useStripReveal`) — the stage does not move.
  */
-export function WorkspaceStrip({ view, onSelect, onAdd, onReorder, version }: WorkspaceStripProps) {
+export function WorkspaceStrip({
+  view,
+  onSelect,
+  onEnterTeam,
+  onAdd,
+  onReorder,
+  version,
+}: WorkspaceStripProps) {
   const [ghost, setGhost] = useState<DragGhost | null>(null);
   const reveal = useStripReveal(ghost !== null);
+  const teams = useStripTeams(reveal.open, view);
 
   const listRef = useRef<HTMLDivElement>(null);
   const ghostRef = useRef<HTMLDivElement>(null);
@@ -165,26 +178,87 @@ export function WorkspaceStrip({ view, onSelect, onAdd, onReorder, version }: Wo
           ref={listRef}
           className={`strip__marks${ghost ? " strip__marks--reordering" : ""}`}
         >
-          {view.marks.map((mark) => (
-            <button
-              key={mark.id}
-              type="button"
-              data-ws-id={mark.id}
-              className={`strip__mark${mark.active ? " strip__mark--active" : ""}${
-                mark.id === ghost?.mark.id ? " strip__mark--placeholder" : ""
-              }`}
-              onClick={() => onSelect(mark.id)}
-              onPointerDown={(e) => onMarkPointerDown(e, mark)}
-              aria-current={mark.active}
-              aria-label={mark.label}
-              title={mark.label}
-            >
-              <MarkFace mark={mark} />
-              <span className="strip__name" aria-hidden>
-                {mark.name}
-              </span>
-            </button>
-          ))}
+          {view.marks.map((mark) => {
+            const expanded = teams.expanded === mark.id;
+            const toggle = teamsToggleView(mark, expanded);
+            const listId = `strip-teams-${mark.id}`;
+            return (
+              // The GROUP is the reorder's item (data-ws-id), unpositioned
+              // so the list stays the offsetParent the hit-test measures
+              // through — and a reorder carries the teams with their mark.
+              <div
+                key={mark.id}
+                data-ws-id={mark.id}
+                className={`strip__group${
+                  mark.id === ghost?.mark.id ? " strip__group--placeholder" : ""
+                }`}
+              >
+                <div className="strip__head">
+                  <button
+                    type="button"
+                    className={`strip__mark${mark.active ? " strip__mark--active" : ""}`}
+                    onClick={() => {
+                      onSelect(mark.id);
+                      reveal.dismiss();
+                    }}
+                    onPointerDown={(e) => onMarkPointerDown(e, mark)}
+                    aria-current={mark.active}
+                    aria-label={mark.label}
+                    title={mark.label}
+                  >
+                    <MarkFace mark={mark} />
+                    <span className="strip__name" aria-hidden>
+                      {mark.name}
+                    </span>
+                  </button>
+                  {toggle && (
+                    <button
+                      type="button"
+                      className="strip__toggle"
+                      onClick={() => teams.toggle(mark.id)}
+                      aria-label={toggle.label}
+                      title={toggle.label}
+                      aria-expanded={expanded}
+                      aria-controls={expanded ? listId : undefined}
+                      // Past the shut edge it is out of sight: out of reach
+                      // too, until the strip opens.
+                      tabIndex={reveal.open ? 0 : -1}
+                      aria-hidden={!reveal.open}
+                    >
+                      {toggle.count !== null && (
+                        <span className="strip__count">{toggle.count}</span>
+                      )}
+                      <ChevronIcon />
+                    </button>
+                  )}
+                </div>
+                {expanded && (
+                  // Rendered only while listed: a shut strip holds no
+                  // hidden rows to tab into.
+                  <ul id={listId} className="strip__teams">
+                    {mark.teams.map((team) => (
+                      <li key={team.id}>
+                        <button
+                          type="button"
+                          className={`strip__team${team.open ? " strip__team--open" : ""}`}
+                          onClick={() => {
+                            onEnterTeam(mark.id, team.id);
+                            reveal.dismiss();
+                          }}
+                          aria-current={team.open}
+                          aria-label={team.label}
+                          title={team.label}
+                        >
+                          <span className={`team-dot team-dot--${team.dot}`} aria-hidden />
+                          <span className="strip__team-name">{team.name}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            );
+          })}
         </div>
         {version !== null && (
           <footer className="strip__foot" title={STRIP_WORDS.build(version)}>

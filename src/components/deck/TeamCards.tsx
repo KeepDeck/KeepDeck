@@ -145,7 +145,7 @@ function TeamCard({
     >
       <div className="team-card__head">
         <span
-          className={`team-card__dot team-card__dot--${card.dot}`}
+          className={`team-card__dot team-dot team-dot--${card.dot}`}
           role="img"
           aria-label={TEAM_CARD_WORDS.dot[card.dot]}
           title={TEAM_CARD_WORDS.dot[card.dot]}

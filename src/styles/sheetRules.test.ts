@@ -104,6 +104,9 @@ const PINNED_AGAINST_HOVER = [
   ".voice__entry--copied:hover",
   ".voice__entry--failed:hover",
   ".run__logcap-act--on:hover",
+  // The open team's row stays selected under the pointer, never steps
+  // down to the hover fill.
+  ".strip__team--open:hover",
 ];
 
 /** Extra classes that ride on the shared Button, whose variant gives the

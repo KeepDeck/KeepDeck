@@ -2,7 +2,7 @@
 import { act, createElement, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { StripView, WorkspaceMark } from "../../presentation/stripView";
+import type { StripTeam, StripView, WorkspaceMark } from "../../presentation/stripView";
 import { WorkspaceStrip } from "./WorkspaceStrip";
 import { STRIP_REVEAL_DWELL_MS, STRIP_REVEAL_GRACE_MS } from "./useStripReveal";
 
@@ -33,6 +33,7 @@ const VIEW: StripView = {
 
 const callbacks = {
   onSelect: vi.fn(),
+  onEnterTeam: vi.fn(),
   onAdd: vi.fn(),
   onReorder: vi.fn(),
 };
@@ -68,8 +69,9 @@ describe("WorkspaceStrip", () => {
 
   it("draws a mark per workspace, the active one marked, a dot only where it is earned", () => {
     render();
-    const marks = [...host.querySelectorAll<HTMLElement>("[data-ws-id]")];
-    expect(marks.map((m) => m.dataset.wsId)).toEqual(["a", "b", "c", "d"]);
+    const groups = [...host.querySelectorAll<HTMLElement>("[data-ws-id]")];
+    expect(groups.map((m) => m.dataset.wsId)).toEqual(["a", "b", "c", "d"]);
+    const marks = groups.map((group) => group.querySelector<HTMLElement>(".strip__mark")!);
     expect(marks[0].classList.contains("strip__mark--active")).toBe(true);
     expect(marks[0].getAttribute("aria-current")).toBe("true");
     expect(marks[1].querySelector(".strip__dot")?.className).toBe("strip__dot strip__dot--waiting");
@@ -136,10 +138,15 @@ describe("WorkspaceStrip drag reorder", () => {
   let originalRect: typeof HTMLElement.prototype.getBoundingClientRect;
 
   /** Each mark's index in its list, or -1 for anything else. */
-  const slot = (element: HTMLElement) =>
-    element.dataset.wsId && element.parentElement
-      ? [...element.parentElement.querySelectorAll<HTMLElement>("[data-ws-id]")].indexOf(element)
+  const slot = (element: HTMLElement) => {
+    // A mark's button sits in its group, which is the list's item.
+    const item = element.dataset.wsId ? element : element.classList.contains("strip__mark")
+      ? element.closest<HTMLElement>("[data-ws-id]")
+      : null;
+    return item?.parentElement
+      ? [...item.parentElement.querySelectorAll<HTMLElement>("[data-ws-id]")].indexOf(item)
       : -1;
+  };
 
   beforeEach(() => {
     vi.useFakeTimers();
@@ -180,7 +187,8 @@ describe("WorkspaceStrip drag reorder", () => {
 
   const order = () =>
     [...document.querySelectorAll<HTMLElement>("[data-ws-id]")].map((m) => m.dataset.wsId);
-  const markEl = (id: string) => document.querySelector<HTMLElement>(`[data-ws-id="${id}"]`)!;
+  const markEl = (id: string) =>
+    document.querySelector<HTMLElement>(`[data-ws-id="${id}"] .strip__mark`)!;
 
   it("closes an open strip when a hold turns into a drag", () => {
     act(() => root.render(createElement(Harness)));
@@ -342,7 +350,7 @@ describe("WorkspaceStrip opening on approach", () => {
   it("does not open under a press — a click or the start of a hold-to-drag", () => {
     render();
     pointer("enter");
-    pointer("down", host.querySelector("[data-ws-id='b']")!);
+    pointer("down", host.querySelector("[data-ws-id='b'] .strip__mark")!);
     act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS * 2));
     expect(revealed()).toBe(false);
   });
@@ -369,5 +377,123 @@ describe("WorkspaceStrip opening on approach", () => {
     // The face the ghost shares is the tile alone.
     const face = host.querySelector("[data-ws-id='b'] .strip__tile")!;
     expect(face.querySelector(".strip__name")).toBeNull();
+  });
+});
+
+describe("WorkspaceStrip as the team switcher", () => {
+  let host: HTMLDivElement;
+  let root: Root;
+  const team = (id: string, name: string, extra: Partial<StripTeam> = {}): StripTeam => ({
+    id,
+    name,
+    dot: "none",
+    open: false,
+    label: name,
+    ...extra,
+  });
+  const TEAMED: StripView = {
+    marks: [
+      mark("a", "Alpha", {
+        active: true,
+        teams: [team("t1", "api", { open: true }), team("t2", "web", { dot: "working" })],
+      }),
+      mark("b", "Beta", { teams: [team("t3", "hwc2", { dot: "waiting" })] }),
+      mark("c", "Gamma"),
+    ],
+    active: { id: "a", name: "Alpha", moveUpTo: null, moveDownTo: 1 },
+  };
+  const render = () =>
+    act(() =>
+      root.render(createElement(WorkspaceStrip, { view: TEAMED, version: null, ...callbacks })),
+    );
+  const col = () => host.querySelector<HTMLElement>(".strip__col")!;
+  const revealed = () => host.querySelector(".strip--revealed") !== null;
+  const hover = (type: "enter" | "leave") =>
+    act(() => {
+      col().dispatchEvent(
+        new PointerEvent(type === "enter" ? "pointerover" : "pointerout", {
+          bubbles: true,
+          relatedTarget: document.body,
+        }),
+      );
+    });
+  const openStrip = () => {
+    hover("enter");
+    act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS));
+  };
+  const toggleOf = (id: string) =>
+    host.querySelector<HTMLButtonElement>(`[data-ws-id="${id}"] .strip__toggle`);
+  const listed = () =>
+    [...host.querySelectorAll<HTMLElement>(".strip__teams")].map(
+      (list) => list.closest<HTMLElement>("[data-ws-id]")!.dataset.wsId,
+    );
+
+  beforeEach(() => {
+    for (const fn of Object.values(callbacks)) fn.mockClear();
+    vi.useFakeTimers();
+    host = document.body.appendChild(document.createElement("div"));
+    root = createRoot(host);
+  });
+  afterEach(() => {
+    act(() => root.unmount());
+    document.body.innerHTML = "";
+    vi.useRealTimers();
+  });
+
+  it("keeps a shut strip marks only: no team rows, and no toggle in reach", () => {
+    render();
+    expect(host.querySelector(".strip__teams")).toBeNull();
+    expect(toggleOf("a")!.tabIndex).toBe(-1);
+    expect(toggleOf("a")!.getAttribute("aria-hidden")).toBe("true");
+    // A workspace with no teams has nothing to toggle.
+    expect(toggleOf("c")).toBeNull();
+  });
+
+  it("opens on the active workspace's teams, the open one current", () => {
+    render();
+    openStrip();
+    expect(listed()).toEqual(["a"]);
+    expect(toggleOf("a")!.getAttribute("aria-expanded")).toBe("true");
+    const rows = [...host.querySelectorAll<HTMLButtonElement>(".strip__team")];
+    expect(rows.map((row) => row.textContent)).toEqual(["api", "web"]);
+    expect(rows[0].getAttribute("aria-current")).toBe("true");
+    expect(rows[1].querySelector(".team-dot--working")).not.toBeNull();
+    // A closed list counts itself; an open one does not.
+    expect(toggleOf("b")!.textContent).toBe("1");
+    expect(toggleOf("a")!.querySelector(".strip__count")).toBeNull();
+  });
+
+  it("lists ONE workspace at a time: a chevron moves the list, again closes it", () => {
+    render();
+    openStrip();
+    act(() => toggleOf("b")!.click());
+    expect(listed()).toEqual(["b"]);
+    expect(callbacks.onSelect).not.toHaveBeenCalled();
+    act(() => toggleOf("b")!.click());
+    expect(listed()).toEqual([]);
+  });
+
+  it("goes to a workspace from its mark and shuts until the pointer leaves", () => {
+    render();
+    openStrip();
+    act(() => host.querySelector<HTMLButtonElement>('[data-ws-id="b"] .strip__mark')!.click());
+    expect(callbacks.onSelect).toHaveBeenCalledWith("b");
+    expect(revealed()).toBe(false);
+    // Still over the column: it does not reopen under the pointer...
+    act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS * 4));
+    expect(revealed()).toBe(false);
+    // ...until the pointer has left and come back.
+    hover("leave");
+    openStrip();
+    expect(revealed()).toBe(true);
+  });
+
+  it("enters a team from its row and shuts", () => {
+    render();
+    openStrip();
+    act(() => toggleOf("b")!.click());
+    act(() => host.querySelector<HTMLButtonElement>(".strip__team")!.click());
+    expect(callbacks.onEnterTeam).toHaveBeenCalledWith("b", "t3");
+    expect(revealed()).toBe(false);
   });
 });

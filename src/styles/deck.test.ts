@@ -148,6 +148,15 @@ describe("the workspace strip's open column", () => {
     expect(focus["outline-offset"]).toBe("-1px");
   });
 
+  it("leaves a workspace's group unpositioned, so the reorder measures through the list", () => {
+    // collectMarkRects reads each group's offsetTop, which counts from its
+    // offsetParent. A positioned group would silently become that parent
+    // for its children — and a positioned wrapper ANYWHERE between the list
+    // and the group would move the reorder's whole frame.
+    expect(ruleBody(strip, ".strip__group").position).toBeUndefined();
+    expect(ruleBody(strip, ".strip__marks").position).toBe("relative");
+  });
+
   it("hides every name wholly behind the shut edge", () => {
     // The name starts at the mark's inset plus its own offset; any of it
     // inside the shut column shows as a sliver beside every mark.

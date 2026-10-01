@@ -362,6 +362,8 @@ export function useAppController() {
   const handleSelectWorkspace = (id: string) => {
     runtime.application.selectWorkspace(id);
   };
+  /** A team row of the slid-open strip: that team, in its workspace. */
+  const handleEnterTeam = runtime.application.activateTeam;
   const notificationPrefs =
     settings?.notifications ?? DEFAULT_SETTINGS.notifications;
   const showBell = bellDoorOpen(notificationPrefs);
@@ -431,6 +433,7 @@ export function useAppController() {
     gitHeads,
     handleCreateWorkspace,
     handleSelectWorkspace,
+    handleEnterTeam,
     info,
     openNotification,
     needsYou,
