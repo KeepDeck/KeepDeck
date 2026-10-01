@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { StripView, WorkspaceMark } from "../../presentation/stripView";
 import { WorkspaceStrip } from "./WorkspaceStrip";
-import { STRIP_REVEAL_DWELL_MS } from "./useStripReveal";
+import { STRIP_REVEAL_DWELL_MS, STRIP_REVEAL_GRACE_MS } from "./useStripReveal";
 
 (
   globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -322,11 +322,20 @@ describe("WorkspaceStrip opening on approach", () => {
     expect(revealed()).toBe(true);
   });
 
-  it("closes the moment the pointer leaves", () => {
+  it("closes a grace after the pointer leaves, and stays open if it comes back", () => {
+    // Its rows are targets: a pointer overshooting the edge on its way to
+    // one must not lose the column.
     render();
     pointer("enter");
     act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS));
     pointer("leave");
+    act(() => void vi.advanceTimersByTime(STRIP_REVEAL_GRACE_MS - 1));
+    expect(revealed()).toBe(true);
+    pointer("enter");
+    act(() => void vi.advanceTimersByTime(STRIP_REVEAL_GRACE_MS * 2));
+    expect(revealed()).toBe(true);
+    pointer("leave");
+    act(() => void vi.advanceTimersByTime(STRIP_REVEAL_GRACE_MS));
     expect(revealed()).toBe(false);
   });
 
@@ -338,9 +347,17 @@ describe("WorkspaceStrip opening on approach", () => {
     expect(revealed()).toBe(false);
   });
 
-  it("leaves no pending open behind when it goes away", () => {
+  it("leaves no pending open or close behind when it goes away", () => {
     render();
     pointer("enter");
+    expect(vi.getTimerCount()).toBe(1);
+    act(() => root.unmount());
+    expect(vi.getTimerCount()).toBe(0);
+    root = createRoot(host);
+    render();
+    pointer("enter");
+    act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS));
+    pointer("leave");
     expect(vi.getTimerCount()).toBe(1);
     act(() => root.unmount());
     expect(vi.getTimerCount()).toBe(0);
