@@ -112,3 +112,14 @@ export function scrollAfterCollapse(
   const max = Math.max(0, scrollHeight - collapsingHeight - viewportHeight);
   return scrollTop > max ? max : null;
 }
+
+/**
+ * The scroll that brings a row into the column's view — the active mark,
+ * when the workspace changes while the strip is shut: by the least
+ * distance, from whichever edge it is past. Null when it is in view.
+ */
+export function scrollToShow(scrollTop: number, viewportHeight: number, row: RowInList): number | null {
+  if (row.top < 0) return Math.max(0, scrollTop + row.top);
+  if (row.bottom > viewportHeight) return scrollTop + row.bottom - viewportHeight;
+  return null;
+}

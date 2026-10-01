@@ -5,6 +5,7 @@ import {
   revealScrollTarget,
   scrollAfterCollapse,
   scrollAfterInstantCollapse,
+  scrollToShow,
 } from "../../presentation/stripExpand";
 import type { StripView } from "../../presentation/stripView";
 import {
@@ -33,8 +34,10 @@ export const stripTeamsId = (wsId: string) => `strip-teams-${wsId}`;
  */
 export function useStripTeams(
   open: boolean,
-  /** A drag is in flight: the list drops at once. */
-  dragging: boolean,
+  /** The mark a drag holds, or null: while one is held, the list drops at
+   * once — and gives its height back to the scroll if it hung above the
+   * held mark, so the mark stays under the hand. */
+  dragged: string | null,
   view: StripView,
   listRef: RefObject<HTMLElement | null>,
 ) {
@@ -45,7 +48,7 @@ export function useStripTeams(
     dispatch(
       open
         ? { kind: "open", activeId: active?.id ?? "", activeHasTeams: (active?.teams.length ?? 0) > 0 }
-        : { kind: "close", instant: dragging },
+        : { kind: "close", instant: dragged !== null },
     );
     // Only the strip opening or shutting re-decides: the active mark's
     // teams changing under an open strip must not yank a list the person
@@ -72,8 +75,10 @@ export function useStripTeams(
     // give its height back to the scroll if it hung above the new one.
     if (was.expanded !== null && was.expanded !== state.expanded && state.leaving !== was.expanded) {
       motion.current?.stop();
-      if (state.expanded !== null) {
-        const above = order.indexOf(was.expanded) < order.indexOf(state.expanded);
+      // Kept still: the row now listed, or the mark a drag just took hold of.
+      const kept = state.expanded ?? dragged;
+      if (kept !== null) {
+        const above = order.indexOf(was.expanded) < order.indexOf(kept);
         list.scrollTop = scrollAfterInstantCollapse(
           list.scrollTop,
           heights.current.get(was.expanded) ?? 0,
@@ -134,6 +139,28 @@ export function useStripTeams(
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.expanded, state.leaving]);
+
+  // At rest the column shows the workspace on screen: when the active one
+  // changes (a hotkey, a notification, the crumb) and its mark is scrolled
+  // out of the column, bring it in. Not while open — the person is reading
+  // it — and not under a drag, which owns the column then.
+  const activeId = active?.id ?? null;
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    if (!list || open || dragged !== null || activeId === null) return;
+    const mark = [...list.querySelectorAll<HTMLElement>("[data-ws-id]")].find(
+      (el) => el.dataset.wsId === activeId,
+    );
+    if (!mark) return;
+    const listBox = list.getBoundingClientRect();
+    const row = mark.getBoundingClientRect();
+    const target = scrollToShow(list.scrollTop, list.clientHeight, {
+      top: row.top - listBox.top,
+      bottom: row.top - listBox.top + mark.offsetHeight,
+    });
+    if (target !== null) list.scrollTop = target;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeId]);
 
   // A person scrolling takes over: the motion lands at once rather than
   // keep writing a scroll under the wheel.

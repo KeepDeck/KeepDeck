@@ -501,3 +501,115 @@ describe("WorkspaceStrip as the team switcher", () => {
     expect(revealed()).toBe(false);
   });
 });
+
+describe("WorkspaceStrip dragging from the open strip", () => {
+  // Geometry that KNOWS the listed teams: a group is its mark (50px) plus
+  // its team rows (28px each), stacked down the list. The plain harness
+  // above puts every mark at index × 50 and could never see a list drop.
+  const MARK = 50;
+  const ROW = 28;
+  let root: Root;
+  const saved: Record<string, PropertyDescriptor | undefined> = {};
+  let originalRect: typeof HTMLElement.prototype.getBoundingClientRect;
+  const groups = () => [...document.querySelectorAll<HTMLElement>("[data-ws-id]")];
+  const heightOf = (group: HTMLElement) =>
+    MARK + group.querySelectorAll(".strip__team").length * ROW;
+  const topOf = (group: HTMLElement) => {
+    let top = 0;
+    for (const g of groups()) {
+      if (g === group) return top;
+      top += heightOf(g);
+    }
+    return 0;
+  };
+  const groupOf = (el: HTMLElement) =>
+    el.dataset.wsId ? el : el.classList.contains("strip__mark") ? el.closest<HTMLElement>("[data-ws-id]") : null;
+
+  function TeamedHarness() {
+    const [marks, setMarks] = useState<WorkspaceMark[]>([
+      mark("a", "Alpha", {
+        active: true,
+        teams: [
+          { id: "t1", name: "api", dot: "none", open: true, label: "api" },
+          { id: "t2", name: "web", dot: "none", open: false, label: "web" },
+        ],
+      }),
+      mark("b", "Beta"),
+      mark("c", "Gamma"),
+      mark("d", "Delta"),
+    ]);
+    return createElement(WorkspaceStrip, {
+      view: { marks, active: { id: "a", name: "Alpha", moveUpTo: null, moveDownTo: 1 } },
+      version: null,
+      ...callbacks,
+      onReorder: (id: string, toIndex: number) => setMarks((current) => move(current, id, toIndex)),
+    });
+  }
+
+  beforeEach(() => {
+    for (const fn of Object.values(callbacks)) fn.mockClear();
+    vi.useFakeTimers();
+    originalRect = HTMLElement.prototype.getBoundingClientRect;
+    HTMLElement.prototype.getBoundingClientRect = function () {
+      const group = groupOf(this as HTMLElement);
+      const top = group ? topOf(group) : 0;
+      return { top, bottom: top + MARK, left: 0, right: 52, width: 52, height: MARK, x: 0, y: top, toJSON: () => ({}) } as DOMRect;
+    };
+    const geometry: Record<string, (el: HTMLElement) => number> = {
+      offsetTop: (el) => (el.dataset.wsId ? topOf(el) : 0),
+      offsetLeft: () => 0,
+      offsetWidth: (el) => (el.dataset.wsId ? 52 : 0),
+      offsetHeight: (el) => (el.dataset.wsId ? heightOf(el) : 0),
+    };
+    for (const [name, get] of Object.entries(geometry)) {
+      saved[name] = Object.getOwnPropertyDescriptor(HTMLElement.prototype, name);
+      Object.defineProperty(HTMLElement.prototype, name, {
+        configurable: true,
+        get() {
+          return get(this as HTMLElement);
+        },
+      });
+    }
+    root = createRoot(document.body.appendChild(document.createElement("div")));
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    act(() => vi.runOnlyPendingTimers());
+    vi.useRealTimers();
+    HTMLElement.prototype.getBoundingClientRect = originalRect;
+    for (const [name, descriptor] of Object.entries(saved)) {
+      if (descriptor) Object.defineProperty(HTMLElement.prototype, name, descriptor);
+      else delete (HTMLElement.prototype as unknown as Record<string, unknown>)[name];
+    }
+    document.body.innerHTML = "";
+  });
+
+  const order = () => groups().map((g) => g.dataset.wsId);
+  const markOf = (id: string) => document.querySelector<HTMLElement>(`[data-ws-id="${id}"] .strip__mark`)!;
+
+  it("holds the grabbed mark under the hand when the drag drops the open list", () => {
+    act(() => root.render(createElement(TeamedHarness)));
+    act(() => {
+      document.querySelector(".strip__col")!.dispatchEvent(
+        new PointerEvent("pointerover", { bubbles: true, relatedTarget: document.body }),
+      );
+      vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS);
+    });
+    // Alpha lists two teams: Gamma sits at 50 + 56 + 50 = 156.
+    expect(document.querySelectorAll(".strip__team")).toHaveLength(2);
+    act(() => {
+      markOf("c").dispatchEvent(pointerEvent("pointerdown", { clientY: 170 }));
+      vi.advanceTimersByTime(300);
+    });
+    // The drag dropped the list: Gamma rose to 100 under a hand still at 170.
+    expect(document.querySelectorAll(".strip__team")).toHaveLength(0);
+    act(() => window.dispatchEvent(pointerEvent("pointermove", { clientY: 171 })));
+    // Read as the column now stands, the hand is still on Gamma: no reorder.
+    expect(order()).toEqual(["a", "b", "c", "d"]);
+    // A real move past Delta still moves it.
+    act(() => window.dispatchEvent(pointerEvent("pointermove", { clientY: 230 })));
+    expect(order()).toEqual(["a", "b", "d", "c"]);
+    act(() => window.dispatchEvent(pointerEvent("pointerup", { clientY: 230 })));
+  });
+});

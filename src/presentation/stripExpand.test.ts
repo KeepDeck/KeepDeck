@@ -5,6 +5,7 @@ import {
   revealScrollTarget,
   scrollAfterCollapse,
   scrollAfterInstantCollapse,
+  scrollToShow,
   teamsToggleView,
 } from "./stripExpand";
 
@@ -87,5 +88,13 @@ describe("a workspace's teams toggle", () => {
       label: "Hide teams of KeepDeck",
       count: null,
     });
+  });
+});
+
+describe("keeping the active mark in view", () => {
+  it("scrolls by the least distance from the edge it is past, and not at all in view", () => {
+    expect(scrollToShow(200, 400, { top: -30, bottom: 14 })).toBe(170);
+    expect(scrollToShow(0, 400, { top: 420, bottom: 464 })).toBe(64);
+    expect(scrollToShow(100, 400, { top: 100, bottom: 144 })).toBeNull();
   });
 });
