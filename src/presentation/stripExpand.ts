@@ -46,8 +46,9 @@ export type ExpandEvent =
   | { kind: "close" }
   /** A folding list finished. */
   | { kind: "settled"; wsId: string }
-  /** A drag took hold of a workspace: its own list leaves AT ONCE, so the
-   * drag carries a mark, not a mark and a hole the height of its teams. */
+  /** A drag took hold of a workspace: its own list folds away, as a
+   * chevron would fold it, so the drag carries a mark, not a mark and a
+   * hole the height of its teams. */
   | { kind: "hold"; wsId: string }
   /** The drag let go: the held workspace's list opens again. */
   | { kind: "release" };
@@ -87,12 +88,22 @@ export function expandTeams(state: ExpandedTeams, event: ExpandEvent): ExpandedT
       return { ...state, leaving: without(state.leaving, event.wsId) };
     case "hold":
       return state.expanded.includes(event.wsId)
-        ? { ...state, expanded: without(state.expanded, event.wsId), held: event.wsId }
+        ? {
+            ...state,
+            expanded: without(state.expanded, event.wsId),
+            leaving: union(state.leaving, [event.wsId]),
+            held: event.wsId,
+          }
         : state;
     case "release":
       return state.held === null
         ? state
-        : { ...state, expanded: union(state.expanded, [state.held]), held: null };
+        : {
+            ...state,
+            expanded: union(state.expanded, [state.held]),
+            leaving: without(state.leaving, state.held),
+            held: null,
+          };
   }
 }
 

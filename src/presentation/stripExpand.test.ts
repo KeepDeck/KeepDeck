@@ -45,10 +45,10 @@ describe("which workspaces list their teams", () => {
     expect(reopened).toEqual(at(["ws-a", "ws-c", "ws-d"], [], ["ws-a", "ws-c"]));
   });
 
-  it("folds a dragged workspace's own list away at once, and reopens it on release", () => {
-    // At once, not folding: the drag carries a mark, not a mark and a hole.
+  it("folds a dragged workspace's own list away, and reopens it on release", () => {
+    // Folding, as a chevron folds it: the drag carries a mark, not a hole.
     const held = expandTeams(at(["ws-a", "ws-b"]), { kind: "hold", wsId: "ws-b" });
-    expect(held).toEqual(at(["ws-a"], [], [], "ws-b"));
+    expect(held).toEqual(at(["ws-a"], ["ws-b"], [], "ws-b"));
     expect(expandTeams(held, { kind: "release" })).toEqual(at(["ws-a", "ws-b"]));
     // A workspace with no list open holds nothing.
     expect(expandTeams(at(["ws-a"]), { kind: "hold", wsId: "ws-c" })).toEqual(at(["ws-a"]));

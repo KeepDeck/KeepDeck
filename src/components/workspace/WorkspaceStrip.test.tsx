@@ -652,7 +652,10 @@ describe("WorkspaceStrip dragging from the open strip", () => {
       markOf("a").dispatchEvent(pointerEvent("pointerdown", { clientY: 20 }));
       vi.advanceTimersByTime(300);
     });
-    // No hole the height of Alpha's teams follows the drag.
+    // Its list folds away under the drag — still drawn as it folds...
+    expect(alphaRows()).toBe(2);
+    act(() => void vi.advanceTimersByTime(500));
+    // ...and gone once folded: no hole the height of Alpha's teams.
     expect(alphaRows()).toBe(0);
     act(() => window.dispatchEvent(pointerEvent("pointermove", { clientY: 120 })));
     expect(order()).toEqual(["b", "c", "a", "d"]);

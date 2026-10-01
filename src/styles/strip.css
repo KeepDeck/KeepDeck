@@ -150,7 +150,10 @@
 }
 
 /* The mark being dragged leaves its slot empty; the ghost carries it. */
-.strip__group--placeholder {
+/* The dragged workspace: its MARK rides with the hand (the ghost), so only
+   its mark's slot is left empty — its team list stays visible as it folds
+   away under the drag. */
+.strip__group--placeholder .strip__head {
   visibility: hidden;
 }
 
