@@ -160,6 +160,9 @@ describe("the workspace strip's open column", () => {
     // painted over the marks below, and no margin may sit outside the box.
     const teams = ruleBody(strip, ".strip__teams");
     expect(teams.overflow).toBe("hidden");
+    // The motion writes scrollHeight (padding included) as the height: a
+    // content-box would add the padding twice and bounce at the end.
+    expect(teams["box-sizing"]).toBe("border-box");
     expect(teams.margin ?? "0").toBe("0");
     expect(teams["margin-bottom"]).toBeUndefined();
   });

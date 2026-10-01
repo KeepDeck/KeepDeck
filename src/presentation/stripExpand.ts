@@ -21,43 +21,61 @@ export function teamsToggleView(
   };
 }
 
-/** Which team lists the strip holds: the ONE listed workspace, and one
- * whose list is still folding away (drawn until its collapse ends). */
+/** Which team lists the strip holds: every workspace listed now, every one
+ * still folding away (drawn until its fold ends), and the ones the person
+ * had open when the strip last shut — they open again with it. Any number
+ * of each: the person opens and closes lists freely (user decision). */
 export interface ExpandedTeams {
-  expanded: string | null;
-  leaving: string | null;
+  expanded: readonly string[];
+  leaving: readonly string[];
+  kept: readonly string[];
 }
 
-export const NOTHING_LISTED: ExpandedTeams = { expanded: null, leaving: null };
+export const NOTHING_LISTED: ExpandedTeams = { expanded: [], leaving: [], kept: [] };
 
 export type ExpandEvent =
-  /** The strip slid open: the active workspace lists its teams — if it
-   * has any to list. */
+  /** The strip slid open: the lists the person kept open, and the active
+   * workspace's — if it has teams to list. */
   | { kind: "open"; activeId: string; activeHasTeams: boolean }
-  /** A chevron: open that workspace's list, or fold it if it is open.
-   * Moving to ANOTHER workspace drops the old list at once — two lists
-   * moving together would shift the row under the pointer. */
+  /** A chevron: open that workspace's list, or fold it if it is open. */
   | { kind: "toggle"; wsId: string }
-  /** The strip shut (the list folds away with it), or a drag began
+  /** The strip shut (the lists fold away with it), or a drag began
    * (`instant`: the column must hold still under the grab). */
   | { kind: "close"; instant?: boolean }
-  /** The folding list finished. */
-  | { kind: "settled" };
+  /** A folding list finished. */
+  | { kind: "settled"; wsId: string };
+
+const without = (ids: readonly string[], id: string) => ids.filter((each) => each !== id);
+const union = (a: readonly string[], b: readonly string[]) => [...a, ...b.filter((id) => !a.includes(id))];
 
 export function expandTeams(state: ExpandedTeams, event: ExpandEvent): ExpandedTeams {
   switch (event.kind) {
     case "open":
-      return { expanded: event.activeHasTeams ? event.activeId : null, leaving: null };
+      return {
+        expanded: union(state.kept, event.activeHasTeams ? [event.activeId] : []),
+        leaving: [],
+        kept: state.kept,
+      };
     case "toggle":
-      return state.expanded === event.wsId
-        ? { expanded: null, leaving: event.wsId }
-        : { expanded: event.wsId, leaving: null };
+      return state.expanded.includes(event.wsId)
+        ? {
+            ...state,
+            expanded: without(state.expanded, event.wsId),
+            leaving: union(state.leaving, [event.wsId]),
+          }
+        : {
+            ...state,
+            expanded: [...state.expanded, event.wsId],
+            leaving: without(state.leaving, event.wsId),
+          };
     case "close":
-      return event.instant || state.expanded === null
-        ? { expanded: null, leaving: event.instant ? null : state.leaving }
-        : { expanded: null, leaving: state.expanded };
+      return {
+        expanded: [],
+        leaving: event.instant ? [] : union(state.leaving, state.expanded),
+        kept: state.expanded,
+      };
     case "settled":
-      return { ...state, leaving: null };
+      return { ...state, leaving: without(state.leaving, event.wsId) };
   }
 }
 

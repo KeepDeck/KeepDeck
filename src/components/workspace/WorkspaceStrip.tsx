@@ -194,11 +194,11 @@ export function WorkspaceStrip({
           className={`strip__marks${ghost ? " strip__marks--reordering" : ""}`}
         >
           {view.marks.map((mark) => {
-            const expanded = teams.expanded === mark.id;
+            const expanded = teams.isExpanded(mark.id);
             const toggle = teamsToggleView(mark, expanded);
             const listId = stripTeamsId(mark.id);
             // Drawn while listed and while folding away.
-            const drawn = expanded || teams.leaving === mark.id;
+            const drawn = teams.isDrawn(mark.id);
             return (
               // The GROUP is the reorder's item (data-ws-id), unpositioned
               // so the list stays the offsetParent the hit-test measures

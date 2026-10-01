@@ -216,6 +216,11 @@
    never painted over the marks below — and its breathing room sits inside,
    so the box's height is all the room it takes. */
 .strip__teams {
+  /* The height the motion writes is the WHOLE box, padding included — it
+     measures scrollHeight, which counts the padding. Content-box would add
+     the padding again: the list would run 4px tall and drop back when the
+     motion let go, bouncing every mark below it. */
+  box-sizing: border-box;
   margin: 0;
   padding: 0 0 4px;
   overflow: hidden;

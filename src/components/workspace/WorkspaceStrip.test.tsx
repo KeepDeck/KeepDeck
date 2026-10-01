@@ -463,18 +463,31 @@ describe("WorkspaceStrip as the team switcher", () => {
     expect(toggleOf("a")!.querySelector(".strip__count")).toBeNull();
   });
 
-  it("lists ONE workspace at a time: a chevron moves the list, again closes it", () => {
+  it("opens and folds lists freely, any number at once", () => {
     render();
     openStrip();
     act(() => toggleOf("b")!.click());
-    expect(listed()).toEqual(["b"]);
+    expect(listed()).toEqual(["a", "b"]);
     expect(callbacks.onSelect).not.toHaveBeenCalled();
-    act(() => toggleOf("b")!.click());
+    act(() => toggleOf("a")!.click());
     // Folding away: still drawn, no longer listed...
-    expect(toggleOf("b")!.getAttribute("aria-expanded")).toBe("false");
-    // ...and gone once its fold has run.
+    expect(toggleOf("a")!.getAttribute("aria-expanded")).toBe("false");
+    // ...and gone once its fold has run; Beta stays.
     act(() => void vi.advanceTimersByTime(500));
+    expect(listed()).toEqual(["b"]);
+  });
+
+  it("opens again with the lists the person kept open", () => {
+    render();
+    openStrip();
+    act(() => toggleOf("b")!.click());
+    hover("leave");
+    // The grace shuts it; then the folds run.
+    act(() => void vi.advanceTimersByTime(STRIP_REVEAL_GRACE_MS));
+    act(() => void vi.advanceTimersByTime(1000));
     expect(listed()).toEqual([]);
+    openStrip();
+    expect(listed()).toEqual(["a", "b"]);
   });
 
   it("reopens a list caught mid-fold and keeps it open — no stale fold lands", () => {
@@ -486,16 +499,6 @@ describe("WorkspaceStrip as the team switcher", () => {
     // The old fold's frames must not settle it away under the new open.
     expect(listed()).toEqual(["a"]);
     expect(toggleOf("a")!.getAttribute("aria-expanded")).toBe("true");
-  });
-
-  it("drops a folding list at once when another opens, leaving only the new one", () => {
-    render();
-    openStrip();
-    act(() => toggleOf("a")!.click()); // Alpha folding
-    act(() => toggleOf("b")!.click()); // Beta, mid-fold
-    expect(listed()).toEqual(["b"]);
-    act(() => void vi.advanceTimersByTime(500));
-    expect(listed()).toEqual(["b"]);
   });
 
   it("goes to a workspace from its mark and shuts until the pointer leaves", () => {
@@ -517,7 +520,7 @@ describe("WorkspaceStrip as the team switcher", () => {
     render();
     openStrip();
     act(() => toggleOf("b")!.click());
-    act(() => host.querySelector<HTMLButtonElement>(".strip__team")!.click());
+    act(() => host.querySelector<HTMLButtonElement>('[data-ws-id="b"] .strip__team')!.click());
     expect(callbacks.onEnterTeam).toHaveBeenCalledWith("b", "t3");
     expect(revealed()).toBe(false);
   });
