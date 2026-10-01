@@ -282,6 +282,8 @@
   white-space: nowrap;
 }
 
+/* The ghost is fixed — so it is the positioned box a carried name sits
+   beside, at the same offset as in the row. */
 .strip__ghost {
   position: fixed;
   z-index: 1000;

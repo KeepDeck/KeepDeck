@@ -45,6 +45,9 @@ interface DragSource {
 /** Snapshot of the mark being dragged, used to render the floating ghost. */
 interface DragGhost {
   mark: WorkspaceMark;
+  /** The strip was open when the drag began: the ghost carries the name
+   * too, as the row did — the name leaves the column with its mark. */
+  named: boolean;
   left: number;
   width: number;
   height: number;
@@ -135,7 +138,7 @@ export function WorkspaceStrip({
     onStart: ({ source }) => {
       cancelSettle.current?.();
       cancelSettle.current = null;
-      setGhost({ mark: source.mark, ...source.rect });
+      setGhost({ mark: source.mark, named: reveal.open, ...source.rect });
     },
     onMove: ({ source, current }) => {
       if (ghostRef.current) {
@@ -288,6 +291,11 @@ export function WorkspaceStrip({
             style={{ left: ghost.left, width: ghost.width, height: ghost.height }}
           >
             <MarkFace mark={ghost.mark} />
+            {ghost.named && (
+              <span className="strip__name" aria-hidden>
+                {ghost.mark.name}
+              </span>
+            )}
           </div>,
           document.body,
         )}

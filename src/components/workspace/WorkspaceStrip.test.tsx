@@ -276,6 +276,8 @@ describe("WorkspaceStrip drag reorder", () => {
     const ghost = document.querySelector(".strip__ghost")!;
     expect(ghost.querySelector(".strip__tile")?.textContent).toBe("Be");
     expect(ghost.querySelector(".strip__dot--waiting")).not.toBeNull();
+    // The strip was shut: the ghost is the mark alone, no name.
+    expect(ghost.querySelector(".strip__name")).toBeNull();
 
     act(() => window.dispatchEvent(pointerEvent("pointermove", { clientY: 175 })));
     expect(order()).toEqual(["a", "c", "d", "b"]);
@@ -637,6 +639,22 @@ describe("WorkspaceStrip dragging from the open strip", () => {
 
   const order = () => groups().map((g) => g.dataset.wsId);
   const markOf = (id: string) => document.querySelector<HTMLElement>(`[data-ws-id="${id}"] .strip__mark`)!;
+
+  it("carries the name with the mark when the strip is open", () => {
+    act(() => root.render(createElement(TeamedHarness)));
+    act(() => {
+      document.querySelector(".strip__col")!.dispatchEvent(
+        new PointerEvent("pointerover", { bubbles: true, relatedTarget: document.body }),
+      );
+      vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS);
+    });
+    act(() => {
+      markOf("b").dispatchEvent(pointerEvent("pointerdown", { clientY: 120 }));
+      vi.advanceTimersByTime(300);
+    });
+    expect(document.querySelector(".strip__ghost .strip__name")?.textContent).toBe("Beta");
+    act(() => window.dispatchEvent(pointerEvent("pointerup", { clientY: 120 })));
+  });
 
   it("carries a dragged workspace as its mark alone, its list back where it lands", () => {
     act(() => root.render(createElement(TeamedHarness)));
