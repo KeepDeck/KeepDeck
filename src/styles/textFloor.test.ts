@@ -10,6 +10,7 @@ const MARKS_AND_DISABLED = [
   ".deck__crumb-sep", // the "/" between crumbs
   ".pane__sep", // the "·" between a pane's title and its role
   ".strip__tile .strip__dot--idle", // the idle dot's hollow ring
+  ".strip__team .team-dot--none", // a strip team row's idle ring
   ".minimized__status--stopped", // the stopped dot's hollow ring
   ".tasks__remove", // the × that detaches a row
   ".artifacts__remove", // the same ×

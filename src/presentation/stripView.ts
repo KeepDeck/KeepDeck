@@ -1,7 +1,9 @@
 /**
  * What the left strip says, decided apart from the markup that draws it:
- * one mark per workspace, in deck order — the way between workspaces.
- * Teams are reached on the stage's own cards screen, not here.
+ * one mark per workspace, in deck order — the way between workspaces —
+ * and, when the strip slides open, each workspace's teams under it (user
+ * decision 2026-10-01: the reveal is the team switcher; at rest the strip
+ * stays marks only).
  *
  * A mark is the only view into a workspace that is not on screen, so it
  * wears that workspace's loudest state, whatever it is — failed, waiting,
@@ -13,13 +15,26 @@
  * It also names the ACTIVE workspace and where it sits, for the bar's crumb
  * (`workspaceCrumbView`).
  */
-import { membersOf, teamsOf, type Workspace } from "../domain/deck";
+import { membersOf, openTeamOf, teamsOf, type Workspace, type WorkspaceView } from "../domain/deck";
 import { foldFrame, type PaneActivity } from "../domain/status";
 import type { ActiveWorkspace } from "./workspaceCrumbView";
-import { teamDot, type TeamCardDot } from "./teamCardView";
+import { TEAM_CARD_WORDS, teamDot, type TeamCardDot } from "./teamCardView";
 
 /** A mark's dot: its workspace's loudest state. */
 export type MarkDot = "failed" | "waiting" | "working" | "done" | "idle";
+
+/** One team under its workspace in the slid-open strip. */
+export interface StripTeam {
+  id: string;
+  name: string;
+  /** The team's own dot, UNREDUCED — creating and idle say themselves here,
+   * where the mark folds them away. */
+  dot: TeamCardDot;
+  /** The team the workspace has open (its stage shows it). */
+  open: boolean;
+  /** The row's accessible name: the team and how it is doing. */
+  label: string;
+}
 
 /** One workspace's mark in the column. */
 export interface WorkspaceMark {
@@ -32,6 +47,8 @@ export interface WorkspaceMark {
   dot: MarkDot | null;
   /** The mark's tooltip and accessible name. */
   label: string;
+  /** Its teams in deck order — what the slid-open strip lists under it. */
+  teams: readonly StripTeam[];
 }
 
 export interface StripView {
@@ -46,6 +63,9 @@ export const STRIP_WORDS = {
   addWorkspace: "New workspace",
   /** The build at the strip's foot, in full. */
   build: (version: string) => `KeepDeck ${version}`,
+  /** The chevron that opens or closes a workspace's team list. */
+  showTeams: (workspace: string) => `Show teams of ${workspace}`,
+  hideTeams: (workspace: string) => `Hide teams of ${workspace}`,
 } as const;
 
 const DOT_WORDS: Record<MarkDot, string> = {
@@ -91,13 +111,25 @@ export function stripView(
   workspaces: readonly Workspace[],
   activities: ReadonlyMap<string, PaneActivity>,
   activeId: string,
+  /** Each workspace's view — which team its stage has open. */
+  viewByWs: Readonly<Record<string, WorkspaceView>>,
 ): StripView {
   let active = null as ActiveWorkspace | null;
   const marks = workspaces.map((ws, index): WorkspaceMark => {
-    const teamDots = teamsOf(ws).map((team) =>
-      teamDot(team, membersOf(ws, team.id).map((pane) => activities.get(pane.id))),
-    );
-    const dot = markDot(teamDots, ws.panes.length);
+    const openTeam = openTeamOf(ws, viewByWs[ws.id]);
+    // ONE pass: each team's dot is the row's, and the same dots fold into
+    // the mark's — the two can never rank a team differently.
+    const teams = teamsOf(ws).map((team): StripTeam => {
+      const teamState = teamDot(team, membersOf(ws, team.id).map((pane) => activities.get(pane.id)));
+      return {
+        id: team.id,
+        name: team.name,
+        dot: teamState,
+        open: team.id === openTeam?.id,
+        label: `${team.name} — ${TEAM_CARD_WORDS.dot[teamState]}`,
+      };
+    });
+    const dot = markDot(teams.map((team) => team.dot), ws.panes.length);
     if (ws.id === activeId) {
       active = {
         id: ws.id,
@@ -113,6 +145,7 @@ export function stripView(
       active: ws.id === activeId,
       dot,
       label: dot ? `${ws.name} — ${DOT_WORDS[dot]}` : ws.name,
+      teams,
     };
   });
   return { marks, active };

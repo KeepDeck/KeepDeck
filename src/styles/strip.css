@@ -1,6 +1,9 @@
 /* The left strip (components/workspace/WorkspaceStrip.tsx): a column of
-   workspace marks on a surface one step above the canvas. Teams are
-   reached on the stage's cards screen. */
+   workspace marks on a surface one step above the canvas. At rest, marks
+   only. Slid open on approach, it is the team switcher: every workspace's
+   name, and the teams of any workspace whose list is open under it (user
+   decision 2026-10-01). The stage's cards screen remains the keyboard's way
+   to a team. */
 
 .strip {
   position: relative;
@@ -40,15 +43,18 @@
      — `auto` to a number is not interpolated, so the delay is ignored.
      Shut, the column covers only its own slot, so the layer costs nothing. */
   z-index: 50;
+  /* The ease-out CUBIC — the very curve the team lists move on
+     (app/stripTeamsMotion: 1 − (1 − x)³), so the edge and a list arrive
+     together all the way, not only at the end. */
   transition:
-    width 140ms ease-out,
-    box-shadow 140ms ease-out;
+    width 140ms cubic-bezier(0.33, 1, 0.68, 1),
+    box-shadow 140ms cubic-bezier(0.33, 1, 0.68, 1);
 }
 
-/* Open: every workspace's full name beside its mark, over the stage — the
-   one place a workspace that is not on screen is named. */
+/* Open: every workspace's full name beside its mark and the teams of one
+   of them under it, over the stage — the strip as the team switcher. */
 .strip--revealed .strip__col {
-  width: 220px;
+  width: 250px;
   box-shadow: var(--kd-shadow-float);
 }
 
@@ -56,6 +62,9 @@
    hit-test and the ghost's landing both measure through it (stripDnd.ts). */
 .strip__marks {
   position: relative;
+  margin: 0;
+  padding: 0;
+  list-style: none;
   flex: 1;
   min-height: 0;
   width: 100%;
@@ -145,10 +154,143 @@
 }
 
 /* The mark being dragged leaves its slot empty; the ghost carries it. */
-.strip__mark--placeholder {
+/* The dragged workspace: its MARK rides with the hand (the ghost), so only
+   its mark's slot is left empty — its team list stays visible as it folds
+   away under the drag. */
+.strip__group--placeholder .strip__head {
   visibility: hidden;
 }
 
+/* ── A workspace in the column: its mark, its toggle, its teams ────── */
+
+/* The reorder's item. NOT positioned: the list must stay the offsetParent
+   the hit-test and the ghost's landing measure through (stripDnd.ts). */
+.strip__group {
+  width: 100%;
+}
+
+/* The row the mark and its toggle share; the toggle is placed in it. */
+.strip__head {
+  position: relative;
+  width: 244px;
+}
+
+/* The chevron that lists a workspace's teams — its own button beside the
+   mark (a button cannot hold another), at the row's far end, past the shut
+   edge like the name. */
+.strip__toggle {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: var(--kd-radius-control);
+  background: transparent;
+  color: var(--kd-text-3);
+  font: inherit;
+  font-size: var(--kd-font-small);
+  font-variant-numeric: tabular-nums;
+  transform: translateY(-50%);
+  cursor: pointer;
+}
+
+.strip__toggle:hover {
+  background-color: var(--kd-hover);
+  color: var(--kd-text);
+}
+
+.strip__toggle:focus-visible {
+  outline: 1px solid var(--kd-focus);
+  outline-offset: -1px;
+}
+
+/* The chevron points at the list: right while it is closed, down while it
+   is open. */
+.strip__toggle svg {
+  transition: transform 140ms cubic-bezier(0.33, 1, 0.68, 1);
+}
+
+.strip__toggle[aria-expanded="true"] svg {
+  transform: rotate(90deg);
+}
+
+/* A workspace's teams, under its row, lined up with its name. Its box IS
+   what the motion drives, so it has no padding and no margin of its own:
+   rows past a shrinking height are cut (never painted over the marks
+   below), a height of 0 is truly 0 (a box's own padding would hold it at
+   4px — the list would mount, and finish folding, 4px tall), and the
+   height written is exactly the room it takes. Its breathing room is
+   CONTENT, on the last row, inside the clipped box where scrollHeight
+   counts it. */
+.strip__teams {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  list-style: none;
+}
+
+.strip__teams > li:last-child {
+  padding-bottom: 4px;
+}
+
+/* A team: a quiet line under its workspace's name, starting where the
+   name starts — not a slab across the column. The open one is said by
+   its ink, not by a fill. */
+.strip__team {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 186px;
+  height: 26px;
+  margin-left: 47px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--kd-radius-control);
+  background: transparent;
+  color: var(--kd-text-3);
+  font: inherit;
+  font-size: var(--kd-font-normal);
+  text-align: left;
+  cursor: pointer;
+}
+
+.strip__team:hover {
+  background-color: var(--kd-hover);
+  color: var(--kd-text);
+}
+
+.strip__team--open {
+  color: var(--kd-text);
+  font-weight: 500;
+}
+
+/* In a row, a team the deck has nothing to report on is a hollow ring —
+   the strip's own idle mark — where a filled gray dot read as nothing. */
+.strip__team .team-dot--none {
+  width: 7px;
+  height: 7px;
+  background-color: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--kd-text-4);
+}
+
+.strip__team:focus-visible {
+  outline: 1px solid var(--kd-focus);
+  outline-offset: -1px;
+}
+
+.strip__team-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The ghost is fixed — so it is the positioned box a carried name sits
+   beside, at the same offset as in the row. */
 .strip__ghost {
   position: fixed;
   z-index: 1000;
@@ -172,7 +314,8 @@
      first pixel at 59 — clear of the 58px column, where 50 left a sliver
      of every name showing. */
   left: 56px;
-  max-width: 150px;
+  /* Room for the toggle at the row's far end (.strip__head, 244px). */
+  max-width: 132px;
   overflow: hidden;
   color: var(--kd-text-2);
   font-size: var(--kd-font-normal);
@@ -185,6 +328,25 @@
 .strip__mark:hover .strip__name,
 .strip__mark--active .strip__name {
   color: var(--kd-text);
+}
+
+/* Closing FADES what sits past the shut edge — names, toggles, team lists —
+   as the close begins, rather than leaving it to the edge to cut each one
+   off late on its way in. Opening stays the edge's alone: the shown rule
+   carries no transition, so they appear at once as the edge uncovers them
+   (a fade-in runs on each element's clock, and a mark just dragged lagged
+   behind the rest). */
+.strip:not(.strip--revealed) .strip__name,
+.strip:not(.strip--revealed) .strip__toggle,
+.strip:not(.strip--revealed) .strip__teams {
+  opacity: 0;
+  transition: opacity 80ms ease-out;
+}
+
+.strip--revealed .strip__name,
+.strip--revealed .strip__toggle,
+.strip--revealed .strip__teams {
+  opacity: 1;
 }
 
 /* The build number at the column's foot: read a few times a year, so it
@@ -250,7 +412,11 @@
 
 @media (prefers-reduced-motion: reduce) {
   .strip__tile,
-  .strip__col {
+  .strip__toggle svg,
+  .strip__col,
+  .strip:not(.strip--revealed) .strip__name,
+  .strip:not(.strip--revealed) .strip__toggle,
+  .strip:not(.strip--revealed) .strip__teams {
     transition: none;
   }
 }

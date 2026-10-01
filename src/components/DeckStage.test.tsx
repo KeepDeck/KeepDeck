@@ -490,7 +490,7 @@ describe("DeckStage — the teams level", () => {
     render({ workspaces: cards, viewByWs: { "ws-1": { teamOpen: undefined } } });
     const api = card("team-1");
     expect(api.querySelector(".team-card__name")!.textContent).toBe("api");
-    expect(api.querySelector(".team-card__dot")!.classList.contains("team-card__dot--none")).toBe(true);
+    expect(api.querySelector(".team-card__dot")!.classList.contains("team-dot--none")).toBe(true);
     expect(api.querySelector(".team-card__branch")!.textContent).toContain("kd/api");
     expect(api.querySelector(".team-card__count")!.textContent).toBe("2 agents");
     expect(api.querySelector(".team-card__dir")!.textContent).toBe("api");
@@ -501,7 +501,7 @@ describe("DeckStage — the teams level", () => {
 
     const docs = card("team-2");
     expect(docs.classList.contains("team-card--pending")).toBe(true);
-    expect(docs.querySelector(".team-card__dot")!.classList.contains("team-card__dot--failed")).toBe(true);
+    expect(docs.querySelector(".team-card__dot")!.classList.contains("team-dot--failed")).toBe(true);
     expect(docs.querySelector(".team-card__count")!.textContent).toBe("No agents");
     expect(docs.textContent).not.toContain("branch exists");
 

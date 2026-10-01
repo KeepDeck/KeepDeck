@@ -76,6 +76,7 @@ function App() {
     gitHeads,
     handleCreateWorkspace,
     handleSelectWorkspace,
+    handleEnterTeam,
     info,
     openNotification,
     orchestrator,
@@ -134,6 +135,7 @@ function App() {
       <WorkspaceStrip
         view={strip}
         onSelect={handleSelectWorkspace}
+        onEnterTeam={handleEnterTeam}
         onAdd={() => setCreating(true)}
         onReorder={deck.moveWorkspace}
         version={info?.version ?? null}

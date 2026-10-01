@@ -1,64 +1,47 @@
-import { useEffect, useRef, useState } from "react";
-
-/** How long the pointer rests on the strip before it opens. Under the
- * 300ms hold that arms a reorder drag, so the press has to cancel it — see
- * `onPointerDown`. */
-export const STRIP_REVEAL_DWELL_MS = 250;
+import { useEffect, useLayoutEffect, useReducer, useRef } from "react";
+import {
+  REVEAL_AT_REST,
+  STRIP_REVEAL_DWELL_MS,
+  STRIP_REVEAL_GRACE_MS,
+  stripReveal,
+} from "../../presentation/stripReveal";
 
 /**
- * The strip's names-on-approach: resting the pointer on the column opens it
- * over the stage with every workspace's full name beside its mark; leaving
- * closes it at once. A press cancels an open that is still pending — a
- * press is a click or the start of a hold-to-drag, never a request to read
- * names — and a drag in flight (`suspended`) closes it. When the drag ends
- * with the pointer still on the column, the rest starts over: no pointer
- * ENTERS a column it never left, so waiting for one would leave it shut.
+ * The strip's slide-out, wired: the rules are `stripReveal`'s; this keeps
+ * its two timers — one runs exactly while `dwelling` is set, the other
+ * while `closing` is — and feeds it the pointer and the drag.
  */
 export function useStripReveal(suspended: boolean) {
-  const [open, setOpen] = useState(false);
-  const pending = useRef<number | null>(null);
-  /** Whether the pointer is on the column — what a drop resumes from. */
-  const inside = useRef(false);
-
-  const cancelPending = () => {
-    if (pending.current === null) return;
-    window.clearTimeout(pending.current);
-    pending.current = null;
-  };
-
-  const openAfterDwell = () => {
-    cancelPending();
-    pending.current = window.setTimeout(() => {
-      pending.current = null;
-      setOpen(true);
-    }, STRIP_REVEAL_DWELL_MS);
-  };
-
-  useEffect(() => cancelPending, []);
+  const [state, dispatch] = useReducer(stripReveal, REVEAL_AT_REST);
 
   useEffect(() => {
-    if (suspended) {
-      cancelPending();
-      setOpen(false);
-    } else if (inside.current) {
-      openAfterDwell();
+    if (!state.dwelling) return;
+    const timer = window.setTimeout(() => dispatch({ kind: "dwelled" }), STRIP_REVEAL_DWELL_MS);
+    return () => window.clearTimeout(timer);
+  }, [state.dwelling]);
+
+  useEffect(() => {
+    if (!state.closing) return;
+    const timer = window.setTimeout(() => dispatch({ kind: "graced" }), STRIP_REVEAL_GRACE_MS);
+    return () => window.clearTimeout(timer);
+  }, [state.closing]);
+
+  const first = useRef(true);
+  useLayoutEffect(() => {
+    if (first.current) {
+      first.current = false;
+      return;
     }
+    dispatch({ kind: suspended ? "drag-start" : "drag-end" });
   }, [suspended]);
 
   return {
-    open: open && !suspended,
+    open: state.open,
+    dismiss: () => dispatch({ kind: "dismiss" }),
     handlers: {
-      onPointerEnter: () => {
-        inside.current = true;
-        if (suspended || open) return;
-        openAfterDwell();
-      },
-      onPointerLeave: () => {
-        inside.current = false;
-        cancelPending();
-        setOpen(false);
-      },
-      onPointerDown: cancelPending,
+      onPointerEnter: () => dispatch({ kind: "enter" }),
+      onPointerLeave: () => dispatch({ kind: "leave" }),
+      onPointerDown: () => dispatch({ kind: "press" }),
     },
   };
 }

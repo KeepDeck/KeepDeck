@@ -2,9 +2,9 @@
 import { act, createElement, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { StripView, WorkspaceMark } from "../../presentation/stripView";
+import type { StripTeam, StripView, WorkspaceMark } from "../../presentation/stripView";
 import { WorkspaceStrip } from "./WorkspaceStrip";
-import { STRIP_REVEAL_DWELL_MS } from "./useStripReveal";
+import { STRIP_REVEAL_DWELL_MS, STRIP_REVEAL_GRACE_MS } from "../../presentation/stripReveal";
 
 (
   globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -17,6 +17,7 @@ const mark = (id: string, name: string, extra: Partial<WorkspaceMark> = {}): Wor
   active: false,
   dot: null,
   label: name,
+  teams: [],
   ...extra,
 });
 
@@ -32,6 +33,7 @@ const VIEW: StripView = {
 
 const callbacks = {
   onSelect: vi.fn(),
+  onEnterTeam: vi.fn(),
   onAdd: vi.fn(),
   onReorder: vi.fn(),
 };
@@ -67,10 +69,13 @@ describe("WorkspaceStrip", () => {
 
   it("draws a mark per workspace, the active one marked, a dot only where it is earned", () => {
     render();
-    const marks = [...host.querySelectorAll<HTMLElement>("[data-ws-id]")];
-    expect(marks.map((m) => m.dataset.wsId)).toEqual(["a", "b", "c", "d"]);
+    const groups = [...host.querySelectorAll<HTMLElement>("[data-ws-id]")];
+    expect(groups.map((m) => m.dataset.wsId)).toEqual(["a", "b", "c", "d"]);
+    const marks = groups.map((group) => group.querySelector<HTMLElement>(".strip__mark")!);
     expect(marks[0].classList.contains("strip__mark--active")).toBe(true);
     expect(marks[0].getAttribute("aria-current")).toBe("true");
+    // Not "false" on every other mark: no attribute at all.
+    expect(marks[1].hasAttribute("aria-current")).toBe(false);
     expect(marks[1].querySelector(".strip__dot")?.className).toBe("strip__dot strip__dot--waiting");
     expect(marks[1].getAttribute("aria-label")).toBe("Beta — someone needs you");
     expect(marks[2].querySelector(".strip__dot")).toBeNull();
@@ -135,10 +140,15 @@ describe("WorkspaceStrip drag reorder", () => {
   let originalRect: typeof HTMLElement.prototype.getBoundingClientRect;
 
   /** Each mark's index in its list, or -1 for anything else. */
-  const slot = (element: HTMLElement) =>
-    element.dataset.wsId && element.parentElement
-      ? [...element.parentElement.querySelectorAll<HTMLElement>("[data-ws-id]")].indexOf(element)
+  const slot = (element: HTMLElement) => {
+    // A mark's button sits in its group, which is the list's item.
+    const item = element.dataset.wsId ? element : element.classList.contains("strip__mark")
+      ? element.closest<HTMLElement>("[data-ws-id]")
+      : null;
+    return item?.parentElement
+      ? [...item.parentElement.querySelectorAll<HTMLElement>("[data-ws-id]")].indexOf(item)
       : -1;
+  };
 
   beforeEach(() => {
     vi.useFakeTimers();
@@ -179,36 +189,65 @@ describe("WorkspaceStrip drag reorder", () => {
 
   const order = () =>
     [...document.querySelectorAll<HTMLElement>("[data-ws-id]")].map((m) => m.dataset.wsId);
-  const markEl = (id: string) => document.querySelector<HTMLElement>(`[data-ws-id="${id}"]`)!;
+  const markEl = (id: string) =>
+    document.querySelector<HTMLElement>(`[data-ws-id="${id}"] .strip__mark`)!;
 
-  it("closes an open strip when a hold turns into a drag", () => {
+  it("holds an open strip open through a drag, and after a drop on the column", () => {
+    // Shutting it would drop every team list and jump the marks under the
+    // hand; it holds as it is instead, however far the pointer goes.
     act(() => root.render(createElement(Harness)));
     const col = document.querySelector(".strip__col")!;
     act(() => {
       col.dispatchEvent(
         new PointerEvent("pointerover", { bubbles: true, relatedTarget: document.body }),
       );
-      vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS);
     });
-    expect(document.querySelector(".strip--revealed")).not.toBeNull();
+    act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS));
     act(() => {
       markEl("b").dispatchEvent(pointerEvent("pointerdown", { clientY: 70 }));
       vi.advanceTimersByTime(300);
     });
     expect(document.querySelector(".strip__ghost")).not.toBeNull();
-    expect(document.querySelector(".strip--revealed")).toBeNull();
-    // The drop settles (140ms + its 100ms safety) with the pointer still on
-    // the column: the strip is SHUT — the drag closed it rather than hiding
-    // it for the drag's length — and a fresh rest opens it again, though no
-    // pointer ever re-entered.
+    // The hand travels off the column mid-drag: still open.
     act(() => {
+      col.dispatchEvent(new PointerEvent("pointerout", { bubbles: true, relatedTarget: document.body }));
+      vi.advanceTimersByTime(STRIP_REVEAL_GRACE_MS * 3);
+    });
+    expect(document.querySelector(".strip--revealed")).not.toBeNull();
+    // Back over it and dropped: it stays.
+    act(() => {
+      col.dispatchEvent(new PointerEvent("pointerover", { bubbles: true, relatedTarget: document.body }));
       window.dispatchEvent(pointerEvent("pointerup", { clientY: 70 }));
-      vi.advanceTimersByTime(240);
+      vi.advanceTimersByTime(1000);
     });
     expect(document.querySelector(".strip__ghost")).toBeNull();
-    expect(document.querySelector(".strip--revealed")).toBeNull();
-    act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS));
     expect(document.querySelector(".strip--revealed")).not.toBeNull();
+  });
+
+  it("shuts an open strip a grace after a drop that ends off the column", () => {
+    act(() => root.render(createElement(Harness)));
+    const col = document.querySelector(".strip__col")!;
+    act(() => {
+      col.dispatchEvent(
+        new PointerEvent("pointerover", { bubbles: true, relatedTarget: document.body }),
+      );
+    });
+    act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS));
+    act(() => {
+      markEl("b").dispatchEvent(pointerEvent("pointerdown", { clientY: 70 }));
+      vi.advanceTimersByTime(300);
+    });
+    act(() => {
+      col.dispatchEvent(new PointerEvent("pointerout", { bubbles: true, relatedTarget: document.body }));
+      window.dispatchEvent(pointerEvent("pointerup", { clientY: 70 }));
+    });
+    // The ghost settles into its slot (140ms + 100ms safety); the drag ends
+    // there, and the grace runs from then.
+    act(() => void vi.advanceTimersByTime(240));
+    act(() => void vi.advanceTimersByTime(STRIP_REVEAL_GRACE_MS - 1));
+    expect(document.querySelector(".strip--revealed")).not.toBeNull();
+    act(() => void vi.advanceTimersByTime(1));
+    expect(document.querySelector(".strip--revealed")).toBeNull();
   });
 
   it("stays shut after a drop that ends off the column", () => {
@@ -241,6 +280,8 @@ describe("WorkspaceStrip drag reorder", () => {
     const ghost = document.querySelector(".strip__ghost")!;
     expect(ghost.querySelector(".strip__tile")?.textContent).toBe("Be");
     expect(ghost.querySelector(".strip__dot--waiting")).not.toBeNull();
+    // The strip was shut: the ghost is the mark alone, no name.
+    expect(ghost.querySelector(".strip__name")).toBeNull();
 
     act(() => window.dispatchEvent(pointerEvent("pointermove", { clientY: 175 })));
     expect(order()).toEqual(["a", "c", "d", "b"]);
@@ -321,25 +362,42 @@ describe("WorkspaceStrip opening on approach", () => {
     expect(revealed()).toBe(true);
   });
 
-  it("closes the moment the pointer leaves", () => {
+  it("closes a grace after the pointer leaves, and stays open if it comes back", () => {
+    // Its rows are targets: a pointer overshooting the edge on its way to
+    // one must not lose the column.
     render();
     pointer("enter");
     act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS));
     pointer("leave");
+    act(() => void vi.advanceTimersByTime(STRIP_REVEAL_GRACE_MS - 1));
+    expect(revealed()).toBe(true);
+    pointer("enter");
+    act(() => void vi.advanceTimersByTime(STRIP_REVEAL_GRACE_MS * 2));
+    expect(revealed()).toBe(true);
+    pointer("leave");
+    act(() => void vi.advanceTimersByTime(STRIP_REVEAL_GRACE_MS));
     expect(revealed()).toBe(false);
   });
 
   it("does not open under a press — a click or the start of a hold-to-drag", () => {
     render();
     pointer("enter");
-    pointer("down", host.querySelector("[data-ws-id='b']")!);
+    pointer("down", host.querySelector("[data-ws-id='b'] .strip__mark")!);
     act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS * 2));
     expect(revealed()).toBe(false);
   });
 
-  it("leaves no pending open behind when it goes away", () => {
+  it("leaves no pending open or close behind when it goes away", () => {
     render();
     pointer("enter");
+    expect(vi.getTimerCount()).toBe(1);
+    act(() => root.unmount());
+    expect(vi.getTimerCount()).toBe(0);
+    root = createRoot(host);
+    render();
+    pointer("enter");
+    act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS));
+    pointer("leave");
     expect(vi.getTimerCount()).toBe(1);
     act(() => root.unmount());
     expect(vi.getTimerCount()).toBe(0);
@@ -351,5 +409,310 @@ describe("WorkspaceStrip opening on approach", () => {
     // The face the ghost shares is the tile alone.
     const face = host.querySelector("[data-ws-id='b'] .strip__tile")!;
     expect(face.querySelector(".strip__name")).toBeNull();
+  });
+});
+
+describe("WorkspaceStrip as the team switcher", () => {
+  let host: HTMLDivElement;
+  let root: Root;
+  const team = (id: string, name: string, extra: Partial<StripTeam> = {}): StripTeam => ({
+    id,
+    name,
+    dot: "none",
+    open: false,
+    label: name,
+    ...extra,
+  });
+  const TEAMED: StripView = {
+    marks: [
+      mark("a", "Alpha", {
+        active: true,
+        teams: [team("t1", "api", { open: true }), team("t2", "web", { dot: "working" })],
+      }),
+      mark("b", "Beta", { teams: [team("t3", "hwc2", { dot: "waiting" })] }),
+      mark("c", "Gamma"),
+    ],
+    active: { id: "a", name: "Alpha", moveUpTo: null, moveDownTo: 1 },
+  };
+  const render = () =>
+    act(() =>
+      root.render(createElement(WorkspaceStrip, { view: TEAMED, version: null, ...callbacks })),
+    );
+  const col = () => host.querySelector<HTMLElement>(".strip__col")!;
+  const revealed = () => host.querySelector(".strip--revealed") !== null;
+  const hover = (type: "enter" | "leave") =>
+    act(() => {
+      col().dispatchEvent(
+        new PointerEvent(type === "enter" ? "pointerover" : "pointerout", {
+          bubbles: true,
+          relatedTarget: document.body,
+        }),
+      );
+    });
+  const openStrip = () => {
+    hover("enter");
+    act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS));
+  };
+  const toggleOf = (id: string) =>
+    host.querySelector<HTMLButtonElement>(`[data-ws-id="${id}"] .strip__toggle`);
+  const listed = () =>
+    [...host.querySelectorAll<HTMLElement>(".strip__teams")].map(
+      (list) => list.closest<HTMLElement>("[data-ws-id]")!.dataset.wsId,
+    );
+
+  beforeEach(() => {
+    for (const fn of Object.values(callbacks)) fn.mockClear();
+    vi.useFakeTimers();
+    host = document.body.appendChild(document.createElement("div"));
+    root = createRoot(host);
+  });
+  afterEach(() => {
+    act(() => root.unmount());
+    document.body.innerHTML = "";
+    vi.useRealTimers();
+  });
+
+  it("keeps a shut strip marks only: no team rows, and no toggle in reach", () => {
+    render();
+    expect(host.querySelector(".strip__teams")).toBeNull();
+    // Inert, not merely skipped by Tab: no click, no script, no reader
+    // reaches a control past the shut edge.
+    expect(toggleOf("a")!.inert).toBe(true);
+    // A workspace with no teams has nothing to toggle.
+    expect(toggleOf("c")).toBeNull();
+  });
+
+  it("opens on the active workspace's teams, the open one current", () => {
+    render();
+    openStrip();
+    expect(listed()).toEqual(["a"]);
+    expect(toggleOf("a")!.getAttribute("aria-expanded")).toBe("true");
+    expect(toggleOf("a")!.inert).toBe(false);
+    expect(host.querySelector(".strip__teams")!.getAttribute("aria-label")).toBe("Alpha");
+    const rows = [...host.querySelectorAll<HTMLButtonElement>(".strip__team")];
+    expect(rows.map((row) => row.textContent)).toEqual(["api", "web"]);
+    expect(rows[0].getAttribute("aria-current")).toBe("true");
+    expect(rows[1].querySelector(".team-dot--working")).not.toBeNull();
+    // A closed list counts itself; an open one does not.
+    expect(toggleOf("b")!.textContent).toBe("1");
+    expect(toggleOf("a")!.querySelector(".strip__count")).toBeNull();
+  });
+
+  it("opens and folds lists freely, any number at once", () => {
+    render();
+    openStrip();
+    act(() => toggleOf("b")!.click());
+    expect(listed()).toEqual(["a", "b"]);
+    expect(callbacks.onSelect).not.toHaveBeenCalled();
+    act(() => toggleOf("a")!.click());
+    // Folding away: still drawn, no longer listed...
+    expect(toggleOf("a")!.getAttribute("aria-expanded")).toBe("false");
+    // ...and gone once its fold has run; Beta stays.
+    act(() => void vi.advanceTimersByTime(500));
+    expect(listed()).toEqual(["b"]);
+  });
+
+  it("opens again with the lists the person kept open", () => {
+    render();
+    openStrip();
+    act(() => toggleOf("b")!.click());
+    hover("leave");
+    // The grace shuts it; then the folds run.
+    act(() => void vi.advanceTimersByTime(STRIP_REVEAL_GRACE_MS));
+    act(() => void vi.advanceTimersByTime(1000));
+    expect(listed()).toEqual([]);
+    openStrip();
+    expect(listed()).toEqual(["a", "b"]);
+  });
+
+  it("reopens a list caught mid-fold and keeps it open — no stale fold lands", () => {
+    render();
+    openStrip();
+    act(() => toggleOf("a")!.click()); // fold Alpha
+    act(() => toggleOf("a")!.click()); // and back, before the fold ends
+    act(() => void vi.advanceTimersByTime(500));
+    // The old fold's frames must not settle it away under the new open.
+    expect(listed()).toEqual(["a"]);
+    expect(toggleOf("a")!.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("goes to a workspace from its mark and shuts until the pointer leaves", () => {
+    render();
+    openStrip();
+    act(() => host.querySelector<HTMLButtonElement>('[data-ws-id="b"] .strip__mark')!.click());
+    expect(callbacks.onSelect).toHaveBeenCalledWith("b");
+    expect(revealed()).toBe(false);
+    // Still over the column: it does not reopen under the pointer...
+    act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS * 4));
+    expect(revealed()).toBe(false);
+    // ...until the pointer has left and come back.
+    hover("leave");
+    openStrip();
+    expect(revealed()).toBe(true);
+  });
+
+  it("enters a team from its row and shuts", () => {
+    render();
+    openStrip();
+    act(() => toggleOf("b")!.click());
+    act(() => host.querySelector<HTMLButtonElement>('[data-ws-id="b"] .strip__team')!.click());
+    expect(callbacks.onEnterTeam).toHaveBeenCalledWith("b", "t3");
+    expect(revealed()).toBe(false);
+  });
+});
+
+describe("WorkspaceStrip dragging from the open strip", () => {
+  // Geometry that KNOWS the listed teams: a group is its mark (50px) plus
+  // its team rows (28px each), stacked down the list. The plain harness
+  // above puts every mark at index × 50 and could never see a list drop.
+  const MARK = 50;
+  const ROW = 28;
+  let root: Root;
+  const saved: Record<string, PropertyDescriptor | undefined> = {};
+  let originalRect: typeof HTMLElement.prototype.getBoundingClientRect;
+  const groups = () => [...document.querySelectorAll<HTMLElement>("[data-ws-id]")];
+  const heightOf = (group: HTMLElement) =>
+    MARK + group.querySelectorAll(".strip__team").length * ROW;
+  const topOf = (group: HTMLElement) => {
+    let top = 0;
+    for (const g of groups()) {
+      if (g === group) return top;
+      top += heightOf(g);
+    }
+    return 0;
+  };
+  const groupOf = (el: HTMLElement) =>
+    el.dataset.wsId ? el : el.classList.contains("strip__mark") ? el.closest<HTMLElement>("[data-ws-id]") : null;
+
+  function TeamedHarness() {
+    const [marks, setMarks] = useState<WorkspaceMark[]>([
+      mark("a", "Alpha", {
+        active: true,
+        teams: [
+          { id: "t1", name: "api", dot: "none", open: true, label: "api" },
+          { id: "t2", name: "web", dot: "none", open: false, label: "web" },
+        ],
+      }),
+      mark("b", "Beta"),
+      mark("c", "Gamma"),
+      mark("d", "Delta"),
+    ]);
+    return createElement(WorkspaceStrip, {
+      view: { marks, active: { id: "a", name: "Alpha", moveUpTo: null, moveDownTo: 1 } },
+      version: null,
+      ...callbacks,
+      onReorder: (id: string, toIndex: number) => setMarks((current) => move(current, id, toIndex)),
+    });
+  }
+
+  beforeEach(() => {
+    for (const fn of Object.values(callbacks)) fn.mockClear();
+    vi.useFakeTimers();
+    originalRect = HTMLElement.prototype.getBoundingClientRect;
+    HTMLElement.prototype.getBoundingClientRect = function () {
+      const group = groupOf(this as HTMLElement);
+      const top = group ? topOf(group) : 0;
+      return { top, bottom: top + MARK, left: 0, right: 52, width: 52, height: MARK, x: 0, y: top, toJSON: () => ({}) } as DOMRect;
+    };
+    const geometry: Record<string, (el: HTMLElement) => number> = {
+      offsetTop: (el) => (el.dataset.wsId ? topOf(el) : 0),
+      offsetLeft: () => 0,
+      offsetWidth: (el) => (el.dataset.wsId ? 52 : 0),
+      offsetHeight: (el) => (el.dataset.wsId ? heightOf(el) : 0),
+    };
+    for (const [name, get] of Object.entries(geometry)) {
+      saved[name] = Object.getOwnPropertyDescriptor(HTMLElement.prototype, name);
+      Object.defineProperty(HTMLElement.prototype, name, {
+        configurable: true,
+        get() {
+          return get(this as HTMLElement);
+        },
+      });
+    }
+    root = createRoot(document.body.appendChild(document.createElement("div")));
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    act(() => vi.runOnlyPendingTimers());
+    vi.useRealTimers();
+    HTMLElement.prototype.getBoundingClientRect = originalRect;
+    for (const [name, descriptor] of Object.entries(saved)) {
+      if (descriptor) Object.defineProperty(HTMLElement.prototype, name, descriptor);
+      else delete (HTMLElement.prototype as unknown as Record<string, unknown>)[name];
+    }
+    document.body.innerHTML = "";
+  });
+
+  const order = () => groups().map((g) => g.dataset.wsId);
+  const markOf = (id: string) => document.querySelector<HTMLElement>(`[data-ws-id="${id}"] .strip__mark`)!;
+
+  it("carries the name with the mark when the strip is open", () => {
+    act(() => root.render(createElement(TeamedHarness)));
+    act(() => {
+      document.querySelector(".strip__col")!.dispatchEvent(
+        new PointerEvent("pointerover", { bubbles: true, relatedTarget: document.body }),
+      );
+    });
+    act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS));
+    act(() => {
+      markOf("b").dispatchEvent(pointerEvent("pointerdown", { clientY: 120 }));
+      vi.advanceTimersByTime(300);
+    });
+    expect(document.querySelector(".strip__ghost .strip__name")?.textContent).toBe("Beta");
+    act(() => window.dispatchEvent(pointerEvent("pointerup", { clientY: 120 })));
+  });
+
+  it("carries a dragged workspace as its mark alone, its list back where it lands", () => {
+    act(() => root.render(createElement(TeamedHarness)));
+    act(() => {
+      document.querySelector(".strip__col")!.dispatchEvent(
+        new PointerEvent("pointerover", { bubbles: true, relatedTarget: document.body }),
+      );
+    });
+    act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS));
+    const alphaRows = () => document.querySelectorAll('[data-ws-id="a"] .strip__team').length;
+    expect(alphaRows()).toBe(2);
+    act(() => {
+      markOf("a").dispatchEvent(pointerEvent("pointerdown", { clientY: 20 }));
+      vi.advanceTimersByTime(300);
+    });
+    // Its list folds away under the drag — still drawn as it folds...
+    expect(alphaRows()).toBe(2);
+    act(() => void vi.advanceTimersByTime(500));
+    // ...and gone once folded: no hole the height of Alpha's teams.
+    expect(alphaRows()).toBe(0);
+    act(() => window.dispatchEvent(pointerEvent("pointermove", { clientY: 120 })));
+    expect(order()).toEqual(["b", "c", "a", "d"]);
+    act(() => {
+      window.dispatchEvent(pointerEvent("pointerup", { clientY: 120 }));
+      vi.advanceTimersByTime(1000);
+    });
+    // Landed: its list is open again, in its new place.
+    expect(alphaRows()).toBe(2);
+  });
+
+  it("drags from the open strip with its lists in place: nothing moves under the hand", () => {
+    act(() => root.render(createElement(TeamedHarness)));
+    act(() => {
+      document.querySelector(".strip__col")!.dispatchEvent(
+        new PointerEvent("pointerover", { bubbles: true, relatedTarget: document.body }),
+      );
+    });
+    act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS));
+    // Alpha lists two teams: Gamma sits at 50 + 56 + 50 = 156.
+    act(() => {
+      markOf("c").dispatchEvent(pointerEvent("pointerdown", { clientY: 170 }));
+      vi.advanceTimersByTime(300);
+    });
+    // The drag holds the strip open: Alpha's teams are still listed, so
+    // Gamma is still under the hand and a small move reorders nothing.
+    expect(document.querySelectorAll(".strip__team")).toHaveLength(2);
+    act(() => window.dispatchEvent(pointerEvent("pointermove", { clientY: 171 })));
+    expect(order()).toEqual(["a", "b", "c", "d"]);
+    // A real move past Delta (206–256) moves it.
+    act(() => window.dispatchEvent(pointerEvent("pointermove", { clientY: 230 })));
+    expect(order()).toEqual(["a", "b", "d", "c"]);
+    act(() => window.dispatchEvent(pointerEvent("pointerup", { clientY: 230 })));
   });
 });

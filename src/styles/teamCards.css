@@ -55,37 +55,10 @@
   min-width: 0;
 }
 
+/* The card's dot is the shared team dot (status.css .team-dot); this hook
+   keeps only its place in the head. */
 .team-card__dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background-color: var(--kd-selected);
   flex: none;
-}
-
-.team-card__dot--done {
-  background-color: var(--status-done);
-}
-
-.team-card__dot--working {
-  background-color: var(--status-working);
-  animation: status-dot-working 1.6s ease-in-out infinite;
-}
-
-.team-card__dot--waiting {
-  background-color: var(--status-waiting);
-  animation: status-dot-breathe 2s ease-in-out infinite;
-}
-
-.team-card__dot--failed {
-  background-color: var(--status-failed);
-  animation: status-dot-pulse 1s ease-in-out infinite;
-}
-
-/* A create in flight breathes like a wait — something is being waited
-   for — in the quiet gray, so it never reads as the person's turn. */
-.team-card__dot--creating {
-  animation: status-dot-breathe 2s ease-in-out infinite;
 }
 
 /* The name is the way in: a button drawn as text, so a keyboard reaches

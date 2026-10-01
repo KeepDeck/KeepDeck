@@ -362,12 +362,14 @@ export function useAppController() {
   const handleSelectWorkspace = (id: string) => {
     runtime.application.selectWorkspace(id);
   };
+  /** A team row of the slid-open strip: that team, in its workspace. */
+  const handleEnterTeam = runtime.application.activateTeam;
   const notificationPrefs =
     settings?.notifications ?? DEFAULT_SETTINGS.notifications;
   const showBell = bellDoorOpen(notificationPrefs);
   const openNotification = runtime.application.openNotification;
   const handleCreateWorkspace = runtime.application.createWorkspace;
-  const strip = stripView(deck.workspaces, paneActivities, deck.activeId);
+  const strip = stripView(deck.workspaces, paneActivities, deck.activeId, deck.viewByWs);
   /** A card's "Add member": the same door as the bar's and ⌘T's. */
   const addTeamMember = (wsId: string, teamId: string) => {
     const ws = findWorkspace(deck.workspaces, wsId);
@@ -431,6 +433,7 @@ export function useAppController() {
     gitHeads,
     handleCreateWorkspace,
     handleSelectWorkspace,
+    handleEnterTeam,
     info,
     openNotification,
     needsYou,
