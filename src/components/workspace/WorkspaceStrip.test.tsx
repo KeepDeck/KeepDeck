@@ -477,6 +477,27 @@ describe("WorkspaceStrip as the team switcher", () => {
     expect(listed()).toEqual([]);
   });
 
+  it("reopens a list caught mid-fold and keeps it open — no stale fold lands", () => {
+    render();
+    openStrip();
+    act(() => toggleOf("a")!.click()); // fold Alpha
+    act(() => toggleOf("a")!.click()); // and back, before the fold ends
+    act(() => void vi.advanceTimersByTime(500));
+    // The old fold's frames must not settle it away under the new open.
+    expect(listed()).toEqual(["a"]);
+    expect(toggleOf("a")!.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("drops a folding list at once when another opens, leaving only the new one", () => {
+    render();
+    openStrip();
+    act(() => toggleOf("a")!.click()); // Alpha folding
+    act(() => toggleOf("b")!.click()); // Beta, mid-fold
+    expect(listed()).toEqual(["b"]);
+    act(() => void vi.advanceTimersByTime(500));
+    expect(listed()).toEqual(["b"]);
+  });
+
   it("goes to a workspace from its mark and shuts until the pointer leaves", () => {
     render();
     openStrip();

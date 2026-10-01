@@ -66,8 +66,6 @@ export const STRIP_WORDS = {
   /** The chevron that opens or closes a workspace's team list. */
   showTeams: (workspace: string) => `Show teams of ${workspace}`,
   hideTeams: (workspace: string) => `Hide teams of ${workspace}`,
-  /** How many teams a closed list holds, as the row says it. */
-  teamCount: (count: number) => String(count),
 } as const;
 
 const DOT_WORDS: Record<MarkDot, string> = {

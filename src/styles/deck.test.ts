@@ -155,6 +155,19 @@ describe("the workspace strip's open column", () => {
     expect(transition).toMatch(new RegExp(`width ${STRIP_MOTION_MS}ms cubic-bezier\\(0\\.33, 1, 0\\.68, 1\\)`));
   });
 
+  it("cuts a team list's rows at the height its motion drives, its room inside", () => {
+    // The motion sets the list's height; rows past it must be clipped, not
+    // painted over the marks below, and no margin may sit outside the box.
+    const teams = ruleBody(strip, ".strip__teams");
+    expect(teams.overflow).toBe("hidden");
+    expect(teams.margin ?? "0").toBe("0");
+    expect(teams["margin-bottom"]).toBeUndefined();
+  });
+
+  it("rests the chevron's turn under reduced motion, with the strip's other motion", () => {
+    expect(strip).toMatch(/prefers-reduced-motion: reduce\)\s*\{[^}]*\.strip__toggle svg[^}]*transition: none/);
+  });
+
   it("leaves a workspace's group unpositioned, so the reorder measures through the list", () => {
     // collectMarkRects reads each group's offsetTop, which counts from its
     // offsetParent. A positioned group would silently become that parent

@@ -44,7 +44,9 @@ export function useStripTeams(
   const [state, dispatch] = useReducer(expandTeams, NOTHING_LISTED);
   const active = view.marks.find((mark) => mark.active);
 
-  useEffect(() => {
+  // Before paint: the strip's first open frame already holds its list,
+  // so the edge and the list start together instead of a frame apart.
+  useLayoutEffect(() => {
     dispatch(
       open
         ? { kind: "open", activeId: active?.id ?? "", activeHasTeams: (active?.teams.length ?? 0) > 0 }
@@ -57,11 +59,31 @@ export function useStripTeams(
   }, [open]);
 
   const before = useRef(NOTHING_LISTED);
-  /** Each list's full height, as last measured opening — what an instant
-   * drop has to give back to the scroll. */
+  /** Each list's height as it stands — kept current every frame of its
+   * motion and every commit at rest, so a list dropped outright (moved
+   * elsewhere, a drag, cut off mid-fold) gives back to the scroll exactly
+   * what it took. */
   const heights = useRef(new Map<string, number>());
   const motion = useRef<MotionHandle | null>(null);
+  const moving = useRef(false);
   const order = view.marks.map((mark) => mark.id);
+
+  /** The list's box, with every height the motion writes recorded. */
+  const tracked = (id: string, el: HTMLElement) => ({
+    style: {
+      set height(value: string) {
+        el.style.height = value;
+        heights.current.set(id, parseFloat(value) || 0);
+      },
+      get height() {
+        return el.style.height;
+      },
+    },
+  });
+  const stopMotion = () => {
+    motion.current?.stop();
+    moving.current = false;
+  };
 
   useLayoutEffect(() => {
     const list = listRef.current;
@@ -71,41 +93,54 @@ export function useStripTeams(
     const block = (id: string) => document.getElementById(stripTeamsId(id));
     const durationMs = prefersReducedMotion() ? 0 : STRIP_MOTION_MS;
 
-    // The old list dropped outright (moved elsewhere, or a drag began):
-    // give its height back to the scroll if it hung above the new one.
-    if (was.expanded !== null && was.expanded !== state.expanded && state.leaving !== was.expanded) {
-      motion.current?.stop();
-      // Kept still: the row now listed, or the mark a drag just took hold of.
+    // Lists that VANISHED this commit — the listed one moved elsewhere or
+    // dropped for a drag, or a folding one cut off mid-fold — give the
+    // height they had back to the scroll when they hung above what stays
+    // still: the row now listed, or the mark a drag just took hold of.
+    const vanished = [was.expanded, was.leaving].filter(
+      (id): id is string => id !== null && id !== state.expanded && id !== state.leaving,
+    );
+    if (vanished.length > 0) {
+      stopMotion();
       const kept = state.expanded ?? dragged;
-      if (kept !== null) {
-        const above = order.indexOf(was.expanded) < order.indexOf(kept);
-        list.scrollTop = scrollAfterInstantCollapse(
-          list.scrollTop,
-          heights.current.get(was.expanded) ?? 0,
-          above,
-        );
+      for (const id of vanished) {
+        if (kept !== null) {
+          list.scrollTop = scrollAfterInstantCollapse(
+            list.scrollTop,
+            heights.current.get(id) ?? 0,
+            order.indexOf(id) < order.indexOf(kept),
+          );
+        }
+        heights.current.delete(id);
       }
     }
 
     if (state.expanded !== null && state.expanded !== was.expanded) {
-      const el = block(state.expanded);
+      stopMotion();
+      const id = state.expanded;
+      const el = block(id);
       if (!el) return;
+      // A list caught mid-fold opens from the height it reached, not from
+      // nothing — reopening under the pointer must not snap it shut first.
+      const reached = el.style.height === "" ? 0 : parseFloat(el.style.height) || 0;
+      el.style.height = "auto";
       const full = el.scrollHeight;
-      heights.current.set(state.expanded, full);
+      el.style.height = `${reached}px`;
       const head = el.previousElementSibling ?? el;
       const listBox = list.getBoundingClientRect();
       const row = head.getBoundingClientRect();
+      moving.current = true;
       motion.current = animateTeamList(
         {
-          block: el,
+          block: tracked(id, el),
           list,
-          from: 0,
+          from: reached,
           to: full,
           scrollTo: revealScrollTarget(
             list.scrollTop,
             list.clientHeight,
             { top: row.top - listBox.top, bottom: row.bottom - listBox.top },
-            full,
+            full - reached,
           ),
           durationMs,
         },
@@ -113,20 +148,23 @@ export function useStripTeams(
         // Settled: back to its natural height, so a team added or gone
         // while it is open simply grows or shrinks it.
         () => {
+          moving.current = false;
           el.style.height = "";
         },
       );
     } else if (state.leaving !== null && state.leaving !== was.leaving) {
-      motion.current?.stop();
-      const el = block(state.leaving);
+      stopMotion();
+      const id = state.leaving;
+      const el = block(id);
       if (!el) {
         dispatch({ kind: "settled" });
         return;
       }
       const from = el.offsetHeight;
+      moving.current = true;
       motion.current = animateTeamList(
         {
-          block: el,
+          block: tracked(id, el),
           list,
           from,
           to: 0,
@@ -134,11 +172,22 @@ export function useStripTeams(
           durationMs,
         },
         browserClock,
-        () => dispatch({ kind: "settled" }),
+        () => {
+          moving.current = false;
+          dispatch({ kind: "settled" });
+        },
       );
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.expanded, state.leaving]);
+
+  // At rest, a listed team list follows its teams (one added while open):
+  // keep its recorded height true for a later drop.
+  useLayoutEffect(() => {
+    if (moving.current || state.expanded === null) return;
+    const el = document.getElementById(stripTeamsId(state.expanded));
+    if (el) heights.current.set(state.expanded, el.offsetHeight);
+  });
 
   // At rest the column shows the workspace on screen: when the active one
   // changes (a hotkey, a notification, the crumb) and its mark is scrolled
@@ -167,7 +216,10 @@ export function useStripTeams(
   useEffect(() => {
     const list = listRef.current;
     if (!list) return;
-    const takeOver = () => motion.current?.finish();
+    const takeOver = () => {
+      motion.current?.finish();
+      moving.current = false;
+    };
     list.addEventListener("wheel", takeOver, { passive: true });
     return () => {
       list.removeEventListener("wheel", takeOver);

@@ -204,7 +204,7 @@
 /* The chevron points at the list: right while it is closed, down while it
    is open. */
 .strip__toggle svg {
-  transition: transform 140ms ease-out;
+  transition: transform 140ms cubic-bezier(0.33, 1, 0.68, 1);
 }
 
 .strip__toggle[aria-expanded="true"] svg {
@@ -212,23 +212,31 @@
 }
 
 /* A workspace's teams, under its row, lined up with its name. */
+/* Its box IS what the motion drives: rows past a shrinking height are cut,
+   never painted over the marks below — and its breathing room sits inside,
+   so the box's height is all the room it takes. */
 .strip__teams {
-  margin: 0 0 4px;
-  padding: 0;
+  margin: 0;
+  padding: 0 0 4px;
+  overflow: hidden;
   list-style: none;
 }
 
+/* A team: a quiet line under its workspace's name, starting where the
+   name starts — not a slab across the column. The open one is said by
+   its ink, not by a fill. */
 .strip__team {
   display: flex;
   align-items: center;
-  gap: 9px;
-  width: 236px;
-  height: 28px;
-  padding: 0 8px 0 50px;
+  gap: 8px;
+  width: 186px;
+  height: 26px;
+  margin-left: 47px;
+  padding: 0 8px;
   border: 0;
   border-radius: var(--kd-radius-control);
   background: transparent;
-  color: var(--kd-text-2);
+  color: var(--kd-text-3);
   font: inherit;
   font-size: var(--kd-font-normal);
   text-align: left;
@@ -240,10 +248,18 @@
   color: var(--kd-text);
 }
 
-.strip__team--open,
-.strip__team--open:hover {
-  background-color: var(--kd-selected);
+.strip__team--open {
   color: var(--kd-text);
+  font-weight: 500;
+}
+
+/* In a row, a team the deck has nothing to report on is a hollow ring —
+   the strip's own idle mark — where a filled gray dot read as nothing. */
+.strip__team .team-dot--none {
+  width: 7px;
+  height: 7px;
+  background-color: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--kd-text-4);
 }
 
 .strip__team:focus-visible {
@@ -360,6 +376,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .strip__tile,
+  .strip__toggle svg,
   .strip__col {
     transition: none;
   }

@@ -59,6 +59,9 @@ export function useStripReveal(suspended: boolean) {
     if (suspended) {
       clear(pending);
       clear(closing);
+      // A drag is a new gesture: a choice made before it no longer keeps
+      // the strip shut, so a drop over the column reopens it as ever.
+      dismissed.current = false;
       setOpen(false);
     } else if (inside.current && !dismissed.current) {
       openAfterDwell();

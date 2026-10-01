@@ -17,7 +17,7 @@ export function teamsToggleView(
   if (mark.teams.length === 0) return null;
   return {
     label: expanded ? STRIP_WORDS.hideTeams(mark.name) : STRIP_WORDS.showTeams(mark.name),
-    count: expanded ? null : STRIP_WORDS.teamCount(mark.teams.length),
+    count: expanded ? null : String(mark.teams.length),
   };
 }
 
