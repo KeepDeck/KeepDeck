@@ -318,6 +318,25 @@
   color: var(--kd-text);
 }
 
+/* Closing FADES what sits past the shut edge — names, toggles, team lists —
+   as the close begins, rather than leaving it to the edge to cut each one
+   off late on its way in. Opening stays the edge's alone: the shown rule
+   carries no transition, so they appear at once as the edge uncovers them
+   (a fade-in runs on each element's clock, and a mark just dragged lagged
+   behind the rest). */
+.strip:not(.strip--revealed) .strip__name,
+.strip:not(.strip--revealed) .strip__toggle,
+.strip:not(.strip--revealed) .strip__teams {
+  opacity: 0;
+  transition: opacity 80ms ease-out;
+}
+
+.strip--revealed .strip__name,
+.strip--revealed .strip__toggle,
+.strip--revealed .strip__teams {
+  opacity: 1;
+}
+
 /* The build number at the column's foot: read a few times a year, so it
    costs nothing on every other day. */
 .strip__foot {
@@ -382,7 +401,10 @@
 @media (prefers-reduced-motion: reduce) {
   .strip__tile,
   .strip__toggle svg,
-  .strip__col {
+  .strip__col,
+  .strip:not(.strip--revealed) .strip__name,
+  .strip:not(.strip--revealed) .strip__toggle,
+  .strip:not(.strip--revealed) .strip__teams {
     transition: none;
   }
 }

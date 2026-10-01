@@ -133,13 +133,22 @@ describe("the workspace strip's open column", () => {
     expect(col.transition).toMatch(/\bwidth\b/);
   });
 
-  it("uncovers the names with its edge, not with a fade of their own", () => {
-    // A per-name fade runs on each name's own clock, and a mark that was
-    // just dragged starts it late: its name pops in behind the others.
+  it("uncovers names by its edge on open, and fades them as a close begins", () => {
+    // Open: the edge alone — no fade-in, which runs on each element's own
+    // clock and let a just-dragged mark's name lag behind the rest.
     expect(ruleBody(strip, ".strip__col").overflow).toBe("hidden");
     const name = ruleBody(strip, ".strip__name");
     expect(name.opacity).toBeUndefined();
     expect(name.transition).toBeUndefined();
+    const shown = ruleBody(strip, ".strip--revealed .strip__teams");
+    expect(shown.opacity).toBe("1");
+    expect(shown.transition).toBeUndefined();
+    // Close: faded out well inside the close, not cut late by the edge.
+    const hidden = ruleBody(strip, ".strip:not(.strip--revealed) .strip__teams");
+    expect(hidden.opacity).toBe("0");
+    const fade = Number(/opacity (\d+)ms/.exec(hidden.transition ?? "")?.[1]);
+    expect(fade).toBeGreaterThan(0);
+    expect(fade).toBeLessThan(STRIP_MOTION_MS);
   });
 
   it("rings a keyboard-focused mark with the house focus ring, inside the clip", () => {
