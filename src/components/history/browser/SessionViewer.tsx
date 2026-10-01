@@ -9,10 +9,12 @@ import type { SessionsBrowserApi } from "../../../app/useSessionsBrowser";
 import { useTranscriptReading } from "../../../app/useTranscriptReading";
 import type { UnifiedSessionRow } from "../../../domain/journal";
 import { BackIcon } from "../../../ui/icons";
-import { NEAR_END } from "../../../ui/useScrollPaging";
 import { dirPresent } from "../useDirPresence";
 import { SessionRowActions } from "../SessionRowView";
 import { readingVerdict } from "./verdictText";
+
+/** How close to the transcript's end (px) pulls its next page in. */
+const NEAR_END = 240;
 
 /** What the transcript viewer reads — one row's read link, whichever list
  * the row came from (a journal row or an index hit). Carries the row

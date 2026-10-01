@@ -3,6 +3,10 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentDialog } from "./AgentDialog";
+import {
+  installResizeObserver,
+  pinListViewport,
+} from "@keepdeck/ui-kit/virtualGeometry.test-support";
 import { roleChoiceView } from "../../presentation/roleChoiceView";
 import * as dirPresenceModule from "../history/useDirPresence";
 import { createSessionIndexManager } from "../../app/sessionIndexManager";
@@ -16,6 +20,17 @@ import type {
 // React 19 requires this flag for act() outside a test-framework integration.
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
+
+// The session picker is a windowed list: happy-dom lays nothing out, so
+// its box is pinned at the stylesheet's height (180px) with a row's height.
+const PICKER_PX = 180;
+const PICK_ROW_PX = 47;
+let restoreViewport: () => void = () => {};
+beforeEach(() => {
+  installResizeObserver();
+  restoreViewport = pinListViewport("form__sessions", PICKER_PX, 400, PICK_ROW_PX);
+});
+afterEach(() => restoreViewport());
 
 // The picker's resume gate probes directories via useDirPresence → the
 // worktree ipc; pin it at the module seam (the dialog's PATH probe is a
@@ -974,6 +989,16 @@ describe("AgentDialog start-from paging", () => {
     )!;
   const sessionRows = () =>
     [...document.querySelectorAll<HTMLButtonElement>(".form__session")];
+  // A scroll to the list's foot, as the hand does it: the window moves,
+  // and its end is what asks for the next page.
+  const scrollPickerToEnd = async () => {
+    const list = document.querySelector<HTMLElement>(".form__sessions")!;
+    await act(async () => {
+      list.scrollTop = list.scrollHeight - list.clientHeight;
+      list.dispatchEvent(new Event("scroll"));
+    });
+    await act(async () => {});
+  };
 
   it("pages the picker: pulls the next page at the loaded offset and shows the count", async () => {
     const calls: Array<{ limit: number; offset: number }> = [];
@@ -1020,13 +1045,21 @@ describe("AgentDialog start-from paging", () => {
     });
     await act(async () => {});
 
-    // Page zero, then the scroll-fill pulled the next page at the loaded
-    // offset — before this fix the list stopped at one page.
+    // A page taller than the box asks for nothing until its end is reached.
+    expect(calls).toEqual([{ limit: 50, offset: 0 }]);
+    // Windowed: only the rows in view (and a few past them) are mounted.
+    expect(sessionRows().length).toBeLessThan(50);
+
+    // Scrolled to its foot, the list pulls the next page at the loaded
+    // offset — before paging the list stopped at one page.
+    await scrollPickerToEnd();
     expect(calls).toEqual([
       { limit: 50, offset: 0 },
       { limit: 20, offset: 50 },
     ]);
-    expect(sessionRows()).toHaveLength(70);
+    await scrollPickerToEnd();
+    const names = sessionRows().map((r) => r.querySelector(".form__session-name")!.textContent);
+    expect(names).toContain("session 69");
     // Everything loaded → the bare total; a partial load reads "N of 70".
     expect(document.querySelector(".form__sessions-count")?.textContent).toBe(
       "70",
@@ -1074,6 +1107,7 @@ describe("AgentDialog start-from paging", () => {
       await vi.advanceTimersByTimeAsync(200);
     });
     await act(async () => {});
+    await scrollPickerToEnd();
 
     // hasMore is true (50 of 200) and the second page is still loading.
     expect(document.querySelector(".form__sessions-count")?.textContent).toBe(
@@ -1082,11 +1116,10 @@ describe("AgentDialog start-from paging", () => {
     expect(document.querySelector(".form__session-more")).not.toBeNull();
   });
 
-  it("the scroll pager does not double-ask while a page rides — the fill check repeats, the ask does not", async () => {
-    // The browser moved to the virtual range; THIS is the picker's own
-    // pager witness. The second page never resolves (it "rides"); the
-    // fill effect re-runs on every landed count — the in-flight guard
-    // must keep the ask at exactly one, however many re-checks fire.
+  it("the pager does not double-ask while a page rides — the end is reached again, the ask is not", async () => {
+    // The second page never resolves (it "rides"); the window's end is
+    // reached on every scroll — the in-flight guard must keep the ask at
+    // exactly one, however many times it is.
     const calls: Array<{ limit: number; offset: number }> = [];
     const searchSessions = vi.fn(
       async (_a: string, _q: string, _l: number, offset: number) => {
@@ -1127,14 +1160,61 @@ describe("AgentDialog start-from paging", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(200);
     });
-    // Extra fill-check cycles: re-renders and microtask flushes, the
-    // kinds the real dialog produces while the page rides.
+    // The end reached again and again while the page rides — scrolls,
+    // re-renders and microtask flushes, as the real dialog produces them.
     for (let i = 0; i < 3; i++) {
-      await act(async () => {});
+      await scrollPickerToEnd();
     }
     // Page zero + EXACTLY ONE next-page ask: the guard held.
     const nextAsks = calls.filter((c) => c.offset > 0);
     expect(nextAsks).toHaveLength(1);
+  });
+
+  it("a page shorter than the box pulls the next one by itself — no scroll can", async () => {
+    const calls: number[] = [];
+    const searchSessions = vi.fn(
+      async (_a: string, _q: string, _l: number, offset: number) => {
+        calls.push(offset);
+        return offset === 0
+          ? { rows: mkRows(0, 2), total: 4 }
+          : { rows: mkRows(2, 2), total: 4 };
+      },
+    );
+
+    await act(async () =>
+      root.render(
+        createElement(AgentDialog, {
+          defaultAgentType: "claude" as const,
+          remoteEnabled: false,
+          target: MEMBER,
+          roles: roleChoiceView([]),
+          defaultYolo: false,
+          repo: { cwd: "/repo", branch: "main" },
+          suggestedPath: "",
+          suggestedBranch: "",
+          probePath: async () => MISSING,
+          listBranches: async () => ["main"],
+          branchForPath: async () => null,
+          directoryAt: () => "free" as const,
+          nextFreeLocation: async () => null,
+          pickFolder: async () => null,
+          searchSessions,
+          sessionClaim: () => null,
+          liveOutside: async () => ({ ok: true, ids: new Set<string>() }),
+          onConfirm: () => {},
+          onCancel: () => {},
+        }),
+      ),
+    );
+
+    act(() => modeBtn("Fork").click());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+    });
+    await act(async () => {});
+
+    expect(calls).toEqual([0, 2]);
+    expect(sessionRows()).toHaveLength(4);
   });
 });
 

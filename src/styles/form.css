@@ -339,15 +339,21 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* The scroll box of a windowed list (ui-kit VirtualList): only the rows
+   in view are mounted, positioned in the list below it. */
 .form__sessions {
   margin: 8px 0 20px;
-  padding: 0;
-  list-style: none;
   max-height: 180px;
   overflow-y: auto;
   border: 1px solid var(--kd-seam);
   border-radius: var(--kd-radius-pop);
   background-color: var(--kd-tile);
+}
+
+.form__sessions-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 .form__session {
@@ -364,7 +370,7 @@
   cursor: pointer;
 }
 
-.form__sessions li:last-child .form__session {
+.form__sessions-list li:last-child .form__session {
   border-bottom: none;
 }
 

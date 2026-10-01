@@ -25,7 +25,6 @@ import type {
 import type { SessionHandle } from "../../domain/journal";
 import { resumeBlock } from "../../domain/deck";
 import { dirPresent, useDirPresence } from "../history/useDirPresence";
-import { useScrollPaging } from "../../ui/useScrollPaging";
 import { usePagedSessionSearch, type Page } from "../../app/usePagedSessionSearch";
 import { useAppRuntime } from "../../app/runtimeContext";
 
@@ -76,12 +75,6 @@ export function useSessionPicker(deps: {
     ),
   );
   const sessions = pagedSessions.rows;
-  const listRef = useRef<HTMLUListElement | null>(null);
-  const onSessionsScroll = useScrollPaging(
-    listRef,
-    pagedSessions,
-    sessions.length,
-  );
 
   // Re-query as the user types, switches agent, or opens resume/fork. Skipped
   // for "new" (no picker shown); the shared engine debounces and pages.
@@ -187,8 +180,6 @@ export function useSessionPicker(deps: {
     picked,
     pagedSessions,
     sessions,
-    listRef,
-    onSessionsScroll,
     resumeBlockOf,
     pickSession,
   };

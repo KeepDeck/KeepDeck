@@ -1,0 +1,62 @@
+import type { ResumeBlock, SessionPickRow } from "../domain/agents";
+import { baseName } from "../domain/deck";
+import { rowKeyOf } from "../domain/journal/sessionRow";
+import { formatAge } from "../domain/usage/format";
+import { resumeBlockReason } from "./sessionResumeView";
+
+/** One item of the "Start from" picker's list: a session, the loading tail
+ * while the next page rides, or the line saying nothing matched. One list
+ * of items, because the picker's list is windowed and the window positions
+ * and measures every box it shows — the tail and the empty line included. */
+export type SessionPickItem =
+  | {
+      kind: "session";
+      key: string;
+      row: SessionPickRow;
+      name: string;
+      meta: string;
+      /** The row picked for the pane. */
+      active: boolean;
+      /** Not resumable here — dimmed, still clickable for its reason. */
+      blocked: boolean;
+      /** Held by a process outside the app — dimmed less: a fork is legal. */
+      busy: boolean;
+    }
+  | { kind: "more"; key: string }
+  | { kind: "empty"; key: string };
+
+/** The picker's items, in list order. `blockOf` is null when the picker
+ * offers forks (no resume gate); `pickedId` is the valid pick's session. */
+export function sessionPickItems(
+  rows: readonly SessionPickRow[],
+  facts: {
+    loadingMore: boolean;
+    blockOf: ((row: SessionPickRow) => ResumeBlock) | null;
+    pickedId: string | null;
+    now: number;
+  },
+): SessionPickItem[] {
+  const items: SessionPickItem[] = rows.map((row) => {
+    const block = facts.blockOf ? facts.blockOf(row) : null;
+    const reason = resumeBlockReason(block);
+    const where = baseName(row.handle.cwd) || "no directory";
+    return {
+      kind: "session",
+      key: rowKeyOf(row.handle),
+      row,
+      name: row.handle.title ?? row.handle.sessionId,
+      meta: `${where} · ${formatAge(row.mtime, facts.now)}${reason === null ? "" : ` · ${reason}`}`,
+      active: facts.pickedId === row.handle.sessionId,
+      blocked: block !== null,
+      busy: block === "busy-outside",
+    };
+  });
+  if (facts.loadingMore) items.push({ kind: "more", key: "more" });
+  else if (rows.length === 0) items.push({ kind: "empty", key: "empty" });
+  return items;
+}
+
+export const sessionPickKey = (item: SessionPickItem): string => item.key;
+
+/** A picker item's first-paint height guess, before it is measured. */
+export const SESSION_PICK_ESTIMATE_PX = 47;
