@@ -4,7 +4,6 @@ import {
   expandTeams,
   revealScrollTarget,
   scrollAfterCollapse,
-  scrollAfterInstantCollapse,
   scrollToShow,
 } from "../../presentation/stripExpand";
 import type { StripView } from "../../presentation/stripView";
@@ -24,8 +23,8 @@ export const stripTeamsId = (wsId: string) => `strip-teams-${wsId}`;
  * The slid-open strip's team lists: which are listed (`expandTeams`
  * decides) and how they move. Opening lists the active workspace's teams
  * and the ones kept open last time; a chevron opens or folds any list;
- * shutting folds them away with the strip, or drops them at once when a
- * drag began.
+ * shutting folds them away with the strip. A drag changes nothing here:
+ * the strip holds open through it, lists and all.
  *
  * Every list motion runs height and scroll on one curve
  * (`animateTeamList`), to the numbers `stripExpand` computes — the row a
@@ -34,10 +33,9 @@ export const stripTeamsId = (wsId: string) => `strip-teams-${wsId}`;
  */
 export function useStripTeams(
   open: boolean,
-  /** The mark a drag holds, or null: while one is held, the list drops at
-   * once — and gives its height back to the scroll if it hung above the
-   * held mark, so the mark stays under the hand. */
-  dragged: string | null,
+  /** A drag is in flight: the column belongs to it, so the resting
+   * scroll-into-view holds off. */
+  dragging: boolean,
   view: StripView,
   listRef: RefObject<HTMLElement | null>,
 ) {
@@ -50,7 +48,7 @@ export function useStripTeams(
     dispatch(
       open
         ? { kind: "open", activeId: active?.id ?? "", activeHasTeams: (active?.teams.length ?? 0) > 0 }
-        : { kind: "close", instant: dragged !== null },
+        : { kind: "close" },
     );
     // Only the strip opening or shutting re-decides: the active mark's
     // teams changing under an open strip must not yank a list the person
@@ -59,26 +57,9 @@ export function useStripTeams(
   }, [open]);
 
   const before = useRef(NOTHING_LISTED);
-  /** Each list's height as it stands — kept current every frame of its
-   * motion and every commit at rest, so a list dropped outright (a drag)
-   * gives back to the scroll exactly what it took. */
-  const heights = useRef(new Map<string, number>());
   /** One running motion per list: lists open and fold independently. */
   const motions = useRef(new Map<string, MotionHandle>());
-  const order = view.marks.map((mark) => mark.id);
 
-  /** The list's box, with every height the motion writes recorded. */
-  const tracked = (id: string, el: HTMLElement) => ({
-    style: {
-      set height(value: string) {
-        el.style.height = value;
-        heights.current.set(id, parseFloat(value) || 0);
-      },
-      get height() {
-        return el.style.height;
-      },
-    },
-  });
   const stopMotion = (id: string) => {
     motions.current.get(id)?.stop();
     motions.current.delete(id);
@@ -91,25 +72,6 @@ export function useStripTeams(
     if (!list) return;
     const block = (id: string) => document.getElementById(stripTeamsId(id));
     const durationMs = prefersReducedMotion() ? 0 : STRIP_MOTION_MS;
-    const drawn = (s: typeof state) => [...s.expanded, ...s.leaving];
-
-    // Lists that VANISHED this commit (a drag dropped them outright) give
-    // back to the scroll the height they had above the mark a drag holds,
-    // so that mark stays under the hand.
-    const vanished = drawn(was).filter((id) => !drawn(state).includes(id));
-    if (vanished.length > 0) {
-      for (const id of vanished) {
-        stopMotion(id);
-        if (dragged !== null) {
-          list.scrollTop = scrollAfterInstantCollapse(
-            list.scrollTop,
-            heights.current.get(id) ?? 0,
-            order.indexOf(id) < order.indexOf(dragged),
-          );
-        }
-        heights.current.delete(id);
-      }
-    }
 
     // Lists newly opened. Only ONE motion may drive the scroll: the list
     // the person just asked for (a chevron), or the active workspace's
@@ -134,7 +96,7 @@ export function useStripTeams(
         id,
         animateTeamList(
           {
-            block: tracked(id, el),
+            block: el,
             list,
             from: reached,
             to: full,
@@ -176,7 +138,7 @@ export function useStripTeams(
         id,
         animateTeamList(
           {
-            block: tracked(id, el),
+            block: el,
             list,
             from: el.offsetHeight,
             to: 0,
@@ -194,16 +156,6 @@ export function useStripTeams(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.expanded, state.leaving]);
 
-  // At rest, an open list follows its teams (one added while open): keep
-  // its recorded height true for a later drop.
-  useLayoutEffect(() => {
-    for (const id of state.expanded) {
-      if (motions.current.has(id)) continue;
-      const el = document.getElementById(stripTeamsId(id));
-      if (el) heights.current.set(id, el.offsetHeight);
-    }
-  });
-
   // At rest the column shows the workspace on screen: when the active one
   // changes (a hotkey, a notification, the crumb) and its mark is scrolled
   // out of the column, bring it in. Not while open — the person is reading
@@ -211,7 +163,8 @@ export function useStripTeams(
   const activeId = active?.id ?? null;
   useLayoutEffect(() => {
     const list = listRef.current;
-    if (!list || open || dragged !== null || activeId === null) return;
+    // A column with no height yet (not laid out) has no view to keep.
+    if (!list || open || dragging || activeId === null || list.clientHeight === 0) return;
     const mark = [...list.querySelectorAll<HTMLElement>("[data-ws-id]")].find(
       (el) => el.dataset.wsId === activeId,
     );

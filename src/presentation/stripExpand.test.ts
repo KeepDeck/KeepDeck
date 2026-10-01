@@ -5,7 +5,6 @@ import {
   expandTeams,
   revealScrollTarget,
   scrollAfterCollapse,
-  scrollAfterInstantCollapse,
   scrollToShow,
   teamsToggleView,
 } from "./stripExpand";
@@ -45,8 +44,7 @@ describe("which workspaces list their teams", () => {
     expect(reopened).toEqual(at(["ws-a", "ws-c", "ws-d"], [], ["ws-a", "ws-c"]));
   });
 
-  it("drops every list at once for a drag, and forgets a fold once it lands", () => {
-    expect(expandTeams(at(["ws-a"], ["ws-b"]), { kind: "close", instant: true })).toEqual(at([], [], ["ws-a"]));
+  it("forgets a fold once it lands", () => {
     expect(expandTeams(at([], ["ws-a", "ws-b"]), { kind: "settled", wsId: "ws-a" })).toEqual(at([], ["ws-b"]));
   });
 });
@@ -69,12 +67,6 @@ describe("the scroll an opening list needs", () => {
 });
 
 describe("keeping the row under the pointer still", () => {
-  it("moves the scroll up by a list collapsed above it, not by one below", () => {
-    expect(scrollAfterInstantCollapse(300, 120, true)).toBe(180);
-    expect(scrollAfterInstantCollapse(300, 120, false)).toBe(300);
-    expect(scrollAfterInstantCollapse(60, 120, true)).toBe(0);
-  });
-
   it("lands a collapse's scroll where the shrunk list will clamp it", () => {
     // 1000 of content, 400 shown, scrolled to 550; 200 collapses → max 400.
     expect(scrollAfterCollapse(550, 1000, 400, 200)).toBe(400);

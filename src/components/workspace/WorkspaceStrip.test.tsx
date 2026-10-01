@@ -190,7 +190,9 @@ describe("WorkspaceStrip drag reorder", () => {
   const markEl = (id: string) =>
     document.querySelector<HTMLElement>(`[data-ws-id="${id}"] .strip__mark`)!;
 
-  it("closes an open strip when a hold turns into a drag", () => {
+  it("holds an open strip open through a drag, and after a drop on the column", () => {
+    // Shutting it would drop every team list and jump the marks under the
+    // hand; it holds as it is instead, however far the pointer goes.
     act(() => root.render(createElement(Harness)));
     const col = document.querySelector(".strip__col")!;
     act(() => {
@@ -199,25 +201,49 @@ describe("WorkspaceStrip drag reorder", () => {
       );
       vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS);
     });
-    expect(document.querySelector(".strip--revealed")).not.toBeNull();
     act(() => {
       markEl("b").dispatchEvent(pointerEvent("pointerdown", { clientY: 70 }));
       vi.advanceTimersByTime(300);
     });
     expect(document.querySelector(".strip__ghost")).not.toBeNull();
-    expect(document.querySelector(".strip--revealed")).toBeNull();
-    // The drop settles (140ms + its 100ms safety) with the pointer still on
-    // the column: the strip is SHUT — the drag closed it rather than hiding
-    // it for the drag's length — and a fresh rest opens it again, though no
-    // pointer ever re-entered.
+    // The hand travels off the column mid-drag: still open.
     act(() => {
+      col.dispatchEvent(new PointerEvent("pointerout", { bubbles: true, relatedTarget: document.body }));
+      vi.advanceTimersByTime(STRIP_REVEAL_GRACE_MS * 3);
+    });
+    expect(document.querySelector(".strip--revealed")).not.toBeNull();
+    // Back over it and dropped: it stays.
+    act(() => {
+      col.dispatchEvent(new PointerEvent("pointerover", { bubbles: true, relatedTarget: document.body }));
       window.dispatchEvent(pointerEvent("pointerup", { clientY: 70 }));
-      vi.advanceTimersByTime(240);
+      vi.advanceTimersByTime(1000);
     });
     expect(document.querySelector(".strip__ghost")).toBeNull();
-    expect(document.querySelector(".strip--revealed")).toBeNull();
-    act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS));
     expect(document.querySelector(".strip--revealed")).not.toBeNull();
+  });
+
+  it("shuts an open strip a grace after a drop that ends off the column", () => {
+    act(() => root.render(createElement(Harness)));
+    const col = document.querySelector(".strip__col")!;
+    act(() => {
+      col.dispatchEvent(new PointerEvent("pointerover", { bubbles: true, relatedTarget: document.body }));
+      vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS);
+    });
+    act(() => {
+      markEl("b").dispatchEvent(pointerEvent("pointerdown", { clientY: 70 }));
+      vi.advanceTimersByTime(300);
+    });
+    act(() => {
+      col.dispatchEvent(new PointerEvent("pointerout", { bubbles: true, relatedTarget: document.body }));
+      window.dispatchEvent(pointerEvent("pointerup", { clientY: 70 }));
+    });
+    // The ghost settles into its slot (140ms + 100ms safety); the drag ends
+    // there, and the grace runs from then.
+    act(() => void vi.advanceTimersByTime(240));
+    act(() => void vi.advanceTimersByTime(STRIP_REVEAL_GRACE_MS - 1));
+    expect(document.querySelector(".strip--revealed")).not.toBeNull();
+    act(() => void vi.advanceTimersByTime(1));
+    expect(document.querySelector(".strip--revealed")).toBeNull();
   });
 
   it("stays shut after a drop that ends off the column", () => {
@@ -612,7 +638,7 @@ describe("WorkspaceStrip dragging from the open strip", () => {
   const order = () => groups().map((g) => g.dataset.wsId);
   const markOf = (id: string) => document.querySelector<HTMLElement>(`[data-ws-id="${id}"] .strip__mark`)!;
 
-  it("holds the grabbed mark under the hand when the drag drops the open list", () => {
+  it("drags from the open strip with its lists in place: nothing moves under the hand", () => {
     act(() => root.render(createElement(TeamedHarness)));
     act(() => {
       document.querySelector(".strip__col")!.dispatchEvent(
@@ -621,17 +647,16 @@ describe("WorkspaceStrip dragging from the open strip", () => {
       vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS);
     });
     // Alpha lists two teams: Gamma sits at 50 + 56 + 50 = 156.
-    expect(document.querySelectorAll(".strip__team")).toHaveLength(2);
     act(() => {
       markOf("c").dispatchEvent(pointerEvent("pointerdown", { clientY: 170 }));
       vi.advanceTimersByTime(300);
     });
-    // The drag dropped the list: Gamma rose to 100 under a hand still at 170.
-    expect(document.querySelectorAll(".strip__team")).toHaveLength(0);
+    // The drag holds the strip open: Alpha's teams are still listed, so
+    // Gamma is still under the hand and a small move reorders nothing.
+    expect(document.querySelectorAll(".strip__team")).toHaveLength(2);
     act(() => window.dispatchEvent(pointerEvent("pointermove", { clientY: 171 })));
-    // Read as the column now stands, the hand is still on Gamma: no reorder.
     expect(order()).toEqual(["a", "b", "c", "d"]);
-    // A real move past Delta still moves it.
+    // A real move past Delta (206–256) moves it.
     act(() => window.dispatchEvent(pointerEvent("pointermove", { clientY: 230 })));
     expect(order()).toEqual(["a", "b", "d", "c"]);
     act(() => window.dispatchEvent(pointerEvent("pointerup", { clientY: 230 })));

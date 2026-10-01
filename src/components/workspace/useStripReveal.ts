@@ -15,10 +15,12 @@ export const STRIP_REVEAL_GRACE_MS = 200;
  * The strip's slide-out: resting the pointer on the column opens it over
  * the stage with every workspace's name and teams; leaving closes it after
  * a short grace. A press cancels an open that is still pending — a press
- * is a click or the start of a hold-to-drag, never a request to read — and
- * a drag in flight (`suspended`) closes it. When the drag ends with the
- * pointer still on the column, the rest starts over: no pointer ENTERS a
- * column it never left, so waiting for one would leave it shut.
+ * is a click or the start of a hold-to-drag, never a request to read. A
+ * drag in flight (`suspended`) HOLDS the strip as it is — open stays open,
+ * its team lists in place, so nothing moves under the hand; shut stays
+ * shut — however far the pointer travels. When the drag ends, the pointer
+ * decides: still on the column, an open strip stays and a shut one rests
+ * open; off it, the strip shuts after the grace.
  *
  * `dismiss()` closes it after a choice was made in it (a workspace, a
  * team) and keeps it shut until the pointer leaves: the pointer is still
@@ -55,21 +57,36 @@ export function useStripReveal(suspended: boolean) {
     [],
   );
 
+  const closeAfterGrace = () => {
+    clear(closing);
+    closing.current = window.setTimeout(() => {
+      closing.current = null;
+      setOpen(false);
+    }, STRIP_REVEAL_GRACE_MS);
+  };
+
+  const first = useRef(true);
   useEffect(() => {
+    if (first.current) {
+      first.current = false;
+      return;
+    }
     if (suspended) {
       clear(pending);
       clear(closing);
       // A drag is a new gesture: a choice made before it no longer keeps
-      // the strip shut, so a drop over the column reopens it as ever.
+      // the strip shut.
       dismissed.current = false;
-      setOpen(false);
-    } else if (inside.current && !dismissed.current) {
-      openAfterDwell();
+    } else if (inside.current) {
+      if (!open) openAfterDwell();
+    } else {
+      closeAfterGrace();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [suspended]);
 
   return {
-    open: open && !suspended,
+    open,
     dismiss: () => {
       clear(pending);
       clear(closing);
@@ -88,11 +105,10 @@ export function useStripReveal(suspended: boolean) {
         inside.current = false;
         dismissed.current = false;
         clear(pending);
-        clear(closing);
-        closing.current = window.setTimeout(() => {
-          closing.current = null;
-          setOpen(false);
-        }, STRIP_REVEAL_GRACE_MS);
+        // A drag carries the pointer anywhere; the strip holds until it
+        // drops (see the effect above).
+        if (suspended) return;
+        closeAfterGrace();
       },
       onPointerDown: () => clear(pending),
     },

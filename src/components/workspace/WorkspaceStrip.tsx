@@ -73,12 +73,7 @@ export function WorkspaceStrip({
   const reveal = useStripReveal(ghost !== null);
 
   const listRef = useRef<HTMLDivElement>(null);
-  const teams = useStripTeams(reveal.open, ghost?.mark.id ?? null, view, listRef);
-  /** How far the held mark moved when the drag dropped the open team list
-   * and the scroll could not give it all back — the hand is that much below
-   * its mark, so the drag reads the hand as if it were not. Measured on the
-   * first move, once the drop has landed. */
-  const dragShift = useRef<number | null>(null);
+  const teams = useStripTeams(reveal.open, ghost !== null, view, listRef);
   const ghostRef = useRef<HTMLDivElement>(null);
   const flipBefore = useRef<ElementRectSnapshot | null>(null);
   const cancelSettle = useRef<(() => void) | null>(null);
@@ -114,7 +109,15 @@ export function WorkspaceStrip({
       setGhost(null);
       return;
     }
+    // The ghost is the mark's image: it lands on the mark, not on the whole
+    // group (a group with its teams listed is taller than its mark).
     const rect = markLayoutRect(listRef.current, slot);
+    const markButton = slot.querySelector<HTMLElement>(".strip__mark");
+    if (markButton) {
+      rect.top += markButton.offsetTop;
+      rect.height = markButton.offsetHeight;
+      rect.width = markButton.offsetWidth;
+    }
     cancelSettle.current = animateFixedElementToRect(ghostEl, rect, {
       durationMs: REORDER_ANIMATION_MS,
       opacity: 0.65,
@@ -132,23 +135,16 @@ export function WorkspaceStrip({
     onStart: ({ source }) => {
       cancelSettle.current?.();
       cancelSettle.current = null;
-      dragShift.current = null;
       setGhost({ mark: source.mark, ...source.rect });
     },
     onMove: ({ source, current }) => {
-      const list = listRef.current;
-      if (dragShift.current === null) {
-        const slot = markElements(list).find((el) => markId(el) === source.mark.id);
-        dragShift.current = slot ? source.rect.top - markLayoutRect(list, slot).top : 0;
-      }
-      // Where the hand is, as the column now stands under it.
-      const y = current.y - dragShift.current;
       if (ghostRef.current) {
-        ghostRef.current.style.top = `${y - source.grabOffsetY}px`;
+        ghostRef.current.style.top = `${current.y - source.grabOffsetY}px`;
       }
+      const list = listRef.current;
       if (!list) return;
       const rects = collectMarkRects(list);
-      const overId = markAtY(y, rects);
+      const overId = markAtY(current.y, rects);
       if (!overId || overId === source.mark.id) return;
       const toIndex = rects.findIndex((r) => r.id === overId);
       if (toIndex < 0) return;

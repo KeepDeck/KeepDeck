@@ -39,9 +39,8 @@ export type ExpandEvent =
   | { kind: "open"; activeId: string; activeHasTeams: boolean }
   /** A chevron: open that workspace's list, or fold it if it is open. */
   | { kind: "toggle"; wsId: string }
-  /** The strip shut (the lists fold away with it), or a drag began
-   * (`instant`: the column must hold still under the grab). */
-  | { kind: "close"; instant?: boolean }
+  /** The strip shut: the lists fold away with it. */
+  | { kind: "close" }
   /** A folding list finished. */
   | { kind: "settled"; wsId: string };
 
@@ -71,7 +70,7 @@ export function expandTeams(state: ExpandedTeams, event: ExpandEvent): ExpandedT
     case "close":
       return {
         expanded: [],
-        leaving: event.instant ? [] : union(state.leaving, state.expanded),
+        leaving: union(state.leaving, state.expanded),
         kept: state.expanded,
       };
     case "settled":
@@ -100,20 +99,6 @@ export function revealScrollTarget(
   const overflow = row.bottom + listHeight - viewportHeight;
   if (overflow <= 0) return null;
   return scrollTop + Math.min(overflow, Math.max(0, row.top));
-}
-
-/**
- * The scroll after a list ABOVE the row being opened collapses in one
- * frame: everything below it jumps up by its height, so the scroll moves
- * up by the same amount and the row under the pointer stays put. A list
- * below the row moves nothing above it.
- */
-export function scrollAfterInstantCollapse(
-  scrollTop: number,
-  collapsedHeight: number,
-  wasAbove: boolean,
-): number {
-  return wasAbove ? Math.max(0, scrollTop - collapsedHeight) : scrollTop;
 }
 
 /**
