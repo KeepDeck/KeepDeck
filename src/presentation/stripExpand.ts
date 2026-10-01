@@ -48,7 +48,9 @@ export type ExpandEvent =
   | { kind: "settled"; wsId: string }
   /** A drag took hold of a workspace: its own list folds away, as a
    * chevron would fold it, so the drag carries a mark, not a mark and a
-   * hole the height of its teams. */
+   * hole the height of its teams. ONE hold at a time: a drag is one
+   * pointer, so a second hold cannot arrive before its release — a
+   * multi-pointer drag would have to hold a set, or orphan `held`. */
   | { kind: "hold"; wsId: string }
   /** The drag let go: the held workspace's list opens again. */
   | { kind: "release" };
