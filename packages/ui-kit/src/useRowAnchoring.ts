@@ -175,6 +175,9 @@ export function useRowAnchoring<Row>({
     const onScroll = () => {
       const anchor = anchorRef.current;
       if (anchor === null) return;
+      // A full-queue lookup per scroll event: noise at today's sizes (a
+      // board, a history page). Past ~10k rows, keep the anchor's index
+      // beside its key and verify it before scanning.
       const index = queueNow.current.findIndex((row) => keyOfNow.current(row) === anchor.key);
       if (index < 0) return;
       const at = rowVirtualizer.getOffsetForIndex(index, "start");
