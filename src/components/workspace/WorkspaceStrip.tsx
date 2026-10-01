@@ -13,7 +13,7 @@ import { markAtY } from "../../domain/deck";
 import { STRIP_WORDS, type StripView, type WorkspaceMark } from "../../presentation/stripView";
 import { teamsToggleView } from "../../presentation/stripExpand";
 import { useStripReveal } from "./useStripReveal";
-import { useStripTeams } from "./useStripTeams";
+import { stripTeamsId, useStripTeams } from "./useStripTeams";
 
 interface WorkspaceStripProps {
   view: StripView;
@@ -68,9 +68,9 @@ export function WorkspaceStrip({
 }: WorkspaceStripProps) {
   const [ghost, setGhost] = useState<DragGhost | null>(null);
   const reveal = useStripReveal(ghost !== null);
-  const teams = useStripTeams(reveal.open, view);
 
   const listRef = useRef<HTMLDivElement>(null);
+  const teams = useStripTeams(reveal.open, ghost !== null, view, listRef);
   const ghostRef = useRef<HTMLDivElement>(null);
   const flipBefore = useRef<ElementRectSnapshot | null>(null);
   const cancelSettle = useRef<(() => void) | null>(null);
@@ -181,7 +181,9 @@ export function WorkspaceStrip({
           {view.marks.map((mark) => {
             const expanded = teams.expanded === mark.id;
             const toggle = teamsToggleView(mark, expanded);
-            const listId = `strip-teams-${mark.id}`;
+            const listId = stripTeamsId(mark.id);
+            // Drawn while listed and while folding away.
+            const drawn = expanded || teams.leaving === mark.id;
             return (
               // The GROUP is the reorder's item (data-ws-id), unpositioned
               // so the list stays the offsetParent the hit-test measures
@@ -232,7 +234,7 @@ export function WorkspaceStrip({
                     </button>
                   )}
                 </div>
-                {expanded && (
+                {drawn && (
                   // Rendered only while listed: a shut strip holds no
                   // hidden rows to tab into.
                   <ul id={listId} className="strip__teams">

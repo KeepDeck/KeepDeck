@@ -470,6 +470,10 @@ describe("WorkspaceStrip as the team switcher", () => {
     expect(listed()).toEqual(["b"]);
     expect(callbacks.onSelect).not.toHaveBeenCalled();
     act(() => toggleOf("b")!.click());
+    // Folding away: still drawn, no longer listed...
+    expect(toggleOf("b")!.getAttribute("aria-expanded")).toBe("false");
+    // ...and gone once its fold has run.
+    act(() => void vi.advanceTimersByTime(500));
     expect(listed()).toEqual([]);
   });
 

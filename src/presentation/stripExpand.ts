@@ -21,26 +21,43 @@ export function teamsToggleView(
   };
 }
 
-/** The one workspace whose teams are listed, or null — ONE at a time. */
-export type ExpandedTeams = string | null;
+/** Which team lists the strip holds: the ONE listed workspace, and one
+ * whose list is still folding away (drawn until its collapse ends). */
+export interface ExpandedTeams {
+  expanded: string | null;
+  leaving: string | null;
+}
+
+export const NOTHING_LISTED: ExpandedTeams = { expanded: null, leaving: null };
 
 export type ExpandEvent =
   /** The strip slid open: the active workspace lists its teams — if it
    * has any to list. */
   | { kind: "open"; activeId: string; activeHasTeams: boolean }
-  /** A chevron: open that workspace's list, or close it if it is open. */
+  /** A chevron: open that workspace's list, or fold it if it is open.
+   * Moving to ANOTHER workspace drops the old list at once — two lists
+   * moving together would shift the row under the pointer. */
   | { kind: "toggle"; wsId: string }
-  /** The strip shut, or a drag began: nothing listed. */
-  | { kind: "close" };
+  /** The strip shut (the list folds away with it), or a drag began
+   * (`instant`: the column must hold still under the grab). */
+  | { kind: "close"; instant?: boolean }
+  /** The folding list finished. */
+  | { kind: "settled" };
 
 export function expandTeams(state: ExpandedTeams, event: ExpandEvent): ExpandedTeams {
   switch (event.kind) {
     case "open":
-      return event.activeHasTeams ? event.activeId : null;
+      return { expanded: event.activeHasTeams ? event.activeId : null, leaving: null };
     case "toggle":
-      return state === event.wsId ? null : event.wsId;
+      return state.expanded === event.wsId
+        ? { expanded: null, leaving: event.wsId }
+        : { expanded: event.wsId, leaving: null };
     case "close":
-      return null;
+      return event.instant || state.expanded === null
+        ? { expanded: null, leaving: event.instant ? null : state.leaving }
+        : { expanded: null, leaving: state.expanded };
+    case "settled":
+      return { ...state, leaving: null };
   }
 }
 

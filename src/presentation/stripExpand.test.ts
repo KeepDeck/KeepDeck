@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  NOTHING_LISTED,
   expandTeams,
   revealScrollTarget,
   scrollAfterCollapse,
@@ -8,19 +9,33 @@ import {
 } from "./stripExpand";
 
 describe("which workspace lists its teams", () => {
+  const listed = (expanded: string | null, leaving: string | null = null) => ({ expanded, leaving });
+
   it("opens on the active workspace, if it has teams to list", () => {
-    expect(expandTeams(null, { kind: "open", activeId: "ws-a", activeHasTeams: true })).toBe("ws-a");
-    expect(expandTeams(null, { kind: "open", activeId: "ws-a", activeHasTeams: false })).toBeNull();
+    expect(expandTeams(NOTHING_LISTED, { kind: "open", activeId: "ws-a", activeHasTeams: true })).toEqual(
+      listed("ws-a"),
+    );
+    expect(expandTeams(NOTHING_LISTED, { kind: "open", activeId: "ws-a", activeHasTeams: false })).toEqual(
+      NOTHING_LISTED,
+    );
   });
 
-  it("keeps ONE list open: a chevron moves it, the same chevron closes it", () => {
-    expect(expandTeams("ws-a", { kind: "toggle", wsId: "ws-b" })).toBe("ws-b");
-    expect(expandTeams("ws-b", { kind: "toggle", wsId: "ws-b" })).toBeNull();
-    expect(expandTeams(null, { kind: "toggle", wsId: "ws-c" })).toBe("ws-c");
+  it("keeps ONE list: a chevron moves it at once, the same chevron folds it away", () => {
+    // Moving drops the old list outright — no fold, so nothing slides
+    // under the pointer.
+    expect(expandTeams(listed("ws-a"), { kind: "toggle", wsId: "ws-b" })).toEqual(listed("ws-b"));
+    expect(expandTeams(listed("ws-b"), { kind: "toggle", wsId: "ws-b" })).toEqual(listed(null, "ws-b"));
+    expect(expandTeams(NOTHING_LISTED, { kind: "toggle", wsId: "ws-c" })).toEqual(listed("ws-c"));
   });
 
-  it("lists nothing once the strip shuts", () => {
-    expect(expandTeams("ws-a", { kind: "close" })).toBeNull();
+  it("folds the list away with the strip, but drops it at once for a drag", () => {
+    expect(expandTeams(listed("ws-a"), { kind: "close" })).toEqual(listed(null, "ws-a"));
+    expect(expandTeams(listed("ws-a"), { kind: "close", instant: true })).toEqual(NOTHING_LISTED);
+    expect(expandTeams(listed(null, "ws-a"), { kind: "close", instant: true })).toEqual(NOTHING_LISTED);
+  });
+
+  it("forgets the folding list once it has folded", () => {
+    expect(expandTeams(listed(null, "ws-a"), { kind: "settled" })).toEqual(NOTHING_LISTED);
   });
 });
 

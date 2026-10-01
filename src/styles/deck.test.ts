@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { px, readStyles, ruleBody } from "./testSupport";
+import { STRIP_MOTION_MS } from "../app/stripTeamsMotion";
 
 const deck = readStyles("deck.css");
 
@@ -146,6 +147,11 @@ describe("the workspace strip's open column", () => {
     expect(focus.outline).toBe("1px solid var(--kd-focus)");
     // Inset: the column clips (overflow hidden), so an outset ring is cut.
     expect(focus["outline-offset"]).toBe("-1px");
+  });
+
+  it("widens on the clock its team lists move on, so the edge and a list arrive together", () => {
+    const transition = ruleBody(strip, ".strip__col").transition;
+    expect(transition).toMatch(new RegExp(`width ${STRIP_MOTION_MS}ms`));
   });
 
   it("leaves a workspace's group unpositioned, so the reorder measures through the list", () => {
