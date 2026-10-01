@@ -54,9 +54,12 @@ interface DragGhost {
 /**
  * The left strip: a column of workspace marks — «+» pinned on top, the
  * marks under it (press-and-hold one to drag it to a new place), the build
- * at the foot. Teams are reached on the stage's cards screen. Resting the
- * pointer on it opens it over the stage with each workspace's full name
- * beside its mark (`useStripReveal`) — the stage does not move.
+ * at the foot. Resting the pointer on it opens it over the stage — the
+ * stage does not move (`useStripReveal`) — as the team switcher: each
+ * workspace's full name beside its mark, and one workspace's teams under
+ * it (`useStripTeams`). A mark goes to its workspace (the team it last had
+ * open, or its cards screen); a chevron moves the one list; a team row
+ * goes to that team. The cards screen stays the keyboard's way to a team.
  */
 export function WorkspaceStrip({
   view,

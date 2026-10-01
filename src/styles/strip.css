@@ -1,6 +1,8 @@
 /* The left strip (components/workspace/WorkspaceStrip.tsx): a column of
-   workspace marks on a surface one step above the canvas. Teams are
-   reached on the stage's cards screen. */
+   workspace marks on a surface one step above the canvas. At rest, marks
+   only. Slid open on approach, it is the team switcher: every workspace's
+   name, and ONE workspace's teams under it (user decision 2026-10-01). The
+   stage's cards screen remains the keyboard's way to a team. */
 
 .strip {
   position: relative;
