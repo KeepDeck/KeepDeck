@@ -91,6 +91,54 @@ describe("VirtualList", () => {
     expect(host.querySelectorAll("ul.list__spacer > li.list__item > .row").length).toBe(3);
   });
 
+  describe("the item kept in view (revealKey)", () => {
+    const renderRevealing = (revealKey: string | null, list: readonly string[] = items) =>
+      act(() =>
+        root.render(
+          createElement(VirtualList<string>, {
+            items: list,
+            itemKey: (item) => item,
+            estimate: () => ROW,
+            render: (item) => createElement("span", { className: "row" }, item),
+            className: "list",
+            revealKey,
+          }),
+        ),
+      );
+    const list = () => host.querySelector<HTMLElement>(".list")!;
+    // The scroll event a browser sends after a script scrolls — happy-dom
+    // sends none, and the list learns where it stands from that event.
+    const scrolled = () => act(() => void list().dispatchEvent(new Event("scroll")));
+
+    it("scrolls just enough to show it when it changes — to the foot from above, to the top from below", () => {
+      restore = pinListViewport("list", 200, 300, ROW);
+      renderRevealing(null);
+      renderRevealing("row 30");
+      // Row 30 ends at 31 rows; a ten-row box shows it at its foot.
+      expect(list().scrollTop).toBe(31 * ROW - 200);
+      scrolled();
+      renderRevealing("row 5");
+      expect(list().scrollTop).toBe(5 * ROW);
+    });
+
+    it("leaves the scroll alone for an item already in view", () => {
+      restore = pinListViewport("list", 200, 300, ROW);
+      renderRevealing("row 3");
+      expect(list().scrollTop).toBe(0);
+    });
+
+    it("does not pull the list back on a render the key took no part in", async () => {
+      restore = pinListViewport("list", 200, 300, ROW);
+      renderRevealing("row 3");
+      await act(async () => {
+        list().scrollTop = 100 * ROW;
+        list().dispatchEvent(new Event("scroll"));
+      });
+      renderRevealing("row 3", [...items]);
+      expect(list().scrollTop).toBe(100 * ROW);
+    });
+  });
+
   describe("the keyboard's place when a focused row scrolls out", () => {
     const renderButtons = () =>
       act(() =>

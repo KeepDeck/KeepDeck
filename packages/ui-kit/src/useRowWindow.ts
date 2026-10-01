@@ -39,6 +39,9 @@ export interface RowWindow {
    * the props and fell every row's memo on every parent render. The row
    * is resolved by its `data-index`. */
   measure(element: HTMLElement | null): void;
+  /** Scroll just enough to show row `index` — nothing when it is in view
+   * already. Mounted or not: the window owns the offsets. */
+  reveal(index: number): void;
 }
 
 /**
@@ -83,11 +86,18 @@ export function useRowWindow<Row>({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
+  const reveal = useCallback(
+    (index: number) => virtualizer.scrollToIndex(index, { align: "auto" }),
+    // The virtualizer instance is stable for the mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
   return {
     items,
     lastIndex,
     atEnd: rows.length > 0 && lastIndex === rows.length - 1,
     totalSize: virtualizer.getTotalSize(),
     measure,
+    reveal,
   };
 }

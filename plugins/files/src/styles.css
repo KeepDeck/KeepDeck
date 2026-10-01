@@ -44,20 +44,23 @@
   color: var(--kd-text-2);
 }
 
-/* The tree: fills the panel and scrolls on its own. */
+/* The tree: fills the panel. It holds the keyboard; the windowed list
+   inside it (ui-kit VirtualList) is what scrolls. */
 .files__tree {
   flex: 1 1 auto;
   min-height: 0;
-  overflow: auto;
+  display: flex;
+  flex-direction: column;
   /* Focus lives on this container (keyboard nav); the active row's highlight is
      the visible focus indicator, so the container's own ring is suppressed. */
   outline: none;
 }
 
-.files__list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+.files__scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  outline: none;
 }
 
 .files__row {

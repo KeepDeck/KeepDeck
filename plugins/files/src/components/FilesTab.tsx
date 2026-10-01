@@ -61,14 +61,6 @@ export function FilesTab({ workspace, selectedPaneId }: DockTabProps) {
     setCursor(null);
   }, [target]);
 
-  // Keep the focused row in view as the cursor moves.
-  useEffect(() => {
-    if (!cursor) return;
-    treeRef.current
-      ?.querySelector('[data-cursor="true"]')
-      ?.scrollIntoView({ block: "nearest" });
-  }, [cursor]);
-
   const rows = visibleRows(state);
 
   const focusTree = () => treeRef.current?.focus();

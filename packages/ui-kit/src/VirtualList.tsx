@@ -31,6 +31,11 @@ export interface VirtualListProps<T> extends VirtualListMarkup {
   /** Called when the window reaches the last item — the hook for a list
    * that grows as it is scrolled. */
   onReachEnd?: () => void;
+  /** The item kept in view — a keyboard cursor: each time it CHANGES,
+   * the list scrolls just enough to show it. Only on a change: re-showing
+   * it on every render would pull the list back from wherever the person
+   * scrolled to. */
+  revealKey?: string | null;
 }
 
 /**
@@ -51,6 +56,7 @@ export function VirtualList<T>({
   role,
   ariaLabel,
   onReachEnd,
+  revealKey = null,
   spacer,
   item,
 }: VirtualListProps<T>) {
@@ -63,6 +69,15 @@ export function VirtualList<T>({
   useEffect(() => {
     if (atEnd) onReachEnd?.();
   }, [atEnd, items.length, onReachEnd]);
+
+  const { reveal } = window;
+  useEffect(() => {
+    if (revealKey === null) return;
+    const index = items.findIndex((it) => itemKey(it) === revealKey);
+    if (index >= 0) reveal(index);
+    // A change of the key, never of the items: see `revealKey`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [revealKey]);
 
   const Spacer = spacer?.as ?? "div";
   const Item = item?.as ?? "div";
