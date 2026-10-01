@@ -73,7 +73,7 @@ export function WorkspaceStrip({
   const reveal = useStripReveal(ghost !== null);
 
   const listRef = useRef<HTMLDivElement>(null);
-  const teams = useStripTeams(reveal.open, ghost !== null, view, listRef);
+  const teams = useStripTeams(reveal.open, ghost?.mark.id ?? null, view, listRef);
   const ghostRef = useRef<HTMLDivElement>(null);
   const flipBefore = useRef<ElementRectSnapshot | null>(null);
   const cancelSettle = useRef<(() => void) | null>(null);

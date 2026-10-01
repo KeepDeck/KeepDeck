@@ -638,6 +638,32 @@ describe("WorkspaceStrip dragging from the open strip", () => {
   const order = () => groups().map((g) => g.dataset.wsId);
   const markOf = (id: string) => document.querySelector<HTMLElement>(`[data-ws-id="${id}"] .strip__mark`)!;
 
+  it("carries a dragged workspace as its mark alone, its list back where it lands", () => {
+    act(() => root.render(createElement(TeamedHarness)));
+    act(() => {
+      document.querySelector(".strip__col")!.dispatchEvent(
+        new PointerEvent("pointerover", { bubbles: true, relatedTarget: document.body }),
+      );
+      vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS);
+    });
+    const alphaRows = () => document.querySelectorAll('[data-ws-id="a"] .strip__team').length;
+    expect(alphaRows()).toBe(2);
+    act(() => {
+      markOf("a").dispatchEvent(pointerEvent("pointerdown", { clientY: 20 }));
+      vi.advanceTimersByTime(300);
+    });
+    // No hole the height of Alpha's teams follows the drag.
+    expect(alphaRows()).toBe(0);
+    act(() => window.dispatchEvent(pointerEvent("pointermove", { clientY: 120 })));
+    expect(order()).toEqual(["b", "c", "a", "d"]);
+    act(() => {
+      window.dispatchEvent(pointerEvent("pointerup", { clientY: 120 }));
+      vi.advanceTimersByTime(1000);
+    });
+    // Landed: its list is open again, in its new place.
+    expect(alphaRows()).toBe(2);
+  });
+
   it("drags from the open strip with its lists in place: nothing moves under the hand", () => {
     act(() => root.render(createElement(TeamedHarness)));
     act(() => {

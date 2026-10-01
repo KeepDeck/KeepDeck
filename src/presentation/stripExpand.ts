@@ -29,9 +29,12 @@ export interface ExpandedTeams {
   expanded: readonly string[];
   leaving: readonly string[];
   kept: readonly string[];
+  /** A workspace being dragged whose list was open: folded out of the way
+   * for the drag, reopened where it lands. */
+  held: string | null;
 }
 
-export const NOTHING_LISTED: ExpandedTeams = { expanded: [], leaving: [], kept: [] };
+export const NOTHING_LISTED: ExpandedTeams = { expanded: [], leaving: [], kept: [], held: null };
 
 export type ExpandEvent =
   /** The strip slid open: the lists the person kept open, and the active
@@ -42,7 +45,12 @@ export type ExpandEvent =
   /** The strip shut: the lists fold away with it. */
   | { kind: "close" }
   /** A folding list finished. */
-  | { kind: "settled"; wsId: string };
+  | { kind: "settled"; wsId: string }
+  /** A drag took hold of a workspace: its own list leaves AT ONCE, so the
+   * drag carries a mark, not a mark and a hole the height of its teams. */
+  | { kind: "hold"; wsId: string }
+  /** The drag let go: the held workspace's list opens again. */
+  | { kind: "release" };
 
 const without = (ids: readonly string[], id: string) => ids.filter((each) => each !== id);
 const union = (a: readonly string[], b: readonly string[]) => [...a, ...b.filter((id) => !a.includes(id))];
@@ -54,6 +62,7 @@ export function expandTeams(state: ExpandedTeams, event: ExpandEvent): ExpandedT
         expanded: union(state.kept, event.activeHasTeams ? [event.activeId] : []),
         leaving: [],
         kept: state.kept,
+        held: null,
       };
     case "toggle":
       return state.expanded.includes(event.wsId)
@@ -71,10 +80,19 @@ export function expandTeams(state: ExpandedTeams, event: ExpandEvent): ExpandedT
       return {
         expanded: [],
         leaving: union(state.leaving, state.expanded),
-        kept: state.expanded,
+        kept: state.held === null ? state.expanded : union(state.expanded, [state.held]),
+        held: null,
       };
     case "settled":
       return { ...state, leaving: without(state.leaving, event.wsId) };
+    case "hold":
+      return state.expanded.includes(event.wsId)
+        ? { ...state, expanded: without(state.expanded, event.wsId), held: event.wsId }
+        : state;
+    case "release":
+      return state.held === null
+        ? state
+        : { ...state, expanded: union(state.expanded, [state.held]), held: null };
   }
 }
 

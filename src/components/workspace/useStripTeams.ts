@@ -33,9 +33,10 @@ export const stripTeamsId = (wsId: string) => `strip-teams-${wsId}`;
  */
 export function useStripTeams(
   open: boolean,
-  /** A drag is in flight: the column belongs to it, so the resting
-   * scroll-into-view holds off. */
-  dragging: boolean,
+  /** The workspace a drag holds, or null. Its own list folds out of the
+   * way at once and reopens where it lands; while a drag is in flight the
+   * resting scroll-into-view holds off. */
+  dragged: string | null,
   view: StripView,
   listRef: RefObject<HTMLElement | null>,
 ) {
@@ -55,6 +56,12 @@ export function useStripTeams(
     // moved elsewhere.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  // Before paint, like open and close: the drag's first frame already
+  // carries just the mark.
+  useLayoutEffect(() => {
+    dispatch(dragged !== null ? { kind: "hold", wsId: dragged } : { kind: "release" });
+  }, [dragged]);
 
   const before = useRef(NOTHING_LISTED);
   /** One running motion per list: lists open and fold independently. */
@@ -164,7 +171,7 @@ export function useStripTeams(
   useLayoutEffect(() => {
     const list = listRef.current;
     // A column with no height yet (not laid out) has no view to keep.
-    if (!list || open || dragging || activeId === null || list.clientHeight === 0) return;
+    if (!list || open || dragged !== null || activeId === null || list.clientHeight === 0) return;
     const mark = [...list.querySelectorAll<HTMLElement>("[data-ws-id]")].find(
       (el) => el.dataset.wsId === activeId,
     );

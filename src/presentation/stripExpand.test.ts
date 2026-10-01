@@ -10,11 +10,12 @@ import {
 } from "./stripExpand";
 
 describe("which workspaces list their teams", () => {
-  const at = (expanded: string[], leaving: string[] = [], kept: string[] = []): ExpandedTeams => ({
-    expanded,
-    leaving,
-    kept,
-  });
+  const at = (
+    expanded: string[],
+    leaving: string[] = [],
+    kept: string[] = [],
+    held: string | null = null,
+  ): ExpandedTeams => ({ expanded, leaving, kept, held });
 
   it("opens on the active workspace, if it has teams to list", () => {
     expect(expandTeams(NOTHING_LISTED, { kind: "open", activeId: "ws-a", activeHasTeams: true })).toEqual(
@@ -42,6 +43,17 @@ describe("which workspaces list their teams", () => {
     // Reopened from somewhere else: the kept lists, and the active one.
     const reopened = expandTeams(shut, { kind: "open", activeId: "ws-d", activeHasTeams: true });
     expect(reopened).toEqual(at(["ws-a", "ws-c", "ws-d"], [], ["ws-a", "ws-c"]));
+  });
+
+  it("folds a dragged workspace's own list away at once, and reopens it on release", () => {
+    // At once, not folding: the drag carries a mark, not a mark and a hole.
+    const held = expandTeams(at(["ws-a", "ws-b"]), { kind: "hold", wsId: "ws-b" });
+    expect(held).toEqual(at(["ws-a"], [], [], "ws-b"));
+    expect(expandTeams(held, { kind: "release" })).toEqual(at(["ws-a", "ws-b"]));
+    // A workspace with no list open holds nothing.
+    expect(expandTeams(at(["ws-a"]), { kind: "hold", wsId: "ws-c" })).toEqual(at(["ws-a"]));
+    // Shut mid-drag: the held list is kept for the next open.
+    expect(expandTeams(held, { kind: "close" }).kept).toEqual(["ws-a", "ws-b"]);
   });
 
   it("forgets a fold once it lands", () => {
