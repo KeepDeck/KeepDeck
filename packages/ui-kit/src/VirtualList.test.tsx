@@ -242,6 +242,44 @@ describe("VirtualList's measured heights", () => {
     expect(tops().get("row 0")! - list().scrollTop).toBe(anchor);
   });
 
+  /** A scroll, as a browser makes it: the offset moves and a scroll
+   * event fires. */
+  const scrollTo = async (top: number) => {
+    await act(async () => {
+      list().scrollTop = top;
+      list().dispatchEvent(new Event("scroll"));
+    });
+  };
+  // 205 → 212 moves neither the first nor the last row of the window
+  // (rows are 20 tall, the viewport 200): the list does NOT re-render for
+  // it, so arming never runs — the condition the bug lived in.
+  const ARMED_AT = 205;
+  const READ_AT = 212;
+
+  it("leaves the scroll alone when the rows come again unchanged — no yank back", async () => {
+    // The reported bug: a consumer hands a NEW array with the same rows
+    // (git's changes list is rebuilt every render; a board column on any
+    // tick) while the person has scrolled since the anchor was armed.
+    // Nothing landed above, so nothing may move.
+    render(items);
+    await scrollTo(ARMED_AT);
+    await scrollTo(READ_AT);
+    render([...items]);
+    await act(async () => {});
+    expect(list().scrollTop).toBe(READ_AT);
+  });
+
+  it("holds the row being read where the person has it when rows land above", async () => {
+    render(items);
+    await scrollTo(ARMED_AT);
+    await scrollTo(READ_AT);
+    const before = tops().get("row 11")! - list().scrollTop;
+    render(["new 0", "new 1", ...items]);
+    await act(async () => {});
+    // Where the PERSON had it — not where it stood at the last arming.
+    expect(tops().get("row 11")! - list().scrollTop).toBe(before);
+  });
+
   it("holds the row being read after the one it held before was removed", async () => {
     // The held row leaves (a task moved to another column) while the scroll
     // and the window's end stand still — the row under it moves up into

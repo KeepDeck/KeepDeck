@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import type { RefObject } from "react";
 import type {
   ReactVirtualizer,
@@ -152,4 +152,37 @@ export function useRowAnchoring<Row>({
     armFirstVisible(list);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [listRef.current?.scrollTop, lastVirtualIndex]);
+  // THE ANCHOR'S OFFSET, kept true on EVERY scroll — arming runs only on
+  // re-renders, and a scroll within the window renders nothing, so between
+  // armings the offset went stale by however far the person had scrolled.
+  // The compensation sets the scroll to "anchor row minus offset": with a
+  // stale offset, every new array (git's changes rebuilt per render, a
+  // board tick, a watch event) wrote the scroll BACK to where it stood at
+  // the last arming — the list scrolled back by itself mid-scroll, and on
+  // a trackpad the write killed the momentum into a bounce. Updated here,
+  // the offset is the person's own: unchanged rows then resolve to the
+  // scroll as it is, and nothing is written. The library's own size
+  // corrections move the row and the scroll together, so the offset holds
+  // through them; only the person's scroll changes it, and that is
+  // exactly what this hears.
+  const queueNow = useRef(queue);
+  queueNow.current = queue;
+  const keyOfNow = useRef(keyOf);
+  keyOfNow.current = keyOf;
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    const onScroll = () => {
+      const anchor = anchorRef.current;
+      if (anchor === null) return;
+      const index = queueNow.current.findIndex((row) => keyOfNow.current(row) === anchor.key);
+      if (index < 0) return;
+      const at = rowVirtualizer.getOffsetForIndex(index, "start");
+      if (at) anchorRef.current = { key: anchor.key, offset: at[0] - list.scrollTop };
+    };
+    list.addEventListener("scroll", onScroll, { passive: true });
+    return () => list.removeEventListener("scroll", onScroll);
+    // The list element and the virtualizer are stable for the mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 }
