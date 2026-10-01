@@ -42,9 +42,12 @@
      — `auto` to a number is not interpolated, so the delay is ignored.
      Shut, the column covers only its own slot, so the layer costs nothing. */
   z-index: 50;
+  /* The ease-out CUBIC — the very curve the team lists move on
+     (app/stripTeamsMotion: 1 − (1 − x)³), so the edge and a list arrive
+     together all the way, not only at the end. */
   transition:
-    width 140ms ease-out,
-    box-shadow 140ms ease-out;
+    width 140ms cubic-bezier(0.33, 1, 0.68, 1),
+    box-shadow 140ms cubic-bezier(0.33, 1, 0.68, 1);
 }
 
 /* Open: every workspace's full name beside its mark and the teams of one

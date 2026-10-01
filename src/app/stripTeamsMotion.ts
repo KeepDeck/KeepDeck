@@ -35,8 +35,9 @@ export function prefersReducedMotion(): boolean {
   return typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
-/** Ease-out: quick to start, settling at the end — the strip's edge eases
- * the same way (ease-out in strip.css). */
+/** Ease-out cubic: quick to start, settling at the end. The strip's edge
+ * runs the same curve — cubic-bezier(0.33, 1, 0.68, 1) in strip.css, which
+ * deck.test holds to this. */
 const easeOut = (x: number) => 1 - (1 - x) ** 3;
 
 export interface ListMotion {

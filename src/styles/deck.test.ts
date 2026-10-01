@@ -151,7 +151,8 @@ describe("the workspace strip's open column", () => {
 
   it("widens on the clock its team lists move on, so the edge and a list arrive together", () => {
     const transition = ruleBody(strip, ".strip__col").transition;
-    expect(transition).toMatch(new RegExp(`width ${STRIP_MOTION_MS}ms`));
+    // Same duration AND the same curve: the lists move on 1 − (1 − x)³.
+    expect(transition).toMatch(new RegExp(`width ${STRIP_MOTION_MS}ms cubic-bezier\\(0\\.33, 1, 0\\.68, 1\\)`));
   });
 
   it("leaves a workspace's group unpositioned, so the reorder measures through the list", () => {
