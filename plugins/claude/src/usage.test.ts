@@ -82,6 +82,15 @@ describe("normalizeClaudeStatusline", () => {
     expect(
       normalizeClaudeStatusline(report(sessionless), AT)?.accountActivity,
     ).toBeNull();
+    // A negative counter is no reading at all.
+    for (const cost of [
+      { ...witnessed.cost, total_cost_usd: -0.5 },
+      { ...witnessed.cost, total_api_duration_ms: -1 },
+    ]) {
+      expect(
+        normalizeClaudeStatusline(report({ ...witnessed, cost }), AT)?.accountActivity,
+      ).toBeNull();
+    }
     // Even a report with no limits declares the gate.
     const { rate_limits: _none, ...limitless } = witnessed;
     const result = normalizeClaudeStatusline(report(limitless), AT);
