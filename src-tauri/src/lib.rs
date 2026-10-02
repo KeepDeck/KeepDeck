@@ -23,6 +23,7 @@ mod migration;
 mod notify_identity;
 mod paths;
 mod plugins_fs;
+mod pointer;
 mod plugins_fs_write;
 mod plugins_sqlite;
 mod ports;
@@ -175,6 +176,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             app_info,
+            pointer::pointer_in_window,
             app_updater::app_update_check,
             app_updater::app_update_install,
             app_updater::app_update_discard,
