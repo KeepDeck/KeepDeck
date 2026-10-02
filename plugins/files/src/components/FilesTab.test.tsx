@@ -395,6 +395,25 @@ describe("FilesTab", () => {
       expect(list().scrollTop).toBe(15 * TREE_ROW_PX - TREE_PX);
     });
 
+    it("pages the cursor by the rows in view, and Home/End reach the ends — the tree holds the keys", async () => {
+      fs.dirs["/repo"] = many;
+      await mount();
+      press("ArrowDown");
+      press("PageDown");
+      await act(async () => {});
+      // Ten rows in a 220px box of 22px rows.
+      expect(activeName()).toBe("f010.ts");
+      press("End");
+      // The scroll event a browser sends after the reveal scrolls (happy-dom
+      // sends none): the window follows the scroll from it.
+      await act(async () => void list().dispatchEvent(new Event("scroll")));
+      expect(activeName()).toBe("f199.ts");
+      expect(list().scrollTop).toBe(200 * TREE_ROW_PX - TREE_PX);
+      press("Home");
+      await act(async () => void list().dispatchEvent(new Event("scroll")));
+      expect(activeName()).toBe("f000.ts");
+    });
+
     it("leaves a hand scroll where it is — the cursor is shown when it moves, not on every render", async () => {
       fs.dirs["/repo"] = many;
       await mount();

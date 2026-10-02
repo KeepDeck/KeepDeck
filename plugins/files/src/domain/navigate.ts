@@ -13,9 +13,12 @@ import { visibleRows, type TreeState } from "./tree";
  *   directory: step into its first child. On a file: nothing.
  * - Left on an expanded directory: collapse it. Otherwise: jump to the parent
  *   row. A top-level row has no parent to jump to.
- * - With no cursor yet, any arrow focuses the first row.
+ * - Home / End: the first / last visible row.
+ * - PageUp / PageDown: `page` rows up / down (clamped at the ends) — the
+ *   rows a screen holds, which the host knows and the tree does not.
+ * - With no cursor yet, any key focuses the first row.
  */
-export type ArrowKey = "up" | "down" | "left" | "right";
+export type ArrowKey = "up" | "down" | "left" | "right" | "home" | "end" | "pageUp" | "pageDown";
 
 export interface NavAction {
   /** Where the cursor should be after the key (may equal the input cursor). */
@@ -30,6 +33,7 @@ export function navigate(
   state: TreeState,
   cursor: string | null,
   key: ArrowKey,
+  page = 1,
 ): NavAction {
   const rows = visibleRows(state);
   if (rows.length === 0) return { cursor };
@@ -39,7 +43,16 @@ export function navigate(
   if (index < 0) return { cursor: rows[0].node.path };
 
   const current = rows[index];
+  const at = (i: number) => rows[Math.max(0, Math.min(i, rows.length - 1))].node.path;
   switch (key) {
+    case "home":
+      return { cursor: at(0) };
+    case "end":
+      return { cursor: at(rows.length - 1) };
+    case "pageUp":
+      return { cursor: at(index - Math.max(1, page)) };
+    case "pageDown":
+      return { cursor: at(index + Math.max(1, page)) };
     case "down":
       return { cursor: rows[Math.min(index + 1, rows.length - 1)].node.path };
     case "up":

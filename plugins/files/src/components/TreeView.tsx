@@ -1,5 +1,6 @@
 import { ChevronDownIcon } from "@keepdeck/ui-kit/icons";
 import { VirtualList } from "@keepdeck/ui-kit/VirtualList";
+import { TREE_ROW_ESTIMATE_PX } from "../presentation/treeLayout";
 import type { TreeNode, TreeRow } from "../domain/tree";
 import { FileIcon, FolderIcon, SymlinkIcon } from "../icons";
 
@@ -31,7 +32,7 @@ export function TreeView({
     <VirtualList
       items={rows}
       itemKey={rowPath}
-      estimate={ROW_ESTIMATE_PX}
+      estimate={TREE_ROW_ESTIMATE_PX}
       className="files__scroll"
       revealKey={cursorPath}
       render={({ node, depth }) => (
@@ -104,9 +105,6 @@ function TreeRowItem({
 
 const rowPath = (row: TreeRow): string => row.node.path;
 
-/** A row's first-paint height guess: a line of 11px type at 1.4, in 3px
- * padding top and bottom. */
-const ROW_ESTIMATE_PX = 22;
 
 function glyph(node: TreeNode) {
   switch (node.kind) {
