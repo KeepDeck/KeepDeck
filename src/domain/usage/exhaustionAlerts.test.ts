@@ -201,15 +201,18 @@ describe("foldExhaustionAlerts", () => {
       seriesOf(windows, CRITICAL()),
       NOW,
     );
-    // The window reset: the reset anchor jumps a real distance, and the
-    // fresh instance burns hot too. (The journal stays monotonic — new
-    // reports land AFTER the old ones, as production guarantees.)
-    const later = NOW + 15 * MIN;
-    const nextWindow: UsageWindow = { ...FIVE_H, resetsAt: NOW + 300 * MIN };
+    // The window reset: the old instance ran out its clock, the reset anchor
+    // jumps a full window, and the fresh instance burns hot too. (The
+    // journal stays monotonic — new reports land AFTER the old ones, as
+    // production guarantees.)
+    const resetAt = FIVE_H.resetsAt!;
+    const later = resetAt + 15 * MIN;
+    const nextResetsAt = resetAt + 300 * MIN;
+    const nextWindow: UsageWindow = { ...FIVE_H, resetsAt: nextResetsAt };
     const nextSeries = [
       ...CRITICAL(),
-      report({ reportedAt: NOW + 5 * MIN, usedPct: 70, resetsAt: NOW + 300 * MIN }),
-      report({ reportedAt: later, usedPct: 88, resetsAt: NOW + 300 * MIN }),
+      report({ reportedAt: resetAt + 5 * MIN, usedPct: 70, resetsAt: nextResetsAt }),
+      report({ reportedAt: later, usedPct: 88, resetsAt: nextResetsAt }),
     ];
     const next = foldExhaustionAlerts(
       fired.alerts,
@@ -392,6 +395,35 @@ describe("foldExhaustionAlerts", () => {
       fired.alerts,
       accountsOf([drifted]),
       seriesOf([drifted], series),
+      later,
+    );
+    expect(held.notices).toHaveLength(0);
+  });
+
+  it("holds when a live window's reset jumps forward — only expiry re-arms", () => {
+    const windows = [FIVE_H];
+    const fired = foldExhaustionAlerts(
+      NONE,
+      accountsOf(windows),
+      seriesOf(windows, CRITICAL()),
+      NOW,
+    );
+    expect(fired.notices).toHaveLength(1);
+    // Far past the jitter belt, but the fired instance's reset has not come
+    // yet: a live window cannot move its own end, so this is not a turnover
+    // (codex's not-yet-started windows re-mint their reset on every poll).
+    // The rows after the jump burn hot on their own, so a wrongly cut
+    // segment would re-fire rather than merely go unknown.
+    const moved: UsageWindow = { ...FIVE_H, resetsAt: FIVE_H.resetsAt! + 90 * MIN };
+    const later = NOW + 6 * MIN;
+    const held = foldExhaustionAlerts(
+      fired.alerts,
+      accountsOf([moved]),
+      seriesOf([moved], [
+        ...CRITICAL(),
+        report({ reportedAt: NOW + MIN, usedPct: 89, resetsAt: moved.resetsAt }),
+        report({ reportedAt: later, usedPct: 94, resetsAt: moved.resetsAt }),
+      ]),
       later,
     );
     expect(held.notices).toHaveLength(0);

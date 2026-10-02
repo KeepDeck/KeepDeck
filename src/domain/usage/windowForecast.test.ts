@@ -133,6 +133,50 @@ describe("reportJournal", () => {
     expect(currentSegment(dropped)[0].usedPct).toBe(3);
   });
 
+  it("cuts a dormant codex week once, not at every re-minted reset", () => {
+    // Real codex shape (10-01): the week expired, nothing used it yet, and
+    // every poll answered 0% ending one week after the request — the reset
+    // walked forward 103s, then 6s. The anchor froze at first use.
+    const WEEK = 7 * 24 * 60 * MIN;
+    const firstUse = NOW - 60 * MIN;
+    const journal = [
+      report({ reportedAt: NOW - 5000 * MIN, usedPct: 29, resetsAt: NOW - 4000 * MIN }),
+      report({ reportedAt: firstUse - 163_000, usedPct: 0, resetsAt: firstUse - 163_000 + WEEK }),
+      report({ reportedAt: firstUse - 60_000, usedPct: 0, resetsAt: firstUse - 60_000 + WEEK }),
+      report({ reportedAt: firstUse - 54_000, usedPct: 0, resetsAt: firstUse - 54_000 + WEEK }),
+      report({ reportedAt: firstUse, usedPct: 0, resetsAt: firstUse + WEEK }),
+      report({ reportedAt: firstUse + 5 * MIN, usedPct: 1, resetsAt: firstUse + WEEK + 2_000 }),
+      report({ reportedAt: firstUse + 30 * MIN, usedPct: 4, resetsAt: firstUse + WEEK + 1_000 }),
+    ];
+    // One boundary (the real expiry), and the trajectory starts at the first
+    // spend — the four dormant zeros carry no pace.
+    expect(currentSegment(journal).map((row) => row.usedPct)).toEqual([1, 4]);
+  });
+
+  it("turns a window over only once its old reset has passed", () => {
+    const old = report({ reportedAt: NOW - 10 * MIN, usedPct: 40, resetsAt: NOW });
+    const jumpAt = (reportedAt: number) =>
+      report({ reportedAt, usedPct: 2, resetsAt: reportedAt + 300 * MIN });
+    // Arriving exactly at the old reset carrying a new one IS a turnover.
+    expect(currentSegment([old, jumpAt(NOW)])).toHaveLength(1);
+    // One millisecond earlier the old window is still alive, and a live
+    // window cannot move its end: the jump is not a boundary.
+    expect(currentSegment([old, jumpAt(NOW - 1)])).toHaveLength(2);
+  });
+
+  it("starts the trajectory at the first spend, and keeps an idle one whole", () => {
+    const rows = (pcts: number[]) =>
+      pcts.map((usedPct, index) =>
+        report({ reportedAt: NOW - (pcts.length - index) * 5 * MIN, usedPct }),
+      );
+    const pcts = (segment: WindowReport[]) => segment.map((row) => row.usedPct);
+    expect(pcts(currentSegment(rows([0, 0, 0, 1, 2])))).toEqual([1, 2]);
+    // Residue under the journal's significance is not spend.
+    expect(pcts(currentSegment(rows([0, 0.05, 1, 0, 2])))).toEqual([1, 0, 2]);
+    // No spend at all: the idle answer needs the whole span.
+    expect(currentSegment(rows([0, 0, 0]))).toHaveLength(3);
+  });
+
   it("scales the retention horizon with the window length", () => {
     // Observed through pruneReports: a 5h window keeps ~7.5h (1.5 windows),
     // a plan window keeps a week.
@@ -201,6 +245,25 @@ describe("reportJournal", () => {
 });
 
 describe("windowForecast", () => {
+  it("reads the pace from the first spend, not from a dormant window's zeros", () => {
+    // An open app polls a codex week that waits for first use: a zero every
+    // heartbeat for hours, then the spend starts inside the lookback. The
+    // zeros used to stay in the tail and dilute the pace ~9× — a week
+    // running out in two days read as "lasts".
+    const resetsAt = NOW + 3 * 24 * 60 * MIN;
+    const week: UsageWindow = { usedPct: 8, resetsAt, windowMinutes: 10_080 };
+    const at = (minutesAgo: number, usedPct: number) =>
+      report({ reportedAt: NOW - minutesAgo * MIN, usedPct, resetsAt });
+    const spend = Array.from({ length: 29 }, (_, index) => {
+      const minutesAgo = 140 - index * 5;
+      return at(minutesAgo, 1 + 0.05 * (140 - minutesAgo));
+    });
+    const zeros = Array.from({ length: 96 }, (_, index) => at(620 - index * 5, 0));
+    const verdict = windowForecast([...zeros, ...spend], week, NOW);
+    expect(verdict).toMatchObject({ kind: "out" });
+    expect(verdict).toEqual(windowForecast(spend, week, NOW));
+  });
+
   it("anchors the lookback to the newest report, not the ticking clock", () => {
     // A burst 44m ago inside a 45m lookback: one clock tick later the tick
     // itself must NOT change the verdict — only new reports may.
@@ -413,8 +476,10 @@ describe("windowForecast", () => {
     // has to say so. It used to leave `resetsAt` untouched on all four rows
     // and passed anyway, because the un-segmented slope happened to come out
     // negative: the test named segmentation and proved arithmetic.
-    const before = NOW + 20 * MIN;
-    const after = NOW + 320 * MIN;
+    // The old instance ends between the first two rows — a reset can only
+    // turn a window over once its clock has run out.
+    const before = NOW - 35 * MIN;
+    const after = NOW + 265 * MIN;
     const window: UsageWindow = { usedPct: 6, resetsAt: after, windowMinutes: 300 };
     const acrossReset = [
       report({ reportedAt: NOW - 40 * MIN, usedPct: 95, resetsAt: before }),
