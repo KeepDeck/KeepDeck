@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   agentRemoteSchemes,
   agentSessionCapabilities,
@@ -21,6 +21,7 @@ import {
 import { NO_ROLE, ROLE_WORDS, type RoleChoice } from "../../presentation/roleChoiceView";
 import { useAgents } from "../../app/useAgents";
 import { useEscape } from "../../ui/useEscape";
+import { useWallClock } from "../../ui/useWallClock";
 import { noAutoCorrect } from "../../ui/inputProps";
 import { ModalOverlay } from "../../ui/ModalOverlay";
 import type { Page } from "../../app/usePagedSessionSearch";
@@ -33,6 +34,7 @@ import { YoloField } from "../../ui/YoloField";
 import { forkPickLine, resumeBlockReason } from "../../presentation/sessionResumeView";
 import {
   SESSION_PICK_ESTIMATE_PX,
+  SESSION_PICK_LIST_LABEL,
   sessionPickItems,
   sessionPickKey,
 } from "../../presentation/sessionPickView";
@@ -301,15 +303,23 @@ export function AgentDialog({
   const validPick =
     picked && picked.handle.agent === agentType ? picked : null;
   const pickedBlock = validPick ? resumeBlockOf(validPick) : null;
-  // The sessions' ages are read against the moment the dialog opened — a
-  // clock read in render would re-word every row on every keystroke.
-  const [openedAt] = useState(Date.now);
-  const pickItems = sessionPickItems(sessions, {
-    loadingMore: pagedSessions.loadingMore,
-    blockOf: startMode === "resume" ? resumeBlockOf : null,
-    pickedId: validPick?.handle.sessionId ?? null,
-    now: openedAt,
-  });
+  // The sessions' ages read the app's one wall clock — a clock read in
+  // render re-worded every row on every keystroke. Memoized: a keystroke
+  // elsewhere in the dialog must not rebuild the list (and re-key the
+  // window's measurements).
+  const now = useWallClock();
+  const pickedId = validPick?.handle.sessionId ?? null;
+  const { loadingMore } = pagedSessions;
+  const pickItems = useMemo(
+    () =>
+      sessionPickItems(sessions, {
+        loadingMore,
+        blockOf: startMode === "resume" ? resumeBlockOf : null,
+        pickedId,
+        now,
+      }),
+    [sessions, loadingMore, startMode, resumeBlockOf, pickedId, now],
+  );
   const sessionOk = canStartFromSession(startMode, validPick !== null, pickedBlock);
   // Resume ignores the location entirely (locked to the recorded cwd — the
   // whole worktree block is hidden); everything else gates on both. Remote
@@ -518,20 +528,21 @@ export function AgentDialog({
               itemKey={sessionPickKey}
               estimate={SESSION_PICK_ESTIMATE_PX}
               className="form__sessions"
-              ariaLabel="Sessions"
+              ariaLabel={SESSION_PICK_LIST_LABEL}
               spacer={{ as: "ul", className: "form__sessions-list" }}
               item={{ as: "li" }}
               onReachEnd={pagedSessions.loadMore}
               render={(item) => {
                 if (item.kind === "more") {
                   return (
-                    <div className="form__session-more" aria-label="Loading more sessions">
+                    // A status, so the name is announced (a plain div's is not).
+                    <div className="form__session-more" role="status" aria-label={item.label}>
                       <span className="form__session-spinner" />
                     </div>
                   );
                 }
                 if (item.kind === "empty") {
-                  return <div className="form__session-empty">No sessions match</div>;
+                  return <div className="form__session-empty">{item.text}</div>;
                 }
                 return (
                   <button

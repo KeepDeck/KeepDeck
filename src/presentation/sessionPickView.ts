@@ -24,8 +24,8 @@ export type SessionPickItem =
       /** A line under it: something follows in the list. */
       seam: boolean;
     }
-  | { kind: "more"; key: string }
-  | { kind: "empty"; key: string };
+  | { kind: "more"; key: string; label: string }
+  | { kind: "empty"; key: string; text: string };
 
 /** The picker's items, in list order. `blockOf` is null when the picker
  * offers forks (no resume gate); `pickedId` is the valid pick's session. */
@@ -54,10 +54,13 @@ export function sessionPickItems(
       seam: index < rows.length - 1 || facts.loadingMore,
     };
   });
-  if (facts.loadingMore) items.push({ kind: "more", key: "more" });
-  else if (rows.length === 0) items.push({ kind: "empty", key: "empty" });
+  if (facts.loadingMore) items.push({ kind: "more", key: "more", label: "Loading more sessions" });
+  else if (rows.length === 0) items.push({ kind: "empty", key: "empty", text: "No sessions match" });
   return items;
 }
+
+/** The picker list's accessible name. */
+export const SESSION_PICK_LIST_LABEL = "Sessions";
 
 export const sessionPickKey = (item: SessionPickItem): string => item.key;
 

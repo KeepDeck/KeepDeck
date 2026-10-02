@@ -80,6 +80,7 @@ describe("VirtualList", () => {
           estimate: () => ROW,
           render: (item) => createElement("span", { className: "row" }, item),
           className: "list",
+          ariaLabel: "Things",
           spacer: { as: "ul", className: "list__spacer" },
           item: { as: "li", className: "list__item" },
         }),
@@ -87,6 +88,9 @@ describe("VirtualList", () => {
     );
     const spacer = host.querySelector(".list > ul.list__spacer") as HTMLElement;
     expect(spacer).toBeTruthy();
+    // Named where a reader meets the list — the ul, not the generic box.
+    expect(spacer.getAttribute("aria-label")).toBe("Things");
+    expect(host.querySelector(".list")!.hasAttribute("aria-label")).toBe(false);
     expect(spacer.style.height).toBe(`${3 * ROW}px`);
     expect(host.querySelectorAll("ul.list__spacer > li.list__item > .row").length).toBe(3);
   });

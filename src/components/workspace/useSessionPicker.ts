@@ -153,16 +153,20 @@ export function useSessionPicker(deps: {
   }, [startMode, agentType]);
 
   // The rule is the domain's; this hook only gathers the facts it reads.
-  const resumeBlockOf = (row: SessionPickRow): ResumeBlock =>
-    resumeBlock(
-      {
-        cwd: row.handle.cwd,
-        claimed: sessionClaim(row.handle.sessionId) !== null,
-        busyOutside: liveOutsideIds !== "unknown" && liveOutsideIds.has(row.handle.sessionId),
-        dirPresent: dirPresent(presence, row.handle.cwd),
-      },
-      member,
-    );
+  // Stable while its facts are: the picker's items are memoized on it.
+  const resumeBlockOf = useCallback(
+    (row: SessionPickRow): ResumeBlock =>
+      resumeBlock(
+        {
+          cwd: row.handle.cwd,
+          claimed: sessionClaim(row.handle.sessionId) !== null,
+          busyOutside: liveOutsideIds !== "unknown" && liveOutsideIds.has(row.handle.sessionId),
+          dirPresent: dirPresent(presence, row.handle.cwd),
+        },
+        member,
+      ),
+    [sessionClaim, liveOutsideIds, presence, member],
+  );
 
   const pickSession = (row: SessionPickRow) => {
     // Ignore a click on a row from a DIFFERENT agent than the selected one —

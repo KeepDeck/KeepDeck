@@ -1109,6 +1109,11 @@ describe("AgentDialog start-from paging", () => {
     await act(async () => {});
     await scrollPickerToEnd();
 
+    // The list a reader walks is named, and so is its loading tail.
+    expect(document.querySelector('ul[aria-label="Sessions"]')).not.toBeNull();
+    expect(
+      document.querySelector('[role="status"][aria-label="Loading more sessions"]'),
+    ).not.toBeNull();
     // hasMore is true (50 of 200) and the second page is still loading.
     expect(document.querySelector(".form__sessions-count")?.textContent).toBe(
       "50 of 200",

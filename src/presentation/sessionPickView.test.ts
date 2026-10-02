@@ -66,6 +66,8 @@ describe("sessionPickItems — the Start-from picker's list", () => {
     ]);
     expect(sessionPickItems([], facts({ loadingMore: true })).map((i) => i.kind)).toEqual(["more"]);
     expect(sessionPickItems([], facts()).map((i) => i.kind)).toEqual(["empty"]);
+    expect(sessionPickItems([], facts({ loadingMore: true }))[0]).toMatchObject({ label: "Loading more sessions" });
+    expect(sessionPickItems([], facts())[0]).toMatchObject({ text: "No sessions match" });
     expect(sessionPickItems([row("a")], facts()).map((i) => i.kind)).toEqual(["session"]);
   });
 });
