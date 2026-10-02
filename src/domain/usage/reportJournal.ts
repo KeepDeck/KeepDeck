@@ -21,6 +21,12 @@ export interface WindowReport {
   /** Disambiguates same-tuple windows within one account report (codex's
    * duration-less pair); present only when the tuple is duplicated. */
   ordinal?: number;
+  /** The pane whose claim the account held at capture — diagnostic only,
+   * never part of the window's identity. Without it a series cannot say
+   * which pane fed it a bad point (the stale-limits sawtooth could not be
+   * pinned to a pane from the journal). Absent on older records and on
+   * claims no pane made (polls, the restored cache). */
+  sourcePaneId?: string;
 }
 
 /** One journal key per window identity. The (length, scope) tuple alone is
@@ -261,6 +267,9 @@ export function decodeWindowReport(line: string): WindowReport | null {
     Number.isInteger(raw.ordinal) &&
     raw.ordinal >= 0
       ? { ordinal: raw.ordinal }
+      : {}),
+    ...(typeof raw.sourcePaneId === "string" && raw.sourcePaneId !== ""
+      ? { sourcePaneId: raw.sourcePaneId }
       : {}),
   };
 }

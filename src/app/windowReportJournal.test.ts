@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import type { AccountUsage, UsageWindow } from "../domain/usage";
-import { encodeWindowReport, type WindowReport } from "../domain/usage/reportJournal";
+import { normalizeClaudeStatusline } from "../../plugins/claude/src/usage";
+import {
+  decodeWindowReport,
+  encodeWindowReport,
+  type WindowReport,
+} from "../domain/usage/reportJournal";
+import { createUsageManager } from "./usageManager";
 import { createWindowReportJournal } from "./windowReportJournal";
 
 import {
@@ -84,6 +90,74 @@ describe("windowReportJournal", () => {
     const snapshot = journal.getSnapshot();
     expect(snapshot.ready).toBe(true);
     expect([...snapshot.byKey.keys()]).toHaveLength(2);
+  });
+
+  it("records which pane's claim each point came from, and survives without it", async () => {
+    const { ipc, journal, usage } = build();
+    journal.start();
+    await settle();
+    const week = { usedPct: 12, resetsAt: NOW + 4 * 24 * 60 * MIN, windowMinutes: 10_080 };
+    usage.set(new Map([["claude", account([week])]]));
+    // A claim no pane made (a poll, the restored cache) names none.
+    usage.set(
+      new Map([["codex", { ...account([week]), sourcePaneId: "" }]]),
+    );
+    await settle();
+    const [claude, codex] = ipc.appendUsageReports.mock.calls
+      .flatMap(([lines]) => lines)
+      .map((line) => decodeWindowReport(line)!);
+    expect(claude).toMatchObject({ agent: "claude", sourcePaneId: "pane-1" });
+    expect(codex).not.toHaveProperty("sourcePaneId");
+
+    // Older records carry no source and still decode; a malformed source is
+    // dropped without dropping the record. The source is never identity.
+    const legacy = JSON.stringify({ ...stored(), sourcePaneId: undefined });
+    expect(decodeWindowReport(legacy)).toEqual(stored());
+    expect(
+      decodeWindowReport(JSON.stringify({ ...stored(), sourcePaneId: 7 })),
+    ).toEqual(stored());
+  });
+
+  it("never journals an idle claude pane's frozen limits — the sawtooth, end to end", async () => {
+    // The real chain: claude normalizer → usage manager's activity gate →
+    // this journal. The active pane is witnessed at 69%; the idle pane
+    // re-sends its frozen 67% on every refresh, newer-dated each time.
+    const usage = createUsageManager();
+    usage.registerNormalizer("claude", normalizeClaudeStatusline);
+    const ipc = {
+      loadUsageReports: vi.fn(async () => [] as string[]),
+      appendUsageReports: vi.fn(async (_lines: string[]) => {}),
+      compactUsageReports: vi.fn(async (_lines: string[]) => {}),
+    };
+    const journal = createWindowReportJournal({ ipc, usage, now: () => NOW });
+    journal.start();
+    await settle();
+    const line = (session: string, pct: number, cost: number, apiMs: number) => ({
+      agent: "claude",
+      statusline: {
+        session_id: session,
+        cost: { total_cost_usd: cost, total_api_duration_ms: apiMs },
+        rate_limits: {
+          seven_day: { used_percentage: pct, resets_at: (NOW + 3 * 24 * 60 * MIN) / 1000 },
+        },
+      },
+    });
+    usage.report("active", line("a", 68, 1, 1_000), NOW - 20 * MIN);
+    usage.report("active", line("a", 69, 2, 2_000), NOW - 15 * MIN);
+    for (let index = 0; index < 4; index += 1) {
+      usage.report(
+        "idle",
+        { ...line("b", 67, 0.5, 500), sourceMtimeMs: NOW - (9 - index) * MIN },
+        NOW - (10 - index) * MIN,
+      );
+    }
+    await settle();
+    const points = ipc.appendUsageReports.mock.calls
+      .flatMap(([lines]) => lines)
+      .map((line) => decodeWindowReport(line)!);
+    expect(points.map((point) => [point.usedPct, point.sourcePaneId])).toEqual([
+      [69, "active"],
+    ]);
   });
 
   it("keeps array identity fresh on append — memo consumers see changes", async () => {
