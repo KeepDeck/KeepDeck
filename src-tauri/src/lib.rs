@@ -25,6 +25,7 @@ mod paths;
 mod plugins_fs;
 mod plugins_fs_write;
 mod plugins_sqlite;
+mod pointer;
 mod ports;
 mod project_fs;
 mod project_git;
@@ -175,6 +176,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             app_info,
+            pointer::pointer_in_window,
             app_updater::app_update_check,
             app_updater::app_update_install,
             app_updater::app_update_discard,

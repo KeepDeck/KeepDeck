@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { REVEAL_AT_REST, stripReveal, type RevealEvent, type RevealState } from "./stripReveal";
+import {
+  REVEAL_AT_REST,
+  revealEventsOf,
+  stripReveal,
+  type RevealEvent,
+  type RevealState,
+} from "./stripReveal";
 
 const run = (events: RevealEvent["kind"][], from: RevealState = REVEAL_AT_REST) =>
   events.reduce((state, kind) => stripReveal(state, { kind } as RevealEvent), from);
@@ -14,6 +20,14 @@ describe("the strip's slide-out", () => {
     expect(run(["enter", "press", "dwelled"]).open).toBe(false);
   });
 
+  it("rests again when the press lets go on the column — a press cancels the rest, not the opening", () => {
+    expect(run(["enter", "press", "release"])).toMatchObject({ dwelling: true });
+    expect(run(["enter", "press", "release", "dwelled"]).open).toBe(true);
+    // Let go off the column, or on an open one: nothing to start.
+    expect(run(["enter", "press", "leave", "release"]).dwelling).toBe(false);
+    expect(run(["enter", "dwelled", "press", "release"])).toMatchObject({ open: true, dwelling: false });
+  });
+
   it("shuts a grace after the pointer leaves, and stays if it comes back", () => {
     const open = run(["enter", "dwelled"]);
     expect(run(["leave"], open)).toMatchObject({ open: true, closing: true });
@@ -21,11 +35,8 @@ describe("the strip's slide-out", () => {
     expect(run(["leave", "enter", "graced"], open)).toMatchObject({ open: true, closing: false });
   });
 
-  it("shuts on a choice and stays shut until the pointer has left", () => {
-    const chosen = run(["enter", "dwelled", "dismiss"]);
-    expect(chosen.open).toBe(false);
-    expect(run(["enter"], chosen).dwelling).toBe(false);
-    expect(run(["leave", "enter", "dwelled"], chosen).open).toBe(true);
+  it("stays open through a click — a choice made in it is not a leave", () => {
+    expect(run(["enter", "dwelled", "press", "release"]).open).toBe(true);
   });
 
   it("holds as it is through a drag, however far the pointer goes", () => {
@@ -39,17 +50,49 @@ describe("the strip's slide-out", () => {
     // Dropped on the column: an open strip stays; a shut one opens after
     // the rest, though no pointer entered.
     expect(run(["enter", "dwelled", "drag-start", "drag-end"])).toMatchObject({ open: true, closing: false });
-    expect(run(["enter", "press", "drag-start", "drag-end"])).toMatchObject({ dwelling: true });
+    // The drop is a let-go: its release and the drag's end come in either
+    // order, and both orders rest the strip open.
+    expect(run(["enter", "press", "drag-start", "release", "drag-end"])).toMatchObject({ dwelling: true });
+    expect(run(["enter", "press", "drag-start", "drag-end", "release"])).toMatchObject({ dwelling: true });
     // Dropped off it: an open strip shuts after the grace.
     expect(run(["enter", "dwelled", "drag-start", "leave", "drag-end"])).toMatchObject({ closing: true });
   });
 
-  it("forgets a choice's 'stay shut' when a drag begins", () => {
-    expect(run(["enter", "dwelled", "dismiss", "drag-start"]).dismissed).toBe(false);
+  it("takes the same fact twice as once — the wiring tells, the machine dedupes", () => {
+    const open = run(["enter", "dwelled"]);
+    expect(run(["enter"], open)).toBe(open);
+    expect(run(["release"], open)).toBe(open);
+    const away = run(["leave"], open);
+    expect(run(["leave"], away)).toBe(away);
+    const held = run(["press"], open);
+    expect(run(["press"], held)).toBe(held);
+  });
+
+  it("does not rest open while a button is held from elsewhere — a selection or a drag crossing it", () => {
+    expect(run(["press", "enter"])).toMatchObject({ inside: true, dwelling: false });
+    expect(run(["press", "enter", "release"])).toMatchObject({ dwelling: true });
   });
 
   it("ignores a timer that is no longer running", () => {
     expect(run(["dwelled"])).toEqual(REVEAL_AT_REST);
     expect(run(["graced"])).toEqual(REVEAL_AT_REST);
+  });
+});
+
+describe("revealEventsOf — what a pointer event tells", () => {
+  it("says where the pointer is, by what is under it", () => {
+    expect(revealEventsOf({ type: "move", inColumn: true, buttons: 0 })[0]).toEqual({ kind: "enter" });
+    expect(revealEventsOf({ type: "out", inColumn: false, buttons: 0 })[0]).toEqual({ kind: "leave" });
+  });
+
+  it("presses on a down, lets go on an up or a cancel", () => {
+    expect(revealEventsOf({ type: "down", inColumn: true, buttons: 1 })[1]).toEqual({ kind: "press" });
+    expect(revealEventsOf({ type: "up", inColumn: true, buttons: 0 })[1]).toEqual({ kind: "release" });
+    expect(revealEventsOf({ type: "cancel", inColumn: true, buttons: 0 })[1]).toEqual({ kind: "release" });
+  });
+
+  it("tells the buttons as they are on any other event — a let-go the page never heard is caught by the next move", () => {
+    expect(revealEventsOf({ type: "move", inColumn: true, buttons: 0 })[1]).toEqual({ kind: "release" });
+    expect(revealEventsOf({ type: "over", inColumn: true, buttons: 1 })[1]).toEqual({ kind: "press" });
   });
 });

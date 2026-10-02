@@ -4,7 +4,26 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { StripTeam, StripView, WorkspaceMark } from "../../presentation/stripView";
 import { WorkspaceStrip } from "./WorkspaceStrip";
-import { STRIP_REVEAL_DWELL_MS, STRIP_REVEAL_GRACE_MS } from "../../presentation/stripReveal";
+import {
+  STRIP_POINTER_CHECK_MS,
+  STRIP_REVEAL_DWELL_MS,
+  STRIP_REVEAL_GRACE_MS,
+} from "../../presentation/stripReveal";
+
+// Where the OS says the pointer is — in the window unless a test moves it.
+// `answer`, when set, is the one the next ask gets — a test holds it to
+// answer late.
+const os = vi.hoisted(() => ({
+  inWindow: true as boolean | null,
+  asks: 0,
+  answer: null as Promise<boolean | null> | null,
+}));
+vi.mock("../../ipc/window", () => ({
+  pointerInWindow: () => {
+    os.asks += 1;
+    return os.answer ?? Promise.resolve(os.inWindow);
+  },
+}));
 
 (
   globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -43,6 +62,7 @@ describe("WorkspaceStrip", () => {
   let root: Root;
 
   beforeEach(() => {
+    os.asks = 0;
     for (const fn of Object.values(callbacks)) fn.mockClear();
     host = document.body.appendChild(document.createElement("div"));
     root = createRoot(host);
@@ -398,7 +418,8 @@ describe("WorkspaceStrip opening on approach", () => {
     pointer("enter");
     act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS));
     pointer("leave");
-    expect(vi.getTimerCount()).toBe(1);
+    // The grace, and the open strip's asking the OS where the pointer is.
+    expect(vi.getTimerCount()).toBe(2);
     act(() => root.unmount());
     expect(vi.getTimerCount()).toBe(0);
     root = createRoot(host);
@@ -461,6 +482,7 @@ describe("WorkspaceStrip as the team switcher", () => {
     );
 
   beforeEach(() => {
+    os.asks = 0;
     for (const fn of Object.values(callbacks)) fn.mockClear();
     vi.useFakeTimers();
     host = document.body.appendChild(document.createElement("div"));
@@ -536,28 +558,220 @@ describe("WorkspaceStrip as the team switcher", () => {
     expect(toggleOf("a")!.getAttribute("aria-expanded")).toBe("true");
   });
 
-  it("goes to a workspace from its mark and shuts until the pointer leaves", () => {
+  const graced = () => act(() => void vi.advanceTimersByTime(STRIP_REVEAL_GRACE_MS));
+  /** A pointer event the document sees, on `target` (default: the stage
+   * — anything that is not the column). */
+  const pointer = (type: string, target: EventTarget = document.body) =>
+    act(() => void target.dispatchEvent(new PointerEvent(type, { bubbles: true })));
+
+  it("goes to a workspace from its mark and stays open for the next click — the pointer leaving shuts it", () => {
     render();
     openStrip();
     act(() => host.querySelector<HTMLButtonElement>('[data-ws-id="b"] .strip__mark')!.click());
     expect(callbacks.onSelect).toHaveBeenCalledWith("b");
-    expect(revealed()).toBe(false);
-    // Still over the column: it does not reopen under the pointer...
-    act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS * 4));
-    expect(revealed()).toBe(false);
-    // ...until the pointer has left and come back.
-    hover("leave");
-    openStrip();
     expect(revealed()).toBe(true);
+    hover("leave");
+    graced();
+    expect(revealed()).toBe(false);
   });
 
-  it("enters a team from its row and shuts", () => {
+  it("enters a team from its row and stays open — clicking through teams needs no reopening", () => {
     render();
     openStrip();
     act(() => toggleOf("b")!.click());
     act(() => host.querySelector<HTMLButtonElement>('[data-ws-id="b"] .strip__team')!.click());
     expect(callbacks.onEnterTeam).toHaveBeenCalledWith("b", "t3");
+    expect(revealed()).toBe(true);
+  });
+
+  it("opens after a press on it lets go — a press cancels the rest, not the opening", () => {
+    render();
+    hover("enter");
+    pointer("pointerdown", col());
+    act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS));
     expect(revealed()).toBe(false);
+    pointer("pointerup", col());
+    act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS));
+    expect(revealed()).toBe(true);
+  });
+
+  it("opens after a press that was cancelled, not let go — a cancel is a let-go too", () => {
+    render();
+    hover("enter");
+    pointer("pointerdown", col());
+    pointer("pointercancel", col());
+    act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS));
+    expect(revealed()).toBe(true);
+  });
+
+  it("opens once a move shows no button held, though the let-go was never heard", () => {
+    render();
+    hover("enter");
+    pointer("pointerdown", col());
+    // The up went elsewhere (outside the window): the next move says no
+    // button is held.
+    pointer("pointermove", col());
+    act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS));
+    expect(revealed()).toBe(true);
+  });
+
+  it("shuts on a press off it", () => {
+    render();
+    openStrip();
+    pointer("pointerdown");
+    graced();
+    expect(revealed()).toBe(false);
+  });
+
+  it("lets go of every listener it set, the same way it set it", () => {
+    // Each registration as (target, type, listener, capture): a removal
+    // with another listener or another phase leaves the listener live.
+    type Entry = [EventTarget, string, unknown, boolean];
+    const key = ([t, type, fn, capture]: Entry) => [t, type, fn, capture];
+    const added: Entry[] = [];
+    const removed: Entry[] = [];
+    const capture = (o: unknown) => (typeof o === "boolean" ? o : Boolean((o as { capture?: boolean })?.capture));
+    const spies = [document, window, document.documentElement].flatMap((target) => {
+      const add = target.addEventListener.bind(target);
+      const remove = target.removeEventListener.bind(target);
+      return [
+        vi.spyOn(target, "addEventListener").mockImplementation((type: string, fn: unknown, o?: unknown) => {
+          added.push([target, type, fn, capture(o)]);
+          add(type, fn as EventListener, o as AddEventListenerOptions);
+        }),
+        vi.spyOn(target, "removeEventListener").mockImplementation((type: string, fn: unknown, o?: unknown) => {
+          removed.push([target, type, fn, capture(o)]);
+          remove(type, fn as EventListener, o as EventListenerOptions);
+        }),
+      ];
+    });
+    try {
+      render();
+      const ours = new Set(["pointerover", "pointermove", "pointerout", "pointerdown", "pointerup", "pointercancel", "mouseleave", "blur", "visibilitychange"]);
+      const set = added.filter(([, type]) => ours.has(type));
+      expect(new Set(set.map(([, type]) => type))).toEqual(ours);
+      act(() => root.unmount());
+      root = createRoot(host);
+      for (const entry of set) {
+        expect(removed.some((r) => key(r).every((part, i) => part === key(entry)[i]))).toBe(true);
+      }
+    } finally {
+      for (const spy of spies) spy.mockRestore();
+    }
+  });
+
+  it("does not open while a button is held across it — a selection or a drag from the stage", () => {
+    render();
+    act(() => void col().dispatchEvent(new PointerEvent("pointerover", { bubbles: true, buttons: 1 })));
+    act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS * 2));
+    expect(revealed()).toBe(false);
+  });
+
+  it("asks the OS only while it is open and no drag holds it", async () => {
+    render();
+    await act(async () => void vi.advanceTimersByTime(STRIP_POINTER_CHECK_MS * 3));
+    expect(os.asks).toBe(0);
+    openStrip();
+    await act(async () => void vi.advanceTimersByTime(STRIP_POINTER_CHECK_MS));
+    expect(os.asks).toBe(1);
+    hover("leave");
+    graced();
+    const asked = os.asks;
+    await act(async () => void vi.advanceTimersByTime(STRIP_POINTER_CHECK_MS * 3));
+    expect(os.asks).toBe(asked);
+  });
+
+  it("stops asking where the OS cannot say", async () => {
+    render();
+    openStrip();
+    os.inWindow = null;
+    try {
+      await act(async () => void vi.advanceTimersByTime(STRIP_POINTER_CHECK_MS));
+      const asked = os.asks;
+      await act(async () => void vi.advanceTimersByTime(STRIP_POINTER_CHECK_MS * 3));
+      expect(os.asks).toBe(asked);
+      expect(revealed()).toBe(true);
+    } finally {
+      os.inWindow = true;
+    }
+  });
+
+  it("drops an OS answer the page has outrun — the pointer came back while it was asked", async () => {
+    render();
+    openStrip();
+    let answer!: (inWindow: boolean) => void;
+    os.answer = new Promise((resolve) => (answer = resolve));
+    try {
+      act(() => void vi.advanceTimersByTime(STRIP_POINTER_CHECK_MS));
+      // Asked while away; the page hears the pointer on the column, then
+      // the late "outside" arrives.
+      pointer("pointermove", col());
+      await act(async () => answer(false));
+      graced();
+      expect(revealed()).toBe(true);
+    } finally {
+      os.answer = null;
+    }
+  });
+
+  it("opens on a move over it though no crossing was heard", () => {
+    render();
+    pointer("pointermove", col());
+    act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS));
+    expect(revealed()).toBe(true);
+  });
+
+  it("shuts on the next move off it though no leave was heard — a dialog opened over the pointer", () => {
+    render();
+    openStrip();
+    // The pointer is on something that is not the column: an overlay over
+    // it, or the stage — the topmost thing under the pointer decides.
+    pointer("pointermove");
+    graced();
+    expect(revealed()).toBe(false);
+  });
+
+  it("shuts when the OS says the pointer left the window though the page heard nothing", async () => {
+    render();
+    openStrip();
+    os.inWindow = false;
+    try {
+      await act(async () => void vi.advanceTimersByTime(STRIP_POINTER_CHECK_MS));
+      graced();
+      expect(revealed()).toBe(false);
+    } finally {
+      os.inWindow = true;
+    }
+  });
+
+  it("stays open while the OS has the pointer in the window", async () => {
+    render();
+    openStrip();
+    await act(async () => void vi.advanceTimersByTime(STRIP_POINTER_CHECK_MS * 5));
+    expect(revealed()).toBe(true);
+  });
+
+  it("shuts when the pointer leaves the window, the window loses focus, or the page hides", () => {
+    for (const away of [
+      () => document.documentElement.dispatchEvent(new MouseEvent("mouseleave")),
+      () => window.dispatchEvent(new Event("blur")),
+      () => {
+        Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+        try {
+          document.dispatchEvent(new Event("visibilitychange"));
+        } finally {
+          delete (document as unknown as { visibilityState?: string }).visibilityState;
+        }
+      },
+    ]) {
+      render();
+      openStrip();
+      act(away);
+      graced();
+      expect(revealed()).toBe(false);
+      act(() => root.unmount());
+      root = createRoot(host);
+    }
   });
 });
 
@@ -606,6 +820,7 @@ describe("WorkspaceStrip dragging from the open strip", () => {
   }
 
   beforeEach(() => {
+    os.asks = 0;
     for (const fn of Object.values(callbacks)) fn.mockClear();
     vi.useFakeTimers();
     originalRect = HTMLElement.prototype.getBoundingClientRect;
