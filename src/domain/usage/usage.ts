@@ -1,6 +1,7 @@
 import type {
   AccountUsage,
   ApiActivity,
+  NormalizedUsage,
   PaneUsage,
   UsageWindow,
 } from "@keepdeck/plugin-api";
@@ -100,6 +101,32 @@ export function accountActivityStep(
     return { baseline, counts: false };
   }
   return { baseline: next, counts: true };
+}
+
+/**
+ * The account claim one report may make, and the pane's witness after it.
+ * A report that declares no gate passes through untouched. A gated claim
+ * counts only behind fresh activity ([`accountActivityStep`]) and is then
+ * dated by the host's receipt — the envelope's own times are exactly what
+ * the gate distrusts. A replay witnesses nothing and leaves the witness be.
+ */
+export function gateAccountClaim(
+  baseline: ApiActivity | undefined,
+  usage: Pick<NormalizedUsage, "account" | "accountActivity">,
+  delivery: { catchUp: boolean; receivedAt: number },
+): { baseline: ApiActivity | undefined; account: AccountUsage | null } {
+  if (usage.accountActivity === undefined) {
+    return { baseline, account: usage.account };
+  }
+  if (delivery.catchUp) return { baseline, account: null };
+  const step = accountActivityStep(baseline, usage.accountActivity);
+  return {
+    baseline: step.baseline,
+    account:
+      step.counts && usage.account
+        ? { ...usage.account, reportedAt: delivery.receivedAt }
+        : null,
+  };
 }
 
 /** Merge a pane's usage across partial reports: codex delivers the model

@@ -290,6 +290,13 @@ export function asCount(value: unknown): number | undefined {
   return undefined;
 }
 
+/** Hundredths, not whole percents: count division leaves float residue
+ * (7/100*100 = 7.000000000000001) that would otherwise reach the store and
+ * the journal verbatim, while a real 0.4% of a large allowance must survive. */
+function toHundredths(pct: number): number {
+  return Math.round(pct * 100) / 100;
+}
+
 /**
  * An absolute allowance — `{limit, used?, remaining?}` counts — as one
  * normalized window. The shape plans that meter credits share (kimi's
@@ -320,11 +327,7 @@ export function allowanceWindow(
         : undefined;
   if (usedPct === undefined) return null;
   return {
-    // Hundredths, not whole percents: count-division leaves float residue
-    // (7/100*100 = 7.000000000000001) that would otherwise reach the store
-    // and the journal verbatim, while a real 0.4% of a large allowance must
-    // survive.
-    usedPct: Math.round(clampPercent(usedPct) * 100) / 100,
+    usedPct: toHundredths(clampPercent(usedPct)),
     resetsAt: opts.resetsAt ?? null,
     windowMinutes: opts.windowMinutes,
     ...(opts.scope ? { scope: opts.scope } : {}),

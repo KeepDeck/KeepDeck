@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   accountActivityStep,
   contextPct,
+  gateAccountClaim,
   freshest,
   hydrateUsageCache,
   mergePaneReplay,
@@ -75,6 +76,11 @@ describe("accountActivityStep", () => {
       baseline: seen(3, 150),
       counts: false,
     });
+    // Either counter falling is enough — cost alone, API time even rising.
+    expect(accountActivityStep(seen(2, 200), seen(1, 300))).toEqual({
+      baseline: seen(1, 300),
+      counts: false,
+    });
   });
 
   it("holds a report with no witness and leaves the baseline alone", () => {
@@ -86,6 +92,50 @@ describe("accountActivityStep", () => {
       baseline: undefined,
       counts: false,
     });
+  });
+});
+
+describe("gateAccountClaim", () => {
+  const witness = (costUsd: number) => ({ sessionId: "s", costUsd, apiDurationMs: 0 });
+  const claim: AccountUsage = {
+    kind: "reported",
+    windows: [{ usedPct: 67, resetsAt: null, windowMinutes: 10_080 }],
+    reportedAt: 5,
+    sourcePaneId: "",
+  };
+  const live = { catchUp: false, receivedAt: 900 };
+
+  it("passes an ungated claim through on its own timestamp", () => {
+    expect(gateAccountClaim(undefined, { account: claim }, live)).toEqual({
+      baseline: undefined,
+      account: claim,
+    });
+  });
+
+  it("dates a counted claim by receipt, never by the envelope", () => {
+    const gated = gateAccountClaim(
+      witness(1),
+      { account: claim, accountActivity: witness(2) },
+      live,
+    );
+    expect(gated).toEqual({
+      baseline: witness(2),
+      account: { ...claim, reportedAt: 900 },
+    });
+  });
+
+  it("holds a claim without activity, and a replay without touching the witness", () => {
+    expect(
+      gateAccountClaim(witness(1), { account: claim, accountActivity: witness(1) }, live)
+        .account,
+    ).toBeNull();
+    expect(
+      gateAccountClaim(
+        witness(1),
+        { account: claim, accountActivity: witness(5) },
+        { catchUp: true, receivedAt: 900 },
+      ),
+    ).toEqual({ baseline: witness(1), account: null });
   });
 });
 

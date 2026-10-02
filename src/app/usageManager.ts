@@ -1,7 +1,7 @@
 import { isRecord } from "../domain/json";
 import {
-  accountActivityStep,
   freshest,
+  gateAccountClaim,
   mergePaneReplay,
   mergePaneUsage,
   type AccountUsage,
@@ -96,7 +96,7 @@ export function createUsageManager(): UsageManager {
   const liveAccounts = new Set<string>();
   const livePanes = new Set<string>();
   /** Per pane: the API counters its last counted claim was witnessed at
-   * ([`accountActivityStep`]). Runtime-only by design — a restart, a new
+   * ([`gateAccountClaim`]). Runtime-only by design — a restart, a new
    * session or a retired process starts unknown, so a first sighting can
    * never pass old limits off as new. */
   const activity = new Map<string, ApiActivity>();
@@ -129,22 +129,12 @@ export function createUsageManager(): UsageManager {
       const result = normalize(payload, sourceAt ?? (catchUp ? 0 : at));
       if (!result) return;
 
-      let account = result.account;
-      if (result.accountActivity !== undefined) {
-        // A gated claim is dated by the host's receipt of the witnessed
-        // activity — the envelope's own times are exactly what the gate
-        // exists to distrust. A replay witnesses nothing.
-        if (catchUp) {
-          account = null;
-        } else {
-          const step = accountActivityStep(
-            activity.get(paneId),
-            result.accountActivity,
-          );
-          if (step.baseline) activity.set(paneId, step.baseline);
-          account = step.counts && account ? { ...account, reportedAt: at } : null;
-        }
-      }
+      const gated = gateAccountClaim(activity.get(paneId), result, {
+        catchUp,
+        receivedAt: at,
+      });
+      if (gated.baseline) activity.set(paneId, gated.baseline);
+      const account = gated.account;
 
       let changed = false;
       if (account && !(catchUp && liveAccounts.has(provider))) {
