@@ -1,6 +1,9 @@
 /**
  * The strip's slide-out, decided: when resting the pointer opens it, when
- * leaving shuts it, and what a press, a choice or a drag does to that.
+ * leaving shuts it, and what a press or a drag does to that. A choice made
+ * in it (a workspace, a team) does NOT shut it: the pointer leaving does,
+ * and a person clicking through teams keeps it open between clicks (user
+ * decision 2026-10-03).
  * Pure — `(state, event) → state`. The two timers are not hidden in it:
  * `dwelling` and `closing` SAY a timer runs, and the hook beside the strip
  * keeps a real timer exactly while the flag is set, reporting back with
@@ -20,8 +23,6 @@ export interface RevealState {
   open: boolean;
   /** The pointer is over the column. */
   inside: boolean;
-  /** Shut by a choice made in it; stays shut until the pointer leaves. */
-  dismissed: boolean;
   /** A drag is in flight: the strip holds as it is. */
   suspended: boolean;
   /** The open-after-rest timer runs. */
@@ -33,7 +34,6 @@ export interface RevealState {
 export const REVEAL_AT_REST: RevealState = {
   open: false,
   inside: false,
-  dismissed: false,
   suspended: false,
   dwelling: false,
   closing: false,
@@ -45,10 +45,10 @@ export type RevealEvent =
   /** A press: a click or the start of a hold-to-drag — never a request to
    * read, so it cancels a pending open. */
   | { kind: "press" }
+  /** The press let go: on the column, the rest starts over. */
+  | { kind: "release" }
   | { kind: "dwelled" }
   | { kind: "graced" }
-  /** A choice was made in it (a workspace, a team). */
-  | { kind: "dismiss" }
   | { kind: "drag-start" }
   | { kind: "drag-end" };
 
@@ -60,13 +60,12 @@ export function stripReveal(state: RevealState, event: RevealEvent): RevealState
         inside: true,
         // Back inside the grace: it was never meant to shut.
         closing: false,
-        dwelling: !state.suspended && !state.open && !state.dismissed,
+        dwelling: !state.suspended && !state.open,
       };
     case "leave":
       return {
         ...state,
         inside: false,
-        dismissed: false,
         dwelling: false,
         // A drag carries the pointer anywhere: the strip holds until it
         // drops.
@@ -74,16 +73,17 @@ export function stripReveal(state: RevealState, event: RevealEvent): RevealState
       };
     case "press":
       return { ...state, dwelling: false };
+    case "release":
+      // A press cancels the rest, not the opening: let go on the column,
+      // and it opens after a rest again.
+      return { ...state, dwelling: state.inside && !state.open && !state.suspended };
     case "dwelled":
       return state.dwelling ? { ...state, dwelling: false, open: true } : state;
     case "graced":
       return state.closing ? { ...state, closing: false, open: false } : state;
-    case "dismiss":
-      return { ...state, open: false, dismissed: true, dwelling: false, closing: false };
     case "drag-start":
-      // Held as it is — open stays open, shut stays shut. A drag is a new
-      // gesture: an earlier choice no longer keeps the strip shut.
-      return { ...state, suspended: true, dwelling: false, closing: false, dismissed: false };
+      // Held as it is — open stays open, shut stays shut.
+      return { ...state, suspended: true, dwelling: false, closing: false };
     case "drag-end":
       // The pointer decides: still on the column, the strip stays (or
       // opens after the rest — no pointer ENTERS a column it never left);

@@ -78,7 +78,8 @@ export function WorkspaceStrip({
   version,
 }: WorkspaceStripProps) {
   const [ghost, setGhost] = useState<DragGhost | null>(null);
-  const reveal = useStripReveal(ghost !== null);
+  const colRef = useRef<HTMLDivElement>(null);
+  const reveal = useStripReveal(colRef, ghost !== null);
 
   const listRef = useRef<HTMLUListElement>(null);
   const teams = useStripTeams(reveal.open, ghost?.mark.id ?? null, view, listRef);
@@ -183,7 +184,7 @@ export function WorkspaceStrip({
       className={`strip${reveal.open ? " strip--revealed" : ""}`}
       aria-label={STRIP_WORDS.nav}
     >
-      <div className="strip__col" {...reveal.handlers}>
+      <div className="strip__col" ref={colRef}>
         <button
           type="button"
           className="strip__mark strip__mark--add"
@@ -223,10 +224,7 @@ export function WorkspaceStrip({
                   <button
                     type="button"
                     className={`strip__mark${mark.active ? " strip__mark--active" : ""}`}
-                    onClick={() => {
-                      onSelect(mark.id);
-                      reveal.dismiss();
-                    }}
+                    onClick={() => onSelect(mark.id)}
                     onPointerDown={(e) => onMarkPointerDown(e, mark)}
                     aria-current={mark.active || undefined}
                     aria-label={mark.label}
@@ -264,10 +262,7 @@ export function WorkspaceStrip({
                         <button
                           type="button"
                           className={`strip__team${team.open ? " strip__team--open" : ""}`}
-                          onClick={() => {
-                            onEnterTeam(mark.id, team.id);
-                            reveal.dismiss();
-                          }}
+                          onClick={() => onEnterTeam(mark.id, team.id)}
                           aria-current={team.open || undefined}
                           aria-label={team.label}
                           title={team.label}

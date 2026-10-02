@@ -14,6 +14,14 @@ describe("the strip's slide-out", () => {
     expect(run(["enter", "press", "dwelled"]).open).toBe(false);
   });
 
+  it("rests again when the press lets go on the column — a press cancels the rest, not the opening", () => {
+    expect(run(["enter", "press", "release"])).toMatchObject({ dwelling: true });
+    expect(run(["enter", "press", "release", "dwelled"]).open).toBe(true);
+    // Let go off the column, or on an open one: nothing to start.
+    expect(run(["enter", "press", "leave", "release"]).dwelling).toBe(false);
+    expect(run(["enter", "dwelled", "press", "release"])).toMatchObject({ open: true, dwelling: false });
+  });
+
   it("shuts a grace after the pointer leaves, and stays if it comes back", () => {
     const open = run(["enter", "dwelled"]);
     expect(run(["leave"], open)).toMatchObject({ open: true, closing: true });
@@ -21,11 +29,8 @@ describe("the strip's slide-out", () => {
     expect(run(["leave", "enter", "graced"], open)).toMatchObject({ open: true, closing: false });
   });
 
-  it("shuts on a choice and stays shut until the pointer has left", () => {
-    const chosen = run(["enter", "dwelled", "dismiss"]);
-    expect(chosen.open).toBe(false);
-    expect(run(["enter"], chosen).dwelling).toBe(false);
-    expect(run(["leave", "enter", "dwelled"], chosen).open).toBe(true);
+  it("stays open through a click — a choice made in it is not a leave", () => {
+    expect(run(["enter", "dwelled", "press", "release"]).open).toBe(true);
   });
 
   it("holds as it is through a drag, however far the pointer goes", () => {
@@ -42,10 +47,6 @@ describe("the strip's slide-out", () => {
     expect(run(["enter", "press", "drag-start", "drag-end"])).toMatchObject({ dwelling: true });
     // Dropped off it: an open strip shuts after the grace.
     expect(run(["enter", "dwelled", "drag-start", "leave", "drag-end"])).toMatchObject({ closing: true });
-  });
-
-  it("forgets a choice's 'stay shut' when a drag begins", () => {
-    expect(run(["enter", "dwelled", "dismiss", "drag-start"]).dismissed).toBe(false);
   });
 
   it("ignores a timer that is no longer running", () => {

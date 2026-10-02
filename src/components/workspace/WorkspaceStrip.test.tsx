@@ -536,28 +536,78 @@ describe("WorkspaceStrip as the team switcher", () => {
     expect(toggleOf("a")!.getAttribute("aria-expanded")).toBe("true");
   });
 
-  it("goes to a workspace from its mark and shuts until the pointer leaves", () => {
+  const graced = () => act(() => void vi.advanceTimersByTime(STRIP_REVEAL_GRACE_MS));
+  /** A pointer event the document sees, on `target` (default: the stage
+   * — anything that is not the column). */
+  const pointer = (type: string, target: EventTarget = document.body) =>
+    act(() => void target.dispatchEvent(new PointerEvent(type, { bubbles: true })));
+
+  it("goes to a workspace from its mark and stays open for the next click — the pointer leaving shuts it", () => {
     render();
     openStrip();
     act(() => host.querySelector<HTMLButtonElement>('[data-ws-id="b"] .strip__mark')!.click());
     expect(callbacks.onSelect).toHaveBeenCalledWith("b");
-    expect(revealed()).toBe(false);
-    // Still over the column: it does not reopen under the pointer...
-    act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS * 4));
-    expect(revealed()).toBe(false);
-    // ...until the pointer has left and come back.
-    hover("leave");
-    openStrip();
     expect(revealed()).toBe(true);
+    hover("leave");
+    graced();
+    expect(revealed()).toBe(false);
   });
 
-  it("enters a team from its row and shuts", () => {
+  it("enters a team from its row and stays open — clicking through teams needs no reopening", () => {
     render();
     openStrip();
     act(() => toggleOf("b")!.click());
     act(() => host.querySelector<HTMLButtonElement>('[data-ws-id="b"] .strip__team')!.click());
     expect(callbacks.onEnterTeam).toHaveBeenCalledWith("b", "t3");
+    expect(revealed()).toBe(true);
+  });
+
+  it("opens after a press on it lets go — a press cancels the rest, not the opening", () => {
+    render();
+    hover("enter");
+    pointer("pointerdown", col());
+    act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS));
     expect(revealed()).toBe(false);
+    pointer("pointerup", col());
+    act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS));
+    expect(revealed()).toBe(true);
+  });
+
+  it("opens on a move over it though no crossing was heard", () => {
+    render();
+    pointer("pointermove", col());
+    act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS));
+    expect(revealed()).toBe(true);
+  });
+
+  it("shuts on the next move off it though no leave was heard — a dialog opened over the pointer", () => {
+    render();
+    openStrip();
+    // The pointer is on something that is not the column: an overlay over
+    // it, or the stage — the topmost thing under the pointer decides.
+    pointer("pointermove");
+    graced();
+    expect(revealed()).toBe(false);
+  });
+
+  it("shuts when the pointer leaves the window, the window loses focus, or the page hides", () => {
+    for (const away of [
+      () => document.documentElement.dispatchEvent(new MouseEvent("mouseleave")),
+      () => window.dispatchEvent(new Event("blur")),
+      () => {
+        Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+        document.dispatchEvent(new Event("visibilitychange"));
+        delete (document as unknown as { visibilityState?: string }).visibilityState;
+      },
+    ]) {
+      render();
+      openStrip();
+      act(away);
+      graced();
+      expect(revealed()).toBe(false);
+      act(() => root.unmount());
+      root = createRoot(host);
+    }
   });
 });
 
