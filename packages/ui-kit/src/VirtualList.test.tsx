@@ -328,6 +328,61 @@ describe("VirtualList's measured heights", () => {
     expect(tops().get("row 11")! - list().scrollTop).toBe(before);
   });
 
+  it("leaves the scroll alone when a page lands BELOW while the person is at the end", async () => {
+    // Within a row of the end the first fully visible row starts past the
+    // furthest the list can scroll: the library's aligned offset for it is
+    // clamped to that maximum. Held from the clamped value, the anchor is
+    // off by the clamp, and a page landing below (the reach-end paging)
+    // pushed the scroll forward by it — a jolt that kills a trackpad's run.
+    // A viewport off the rows' grid, as real heights are: the furthest
+    // scroll (total − 210) falls mid-row.
+    // Estimated true, so the end is where it will measure.
+    restore();
+    restore = pinListViewport("list", 210, 300, MEASURED);
+    const renderTrue = (list: readonly string[]) =>
+      act(() =>
+        root.render(
+          createElement(VirtualList<string>, {
+            items: list,
+            itemKey: (item) => item,
+            estimate: MEASURED,
+            render: (item) => createElement("span", { className: "row" }, item),
+            className: "list",
+          }),
+        ),
+      );
+    renderTrue(items);
+    const nearEnd = items.length * MEASURED - 210 - 5;
+    await scrollTo(nearEnd - 3);
+    await scrollTo(nearEnd);
+    renderTrue([...items, ...Array.from({ length: 10 }, (_, i) => `more ${i}`)]);
+    await act(async () => {});
+    expect(list().scrollTop).toBe(nearEnd);
+  });
+
+  it("finds the row being read without walking the list on every scroll", async () => {
+    // A scroll event re-reads the held row's offset; with tens of thousands
+    // of rows (an opened node_modules) a scan per event is the cost, so the
+    // row's last place is checked first.
+    const keyOf = vi.fn((item: string) => item);
+    act(() =>
+      root.render(
+        createElement(VirtualList<string>, {
+          items,
+          itemKey: keyOf,
+          estimate: ESTIMATE,
+          render: (item) => createElement("span", { className: "row" }, item),
+          className: "list",
+        }),
+      ),
+    );
+    await scrollTo(ARMED_AT);
+    await scrollTo(ARMED_AT + 3);
+    keyOf.mockClear();
+    await scrollTo(READ_AT);
+    expect(keyOf.mock.calls.length).toBeLessThan(5);
+  });
+
   it("holds the row being read after the one it held before was removed", async () => {
     // The held row leaves (a task moved to another column) while the scroll
     // and the window's end stand still — the row under it moves up into

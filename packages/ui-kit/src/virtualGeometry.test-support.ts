@@ -75,16 +75,21 @@ export function pinListViewport(
   });
   // The container's scroll extent: its viewport, and the content it
   // scrolls over — the spacer's height. happy-dom answers 0 for both, and
-  // the virtualizer clamps every offset it hands out (the anchoring's
-  // getOffsetForIndex among them) to scrollHeight - clientHeight: an
-  // offset of 0 for every row, and a list flung to the top.
+  // the virtualizer clamps every offset it hands out (a reveal's
+  // scrollToIndex among them) to scrollHeight - clientHeight: an offset
+  // of 0 for every row, and a list flung to the top.
+  // Each on the prototype happy-dom declares it on — clientHeight on
+  // HTMLElement, scrollHeight on Element: a getter on Element.prototype
+  // is shadowed by HTMLElement's own, and the pin read 0 there unseen
+  // (the virtualizer's furthest scroll then ran to the content's full
+  // height, and nothing near the end was ever clamped as a browser does).
   const scrolls = {
-    clientHeight: Object.getOwnPropertyDescriptor(Element.prototype, "clientHeight"),
+    clientHeight: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientHeight"),
     scrollHeight: Object.getOwnPropertyDescriptor(Element.prototype, "scrollHeight"),
   };
   const content = (el: Element) =>
     Math.max(height, Number.parseFloat((el.firstElementChild as HTMLElement | null)?.style.height ?? "") || 0);
-  Object.defineProperty(Element.prototype, "clientHeight", {
+  Object.defineProperty(HTMLElement.prototype, "clientHeight", {
     configurable: true,
     get(this: Element) {
       return this.classList?.contains(list) ? height : (scrolls.clientHeight?.get?.call(this) ?? 0);
@@ -103,8 +108,9 @@ export function pinListViewport(
       else delete (HTMLElement.prototype as unknown as Record<string, unknown>)[name];
     }
     for (const [name, descriptor] of Object.entries(scrolls)) {
-      if (descriptor) Object.defineProperty(Element.prototype, name, descriptor);
-      else delete (Element.prototype as unknown as Record<string, unknown>)[name];
+      const proto = name === "clientHeight" ? HTMLElement.prototype : Element.prototype;
+      if (descriptor) Object.defineProperty(proto, name, descriptor);
+      else delete (proto as unknown as Record<string, unknown>)[name];
     }
   };
 }

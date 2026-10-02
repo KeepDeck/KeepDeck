@@ -20,7 +20,7 @@ interface UseRowAnchoringInput<Row> {
   lastVirtualIndex: number;
   rowVirtualizer: Pick<
     ReactVirtualizer<HTMLElement, HTMLElement>,
-    "getOffsetForIndex" | "getTotalSize"
+    "measurementsCache" | "getTotalSize"
   >;
 }
 
@@ -33,6 +33,13 @@ interface UseRowAnchoringInput<Row> {
  * publish there — but the correction does not, and a second copy of it
  * would be a second place for the two-effects rule below to be got
  * wrong. */
+/**
+ * CONTRACT: the scroll element is mounted with the hook and stays the
+ * same element for the hook's life — its scroll listener is attached once,
+ * at mount. A consumer that renders its scroll box only after loading
+ * (an early `return` before the list) would leave the listener unattached
+ * and the anchor stale: mount the box, and put the loading state inside.
+ */
 export function useRowAnchoring<Row>({
   listRef,
   queue,
@@ -55,12 +62,36 @@ export function useRowAnchoring<Row>({
   // ~twenty heights further down and OUTSIDE the new window. A
   // window-only lookup would misread the SAME key as vanished and
   // hand the anchor to an inserted row — the very jump this exists to
-  // prevent. The position comes from the library's getOffsetForIndex
-  // — it reads the full measured cache, window or no window (rebuilt
-  // first: see the compensation); our own
+  // prevent. The position comes from the library's measured cache
+  // (`startOf`) — every row, window or no window; our own
   // queue array supplies the key's index. The vanished/not-yet-
   // measured branch holds the offset and re-arms.
   const anchorRef = useRef<AnchorState | null>(null);
+  // Where the anchor's key stood in the queue when last found — checked
+  // first, so the lookup on every scroll event is one comparison, and a
+  // scan only when the queue really moved (a files tree runs to tens of
+  // thousands of rows, at sixty-plus scroll events a second).
+  const anchorIndex = useRef(-1);
+  const indexOfAnchor = (rows: readonly Row[], keyOfRow: (row: Row) => string, key: string) => {
+    const hint = anchorIndex.current;
+    const index =
+      hint >= 0 && hint < rows.length && keyOfRow(rows[hint]) === key
+        ? hint
+        : rows.findIndex((row) => keyOfRow(row) === key);
+    anchorIndex.current = index;
+    return index;
+  };
+  // A row's MEASURED start — never the library's getOffsetForIndex, which
+  // is the scroll offset that would ALIGN the row, clamped to the furthest
+  // the list can scroll: for a row starting past that (any first visible
+  // row within a row of the end) it is not the row's start, and an anchor
+  // held from it pushed the scroll forward when a page landed below.
+  // getTotalSize first: it rebuilds the positions from every height
+  // measured so far — rows that mounted in this very commit included.
+  const startOf = (index: number): number | null => {
+    rowVirtualizer.getTotalSize();
+    return rowVirtualizer.measurementsCache[index]?.start ?? null;
+  };
   const windowRowsOf = () =>
     virtualItems.map((v) => ({ key: v.key as string, start: v.start }));
   // The full re-pick: the first fully visible row of this render's window.
@@ -91,18 +122,15 @@ export function useRowAnchoring<Row>({
     const prev = anchorRef.current;
     if (prev === null) return;
     const scrollTop = list.scrollTop;
-    const nextIndex = queue.findIndex((r) => keyOf(r) === prev.key);
+    const nextIndex = indexOfAnchor(queue, keyOf, prev.key);
     if (nextIndex >= 0) {
-      // getOffsetForIndex reads the positions as they stood at the last
-      // rebuild — and the rows that just mounted above (in view at the
-      // top, say) have reported their heights since, in this very commit.
-      // getTotalSize rebuilds them from every height measured so far;
-      // without it the anchor is placed by the estimate the landed rows
-      // were painted with, off by the difference per row.
-      rowVirtualizer.getTotalSize();
-      const at = rowVirtualizer.getOffsetForIndex(nextIndex, "start");
-      if (at) {
-        const target = at[0] - prev.offset;
+      // Positions as measured NOW (see `startOf`): the rows that just
+      // mounted above have reported their heights in this very commit;
+      // placed by the estimate they were painted with, the anchor would be
+      // off by the difference per row.
+      const start = startOf(nextIndex);
+      if (start !== null) {
+        const target = start - prev.offset;
         if (target !== scrollTop) {
           list.scrollTop = target;
           // A programmatic scrollTop assignment fires a scroll event
@@ -112,10 +140,10 @@ export function useRowAnchoring<Row>({
           // it CLEARS every measured height, the mounted rows report
           // none again (an observer speaks on a resize, a ref on a
           // mount), and each stays at the estimate — a gap under it.
+          // The event also re-reads the anchor's offset through the
+          // listener below — from the scroll as the browser set it, which
+          // differs from the target when the browser clamped it.
           list.dispatchEvent(new Event("scroll"));
-          // Re-arm at the corrected position: the same key, same
-          // offset — the next range change re-arms naturally.
-          anchorRef.current = { key: prev.key, offset: prev.offset };
         }
         return; // the anchor held — key found, offset kept
       }
@@ -165,23 +193,23 @@ export function useRowAnchoring<Row>({
   // corrections move the row and the scroll together, so the offset holds
   // through them; only the person's scroll changes it, and that is
   // exactly what this hears.
-  const queueNow = useRef(queue);
-  queueNow.current = queue;
-  const keyOfNow = useRef(keyOf);
-  keyOfNow.current = keyOf;
+  // The listener reads the queue the compensation last acted on
+  // (`queueRef`, written in its layout effect) and the key function of the
+  // last commit — refs written in effects, never during render.
+  const keyOfRef = useRef(keyOf);
+  useLayoutEffect(() => {
+    keyOfRef.current = keyOf;
+  });
   useEffect(() => {
     const list = listRef.current;
     if (!list) return;
     const onScroll = () => {
       const anchor = anchorRef.current;
       if (anchor === null) return;
-      // A full-queue lookup per scroll event: noise at today's sizes (a
-      // board, a history page). Past ~10k rows, keep the anchor's index
-      // beside its key and verify it before scanning.
-      const index = queueNow.current.findIndex((row) => keyOfNow.current(row) === anchor.key);
+      const index = indexOfAnchor(queueRef.current, keyOfRef.current, anchor.key);
       if (index < 0) return;
-      const at = rowVirtualizer.getOffsetForIndex(index, "start");
-      if (at) anchorRef.current = { key: anchor.key, offset: at[0] - list.scrollTop };
+      const start = startOf(index);
+      if (start !== null) anchorRef.current = { key: anchor.key, offset: start - list.scrollTop };
     };
     list.addEventListener("scroll", onScroll, { passive: true });
     return () => list.removeEventListener("scroll", onScroll);
