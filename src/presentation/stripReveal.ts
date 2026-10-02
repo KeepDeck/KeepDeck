@@ -28,6 +28,9 @@ export interface RevealState {
   open: boolean;
   /** The pointer is over the column. */
   inside: boolean;
+  /** A button is held — a click on its way, a drag, a selection — wherever
+   * it was pressed: no rest is a request to read while it is. */
+  pressed: boolean;
   /** A drag is in flight: the strip holds as it is. */
   suspended: boolean;
   /** The open-after-rest timer runs. */
@@ -39,6 +42,7 @@ export interface RevealState {
 export const REVEAL_AT_REST: RevealState = {
   open: false,
   inside: false,
+  pressed: false,
   suspended: false,
   dwelling: false,
   closing: false,
@@ -47,27 +51,36 @@ export const REVEAL_AT_REST: RevealState = {
 export type RevealEvent =
   | { kind: "enter" }
   | { kind: "leave" }
-  /** A press: a click or the start of a hold-to-drag — never a request to
-   * read, so it cancels a pending open. */
+  /** A button went down (or is seen held): never a request to read, so it
+   * cancels a pending open. */
   | { kind: "press" }
-  /** The press let go: on the column, the rest starts over. */
+  /** No button is held any more — let go, or seen up on a later move after
+   * a let-go the page never heard: on the column, the rest starts over. */
   | { kind: "release" }
   | { kind: "dwelled" }
   | { kind: "graced" }
   | { kind: "drag-start" }
   | { kind: "drag-end" };
 
+/** Whether the pointer may rest the strip open from here. */
+const mayRest = (state: RevealState) =>
+  state.inside && !state.open && !state.pressed && !state.suspended;
+
+/**
+ * Every event is a FACT, told as often as the page sees it — the same
+ * fact twice changes nothing (the state comes back as it was), so the
+ * wiring keeps no copy of what it last told.
+ */
 export function stripReveal(state: RevealState, event: RevealEvent): RevealState {
   switch (event.kind) {
-    case "enter":
-      return {
-        ...state,
-        inside: true,
-        // Back inside the grace: it was never meant to shut.
-        closing: false,
-        dwelling: !state.suspended && !state.open,
-      };
+    case "enter": {
+      if (state.inside) return state;
+      // Back inside the grace: it was never meant to shut.
+      const next = { ...state, inside: true, closing: false };
+      return { ...next, dwelling: mayRest(next) };
+    }
     case "leave":
+      if (!state.inside) return state;
       return {
         ...state,
         inside: false,
@@ -77,11 +90,15 @@ export function stripReveal(state: RevealState, event: RevealEvent): RevealState
         closing: !state.suspended && state.open,
       };
     case "press":
-      return { ...state, dwelling: false };
-    case "release":
+      if (state.pressed) return state;
+      return { ...state, pressed: true, dwelling: false };
+    case "release": {
+      if (!state.pressed) return state;
       // A press cancels the rest, not the opening: let go on the column,
       // and it opens after a rest again.
-      return { ...state, dwelling: state.inside && !state.open && !state.suspended };
+      const next = { ...state, pressed: false };
+      return { ...next, dwelling: mayRest(next) };
+    }
     case "dwelled":
       return state.dwelling ? { ...state, dwelling: false, open: true } : state;
     case "graced":
@@ -89,15 +106,41 @@ export function stripReveal(state: RevealState, event: RevealEvent): RevealState
     case "drag-start":
       // Held as it is — open stays open, shut stays shut.
       return { ...state, suspended: true, dwelling: false, closing: false };
-    case "drag-end":
+    case "drag-end": {
       // The pointer decides: still on the column, the strip stays (or
       // opens after the rest — no pointer ENTERS a column it never left);
       // off it, it shuts after the grace.
-      return {
-        ...state,
-        suspended: false,
-        dwelling: state.inside && !state.open,
-        closing: !state.inside && state.open,
-      };
+      const next = { ...state, suspended: false };
+      return { ...next, dwelling: mayRest(next), closing: !state.inside && state.open };
+    }
+  }
+}
+
+/** What one pointer event says, read off the DOM by the wiring. */
+export interface PointerEvidence {
+  type: "over" | "move" | "out" | "down" | "up" | "cancel";
+  /** Whether the element now under the pointer is part of the column: the
+   * event's target — for an out, the element it went to (none: it left
+   * the window). */
+  inColumn: boolean;
+  /** The buttons held (PointerEvent.buttons). */
+  buttons: number;
+}
+
+/** The facts one pointer event tells the machine: where the pointer is,
+ * and whether a button is held. A down presses; an up or a cancel lets
+ * go; any other event tells the buttons as they are — so a let-go the
+ * page never heard (a cancel, an up outside the window) is caught by the
+ * next move. */
+export function revealEventsOf(e: PointerEvidence): RevealEvent[] {
+  const where: RevealEvent = { kind: e.inColumn ? "enter" : "leave" };
+  switch (e.type) {
+    case "down":
+      return [where, { kind: "press" }];
+    case "up":
+    case "cancel":
+      return [where, { kind: "release" }];
+    default:
+      return [where, { kind: e.buttons === 0 ? "release" : "press" }];
   }
 }

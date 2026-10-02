@@ -4,7 +4,9 @@ import {
   STRIP_REVEAL_DWELL_MS,
   STRIP_POINTER_CHECK_MS,
   STRIP_REVEAL_GRACE_MS,
+  revealEventsOf,
   stripReveal,
+  type PointerEvidence,
 } from "../../presentation/stripReveal";
 import { pointerInWindow } from "../../ipc/window";
 
@@ -33,32 +35,6 @@ export function useStripReveal(
   pointerInside: () => Promise<boolean> = pointerInWindow,
 ) {
   const [state, dispatch] = useReducer(stripReveal, REVEAL_AT_REST);
-  // What the machine was last told: it hears a crossing once.
-  const inside = useRef(false);
-  const sync = useRef((now: boolean) => {
-    if (now === inside.current) return;
-    inside.current = now;
-    dispatch({ kind: now ? "enter" : "leave" });
-  }).current;
-
-  useEffect(() => {
-    if (!state.open || state.suspended) return;
-    let alive = true;
-    const timer = window.setInterval(() => {
-      pointerInside().then(
-        (inWindow) => {
-          if (alive && !inWindow) sync(false);
-        },
-        // Unanswered (no OS behind the page): the page's own events stand.
-        () => {},
-      );
-    }, STRIP_POINTER_CHECK_MS);
-    return () => {
-      alive = false;
-      window.clearInterval(timer);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.open, state.suspended]);
 
   useEffect(() => {
     if (!state.dwelling) return;
@@ -82,39 +58,63 @@ export function useStripReveal(
   }, [suspended]);
 
   useEffect(() => {
-    const within = (node: EventTarget | null) =>
+    if (!state.open || state.suspended) return;
+    let alive = true;
+    const timer = window.setInterval(() => {
+      pointerInside().then(
+        (inWindow) => {
+          if (alive && !inWindow) dispatch({ kind: "leave" });
+        },
+        // Unanswered (no OS behind the page): the page's own events stand.
+        () => {},
+      );
+    }, STRIP_POINTER_CHECK_MS);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.open, state.suspended]);
+
+  useEffect(() => {
+    const inColumn = (node: EventTarget | null) =>
       node instanceof Node && (column.current?.contains(node) ?? false);
-    // The element now under the pointer: the event's target, or — for an
-    // out — the one it went to (null: out of the window).
-    const onOver = (e: PointerEvent) => sync(within(e.target));
-    const onOut = (e: PointerEvent) => sync(within(e.relatedTarget));
-    const onDown = (e: PointerEvent) => {
-      sync(within(e.target));
-      if (inside.current) dispatch({ kind: "press" });
+    // Every pointer event is told as facts (`revealEventsOf`); the machine
+    // changes nothing on a fact it already holds.
+    const tell = (type: PointerEvidence["type"], e: PointerEvent, under: EventTarget | null) => {
+      for (const event of revealEventsOf({ type, inColumn: inColumn(under), buttons: e.buttons })) {
+        dispatch(event);
+      }
     };
-    const onUp = (e: PointerEvent) => {
-      sync(within(e.target));
-      if (inside.current) dispatch({ kind: "release" });
-    };
-    const gone = () => sync(false);
+    const onOver = (e: PointerEvent) => tell("over", e, e.target);
+    const onMove = (e: PointerEvent) => tell("move", e, e.target);
+    const onOut = (e: PointerEvent) => tell("out", e, e.relatedTarget);
+    const onDown = (e: PointerEvent) => tell("down", e, e.target);
+    const onUp = (e: PointerEvent) => tell("up", e, e.target);
+    const onCancel = (e: PointerEvent) => tell("cancel", e, e.target);
+    // Fail-closed. A blur also fires when focus moves INTO an iframe of
+    // this window (a plugin taking it by script): the strip shuts under a
+    // resting pointer and opens again on the next move and rest — a
+    // flicker, never a stuck strip.
+    const gone = () => dispatch({ kind: "leave" });
     const onHidden = () => {
       if (document.visibilityState === "hidden") gone();
     };
     const opts = { capture: true, passive: true } as const;
-    document.addEventListener("pointerover", onOver, opts);
-    document.addEventListener("pointermove", onOver, opts);
-    document.addEventListener("pointerout", onOut, opts);
-    document.addEventListener("pointerdown", onDown, opts);
-    document.addEventListener("pointerup", onUp, opts);
+    const pointer: [string, (e: PointerEvent) => void][] = [
+      ["pointerover", onOver],
+      ["pointermove", onMove],
+      ["pointerout", onOut],
+      ["pointerdown", onDown],
+      ["pointerup", onUp],
+      ["pointercancel", onCancel],
+    ];
+    for (const [type, fn] of pointer) document.addEventListener(type, fn as EventListener, opts);
     document.documentElement.addEventListener("mouseleave", gone);
     window.addEventListener("blur", gone);
     document.addEventListener("visibilitychange", onHidden);
     return () => {
-      document.removeEventListener("pointerover", onOver, opts);
-      document.removeEventListener("pointermove", onOver, opts);
-      document.removeEventListener("pointerout", onOut, opts);
-      document.removeEventListener("pointerdown", onDown, opts);
-      document.removeEventListener("pointerup", onUp, opts);
+      for (const [type, fn] of pointer) document.removeEventListener(type, fn as EventListener, opts);
       document.documentElement.removeEventListener("mouseleave", gone);
       window.removeEventListener("blur", gone);
       document.removeEventListener("visibilitychange", onHidden);

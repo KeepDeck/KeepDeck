@@ -584,6 +584,58 @@ describe("WorkspaceStrip as the team switcher", () => {
     expect(revealed()).toBe(true);
   });
 
+  it("opens after a press that was cancelled, not let go — a cancel is a let-go too", () => {
+    render();
+    hover("enter");
+    pointer("pointerdown", col());
+    pointer("pointercancel", col());
+    act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS));
+    expect(revealed()).toBe(true);
+  });
+
+  it("opens once a move shows no button held, though the let-go was never heard", () => {
+    render();
+    hover("enter");
+    pointer("pointerdown", col());
+    // The up went elsewhere (outside the window): the next move says no
+    // button is held.
+    pointer("pointermove", col());
+    act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS));
+    expect(revealed()).toBe(true);
+  });
+
+  it("shuts on a press off it", () => {
+    render();
+    openStrip();
+    pointer("pointerdown");
+    graced();
+    expect(revealed()).toBe(false);
+  });
+
+  it("lets go of the document and the window when it goes away", () => {
+    const added = new Set<string>();
+    const removed = new Set<string>();
+    const spies = [document, window, document.documentElement].flatMap((target) => [
+      vi.spyOn(target, "addEventListener").mockImplementation(function (this: EventTarget, type: string) {
+        added.add(type);
+      } as never),
+      vi.spyOn(target, "removeEventListener").mockImplementation(function (this: EventTarget, type: string) {
+        removed.add(type);
+      } as never),
+    ]);
+    try {
+      render();
+      act(() => root.unmount());
+      root = createRoot(host);
+      for (const type of ["pointermove", "pointerout", "pointercancel", "mouseleave", "blur", "visibilitychange"]) {
+        expect(added.has(type)).toBe(true);
+        expect(removed.has(type)).toBe(true);
+      }
+    } finally {
+      for (const spy of spies) spy.mockRestore();
+    }
+  });
+
   it("opens on a move over it though no crossing was heard", () => {
     render();
     pointer("pointermove", col());
@@ -627,8 +679,11 @@ describe("WorkspaceStrip as the team switcher", () => {
       () => window.dispatchEvent(new Event("blur")),
       () => {
         Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
-        document.dispatchEvent(new Event("visibilitychange"));
-        delete (document as unknown as { visibilityState?: string }).visibilityState;
+        try {
+          document.dispatchEvent(new Event("visibilitychange"));
+        } finally {
+          delete (document as unknown as { visibilityState?: string }).visibilityState;
+        }
       },
     ]) {
       render();
