@@ -85,6 +85,7 @@ export function createWindowReportJournal(deps: WindowReportJournalDeps) {
           // replay guard rejects everything after it) — clamp to now.
           reportedAt: Math.min(account.reportedAt, at),
           resetsAt: window.resetsAt ?? null,
+          ...(account.sourcePaneId ? { sourcePaneId: account.sourcePaneId } : {}),
         };
         // A record already beyond its own retention (a cached account
         // restored hours later) must never enter the journal: pruning it

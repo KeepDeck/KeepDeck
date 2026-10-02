@@ -79,7 +79,8 @@ export function foldExhaustionAlerts(
       // ahead of the series a fold reads.)
       const newInstance =
         fired !== undefined &&
-        instanceChanged(fired, window, REFILL_DROP_PCT);
+        // The live window is this fold's reading, so `now` is its instant.
+        instanceChanged(fired, { ...window, reportedAt: now }, REFILL_DROP_PCT);
       const forecast = row.forecast;
       if (
         forecast.kind === "out" &&

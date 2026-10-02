@@ -326,6 +326,25 @@ describe("normalizeKimiUsages", () => {
     ]);
   });
 
+  it("reports a count-derived percentage without float residue, sub-percent kept", () => {
+    // 7/100*100 is 7.000000000000001 in floating point — it reached the
+    // window journal verbatim. Rounding must not erase a real 0.4% either.
+    const account = normalizeKimiUsages(
+      JSON.stringify({
+        usage: { limit: "100", used: "7" },
+        limits: [
+          {
+            window: { duration: 300, timeUnit: "TIME_UNIT_MINUTE" },
+            detail: { limit: "16000", used: "64" },
+          },
+        ],
+      }),
+      AT,
+    );
+    if (account?.kind !== "reported") throw new Error("expected a report");
+    expect(account.windows.map((window) => window.usedPct)).toEqual([0.4, 7]);
+  });
+
   it("returns null for garbage or an empty document", () => {
     expect(normalizeKimiUsages("not json", AT)).toBeNull();
     expect(normalizeKimiUsages("{}", AT)).toBeNull();

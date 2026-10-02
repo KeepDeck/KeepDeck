@@ -85,6 +85,21 @@ export interface PaneUsage {
 export interface NormalizedUsage {
   account: AccountUsage | null;
   pane: PaneUsage | null;
+  /** Present when the account claim may only count after the pane talked to
+   * the API — for a reporter that re-sends the SAME frozen limits on a timer
+   * and has no capture time of its own. `null` declares the gate with no
+   * usable witness this time: the claim is held, never let through. Absent:
+   * the claim stands on its own timestamp (polls, tailed events). */
+  accountActivity?: ApiActivity | null;
+}
+
+/** A pane's cumulative API counters — they move on every API call and on
+ * nothing else, which is what makes them a witness that the limits beside
+ * them were refreshed. */
+export interface ApiActivity {
+  sessionId: string;
+  costUsd: number;
+  apiDurationMs: number;
 }
 
 /** A per-agent normalizer: raw bridge payload → normalized usage, or null
@@ -275,6 +290,13 @@ export function asCount(value: unknown): number | undefined {
   return undefined;
 }
 
+/** Hundredths, not whole percents: count division leaves float residue
+ * (7/100*100 = 7.000000000000001) that would otherwise reach the store and
+ * the journal verbatim, while a real 0.4% of a large allowance must survive. */
+function toHundredths(pct: number): number {
+  return Math.round(pct * 100) / 100;
+}
+
 /**
  * An absolute allowance — `{limit, used?, remaining?}` counts — as one
  * normalized window. The shape plans that meter credits share (kimi's
@@ -305,7 +327,7 @@ export function allowanceWindow(
         : undefined;
   if (usedPct === undefined) return null;
   return {
-    usedPct: clampPercent(usedPct),
+    usedPct: toHundredths(clampPercent(usedPct)),
     resetsAt: opts.resetsAt ?? null,
     windowMinutes: opts.windowMinutes,
     ...(opts.scope ? { scope: opts.scope } : {}),

@@ -139,32 +139,108 @@ describe("report", () => {
     dispose();
   });
 
-  it("ranks the REAL claude account by the reporter's sourceMtimeMs, end to end", () => {
-    // The whole chain in one test: a reporter-shaped envelope (verbatim
-    // statusline + a sibling sourceMtimeMs) → reportUsage derives the capture
-    // time from it → the real normalizeClaudeStatusline stamps the account →
-    // freshest ranks by it. The idle 3% echo (older mtime, delivered LATER)
-    // must not clobber the active 6% reading.
-    const dispose = usage.registerNormalizer("claude", normalizeClaudeStatusline);
-    const win = (p: number) => ({
-      rate_limits: { five_hour: { used_percentage: p, resets_at: 1_800_000_000 } },
-    });
-    usage.report(
-      "pane-active",
-      { agent: "claude", statusline: win(6), sourceMtimeMs: 2_000 },
-      9_000,
-    );
-    usage.report(
-      "pane-idle",
-      { agent: "claude", statusline: win(3), sourceMtimeMs: 1_000 },
-      9_999,
-    );
-    expect(usage.getSnapshot().accounts.get("claude")).toMatchObject({
+});
+
+describe("claude account activity gate", () => {
+  /** A reporter-shaped claude envelope: the verbatim statusline, with the
+   * session's API cumulatives beside the week's limit. */
+  const line = (
+    sessionId: string,
+    weekPct: number | null,
+    costUsd: number,
+    apiDurationMs: number,
+    extra: Record<string, unknown> = {},
+  ) => ({
+    agent: "claude",
+    statusline: {
+      session_id: sessionId,
+      cost: { total_cost_usd: costUsd, total_api_duration_ms: apiDurationMs },
+      ...(weekPct === null
+        ? {}
+        : {
+            rate_limits: {
+              seven_day: { used_percentage: weekPct, resets_at: 1_800_000_000 },
+            },
+          }),
+    },
+    ...extra,
+  });
+  const week = () => usage.getSnapshot().accounts.get("claude");
+
+  beforeEach(() => {
+    usage.registerNormalizer("claude", normalizeClaudeStatusline);
+  });
+
+  it("keeps an idle pane's frozen limits out, however the envelope is dated", () => {
+    // The sawtooth, end to end: the active pane is witnessed at 69%; an idle
+    // pane re-sends its frozen 67% every refresh, its transcript mtime moved
+    // by claude's hourly housekeeping — newer, missing, or in the future.
+    usage.report("active", line("s-a", 68, 1.0, 1_000), 1_000);
+    usage.report("active", line("s-a", 69, 1.2, 1_400), 2_000);
+    usage.report("idle", line("s-b", 67, 0.5, 900), 2_500);
+    for (const [at, extra] of [
+      [3_000, { sourceMtimeMs: 2_900 }],
+      [4_000, {}],
+      [5_000, { sourceMtimeMs: 9_999_999_999_999 }],
+      [6_000, { sourceAt: 5_900 }],
+    ] as const) {
+      usage.report("idle", line("s-b", 67, 0.5, 900, extra), at);
+    }
+    expect(week()).toMatchObject({
       reportedAt: 2_000,
-      sourcePaneId: "pane-active",
-      windows: [{ usedPct: 6 }],
+      sourcePaneId: "active",
+      windows: [{ usedPct: 69 }],
     });
-    dispose();
+  });
+
+  it("lets the idle pane in once it really calls the API, dated by receipt", () => {
+    usage.report("active", line("s-a", 68, 1.0, 1_000), 1_000);
+    usage.report("active", line("s-a", 69, 1.2, 1_400), 2_000);
+    usage.report("idle", line("s-b", 67, 0.5, 900), 2_500);
+    // A zero-cost call still moves the API time: activity.
+    usage.report("idle", line("s-b", 70, 0.5, 950, { sourceMtimeMs: 1 }), 3_000);
+    expect(week()).toMatchObject({
+      reportedAt: 3_000,
+      sourcePaneId: "idle",
+      windows: [{ usedPct: 70 }],
+    });
+  });
+
+  it("claims nothing from a first sighting — after boot the store stays empty", () => {
+    usage.report("pane-1", line("s-1", 40, 2.0, 5_000), 1_000);
+    expect(week()).toBeUndefined();
+  });
+
+  it("never mints a claim from a catch-up replay", () => {
+    usage.report("pane-1", line("s-1", 40, 2.0, 5_000), 1_000);
+    usage.report("pane-1", line("s-1", 41, 2.5, 6_000, { catchUp: true }), 2_000);
+    expect(week()).toBeUndefined();
+    // Nor did the replay advance the baseline: the next live step from the
+    // first pair still counts.
+    usage.report("pane-1", line("s-1", 41, 2.5, 6_000), 3_000);
+    expect(week()).toMatchObject({ reportedAt: 3_000, windows: [{ usedPct: 41 }] });
+  });
+
+  it("spends the activity on a report without limits — a later echo claims nothing", () => {
+    usage.report("pane-1", line("s-1", 40, 2.0, 5_000), 1_000);
+    usage.report("pane-1", line("s-1", null, 2.5, 6_000), 2_000);
+    // Same counters, limits now present: an echo of nothing new.
+    usage.report("pane-1", line("s-1", 30, 2.5, 6_000), 3_000);
+    expect(week()).toBeUndefined();
+  });
+
+  it("starts unknown again after the pane's lifetime is reset or ends", () => {
+    usage.report("pane-1", line("s-1", 40, 2.0, 5_000), 1_000);
+    usage.clearPane("pane-1");
+    // Higher counters, but against no baseline: a first sighting again.
+    usage.report("pane-1", line("s-1", 41, 2.5, 6_000), 2_000);
+    expect(week()).toBeUndefined();
+
+    usage.retainPanes(new Set());
+    usage.report("pane-1", line("s-1", 42, 3.0, 7_000), 3_000);
+    expect(week()).toBeUndefined();
+    usage.report("pane-1", line("s-1", 43, 3.5, 8_000), 4_000);
+    expect(week()).toMatchObject({ windows: [{ usedPct: 43 }] });
   });
 });
 

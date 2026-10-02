@@ -50,38 +50,15 @@ if [ -n "$KEEPDECK_BRIDGE" ] && [ -z "$KEEPDECK_STATUSLINE_NESTED" ]; then
 
 # @include lib/reporter-send.sh
   if [ -n "$url" ] && [ -n "$pane" ] && [ -n "$token" ]; then
-    # The session's last-turn time, stamped onto the report so the webview's
-    # freshest-wins ranks account windows by WHEN the data was captured, not
-    # when this envelope arrived. Claude's `rate_limits` only move on a real
-    # API turn, yet the statusLine ALSO re-runs on its idle refresh timer,
-    # re-emitting the SAME frozen windows; and a long-idle session is seen
-    # afresh on a workspace switch. The transcript file grows only on a turn,
-    # so its mtime IS the capture time: an echo and a first-sighting both
-    # carry an OLD `sourceMtimeMs` and cannot clobber an active session's
-    # newer reading (read exactly as the codex tailer's file mtime is). The
-    # verbatim `statusline` stays untouched — this READS transcript_path, it
-    # never strips it. An absent/odd path leaves no stamp and the report falls
-    # back to arrival time.
-    mtime=""
-    transcript=$(printf '%s' "$payload" \
-      | sed -n 's/.*"transcript_path"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
-      | head -n 1)
-    if [ -n "$transcript" ] && [ -f "$transcript" ]; then
-      # Capture and validate each `stat` SEPARATELY — never `A || B` in one
-      # substitution. `%m` is BSD (macOS, the shipped target) mtime seconds;
-      # `%Y` the GNU fallback. On GNU, `stat -f` is FILESYSTEM mode: it prints
-      # a multi-line block to stdout AND exits non-zero, so a single
-      # `$(bsd || gnu)` concatenates that junk with the fallback's number and
-      # the guard rejects the lot — leaving NO stamp (verified on Linux). Two
-      # independent captures keep each result clean.
-      secs=$(stat -f %m "$transcript" 2>/dev/null)
-      case $secs in '' | *[!0-9]*) secs=$(stat -c %Y "$transcript" 2>/dev/null) ;; esac
-      case $secs in '' | *[!0-9]*) ;; *) mtime="${secs}000" ;; esac
-    fi
+    # No capture time is stamped here. The transcript's mtime looked like one,
+    # but claude's own housekeeping touches the file hourly with no API call
+    # behind it, so an idle session's frozen limits arrived dated as new — the
+    # sawtooth in the provider week chart. The host gates claude's account
+    # claims on the session's API cumulatives inside `statusline` instead.
+
     # Assembled into a value rather than streamed into a file: the direct
     # lane needs the whole envelope in hand, and a report is small.
     extra=""
-    [ -n "$mtime" ] && extra="$extra,\"sourceMtimeMs\":$mtime"
     # The reporting process, for the same reason the binding carries it: a
     # nested run's statusline holds a valid secret and would otherwise
     # overwrite this pane's numbers with another session's.

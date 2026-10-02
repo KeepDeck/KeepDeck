@@ -133,63 +133,18 @@ describe("kd-usage-statusline.sh", () => {
     expect(stdout.trim()).toBe("Opus · ctx 8%");
   });
 
-  it("stamps the report with the transcript's mtime as sourceMtimeMs", async () => {
-    // The session's last-turn time rides along so freshest-wins ranks account
-    // windows by capture time, not delivery time — an idle refresh echo (or a
-    // long-idle session seen on a workspace switch) carries this OLD stamp and
-    // cannot clobber an active session's fresher reading.
+  it("stamps no transcript mtime — claude touches the file without a turn", async () => {
+    // Claude's housekeeping moves the transcript's mtime hourly with no API
+    // call behind it; stamped onto the report, it dated an idle session's
+    // frozen limits as fresh. The host gates on the statusline's own API
+    // cumulatives instead, so nothing may ride beside it.
     const transcript = join(tmp(), "transcript.jsonl");
     writeFileSync(transcript, "{}");
-    // Backdate to a DISTINCTIVE past instant so the assertion proves the stamp
-    // is the TRANSCRIPT's mtime — not "now" from any other file the test
-    // freshly created, which would read as the current whole second.
-    const turnedAt = 1_700_000_000; // fixed epoch seconds, hours in the past
-    utimesSync(transcript, turnedAt, turnedAt);
-    await run(JSON.stringify({ ...STATUSLINE, transcript_path: transcript }), { ...armed(), pane: "p", token: "t" });
+    utimesSync(transcript, 1_700_000_000, 1_700_000_000);
+    const statusline = { ...STATUSLINE, transcript_path: transcript };
+    await run(JSON.stringify(statusline), { ...armed(), pane: "p", token: "t" });
     const envelope = posted();
-    // Whole-second precision (BSD `stat -f %m` / GNU `%Y`), promoted to ms.
-    expect(envelope.payload.sourceMtimeMs).toBe(turnedAt * 1000);
-    // Reading transcript_path never strips the verbatim statusline.
-    expect(envelope.payload.statusline.transcript_path).toBe(transcript);
-  });
-
-  it("omits sourceMtimeMs when the transcript file is absent", async () => {
-    // No file to stat → no stamp, and the report still publishes verbatim so
-    // the chip degrades to arrival-time ranking rather than losing the report.
-    const statusline = { ...STATUSLINE, transcript_path: "/no/such/kd-transcript.jsonl" };
-    await run(JSON.stringify(statusline), armed());
-    const envelope = posted();
-    expect(envelope.payload.sourceMtimeMs).toBeUndefined();
-    expect(envelope.payload.statusline).toEqual(statusline);
-  });
-
-  it("stamps a transcript path that contains spaces", async () => {
-    // Every use of the path is double-quoted, so a space must not split it
-    // into multiple stat arguments and silently disable stamping.
-    const transcript = join(tmp(), "a session.jsonl");
-    writeFileSync(transcript, "{}");
-    const turnedAt = 1_700_000_500;
-    utimesSync(transcript, turnedAt, turnedAt);
-    await run(JSON.stringify({ ...STATUSLINE, transcript_path: transcript }), { ...armed(), pane: "p", token: "t" });
-    const envelope = posted();
-    expect(envelope.payload.sourceMtimeMs).toBe(turnedAt * 1000);
-  });
-
-  it("does not stamp a directory as a transcript — only a real file is a turn", async () => {
-    // `-f` (regular file), never `-e`: a directory's mtime is not a turn time.
-    await run(JSON.stringify({ ...STATUSLINE, transcript_path: tmp() }), { ...armed(), pane: "p", token: "t" });
-    const envelope = posted();
-    expect(envelope.payload.sourceMtimeMs).toBeUndefined();
-  });
-
-  it("degrades safely when the path holds a quote the naive sed cannot span", async () => {
-    // Claude's JSON is arbitrary; an embedded quote truncates the sed capture
-    // to a non-existent path → no stamp, no crash, and the statusline still
-    // publishes verbatim (the quoted shell var means no mishap either).
-    const statusline = { ...STATUSLINE, transcript_path: '/tmp/we"ird.jsonl' };
-    await run(JSON.stringify(statusline), armed());
-    const envelope = posted();
-    expect(envelope.payload.sourceMtimeMs).toBeUndefined();
+    expect(envelope.payload).not.toHaveProperty("sourceMtimeMs");
     expect(envelope.payload.statusline).toEqual(statusline);
   });
 

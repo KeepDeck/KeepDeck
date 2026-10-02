@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  accountActivityStep,
   contextPct,
+  gateAccountClaim,
   freshest,
   hydrateUsageCache,
   mergePaneReplay,
@@ -27,6 +29,113 @@ describe("freshest", () => {
     expect(freshest(at(9), at(5))).toEqual(at(9));
     const incumbent = at(7);
     expect(freshest(incumbent, at(7))).toBe(incumbent);
+  });
+});
+
+describe("accountActivityStep", () => {
+  const seen = (costUsd: number, apiDurationMs: number, sessionId = "s") => ({
+    sessionId,
+    costUsd,
+    apiDurationMs,
+  });
+
+  it("takes a first sighting or a new session as the baseline, counting neither", () => {
+    expect(accountActivityStep(undefined, seen(1, 100))).toEqual({
+      baseline: seen(1, 100),
+      counts: false,
+    });
+    expect(accountActivityStep(seen(1, 100), seen(5, 900, "other"))).toEqual({
+      baseline: seen(5, 900, "other"),
+      counts: false,
+    });
+  });
+
+  it("counts when either counter rises and neither falls", () => {
+    expect(accountActivityStep(seen(1, 100), seen(1.5, 200))).toEqual({
+      baseline: seen(1.5, 200),
+      counts: true,
+    });
+    // A zero-cost call still costs API time.
+    expect(accountActivityStep(seen(1, 100), seen(1, 150)).counts).toBe(true);
+  });
+
+  it("holds an echo — both counters unchanged", () => {
+    expect(accountActivityStep(seen(1, 100), seen(1, 100))).toEqual({
+      baseline: seen(1, 100),
+      counts: false,
+    });
+  });
+
+  it("holds a lower or mixed pair and restarts the baseline from it", () => {
+    // Counters that restart under the same session (a restore, a same-id
+    // resume) must not silence the pane until they pass the old peak.
+    const restarted = accountActivityStep(seen(5, 9_000), seen(0.1, 50));
+    expect(restarted).toEqual({ baseline: seen(0.1, 50), counts: false });
+    expect(accountActivityStep(restarted.baseline, seen(0.2, 80)).counts).toBe(true);
+    expect(accountActivityStep(seen(2, 200), seen(3, 150))).toEqual({
+      baseline: seen(3, 150),
+      counts: false,
+    });
+    // Either counter falling is enough — cost alone, API time even rising.
+    expect(accountActivityStep(seen(2, 200), seen(1, 300))).toEqual({
+      baseline: seen(1, 300),
+      counts: false,
+    });
+  });
+
+  it("holds a report with no witness and leaves the baseline alone", () => {
+    expect(accountActivityStep(seen(1, 100), null)).toEqual({
+      baseline: seen(1, 100),
+      counts: false,
+    });
+    expect(accountActivityStep(undefined, null)).toEqual({
+      baseline: undefined,
+      counts: false,
+    });
+  });
+});
+
+describe("gateAccountClaim", () => {
+  const witness = (costUsd: number) => ({ sessionId: "s", costUsd, apiDurationMs: 0 });
+  const claim: AccountUsage = {
+    kind: "reported",
+    windows: [{ usedPct: 67, resetsAt: null, windowMinutes: 10_080 }],
+    reportedAt: 5,
+    sourcePaneId: "",
+  };
+  const live = { catchUp: false, receivedAt: 900 };
+
+  it("passes an ungated claim through on its own timestamp", () => {
+    expect(gateAccountClaim(undefined, { account: claim }, live)).toEqual({
+      baseline: undefined,
+      account: claim,
+    });
+  });
+
+  it("dates a counted claim by receipt, never by the envelope", () => {
+    const gated = gateAccountClaim(
+      witness(1),
+      { account: claim, accountActivity: witness(2) },
+      live,
+    );
+    expect(gated).toEqual({
+      baseline: witness(2),
+      account: { ...claim, reportedAt: 900 },
+    });
+  });
+
+  it("holds a claim without activity, and a replay without touching the witness", () => {
+    expect(
+      gateAccountClaim(witness(1), { account: claim, accountActivity: witness(1) }, live)
+        .account,
+    ).toBeNull();
+    expect(
+      gateAccountClaim(
+        witness(1),
+        { account: claim, accountActivity: witness(5) },
+        { catchUp: true, receivedAt: 900 },
+      ),
+    ).toEqual({ baseline: witness(1), account: null });
   });
 });
 

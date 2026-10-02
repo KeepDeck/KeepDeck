@@ -21,6 +21,12 @@ export interface WindowReport {
   /** Disambiguates same-tuple windows within one account report (codex's
    * duration-less pair); present only when the tuple is duplicated. */
   ordinal?: number;
+  /** The pane whose claim the account held at capture — diagnostic only,
+   * never part of the window's identity. Without it a series cannot say
+   * which pane fed it a bad point (the stale-limits sawtooth could not be
+   * pinned to a pane from the journal). Absent on older records and on
+   * claims no pane made (polls, the restored cache). */
+  sourcePaneId?: string;
 }
 
 /** One journal key per window identity. The (length, scope) tuple alone is
@@ -80,13 +86,18 @@ export const NO_REPORTS: readonly WindowReport[] = [];
  * Everything else is statusline chatter. */
 export const HEARTBEAT_MS = 5 * 60_000;
 
+/** The smallest usage the journal treats as real: a move worth writing, and
+ * the first reading that counts as spend. Anything under it is the residue
+ * of count division, not consumption. */
+export const SIGNIFICANT_PCT = 0.1;
+
 export function shouldRecord(
   last: WindowReport | undefined,
   next: WindowReport,
 ): boolean {
   if (!last) return true;
   if (next.reportedAt <= last.reportedAt) return false;
-  if (Math.abs(next.usedPct - last.usedPct) >= 0.1) return true;
+  if (Math.abs(next.usedPct - last.usedPct) >= SIGNIFICANT_PCT) return true;
   if ((next.resetsAt ?? null) !== (last.resetsAt ?? null)) return true;
   return next.reportedAt - last.reportedAt >= HEARTBEAT_MS;
 }
@@ -97,8 +108,8 @@ export function shouldRecord(
 export const INSTANCE_JUMP_MS = 60_000;
 
 /**
- * The current segment: everything since the last instance boundary — the only
- * span a pace may be computed over.
+ * The current segment: everything since the last instance boundary and the
+ * first spend after it — the only span a pace may be computed over.
  *
  * A window instance IS its reset instant, so that is what says the window
  * turned over. A drop in `usedPct` used to say it too, and that was wrong in
@@ -128,15 +139,23 @@ export const INSTANCE_JUMP_MS = 60_000;
  */
 export function instanceChanged(
   prev: Pick<WindowReport, "usedPct" | "resetsAt">,
-  next: Pick<WindowReport, "usedPct" | "resetsAt">,
+  next: Pick<WindowReport, "usedPct" | "resetsAt" | "reportedAt">,
   dropPct: number,
 ): boolean {
   const knownReset = prev.resetsAt !== null && next.resetsAt !== null;
   if (knownReset) {
     // Both sides know when they end, so the reset instant answers it outright
     // and a fall is noise. Forward movement only: a reset that appears to move
-    // BACKWARD is a correction, not a turnover.
-    return next.resetsAt! > prev.resetsAt! + INSTANCE_JUMP_MS;
+    // BACKWARD is a correction, not a turnover. And only once the old instance
+    // is OVER: a live window cannot move its own end. Codex's windows start
+    // on first use, and until then every poll reports 0% ending one window
+    // length after the request — a reset that walks forward with the clock.
+    // Each step read as a new instance, cutting a dormant window into
+    // minute-long pieces (5 cuts in one real week, none of them a reset).
+    return (
+      prev.resetsAt! <= next.reportedAt &&
+      next.resetsAt! > prev.resetsAt! + INSTANCE_JUMP_MS
+    );
   }
   // No reset instant on one side — the fall is the only evidence there is.
   return next.usedPct < prev.usedPct - dropPct;
@@ -155,7 +174,16 @@ export function currentSegment(
       start = index;
     }
   }
-  return reports.slice(start);
+  // The trajectory begins at the first spend, not at the boundary. A window
+  // that waits for first use journals a zero every heartbeat until then, and
+  // hours of them dragged the pace an order of magnitude low (a run-out read
+  // as "lasts") and flattened most of the burn axis. A segment with no spend
+  // at all stays whole: that IS the idle answer. Interior zeros stay too —
+  // they are real time at a real level.
+  const firstSpend = reports.findIndex(
+    (report, index) => index >= start && report.usedPct >= SIGNIFICANT_PCT,
+  );
+  return reports.slice(firstSpend === -1 ? start : firstSpend);
 }
 
 /** Retention per key: about 1.5 window lengths (a full instance plus room
@@ -239,6 +267,9 @@ export function decodeWindowReport(line: string): WindowReport | null {
     Number.isInteger(raw.ordinal) &&
     raw.ordinal >= 0
       ? { ordinal: raw.ordinal }
+      : {}),
+    ...(typeof raw.sourcePaneId === "string" && raw.sourcePaneId !== ""
+      ? { sourcePaneId: raw.sourcePaneId }
       : {}),
   };
 }

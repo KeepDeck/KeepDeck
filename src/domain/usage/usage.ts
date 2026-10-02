@@ -1,4 +1,10 @@
-import type { AccountUsage, PaneUsage, UsageWindow } from "@keepdeck/plugin-api";
+import type {
+  AccountUsage,
+  ApiActivity,
+  NormalizedUsage,
+  PaneUsage,
+  UsageWindow,
+} from "@keepdeck/plugin-api";
 
 /**
  * Usage domain — the host-side rules over the usage contract. The TYPES and
@@ -22,6 +28,7 @@ import type { AccountUsage, PaneUsage, UsageWindow } from "@keepdeck/plugin-api"
 
 export type {
   AccountUsage,
+  ApiActivity,
   NormalizedUsage,
   PaneUsage,
   TokenCounts,
@@ -48,6 +55,78 @@ export function freshest(
 ): AccountUsage {
   if (!current) return incoming;
   return incoming.reportedAt > current.reportedAt ? incoming : current;
+}
+
+/**
+ * May this report's account claim count? One step of a pane's API-activity
+ * witness: the claim counts only when the pane's cumulative API counters
+ * moved since the last report — the limits ride on API responses, so no
+ * call means no new limits, however new the envelope.
+ *
+ * Why a witness and not a timestamp: claude's statusLine re-runs on a timer
+ * and re-sends the SAME frozen limits, and the transcript mtime that used to
+ * date them is touched hourly by claude's own housekeeping with no API call
+ * behind it. A stale 67% stamped fresh sat between live 69%s — the sawtooth.
+ *
+ * - No baseline, or a different session: this becomes the baseline; the
+ *   claim is unknown and held (the first sighting proves nothing).
+ * - Both counters unchanged: an echo; held.
+ * - Neither lower, one higher: activity; the claim counts.
+ * - Either lower: the counters restarted (a restore, a same-id resume) or a
+ *   report arrived out of order; held, and the lower pair becomes the
+ *   baseline. A high-water mark would silence the pane until its new
+ *   counters passed the old peak — hours, or never. The cost is that a
+ *   re-sent newer pair counts once more, and that pair carries the NEWEST
+ *   limits, so nothing stale gets through.
+ * - No witness at all (`null`): held, baseline untouched.
+ */
+export function accountActivityStep(
+  baseline: ApiActivity | undefined,
+  next: ApiActivity | null,
+): { baseline: ApiActivity | undefined; counts: boolean } {
+  if (next === null) return { baseline, counts: false };
+  if (!baseline || baseline.sessionId !== next.sessionId) {
+    return { baseline: next, counts: false };
+  }
+  if (
+    next.costUsd < baseline.costUsd ||
+    next.apiDurationMs < baseline.apiDurationMs
+  ) {
+    return { baseline: next, counts: false };
+  }
+  if (
+    next.costUsd === baseline.costUsd &&
+    next.apiDurationMs === baseline.apiDurationMs
+  ) {
+    return { baseline, counts: false };
+  }
+  return { baseline: next, counts: true };
+}
+
+/**
+ * The account claim one report may make, and the pane's witness after it.
+ * A report that declares no gate passes through untouched. A gated claim
+ * counts only behind fresh activity ([`accountActivityStep`]) and is then
+ * dated by the host's receipt — the envelope's own times are exactly what
+ * the gate distrusts. A replay witnesses nothing and leaves the witness be.
+ */
+export function gateAccountClaim(
+  baseline: ApiActivity | undefined,
+  usage: Pick<NormalizedUsage, "account" | "accountActivity">,
+  delivery: { catchUp: boolean; receivedAt: number },
+): { baseline: ApiActivity | undefined; account: AccountUsage | null } {
+  if (usage.accountActivity === undefined) {
+    return { baseline, account: usage.account };
+  }
+  if (delivery.catchUp) return { baseline, account: null };
+  const step = accountActivityStep(baseline, usage.accountActivity);
+  return {
+    baseline: step.baseline,
+    account:
+      step.counts && usage.account
+        ? { ...usage.account, reportedAt: delivery.receivedAt }
+        : null,
+  };
 }
 
 /** Merge a pane's usage across partial reports: codex delivers the model

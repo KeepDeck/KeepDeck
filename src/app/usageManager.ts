@@ -1,9 +1,11 @@
 import { isRecord } from "../domain/json";
 import {
   freshest,
+  gateAccountClaim,
   mergePaneReplay,
   mergePaneUsage,
   type AccountUsage,
+  type ApiActivity,
   type PaneUsage,
   type UsageNormalizer,
 } from "../domain/usage";
@@ -50,7 +52,11 @@ export interface UsageManager {
    * newer poll. A replay with no valid source time is stamped at epoch: it
    * can fill an empty store but cannot relabel unknown old data as current.
    * The replay mark remains a stronger guard: replay can fill and MERGE
-   * gaps but never beat LIVE data from this run. */
+   * gaps but never beat LIVE data from this run.
+   *
+   * A normalizer that declares `accountActivity` opts its account claim out
+   * of all of that: the claim counts only behind fresh API activity from
+   * this pane, dated by receipt, and a replay never counts. */
   report(paneId: string, payload: unknown, at?: number): void;
   /** Apply an account-level document that arrived OUTSIDE the pane pipeline
    * — a native limits source or the persisted snapshot. Freshest-wins like
@@ -89,6 +95,11 @@ export function createUsageManager(): UsageManager {
    * finding). */
   const liveAccounts = new Set<string>();
   const livePanes = new Set<string>();
+  /** Per pane: the API counters its last counted claim was witnessed at
+   * ([`gateAccountClaim`]). Runtime-only by design — a restart, a new
+   * session or a retired process starts unknown, so a first sighting can
+   * never pass old limits off as new. */
+  const activity = new Map<string, ApiActivity>();
   const normalizers = new Map<string, UsageNormalizer>();
 
   function emit(): void {
@@ -118,13 +129,20 @@ export function createUsageManager(): UsageManager {
       const result = normalize(payload, sourceAt ?? (catchUp ? 0 : at));
       if (!result) return;
 
+      const gated = gateAccountClaim(activity.get(paneId), result, {
+        catchUp,
+        receivedAt: at,
+      });
+      if (gated.baseline) activity.set(paneId, gated.baseline);
+      const account = gated.account;
+
       let changed = false;
-      if (result.account && !(catchUp && liveAccounts.has(provider))) {
+      if (account && !(catchUp && liveAccounts.has(provider))) {
         if (!catchUp) liveAccounts.add(provider);
         const claimed: AccountUsage =
-          result.account.kind === "reported"
-            ? { ...result.account, sourcePaneId: paneId }
-            : result.account;
+          account.kind === "reported"
+            ? { ...account, sourcePaneId: paneId }
+            : account;
         const current = accounts.get(provider);
         const next = freshest(current, claimed);
         if (next !== current) {
@@ -160,6 +178,9 @@ export function createUsageManager(): UsageManager {
       for (const id of [...livePanes]) {
         if (!liveIds.has(id)) livePanes.delete(id);
       }
+      for (const id of [...activity.keys()]) {
+        if (!liveIds.has(id)) activity.delete(id);
+      }
       if (![...panes.keys()].some((id) => !liveIds.has(id))) return;
       const next = new Map<string, PaneUsage>();
       for (const [id, usage] of panes) {
@@ -171,6 +192,7 @@ export function createUsageManager(): UsageManager {
 
     clearPane(paneId) {
       livePanes.delete(paneId);
+      activity.delete(paneId);
       if (!panes.has(paneId)) return;
       const next = new Map(panes);
       next.delete(paneId);
