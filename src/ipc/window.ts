@@ -18,7 +18,8 @@ export function windowIsFocused(): Promise<boolean> {
  * OS (Rust `pointer_in_window`, which reads the pointer and the window in
  * one coordinate space), for the moments the web view hears nothing: a
  * pointer leaving the window fast through its edge sends the page no event
- * at all. True where the OS cannot say. */
-export function pointerInWindow(): Promise<boolean> {
-  return invoke<boolean>("pointer_in_window");
+ * at all — and not under another app's window there. Null where the OS
+ * cannot say (no native answer on this platform). */
+export function pointerInWindow(): Promise<boolean | null> {
+  return invoke<boolean | null>("pointer_in_window");
 }

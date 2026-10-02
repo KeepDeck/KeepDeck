@@ -13,41 +13,53 @@ pub fn within(x: f64, y: f64, left: f64, bottom: f64, width: f64, height: f64) -
     x >= left && x < left + width && y >= bottom && y < bottom + height
 }
 
-/// Whether the pointer is over the window's content. `true` where the OS
-/// cannot say: an unknown changes nothing.
+/// Whether the pointer is over the window's content — over its box, and
+/// with no other window on top of it there. `None` where the OS cannot
+/// say: the caller stops asking.
+///
+/// SYNC ON PURPOSE: Tauri runs a sync command on the main thread, and
+/// AppKit (NSWindow's frame, the window list) is main-thread only. Made
+/// `async`, it would move to a worker thread and these calls with it.
 #[tauri::command]
-pub fn pointer_in_window(window: tauri::WebviewWindow) -> bool {
+pub fn pointer_in_window(window: tauri::WebviewWindow) -> Option<bool> {
     #[cfg(target_os = "macos")]
     {
         use objc2::runtime::AnyObject;
         use objc2::{class, msg_send};
-        use objc2_foundation::{NSPoint, NSRect};
+        use objc2_foundation::{NSInteger, NSPoint, NSRect};
 
-        let Ok(ns_window) = window.ns_window() else {
-            return true;
-        };
-        let ns_window = ns_window as *mut AnyObject;
+        let ns_window = window.ns_window().ok()? as *mut AnyObject;
         if ns_window.is_null() {
-            return true;
+            return None;
         }
         unsafe {
             let frame: NSRect = msg_send![ns_window, frame];
             let content: NSRect = msg_send![ns_window, contentRectForFrameRect: frame];
             let mouse: NSPoint = msg_send![class!(NSEvent), mouseLocation];
-            within(
+            if !within(
                 mouse.x,
                 mouse.y,
                 content.origin.x,
                 content.origin.y,
                 content.size.width,
                 content.size.height,
-            )
+            ) {
+                return Some(false);
+            }
+            // In our box, but under another app's window: not on us.
+            let ours: NSInteger = msg_send![ns_window, windowNumber];
+            let top: NSInteger = msg_send![
+                class!(NSWindow),
+                windowNumberAtPoint: mouse,
+                belowWindowWithWindowNumber: 0 as NSInteger
+            ];
+            Some(top == ours)
         }
     }
     #[cfg(not(target_os = "macos"))]
     {
         let _ = window;
-        true
+        None
     }
 }
 

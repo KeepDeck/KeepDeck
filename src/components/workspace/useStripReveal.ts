@@ -29,12 +29,11 @@ import { pointerInWindow } from "../../ipc/window";
  * live) — so while the strip is open the OS is asked where the pointer
  * is (`pointerInWindow`), and outside the window is a leave.
  */
-export function useStripReveal(
-  column: RefObject<HTMLElement | null>,
-  suspended: boolean,
-  pointerInside: () => Promise<boolean> = pointerInWindow,
-) {
+export function useStripReveal(column: RefObject<HTMLElement | null>, suspended: boolean) {
   const [state, dispatch] = useReducer(stripReveal, REVEAL_AT_REST);
+  // Pointer events seen so far: an OS answer asked before the latest one
+  // is stale — the page has heard the pointer since.
+  const seen = useRef(0);
 
   useEffect(() => {
     if (!state.dwelling) return;
@@ -60,20 +59,24 @@ export function useStripReveal(
   useEffect(() => {
     if (!state.open || state.suspended) return;
     let alive = true;
+    const stop = () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
     const timer = window.setInterval(() => {
-      pointerInside().then(
+      const asked = seen.current;
+      pointerInWindow().then(
         (inWindow) => {
-          if (alive && !inWindow) dispatch({ kind: "leave" });
+          if (!alive) return;
+          // The OS cannot say (no native answer here): stop asking.
+          if (inWindow === null) stop();
+          else if (!inWindow && seen.current === asked) dispatch({ kind: "leave" });
         },
         // Unanswered (no OS behind the page): the page's own events stand.
         () => {},
       );
     }, STRIP_POINTER_CHECK_MS);
-    return () => {
-      alive = false;
-      window.clearInterval(timer);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return stop;
   }, [state.open, state.suspended]);
 
   useEffect(() => {
@@ -82,6 +85,7 @@ export function useStripReveal(
     // Every pointer event is told as facts (`revealEventsOf`); the machine
     // changes nothing on a fact it already holds.
     const tell = (type: PointerEvidence["type"], e: PointerEvent, under: EventTarget | null) => {
+      seen.current += 1;
       for (const event of revealEventsOf({ type, inColumn: inColumn(under), buttons: e.buttons })) {
         dispatch(event);
       }

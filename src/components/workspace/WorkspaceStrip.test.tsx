@@ -11,9 +11,18 @@ import {
 } from "../../presentation/stripReveal";
 
 // Where the OS says the pointer is — in the window unless a test moves it.
-const os = vi.hoisted(() => ({ inWindow: true }));
+// `answer`, when set, is the one the next ask gets — a test holds it to
+// answer late.
+const os = vi.hoisted(() => ({
+  inWindow: true as boolean | null,
+  asks: 0,
+  answer: null as Promise<boolean | null> | null,
+}));
 vi.mock("../../ipc/window", () => ({
-  pointerInWindow: () => Promise.resolve(os.inWindow),
+  pointerInWindow: () => {
+    os.asks += 1;
+    return os.answer ?? Promise.resolve(os.inWindow);
+  },
 }));
 
 (
@@ -53,6 +62,7 @@ describe("WorkspaceStrip", () => {
   let root: Root;
 
   beforeEach(() => {
+    os.asks = 0;
     for (const fn of Object.values(callbacks)) fn.mockClear();
     host = document.body.appendChild(document.createElement("div"));
     root = createRoot(host);
@@ -472,6 +482,7 @@ describe("WorkspaceStrip as the team switcher", () => {
     );
 
   beforeEach(() => {
+    os.asks = 0;
     for (const fn of Object.values(callbacks)) fn.mockClear();
     vi.useFakeTimers();
     host = document.body.appendChild(document.createElement("div"));
@@ -612,27 +623,94 @@ describe("WorkspaceStrip as the team switcher", () => {
     expect(revealed()).toBe(false);
   });
 
-  it("lets go of the document and the window when it goes away", () => {
-    const added = new Set<string>();
-    const removed = new Set<string>();
-    const spies = [document, window, document.documentElement].flatMap((target) => [
-      vi.spyOn(target, "addEventListener").mockImplementation(function (this: EventTarget, type: string) {
-        added.add(type);
-      } as never),
-      vi.spyOn(target, "removeEventListener").mockImplementation(function (this: EventTarget, type: string) {
-        removed.add(type);
-      } as never),
-    ]);
+  it("lets go of every listener it set, the same way it set it", () => {
+    // Each registration as (target, type, listener, capture): a removal
+    // with another listener or another phase leaves the listener live.
+    type Entry = [EventTarget, string, unknown, boolean];
+    const key = ([t, type, fn, capture]: Entry) => [t, type, fn, capture];
+    const added: Entry[] = [];
+    const removed: Entry[] = [];
+    const capture = (o: unknown) => (typeof o === "boolean" ? o : Boolean((o as { capture?: boolean })?.capture));
+    const spies = [document, window, document.documentElement].flatMap((target) => {
+      const add = target.addEventListener.bind(target);
+      const remove = target.removeEventListener.bind(target);
+      return [
+        vi.spyOn(target, "addEventListener").mockImplementation((type: string, fn: unknown, o?: unknown) => {
+          added.push([target, type, fn, capture(o)]);
+          add(type, fn as EventListener, o as AddEventListenerOptions);
+        }),
+        vi.spyOn(target, "removeEventListener").mockImplementation((type: string, fn: unknown, o?: unknown) => {
+          removed.push([target, type, fn, capture(o)]);
+          remove(type, fn as EventListener, o as EventListenerOptions);
+        }),
+      ];
+    });
     try {
       render();
+      const ours = new Set(["pointerover", "pointermove", "pointerout", "pointerdown", "pointerup", "pointercancel", "mouseleave", "blur", "visibilitychange"]);
+      const set = added.filter(([, type]) => ours.has(type));
+      expect(new Set(set.map(([, type]) => type))).toEqual(ours);
       act(() => root.unmount());
       root = createRoot(host);
-      for (const type of ["pointermove", "pointerout", "pointercancel", "mouseleave", "blur", "visibilitychange"]) {
-        expect(added.has(type)).toBe(true);
-        expect(removed.has(type)).toBe(true);
+      for (const entry of set) {
+        expect(removed.some((r) => key(r).every((part, i) => part === key(entry)[i]))).toBe(true);
       }
     } finally {
       for (const spy of spies) spy.mockRestore();
+    }
+  });
+
+  it("does not open while a button is held across it — a selection or a drag from the stage", () => {
+    render();
+    act(() => void col().dispatchEvent(new PointerEvent("pointerover", { bubbles: true, buttons: 1 })));
+    act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS * 2));
+    expect(revealed()).toBe(false);
+  });
+
+  it("asks the OS only while it is open and no drag holds it", async () => {
+    render();
+    await act(async () => void vi.advanceTimersByTime(STRIP_POINTER_CHECK_MS * 3));
+    expect(os.asks).toBe(0);
+    openStrip();
+    await act(async () => void vi.advanceTimersByTime(STRIP_POINTER_CHECK_MS));
+    expect(os.asks).toBe(1);
+    hover("leave");
+    graced();
+    const asked = os.asks;
+    await act(async () => void vi.advanceTimersByTime(STRIP_POINTER_CHECK_MS * 3));
+    expect(os.asks).toBe(asked);
+  });
+
+  it("stops asking where the OS cannot say", async () => {
+    render();
+    openStrip();
+    os.inWindow = null;
+    try {
+      await act(async () => void vi.advanceTimersByTime(STRIP_POINTER_CHECK_MS));
+      const asked = os.asks;
+      await act(async () => void vi.advanceTimersByTime(STRIP_POINTER_CHECK_MS * 3));
+      expect(os.asks).toBe(asked);
+      expect(revealed()).toBe(true);
+    } finally {
+      os.inWindow = true;
+    }
+  });
+
+  it("drops an OS answer the page has outrun — the pointer came back while it was asked", async () => {
+    render();
+    openStrip();
+    let answer!: (inWindow: boolean) => void;
+    os.answer = new Promise((resolve) => (answer = resolve));
+    try {
+      act(() => void vi.advanceTimersByTime(STRIP_POINTER_CHECK_MS));
+      // Asked while away; the page hears the pointer on the column, then
+      // the late "outside" arrives.
+      pointer("pointermove", col());
+      await act(async () => answer(false));
+      graced();
+      expect(revealed()).toBe(true);
+    } finally {
+      os.answer = null;
     }
   });
 
@@ -742,6 +820,7 @@ describe("WorkspaceStrip dragging from the open strip", () => {
   }
 
   beforeEach(() => {
+    os.asks = 0;
     for (const fn of Object.values(callbacks)) fn.mockClear();
     vi.useFakeTimers();
     originalRect = HTMLElement.prototype.getBoundingClientRect;
