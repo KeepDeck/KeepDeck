@@ -65,16 +65,14 @@ describe("accountActivityStep", () => {
     });
   });
 
-  it("holds a lower or mixed pair and keeps the high-water baseline", () => {
-    // old → new → delayed old → the new pair re-sent: lowering the baseline
-    // on the delayed report would pass the re-send off as fresh activity.
-    let baseline = accountActivityStep(seen(1, 100), seen(2, 200)).baseline;
-    const delayed = accountActivityStep(baseline, seen(1, 100));
-    expect(delayed).toEqual({ baseline: seen(2, 200), counts: false });
-    baseline = delayed.baseline;
-    expect(accountActivityStep(baseline, seen(2, 200)).counts).toBe(false);
-    expect(accountActivityStep(baseline, seen(3, 150))).toEqual({
-      baseline: seen(2, 200),
+  it("holds a lower or mixed pair and restarts the baseline from it", () => {
+    // Counters that restart under the same session (a restore, a same-id
+    // resume) must not silence the pane until they pass the old peak.
+    const restarted = accountActivityStep(seen(5, 9_000), seen(0.1, 50));
+    expect(restarted).toEqual({ baseline: seen(0.1, 50), counts: false });
+    expect(accountActivityStep(restarted.baseline, seen(0.2, 80)).counts).toBe(true);
+    expect(accountActivityStep(seen(2, 200), seen(3, 150))).toEqual({
+      baseline: seen(3, 150),
       counts: false,
     });
   });

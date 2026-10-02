@@ -71,9 +71,12 @@ export function freshest(
  *   claim is unknown and held (the first sighting proves nothing).
  * - Both counters unchanged: an echo; held.
  * - Neither lower, one higher: activity; the claim counts.
- * - Either lower: an out-of-order or restored report; held, and the
- *   high-water baseline KEPT — lowering it would let the next re-send of an
- *   already-counted pair pass as new activity.
+ * - Either lower: the counters restarted (a restore, a same-id resume) or a
+ *   report arrived out of order; held, and the lower pair becomes the
+ *   baseline. A high-water mark would silence the pane until its new
+ *   counters passed the old peak — hours, or never. The cost is that a
+ *   re-sent newer pair counts once more, and that pair carries the NEWEST
+ *   limits, so nothing stale gets through.
  * - No witness at all (`null`): held, baseline untouched.
  */
 export function accountActivityStep(
@@ -88,7 +91,7 @@ export function accountActivityStep(
     next.costUsd < baseline.costUsd ||
     next.apiDurationMs < baseline.apiDurationMs
   ) {
-    return { baseline, counts: false };
+    return { baseline: next, counts: false };
   }
   if (
     next.costUsd === baseline.costUsd &&

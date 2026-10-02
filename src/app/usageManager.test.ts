@@ -221,7 +221,7 @@ describe("claude account activity gate", () => {
     expect(week()).toMatchObject({ reportedAt: 3_000, windows: [{ usedPct: 41 }] });
   });
 
-  it("does not spend activity on a report without limits for a later echo", () => {
+  it("spends the activity on a report without limits — a later echo claims nothing", () => {
     usage.report("pane-1", line("s-1", 40, 2.0, 5_000), 1_000);
     usage.report("pane-1", line("s-1", null, 2.5, 6_000), 2_000);
     // Same counters, limits now present: an echo of nothing new.
