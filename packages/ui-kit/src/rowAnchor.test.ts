@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { pickAnchor, type AnchorRow, type AnchorState } from "./rowAnchor";
 
 // The anchor's CHOICE, verified directly — numbers, not pixels. The
-// stand computes no geometry; the compensation half (getOffsetForIndex
+// stand computes no geometry; the compensation half (the measured start
 // over the full queue) is witnessed integratively in the browser
 // suite — the full-queue lookup and the sameness invariant. The
 // scenario this file exists for: a landed WORKSPACE page inserts rows

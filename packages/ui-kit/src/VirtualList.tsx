@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
 import { useFocusHandoff } from "./useFocusHandoff";
 import { useRowWindow } from "./useRowWindow";
 
@@ -26,11 +26,18 @@ export interface VirtualListProps<T> extends VirtualListMarkup {
   render: (item: T, index: number) => ReactNode;
   /** The scroll container's class — the consumer's, styled by it. */
   className: string;
+  /** The list's role and accessible name — on the `ul` spacer when the
+   * spacer is one, else on the scroll box. */
   role?: string;
   ariaLabel?: string;
   /** Called when the window reaches the last item — the hook for a list
    * that grows as it is scrolled. */
   onReachEnd?: () => void;
+  /** The item kept in view — a keyboard cursor: each time it CHANGES,
+   * the list scrolls just enough to show it. Only on a change: re-showing
+   * it on every render would pull the list back from wherever the person
+   * scrolled to. */
+  revealKey?: string | null;
 }
 
 /**
@@ -51,32 +58,52 @@ export function VirtualList<T>({
   role,
   ariaLabel,
   onReachEnd,
+  revealKey = null,
   spacer,
   item,
 }: VirtualListProps<T>) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const window = useRowWindow({ rows: items, keyOf: itemKey, estimate, scrollRef });
+  const rowWindow = useRowWindow({ rows: items, keyOf: itemKey, estimate, scrollRef });
   // A focused row scrolled out keeps the keyboard's place on the list.
   useFocusHandoff(scrollRef);
 
-  const { atEnd } = window;
+  const { atEnd, reveal } = rowWindow;
   useEffect(() => {
     if (atEnd) onReachEnd?.();
   }, [atEnd, items.length, onReachEnd]);
 
+  // In the layout phase: the frame painted is already scrolled — a passive
+  // effect paints one frame with the cursor out of view first, a stutter
+  // on every held arrow key.
+  useLayoutEffect(() => {
+    if (revealKey === null) return;
+    const index = items.findIndex((it) => itemKey(it) === revealKey);
+    // A key not (yet) among the items is not revealed later: the key must
+    // name an item of the same render that sets it.
+    if (index >= 0) reveal(index);
+    // A change of the key, never of the items: see `revealKey`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [revealKey]);
+
   const Spacer = spacer?.as ?? "div";
   const Item = item?.as ?? "div";
+  // The name and role go on the list itself: a `ul` spacer IS the list a
+  // reader walks, and a label on the generic scroll box around it is not
+  // announced.
+  const named = { role, "aria-label": ariaLabel };
+  const spacerIsList = Spacer === "ul";
   return (
     // Focusable by script only — the handoff's landing, never a Tab stop.
-    <div className={className} ref={scrollRef} role={role} aria-label={ariaLabel} tabIndex={-1}>
+    <div className={className} ref={scrollRef} {...(spacerIsList ? {} : named)} tabIndex={-1}>
       <Spacer
         className={spacer?.className}
-        style={{ height: `${window.totalSize}px`, position: "relative" }}
+        style={{ height: `${rowWindow.totalSize}px`, position: "relative" }}
+        {...(spacerIsList ? named : {})}
       >
-        {window.items.map((slot) => (
+        {rowWindow.items.map((slot) => (
           <Item
             key={slot.key}
-            ref={window.measure}
+            ref={rowWindow.measure}
             data-index={slot.index}
             className={item?.className}
             style={{

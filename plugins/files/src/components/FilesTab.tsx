@@ -8,6 +8,7 @@ import { useFileTree } from "./useFileTree";
 import { requestOpen } from "../openRequests";
 import { visibleRows, type TreeNode } from "../domain/tree";
 import { navigate, type ArrowKey } from "../domain/navigate";
+import { rowsPerPage } from "../presentation/treeLayout";
 import { TreeView } from "./TreeView";
 
 /**
@@ -61,14 +62,6 @@ export function FilesTab({ workspace, selectedPaneId }: DockTabProps) {
     setCursor(null);
   }, [target]);
 
-  // Keep the focused row in view as the cursor moves.
-  useEffect(() => {
-    if (!cursor) return;
-    treeRef.current
-      ?.querySelector('[data-cursor="true"]')
-      ?.scrollIntoView({ block: "nearest" });
-  }, [cursor]);
-
   const rows = visibleRows(state);
 
   const focusTree = () => treeRef.current?.focus();
@@ -105,7 +98,9 @@ export function FilesTab({ workspace, selectedPaneId }: DockTabProps) {
     const key = ARROW_KEYS[event.key];
     if (!key) return;
     event.preventDefault();
-    const action = navigate(state, cursor, key);
+    // A page is the rows the scrolling box shows.
+    const box = treeRef.current?.querySelector<HTMLElement>(".files__scroll");
+    const action = navigate(state, cursor, key, rowsPerPage(box?.clientHeight ?? 0));
     if (action.expand) toggle(action.expand);
     if (action.collapse) toggle(action.collapse);
     if (action.cursor !== cursor) setCursor(action.cursor);
@@ -167,10 +162,16 @@ export function FilesTab({ workspace, selectedPaneId }: DockTabProps) {
   );
 }
 
-/** Arrow keys the tree consumes, mapped to the pure navigator's vocabulary. */
+/** Keys the tree consumes, mapped to the pure navigator's vocabulary. The
+ * tree holds the focus, not the box that scrolls, so the page keys are the
+ * tree's to answer: they move the cursor, and the list follows it. */
 const ARROW_KEYS: Record<string, ArrowKey | undefined> = {
   ArrowUp: "up",
   ArrowDown: "down",
   ArrowLeft: "left",
   ArrowRight: "right",
+  Home: "home",
+  End: "end",
+  PageUp: "pageUp",
+  PageDown: "pageDown",
 };

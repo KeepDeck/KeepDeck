@@ -85,6 +85,20 @@ describe("navigate", () => {
     );
   });
 
+  it("home and end jump to the first and last visible row", () => {
+    const state = sampleTree();
+    expect(navigate(state, "/repo/src/util.ts", "home").cursor).toBe("/repo/src");
+    expect(navigate(state, "/repo/src", "end").cursor).toBe("/repo/readme.md");
+  });
+
+  it("page keys move a page of rows and clamp at the ends", () => {
+    const state = sampleTree();
+    expect(navigate(state, "/repo/src", "pageDown", 2).cursor).toBe("/repo/src/util.ts");
+    expect(navigate(state, "/repo/src/main.ts", "pageDown", 10).cursor).toBe("/repo/readme.md");
+    expect(navigate(state, "/repo/readme.md", "pageUp", 2).cursor).toBe("/repo/src/main.ts");
+    expect(navigate(state, "/repo/src/main.ts", "pageUp", 10).cursor).toBe("/repo/src");
+  });
+
   it("is a no-op on an empty tree", () => {
     const state = initTree("/repo");
     expect(navigate(state, null, "down")).toEqual({ cursor: null });

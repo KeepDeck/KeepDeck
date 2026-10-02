@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   type AgentDialogResult,
   type AgentDialogTarget,
@@ -404,12 +404,17 @@ export function useAgentDialog(
   /** How a session is already held by a pane: running behind a live PTY,
    * stopped (idle — restored, parked or suspended), or not at all — the picker
    * dims claimed rows for resume with the honest wording. */
-  const sessionClaim = (sessionId: string): "running" | "stopped" | null =>
-    sessionClaimant(
-      deckRef.current.workspaces,
-      sessionId,
-      (paneId) => paneId in blockedPanes,
-    )?.reads ?? null;
+  // Stable across the app's renders (the deck is read through its ref):
+  // the picker memoizes its rows on it.
+  const sessionClaim = useCallback(
+    (sessionId: string): "running" | "stopped" | null =>
+      sessionClaimant(
+        deckRef.current.workspaces,
+        sessionId,
+        (paneId) => paneId in blockedPanes,
+      )?.reads ?? null,
+    [blockedPanes],
+  );
 
   /**
    * What the deck says about a candidate directory for THIS dialog — the

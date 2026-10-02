@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   agentRemoteSchemes,
   agentSessionCapabilities,
@@ -19,13 +19,11 @@ import {
   type SessionPreset,
 } from "../../domain/agents";
 import { NO_ROLE, ROLE_WORDS, type RoleChoice } from "../../presentation/roleChoiceView";
-import { rowKeyOf } from "../../domain/journal/sessionRow";
-import { formatAge } from "../../domain/usage/format";
 import { useAgents } from "../../app/useAgents";
 import { useEscape } from "../../ui/useEscape";
+import { useWallClock } from "../../ui/useWallClock";
 import { noAutoCorrect } from "../../ui/inputProps";
 import { ModalOverlay } from "../../ui/ModalOverlay";
-import { baseName } from "../../domain/deck";
 import type { Page } from "../../app/usePagedSessionSearch";
 import { useSessionPicker } from "./useSessionPicker";
 import { WorktreeLocationField } from "./WorktreeLocationField";
@@ -34,6 +32,13 @@ import { Dropdown } from "../../ui/Dropdown";
 import { AgentGlyph } from "../../ui/AgentGlyph";
 import { YoloField } from "../../ui/YoloField";
 import { forkPickLine, resumeBlockReason } from "../../presentation/sessionResumeView";
+import {
+  SESSION_PICK_ESTIMATE_PX,
+  SESSION_PICK_LIST_LABEL,
+  sessionPickItems,
+  sessionPickKey,
+} from "../../presentation/sessionPickView";
+import { VirtualList } from "@keepdeck/ui-kit/VirtualList";
 
 export type { AgentDialogResult } from "../../domain/agents";
 
@@ -260,8 +265,6 @@ export function AgentDialog({
     picked,
     pagedSessions,
     sessions,
-    listRef,
-    onSessionsScroll,
     resumeBlockOf,
     pickSession,
   } = picker;
@@ -300,6 +303,23 @@ export function AgentDialog({
   const validPick =
     picked && picked.handle.agent === agentType ? picked : null;
   const pickedBlock = validPick ? resumeBlockOf(validPick) : null;
+  // The sessions' ages read the app's one wall clock — a clock read in
+  // render re-worded every row on every keystroke. Memoized: a keystroke
+  // elsewhere in the dialog must not rebuild the list (and re-key the
+  // window's measurements).
+  const now = useWallClock();
+  const pickedId = validPick?.handle.sessionId ?? null;
+  const { loadingMore } = pagedSessions;
+  const pickItems = useMemo(
+    () =>
+      sessionPickItems(sessions, {
+        loadingMore,
+        blockOf: startMode === "resume" ? resumeBlockOf : null,
+        pickedId,
+        now,
+      }),
+    [sessions, loadingMore, startMode, resumeBlockOf, pickedId, now],
+  );
   const sessionOk = canStartFromSession(startMode, validPick !== null, pickedBlock);
   // Resume ignores the location entirely (locked to the recorded cwd — the
   // whole worktree block is hidden); everything else gates on both. Remote
@@ -503,50 +523,48 @@ export function AgentDialog({
                 </span>
               )}
             </div>
-            <ul
+            <VirtualList
+              items={pickItems}
+              itemKey={sessionPickKey}
+              estimate={SESSION_PICK_ESTIMATE_PX}
               className="form__sessions"
-              aria-label="Sessions"
-              ref={listRef}
-              onScroll={onSessionsScroll}
-            >
-              {sessions.map((row) => {
-                const block =
-                  startMode === "resume" ? resumeBlockOf(row) : null;
-                const active =
-                  validPick?.handle.sessionId === row.handle.sessionId;
+              // Explicit: WebKit drops the list role of a `list-style: none`
+              // ul, and the name would sit on a generic element.
+              role="list"
+              ariaLabel={SESSION_PICK_LIST_LABEL}
+              spacer={{ as: "ul", className: "form__sessions-list" }}
+              item={{ as: "li" }}
+              onReachEnd={pagedSessions.loadMore}
+              render={(item) => {
+                if (item.kind === "more") {
+                  return (
+                    // The words are its text — read on reaching it — and the
+                    // spinner beside them only for the eye.
+                    <div className="form__session-more">
+                      <span className="form__session-spinner" aria-hidden />
+                      <span className="form__session-more-label">{item.label}</span>
+                    </div>
+                  );
+                }
+                if (item.kind === "empty") {
+                  return <div className="form__session-empty">{item.text}</div>;
+                }
                 return (
-                  <li key={rowKeyOf(row.handle)}>
-                    <button
-                      type="button"
-                      className={`form__session${active ? " form__session--active" : ""}${
-                        block !== null ? " form__session--blocked" : ""
-                      }${block === "busy-outside" ? " form__session--busy" : ""}`}
-                      onClick={() => pickSession(row)}
-                    >
-                      <span className="form__session-name">
-                        {row.handle.title ?? row.handle.sessionId}
-                      </span>
-                      <span className="form__session-meta">
-                        {baseName(row.handle.cwd) || "no directory"} ·{" "}
-                        {formatAge(row.mtime, Date.now())}
-                        {block !== null && ` · ${resumeBlockReason(block)}`}
-                      </span>
-                    </button>
-                  </li>
+                  <button
+                    type="button"
+                    className={`form__session${item.active ? " form__session--active" : ""}${
+                      item.blocked ? " form__session--blocked" : ""
+                    }${item.busy ? " form__session--busy" : ""}${
+                      item.seam ? " form__session--seam" : ""
+                    }`}
+                    onClick={() => pickSession(item.row)}
+                  >
+                    <span className="form__session-name">{item.name}</span>
+                    <span className="form__session-meta">{item.meta}</span>
+                  </button>
                 );
-              })}
-              {pagedSessions.loadingMore && (
-                <li
-                  className="form__session-more"
-                  aria-label="Loading more sessions"
-                >
-                  <span className="form__session-spinner" />
-                </li>
-              )}
-              {sessions.length === 0 && !pagedSessions.loadingMore && (
-                <li className="form__session-empty">No sessions match</li>
-              )}
-            </ul>
+              }}
+            />
             {startMode === "resume" && validPick && (
               pickedBlock === null ? (
                 <span className="form__git">

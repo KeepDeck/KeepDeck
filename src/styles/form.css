@@ -339,15 +339,21 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* The scroll box of a windowed list (ui-kit VirtualList): only the rows
+   in view are mounted, positioned in the list below it. */
 .form__sessions {
   margin: 8px 0 20px;
-  padding: 0;
-  list-style: none;
   max-height: 180px;
   overflow-y: auto;
   border: 1px solid var(--kd-seam);
   border-radius: var(--kd-radius-pop);
   background-color: var(--kd-tile);
+}
+
+.form__sessions-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 .form__session {
@@ -357,15 +363,17 @@
   width: 100%;
   padding: 7px 10px;
   border: none;
-  border-bottom: 1px solid var(--kd-seam);
   background: none;
   font: inherit;
   text-align: left;
   cursor: pointer;
 }
 
-.form__sessions li:last-child .form__session {
-  border-bottom: none;
+/* The seam under a row — every row but the list's last (sessionPickView
+   says which): the list is windowed, so the last MOUNTED row is not the
+   last row, and :last-child would cut a seam mid-list. */
+.form__session--seam {
+  border-bottom: 1px solid var(--kd-seam);
 }
 
 .form__session:hover {
@@ -419,6 +427,16 @@
   align-items: center;
   justify-content: center;
   padding: 8px 0;
+}
+
+/* The tail's words: for a reader, not the eye — the spinner says it. */
+.form__session-more-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .form__session-spinner {

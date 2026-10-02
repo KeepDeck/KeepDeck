@@ -13,7 +13,7 @@
  *
  * The COMPENSATION arithmetic (the delta) is no longer here: the live
  * effect resolves the anchor's index in the FULL queue and asks the
- * library's getOffsetForIndex for its position — measured truth over
+ * library's measured positions for its start — measured truth over
  * our own arithmetic, and the stand witnesses it integratively (the
  * full-queue lookup, the sameness invariant) rather than purely.
  *

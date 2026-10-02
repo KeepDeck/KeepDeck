@@ -25,7 +25,6 @@ import type {
 import type { SessionHandle } from "../../domain/journal";
 import { resumeBlock } from "../../domain/deck";
 import { dirPresent, useDirPresence } from "../history/useDirPresence";
-import { useScrollPaging } from "../../ui/useScrollPaging";
 import { usePagedSessionSearch, type Page } from "../../app/usePagedSessionSearch";
 import { useAppRuntime } from "../../app/runtimeContext";
 
@@ -76,12 +75,6 @@ export function useSessionPicker(deps: {
     ),
   );
   const sessions = pagedSessions.rows;
-  const listRef = useRef<HTMLUListElement | null>(null);
-  const onSessionsScroll = useScrollPaging(
-    listRef,
-    pagedSessions,
-    sessions.length,
-  );
 
   // Re-query as the user types, switches agent, or opens resume/fork. Skipped
   // for "new" (no picker shown); the shared engine debounces and pages.
@@ -160,16 +153,20 @@ export function useSessionPicker(deps: {
   }, [startMode, agentType]);
 
   // The rule is the domain's; this hook only gathers the facts it reads.
-  const resumeBlockOf = (row: SessionPickRow): ResumeBlock =>
-    resumeBlock(
-      {
-        cwd: row.handle.cwd,
-        claimed: sessionClaim(row.handle.sessionId) !== null,
-        busyOutside: liveOutsideIds !== "unknown" && liveOutsideIds.has(row.handle.sessionId),
-        dirPresent: dirPresent(presence, row.handle.cwd),
-      },
-      member,
-    );
+  // Stable while its facts are: the picker's items are memoized on it.
+  const resumeBlockOf = useCallback(
+    (row: SessionPickRow): ResumeBlock =>
+      resumeBlock(
+        {
+          cwd: row.handle.cwd,
+          claimed: sessionClaim(row.handle.sessionId) !== null,
+          busyOutside: liveOutsideIds !== "unknown" && liveOutsideIds.has(row.handle.sessionId),
+          dirPresent: dirPresent(presence, row.handle.cwd),
+        },
+        member,
+      ),
+    [sessionClaim, liveOutsideIds, presence, member],
+  );
 
   const pickSession = (row: SessionPickRow) => {
     // Ignore a click on a row from a DIFFERENT agent than the selected one —
@@ -187,8 +184,6 @@ export function useSessionPicker(deps: {
     picked,
     pagedSessions,
     sessions,
-    listRef,
-    onSessionsScroll,
     resumeBlockOf,
     pickSession,
   };

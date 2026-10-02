@@ -12,6 +12,15 @@ import type {
 import { setRuntime } from "../runtime";
 import { FilesTab } from "./FilesTab";
 import { FilesOverlay } from "./FilesOverlay";
+import {
+  installResizeObserver,
+  pinListViewport,
+} from "@keepdeck/ui-kit/virtualGeometry.test-support";
+
+/** The tree's windowed list, pinned (happy-dom lays nothing out): a
+ * 220px box of 22px rows — ten rows in view. */
+const TREE_PX = 220;
+const TREE_ROW_PX = 22;
 
 (
   globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -140,7 +149,10 @@ describe("FilesTab", () => {
     await act(async () => {});
   };
 
+  let restoreViewport: () => void = () => {};
   beforeEach(() => {
+    installResizeObserver();
+    restoreViewport = pinListViewport("files__scroll", TREE_PX, 300, TREE_ROW_PX);
     vi.clearAllMocks();
     takeOpenRequest(); // a leftover parked request must not leak between tests
     fs = makeFs();
@@ -152,6 +164,7 @@ describe("FilesTab", () => {
   afterEach(() => {
     act(() => root.unmount());
     setRuntime(null);
+    restoreViewport();
   });
 
   it("loads the workspace root and lists children directories-first", async () => {
@@ -303,7 +316,7 @@ describe("FilesTab", () => {
         .dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     });
     expect(document.querySelector(".peek")).toBeNull();
-    expect(document.querySelector(".files__list")).not.toBeNull();
+    expect(document.querySelector(".files__scroll")).not.toBeNull();
   });
 
   it("Enter on a directory toggles it instead of opening a preview", async () => {
@@ -358,5 +371,66 @@ describe("FilesTab", () => {
     expect(document.querySelector(".peek__name")?.textContent).toBe(
       "readme.md",
     );
+  });
+  describe("a long folder", () => {
+    const many = Array.from({ length: 200 }, (_, i) => file(`f${String(i).padStart(3, "0")}.ts`));
+    const list = () => document.querySelector<HTMLElement>(".files__scroll")!;
+
+    it("mounts only the rows in view", async () => {
+      fs.dirs["/repo"] = many;
+      await mount();
+      const shown = treeNames();
+      expect(shown[0]).toBe("f000.ts");
+      expect(shown.length).toBeGreaterThan(5);
+      expect(shown.length).toBeLessThan(40);
+    });
+
+    it("keeps the cursor in view as it moves past the edge", async () => {
+      fs.dirs["/repo"] = many;
+      await mount();
+      for (let i = 0; i < 15; i++) press("ArrowDown");
+      await act(async () => {});
+      expect(activeName()).toBe("f014.ts");
+      // Row 14 ends at 15 × 22 = 330px; a 220px box shows it at its foot.
+      expect(list().scrollTop).toBe(15 * TREE_ROW_PX - TREE_PX);
+    });
+
+    it("pages the cursor by the rows in view, and Home/End reach the ends — the tree holds the keys", async () => {
+      fs.dirs["/repo"] = many;
+      await mount();
+      press("ArrowDown");
+      press("PageDown");
+      await act(async () => {});
+      // Ten rows in a 220px box of 22px rows.
+      expect(activeName()).toBe("f010.ts");
+      press("End");
+      // The scroll event a browser sends after the reveal scrolls (happy-dom
+      // sends none): the window follows the scroll from it.
+      await act(async () => void list().dispatchEvent(new Event("scroll")));
+      expect(activeName()).toBe("f199.ts");
+      expect(list().scrollTop).toBe(200 * TREE_ROW_PX - TREE_PX);
+      press("Home");
+      await act(async () => void list().dispatchEvent(new Event("scroll")));
+      expect(activeName()).toBe("f000.ts");
+    });
+
+    it("leaves a hand scroll where it is — the cursor is shown when it moves, not on every render", async () => {
+      fs.dirs["/repo"] = many;
+      await mount();
+      press("ArrowDown");
+      await act(async () => {
+        list().scrollTop = 1000;
+        list().dispatchEvent(new Event("scroll"));
+      });
+      // A re-render the cursor took no part in: a file lands on disk and
+      // the listing reloads (past the watcher's 250ms debounce).
+      fs.dirs["/repo"] = [...many, file("zzz.ts")];
+      fs.fireChange("/repo");
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 320));
+      });
+      expect(fs.readDir).toHaveBeenCalledTimes(2);
+      expect(list().scrollTop).toBe(1000);
+    });
   });
 });
