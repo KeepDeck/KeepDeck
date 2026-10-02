@@ -429,6 +429,16 @@
   padding: 8px 0;
 }
 
+/* The tail's words: for a reader, not the eye — the spinner says it. */
+.form__session-more-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .form__session-spinner {
   flex: none;
   width: 14px;

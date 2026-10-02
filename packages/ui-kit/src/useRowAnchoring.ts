@@ -202,7 +202,11 @@ export function useRowAnchoring<Row>({
   });
   useEffect(() => {
     const list = listRef.current;
-    if (!list) return;
+    if (!list) {
+      // The CONTRACT above, broken loudly: unheard, the anchor goes stale.
+      console.warn("useRowAnchoring: no scroll element at mount — the anchor will not follow scrolling");
+      return;
+    }
     const onScroll = () => {
       const anchor = anchorRef.current;
       if (anchor === null) return;

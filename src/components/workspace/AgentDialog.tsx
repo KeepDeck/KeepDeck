@@ -528,6 +528,9 @@ export function AgentDialog({
               itemKey={sessionPickKey}
               estimate={SESSION_PICK_ESTIMATE_PX}
               className="form__sessions"
+              // Explicit: WebKit drops the list role of a `list-style: none`
+              // ul, and the name would sit on a generic element.
+              role="list"
               ariaLabel={SESSION_PICK_LIST_LABEL}
               spacer={{ as: "ul", className: "form__sessions-list" }}
               item={{ as: "li" }}
@@ -535,9 +538,11 @@ export function AgentDialog({
               render={(item) => {
                 if (item.kind === "more") {
                   return (
-                    // A status, so the name is announced (a plain div's is not).
-                    <div className="form__session-more" role="status" aria-label={item.label}>
-                      <span className="form__session-spinner" />
+                    // The words are its text — read on reaching it — and the
+                    // spinner beside them only for the eye.
+                    <div className="form__session-more">
+                      <span className="form__session-spinner" aria-hidden />
+                      <span className="form__session-more-label">{item.label}</span>
                     </div>
                   );
                 }

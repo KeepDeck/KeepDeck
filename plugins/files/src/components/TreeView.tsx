@@ -105,7 +105,6 @@ function TreeRowItem({
 
 const rowPath = (row: TreeRow): string => row.node.path;
 
-
 function glyph(node: TreeNode) {
   switch (node.kind) {
     case "dir":
