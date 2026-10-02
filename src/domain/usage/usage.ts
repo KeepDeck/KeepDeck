@@ -1,4 +1,9 @@
-import type { AccountUsage, PaneUsage, UsageWindow } from "@keepdeck/plugin-api";
+import type {
+  AccountUsage,
+  ApiActivity,
+  PaneUsage,
+  UsageWindow,
+} from "@keepdeck/plugin-api";
 
 /**
  * Usage domain — the host-side rules over the usage contract. The TYPES and
@@ -22,6 +27,7 @@ import type { AccountUsage, PaneUsage, UsageWindow } from "@keepdeck/plugin-api"
 
 export type {
   AccountUsage,
+  ApiActivity,
   NormalizedUsage,
   PaneUsage,
   TokenCounts,
@@ -48,6 +54,49 @@ export function freshest(
 ): AccountUsage {
   if (!current) return incoming;
   return incoming.reportedAt > current.reportedAt ? incoming : current;
+}
+
+/**
+ * May this report's account claim count? One step of a pane's API-activity
+ * witness: the claim counts only when the pane's cumulative API counters
+ * moved since the last report — the limits ride on API responses, so no
+ * call means no new limits, however new the envelope.
+ *
+ * Why a witness and not a timestamp: claude's statusLine re-runs on a timer
+ * and re-sends the SAME frozen limits, and the transcript mtime that used to
+ * date them is touched hourly by claude's own housekeeping with no API call
+ * behind it. A stale 67% stamped fresh sat between live 69%s — the sawtooth.
+ *
+ * - No baseline, or a different session: this becomes the baseline; the
+ *   claim is unknown and held (the first sighting proves nothing).
+ * - Both counters unchanged: an echo; held.
+ * - Neither lower, one higher: activity; the claim counts.
+ * - Either lower: an out-of-order or restored report; held, and the
+ *   high-water baseline KEPT — lowering it would let the next re-send of an
+ *   already-counted pair pass as new activity.
+ * - No witness at all (`null`): held, baseline untouched.
+ */
+export function accountActivityStep(
+  baseline: ApiActivity | undefined,
+  next: ApiActivity | null,
+): { baseline: ApiActivity | undefined; counts: boolean } {
+  if (next === null) return { baseline, counts: false };
+  if (!baseline || baseline.sessionId !== next.sessionId) {
+    return { baseline: next, counts: false };
+  }
+  if (
+    next.costUsd < baseline.costUsd ||
+    next.apiDurationMs < baseline.apiDurationMs
+  ) {
+    return { baseline, counts: false };
+  }
+  if (
+    next.costUsd === baseline.costUsd &&
+    next.apiDurationMs === baseline.apiDurationMs
+  ) {
+    return { baseline, counts: false };
+  }
+  return { baseline: next, counts: true };
 }
 
 /** Merge a pane's usage across partial reports: codex delivers the model

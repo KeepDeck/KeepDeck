@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  accountActivityStep,
   contextPct,
   freshest,
   hydrateUsageCache,
@@ -27,6 +28,66 @@ describe("freshest", () => {
     expect(freshest(at(9), at(5))).toEqual(at(9));
     const incumbent = at(7);
     expect(freshest(incumbent, at(7))).toBe(incumbent);
+  });
+});
+
+describe("accountActivityStep", () => {
+  const seen = (costUsd: number, apiDurationMs: number, sessionId = "s") => ({
+    sessionId,
+    costUsd,
+    apiDurationMs,
+  });
+
+  it("takes a first sighting or a new session as the baseline, counting neither", () => {
+    expect(accountActivityStep(undefined, seen(1, 100))).toEqual({
+      baseline: seen(1, 100),
+      counts: false,
+    });
+    expect(accountActivityStep(seen(1, 100), seen(5, 900, "other"))).toEqual({
+      baseline: seen(5, 900, "other"),
+      counts: false,
+    });
+  });
+
+  it("counts when either counter rises and neither falls", () => {
+    expect(accountActivityStep(seen(1, 100), seen(1.5, 200))).toEqual({
+      baseline: seen(1.5, 200),
+      counts: true,
+    });
+    // A zero-cost call still costs API time.
+    expect(accountActivityStep(seen(1, 100), seen(1, 150)).counts).toBe(true);
+  });
+
+  it("holds an echo — both counters unchanged", () => {
+    expect(accountActivityStep(seen(1, 100), seen(1, 100))).toEqual({
+      baseline: seen(1, 100),
+      counts: false,
+    });
+  });
+
+  it("holds a lower or mixed pair and keeps the high-water baseline", () => {
+    // old → new → delayed old → the new pair re-sent: lowering the baseline
+    // on the delayed report would pass the re-send off as fresh activity.
+    let baseline = accountActivityStep(seen(1, 100), seen(2, 200)).baseline;
+    const delayed = accountActivityStep(baseline, seen(1, 100));
+    expect(delayed).toEqual({ baseline: seen(2, 200), counts: false });
+    baseline = delayed.baseline;
+    expect(accountActivityStep(baseline, seen(2, 200)).counts).toBe(false);
+    expect(accountActivityStep(baseline, seen(3, 150))).toEqual({
+      baseline: seen(2, 200),
+      counts: false,
+    });
+  });
+
+  it("holds a report with no witness and leaves the baseline alone", () => {
+    expect(accountActivityStep(seen(1, 100), null)).toEqual({
+      baseline: seen(1, 100),
+      counts: false,
+    });
+    expect(accountActivityStep(undefined, null)).toEqual({
+      baseline: undefined,
+      counts: false,
+    });
   });
 });
 

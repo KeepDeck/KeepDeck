@@ -64,6 +64,31 @@ describe("normalizeClaudeStatusline", () => {
     });
   });
 
+  it("gates the account behind the session's API cumulatives", () => {
+    const witnessed = {
+      ...FULL,
+      cost: { ...FULL.cost, total_api_duration_ms: 12_000 },
+    };
+    expect(normalizeClaudeStatusline(report(witnessed), AT)?.accountActivity).toEqual({
+      sessionId: "abc-123",
+      costUsd: 0.01234,
+      apiDurationMs: 12_000,
+    });
+    // Context and current-turn tokens are no witness: they describe the
+    // current response. Without the API time the gate stays shut — `null`,
+    // never an ungated claim.
+    expect(normalizeClaudeStatusline(report(FULL), AT)?.accountActivity).toBeNull();
+    const { session_id: _omitted, ...sessionless } = witnessed;
+    expect(
+      normalizeClaudeStatusline(report(sessionless), AT)?.accountActivity,
+    ).toBeNull();
+    // Even a report with no limits declares the gate.
+    const { rate_limits: _none, ...limitless } = witnessed;
+    const result = normalizeClaudeStatusline(report(limitless), AT);
+    expect(result?.account).toBeNull();
+    expect(result?.accountActivity).not.toBeUndefined();
+  });
+
   it("keeps unknown rate-limit keys as scoped windows instead of dropping them", () => {
     const result = normalizeClaudeStatusline(
       report({

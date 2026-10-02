@@ -85,6 +85,21 @@ export interface PaneUsage {
 export interface NormalizedUsage {
   account: AccountUsage | null;
   pane: PaneUsage | null;
+  /** Present when the account claim may only count after the pane talked to
+   * the API — for a reporter that re-sends the SAME frozen limits on a timer
+   * and has no capture time of its own. `null` declares the gate with no
+   * usable witness this time: the claim is held, never let through. Absent:
+   * the claim stands on its own timestamp (polls, tailed events). */
+  accountActivity?: ApiActivity | null;
+}
+
+/** A pane's cumulative API counters — they move on every API call and on
+ * nothing else, which is what makes them a witness that the limits beside
+ * them were refreshed. */
+export interface ApiActivity {
+  sessionId: string;
+  costUsd: number;
+  apiDurationMs: number;
 }
 
 /** A per-agent normalizer: raw bridge payload → normalized usage, or null

@@ -47,6 +47,7 @@ export { updateQuestionCalls, reduceQuestionStatus, type QuestionCalls, type Que
 export type {
   AccountUsage,
   AgentUsage,
+  ApiActivity,
   LimitsNormalizer,
   NormalizedUsage,
   PaneUsage,

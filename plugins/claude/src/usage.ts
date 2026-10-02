@@ -6,6 +6,7 @@ import {
   collectTokenCounts,
   isJsonRecord,
   type AccountUsage,
+  type ApiActivity,
   type PaneUsage,
   type TailWatch,
   type UsageNormalizer,
@@ -97,6 +98,7 @@ function window(
 
 /**
  * Account: `rate_limits` maps keys → windows by the known-minutes table;
+ * the claim counts only behind an API-activity witness ([`apiActivity`]);
  * unknown keys of the same shape still normalize (windowMinutes null,
  * scoped) so a future window appears instead of vanishing. Absent
  * rate_limits is NEVER a claim: a resumed subscription session reports
@@ -154,6 +156,10 @@ export const normalizeClaudeStatusline: UsageNormalizer = (payload, at) => {
   const cost = isJsonRecord(line.cost)
     ? asFiniteNumber(line.cost.total_cost_usd)
     : undefined;
+  const apiDurationMs = isJsonRecord(line.cost)
+    ? asFiniteNumber(line.cost.total_api_duration_ms)
+    : undefined;
+  const sessionId = asNonEmptyString(line.session_id);
 
   const model = isJsonRecord(line.model) ? line.model : undefined;
   const modelName = model
@@ -187,9 +193,7 @@ export const normalizeClaudeStatusline: UsageNormalizer = (payload, at) => {
 
   const pane: PaneUsage = {
     agent: "claude",
-    ...(asNonEmptyString(line.session_id)
-      ? { sessionId: asNonEmptyString(line.session_id) }
-      : {}),
+    ...(sessionId ? { sessionId } : {}),
     ...(modelName ? { model: modelName } : {}),
     ...(usedPct !== undefined
       ? {
@@ -204,5 +208,32 @@ export const normalizeClaudeStatusline: UsageNormalizer = (payload, at) => {
     reportedAt: at,
   };
 
-  return { account, pane };
+  return { account, pane, accountActivity: apiActivity(sessionId, cost, apiDurationMs) };
 };
+
+/**
+ * The witness that gates every statusline account claim. The statusLine
+ * re-runs on its refresh timer and re-sends whatever limits the process last
+ * received, so the limits alone cannot say they are new; these two session
+ * cumulatives move on every API call — subagents' included, whose responses
+ * refresh the same account limits — and on nothing else. NOT
+ * `context_window.total_*` or `current_usage`: those describe the current
+ * response, and repeat or fall between calls. Missing or odd counters are no
+ * witness (`null`), never a fallback to an ungated claim.
+ */
+function apiActivity(
+  sessionId: string | undefined,
+  costUsd: number | undefined,
+  apiDurationMs: number | undefined,
+): ApiActivity | null {
+  if (
+    sessionId === undefined ||
+    costUsd === undefined ||
+    apiDurationMs === undefined ||
+    costUsd < 0 ||
+    apiDurationMs < 0
+  ) {
+    return null;
+  }
+  return { sessionId, costUsd, apiDurationMs };
+}
