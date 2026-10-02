@@ -305,7 +305,11 @@ export function allowanceWindow(
         : undefined;
   if (usedPct === undefined) return null;
   return {
-    usedPct: clampPercent(usedPct),
+    // Hundredths, not whole percents: count-division leaves float residue
+    // (7/100*100 = 7.000000000000001) that would otherwise reach the store
+    // and the journal verbatim, while a real 0.4% of a large allowance must
+    // survive.
+    usedPct: Math.round(clampPercent(usedPct) * 100) / 100,
     resetsAt: opts.resetsAt ?? null,
     windowMinutes: opts.windowMinutes,
     ...(opts.scope ? { scope: opts.scope } : {}),

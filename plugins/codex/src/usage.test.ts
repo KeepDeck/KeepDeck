@@ -280,11 +280,11 @@ describe("normalizeCodexRateLimits", () => {
       windows: [
         {
           // From the counts (5532.93 / 16000), not the integer-rounded
-          // remainingPercent. windowMinutes stays null — the payload states
+          // remainingPercent, to hundredths. windowMinutes stays null — the payload states
           // no duration, and the domain labels a duration-less window
           // "plan". No scope: this is the account's only limit, and a scope
           // would hide it from the chip.
-          usedPct: (5532.926625013351 / 16000) * 100,
+          usedPct: 34.58,
           resetsAt: 1_785_542_401_000,
           windowMinutes: null,
         },
