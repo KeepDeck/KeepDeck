@@ -2,9 +2,11 @@ import { useEffect, useLayoutEffect, useReducer, useRef, type RefObject } from "
 import {
   REVEAL_AT_REST,
   STRIP_REVEAL_DWELL_MS,
+  STRIP_POINTER_CHECK_MS,
   STRIP_REVEAL_GRACE_MS,
   stripReveal,
 } from "../../presentation/stripReveal";
+import { pointerInWindow } from "../../ipc/window";
 
 /**
  * The strip's slide-out, wired: the rules are `stripReveal`'s; this keeps
@@ -20,10 +22,43 @@ import {
  * the column (an overlay covering the column is not — the hit test, not a
  * rectangle), so a missed crossing is caught by the next move. Leaving the
  * window, losing focus and hiding the page count as leaving: when in
- * doubt the strip shuts rather than sticks.
+ * doubt the strip shuts rather than sticks. And a pointer that leaves the
+ * window fast through its edge sends the page NOTHING (WKWebView, seen
+ * live) — so while the strip is open the OS is asked where the pointer
+ * is (`pointerInWindow`), and outside the window is a leave.
  */
-export function useStripReveal(column: RefObject<HTMLElement | null>, suspended: boolean) {
+export function useStripReveal(
+  column: RefObject<HTMLElement | null>,
+  suspended: boolean,
+  pointerInside: () => Promise<boolean> = pointerInWindow,
+) {
   const [state, dispatch] = useReducer(stripReveal, REVEAL_AT_REST);
+  // What the machine was last told: it hears a crossing once.
+  const inside = useRef(false);
+  const sync = useRef((now: boolean) => {
+    if (now === inside.current) return;
+    inside.current = now;
+    dispatch({ kind: now ? "enter" : "leave" });
+  }).current;
+
+  useEffect(() => {
+    if (!state.open || state.suspended) return;
+    let alive = true;
+    const timer = window.setInterval(() => {
+      pointerInside().then(
+        (inWindow) => {
+          if (alive && !inWindow) sync(false);
+        },
+        // Unanswered (no OS behind the page): the page's own events stand.
+        () => {},
+      );
+    }, STRIP_POINTER_CHECK_MS);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.open, state.suspended]);
 
   useEffect(() => {
     if (!state.dwelling) return;
@@ -47,13 +82,6 @@ export function useStripReveal(column: RefObject<HTMLElement | null>, suspended:
   }, [suspended]);
 
   useEffect(() => {
-    // The machine hears a crossing once: `inside` here is what it was told.
-    let inside = false;
-    const sync = (now: boolean) => {
-      if (now === inside) return;
-      inside = now;
-      dispatch({ kind: now ? "enter" : "leave" });
-    };
     const within = (node: EventTarget | null) =>
       node instanceof Node && (column.current?.contains(node) ?? false);
     // The element now under the pointer: the event's target, or — for an
@@ -62,11 +90,11 @@ export function useStripReveal(column: RefObject<HTMLElement | null>, suspended:
     const onOut = (e: PointerEvent) => sync(within(e.relatedTarget));
     const onDown = (e: PointerEvent) => {
       sync(within(e.target));
-      if (inside) dispatch({ kind: "press" });
+      if (inside.current) dispatch({ kind: "press" });
     };
     const onUp = (e: PointerEvent) => {
       sync(within(e.target));
-      if (inside) dispatch({ kind: "release" });
+      if (inside.current) dispatch({ kind: "release" });
     };
     const gone = () => sync(false);
     const onHidden = () => {

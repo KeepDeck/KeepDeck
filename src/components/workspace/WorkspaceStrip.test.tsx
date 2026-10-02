@@ -4,7 +4,17 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { StripTeam, StripView, WorkspaceMark } from "../../presentation/stripView";
 import { WorkspaceStrip } from "./WorkspaceStrip";
-import { STRIP_REVEAL_DWELL_MS, STRIP_REVEAL_GRACE_MS } from "../../presentation/stripReveal";
+import {
+  STRIP_POINTER_CHECK_MS,
+  STRIP_REVEAL_DWELL_MS,
+  STRIP_REVEAL_GRACE_MS,
+} from "../../presentation/stripReveal";
+
+// Where the OS says the pointer is — in the window unless a test moves it.
+const os = vi.hoisted(() => ({ inWindow: true }));
+vi.mock("../../ipc/window", () => ({
+  pointerInWindow: () => Promise.resolve(os.inWindow),
+}));
 
 (
   globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -398,7 +408,8 @@ describe("WorkspaceStrip opening on approach", () => {
     pointer("enter");
     act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS));
     pointer("leave");
-    expect(vi.getTimerCount()).toBe(1);
+    // The grace, and the open strip's asking the OS where the pointer is.
+    expect(vi.getTimerCount()).toBe(2);
     act(() => root.unmount());
     expect(vi.getTimerCount()).toBe(0);
     root = createRoot(host);
@@ -588,6 +599,26 @@ describe("WorkspaceStrip as the team switcher", () => {
     pointer("pointermove");
     graced();
     expect(revealed()).toBe(false);
+  });
+
+  it("shuts when the OS says the pointer left the window though the page heard nothing", async () => {
+    render();
+    openStrip();
+    os.inWindow = false;
+    try {
+      await act(async () => void vi.advanceTimersByTime(STRIP_POINTER_CHECK_MS));
+      graced();
+      expect(revealed()).toBe(false);
+    } finally {
+      os.inWindow = true;
+    }
+  });
+
+  it("stays open while the OS has the pointer in the window", async () => {
+    render();
+    openStrip();
+    await act(async () => void vi.advanceTimersByTime(STRIP_POINTER_CHECK_MS * 5));
+    expect(revealed()).toBe(true);
   });
 
   it("shuts when the pointer leaves the window, the window loses focus, or the page hides", () => {

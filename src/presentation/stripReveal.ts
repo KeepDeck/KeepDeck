@@ -19,6 +19,11 @@ export const STRIP_REVEAL_DWELL_MS = 250;
  * way to one must not lose the column; coming back inside keeps it open. */
 export const STRIP_REVEAL_GRACE_MS = 200;
 
+/** How often an open strip asks the OS whether the pointer is still in the
+ * window: a pointer leaving fast through the window's edge sends the page
+ * nothing, and only this notices it went. */
+export const STRIP_POINTER_CHECK_MS = 150;
+
 export interface RevealState {
   open: boolean;
   /** The pointer is over the column. */
