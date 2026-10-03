@@ -269,6 +269,7 @@ function listCommand(deps: TaskCommandDeps): CommandSpec {
       const status = statusArg(args);
       const label = str(args, "label");
       const wanted = label === undefined ? undefined : normalizeLabel(label);
+      if (wanted === "") throw new Error(`"${label}" is not a label`);
       const tasks = tasksOfTeam(board, team.id).filter(
         (task) =>
           (assignee === undefined || task.assignee === (assignee === "pool" ? null : assignee)) &&

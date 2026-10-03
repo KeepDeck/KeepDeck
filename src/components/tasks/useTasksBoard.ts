@@ -324,14 +324,8 @@ export function useTasksBoard(
       void apply(taskId, [attachArtifact(task, slug)]);
     },
     /** Resolves to whether the label landed; the field clears only then. */
-    addLabel: (taskId: string, label: string): Promise<boolean> => {
-      const task = board ? findTask(board, taskId) : undefined;
-      return task ? apply(taskId, [addLabel(task, label)]) : Promise.resolve(false);
-    },
-    removeLabel: (taskId: string, label: string) => {
-      const task = board ? findTask(board, taskId) : undefined;
-      if (task) void apply(taskId, [removeLabel(task, label)]);
-    },
+    addLabel: (taskId: string, label: string): Promise<boolean> => apply(taskId, [addLabel(label)]),
+    removeLabel: (taskId: string, label: string) => void apply(taskId, [removeLabel(label)]),
     detachArtifact: (taskId: string, slug: string) => {
       const task = board ? findTask(board, taskId) : undefined;
       if (!task) return;

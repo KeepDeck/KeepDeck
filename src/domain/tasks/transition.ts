@@ -35,7 +35,12 @@ export type TaskChange =
   | { kind: "body"; to: string }
   | { kind: "blockedBy"; to: readonly string[] }
   | { kind: "artifacts"; to: readonly string[] }
+  /** The whole set, replacing what is there. */
   | { kind: "labels"; to: readonly string[] }
+  /** One label on, or off — applied to the task as it stands when the
+   * change lands, so a label put on by someone else meanwhile stays. */
+  | { kind: "addLabel"; label: string }
+  | { kind: "removeLabel"; label: string }
   | { kind: "comment"; body: string };
 
 /** The change that attaches `slug` to `task`. A slug already there is
@@ -49,15 +54,15 @@ export function detachArtifact(task: Pick<Task, "artifacts">, slug: string): Tas
   return { kind: "artifacts", to: task.artifacts.filter((other) => other !== slug) };
 }
 
-/** The change that puts `label` on `task`. Normalising it, and folding a
+/** The change that puts `label` on a task. Normalising it, and folding a
  * label already there, is the transition's — one rule, applied once. */
-export function addLabel(task: Pick<Task, "labels">, label: string): TaskChange {
-  return { kind: "labels", to: [...task.labels, label] };
+export function addLabel(label: string): TaskChange {
+  return { kind: "addLabel", label };
 }
 
-/** The change that takes `label` off `task`. */
-export function removeLabel(task: Pick<Task, "labels">, label: string): TaskChange {
-  return { kind: "labels", to: task.labels.filter((other) => other !== label) };
+/** The change that takes `label` off a task. */
+export function removeLabel(label: string): TaskChange {
+  return { kind: "removeLabel", label };
 }
 
 /** Why a change was refused — data, so the rendering stays with the
@@ -165,18 +170,31 @@ function normalizeIds(ids: readonly string[]): string[] {
   return [...new Set(ids.map((id) => id.trim()).filter((id) => id !== ""))];
 }
 
-/** A label as the board keeps it: trimmed, lowercased, runs of spaces,
+/** A label as the board keeps it: in its compatibility-composed form
+ * (NFKC — a decomposed "café" and a full-width "２０２６" are the label
+ * their plain spelling is), trimmed, lowercased, runs of spaces,
  * underscores and dashes made one dash, none at either end — "Copy Edit"
  * is `copy-edit`. */
 export function normalizeLabel(raw: string): string {
   return raw
+    .normalize("NFKC")
     .trim()
     .toLowerCase()
     .replace(/[\s_-]+/g, "-")
     .replace(/^-+|-+$/g, "");
 }
 
-const LABEL_WORD = /^[\p{Ll}\p{Lo}\p{N}]+(-[\p{Ll}\p{Lo}\p{N}]+)*$/u;
+/** A word in any script: it starts on a letter or digit, and goes on in
+ * letters, digits and the marks a script writes on them (हिन्दी's vowel
+ * signs, Hebrew points, the dot "İ" lowercases to) — words joined by
+ * single dashes. */
+const LABEL_WORD = /^[\p{Ll}\p{Lo}\p{N}][\p{Ll}\p{Lm}\p{Lo}\p{N}\p{M}]*(-[\p{Ll}\p{Lo}\p{N}][\p{Ll}\p{Lm}\p{Lo}\p{N}\p{M}]*)*$/u;
+
+/** A label's length as a person counts it — characters, not the UTF-16
+ * units an ideograph outside the basic plane takes two of. */
+function labelLength(label: string): number {
+  return [...label].length;
+}
 
 /** A task's labels as kept — normalised, deduped, sorted, so a reordering
  * is no edit — or why they cannot be. The one rule the change and the
@@ -186,7 +204,7 @@ export function normalizeLabels(
 ): { ok: true; labels: string[] } | { ok: false; refusal: TaskRefusal } {
   const labels = [...new Set(raw.map(normalizeLabel))].sort();
   const max = TASK_CAPS.labelMax;
-  const bad = labels.find((label) => label.length > max || !LABEL_WORD.test(label));
+  const bad = labels.find((label) => labelLength(label) > max || !LABEL_WORD.test(label));
   if (bad !== undefined) return refuse({ kind: "bad-label", label: bad, max });
   if (labels.length > TASK_CAPS.labelsMax) {
     return refuse({ kind: "too-many-labels", max: TASK_CAPS.labelsMax });
@@ -421,6 +439,12 @@ export function transition(
         ),
       };
     }
+    case "addLabel":
+      return transition(task, { kind: "labels", to: [...task.labels, change.label] }, actor, ctx);
+    case "removeLabel": {
+      const gone = normalizeLabel(change.label);
+      return transition(task, { kind: "labels", to: task.labels.filter((label) => label !== gone) }, actor, ctx);
+    }
     case "comment": {
       const problem = commentProblem(change.body);
       if (problem) return refuse(problem);
@@ -549,6 +573,11 @@ export function createTask(
   if (badBlockers) return refuse(badBlockers);
   const labels = normalizeLabels(input.labels ?? []);
   if (!labels.ok) return labels;
+  // The labelling rule the change applies: a working role labels only
+  // what it holds — never a pool task it could not touch again.
+  if (labels.labels.length > 0 && !mayLabel(actor, { assignee })) {
+    return refuse({ kind: "not-yours-to-label", assignee });
+  }
   const task: Task = {
     id: `task-${ctx.board.nextId}`,
     teamId: input.teamId,

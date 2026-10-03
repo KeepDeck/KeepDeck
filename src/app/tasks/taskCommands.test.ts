@@ -188,6 +188,12 @@ describe("task commands", () => {
     expect(await refused("task.update", { id: "task-1", labels: "a/b" }, LEAD)).toContain("is not a label");
   });
 
+  it("refuses labels sent as an array — never drops them — and names a filter that is no label", async () => {
+    const { refused } = setup();
+    expect(await refused("task.create", { title: "Copy pass", labels: ["ui"] as never }, LEAD)).toContain('"labels" must be a string');
+    expect(await refused("task.list", { label: "--" }, LEAD)).toContain('"--" is not a label');
+  });
+
   it("tells the agent when its change is held but not on disk", async () => {
     const { run, store } = setup();
     const landed = await run("task.create", { title: "a" }, LEAD);
