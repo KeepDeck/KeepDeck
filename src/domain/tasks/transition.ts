@@ -49,6 +49,17 @@ export function detachArtifact(task: Pick<Task, "artifacts">, slug: string): Tas
   return { kind: "artifacts", to: task.artifacts.filter((other) => other !== slug) };
 }
 
+/** The change that puts `label` on `task`. Normalising it, and folding a
+ * label already there, is the transition's — one rule, applied once. */
+export function addLabel(task: Pick<Task, "labels">, label: string): TaskChange {
+  return { kind: "labels", to: [...task.labels, label] };
+}
+
+/** The change that takes `label` off `task`. */
+export function removeLabel(task: Pick<Task, "labels">, label: string): TaskChange {
+  return { kind: "labels", to: task.labels.filter((other) => other !== label) };
+}
+
 /** Why a change was refused — data, so the rendering stays with the
  * surface that speaks to the caller. */
 export type TaskRefusal =

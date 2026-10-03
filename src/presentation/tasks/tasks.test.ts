@@ -261,3 +261,20 @@ describe("columnLabelClassName", () => {
     expect(columnLabelClassName("in-progress")).toBe("tasks__column-label tasks__column-label--in-progress");
   });
 });
+
+describe("taskDetailView — labels", () => {
+  it("lists the task's labels, offers the team's others, and says when no more fit", () => {
+    const b = board([
+      task({ id: "task-1", labels: ["ui"] }),
+      task({ id: "task-2", labels: ["ui", "bell"] }),
+      task({ id: "task-3", teamId: "team-2", labels: ["elsewhere"] }),
+    ]);
+    const view = taskDetailView(b.tasks[0], b, [], 0);
+    expect(view.labels).toEqual([{ label: "ui", removeLabel: "Remove ui" }]);
+    // Another team's words are not this board's vocabulary.
+    expect(view.labelOptions).toEqual(["bell"]);
+    expect(view.labelsFull).toBeNull();
+    const full = task({ id: "task-4", labels: ["a", "b", "c", "d", "e"] });
+    expect(taskDetailView(full, board([full]), [], 0).labelsFull).toBe(TASK_DETAIL_WORDS.labelsFull(5));
+  });
+});

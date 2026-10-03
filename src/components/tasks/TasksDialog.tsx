@@ -99,6 +99,8 @@ function WorkspaceBoard({
       onAttach={board.attachArtifact}
       onDetach={board.detachArtifact}
       onOpenArtifact={board.openArtifact}
+      onLabel={board.addLabel}
+      onUnlabel={board.removeLabel}
     />
   ) : null;
 

@@ -11,11 +11,13 @@ import { refusalText } from "../../app/tasks/refusalText";
 import { teamsOf, type Workspace } from "../../domain/deck";
 import {
   USER_ACTOR,
+  addLabel,
   attachArtifact,
   detachArtifact,
   findTask,
   labelsOf,
   reachableStatuses,
+  removeLabel,
   tasksOfTeam,
   type CreateTaskInput,
   type TaskChange,
@@ -293,6 +295,15 @@ export function useTasksBoard(
       const task = board ? findTask(board, taskId) : undefined;
       if (!task) return;
       void apply(taskId, [attachArtifact(task, slug)]);
+    },
+    /** Resolves to whether the label landed; the field clears only then. */
+    addLabel: (taskId: string, label: string): Promise<boolean> => {
+      const task = board ? findTask(board, taskId) : undefined;
+      return task ? apply(taskId, [addLabel(task, label)]) : Promise.resolve(false);
+    },
+    removeLabel: (taskId: string, label: string) => {
+      const task = board ? findTask(board, taskId) : undefined;
+      if (task) void apply(taskId, [removeLabel(task, label)]);
     },
     detachArtifact: (taskId: string, slug: string) => {
       const task = board ? findTask(board, taskId) : undefined;

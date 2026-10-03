@@ -4,7 +4,9 @@ import {
   USER_ACTOR,
   findTask,
   issuable,
+  labelsOf,
   reachableStatuses,
+  tasksOfTeam,
   unblocks,
   type Task,
   type TaskBoard,
@@ -55,6 +57,13 @@ export interface TaskDetailView {
   /** Attached artifacts, titled when the registry knows them; a slug the
    * registry no longer holds is still shown — the task said so. */
   artifacts: { slug: string; title: string; known: boolean; openTitle: string; detachLabel: string }[];
+  /** The task's labels, each with the name of its × . */
+  labels: { label: string; removeLabel: string }[];
+  /** The team's other labels — what the add field offers first. Free text
+   * is a label too: the vocabulary is whatever tasks carry. */
+  labelOptions: string[];
+  /** Null while another label fits; the words for why not when full. */
+  labelsFull: string | null;
   /** The workspace's artifacts not yet on this task — what may be attached. */
   attachOptions: ChoiceView[];
   attachEmpty: string | null;
@@ -73,6 +82,10 @@ export const TASK_DETAIL_WORDS = {
   blockers: "Blockers",
   unblocks: "Unblocks",
   artifacts: "Artifacts",
+  labels: "Labels",
+  addLabel: "Add a label",
+  labelPrompt: "+ label",
+  labelsFull: (max: number) => `${max} labels — take one off to add another`,
   thread: "Thread",
   log: "Log",
   detach: "Detach",
@@ -150,6 +163,9 @@ export function taskDetailView(
     blockersEmpty:
       task.blockedBy.length > 0 ? null : task.status === "todo" && issuable(task, board) ? "none — can start now" : "none",
     unblocks: unblocks(task, board).map((other) => ({ id: other.id, title: other.title })),
+    labels: task.labels.map((label) => ({ label, removeLabel: `Remove ${label}` })),
+    labelOptions: labelsOf({ tasks: tasksOfTeam(board, task.teamId) }).filter((label) => !task.labels.includes(label)),
+    labelsFull: task.labels.length >= TASK_CAPS.labelsMax ? TASK_DETAIL_WORDS.labelsFull(TASK_CAPS.labelsMax) : null,
     artifacts: task.artifacts.map((slug) => {
       const known = artifacts.find((artifact) => artifact.id === slug);
       return {

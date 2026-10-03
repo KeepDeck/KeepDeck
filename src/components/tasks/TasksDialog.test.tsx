@@ -200,6 +200,47 @@ describe("TasksDialog", () => {
     }
   });
 
+  it("labels the open task from its card and takes a label off — the field keeps a refused one", async () => {
+    const { service } = await seeded();
+    const render = mount(service);
+    render();
+    await flush();
+    act(() => cards()[0].click());
+    await flush();
+    render();
+    await flush();
+    const field = () => document.querySelector<HTMLInputElement>('input[aria-label="Add a label"]')!;
+    const type = (value: string) =>
+      act(() => {
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+        setter.call(field(), value);
+        field().dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    const submit = async () => {
+      await act(async () => void field().form!.requestSubmit());
+      await flush();
+    };
+    const labelsOnTask = () => {
+      const state = service.peek("ws-1");
+      return state?.kind === "ready" ? state.board.tasks[0].labels : null;
+    };
+
+    type("Copy Edit");
+    await submit();
+    expect(labelsOnTask()).toEqual(["copy-edit"]);
+    expect(field().value).toBe("");
+
+    type("a/b");
+    await submit();
+    expect(labelsOnTask()).toEqual(["copy-edit"]);
+    expect(field().value).toBe("a/b");
+    expect(text()).toContain("is not a label");
+
+    act(() => document.querySelector<HTMLButtonElement>('button[aria-label="Remove copy-edit"]')!.click());
+    await flush();
+    expect(labelsOnTask()).toEqual([]);
+  });
+
   it("creates a task from the form as the user and opens it", async () => {
     const { service } = await seeded();
     const render = mount(service);

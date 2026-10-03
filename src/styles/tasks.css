@@ -361,6 +361,25 @@
   white-space: nowrap;
 }
 
+/* The open task's labels: the same words, each with its ×. */
+.tasks__labels--edit {
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.tasks__labels--edit .tasks__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding-right: 2px;
+}
+
+.tasks__label-add {
+  max-width: 220px;
+  margin-bottom: 4px;
+}
+
 /* ── The list view: one windowed list, a heading per status ───────── */
 
 /* The list scrolls itself (it is the windowed list); the stage around it

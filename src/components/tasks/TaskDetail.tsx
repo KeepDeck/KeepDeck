@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Dropdown } from "@keepdeck/ui-kit";
+import { Combobox, Dropdown } from "@keepdeck/ui-kit";
 import type { TaskPriority, TaskStatus } from "../../domain/tasks";
 import {
   DIALOG_WORDS,
@@ -33,6 +33,9 @@ interface TaskDetailProps {
   onAttach(taskId: string, slug: string): void;
   onDetach(taskId: string, slug: string): void;
   onOpenArtifact(slug: string): void;
+  /** Resolves to whether the label landed — the field keeps a refused one. */
+  onLabel(taskId: string, label: string): Promise<boolean>;
+  onUnlabel(taskId: string, label: string): void;
 }
 
 /** The right panel: one task whole. Every word comes from the view; every
@@ -50,8 +53,17 @@ export function TaskDetail({
   onAttach,
   onDetach,
   onOpenArtifact,
+  onLabel,
+  onUnlabel,
 }: TaskDetailProps) {
   const [composer, setComposer] = useState(EMPTY_COMPOSER);
+  const [labelDraft, setLabelDraft] = useState("");
+  const submitLabel = () => {
+    const typed = labelDraft;
+    void onLabel(view.id, typed).then((landed) => {
+      if (landed) setLabelDraft("");
+    });
+  };
   const sendable = composerCanSend(composer);
   const send = () => {
     const begun = beginSend(composer);
@@ -206,6 +218,45 @@ export function TaskDetail({
         />
       ) : (
         view.attachEmpty && <p className="tasks__muted">{view.attachEmpty}</p>
+      )}
+
+      <span className="tasks__section">{TASK_DETAIL_WORDS.labels}</span>
+      {view.labels.length > 0 && (
+        <ul className="tasks__labels tasks__labels--edit">
+          {view.labels.map((item) => (
+            <li key={item.label} className="tasks__label">
+              {item.label}
+              <button
+                type="button"
+                className="tasks__remove"
+                aria-label={item.removeLabel}
+                title={item.removeLabel}
+                onClick={() => onUnlabel(view.id, item.label)}
+              >
+                ×
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {view.labelsFull ? (
+        <p className="tasks__muted">{view.labelsFull}</p>
+      ) : (
+        <form
+          className="tasks__label-add"
+          onSubmit={(event) => {
+            event.preventDefault();
+            submitLabel();
+          }}
+        >
+          <Combobox
+            ariaLabel={TASK_DETAIL_WORDS.addLabel}
+            placeholder={TASK_DETAIL_WORDS.labelPrompt}
+            options={view.labelOptions}
+            value={labelDraft}
+            onChange={setLabelDraft}
+          />
+        </form>
       )}
 
       <span className="tasks__section">{TASK_DETAIL_WORDS.thread}</span>

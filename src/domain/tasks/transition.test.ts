@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TASK_CAPS, USER_ACTOR, type TaskActor, type TaskStatus } from "./model";
-import { attachArtifact, createTask, detachArtifact, reachableStatuses, transition, type TaskChange, type TaskRefusal } from "./transition";
+import { addLabel, attachArtifact, createTask, detachArtifact, removeLabel, reachableStatuses, transition, type TaskChange, type TaskRefusal } from "./transition";
 import { ROSTER, board, impl1, lead, noTeam, peer1, stranger, task } from "./testSupport";
 
 const ctx = (tasks = [task({ id: "task-1" })]) => ({ board: board(tasks), roster: ROSTER, at: 5_000 });
@@ -458,5 +458,19 @@ describe("labels", () => {
     expect(createTask({ teamId: "team-1", title: "x" }, lead, ctx([])).ok && true).toBe(true);
     const bad = createTask({ teamId: "team-1", title: "x", labels: ["a b/c"] }, lead, ctx([]));
     expect(bad.ok ? null : bad.refusal.kind).toBe("bad-label");
+  });
+});
+
+describe("addLabel / removeLabel — the changes the open task's label field makes", () => {
+  const t = task({ id: "task-1", labels: ["design", "ui"] });
+
+  it("adds to the set as it stands, leaving the normalising to the transition", () => {
+    expect(addLabel(t, "Copy Edit")).toEqual({ kind: "labels", to: ["design", "ui", "Copy Edit"] });
+    const result = transition(t, addLabel(t, "UI"), lead, ctx([t]));
+    expect(result.ok && result.task).toBe(t);
+  });
+
+  it("takes one off by name", () => {
+    expect(removeLabel(t, "design")).toEqual({ kind: "labels", to: ["ui"] });
   });
 });
