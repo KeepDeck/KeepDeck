@@ -32,8 +32,8 @@ export interface TasksDialogView {
   team: ReturnType<typeof teamControlView>;
   /** + Task needs a team for the task to go to. */
   newTaskDisabled: boolean;
-  /** List and Board — the two views, the one in use pressed. */
-  views: { view: TrackerView; label: string; pressed: boolean }[];
+  /** List and Board — the two views, as the toolbar's choice row. */
+  viewChoice: { ariaLabel: string; value: TrackerView; options: { value: TrackerView; label: string }[] };
   body: DialogBody;
   /** The panel over the stage: the new-task form outranks an open task. */
   panel: "form" | "detail" | null;
@@ -61,7 +61,11 @@ export function tasksDialogView(input: {
     toolbar: staged,
     team: teamControlView(input.teams, input.teamId),
     newTaskDisabled: input.teamId === null,
-    views: TRACKER_VIEWS.map((view) => ({ view, label: VIEW_LABEL[view], pressed: view === input.view })),
+    viewChoice: {
+      ariaLabel: "View",
+      value: input.view,
+      options: TRACKER_VIEWS.map((view) => ({ value: view, label: VIEW_LABEL[view] })),
+    },
     body: staged ? { kind: "stage", main: stageMain(ladder, input.wide, input.view) } : placeholder(ladder),
     panel: input.composing ? "form" : input.detailOpen ? "detail" : null,
     ghost: box && card ? { box, card } : null,

@@ -10,6 +10,8 @@ import {
   ensureNotificationPermission,
   notificationPermissionGranted,
 } from "../../ipc/notify";
+import { Segmented } from "@keepdeck/ui-kit/Segmented";
+import { ON_OFF } from "../../presentation/choices";
 
 /** Label + one-line explanation for each delivery mode, in picker order. */
 const MODE_OPTIONS: Record<NotificationsMode, { label: string; hint: string }> = {
@@ -64,36 +66,24 @@ export function NotificationsSection() {
   return (
     <>
       <span className="form__label">Notifications</span>
-      <div className="form__types">
-        {[true, false].map((on) => (
-          <button
-            key={String(on)}
-            type="button"
-            className={`form__type${prefs.enabled === on ? " form__type--active" : ""}`}
-            onClick={() => updateSettings({ notifications: { ...prefs, enabled: on } })}
-          >
-            {on ? "On" : "Off"}
-          </button>
-        ))}
-      </div>
+      <Segmented
+        ariaLabel="Notifications"
+        options={ON_OFF}
+        value={prefs.enabled}
+        onChange={(on) => updateSettings({ notifications: { ...prefs, enabled: on } })}
+      />
       <span className="settings__hint">
         Agent crashes, failed starts and available updates
       </span>
 
       <span className="form__label">Delivery</span>
-      <div className="form__types">
-        {NOTIFICATION_MODES.map((mode) => (
-          <button
-            key={mode}
-            type="button"
-            className={`form__type${mode === prefs.mode ? " form__type--active" : ""}`}
-            disabled={!prefs.enabled}
-            onClick={() => updateSettings({ notifications: { ...prefs, mode } })}
-          >
-            {MODE_OPTIONS[mode].label}
-          </button>
-        ))}
-      </div>
+      <Segmented
+        ariaLabel="Delivery"
+        options={NOTIFICATION_MODES.map((mode) => ({ value: mode, label: MODE_OPTIONS[mode].label }))}
+        value={prefs.mode}
+        disabled={!prefs.enabled}
+        onChange={(mode) => updateSettings({ notifications: { ...prefs, mode } })}
+      />
       <span className="settings__hint">
         {prefs.enabled ? MODE_OPTIONS[prefs.mode].hint : "Notifications are off."}
       </span>

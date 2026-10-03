@@ -181,8 +181,8 @@ describe("TasksDialog", () => {
       render();
       await flush();
       const view = (label: string) =>
-        Array.from(document.querySelectorAll<HTMLButtonElement>(".tasks__views button")).find((b) => b.textContent === label)!;
-      expect(view("Board").getAttribute("aria-pressed")).toBe("true");
+        Array.from(document.querySelectorAll<HTMLButtonElement>('[role="radiogroup"][aria-label="View"] [role="radio"]')).find((b) => b.textContent === label)!;
+      expect(view("Board").getAttribute("aria-checked")).toBe("true");
       act(() => view("List").click());
       await flush();
       expect(cards()).toEqual([]);

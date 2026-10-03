@@ -1,6 +1,8 @@
 import { updateSettings } from "../../app/settingsManager";
 import { useSettings } from "../../app/useSettings";
 import { DEFAULT_SETTINGS } from "../../domain/settings";
+import { Segmented } from "@keepdeck/ui-kit/Segmented";
+import { ON_OFF } from "../../presentation/choices";
 
 /**
  * Experimental features ([F6] → Experimental) — opt-in capabilities that ship
@@ -21,18 +23,12 @@ export function ExperimentalSection() {
   return (
     <>
       <span className="form__label">Remote agents</span>
-      <div className="form__types">
-        {[true, false].map((on) => (
-          <button
-            key={String(on)}
-            type="button"
-            className={`form__type${remoteAgents === on ? " form__type--active" : ""}`}
-            onClick={() => updateSettings({ remoteAgents: on })}
-          >
-            {on ? "On" : "Off"}
-          </button>
-        ))}
-      </div>
+      <Segmented
+        ariaLabel="Remote agents"
+        options={ON_OFF}
+        value={remoteAgents}
+        onChange={(on) => updateSettings({ remoteAgents: on })}
+      />
       <span className="settings__hint">
         Lets an agent that speaks a client/server protocol (Codex, OpenCode)
         run against a remote endpoint from the “Add member” dialog’s Where option.

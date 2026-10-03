@@ -13,6 +13,7 @@
     "./Chip": "./src/Chip.tsx",
     "./ProgressRing": "./src/ProgressRing.tsx",
     "./StatusRing": "./src/StatusRing.tsx",
+    "./Segmented": "./src/Segmented.tsx",
     "./icons": "./src/icons.tsx",
     "./Dropdown": "./src/Dropdown.tsx",
     "./Combobox": "./src/Combobox.tsx",

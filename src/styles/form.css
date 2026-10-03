@@ -277,6 +277,18 @@
   color: var(--kd-text-2);
 }
 
+/* A toolbar's choice row (ui-kit Segmented size sm): no field rhythm under
+   it, a button's height. */
+.form__types--sm {
+  gap: 4px;
+  margin-bottom: 0;
+}
+
+.form__types--sm .form__type {
+  padding: 3px 10px;
+  font-size: var(--kd-font-small);
+}
+
 .form__type {
   display: inline-flex;
   align-items: center;

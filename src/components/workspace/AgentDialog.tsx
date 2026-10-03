@@ -39,6 +39,7 @@ import {
   sessionPickKey,
 } from "../../presentation/sessionPickView";
 import { VirtualList } from "@keepdeck/ui-kit/VirtualList";
+import { Segmented } from "@keepdeck/ui-kit/Segmented";
 
 export type { AgentDialogResult } from "../../domain/agents";
 
@@ -443,28 +444,20 @@ export function AgentDialog({
         {member && canRemote && (
           <>
             <span className="form__label">Where</span>
-            <div className="form__types">
-              {(
-                [
-                  ["local", "Local"],
-                  ["remote", "Remote"],
-                ] as const
-              ).map(([val, label]) => (
-                <button
-                  key={val}
-                  type="button"
-                  className={`form__type${where === val ? " form__type--active" : ""}`}
-                  onClick={() => {
-                    setWhere(val);
-                    // Remote is fresh-session only for now — drop any picked
-                    // continuation so the Start-from picker doesn't dangle.
-                    if (val === "remote") setStartMode("new");
-                  }}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
+            <Segmented
+              ariaLabel="Where"
+              options={[
+                { value: "local" as const, label: "Local" },
+                { value: "remote" as const, label: "Remote" },
+              ]}
+              value={where}
+              onChange={(val) => {
+                setWhere(val);
+                // Remote is fresh-session only for now — drop any picked
+                // continuation so the Start-from picker doesn't dangle.
+                if (val === "remote") setStartMode("new");
+              }}
+            />
             {remote && (
               <>
                 <span className="form__label">Endpoint</span>
@@ -489,18 +482,12 @@ export function AgentDialog({
         {!remote && continuations && (
           <>
             <span className="form__label">Start from</span>
-            <div className="form__types">
-              {startModeOptions.map(([mode, label]) => (
-                <button
-                  key={mode}
-                  type="button"
-                  className={`form__type${startMode === mode ? " form__type--active" : ""}`}
-                  onClick={() => setStartMode(mode)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
+            <Segmented
+              ariaLabel="Start from"
+              options={startModeOptions.map(([mode, label]) => ({ value: mode, label }))}
+              value={startMode}
+              onChange={setStartMode}
+            />
           </>
         )}
 

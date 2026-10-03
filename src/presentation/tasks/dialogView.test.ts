@@ -33,10 +33,14 @@ describe("tasksDialogView", () => {
       toolbar: true,
       team: { kind: "pick", options: [{ value: "team-1", label: "api" }, { value: "team-2", label: "web" }], value: "team-1" },
       newTaskDisabled: false,
-      views: [
-        { view: "list", label: "List", pressed: false },
-        { view: "board", label: "Board", pressed: true },
-      ],
+      viewChoice: {
+        ariaLabel: "View",
+        value: "board",
+        options: [
+          { value: "list", label: "List" },
+          { value: "board", label: "Board" },
+        ],
+      },
       body: { kind: "stage", main: { kind: "columns" } },
       panel: null,
       ghost: null,

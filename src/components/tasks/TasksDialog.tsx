@@ -13,6 +13,7 @@ import { TaskCard } from "./TaskCard";
 import { TaskDetail } from "./TaskDetail";
 import { TaskList } from "./TaskList";
 import { useTasksBoard, type TasksAccess } from "./useTasksBoard";
+import { Segmented } from "@keepdeck/ui-kit/Segmented";
 
 interface TasksDialogProps {
   /** The board's owner as the runtime hands it out. */
@@ -130,13 +131,13 @@ function WorkspaceBoard({
                 />
               )}
               {view.team.kind === "word" && <span className="tasks__team-name kd-one-line">{view.team.name}</span>}
-              <span className="tasks__views">
-                {view.views.map((choice) => (
-                  <Button key={choice.view} size="sm" pressed={choice.pressed} onClick={() => board.setView(choice.view)}>
-                    {choice.label}
-                  </Button>
-                ))}
-              </span>
+              <Segmented
+                size="sm"
+                ariaLabel={view.viewChoice.ariaLabel}
+                options={view.viewChoice.options}
+                value={view.viewChoice.value}
+                onChange={board.setView}
+              />
               <Button
                 size="sm"
                 className="tasks__filter"
