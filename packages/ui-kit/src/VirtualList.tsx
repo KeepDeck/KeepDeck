@@ -38,6 +38,12 @@ export interface VirtualListProps<T> extends VirtualListMarkup {
    * it on every render would pull the list back from wherever the person
    * scrolled to. */
   revealKey?: string | null;
+  /** A heading pinned over the list's top edge, drawn from the first row
+   * in view — a grouped list's "which group am I in". Items are placed
+   * absolutely, so CSS `position: sticky` cannot reach one of them; this
+   * is the one sticky layer, over every item, taking no room of its own.
+   * Return null for no heading. */
+  sticky?: { className: string; render: (firstVisibleIndex: number) => ReactNode };
 }
 
 /**
@@ -59,6 +65,7 @@ export function VirtualList<T>({
   ariaLabel,
   onReachEnd,
   revealKey = null,
+  sticky,
   spacer,
   item,
 }: VirtualListProps<T>) {
@@ -95,6 +102,13 @@ export function VirtualList<T>({
   return (
     // Focusable by script only — the handoff's landing, never a Tab stop.
     <div className={className} ref={scrollRef} {...(spacerIsList ? {} : named)} tabIndex={-1}>
+      {sticky && rowWindow.firstVisibleIndex >= 0 && (
+        // Zero tall, so it pushes nothing down; its content hangs over the
+        // rows below it, pinned to the scroll box's top while they scroll.
+        <div style={{ position: "sticky", top: 0, height: 0, zIndex: 1 }}>
+          <div className={sticky.className}>{sticky.render(rowWindow.firstVisibleIndex)}</div>
+        </div>
+      )}
       <Spacer
         className={spacer?.className}
         style={{ height: `${rowWindow.totalSize}px`, position: "relative" }}

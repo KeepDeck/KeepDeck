@@ -342,6 +342,163 @@
   color: var(--status-failed);
   font-size: var(--kd-font-small);
 }
+
+/* A task's labels: quiet words, no colour — colour is state. */
+.tasks__labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+
+.tasks__label {
+  padding: 0 6px;
+  border-radius: var(--kd-radius-mark);
+  background-color: var(--kd-selected);
+  color: var(--kd-text-2);
+  font-size: var(--kd-font-small);
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+/* ── The list view: one windowed list, a heading per status ───────── */
+
+.tasks__list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* The pinned heading: the group of the first row in view, over the rows
+   as they scroll under it — on the list's own surface, so they pass
+   beneath it rather than through it. */
+.tasks__list-pinned .tasks__group {
+  background-color: var(--kd-tile);
+}
+
+/* A status heading. It IS the fold's toggle. */
+.tasks__group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 30px;
+  box-sizing: border-box;
+  padding: 0 12px;
+  border: 0;
+  border-bottom: 1px solid var(--kd-seam);
+  background-color: var(--kd-tile);
+  color: var(--kd-text-2);
+  font: inherit;
+  font-size: var(--kd-font-small);
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tasks__group:hover {
+  color: var(--kd-text);
+}
+
+.tasks__group::before {
+  content: "▾";
+  width: 10px;
+  color: var(--kd-text-4);
+}
+
+.tasks__group--folded::before {
+  content: "▸";
+}
+
+.tasks__group--in-progress .tasks__group-label {
+  color: var(--status-working);
+}
+
+.tasks__group--review .tasks__group-label {
+  color: var(--status-waiting);
+}
+
+.tasks__group--blocked .tasks__group-label {
+  color: var(--status-failed);
+}
+
+.tasks__group--done .tasks__group-label {
+  color: var(--status-done);
+}
+
+.tasks__group-count {
+  color: var(--kd-text-3);
+  font-weight: 500;
+}
+
+/* A task in one line: priority, title, labels, what holds it, identity. */
+.tasks__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 34px;
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 0 12px;
+  border: 0;
+  border-bottom: 1px solid var(--kd-hover);
+  background: transparent;
+  color: var(--kd-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tasks__row:hover {
+  background-color: var(--kd-hover);
+}
+
+.tasks__row--open {
+  background-color: var(--kd-selected);
+}
+
+.tasks__row:focus-visible {
+  outline: 1px solid var(--kd-focus);
+  outline-offset: -1px;
+}
+
+.tasks__row-mark {
+  flex: none;
+  width: 34px;
+}
+
+.tasks__row-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.tasks__row .tasks__labels {
+  flex: none;
+  flex-wrap: nowrap;
+}
+
+.tasks__row-blocked {
+  flex: none;
+  max-width: 180px;
+  color: var(--status-failed);
+  font-size: var(--kd-font-small);
+}
+
+.tasks__row-meta {
+  flex: none;
+  color: var(--kd-text-3);
+  font-size: var(--kd-font-small);
+}
+
+.tasks__row--cancelled .tasks__row-title {
+  color: var(--kd-text-4);
+  text-decoration: line-through;
+}
+
+.tasks__row--done .tasks__row-title {
+  color: var(--kd-text-2);
+}
 /* The drawer: one task whole, over the board's right edge, scrolling on
    its own. The board stays interactive beside it — a card can still be
    picked or dragged while a task is open. */

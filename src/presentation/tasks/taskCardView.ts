@@ -15,6 +15,8 @@ export interface TaskCardView {
   tone: StatusTone;
   /** Struck through and dimmed: taken off the board without being done. */
   cancelled: boolean;
+  /** The task's labels, as words — no colour: colour is state. */
+  labels: readonly string[];
 }
 
 /** A card's identity in its column's windowed list — the task's id, never
@@ -59,5 +61,6 @@ export function taskCardView(task: Task, board: TaskBoard, now: number): TaskCar
     blockedBy: open.length === 0 ? null : `blocked by ${open.join(" · ")}`,
     tone: statusTone(task.status),
     cancelled: task.status === "cancelled",
+    labels: task.labels,
   };
 }

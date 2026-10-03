@@ -1,4 +1,5 @@
 import { taskCardClassName, type CardGrip, type TaskCardView } from "../../presentation/tasks";
+import { TaskLabels } from "./TaskLabels";
 
 interface TaskCardProps {
   card: TaskCardView;
@@ -41,6 +42,7 @@ export function TaskCard({ card, selected, dragging = false, onSelect, onArm }: 
         {card.priority && <span className="tasks__mark">{card.priority}</span>}
       </span>
       {card.blockedBy && <span className="tasks__card-blocked">{card.blockedBy}</span>}
+      {card.labels.length > 0 && <TaskLabels labels={card.labels} />}
     </button>
   );
 }

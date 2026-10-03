@@ -54,8 +54,10 @@ describe("taskCardView", () => {
       blockedBy: "blocked by task-1",
       tone: "none",
       cancelled: false,
+      labels: [],
     });
     expect(taskCardView(b.tasks[0], b, NOW).blockedBy).toBeNull();
+    expect(taskCardView({ ...b.tasks[0], labels: ["ui"] }, b, NOW).labels).toEqual(["ui"]);
   });
 });
 

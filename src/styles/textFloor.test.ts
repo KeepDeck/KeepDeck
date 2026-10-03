@@ -15,6 +15,8 @@ const MARKS_AND_DISABLED = [
   ".tasks__remove", // the × that detaches a row
   ".artifacts__remove", // the same ×
   ".tasks__card--cancelled .tasks__card-title", // a cancelled task
+  ".tasks__row--cancelled .tasks__row-title", // the same task, as a list row
+  ".tasks__group::before", // the fold chevron of a list heading
   ".tasks__link:disabled",
 ];
 
