@@ -257,6 +257,14 @@
   border-color: var(--kd-ok);
 }
 
+/* The list's ghost: the row, lifted — on the float surface, edged in the
+   drop hue the card's ghost wears. */
+.tasks__row--ghost {
+  border: 1px solid var(--kd-ok);
+  border-radius: var(--kd-radius-control);
+  background-color: var(--kd-float);
+}
+
 /* While a card is in flight: the columns it may land in open up, the
    ones it may not step back — the transition table drawn on the board. */
 .tasks__column--drop-ok {

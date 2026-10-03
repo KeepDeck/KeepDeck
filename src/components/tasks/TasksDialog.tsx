@@ -11,7 +11,7 @@ import { BoardColumns } from "./BoardColumns";
 import { NewTaskForm } from "./NewTaskForm";
 import { TaskCard } from "./TaskCard";
 import { TaskDetail } from "./TaskDetail";
-import { TaskList } from "./TaskList";
+import { TaskList, TaskRowLine } from "./TaskList";
 import { useTasksBoard, type TasksAccess } from "./useTasksBoard";
 import { Segmented } from "@keepdeck/ui-kit/Segmented";
 
@@ -115,7 +115,13 @@ function WorkspaceBoard({
             drop moves it. */}
         {view.ghost && (
           <div className="tasks__ghost" style={view.ghost.box}>
-            <TaskCard card={view.ghost.card} selected={false} onSelect={noSelect} />
+            {view.ghost.shape === "card" ? (
+              <TaskCard card={view.ghost.card} selected={false} onSelect={noSelect} />
+            ) : (
+              <div className="tasks__row tasks__row--ghost">
+                <TaskRowLine card={view.ghost.card} />
+              </div>
+            )}
           </div>
         )}
         <div className="tasks__head">

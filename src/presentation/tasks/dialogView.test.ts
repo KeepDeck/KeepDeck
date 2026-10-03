@@ -3,6 +3,7 @@ import { board, task } from "../../domain/tasks/testSupport";
 import { boardView } from "./boardView";
 import type { TrackerView } from "./screenState";
 import { NO_QUERY } from "./queryView";
+import { listView, type ListItem } from "./listView";
 import { IDLE, armCard, moveCard } from "./cardDrag";
 import { tasksDialogView } from "./dialogView";
 import { LADDER_WORDS, type TasksLadder } from "./ladderView";
@@ -17,7 +18,7 @@ const base = {
   ladder: { kind: "board" } as TasksLadder,
   drag: IDLE,
   columns,
-  listItems: [],
+  listItems: [] as ListItem[],
   teams: TEAMS,
   teamId: "team-1" as string | null,
   composing: false,
@@ -74,6 +75,18 @@ describe("tasksDialogView", () => {
     expect(view({ teamId: null }).newTaskDisabled).toBe(true);
   });
 
+  it("a row in flight from the list is drawn as a row, never as the board's card", () => {
+    const items = listView(b.tasks, b, 0, NO_QUERY, new Set(), null);
+    const id = items.find((item) => item.kind === "row")!.key;
+    const flying = view({
+      columns: [],
+      listItems: items,
+      drag: { kind: "dragging", id, x: 40, y: 50, grip: { width: 600, offsetX: 10, offsetY: 10 }, targets: new Set() },
+    });
+    expect(flying.ghost).toMatchObject({ shape: "row", box: { left: 30, top: 40, width: 600 } });
+    expect(flying.ghost?.card.id).toBe(id);
+  });
+
   it("a card in flight is drawn as a ghost and dims the board; a mere press draws nothing", () => {
     const grip = { width: 200, offsetX: 20, offsetY: 10 };
     const armed = armCard("task-1", 0, 0, grip);
@@ -81,6 +94,6 @@ describe("tasksDialogView", () => {
     const dragging = moveCard(armed, 50, 50, () => new Set(["done" as const]));
     const flying = view({ drag: dragging });
     expect(flying.className).toBe("form tasks tasks--dragging");
-    expect(flying.ghost).toEqual({ box: { left: 30, top: 40, width: 200 }, card: columns[1].cards[0] });
+    expect(flying.ghost).toEqual({ box: { left: 30, top: 40, width: 200 }, shape: "card", card: columns[1].cards[0] });
   });
 });

@@ -13,6 +13,7 @@ import {
   type DragState,
   type ListHeading,
   type ListItem,
+  type TaskCardView,
 } from "../../presentation/tasks";
 
 interface TaskListProps {
@@ -89,35 +90,7 @@ export function TaskList({ items, openId, drag, hover, onSelect, onFold, onLabel
               }}
               onClick={() => onSelect(item.card.id)}
             />
-            <span className="tasks__mark tasks__row-mark">{item.card.priority}</span>
-            <StatusRing {...item.card.ring} />
-            <code className="tasks__row-id">{item.card.id}</code>
-            <span className="tasks__row-title kd-one-line">{item.card.title}</span>
-            {item.card.labels.map((label) => (
-              <button key={label} type="button" className="tasks__label tasks__row-control" onClick={() => onLabel(label)}>
-                {label}
-              </button>
-            ))}
-            {item.card.blockerChips.map((chip) => (
-              <button
-                key={chip.id}
-                type="button"
-                className={`${chip.className} tasks__row-control`}
-                title={chip.text}
-                onClick={() => onSelect(chip.id)}
-              >
-                {chip.id}
-              </button>
-            ))}
-            <span className="tasks__row-who">
-              {item.card.initials && (
-                <span className="tasks__avatar" aria-hidden>
-                  {item.card.initials}
-                </span>
-              )}
-              {item.card.assignee}
-            </span>
-            <span className="tasks__row-age">{item.card.age}</span>
+            <TaskRowLine card={item.card} onLabel={onLabel} onSelect={onSelect} />
           </div>
         )
       }
@@ -150,5 +123,67 @@ function GroupHeading({
       <span className="tasks__group-label">{heading.label}</span>
       <span className="tasks__group-count">{heading.count}</span>
     </button>
+  );
+}
+
+/**
+ * What a row shows, in its columns: priority, status, id, title, labels,
+ * what holds it, who has it, how long since it moved. The list draws it
+ * with its labels and blockers as controls; the drag's ghost draws the
+ * same line as a picture (no handlers) — the row in flight IS the row.
+ */
+export function TaskRowLine({
+  card,
+  onLabel,
+  onSelect,
+}: {
+  card: TaskCardView;
+  onLabel?(label: string): void;
+  onSelect?(id: string): void;
+}) {
+  return (
+    <>
+      <span className="tasks__mark tasks__row-mark">{card.priority}</span>
+      <StatusRing {...card.ring} />
+      <code className="tasks__row-id">{card.id}</code>
+      <span className="tasks__row-title kd-one-line">{card.title}</span>
+      {card.labels.map((label) =>
+        onLabel ? (
+          <button key={label} type="button" className="tasks__label tasks__row-control" onClick={() => onLabel(label)}>
+            {label}
+          </button>
+        ) : (
+          <span key={label} className="tasks__label">
+            {label}
+          </span>
+        ),
+      )}
+      {card.blockerChips.map((chip) =>
+        onSelect ? (
+          <button
+            key={chip.id}
+            type="button"
+            className={`${chip.className} tasks__row-control`}
+            title={chip.text}
+            onClick={() => onSelect(chip.id)}
+          >
+            {chip.id}
+          </button>
+        ) : (
+          <span key={chip.id} className={chip.className}>
+            {chip.id}
+          </span>
+        ),
+      )}
+      <span className="tasks__row-who">
+        {card.initials && (
+          <span className="tasks__avatar" aria-hidden>
+            {card.initials}
+          </span>
+        )}
+        {card.assignee}
+      </span>
+      <span className="tasks__row-age">{card.age}</span>
+    </>
   );
 }

@@ -39,7 +39,9 @@ export interface TasksDialogView {
   /** The panel over the stage: the new-task form outranks an open task. */
   panel: "form" | "detail" | null;
   /** The card in flight, where it is drawn — null while nothing is. */
-  ghost: { box: { left: number; top: number; width: number }; card: TaskCardView } | null;
+  /** The task in flight, drawn as the view it left draws it: a card over
+   * the board, a row over the list. */
+  ghost: { box: { left: number; top: number; width: number }; shape: "card" | "row"; card: TaskCardView } | null;
 }
 
 export function tasksDialogView(input: {
@@ -59,8 +61,9 @@ export function tasksDialogView(input: {
   const { ladder, drag } = input;
   const staged = ladder.kind === "board" || ladder.kind === "empty";
   const box = ghostBox(drag);
-  const card =
-    drag.kind === "dragging" ? (cardOf(input.columns, drag.id) ?? listCardOf(input.listItems, drag.id)) : undefined;
+  const onBoard = drag.kind === "dragging" ? cardOf(input.columns, drag.id) : undefined;
+  const inList = drag.kind === "dragging" && !onBoard ? listCardOf(input.listItems, drag.id) : undefined;
+  const card = onBoard ?? inList;
   return {
     className: drag.kind === "dragging" ? "form tasks tasks--dragging" : "form tasks",
     toolbar: staged,
@@ -73,7 +76,7 @@ export function tasksDialogView(input: {
     },
     body: staged ? { kind: "stage", main: stageMain(ladder, input.wide, input.view) } : placeholder(ladder),
     panel: input.composing ? "form" : input.detailOpen ? "detail" : null,
-    ghost: box && card ? { box, card } : null,
+    ghost: box && card ? { box, shape: onBoard ? "card" : "row", card } : null,
   };
 }
 

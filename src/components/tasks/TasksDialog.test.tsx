@@ -495,9 +495,10 @@ describe("TasksDialog", () => {
       await flush();
       act(() => void pointer("pointermove", window, 40, 40));
       await flush();
-      // The ghost is the task's card; the groups light as targets.
-      expect(document.querySelector(".tasks__ghost .tasks__card-title")?.textContent).toBe("Draft the skill");
-      expect(document.querySelector(".tasks__row")!.className).toContain("tasks__row--dragging");
+      // The ghost is the list's own row — never the board's card.
+      expect(document.querySelector(".tasks__ghost .tasks__card")).toBeNull();
+      expect(document.querySelector(".tasks__ghost .tasks__row .tasks__row-title")?.textContent).toBe("Draft the skill");
+      expect(document.querySelector(".tasks__list .tasks__row")!.className).toContain("tasks__row--dragging");
       act(() => void pointer("pointerover", heading("Done"), 40, 300));
       await flush();
       expect(heading("Done").className).toContain("tasks__drop--over");

@@ -9,7 +9,6 @@ import {
   listItemEstimate,
   listItemKey,
   listView,
-  LIST_GHOST_MAX_PX,
   groupDropClassName,
   listCardOf,
   listHeadingDropClassName,
@@ -164,9 +163,8 @@ describe("the list in a drag", () => {
     expect(listHeadingDropClassName(done, dragging, null)).toBe("tasks__group tasks__group--done tasks__drop--ok");
   });
 
-  it("carries a card no wider than the board's, gripped no further in than its middle", () => {
-    expect(rowGrip({ left: 100, top: 50, width: 900 }, 700, 60)).toEqual({ width: LIST_GHOST_MAX_PX, offsetX: LIST_GHOST_MAX_PX / 2, offsetY: 10 });
-    expect(rowGrip({ left: 100, top: 50, width: 200 }, 120, 60)).toEqual({ width: 200, offsetX: 20, offsetY: 10 });
+  it("holds the row whole, where it was pressed", () => {
+    expect(rowGrip({ left: 100, top: 50, width: 900 }, 700, 60)).toEqual({ width: 900, offsetX: 600, offsetY: 10 });
   });
 
   it("finds the dragged row's card for the ghost", () => {

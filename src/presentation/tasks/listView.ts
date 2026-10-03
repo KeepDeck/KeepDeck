@@ -176,11 +176,8 @@ export function listHeadingDropClassName(heading: ListHeading, drag: DragState, 
   return [listHeadingClassName(heading), groupDropClassName(heading.status, drag, hover)].filter(Boolean).join(" ");
 }
 
-/** How wide the card a dragged row carries is: a row spans the list, a
- * card is a card — the board's width at most, gripped no further in. */
-export const LIST_GHOST_MAX_PX = 320;
-
+/** Where a dragged row is held: the row whole, at the point pressed — the
+ * ghost is the row itself, its width the list's. */
 export function rowGrip(row: { left: number; top: number; width: number }, x: number, y: number): CardGrip {
-  const width = Math.min(row.width, LIST_GHOST_MAX_PX);
-  return { width, offsetX: Math.min(x - row.left, width / 2), offsetY: y - row.top };
+  return { width: row.width, offsetX: x - row.left, offsetY: y - row.top };
 }
