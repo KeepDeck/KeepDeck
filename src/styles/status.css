@@ -205,7 +205,7 @@
   height: 12px;
   transition:
     --progress-ring-fill 300ms ease-out,
-    --progress-ring-hue 300ms ease-out;
+    color 300ms ease-out;
 }
 
 .progress-ring.status-ring--working {
@@ -233,7 +233,7 @@
   left: 2px;
   right: 2px;
   height: 1.5px;
-  background-color: var(--progress-ring-hue);
+  background-color: currentColor;
   transform: translateY(-50%);
   opacity: 0;
   transition: opacity 300ms ease-out;

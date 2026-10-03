@@ -15,14 +15,6 @@
   initial-value: 0;
 }
 
-/* The hue is registered too, so a ring changing what it says (a usage ring
-   crossing into warn, a task's status moving on) eases from one colour to
-   the next with its fill, instead of snapping while the fill glides. */
-@property --progress-ring-hue {
-  syntax: "<color>";
-  inherits: true;
-  initial-value: transparent;
-}
 
 .progress-ring {
   --progress-ring-hue: var(--kd-text-3);
@@ -32,9 +24,15 @@
   place-items: center;
   width: 20px;
   height: 20px;
+  /* The hue is painted as the ring's `color` (the track reads it as
+     currentColor), so a ring changing what it says — a usage ring crossing
+     into warn, a task's status moving on — eases from one colour to the
+     next with its fill. `color` animates in every engine; a hue held in a
+     registered <color> custom property did not ease in the app's WebKit. */
+  color: var(--progress-ring-hue);
   transition:
     --progress-ring-fill 600ms ease-out,
-    --progress-ring-hue 600ms ease-out;
+    color 600ms ease-out;
 }
 
 /* The track, cut to a 2px band by a mask — no painted hole, so the ring
@@ -47,7 +45,7 @@
   inset: 0;
   border-radius: 50%;
   background: conic-gradient(
-    var(--progress-ring-hue) calc(var(--progress-ring-fill) * 1%),
+    currentColor calc(var(--progress-ring-fill) * 1%),
     var(--kd-seam) 0
   );
   -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px));
@@ -58,10 +56,10 @@
 /* The pie: the sector filled solid, inside an outline in the same hue —
    no band cut by a mask. The fill and the hue ease exactly as the ring's. */
 .progress-ring--pie::before {
-  background: conic-gradient(var(--progress-ring-hue) calc(var(--progress-ring-fill) * 1%), transparent 0);
+  background: conic-gradient(currentColor calc(var(--progress-ring-fill) * 1%), transparent 0);
   /* A whole pixel: at 1.5 a ×1 display smears the outline unevenly round
      the circle. */
-  box-shadow: inset 0 0 0 1px var(--progress-ring-hue);
+  box-shadow: inset 0 0 0 1px currentColor;
   -webkit-mask: none;
   mask: none;
 }
