@@ -114,7 +114,7 @@ function WorkspaceBoard({
             was gripped — the board's own copy stays put, dimmed, until the
             drop moves it. */}
         {view.ghost && (
-          <div className="tasks__ghost" style={view.ghost.box}>
+          <div className={view.ghost.className} style={view.ghost.box}>
             {view.ghost.shape === "card" ? (
               <TaskCard card={view.ghost.card} selected={false} onSelect={noSelect} />
             ) : (

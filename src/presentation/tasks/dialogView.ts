@@ -41,7 +41,12 @@ export interface TasksDialogView {
   /** The card in flight, where it is drawn — null while nothing is. */
   /** The task in flight, drawn as the view it left draws it: a card over
    * the board, a row over the list. */
-  ghost: { box: { left: number; top: number; width: number }; shape: "card" | "row"; card: TaskCardView } | null;
+  ghost: {
+    box: { left: number; top: number; width: number };
+    shape: "card" | "row";
+    className: string;
+    card: TaskCardView;
+  } | null;
 }
 
 export function tasksDialogView(input: {
@@ -76,7 +81,7 @@ export function tasksDialogView(input: {
     },
     body: staged ? { kind: "stage", main: stageMain(ladder, input.wide, input.view) } : placeholder(ladder),
     panel: input.composing ? "form" : input.detailOpen ? "detail" : null,
-    ghost: box && card ? { box, shape: onBoard ? "card" : "row", card } : null,
+    ghost: box && card ? ghostOf(box, onBoard ? "card" : "row", card) : null,
   };
 }
 
@@ -113,4 +118,12 @@ function placeholder(ladder: Exclude<TasksLadder, { kind: "board" | "empty" }>):
     titleClassName: "tasks__placeholder-title",
     titleRole: undefined,
   };
+}
+
+function ghostOf(
+  box: { left: number; top: number; width: number },
+  shape: "card" | "row",
+  card: TaskCardView,
+): NonNullable<TasksDialogView["ghost"]> {
+  return { box, shape, className: `tasks__ghost tasks__ghost--${shape}`, card };
 }

@@ -250,6 +250,12 @@
   position: fixed;
   z-index: 3;
   pointer-events: none;
+}
+
+/* The card's ghost floats on a shadow cast by its own shape. Only the
+   card's: on a ghost the width of the list, a filter left trails of itself
+   behind as it moved. */
+.tasks__ghost--card {
   filter: drop-shadow(0 12px 24px rgba(0, 0, 0, 0.55));
 }
 
@@ -257,12 +263,10 @@
   border-color: var(--kd-ok);
 }
 
-/* The list's ghost: the row, lifted — on the float surface, edged in the
-   drop hue the card's ghost wears. */
+/* The list's ghost: the row, lifted — the float shell (float.css: surface,
+   edge, shadow) like everything else that floats over the deck. */
 .tasks__row--ghost {
-  border: 1px solid var(--kd-ok);
   border-radius: var(--kd-radius-control);
-  background-color: var(--kd-float);
 }
 
 /* While a card is in flight: the columns it may land in open up, the

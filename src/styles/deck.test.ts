@@ -122,6 +122,23 @@ describe("the status ring", () => {
   });
 });
 
+describe("the chosen plate and the drag's ghost", () => {
+  it("a chosen toggle or choice changes its fill, never its edge — so it stands the size of its neighbour", () => {
+    const button = readStyles("button.css");
+    // The rule that names the checked option (with the pressed toggle).
+    const block = /\.kd-btn--secondary\[aria-checked="true"\][^{]*\{([^}]*)\}/.exec(button)![1];
+    expect(block).toMatch(/background-color: var\(--kd-text\);/);
+    expect(block).not.toMatch(/border/);
+  });
+
+  it("only the card's ghost casts a filter shadow; the list's row ghost wears the float shell", () => {
+    const tasks = readStyles("tasks.css");
+    expect(ruleBody(tasks, ".tasks__ghost").filter).toBeUndefined();
+    expect(ruleBody(tasks, ".tasks__ghost--card").filter).toMatch(/^drop-shadow/);
+    expect(readStyles("float.css")).toMatch(/\.tasks__row--ghost,/);
+  });
+});
+
 describe("the bar's height", () => {
   it("is the bar alone: the grid adds no strip of canvas under it", () => {
     // A top padding on the grid is canvas continuing the bar, so the bar
