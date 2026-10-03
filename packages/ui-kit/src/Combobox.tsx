@@ -48,6 +48,10 @@ interface ComboboxProps {
   placeholder?: string;
   /** Extra class on the wrapper (layout belongs to the call site). */
   className?: string;
+  /** `field` (default): a form field with its chevron. `slot`: a small
+   *  dashed slot to type a new item into ("+ label") — no chevron, the menu
+   *  opens as the slot is focused or typed in. */
+  variant?: "field" | "slot";
 }
 
 /**
@@ -70,6 +74,7 @@ export function Combobox({
   ariaLabel,
   placeholder,
   className,
+  variant = "field",
 }: ComboboxProps) {
   const [open, setOpen] = useState(false);
   // Whether the user typed since the menu opened — only then does the menu
@@ -145,7 +150,7 @@ export function Combobox({
   return (
     <div
       ref={rootRef}
-      className={`combobox${className ? ` ${className}` : ""}`}
+      className={`combobox${variant === "slot" ? " combobox--slot" : ""}${className ? ` ${className}` : ""}`}
       onKeyDown={(e) => {
         // Local, not a window listener: Escape closes the MENU only while
         // it's open; a closed combobox lets it bubble to the modal's own Esc.
@@ -180,15 +185,17 @@ export function Combobox({
         }}
         onKeyDown={onKeyDown}
       />
-      <button
-        type="button"
-        className="combobox__toggle"
-        tabIndex={-1}
-        aria-label={`Toggle ${ariaLabel} options`}
-        onClick={() => (open ? setOpen(false) : openMenu())}
-      >
-        <ChevronDownIcon />
-      </button>
+      {variant === "field" && (
+        <button
+          type="button"
+          className="combobox__toggle"
+          tabIndex={-1}
+          aria-label={`Toggle ${ariaLabel} options`}
+          onClick={() => (open ? setOpen(false) : openMenu())}
+        >
+          <ChevronDownIcon />
+        </button>
+      )}
       {menuOpen && (
         <FloatingListbox
           anchorRef={rootRef}

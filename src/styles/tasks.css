@@ -711,26 +711,6 @@
   vertical-align: middle;
 }
 
-/* "+ label": a dashed slot, not a field. */
-.tasks__label-add .combobox__input {
-  width: 96px;
-  height: 20px;
-  margin: 0;
-  padding: 0 6px;
-  border: 1px dashed var(--kd-seam-strong);
-  border-radius: var(--kd-radius-mark);
-  background: transparent;
-  font-size: var(--kd-font-small);
-}
-
-.tasks__label-add .combobox__input:focus {
-  border-style: solid;
-}
-
-.tasks__label-add .combobox__toggle {
-  display: none;
-}
-
 .tasks__section {
   margin-top: 10px;
   color: var(--kd-text-3);

@@ -224,4 +224,16 @@ describe("Combobox", () => {
     expect(menu()).toBeNull();
     expect(picked).not.toHaveBeenCalled();
   });
+
+  it("as a slot: a dashed place to type into, with no chevron in the DOM — the menu still opens on focus", () => {
+    act(() =>
+      root.render(
+        createElement(Combobox, { options: OPTIONS, value: "", onChange: () => {}, ariaLabel: "Add a label", variant: "slot" }),
+      ),
+    );
+    expect(document.querySelector(".combobox")!.className).toBe("combobox combobox--slot");
+    expect(document.querySelector(".combobox__toggle")).toBeNull();
+    act(() => document.querySelector<HTMLInputElement>(".combobox__input")!.focus());
+    expect(document.querySelector('[role="listbox"]')).not.toBeNull();
+  });
 });

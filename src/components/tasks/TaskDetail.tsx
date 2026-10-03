@@ -176,6 +176,7 @@ export function TaskDetail({
                 }}
               >
                 <Combobox
+                  variant="slot"
                   ariaLabel={TASK_DETAIL_WORDS.addLabel}
                   placeholder={TASK_DETAIL_WORDS.labelPrompt}
                   options={view.labelOptions}
