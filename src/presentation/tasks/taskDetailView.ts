@@ -71,7 +71,9 @@ export interface TaskDetailView {
   labelsFull: string | null;
   /** The workspace's artifacts not yet on this task — what may be attached. */
   attachOptions: ChoiceView[];
-  attachEmpty: string | null;
+  /** Nothing published to attach: a one-word value, the reason in its
+   * tooltip. Null when the workspace has artifacts. */
+  attachEmpty: { text: string; title: string } | null;
   /** The task's history as one timeline — what was said and what was
    * changed, oldest first. See `feedOf`. */
   feed: FeedItem[];
@@ -99,7 +101,7 @@ export type FeedItem =
 export const TASK_DETAIL_WORDS = {
   panel: (id: string) => `Task ${id}`,
   close: "Close",
-  blockers: "Blockers",
+  blockers: "Blocked by",
   unblocks: "Unblocks",
   artifacts: "Artifacts",
   labels: "Labels",
@@ -194,12 +196,11 @@ export function taskDetailView(
     attachOptions: artifacts
       .filter((artifact) => !task.artifacts.includes(artifact.id))
       .map((artifact) => ({ value: artifact.id, label: artifact.title })),
+    // With every published artifact attached, the chips say it all.
     attachEmpty:
       artifacts.length === 0
-        ? "Nothing published in this workspace yet — agents attach with task.update artifacts=<id>"
-        : artifacts.every((artifact) => task.artifacts.includes(artifact.id))
-          ? "Every artifact of this workspace is attached"
-          : null,
+        ? { text: "none", title: "Nothing published in this workspace yet — agents attach with task.update artifacts=<id>" }
+        : null,
     feed: feedOf(task, now),
     feedEmpty: task.comments.length === 0 && task.log.length === 0 ? "Nothing said or changed yet" : null,
     commentMax: TASK_CAPS.commentMax,

@@ -538,7 +538,7 @@ describe("TasksDialog", () => {
     let state = service.peek("ws-1");
     expect(state?.kind === "ready" && state.board.tasks[0].artifacts).toEqual(["kd-tasks"]);
     // Attached: the picker has nothing left to offer; the row opens it.
-    expect(text()).toContain("Every artifact of this workspace is attached");
+    expect(document.querySelector('button[aria-label="Attach artifact"]')).toBeNull();
     // The chip opens it; its slug is in its title, the durable half.
     const row = buttons().find((b) => b.textContent === "KeepDeck Tasks")!;
     expect(row.title).toContain("kd-tasks");

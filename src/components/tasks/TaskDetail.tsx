@@ -261,7 +261,11 @@ export function TaskDetail({
                 className="tasks__pick tasks__pick--attach"
               />
             ) : (
-              view.attachEmpty && <span className="tasks__muted">{view.attachEmpty}</span>
+              view.attachEmpty && (
+                <span className="tasks__muted" title={view.attachEmpty.title}>
+                  {view.attachEmpty.text}
+                </span>
+              )
             )}
           </dd>
         </dl>
@@ -300,7 +304,9 @@ export function TaskDetail({
               ),
             )}
           </ul>
+          <div className="tasks__composer-row">
           <textarea
+            rows={1}
             className="form__input tasks__composer"
             placeholder={TASK_DETAIL_WORDS.commentPlaceholder}
             aria-label={TASK_DETAIL_WORDS.comment}
@@ -308,7 +314,6 @@ export function TaskDetail({
             maxLength={view.commentMax}
             onChange={(e) => setComposer((current) => typeDraft(current, e.target.value))}
           />
-          <div className="tasks__composer-actions">
             <Button size="sm" onClick={send} disabled={!sendable}>
               {TASK_DETAIL_WORDS.comment}
             </Button>

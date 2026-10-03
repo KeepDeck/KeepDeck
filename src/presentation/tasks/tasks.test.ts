@@ -202,8 +202,8 @@ describe("taskDetailView — artifacts", () => {
     ]);
     expect(view.attachOptions).toEqual([{ value: "kd-tasks-ui", label: "UI prototypes" }]);
     expect(view.attachEmpty).toBeNull();
-    expect(taskDetailView(b.tasks[0], b, ROSTER, NOW, []).attachEmpty).toContain("Nothing published");
-    expect(taskDetailView(b.tasks[0], b, ROSTER, NOW, [registry[0]]).attachEmpty).toContain("Every artifact");
+    expect(taskDetailView(b.tasks[0], b, ROSTER, NOW, []).attachEmpty?.title).toContain("Nothing published");
+    expect(taskDetailView(b.tasks[0], b, ROSTER, NOW, []).attachEmpty?.text).toBe("none");
   });
 });
 

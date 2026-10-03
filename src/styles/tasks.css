@@ -700,10 +700,14 @@
   max-width: 100%;
 }
 
+/* The picker's own inset hangs left of the column, so a picked value starts
+   where a plain one does. */
 .tasks__props .dropdown__button {
   width: auto;
   max-width: 100%;
-  padding: 2px 6px;
+  margin-left: -6px;
+  padding: 0 6px;
+  line-height: 22px;
   border-color: transparent;
   background-color: transparent;
   color: var(--kd-text);
@@ -933,10 +937,21 @@
   white-space: pre-wrap;
 }
 
-/* One line until there is more to say. */
+/* One line until there is more to say; its send beside it. */
+.tasks__composer-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
 .tasks__composer {
-  min-height: 36px;
-  height: 36px;
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  min-height: 34px;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 7px 10px;
   resize: vertical;
 }
 
