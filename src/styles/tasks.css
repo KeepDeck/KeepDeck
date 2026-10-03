@@ -266,6 +266,10 @@
 /* The list's ghost: the row, lifted — the float shell (float.css: surface,
    edge, shadow) like everything else that floats over the deck. */
 .tasks__row--ghost {
+  /* The shell's shadow carries a 1px ring OUTSIDE its edge (tokens.css
+     --kd-shadow-float), top and bottom: two pixels shorter, so the lifted
+     row stands exactly as tall as the row it left. */
+  height: 32px;
   border-radius: var(--kd-radius-control);
 }
 
