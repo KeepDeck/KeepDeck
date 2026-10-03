@@ -2,7 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Segmented } from "./Segmented";
+import { Segmented, segmentStep } from "./Segmented";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -60,11 +60,60 @@ describe("Segmented", () => {
     // Small: the small secondary button's own box — no second look.
     expect(radios()[0].className).toBe("kd-btn kd-btn--secondary kd-btn--sm");
     expect(radios()[0].getAttribute("aria-checked")).toBe("true");
+    // The option already chosen changes nothing — no write of the same value.
     act(() => radios()[0].click());
-    expect(onChange).toHaveBeenCalledWith("list");
+    expect(onChange).not.toHaveBeenCalled();
     expect(radios()[1].disabled).toBe(true);
     expect(radios()[1].title).toBe("Not here");
     render(true);
     expect(radios().every((r) => r.disabled)).toBe(true);
+  });
+
+  it("is one Tab stop — the chosen option — and arrows move the choice, past what is disabled", () => {
+    const onChange = vi.fn();
+    act(() =>
+      root.render(
+        createElement(Segmented<string>, {
+          ariaLabel: "Priority",
+          options: [
+            { value: "high", label: "High" },
+            { value: "normal", label: "Normal", disabled: true },
+            { value: "low", label: "Low" },
+          ],
+          value: "high",
+          onChange,
+        }),
+      ),
+    );
+    expect(radios().map((r) => r.tabIndex)).toEqual([0, -1, -1]);
+    const press = (key: string) => {
+      const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+      act(() => void radios()[0].dispatchEvent(event));
+      return event.defaultPrevented;
+    };
+    expect(press("ArrowRight")).toBe(true);
+    expect(onChange).toHaveBeenLastCalledWith("low");
+    expect(document.activeElement).toBe(radios()[2]);
+    expect(press("a")).toBe(false);
+  });
+});
+
+describe("segmentStep", () => {
+  const none = [false, false, false];
+  it("steps either way, wrapping, past disabled options; Home and End go to the ends", () => {
+    expect(segmentStep("ArrowRight", 0, none)).toBe(1);
+    expect(segmentStep("ArrowDown", 2, none)).toBe(0);
+    expect(segmentStep("ArrowLeft", 0, none)).toBe(2);
+    expect(segmentStep("ArrowUp", 1, none)).toBe(0);
+    expect(segmentStep("ArrowRight", 0, [false, true, false])).toBe(2);
+    expect(segmentStep("Home", 2, none)).toBe(0);
+    expect(segmentStep("End", 0, none)).toBe(2);
+    expect(segmentStep("End", 0, [false, false, true])).toBe(1);
+  });
+
+  it("goes nowhere for another key, or when nothing else may be chosen", () => {
+    expect(segmentStep("Enter", 0, none)).toBeNull();
+    expect(segmentStep("ArrowRight", 0, [false, true, true])).toBeNull();
+    expect(segmentStep("Home", 0, none)).toBeNull();
   });
 });

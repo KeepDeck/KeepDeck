@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useRef, type KeyboardEvent, type ReactNode } from "react";
 
 export interface SegmentedOption<V> {
   value: V;
@@ -35,10 +35,32 @@ function optionClass(size: "md" | "sm", checked: boolean): string {
   return checked ? "form__type form__type--active" : "form__type";
 }
 
+/** The option an arrow key moves to from `from`: the next (or previous)
+ * one that is not disabled, wrapping; Home and End go to the ends. Null for
+ * any other key, or when nothing else may be chosen. */
+export function segmentStep(
+  key: string,
+  from: number,
+  disabled: readonly boolean[],
+): number | null {
+  const count = disabled.length;
+  const step = key === "ArrowRight" || key === "ArrowDown" ? 1 : key === "ArrowLeft" || key === "ArrowUp" ? -1 : 0;
+  const start = key === "Home" ? -1 : key === "End" ? count : step === 0 ? null : from;
+  if (start === null) return null;
+  const direction = key === "End" ? -1 : key === "Home" ? 1 : step;
+  for (let i = 1; i <= count; i++) {
+    const at = (((start + direction * i) % count) + count) % count;
+    if (!disabled[at]) return at === from ? null : at;
+  }
+  return null;
+}
+
 /**
  * One of a few, side by side — the deck's choice row: a row of buttons,
  * the chosen one a light plate with dark text (form.css .form__type). A
- * radiogroup: one is checked, a press checks another.
+ * radiogroup by the house's radio manners: ONE Tab stop (the checked
+ * option, or the first that may be chosen), arrows move the choice along
+ * it, and pressing the option already chosen changes nothing.
  */
 export function Segmented<V>({
   options,
@@ -49,25 +71,44 @@ export function Segmented<V>({
   size = "md",
   className,
 }: SegmentedProps<V>) {
+  const refs = useRef<(HTMLButtonElement | null)[]>([]);
+  const off = options.map((option) => disabled || Boolean(option.disabled));
+  const checkedAt = options.findIndex((option) => option.value === value);
+  const tabStop = checkedAt >= 0 && !off[checkedAt] ? checkedAt : off.indexOf(false);
+  const choose = (index: number) => {
+    if (index !== checkedAt) onChange(options[index].value);
+  };
+  const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>, from: number) => {
+    const to = segmentStep(event.key, from, off);
+    if (to === null) return;
+    event.preventDefault();
+    refs.current[to]?.focus();
+    choose(to);
+  };
   return (
     <div
       className={["form__types", size === "sm" && "form__types--sm", className].filter(Boolean).join(" ")}
       role="radiogroup"
       aria-label={ariaLabel}
     >
-      {options.map((option) => {
-        const checked = option.value === value;
+      {options.map((option, index) => {
+        const checked = index === checkedAt;
         return (
           <button
             key={String(option.value)}
+            ref={(element) => {
+              refs.current[index] = element;
+            }}
             type="button"
             role="radio"
             aria-checked={checked}
             aria-label={option.ariaLabel}
             title={option.title}
             className={optionClass(size, checked)}
-            disabled={disabled || option.disabled}
-            onClick={() => onChange(option.value)}
+            disabled={off[index]}
+            tabIndex={index === tabStop ? 0 : -1}
+            onKeyDown={(event) => onKeyDown(event, index)}
+            onClick={() => choose(index)}
           >
             {option.label}
           </button>
