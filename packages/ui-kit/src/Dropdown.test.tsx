@@ -41,6 +41,37 @@ describe("Dropdown", () => {
   });
   afterEach(() => act(() => root.unmount()));
 
+  it("inline: a value in a line, its menu as wide as its options — not as the narrow value", () => {
+    const rect = vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+      const width = this.matches('[role="listbox"]') ? 180 : this.classList.contains("dropdown") ? 48 : 0;
+      return { x: 0, y: 0, top: 0, left: 0, bottom: 20, right: width, width, height: 20, toJSON: () => ({}) } as DOMRect;
+    });
+    try {
+      act(() =>
+        root.render(createElement(Dropdown, { options: OPTIONS, value: "/wt/a", onChange, ariaLabel: "Pick", variant: "inline" })),
+      );
+      expect(host.querySelector(".dropdown")!.className).toBe("dropdown dropdown--inline");
+      act(() => button().click());
+      expect((menu() as HTMLElement).style.width).toBe("180px");
+      // The field keeps its column's width for its menu.
+      act(() => button().click());
+      mount();
+      act(() => button().click());
+      expect((menu() as HTMLElement).style.width).toBe("48px");
+    } finally {
+      rect.mockRestore();
+    }
+  });
+
+  it("takes a small size and a quiet offer by name, never by a call-site restyle", () => {
+    act(() =>
+      root.render(createElement(Dropdown, { options: OPTIONS, value: "/wt/a", onChange, ariaLabel: "Pick", size: "sm", quiet: true })),
+    );
+    expect(host.querySelector(".dropdown")!.className).toBe("dropdown dropdown--sm dropdown--quiet");
+    mount();
+    expect(host.querySelector(".dropdown")!.className).toBe("dropdown");
+  });
+
   it("shows the current option's label and no native select anywhere", () => {
     mount();
     expect(button().textContent).toBe("kd/a");

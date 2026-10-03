@@ -32,12 +32,6 @@
 
 /* The team: a compact pick when there is a choice, a word when there is
    not — never a control that offers one option. */
-.tasks__team .dropdown__button {
-  min-width: 0;
-  padding: 5px 10px;
-  font-size: var(--kd-font-normal);
-}
-
 .tasks__team-name {
   color: var(--kd-text-3);
   font-size: var(--kd-font-normal);
@@ -83,39 +77,6 @@
   display: flex;
   flex: 1;
   min-height: 0;
-}
-
-/* Wide: the drawer grows from the right edge to the whole stage — the
-   board is put away, not covered. Compound on purpose: this must outrank
-   the drawer's own width below, which at equal specificity won by source
-   order and left the "wide" panel 400px wide at the left edge. Two
-   explicit widths, so the change between them animates. */
-.tasks__detail.tasks__detail--wide {
-  width: 100%;
-  padding: 20px 28px;
-  box-shadow: none;
-}
-
-.tasks__detail--wide .tasks__body {
-  max-width: 80ch;
-  font-size: var(--kd-font-normal);
-}
-
-.tasks__detail--wide .tasks__props {
-  max-width: 480px;
-}
-
-.tasks__detail-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.tasks__detail-actions {
-  display: flex;
-  flex: none;
-  gap: 4px;
 }
 
 .tasks__main {
@@ -168,19 +129,25 @@
   color: var(--kd-text-3);
 }
 
-.tasks__column-label--in-progress {
+/* A status's tint, one set for both of its headings: the board's column
+   and the list's group. */
+.tasks__column-label--in-progress,
+.tasks__group--in-progress .tasks__group-label {
   color: var(--status-working);
 }
 
-.tasks__column-label--review {
+.tasks__column-label--review,
+.tasks__group--review .tasks__group-label {
   color: var(--status-waiting);
 }
 
-.tasks__column-label--blocked {
+.tasks__column-label--blocked,
+.tasks__group--blocked .tasks__group-label {
   color: var(--status-failed);
 }
 
-.tasks__column-label--done {
+.tasks__column-label--done,
+.tasks__group--done .tasks__group-label {
   color: var(--status-done);
 }
 
@@ -283,11 +250,27 @@
   position: fixed;
   z-index: 3;
   pointer-events: none;
+}
+
+/* The card's ghost floats on a shadow cast by its own shape. Only the
+   card's: on a ghost the width of the list, a filter left trails of itself
+   behind as it moved. */
+.tasks__ghost--card {
   filter: drop-shadow(0 12px 24px rgba(0, 0, 0, 0.55));
 }
 
 .tasks__ghost .tasks__card {
   border-color: var(--kd-ok);
+}
+
+/* The list's ghost: the row, lifted — the float shell (float.css: surface,
+   edge, shadow) like everything else that floats over the deck. */
+.tasks__row--ghost {
+  /* The shell's shadow carries a 1px ring OUTSIDE its edge (tokens.css
+     --kd-shadow-float), top and bottom: two pixels shorter, so the lifted
+     row stands exactly as tall as the row it left. */
+  height: 32px;
+  border-radius: var(--kd-radius-control);
 }
 
 /* While a card is in flight: the columns it may land in open up, the
@@ -342,29 +325,322 @@
   color: var(--status-failed);
   font-size: var(--kd-font-small);
 }
-/* The drawer: one task whole, over the board's right edge, scrolling on
-   its own. The board stays interactive beside it — a card can still be
-   picked or dragged while a task is open. */
+
+/* A task's labels: quiet words, no colour — colour is state. */
+.tasks__labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* A label on the open task, with its ×: the tag (badges.css .kd-tag),
+   tight on the × side. */
+.tasks__label--edit {
+  padding-right: 0;
+}
+
+.tasks__label-add {
+  display: inline-flex;
+}
+
+/* ── The list view: one windowed list, a heading per status ───────── */
+
+/* A group in a drag: its heading and its rows answer as the board's
+   columns do — a target edged in the done hue, the one under the pointer
+   on a tile, a group the task may not go to dimmed. */
+.tasks__group.tasks__drop--ok,
+.tasks__row.tasks__drop--ok {
+  box-shadow: inset 2px 0 0 var(--kd-ok);
+}
+
+.tasks__group.tasks__drop--over,
+.tasks__row.tasks__drop--over {
+  background-color: var(--kd-tile);
+  box-shadow: inset 2px 0 0 var(--kd-ok-strong);
+}
+
+.tasks__group.tasks__drop--no,
+.tasks__row.tasks__drop--no {
+  opacity: 0.45;
+}
+
+/* The row in flight stays in its place, dimmed, until the drop moves it. */
+.tasks__row--dragging {
+  opacity: 0.4;
+}
+
+/* The list scrolls itself (it is the windowed list); the stage around it
+   must not scroll a second time. */
+.tasks__main--list {
+  overflow: hidden;
+}
+
+.tasks__list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* The pinned heading: the group of the first row in view, over the rows
+   as they scroll under it — on the list's own surface, so they pass
+   beneath it rather than through it. */
+.tasks__list-pinned .tasks__group {
+  background-color: var(--kd-tile);
+}
+
+/* Ruled out as a drop, the pinned heading dims its words, not itself:
+   a see-through heading would show the rows passing under it. */
+.tasks__list-pinned .tasks__group.tasks__drop--no {
+  opacity: 1;
+}
+
+.tasks__list-pinned .tasks__drop--no > * {
+  opacity: 0.45;
+}
+
+/* A status heading. It IS the fold's toggle. */
+.tasks__group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 30px;
+  box-sizing: border-box;
+  padding: 0 12px;
+  border: 0;
+  border-bottom: 1px solid var(--kd-seam);
+  background-color: var(--kd-tile);
+  color: var(--kd-text-2);
+  font: inherit;
+  font-size: var(--kd-font-small);
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tasks__group:hover {
+  color: var(--kd-text);
+}
+
+.tasks__group::before {
+  content: "▾";
+  flex: none;
+  width: 10px;
+  color: var(--kd-text-4);
+}
+
+.tasks__group--folded::before {
+  content: "▸";
+}
+
+/* A status with nothing in it: still named, so the six groups stand as
+   the board's six columns do — quieter. */
+.tasks__group--empty {
+  color: var(--kd-text-3);
+}
+
+.tasks__group--empty .tasks__group-label {
+  color: var(--kd-text-3);
+}
+
+.tasks__group--empty .status-ring-box {
+  opacity: 0.5;
+}
+
+.tasks__group-count {
+  color: var(--kd-text-3);
+  font-weight: 500;
+}
+
+/* A task in one line, in columns: priority, status, id, title, labels,
+   what holds it, who has it, how long since it moved. The row is not a
+   button — its labels and blockers are controls — so its open control
+   lies under the rest, spanning it. */
+.tasks__row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 34px;
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--kd-hover);
+  color: var(--kd-text);
+  font-size: var(--kd-font-normal);
+}
+
+.tasks__row:hover {
+  background-color: var(--kd-hover);
+}
+
+.tasks__row--open {
+  background-color: var(--kd-selected);
+}
+
+/* The row's own control: priority, status, id and title — the part a
+   press opens. Its labels and blockers stand beside it as controls of their
+   own (the house row: the artifacts dialog's). */
+.tasks__row-open {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tasks__row-open:focus-visible {
+  outline: 1px solid var(--kd-focus);
+  outline-offset: -1px;
+}
+
+/* A label or a blocker beside the row's control: a tag, held to its size. */
+.tasks__row-control {
+  flex: none;
+}
+
+.tasks__row-mark {
+  flex: none;
+  width: 30px;
+}
+
+.tasks__row-id {
+  flex: none;
+  width: 58px;
+  color: var(--kd-text-3);
+  font-size: var(--kd-font-small);
+  font-variant-numeric: tabular-nums;
+}
+
+.tasks__row-title {
+  flex: 1;
+  min-width: 0;
+}
+
+
+.tasks__row-who {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  color: var(--kd-text-2);
+  font-size: var(--kd-font-small);
+}
+
+.tasks__row-age {
+  flex: none;
+  width: 36px;
+  color: var(--kd-text-3);
+  font-size: var(--kd-font-small);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.tasks__row--cancelled .tasks__row-title {
+  color: var(--kd-text-4);
+  text-decoration: line-through;
+}
+
+.tasks__row--done .tasks__row-title {
+  color: var(--kd-text-2);
+}
+/* The open task: a card floating over the list or the board, inset from
+   the stage's edges — nothing under it moves. The view beside it stays
+   interactive: a row or a card can still be picked while a task is open.
+   Expanded, it spans the stage. */
 .tasks__detail {
   position: absolute;
   top: 0;
   right: 0;
   bottom: 0;
+  /* One, never more: a picker's menu opened from the card lands in the
+     modal's own layer at z-index 1, after the card in the DOM — a card
+     above 1 buries its own menus. */
   z-index: 1;
-  /* The width names the whole box, edges included — at 100% a content
-     box grew past its parent by its own padding and border. */
+  /* The width names the whole box, edges included. */
   box-sizing: border-box;
-  width: min(400px, 100%);
+  width: min(440px, 100%);
   display: flex;
   flex-direction: column;
-  gap: 6px;
   min-height: 0;
-  padding: 12px 14px;
-  border-radius: var(--kd-radius-pop);
+  /* Surface, edge and shadow are the float shell's (float.css). */
+  border-radius: var(--kd-radius-tile);
+  overflow: hidden;
+}
+
+.tasks__detail--wide {
+  left: 0;
+  width: auto;
+}
+
+.tasks__detail-head {
+  flex: none;
+  padding: 10px 12px 10px 16px;
+  border-bottom: 1px solid var(--kd-seam);
+}
+
+/* Where the task stands, in one line, with the card's two controls. */
+.tasks__detail-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.tasks__detail-tools {
+  display: flex;
+  flex: none;
+  gap: 2px;
+  margin-left: auto;
+}
+
+/* Expanded: the properties stand beside the story, the story gets the room. */
+.tasks__detail-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px 16px;
   overflow-y: auto;
-  transition:
-    width 220ms ease,
-    padding 220ms ease;
+}
+
+.tasks__detail--wide .tasks__detail-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  align-items: start;
+  gap: 24px;
+}
+
+.tasks__detail--wide .tasks__props {
+  grid-column: 2;
+  grid-row: 1;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+}
+
+.tasks__detail--wide .tasks__prop-label:not(:first-child) {
+  margin-top: 8px;
+}
+
+.tasks__detail--wide .tasks__detail-main {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.tasks__detail-main {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -374,19 +650,39 @@
 }
 
 .tasks__detail-title {
-  margin: 0;
+  margin: 6px 0 0;
   color: var(--kd-text);
-  font-size: var(--kd-font-normal);
+  font-size: var(--kd-font-title);
   font-weight: 600;
+  line-height: 1.3;
 }
 
 .tasks__detail-meta {
-  margin: 0;
-}
-
-.tasks__detail-meta code {
+  flex: 1;
+  min-width: 0;
   color: var(--kd-text-3);
   font-size: var(--kd-font-small);
+}
+
+
+
+/* An assignee's mark beside its name. */
+.tasks__avatar {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 3px;
+  box-sizing: border-box;
+  margin-right: 6px;
+  border-radius: 999px;
+  background-color: var(--kd-hover);
+  color: var(--kd-text-2);
+  font-size: var(--kd-font-small);
+  letter-spacing: -0.02em;
+  font-weight: 700;
+  vertical-align: middle;
 }
 
 .tasks__section {
@@ -398,8 +694,12 @@
   text-transform: uppercase;
 }
 
+/* The brief: the task's own words, on a tile of their own. */
 .tasks__body {
   margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--kd-radius-pop);
+  background-color: var(--kd-tile);
   color: var(--kd-text-2);
   font-size: var(--kd-font-normal);
   line-height: 1.5;
@@ -412,20 +712,44 @@
   font-size: var(--kd-font-small);
 }
 
-.tasks__pick .dropdown__button {
-  width: 100%;
-  padding: 6px 10px;
-  font-size: var(--kd-font-normal);
-}
-
-/* The properties: label on the left, picker on the right, one row each —
+/* The properties: label on the left, value on the right, one row each —
    the issue tracker's property list. */
 .tasks__props {
   display: grid;
-  grid-template-columns: 76px minmax(0, 1fr);
+  grid-template-columns: 88px minmax(0, 1fr);
   align-items: center;
   gap: 6px 10px;
-  margin-top: 8px;
+  margin: 0;
+}
+
+.tasks__props dd {
+  margin: 0;
+  min-width: 0;
+}
+
+/* A row of small things: labels, blockers, attachments. */
+.tasks__chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+/* A blocker — an outlined tag — still standing says so in the failed hue;
+   one done or gone is struck: it holds nothing. */
+.kd-tag.tasks__tag--blocking {
+  border-color: var(--kd-err-line);
+  color: var(--status-failed);
+}
+
+.kd-tag.tasks__tag--resolved {
+  color: var(--kd-text-3);
+  text-decoration: line-through;
+}
+
+/* An attachment: its title opens it, its × takes it off. */
+.tasks__tag--artifact {
+  padding-right: 0;
 }
 
 .tasks__prop-label {
@@ -437,40 +761,6 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-}
-
-/* The status hue as a dot before the word, the ladder's four names. */
-.tasks__status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background-color: var(--kd-selected);
-  flex: none;
-}
-
-.tasks__status-dot--working {
-  background-color: var(--status-working);
-}
-
-.tasks__status-dot--waiting {
-  background-color: var(--status-waiting);
-}
-
-.tasks__status-dot--failed {
-  background-color: var(--status-failed);
-}
-
-.tasks__status-dot--done {
-  background-color: var(--status-done);
-}
-
-.tasks__links {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
 }
 
 .tasks__link {
@@ -497,52 +787,25 @@
   cursor: default;
 }
 
-.tasks__artifact {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-/* The row's text clamps to two lines (.kd-two-lines inside the link); the
-   link itself only takes the room left beside the ×. */
-.tasks__artifact .tasks__link {
-  flex: 1;
-  min-width: 0;
-}
-
-/* The row-level detach: the small text × the artifacts registry uses. */
-.tasks__remove {
-  display: inline-flex;
-  flex: none;
-  width: 20px;
-  height: 20px;
-  align-items: center;
-  justify-content: center;
-  border: 0;
-  border-radius: var(--kd-radius-mark);
-  background: transparent;
-  color: var(--kd-text-4);
-  font-size: var(--kd-font-normal);
-  line-height: 1;
-  cursor: pointer;
-}
-
-.tasks__remove:hover {
-  background-color: var(--kd-err-tint);
-  color: var(--kd-err-strong);
-}
-
+/* What was said: a tile in the timeline. */
 .tasks__comment {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 6px 0;
-  border-top: 1px solid var(--kd-seam);
+  padding: 8px 10px;
+  border-radius: var(--kd-radius-pop);
+  background-color: var(--kd-tile);
 }
 
 .tasks__comment-who {
   color: var(--kd-text-3);
   font-size: var(--kd-font-small);
+}
+
+.tasks__comment-who b {
+  color: var(--kd-text-2);
+  font-weight: 500;
 }
 
 .tasks__comment-body {
@@ -551,8 +814,28 @@
   white-space: pre-wrap;
 }
 
+/* One line until there is more to say; its send beside it. */
+.tasks__composer-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+/* The new task's brief: room to write one. */
 .tasks__composer {
   min-height: 56px;
+  resize: vertical;
+}
+
+/* A comment: one line until there is more to say. */
+.tasks__comment-input {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  min-height: 34px;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 7px 10px;
   resize: vertical;
 }
 
@@ -562,14 +845,67 @@
   gap: 8px;
 }
 
-.tasks__log {
+/* The task's one timeline: comments, and the changes between them, on a
+   line down the left edge with a dot per event. */
+.tasks__feed {
+  position: relative;
   margin: 0;
-  padding: 0;
+  padding: 0 0 0 14px;
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 6px;
+}
+
+.tasks__feed::before {
+  content: "";
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  width: 1px;
+  background-color: var(--kd-seam);
+}
+
+.tasks__feed > li::before {
+  content: "";
+  position: absolute;
+  left: -12px;
+  top: 7px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background-color: var(--kd-seam-strong);
+}
+
+.tasks__feed > .tasks__comment::before {
+  top: 12px;
+  background-color: var(--kd-text-3);
+}
+
+/* Nested inside a fold, the run sits on the same line — no second rail. */
+.tasks__feed .tasks__feed {
+  padding-left: 0;
+}
+
+.tasks__feed .tasks__feed::before {
+  content: none;
+}
+
+.tasks__log {
+  position: relative;
   font-size: var(--kd-font-small);
+}
+
+/* A folded run of changes: its line opens it in place. */
+.tasks__feed-more summary {
+  color: var(--kd-text-3);
+  font-size: var(--kd-font-small);
+  cursor: pointer;
+}
+
+.tasks__feed-more[open] > .tasks__feed {
+  margin-top: 6px;
 }
 
 .tasks__log-who {

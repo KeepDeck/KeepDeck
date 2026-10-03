@@ -84,8 +84,61 @@ describe("the usage chips", () => {
     // inherits so the painted track follows the value the ring transitions.
     const ring = readStyles("progressRing.css");
     expect(ring).toMatch(/@property --progress-ring-fill\s*\{[^}]*syntax:\s*"<number>"[^}]*inherits:\s*true/);
-    expect(ruleBody(ring, ".progress-ring").transition).toMatch(/^--progress-ring-fill \d+ms ease-out$/);
+    // The hue moves with the fill: painted as `color` (currentColor in the
+    // track), which animates in every engine, eased the same way.
+    expect(ruleBody(ring, ".progress-ring").color).toBe("var(--progress-ring-hue)");
+    expect(ruleBody(ring, ".progress-ring").transition).toMatch(/^--progress-ring-fill \d+ms ease-out,\s*color \d+ms ease-out$/);
     expect(ring).toMatch(/prefers-reduced-motion: reduce\)\s*\{\s*\.progress-ring\s*\{\s*transition: none/);
+  });
+});
+
+describe("the status ring", () => {
+  it("is the pie: the sector filled solid in an outline, no band mask", () => {
+    const ring = readStyles("progressRing.css");
+    // The outline: a whole pixel in the hue.
+    const outline = ruleBody(ring, ".progress-ring--pie::before");
+    expect(outline.border).toBe("1px solid currentColor");
+    expect(outline.mask).toBe("none");
+    // The sector: the hue as a plain background, cut to the fill by an
+    // alpha mask — never currentColor inside a gradient (WebKit repaints
+    // that only when a colour transition ends).
+    const sector = ruleBody(ring, ".progress-ring--pie::after");
+    expect(sector.mask).toBe("conic-gradient(#000 calc(var(--progress-ring-fill) * 1%), transparent 0)");
+    expect(ring).toMatch(/\.progress-ring::after \{\s*background-color: currentColor;/);
+    expect(ring).not.toMatch(/gradient\([^;]*currentColor/);
+  });
+
+  it("eases to a new rung — fill and hue — and rests under reduced motion", () => {
+    const status = readStyles("status.css");
+    expect(ruleBody(status, ".progress-ring.status-ring").transition).toMatch(
+      /^--progress-ring-fill \d+ms ease-out,\s*color \d+ms ease-out$/,
+    );
+    expect(ruleBody(status, ".status-ring--barred .status-ring__bar").opacity).toBe("1");
+    // Each hue outranks the base's grey: the tones match at its specificity.
+    for (const tone of ["working", "waiting", "failed", "done"]) {
+      expect(ruleBody(status, `.progress-ring.status-ring--${tone}`)["--progress-ring-hue"]).toBe(`var(--status-${tone})`);
+    }
+    expect(status).toMatch(/prefers-reduced-motion: reduce\)\s*\{\s*\.progress-ring\.status-ring,\s*\.status-ring__bar\s*\{\s*transition: none/);
+  });
+});
+
+describe("the chosen plate and the drag's ghost", () => {
+  it("a chosen toggle or choice changes its fill, never its edge — so it stands the size of its neighbour", () => {
+    const button = readStyles("button.css");
+    // The rule that names the checked option (with the pressed toggle).
+    const block = /\.kd-btn--secondary\[aria-checked="true"\][^{]*\{([^}]*)\}/.exec(button)![1];
+    expect(block).toMatch(/background-color: var\(--kd-text\);/);
+    expect(block).not.toMatch(/border/);
+  });
+
+  it("only the card's ghost casts a filter shadow; the list's row ghost wears the float shell", () => {
+    const tasks = readStyles("tasks.css");
+    expect(ruleBody(tasks, ".tasks__ghost").filter).toBeUndefined();
+    expect(ruleBody(tasks, ".tasks__ghost--card").filter).toMatch(/^drop-shadow/);
+    expect(readStyles("float.css")).toMatch(/\.tasks__row--ghost,/);
+    // As tall as the row it left, the shell's outer ring counted.
+    expect(ruleBody(tasks, ".tasks__row").height).toBe("34px");
+    expect(ruleBody(tasks, ".tasks__row--ghost").height).toBe("32px");
   });
 });
 

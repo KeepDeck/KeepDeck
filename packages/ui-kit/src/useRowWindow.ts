@@ -21,6 +21,9 @@ export interface RowWindowInput<Row> {
   /** The scroll container: the list itself, or the panel around it. */
   scrollRef: RefObject<HTMLElement | null>;
   overscan?: number;
+  /** Room at the top a layer covers (a pinned heading): a row revealed
+   * upward stops below it, not under it. */
+  coveredTop?: number;
 }
 
 export interface RowWindow {
@@ -33,6 +36,10 @@ export interface RowWindow {
    * a list shorter than its viewport has its end in view from the first
    * paint, and a grower must hear that too. False for an empty list. */
   atEnd: boolean;
+  /** The first row any part of which is in view (not the overscan above
+   * it); -1 while nothing is mounted. What a sticky heading asks which
+   * group it heads. */
+  firstVisibleIndex: number;
   /** The measured height of every row — the spacer's height. */
   totalSize: number;
   /** ONE callback for every row's ref — a fresh arrow per row would ride
@@ -62,6 +69,7 @@ export function useRowWindow<Row>({
   estimate,
   scrollRef,
   overscan = OVERSCAN_ROWS,
+  coveredTop = 0,
 }: RowWindowInput<Row>): RowWindow {
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -69,6 +77,7 @@ export function useRowWindow<Row>({
     estimateSize: (index) => (typeof estimate === "number" ? estimate : estimate(rows[index])),
     overscan,
     getItemKey: useCallback((index: number) => keyOf(rows[index]), [rows, keyOf]),
+    scrollPaddingStart: coveredTop,
   });
   const items = virtualizer.getVirtualItems();
   const lastIndex = items.length > 0 ? items[items.length - 1].index : -1;
@@ -92,10 +101,13 @@ export function useRowWindow<Row>({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
+  const offset = virtualizer.scrollOffset ?? 0;
+  const firstVisible = items.find((item) => item.end > offset);
   return {
     items,
     lastIndex,
     atEnd: rows.length > 0 && lastIndex === rows.length - 1,
+    firstVisibleIndex: firstVisible ? firstVisible.index : -1,
     totalSize: virtualizer.getTotalSize(),
     measure,
     reveal,

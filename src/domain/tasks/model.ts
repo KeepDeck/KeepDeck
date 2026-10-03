@@ -48,7 +48,8 @@ export type TaskField =
   | "title"
   | "body"
   | "blockedBy"
-  | "artifacts";
+  | "artifacts"
+  | "labels";
 
 /** The same vocabulary as a list — what the codec checks a log entry
  * against and what a command reports as changed. One home. */
@@ -60,6 +61,7 @@ export const TASK_FIELDS: readonly TaskField[] = [
   "body",
   "blockedBy",
   "artifacts",
+  "labels",
 ];
 
 export interface TaskComment {
@@ -100,6 +102,10 @@ export interface Task {
   blockedBy: readonly string[];
   /** Artifact ids (slugs) of this workspace. */
   artifacts: readonly string[];
+  /** Free words to sort and find tasks by, normalised (`normalizeLabel`)
+   * and sorted. The board's vocabulary is whatever its tasks carry
+   * (`labelsOf`) — never stored on its own, so nothing to curate. */
+  labels: readonly string[];
   comments: readonly TaskComment[];
   log: readonly TaskLogEntry[];
   created: number;
@@ -176,6 +182,9 @@ export const TASK_CAPS = {
   logMax: 500,
   /** Creating past this is refused, never silently cancelled. */
   tasksMax: 2000,
+  /** Labels on one task — a few words, not a taxonomy. */
+  labelsMax: 5,
+  labelMax: 24,
 } as const;
 
 /** Whether a task is still on the board's live half. */

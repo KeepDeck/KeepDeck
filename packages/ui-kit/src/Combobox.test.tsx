@@ -42,9 +42,10 @@ describe("Combobox", () => {
   let picked: ReturnType<typeof vi.fn>;
 
   /** Controlled harness: the combobox needs its value echoed back to filter. */
-  function Harness({ initial }: { initial: string }) {
+  function Harness({ initial, variant }: { initial: string; variant?: "field" | "slot" }) {
     const [value, setValue] = useState(initial);
     return createElement(Combobox, {
+      variant,
       options: OPTIONS,
       value,
       onChange: (v: string) => {
@@ -55,8 +56,8 @@ describe("Combobox", () => {
     });
   }
 
-  const mount = (initial = "") =>
-    act(() => root.render(createElement(Harness, { initial })));
+  const mount = (initial = "", variant?: "field" | "slot") =>
+    act(() => root.render(createElement(Harness, { initial, variant })));
   const input = () =>
     document.querySelector<HTMLInputElement>('[role="combobox"]')!;
   const menu = () => document.querySelector('[role="listbox"]');
@@ -223,5 +224,32 @@ describe("Combobox", () => {
     act(() => outside.focus());
     expect(menu()).toBeNull();
     expect(picked).not.toHaveBeenCalled();
+  });
+
+  it("as a slot: a dashed place to type into, with no chevron in the DOM — the menu still opens on focus", () => {
+    act(() =>
+      root.render(
+        createElement(Combobox, { options: OPTIONS, value: "", onChange: () => {}, ariaLabel: "Add a label", variant: "slot" }),
+      ),
+    );
+    expect(document.querySelector(".combobox")!.className).toBe("combobox combobox--slot");
+    expect(document.querySelector(".combobox__toggle")).toBeNull();
+    act(() => document.querySelector<HTMLInputElement>(".combobox__input")!.focus());
+    expect(document.querySelector('[role="listbox"]')).not.toBeNull();
+  });
+
+  it("as a slot: Enter submits what was typed — a pick only once an arrow chose one", () => {
+    mount("", "slot");
+    act(() => input().focus());
+    type("feat");
+    // Typed text is an item of its own: Enter reaches the form with it.
+    expect(menu()).not.toBeNull();
+    expect(input().getAttribute("aria-activedescendant")).toBeNull();
+    expect(key("Enter")).toBe(false);
+    expect(picked).toHaveBeenLastCalledWith("feat");
+    // An arrow moves into the menu; then Enter picks there.
+    key("ArrowDown");
+    expect(key("Enter")).toBe(true);
+    expect(picked).toHaveBeenLastCalledWith("feat/login");
   });
 });

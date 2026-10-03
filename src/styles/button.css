@@ -68,6 +68,19 @@
   border-color: var(--kd-seam-strong);
 }
 
+/* A secondary button that toggles (a filter, a toolbar's choice): pressed
+   or checked, it is the deck's one "chosen" — the light plate with dark
+   ink — without colour, since colour is state. The FILL changes, never the
+   edge: a light edge on the plate read a pixel wider each side than the
+   dark-edged button beside it. */
+.kd-btn--secondary[aria-pressed="true"],
+.kd-btn--secondary[aria-pressed="true"]:hover:not(:disabled),
+.kd-btn--secondary[aria-checked="true"],
+.kd-btn--secondary[aria-checked="true"]:hover:not(:disabled) {
+  background-color: var(--kd-text);
+  color: var(--kd-canvas);
+}
+
 /* Chrome that should disappear until reached for. Its padding is symmetric
    because what it wraps is an icon, not a label — a ghost with a text label
    is not a control this app has. */

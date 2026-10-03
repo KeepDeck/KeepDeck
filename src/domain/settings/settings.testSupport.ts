@@ -52,6 +52,7 @@ export const NON_DEFAULT: { [K in SettingsKey]: Settings[K] } = {
   artifacts: true,
   artifactAutoOpen: false,
   tasks: true,
+  tasksView: "list",
 };
 
 export const SETTINGS_KEYS = Object.keys(DEFAULT_SETTINGS) as SettingsKey[];

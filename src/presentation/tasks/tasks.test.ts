@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { TASK_CAPS } from "../../domain/tasks";
 import { board, task } from "../../domain/tasks/testSupport";
 import { boardView, columnLabelClassName } from "./boardView";
+import { NO_QUERY } from "./queryView";
 import { LADDER_WORDS, tasksLadder } from "./ladderView";
-import { newTaskFormView, NEW_TASK_WORDS, priorityChoiceClassName } from "./newTaskFormView";
-import { taskCardView, taskCardClassName } from "./taskCardView";
-import { TASK_DETAIL_WORDS, pickedArtifact, pickedStatus, taskDetailClassName, taskDetailView } from "./taskDetailView";
+import { newTaskFormView, NEW_TASK_WORDS } from "./newTaskFormView";
+import { roleInitials, statusMark, statusRing, taskCardView, taskCardClassName } from "./taskCardView";
+import { TASK_DETAIL_WORDS, feedOf, pickedArtifact, pickedStatus, taskDetailClassName, taskDetailView } from "./taskDetailView";
 import { teamCardTasksLine } from "./teamCardTasksLine";
 import { teamOnScreen } from "./teamOnScreen";
 import { personName, priorityMark, statusTone, FIELD_WORDS, POOL_CHOICE } from "./words";
@@ -45,7 +47,7 @@ describe("taskCardView", () => {
       task({ id: "task-2", status: "done" }),
       task({ id: "task-3", blockedBy: ["task-1", "task-2"], priority: "high", updated: NOW - 120_000 }),
     ]);
-    expect(taskCardView(b.tasks[2], b, NOW)).toEqual({
+    expect(taskCardView(b.tasks[2], b, NOW)).toMatchObject({
       id: "task-3",
       title: "Task task-3",
       meta: "task-3 · pool · 2m ago",
@@ -53,8 +55,19 @@ describe("taskCardView", () => {
       blockedBy: "blocked by task-1",
       tone: "none",
       cancelled: false,
+      labels: [],
+      assignee: "pool",
+      initials: null,
+      age: "2m ago",
+      ring: { fill: 0, tone: "none", barred: false, label: "To do" },
     });
+    // Every blocker as a chip, a resolved one struck.
+    expect(taskCardView(b.tasks[2], b, NOW).blockerChips.map((c) => [c.id, c.resolved])).toEqual([
+      ["task-1", false],
+      ["task-2", true],
+    ]);
     expect(taskCardView(b.tasks[0], b, NOW).blockedBy).toBeNull();
+    expect(taskCardView({ ...b.tasks[0], labels: ["ui"] }, b, NOW).labels).toEqual(["ui"]);
   });
 });
 
@@ -68,7 +81,7 @@ describe("boardView", () => {
   ]);
 
   it("lays the board out blocked-first, open columns in queue order, closed ones newest first — every column open, Cancelled included", () => {
-    const columns = boardView(b.tasks, b, NOW);
+    const columns = boardView(b.tasks, b, NOW, NO_QUERY);
     expect(columns.map((c) => `${c.status}:${c.count}`)).toEqual([
       "blocked:0",
       "todo:2",
@@ -83,7 +96,7 @@ describe("boardView", () => {
   });
 
   it("always shows Cancelled, its cards marked as taken off the board", () => {
-    const columns = boardView(b.tasks, b, NOW);
+    const columns = boardView(b.tasks, b, NOW, NO_QUERY);
     expect(columns.find((c) => c.status === "cancelled")?.cards[0].cancelled).toBe(true);
   });
 });
@@ -99,11 +112,13 @@ describe("task panel and form words and classes", () => {
     const b = board([task({ id: "task-1", artifacts: ["kd-a"] })]);
     const detail = taskDetailView(b.tasks[0], b, ["lead"], NOW, [{ id: "kd-a", title: "A" }]);
     expect(newTaskFormView(["lead"]).assigneeOptions[0]).toBe(POOL_CHOICE);
-    expect(detail.assigneeOptions[0]).toBe(POOL_CHOICE);
+    // The same words, with the pool's mark beside them.
+    expect(detail.assigneeOptions[0]).toEqual({ ...POOL_CHOICE, initials: null });
     expect(FIELD_WORDS).toEqual({ title: "Title", brief: "Brief", status: "Status", priority: "Priority", assignee: "Assignee" });
     // The detach tooltip and its accessible label say the same word.
     expect(detail.artifacts[0].detachLabel).toBe(`${TASK_DETAIL_WORDS.detach} kd-a`);
-    expect(detail.statusOptions[0].dotClassName).toBe(`tasks__status-dot tasks__status-dot--${detail.statusOptions[0].tone}`);
+    // Beside its word, the ring is a picture only — the word names it.
+    expect(detail.statusOptions[0].ring).toEqual({ ...statusRing(detail.statusOptions[0].value), decorative: true });
   });
 
   it("a pick asks for nothing when it changes nothing", () => {
@@ -113,9 +128,7 @@ describe("task panel and form words and classes", () => {
     expect(pickedArtifact("kd-a")).toBe("kd-a");
   });
 
-  it("lights the picked priority and names the form's own buttons", () => {
-    expect(priorityChoiceClassName(true)).toBe("form__type form__type--active");
-    expect(priorityChoiceClassName(false)).toBe("form__type");
+  it("names the form's own buttons", () => {
     expect([NEW_TASK_WORDS.panel, NEW_TASK_WORDS.cancel, NEW_TASK_WORDS.create]).toEqual(["New task", "Cancel", "Create task"]);
   });
 });
@@ -151,14 +164,18 @@ describe("taskDetailView", () => {
       task({ id: "task-3", blockedBy: ["task-2"] }),
     ]);
     const view = taskDetailView(b.tasks[1], b, ROSTER, NOW);
-    expect(view.meta).toBe("task-2 · by you · opened 1m ago · updated 1m ago");
-    expect(view.blockers).toEqual([{ id: "task-1", text: "task-1 · in progress" }]);
+    expect(view.meta).toBe("task-2 · To do · by you · updated 1m ago");
+    expect(view.statusRing).toEqual(statusMark("todo"));
+    expect(statusMark("todo")).toEqual({ ...statusRing("todo"), decorative: true });
+    expect(view.blockers).toEqual([
+      { id: "task-1", text: "task-1 · in progress", resolved: false, className: "kd-tag kd-tag--outline tasks__tag--blocking" },
+    ]);
     expect(view.blockersEmpty).toBeNull();
     expect(view.unblocks).toEqual([{ id: "task-3", title: "Task task-3" }]);
-    expect(view.thread).toEqual([{ n: 1, who: "you", age: "1m ago", body: "go" }]);
-    expect(view.log).toEqual([
-      { who: "lead", text: "assignee: — → impl-1", age: "1h ago" },
-      { who: "impl-1", text: "edited the brief (the previous version is kept in the log: 0 characters)", age: "1m ago" },
+    expect(view.feed.map(({ key: _key, ...rest }) => rest)).toEqual([
+      { kind: "change", who: "lead", text: "assignee: — → impl-1", age: "1h ago" },
+      { kind: "change", who: "impl-1", text: "edited the brief (the previous version is kept in the log: 0 characters)", age: "1m ago" },
+      { kind: "comment", who: "you", age: "1m ago", body: "go" },
     ]);
     expect(view.assigneeOptions.map((o) => o.value)).toEqual(["", "lead", "impl-1", "impl-2"]);
   });
@@ -186,8 +203,8 @@ describe("taskDetailView — artifacts", () => {
     ]);
     expect(view.attachOptions).toEqual([{ value: "kd-tasks-ui", label: "UI prototypes" }]);
     expect(view.attachEmpty).toBeNull();
-    expect(taskDetailView(b.tasks[0], b, ROSTER, NOW, []).attachEmpty).toContain("Nothing published");
-    expect(taskDetailView(b.tasks[0], b, ROSTER, NOW, [registry[0]]).attachEmpty).toContain("Every artifact");
+    expect(taskDetailView(b.tasks[0], b, ROSTER, NOW, []).attachEmpty?.title).toContain("Nothing published");
+    expect(taskDetailView(b.tasks[0], b, ROSTER, NOW, []).attachEmpty?.text).toBe("none");
   });
 });
 
@@ -256,5 +273,116 @@ describe("ladder", () => {
 describe("columnLabelClassName", () => {
   it("dresses a column's label in its status's hue", () => {
     expect(columnLabelClassName("in-progress")).toBe("tasks__column-label tasks__column-label--in-progress");
+  });
+});
+
+describe("taskDetailView — labels", () => {
+  it("lists the task's labels, offers the team's others, and says when no more fit", () => {
+    const b = board([
+      task({ id: "task-1", labels: ["ui"] }),
+      task({ id: "task-2", labels: ["ui", "bell"] }),
+      task({ id: "task-3", teamId: "team-2", labels: ["elsewhere"] }),
+    ]);
+    const view = taskDetailView(b.tasks[0], b, [], 0);
+    expect(view.labels).toEqual([{ label: "ui", removeLabel: "Remove ui" }]);
+    // Another team's words are not this board's vocabulary.
+    expect(view.labelOptions).toEqual(["bell"]);
+    expect(view.labelsFull).toBeNull();
+    const full = task({ id: "task-4", labels: ["a", "b", "c", "d", "e"] });
+    expect(taskDetailView(full, board([full]), [], 0).labelsFull).toBe(TASK_DETAIL_WORDS.labelsFull(5));
+  });
+});
+
+describe("feedOf — a task's history as one timeline", () => {
+  const change = (at: number, now: string) => ({ at, from: "lead", field: "status" as const, was: null, now });
+  const comment = (n: number, at: number) => ({ n, at, from: "impl-1", body: `c${n}` });
+  const shape = (task: Parameters<typeof feedOf>[0]) =>
+    feedOf(task, 10_000).map((item) =>
+      item.kind === "comment" ? item.body : item.kind === "change" ? item.text : `[${item.label}: ${item.changes.map((c) => c.text).join(", ")}]`,
+    );
+
+  it("interleaves what was said and what was changed, oldest first — a change before the comment that came with it", () => {
+    expect(shape({ log: [change(1, "a"), change(3, "b")], comments: [comment(1, 2), comment(2, 3)] })).toEqual([
+      "status: — → a",
+      "c1",
+      "status: — → b",
+      "c2",
+    ]);
+  });
+
+  it("folds a run to its first and last once two or more would hide", () => {
+    const log = [1, 2, 3, 4, 5].map((at) => change(at, `s${at}`));
+    expect(shape({ log, comments: [] })).toEqual([
+      "status: — → s1",
+      "[3 more changes: status: — → s2, status: — → s3, status: — → s4]",
+      "status: — → s5",
+    ]);
+    // Three in a row: a fold would hide one line behind one line — no fold.
+    expect(shape({ log: log.slice(0, 3), comments: [] })).toEqual(["status: — → s1", "status: — → s2", "status: — → s3"]);
+    expect(shape({ log: log.slice(0, 4), comments: [] })).toEqual([
+      "status: — → s1",
+      "[2 more changes: status: — → s2, status: — → s3]",
+      "status: — → s4",
+    ]);
+  });
+
+  it("leaves two changes in a row alone, and lets a comment break a run", () => {
+    expect(shape({ log: [change(1, "a"), change(2, "b")], comments: [] })).toEqual(["status: — → a", "status: — → b"]);
+    expect(shape({ log: [change(1, "a"), change(2, "b"), change(4, "c"), change(5, "d")], comments: [comment(1, 3)] })).toEqual([
+      "status: — → a",
+      "status: — → b",
+      "c1",
+      "status: — → c",
+      "status: — → d",
+    ]);
+  });
+
+  it("keys every item uniquely — a folded run's included", () => {
+    const log = [1, 2, 3, 4].map((at) => change(at, `s${at}`));
+    const feed = feedOf({ log, comments: [comment(1, 5)] }, 0);
+    const keys = feed.flatMap((item) => (item.kind === "more" ? [item.key, ...item.changes.map((c) => c.key)] : [item.key]));
+    expect(new Set(keys).size).toBe(keys.length);
+    // Twins — the same moment, the same field — still key apart.
+    const twins = feedOf({ log: [change(1, "a"), change(1, "b")], comments: [] }, 0);
+    expect(new Set(twins.map((item) => item.key)).size).toBe(2);
+  });
+
+  it("keeps a change's key as the log is cut from the front at its cap", () => {
+    const log = [1, 2, 3, 4, 5].map((at) => change(at, `s${at}`));
+    const keyOf = (feed: ReturnType<typeof feedOf>, text: string) =>
+      feed.flatMap((item) => (item.kind === "more" ? item.changes : [item])).find((item) => "text" in item && item.text === text)?.key;
+    const before = feedOf({ log, comments: [] }, 0);
+    const after = feedOf({ log: [...log.slice(1), change(6, "s6")], comments: [] }, 0);
+    expect(keyOf(after, "status: — → s3")).toBe(keyOf(before, "status: — → s3"));
+  });
+
+  it("says when older history was trimmed — either cap, each on its own", () => {
+    const b = board([task({ id: "task-1" })]);
+    const full = (over: Partial<ReturnType<typeof task>>) => taskDetailView(task({ id: "task-1", ...over }), b, ROSTER, 0).feedTrimmed;
+    expect(full({})).toBeNull();
+    expect(full({ log: Array.from({ length: TASK_CAPS.logMax }, (_, i) => change(i, "x")) })).toBe(
+      TASK_DETAIL_WORDS.feedTrimmed(TASK_CAPS.logMax, TASK_CAPS.commentsMax),
+    );
+    expect(full({ comments: Array.from({ length: TASK_CAPS.commentsMax }, (_, i) => comment(i + 1, i)) })).not.toBeNull();
+  });
+});
+
+describe("roleInitials", () => {
+  it("is a role's kind and number, or its first two letters; none for the pool", () => {
+    expect(roleInitials("analyst-2")).toBe("A2");
+    expect(roleInitials("reviewer-12")).toBe("R12");
+    expect(roleInitials("lead")).toBe("LE");
+    expect(roleInitials(null)).toBeNull();
+  });
+});
+
+describe("statusRing — a task's place on the ladder as a ring", () => {
+  it("fills by the rung, in the status's hue; blocked is barred, cancelled a grey disc", () => {
+    expect(statusRing("todo")).toEqual({ fill: 0, tone: "none", barred: false, label: "To do" });
+    expect(statusRing("in-progress")).toMatchObject({ fill: 50, tone: "working", barred: false });
+    expect(statusRing("review")).toMatchObject({ fill: 75, tone: "waiting" });
+    expect(statusRing("done")).toMatchObject({ fill: 100, tone: "done" });
+    expect(statusRing("blocked")).toMatchObject({ fill: 0, tone: "failed", barred: true });
+    expect(statusRing("cancelled")).toMatchObject({ fill: 100, tone: "none", barred: false });
   });
 });

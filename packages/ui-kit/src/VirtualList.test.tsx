@@ -125,6 +125,30 @@ describe("VirtualList", () => {
       expect(list().scrollTop).toBe(5 * ROW);
     });
 
+    it("reveals upward to just below a pinned heading, never under it", () => {
+      restore = pinListViewport("list", 200, 300, ROW);
+      const renderPinned = (revealKey: string | null) =>
+        act(() =>
+          root.render(
+            createElement(VirtualList<string>, {
+              items,
+              itemKey: (item) => item,
+              estimate: () => ROW,
+              render: (item) => createElement("span", { className: "row" }, item),
+              className: "list",
+              revealKey,
+              sticky: { className: "pinned", height: 30, render: () => "pinned" },
+            }),
+          ),
+        );
+      renderPinned(null);
+      renderPinned("row 30");
+      scrolled();
+      renderPinned("row 20");
+      // Row 20 starts at 400; the heading covers the box's top 30px.
+      expect(list().scrollTop).toBe(20 * ROW - 30);
+    });
+
     it("leaves the scroll alone for an item already in view", () => {
       restore = pinListViewport("list", 200, 300, ROW);
       renderRevealing("row 3");
@@ -405,5 +429,124 @@ describe("VirtualList's measured heights", () => {
     await act(async () => {});
 
     expect(tops().get("row 11")! - list().scrollTop).toBe(anchor);
+  });
+});
+
+describe("VirtualList as a grouped list", () => {
+  // Groups of ten rows under a heading; every item 20 tall, a 200 window.
+  const H = 20;
+  type G = { key: string; head: boolean; group: number };
+  const grouped = (groups: number, folded: ReadonlySet<number> = new Set()): G[] =>
+    Array.from({ length: groups }, (_, g) => [
+      { key: `head:${g}`, head: true, group: g },
+      ...(folded.has(g) ? [] : Array.from({ length: 10 }, (_, r) => ({ key: `g${g}r${r}`, head: false, group: g }))),
+    ]).flat();
+  let root: Root;
+  let host: HTMLElement;
+  let restore: () => void = () => {};
+
+  beforeEach(() => {
+    installResizeObserver();
+    document.body.innerHTML = "<div id='host'></div>";
+    host = document.getElementById("host")!;
+    root = createRoot(host);
+    restore = pinListViewport("list", 200, 300, H);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    restore();
+  });
+
+  const render = (list: readonly G[]) =>
+    act(() =>
+      root.render(
+        createElement(VirtualList<G>, {
+          items: list,
+          itemKey: (g) => g.key,
+          estimate: H,
+          render: (g) => createElement("span", { className: g.head ? "head" : "row" }, g.key),
+          className: "list",
+          sticky: {
+            className: "pinned",
+            height: 0,
+            render: (first) => {
+              for (let i = first; i >= 0; i--) if (list[i]?.head) return `group ${list[i].group}`;
+              return null;
+            },
+          },
+        }),
+      ),
+    );
+  const list = () => host.querySelector<HTMLElement>(".list")!;
+  const pinned = () => host.querySelector(".pinned")?.textContent ?? null;
+  const top = (key: string) => {
+    const item = [...host.querySelectorAll<HTMLElement>(".list > div:not(:first-child) > div")].find(
+      (el) => el.textContent === key,
+    )!;
+    return Number(/translateY\((-?[\d.]+)px\)/.exec(item.style.transform)![1]) - list().scrollTop;
+  };
+  const scrollTo = async (px: number) => {
+    await act(async () => {
+      list().scrollTop = px;
+      list().dispatchEvent(new Event("scroll"));
+    });
+  };
+
+  it("pins the heading of the first row in view, and moves on at a group's boundary", async () => {
+    render(grouped(30));
+    expect(pinned()).toBe("group 0");
+    // Group 2 starts at item 22 (two groups of eleven before it).
+    await scrollTo(22 * H + 5);
+    expect(pinned()).toBe("group 2");
+    await scrollTo(22 * H - 5);
+    expect(pinned()).toBe("group 1");
+  });
+
+  it("keeps the row being read where it is when a group above it folds", async () => {
+    render(grouped(30));
+    await scrollTo(100 * H);
+    await scrollTo(100 * H + 3);
+    const before = top("g9r1");
+    // Group 1, far above the window, folds to its heading.
+    render(grouped(30, new Set([1])));
+    await act(async () => {});
+    expect(top("g9r1")).toBe(before);
+  });
+
+  it("keeps it there when the group unfolds again", async () => {
+    render(grouped(30, new Set([1])));
+    await scrollTo(90 * H);
+    await scrollTo(90 * H + 3);
+    const before = top("g9r1");
+    render(grouped(30));
+    await act(async () => {});
+    expect(top("g9r1")).toBe(before);
+  });
+
+  it("keeps it there when a row moves from below it to a group above it", async () => {
+    const base = grouped(30);
+    render(base);
+    await scrollTo(100 * H);
+    await scrollTo(100 * H + 3);
+    const before = top("g9r1");
+    // g20r0 changes status: it leaves group 20 and joins group 0.
+    const moved = base.filter((g) => g.key !== "g20r0");
+    moved.splice(1, 0, { key: "g20r0", head: false, group: 0 });
+    render(moved);
+    await act(async () => {});
+    expect(top("g9r1")).toBe(before);
+  });
+
+  it("holds the place when the heading it rests on is the one that folds", async () => {
+    // The first row in view is group 9's heading; group 9 folds — its
+    // heading stays in the list, so the place does not move.
+    render(grouped(30));
+    await scrollTo(99 * H);
+    await scrollTo(99 * H + 1);
+    const before = top("head:9");
+    render(grouped(30, new Set([9])));
+    await act(async () => {});
+    expect(top("head:9")).toBe(before);
   });
 });

@@ -53,3 +53,5 @@ export { noAutoCorrect } from "./inputProps.ts";
 export { shortPath } from "./paths.ts";
 export * from "./icons.tsx";
 export { ProgressRing, type ProgressRingProps, type ProgressRingTone } from "./ProgressRing.tsx";
+export { StatusRing, type StatusRingProps, type StatusRingTone } from "./StatusRing.tsx";
+export { Segmented, type SegmentedOption, type SegmentedProps } from "./Segmented.tsx";

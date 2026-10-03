@@ -277,6 +277,14 @@
   color: var(--kd-text-2);
 }
 
+/* A toolbar's choice row (ui-kit Segmented size sm): no field rhythm under
+   it. Its options are small secondary buttons (button.css), not .form__type —
+   the same box as the toggle beside them, checked as it is pressed. */
+.form__types--sm {
+  gap: 4px;
+  margin-bottom: 0;
+}
+
 .form__type {
   display: inline-flex;
   align-items: center;
@@ -515,6 +523,23 @@
   background-color: var(--kd-hover);
 }
 
+/* The slot variant (Combobox variant="slot"): a small dashed place to type
+   a new item into — "+ label" in a row of tags. Dashed until focused, solid
+   while typed in; no chevron (the component renders none). */
+.combobox--slot .combobox__input {
+  width: 96px;
+  height: 20px;
+  padding: 0 6px;
+  border: 1px dashed var(--kd-seam-strong);
+  border-radius: var(--kd-radius-mark);
+  background-color: transparent;
+  font-size: var(--kd-font-small);
+}
+
+.combobox--slot .combobox__input:focus {
+  border: 1px solid var(--kd-seam-strong);
+}
+
 /* In-app dropdown (ui/Dropdown.tsx): a form field that opens our own menu —
    never the OS popup. The open list is portaled to <body>, so overflow on a
    panel can never clip it. */
@@ -541,6 +566,52 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* The small size: a toolbar's or a compact form's field, a button's height. */
+.dropdown--sm .dropdown__button {
+  min-width: 0;
+  padding: 5px 10px;
+}
+
+/* The inline variant: a value in a line of text, not a field — as wide as
+   its words, framed only under the pointer. Its own inset hangs left of
+   the line, so a picked value starts where plain text beside it does. Its
+   menu takes the options' width (FloatingListbox widthFrom="content"). */
+.dropdown--inline {
+  display: inline-flex;
+  max-width: 100%;
+}
+
+.dropdown--inline .dropdown__button {
+  width: auto;
+  max-width: 100%;
+  margin-left: -6px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  background-color: transparent;
+  color: var(--kd-text);
+  line-height: 22px;
+}
+
+.dropdown--inline .dropdown__button:hover {
+  background-color: var(--kd-hover);
+}
+
+.dropdown--inline .dropdown__label {
+  flex: none;
+}
+
+.dropdown--inline .dropdown__button svg {
+  width: 10px;
+  height: 10px;
+}
+
+/* An offer, not a value ("Attach an artifact…"): quieter ink, small type —
+   after the variants, so an inline offer is quiet too (same specificity). */
+.dropdown--quiet .dropdown__button {
+  color: var(--kd-text-3);
+  font-size: var(--kd-font-small);
 }
 
 .dropdown__menu {

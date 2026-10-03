@@ -7,14 +7,18 @@ import type { ArtifactsRegistryReadPort } from "../../app/artifacts/registryRead
 import { describeError } from "../../ipc/log";
 import { refusalOf, tasksEnableStatus } from "../../app/tasks/enableStatus";
 import { readyBoard } from "../../app/tasks/tasksService";
+import { updateSettings } from "../../app/settingsManager";
+import { useSettings } from "../../app/useSettings";
 import { refusalText } from "../../app/tasks/refusalText";
 import { teamsOf, type Workspace } from "../../domain/deck";
 import {
   USER_ACTOR,
+  addLabel,
   attachArtifact,
   detachArtifact,
   findTask,
   reachableStatuses,
+  removeLabel,
   tasksOfTeam,
   type CreateTaskInput,
   type TaskChange,
@@ -26,6 +30,13 @@ import {
   armCard,
   assigneeOf,
   boardView,
+  cardInFlight,
+  dragOutlived,
+  taskInFlight,
+  escapeDrag,
+  listView,
+  rowStepOf,
+  stepRow,
   clickDisbelieved,
   initialScreen,
   moveCard,
@@ -36,11 +47,16 @@ import {
   tasksLadder,
   teamOnScreen,
   unsavedBanner,
+  queryToolbarView,
+  findsNothing,
+  queryOn,
+  walksRows,
   wideView,
   type ArtifactRef,
   type CardGrip,
   type DragState,
   type ScreenAction,
+  type TrackerView,
 } from "../../presentation/tasks";
 
 export type { TasksAccess } from "../../app/tasks/tasksFeature";
@@ -142,6 +158,8 @@ export function useTasksBoard(
   };
   const dragEndedAt = useRef<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Which view: a setting, kept across openings and launches (user).
+  const view = useSettings()?.tasksView ?? "board";
 
   const board = readyBoard(state);
   const unsaved = state?.kind === "ready" && state.unsaved !== null ? unsavedBanner(state.unsaved) : null;
@@ -153,6 +171,7 @@ export function useTasksBoard(
     focusedTask?.teamId ?? null,
   );
   teamIdRef.current = teamId;
+  const query = queryOn(screen, teamId);
   const teamTasks = useMemo(
     () => (board && teamId !== null ? tasksOfTeam(board, teamId) : []),
     [board, teamId],
@@ -168,7 +187,7 @@ export function useTasksBoard(
   useEffect(() => {
     if (drag.kind === "idle") return;
     const targetsOf = (id: string) => {
-      const task = board ? findTask(board, id) : undefined;
+      const task = taskInFlight(board, id, teamId);
       return board && task ? new Set(reachableStatuses(task, USER_ACTOR, { board, roster, at: now })) : null;
     };
     const onMove = (event: PointerEvent) => updateDrag(moveCard(dragRef.current, event.clientX, event.clientY, targetsOf));
@@ -184,7 +203,7 @@ export function useTasksBoard(
       window.removeEventListener("pointercancel", onUp);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [drag.kind, board, roster, now]);
+  }, [drag.kind, board, roster, now, teamId]);
 
   const ladder = tasksLadder({
     workspaceId,
@@ -198,7 +217,49 @@ export function useTasksBoard(
   const selected = focusedTask;
   const detail =
     selected && selected.teamId === teamId ? taskDetailView(selected, board!, roster, now, knownArtifacts) : null;
-  const columns = board ? boardView(teamTasks, board, now) : [];
+  const columns = useMemo(
+    () => (board && view === "board" ? boardView(teamTasks, board, now, query) : []),
+    [board, view, teamTasks, now, query],
+  );
+  // Stable by identity between renders that change nothing it shows: the
+  // windowed list anchors the reader's place on a CHANGE of its items, and
+  // a fresh array per pointer move re-ran that on every one.
+  const openId = detail?.id ?? null;
+  const listItems = useMemo(
+    () => (board && view === "list" ? listView(teamTasks, board, now, query, screen.folded, openId) : []),
+    [board, view, teamTasks, now, query, screen.folded, openId],
+  );
+  const filters = queryToolbarView(query);
+  const nothingFound = findsNothing(teamTasks, query);
+  const inFlight = cardInFlight(drag, board, teamId, now);
+  // The task in flight left the board on screen: the drag has nothing to drop.
+  useEffect(() => {
+    const ended = dragOutlived(dragRef.current, inFlight);
+    if (ended === null) return;
+    updateDrag(ended);
+    run({ type: "hover", status: null, dragging: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inFlight]);
+
+  // J / K walk the list's rows, the open task following — never while a
+  // field has the keys (a comment, a label being typed).
+  const walks = walksRows(screen, view);
+  useEffect(() => {
+    if (!walks) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      const step = rowStepOf(event.key);
+      if (step === null || event.metaKey || event.ctrlKey || event.altKey) return;
+      const target = event.target;
+      if (target instanceof Element && target.closest("input, textarea, [contenteditable='true']")) return;
+      const next = stepRow(listItems, openId, step);
+      if (next === null) return;
+      event.preventDefault();
+      run({ type: "card", id: next, open: null });
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [walks, listItems, openId]);
   const form = newTaskFormView(roster);
 
   /** The pointer was released over `over` (a column, or nothing). One
@@ -207,7 +268,12 @@ export function useTasksBoard(
     const outcome = releaseCard(dragRef.current, over);
     updateDrag(outcome.state);
     if (outcome.dragged) dragEndedAt.current = Date.now();
-    if (outcome.move) void apply(outcome.move.id, [{ kind: "status", to: outcome.move.to }]);
+    const move = outcome.move;
+    if (move) {
+      void apply(move.id, [{ kind: "status", to: move.to }]).then((landed) => {
+        if (landed) run({ type: "dropped", status: move.to, view });
+      });
+    }
     run({ type: "hover", status: null, dragging: false });
   };
 
@@ -247,8 +313,16 @@ export function useTasksBoard(
       run({ type: "card", id: taskId, open: focus });
     },
     close: () => run({ type: "close" }),
-    escape: () => run({ type: "escape", detailOpen: detail !== null }),
+    escape: () => {
+      const putBack = escapeDrag(dragRef.current);
+      if (putBack === null) return run({ type: "escape", detailOpen: detail !== null });
+      updateDrag(putBack);
+      // The release that follows is the same press: its click opens nothing.
+      dragEndedAt.current = Date.now();
+      run({ type: "hover", status: null, dragging: false });
+    },
     drag,
+    inFlight,
     hover,
     /** A card was pressed: it becomes a drag once the pointer travels. */
     armDrag: (taskId: string, x: number, y: number, grip: CardGrip) => updateDrag(armCard(taskId, x, y, grip)),
@@ -256,6 +330,16 @@ export function useTasksBoard(
     hoverColumn: (status: TaskStatus | null) => run({ type: "hover", status, dragging: dragRef.current.kind === "dragging" }),
     /** Released over a column. */
     dropOn: release,
+    view,
+    setView: (next: TrackerView) => updateSettings({ tasksView: next }),
+    listItems,
+    fold: (status: TaskStatus) => run({ type: "fold", status }),
+    filters,
+    nothingFound,
+    toggleBlocked: () => run({ type: "blockedOnly" }),
+    /** A label clicked on a row narrows the view to it; clicking the one
+     * that already does, or clearing its chip, widens it again. */
+    pickLabel: (label: string | null) => run({ type: "label", label }),
     composing,
     compose: () => run({ type: "compose" }),
     cancelCompose: () => run({ type: "cancelCompose" }),
@@ -275,6 +359,9 @@ export function useTasksBoard(
       if (!task) return;
       void apply(taskId, [attachArtifact(task, slug)]);
     },
+    /** Resolves to whether the label landed; the field clears only then. */
+    addLabel: (taskId: string, label: string): Promise<boolean> => apply(taskId, [addLabel(label)]),
+    removeLabel: (taskId: string, label: string) => void apply(taskId, [removeLabel(label)]),
     detachArtifact: (taskId: string, slug: string) => {
       const task = board ? findTask(board, taskId) : undefined;
       if (!task) return;

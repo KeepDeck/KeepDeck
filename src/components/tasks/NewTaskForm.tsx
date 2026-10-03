@@ -1,16 +1,16 @@
 import { useState } from "react";
 import { Dropdown } from "@keepdeck/ui-kit";
-import type { CreateTaskInput, TaskPriority } from "../../domain/tasks";
+import type { CreateTaskInput } from "../../domain/tasks";
 import {
   EMPTY_TASK_DRAFT,
   FIELD_WORDS,
   NEW_TASK_WORDS,
   canCreateTask,
-  priorityChoiceClassName,
   taskInputOf,
   type NewTaskFormView,
 } from "../../presentation/tasks";
 import { Button } from "../../ui/Button";
+import { Segmented } from "@keepdeck/ui-kit/Segmented";
 
 interface NewTaskFormProps {
   view: NewTaskFormView;
@@ -55,25 +55,19 @@ export function NewTaskForm({ view, onCreate, onCancel }: NewTaskFormProps) {
         onChange={(e) => setDraft({ ...draft, body: e.target.value })}
       />
       <span className="tasks__section">{FIELD_WORDS.priority}</span>
-      <div className="form__types">
-        {view.priorityOptions.map((option) => (
-          <button
-            key={option.value}
-            type="button"
-            className={priorityChoiceClassName(option.value === draft.priority)}
-            onClick={() => setDraft({ ...draft, priority: option.value as TaskPriority })}
-          >
-            {option.label}
-          </button>
-        ))}
-      </div>
+      <Segmented
+        ariaLabel={FIELD_WORDS.priority}
+        options={view.priorityOptions}
+        value={draft.priority}
+        onChange={(priority) => setDraft({ ...draft, priority })}
+      />
       <span className="tasks__section">{FIELD_WORDS.assignee}</span>
       <Dropdown
         ariaLabel={FIELD_WORDS.assignee}
         options={view.assigneeOptions}
         value={draft.assignee}
         onChange={(assignee) => setDraft({ ...draft, assignee })}
-        className="tasks__pick"
+        size="sm"
       />
       <p className="tasks__muted">{view.addressHint}</p>
       </div>

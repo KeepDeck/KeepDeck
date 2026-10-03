@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TASK_CAPS, USER_ACTOR, type TaskActor, type TaskStatus } from "./model";
-import { attachArtifact, createTask, detachArtifact, reachableStatuses, transition, type TaskChange, type TaskRefusal } from "./transition";
+import { addLabel, attachArtifact, createTask, detachArtifact, removeLabel, reachableStatuses, transition, type TaskChange, type TaskRefusal } from "./transition";
 import { ROSTER, board, impl1, lead, noTeam, peer1, stranger, task } from "./testSupport";
 
 const ctx = (tasks = [task({ id: "task-1" })]) => ({ board: board(tasks), roster: ROSTER, at: 5_000 });
@@ -389,5 +389,124 @@ describe("attachArtifact / detachArtifact", () => {
   it("detaches only the slug named, and a slug not attached leaves the list as it is", () => {
     expect(detachArtifact(t, "kd-a")).toEqual({ kind: "artifacts", to: ["kd-b"] });
     expect(detachArtifact(t, "kd-z")).toEqual({ kind: "artifacts", to: ["kd-a", "kd-b"] });
+  });
+});
+
+describe("labels", () => {
+  const labelled = (t: ReturnType<typeof task>, to: string[], actor: TaskActor) => {
+    const result = transition(t, { kind: "labels", to }, actor, ctx([t]));
+    if (!result.ok) throw new Error(`refused: ${JSON.stringify(result.refusal)}`);
+    return result.task;
+  };
+
+  it("keeps words: trimmed, lowercased, spaces and underscores a dash, deduped and sorted", () => {
+    const t = task({ id: "task-1" });
+    expect(labelled(t, ["  Copy Edit ", "ui", "UI", "big__deal", "-dash-"], lead).labels).toEqual([
+      "big-deal",
+      "copy-edit",
+      "dash",
+      "ui",
+    ]);
+    // Words in any script, digits included.
+    expect(labelled(t, ["Дизайн", "v2"], lead).labels).toEqual(["v2", "дизайн"]);
+  });
+
+  it("reads a word in any script as one spelling — composed, its marks kept, counted in characters", () => {
+    const t = task({ id: "task-1" });
+    // A decomposed é and a full-width year are their plain spelling.
+    expect(labelled(t, ["cafe\u0301", "２０２６"], lead).labels).toEqual(["2026", "café"]);
+    expect(labelled(t, ["café", "cafe\u0301"], lead).labels).toEqual(["café"]);
+    // Scripts written with marks on their letters, and the dot İ keeps.
+    expect(labelled(t, ["हिन्दी", "עִברית", "İş"], lead).labels).toHaveLength(3);
+    // Spelled with zero-width joiners: Persian's ZWNJ, a Devanagari conjunct.
+    expect(labelled(t, ["می\u200cخواهم", "क\u094d\u200dष"], lead).labels).toHaveLength(2);
+    // Characters, not UTF-16 units: an ideograph beyond the basic plane is one.
+    expect(refusalOf(t, { kind: "labels", to: ["𠀀".repeat(TASK_CAPS.labelMax)] }, lead)).toBeNull();
+    // A mark is no word's start.
+    expect(refusalOf(t, { kind: "labels", to: ["\u0301a"] }, lead)).toMatchObject({ kind: "bad-label" });
+  });
+
+  it("refuses a label that is not a word, or one too long, naming it", () => {
+    const t = task({ id: "task-1" });
+    expect(refusalOf(t, { kind: "labels", to: ["ok", "a/b"] }, lead)).toEqual({
+      kind: "bad-label",
+      label: "a/b",
+      max: TASK_CAPS.labelMax,
+    });
+    expect(refusalOf(t, { kind: "labels", to: ["   "] }, lead)).toMatchObject({ kind: "bad-label", label: "" });
+    const long = "x".repeat(TASK_CAPS.labelMax + 1);
+    expect(refusalOf(t, { kind: "labels", to: [long] }, lead)).toMatchObject({ kind: "bad-label", label: long });
+    expect(refusalOf(t, { kind: "labels", to: ["x".repeat(TASK_CAPS.labelMax)] }, lead)).toBeNull();
+  });
+
+  it("refuses more than the cap — counted after the duplicates fold", () => {
+    const t = task({ id: "task-1" });
+    const five = ["a", "b", "c", "d", "e"];
+    expect(refusalOf(t, { kind: "labels", to: [...five, "A"] }, lead)).toBeNull();
+    expect(refusalOf(t, { kind: "labels", to: [...five, "f"] }, lead)).toEqual({
+      kind: "too-many-labels",
+      max: TASK_CAPS.labelsMax,
+    });
+  });
+
+  it("is the lead's and the user's on any task, and the assignee's on its own — not another worker's", () => {
+    const own = task({ id: "task-1", assignee: "impl-1" });
+    const theirs = task({ id: "task-1", assignee: "impl-2" });
+    expect(refusalOf(own, { kind: "labels", to: ["ui"] }, impl1)).toBeNull();
+    expect(refusalOf(theirs, { kind: "labels", to: ["ui"] }, impl1)).toEqual({ kind: "not-yours-to-label", assignee: "impl-2" });
+    expect(refusalOf(task({ id: "task-1" }), { kind: "labels", to: ["ui"] }, impl1)).toEqual({ kind: "not-yours-to-label", assignee: null });
+    expect(refusalOf(theirs, { kind: "labels", to: ["ui"] }, lead)).toBeNull();
+    expect(refusalOf(theirs, { kind: "labels", to: ["ui"] }, USER_ACTOR)).toBeNull();
+  });
+
+  it("logs the set as it was and as it is; a reordering or a repeat is no edit", () => {
+    const t = task({ id: "task-1", labels: ["design", "ui"] });
+    const edited = labelled(t, ["ui"], lead);
+    expect(edited.log[edited.log.length - 1]).toEqual({ at: 5_000, from: "lead", field: "labels", was: "design,ui", now: "ui" });
+    expect(labelled(t, ["UI", "design"], lead)).toBe(t);
+    expect(labelled(task({ id: "task-1" }), ["ui"], lead).log[0]).toMatchObject({ was: null, now: "ui" });
+  });
+
+  it("takes them at creation by the same rule", () => {
+    const made = createTask({ teamId: "team-1", title: "x", labels: ["Copy Edit", "ui", "ui"] }, lead, ctx([]));
+    expect(made.ok && made.task.labels).toEqual(["copy-edit", "ui"]);
+    expect(createTask({ teamId: "team-1", title: "x" }, lead, ctx([])).ok && true).toBe(true);
+    const bad = createTask({ teamId: "team-1", title: "x", labels: ["a b/c"] }, lead, ctx([]));
+    expect(bad.ok ? null : bad.refusal.kind).toBe("bad-label");
+  });
+
+  it("lets a working role label at creation only what it then holds", () => {
+    const own = createTask({ teamId: "team-1", title: "x", assignee: "impl-1", labels: ["ui"] }, impl1, ctx([]));
+    expect(own.ok).toBe(true);
+    const pool = createTask({ teamId: "team-1", title: "x", labels: ["ui"] }, impl1, ctx([]));
+    expect(pool.ok ? null : pool.refusal).toEqual({ kind: "not-yours-to-label", assignee: null });
+    expect(createTask({ teamId: "team-1", title: "x" }, impl1, ctx([])).ok).toBe(true);
+  });
+});
+
+describe("addLabel / removeLabel — the changes the open task's label field makes", () => {
+  const t = task({ id: "task-1", labels: ["design", "ui"] });
+
+  const applied = (on: ReturnType<typeof task>, change: ReturnType<typeof addLabel>, actor: TaskActor = lead) => {
+    const result = transition(on, change, actor, ctx([on]));
+    if (!result.ok) throw new Error(`refused: ${JSON.stringify(result.refusal)}`);
+    return result.task;
+  };
+
+  it("adds to the set as it stands when the change lands, by the set's own rule", () => {
+    expect(applied(t, addLabel("Copy Edit")).labels).toEqual(["copy-edit", "design", "ui"]);
+    expect(applied(t, addLabel("UI"))).toBe(t);
+    // Someone else's label put on meanwhile stays: the change names one.
+    const meanwhile = task({ id: "task-1", labels: ["design", "ui", "urgent"] });
+    expect(applied(meanwhile, addLabel("copy")).labels).toEqual(["copy", "design", "ui", "urgent"]);
+    expect(refusalOf(t, addLabel("a/b"), lead)).toMatchObject({ kind: "bad-label" });
+    expect(refusalOf(t, addLabel("ui"), impl1)).toMatchObject({ kind: "not-yours-to-label" });
+  });
+
+  it("takes one off by name, however it is spelled, leaving the rest as they stand", () => {
+    expect(applied(t, removeLabel("design")).labels).toEqual(["ui"]);
+    expect(applied(t, removeLabel(" Design ")).labels).toEqual(["ui"]);
+    const meanwhile = task({ id: "task-1", labels: ["design", "ui", "urgent"] });
+    expect(applied(meanwhile, removeLabel("design")).labels).toEqual(["ui", "urgent"]);
   });
 });

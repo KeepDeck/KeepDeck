@@ -16,6 +16,7 @@ import {
 } from "../../domain/mail";
 import { describeError } from "../../ipc/log";
 import { noAutoCorrect } from "../../ui/inputProps";
+import { Segmented } from "@keepdeck/ui-kit/Segmented";
 
 /** What the form holds while the person types. The charter travels as ONE
  * text here — a paragraph per line — because that is what a textarea is;
@@ -308,24 +309,16 @@ export function TeamRolesSection() {
           {isCustom && (
             <>
               <span className="form__label">Standing</span>
-              <div className="form__types">
-                {(
-                  [
-                    ["reports", "Works under the lead"],
-                    ["peer", "A peer — flat teams only"],
-                  ] as const
-                ).map(([value, label]) => (
-                  <button
-                    key={value}
-                    type="button"
-                    className={`form__type${draft.standing === value ? " form__type--active" : ""}`}
-                    disabled={!creating}
-                    onClick={() => edit({ standing: value })}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
+              <Segmented
+                ariaLabel="Standing"
+                options={[
+                  { value: "reports" as const, label: "Works under the lead" },
+                  { value: "peer" as const, label: "A peer — flat teams only" },
+                ]}
+                value={draft.standing}
+                disabled={!creating}
+                onChange={(standing) => edit({ standing })}
+              />
               <label className="roles__repeatable">
                 <input
                   type="checkbox"

@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { MCP_SERVER_NAME_RULE, type McpServerBodyProblem } from "../../domain/mcp";
 import { EditorFrame } from "../library/EditorFrame";
 import type { McpForm } from "./mcpForm";
+import { Segmented } from "@keepdeck/ui-kit/Segmented";
 
 /** What the dialog decided about the current form — the editor renders
  * verdicts, it never re-derives them. */
@@ -119,23 +120,13 @@ export function McpEditor({
         )}
 
         <span className="form__label">Transport</span>
-        <div className="form__types" role="radiogroup" aria-label="Transport">
-          {TRANSPORTS.map(({ value, label }) => (
-            <button
-              key={value}
-              type="button"
-              role="radio"
-              aria-checked={form.transport === value}
-              className={`form__type${form.transport === value ? " form__type--active" : ""}`}
-              onClick={() => {
-                if (!readOnly) onField("transport", value);
-              }}
-              disabled={readOnly}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        <Segmented
+          ariaLabel="Transport"
+          options={TRANSPORTS}
+          value={form.transport}
+          disabled={readOnly}
+          onChange={(value) => onField("transport", value)}
+        />
 
         {form.transport === "stdio" ? (
           <>

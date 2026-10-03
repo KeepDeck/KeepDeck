@@ -12,6 +12,8 @@ import {
 import { ArtifactsRows } from "./ArtifactsRows";
 import { McpServerRow } from "./McpServerRow";
 import { TasksRows } from "./TasksRows";
+import { Segmented } from "@keepdeck/ui-kit/Segmented";
+import { ON_OFF } from "../../presentation/choices";
 
 /** Label + one-line explanation for each suspended-agent placement. */
 const SUSPENDED_OPTIONS: Record<
@@ -67,96 +69,65 @@ export function GeneralSection() {
   return (
     <>
       <span className="form__label">Default agent</span>
-      <div className="form__types">
-        {agentOptions.map((a) => (
-          <button
-            key={a.id}
-            type="button"
-            className={`form__type${a.id === defaultAgent ? " form__type--active" : ""}`}
-            onClick={() => updateSettings({ defaultAgent: a.id })}
-          >
-            {a.label}
-          </button>
-        ))}
-      </div>
+      <Segmented
+        ariaLabel="Default agent"
+        options={agentOptions.map((a) => ({ value: a.id, label: a.label }))}
+        value={defaultAgent}
+        onChange={(id) => updateSettings({ defaultAgent: id })}
+      />
       <span className="settings__hint">
         Preselected when creating workspaces and agents
       </span>
 
       <span className="form__label">YOLO mode</span>
-      <div className="form__types">
-        {[true, false].map((on) => (
-          <button
-            key={String(on)}
-            type="button"
-            className={`form__type${defaultYolo === on ? " form__type--active" : ""}`}
-            onClick={() => updateSettings({ defaultYolo: on })}
-          >
-            {on ? "On" : "Off"}
-          </button>
-        ))}
-      </div>
+      <Segmented
+        ariaLabel="YOLO mode"
+        options={ON_OFF}
+        value={defaultYolo}
+        onChange={(on) => updateSettings({ defaultYolo: on })}
+      />
       <span className="settings__hint">
         New agents run without permission prompts — each creation dialog can
         still switch it per agent
       </span>
 
       <span className="form__label">Suspended agents</span>
-      <div
-        className="form__types"
-        role="group"
-        aria-label="Suspended agents"
-      >
-        {SUSPENDED_AGENT_PLACEMENTS.map((placement) => (
-          <button
-            key={placement}
-            type="button"
-            className={`form__type${placement === suspendedAgentPlacement ? " form__type--active" : ""}`}
-            aria-label={`Suspended agents: ${SUSPENDED_OPTIONS[placement].label}`}
-            aria-pressed={placement === suspendedAgentPlacement}
-            onClick={() =>
-              updateSettings({ suspendedAgentPlacement: placement })
-            }
-          >
-            {SUSPENDED_OPTIONS[placement].label}
-          </button>
-        ))}
-      </div>
+      <Segmented
+        ariaLabel="Suspended agents"
+        options={SUSPENDED_AGENT_PLACEMENTS.map((placement) => ({
+          value: placement,
+          label: SUSPENDED_OPTIONS[placement].label,
+          ariaLabel: `Suspended agents: ${SUSPENDED_OPTIONS[placement].label}`,
+        }))}
+        value={suspendedAgentPlacement}
+        onChange={(placement) => updateSettings({ suspendedAgentPlacement: placement })}
+      />
       <span className="settings__hint">
         {SUSPENDED_OPTIONS[suspendedAgentPlacement].hint}
       </span>
 
       <span className="form__label">Dock</span>
-      <div className="form__types">
-        {DOCK_MODES.map((mode) => (
-          <button
-            key={mode}
-            type="button"
-            className={`form__type${mode === dockMode ? " form__type--active" : ""}`}
-            onClick={() => updateSettings({ dockMode: mode })}
-          >
-            {DOCK_OPTIONS[mode].label}
-          </button>
-        ))}
-      </div>
+      <Segmented
+        ariaLabel="Dock"
+        options={DOCK_MODES.map((mode) => ({ value: mode, label: DOCK_OPTIONS[mode].label }))}
+        value={dockMode}
+        onChange={(mode) => updateSettings({ dockMode: mode })}
+      />
       <span className="settings__hint">{DOCK_OPTIONS[dockMode].hint}</span>
 
       <span className="form__label">On launch</span>
-      <div className="form__types">
-        {[false, true].map((parked) => (
-          <button
-            key={String(parked)}
-            type="button"
-            className={`form__type${parkAgentsOnLaunch === parked ? " form__type--active" : ""}`}
-            onClick={() => updateSettings({ parkAgentsOnLaunch: parked })}
-          >
-            {/* The word the pane's own card will use for what this produces.
-                "Suspended" is reserved for a pane the USER stopped, which
-                carries a timestamp this one has no equivalent of. */}
-            {parked ? "Stopped" : "Running"}
-          </button>
-        ))}
-      </div>
+      {/* The words the pane's own card will use for what this produces.
+          "Suspended" is reserved for a pane the USER stopped, which carries
+          a timestamp this one has no equivalent of. */}
+      <Segmented
+        ariaLabel="On launch"
+        options={[
+          { value: false, label: "Running" },
+          { value: true, label: "Stopped" },
+        ]}
+        value={parkAgentsOnLaunch}
+        onChange={(parked) => updateSettings({ parkAgentsOnLaunch: parked })}
+      />
       <span className="settings__hint">
         {parkAgentsOnLaunch
           ? "Restored agents wait, stopped — resume each one from its pane"

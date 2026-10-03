@@ -11,7 +11,9 @@ import { BoardColumns } from "./BoardColumns";
 import { NewTaskForm } from "./NewTaskForm";
 import { TaskCard } from "./TaskCard";
 import { TaskDetail } from "./TaskDetail";
+import { TaskList, TaskRowLine } from "./TaskList";
 import { useTasksBoard, type TasksAccess } from "./useTasksBoard";
+import { Segmented } from "@keepdeck/ui-kit/Segmented";
 
 interface TasksDialogProps {
   /** The board's owner as the runtime hands it out. */
@@ -70,12 +72,14 @@ function WorkspaceBoard({
   const view = tasksDialogView({
     ladder: board.ladder,
     drag: board.drag,
-    columns: board.columns,
+    inFlight: board.inFlight,
     teams: board.teams,
     teamId: board.teamId,
     composing: board.composing,
     detailOpen: board.detail !== null,
     wide: board.wide,
+    view: board.view,
+    nothingFound: board.nothingFound,
   });
   const panel =
     view.panel === "form" ? (
@@ -97,6 +101,8 @@ function WorkspaceBoard({
       onAttach={board.attachArtifact}
       onDetach={board.detachArtifact}
       onOpenArtifact={board.openArtifact}
+      onLabel={board.addLabel}
+      onUnlabel={board.removeLabel}
     />
   ) : null;
 
@@ -108,8 +114,14 @@ function WorkspaceBoard({
             was gripped — the board's own copy stays put, dimmed, until the
             drop moves it. */}
         {view.ghost && (
-          <div className="tasks__ghost" style={view.ghost.box}>
-            <TaskCard card={view.ghost.card} selected={false} onSelect={noSelect} />
+          <div className={view.ghost.className} style={view.ghost.box}>
+            {view.ghost.shape === "card" ? (
+              <TaskCard card={view.ghost.card} selected={false} onSelect={noSelect} />
+            ) : (
+              <div className="tasks__row tasks__row--ghost">
+                <TaskRowLine card={view.ghost.card} />
+              </div>
+            )}
           </div>
         )}
         <div className="tasks__head">
@@ -119,18 +131,37 @@ function WorkspaceBoard({
               {view.team.kind === "pick" && (
                 <Dropdown
                   ariaLabel={DIALOG_WORDS.team}
-                  className="tasks__team"
+                  size="sm"
                   options={view.team.options}
                   value={view.team.value}
                   onChange={board.selectTeam}
                 />
               )}
               {view.team.kind === "word" && <span className="tasks__team-name kd-one-line">{view.team.name}</span>}
+              <Segmented
+                size="sm"
+                ariaLabel={view.viewChoice.ariaLabel}
+                options={view.viewChoice.options}
+                value={view.viewChoice.value}
+                onChange={board.setView}
+              />
               <Button
+                size="sm"
+                className="tasks__filter"
+                pressed={board.filters.blocked.pressed}
+                onClick={board.toggleBlocked}
+              >
+                {board.filters.blocked.label}
+              </Button>
+              {board.filters.label && (
+                <Button size="sm" pressed label={board.filters.label.clear} onClick={() => board.pickLabel(null)}>
+                  {board.filters.label.text} ✕
+                </Button>
+              )}              <Button
                 size="sm"
                 variant="primary"
                 className="tasks__new"
-                aria-pressed={board.composing}
+                pressed={board.composing}
                 onClick={board.toggleCompose}
                 disabled={view.newTaskDisabled}
               >
@@ -177,6 +208,22 @@ function WorkspaceBoard({
                   drag={board.drag}
                   hover={board.hover}
                   onSelect={board.select}
+                  onArm={board.armDrag}
+                  onHover={board.hoverColumn}
+                  onDrop={board.dropOn}
+                />
+              </div>
+            )}
+            {view.body.main?.kind === "list" && (
+              <div className="tasks__main tasks__main--list">
+                <TaskList
+                  items={board.listItems}
+                  openId={board.detail?.id ?? null}
+                  drag={board.drag}
+                  hover={board.hover}
+                  onSelect={board.select}
+                  onFold={board.fold}
+                  onLabel={board.pickLabel}
                   onArm={board.armDrag}
                   onHover={board.hoverColumn}
                   onDrop={board.dropOn}

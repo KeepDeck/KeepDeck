@@ -3,9 +3,7 @@
  * what a click on a card does to the selection, which card a ghost is,
  * what the team control is, and the dialog's words.
  */
-import type { BoardColumnView } from "./boardView";
 import { NEW_TASK_LABEL } from "./words";
-import type { TaskCardView } from "./taskCardView";
 
 /**
  * What one Escape press takes away: the form when it is open, then the
@@ -29,14 +27,6 @@ export function selectionAfterClick(open: string | null, clicked: string): strin
   return open === clicked ? null : clicked;
 }
 
-/** The card with `id`, wherever its column is — what a ghost is drawn from. */
-export function cardOf(columns: readonly BoardColumnView[], id: string): TaskCardView | undefined {
-  for (const column of columns) {
-    const card = column.cards.find((candidate) => candidate.id === id);
-    if (card) return card;
-  }
-  return undefined;
-}
 
 /** What the bar shows for the team: a pick among several, the one
  * team's name as a word, or nothing on a workspace with none. */

@@ -87,8 +87,10 @@ export function pinListViewport(
     clientHeight: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientHeight"),
     scrollHeight: Object.getOwnPropertyDescriptor(Element.prototype, "scrollHeight"),
   };
+  // The tallest child's height, not the first's: a zero-tall pinned layer
+  // may stand before the spacer.
   const content = (el: Element) =>
-    Math.max(height, Number.parseFloat((el.firstElementChild as HTMLElement | null)?.style.height ?? "") || 0);
+    Math.max(height, ...[...el.children].map((child) => Number.parseFloat((child as HTMLElement).style.height) || 0));
   Object.defineProperty(HTMLElement.prototype, "clientHeight", {
     configurable: true,
     get(this: Element) {

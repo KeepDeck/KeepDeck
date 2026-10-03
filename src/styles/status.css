@@ -184,3 +184,71 @@
     animation: none;
   }
 }
+
+/* The status ring (ui-kit StatusRing): a ProgressRing sized for a line of
+   text, in the status hues. A place on a ladder rests — none of the dots'
+   rhythms (decision 2026-10-04) — but a MOVE along it is a value change
+   the ring eases through: the fill and the hue glide to the new rung
+   (ProgressRing's registered properties), the bar fades in or out. The
+   hues are the status paint above; none is the quiet structural grey. */
+.status-ring-box {
+  display: inline-flex;
+  flex: none;
+}
+
+/* The base names the quiet grey; each hue below matches at the same
+   specificity, after it, so a tone always wins (at a lower one the grey
+   took every ring). */
+.progress-ring.status-ring {
+  --progress-ring-hue: var(--kd-text-3);
+  width: 12px;
+  height: 12px;
+  transition:
+    --progress-ring-fill 300ms ease-out,
+    color 300ms ease-out;
+}
+
+.progress-ring.status-ring--working {
+  --progress-ring-hue: var(--status-working);
+}
+
+.progress-ring.status-ring--waiting {
+  --progress-ring-hue: var(--status-waiting);
+}
+
+.progress-ring.status-ring--failed {
+  --progress-ring-hue: var(--status-failed);
+}
+
+.progress-ring.status-ring--done {
+  --progress-ring-hue: var(--status-done);
+}
+
+/* Stopped: a bar across, in the ring's own hue — the ring's mark, over its
+   fill, always drawn and shown only while barred, so it fades rather than
+   pops. */
+.status-ring .progress-ring__mark {
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  color: inherit;
+}
+
+.status-ring__bar {
+  width: 8px;
+  height: 2px;
+  background-color: currentColor;
+  opacity: 0;
+  transition: opacity 300ms ease-out;
+}
+
+.status-ring--barred .status-ring__bar {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress-ring.status-ring,
+  .status-ring__bar {
+    transition: none;
+  }
+}

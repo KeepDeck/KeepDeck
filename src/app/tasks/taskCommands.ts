@@ -38,6 +38,7 @@ import {
   issuable,
   mine,
   nextFor,
+  normalizeLabel,
   poolOf,
   tasksOfTeam,
   unblocks,
@@ -144,6 +145,7 @@ function row(task: Task, board: TaskBoard) {
     assignee: task.assignee,
     author: task.author,
     blockedBy: task.blockedBy,
+    labels: task.labels,
     issuable: issuable(task, board),
     artifacts: task.artifacts.length,
     comments: task.comments.length,
@@ -207,6 +209,7 @@ function createCommand(deps: TaskCommandDeps): CommandSpec {
       { name: "priority", type: "string", description: "high | normal | low — normal by default; a working role creates at normal" },
       { name: "blockedBy", type: "string", description: "Task ids this one waits on, comma-separated — same board only" },
       { name: "artifacts", type: "string", description: "Artifact ids to attach, comma-separated" },
+      { name: "labels", type: "string", description: "Labels, comma-separated — at most 5 words (lowercase, dashes between, ≤24 characters); \"Copy Edit\" is kept as copy-edit" },
       TEAM_ARG,
     ],
     run: async (args, source) => {
@@ -223,6 +226,7 @@ function createCommand(deps: TaskCommandDeps): CommandSpec {
             priority: priorityArg(args),
             blockedBy: ids(args, "blockedBy"),
             artifacts: ids(args, "artifacts"),
+            labels: ids(args, "labels"),
           },
           who.actor,
         ),
@@ -250,11 +254,12 @@ function listCommand(deps: TaskCommandDeps): CommandSpec {
   return {
     id: "task.list",
     title:
-      "List the team's tasks — per task: id, title, status, priority, assignee (null = pool), author, blockedBy, issuable (can be started now: in todo with every blocker done or cancelled), counts of artifacts and comments, updated",
+      "List the team's tasks — per task: id, title, status, priority, assignee (null = pool), author, blockedBy, labels, issuable (can be started now: in todo with every blocker done or cancelled), counts of artifacts and comments, updated",
     args: [
       TEAM_ARG,
       { name: "assignee", type: "string", description: "Only this role's tasks; \"pool\" for the unassigned" },
       { name: "status", type: "string", description: "Only tasks in this status" },
+      { name: "label", type: "string", description: "Only tasks carrying this label" },
     ],
     run: async (args, source) => {
       const who = caller(source, deps);
@@ -262,10 +267,14 @@ function listCommand(deps: TaskCommandDeps): CommandSpec {
       const board = await boardOf(deps, who.workspace.id);
       const assignee = str(args, "assignee");
       const status = statusArg(args);
+      const label = str(args, "label");
+      const wanted = label === undefined ? undefined : normalizeLabel(label);
+      if (wanted === "") throw new Error(`"${label}" is not a label`);
       const tasks = tasksOfTeam(board, team.id).filter(
         (task) =>
           (assignee === undefined || task.assignee === (assignee === "pool" ? null : assignee)) &&
-          (status === undefined || task.status === status),
+          (status === undefined || task.status === status) &&
+          (wanted === undefined || task.labels.includes(wanted)),
       );
       return { count: tasks.length, tasks: tasks.map((task) => row(task, board)) };
     },
@@ -300,6 +309,7 @@ function updateCommand(deps: TaskCommandDeps): CommandSpec {
       { name: "body", type: "string", description: "A new brief" },
       { name: "blockedBy", type: "string", description: "Task ids this one waits on, comma-separated; empty string for none" },
       { name: "artifacts", type: "string", description: "Artifact ids attached, comma-separated; empty string for none" },
+      { name: "labels", type: "string", description: "The task's labels, comma-separated, replacing the set; empty string for none. The assignee labels its own task; the lead any" },
     ],
     run: async (args, source) => {
       const who = caller(source, deps);
@@ -316,10 +326,12 @@ function updateCommand(deps: TaskCommandDeps): CommandSpec {
       if (blockedBy !== undefined) changes.push({ kind: "blockedBy", to: blockedBy });
       const artifacts = ids(args, "artifacts");
       if (artifacts !== undefined) changes.push({ kind: "artifacts", to: artifacts });
+      const labels = ids(args, "labels");
+      if (labels !== undefined) changes.push({ kind: "labels", to: labels });
       const status = statusArg(args);
       if (status !== undefined) changes.push({ kind: "status", to: status });
       if (changes.length === 0) {
-        throw new Error("nothing to change — pass at least one of status, assignee, priority, title, body, blockedBy, artifacts");
+        throw new Error("nothing to change — pass at least one of status, assignee, priority, title, body, blockedBy, artifacts, labels");
       }
       const board = await boardOf(deps, who.workspace.id);
       const before = visible(board, id, team);

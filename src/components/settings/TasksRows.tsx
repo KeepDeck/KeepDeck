@@ -5,6 +5,8 @@ import { offBlockedBy, tasksEnableStatus } from "../../app/tasks/enableStatus";
 import { useSettings } from "../../app/useSettings";
 import { DEFAULT_SETTINGS } from "../../domain/settings";
 import { offWaitingHint, showTasksSocketHint } from "../../presentation/tasks";
+import { Segmented } from "@keepdeck/ui-kit/Segmented";
+import { ON_OFF } from "../../presentation/choices";
 
 /**
  * Tasks in General ([F6]): the switch for the team-owned board of work
@@ -32,18 +34,12 @@ export function TasksRows() {
   return (
     <>
       <span className="form__label">Tasks</span>
-      <div className="form__types">
-        {[true, false].map((on) => (
-          <button
-            key={String(on)}
-            type="button"
-            className={`form__type${tasks === on ? " form__type--active" : ""}`}
-            onClick={() => updateSettings({ tasks: on })}
-          >
-            {on ? "On" : "Off"}
-          </button>
-        ))}
-      </div>
+      <Segmented
+        ariaLabel="Tasks"
+        options={ON_OFF}
+        value={tasks}
+        onChange={(on) => updateSettings({ tasks: on })}
+      />
       <span className="settings__hint">
         A board of work orders per team: the lead puts tasks on it, agents
         read their own and move them along, and you see who is on what and

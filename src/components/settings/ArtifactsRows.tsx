@@ -2,6 +2,8 @@ import { updateSettings } from "../../app/settingsManager";
 import { useMcpStatus } from "../../app/mcp/useMcpStatus";
 import { useSettings } from "../../app/useSettings";
 import { DEFAULT_SETTINGS } from "../../domain/settings";
+import { Segmented } from "@keepdeck/ui-kit/Segmented";
+import { ON_OFF } from "../../presentation/choices";
 
 /**
  * Fleet artifacts in General ([F6]): the feature's switch and, while it is
@@ -30,18 +32,12 @@ export function ArtifactsRows() {
   return (
     <>
       <span className="form__label">Fleet artifacts</span>
-      <div className="form__types">
-        {[true, false].map((on) => (
-          <button
-            key={String(on)}
-            type="button"
-            className={`form__type${artifacts === on ? " form__type--active" : ""}`}
-            onClick={() => updateSettings({ artifacts: on })}
-          >
-            {on ? "On" : "Off"}
-          </button>
-        ))}
-      </div>
+      <Segmented
+        ariaLabel="Fleet artifacts"
+        options={ON_OFF}
+        value={artifacts}
+        onChange={(on) => updateSettings({ artifacts: on })}
+      />
       <span className="settings__hint">
         Lets agents publish presentation pages (HTML or Markdown) that open
         in your browser, refresh live as the agent iterates, and can be
@@ -63,18 +59,12 @@ export function ArtifactsRows() {
         <span className="form__label">Auto-open artifacts</span>
       )}
       {artifacts && (
-        <div className="form__types">
-          {[true, false].map((on) => (
-            <button
-              key={String(on)}
-              type="button"
-              className={`form__type${artifactAutoOpen === on ? " form__type--active" : ""}`}
-              onClick={() => updateSettings({ artifactAutoOpen: on })}
-            >
-              {on ? "On" : "Off"}
-            </button>
-          ))}
-        </div>
+        <Segmented
+          ariaLabel="Auto-open artifacts"
+          options={ON_OFF}
+          value={artifactAutoOpen}
+          onChange={(on) => updateSettings({ artifactAutoOpen: on })}
+        />
       )}
 
       {artifacts && !served && (

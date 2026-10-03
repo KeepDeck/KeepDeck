@@ -65,6 +65,10 @@ export interface ButtonProps {
    *  a disclosure reveals plain content rather than a menu or a listbox, so it
    *  has an open state to report and no popup role to claim. */
   expanded?: boolean;
+  /** A toggle's state, for a button that stays on until pressed again (a
+   *  filter, a panel it shows in place). Absent on a plain action, which has
+   *  no state to report. */
+  pressed?: boolean;
   /** The open layer's id, while it exists. Omitted when closed so the
    *  reference never dangles. */
   controls?: string;
@@ -87,6 +91,7 @@ export function Button({
   className,
   hasPopup,
   expanded,
+  pressed,
   controls,
   ref,
   children,
@@ -104,6 +109,7 @@ export function Button({
       title={title}
       aria-label={label ?? title}
       aria-haspopup={hasPopup}
+      aria-pressed={pressed}
       aria-expanded={
         hasPopup !== undefined || expanded !== undefined
           ? Boolean(expanded)

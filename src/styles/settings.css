@@ -277,27 +277,6 @@
   white-space: nowrap;
 }
 
-.settings__list-remove {
-  flex: none;
-  width: 20px;
-  height: 20px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 0;
-  border-radius: var(--kd-radius-control);
-  background: transparent;
-  color: var(--kd-text-3);
-  font-size: var(--kd-font-normal);
-  line-height: 1;
-  cursor: pointer;
-}
-
-.settings__list-remove:hover {
-  background-color: var(--kd-hover);
-  color: var(--kd-text-2);
-}
-
 .settings__list-add {
   display: flex;
   align-items: stretch;

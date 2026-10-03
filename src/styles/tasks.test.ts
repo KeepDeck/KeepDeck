@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from "vitest";
+import { LIST_HEAD_ESTIMATE_PX } from "../presentation/tasks";
 import { appCss, readStyles, ruleBody } from "./testSupport";
 
 /** Every class that holds prose a person, an agent or the backend wrote —
@@ -53,6 +54,37 @@ describe("Tasks text never widens its box", () => {
     link.className = "tasks__link";
     row.append(link);
     expect(getComputedStyle(link).whiteSpace).not.toBe("nowrap");
+  });
+
+  it("a list heading stands as tall as the list guesses and the pinned one covers", () => {
+    // The reveal's padding under the pinned heading is LIST_HEAD_ESTIMATE_PX:
+    // a heading of another height would hide a row's top or leave a gap.
+    expect(getComputedStyle(mount("tasks__group")).height).toBe(`${LIST_HEAD_ESTIMATE_PX}px`);
+  });
+
+  it("a pinned heading ruled out as a drop dims its words, not itself — rows never show through", () => {
+    const pinned = mount("tasks__list-pinned");
+    const heading = document.createElement("button");
+    heading.className = "tasks__group tasks__drop--no";
+    const label = document.createElement("span");
+    heading.append(label);
+    pinned.append(heading);
+    expect(getComputedStyle(heading).opacity).toBe("1");
+    expect(getComputedStyle(label).opacity).toBe("0.45");
+  });
+
+  it("an inline offer is quiet: the quiet ink wins over the inline variant's", () => {
+    // The open task's "Attach an artifact…" is both; at equal specificity
+    // the later rule wins, and the inline one used to be later.
+    const button = (classes: string) => {
+      const field = mount(classes);
+      const el = document.createElement("button");
+      el.className = "dropdown__button";
+      field.append(el);
+      return getComputedStyle(el).color;
+    };
+    expect(button("dropdown dropdown--inline dropdown--quiet")).toBe(button("dropdown dropdown--quiet"));
+    expect(button("dropdown dropdown--inline dropdown--quiet")).not.toBe(button("dropdown dropdown--inline"));
   });
 
   it("a card may shrink to its column — it never grows to its widest word", () => {

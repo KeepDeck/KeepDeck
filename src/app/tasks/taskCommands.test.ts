@@ -175,6 +175,25 @@ describe("task commands", () => {
     expect(((await run("task.mine", {}, LEAD)).tasks as { id: string }[]).map((t) => t.id)).toEqual(["task-2"]);
   });
 
+  it("labels: set at creation and by update, listed on rows, and a list narrows to one", async () => {
+    const { run, refused } = setup();
+    await run("task.create", { title: "Copy pass", assignee: "impl-1", labels: "Copy Edit, ui" }, LEAD);
+    await run("task.create", { title: "Other" }, LEAD);
+    const listed = (await run("task.list", { label: "copy edit" }, LEAD)).tasks as { id: string; labels: string[] }[];
+    expect(listed.map((t) => [t.id, t.labels])).toEqual([["task-1", ["copy-edit", "ui"]]]);
+    // The assignee files its own task; the change is named.
+    const updated = await run("task.update", { id: "task-1", labels: "ui" }, IMPL1);
+    expect(updated.changed).toEqual(["labels"]);
+    expect(await refused("task.update", { id: "task-2", labels: "ui" }, IMPL1)).toContain("its labels are");
+    expect(await refused("task.update", { id: "task-1", labels: "a/b" }, LEAD)).toContain("is not a label");
+  });
+
+  it("refuses labels sent as an array — never drops them — and names a filter that is no label", async () => {
+    const { refused } = setup();
+    expect(await refused("task.create", { title: "Copy pass", labels: ["ui"] as never }, LEAD)).toContain('"labels" must be a string');
+    expect(await refused("task.list", { label: "--" }, LEAD)).toContain('"--" is not a label');
+  });
+
   it("tells the agent when its change is held but not on disk", async () => {
     const { run, store } = setup();
     const landed = await run("task.create", { title: "a" }, LEAD);

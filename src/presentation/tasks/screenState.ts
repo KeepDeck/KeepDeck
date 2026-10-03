@@ -6,8 +6,15 @@
  * the dialog to close). The hook holds one state and applies what this
  * answers; it decides nothing.
  */
+import type { TasksView } from "../../domain/settings";
 import type { TaskStatus } from "../../domain/tasks";
 import { escapeTarget, selectionAfterClick } from "./dialogState";
+import { FOLDED_AT_OPEN, toggleFold } from "./listView";
+import { NO_QUERY, withLabel, type TaskQuery } from "./queryView";
+
+/** The two views of the one set of tasks (`queryView`) — a setting, kept
+ * across openings (`Settings.tasksView`). */
+export type TrackerView = TasksView;
 
 export interface ScreenState {
   /** The team they picked; the team on screen is `teamOnScreen`'s call. */
@@ -19,6 +26,14 @@ export interface ScreenState {
   wide: boolean;
   /** The column a card in flight is over. */
   hover: TaskStatus | null;
+  /** The list's folded groups — a reading posture for the dialog's life. */
+  folded: ReadonlySet<TaskStatus>;
+  /** What the views narrow to, and the team whose board it was set on —
+   * read through [`queryOn`]: another team's board shows unnarrowed, its
+   * labels being its own, however it came on screen (a pick, or a link to
+   * one of its tasks). */
+  query: TaskQuery;
+  queryTeam: string | null;
 }
 
 export const INITIAL_SCREEN: ScreenState = {
@@ -26,6 +41,9 @@ export const INITIAL_SCREEN: ScreenState = {
   composing: false,
   wide: false,
   hover: null,
+  folded: FOLDED_AT_OPEN,
+  query: NO_QUERY,
+  queryTeam: null,
 };
 
 /** The screen a dialog opens on: the team the stage has open is the
@@ -49,6 +67,16 @@ export type ScreenAction =
   | { type: "escape"; detailOpen: boolean }
   | { type: "team"; id: string }
   | { type: "hover"; status: TaskStatus | null; dragging: boolean }
+  /** A list heading's toggle. */
+  | { type: "fold"; status: TaskStatus }
+  /** A task's move by a drop landed: in the list, its group opens, so the
+   * row is seen where it went rather than vanishing into a fold. A drop on
+   * the board leaves the list's folds alone. */
+  | { type: "dropped"; status: TaskStatus; view: TrackerView }
+  /** The toolbar's Blocked toggle. */
+  | { type: "blockedOnly" }
+  /** A label to narrow to; null, or the one already narrowing, widens. */
+  | { type: "label"; label: string | null }
   /** A task was created from the form: it opens, the form goes. */
   | { type: "created"; id: string };
 
@@ -112,8 +140,32 @@ function step(state: ScreenState, action: ScreenAction): ScreenOutcome {
       return { state: { ...state, hover: action.dragging ? action.status : null } };
     case "created":
       return { state: { ...state, composing: false, wide: false }, focus: action.id };
+    case "fold":
+      return { state: { ...state, folded: toggleFold(state.folded, action.status) } };
+    case "dropped": {
+      if (action.view !== "list" || !state.folded.has(action.status)) return { state };
+      return { state: { ...state, folded: toggleFold(state.folded, action.status) } };
+    }
+    case "blockedOnly": {
+      const query = queryOn(state, state.chosenTeam);
+      return { state: { ...state, query: { ...query, blockedOnly: !query.blockedOnly }, queryTeam: state.chosenTeam } };
+    }
+    case "label":
+      return { state: { ...state, query: withLabel(queryOn(state, state.chosenTeam), action.label), queryTeam: state.chosenTeam } };
   }
   return { state };
+}
+
+/** The query the board of `teamId` shows: the one set on it, or none — a
+ * filter set on another team's board does not follow to this one. */
+export function queryOn(state: Pick<ScreenState, "query" | "queryTeam">, teamId: string | null): TaskQuery {
+  return state.queryTeam === teamId ? state.query : NO_QUERY;
+}
+
+/** Whether J / K walk the list: only over the list, and never while the
+ * new-task form is up — its controls have the keys, a field or not. */
+export function walksRows(state: Pick<ScreenState, "composing">, view: TrackerView): boolean {
+  return view === "list" && !state.composing;
 }
 
 /** Whether the stage shows the open task wide: the flag, and a task. */

@@ -1,9 +1,9 @@
-import { TASK_CAPS } from "../../domain/tasks";
+import { TASK_CAPS, type TaskPriority } from "../../domain/tasks";
 import { POOL_CHOICE, priorityChoices, type ChoiceView } from "./words";
 
 export interface NewTaskFormView {
   assigneeOptions: ChoiceView[];
-  priorityOptions: ChoiceView[];
+  priorityOptions: (ChoiceView & { value: TaskPriority })[];
   titleMax: number;
   bodyMax: number;
   /** Under the assignee: the addresses teammates use, or that nobody is
@@ -20,10 +20,6 @@ export const NEW_TASK_WORDS = {
   create: "Create task",
 } as const;
 
-/** A priority choice's classes: lit when it is the one picked. */
-export function priorityChoiceClassName(picked: boolean): string {
-  return picked ? "form__type form__type--active" : "form__type";
-}
 
 export function newTaskFormView(roster: readonly string[]): NewTaskFormView {
   return {

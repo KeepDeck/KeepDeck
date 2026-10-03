@@ -29,6 +29,13 @@ describe("ProgressRing", () => {
     expect(ring().className).toBe("progress-ring");
   });
 
+  it("is a thin ring by default, and a filled pie when asked", () => {
+    act(() => root.render(createElement(ProgressRing, { value: 40 })));
+    expect(ring().classList.contains("progress-ring--pie")).toBe(false);
+    act(() => root.render(createElement(ProgressRing, { value: 40, shape: "pie" })));
+    expect(ring().classList.contains("progress-ring--pie")).toBe(true);
+  });
+
   it("centres a mark when given one, and is decorative", () => {
     act(() => root.render(createElement(ProgressRing, { value: 5 }, createElement("svg"))));
     expect(ring().querySelector(".progress-ring__mark > svg")).not.toBeNull();

@@ -3,7 +3,14 @@
  * person is named, which hue a status wears. One home, so the board, the
  * detail and the card footer cannot disagree.
  */
+import type { TasksView } from "../../domain/settings";
 import { TASK_PRIORITIES, USER_NAME, type TaskPriority, type TaskStatus } from "../../domain/tasks";
+
+/** The tracker's two views, as the toolbar's choice row names them. */
+export const VIEW_WORDS = {
+  choice: "View",
+  label: { list: "List", board: "Board" } as Record<TasksView, string>,
+} as const;
 
 export const STATUS_LABEL: Record<TaskStatus, string> = {
   todo: "To do",
@@ -58,7 +65,7 @@ export interface ChoiceView {
 }
 
 /** The priority picker's options — the ONE list both forms offer. */
-export function priorityChoices(): ChoiceView[] {
+export function priorityChoices(): (ChoiceView & { value: TaskPriority })[] {
   return TASK_PRIORITIES.map((value) => ({ value, label: PRIORITY_LABEL[value] }));
 }
 

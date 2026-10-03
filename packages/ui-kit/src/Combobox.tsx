@@ -48,6 +48,12 @@ interface ComboboxProps {
   placeholder?: string;
   /** Extra class on the wrapper (layout belongs to the call site). */
   className?: string;
+  /** `field` (default): a form field with its chevron. `slot`: a small
+   *  dashed slot to type a new item into ("+ label") — no chevron, the menu
+   *  opens as the slot is focused or typed in, and nothing in it is
+   *  highlighted until an arrow key moves there: what was typed is what
+   *  Enter submits, unless the person chose from the menu. */
+  variant?: "field" | "slot";
 }
 
 /**
@@ -70,12 +76,16 @@ export function Combobox({
   ariaLabel,
   placeholder,
   className,
+  variant = "field",
 }: ComboboxProps) {
   const [open, setOpen] = useState(false);
   // Whether the user typed since the menu opened — only then does the menu
   // filter. A fresh open browses the full list.
   const [typed, setTyped] = useState(false);
-  const [highlight, setHighlight] = useState(0);
+  // Where the cursor starts: on the first option for a field, on none for
+  // a slot — typed text there is an item of its own, not a filter.
+  const start = variant === "slot" ? -1 : 0;
+  const [highlight, setHighlight] = useState(start);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLUListElement | null>(null);
   const listId = useId();
@@ -104,7 +114,7 @@ export function Combobox({
   const filtered = typed ? fuzzyFilter(options, value) : options;
   // The list can shrink under the cursor (a keystroke narrows the filter);
   // clamping here beats effect-syncing state that render already derives.
-  const cursor = Math.min(highlight, Math.max(filtered.length - 1, 0));
+  const cursor = highlight < 0 ? -1 : Math.min(highlight, Math.max(filtered.length - 1, 0));
   const optionId = (index: number) => `${listId}-option-${index}`;
   // What the user can actually see: an open combobox whose filter matches
   // nothing renders no listbox, so the aria pair below must not announce one.
@@ -113,7 +123,7 @@ export function Combobox({
   const openMenu = () => {
     setOpen(true);
     setTyped(false);
-    setHighlight(0);
+    setHighlight(start);
   };
 
   const pick = (option: string) => {
@@ -130,10 +140,11 @@ export function Combobox({
       }
       const step = e.key === "ArrowDown" ? 1 : -1;
       const count = filtered.length;
-      if (count) setHighlight((cursor + step + count) % count);
+      // From no highlight, down lands on the first and up on the last.
+      if (count) setHighlight(cursor < 0 ? (step === 1 ? 0 : count - 1) : (cursor + step + count) % count);
       return;
     }
-    if (e.key === "Enter" && open && filtered.length) {
+    if (e.key === "Enter" && open && filtered.length && cursor >= 0) {
       // Pick, don't submit — Enter only reaches the form once the menu is
       // closed, so "choose from the list" and "confirm the dialog" stay two
       // distinct presses.
@@ -145,7 +156,7 @@ export function Combobox({
   return (
     <div
       ref={rootRef}
-      className={`combobox${className ? ` ${className}` : ""}`}
+      className={`combobox${variant === "slot" ? " combobox--slot" : ""}${className ? ` ${className}` : ""}`}
       onKeyDown={(e) => {
         // Local, not a window listener: Escape closes the MENU only while
         // it's open; a closed combobox lets it bubble to the modal's own Esc.
@@ -162,7 +173,7 @@ export function Combobox({
         aria-expanded={menuOpen}
         aria-autocomplete="list"
         aria-controls={menuOpen ? listId : undefined}
-        aria-activedescendant={menuOpen ? optionId(cursor) : undefined}
+        aria-activedescendant={menuOpen && cursor >= 0 ? optionId(cursor) : undefined}
         aria-label={ariaLabel}
         value={value}
         placeholder={placeholder}
@@ -170,7 +181,7 @@ export function Combobox({
           onChange(e.target.value);
           setOpen(true);
           setTyped(true);
-          setHighlight(0);
+          setHighlight(start);
         }}
         onFocus={openMenu}
         // A pick or Escape closes the menu but keeps the field focused, so a
@@ -180,15 +191,17 @@ export function Combobox({
         }}
         onKeyDown={onKeyDown}
       />
-      <button
-        type="button"
-        className="combobox__toggle"
-        tabIndex={-1}
-        aria-label={`Toggle ${ariaLabel} options`}
-        onClick={() => (open ? setOpen(false) : openMenu())}
-      >
-        <ChevronDownIcon />
-      </button>
+      {variant === "field" && (
+        <button
+          type="button"
+          className="combobox__toggle"
+          tabIndex={-1}
+          aria-label={`Toggle ${ariaLabel} options`}
+          onClick={() => (open ? setOpen(false) : openMenu())}
+        >
+          <ChevronDownIcon />
+        </button>
+      )}
       {menuOpen && (
         <FloatingListbox
           anchorRef={rootRef}

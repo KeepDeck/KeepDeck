@@ -12,6 +12,10 @@ export interface ProgressRingProps {
   children?: ReactNode;
   /** Site class hook (spacing, size overrides). */
   className?: string;
+  /** `ring` (default): a thin track filled along its band. `pie`: the
+   *  sector itself filled solid inside an outline in the same hue — a full
+   *  ring is a full disc, an empty one an outline. */
+  shape?: "ring" | "pie";
 }
 
 /**
@@ -23,10 +27,12 @@ export interface ProgressRingProps {
  * Decorative: the surface it sits in names what it measures (a title, an
  * aria-label), so the ring itself is hidden from assistive tech.
  */
-export function ProgressRing({ value, tone, children, className }: ProgressRingProps) {
+export function ProgressRing({ value, tone, children, className, shape = "ring" }: ProgressRingProps) {
   return (
     <span
-      className={["progress-ring", tone && `progress-ring--${tone}`, className].filter(Boolean).join(" ")}
+      className={["progress-ring", shape === "pie" && "progress-ring--pie", tone && `progress-ring--${tone}`, className]
+        .filter(Boolean)
+        .join(" ")}
       style={{ "--progress-ring-fill": value } as CSSProperties}
       aria-hidden
     >

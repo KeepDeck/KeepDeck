@@ -11,6 +11,7 @@ import { useSettings } from "../../app/useSettings";
 import { Combobox } from "../../ui/Combobox";
 import { Dropdown } from "../../ui/Dropdown";
 import { noAutoCorrect } from "../../ui/inputProps";
+import { RemoveButton } from "../../ui/RemoveButton";
 
 /**
  * A plugin's settings page, rendered BY THE HOST from the declared field
@@ -185,15 +186,7 @@ function StringListField({
       {value.map((entry) => (
         <div key={entry} className="settings__list-row">
           <span className="settings__list-entry">{entry}</span>
-          <button
-            type="button"
-            className="settings__list-remove"
-            onClick={() => onWrite(value.filter((v) => v !== entry))}
-            title={`Remove ${entry}`}
-            aria-label={`Remove ${entry}`}
-          >
-            ×
-          </button>
+          <RemoveButton label={`Remove ${entry}`} onClick={() => onWrite(value.filter((v) => v !== entry))} />
         </div>
       ))}
       {field.picker === "application" ? (

@@ -58,3 +58,44 @@ describe("board codec", () => {
     expect(decodeBoard(JSON.stringify({ nextId: 0, tasks: [] }))).toEqual({ ok: false, fault: { kind: "bad-counter", atLeast: 1 } });
   });
 });
+
+describe("board codec — labels", () => {
+  const stored = (labels?: unknown) =>
+    JSON.stringify({
+      nextId: 2,
+      tasks: [
+        {
+          id: "task-1", teamId: "team-1", title: "t", body: "", status: "todo", priority: "normal",
+          assignee: null, author: "lead", blockedBy: [], artifacts: [],
+          ...(labels === undefined ? {} : { labels }),
+          comments: [], log: [], created: 1, updated: 1,
+        },
+      ],
+    });
+
+  it("reads a board written before labels as tasks with none — absence is no fault", () => {
+    const read = decodeBoard(stored());
+    expect(read.ok && read.board.tasks[0].labels).toEqual([]);
+  });
+
+  it("keeps labels through a round trip, and refuses labels that are not a list of words", () => {
+    const read = decodeBoard(stored(["design", "ui"]));
+    expect(read.ok && read.board.tasks[0].labels).toEqual(["design", "ui"]);
+    expect(decodeBoard(stored("ui"))).toMatchObject({ ok: false, fault: { kind: "bad-task", field: "labels" } });
+    expect(decodeBoard(stored([1]))).toMatchObject({ ok: false, fault: { kind: "bad-task", field: "labels" } });
+  });
+
+  it("reads a hand-edited set the way the board keeps one, and refuses one it could not keep", () => {
+    const read = decodeBoard(stored(["UI", "B", "ui"]));
+    expect(read.ok && read.board.tasks[0].labels).toEqual(["b", "ui"]);
+    // Refused naming what to put right: the label, or the count.
+    expect(decodeBoard(stored(["a/b"]))).toMatchObject({ ok: false, fault: { kind: "bad-task", field: 'label "a/b"' } });
+    const many = Array.from({ length: 10 }, (_, i) => `l${i}`);
+    expect(decodeBoard(stored(many))).toMatchObject({ ok: false, fault: { kind: "bad-task", field: "labels (more than 5)" } });
+  });
+
+  it("accepts a log entry about labels", () => {
+    const json = stored(["ui"]).replace('"log":[]', '"log":[{"at":1,"from":"lead","field":"labels","was":null,"now":"ui"}]');
+    expect(decodeBoard(json).ok).toBe(true);
+  });
+});

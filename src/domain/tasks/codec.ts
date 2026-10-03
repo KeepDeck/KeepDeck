@@ -14,6 +14,7 @@
  * words.
  */
 import {
+  TASK_CAPS,
   TASK_FIELDS,
   isTaskId,
   isTaskPriority,
@@ -23,6 +24,7 @@ import {
   type TaskComment,
   type TaskLogEntry,
 } from "./model";
+import { normalizeLabels } from "./transition";
 
 const FIELDS = new Set<string>(TASK_FIELDS);
 
@@ -98,6 +100,17 @@ function decodeTask(raw: unknown): TaskRead {
   if (typeof raw.author !== "string") return fail("author");
   if (!isStringArray(raw.blockedBy)) return fail("blockedBy");
   if (!isStringArray(raw.artifacts)) return fail("artifacts");
+  // Absent on boards written before labels: absence is no fault. A hand
+  // edit is read the way the board keeps labels ("B" is b, a repeat
+  // folds) — or refused, like any field that does not fit.
+  if (raw.labels !== undefined && !isStringArray(raw.labels)) return fail("labels");
+  const labels = normalizeLabels(raw.labels ?? []);
+  // Named, so a hand edit can be found and put right: which label, or how
+  // many past the cap.
+  if (!labels.ok) {
+    const refusal = labels.refusal;
+    return fail(refusal.kind === "bad-label" ? `label "${refusal.label}"` : `labels (more than ${TASK_CAPS.labelsMax})`);
+  }
   if (!Array.isArray(raw.comments) || !raw.comments.every(isComment)) return fail("comments");
   if (!Array.isArray(raw.log) || !raw.log.every(isLogEntry)) return fail("log");
   if (!isCount(raw.created) || !isCount(raw.updated)) return fail("created/updated");
@@ -114,6 +127,7 @@ function decodeTask(raw: unknown): TaskRead {
       author: raw.author,
       blockedBy: raw.blockedBy,
       artifacts: raw.artifacts,
+      labels: labels.labels,
       comments: raw.comments as TaskComment[],
       log: raw.log as TaskLogEntry[],
       created: raw.created,

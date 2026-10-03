@@ -47,6 +47,7 @@ describe("hydrateSettings", () => {
       usageDisplay: "left",
       parkAgentsOnLaunch: true,
       artifacts: true,
+      tasksView: "list",
     };
     const doc = restore(JSON.stringify(stored));
     expect(doc.settings).toEqual({
@@ -63,6 +64,7 @@ describe("hydrateSettings", () => {
       artifacts: true,
       artifactAutoOpen: true,
       tasks: false,
+      tasksView: "list",
     });
     // Everything the file said is a decision; `remoteAgents`,
     // `artifactAutoOpen` and `tasks`, which it did not mention, are not.

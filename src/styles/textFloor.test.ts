@@ -12,9 +12,10 @@ const MARKS_AND_DISABLED = [
   ".strip__tile .strip__dot--idle", // the idle dot's hollow ring
   ".strip__team .team-dot--none", // a strip team row's idle ring
   ".minimized__status--stopped", // the stopped dot's hollow ring
-  ".tasks__remove", // the × that detaches a row
-  ".artifacts__remove", // the same ×
+  ".ui-remove", // RemoveButton: a row's × (detach, delete, drop)
   ".tasks__card--cancelled .tasks__card-title", // a cancelled task
+  ".tasks__row--cancelled .tasks__row-title", // the same task, as a list row
+  ".tasks__group::before", // the fold chevron of a list heading
   ".tasks__link:disabled",
 ];
 
