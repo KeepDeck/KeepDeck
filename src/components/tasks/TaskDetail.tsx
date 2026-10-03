@@ -70,7 +70,7 @@ export function TaskDetail({
         {/* Words, not a ×: the dialog's own × sits right above, and two
             stacked read as a mistake. */}
         <div className="tasks__detail-actions">
-          <Button size="sm" variant="ghost" aria-pressed={wide} onClick={onToggleWide}>
+          <Button size="sm" variant="ghost" pressed={wide} onClick={onToggleWide}>
             {DIALOG_WORDS.wide(wide)}
           </Button>
           <Button size="sm" variant="ghost" onClick={onClose}>

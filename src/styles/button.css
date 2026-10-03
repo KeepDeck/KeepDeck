@@ -68,6 +68,13 @@
   border-color: var(--kd-seam-strong);
 }
 
+/* A secondary button that toggles (a filter): pressed, it holds the
+   selected surface, so "on" reads without colour — colour is state. */
+.kd-btn--secondary[aria-pressed="true"] {
+  background-color: var(--kd-selected);
+  color: var(--kd-text);
+}
+
 /* Chrome that should disappear until reached for. Its padding is symmetric
    because what it wraps is an icon, not a label — a ghost with a text label
    is not a control this app has. */

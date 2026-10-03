@@ -129,6 +129,35 @@ describe("TasksDialog", () => {
     expect(options().map((o) => o.textContent)).toEqual(EVERY);
   });
 
+  it("narrows the board to blocked work and to one label, from the toolbar — the picker only once a label exists", async () => {
+    const { service } = await seeded();
+    const render = mount(service);
+    render();
+    await flush();
+    const titles = () => cards().map((c) => c.querySelector(".tasks__card-title")?.textContent);
+    const blocked = () => document.querySelector<HTMLButtonElement>(".tasks__filter")!;
+    const labelPicker = () => document.querySelector<HTMLButtonElement>('button[aria-label="Label"]');
+    expect(labelPicker()).toBeNull();
+
+    await act(async () => void (await service.apply("ws-1", "task-2", [{ kind: "labels", to: ["copy"] }], USER_ACTOR)));
+    render();
+    await flush();
+    expect(labelPicker()).not.toBeNull();
+    act(() => labelPicker()!.click());
+    await flush();
+    act(() => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="option"]')).find((o) => o.textContent === "copy")!.click());
+    await flush();
+    expect(titles()).toEqual(["Pooled work"]);
+
+    act(() => blocked().click());
+    await flush();
+    expect(blocked().getAttribute("aria-pressed")).toBe("true");
+    expect(titles()).toEqual([]);
+    act(() => blocked().click());
+    await flush();
+    expect(titles()).toEqual(["Pooled work"]);
+  });
+
   it("creates a task from the form as the user and opens it", async () => {
     const { service } = await seeded();
     const render = mount(service);

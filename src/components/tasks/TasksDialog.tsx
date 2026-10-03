@@ -128,9 +128,26 @@ function WorkspaceBoard({
               {view.team.kind === "word" && <span className="tasks__team-name kd-one-line">{view.team.name}</span>}
               <Button
                 size="sm"
+                className="tasks__filter"
+                pressed={board.filters.blocked.pressed}
+                onClick={board.toggleBlocked}
+              >
+                {board.filters.blocked.label}
+              </Button>
+              {board.filters.label && (
+                <Dropdown
+                  ariaLabel={board.filters.label.ariaLabel}
+                  className="tasks__label-filter"
+                  options={board.filters.label.options}
+                  value={board.filters.label.value}
+                  onChange={board.pickLabel}
+                />
+              )}
+              <Button
+                size="sm"
                 variant="primary"
                 className="tasks__new"
-                aria-pressed={board.composing}
+                pressed={board.composing}
                 onClick={board.toggleCompose}
                 disabled={view.newTaskDisabled}
               >

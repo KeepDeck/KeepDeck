@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { board, task } from "../../domain/tasks/testSupport";
 import { boardView } from "./boardView";
+import { NO_QUERY } from "./queryView";
 import { IDLE, armCard, moveCard } from "./cardDrag";
 import { tasksDialogView } from "./dialogView";
 import { LADDER_WORDS, type TasksLadder } from "./ladderView";
 
 const b = board([task({ id: "task-1" })]);
-const columns = boardView(b.tasks, b, 0);
+const columns = boardView(b.tasks, b, 0, NO_QUERY);
 const TEAMS = [
   { id: "team-1", name: "api" },
   { id: "team-2", name: "web" },

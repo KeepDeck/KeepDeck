@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { TASK_CAPS } from "../../domain/tasks";
 import { board, task } from "../../domain/tasks/testSupport";
 import { boardView } from "./boardView";
+import { NO_QUERY } from "./queryView";
 import {
   CLICK_AFTER_DRAG_MS,
   DRAG_THRESHOLD_PX,
@@ -82,7 +83,7 @@ describe("dialogState", () => {
     expect(selectionAfterClick("task-1", "task-1")).toBeNull();
     expect(selectionAfterClick("task-1", "task-2")).toBe("task-2");
     const b = board([task({ id: "task-1" }), task({ id: "task-2", status: "done" })]);
-    const columns = boardView(b.tasks, b, 0);
+    const columns = boardView(b.tasks, b, 0, NO_QUERY);
     expect(cardOf(columns, "task-2")?.id).toBe("task-2");
     expect(cardOf(columns, "task-9")).toBeUndefined();
   });

@@ -1,6 +1,7 @@
 export * from "./words";
 export * from "./taskCardView";
 export * from "./boardView";
+export * from "./queryView";
 export * from "./taskDetailView";
 export * from "./newTaskFormView";
 export * from "./ladderView";

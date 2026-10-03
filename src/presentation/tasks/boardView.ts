@@ -1,10 +1,5 @@
-import {
-  compareQueue,
-  isOpen,
-  type Task,
-  type TaskBoard,
-  type TaskStatus,
-} from "../../domain/tasks";
+import type { Task, TaskBoard, TaskStatus } from "../../domain/tasks";
+import { tasksInStatus, type TaskQuery } from "./queryView";
 import { taskCardView, type TaskCardView } from "./taskCardView";
 import { BOARD_ORDER, STATUS_LABEL } from "./words";
 
@@ -16,22 +11,22 @@ export interface BoardColumnView {
 }
 
 /**
- * The board: one column per status in board order. Open columns keep
- * queue order (priority, then age), so the top card is what would be
- * handed out next; closed columns read newest first, the way a history
- * does.
+ * The board: one column per status in board order, each the query's set
+ * of that status in the tracker's one order (`queryView`).
  */
-export function boardView(tasks: readonly Task[], board: TaskBoard, now: number): BoardColumnView[] {
+export function boardView(
+  tasks: readonly Task[],
+  board: TaskBoard,
+  now: number,
+  query: TaskQuery,
+): BoardColumnView[] {
   return BOARD_ORDER.map((status) => {
-    const inColumn = tasks.filter((task) => task.status === status);
-    const ordered = isOpen(status)
-      ? [...inColumn].sort(compareQueue)
-      : [...inColumn].sort((a, b) => b.updated - a.updated || a.id.localeCompare(b.id));
+    const shown = tasksInStatus(tasks, status, query);
     return {
       status,
       label: STATUS_LABEL[status],
-      count: inColumn.length,
-      cards: ordered.map((task) => taskCardView(task, board, now)),
+      count: shown.length,
+      cards: shown.map((task) => taskCardView(task, board, now)),
     };
   });
 }

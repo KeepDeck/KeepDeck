@@ -14,6 +14,7 @@ import {
   attachArtifact,
   detachArtifact,
   findTask,
+  labelsOf,
   reachableStatuses,
   tasksOfTeam,
   type CreateTaskInput,
@@ -23,6 +24,7 @@ import {
 } from "../../domain/tasks";
 import {
   IDLE,
+  NO_QUERY,
   armCard,
   assigneeOf,
   boardView,
@@ -36,11 +38,14 @@ import {
   tasksLadder,
   teamOnScreen,
   unsavedBanner,
+  queryToolbarView,
   wideView,
+  withLabel,
   type ArtifactRef,
   type CardGrip,
   type DragState,
   type ScreenAction,
+  type TaskQuery,
 } from "../../presentation/tasks";
 
 export type { TasksAccess } from "../../app/tasks/tasksFeature";
@@ -142,6 +147,8 @@ export function useTasksBoard(
   };
   const dragEndedAt = useRef<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // What the views show: held for the dialog's life, never stored.
+  const [query, setQuery] = useState<TaskQuery>(NO_QUERY);
 
   const board = readyBoard(state);
   const unsaved = state?.kind === "ready" && state.unsaved !== null ? unsavedBanner(state.unsaved) : null;
@@ -198,7 +205,8 @@ export function useTasksBoard(
   const selected = focusedTask;
   const detail =
     selected && selected.teamId === teamId ? taskDetailView(selected, board!, roster, now, knownArtifacts) : null;
-  const columns = board ? boardView(teamTasks, board, now) : [];
+  const columns = board ? boardView(teamTasks, board, now, query) : [];
+  const filters = queryToolbarView(query, board ? labelsOf({ tasks: teamTasks }) : []);
   const form = newTaskFormView(roster);
 
   /** The pointer was released over `over` (a column, or nothing). One
@@ -256,6 +264,9 @@ export function useTasksBoard(
     hoverColumn: (status: TaskStatus | null) => run({ type: "hover", status, dragging: dragRef.current.kind === "dragging" }),
     /** Released over a column. */
     dropOn: release,
+    filters,
+    toggleBlocked: () => setQuery((q) => ({ ...q, blockedOnly: !q.blockedOnly })),
+    pickLabel: (value: string) => setQuery((q) => withLabel(q, value)),
     composing,
     compose: () => run({ type: "compose" }),
     cancelCompose: () => run({ type: "cancelCompose" }),

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { board, task } from "../../domain/tasks/testSupport";
 import { boardView, columnLabelClassName } from "./boardView";
+import { NO_QUERY } from "./queryView";
 import { LADDER_WORDS, tasksLadder } from "./ladderView";
 import { newTaskFormView, NEW_TASK_WORDS, priorityChoiceClassName } from "./newTaskFormView";
 import { taskCardView, taskCardClassName } from "./taskCardView";
@@ -68,7 +69,7 @@ describe("boardView", () => {
   ]);
 
   it("lays the board out blocked-first, open columns in queue order, closed ones newest first — every column open, Cancelled included", () => {
-    const columns = boardView(b.tasks, b, NOW);
+    const columns = boardView(b.tasks, b, NOW, NO_QUERY);
     expect(columns.map((c) => `${c.status}:${c.count}`)).toEqual([
       "blocked:0",
       "todo:2",
@@ -83,7 +84,7 @@ describe("boardView", () => {
   });
 
   it("always shows Cancelled, its cards marked as taken off the board", () => {
-    const columns = boardView(b.tasks, b, NOW);
+    const columns = boardView(b.tasks, b, NOW, NO_QUERY);
     expect(columns.find((c) => c.status === "cancelled")?.cards[0].cancelled).toBe(true);
   });
 });

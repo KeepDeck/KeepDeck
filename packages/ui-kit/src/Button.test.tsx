@@ -39,6 +39,15 @@ describe("Button", () => {
     expect(button().type).toBe("button");
   });
 
+  it("reports a toggle's state, and says nothing of one on a plain action", () => {
+    render({ pressed: true });
+    expect(button().getAttribute("aria-pressed")).toBe("true");
+    render({ pressed: false });
+    expect(button().getAttribute("aria-pressed")).toBe("false");
+    render();
+    expect(button().hasAttribute("aria-pressed")).toBe(false);
+  });
+
   it("keeps chrome and geometry on separate axes", () => {
     // The two never reach into each other: a small primary is the same colour
     // as a medium one, and the same box as a small secondary. Mixing them is
