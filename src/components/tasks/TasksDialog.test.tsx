@@ -570,6 +570,30 @@ describe("TasksDialog", () => {
     expect(focus).toBe("task-2");
   });
 
+  it("Escape puts a drag back — nothing moves, nothing closes, and the release's click opens nothing", async () => {
+    const { service } = await seeded();
+    mount(service)();
+    await flush();
+    const pointer = (type: string, target: EventTarget, x: number, y: number) =>
+      target.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0 }));
+    act(() => void pointer("pointerdown", cards()[0], 10, 10));
+    await flush();
+    act(() => void pointer("pointermove", window, 40, 40));
+    await flush();
+    expect(document.querySelector(".tasks__ghost")).not.toBeNull();
+    act(() => void document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    await flush();
+    expect(document.querySelector(".tasks__ghost")).toBeNull();
+    act(() => {
+      pointer("pointerup", cards()[0], 40, 40);
+      cards()[0].click();
+    });
+    await flush();
+    expect(focus).toBeNull();
+    const state = service.peek("ws-1");
+    expect(state?.kind === "ready" && state.board.tasks[0].status).toBe("todo");
+  });
+
   it("under StrictMode one release is one move: the drop's IO runs outside any React updater", async () => {
     const { service } = await seeded();
     const applies = vi.spyOn(service, "apply");

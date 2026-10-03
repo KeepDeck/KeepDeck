@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TASK_CAPS } from "../../domain/tasks";
+import { board, task } from "../../domain/tasks/testSupport";
 import {
   CLICK_AFTER_DRAG_MS,
   DRAG_THRESHOLD_PX,
@@ -8,17 +9,19 @@ import {
   cardStateOf,
   clickDisbelieved,
   columnClassName,
+  dragOutlived,
   dropStateOf,
   escapeDrag,
   ghostBox,
   moveCard,
   releaseCard,
+  taskInFlight,
 } from "./cardDrag";
 import { EMPTY_COMPOSER, beginSend, composerCanSend, finishSend, labelDraftAfter, labelSendable, typeDraft } from "./composer";
 import { canCreateTask, canSendComment } from "./composerView";
 import { DIALOG_WORDS, escapeTarget, selectionAfterClick, teamControlView } from "./dialogState";
 import { EMPTY_TASK_DRAFT, assigneeOf, taskInputOf } from "./formDraft";
-import { INITIAL_SCREEN, initialScreen, screenReducer, walksRows, wideView, type ScreenState } from "./screenState";
+import { INITIAL_SCREEN, initialScreen, queryOn, screenReducer, walksRows, wideView, type ScreenState } from "./screenState";
 import { NO_QUERY } from "./queryView";
 import { teamOnScreen } from "./teamOnScreen";
 import { offWaitingHint, showTasksSocketHint } from "./settingsView";
@@ -78,6 +81,19 @@ describe("dialogState", () => {
     // A drag is peeled before any layer: it goes back, and nothing closes.
     expect(escapeDrag(armCard("task-1", 0, 0, { width: 1, offsetX: 0, offsetY: 0 }))).toEqual(IDLE);
     expect(escapeDrag(IDLE)).toBeNull();
+  });
+
+  it("carries a task only while it is on the board on screen; a drag that outlived it ends", () => {
+    const b = board([task({ id: "task-1" }), task({ id: "task-2", teamId: "team-2" })]);
+    expect(taskInFlight(b, "task-1", "team-1")?.id).toBe("task-1");
+    expect(taskInFlight(b, "task-9", "team-1")).toBeNull();
+    // Moved to another team mid-drag: no task to drop on this board.
+    expect(taskInFlight(b, "task-2", "team-1")).toBeNull();
+    expect(taskInFlight(null, "task-1", "team-1")).toBeNull();
+    const flying = moveCard(armCard("task-1", 0, 0, { width: 1, offsetX: 0, offsetY: 0 }), 50, 50, () => new Set());
+    expect(dragOutlived(flying, null)).toEqual(IDLE);
+    expect(dragOutlived(flying, { id: "task-1" })).toBeNull();
+    expect(dragOutlived(IDLE, null)).toBeNull();
   });
 
   it("a click opens a card or puts the open one away", () => {
@@ -156,21 +172,30 @@ describe("screenState", () => {
     expect(screenReducer(open, { type: "hover", status: "done", dragging: false }, null).state.hover).toBeNull();
   });
 
-  it("narrows by Blocked and a label, per team: another team's board opens unnarrowed", () => {
-    const blocked = screenReducer(INITIAL_SCREEN, { type: "blockedOnly" }, null).state;
-    expect(blocked.query).toEqual({ blockedOnly: true, label: null });
-    const labelled = screenReducer(blocked, { type: "label", label: "ui" }, null).state;
-    expect(labelled.query).toEqual({ blockedOnly: true, label: "ui" });
-    expect(screenReducer(labelled, { type: "label", label: "ui" }, null).state.query.label).toBeNull();
-    expect(screenReducer(labelled, { type: "team", id: "team-2" }, null).state.query).toEqual(NO_QUERY);
+  it("narrows by Blocked and a label, per team: another team's board shows unnarrowed, however it came up", () => {
+    const blocked = screenReducer(INITIAL_SCREEN, { type: "blockedOnly" }, "team-1").state;
+    expect(queryOn(blocked, "team-1")).toEqual({ blockedOnly: true, label: null });
+    const labelled = screenReducer(blocked, { type: "label", label: "ui" }, "team-1").state;
+    expect(queryOn(labelled, "team-1")).toEqual({ blockedOnly: true, label: "ui" });
+    expect(queryOn(screenReducer(labelled, { type: "label", label: "ui" }, "team-1").state, "team-1").label).toBeNull();
+    // A pick of another team, or a link that put its task on screen.
+    expect(queryOn(screenReducer(labelled, { type: "team", id: "team-2" }, "team-1").state, "team-2")).toEqual(NO_QUERY);
+    expect(queryOn(labelled, "team-2")).toEqual(NO_QUERY);
+    // Back on the first team, its filter is still its own.
+    expect(queryOn(labelled, "team-1").label).toBe("ui");
+    // A filter set on the second team starts from nothing, not the first's.
+    const there = screenReducer(labelled, { type: "blockedOnly" }, "team-2").state;
+    expect(queryOn(there, "team-2")).toEqual({ blockedOnly: true, label: null });
   });
 
-  it("opens the folded group a task is dropped into, and leaves an open one as it is", () => {
+  it("opens the folded list group a task's move lands in, and leaves an open one as it is", () => {
     expect(INITIAL_SCREEN.folded.has("done")).toBe(true);
-    const dropped = screenReducer(INITIAL_SCREEN, { type: "dropped", status: "done" }, null).state;
+    const dropped = screenReducer(INITIAL_SCREEN, { type: "dropped", status: "done", view: "list" }, null).state;
     expect(dropped.folded.has("done")).toBe(false);
     expect(dropped.folded.has("cancelled")).toBe(true);
-    expect(screenReducer(dropped, { type: "dropped", status: "done" }, null).state.folded.has("done")).toBe(false);
+    expect(screenReducer(dropped, { type: "dropped", status: "done", view: "list" }, null).state.folded.has("done")).toBe(false);
+    // A drop on the board leaves the list's folds alone.
+    expect(screenReducer(INITIAL_SCREEN, { type: "dropped", status: "done", view: "board" }, null).state.folded.has("done")).toBe(true);
   });
 
   it("walks the list with J / K only over the list, and never while the form is up", () => {

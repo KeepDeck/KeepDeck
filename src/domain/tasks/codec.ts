@@ -14,6 +14,7 @@
  * words.
  */
 import {
+  TASK_CAPS,
   TASK_FIELDS,
   isTaskId,
   isTaskPriority,
@@ -104,7 +105,12 @@ function decodeTask(raw: unknown): TaskRead {
   // folds) — or refused, like any field that does not fit.
   if (raw.labels !== undefined && !isStringArray(raw.labels)) return fail("labels");
   const labels = normalizeLabels(raw.labels ?? []);
-  if (!labels.ok) return fail("labels");
+  // Named, so a hand edit can be found and put right: which label, or how
+  // many past the cap.
+  if (!labels.ok) {
+    const refusal = labels.refusal;
+    return fail(refusal.kind === "bad-label" ? `label "${refusal.label}"` : `labels (more than ${TASK_CAPS.labelsMax})`);
+  }
   if (!Array.isArray(raw.comments) || !raw.comments.every(isComment)) return fail("comments");
   if (!Array.isArray(raw.log) || !raw.log.every(isLogEntry)) return fail("log");
   if (!isCount(raw.created) || !isCount(raw.updated)) return fail("created/updated");

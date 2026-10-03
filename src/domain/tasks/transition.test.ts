@@ -418,6 +418,8 @@ describe("labels", () => {
     expect(labelled(t, ["café", "cafe\u0301"], lead).labels).toEqual(["café"]);
     // Scripts written with marks on their letters, and the dot İ keeps.
     expect(labelled(t, ["हिन्दी", "עִברית", "İş"], lead).labels).toHaveLength(3);
+    // Spelled with zero-width joiners: Persian's ZWNJ, a Devanagari conjunct.
+    expect(labelled(t, ["می\u200cخواهم", "क\u094d\u200dष"], lead).labels).toHaveLength(2);
     // Characters, not UTF-16 units: an ideograph beyond the basic plane is one.
     expect(refusalOf(t, { kind: "labels", to: ["𠀀".repeat(TASK_CAPS.labelMax)] }, lead)).toBeNull();
     // A mark is no word's start.

@@ -5,7 +5,7 @@
  * Every threshold and every rule about a drag lives here and is tested
  * without a browser.
  */
-import type { TaskStatus } from "../../domain/tasks";
+import { findTask, type Task, type TaskBoard, type TaskStatus } from "../../domain/tasks";
 
 /** How far a pressed card travels before it is a drag and not a click. */
 export const DRAG_THRESHOLD_PX = 6;
@@ -36,6 +36,20 @@ export type DragState =
     };
 
 export const IDLE: DragState = { kind: "idle" };
+
+/** The task a drag carries, as long as it is still on the board on
+ * screen: gone — deleted, or moved to another team — it is no task to
+ * drop, and the drag ends. */
+export function taskInFlight(board: TaskBoard | null, id: string, teamId: string | null): Task | null {
+  const task = board ? findTask(board, id) : undefined;
+  return task && task.teamId === teamId ? task : null;
+}
+
+/** A drag whose task left the board on screen mid-flight ends (IDLE);
+ * null while it still has one, or nothing flies. */
+export function dragOutlived(state: DragState, carried: unknown): DragState | null {
+  return state.kind === "dragging" && carried === null ? IDLE : null;
+}
 
 /** Escape while a card is pressed or in flight puts it back — the key
  * peels the drag before any layer under it. Null when there is no drag:

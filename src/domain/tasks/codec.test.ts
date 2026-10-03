@@ -88,9 +88,10 @@ describe("board codec — labels", () => {
   it("reads a hand-edited set the way the board keeps one, and refuses one it could not keep", () => {
     const read = decodeBoard(stored(["UI", "B", "ui"]));
     expect(read.ok && read.board.tasks[0].labels).toEqual(["b", "ui"]);
-    expect(decodeBoard(stored(["a/b"]))).toMatchObject({ ok: false, fault: { kind: "bad-task", field: "labels" } });
+    // Refused naming what to put right: the label, or the count.
+    expect(decodeBoard(stored(["a/b"]))).toMatchObject({ ok: false, fault: { kind: "bad-task", field: 'label "a/b"' } });
     const many = Array.from({ length: 10 }, (_, i) => `l${i}`);
-    expect(decodeBoard(stored(many))).toMatchObject({ ok: false, fault: { kind: "bad-task", field: "labels" } });
+    expect(decodeBoard(stored(many))).toMatchObject({ ok: false, fault: { kind: "bad-task", field: "labels (more than 5)" } });
   });
 
   it("accepts a log entry about labels", () => {

@@ -2,7 +2,7 @@ import { formatAge } from "../../domain/usage";
 import { blockerResolved, findTask, openBlockersOf, type Task, type TaskBoard, type TaskStatus } from "../../domain/tasks";
 import type { StatusRingProps } from "@keepdeck/ui-kit/StatusRing";
 import { POOL_LABEL, STATUS_LABEL, priorityMark, statusTone, type StatusTone } from "./words";
-import type { DragState } from "./cardDrag";
+import { taskInFlight, type DragState } from "./cardDrag";
 
 /** One task as a card says it: title, identity line, the two marks that
  * matter at a glance (priority, an unmet blocker). */
@@ -125,9 +125,14 @@ export function taskCardClassName(
 /** The card of the task in flight, read from the board — not from what a
  * view shows, which a move by someone else (into a folded group, out of
  * the filter) may take it out of mid-drag. Null while nothing flies. */
-export function cardInFlight(drag: DragState, board: TaskBoard | null, now: number): TaskCardView | null {
+export function cardInFlight(
+  drag: DragState,
+  board: TaskBoard | null,
+  teamId: string | null,
+  now: number,
+): TaskCardView | null {
   if (drag.kind !== "dragging" || board === null) return null;
-  const task = findTask(board, drag.id);
+  const task = taskInFlight(board, drag.id, teamId);
   return task ? taskCardView(task, board, now) : null;
 }
 

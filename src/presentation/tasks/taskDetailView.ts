@@ -80,8 +80,8 @@ export interface TaskDetailView {
   feed: FeedItem[];
   feedEmpty: string | null;
   /** The board keeps the last so many changes and comments, each cut on
-   * its own: once either was, the timeline's start says so — null while
-   * nothing was. */
+   * its own: once either is at its limit (cut, or cut at the next entry),
+   * the timeline's start says so — null while neither is. */
   feedTrimmed: string | null;
   /** The composer's bound — the domain's, so the field cannot outgrow it. */
   commentMax: number;
@@ -116,7 +116,7 @@ export const TASK_DETAIL_WORDS = {
   activity: "Activity",
   moreChanges: (n: number) => `${n} more ${n === 1 ? "change" : "changes"}`,
   feedTrimmed: (changes: number, comments: number) =>
-    `Older history is trimmed — the board keeps the last ${changes} changes and ${comments} comments`,
+    `This task's history is at the board's limit — it keeps only the last ${changes} changes and ${comments} comments`,
   detach: "Detach",
   attach: "Attach artifact",
   attachPrompt: "Attach an artifact…",

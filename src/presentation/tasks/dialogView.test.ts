@@ -77,7 +77,7 @@ describe("tasksDialogView", () => {
 
   it("a row in flight from the list is drawn as a row, never as the board's card", () => {
     const drag = { kind: "dragging", id: "task-1", x: 40, y: 50, grip: { width: 600, offsetX: 10, offsetY: 10 }, targets: new Set<never>() } as const;
-    const flying = view({ view: "list", drag, inFlight: cardInFlight(drag, b, 0) });
+    const flying = view({ view: "list", drag, inFlight: cardInFlight(drag, b, "team-1", 0) });
     expect(flying.ghost).toMatchObject({ shape: "row", className: "tasks__ghost tasks__ghost--row", box: { left: 30, top: 40, width: 600 } });
     expect(flying.ghost?.card.id).toBe("task-1");
   });
@@ -92,7 +92,7 @@ describe("tasksDialogView", () => {
     const armed = armCard("task-1", 0, 0, grip);
     expect(view({ drag: armed })).toMatchObject({ className: "form tasks", ghost: null });
     const dragging = moveCard(armed, 50, 50, () => new Set(["done" as const]));
-    const flying = view({ drag: dragging, inFlight: cardInFlight(dragging, b, 0) });
+    const flying = view({ drag: dragging, inFlight: cardInFlight(dragging, b, "team-1", 0) });
     expect(flying.className).toBe("form tasks tasks--dragging");
     expect(flying.ghost).toEqual({ box: { left: 30, top: 40, width: 200 }, shape: "card", className: "tasks__ghost tasks__ghost--card", card: columns[0].cards.find((c) => c.id === "task-1") ?? columns.flatMap((c) => c.cards)[0] });
   });

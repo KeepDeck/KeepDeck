@@ -28,9 +28,12 @@ export interface ScreenState {
   hover: TaskStatus | null;
   /** The list's folded groups — a reading posture for the dialog's life. */
   folded: ReadonlySet<TaskStatus>;
-  /** What the views narrow to — the team's own: another team's board
-   * opens unnarrowed, its labels being its own. */
+  /** What the views narrow to, and the team whose board it was set on —
+   * read through [`queryOn`]: another team's board shows unnarrowed, its
+   * labels being its own, however it came on screen (a pick, or a link to
+   * one of its tasks). */
   query: TaskQuery;
+  queryTeam: string | null;
 }
 
 export const INITIAL_SCREEN: ScreenState = {
@@ -40,6 +43,7 @@ export const INITIAL_SCREEN: ScreenState = {
   hover: null,
   folded: FOLDED_AT_OPEN,
   query: NO_QUERY,
+  queryTeam: null,
 };
 
 /** The screen a dialog opens on: the team the stage has open is the
@@ -65,9 +69,10 @@ export type ScreenAction =
   | { type: "hover"; status: TaskStatus | null; dragging: boolean }
   /** A list heading's toggle. */
   | { type: "fold"; status: TaskStatus }
-  /** A task was dropped into a status: its group opens, so the row is
-   * seen where it went rather than vanishing into a fold. */
-  | { type: "dropped"; status: TaskStatus }
+  /** A task's move by a drop landed: in the list, its group opens, so the
+   * row is seen where it went rather than vanishing into a fold. A drop on
+   * the board leaves the list's folds alone. */
+  | { type: "dropped"; status: TaskStatus; view: TrackerView }
   /** The toolbar's Blocked toggle. */
   | { type: "blockedOnly" }
   /** A label to narrow to; null, or the one already narrowing, widens. */
@@ -129,7 +134,7 @@ function step(state: ScreenState, action: ScreenAction): ScreenOutcome {
       break;
     case "team":
       // Another team's board: whatever was open belongs to the old one.
-      return { state: { ...state, chosenTeam: action.id, wide: false, query: NO_QUERY }, focus: null };
+      return { state: { ...state, chosenTeam: action.id, wide: false }, focus: null };
     case "hover":
       // Only a card in flight has a column under it.
       return { state: { ...state, hover: action.dragging ? action.status : null } };
@@ -138,15 +143,23 @@ function step(state: ScreenState, action: ScreenAction): ScreenOutcome {
     case "fold":
       return { state: { ...state, folded: toggleFold(state.folded, action.status) } };
     case "dropped": {
-      if (!state.folded.has(action.status)) return { state };
+      if (action.view !== "list" || !state.folded.has(action.status)) return { state };
       return { state: { ...state, folded: toggleFold(state.folded, action.status) } };
     }
-    case "blockedOnly":
-      return { state: { ...state, query: { ...state.query, blockedOnly: !state.query.blockedOnly } } };
+    case "blockedOnly": {
+      const query = queryOn(state, state.chosenTeam);
+      return { state: { ...state, query: { ...query, blockedOnly: !query.blockedOnly }, queryTeam: state.chosenTeam } };
+    }
     case "label":
-      return { state: { ...state, query: withLabel(state.query, action.label) } };
+      return { state: { ...state, query: withLabel(queryOn(state, state.chosenTeam), action.label), queryTeam: state.chosenTeam } };
   }
   return { state };
+}
+
+/** The query the board of `teamId` shows: the one set on it, or none — a
+ * filter set on another team's board does not follow to this one. */
+export function queryOn(state: Pick<ScreenState, "query" | "queryTeam">, teamId: string | null): TaskQuery {
+  return state.queryTeam === teamId ? state.query : NO_QUERY;
 }
 
 /** Whether J / K walk the list: only over the list, and never while the

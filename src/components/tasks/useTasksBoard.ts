@@ -31,6 +31,8 @@ import {
   assigneeOf,
   boardView,
   cardInFlight,
+  dragOutlived,
+  taskInFlight,
   escapeDrag,
   listView,
   rowStepOf,
@@ -47,6 +49,7 @@ import {
   unsavedBanner,
   queryToolbarView,
   findsNothing,
+  queryOn,
   walksRows,
   wideView,
   type ArtifactRef,
@@ -115,7 +118,7 @@ export function useTasksBoard(
     },
     [onFocus, onClose],
   );
-  const { chosenTeam, composing, hover, query } = screen;
+  const { chosenTeam, composing, hover } = screen;
   /** The workspace's artifacts, for the open task's attachments. Read
    * when a task is open and re-read when the registry changes; empty
    * (never an error) when the artifacts feature is off. */
@@ -168,6 +171,7 @@ export function useTasksBoard(
     focusedTask?.teamId ?? null,
   );
   teamIdRef.current = teamId;
+  const query = queryOn(screen, teamId);
   const teamTasks = useMemo(
     () => (board && teamId !== null ? tasksOfTeam(board, teamId) : []),
     [board, teamId],
@@ -183,7 +187,7 @@ export function useTasksBoard(
   useEffect(() => {
     if (drag.kind === "idle") return;
     const targetsOf = (id: string) => {
-      const task = board ? findTask(board, id) : undefined;
+      const task = taskInFlight(board, id, teamId);
       return board && task ? new Set(reachableStatuses(task, USER_ACTOR, { board, roster, at: now })) : null;
     };
     const onMove = (event: PointerEvent) => updateDrag(moveCard(dragRef.current, event.clientX, event.clientY, targetsOf));
@@ -199,7 +203,7 @@ export function useTasksBoard(
       window.removeEventListener("pointercancel", onUp);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [drag.kind, board, roster, now]);
+  }, [drag.kind, board, roster, now, teamId]);
 
   const ladder = tasksLadder({
     workspaceId,
@@ -227,7 +231,15 @@ export function useTasksBoard(
   );
   const filters = queryToolbarView(query);
   const nothingFound = findsNothing(teamTasks, query);
-  const inFlight = cardInFlight(drag, board, now);
+  const inFlight = cardInFlight(drag, board, teamId, now);
+  // The task in flight left the board on screen: the drag has nothing to drop.
+  useEffect(() => {
+    const ended = dragOutlived(dragRef.current, inFlight);
+    if (ended === null) return;
+    updateDrag(ended);
+    run({ type: "hover", status: null, dragging: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inFlight]);
 
   // J / K walk the list's rows, the open task following — never while a
   // field has the keys (a comment, a label being typed).
@@ -256,9 +268,11 @@ export function useTasksBoard(
     const outcome = releaseCard(dragRef.current, over);
     updateDrag(outcome.state);
     if (outcome.dragged) dragEndedAt.current = Date.now();
-    if (outcome.move) {
-      void apply(outcome.move.id, [{ kind: "status", to: outcome.move.to }]);
-      run({ type: "dropped", status: outcome.move.to });
+    const move = outcome.move;
+    if (move) {
+      void apply(move.id, [{ kind: "status", to: move.to }]).then((landed) => {
+        if (landed) run({ type: "dropped", status: move.to, view });
+      });
     }
     run({ type: "hover", status: null, dragging: false });
   };
@@ -303,6 +317,8 @@ export function useTasksBoard(
       const putBack = escapeDrag(dragRef.current);
       if (putBack === null) return run({ type: "escape", detailOpen: detail !== null });
       updateDrag(putBack);
+      // The release that follows is the same press: its click opens nothing.
+      dragEndedAt.current = Date.now();
       run({ type: "hover", status: null, dragging: false });
     },
     drag,

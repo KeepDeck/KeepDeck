@@ -185,10 +185,12 @@ export function normalizeLabel(raw: string): string {
 }
 
 /** A word in any script: it starts on a letter or digit, and goes on in
- * letters, digits and the marks a script writes on them (हिन्दी's vowel
- * signs, Hebrew points, the dot "İ" lowercases to) — words joined by
- * single dashes. */
-const LABEL_WORD = /^[\p{Ll}\p{Lo}\p{N}][\p{Ll}\p{Lm}\p{Lo}\p{N}\p{M}]*(-[\p{Ll}\p{Lo}\p{N}][\p{Ll}\p{Lm}\p{Lo}\p{N}\p{M}]*)*$/u;
+ * letters, digits, the marks a script writes on them (हिन्दी's vowel
+ * signs, Hebrew points, the dot "İ" lowercases to) and the zero-width
+ * joiners a script spells with (Persian's ZWNJ, Devanagari's conjuncts) —
+ * words joined by single dashes. */
+const LABEL_WORD =
+  /^[\p{Ll}\p{Lo}\p{N}][\p{Ll}\p{Lm}\p{Lo}\p{N}\p{M}\u200C\u200D]*(-[\p{Ll}\p{Lo}\p{N}][\p{Ll}\p{Lm}\p{Lo}\p{N}\p{M}\u200C\u200D]*)*$/u;
 
 /** A label's length as a person counts it — characters, not the UTF-16
  * units an ideograph outside the basic plane takes two of. */

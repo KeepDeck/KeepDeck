@@ -128,6 +128,9 @@ describe("stepRow — J and K walk the tasks", () => {
     expect(stepRow(items, "task-3", -1)).toBe("task-3");
     expect(stepRow(items, "task-4", 1)).toBe("task-4");
     expect(stepRow([], null, 1)).toBeNull();
+    // No open row in the list: J starts at the top, K at the bottom.
+    expect(stepRow(items, null, -1)).toBe("task-4");
+    expect(stepRow(items, "task-9", -1)).toBe("task-4");
   });
 
   it("reads j as down, k as up, anything else as no step", () => {

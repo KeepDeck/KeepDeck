@@ -64,6 +64,10 @@ export function TaskList({ items, openId, drag, hover, onSelect, onFold, onLabel
           return (
             heading && (
               <GroupHeading
+                // A status's own button: scrolled to another group under a
+                // still pointer, the heading is a new element, not this
+                // one relabelled with the old group's hover.
+                key={heading.status}
                 heading={heading}
                 className={listHeadingDropClassName(heading, drag, hover)}
                 onFold={onFold}

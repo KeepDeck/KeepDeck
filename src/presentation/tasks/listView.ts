@@ -128,14 +128,15 @@ function listRow(card: TaskCardView, status: TaskStatus, open: boolean): ListRow
   };
 }
 
-/** The row J (down) or K (up) moves to from the open one — the first row
- * when none is open, and no further than the ends. Headings are passed
- * over: a key moves between tasks. */
+/** The row J (down) or K (up) moves to from the open one, and no further
+ * than the ends. With no open row in the list (none open, or it is
+ * folded or filtered away), J starts at the first row and K at the last.
+ * Headings are passed over: a key moves between tasks. */
 export function stepRow(items: readonly ListItem[], openId: string | null, step: 1 | -1): string | null {
   const rows = items.filter((item): item is ListRow => item.kind === "row");
   if (rows.length === 0) return null;
   const at = rows.findIndex((row) => row.key === openId);
-  if (at < 0) return rows[0].key;
+  if (at < 0) return (step === 1 ? rows[0] : rows[rows.length - 1]).key;
   return rows[Math.min(Math.max(at + step, 0), rows.length - 1)].key;
 }
 
