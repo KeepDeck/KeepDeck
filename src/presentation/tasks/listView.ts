@@ -13,7 +13,7 @@ import type { StatusRingProps } from "@keepdeck/ui-kit/StatusRing";
 import type { Task, TaskBoard, TaskStatus } from "../../domain/tasks";
 import { dropStateOf, type CardGrip, type DragState } from "./cardDrag";
 import { tasksInStatus, type TaskQuery } from "./queryView";
-import { statusRing, taskCardView, type TaskCardView } from "./taskCardView";
+import { statusMark, taskCardView, type TaskCardView } from "./taskCardView";
 import { BOARD_ORDER, STATUS_LABEL } from "./words";
 
 export interface ListHeading {
@@ -63,7 +63,7 @@ export function listView(
       label: STATUS_LABEL[status],
       count: shown.length,
       folded: isFolded,
-      ring: statusRing(status),
+      ring: statusMark(status),
     };
     if (isFolded) return [heading];
     return [heading, ...shown.map((task) => listRow(taskCardView(task, board, now), status, task.id === openId))];
@@ -151,12 +151,6 @@ export function rowStepOf(key: string): 1 | -1 | null {
 export function groupDropClassName(status: TaskStatus, drag: DragState, hover: TaskStatus | null): string | null {
   const drop = dropStateOf(status, drag, hover);
   return drop === null ? null : `tasks__drop--${drop}`;
-}
-
-/** The card a drag in the list carries — the dragged row's. */
-export function listCardOf(items: readonly ListItem[], id: string): TaskCardView | undefined {
-  for (const item of items) if (item.kind === "row" && item.key === id) return item.card;
-  return undefined;
 }
 
 /** A row's classes as a drag sees it: its own, its group's part in the

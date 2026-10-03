@@ -34,4 +34,12 @@ describe("StatusRing", () => {
     expect(first.classList.contains("status-ring--barred")).toBe(false);
     expect(first.style.getPropertyValue("--progress-ring-fill")).toBe("50");
   });
+
+  it("beside its own word, is a picture only — never read twice", () => {
+    act(() => root.render(createElement(StatusRing, { fill: 50, tone: "working", label: "In progress", decorative: true })));
+    const box = document.querySelector(".status-ring-box")!;
+    expect(box.getAttribute("aria-hidden")).toBe("true");
+    expect(box.hasAttribute("role")).toBe(false);
+    expect(box.hasAttribute("aria-label")).toBe(false);
+  });
 });

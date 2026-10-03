@@ -8,6 +8,8 @@ import {
   TASK_DETAIL_WORDS,
   beginSend,
   composerCanSend,
+  labelDraftAfter,
+  labelSendable,
   finishSend,
   pickedArtifact,
   pickedStatus,
@@ -64,9 +66,8 @@ export function TaskDetail({
   const [labelDraft, setLabelDraft] = useState("");
   const submitLabel = () => {
     const typed = labelDraft;
-    void onLabel(view.id, typed).then((landed) => {
-      if (landed) setLabelDraft("");
-    });
+    if (!labelSendable(typed)) return;
+    void onLabel(view.id, typed).then((landed) => setLabelDraft((current) => labelDraftAfter(current, typed, landed)));
   };
   const sendable = composerCanSend(composer);
   const send = () => {
@@ -234,7 +235,7 @@ export function TaskDetail({
                 >
                   {artifact.title}
                 </button>
-                <RemoveButton label={artifact.detachLabel} onClick={() => onDetach(view.id, artifact.slug)} />
+                <RemoveButton size="sm" label={artifact.detachLabel} onClick={() => onDetach(view.id, artifact.slug)} />
               </span>
             ))}
             {view.attachOptions.length > 0 ? (
@@ -268,6 +269,7 @@ export function TaskDetail({
 
           <span className="tasks__section">{TASK_DETAIL_WORDS.activity}</span>
           {view.feedEmpty && <p className="tasks__muted">{view.feedEmpty}</p>}
+          {view.feedTrimmed && <p className="tasks__muted">{view.feedTrimmed}</p>}
           <ul className="tasks__feed">
             {view.feed.map((item) =>
               item.kind === "comment" ? (

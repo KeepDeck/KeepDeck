@@ -4,6 +4,7 @@ import {
   NO_QUERY,
   QUERY_WORDS,
   compareInStatus,
+  findsNothing,
   matchesQuery,
   queryToolbarView,
   tasksInStatus,
@@ -60,5 +61,14 @@ describe("queryToolbarView — the filters as the toolbar draws them", () => {
     expect(withLabel({ blockedOnly: true, label: "ui" }, "ui")).toEqual({ blockedOnly: true, label: null });
     expect(withLabel({ blockedOnly: false, label: "ui" }, "bell")).toEqual({ blockedOnly: false, label: "bell" });
     expect(withLabel({ blockedOnly: false, label: "ui" }, null)).toEqual({ blockedOnly: false, label: null });
+  });
+
+  it("finds nothing only when something narrows and no task gets through", () => {
+    const tasks = [task({ id: "task-1", labels: ["ui"] })];
+    expect(findsNothing(tasks, NO_QUERY)).toBe(false);
+    expect(findsNothing([], NO_QUERY)).toBe(false);
+    expect(findsNothing(tasks, { blockedOnly: false, label: "ui" })).toBe(false);
+    expect(findsNothing(tasks, { blockedOnly: true, label: null })).toBe(true);
+    expect(findsNothing(tasks, { blockedOnly: false, label: "bell" })).toBe(true);
   });
 });

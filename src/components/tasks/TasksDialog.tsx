@@ -72,14 +72,14 @@ function WorkspaceBoard({
   const view = tasksDialogView({
     ladder: board.ladder,
     drag: board.drag,
-    columns: board.columns,
-    listItems: board.listItems,
+    inFlight: board.inFlight,
     teams: board.teams,
     teamId: board.teamId,
     composing: board.composing,
     detailOpen: board.detail !== null,
     wide: board.wide,
     view: board.view,
+    nothingFound: board.nothingFound,
   });
   const panel =
     view.panel === "form" ? (

@@ -37,6 +37,13 @@ export type DragState =
 
 export const IDLE: DragState = { kind: "idle" };
 
+/** Escape while a card is pressed or in flight puts it back — the key
+ * peels the drag before any layer under it. Null when there is no drag:
+ * the key is the screen's to read. */
+export function escapeDrag(state: DragState): DragState | null {
+  return state.kind === "idle" ? null : IDLE;
+}
+
 export function armCard(id: string, x: number, y: number, grip: CardGrip): DragState {
   return { kind: "armed", id, x, y, grip };
 }

@@ -508,6 +508,10 @@ describe("TasksDialog", () => {
       const state = service.peek("ws-1");
       expect(state?.kind === "ready" && state.board.tasks[0].status).toBe("done");
       expect(document.querySelector(".tasks__ghost")).toBeNull();
+      // The group it went into opens, so the row is seen where it went.
+      expect(heading("Done").getAttribute("aria-expanded")).toBe("true");
+      const titles = Array.from(document.querySelectorAll(".tasks__list .tasks__row .tasks__row-title"), (t) => t.textContent);
+      expect(titles).toContain("Draft the skill");
     } finally {
       restoreList();
     }

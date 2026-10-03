@@ -10,6 +10,7 @@ import type { TasksView } from "../../domain/settings";
 import type { TaskStatus } from "../../domain/tasks";
 import { escapeTarget, selectionAfterClick } from "./dialogState";
 import { FOLDED_AT_OPEN, toggleFold } from "./listView";
+import { NO_QUERY, withLabel, type TaskQuery } from "./queryView";
 
 /** The two views of the one set of tasks (`queryView`) — a setting, kept
  * across openings (`Settings.tasksView`). */
@@ -27,6 +28,9 @@ export interface ScreenState {
   hover: TaskStatus | null;
   /** The list's folded groups — a reading posture for the dialog's life. */
   folded: ReadonlySet<TaskStatus>;
+  /** What the views narrow to — the team's own: another team's board
+   * opens unnarrowed, its labels being its own. */
+  query: TaskQuery;
 }
 
 export const INITIAL_SCREEN: ScreenState = {
@@ -35,6 +39,7 @@ export const INITIAL_SCREEN: ScreenState = {
   wide: false,
   hover: null,
   folded: FOLDED_AT_OPEN,
+  query: NO_QUERY,
 };
 
 /** The screen a dialog opens on: the team the stage has open is the
@@ -60,6 +65,13 @@ export type ScreenAction =
   | { type: "hover"; status: TaskStatus | null; dragging: boolean }
   /** A list heading's toggle. */
   | { type: "fold"; status: TaskStatus }
+  /** A task was dropped into a status: its group opens, so the row is
+   * seen where it went rather than vanishing into a fold. */
+  | { type: "dropped"; status: TaskStatus }
+  /** The toolbar's Blocked toggle. */
+  | { type: "blockedOnly" }
+  /** A label to narrow to; null, or the one already narrowing, widens. */
+  | { type: "label"; label: string | null }
   /** A task was created from the form: it opens, the form goes. */
   | { type: "created"; id: string };
 
@@ -117,7 +129,7 @@ function step(state: ScreenState, action: ScreenAction): ScreenOutcome {
       break;
     case "team":
       // Another team's board: whatever was open belongs to the old one.
-      return { state: { ...state, chosenTeam: action.id, wide: false }, focus: null };
+      return { state: { ...state, chosenTeam: action.id, wide: false, query: NO_QUERY }, focus: null };
     case "hover":
       // Only a card in flight has a column under it.
       return { state: { ...state, hover: action.dragging ? action.status : null } };
@@ -125,8 +137,22 @@ function step(state: ScreenState, action: ScreenAction): ScreenOutcome {
       return { state: { ...state, composing: false, wide: false }, focus: action.id };
     case "fold":
       return { state: { ...state, folded: toggleFold(state.folded, action.status) } };
+    case "dropped": {
+      if (!state.folded.has(action.status)) return { state };
+      return { state: { ...state, folded: toggleFold(state.folded, action.status) } };
+    }
+    case "blockedOnly":
+      return { state: { ...state, query: { ...state.query, blockedOnly: !state.query.blockedOnly } } };
+    case "label":
+      return { state: { ...state, query: withLabel(state.query, action.label) } };
   }
   return { state };
+}
+
+/** Whether J / K walk the list: only over the list, and never while the
+ * new-task form is up — its controls have the keys, a field or not. */
+export function walksRows(state: Pick<ScreenState, "composing">, view: TrackerView): boolean {
+  return view === "list" && !state.composing;
 }
 
 /** Whether the stage shows the open task wide: the flag, and a task. */

@@ -574,12 +574,6 @@
   padding: 5px 10px;
 }
 
-/* An offer, not a value ("Attach an artifact…"): quieter ink, small type. */
-.dropdown--quiet .dropdown__button {
-  color: var(--kd-text-3);
-  font-size: var(--kd-font-small);
-}
-
 /* The inline variant: a value in a line of text, not a field — as wide as
    its words, framed only under the pointer. Its own inset hangs left of
    the line, so a picked value starts where plain text beside it does. Its
@@ -611,6 +605,13 @@
 .dropdown--inline .dropdown__button svg {
   width: 10px;
   height: 10px;
+}
+
+/* An offer, not a value ("Attach an artifact…"): quieter ink, small type —
+   after the variants, so an inline offer is quiet too (same specificity). */
+.dropdown--quiet .dropdown__button {
+  color: var(--kd-text-3);
+  font-size: var(--kd-font-small);
 }
 
 .dropdown__menu {

@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { TASK_CAPS } from "../../domain/tasks";
-import { board, task } from "../../domain/tasks/testSupport";
-import { boardView } from "./boardView";
-import { NO_QUERY } from "./queryView";
 import {
   CLICK_AFTER_DRAG_MS,
   DRAG_THRESHOLD_PX,
@@ -12,15 +9,17 @@ import {
   clickDisbelieved,
   columnClassName,
   dropStateOf,
+  escapeDrag,
   ghostBox,
   moveCard,
   releaseCard,
 } from "./cardDrag";
-import { EMPTY_COMPOSER, beginSend, composerCanSend, finishSend, typeDraft } from "./composer";
+import { EMPTY_COMPOSER, beginSend, composerCanSend, finishSend, labelDraftAfter, labelSendable, typeDraft } from "./composer";
 import { canCreateTask, canSendComment } from "./composerView";
-import { DIALOG_WORDS, cardOf, escapeTarget, selectionAfterClick, teamControlView } from "./dialogState";
+import { DIALOG_WORDS, escapeTarget, selectionAfterClick, teamControlView } from "./dialogState";
 import { EMPTY_TASK_DRAFT, assigneeOf, taskInputOf } from "./formDraft";
-import { INITIAL_SCREEN, initialScreen, screenReducer, wideView, type ScreenState } from "./screenState";
+import { INITIAL_SCREEN, initialScreen, screenReducer, walksRows, wideView, type ScreenState } from "./screenState";
+import { NO_QUERY } from "./queryView";
 import { teamOnScreen } from "./teamOnScreen";
 import { offWaitingHint, showTasksSocketHint } from "./settingsView";
 
@@ -76,16 +75,15 @@ describe("dialogState", () => {
     expect(escapeTarget({ composing: false, wide: true, detailOpen: true })).toBe("wide");
     expect(escapeTarget({ composing: false, wide: false, detailOpen: true })).toBe("detail");
     expect(escapeTarget({ composing: false, wide: false, detailOpen: false })).toBe("dialog");
+    // A drag is peeled before any layer: it goes back, and nothing closes.
+    expect(escapeDrag(armCard("task-1", 0, 0, { width: 1, offsetX: 0, offsetY: 0 }))).toEqual(IDLE);
+    expect(escapeDrag(IDLE)).toBeNull();
   });
 
-  it("a click opens a card or puts the open one away; a card is found by id among the columns", () => {
+  it("a click opens a card or puts the open one away", () => {
     expect(selectionAfterClick(null, "task-1")).toBe("task-1");
     expect(selectionAfterClick("task-1", "task-1")).toBeNull();
     expect(selectionAfterClick("task-1", "task-2")).toBe("task-2");
-    const b = board([task({ id: "task-1" }), task({ id: "task-2", status: "done" })]);
-    const columns = boardView(b.tasks, b, 0, NO_QUERY);
-    expect(cardOf(columns, "task-2")?.id).toBe("task-2");
-    expect(cardOf(columns, "task-9")).toBeUndefined();
   });
 
   it("the team control is a pick among several, the one team's name as a word, or nothing", () => {
@@ -158,6 +156,29 @@ describe("screenState", () => {
     expect(screenReducer(open, { type: "hover", status: "done", dragging: false }, null).state.hover).toBeNull();
   });
 
+  it("narrows by Blocked and a label, per team: another team's board opens unnarrowed", () => {
+    const blocked = screenReducer(INITIAL_SCREEN, { type: "blockedOnly" }, null).state;
+    expect(blocked.query).toEqual({ blockedOnly: true, label: null });
+    const labelled = screenReducer(blocked, { type: "label", label: "ui" }, null).state;
+    expect(labelled.query).toEqual({ blockedOnly: true, label: "ui" });
+    expect(screenReducer(labelled, { type: "label", label: "ui" }, null).state.query.label).toBeNull();
+    expect(screenReducer(labelled, { type: "team", id: "team-2" }, null).state.query).toEqual(NO_QUERY);
+  });
+
+  it("opens the folded group a task is dropped into, and leaves an open one as it is", () => {
+    expect(INITIAL_SCREEN.folded.has("done")).toBe(true);
+    const dropped = screenReducer(INITIAL_SCREEN, { type: "dropped", status: "done" }, null).state;
+    expect(dropped.folded.has("done")).toBe(false);
+    expect(dropped.folded.has("cancelled")).toBe(true);
+    expect(screenReducer(dropped, { type: "dropped", status: "done" }, null).state.folded.has("done")).toBe(false);
+  });
+
+  it("walks the list with J / K only over the list, and never while the form is up", () => {
+    expect(walksRows({ composing: false }, "list")).toBe(true);
+    expect(walksRows({ composing: true }, "list")).toBe(false);
+    expect(walksRows({ composing: false }, "board")).toBe(false);
+  });
+
   it("the team on screen when the person acts becomes their choice — putting a task away never moves the board", () => {
     // Opened by a link on team-2's task while the choice was elsewhere:
     // every way the task goes away keeps team-2, and so does every
@@ -211,6 +232,15 @@ describe("composer", () => {
     expect(finishSend(typedMeanwhile, false)).toEqual({ draft: "first and more", sending: null });
     expect(finishSend(begun.state, false)).toEqual({ draft: "first", sending: null });
     expect(beginSend(EMPTY_COMPOSER)).toBeNull();
+  });
+
+  it("the label field sends a word, and clears only what it sent, only when it landed", () => {
+    expect(labelSendable("ui")).toBe(true);
+    expect(labelSendable("")).toBe(false);
+    expect(labelSendable(" -- ")).toBe(false);
+    expect(labelDraftAfter("ui", "ui", true)).toBe("");
+    expect(labelDraftAfter("ui", "ui", false)).toBe("ui");
+    expect(labelDraftAfter("ui-kit", "ui", true)).toBe("ui-kit");
   });
 });
 

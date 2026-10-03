@@ -27,10 +27,11 @@ import {
 } from "../../domain/tasks";
 import {
   IDLE,
-  NO_QUERY,
   armCard,
   assigneeOf,
   boardView,
+  cardInFlight,
+  escapeDrag,
   listView,
   rowStepOf,
   stepRow,
@@ -45,13 +46,13 @@ import {
   teamOnScreen,
   unsavedBanner,
   queryToolbarView,
+  findsNothing,
+  walksRows,
   wideView,
-  withLabel,
   type ArtifactRef,
   type CardGrip,
   type DragState,
   type ScreenAction,
-  type TaskQuery,
   type TrackerView,
 } from "../../presentation/tasks";
 
@@ -114,7 +115,7 @@ export function useTasksBoard(
     },
     [onFocus, onClose],
   );
-  const { chosenTeam, composing, hover } = screen;
+  const { chosenTeam, composing, hover, query } = screen;
   /** The workspace's artifacts, for the open task's attachments. Read
    * when a task is open and re-read when the registry changes; empty
    * (never an error) when the artifacts feature is off. */
@@ -156,8 +157,6 @@ export function useTasksBoard(
   const [error, setError] = useState<string | null>(null);
   // Which view: a setting, kept across openings and launches (user).
   const view = useSettings()?.tasksView ?? "board";
-  // What the views show: held for the dialog's life, never stored.
-  const [query, setQuery] = useState<TaskQuery>(NO_QUERY);
 
   const board = readyBoard(state);
   const unsaved = state?.kind === "ready" && state.unsaved !== null ? unsavedBanner(state.unsaved) : null;
@@ -214,16 +213,27 @@ export function useTasksBoard(
   const selected = focusedTask;
   const detail =
     selected && selected.teamId === teamId ? taskDetailView(selected, board!, roster, now, knownArtifacts) : null;
-  const columns = board && view === "board" ? boardView(teamTasks, board, now, query) : [];
-  const listItems =
-    board && view === "list" ? listView(teamTasks, board, now, query, screen.folded, detail?.id ?? null) : [];
+  const columns = useMemo(
+    () => (board && view === "board" ? boardView(teamTasks, board, now, query) : []),
+    [board, view, teamTasks, now, query],
+  );
+  // Stable by identity between renders that change nothing it shows: the
+  // windowed list anchors the reader's place on a CHANGE of its items, and
+  // a fresh array per pointer move re-ran that on every one.
+  const openId = detail?.id ?? null;
+  const listItems = useMemo(
+    () => (board && view === "list" ? listView(teamTasks, board, now, query, screen.folded, openId) : []),
+    [board, view, teamTasks, now, query, screen.folded, openId],
+  );
   const filters = queryToolbarView(query);
+  const nothingFound = findsNothing(teamTasks, query);
+  const inFlight = cardInFlight(drag, board, now);
 
   // J / K walk the list's rows, the open task following — never while a
   // field has the keys (a comment, a label being typed).
-  const openId = detail?.id ?? null;
+  const walks = walksRows(screen, view);
   useEffect(() => {
-    if (view !== "list") return;
+    if (!walks) return;
     const onKeyDown = (event: KeyboardEvent) => {
       const step = rowStepOf(event.key);
       if (step === null || event.metaKey || event.ctrlKey || event.altKey) return;
@@ -237,7 +247,7 @@ export function useTasksBoard(
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view, listItems, openId]);
+  }, [walks, listItems, openId]);
   const form = newTaskFormView(roster);
 
   /** The pointer was released over `over` (a column, or nothing). One
@@ -246,7 +256,10 @@ export function useTasksBoard(
     const outcome = releaseCard(dragRef.current, over);
     updateDrag(outcome.state);
     if (outcome.dragged) dragEndedAt.current = Date.now();
-    if (outcome.move) void apply(outcome.move.id, [{ kind: "status", to: outcome.move.to }]);
+    if (outcome.move) {
+      void apply(outcome.move.id, [{ kind: "status", to: outcome.move.to }]);
+      run({ type: "dropped", status: outcome.move.to });
+    }
     run({ type: "hover", status: null, dragging: false });
   };
 
@@ -286,8 +299,14 @@ export function useTasksBoard(
       run({ type: "card", id: taskId, open: focus });
     },
     close: () => run({ type: "close" }),
-    escape: () => run({ type: "escape", detailOpen: detail !== null }),
+    escape: () => {
+      const putBack = escapeDrag(dragRef.current);
+      if (putBack === null) return run({ type: "escape", detailOpen: detail !== null });
+      updateDrag(putBack);
+      run({ type: "hover", status: null, dragging: false });
+    },
     drag,
+    inFlight,
     hover,
     /** A card was pressed: it becomes a drag once the pointer travels. */
     armDrag: (taskId: string, x: number, y: number, grip: CardGrip) => updateDrag(armCard(taskId, x, y, grip)),
@@ -300,10 +319,11 @@ export function useTasksBoard(
     listItems,
     fold: (status: TaskStatus) => run({ type: "fold", status }),
     filters,
-    toggleBlocked: () => setQuery((q) => ({ ...q, blockedOnly: !q.blockedOnly })),
+    nothingFound,
+    toggleBlocked: () => run({ type: "blockedOnly" }),
     /** A label clicked on a row narrows the view to it; clicking the one
      * that already does, or clearing its chip, widens it again. */
-    pickLabel: (label: string | null) => setQuery((q) => withLabel(q, label)),
+    pickLabel: (label: string | null) => run({ type: "label", label }),
     composing,
     compose: () => run({ type: "compose" }),
     cancelCompose: () => run({ type: "cancelCompose" }),

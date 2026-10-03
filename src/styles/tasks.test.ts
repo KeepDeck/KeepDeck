@@ -55,6 +55,20 @@ describe("Tasks text never widens its box", () => {
     expect(getComputedStyle(link).whiteSpace).not.toBe("nowrap");
   });
 
+  it("an inline offer is quiet: the quiet ink wins over the inline variant's", () => {
+    // The open task's "Attach an artifact…" is both; at equal specificity
+    // the later rule wins, and the inline one used to be later.
+    const button = (classes: string) => {
+      const field = mount(classes);
+      const el = document.createElement("button");
+      el.className = "dropdown__button";
+      field.append(el);
+      return getComputedStyle(el).color;
+    };
+    expect(button("dropdown dropdown--inline dropdown--quiet")).toBe(button("dropdown dropdown--quiet"));
+    expect(button("dropdown dropdown--inline dropdown--quiet")).not.toBe(button("dropdown dropdown--inline"));
+  });
+
   it("a card may shrink to its column — it never grows to its widest word", () => {
     expect(Number.parseFloat(getComputedStyle(mount("tasks__card")).minWidth)).toBe(0);
   });

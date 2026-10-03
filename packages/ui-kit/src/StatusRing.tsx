@@ -11,6 +11,9 @@ export interface StatusRingProps {
   barred?: boolean;
   /** What it says, for the pointer and assistive tech. */
   label: string;
+  /** Beside the word it pictures ("In progress"): a picture only, kept
+   * from assistive tech, which would read the word twice. */
+  decorative?: boolean;
 }
 
 /**
@@ -20,9 +23,10 @@ export interface StatusRingProps {
  * "stopped". A place on a ladder rests (none of the status dots' rhythms,
  * decision 2026-10-04); a move along it eases — fill and hue glide.
  */
-export function StatusRing({ fill, tone, barred = false, label }: StatusRingProps) {
+export function StatusRing({ fill, tone, barred = false, label, decorative = false }: StatusRingProps) {
+  const named = decorative ? { "aria-hidden": true } : { role: "img", "aria-label": label, title: label };
   return (
-    <span className="status-ring-box" role="img" aria-label={label} title={label}>
+    <span className="status-ring-box" {...named}>
       <ProgressRing
         shape="pie"
         value={fill}

@@ -10,7 +10,6 @@ import {
   listItemKey,
   listView,
   groupDropClassName,
-  listCardOf,
   listHeadingDropClassName,
   listRowClassName,
   rowGrip,
@@ -167,8 +166,4 @@ describe("the list in a drag", () => {
     expect(rowGrip({ left: 100, top: 50, width: 900 }, 700, 60)).toEqual({ width: 900, offsetX: 600, offsetY: 10 });
   });
 
-  it("finds the dragged row's card for the ghost", () => {
-    expect(listCardOf(items, "task-2")?.title).toBe("Task task-2");
-    expect(listCardOf(items, "task-9")).toBeUndefined();
-  });
 });

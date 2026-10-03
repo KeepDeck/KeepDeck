@@ -13,7 +13,7 @@ import {
   type TaskStatus,
 } from "../../domain/tasks";
 import type { StatusRingProps } from "@keepdeck/ui-kit/StatusRing";
-import { blockerChip, roleInitials, statusRing, type BlockerChip } from "./taskCardView";
+import { blockerChip, roleInitials, statusMark, type BlockerChip } from "./taskCardView";
 import {
   BOARD_ORDER,
   POOL_CHOICE,
@@ -79,6 +79,10 @@ export interface TaskDetailView {
    * changed, oldest first. See `feedOf`. */
   feed: FeedItem[];
   feedEmpty: string | null;
+  /** The board keeps the last so many changes and comments, each cut on
+   * its own: once either was, the timeline's start says so — null while
+   * nothing was. */
+  feedTrimmed: string | null;
   /** The composer's bound — the domain's, so the field cannot outgrow it. */
   commentMax: number;
 }
@@ -111,6 +115,8 @@ export const TASK_DETAIL_WORDS = {
   labelsFull: (max: number) => `${max} labels — take one off to add another`,
   activity: "Activity",
   moreChanges: (n: number) => `${n} more ${n === 1 ? "change" : "changes"}`,
+  feedTrimmed: (changes: number, comments: number) =>
+    `Older history is trimmed — the board keeps the last ${changes} changes and ${comments} comments`,
   detach: "Detach",
   attach: "Attach artifact",
   attachPrompt: "Attach an artifact…",
@@ -156,7 +162,7 @@ export function taskDetailView(
     value: to,
     label: STATUS_LABEL[to],
     tone: statusTone(to),
-    ring: statusRing(to),
+    ring: statusMark(to),
   }));
   const assigneeValues = [...new Set([...roster, ...(task.assignee ? [task.assignee] : [])])];
   return {
@@ -167,7 +173,7 @@ export function taskDetailView(
     meta: [task.id, STATUS_LABEL[task.status], `by ${personName(task.author)}`, `updated ${formatAge(task.updated, now)}`].join(
       " · ",
     ),
-    statusRing: statusRing(task.status),
+    statusRing: statusMark(task.status),
     body: task.body,
     bodyEmpty: task.body.trim() === "" ? "No brief — the title is all there is" : null,
     assignee: task.assignee ?? "",
@@ -204,6 +210,10 @@ export function taskDetailView(
         : null,
     feed: feedOf(task, now),
     feedEmpty: task.comments.length === 0 && task.log.length === 0 ? "Nothing said or changed yet" : null,
+    feedTrimmed:
+      task.log.length >= TASK_CAPS.logMax || task.comments.length >= TASK_CAPS.commentsMax
+        ? TASK_DETAIL_WORDS.feedTrimmed(TASK_CAPS.logMax, TASK_CAPS.commentsMax)
+        : null,
     commentMax: TASK_CAPS.commentMax,
   };
 }
@@ -221,8 +231,18 @@ const RUN_SHOWN = 2;
  * wrote.
  */
 export function feedOf(task: Pick<Task, "comments" | "log">, now: number): FeedItem[] {
+  // A change's key is what it is — its moment and field, counted among
+  // its twins — never its place: the log is cut from the front at its cap,
+  // and a place-key shifted on every new entry, closing an open fold.
+  const seen = new Map<string, number>();
+  const keyOf = (entry: Task["log"][number]) => {
+    const base = `change-${entry.at}-${entry.field}`;
+    const n = seen.get(base) ?? 0;
+    seen.set(base, n + 1);
+    return n === 0 ? base : `${base}-${n}`;
+  };
   const timeline = [
-    ...task.log.map((entry, i) => ({ at: entry.at, order: 0, item: changeItem(entry, i, now) as FeedItem })),
+    ...task.log.map((entry) => ({ at: entry.at, order: 0, item: changeItem(entry, keyOf(entry), now) as FeedItem })),
     ...task.comments.map((comment) => ({
       at: comment.at,
       order: 1,
@@ -263,10 +283,10 @@ export function feedOf(task: Pick<Task, "comments" | "log">, now: number): FeedI
   return feed;
 }
 
-function changeItem(entry: Task["log"][number], index: number, now: number): FeedChange {
+function changeItem(entry: Task["log"][number], key: string, now: number): FeedChange {
   return {
     kind: "change",
-    key: `change-${index}`,
+    key,
     who: personName(entry.from),
     text:
       entry.field === "body"

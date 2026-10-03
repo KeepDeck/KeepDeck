@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { TASK_CAPS } from "../../domain/tasks";
 import { board, task } from "../../domain/tasks/testSupport";
 import { boardView, columnLabelClassName } from "./boardView";
 import { NO_QUERY } from "./queryView";
 import { LADDER_WORDS, tasksLadder } from "./ladderView";
 import { newTaskFormView, NEW_TASK_WORDS } from "./newTaskFormView";
-import { roleInitials, statusRing, taskCardView, taskCardClassName } from "./taskCardView";
+import { roleInitials, statusMark, statusRing, taskCardView, taskCardClassName } from "./taskCardView";
 import { TASK_DETAIL_WORDS, feedOf, pickedArtifact, pickedStatus, taskDetailClassName, taskDetailView } from "./taskDetailView";
 import { teamCardTasksLine } from "./teamCardTasksLine";
 import { teamOnScreen } from "./teamOnScreen";
@@ -116,7 +117,8 @@ describe("task panel and form words and classes", () => {
     expect(FIELD_WORDS).toEqual({ title: "Title", brief: "Brief", status: "Status", priority: "Priority", assignee: "Assignee" });
     // The detach tooltip and its accessible label say the same word.
     expect(detail.artifacts[0].detachLabel).toBe(`${TASK_DETAIL_WORDS.detach} kd-a`);
-    expect(detail.statusOptions[0].ring).toEqual(statusRing(detail.statusOptions[0].value));
+    // Beside its word, the ring is a picture only — the word names it.
+    expect(detail.statusOptions[0].ring).toEqual({ ...statusRing(detail.statusOptions[0].value), decorative: true });
   });
 
   it("a pick asks for nothing when it changes nothing", () => {
@@ -163,7 +165,8 @@ describe("taskDetailView", () => {
     ]);
     const view = taskDetailView(b.tasks[1], b, ROSTER, NOW);
     expect(view.meta).toBe("task-2 · To do · by you · updated 1m ago");
-    expect(view.statusRing).toEqual(statusRing("todo"));
+    expect(view.statusRing).toEqual(statusMark("todo"));
+    expect(statusMark("todo")).toEqual({ ...statusRing("todo"), decorative: true });
     expect(view.blockers).toEqual([
       { id: "task-1", text: "task-1 · in progress", resolved: false, className: "kd-tag kd-tag--outline tasks__tag--blocking" },
     ]);
@@ -339,6 +342,28 @@ describe("feedOf — a task's history as one timeline", () => {
     const feed = feedOf({ log, comments: [comment(1, 5)] }, 0);
     const keys = feed.flatMap((item) => (item.kind === "more" ? [item.key, ...item.changes.map((c) => c.key)] : [item.key]));
     expect(new Set(keys).size).toBe(keys.length);
+    // Twins — the same moment, the same field — still key apart.
+    const twins = feedOf({ log: [change(1, "a"), change(1, "b")], comments: [] }, 0);
+    expect(new Set(twins.map((item) => item.key)).size).toBe(2);
+  });
+
+  it("keeps a change's key as the log is cut from the front at its cap", () => {
+    const log = [1, 2, 3, 4, 5].map((at) => change(at, `s${at}`));
+    const keyOf = (feed: ReturnType<typeof feedOf>, text: string) =>
+      feed.flatMap((item) => (item.kind === "more" ? item.changes : [item])).find((item) => "text" in item && item.text === text)?.key;
+    const before = feedOf({ log, comments: [] }, 0);
+    const after = feedOf({ log: [...log.slice(1), change(6, "s6")], comments: [] }, 0);
+    expect(keyOf(after, "status: — → s3")).toBe(keyOf(before, "status: — → s3"));
+  });
+
+  it("says when older history was trimmed — either cap, each on its own", () => {
+    const b = board([task({ id: "task-1" })]);
+    const full = (over: Partial<ReturnType<typeof task>>) => taskDetailView(task({ id: "task-1", ...over }), b, ROSTER, 0).feedTrimmed;
+    expect(full({})).toBeNull();
+    expect(full({ log: Array.from({ length: TASK_CAPS.logMax }, (_, i) => change(i, "x")) })).toBe(
+      TASK_DETAIL_WORDS.feedTrimmed(TASK_CAPS.logMax, TASK_CAPS.commentsMax),
+    );
+    expect(full({ comments: Array.from({ length: TASK_CAPS.commentsMax }, (_, i) => comment(i + 1, i)) })).not.toBeNull();
   });
 });
 

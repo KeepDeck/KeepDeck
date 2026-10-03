@@ -4,12 +4,13 @@
  * panel is open, the card in flight. The component maps these fields and
  * decides nothing; every choice below was once a branch in its JSX.
  */
-import type { BoardColumnView } from "./boardView";
 import { ghostBox, type DragState } from "./cardDrag";
-import { cardOf, teamControlView } from "./dialogState";
+import { teamControlView } from "./dialogState";
 import { LADDER_WORDS, type TasksLadder } from "./ladderView";
 import type { TaskCardView } from "./taskCardView";
-import { listCardOf, type ListItem } from "./listView";
+import { QUERY_WORDS } from "./queryView";
+import { VIEW_WORDS } from "./words";
+import { TASKS_VIEWS } from "../../domain/settings";
 import type { TrackerView } from "./screenState";
 
 /** What the body shows under the head. */
@@ -52,36 +53,34 @@ export interface TasksDialogView {
 export function tasksDialogView(input: {
   ladder: TasksLadder;
   drag: DragState;
-  columns: readonly BoardColumnView[];
-  /** The list's items when the list is up — the dragged row's card is
-   * found there when no column holds it. */
-  listItems: readonly ListItem[];
+  /** The task in flight's card (`cardInFlight`). */
+  inFlight: TaskCardView | null;
   teams: readonly { id: string; name: string }[];
   teamId: string | null;
   composing: boolean;
   detailOpen: boolean;
   wide: boolean;
   view: TrackerView;
+  /** The filter lets no task through (`findsNothing`). */
+  nothingFound: boolean;
 }): TasksDialogView {
   const { ladder, drag } = input;
   const staged = ladder.kind === "board" || ladder.kind === "empty";
   const box = ghostBox(drag);
-  const onBoard = drag.kind === "dragging" ? cardOf(input.columns, drag.id) : undefined;
-  const inList = drag.kind === "dragging" && !onBoard ? listCardOf(input.listItems, drag.id) : undefined;
-  const card = onBoard ?? inList;
+  const card = input.inFlight;
   return {
     className: drag.kind === "dragging" ? "form tasks tasks--dragging" : "form tasks",
     toolbar: staged,
     team: teamControlView(input.teams, input.teamId),
     newTaskDisabled: input.teamId === null,
     viewChoice: {
-      ariaLabel: "View",
+      ariaLabel: VIEW_WORDS.choice,
       value: input.view,
-      options: TRACKER_VIEWS.map((view) => ({ value: view, label: VIEW_LABEL[view] })),
+      options: TASKS_VIEWS.map((view) => ({ value: view, label: VIEW_WORDS.label[view] })),
     },
-    body: staged ? { kind: "stage", main: stageMain(ladder, input.wide, input.view) } : placeholder(ladder),
+    body: staged ? { kind: "stage", main: stageMain(ladder, input.wide, input.view, input.nothingFound) } : placeholder(ladder),
     panel: input.composing ? "form" : input.detailOpen ? "detail" : null,
-    ghost: box && card ? ghostOf(box, onBoard ? "card" : "row", card) : null,
+    ghost: box && card ? ghostOf(box, input.view === "list" ? "row" : "card", card) : null,
   };
 }
 
@@ -89,16 +88,16 @@ function stageMain(
   ladder: TasksLadder,
   wide: boolean,
   view: TrackerView,
+  nothingFound: boolean,
 ): Extract<DialogBody, { kind: "stage" }>["main"] {
   // Wide: the open task fills the stage and the view is put away — not
   // hidden under it, gone until the person comes back.
   if (wide) return null;
   if (ladder.kind === "empty") return { kind: "empty", ...LADDER_WORDS.empty };
+  if (nothingFound) return { kind: "empty", ...QUERY_WORDS.nothing };
   return view === "list" ? { kind: "list" } : { kind: "columns" };
 }
 
-const TRACKER_VIEWS: readonly TrackerView[] = ["list", "board"];
-const VIEW_LABEL: Record<TrackerView, string> = { list: "List", board: "Board" };
 
 function placeholder(ladder: Exclude<TasksLadder, { kind: "board" | "empty" }>): DialogBody {
   if (ladder.kind === "refusal") {

@@ -40,7 +40,15 @@ export function tasksInStatus(tasks: readonly Task[], status: TaskStatus, query:
     .sort(compareInStatus(status));
 }
 
+/** Whether the query narrows to nothing: something narrows, and no task
+ * of the team gets through — said in words, not left as six zeros. */
+export function findsNothing(tasks: readonly Task[], query: TaskQuery): boolean {
+  const narrows = query.blockedOnly || query.label !== null;
+  return narrows && !tasks.some((task) => matchesQuery(task, query));
+}
+
 export const QUERY_WORDS = {
+  nothing: { title: "No task matches", hint: "Clear the filter in the toolbar to see every task" },
   blocked: "Blocked",
   label: (label: string) => `label: ${label}`,
   clearLabel: (label: string) => `Show every label, not only ${label}`,

@@ -4,6 +4,7 @@
  * accepted. Typing while a send is out is kept: a person who added to the
  * draft has not sent that yet.
  */
+import { normalizeLabel } from "../../domain/tasks";
 import { canSendComment } from "./composerView";
 
 export interface ComposerState {
@@ -33,4 +34,16 @@ export function beginSend(state: ComposerState): { state: ComposerState; body: s
 export function finishSend(state: ComposerState, accepted: boolean): ComposerState {
   const cleared = accepted && state.draft === state.sending;
   return { draft: cleared ? "" : state.draft, sending: null };
+}
+
+/** Whether the label field holds something to add: a word once kept the
+ * board's way — Enter on an empty or all-dash field sends nothing. */
+export function labelSendable(draft: string): boolean {
+  return normalizeLabel(draft) !== "";
+}
+
+/** The label field after an add settles: cleared when it landed — but only
+ * of what was sent, never of what was typed since (the composer's rule). */
+export function labelDraftAfter(current: string, sent: string, landed: boolean): string {
+  return landed && current === sent ? "" : current;
 }
