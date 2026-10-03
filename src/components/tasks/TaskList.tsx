@@ -1,3 +1,4 @@
+import type { PointerEvent } from "react";
 import { StatusRing } from "@keepdeck/ui-kit/StatusRing";
 import { VirtualList } from "@keepdeck/ui-kit/VirtualList";
 import type { TaskStatus } from "../../domain/tasks";
@@ -68,29 +69,29 @@ export function TaskList({ items, openId, drag, hover, onSelect, onFold, onLabel
             {...dropTarget(item.status)}
           />
         ) : (
-          // The row is not itself a button: its labels and blockers are
-          // controls of their own. Its open control spans it, under them.
+          // The house row (the artifacts dialog's): the row's own control
+          // opens it, and its labels and blockers are controls BESIDE it —
+          // never a button inside a button, never one laid under another.
           <div
             className={listRowClassName(item, drag, hover)}
             {...dropTarget(item.status)}
           >
-            <button
-              type="button"
-              className="tasks__row-open"
-              aria-pressed={item.open}
-              aria-label={`${item.card.id} ${item.card.title}`}
-              onPointerDown={(event) => {
-                if (event.button !== 0) return;
-                onArm(
-                  item.card.id,
-                  event.clientX,
-                  event.clientY,
-                  rowGrip(event.currentTarget.getBoundingClientRect(), event.clientX, event.clientY),
-                );
+            <TaskRowLine
+              card={item.card}
+              open={{
+                pressed: item.open,
+                onPointerDown: (event) => {
+                  if (event.button !== 0) return;
+                  // The ghost is the row whole: measured from the row, not
+                  // from its open control.
+                  const row = event.currentTarget.parentElement ?? event.currentTarget;
+                  onArm(item.card.id, event.clientX, event.clientY, rowGrip(row.getBoundingClientRect(), event.clientX, event.clientY));
+                },
+                onClick: () => onSelect(item.card.id),
               }}
-              onClick={() => onSelect(item.card.id)}
+              onLabel={onLabel}
+              onSelect={onSelect}
             />
-            <TaskRowLine card={item.card} onLabel={onLabel} onSelect={onSelect} />
           </div>
         )
       }
@@ -134,19 +135,43 @@ function GroupHeading({
  */
 export function TaskRowLine({
   card,
+  open,
   onLabel,
   onSelect,
 }: {
   card: TaskCardView;
+  /** The row's own control — absent on the ghost, a picture. */
+  open?: {
+    pressed: boolean;
+    onPointerDown(event: PointerEvent<HTMLButtonElement>): void;
+    onClick(): void;
+  };
   onLabel?(label: string): void;
   onSelect?(id: string): void;
 }) {
-  return (
+  const head = (
     <>
       <span className="tasks__mark tasks__row-mark">{card.priority}</span>
       <StatusRing {...card.ring} />
       <code className="tasks__row-id">{card.id}</code>
       <span className="tasks__row-title kd-one-line">{card.title}</span>
+    </>
+  );
+  return (
+    <>
+      {open ? (
+        <button
+          type="button"
+          className="tasks__row-open"
+          aria-pressed={open.pressed}
+          onPointerDown={open.onPointerDown}
+          onClick={open.onClick}
+        >
+          {head}
+        </button>
+      ) : (
+        <span className="tasks__row-open">{head}</span>
+      )}
       {card.labels.map((label) =>
         onLabel ? (
           <button key={label} type="button" className="kd-tag tasks__row-control" onClick={() => onLabel(label)}>

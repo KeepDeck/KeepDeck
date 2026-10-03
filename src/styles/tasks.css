@@ -479,12 +479,22 @@
   background-color: var(--kd-selected);
 }
 
+/* The row's own control: priority, status, id and title — the part a
+   press opens. Its labels and blockers stand beside it as controls of their
+   own (the house row: the artifacts dialog's). */
 .tasks__row-open {
-  position: absolute;
-  inset: 0;
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  height: 100%;
   padding: 0;
   border: 0;
   background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
   cursor: pointer;
 }
 
@@ -493,23 +503,9 @@
   outline-offset: -1px;
 }
 
-/* What sits over the open control and answers clicks of its own. */
+/* A label or a blocker beside the row's control: a tag, held to its size. */
 .tasks__row-control {
-  position: relative;
   flex: none;
-  border: 0;
-  font: inherit;
-  font-size: var(--kd-font-small);
-  cursor: pointer;
-}
-
-.tasks__row > :not(.tasks__row-open) {
-  position: relative;
-  pointer-events: none;
-}
-
-.tasks__row > .tasks__row-control {
-  pointer-events: auto;
 }
 
 .tasks__row-mark {
