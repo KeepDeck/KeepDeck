@@ -23,6 +23,12 @@ interface DropdownProps {
    *  its words, its menu as wide as its options rather than as the narrow
    *  value that opened it. */
   variant?: "field" | "inline";
+  /** `md` (default): a dialog's field. `sm`: a toolbar's or a compact
+   *  form's — a button's height. */
+  size?: "md" | "sm";
+  /** An offer rather than a value ("Attach an artifact…"): quieter ink,
+   *  small type — it says what can be done, not what is. */
+  quiet?: boolean;
 }
 
 /**
@@ -40,6 +46,8 @@ export function Dropdown({
   ariaLabel,
   className,
   variant = "field",
+  size = "md",
+  quiet = false,
 }: DropdownProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -60,7 +68,15 @@ export function Dropdown({
   return (
     <div
       ref={rootRef}
-      className={`dropdown${variant === "inline" ? " dropdown--inline" : ""}${className ? ` ${className}` : ""}`}
+      className={[
+        "dropdown",
+        variant === "inline" && "dropdown--inline",
+        size === "sm" && "dropdown--sm",
+        quiet && "dropdown--quiet",
+        className,
+      ]
+        .filter(Boolean)
+        .join(" ")}
       onKeyDown={(e) => {
         // Local, not a window listener: the dropdown owns Escape only while
         // focus is inside it, so modal layers keep their own Esc semantics.

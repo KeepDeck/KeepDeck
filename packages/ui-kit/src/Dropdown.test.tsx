@@ -63,6 +63,15 @@ describe("Dropdown", () => {
     }
   });
 
+  it("takes a small size and a quiet offer by name, never by a call-site restyle", () => {
+    act(() =>
+      root.render(createElement(Dropdown, { options: OPTIONS, value: "/wt/a", onChange, ariaLabel: "Pick", size: "sm", quiet: true })),
+    );
+    expect(host.querySelector(".dropdown")!.className).toBe("dropdown dropdown--sm dropdown--quiet");
+    mount();
+    expect(host.querySelector(".dropdown")!.className).toBe("dropdown");
+  });
+
   it("shows the current option's label and no native select anywhere", () => {
     mount();
     expect(button().textContent).toBe("kd/a");

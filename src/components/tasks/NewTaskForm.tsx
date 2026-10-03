@@ -67,7 +67,7 @@ export function NewTaskForm({ view, onCreate, onCancel }: NewTaskFormProps) {
         options={view.assigneeOptions}
         value={draft.assignee}
         onChange={(assignee) => setDraft({ ...draft, assignee })}
-        className="tasks__pick"
+        size="sm"
       />
       <p className="tasks__muted">{view.addressHint}</p>
       </div>

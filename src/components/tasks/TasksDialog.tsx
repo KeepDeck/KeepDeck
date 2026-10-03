@@ -131,7 +131,7 @@ function WorkspaceBoard({
               {view.team.kind === "pick" && (
                 <Dropdown
                   ariaLabel={DIALOG_WORDS.team}
-                  className="tasks__team"
+                  size="sm"
                   options={view.team.options}
                   value={view.team.value}
                   onChange={board.selectTeam}

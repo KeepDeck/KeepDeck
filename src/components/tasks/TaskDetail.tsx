@@ -247,7 +247,7 @@ export function TaskDetail({
                   if (slug !== null) onAttach(view.id, slug);
                 }}
                 variant="inline"
-                className="tasks__pick--attach"
+                quiet
               />
             ) : (
               view.attachEmpty && (

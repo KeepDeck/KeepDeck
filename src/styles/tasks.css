@@ -32,12 +32,6 @@
 
 /* The team: a compact pick when there is a choice, a word when there is
    not — never a control that offers one option. */
-.tasks__team .dropdown__button {
-  min-width: 0;
-  padding: 5px 10px;
-  font-size: var(--kd-font-normal);
-}
-
 .tasks__team-name {
   color: var(--kd-text-3);
   font-size: var(--kd-font-normal);
@@ -734,19 +728,6 @@
 
 .tasks__muted {
   margin: 0;
-  color: var(--kd-text-3);
-  font-size: var(--kd-font-small);
-}
-
-/* The new-task form's pickers: fields, the width of their column. */
-.tasks__pick .dropdown__button {
-  width: 100%;
-  padding: 6px 10px;
-  font-size: var(--kd-font-normal);
-}
-
-/* "Attach an artifact…": an offer, quieter than a value. */
-.tasks__pick--attach .dropdown__button {
   color: var(--kd-text-3);
   font-size: var(--kd-font-small);
 }
