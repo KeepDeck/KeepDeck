@@ -2,7 +2,6 @@ import { formatAge } from "../../domain/usage";
 import {
   TASK_CAPS,
   USER_ACTOR,
-  findTask,
   issuable,
   labelsOf,
   reachableStatuses,
@@ -13,6 +12,7 @@ import {
   type TaskPriority,
   type TaskStatus,
 } from "../../domain/tasks";
+import { blockerChip, roleInitials, statusRing, type BlockerChip } from "./taskCardView";
 import {
   BOARD_ORDER,
   POOL_CHOICE,
@@ -29,8 +29,8 @@ import {
 export interface StatusChoiceView extends ChoiceView {
   value: TaskStatus;
   tone: StatusTone;
-  /** The dot beside the label, in the status's hue. */
-  dotClassName: string;
+  /** The status's ring beside the label. */
+  ringClassName: string;
 }
 
 export interface TaskDetailView {
@@ -38,20 +38,25 @@ export interface TaskDetailView {
   title: string;
   status: TaskStatus;
   priority: TaskPriority;
-  /** `task-4 · by you · opened 40m ago · updated 25m ago` */
+  /** `task-4 · In progress · by you · updated 25m ago` — the head's one
+   * line, after the status dot. */
   meta: string;
+  /** The status's ring in the head. */
+  statusRingClassName: string;
   body: string;
   bodyEmpty: string | null;
   /** The pool first, then the roster — and the current assignee even off
    * the roster, so the control can show what the task says. */
   assignee: string;
-  assigneeOptions: ChoiceView[];
+  assigneeOptions: (ChoiceView & { initials: string })[];
   priorityOptions: ChoiceView[];
   /** What the status picker offers: where the task stands, then where the
    * PERSON may move it — the transition table's answer, in ladder order,
    * never a list spelled in markup. */
   statusOptions: StatusChoiceView[];
-  blockers: { id: string; text: string }[];
+  /** Each blocker with where it stands; a resolved one (done, cancelled,
+   * gone) holds nothing and is struck through. */
+  blockers: BlockerChip[];
   blockersEmpty: string | null;
   unblocks: { id: string; title: string }[];
   /** Attached artifacts, titled when the registry knows them; a slug the
@@ -148,7 +153,7 @@ export function taskDetailView(
     value: to,
     label: STATUS_LABEL[to],
     tone: statusTone(to),
-    dotClassName: `tasks__status-dot tasks__status-dot--${statusTone(to)}`,
+    ringClassName: statusRing(to).className,
   }));
   const assigneeValues = [...new Set([...roster, ...(task.assignee ? [task.assignee] : [])])];
   return {
@@ -156,25 +161,20 @@ export function taskDetailView(
     title: task.title,
     status: task.status,
     priority: task.priority,
-    meta: [
-      task.id,
-      `by ${personName(task.author)}`,
-      `opened ${formatAge(task.created, now)}`,
-      `updated ${formatAge(task.updated, now)}`,
-    ].join(" · "),
+    meta: [task.id, STATUS_LABEL[task.status], `by ${personName(task.author)}`, `updated ${formatAge(task.updated, now)}`].join(
+      " · ",
+    ),
+    statusRingClassName: statusRing(task.status).className,
     body: task.body,
     bodyEmpty: task.body.trim() === "" ? "No brief — the title is all there is" : null,
     assignee: task.assignee ?? "",
     assigneeOptions: [
-      POOL_CHOICE,
-      ...assigneeValues.map((role) => ({ value: role, label: role })),
+      { ...POOL_CHOICE, initials: roleInitials(null) },
+      ...assigneeValues.map((role) => ({ value: role, label: role, initials: roleInitials(role) })),
     ],
     priorityOptions: priorityChoices(),
     statusOptions,
-    blockers: task.blockedBy.map((id) => {
-      const blocker = findTask(board, id);
-      return { id, text: `${id} · ${blocker ? STATUS_LABEL[blocker.status].toLowerCase() : "gone"}` };
-    }),
+    blockers: task.blockedBy.map((id) => blockerChip(board, id)),
     blockersEmpty:
       task.blockedBy.length > 0 ? null : task.status === "todo" && issuable(task, board) ? "none — can start now" : "none",
     unblocks: unblocks(task, board).map((other) => ({ id: other.id, title: other.title })),

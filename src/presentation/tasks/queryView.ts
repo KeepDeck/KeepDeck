@@ -42,43 +42,27 @@ export function tasksInStatus(tasks: readonly Task[], status: TaskStatus, query:
 
 export const QUERY_WORDS = {
   blocked: "Blocked",
-  label: "Label",
-  anyLabel: "All labels",
+  label: (label: string) => `label: ${label}`,
+  clearLabel: (label: string) => `Show every label, not only ${label}`,
 } as const;
-
-/** The dropdown's value for "any label" — no label is empty. */
-export const ANY_LABEL = "";
 
 export interface QueryToolbarView {
   blocked: { label: string; pressed: boolean };
-  /** The label picker — absent while the board carries no labels and none
-   * is picked: a control with nothing to choose is noise. */
-  label: { ariaLabel: string; value: string; options: { value: string; label: string }[] } | null;
+  /** The label narrowing the view, as a chip that clears it — null while
+   * none does. A label is picked by clicking it on a row. */
+  label: { text: string; clear: string } | null;
 }
 
-/** The filters as the toolbar draws them. `vocabulary` is the board's
- * labels (`labelsOf`); a picked label no task carries any more stays an
- * option, so the control still says what narrows the view. */
-export function queryToolbarView(query: TaskQuery, vocabulary: readonly string[]): QueryToolbarView {
-  const labels =
-    query.label !== null && !vocabulary.includes(query.label) ? [...vocabulary, query.label] : vocabulary;
+/** The filters as the toolbar draws them. */
+export function queryToolbarView(query: TaskQuery): QueryToolbarView {
   return {
     blocked: { label: QUERY_WORDS.blocked, pressed: query.blockedOnly },
-    label:
-      labels.length === 0
-        ? null
-        : {
-            ariaLabel: QUERY_WORDS.label,
-            value: query.label ?? ANY_LABEL,
-            options: [
-              { value: ANY_LABEL, label: QUERY_WORDS.anyLabel },
-              ...labels.map((label) => ({ value: label, label })),
-            ],
-          },
+    label: query.label === null ? null : { text: QUERY_WORDS.label(query.label), clear: QUERY_WORDS.clearLabel(query.label) },
   };
 }
 
-/** The query after a pick in the label control. */
-export function withLabel(query: TaskQuery, value: string): TaskQuery {
-  return { ...query, label: value === ANY_LABEL ? null : value };
+/** The query after a label is clicked: that label — or none, when it is
+ * the one already narrowing the view. */
+export function withLabel(query: TaskQuery, label: string | null): TaskQuery {
+  return { ...query, label: label === query.label ? null : label };
 }

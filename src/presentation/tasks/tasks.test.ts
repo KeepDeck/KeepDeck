@@ -4,7 +4,7 @@ import { boardView, columnLabelClassName } from "./boardView";
 import { NO_QUERY } from "./queryView";
 import { LADDER_WORDS, tasksLadder } from "./ladderView";
 import { newTaskFormView, NEW_TASK_WORDS, priorityChoiceClassName } from "./newTaskFormView";
-import { taskCardView, taskCardClassName } from "./taskCardView";
+import { roleInitials, taskCardView, taskCardClassName } from "./taskCardView";
 import { TASK_DETAIL_WORDS, feedOf, pickedArtifact, pickedStatus, taskDetailClassName, taskDetailView } from "./taskDetailView";
 import { teamCardTasksLine } from "./teamCardTasksLine";
 import { teamOnScreen } from "./teamOnScreen";
@@ -46,7 +46,7 @@ describe("taskCardView", () => {
       task({ id: "task-2", status: "done" }),
       task({ id: "task-3", blockedBy: ["task-1", "task-2"], priority: "high", updated: NOW - 120_000 }),
     ]);
-    expect(taskCardView(b.tasks[2], b, NOW)).toEqual({
+    expect(taskCardView(b.tasks[2], b, NOW)).toMatchObject({
       id: "task-3",
       title: "Task task-3",
       meta: "task-3 · pool · 2m ago",
@@ -55,7 +55,16 @@ describe("taskCardView", () => {
       tone: "none",
       cancelled: false,
       labels: [],
+      assignee: "pool",
+      initials: "—",
+      age: "2m ago",
+      ring: { className: "tasks__ring tasks__ring--todo", label: "To do" },
     });
+    // Every blocker as a chip, a resolved one struck.
+    expect(taskCardView(b.tasks[2], b, NOW).blockerChips.map((c) => [c.id, c.resolved])).toEqual([
+      ["task-1", false],
+      ["task-2", true],
+    ]);
     expect(taskCardView(b.tasks[0], b, NOW).blockedBy).toBeNull();
     expect(taskCardView({ ...b.tasks[0], labels: ["ui"] }, b, NOW).labels).toEqual(["ui"]);
   });
@@ -102,11 +111,12 @@ describe("task panel and form words and classes", () => {
     const b = board([task({ id: "task-1", artifacts: ["kd-a"] })]);
     const detail = taskDetailView(b.tasks[0], b, ["lead"], NOW, [{ id: "kd-a", title: "A" }]);
     expect(newTaskFormView(["lead"]).assigneeOptions[0]).toBe(POOL_CHOICE);
-    expect(detail.assigneeOptions[0]).toBe(POOL_CHOICE);
+    // The same words, with the pool's mark beside them.
+    expect(detail.assigneeOptions[0]).toEqual({ ...POOL_CHOICE, initials: "—" });
     expect(FIELD_WORDS).toEqual({ title: "Title", brief: "Brief", status: "Status", priority: "Priority", assignee: "Assignee" });
     // The detach tooltip and its accessible label say the same word.
     expect(detail.artifacts[0].detachLabel).toBe(`${TASK_DETAIL_WORDS.detach} kd-a`);
-    expect(detail.statusOptions[0].dotClassName).toBe(`tasks__status-dot tasks__status-dot--${detail.statusOptions[0].tone}`);
+    expect(detail.statusOptions[0].ringClassName).toBe(`tasks__ring tasks__ring--${detail.statusOptions[0].value}`);
   });
 
   it("a pick asks for nothing when it changes nothing", () => {
@@ -154,8 +164,11 @@ describe("taskDetailView", () => {
       task({ id: "task-3", blockedBy: ["task-2"] }),
     ]);
     const view = taskDetailView(b.tasks[1], b, ROSTER, NOW);
-    expect(view.meta).toBe("task-2 · by you · opened 1m ago · updated 1m ago");
-    expect(view.blockers).toEqual([{ id: "task-1", text: "task-1 · in progress" }]);
+    expect(view.meta).toBe("task-2 · To do · by you · updated 1m ago");
+    expect(view.statusRingClassName).toBe("tasks__ring tasks__ring--todo");
+    expect(view.blockers).toEqual([
+      { id: "task-1", text: "task-1 · in progress", resolved: false, className: "tasks__chip tasks__chip--blocking" },
+    ]);
     expect(view.blockersEmpty).toBeNull();
     expect(view.unblocks).toEqual([{ id: "task-3", title: "Task task-3" }]);
     expect(view.feed.map(({ key: _key, ...rest }) => rest)).toEqual([
@@ -328,5 +341,14 @@ describe("feedOf — a task's history as one timeline", () => {
     const feed = feedOf({ log, comments: [comment(1, 5)] }, 0);
     const keys = feed.flatMap((item) => (item.kind === "more" ? [item.key, ...item.changes.map((c) => c.key)] : [item.key]));
     expect(new Set(keys).size).toBe(keys.length);
+  });
+});
+
+describe("roleInitials", () => {
+  it("is a role's kind and number, or its first two letters; a dash for the pool", () => {
+    expect(roleInitials("analyst-2")).toBe("A2");
+    expect(roleInitials("reviewer-12")).toBe("R12");
+    expect(roleInitials("lead")).toBe("LE");
+    expect(roleInitials(null)).toBe("—");
   });
 });

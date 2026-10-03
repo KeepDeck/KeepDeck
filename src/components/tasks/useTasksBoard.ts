@@ -15,7 +15,6 @@ import {
   attachArtifact,
   detachArtifact,
   findTask,
-  labelsOf,
   reachableStatuses,
   removeLabel,
   tasksOfTeam,
@@ -31,6 +30,8 @@ import {
   assigneeOf,
   boardView,
   listView,
+  rowStepOf,
+  stepRow,
   clickDisbelieved,
   initialScreen,
   moveCard,
@@ -212,7 +213,27 @@ export function useTasksBoard(
   const columns = board && screen.view === "board" ? boardView(teamTasks, board, now, query) : [];
   const listItems =
     board && screen.view === "list" ? listView(teamTasks, board, now, query, screen.folded, detail?.id ?? null) : [];
-  const filters = queryToolbarView(query, board ? labelsOf({ tasks: teamTasks }) : []);
+  const filters = queryToolbarView(query);
+
+  // J / K walk the list's rows, the open task following — never while a
+  // field has the keys (a comment, a label being typed).
+  const openId = detail?.id ?? null;
+  useEffect(() => {
+    if (screen.view !== "list") return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      const step = rowStepOf(event.key);
+      if (step === null || event.metaKey || event.ctrlKey || event.altKey) return;
+      const target = event.target;
+      if (target instanceof Element && target.closest("input, textarea, [contenteditable='true']")) return;
+      const next = stepRow(listItems, openId, step);
+      if (next === null) return;
+      event.preventDefault();
+      run({ type: "card", id: next, open: null });
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen.view, listItems, openId]);
   const form = newTaskFormView(roster);
 
   /** The pointer was released over `over` (a column, or nothing). One
@@ -276,7 +297,9 @@ export function useTasksBoard(
     fold: (status: TaskStatus) => run({ type: "fold", status }),
     filters,
     toggleBlocked: () => setQuery((q) => ({ ...q, blockedOnly: !q.blockedOnly })),
-    pickLabel: (value: string) => setQuery((q) => withLabel(q, value)),
+    /** A label clicked on a row narrows the view to it; clicking the one
+     * that already does, or clearing its chip, widens it again. */
+    pickLabel: (label: string | null) => setQuery((q) => withLabel(q, label)),
     composing,
     compose: () => run({ type: "compose" }),
     cancelCompose: () => run({ type: "cancelCompose" }),

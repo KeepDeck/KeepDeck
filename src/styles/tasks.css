@@ -85,39 +85,6 @@
   min-height: 0;
 }
 
-/* Wide: the drawer grows from the right edge to the whole stage — the
-   board is put away, not covered. Compound on purpose: this must outrank
-   the drawer's own width below, which at equal specificity won by source
-   order and left the "wide" panel 400px wide at the left edge. Two
-   explicit widths, so the change between them animates. */
-.tasks__detail.tasks__detail--wide {
-  width: 100%;
-  padding: 20px 28px;
-  box-shadow: none;
-}
-
-.tasks__detail--wide .tasks__body {
-  max-width: 80ch;
-  font-size: var(--kd-font-normal);
-}
-
-.tasks__detail--wide .tasks__props {
-  max-width: 480px;
-}
-
-.tasks__detail-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.tasks__detail-actions {
-  display: flex;
-  flex: none;
-  gap: 4px;
-}
-
 .tasks__main {
   display: flex;
   /* The stage is a row now (the drawers lie over it); without this the
@@ -361,23 +328,21 @@
   white-space: nowrap;
 }
 
-/* The open task's labels: the same words, each with its ×. */
-.tasks__labels--edit {
-  margin: 0 0 8px;
-  padding: 0;
-  list-style: none;
-}
-
-.tasks__labels--edit .tasks__label {
+/* A label on the open task, with its ×. */
+.tasks__label--edit {
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  padding-right: 2px;
+  padding-right: 0;
+}
+
+.tasks__label--edit .tasks__remove {
+  width: 16px;
+  height: 16px;
 }
 
 .tasks__label-add {
-  max-width: 220px;
-  margin-bottom: 4px;
+  display: inline-flex;
 }
 
 /* ── The list view: one windowed list, a heading per status ───────── */
@@ -433,6 +398,7 @@
 
 .tasks__group::before {
   content: "▾";
+  flex: none;
   width: 10px;
   color: var(--kd-text-4);
 }
@@ -462,23 +428,22 @@
   font-weight: 500;
 }
 
-/* A task in one line: priority, title, labels, what holds it, identity. */
+/* A task in one line, in columns: priority, status, id, title, labels,
+   what holds it, who has it, how long since it moved. The row is not a
+   button — its labels and blockers are controls — so its open control
+   lies under the rest, spanning it. */
 .tasks__row {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
-  width: 100%;
   height: 34px;
   box-sizing: border-box;
   min-width: 0;
   padding: 0 12px;
-  border: 0;
   border-bottom: 1px solid var(--kd-hover);
-  background: transparent;
   color: var(--kd-text);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
+  font-size: var(--kd-font-normal);
 }
 
 .tasks__row:hover {
@@ -489,14 +454,50 @@
   background-color: var(--kd-selected);
 }
 
-.tasks__row:focus-visible {
+.tasks__row-open {
+  position: absolute;
+  inset: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.tasks__row-open:focus-visible {
   outline: 1px solid var(--kd-focus);
   outline-offset: -1px;
 }
 
+/* What sits over the open control and answers clicks of its own. */
+.tasks__row-control {
+  position: relative;
+  flex: none;
+  border: 0;
+  font: inherit;
+  font-size: var(--kd-font-small);
+  cursor: pointer;
+}
+
+.tasks__row > :not(.tasks__row-open) {
+  position: relative;
+  pointer-events: none;
+}
+
+.tasks__row > .tasks__row-control {
+  pointer-events: auto;
+}
+
 .tasks__row-mark {
   flex: none;
-  width: 34px;
+  width: 30px;
+}
+
+.tasks__row-id {
+  flex: none;
+  width: 58px;
+  color: var(--kd-text-3);
+  font-size: var(--kd-font-small);
+  font-variant-numeric: tabular-nums;
 }
 
 .tasks__row-title {
@@ -504,22 +505,26 @@
   min-width: 0;
 }
 
-.tasks__row .tasks__labels {
-  flex: none;
-  flex-wrap: nowrap;
+.tasks__row .tasks__chip--blocking::before {
+  content: "⛔";
+  margin-right: 3px;
 }
 
-.tasks__row-blocked {
+.tasks__row-who {
+  display: inline-flex;
   flex: none;
-  max-width: 180px;
-  color: var(--status-failed);
+  align-items: center;
+  color: var(--kd-text-2);
   font-size: var(--kd-font-small);
 }
 
-.tasks__row-meta {
+.tasks__row-age {
   flex: none;
+  width: 36px;
   color: var(--kd-text-3);
   font-size: var(--kd-font-small);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 
 .tasks__row--cancelled .tasks__row-title {
@@ -530,29 +535,92 @@
 .tasks__row--done .tasks__row-title {
   color: var(--kd-text-2);
 }
-/* The drawer: one task whole, over the board's right edge, scrolling on
-   its own. The board stays interactive beside it — a card can still be
-   picked or dragged while a task is open. */
+/* The open task: a card floating over the list or the board, inset from
+   the stage's edges — nothing under it moves. The view beside it stays
+   interactive: a row or a card can still be picked while a task is open.
+   Expanded, it spans the stage. */
 .tasks__detail {
   position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 1;
-  /* The width names the whole box, edges included — at 100% a content
-     box grew past its parent by its own padding and border. */
+  top: 10px;
+  right: 10px;
+  bottom: 10px;
+  z-index: 2;
+  /* The width names the whole box, edges included. */
   box-sizing: border-box;
-  width: min(400px, 100%);
+  width: min(440px, calc(100% - 20px));
   display: flex;
   flex-direction: column;
-  gap: 6px;
   min-height: 0;
-  padding: 12px 14px;
-  border-radius: var(--kd-radius-pop);
+  /* Surface, edge and shadow are the float shell's (float.css). */
+  border-radius: var(--kd-radius-tile);
+  overflow: hidden;
+}
+
+.tasks__detail--wide {
+  left: 10px;
+  width: auto;
+}
+
+.tasks__detail-head {
+  flex: none;
+  padding: 10px 12px 10px 16px;
+  border-bottom: 1px solid var(--kd-seam);
+}
+
+/* Where the task stands, in one line, with the card's two controls. */
+.tasks__detail-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.tasks__detail-tools {
+  display: flex;
+  flex: none;
+  gap: 2px;
+  margin-left: auto;
+}
+
+/* Expanded: the properties stand beside the story, the story gets the room. */
+.tasks__detail-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px 16px;
   overflow-y: auto;
-  transition:
-    width 220ms ease,
-    padding 220ms ease;
+}
+
+.tasks__detail--wide .tasks__detail-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  align-items: start;
+  gap: 24px;
+}
+
+.tasks__detail--wide .tasks__props {
+  grid-column: 2;
+  grid-row: 1;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+}
+
+.tasks__detail--wide .tasks__prop-label:not(:first-child) {
+  margin-top: 8px;
+}
+
+.tasks__detail--wide .tasks__detail-main {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.tasks__detail-main {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -562,19 +630,132 @@
 }
 
 .tasks__detail-title {
-  margin: 0;
+  margin: 6px 0 0;
   color: var(--kd-text);
-  font-size: var(--kd-font-normal);
+  font-size: var(--kd-font-title);
   font-weight: 600;
+  line-height: 1.3;
 }
 
 .tasks__detail-meta {
-  margin: 0;
-}
-
-.tasks__detail-meta code {
+  flex: 1;
+  min-width: 0;
   color: var(--kd-text-3);
   font-size: var(--kd-font-small);
+}
+
+/* ── The status ring: the tracker's one status icon, filled as far as the
+   ladder has come — open, a quarter, half, three quarters, full; blocked
+   is barred, cancelled a grey disc. ──────────────────────────────────── */
+.tasks__ring {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  width: 12px;
+  height: 12px;
+  box-sizing: border-box;
+  border: 1.5px solid var(--kd-text-3);
+  border-radius: 50%;
+}
+
+.tasks__ring--in-progress {
+  border-color: var(--status-working);
+  background: conic-gradient(var(--status-working) 0 50%, transparent 0);
+}
+
+.tasks__ring--review {
+  border-color: var(--status-waiting);
+  background: conic-gradient(var(--status-waiting) 0 75%, transparent 0);
+}
+
+.tasks__ring--blocked {
+  border-color: var(--status-failed);
+}
+
+.tasks__ring--blocked::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 1px;
+  right: 1px;
+  height: 1.5px;
+  background-color: var(--status-failed);
+  transform: translateY(-50%);
+}
+
+.tasks__ring--done {
+  border-color: var(--status-done);
+  background-color: var(--status-done);
+}
+
+.tasks__ring--cancelled {
+  border-color: var(--kd-text-3);
+  background-color: var(--kd-text-3);
+}
+
+/* The card's properties are values first, pickers second: a value reads
+   as text, and only on hover says it can be changed. */
+.tasks__props .dropdown {
+  display: inline-flex;
+  max-width: 100%;
+}
+
+.tasks__props .dropdown__button {
+  width: auto;
+  max-width: 100%;
+  padding: 2px 6px;
+  border-color: transparent;
+  background-color: transparent;
+  color: var(--kd-text);
+  font-size: var(--kd-font-normal);
+}
+
+.tasks__props .dropdown__button:hover {
+  background-color: var(--kd-hover);
+}
+
+.tasks__props .dropdown__button svg {
+  width: 10px;
+  height: 10px;
+}
+
+/* An assignee's mark beside its name. */
+.tasks__avatar {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 3px;
+  box-sizing: border-box;
+  margin-right: 6px;
+  border-radius: 999px;
+  background-color: var(--kd-hover);
+  color: var(--kd-text-2);
+  font-size: var(--kd-font-small);
+  letter-spacing: -0.02em;
+  font-weight: 700;
+  vertical-align: middle;
+}
+
+/* "+ label": a dashed slot, not a field. */
+.tasks__label-add .combobox__input {
+  width: 96px;
+  height: 20px;
+  margin: 0;
+  padding: 0 6px;
+  border: 1px dashed var(--kd-seam-strong);
+  border-radius: var(--kd-radius-mark);
+  background: transparent;
+  font-size: var(--kd-font-small);
+}
+
+.tasks__label-add .combobox__input:focus {
+  border-style: solid;
+}
+
+.tasks__label-add .combobox__toggle {
+  display: none;
 }
 
 .tasks__section {
@@ -586,8 +767,12 @@
   text-transform: uppercase;
 }
 
+/* The brief: the task's own words, on a tile of their own. */
 .tasks__body {
   margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--kd-radius-pop);
+  background-color: var(--kd-tile);
   color: var(--kd-text-2);
   font-size: var(--kd-font-normal);
   line-height: 1.5;
@@ -600,20 +785,68 @@
   font-size: var(--kd-font-small);
 }
 
-.tasks__pick .dropdown__button {
-  width: 100%;
-  padding: 6px 10px;
-  font-size: var(--kd-font-normal);
+.tasks__pick--attach .dropdown__button {
+  color: var(--kd-text-3);
+  font-size: var(--kd-font-small);
 }
 
-/* The properties: label on the left, picker on the right, one row each —
+/* The properties: label on the left, value on the right, one row each —
    the issue tracker's property list. */
 .tasks__props {
   display: grid;
-  grid-template-columns: 76px minmax(0, 1fr);
+  grid-template-columns: 88px minmax(0, 1fr);
   align-items: center;
   gap: 6px 10px;
-  margin-top: 8px;
+  margin: 0;
+}
+
+.tasks__props dd {
+  margin: 0;
+  min-width: 0;
+}
+
+/* A row of small things: labels, blockers, attachments. */
+.tasks__chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.tasks__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 6px;
+  border: 1px solid var(--kd-seam);
+  border-radius: var(--kd-radius-mark);
+  background: none;
+  color: var(--kd-text-2);
+  font: inherit;
+  font-size: var(--kd-font-small);
+  line-height: 18px;
+  cursor: pointer;
+}
+
+.tasks__chip:hover {
+  color: var(--kd-text);
+}
+
+/* A blocker still standing says so in the failed hue; one done or gone is
+   struck — it holds nothing. */
+.tasks__chip--blocking {
+  border-color: var(--kd-err-line);
+  color: var(--status-failed);
+}
+
+.tasks__chip--resolved {
+  color: var(--kd-text-3);
+  text-decoration: line-through;
+}
+
+.tasks__chip--artifact {
+  padding-right: 0;
+  cursor: default;
 }
 
 .tasks__prop-label {
@@ -625,40 +858,6 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-}
-
-/* The status hue as a dot before the word, the ladder's four names. */
-.tasks__status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background-color: var(--kd-selected);
-  flex: none;
-}
-
-.tasks__status-dot--working {
-  background-color: var(--status-working);
-}
-
-.tasks__status-dot--waiting {
-  background-color: var(--status-waiting);
-}
-
-.tasks__status-dot--failed {
-  background-color: var(--status-failed);
-}
-
-.tasks__status-dot--done {
-  background-color: var(--status-done);
-}
-
-.tasks__links {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
 }
 
 .tasks__link {
@@ -685,19 +884,6 @@
   cursor: default;
 }
 
-.tasks__artifact {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-/* The row's text clamps to two lines (.kd-two-lines inside the link); the
-   link itself only takes the room left beside the ×. */
-.tasks__artifact .tasks__link {
-  flex: 1;
-  min-width: 0;
-}
-
 /* The row-level detach: the small text × the artifacts registry uses. */
 .tasks__remove {
   display: inline-flex;
@@ -720,17 +906,25 @@
   color: var(--kd-err-strong);
 }
 
+/* What was said: a tile in the timeline. */
 .tasks__comment {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 6px 0;
-  border-top: 1px solid var(--kd-seam);
+  padding: 8px 10px;
+  border-radius: var(--kd-radius-pop);
+  background-color: var(--kd-tile);
 }
 
 .tasks__comment-who {
   color: var(--kd-text-3);
   font-size: var(--kd-font-small);
+}
+
+.tasks__comment-who b {
+  color: var(--kd-text-2);
+  font-weight: 500;
 }
 
 .tasks__comment-body {
@@ -739,8 +933,10 @@
   white-space: pre-wrap;
 }
 
+/* One line until there is more to say. */
 .tasks__composer {
-  min-height: 56px;
+  min-height: 36px;
+  height: 36px;
   resize: vertical;
 }
 
@@ -750,17 +946,55 @@
   gap: 8px;
 }
 
-/* The task's one timeline: comments, and the changes between them. */
+/* The task's one timeline: comments, and the changes between them, on a
+   line down the left edge with a dot per event. */
 .tasks__feed {
+  position: relative;
   margin: 0;
-  padding: 0;
+  padding: 0 0 0 14px;
   list-style: none;
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 
+.tasks__feed::before {
+  content: "";
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  width: 1px;
+  background-color: var(--kd-seam);
+}
+
+.tasks__feed > li::before {
+  content: "";
+  position: absolute;
+  left: -12px;
+  top: 7px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background-color: var(--kd-seam-strong);
+}
+
+.tasks__feed > .tasks__comment::before {
+  top: 12px;
+  background-color: var(--kd-text-3);
+}
+
+/* Nested inside a fold, the run sits on the same line — no second rail. */
+.tasks__feed .tasks__feed {
+  padding-left: 0;
+}
+
+.tasks__feed .tasks__feed::before {
+  content: none;
+}
+
 .tasks__log {
+  position: relative;
   font-size: var(--kd-font-small);
 }
 

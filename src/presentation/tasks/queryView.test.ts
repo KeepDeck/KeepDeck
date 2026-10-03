@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { task } from "../../domain/tasks/testSupport";
 import {
-  ANY_LABEL,
   NO_QUERY,
   QUERY_WORDS,
   compareInStatus,
@@ -44,25 +43,22 @@ describe("the tracker's one set and one order", () => {
 
 describe("queryToolbarView — the filters as the toolbar draws them", () => {
   it("says whether Blocked is on", () => {
-    expect(queryToolbarView(NO_QUERY, []).blocked).toEqual({ label: QUERY_WORDS.blocked, pressed: false });
-    expect(queryToolbarView({ blockedOnly: true, label: null }, []).blocked.pressed).toBe(true);
+    expect(queryToolbarView(NO_QUERY).blocked).toEqual({ label: QUERY_WORDS.blocked, pressed: false });
+    expect(queryToolbarView({ blockedOnly: true, label: null }).blocked.pressed).toBe(true);
   });
 
-  it("offers every label the board carries after 'all', and hides the picker while there are none", () => {
-    expect(queryToolbarView(NO_QUERY, []).label).toBeNull();
-    const view = queryToolbarView(NO_QUERY, ["ui", "bell"]).label!;
-    expect(view.value).toBe(ANY_LABEL);
-    expect(view.options.map((o) => o.label)).toEqual([QUERY_WORDS.anyLabel, "ui", "bell"]);
+  it("shows the narrowing label as a chip that clears it — nothing while none narrows", () => {
+    expect(queryToolbarView(NO_QUERY).label).toBeNull();
+    expect(queryToolbarView({ blockedOnly: false, label: "ui" }).label).toEqual({
+      text: "label: ui",
+      clear: "Show every label, not only ui",
+    });
   });
 
-  it("keeps a picked label no task carries any more, so the control still says what narrows the view", () => {
-    const view = queryToolbarView({ blockedOnly: false, label: "gone" }, [])!.label!;
-    expect(view.value).toBe("gone");
-    expect(view.options.map((o) => o.value)).toEqual([ANY_LABEL, "gone"]);
-  });
-
-  it("reads a pick back into the query — 'all' clears it", () => {
+  it("narrows to a clicked label, and widens again on the same one or a clear", () => {
     expect(withLabel(NO_QUERY, "ui")).toEqual({ blockedOnly: false, label: "ui" });
-    expect(withLabel({ blockedOnly: true, label: "ui" }, ANY_LABEL)).toEqual({ blockedOnly: true, label: null });
+    expect(withLabel({ blockedOnly: true, label: "ui" }, "ui")).toEqual({ blockedOnly: true, label: null });
+    expect(withLabel({ blockedOnly: false, label: "ui" }, "bell")).toEqual({ blockedOnly: false, label: "bell" });
+    expect(withLabel({ blockedOnly: false, label: "ui" }, null)).toEqual({ blockedOnly: false, label: null });
   });
 });

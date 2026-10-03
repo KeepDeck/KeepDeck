@@ -9,6 +9,8 @@ import {
   listItemEstimate,
   listItemKey,
   listView,
+  rowStepOf,
+  stepRow,
   toggleFold,
   type ListItem,
 } from "./listView";
@@ -94,5 +96,23 @@ describe("listView — the board's tasks as one list", () => {
   it("dresses a heading in its status, folded or open", () => {
     expect(listHeadingClassName({ status: "review", folded: true })).toBe("tasks__group tasks__group--review tasks__group--folded");
     expect(listHeadingClassName({ status: "todo", folded: false })).toBe("tasks__group tasks__group--todo");
+  });
+});
+
+describe("stepRow — J and K walk the tasks", () => {
+  const items = listView(tasks, b, 0, NO_QUERY, new Set(), null);
+  it("starts at the first row, moves over headings, and stops at the ends", () => {
+    expect(stepRow(items, null, 1)).toBe("task-3");
+    expect(stepRow(items, "task-3", 1)).toBe("task-2");
+    expect(stepRow(items, "task-1", 1)).toBe("task-5");
+    expect(stepRow(items, "task-3", -1)).toBe("task-3");
+    expect(stepRow(items, "task-4", 1)).toBe("task-4");
+    expect(stepRow([], null, 1)).toBeNull();
+  });
+
+  it("reads j as down, k as up, anything else as no step", () => {
+    expect(rowStepOf("j")).toBe(1);
+    expect(rowStepOf("k")).toBe(-1);
+    expect(rowStepOf("J")).toBeNull();
   });
 });

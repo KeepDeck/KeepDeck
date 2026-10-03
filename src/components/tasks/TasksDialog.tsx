@@ -146,15 +146,10 @@ function WorkspaceBoard({
                 {board.filters.blocked.label}
               </Button>
               {board.filters.label && (
-                <Dropdown
-                  ariaLabel={board.filters.label.ariaLabel}
-                  className="tasks__label-filter"
-                  options={board.filters.label.options}
-                  value={board.filters.label.value}
-                  onChange={board.pickLabel}
-                />
-              )}
-              <Button
+                <Button size="sm" pressed label={board.filters.label.clear} onClick={() => board.pickLabel(null)}>
+                  {board.filters.label.text} ✕
+                </Button>
+              )}              <Button
                 size="sm"
                 variant="primary"
                 className="tasks__new"
@@ -213,7 +208,7 @@ function WorkspaceBoard({
             )}
             {view.body.main?.kind === "list" && (
               <div className="tasks__main tasks__main--list">
-                <TaskList items={board.listItems} onSelect={board.select} onFold={board.fold} />
+                <TaskList items={board.listItems} openId={board.detail?.id ?? null} onSelect={board.select} onFold={board.fold} onLabel={board.pickLabel} />
               </div>
             )}
             {panel}

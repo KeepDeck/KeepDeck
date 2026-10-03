@@ -11,7 +11,7 @@
  */
 import type { Task, TaskBoard, TaskStatus } from "../../domain/tasks";
 import { tasksInStatus, type TaskQuery } from "./queryView";
-import { taskCardView, type TaskCardView } from "./taskCardView";
+import { statusRing, taskCardView, type TaskCardView } from "./taskCardView";
 import { BOARD_ORDER, STATUS_LABEL } from "./words";
 
 export interface ListHeading {
@@ -21,6 +21,7 @@ export interface ListHeading {
   label: string;
   count: number;
   folded: boolean;
+  ringClassName: string;
 }
 
 export interface ListRow {
@@ -58,6 +59,7 @@ export function listView(
       label: STATUS_LABEL[status],
       count: shown.length,
       folded: isFolded,
+      ringClassName: statusRing(status).className,
     };
     if (isFolded) return [heading];
     return [heading, ...shown.map((task) => listRow(taskCardView(task, board, now), task.id === openId))];
@@ -118,4 +120,20 @@ function listRow(card: TaskCardView, open: boolean): ListRow {
       .filter(Boolean)
       .join(" "),
   };
+}
+
+/** The row J (down) or K (up) moves to from the open one — the first row
+ * when none is open, and no further than the ends. Headings are passed
+ * over: a key moves between tasks. */
+export function stepRow(items: readonly ListItem[], openId: string | null, step: 1 | -1): string | null {
+  const rows = items.filter((item): item is ListRow => item.kind === "row");
+  if (rows.length === 0) return null;
+  const at = rows.findIndex((row) => row.key === openId);
+  if (at < 0) return rows[0].key;
+  return rows[Math.min(Math.max(at + step, 0), rows.length - 1)].key;
+}
+
+/** The keys that walk the list, and which way. */
+export function rowStepOf(key: string): 1 | -1 | null {
+  return key === "j" ? 1 : key === "k" ? -1 : null;
 }
