@@ -28,6 +28,7 @@ import {
   armCard,
   assigneeOf,
   boardView,
+  listView,
   clickDisbelieved,
   initialScreen,
   moveCard,
@@ -46,6 +47,7 @@ import {
   type DragState,
   type ScreenAction,
   type TaskQuery,
+  type TrackerView,
 } from "../../presentation/tasks";
 
 export type { TasksAccess } from "../../app/tasks/tasksFeature";
@@ -205,7 +207,9 @@ export function useTasksBoard(
   const selected = focusedTask;
   const detail =
     selected && selected.teamId === teamId ? taskDetailView(selected, board!, roster, now, knownArtifacts) : null;
-  const columns = board ? boardView(teamTasks, board, now, query) : [];
+  const columns = board && screen.view === "board" ? boardView(teamTasks, board, now, query) : [];
+  const listItems =
+    board && screen.view === "list" ? listView(teamTasks, board, now, query, screen.folded, detail?.id ?? null) : [];
   const filters = queryToolbarView(query, board ? labelsOf({ tasks: teamTasks }) : []);
   const form = newTaskFormView(roster);
 
@@ -264,6 +268,10 @@ export function useTasksBoard(
     hoverColumn: (status: TaskStatus | null) => run({ type: "hover", status, dragging: dragRef.current.kind === "dragging" }),
     /** Released over a column. */
     dropOn: release,
+    view: screen.view,
+    setView: (view: TrackerView) => run({ type: "view", view }),
+    listItems,
+    fold: (status: TaskStatus) => run({ type: "fold", status }),
     filters,
     toggleBlocked: () => setQuery((q) => ({ ...q, blockedOnly: !q.blockedOnly })),
     pickLabel: (value: string) => setQuery((q) => withLabel(q, value)),

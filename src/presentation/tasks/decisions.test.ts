@@ -259,3 +259,24 @@ describe("settingsView", () => {
     expect(offWaitingHint(null)).toBeNull();
   });
 });
+
+describe("the screen's view and folds", () => {
+  it("opens on the board with the closed work folded in the list", () => {
+    expect(INITIAL_SCREEN.view).toBe("board");
+    expect([...INITIAL_SCREEN.folded].sort()).toEqual(["cancelled", "done"]);
+  });
+
+  it("switches views without touching the open task or the folds", () => {
+    const switched = screenReducer(INITIAL_SCREEN, { type: "view", view: "list" }, null);
+    expect(switched.state.view).toBe("list");
+    expect(switched.focus).toBeUndefined();
+    expect(switched.state.folded).toBe(INITIAL_SCREEN.folded);
+  });
+
+  it("folds and unfolds one group at a heading's toggle", () => {
+    const opened = screenReducer(INITIAL_SCREEN, { type: "fold", status: "done" }, null).state;
+    expect(opened.folded.has("done")).toBe(false);
+    expect(opened.folded.has("cancelled")).toBe(true);
+    expect(screenReducer(opened, { type: "fold", status: "done" }, null).state.folded.has("done")).toBe(true);
+  });
+});

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { board, task } from "../../domain/tasks/testSupport";
 import { boardView } from "./boardView";
+import type { TrackerView } from "./screenState";
 import { NO_QUERY } from "./queryView";
 import { IDLE, armCard, moveCard } from "./cardDrag";
 import { tasksDialogView } from "./dialogView";
@@ -21,6 +22,7 @@ const base = {
   composing: false,
   detailOpen: false,
   wide: false,
+  view: "board" as TrackerView,
 };
 const view = (over: Partial<typeof base> = {}) => tasksDialogView({ ...base, ...over });
 
@@ -31,6 +33,10 @@ describe("tasksDialogView", () => {
       toolbar: true,
       team: { kind: "pick", options: [{ value: "team-1", label: "api" }, { value: "team-2", label: "web" }], value: "team-1" },
       newTaskDisabled: false,
+      views: [
+        { view: "list", label: "List", pressed: false },
+        { view: "board", label: "Board", pressed: true },
+      ],
       body: { kind: "stage", main: { kind: "columns" } },
       panel: null,
       ghost: null,

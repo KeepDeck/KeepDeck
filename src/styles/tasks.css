@@ -363,6 +363,18 @@
 
 /* ── The list view: one windowed list, a heading per status ───────── */
 
+/* The list scrolls itself (it is the windowed list); the stage around it
+   must not scroll a second time. */
+.tasks__main--list {
+  overflow: hidden;
+}
+
+/* List | Board — the two views of the one set of tasks. */
+.tasks__views {
+  display: flex;
+  gap: 4px;
+}
+
 .tasks__list {
   flex: 1;
   min-height: 0;

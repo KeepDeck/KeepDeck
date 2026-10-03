@@ -158,6 +158,48 @@ describe("TasksDialog", () => {
     expect(titles()).toEqual(["Pooled work"]);
   });
 
+  it("shows the same tasks as a list: switched from the toolbar, grouped, folded, opened from a row", async () => {
+    const restoreList = pinListViewport("tasks__list", 600, 900, 34);
+    try {
+      const { service } = await seeded();
+      await service.apply("ws-1", "task-2", [{ kind: "status", to: "cancelled" }], USER_ACTOR);
+      const render = mount(service);
+      render();
+      await flush();
+      const view = (label: string) =>
+        Array.from(document.querySelectorAll<HTMLButtonElement>(".tasks__views button")).find((b) => b.textContent === label)!;
+      expect(view("Board").getAttribute("aria-pressed")).toBe("true");
+      act(() => view("List").click());
+      await flush();
+      expect(cards()).toEqual([]);
+      const rows = () => Array.from(document.querySelectorAll<HTMLButtonElement>(".tasks__row"));
+      const headings = () =>
+        Array.from(document.querySelectorAll<HTMLButtonElement>(".tasks__list-item .tasks__group")).map((h) => h.textContent);
+      // The closed work opens folded: Cancelled is a heading with its count, no rows.
+      expect(headings()).toEqual(["To do1", "Cancelled1"]);
+      expect(rows().map((r) => r.querySelector(".tasks__row-title")?.textContent)).toEqual(["Draft the skill"]);
+      act(() => Array.from(document.querySelectorAll<HTMLButtonElement>(".tasks__list-item .tasks__group"))[1].click());
+      await flush();
+      expect(rows().map((r) => r.querySelector(".tasks__row-title")?.textContent)).toEqual(["Draft the skill", "Pooled work"]);
+
+      // A row opens its task over the list; the list stays where it is.
+      act(() => rows()[0].click());
+      await flush();
+      render();
+      await flush();
+      expect(focus).toBe("task-1");
+      expect(text()).toContain("task-1 · by lead");
+      expect(rows()[0].getAttribute("aria-pressed")).toBe("true");
+      // The open task stays open across the switch back to the board.
+      act(() => view("Board").click());
+      await flush();
+      expect(cards().length).toBeGreaterThan(0);
+      expect(text()).toContain("task-1 · by lead");
+    } finally {
+      restoreList();
+    }
+  });
+
   it("creates a task from the form as the user and opens it", async () => {
     const { service } = await seeded();
     const render = mount(service);

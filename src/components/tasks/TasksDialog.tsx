@@ -11,6 +11,7 @@ import { BoardColumns } from "./BoardColumns";
 import { NewTaskForm } from "./NewTaskForm";
 import { TaskCard } from "./TaskCard";
 import { TaskDetail } from "./TaskDetail";
+import { TaskList } from "./TaskList";
 import { useTasksBoard, type TasksAccess } from "./useTasksBoard";
 
 interface TasksDialogProps {
@@ -76,6 +77,7 @@ function WorkspaceBoard({
     composing: board.composing,
     detailOpen: board.detail !== null,
     wide: board.wide,
+    view: board.view,
   });
   const panel =
     view.panel === "form" ? (
@@ -126,6 +128,13 @@ function WorkspaceBoard({
                 />
               )}
               {view.team.kind === "word" && <span className="tasks__team-name kd-one-line">{view.team.name}</span>}
+              <span className="tasks__views">
+                {view.views.map((choice) => (
+                  <Button key={choice.view} size="sm" pressed={choice.pressed} onClick={() => board.setView(choice.view)}>
+                    {choice.label}
+                  </Button>
+                ))}
+              </span>
               <Button
                 size="sm"
                 className="tasks__filter"
@@ -198,6 +207,11 @@ function WorkspaceBoard({
                   onHover={board.hoverColumn}
                   onDrop={board.dropOn}
                 />
+              </div>
+            )}
+            {view.body.main?.kind === "list" && (
+              <div className="tasks__main tasks__main--list">
+                <TaskList items={board.listItems} onSelect={board.select} onFold={board.fold} />
               </div>
             )}
             {panel}
