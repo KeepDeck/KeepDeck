@@ -558,7 +558,10 @@
   top: 0;
   right: 0;
   bottom: 0;
-  z-index: 2;
+  /* One, never more: a picker's menu opened from the card lands in the
+     modal's own layer at z-index 1, after the card in the DOM — a card
+     above 1 buries its own menus. */
+  z-index: 1;
   /* The width names the whole box, edges included. */
   box-sizing: border-box;
   width: min(440px, 100%);
