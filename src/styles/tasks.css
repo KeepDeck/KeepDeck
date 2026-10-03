@@ -750,14 +750,29 @@
   gap: 8px;
 }
 
-.tasks__log {
+/* The task's one timeline: comments, and the changes between them. */
+.tasks__feed {
   margin: 0;
   padding: 0;
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 6px;
+}
+
+.tasks__log {
   font-size: var(--kd-font-small);
+}
+
+/* A folded run of changes: its line opens it in place. */
+.tasks__feed-more summary {
+  color: var(--kd-text-3);
+  font-size: var(--kd-font-small);
+  cursor: pointer;
+}
+
+.tasks__feed-more[open] > .tasks__feed {
+  margin-top: 6px;
 }
 
 .tasks__log-who {

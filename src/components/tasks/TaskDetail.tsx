@@ -13,6 +13,7 @@ import {
   pickedStatus,
   taskDetailClassName,
   typeDraft,
+  type FeedChange,
   type TaskDetailView,
 } from "../../presentation/tasks";
 import { Button } from "../../ui/Button";
@@ -259,16 +260,33 @@ export function TaskDetail({
         </form>
       )}
 
-      <span className="tasks__section">{TASK_DETAIL_WORDS.thread}</span>
-      {view.threadEmpty && <p className="tasks__muted">{view.threadEmpty}</p>}
-      {view.thread.map((comment) => (
-        <div key={comment.n} className="tasks__comment">
-          <span className="tasks__comment-who">
-            {comment.who} · {comment.age}
-          </span>
-          <span className="tasks__comment-body kd-selectable">{comment.body}</span>
-        </div>
-      ))}
+      <span className="tasks__section">{TASK_DETAIL_WORDS.activity}</span>
+      {view.feedEmpty && <p className="tasks__muted">{view.feedEmpty}</p>}
+      <ul className="tasks__feed">
+        {view.feed.map((item) =>
+          item.kind === "comment" ? (
+            <li key={item.key} className="tasks__comment">
+              <span className="tasks__comment-who">
+                {item.who} · {item.age}
+              </span>
+              <span className="tasks__comment-body kd-selectable">{item.body}</span>
+            </li>
+          ) : item.kind === "change" ? (
+            <FeedChangeLine key={item.key} change={item} />
+          ) : (
+            <li key={item.key}>
+              <details className="tasks__feed-more">
+                <summary>{item.label}</summary>
+                <ul className="tasks__feed">
+                  {item.changes.map((change) => (
+                    <FeedChangeLine key={change.key} change={change} />
+                  ))}
+                </ul>
+              </details>
+            </li>
+          ),
+        )}
+      </ul>
       <textarea
         className="form__input tasks__composer"
         placeholder={TASK_DETAIL_WORDS.commentPlaceholder}
@@ -283,19 +301,15 @@ export function TaskDetail({
         </Button>
       </div>
 
-      {view.log.length > 0 && (
-        <>
-          <span className="tasks__section">{TASK_DETAIL_WORDS.log}</span>
-          <ul className="tasks__log">
-            {view.log.map((entry, i) => (
-              <li key={i}>
-                <span className="tasks__log-who">{entry.who}</span> <span className="tasks__log-text">{entry.text}</span>{" "}
-                <span className="tasks__log-age">· {entry.age}</span>
-              </li>
-            ))}
-          </ul>
-        </>
-      )}
     </aside>
+  );
+}
+
+function FeedChangeLine({ change }: { change: FeedChange }) {
+  return (
+    <li className="tasks__log">
+      <span className="tasks__log-who">{change.who}</span> <span className="tasks__log-text">{change.text}</span>{" "}
+      <span className="tasks__log-age">· {change.age}</span>
+    </li>
   );
 }
