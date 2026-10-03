@@ -129,19 +129,25 @@
   color: var(--kd-text-3);
 }
 
-.tasks__column-label--in-progress {
+/* A status's tint, one set for both of its headings: the board's column
+   and the list's group. */
+.tasks__column-label--in-progress,
+.tasks__group--in-progress .tasks__group-label {
   color: var(--status-working);
 }
 
-.tasks__column-label--review {
+.tasks__column-label--review,
+.tasks__group--review .tasks__group-label {
   color: var(--status-waiting);
 }
 
-.tasks__column-label--blocked {
+.tasks__column-label--blocked,
+.tasks__group--blocked .tasks__group-label {
   color: var(--status-failed);
 }
 
-.tasks__column-label--done {
+.tasks__column-label--done,
+.tasks__group--done .tasks__group-label {
   color: var(--status-done);
 }
 
@@ -416,22 +422,6 @@
 
 .tasks__group--folded::before {
   content: "▸";
-}
-
-.tasks__group--in-progress .tasks__group-label {
-  color: var(--status-working);
-}
-
-.tasks__group--review .tasks__group-label {
-  color: var(--status-waiting);
-}
-
-.tasks__group--blocked .tasks__group-label {
-  color: var(--status-failed);
-}
-
-.tasks__group--done .tasks__group-label {
-  color: var(--status-done);
 }
 
 /* A status with nothing in it: still named, so the six groups stand as
