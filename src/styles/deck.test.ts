@@ -98,7 +98,7 @@ describe("the status ring", () => {
     const ring = readStyles("progressRing.css");
     const pie = ruleBody(ring, ".progress-ring--pie::before");
     expect(pie.background).toMatch(/conic-gradient\(var\(--progress-ring-hue\) .*transparent 0\)/);
-    expect(pie["box-shadow"]).toBe("inset 0 0 0 1.5px var(--progress-ring-hue)");
+    expect(pie["box-shadow"]).toBe("inset 0 0 0 1px var(--progress-ring-hue)");
     expect(pie.mask).toBe("none");
   });
 
@@ -108,6 +108,10 @@ describe("the status ring", () => {
       /^--progress-ring-fill \d+ms ease-out,\s*--progress-ring-hue \d+ms ease-out$/,
     );
     expect(ruleBody(status, ".status-ring--barred::after").opacity).toBe("1");
+    // Each hue outranks the base's grey: the tones match at its specificity.
+    for (const tone of ["working", "waiting", "failed", "done"]) {
+      expect(ruleBody(status, `.progress-ring.status-ring--${tone}`)["--progress-ring-hue"]).toBe(`var(--status-${tone})`);
+    }
     expect(status).toMatch(/prefers-reduced-motion: reduce\)\s*\{\s*\.progress-ring\.status-ring,\s*\.status-ring::after\s*\{\s*transition: none/);
   });
 });

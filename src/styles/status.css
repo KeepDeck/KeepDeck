@@ -196,6 +196,9 @@
   flex: none;
 }
 
+/* The base names the quiet grey; each hue below matches at the same
+   specificity, after it, so a tone always wins (at a lower one the grey
+   took every ring). */
 .progress-ring.status-ring {
   --progress-ring-hue: var(--kd-text-3);
   width: 12px;
@@ -205,19 +208,19 @@
     --progress-ring-hue 300ms ease-out;
 }
 
-.status-ring--working {
+.progress-ring.status-ring--working {
   --progress-ring-hue: var(--status-working);
 }
 
-.status-ring--waiting {
+.progress-ring.status-ring--waiting {
   --progress-ring-hue: var(--status-waiting);
 }
 
-.status-ring--failed {
+.progress-ring.status-ring--failed {
   --progress-ring-hue: var(--status-failed);
 }
 
-.status-ring--done {
+.progress-ring.status-ring--done {
   --progress-ring-hue: var(--status-done);
 }
 

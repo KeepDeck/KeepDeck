@@ -59,7 +59,9 @@
    no band cut by a mask. The fill and the hue ease exactly as the ring's. */
 .progress-ring--pie::before {
   background: conic-gradient(var(--progress-ring-hue) calc(var(--progress-ring-fill) * 1%), transparent 0);
-  box-shadow: inset 0 0 0 1.5px var(--progress-ring-hue);
+  /* A whole pixel: at 1.5 a ×1 display smears the outline unevenly round
+     the circle. */
+  box-shadow: inset 0 0 0 1px var(--progress-ring-hue);
   -webkit-mask: none;
   mask: none;
 }
