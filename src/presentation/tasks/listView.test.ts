@@ -36,25 +36,39 @@ describe("listView — the board's tasks as one list", () => {
       "head:todo",
       "task-2",
       "task-1",
+      "head:in-progress",
       "head:review",
       "task-5",
       "head:done",
       "task-4",
+      "head:cancelled",
     ]);
-    // The same left-to-right as the board: switching views moves nothing.
+    // The same six groups, left to right, as the board's columns.
     const heads = listView(tasks, b, 0, NO_QUERY, NONE, null).filter((i) => i.kind === "head");
-    expect(heads.map((h) => h.kind === "head" && h.status)).toEqual(BOARD_ORDER.filter((s) => s !== "in-progress" && s !== "cancelled"));
+    expect(heads.map((h) => h.kind === "head" && h.status)).toEqual([...BOARD_ORDER]);
   });
 
-  it("gives no heading to a status the query leaves empty, and counts what it shows", () => {
+  it("heads every status even when the query leaves it empty, counting what it shows", () => {
     const items = listView(tasks, b, 0, { blockedOnly: false, label: "ui" }, NONE, null);
-    expect(keys(items)).toEqual(["head:review", "task-5"]);
-    expect(items[0]).toMatchObject({ kind: "head", label: "Review", count: 1, folded: false });
+    expect(keys(items)).toEqual(["head:blocked", "head:todo", "head:in-progress", "head:review", "task-5", "head:done", "head:cancelled"]);
+    expect(items[3]).toMatchObject({ kind: "head", label: "Review", count: 1, folded: false });
+    expect(items[0]).toMatchObject({ kind: "head", count: 0 });
+    expect(listHeadingClassName(items[0] as never)).toContain("tasks__group--empty");
   });
 
   it("folds a group to its heading alone — the heading stays, with the count of what it hides", () => {
     const items = listView(tasks, b, 0, NO_QUERY, new Set(["todo"]), null);
-    expect(keys(items)).toEqual(["head:blocked", "task-3", "head:todo", "head:review", "task-5", "head:done", "task-4"]);
+    expect(keys(items)).toEqual([
+      "head:blocked",
+      "task-3",
+      "head:todo",
+      "head:in-progress",
+      "head:review",
+      "task-5",
+      "head:done",
+      "task-4",
+      "head:cancelled",
+    ]);
     expect(items[2]).toMatchObject({ kind: "head", count: 2, folded: true });
   });
 
@@ -82,8 +96,8 @@ describe("listView — the board's tasks as one list", () => {
     const items = listView(tasks, b, 0, NO_QUERY, NONE, null);
     expect(headingOf(items, 0)?.status).toBe("blocked");
     expect(headingOf(items, 4)?.status).toBe("todo");
-    expect(headingOf(items, 5)?.status).toBe("review");
-    expect(headingOf(items, 99)?.status).toBe("done");
+    expect(headingOf(items, 5)?.status).toBe("in-progress");
+    expect(headingOf(items, 99)?.status).toBe("cancelled");
     expect(headingOf([], 0)).toBeNull();
   });
 
@@ -94,8 +108,9 @@ describe("listView — the board's tasks as one list", () => {
   });
 
   it("dresses a heading in its status, folded or open", () => {
-    expect(listHeadingClassName({ status: "review", folded: true })).toBe("tasks__group tasks__group--review tasks__group--folded");
-    expect(listHeadingClassName({ status: "todo", folded: false })).toBe("tasks__group tasks__group--todo");
+    expect(listHeadingClassName({ status: "review", folded: true, count: 2 })).toBe("tasks__group tasks__group--review tasks__group--folded");
+    expect(listHeadingClassName({ status: "todo", folded: false, count: 1 })).toBe("tasks__group tasks__group--todo");
+    expect(listHeadingClassName({ status: "todo", folded: false, count: 0 })).toBe("tasks__group tasks__group--todo tasks__group--empty");
   });
 });
 

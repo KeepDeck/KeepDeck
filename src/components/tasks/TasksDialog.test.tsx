@@ -190,10 +190,11 @@ describe("TasksDialog", () => {
       const open = (row: HTMLElement) => row.querySelector<HTMLButtonElement>(".tasks__row-open")!;
       const headings = () =>
         Array.from(document.querySelectorAll<HTMLButtonElement>(".tasks__list-item .tasks__group")).map((h) => h.textContent);
-      // The closed work opens folded: Cancelled is a heading with its count, no rows.
-      expect(headings()).toEqual(["To do1", "Cancelled1"]);
+      // All six groups stand, as the board's columns do; the closed work
+      // opens folded — Cancelled is a heading with its count, no rows.
+      expect(headings()).toEqual(["Blocked0", "To do1", "In progress0", "Review0", "Done0", "Cancelled1"]);
       expect(rows().map((r) => r.querySelector(".tasks__row-title")?.textContent)).toEqual(["Draft the skill"]);
-      act(() => Array.from(document.querySelectorAll<HTMLButtonElement>(".tasks__list-item .tasks__group"))[1].click());
+      act(() => Array.from(document.querySelectorAll<HTMLButtonElement>(".tasks__list-item .tasks__group"))[5].click());
       await flush();
       expect(rows().map((r) => r.querySelector(".tasks__row-title")?.textContent)).toEqual(["Draft the skill", "Pooled work"]);
 

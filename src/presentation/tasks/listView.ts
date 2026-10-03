@@ -38,8 +38,9 @@ export type ListItem = ListHeading | ListRow;
 /** What a list opens with folded: the closed work, which only grows. */
 export const FOLDED_AT_OPEN: ReadonlySet<TaskStatus> = new Set<TaskStatus>(["done", "cancelled"]);
 
-/** The list's items. A status the query leaves empty has no heading —
- * nothing to fold or open. */
+/** The list's items: every status's heading, always — the same six groups
+ * as the board's six columns, an empty one with its 0 — and the rows of
+ * each open group. */
 export function listView(
   tasks: readonly Task[],
   board: TaskBoard,
@@ -50,7 +51,6 @@ export function listView(
 ): ListItem[] {
   return BOARD_ORDER.flatMap((status): ListItem[] => {
     const shown = tasksInStatus(tasks, status, query);
-    if (shown.length === 0) return [];
     const isFolded = folded.has(status);
     const heading: ListHeading = {
       kind: "head",
@@ -99,11 +99,12 @@ export function toggleFold(folded: ReadonlySet<TaskStatus>, status: TaskStatus):
 }
 
 /** A heading's classes: its status's hue, and folded or open. */
-export function listHeadingClassName(heading: Pick<ListHeading, "status" | "folded">): string {
+export function listHeadingClassName(heading: Pick<ListHeading, "status" | "folded" | "count">): string {
   return [
     "tasks__group",
     `tasks__group--${heading.status}`,
     heading.folded && "tasks__group--folded",
+    heading.count === 0 && "tasks__group--empty",
   ]
     .filter(Boolean)
     .join(" ");

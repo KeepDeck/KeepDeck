@@ -423,6 +423,20 @@
   color: var(--status-done);
 }
 
+/* A status with nothing in it: still named, so the six groups stand as
+   the board's six columns do — quieter. */
+.tasks__group--empty {
+  color: var(--kd-text-3);
+}
+
+.tasks__group--empty .tasks__group-label {
+  color: var(--kd-text-3);
+}
+
+.tasks__group--empty .tasks__ring {
+  opacity: 0.5;
+}
+
 .tasks__group-count {
   color: var(--kd-text-3);
   font-weight: 500;
