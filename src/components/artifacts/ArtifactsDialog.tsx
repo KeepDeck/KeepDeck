@@ -15,6 +15,7 @@ import {
   type PlaceholderView,
 } from "../../presentation/artifacts/view";
 import { VirtualList } from "@keepdeck/ui-kit/VirtualList";
+import { RemoveButton } from "../../ui/RemoveButton";
 
 interface ArtifactsDialogProps {
   /** The workspace whose artifacts these are; `null` when no workspace is
@@ -167,15 +168,7 @@ export function ArtifactsDialog({
                         The header's shared close glyph means "close this
                         surface" and must not come to mean "destroy this
                         thing". */}
-                    <button
-                      type="button"
-                      className="artifacts__remove"
-                      title="Delete artifact"
-                      aria-label={item.deleteLabel}
-                      onClick={() => registry.requestDelete(row.id)}
-                    >
-                      ×
-                    </button>
+                    <RemoveButton label={item.deleteLabel} onClick={() => registry.requestDelete(row.id)} />
                   </div>
                 </div>
                 {/* The history sits UNDER its row and outside the row's

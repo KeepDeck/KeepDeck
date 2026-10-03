@@ -211,6 +211,40 @@ input[type="number"]::-webkit-outer-spin-button {
   color: var(--kd-text-2);
 }
 
+/* RemoveButton: the row's small text × — take this one thing off. Quiet at
+   rest (a mark, not text to read); under the pointer or the keyboard it
+   says what it does in the failed hue's tint. It was spelled four times:
+   artifacts, tasks (twice), a plugin setting's list. */
+.ui-remove {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--kd-radius-mark);
+  background: transparent;
+  color: var(--kd-text-4);
+  font: inherit;
+  font-size: var(--kd-font-normal);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ui-remove:hover,
+.ui-remove:focus-visible {
+  background-color: var(--kd-err-tint);
+  color: var(--kd-err-strong);
+  outline: none;
+}
+
+.ui-remove--sm {
+  width: 16px;
+  height: 16px;
+}
+
 /* The floating label that follows the cursor while dragging a file (from the
    Files plugin tree) toward a pane's terminal — see src/app/usePaneDrag.ts.
    Positioned via `transform`; pointer-events: none so it never blocks the drop

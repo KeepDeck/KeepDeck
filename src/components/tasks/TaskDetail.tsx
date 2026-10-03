@@ -19,6 +19,7 @@ import {
 import { Button } from "../../ui/Button";
 import { TipButton } from "../../ui/TipButton";
 import { CloseIcon, MaximizeIcon, RestoreIcon } from "@keepdeck/ui-kit/icons";
+import { RemoveButton } from "../../ui/RemoveButton";
 
 interface TaskDetailProps {
   view: TaskDetailView;
@@ -161,15 +162,7 @@ export function TaskDetail({
             {view.labels.map((item) => (
               <span key={item.label} className="tasks__label tasks__label--edit">
                 {item.label}
-                <button
-                  type="button"
-                  className="tasks__remove"
-                  aria-label={item.removeLabel}
-                  title={item.removeLabel}
-                  onClick={() => onUnlabel(view.id, item.label)}
-                >
-                  ×
-                </button>
+                <RemoveButton size="sm" label={item.removeLabel} onClick={() => onUnlabel(view.id, item.label)} />
               </span>
             ))}
             {view.labelsFull ? (
@@ -240,15 +233,7 @@ export function TaskDetail({
                 >
                   {artifact.title}
                 </button>
-                <button
-                  type="button"
-                  className="tasks__remove"
-                  aria-label={artifact.detachLabel}
-                  title={TASK_DETAIL_WORDS.detach}
-                  onClick={() => onDetach(view.id, artifact.slug)}
-                >
-                  ×
-                </button>
+                <RemoveButton label={artifact.detachLabel} onClick={() => onDetach(view.id, artifact.slug)} />
               </span>
             ))}
             {view.attachOptions.length > 0 ? (

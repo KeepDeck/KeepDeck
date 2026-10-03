@@ -227,28 +227,3 @@
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-
-/* The row-level delete: a small text ×, the idiom the journal rows already use. Always present rather than revealed on
-   hover — a control that appears only under a pointer cannot be reached
-   by a Tab at all. */
-.artifacts__remove {
-  display: inline-flex;
-  width: 20px;
-  height: 20px;
-  align-items: center;
-  justify-content: center;
-  border: 0;
-  border-radius: var(--kd-radius-mark);
-  background: transparent;
-  color: var(--kd-text-4);
-  font-size: var(--kd-font-normal);
-  line-height: 1;
-  cursor: pointer;
-}
-
-.artifacts__remove:hover,
-.artifacts__remove:focus-visible {
-  background-color: var(--kd-err-tint);
-  color: var(--kd-err-strong);
-  outline: none;
-}

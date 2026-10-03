@@ -352,11 +352,6 @@
   padding-right: 0;
 }
 
-.tasks__label--edit .tasks__remove {
-  width: 16px;
-  height: 16px;
-}
-
 .tasks__label-add {
   display: inline-flex;
 }
@@ -868,28 +863,6 @@
 .tasks__link:disabled {
   color: var(--kd-text-4);
   cursor: default;
-}
-
-/* The row-level detach: the small text × the artifacts registry uses. */
-.tasks__remove {
-  display: inline-flex;
-  flex: none;
-  width: 20px;
-  height: 20px;
-  align-items: center;
-  justify-content: center;
-  border: 0;
-  border-radius: var(--kd-radius-mark);
-  background: transparent;
-  color: var(--kd-text-4);
-  font-size: var(--kd-font-normal);
-  line-height: 1;
-  cursor: pointer;
-}
-
-.tasks__remove:hover {
-  background-color: var(--kd-err-tint);
-  color: var(--kd-err-strong);
 }
 
 /* What was said: a tile in the timeline. */

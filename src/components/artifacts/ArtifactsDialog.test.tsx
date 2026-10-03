@@ -154,7 +154,7 @@ describe("ArtifactsDialog", () => {
 
     act(() =>
       rowsOnScreen()[0]
-        ?.querySelector<HTMLButtonElement>(".artifacts__remove")
+        ?.querySelector<HTMLButtonElement>(".ui-remove")
         ?.click(),
     );
 
