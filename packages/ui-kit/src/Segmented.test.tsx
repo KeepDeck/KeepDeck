@@ -69,7 +69,7 @@ describe("Segmented", () => {
     expect(radios().every((r) => r.disabled)).toBe(true);
   });
 
-  it("is one Tab stop — the chosen option — and arrows move the choice, past what is disabled", () => {
+  it("is one Tab stop — the chosen option; arrows move the focus, and only Space or Enter chooses", () => {
     const onChange = vi.fn();
     act(() =>
       root.render(
@@ -86,15 +86,23 @@ describe("Segmented", () => {
       ),
     );
     expect(radios().map((r) => r.tabIndex)).toEqual([0, -1, -1]);
-    const press = (key: string) => {
+    const press = (at: number, key: string) => {
       const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
-      act(() => void radios()[0].dispatchEvent(event));
+      act(() => void radios()[at].dispatchEvent(event));
       return event.defaultPrevented;
     };
-    expect(press("ArrowRight")).toBe(true);
-    expect(onChange).toHaveBeenLastCalledWith("low");
+    expect(press(0, "ArrowRight")).toBe(true);
     expect(document.activeElement).toBe(radios()[2]);
-    expect(press("a")).toBe(false);
+    // A stray arrow chose nothing — a choice here may close pages.
+    expect(onChange).not.toHaveBeenCalled();
+    expect(press(2, "ArrowLeft")).toBe(true);
+    expect(document.activeElement).toBe(radios()[0]);
+    expect(press(0, "End")).toBe(true);
+    expect(document.activeElement).toBe(radios()[2]);
+    // Up and Down are the page's: they scroll it.
+    expect(press(2, "ArrowDown")).toBe(false);
+    act(() => radios()[2].click());
+    expect(onChange).toHaveBeenLastCalledWith("low");
   });
 });
 
@@ -102,9 +110,10 @@ describe("segmentStep", () => {
   const none = [false, false, false];
   it("steps either way, wrapping, past disabled options; Home and End go to the ends", () => {
     expect(segmentStep("ArrowRight", 0, none)).toBe(1);
-    expect(segmentStep("ArrowDown", 2, none)).toBe(0);
+    expect(segmentStep("ArrowRight", 2, none)).toBe(0);
     expect(segmentStep("ArrowLeft", 0, none)).toBe(2);
-    expect(segmentStep("ArrowUp", 1, none)).toBe(0);
+    expect(segmentStep("ArrowLeft", 1, none)).toBe(0);
+    expect(segmentStep("ArrowLeft", 2, [false, true, false])).toBe(0);
     expect(segmentStep("ArrowRight", 0, [false, true, false])).toBe(2);
     expect(segmentStep("Home", 2, none)).toBe(0);
     expect(segmentStep("End", 0, none)).toBe(2);
@@ -113,6 +122,8 @@ describe("segmentStep", () => {
 
   it("goes nowhere for another key, or when nothing else may be chosen", () => {
     expect(segmentStep("Enter", 0, none)).toBeNull();
+    expect(segmentStep("ArrowDown", 0, none)).toBeNull();
+    expect(segmentStep("ArrowUp", 1, none)).toBeNull();
     expect(segmentStep("ArrowRight", 0, [false, true, true])).toBeNull();
     expect(segmentStep("Home", 0, none)).toBeNull();
   });

@@ -35,16 +35,17 @@ function optionClass(size: "md" | "sm", checked: boolean): string {
   return checked ? "form__type form__type--active" : "form__type";
 }
 
-/** The option an arrow key moves to from `from`: the next (or previous)
- * one that is not disabled, wrapping; Home and End go to the ends. Null for
- * any other key, or when nothing else may be chosen. */
+/** The option an arrow key moves the focus to from `from`: the next (or
+ * previous) one that is not disabled, wrapping; Home and End go to the
+ * ends. Only the row's own axis — Up and Down stay the page's, to scroll
+ * it. Null for any other key, or when nowhere else may be reached. */
 export function segmentStep(
   key: string,
   from: number,
   disabled: readonly boolean[],
 ): number | null {
   const count = disabled.length;
-  const step = key === "ArrowRight" || key === "ArrowDown" ? 1 : key === "ArrowLeft" || key === "ArrowUp" ? -1 : 0;
+  const step = key === "ArrowRight" ? 1 : key === "ArrowLeft" ? -1 : 0;
   const start = key === "Home" ? -1 : key === "End" ? count : step === 0 ? null : from;
   if (start === null) return null;
   const direction = key === "End" ? -1 : key === "Home" ? 1 : step;
@@ -58,9 +59,11 @@ export function segmentStep(
 /**
  * One of a few, side by side — the deck's choice row: a row of buttons,
  * the chosen one a light plate with dark text (form.css .form__type). A
- * radiogroup by the house's radio manners: ONE Tab stop (the checked
- * option, or the first that may be chosen), arrows move the choice along
- * it, and pressing the option already chosen changes nothing.
+ * radiogroup with ONE Tab stop (the checked option, or the first that may
+ * be chosen). Arrows move the focus along the row; Space or Enter chooses
+ * — never an arrow alone: a choice here can close pages or free storage,
+ * and a stray arrow must not make it. Pressing the option already chosen
+ * changes nothing.
  */
 export function Segmented<V>({
   options,
@@ -72,6 +75,8 @@ export function Segmented<V>({
   className,
 }: SegmentedProps<V>) {
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
+  // One slot per option, never a stale one past the end.
+  refs.current.length = options.length;
   const off = options.map((option) => disabled || Boolean(option.disabled));
   const checkedAt = options.findIndex((option) => option.value === value);
   const tabStop = checkedAt >= 0 && !off[checkedAt] ? checkedAt : off.indexOf(false);
@@ -83,7 +88,6 @@ export function Segmented<V>({
     if (to === null) return;
     event.preventDefault();
     refs.current[to]?.focus();
-    choose(to);
   };
   return (
     <div
