@@ -58,7 +58,7 @@ export interface ChoiceView {
 }
 
 /** The priority picker's options — the ONE list both forms offer. */
-export function priorityChoices(): ChoiceView[] {
+export function priorityChoices(): (ChoiceView & { value: TaskPriority })[] {
   return TASK_PRIORITIES.map((value) => ({ value, label: PRIORITY_LABEL[value] }));
 }
 

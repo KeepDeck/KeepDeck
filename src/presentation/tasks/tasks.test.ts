@@ -3,7 +3,7 @@ import { board, task } from "../../domain/tasks/testSupport";
 import { boardView, columnLabelClassName } from "./boardView";
 import { NO_QUERY } from "./queryView";
 import { LADDER_WORDS, tasksLadder } from "./ladderView";
-import { newTaskFormView, NEW_TASK_WORDS, priorityChoiceClassName } from "./newTaskFormView";
+import { newTaskFormView, NEW_TASK_WORDS } from "./newTaskFormView";
 import { roleInitials, statusRing, taskCardView, taskCardClassName } from "./taskCardView";
 import { TASK_DETAIL_WORDS, feedOf, pickedArtifact, pickedStatus, taskDetailClassName, taskDetailView } from "./taskDetailView";
 import { teamCardTasksLine } from "./teamCardTasksLine";
@@ -126,9 +126,7 @@ describe("task panel and form words and classes", () => {
     expect(pickedArtifact("kd-a")).toBe("kd-a");
   });
 
-  it("lights the picked priority and names the form's own buttons", () => {
-    expect(priorityChoiceClassName(true)).toBe("form__type form__type--active");
-    expect(priorityChoiceClassName(false)).toBe("form__type");
+  it("names the form's own buttons", () => {
     expect([NEW_TASK_WORDS.panel, NEW_TASK_WORDS.cancel, NEW_TASK_WORDS.create]).toEqual(["New task", "Cancel", "Create task"]);
   });
 });

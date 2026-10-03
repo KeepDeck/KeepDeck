@@ -310,7 +310,7 @@ export function TaskDetail({
           <div className="tasks__composer-row">
           <textarea
             rows={1}
-            className="form__input tasks__composer"
+            className="form__input tasks__comment-input"
             placeholder={TASK_DETAIL_WORDS.commentPlaceholder}
             aria-label={TASK_DETAIL_WORDS.comment}
             value={composer.draft}

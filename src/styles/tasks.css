@@ -886,7 +886,14 @@
   gap: 8px;
 }
 
+/* The new task's brief: room to write one. */
 .tasks__composer {
+  min-height: 56px;
+  resize: vertical;
+}
+
+/* A comment: one line until there is more to say. */
+.tasks__comment-input {
   flex: 1;
   min-width: 0;
   height: 34px;
