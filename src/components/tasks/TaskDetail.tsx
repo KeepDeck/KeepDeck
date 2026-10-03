@@ -120,7 +120,7 @@ export function TaskDetail({
                 const to = pickedStatus(view.status, value);
                 if (to !== null) onMove(view.id, to);
               }}
-              className="tasks__pick"
+              variant="inline"
             />
           </dd>
           <dt className="tasks__prop-label">{FIELD_WORDS.assignee}</dt>
@@ -142,7 +142,7 @@ export function TaskDetail({
               }))}
               value={view.assignee}
               onChange={(value) => onAssign(view.id, value)}
-              className="tasks__pick"
+              variant="inline"
             />
           </dd>
           <dt className="tasks__prop-label">{FIELD_WORDS.priority}</dt>
@@ -152,7 +152,7 @@ export function TaskDetail({
               options={view.priorityOptions}
               value={view.priority}
               onChange={(value) => onPriority(view.id, value as TaskPriority)}
-              className="tasks__pick"
+              variant="inline"
             />
           </dd>
 
@@ -260,7 +260,8 @@ export function TaskDetail({
                   const slug = pickedArtifact(picked);
                   if (slug !== null) onAttach(view.id, slug);
                 }}
-                className="tasks__pick tasks__pick--attach"
+                variant="inline"
+                className="tasks__pick--attach"
               />
             ) : (
               view.attachEmpty && (

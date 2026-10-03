@@ -18,6 +18,11 @@ interface DropdownProps {
   ariaLabel: string;
   /** Extra class on the wrapper (layout belongs to the call site). */
   className?: string;
+  /** `field` (default): a form field the width of its column. `inline`: a
+   *  value in a line of text — a property list's "To do ▾" — as wide as
+   *  its words, its menu as wide as its options rather than as the narrow
+   *  value that opened it. */
+  variant?: "field" | "inline";
 }
 
 /**
@@ -34,6 +39,7 @@ export function Dropdown({
   onChange,
   ariaLabel,
   className,
+  variant = "field",
 }: DropdownProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -54,7 +60,7 @@ export function Dropdown({
   return (
     <div
       ref={rootRef}
-      className={`dropdown${className ? ` ${className}` : ""}`}
+      className={`dropdown${variant === "inline" ? " dropdown--inline" : ""}${className ? ` ${className}` : ""}`}
       onKeyDown={(e) => {
         // Local, not a window listener: the dropdown owns Escape only while
         // focus is inside it, so modal layers keep their own Esc semantics.
@@ -87,6 +93,7 @@ export function Dropdown({
           listRef={menuRef}
           id={listId}
           aria-label={ariaLabel}
+          widthFrom={variant === "inline" ? "content" : "anchor"}
         >
           {options.map((o) => (
             <li key={o.value}>

@@ -543,6 +543,39 @@
   white-space: nowrap;
 }
 
+/* The inline variant: a value in a line of text, not a field — as wide as
+   its words, framed only under the pointer. Its own inset hangs left of
+   the line, so a picked value starts where plain text beside it does. Its
+   menu takes the options' width (FloatingListbox widthFrom="content"). */
+.dropdown--inline {
+  display: inline-flex;
+  max-width: 100%;
+}
+
+.dropdown--inline .dropdown__button {
+  width: auto;
+  max-width: 100%;
+  margin-left: -6px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  background-color: transparent;
+  color: var(--kd-text);
+  line-height: 22px;
+}
+
+.dropdown--inline .dropdown__button:hover {
+  background-color: var(--kd-hover);
+}
+
+.dropdown--inline .dropdown__label {
+  flex: none;
+}
+
+.dropdown--inline .dropdown__button svg {
+  width: 10px;
+  height: 10px;
+}
+
 .dropdown__menu {
   margin: 0;
   padding: 4px;

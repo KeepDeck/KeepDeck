@@ -710,41 +710,6 @@
   background-color: var(--kd-text-3);
 }
 
-/* The card's properties are values first, pickers second: a value reads
-   as text, and only on hover says it can be changed. */
-.tasks__props .dropdown {
-  display: inline-flex;
-  max-width: 100%;
-}
-
-/* The picker's own inset hangs left of the column, so a picked value starts
-   where a plain one does. */
-.tasks__props .dropdown__button {
-  width: auto;
-  max-width: 100%;
-  margin-left: -6px;
-  padding: 0 6px;
-  line-height: 22px;
-  border-color: transparent;
-  background-color: transparent;
-  color: var(--kd-text);
-  font-size: var(--kd-font-normal);
-}
-
-.tasks__props .dropdown__button:hover {
-  background-color: var(--kd-hover);
-}
-
-/* A picked value is never cut: the button is as wide as its words. */
-.tasks__props .dropdown__label {
-  flex: none;
-}
-
-.tasks__props .dropdown__button svg {
-  width: 10px;
-  height: 10px;
-}
-
 /* An assignee's mark beside its name. */
 .tasks__avatar {
   display: inline-grid;
@@ -811,6 +776,14 @@
   font-size: var(--kd-font-small);
 }
 
+/* The new-task form's pickers: fields, the width of their column. */
+.tasks__pick .dropdown__button {
+  width: 100%;
+  padding: 6px 10px;
+  font-size: var(--kd-font-normal);
+}
+
+/* "Attach an artifact…": an offer, quieter than a value. */
 .tasks__pick--attach .dropdown__button {
   color: var(--kd-text-3);
   font-size: var(--kd-font-small);
