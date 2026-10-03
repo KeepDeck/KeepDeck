@@ -72,9 +72,11 @@ export function TaskList({ items, openId, onSelect, onFold, onLabel }: TaskListP
               </button>
             ))}
             <span className="tasks__row-who">
-              <span className="tasks__avatar" aria-hidden>
-                {item.card.initials}
-              </span>
+              {item.card.initials && (
+                <span className="tasks__avatar" aria-hidden>
+                  {item.card.initials}
+                </span>
+              )}
               {item.card.assignee}
             </span>
             <span className="tasks__row-age">{item.card.age}</span>

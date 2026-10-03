@@ -37,7 +37,7 @@ describe("TaskList", () => {
     expect(rows.map((r) => r.querySelector(".tasks__row-title")?.textContent)).toEqual(["Wire", "Draft"]);
     expect(rows[1].querySelector(".tasks__label")?.textContent).toBe("copy");
     expect(rows[0].querySelector(".tasks__chip--blocking")?.textContent).toBe("task-1");
-    expect(rows[0].querySelector(".tasks__row-who")?.textContent).toBe("—pool");
+    expect(rows[0].querySelector(".tasks__row-who")?.textContent).toBe("pool");
     expect(rows[1].querySelector(".tasks__row-open")?.getAttribute("aria-pressed")).toBe("true");
     // The pinned heading names the group of the first row in view.
     expect(host.querySelector(".tasks__list-pinned .tasks__group-label")?.textContent).toBe("Blocked");

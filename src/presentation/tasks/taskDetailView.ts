@@ -48,7 +48,7 @@ export interface TaskDetailView {
   /** The pool first, then the roster — and the current assignee even off
    * the roster, so the control can show what the task says. */
   assignee: string;
-  assigneeOptions: (ChoiceView & { initials: string })[];
+  assigneeOptions: (ChoiceView & { initials: string | null })[];
   priorityOptions: ChoiceView[];
   /** What the status picker offers: where the task stands, then where the
    * PERSON may move it — the transition table's answer, in ladder order,

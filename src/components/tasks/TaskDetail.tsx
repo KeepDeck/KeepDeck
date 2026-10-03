@@ -131,9 +131,11 @@ export function TaskDetail({
                 value: option.value,
                 label: (
                   <>
-                    <span className="tasks__avatar" aria-hidden>
-                      {option.initials}
-                    </span>
+                    {option.initials && (
+                      <span className="tasks__avatar" aria-hidden>
+                        {option.initials}
+                      </span>
+                    )}
                     {option.label}
                   </>
                 ),

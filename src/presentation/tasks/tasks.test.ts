@@ -56,7 +56,7 @@ describe("taskCardView", () => {
       cancelled: false,
       labels: [],
       assignee: "pool",
-      initials: "—",
+      initials: null,
       age: "2m ago",
       ring: { className: "tasks__ring tasks__ring--todo", label: "To do" },
     });
@@ -112,7 +112,7 @@ describe("task panel and form words and classes", () => {
     const detail = taskDetailView(b.tasks[0], b, ["lead"], NOW, [{ id: "kd-a", title: "A" }]);
     expect(newTaskFormView(["lead"]).assigneeOptions[0]).toBe(POOL_CHOICE);
     // The same words, with the pool's mark beside them.
-    expect(detail.assigneeOptions[0]).toEqual({ ...POOL_CHOICE, initials: "—" });
+    expect(detail.assigneeOptions[0]).toEqual({ ...POOL_CHOICE, initials: null });
     expect(FIELD_WORDS).toEqual({ title: "Title", brief: "Brief", status: "Status", priority: "Priority", assignee: "Assignee" });
     // The detach tooltip and its accessible label say the same word.
     expect(detail.artifacts[0].detachLabel).toBe(`${TASK_DETAIL_WORDS.detach} kd-a`);
@@ -345,10 +345,10 @@ describe("feedOf — a task's history as one timeline", () => {
 });
 
 describe("roleInitials", () => {
-  it("is a role's kind and number, or its first two letters; a dash for the pool", () => {
+  it("is a role's kind and number, or its first two letters; none for the pool", () => {
     expect(roleInitials("analyst-2")).toBe("A2");
     expect(roleInitials("reviewer-12")).toBe("R12");
     expect(roleInitials("lead")).toBe("LE");
-    expect(roleInitials(null)).toBe("—");
+    expect(roleInitials(null)).toBeNull();
   });
 });

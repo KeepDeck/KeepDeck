@@ -555,13 +555,13 @@
    Expanded, it spans the stage. */
 .tasks__detail {
   position: absolute;
-  top: 10px;
-  right: 10px;
-  bottom: 10px;
+  top: 0;
+  right: 0;
+  bottom: 0;
   z-index: 2;
   /* The width names the whole box, edges included. */
   box-sizing: border-box;
-  width: min(440px, calc(100% - 20px));
+  width: min(440px, 100%);
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -571,7 +571,7 @@
 }
 
 .tasks__detail--wide {
-  left: 10px;
+  left: 0;
   width: auto;
 }
 
@@ -730,6 +730,11 @@
 
 .tasks__props .dropdown__button:hover {
   background-color: var(--kd-hover);
+}
+
+/* A picked value is never cut: the button is as wide as its words. */
+.tasks__props .dropdown__label {
+  flex: none;
 }
 
 .tasks__props .dropdown__button svg {
