@@ -165,7 +165,7 @@ describe("taskDetailView", () => {
     expect(view.meta).toBe("task-2 · To do · by you · updated 1m ago");
     expect(view.statusRing).toEqual(statusRing("todo"));
     expect(view.blockers).toEqual([
-      { id: "task-1", text: "task-1 · in progress", resolved: false, className: "tasks__chip tasks__chip--blocking" },
+      { id: "task-1", text: "task-1 · in progress", resolved: false, className: "kd-tag kd-tag--outline tasks__tag--blocking" },
     ]);
     expect(view.blockersEmpty).toBeNull();
     expect(view.unblocks).toEqual([{ id: "task-3", title: "Task task-3" }]);

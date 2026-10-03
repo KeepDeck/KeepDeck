@@ -149,11 +149,11 @@ export function TaskRowLine({
       <span className="tasks__row-title kd-one-line">{card.title}</span>
       {card.labels.map((label) =>
         onLabel ? (
-          <button key={label} type="button" className="tasks__label tasks__row-control" onClick={() => onLabel(label)}>
+          <button key={label} type="button" className="kd-tag tasks__row-control" onClick={() => onLabel(label)}>
             {label}
           </button>
         ) : (
-          <span key={label} className="tasks__label">
+          <span key={label} className="kd-tag">
             {label}
           </span>
         ),

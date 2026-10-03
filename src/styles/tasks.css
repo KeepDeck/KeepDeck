@@ -328,21 +328,9 @@
   min-width: 0;
 }
 
-.tasks__label {
-  padding: 0 6px;
-  border-radius: var(--kd-radius-mark);
-  background-color: var(--kd-selected);
-  color: var(--kd-text-2);
-  font-size: var(--kd-font-small);
-  line-height: 18px;
-  white-space: nowrap;
-}
-
-/* A label on the open task, with its ×. */
+/* A label on the open task, with its ×: the tag (badges.css .kd-tag),
+   tight on the × side. */
 .tasks__label--edit {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
   padding-right: 0;
 }
 
@@ -542,10 +530,6 @@
   min-width: 0;
 }
 
-.tasks__row .tasks__chip--blocking::before {
-  content: "⛔";
-  margin-right: 3px;
-}
 
 .tasks__row-who {
   display: inline-flex;
@@ -755,40 +739,21 @@
   gap: 4px;
 }
 
-.tasks__chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  padding: 0 6px;
-  border: 1px solid var(--kd-seam);
-  border-radius: var(--kd-radius-mark);
-  background: none;
-  color: var(--kd-text-2);
-  font: inherit;
-  font-size: var(--kd-font-small);
-  line-height: 18px;
-  cursor: pointer;
-}
-
-.tasks__chip:hover {
-  color: var(--kd-text);
-}
-
-/* A blocker still standing says so in the failed hue; one done or gone is
-   struck — it holds nothing. */
-.tasks__chip--blocking {
+/* A blocker — an outlined tag — still standing says so in the failed hue;
+   one done or gone is struck: it holds nothing. */
+.kd-tag.tasks__tag--blocking {
   border-color: var(--kd-err-line);
   color: var(--status-failed);
 }
 
-.tasks__chip--resolved {
+.kd-tag.tasks__tag--resolved {
   color: var(--kd-text-3);
   text-decoration: line-through;
 }
 
-.tasks__chip--artifact {
+/* An attachment: its title opens it, its × takes it off. */
+.tasks__tag--artifact {
   padding-right: 0;
-  cursor: default;
 }
 
 .tasks__prop-label {

@@ -49,7 +49,7 @@ export function blockerChip(board: TaskBoard, id: string): BlockerChip {
     id,
     text: `${id} · ${blocker ? STATUS_LABEL[blocker.status].toLowerCase() : "gone"}`,
     resolved,
-    className: resolved ? "tasks__chip tasks__chip--resolved" : "tasks__chip tasks__chip--blocking",
+    className: resolved ? "kd-tag kd-tag--outline tasks__tag--resolved" : "kd-tag kd-tag--outline tasks__tag--blocking",
   };
 }
 

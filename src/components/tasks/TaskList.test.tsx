@@ -35,8 +35,8 @@ describe("TaskList", () => {
     act(() => root.render(createElement(TaskList, { items, openId: null, drag: IDLE, hover: null, onArm: vi.fn(), onHover: vi.fn(), onDrop: vi.fn(), onSelect: vi.fn(), onFold: vi.fn(), onLabel: vi.fn() })));
     const rows = [...host.querySelectorAll<HTMLElement>(".tasks__row")];
     expect(rows.map((r) => r.querySelector(".tasks__row-title")?.textContent)).toEqual(["Wire", "Draft"]);
-    expect(rows[1].querySelector(".tasks__label")?.textContent).toBe("copy");
-    expect(rows[0].querySelector(".tasks__chip--blocking")?.textContent).toBe("task-1");
+    expect(rows[1].querySelector(".kd-tag")?.textContent).toBe("copy");
+    expect(rows[0].querySelector(".tasks__tag--blocking")?.textContent).toBe("task-1");
     expect(rows[0].querySelector(".tasks__row-who")?.textContent).toBe("pool");
     expect(rows[1].querySelector(".tasks__row-open")?.getAttribute("aria-pressed")).toBe("true");
     // The pinned heading names the group of the first row in view.
@@ -52,9 +52,9 @@ describe("TaskList", () => {
     act(() => host.querySelector<HTMLButtonElement>(".tasks__row-open")!.click());
     expect(onSelect).toHaveBeenCalledWith("task-2");
     // A label narrows the view; a blocker opens the task that holds it.
-    act(() => host.querySelector<HTMLButtonElement>(".tasks__row .tasks__label")!.click());
+    act(() => host.querySelector<HTMLButtonElement>(".tasks__row .kd-tag:not(.kd-tag--outline)")!.click());
     expect(onLabel).toHaveBeenCalledWith("copy");
-    act(() => host.querySelector<HTMLButtonElement>(".tasks__row .tasks__chip--blocking")!.click());
+    act(() => host.querySelector<HTMLButtonElement>(".tasks__row .tasks__tag--blocking")!.click());
     expect(onSelect).toHaveBeenLastCalledWith("task-1");
     const heading = [...host.querySelectorAll<HTMLButtonElement>(".tasks__list-item .tasks__group")].find(
       (h) => h.textContent?.startsWith("To do"),

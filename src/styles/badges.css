@@ -32,3 +32,38 @@
   width: 10px;
   height: 10px;
 }
+
+/* THE tag: a short word in a row of words — a task's label, a blocker,
+   an attachment. Filled by default; `--outline` for one that links
+   somewhere. Both carry a 1px edge (transparent when filled), so a filled
+   tag and an outlined one stand the same size side by side. No colour of
+   its own: colour is state, said by a variant where it is one. A tag that
+   is a button keeps the look and gains the pointer. It was the same tag
+   written twice in tasks.css (.tasks__label, .tasks__chip). */
+.kd-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: var(--kd-radius-mark);
+  background-color: var(--kd-selected);
+  color: var(--kd-text-2);
+  font: inherit;
+  font-size: var(--kd-font-small);
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.kd-tag--outline {
+  border-color: var(--kd-seam);
+  background-color: transparent;
+}
+
+button.kd-tag {
+  cursor: pointer;
+}
+
+button.kd-tag:hover {
+  color: var(--kd-text);
+}

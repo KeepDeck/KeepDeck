@@ -3,7 +3,7 @@ export function TaskLabels({ labels }: { labels: readonly string[] }) {
   return (
     <span className="tasks__labels">
       {labels.map((label) => (
-        <span key={label} className="tasks__label">
+        <span key={label} className="kd-tag">
           {label}
         </span>
       ))}

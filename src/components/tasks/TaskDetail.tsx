@@ -160,7 +160,7 @@ export function TaskDetail({
           <dt className="tasks__prop-label">{TASK_DETAIL_WORDS.labels}</dt>
           <dd className="tasks__chips">
             {view.labels.map((item) => (
-              <span key={item.label} className="tasks__label tasks__label--edit">
+              <span key={item.label} className="kd-tag tasks__label--edit">
                 {item.label}
                 <RemoveButton size="sm" label={item.removeLabel} onClick={() => onUnlabel(view.id, item.label)} />
               </span>
@@ -210,7 +210,7 @@ export function TaskDetail({
               <dt className="tasks__prop-label">{TASK_DETAIL_WORDS.unblocks}</dt>
               <dd className="tasks__chips">
                 {view.unblocks.map((other) => (
-                  <button key={other.id} type="button" className="tasks__chip" title={other.title} onClick={() => onSelect(other.id)}>
+                  <button key={other.id} type="button" className="kd-tag kd-tag--outline" title={other.title} onClick={() => onSelect(other.id)}>
                     {other.id}
                   </button>
                 ))}
@@ -221,7 +221,7 @@ export function TaskDetail({
           <dt className="tasks__prop-label">{TASK_DETAIL_WORDS.artifacts}</dt>
           <dd className="tasks__chips">
             {view.artifacts.map((artifact) => (
-              <span key={artifact.slug} className="tasks__chip tasks__chip--artifact">
+              <span key={artifact.slug} className="kd-tag kd-tag--outline tasks__tag--artifact">
                 {/* The title opens it; the slug is the durable half a
                     teammate is given. A row the registry no longer holds
                     still reads, but has nothing to open. */}

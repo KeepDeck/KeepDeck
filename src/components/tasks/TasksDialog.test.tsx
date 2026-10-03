@@ -174,7 +174,7 @@ describe("TasksDialog", () => {
       act(() => button("List").click());
       await flush();
       expect(chip()).toBeNull();
-      act(() => document.querySelector<HTMLButtonElement>(".tasks__row .tasks__label")!.click());
+      act(() => document.querySelector<HTMLButtonElement>(".tasks__row .kd-tag:not(.kd-tag--outline)")!.click());
       await flush();
       const rowTitles = () => Array.from(document.querySelectorAll(".tasks__row-title")).map((t) => t.textContent);
       expect(rowTitles()).toEqual(["Pooled work"]);
@@ -851,7 +851,7 @@ describe("TasksDialog", () => {
     expect(cards().every((c) => c.querySelector(".tasks__card-title")?.classList.contains("kd-one-line"))).toBe(true);
     // The panel's title clamps to two lines.
     expect(document.querySelector('aside[aria-label="Task task-1"] .tasks__detail-title')?.classList.contains("kd-two-lines")).toBe(true);
-    const blocker = document.querySelector('aside[aria-label="Task task-1"] .tasks__chip--blocking');
+    const blocker = document.querySelector('aside[aria-label="Task task-1"] .tasks__tag--blocking');
     expect(blocker?.textContent).toBe("task-2 · to do");
   });
 
