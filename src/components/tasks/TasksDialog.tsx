@@ -73,6 +73,7 @@ function WorkspaceBoard({
     ladder: board.ladder,
     drag: board.drag,
     columns: board.columns,
+    listItems: board.listItems,
     teams: board.teams,
     teamId: board.teamId,
     composing: board.composing,
@@ -209,7 +210,18 @@ function WorkspaceBoard({
             )}
             {view.body.main?.kind === "list" && (
               <div className="tasks__main tasks__main--list">
-                <TaskList items={board.listItems} openId={board.detail?.id ?? null} onSelect={board.select} onFold={board.fold} onLabel={board.pickLabel} />
+                <TaskList
+                  items={board.listItems}
+                  openId={board.detail?.id ?? null}
+                  drag={board.drag}
+                  hover={board.hover}
+                  onSelect={board.select}
+                  onFold={board.fold}
+                  onLabel={board.pickLabel}
+                  onArm={board.armDrag}
+                  onHover={board.hoverColumn}
+                  onDrop={board.dropOn}
+                />
               </div>
             )}
             {panel}

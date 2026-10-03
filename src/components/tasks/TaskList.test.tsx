@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { installResizeObserver, pinListViewport } from "@keepdeck/ui-kit/virtualGeometry.test-support";
 import { board, task } from "../../domain/tasks/testSupport";
-import { NO_QUERY, listView } from "../../presentation/tasks";
+import { IDLE, NO_QUERY, listView } from "../../presentation/tasks";
 import { TaskList } from "./TaskList";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -32,7 +32,7 @@ const tasks = [
 describe("TaskList", () => {
   it("draws a heading per status and a line per task, with its labels and what holds it", () => {
     const items = listView(tasks, board(tasks), 0, NO_QUERY, new Set(), "task-1");
-    act(() => root.render(createElement(TaskList, { items, openId: null, onSelect: vi.fn(), onFold: vi.fn(), onLabel: vi.fn() })));
+    act(() => root.render(createElement(TaskList, { items, openId: null, drag: IDLE, hover: null, onArm: vi.fn(), onHover: vi.fn(), onDrop: vi.fn(), onSelect: vi.fn(), onFold: vi.fn(), onLabel: vi.fn() })));
     const rows = [...host.querySelectorAll<HTMLElement>(".tasks__row")];
     expect(rows.map((r) => r.querySelector(".tasks__row-title")?.textContent)).toEqual(["Wire", "Draft"]);
     expect(rows[1].querySelector(".tasks__label")?.textContent).toBe("copy");
@@ -48,7 +48,7 @@ describe("TaskList", () => {
     const onFold = vi.fn();
     const onLabel = vi.fn();
     const items = listView(tasks, board(tasks), 0, NO_QUERY, new Set(), null);
-    act(() => root.render(createElement(TaskList, { items, openId: null, onSelect, onFold, onLabel })));
+    act(() => root.render(createElement(TaskList, { items, openId: null, drag: IDLE, hover: null, onArm: vi.fn(), onHover: vi.fn(), onDrop: vi.fn(), onSelect, onFold, onLabel })));
     act(() => host.querySelector<HTMLButtonElement>(".tasks__row-open")!.click());
     expect(onSelect).toHaveBeenCalledWith("task-2");
     // A label narrows the view; a blocker opens the task that holds it.

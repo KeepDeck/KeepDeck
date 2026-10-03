@@ -347,6 +347,30 @@
 
 /* ── The list view: one windowed list, a heading per status ───────── */
 
+/* A group in a drag: its heading and its rows answer as the board's
+   columns do — a target edged in the done hue, the one under the pointer
+   on a tile, a group the task may not go to dimmed. */
+.tasks__group.tasks__drop--ok,
+.tasks__row.tasks__drop--ok {
+  box-shadow: inset 2px 0 0 var(--kd-ok);
+}
+
+.tasks__group.tasks__drop--over,
+.tasks__row.tasks__drop--over {
+  background-color: var(--kd-tile);
+  box-shadow: inset 2px 0 0 var(--kd-ok-strong);
+}
+
+.tasks__group.tasks__drop--no,
+.tasks__row.tasks__drop--no {
+  opacity: 0.45;
+}
+
+/* The row in flight stays in its place, dimmed, until the drop moves it. */
+.tasks__row--dragging {
+  opacity: 0.4;
+}
+
 /* The list scrolls itself (it is the windowed list); the stage around it
    must not scroll a second time. */
 .tasks__main--list {

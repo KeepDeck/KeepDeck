@@ -3,15 +3,28 @@ import { VirtualList } from "@keepdeck/ui-kit/VirtualList";
 import type { TaskStatus } from "../../domain/tasks";
 import {
   headingOf,
+  listHeadingDropClassName,
+  listRowClassName,
+  rowGrip,
   listHeadingClassName,
   listItemEstimate,
   listItemKey,
+  type CardGrip,
+  type DragState,
   type ListHeading,
   type ListItem,
 } from "../../presentation/tasks";
 
 interface TaskListProps {
   items: ListItem[];
+  /** The drag in flight, shared with the board: a row is picked up like a
+   * card, and a group — its heading or any of its rows — is a drop target. */
+  drag: DragState;
+  /** The group the pointer is over while a task is in flight. */
+  hover: TaskStatus | null;
+  onArm(id: string, x: number, y: number, grip: CardGrip): void;
+  onHover(status: TaskStatus | null): void;
+  onDrop(status: TaskStatus): void;
   /** The open task's row, kept in view as J / K move it. */
   openId: string | null;
   onSelect(id: string): void;
@@ -22,7 +35,14 @@ interface TaskListProps {
 
 /** The tracker's list view: a heading per status — pinned while its rows
  * scroll — and one line per task. Windowed, like the board's columns. */
-export function TaskList({ items, openId, onSelect, onFold, onLabel }: TaskListProps) {
+export function TaskList({ items, openId, drag, hover, onSelect, onFold, onLabel, onArm, onHover, onDrop }: TaskListProps) {
+  // A group answers the pointer wherever it is under it: its heading, or
+  // one of its rows.
+  const dropTarget = (status: TaskStatus) => ({
+    onPointerOver: () => onHover(status),
+    onPointerLeave: () => onHover(null),
+    onPointerUp: () => onDrop(status),
+  });
   return (
     <VirtualList
       items={items}
@@ -35,21 +55,38 @@ export function TaskList({ items, openId, onSelect, onFold, onLabel }: TaskListP
         className: "tasks__list-pinned",
         render: (first) => {
           const heading = headingOf(items, first);
-          return heading && <GroupHeading heading={heading} onFold={onFold} />;
+          return heading && <GroupHeading heading={heading} className={listHeadingClassName(heading)} onFold={onFold} />;
         },
       }}
       render={(item) =>
         item.kind === "head" ? (
-          <GroupHeading heading={item} onFold={onFold} />
+          <GroupHeading
+            heading={item}
+            className={listHeadingDropClassName(item, drag, hover)}
+            onFold={onFold}
+            {...dropTarget(item.status)}
+          />
         ) : (
           // The row is not itself a button: its labels and blockers are
           // controls of their own. Its open control spans it, under them.
-          <div className={item.className}>
+          <div
+            className={listRowClassName(item, drag, hover)}
+            {...dropTarget(item.status)}
+          >
             <button
               type="button"
               className="tasks__row-open"
               aria-pressed={item.open}
               aria-label={`${item.card.id} ${item.card.title}`}
+              onPointerDown={(event) => {
+                if (event.button !== 0) return;
+                onArm(
+                  item.card.id,
+                  event.clientX,
+                  event.clientY,
+                  rowGrip(event.currentTarget.getBoundingClientRect(), event.clientX, event.clientY),
+                );
+              }}
               onClick={() => onSelect(item.card.id)}
             />
             <span className="tasks__mark tasks__row-mark">{item.card.priority}</span>
@@ -88,11 +125,24 @@ export function TaskList({ items, openId, onSelect, onFold, onLabel }: TaskListP
   );
 }
 
-function GroupHeading({ heading, onFold }: { heading: ListHeading; onFold(status: TaskStatus): void }) {
+function GroupHeading({
+  heading,
+  className,
+  onFold,
+  ...drop
+}: {
+  heading: ListHeading;
+  className: string;
+  onFold(status: TaskStatus): void;
+  onPointerOver?(): void;
+  onPointerLeave?(): void;
+  onPointerUp?(): void;
+}) {
   return (
     <button
       type="button"
-      className={listHeadingClassName(heading)}
+      {...drop}
+      className={className}
       aria-expanded={!heading.folded}
       onClick={() => onFold(heading.status)}
     >

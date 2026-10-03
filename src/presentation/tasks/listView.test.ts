@@ -9,12 +9,19 @@ import {
   listItemEstimate,
   listItemKey,
   listView,
+  LIST_GHOST_MAX_PX,
+  groupDropClassName,
+  listCardOf,
+  listHeadingDropClassName,
+  listRowClassName,
+  rowGrip,
   rowStepOf,
   stepRow,
   toggleFold,
   type ListItem,
 } from "./listView";
 import { NO_QUERY } from "./queryView";
+import { IDLE, type DragState } from "./cardDrag";
 import { BOARD_ORDER } from "./words";
 
 const tasks = [
@@ -129,5 +136,41 @@ describe("stepRow — J and K walk the tasks", () => {
     expect(rowStepOf("j")).toBe(1);
     expect(rowStepOf("k")).toBe(-1);
     expect(rowStepOf("J")).toBeNull();
+  });
+});
+
+describe("the list in a drag", () => {
+  const items = listView(tasks, b, 0, NO_QUERY, NONE, null);
+  const rowOf = (id: string) => items.find((i) => i.key === id) as Extract<ListItem, { kind: "row" }>;
+  const dragging: DragState = { kind: "dragging", id: "task-1", x: 0, y: 0, grip: { width: 1, offsetX: 0, offsetY: 0 }, targets: new Set(["in-progress", "done"]) };
+
+  it("knows each row's group — where a drop on it lands", () => {
+    expect(rowOf("task-3").status).toBe("blocked");
+    expect(rowOf("task-4").status).toBe("done");
+  });
+
+  it("lights a group as the board lights a column: target, under the pointer, or not allowed", () => {
+    expect(groupDropClassName("done", dragging, null)).toBe("tasks__drop--ok");
+    expect(groupDropClassName("done", dragging, "done")).toBe("tasks__drop--over");
+    expect(groupDropClassName("review", dragging, null)).toBe("tasks__drop--no");
+    expect(groupDropClassName("done", IDLE, null)).toBeNull();
+  });
+
+  it("dims the row in flight and wears its group's part on every row and heading", () => {
+    expect(listRowClassName(rowOf("task-1"), dragging, null)).toContain("tasks__row--dragging");
+    expect(listRowClassName(rowOf("task-4"), dragging, "done")).toContain("tasks__drop--over");
+    expect(listRowClassName(rowOf("task-4"), IDLE, null)).toBe(rowOf("task-4").className);
+    const done = items.find((i) => i.key === "head:done") as Extract<ListItem, { kind: "head" }>;
+    expect(listHeadingDropClassName(done, dragging, null)).toBe("tasks__group tasks__group--done tasks__drop--ok");
+  });
+
+  it("carries a card no wider than the board's, gripped no further in than its middle", () => {
+    expect(rowGrip({ left: 100, top: 50, width: 900 }, 700, 60)).toEqual({ width: LIST_GHOST_MAX_PX, offsetX: LIST_GHOST_MAX_PX / 2, offsetY: 10 });
+    expect(rowGrip({ left: 100, top: 50, width: 200 }, 120, 60)).toEqual({ width: 200, offsetX: 20, offsetY: 10 });
+  });
+
+  it("finds the dragged row's card for the ghost", () => {
+    expect(listCardOf(items, "task-2")?.title).toBe("Task task-2");
+    expect(listCardOf(items, "task-9")).toBeUndefined();
   });
 });

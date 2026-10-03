@@ -17,6 +17,7 @@ const base = {
   ladder: { kind: "board" } as TasksLadder,
   drag: IDLE,
   columns,
+  listItems: [],
   teams: TEAMS,
   teamId: "team-1" as string | null,
   composing: false,

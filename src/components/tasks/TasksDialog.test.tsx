@@ -476,6 +476,42 @@ describe("TasksDialog", () => {
     expect(state?.kind === "ready" && state.board.tasks.find((t) => t.title === "Task 0")?.status).toBe("done");
   });
 
+  it("a list row is dragged onto another group — its heading, even folded — and the task moves there", async () => {
+    const restoreList = pinListViewport("tasks__list", 600, 900, 34);
+    try {
+      const { service } = await seeded();
+      settingsStore.current = { ...DEFAULT_SETTINGS, tasksView: "list" };
+      mount(service)();
+      await flush();
+      const pointer = (type: string, target: EventTarget, x: number, y: number) =>
+        target.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0 }));
+      const heading = (label: string) =>
+        Array.from(document.querySelectorAll<HTMLElement>(".tasks__list-item .tasks__group")).find((h) =>
+          h.querySelector(".tasks__group-label")?.textContent === label,
+        )!;
+      const row = () => document.querySelector<HTMLElement>(".tasks__row-open")!;
+
+      act(() => void pointer("pointerdown", row(), 10, 10));
+      await flush();
+      act(() => void pointer("pointermove", window, 40, 40));
+      await flush();
+      // The ghost is the task's card; the groups light as targets.
+      expect(document.querySelector(".tasks__ghost .tasks__card-title")?.textContent).toBe("Draft the skill");
+      expect(document.querySelector(".tasks__row")!.className).toContain("tasks__row--dragging");
+      act(() => void pointer("pointerover", heading("Done"), 40, 300));
+      await flush();
+      expect(heading("Done").className).toContain("tasks__drop--over");
+      // Done is folded — its heading still takes the drop.
+      act(() => void pointer("pointerup", heading("Done"), 40, 300));
+      await flush();
+      const state = service.peek("ws-1");
+      expect(state?.kind === "ready" && state.board.tasks[0].status).toBe("done");
+      expect(document.querySelector(".tasks__ghost")).toBeNull();
+    } finally {
+      restoreList();
+    }
+  });
+
   it("a card is dragged with the pointer and dropped on a column; a plain press still opens one", async () => {
     const { service } = await seeded();
     const render = mount(service);

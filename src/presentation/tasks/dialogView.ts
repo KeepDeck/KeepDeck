@@ -9,6 +9,7 @@ import { ghostBox, type DragState } from "./cardDrag";
 import { cardOf, teamControlView } from "./dialogState";
 import { LADDER_WORDS, type TasksLadder } from "./ladderView";
 import type { TaskCardView } from "./taskCardView";
+import { listCardOf, type ListItem } from "./listView";
 import type { TrackerView } from "./screenState";
 
 /** What the body shows under the head. */
@@ -45,6 +46,9 @@ export function tasksDialogView(input: {
   ladder: TasksLadder;
   drag: DragState;
   columns: readonly BoardColumnView[];
+  /** The list's items when the list is up — the dragged row's card is
+   * found there when no column holds it. */
+  listItems: readonly ListItem[];
   teams: readonly { id: string; name: string }[];
   teamId: string | null;
   composing: boolean;
@@ -55,7 +59,8 @@ export function tasksDialogView(input: {
   const { ladder, drag } = input;
   const staged = ladder.kind === "board" || ladder.kind === "empty";
   const box = ghostBox(drag);
-  const card = drag.kind === "dragging" ? cardOf(input.columns, drag.id) : undefined;
+  const card =
+    drag.kind === "dragging" ? (cardOf(input.columns, drag.id) ?? listCardOf(input.listItems, drag.id)) : undefined;
   return {
     className: drag.kind === "dragging" ? "form tasks tasks--dragging" : "form tasks",
     toolbar: staged,
