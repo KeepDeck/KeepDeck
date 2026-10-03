@@ -278,20 +278,11 @@
 }
 
 /* A toolbar's choice row (ui-kit Segmented size sm): no field rhythm under
-   it, a button's height. */
+   it. Its options are small secondary buttons (button.css), not .form__type —
+   the same box as the toggle beside them, checked as it is pressed. */
 .form__types--sm {
   gap: 4px;
   margin-bottom: 0;
-}
-
-/* Its options are the toolbar's buttons: the small secondary button's box,
-   radius and ink (button.css .kd-btn--sm / --secondary), so an unpicked
-   option reads exactly as the toggle beside it. */
-.form__types--sm .form__type {
-  padding: 3px 10px;
-  border-radius: var(--kd-radius-control);
-  color: var(--kd-text-2);
-  font-size: var(--kd-font-small);
 }
 
 .form__type {

@@ -26,6 +26,15 @@ export interface SegmentedProps<V> {
   className?: string;
 }
 
+/** An option's classes. md: the form's choice row (form.css .form__type).
+ * sm: the small secondary button itself (button.css), so a toolbar's
+ * choice is the very box of the toggle beside it — and its checked state
+ * the button's pressed plate. */
+function optionClass(size: "md" | "sm", checked: boolean): string {
+  if (size === "sm") return "kd-btn kd-btn--secondary kd-btn--sm";
+  return checked ? "form__type form__type--active" : "form__type";
+}
+
 /**
  * One of a few, side by side — the deck's choice row: a row of buttons,
  * the chosen one a light plate with dark text (form.css .form__type). A
@@ -56,7 +65,7 @@ export function Segmented<V>({
             aria-checked={checked}
             aria-label={option.ariaLabel}
             title={option.title}
-            className={checked ? "form__type form__type--active" : "form__type"}
+            className={optionClass(size, checked)}
             disabled={disabled || option.disabled}
             onClick={() => onChange(option.value)}
           >

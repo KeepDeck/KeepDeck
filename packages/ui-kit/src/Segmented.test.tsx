@@ -57,6 +57,9 @@ describe("Segmented", () => {
       );
     render(false);
     expect(document.querySelector('[role="radiogroup"]')!.className).toBe("form__types form__types--sm");
+    // Small: the small secondary button's own box — no second look.
+    expect(radios()[0].className).toBe("kd-btn kd-btn--secondary kd-btn--sm");
+    expect(radios()[0].getAttribute("aria-checked")).toBe("true");
     act(() => radios()[0].click());
     expect(onChange).toHaveBeenCalledWith("list");
     expect(radios()[1].disabled).toBe(true);

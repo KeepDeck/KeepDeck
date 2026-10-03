@@ -73,7 +73,9 @@
    wears (form.css .form__type--active), so a toggle and a choice beside it
    say "on" the same way, without colour — colour is state. */
 .kd-btn--secondary[aria-pressed="true"],
-.kd-btn--secondary[aria-pressed="true"]:hover:not(:disabled) {
+.kd-btn--secondary[aria-pressed="true"]:hover:not(:disabled),
+.kd-btn--secondary[aria-checked="true"],
+.kd-btn--secondary[aria-checked="true"]:hover:not(:disabled) {
   border: 1px solid var(--kd-text);
   background-color: var(--kd-text);
   color: var(--kd-canvas);
