@@ -95,10 +95,17 @@ describe("the usage chips", () => {
 describe("the status ring", () => {
   it("is the pie: the sector filled solid in an outline, no band mask", () => {
     const ring = readStyles("progressRing.css");
-    const pie = ruleBody(ring, ".progress-ring--pie::before");
-    expect(pie.background).toMatch(/conic-gradient\(currentColor .*transparent 0\)/);
-    expect(pie["box-shadow"]).toBe("inset 0 0 0 1px currentColor");
-    expect(pie.mask).toBe("none");
+    // The outline: a whole pixel in the hue.
+    const outline = ruleBody(ring, ".progress-ring--pie::before");
+    expect(outline.border).toBe("1px solid currentColor");
+    expect(outline.mask).toBe("none");
+    // The sector: the hue as a plain background, cut to the fill by an
+    // alpha mask — never currentColor inside a gradient (WebKit repaints
+    // that only when a colour transition ends).
+    const sector = ruleBody(ring, ".progress-ring--pie::after");
+    expect(sector.mask).toBe("conic-gradient(#000 calc(var(--progress-ring-fill) * 1%), transparent 0)");
+    expect(ring).toMatch(/\.progress-ring::after \{\s*background-color: currentColor;/);
+    expect(ring).not.toMatch(/gradient\([^;]*currentColor/);
   });
 
   it("eases to a new rung — fill and hue — and rests under reduced motion", () => {
@@ -106,12 +113,12 @@ describe("the status ring", () => {
     expect(ruleBody(status, ".progress-ring.status-ring").transition).toMatch(
       /^--progress-ring-fill \d+ms ease-out,\s*color \d+ms ease-out$/,
     );
-    expect(ruleBody(status, ".status-ring--barred::after").opacity).toBe("1");
+    expect(ruleBody(status, ".status-ring--barred .status-ring__bar").opacity).toBe("1");
     // Each hue outranks the base's grey: the tones match at its specificity.
     for (const tone of ["working", "waiting", "failed", "done"]) {
       expect(ruleBody(status, `.progress-ring.status-ring--${tone}`)["--progress-ring-hue"]).toBe(`var(--status-${tone})`);
     }
-    expect(status).toMatch(/prefers-reduced-motion: reduce\)\s*\{\s*\.progress-ring\.status-ring,\s*\.status-ring::after\s*\{\s*transition: none/);
+    expect(status).toMatch(/prefers-reduced-motion: reduce\)\s*\{\s*\.progress-ring\.status-ring,\s*\.status-ring__bar\s*\{\s*transition: none/);
   });
 });
 

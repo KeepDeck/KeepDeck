@@ -24,44 +24,69 @@
   place-items: center;
   width: 20px;
   height: 20px;
-  /* The hue is painted as the ring's `color` (the track reads it as
-     currentColor), so a ring changing what it says — a usage ring crossing
-     into warn, a task's status moving on — eases from one colour to the
-     next with its fill. `color` animates in every engine; a hue held in a
-     registered <color> custom property did not ease in the app's WebKit. */
+  /* The hue is the ring's `color`, and the fill is painted as a plain
+     background-color: currentColor under a mask, so a ring changing what it
+     says — a usage ring crossing into warn, a task's status moving on —
+     eases from one colour to the next with its fill. Neither a registered
+     <color> custom property nor currentColor INSIDE a gradient eases in the
+     app's WebKit: the first snapped, the second repainted only when the
+     transition ended. The mask is alpha only, so it never needs the hue. */
   color: var(--progress-ring-hue);
   transition:
     --progress-ring-fill 600ms ease-out,
     color 600ms ease-out;
 }
 
-/* The track, cut to a 2px band by a mask — no painted hole, so the ring
-   sits on any surface. Mirrored so the fill runs counter-clockwise. The
-   mask's #000 is ink, not paint: a mask reads only alpha, so it is no
-   colour and no token. */
-.progress-ring::before {
+/* Two layers, each a disc cut by masks — no painted hole, so the ring sits
+   on any surface. The masks' #000 is ink, not paint: a mask reads only
+   alpha, so it is no colour and no token.
+
+   ::before is the track, a 2px band in the seam; ::after is the fill, the
+   same band cut again to the filled sector, in the hue. Mirrored so the
+   fill runs counter-clockwise. */
+.progress-ring::before,
+.progress-ring::after {
   content: "";
   position: absolute;
   inset: 0;
   border-radius: 50%;
-  background: conic-gradient(
-    currentColor calc(var(--progress-ring-fill) * 1%),
-    var(--kd-seam) 0
-  );
+}
+
+.progress-ring::before {
+  background-color: var(--kd-seam);
   -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px));
   mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px));
+}
+
+.progress-ring::after {
+  background-color: currentColor;
+  -webkit-mask:
+    radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px)),
+    conic-gradient(#000 calc(var(--progress-ring-fill) * 1%), transparent 0);
+  -webkit-mask-composite: source-in;
+  mask:
+    radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px)),
+    conic-gradient(#000 calc(var(--progress-ring-fill) * 1%), transparent 0);
+  mask-composite: intersect;
   transform: scaleX(-1);
 }
 
-/* The pie: the sector filled solid, inside an outline in the same hue —
-   no band cut by a mask. The fill and the hue ease exactly as the ring's. */
+/* The pie: an outline in the hue (::before, a whole pixel — at 1.5 a ×1
+   display smears it unevenly round the circle), and the sector filled
+   solid inside it (::after, cut by the fill alone). */
 .progress-ring--pie::before {
-  background: conic-gradient(currentColor calc(var(--progress-ring-fill) * 1%), transparent 0);
-  /* A whole pixel: at 1.5 a ×1 display smears the outline unevenly round
-     the circle. */
-  box-shadow: inset 0 0 0 1px currentColor;
+  box-sizing: border-box;
+  border: 1px solid currentColor;
+  background-color: transparent;
   -webkit-mask: none;
   mask: none;
+}
+
+.progress-ring--pie::after {
+  -webkit-mask: conic-gradient(#000 calc(var(--progress-ring-fill) * 1%), transparent 0);
+  -webkit-mask-composite: source-over;
+  mask: conic-gradient(#000 calc(var(--progress-ring-fill) * 1%), transparent 0);
+  mask-composite: add;
 }
 
 .progress-ring--warn {

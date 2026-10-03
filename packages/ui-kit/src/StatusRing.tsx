@@ -27,7 +27,9 @@ export function StatusRing({ fill, tone, barred = false, label }: StatusRingProp
         shape="pie"
         value={fill}
         className={["status-ring", `status-ring--${tone}`, barred && "status-ring--barred"].filter(Boolean).join(" ")}
-      />
+      >
+        <span className="status-ring__bar" />
+      </ProgressRing>
     </span>
   );
 }

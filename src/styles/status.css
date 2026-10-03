@@ -224,28 +224,31 @@
   --progress-ring-hue: var(--status-done);
 }
 
-/* Stopped: a bar across, in the ring's own hue — always drawn, shown only
-   while barred, so it fades rather than pops. */
-.status-ring::after {
-  content: "";
-  position: absolute;
-  top: 50%;
-  left: 2px;
-  right: 2px;
-  height: 1.5px;
+/* Stopped: a bar across, in the ring's own hue — the ring's mark, over its
+   fill, always drawn and shown only while barred, so it fades rather than
+   pops. */
+.status-ring .progress-ring__mark {
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  color: inherit;
+}
+
+.status-ring__bar {
+  width: 8px;
+  height: 2px;
   background-color: currentColor;
-  transform: translateY(-50%);
   opacity: 0;
   transition: opacity 300ms ease-out;
 }
 
-.status-ring--barred::after {
+.status-ring--barred .status-ring__bar {
   opacity: 1;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .progress-ring.status-ring,
-  .status-ring::after {
+  .status-ring__bar {
     transition: none;
   }
 }
