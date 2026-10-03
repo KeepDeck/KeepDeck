@@ -21,6 +21,9 @@ export interface RowWindowInput<Row> {
   /** The scroll container: the list itself, or the panel around it. */
   scrollRef: RefObject<HTMLElement | null>;
   overscan?: number;
+  /** Room at the top a layer covers (a pinned heading): a row revealed
+   * upward stops below it, not under it. */
+  coveredTop?: number;
 }
 
 export interface RowWindow {
@@ -66,6 +69,7 @@ export function useRowWindow<Row>({
   estimate,
   scrollRef,
   overscan = OVERSCAN_ROWS,
+  coveredTop = 0,
 }: RowWindowInput<Row>): RowWindow {
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -73,6 +77,7 @@ export function useRowWindow<Row>({
     estimateSize: (index) => (typeof estimate === "number" ? estimate : estimate(rows[index])),
     overscan,
     getItemKey: useCallback((index: number) => keyOf(rows[index]), [rows, keyOf]),
+    scrollPaddingStart: coveredTop,
   });
   const items = virtualizer.getVirtualItems();
   const lastIndex = items.length > 0 ? items[items.length - 1].index : -1;

@@ -125,6 +125,30 @@ describe("VirtualList", () => {
       expect(list().scrollTop).toBe(5 * ROW);
     });
 
+    it("reveals upward to just below a pinned heading, never under it", () => {
+      restore = pinListViewport("list", 200, 300, ROW);
+      const renderPinned = (revealKey: string | null) =>
+        act(() =>
+          root.render(
+            createElement(VirtualList<string>, {
+              items,
+              itemKey: (item) => item,
+              estimate: () => ROW,
+              render: (item) => createElement("span", { className: "row" }, item),
+              className: "list",
+              revealKey,
+              sticky: { className: "pinned", height: 30, render: () => "pinned" },
+            }),
+          ),
+        );
+      renderPinned(null);
+      renderPinned("row 30");
+      scrolled();
+      renderPinned("row 20");
+      // Row 20 starts at 400; the heading covers the box's top 30px.
+      expect(list().scrollTop).toBe(20 * ROW - 30);
+    });
+
     it("leaves the scroll alone for an item already in view", () => {
       restore = pinListViewport("list", 200, 300, ROW);
       renderRevealing("row 3");
@@ -445,6 +469,7 @@ describe("VirtualList as a grouped list", () => {
           className: "list",
           sticky: {
             className: "pinned",
+            height: 0,
             render: (first) => {
               for (let i = first; i >= 0; i--) if (list[i]?.head) return `group ${list[i].group}`;
               return null;

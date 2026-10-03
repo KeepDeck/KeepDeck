@@ -63,4 +63,24 @@ describe("TaskList", () => {
     act(() => heading.click());
     expect(onFold).toHaveBeenCalledWith("todo");
   });
+
+  it("takes a drop on the pinned heading as its group does, and keeps it the pointer's alone", () => {
+    const onDrop = vi.fn();
+    const onHover = vi.fn();
+    const items = listView(tasks, board(tasks), 0, NO_QUERY, new Set(), null);
+    act(() => root.render(createElement(TaskList, { items, openId: null, drag: IDLE, hover: null, onArm: vi.fn(), onHover, onDrop, onSelect: vi.fn(), onFold: vi.fn(), onLabel: vi.fn() })));
+    // At the top it lies right over the first heading, so a release there
+    // reaches it, not the heading under it.
+    const pinned = host.querySelector<HTMLButtonElement>(".tasks__list-pinned .tasks__group")!;
+    act(() => {
+      pinned.dispatchEvent(new PointerEvent("pointerover", { bubbles: true }));
+      pinned.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+    });
+    expect(onHover).toHaveBeenCalledWith("blocked");
+    expect(onDrop).toHaveBeenCalledWith("blocked");
+    // The real heading is the one the keyboard and a reader reach.
+    expect(pinned.getAttribute("aria-hidden")).toBe("true");
+    expect(pinned.tabIndex).toBe(-1);
+    expect(pinned.hasAttribute("aria-expanded")).toBe(false);
+  });
 });

@@ -42,8 +42,9 @@ export interface VirtualListProps<T> extends VirtualListMarkup {
    * in view — a grouped list's "which group am I in". Items are placed
    * absolutely, so CSS `position: sticky` cannot reach one of them; this
    * is the one sticky layer, over every item, taking no room of its own.
-   * Return null for no heading. */
-  sticky?: { className: string; render: (firstVisibleIndex: number) => ReactNode };
+   * Return null for no heading. `height` is the room it covers: a row
+   * revealed upward stops below it. */
+  sticky?: { className: string; height: number; render: (firstVisibleIndex: number) => ReactNode };
 }
 
 /**
@@ -70,7 +71,7 @@ export function VirtualList<T>({
   item,
 }: VirtualListProps<T>) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const rowWindow = useRowWindow({ rows: items, keyOf: itemKey, estimate, scrollRef });
+  const rowWindow = useRowWindow({ rows: items, keyOf: itemKey, estimate, scrollRef, coveredTop: sticky?.height });
   // A focused row scrolled out keeps the keyboard's place on the list.
   useFocusHandoff(scrollRef);
 

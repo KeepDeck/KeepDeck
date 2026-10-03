@@ -7,7 +7,7 @@ import {
   listHeadingDropClassName,
   listRowClassName,
   rowGrip,
-  listHeadingClassName,
+  LIST_HEAD_ESTIMATE_PX,
   listItemEstimate,
   listItemKey,
   type CardGrip,
@@ -55,9 +55,23 @@ export function TaskList({ items, openId, drag, hover, onSelect, onFold, onLabel
       revealKey={openId}
       sticky={{
         className: "tasks__list-pinned",
+        height: LIST_HEAD_ESTIMATE_PX,
+        // The pinned heading stands over the group's own: it takes a drop
+        // as the group does, and is the pointer's alone — the real heading
+        // is the one the keyboard and a reader reach, never a second.
         render: (first) => {
           const heading = headingOf(items, first);
-          return heading && <GroupHeading heading={heading} className={listHeadingClassName(heading)} onFold={onFold} />;
+          return (
+            heading && (
+              <GroupHeading
+                heading={heading}
+                className={listHeadingDropClassName(heading, drag, hover)}
+                onFold={onFold}
+                pinned
+                {...dropTarget(heading.status)}
+              />
+            )
+          );
         },
       }}
       render={(item) =>
@@ -103,11 +117,13 @@ function GroupHeading({
   heading,
   className,
   onFold,
+  pinned = false,
   ...drop
 }: {
   heading: ListHeading;
   className: string;
   onFold(status: TaskStatus): void;
+  pinned?: boolean;
   onPointerOver?(): void;
   onPointerLeave?(): void;
   onPointerUp?(): void;
@@ -117,7 +133,9 @@ function GroupHeading({
       type="button"
       {...drop}
       className={className}
-      aria-expanded={!heading.folded}
+      aria-expanded={pinned ? undefined : !heading.folded}
+      aria-hidden={pinned || undefined}
+      tabIndex={pinned ? -1 : undefined}
       onClick={() => onFold(heading.status)}
     >
       <StatusRing {...heading.ring} />

@@ -389,6 +389,16 @@
   background-color: var(--kd-tile);
 }
 
+/* Ruled out as a drop, the pinned heading dims its words, not itself:
+   a see-through heading would show the rows passing under it. */
+.tasks__list-pinned .tasks__group.tasks__drop--no {
+  opacity: 1;
+}
+
+.tasks__list-pinned .tasks__drop--no > * {
+  opacity: 0.45;
+}
+
 /* A status heading. It IS the fold's toggle. */
 .tasks__group {
   display: flex;
