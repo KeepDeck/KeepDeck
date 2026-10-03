@@ -1,3 +1,4 @@
+import { StatusRing } from "@keepdeck/ui-kit/StatusRing";
 import { VirtualList } from "@keepdeck/ui-kit/VirtualList";
 import type { TaskStatus } from "../../domain/tasks";
 import {
@@ -52,7 +53,7 @@ export function TaskList({ items, openId, onSelect, onFold, onLabel }: TaskListP
               onClick={() => onSelect(item.card.id)}
             />
             <span className="tasks__mark tasks__row-mark">{item.card.priority}</span>
-            <span className={item.card.ring.className} title={item.card.ring.label} aria-hidden />
+            <StatusRing {...item.card.ring} />
             <code className="tasks__row-id">{item.card.id}</code>
             <span className="tasks__row-title kd-one-line">{item.card.title}</span>
             {item.card.labels.map((label) => (
@@ -95,7 +96,7 @@ function GroupHeading({ heading, onFold }: { heading: ListHeading; onFold(status
       aria-expanded={!heading.folded}
       onClick={() => onFold(heading.status)}
     >
-      <span className={heading.ringClassName} aria-hidden />
+      <StatusRing {...heading.ring} />
       <span className="tasks__group-label">{heading.label}</span>
       <span className="tasks__group-count">{heading.count}</span>
     </button>

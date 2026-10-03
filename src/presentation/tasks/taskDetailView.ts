@@ -12,6 +12,7 @@ import {
   type TaskPriority,
   type TaskStatus,
 } from "../../domain/tasks";
+import type { StatusRingProps } from "@keepdeck/ui-kit/StatusRing";
 import { blockerChip, roleInitials, statusRing, type BlockerChip } from "./taskCardView";
 import {
   BOARD_ORDER,
@@ -30,7 +31,7 @@ export interface StatusChoiceView extends ChoiceView {
   value: TaskStatus;
   tone: StatusTone;
   /** The status's ring beside the label. */
-  ringClassName: string;
+  ring: StatusRingProps;
 }
 
 export interface TaskDetailView {
@@ -42,7 +43,7 @@ export interface TaskDetailView {
    * line, after the status dot. */
   meta: string;
   /** The status's ring in the head. */
-  statusRingClassName: string;
+  statusRing: StatusRingProps;
   body: string;
   bodyEmpty: string | null;
   /** The pool first, then the roster — and the current assignee even off
@@ -155,7 +156,7 @@ export function taskDetailView(
     value: to,
     label: STATUS_LABEL[to],
     tone: statusTone(to),
-    ringClassName: statusRing(to).className,
+    ring: statusRing(to),
   }));
   const assigneeValues = [...new Set([...roster, ...(task.assignee ? [task.assignee] : [])])];
   return {
@@ -166,7 +167,7 @@ export function taskDetailView(
     meta: [task.id, STATUS_LABEL[task.status], `by ${personName(task.author)}`, `updated ${formatAge(task.updated, now)}`].join(
       " · ",
     ),
-    statusRingClassName: statusRing(task.status).className,
+    statusRing: statusRing(task.status),
     body: task.body,
     bodyEmpty: task.body.trim() === "" ? "No brief — the title is all there is" : null,
     assignee: task.assignee ?? "",

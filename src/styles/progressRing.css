@@ -15,6 +15,15 @@
   initial-value: 0;
 }
 
+/* The hue is registered too, so a ring changing what it says (a usage ring
+   crossing into warn, a task's status moving on) eases from one colour to
+   the next with its fill, instead of snapping while the fill glides. */
+@property --progress-ring-hue {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: transparent;
+}
+
 .progress-ring {
   --progress-ring-hue: var(--kd-text-3);
   position: relative;
@@ -23,7 +32,9 @@
   place-items: center;
   width: 20px;
   height: 20px;
-  transition: --progress-ring-fill 600ms ease-out;
+  transition:
+    --progress-ring-fill 600ms ease-out,
+    --progress-ring-hue 600ms ease-out;
 }
 
 /* The track, cut to a 2px band by a mask — no painted hole, so the ring
@@ -42,6 +53,15 @@
   -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px));
   mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px));
   transform: scaleX(-1);
+}
+
+/* The pie: the sector filled solid, inside an outline in the same hue —
+   no band cut by a mask. The fill and the hue ease exactly as the ring's. */
+.progress-ring--pie::before {
+  background: conic-gradient(var(--progress-ring-hue) calc(var(--progress-ring-fill) * 1%), transparent 0);
+  box-shadow: inset 0 0 0 1.5px var(--progress-ring-hue);
+  -webkit-mask: none;
+  mask: none;
 }
 
 .progress-ring--warn {

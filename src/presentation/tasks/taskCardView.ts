@@ -1,5 +1,6 @@
 import { formatAge } from "../../domain/usage";
 import { blockerResolved, findTask, openBlockersOf, type Task, type TaskBoard, type TaskStatus } from "../../domain/tasks";
+import type { StatusRingProps } from "@keepdeck/ui-kit/StatusRing";
 import { POOL_LABEL, STATUS_LABEL, priorityMark, statusTone, type StatusTone } from "./words";
 
 /** One task as a card says it: title, identity line, the two marks that
@@ -24,7 +25,7 @@ export interface TaskCardView {
   initials: string | null;
   age: string;
   /** The status as a small ring, filled as far as the ladder has come. */
-  ring: { className: string; label: string };
+  ring: StatusRingProps;
   /** Every blocker named, each as a chip: standing (the failed hue) or
    * resolved (struck — it holds nothing). */
   blockerChips: BlockerChip[];
@@ -60,9 +61,26 @@ export function roleInitials(role: string | null): string | null {
   return (numbered ? numbered[1] + numbered[2] : role.slice(0, 2)).toUpperCase();
 }
 
-/** A status's ring — the one status icon of the tracker. */
-export function statusRing(status: TaskStatus): { className: string; label: string } {
-  return { className: `tasks__ring tasks__ring--${status}`, label: STATUS_LABEL[status] };
+/** How far along each status stands on the ladder, as a ring's fill. */
+const LADDER_FILL: Record<TaskStatus, number> = {
+  todo: 0,
+  blocked: 0,
+  "in-progress": 50,
+  review: 75,
+  done: 100,
+  cancelled: 100,
+};
+
+/** A status as the tracker's ring (ui-kit StatusRing): filled by its place
+ * on the ladder, in the status hue `statusTone` names — cancelled a grey
+ * disc, blocked barred. */
+export function statusRing(status: TaskStatus): StatusRingProps {
+  return {
+    fill: LADDER_FILL[status],
+    tone: statusTone(status),
+    barred: status === "blocked",
+    label: STATUS_LABEL[status],
+  };
 }
 
 /** A card's identity in its column's windowed list — the task's id, never

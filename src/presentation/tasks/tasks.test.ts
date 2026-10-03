@@ -4,7 +4,7 @@ import { boardView, columnLabelClassName } from "./boardView";
 import { NO_QUERY } from "./queryView";
 import { LADDER_WORDS, tasksLadder } from "./ladderView";
 import { newTaskFormView, NEW_TASK_WORDS, priorityChoiceClassName } from "./newTaskFormView";
-import { roleInitials, taskCardView, taskCardClassName } from "./taskCardView";
+import { roleInitials, statusRing, taskCardView, taskCardClassName } from "./taskCardView";
 import { TASK_DETAIL_WORDS, feedOf, pickedArtifact, pickedStatus, taskDetailClassName, taskDetailView } from "./taskDetailView";
 import { teamCardTasksLine } from "./teamCardTasksLine";
 import { teamOnScreen } from "./teamOnScreen";
@@ -58,7 +58,7 @@ describe("taskCardView", () => {
       assignee: "pool",
       initials: null,
       age: "2m ago",
-      ring: { className: "tasks__ring tasks__ring--todo", label: "To do" },
+      ring: { fill: 0, tone: "none", barred: false, label: "To do" },
     });
     // Every blocker as a chip, a resolved one struck.
     expect(taskCardView(b.tasks[2], b, NOW).blockerChips.map((c) => [c.id, c.resolved])).toEqual([
@@ -116,7 +116,7 @@ describe("task panel and form words and classes", () => {
     expect(FIELD_WORDS).toEqual({ title: "Title", brief: "Brief", status: "Status", priority: "Priority", assignee: "Assignee" });
     // The detach tooltip and its accessible label say the same word.
     expect(detail.artifacts[0].detachLabel).toBe(`${TASK_DETAIL_WORDS.detach} kd-a`);
-    expect(detail.statusOptions[0].ringClassName).toBe(`tasks__ring tasks__ring--${detail.statusOptions[0].value}`);
+    expect(detail.statusOptions[0].ring).toEqual(statusRing(detail.statusOptions[0].value));
   });
 
   it("a pick asks for nothing when it changes nothing", () => {
@@ -165,7 +165,7 @@ describe("taskDetailView", () => {
     ]);
     const view = taskDetailView(b.tasks[1], b, ROSTER, NOW);
     expect(view.meta).toBe("task-2 · To do · by you · updated 1m ago");
-    expect(view.statusRingClassName).toBe("tasks__ring tasks__ring--todo");
+    expect(view.statusRing).toEqual(statusRing("todo"));
     expect(view.blockers).toEqual([
       { id: "task-1", text: "task-1 · in progress", resolved: false, className: "tasks__chip tasks__chip--blocking" },
     ]);
@@ -350,5 +350,16 @@ describe("roleInitials", () => {
     expect(roleInitials("reviewer-12")).toBe("R12");
     expect(roleInitials("lead")).toBe("LE");
     expect(roleInitials(null)).toBeNull();
+  });
+});
+
+describe("statusRing — a task's place on the ladder as a ring", () => {
+  it("fills by the rung, in the status's hue; blocked is barred, cancelled a grey disc", () => {
+    expect(statusRing("todo")).toEqual({ fill: 0, tone: "none", barred: false, label: "To do" });
+    expect(statusRing("in-progress")).toMatchObject({ fill: 50, tone: "working", barred: false });
+    expect(statusRing("review")).toMatchObject({ fill: 75, tone: "waiting" });
+    expect(statusRing("done")).toMatchObject({ fill: 100, tone: "done" });
+    expect(statusRing("blocked")).toMatchObject({ fill: 0, tone: "failed", barred: true });
+    expect(statusRing("cancelled")).toMatchObject({ fill: 100, tone: "none", barred: false });
   });
 });

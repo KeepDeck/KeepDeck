@@ -9,6 +9,7 @@
  * be holding the reader's place on it — a key that vanished would hand
  * that place to a neighbour.
  */
+import type { StatusRingProps } from "@keepdeck/ui-kit/StatusRing";
 import type { Task, TaskBoard, TaskStatus } from "../../domain/tasks";
 import { tasksInStatus, type TaskQuery } from "./queryView";
 import { statusRing, taskCardView, type TaskCardView } from "./taskCardView";
@@ -21,7 +22,7 @@ export interface ListHeading {
   label: string;
   count: number;
   folded: boolean;
-  ringClassName: string;
+  ring: StatusRingProps;
 }
 
 export interface ListRow {
@@ -59,7 +60,7 @@ export function listView(
       label: STATUS_LABEL[status],
       count: shown.length,
       folded: isFolded,
-      ringClassName: statusRing(status).className,
+      ring: statusRing(status),
     };
     if (isFolded) return [heading];
     return [heading, ...shown.map((task) => listRow(taskCardView(task, board, now), task.id === openId))];

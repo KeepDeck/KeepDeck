@@ -84,8 +84,31 @@ describe("the usage chips", () => {
     // inherits so the painted track follows the value the ring transitions.
     const ring = readStyles("progressRing.css");
     expect(ring).toMatch(/@property --progress-ring-fill\s*\{[^}]*syntax:\s*"<number>"[^}]*inherits:\s*true/);
-    expect(ruleBody(ring, ".progress-ring").transition).toMatch(/^--progress-ring-fill \d+ms ease-out$/);
+    // The hue moves with the fill: registered as a colour, eased the same way.
+    expect(ring).toMatch(/@property --progress-ring-hue\s*\{[^}]*syntax:\s*"<color>"[^}]*inherits:\s*true/);
+    expect(ruleBody(ring, ".progress-ring").transition).toMatch(
+      /^--progress-ring-fill \d+ms ease-out,\s*--progress-ring-hue \d+ms ease-out$/,
+    );
     expect(ring).toMatch(/prefers-reduced-motion: reduce\)\s*\{\s*\.progress-ring\s*\{\s*transition: none/);
+  });
+});
+
+describe("the status ring", () => {
+  it("is the pie: the sector filled solid in an outline, no band mask", () => {
+    const ring = readStyles("progressRing.css");
+    const pie = ruleBody(ring, ".progress-ring--pie::before");
+    expect(pie.background).toMatch(/conic-gradient\(var\(--progress-ring-hue\) .*transparent 0\)/);
+    expect(pie["box-shadow"]).toBe("inset 0 0 0 1.5px var(--progress-ring-hue)");
+    expect(pie.mask).toBe("none");
+  });
+
+  it("eases to a new rung — fill and hue — and rests under reduced motion", () => {
+    const status = readStyles("status.css");
+    expect(ruleBody(status, ".progress-ring.status-ring").transition).toMatch(
+      /^--progress-ring-fill \d+ms ease-out,\s*--progress-ring-hue \d+ms ease-out$/,
+    );
+    expect(ruleBody(status, ".status-ring--barred::after").opacity).toBe("1");
+    expect(status).toMatch(/prefers-reduced-motion: reduce\)\s*\{\s*\.progress-ring\.status-ring,\s*\.status-ring::after\s*\{\s*transition: none/);
   });
 });
 

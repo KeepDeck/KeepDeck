@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Combobox, Dropdown } from "@keepdeck/ui-kit";
+import { Combobox, Dropdown, StatusRing } from "@keepdeck/ui-kit";
 import type { TaskPriority, TaskStatus } from "../../domain/tasks";
 import {
   DIALOG_WORDS,
@@ -82,7 +82,7 @@ export function TaskDetail({
     <aside className={taskDetailClassName(wide)} aria-label={TASK_DETAIL_WORDS.panel(view.id)}>
       <header className="tasks__detail-head">
         <div className="tasks__detail-line">
-          <span className={view.statusRingClassName} aria-hidden />
+          <StatusRing {...view.statusRing} />
           <span className="tasks__detail-meta kd-one-line">{view.meta}</span>
           <span className="tasks__detail-tools">
             <Button size="sm" pressed={wide} onClick={onToggleWide}>
@@ -110,7 +110,7 @@ export function TaskDetail({
                 value: option.value,
                 label: (
                   <span className="tasks__status-choice">
-                    <span className={option.ringClassName} />
+                    <StatusRing {...option.ring} />
                     {option.label}
                   </span>
                 ),
