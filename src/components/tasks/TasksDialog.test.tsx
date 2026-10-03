@@ -9,6 +9,7 @@ import { installResizeObserver, pinListViewport } from "@keepdeck/ui-kit/virtual
 import { TasksDialog } from "./TasksDialog";
 import type { TasksAccess } from "./useTasksBoard";
 import type { Workspace } from "../../domain/deck";
+import { DEFAULT_SETTINGS, type Settings } from "../../domain/settings";
 import type { ArtifactsRegistryReadPort } from "../../app/artifacts/registryRead";
 
 // The registry's reads are a port the dialog is handed; the open-by-identity
@@ -23,6 +24,24 @@ const artifactReads: ArtifactsRegistryReadPort = {
 };
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+// The settings owner as a live in-memory store: the dialog reads its view
+// from it and writes the view back on a switch.
+const settingsStore = vi.hoisted(() => ({
+  current: null as Settings | null,
+  listeners: new Set<() => void>(),
+}));
+vi.mock("../../app/settingsManager", () => ({
+  getSettings: () => settingsStore.current,
+  subscribeSettings: (listener: () => void) => {
+    settingsStore.listeners.add(listener);
+    return () => settingsStore.listeners.delete(listener);
+  },
+  updateSettings: (patch: Partial<Settings>) => {
+    settingsStore.current = { ...settingsStore.current!, ...patch };
+    for (const listener of settingsStore.listeners) listener();
+  },
+}));
 
 /** The owner as the runtime hands it out — here a fixed service, or none. */
 function access(service: TasksService | null): TasksAccess {
@@ -45,6 +64,7 @@ const onFocus = (id: string | null) => {
 let restoreViewport: () => void;
 
 beforeEach(() => {
+  settingsStore.current = DEFAULT_SETTINGS;
   installResizeObserver();
   restoreViewport = pinListViewport("tasks__column-body", 600);
   document.body.innerHTML = "";
@@ -265,6 +285,22 @@ describe("TasksDialog", () => {
     act(() => document.querySelector<HTMLButtonElement>('button[aria-label="Remove copy-edit"]')!.click());
     await flush();
     expect(labelsOnTask()).toEqual([]);
+  });
+
+  it("keeps the view picked across closing and opening the dialog — it is a setting", async () => {
+    const { service } = await seeded();
+    mount(service)();
+    await flush();
+    expect(cards().length).toBeGreaterThan(0);
+    act(() => button("List").click());
+    await flush();
+    expect(settingsStore.current?.tasksView).toBe("list");
+    act(() => root.unmount());
+    root = createRoot(host);
+    mount(service)();
+    await flush();
+    expect(cards()).toEqual([]);
+    expect(document.querySelector(".tasks__list")).not.toBeNull();
   });
 
   it("creates a task from the form as the user and opens it", async () => {

@@ -2,6 +2,7 @@ import type { AgentType } from "../agents";
 import { isRecord } from "../json";
 import {
   DOCK_MODES,
+  TASKS_VIEWS,
   NOTIFICATION_MODES,
   SCROLLBACK_MAX,
   SCROLLBACK_MIN,
@@ -202,6 +203,7 @@ const SETTINGS_CODECS: { [K in SettingsKey]: SettingCodec<Settings[K]> } = {
   artifacts: { default: false, read: readBoolean },
   artifactAutoOpen: { default: true, read: readBoolean },
   tasks: { default: false, read: readBoolean },
+  tasksView: { default: "board", read: readOneOf(TASKS_VIEWS) },
 };
 
 /** The table as entries, typed once so every consumer doesn't re-assert the

@@ -7,6 +7,8 @@ import type { ArtifactsRegistryReadPort } from "../../app/artifacts/registryRead
 import { describeError } from "../../ipc/log";
 import { refusalOf, tasksEnableStatus } from "../../app/tasks/enableStatus";
 import { readyBoard } from "../../app/tasks/tasksService";
+import { updateSettings } from "../../app/settingsManager";
+import { useSettings } from "../../app/useSettings";
 import { refusalText } from "../../app/tasks/refusalText";
 import { teamsOf, type Workspace } from "../../domain/deck";
 import {
@@ -152,6 +154,8 @@ export function useTasksBoard(
   };
   const dragEndedAt = useRef<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Which view: a setting, kept across openings and launches (user).
+  const view = useSettings()?.tasksView ?? "board";
   // What the views show: held for the dialog's life, never stored.
   const [query, setQuery] = useState<TaskQuery>(NO_QUERY);
 
@@ -210,16 +214,16 @@ export function useTasksBoard(
   const selected = focusedTask;
   const detail =
     selected && selected.teamId === teamId ? taskDetailView(selected, board!, roster, now, knownArtifacts) : null;
-  const columns = board && screen.view === "board" ? boardView(teamTasks, board, now, query) : [];
+  const columns = board && view === "board" ? boardView(teamTasks, board, now, query) : [];
   const listItems =
-    board && screen.view === "list" ? listView(teamTasks, board, now, query, screen.folded, detail?.id ?? null) : [];
+    board && view === "list" ? listView(teamTasks, board, now, query, screen.folded, detail?.id ?? null) : [];
   const filters = queryToolbarView(query);
 
   // J / K walk the list's rows, the open task following — never while a
   // field has the keys (a comment, a label being typed).
   const openId = detail?.id ?? null;
   useEffect(() => {
-    if (screen.view !== "list") return;
+    if (view !== "list") return;
     const onKeyDown = (event: KeyboardEvent) => {
       const step = rowStepOf(event.key);
       if (step === null || event.metaKey || event.ctrlKey || event.altKey) return;
@@ -233,7 +237,7 @@ export function useTasksBoard(
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [screen.view, listItems, openId]);
+  }, [view, listItems, openId]);
   const form = newTaskFormView(roster);
 
   /** The pointer was released over `over` (a column, or nothing). One
@@ -291,8 +295,8 @@ export function useTasksBoard(
     hoverColumn: (status: TaskStatus | null) => run({ type: "hover", status, dragging: dragRef.current.kind === "dragging" }),
     /** Released over a column. */
     dropOn: release,
-    view: screen.view,
-    setView: (view: TrackerView) => run({ type: "view", view }),
+    view,
+    setView: (next: TrackerView) => updateSettings({ tasksView: next }),
     listItems,
     fold: (status: TaskStatus) => run({ type: "fold", status }),
     filters,

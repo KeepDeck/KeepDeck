@@ -68,11 +68,15 @@
   border-color: var(--kd-seam-strong);
 }
 
-/* A secondary button that toggles (a filter): pressed, it holds the
-   selected surface, so "on" reads without colour — colour is state. */
-.kd-btn--secondary[aria-pressed="true"] {
-  background-color: var(--kd-selected);
-  color: var(--kd-text);
+/* A secondary button that toggles (a filter): pressed, it is the deck's
+   one "chosen" — the light plate with dark ink a picked choice row option
+   wears (form.css .form__type--active), so a toggle and a choice beside it
+   say "on" the same way, without colour — colour is state. */
+.kd-btn--secondary[aria-pressed="true"],
+.kd-btn--secondary[aria-pressed="true"]:hover:not(:disabled) {
+  border: 1px solid var(--kd-text);
+  background-color: var(--kd-text);
+  color: var(--kd-canvas);
 }
 
 /* Chrome that should disappear until reached for. Its padding is symmetric

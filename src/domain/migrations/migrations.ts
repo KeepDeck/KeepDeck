@@ -469,6 +469,8 @@ const DECK_MIGRATIONS: Record<number, Migration> = {
  *       Consumed like mcpServer.
  * 22 — + tasks: the General toggle for the team-owned task board (the
  *       task_* commands and the Tasks dialog — off by default).
+ * 23 — + tasksView (board|list): the view the Tasks dialog opens in, the
+ *       last one picked.
  *
  * No ladder: the document is per-key tolerant (independent facts,
  * hand-editable), which IS its migration mechanism while changes stay
@@ -476,7 +478,7 @@ const DECK_MIGRATIONS: Record<number, Migration> = {
  * step that changes a field's meaning gets a `migrateSettingsFromV*toV*`
  * here, a ladder like the deck's, and a raised floor.
  */
-export const SETTINGS_VERSION = 22;
+export const SETTINGS_VERSION = 23;
 export const SETTINGS_MIN_READER = 1;
 
 /** The file's effective compatibility floor: what it declares, else its own

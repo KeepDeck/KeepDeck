@@ -6,12 +6,14 @@
  * the dialog to close). The hook holds one state and applies what this
  * answers; it decides nothing.
  */
+import type { TasksView } from "../../domain/settings";
 import type { TaskStatus } from "../../domain/tasks";
 import { escapeTarget, selectionAfterClick } from "./dialogState";
 import { FOLDED_AT_OPEN, toggleFold } from "./listView";
 
-/** The two views of the one set of tasks (`queryView`). */
-export type TrackerView = "list" | "board";
+/** The two views of the one set of tasks (`queryView`) — a setting, kept
+ * across openings (`Settings.tasksView`). */
+export type TrackerView = TasksView;
 
 export interface ScreenState {
   /** The team they picked; the team on screen is `teamOnScreen`'s call. */
@@ -23,9 +25,7 @@ export interface ScreenState {
   wide: boolean;
   /** The column a card in flight is over. */
   hover: TaskStatus | null;
-  /** Which view the tasks are in — for the dialog's life, never stored. */
-  view: TrackerView;
-  /** The list's folded groups — a reading posture, like the view. */
+  /** The list's folded groups — a reading posture for the dialog's life. */
   folded: ReadonlySet<TaskStatus>;
 }
 
@@ -34,8 +34,6 @@ export const INITIAL_SCREEN: ScreenState = {
   composing: false,
   wide: false,
   hover: null,
-  // The board people know; the list is one press away.
-  view: "board",
   folded: FOLDED_AT_OPEN,
 };
 
@@ -60,7 +58,6 @@ export type ScreenAction =
   | { type: "escape"; detailOpen: boolean }
   | { type: "team"; id: string }
   | { type: "hover"; status: TaskStatus | null; dragging: boolean }
-  | { type: "view"; view: TrackerView }
   /** A list heading's toggle. */
   | { type: "fold"; status: TaskStatus }
   /** A task was created from the form: it opens, the form goes. */
@@ -126,9 +123,6 @@ function step(state: ScreenState, action: ScreenAction): ScreenOutcome {
       return { state: { ...state, hover: action.dragging ? action.status : null } };
     case "created":
       return { state: { ...state, composing: false, wide: false }, focus: action.id };
-    case "view":
-      // The open task stays open over whichever view is under it.
-      return { state: { ...state, view: action.view, hover: null } };
     case "fold":
       return { state: { ...state, folded: toggleFold(state.folded, action.status) } };
   }
