@@ -123,3 +123,16 @@ export function countByStatus(tasks: readonly Task[]): StatusCounts {
   for (const task of tasks) counts[task.status] += 1;
   return counts;
 }
+
+/** The labels a board's tasks carry, most used first (then by name) — the
+ * board's whole vocabulary, derived and never stored: a label exists while
+ * a task carries it, and is gone when the last one drops it. */
+export function labelsOf(board: Pick<TaskBoard, "tasks">): string[] {
+  const counts = new Map<string, number>();
+  for (const task of board.tasks) {
+    for (const label of task.labels) counts.set(label, (counts.get(label) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort(([a, x], [b, y]) => y - x || (a < b ? -1 : a > b ? 1 : 0))
+    .map(([label]) => label);
+}

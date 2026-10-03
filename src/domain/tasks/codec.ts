@@ -98,6 +98,8 @@ function decodeTask(raw: unknown): TaskRead {
   if (typeof raw.author !== "string") return fail("author");
   if (!isStringArray(raw.blockedBy)) return fail("blockedBy");
   if (!isStringArray(raw.artifacts)) return fail("artifacts");
+  // Absent on boards written before labels: absence is no fault.
+  if (raw.labels !== undefined && !isStringArray(raw.labels)) return fail("labels");
   if (!Array.isArray(raw.comments) || !raw.comments.every(isComment)) return fail("comments");
   if (!Array.isArray(raw.log) || !raw.log.every(isLogEntry)) return fail("log");
   if (!isCount(raw.created) || !isCount(raw.updated)) return fail("created/updated");
@@ -114,6 +116,7 @@ function decodeTask(raw: unknown): TaskRead {
       author: raw.author,
       blockedBy: raw.blockedBy,
       artifacts: raw.artifacts,
+      labels: raw.labels ?? [],
       comments: raw.comments as TaskComment[],
       log: raw.log as TaskLogEntry[],
       created: raw.created,

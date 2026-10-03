@@ -35,6 +35,7 @@ export type TaskChange =
   | { kind: "body"; to: string }
   | { kind: "blockedBy"; to: readonly string[] }
   | { kind: "artifacts"; to: readonly string[] }
+  | { kind: "labels"; to: readonly string[] }
   | { kind: "comment"; body: string };
 
 /** The change that attaches `slug` to `task`. A slug already there is
@@ -79,6 +80,12 @@ export type TaskRefusal =
   | { kind: "self-blocker" }
   | { kind: "cyclic-blocker"; ids: readonly string[] }
   | { kind: "field-cap"; field: "title" | "body" | "comment"; max: number }
+  /** A label that is not a word: empty, too long, or with a character
+   * outside lowercase letters, digits and inner dashes. */
+  | { kind: "bad-label"; label: string; max: number }
+  | { kind: "too-many-labels"; max: number }
+  /** A working role labelling a task that is not its own. */
+  | { kind: "not-yours-to-label"; assignee: string | null }
   | { kind: "blank"; field: "title" | "comment" }
   | { kind: "board-full"; max: number }
   /** The id counter cannot mint another safe integer. Unreachable by
@@ -145,6 +152,41 @@ function joined(ids: readonly string[]): string | null {
 
 function normalizeIds(ids: readonly string[]): string[] {
   return [...new Set(ids.map((id) => id.trim()).filter((id) => id !== ""))];
+}
+
+/** A label as the board keeps it: trimmed, lowercased, runs of spaces,
+ * underscores and dashes made one dash, none at either end — "Copy Edit"
+ * is `copy-edit`. */
+export function normalizeLabel(raw: string): string {
+  return raw
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+const LABEL_WORD = /^[\p{Ll}\p{Lo}\p{N}]+(-[\p{Ll}\p{Lo}\p{N}]+)*$/u;
+
+/** A task's labels as kept — normalised, deduped, sorted, so a reordering
+ * is no edit — or why they cannot be. The one rule the change and the
+ * create apply. */
+export function normalizeLabels(
+  raw: readonly string[],
+): { ok: true; labels: string[] } | { ok: false; refusal: TaskRefusal } {
+  const labels = [...new Set(raw.map(normalizeLabel))].sort();
+  const max = TASK_CAPS.labelMax;
+  const bad = labels.find((label) => label.length > max || !LABEL_WORD.test(label));
+  if (bad !== undefined) return refuse({ kind: "bad-label", label: bad, max });
+  if (labels.length > TASK_CAPS.labelsMax) {
+    return refuse({ kind: "too-many-labels", max: TASK_CAPS.labelsMax });
+  }
+  return { ok: true, labels };
+}
+
+/** Whether this actor sets a task's labels: whoever hands out work, and
+ * the assignee on its own task — a label is how it files what it holds. */
+function mayLabel(actor: TaskActor, task: Pick<Task, "assignee">): boolean {
+  return mayAssign(actor) || (actor.kind === "agent" && actor.role !== null && task.assignee === actor.role);
 }
 
 /** What is wrong with a title, or nothing — the rule the transition and
@@ -353,6 +395,21 @@ export function transition(
         ),
       };
     }
+    case "labels": {
+      if (!mayLabel(actor, task)) return refuse({ kind: "not-yours-to-label", assignee: task.assignee });
+      const read = normalizeLabels(change.to);
+      if (!read.ok) return read;
+      if (joined(read.labels) === joined(task.labels)) return { ok: true, task };
+      return {
+        ok: true,
+        task: logged(
+          task,
+          [{ at, from: by, field: "labels", was: joined(task.labels), now: joined(read.labels) }],
+          at,
+          { labels: read.labels },
+        ),
+      };
+    }
     case "comment": {
       const problem = commentProblem(change.body);
       if (problem) return refuse(problem);
@@ -435,6 +492,7 @@ export interface CreateTaskInput {
   priority?: TaskPriority;
   blockedBy?: readonly string[];
   artifacts?: readonly string[];
+  labels?: readonly string[];
 }
 
 export type CreateResult =
@@ -478,6 +536,8 @@ export function createTask(
   const blockedBy = normalizeIds(input.blockedBy ?? []);
   const badBlockers = validateBlockers(null, input.teamId, blockedBy, ctx.board);
   if (badBlockers) return refuse(badBlockers);
+  const labels = normalizeLabels(input.labels ?? []);
+  if (!labels.ok) return labels;
   const task: Task = {
     id: `task-${ctx.board.nextId}`,
     teamId: input.teamId,
@@ -489,6 +549,7 @@ export function createTask(
     author: actorName(actor) ?? "",
     blockedBy,
     artifacts: normalizeIds(input.artifacts ?? []),
+    labels: labels.labels,
     comments: [],
     log: [],
     created: ctx.at,

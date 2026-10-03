@@ -81,6 +81,14 @@ export function refusalText(refusal: TaskProblem): string {
       return `${refusal.field} must be at most ${refusal.max} characters`;
     case "blank":
       return `${refusal.field} must not be blank`;
+    case "bad-label":
+      return `"${refusal.label}" is not a label — one word of lowercase letters and digits, dashes between, at most ${refusal.max} characters`;
+    case "not-yours-to-label":
+      return refusal.assignee === null
+        ? `that task is in the pool — its labels are ${lead}'s to set until somebody holds it`
+        : `that task is ${refusal.assignee}'s — its labels are theirs and ${lead}'s`;
+    case "too-many-labels":
+      return `a task carries at most ${refusal.max} labels — take one off first`;
     case "board-full":
       return `this workspace's board holds ${refusal.max} tasks — finish or cancel some first`;
     case "counter-exhausted":

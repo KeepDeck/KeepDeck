@@ -58,3 +58,35 @@ describe("board codec", () => {
     expect(decodeBoard(JSON.stringify({ nextId: 0, tasks: [] }))).toEqual({ ok: false, fault: { kind: "bad-counter", atLeast: 1 } });
   });
 });
+
+describe("board codec — labels", () => {
+  const stored = (labels?: unknown) =>
+    JSON.stringify({
+      nextId: 2,
+      tasks: [
+        {
+          id: "task-1", teamId: "team-1", title: "t", body: "", status: "todo", priority: "normal",
+          assignee: null, author: "lead", blockedBy: [], artifacts: [],
+          ...(labels === undefined ? {} : { labels }),
+          comments: [], log: [], created: 1, updated: 1,
+        },
+      ],
+    });
+
+  it("reads a board written before labels as tasks with none — absence is no fault", () => {
+    const read = decodeBoard(stored());
+    expect(read.ok && read.board.tasks[0].labels).toEqual([]);
+  });
+
+  it("keeps labels through a round trip, and refuses labels that are not a list of words", () => {
+    const read = decodeBoard(stored(["ui", "design"]));
+    expect(read.ok && read.board.tasks[0].labels).toEqual(["ui", "design"]);
+    expect(decodeBoard(stored("ui"))).toMatchObject({ ok: false, fault: { kind: "bad-task", field: "labels" } });
+    expect(decodeBoard(stored([1]))).toMatchObject({ ok: false, fault: { kind: "bad-task", field: "labels" } });
+  });
+
+  it("accepts a log entry about labels", () => {
+    const json = stored(["ui"]).replace('"log":[]', '"log":[{"at":1,"from":"lead","field":"labels","was":null,"now":"ui"}]');
+    expect(decodeBoard(json).ok).toBe(true);
+  });
+});

@@ -4,6 +4,7 @@ import {
   countByStatus,
   issuable,
   keepTeams,
+  labelsOf,
   mine,
   nextFor,
   openBlockersOf,
@@ -138,5 +139,22 @@ describe("keepTeams", () => {
   it("hands the same board back when every task's team is kept — a change is told by reference", () => {
     expect(keepTeams(b, new Set(["team-1", "team-2"]))).toBe(b);
     expect(keepTeams(board([]), new Set())).toEqual(board([]));
+  });
+});
+
+describe("labelsOf — the board's vocabulary", () => {
+  it("is every label a task carries, most used first, then by name; nothing when none", () => {
+    const b = board([
+      task({ id: "task-1", labels: ["ui", "design"] }),
+      task({ id: "task-2", labels: ["ui"] }),
+      task({ id: "task-3", labels: ["bell"] }),
+      task({ id: "task-4" }),
+    ]);
+    expect(labelsOf(b)).toEqual(["ui", "bell", "design"]);
+    expect(labelsOf(board([task({ id: "task-1" })]))).toEqual([]);
+  });
+
+  it("forgets a label once no task carries it", () => {
+    expect(labelsOf(board([task({ id: "task-1", labels: [] })]))).toEqual([]);
   });
 });

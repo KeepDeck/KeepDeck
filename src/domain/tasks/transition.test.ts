@@ -391,3 +391,72 @@ describe("attachArtifact / detachArtifact", () => {
     expect(detachArtifact(t, "kd-z")).toEqual({ kind: "artifacts", to: ["kd-a", "kd-b"] });
   });
 });
+
+describe("labels", () => {
+  const labelled = (t: ReturnType<typeof task>, to: string[], actor: TaskActor) => {
+    const result = transition(t, { kind: "labels", to }, actor, ctx([t]));
+    if (!result.ok) throw new Error(`refused: ${JSON.stringify(result.refusal)}`);
+    return result.task;
+  };
+
+  it("keeps words: trimmed, lowercased, spaces and underscores a dash, deduped and sorted", () => {
+    const t = task({ id: "task-1" });
+    expect(labelled(t, ["  Copy Edit ", "ui", "UI", "big__deal", "-dash-"], lead).labels).toEqual([
+      "big-deal",
+      "copy-edit",
+      "dash",
+      "ui",
+    ]);
+    // Words in any script, digits included.
+    expect(labelled(t, ["Дизайн", "v2"], lead).labels).toEqual(["v2", "дизайн"]);
+  });
+
+  it("refuses a label that is not a word, or one too long, naming it", () => {
+    const t = task({ id: "task-1" });
+    expect(refusalOf(t, { kind: "labels", to: ["ok", "a/b"] }, lead)).toEqual({
+      kind: "bad-label",
+      label: "a/b",
+      max: TASK_CAPS.labelMax,
+    });
+    expect(refusalOf(t, { kind: "labels", to: ["   "] }, lead)).toMatchObject({ kind: "bad-label", label: "" });
+    const long = "x".repeat(TASK_CAPS.labelMax + 1);
+    expect(refusalOf(t, { kind: "labels", to: [long] }, lead)).toMatchObject({ kind: "bad-label", label: long });
+    expect(refusalOf(t, { kind: "labels", to: ["x".repeat(TASK_CAPS.labelMax)] }, lead)).toBeNull();
+  });
+
+  it("refuses more than the cap — counted after the duplicates fold", () => {
+    const t = task({ id: "task-1" });
+    const five = ["a", "b", "c", "d", "e"];
+    expect(refusalOf(t, { kind: "labels", to: [...five, "A"] }, lead)).toBeNull();
+    expect(refusalOf(t, { kind: "labels", to: [...five, "f"] }, lead)).toEqual({
+      kind: "too-many-labels",
+      max: TASK_CAPS.labelsMax,
+    });
+  });
+
+  it("is the lead's and the user's on any task, and the assignee's on its own — not another worker's", () => {
+    const own = task({ id: "task-1", assignee: "impl-1" });
+    const theirs = task({ id: "task-1", assignee: "impl-2" });
+    expect(refusalOf(own, { kind: "labels", to: ["ui"] }, impl1)).toBeNull();
+    expect(refusalOf(theirs, { kind: "labels", to: ["ui"] }, impl1)).toEqual({ kind: "not-yours-to-label", assignee: "impl-2" });
+    expect(refusalOf(task({ id: "task-1" }), { kind: "labels", to: ["ui"] }, impl1)).toEqual({ kind: "not-yours-to-label", assignee: null });
+    expect(refusalOf(theirs, { kind: "labels", to: ["ui"] }, lead)).toBeNull();
+    expect(refusalOf(theirs, { kind: "labels", to: ["ui"] }, USER_ACTOR)).toBeNull();
+  });
+
+  it("logs the set as it was and as it is; a reordering or a repeat is no edit", () => {
+    const t = task({ id: "task-1", labels: ["design", "ui"] });
+    const edited = labelled(t, ["ui"], lead);
+    expect(edited.log[edited.log.length - 1]).toEqual({ at: 5_000, from: "lead", field: "labels", was: "design,ui", now: "ui" });
+    expect(labelled(t, ["UI", "design"], lead)).toBe(t);
+    expect(labelled(task({ id: "task-1" }), ["ui"], lead).log[0]).toMatchObject({ was: null, now: "ui" });
+  });
+
+  it("takes them at creation by the same rule", () => {
+    const made = createTask({ teamId: "team-1", title: "x", labels: ["Copy Edit", "ui", "ui"] }, lead, ctx([]));
+    expect(made.ok && made.task.labels).toEqual(["copy-edit", "ui"]);
+    expect(createTask({ teamId: "team-1", title: "x" }, lead, ctx([])).ok && true).toBe(true);
+    const bad = createTask({ teamId: "team-1", title: "x", labels: ["a b/c"] }, lead, ctx([]));
+    expect(bad.ok ? null : bad.refusal.kind).toBe("bad-label");
+  });
+});

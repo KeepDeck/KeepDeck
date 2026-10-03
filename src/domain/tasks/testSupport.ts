@@ -11,6 +11,7 @@ export const task = (over: Partial<Task> & Pick<Task, "id">): Task => ({
   author: "lead",
   blockedBy: [],
   artifacts: [],
+  labels: [],
   comments: [],
   log: [],
   created: 1_000,
