@@ -11,7 +11,8 @@ import {
   statusOf,
   unblocks,
   unlinked,
-  waitsOn,
+  transitiveBlockers,
+  transitiveWaiters,
   withRelations,
 } from "./relations";
 import { board, relation, task } from "./testSupport";
@@ -70,8 +71,13 @@ describe("relations — reading a board's links", () => {
       task({ id: "task-2", blockedBy: ["task-3"] }),
       task({ id: "task-3" }),
     ]);
-    expect(waitsOn(b, "uid-task-1", "uid-task-3")).toBe(true);
-    expect(waitsOn(b, "uid-task-3", "uid-task-1")).toBe(false);
+    expect([...transitiveBlockers(b, "uid-task-1")].sort()).toEqual(["uid-task-1", "uid-task-2", "uid-task-3"]);
+    expect([...transitiveWaiters(b, "uid-task-3")].sort()).toEqual(["uid-task-1", "uid-task-2", "uid-task-3"]);
+    expect([...transitiveBlockers(b, "uid-task-3")]).toEqual(["uid-task-3"]);
+    // A loop already on the board (one carried over from an old file) is
+    // walked once round, not for ever.
+    const loop = board([task({ id: "task-1", blockedBy: ["task-2"] }), task({ id: "task-2", blockedBy: ["task-1"] })]);
+    expect(transitiveBlockers(loop, "uid-task-1").size).toBe(2);
   });
 
   it("answers from a fresh board, never a stale one", () => {

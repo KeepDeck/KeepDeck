@@ -27,13 +27,19 @@ function fuzzyRank(candidate: string, query: string): number | null {
  * Pure — exported for the menu's tests and any non-React consumer.
  */
 export function fuzzyFilter(options: string[], query: string): string[] {
+  return fuzzyFilterBy(options, query, (option) => option);
+}
+
+/** `fuzzyFilter` over items that are not their own text — each matched by
+ * `text(item)`, in the same tiers and the same stable order. */
+export function fuzzyFilterBy<T>(items: readonly T[], query: string, text: (item: T) => string): T[] {
   const q = query.trim();
-  if (!q) return options;
-  return options
-    .map((option) => ({ option, rank: fuzzyRank(option, q) }))
-    .filter((entry): entry is { option: string; rank: number } => entry.rank !== null)
+  if (!q) return [...items];
+  return items
+    .map((item) => ({ item, rank: fuzzyRank(text(item), q) }))
+    .filter((entry): entry is { item: T; rank: number } => entry.rank !== null)
     .sort((a, b) => a.rank - b.rank)
-    .map((entry) => entry.option);
+    .map((entry) => entry.item);
 }
 
 interface ComboboxProps {

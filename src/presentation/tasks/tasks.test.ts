@@ -6,7 +6,7 @@ import { NO_QUERY } from "./queryView";
 import { LADDER_WORDS, tasksLadder } from "./ladderView";
 import { newTaskFormView, NEW_TASK_WORDS } from "./newTaskFormView";
 import { statusMark, statusRing, taskCardView, taskCardClassName } from "./taskCardView";
-import { TASK_DETAIL_WORDS, changesOf, commentsOf, renamedTitle, pickedArtifact, pickedStatus, taskDetailClassName, taskDetailView } from "./taskDetailView";
+import { TASK_DETAIL_WORDS, changesOf, commentsOf, renamedTitle, pickedStatus, taskDetailClassName, taskDetailView } from "./taskDetailView";
 import { teamCardTasksLine } from "./teamCardTasksLine";
 import { teamOnScreen } from "./teamOnScreen";
 import { blockerLinkWords, fieldCount, unsavedBanner, personName, priorityMark, statusTone, FIELD_WORDS, POOL_CHOICE } from "./words";
@@ -125,8 +125,6 @@ describe("task panel and form words and classes", () => {
   it("a pick asks for nothing when it changes nothing", () => {
     expect(pickedStatus("todo", "todo")).toBeNull();
     expect(pickedStatus("todo", "in-progress")).toBe("in-progress");
-    expect(pickedArtifact("")).toBeNull();
-    expect(pickedArtifact("kd-a")).toBe("kd-a");
   });
 
   it("names the form's own buttons", () => {
@@ -170,7 +168,13 @@ describe("taskDetailView", () => {
     expect(view.statusRing).toEqual(statusMark("todo"));
     expect(statusMark("todo")).toEqual({ ...statusRing("todo"), decorative: true });
     expect(view.blockers).toEqual([
-      { id: "task-1", text: "task-1 · in progress", resolved: false, className: "kd-tag kd-tag--outline tasks__tag--blocking" },
+      {
+        id: "task-1",
+        text: "task-1 · in progress",
+        resolved: false,
+        className: "kd-tag kd-tag--outline tasks__tag--blocking",
+        removeLabel: "Stop waiting on task-1",
+      },
     ]);
     expect(view.blockersEmpty).toBeNull();
     expect(view.unblocks).toEqual([{ id: "task-3", title: "Task task-3" }]);
@@ -203,7 +207,10 @@ describe("taskDetailView — artifacts", () => {
       { slug: "kd-tasks", title: "KeepDeck Tasks", known: true, openTitle: "Open in the browser — kd-tasks", detachLabel: "Detach kd-tasks" },
       { slug: "gone", title: "gone", known: false, openTitle: "No longer published — gone", detachLabel: "Detach gone" },
     ]);
-    expect(view.attachOptions).toEqual([{ value: "kd-tasks-ui", label: "UI prototypes" }]);
+    expect(view.canAttach).toBe(true);
+    expect(view.palette("artifact").sections).toEqual([
+      { title: TASK_DETAIL_WORDS.artifactsSection, items: [{ value: "kd-tasks-ui", label: "UI prototypes", hint: "kd-tasks-ui" }] },
+    ]);
     expect(view.attachEmpty).toBeNull();
     expect(taskDetailView(b.tasks[0], b, ROSTER, NOW, []).attachEmpty?.title).toContain("Nothing published");
     expect(taskDetailView(b.tasks[0], b, ROSTER, NOW, []).attachEmpty?.text).toBe("none");
@@ -341,6 +348,9 @@ describe("commentsOf / changesOf — what was said, and what was changed, apart"
       label: "More for task-4",
       actions: [
         { id: "rename", label: "Rename", refusal: null },
+        // task-5 is done: nothing open on the team to link it with.
+        { id: "blocked-by", label: "Blocked by…", refusal: "No task on its team it could wait on" },
+        { id: "blocks", label: "Blocks…", refusal: "No task on its team could wait on it" },
         { id: "duplicate", label: "Duplicate", refusal: null },
         { id: "transfer", label: "Transfer", refusal: null },
       ],
@@ -353,11 +363,11 @@ describe("commentsOf / changesOf — what was said, and what was changed, apart"
     // Only the other teams are offered.
     expect(view.transfer.options).toEqual([{ value: "team-2", label: "web" }]);
     const refusal = (t: typeof b.tasks[number], within = teams) =>
-      taskDetailView(t, b, ROSTER, 0, [], false, within).menu.actions[2].refusal;
+      taskDetailView(t, b, ROSTER, 0, [], false, within).menu.actions.find((a) => a.id === "transfer")!.refusal;
     expect(refusal(b.tasks[0], [teams[0]])).toBe("No other team in this workspace");
     expect(refusal(b.tasks[1])).toContain("done task stays where it is");
     const linked = board([task({ id: "task-4" }), task({ id: "task-6", blockedBy: ["task-4"] })]);
-    expect(taskDetailView(linked.tasks[0], linked, ROSTER, 0, [], false, teams).menu.actions[2].refusal).toContain("task-6 waits on it");
+    expect(taskDetailView(linked.tasks[0], linked, ROSTER, 0, [], false, teams).menu.actions.find((a) => a.id === "transfer")!.refusal).toContain("task-6 waits on it");
   });
 
   it("renames to the typed title — nothing for an empty one, or for the title the edit began with", () => {
@@ -470,5 +480,50 @@ describe("unsavedBanner — what a board lagging its disk says", () => {
     expect(upgrade).toContain("upgrade to linked tasks is not saved yet — disk full");
     expect(upgrade).toContain("board.pre-relations.json");
     expect(upgrade).not.toContain("Changes");
+  });
+});
+
+describe("taskDetailView — linking tasks from the open one", () => {
+  const b = board([
+    task({ id: "task-1", blockedBy: ["task-2"] }),
+    task({ id: "task-2" }),
+    task({ id: "task-3", title: "Ship", status: "in-progress" }),
+  ]);
+  const view = taskDetailView(b.tasks[0], b, ROSTER, NOW);
+
+  it("offers, in a palette that names what is picked, the tasks it could wait on — key, title, ring, status", () => {
+    expect(view.palette("blocked-by")).toEqual({
+      label: "Blocked by",
+      placeholder: "Find a task task-1 waits on…",
+      empty: TASK_DETAIL_WORDS.noTaskMatches,
+      sections: [
+        { title: "Tasks", items: [{ value: "task-3", label: "task-3  Ship", hint: "In progress", ring: statusMark("in-progress") }] },
+      ],
+    });
+    expect(view.canAddBlocker).toBe(true);
+    expect(view.blockers.map((chip) => chip.removeLabel)).toEqual(["Stop waiting on task-2"]);
+  });
+
+  it("offers the other side too: what could wait on it — never what it waits on (a cycle)", () => {
+    expect(view.palette("blocks").placeholder).toBe("Find a task that waits on task-1…");
+    expect(view.palette("blocks").sections[0].items.map((item: { value: string }) => item.value)).toEqual(["task-3"]);
+    expect(view.canAddDependant).toBe(true);
+  });
+
+  it("puts both in the task's menu, each refused with its reason when nothing could be linked", () => {
+    const actions = (v: typeof view) => v.menu.actions.filter((a) => a.id === "blocked-by" || a.id === "blocks");
+    expect(actions(view)).toEqual([
+      { id: "blocked-by", label: "Blocked by…", refusal: null },
+      { id: "blocks", label: "Blocks…", refusal: null },
+    ]);
+    const alone = board([task({ id: "task-1" })]);
+    const lone = taskDetailView(alone.tasks[0], alone, ROSTER, NOW);
+    expect(actions(lone).map((a) => a.refusal)).toEqual([TASK_DETAIL_WORDS.nothingToWaitOn, TASK_DETAIL_WORDS.nothingWaitsOn]);
+    expect([lone.canAddBlocker, lone.canAddDependant]).toEqual([false, false]);
+    // Nothing waits on it and nothing could: no Unblocks row. Something
+    // could: the row is drawn, its + the way to add the first.
+    expect(lone.unblocksShown).toBe(false);
+    expect(view.unblocks).toEqual([]);
+    expect(view.unblocksShown).toBe(true);
   });
 });

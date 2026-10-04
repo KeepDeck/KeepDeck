@@ -1,6 +1,6 @@
 import { Fragment, useId, useRef, useState } from "react";
-import { Combobox, DisclosureChevron, Dropdown, MenuButton, StatusRing } from "@keepdeck/ui-kit";
-import type { TaskPriority, TaskStatus } from "../../domain/tasks";
+import { Combobox, DisclosureChevron, Dropdown, MenuButton, PlusIcon, StatusRing } from "@keepdeck/ui-kit";
+import type { BlockerSide, TaskPriority, TaskStatus } from "../../domain/tasks";
 import {
   DIALOG_WORDS,
   EMPTY_COMPOSER,
@@ -12,12 +12,12 @@ import {
   labelDraftAfter,
   labelSendable,
   finishSend,
-  pickedArtifact,
   pickedStatus,
   taskDetailClassName,
   renamedTitle,
   typeDraft,
   type FeedChange,
+  type PaletteKind,
   type TaskAction,
   type TaskDetailView,
 } from "../../presentation/tasks";
@@ -25,6 +25,7 @@ import { Button } from "../../ui/Button";
 import { TipButton } from "../../ui/TipButton";
 import { CloseIcon, MaximizeIcon, RestoreIcon } from "@keepdeck/ui-kit/icons";
 import { RemoveButton } from "../../ui/RemoveButton";
+import { CommandPalette } from "../../ui/CommandPalette";
 import { ConfirmDialog } from "../../ui/ConfirmDialog";
 import { RenameInput } from "../../ui/RenameInput";
 import { useInlineRename } from "../../ui/useInlineRename";
@@ -54,6 +55,9 @@ interface TaskDetailProps {
   onComment(taskId: string, body: string): Promise<boolean>;
   onSelect(taskId: string): void;
   onAttach(taskId: string, slug: string): void;
+  /** Link the open task to `otherId` on `side` of a blocker link. */
+  onLink(taskId: string, otherId: string, side: BlockerSide): void;
+  onUnblock(taskId: string, blockerId: string): void;
   onDetach(taskId: string, slug: string): void;
   onOpenArtifact(slug: string): void;
   /** Resolves to whether the label landed — the field keeps a refused one. */
@@ -80,6 +84,8 @@ export function TaskDetail({
   onSelect,
   onAttach,
   onDetach,
+  onLink,
+  onUnblock,
   onOpenArtifact,
   onLabel,
   onUnlabel,
@@ -89,6 +95,11 @@ export function TaskDetail({
   const [transferTo, setTransferTo] = useState<string | null>(null);
   // The copy's confirm, open or not: a stray click must not make a task.
   const [duplicating, setDuplicating] = useState(false);
+  /** The picker open over the task, if any. */
+  const [palette, setPalette] = useState<PaletteKind | null>(null);
+  const current = palette ? view.palette(palette) : null;
+  const pick = (kind: PaletteKind, value: string) =>
+    kind === "artifact" ? onAttach(view.id, value) : onLink(view.id, value, kind);
   // The title edits in place — a double click on it, or Rename in the menu —
   // by the house's one inline-rename behaviour.
   const rename = useInlineRename((taskId, typed, from) => {
@@ -102,6 +113,8 @@ export function TaskDetail({
   });
   const actionOf: Record<TaskAction["id"], () => void> = {
     rename: () => rename.start(view.id, view.title),
+    "blocked-by": () => setPalette("blocked-by"),
+    blocks: () => setPalette("blocks"),
     duplicate: () => setDuplicating(true),
     transfer: () => setTransferTo(view.transfer.options[0]?.value ?? null),
   };
@@ -179,6 +192,24 @@ export function TaskDetail({
           >
             {view.title}
           </h3>
+        )}
+        {palette && current && (
+          <CommandPalette
+            label={current.label}
+            placeholder={current.placeholder}
+            empty={current.empty}
+            sections={current.sections.map((section) => ({
+              title: section.title,
+              items: section.items.map((item) => ({
+                value: item.value,
+                label: item.label,
+                hint: item.hint,
+                leading: item.ring && <StatusRing {...item.ring} />,
+              })),
+            }))}
+            onPick={(value) => pick(palette, value)}
+            onClose={() => setPalette(null)}
+          />
         )}
         {duplicating && (
           <ConfirmDialog
@@ -303,27 +334,29 @@ export function TaskDetail({
               <span className="tasks__muted">{view.blockersEmpty}</span>
             ) : (
               view.blockers.map((blocker) => (
-                <button
-                  key={blocker.id}
-                  type="button"
-                  className={blocker.className}
-                  onClick={() => onSelect(blocker.id)}
-                >
-                  {blocker.text}
-                </button>
+                <span key={blocker.id} className={`${blocker.className} tasks__blocker--edit`}>
+                  {/* The chip opens the blocker; the cross lets it go. */}
+                  <button type="button" className="tasks__link" onClick={() => onSelect(blocker.id)}>
+                    {blocker.text}
+                  </button>
+                  <RemoveButton size="sm" label={blocker.removeLabel} onClick={() => onUnblock(view.id, blocker.id)} />
+                </span>
               ))
             )}
+            {view.canAddBlocker && <AddButton label={TASK_DETAIL_WORDS.addBlocker} onClick={() => setPalette("blocked-by")} />}
           </dd>
 
-          {view.unblocks.length > 0 && (
+          {view.unblocksShown && (
             <>
               <dt className="tasks__prop-label">{TASK_DETAIL_WORDS.unblocks}</dt>
               <dd className="tasks__chips">
+                {view.unblocks.length === 0 && <span className="tasks__muted">{TASK_DETAIL_WORDS.none}</span>}
                 {view.unblocks.map((other) => (
                   <button key={other.id} type="button" className="kd-tag kd-tag--outline" title={other.title} onClick={() => onSelect(other.id)}>
                     {other.id}
                   </button>
                 ))}
+                {view.canAddDependant && <AddButton label={TASK_DETAIL_WORDS.addDependant} onClick={() => setPalette("blocks")} />}
               </dd>
             </>
           )}
@@ -361,18 +394,8 @@ export function TaskDetail({
                 <RemoveButton size="sm" label={artifact.detachLabel} onClick={() => onDetach(view.id, artifact.slug)} />
               </span>
             ))}
-            {view.attachOptions.length > 0 ? (
-              <Dropdown
-                ariaLabel={TASK_DETAIL_WORDS.attach}
-                options={[{ value: "", label: TASK_DETAIL_WORDS.attachPrompt }, ...view.attachOptions]}
-                value=""
-                onChange={(picked) => {
-                  const slug = pickedArtifact(picked);
-                  if (slug !== null) onAttach(view.id, slug);
-                }}
-                variant="inline"
-                quiet
-              />
+            {view.canAttach ? (
+              <AddButton label={TASK_DETAIL_WORDS.addArtifact} onClick={() => setPalette("artifact")} />
             ) : (
               view.attachEmpty && (
                 <span className="tasks__muted" title={view.attachEmpty.title}>
@@ -448,6 +471,15 @@ export function TaskDetail({
         </div>
       </div>
     </aside>
+  );
+}
+
+/** A row's + — opens the picker that adds to it. */
+function AddButton({ label, onClick }: { label: string; onClick(): void }) {
+  return (
+    <button type="button" className="tasks__add" aria-label={label} title={label} onClick={onClick}>
+      <PlusIcon />
+    </button>
   );
 }
 

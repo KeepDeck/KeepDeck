@@ -1,0 +1,90 @@
+/* The command palette (ui/CommandPalette.tsx): Linear's way of picking one
+   thing out of many — a wide panel near the top of the screen, its search
+   field first, the matches in sections under it. The shell is float.css's. */
+.palette__backdrop {
+  align-self: stretch;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  width: 100%;
+  padding-top: 12vh;
+}
+
+.palette {
+  display: flex;
+  flex-direction: column;
+  width: min(640px, calc(100vw - 48px));
+  max-height: 60vh;
+  overflow: hidden;
+  border-radius: var(--kd-radius-dialog);
+}
+
+.palette__field {
+  flex: none;
+  height: 44px;
+  padding: 0 16px;
+  border: 0;
+  border-bottom: 1px solid var(--kd-seam);
+  background: transparent;
+  color: var(--kd-text);
+  font: inherit;
+  outline: none;
+}
+
+.palette__field::placeholder {
+  color: var(--kd-text-3);
+}
+
+/* The windowed list (VirtualList): its own scroll box, as tall as its rows
+   up to what the panel leaves. */
+.palette__list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 6px 6px;
+}
+
+.palette__section {
+  margin: 8px 10px 4px;
+  color: var(--kd-text-3);
+  font-size: var(--kd-font-small);
+}
+
+.palette__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: var(--kd-radius-control);
+  background: transparent;
+  color: var(--kd-text-2);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.palette__item--active {
+  background-color: var(--kd-selected);
+  color: var(--kd-text);
+}
+
+.palette__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.palette__hint {
+  flex: none;
+  color: var(--kd-text-3);
+  font-size: var(--kd-font-small);
+}
+
+.palette__empty {
+  margin: 10px;
+  color: var(--kd-text-3);
+}

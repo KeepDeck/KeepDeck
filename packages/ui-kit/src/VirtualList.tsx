@@ -32,6 +32,9 @@ export interface VirtualListProps<T> extends VirtualListMarkup {
    * spacer is one, else on the scroll box. */
   role?: string;
   ariaLabel?: string;
+  /** The list's id, where its role and name go — what a field that drives
+   * it (a combobox's `aria-controls`) points at. */
+  id?: string;
   /** Called when the window reaches the last item — the hook for a list
    * that grows as it is scrolled. */
   onReachEnd?: () => void;
@@ -147,6 +150,7 @@ export function VirtualList<T>({
   className,
   role,
   ariaLabel,
+  id,
   onReachEnd,
   revealKey = null,
   sticky,
@@ -197,7 +201,7 @@ export function VirtualList<T>({
   // The name and role go on the list itself: a `ul` spacer IS the list a
   // reader walks, and a label on the generic scroll box around it is not
   // announced.
-  const named = { role, "aria-label": ariaLabel };
+  const named = { role, "aria-label": ariaLabel, id };
   const spacerIsList = Spacer === "ul";
   return (
     // Focusable by script only — the handoff's landing, never a Tab stop.
