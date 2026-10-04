@@ -362,6 +362,26 @@ describe("fields only the lead sets", () => {
     expect(blockerCandidates(b.tasks[0], b, "blocks").map((x) => x.id)).toEqual(["task-3", "task-7"]);
   });
 
+  it("answers on a full board's longest chain at once — one walk, no recursion to overflow", () => {
+    // task-1 waits on task-2, which waits on task-3, … down to task-2000.
+    const chain = Array.from({ length: TASK_CAPS.tasksMax }, (_, i) =>
+      task({ id: `task-${i + 1}`, blockedBy: i + 1 < TASK_CAPS.tasksMax ? [`task-${i + 2}`] : [] }),
+    );
+    const b = board(chain);
+    const middle = b.tasks[1000];
+    const started = performance.now();
+    const waitsOn = blockerCandidates(middle, b, "blocked-by");
+    const waitedBy = blockerCandidates(middle, b, "blocks");
+    expect(performance.now() - started).toBeLessThan(500);
+    // It may wait on nothing above it (they wait on it), and on everything
+    // below but the one it already waits on.
+    expect(waitsOn.map((t) => t.id)).not.toContain("task-1");
+    expect(waitsOn).toHaveLength(TASK_CAPS.tasksMax - 1001 - 1);
+    // Anything above may wait on it, but the one already does; nothing below may.
+    expect(waitedBy).toHaveLength(1000 - 1);
+    expect(waitedBy.map((t) => t.id)).not.toContain("task-2000");
+  });
+
   it("links on the waiting task, whichever side the link was asked from", () => {
     const [a, b] = [task({ id: "task-1" }), task({ id: "task-2" })];
     expect(blockerLink(a, b, "blocked-by")).toEqual({ taskId: "task-1", change: addBlocker("task-2") });

@@ -33,7 +33,8 @@ import {
   setBlockers,
   unblocks,
   withoutGates,
-  waitsOn,
+  transitiveBlockers,
+  transitiveWaiters,
   withTasks,
 } from "./relations";
 import { tasksOfTeam } from "./board";
@@ -351,10 +352,35 @@ function validateAssignee(
     : { kind: "assignee-not-on-team", assignee };
 }
 
+/** What is wrong with `id` as a blocker of `waiting` (null for a task
+ * being made, which nothing waits on yet), or null: THE rule, asked of
+ * one blocker at a time — by the change and by the pickers alike.
+ * `waitsOnWaiting` says whether a task (by uid) already waits on
+ * `waiting`, however far down: the caller walks the board once for all
+ * it asks. */
+type BlockerFault = "self" | "unknown" | "foreign" | "cyclic";
+
+function blockerFault(
+  waiting: Task | null,
+  teamId: string,
+  id: string,
+  board: TaskBoard,
+  waitsOnWaiting: (uid: string) => boolean,
+): BlockerFault | null {
+  if (waiting !== null && id === waiting.id) return "self";
+  const blocker = findTask(board, id);
+  if (blocker === undefined) return "unknown";
+  if (blocker.teamId !== teamId) return "foreign";
+  // A blocker that already waits on this task would close a loop — a
+  // deadlock the board would never surface but as "nothing is issuable".
+  if (waiting !== null && waitsOnWaiting(blocker.uid)) return "cyclic";
+  return null;
+}
+
 /**
  * Blockers must name tasks of the same team that exist, are not the task
- * itself, and do not lead back to it — a cycle is a deadlock the board
- * would never surface as anything but "nothing is issuable".
+ * itself, and do not lead back to it (`blockerFault`), refused naming
+ * every one of the first kind that fails.
  */
 function validateBlockers(
   task: Task | null,
@@ -362,15 +388,13 @@ function validateBlockers(
   ids: readonly string[],
   board: TaskBoard,
 ): TaskRefusal | null {
-  if (task !== null && ids.includes(task.id)) return { kind: "self-blocker" };
-  const unknown = ids.filter((id) => findTask(board, id) === undefined);
-  if (unknown.length > 0) return { kind: "unknown-blocker", ids: unknown };
-  const foreign = ids.filter((id) => findTask(board, id)?.teamId !== teamId);
-  if (foreign.length > 0) return { kind: "cross-team-blocker", ids: foreign };
-  if (task !== null) {
-    const cyclic = ids.filter((id) => waitsOn(board, findTask(board, id)!.uid, task.uid));
-    if (cyclic.length > 0) return { kind: "cyclic-blocker", ids: cyclic };
-  }
+  const waiters = task === null ? null : transitiveWaiters(board, task.uid);
+  const faults = ids.map((id) => ({ id, fault: blockerFault(task, teamId, id, board, (uid) => waiters?.has(uid) ?? false) }));
+  const of = (fault: BlockerFault) => faults.filter((entry) => entry.fault === fault).map((entry) => entry.id);
+  if (of("self").length > 0) return { kind: "self-blocker" };
+  if (of("unknown").length > 0) return { kind: "unknown-blocker", ids: of("unknown") };
+  if (of("foreign").length > 0) return { kind: "cross-team-blocker", ids: of("foreign") };
+  if (of("cyclic").length > 0) return { kind: "cyclic-blocker", ids: of("cyclic") };
   return null;
 }
 
@@ -383,22 +407,39 @@ export type BlockerSide = "blocked-by" | "blocks";
  * itself, no link twice, none closing a cycle — in board order. A picker
  * offers exactly these, so it never offers what the change refuses. */
 export function blockerCandidates(task: Task, board: TaskBoard, side: BlockerSide = "blocked-by"): Task[] {
-  return tasksOfTeam(board, task.teamId).filter((other) => mayLink(task, other, board, side));
+  const may = mayLink(task, board, side);
+  return tasksOfTeam(board, task.teamId).filter(may);
 }
 
 /** Whether any task could be linked to `task` as `side` says — what a +
  * or a menu item asks, stopping at the first. */
 export function hasBlockerCandidate(task: Task, board: TaskBoard, side: BlockerSide): boolean {
-  return tasksOfTeam(board, task.teamId).some((other) => mayLink(task, other, board, side));
+  return tasksOfTeam(board, task.teamId).some(mayLink(task, board, side));
 }
 
-/** THE rule both ask: `other` is open, not `task`, not linked to it this
- * way already, and the change on the waiting end would take it. */
-function mayLink(task: Task, other: Task, board: TaskBoard, side: BlockerSide): boolean {
-  if (!isOpen(other.status) || other.uid === task.uid) return false;
-  const [waiting, waitedOn] = side === "blocked-by" ? [task, other] : [other, task];
-  const current = blockerIdsOf(waiting, board);
-  return !current.includes(waitedOn.id) && validateBlockers(waiting, waiting.teamId, [...current, waitedOn.id], board) === null;
+/** THE rule both ask, of each `other`: it is open, not `task`, not linked
+ * to it this way already, and `blockerFault` finds nothing in the link on
+ * its waiting end. The board is walked ONCE for the loop check — from
+ * `task`, whichever side it stands on — not once per task offered: a
+ * team of two thousand would otherwise take seconds. */
+function mayLink(task: Task, board: TaskBoard, side: BlockerSide): (other: Task) => boolean {
+  if (side === "blocked-by") {
+    // `task` waits on `other`: a loop if `other` already waits on `task`.
+    const waiters = transitiveWaiters(board, task.uid);
+    const current = new Set(blockerIdsOf(task, board));
+    return (other) =>
+      isOpen(other.status) &&
+      other.uid !== task.uid &&
+      !current.has(other.id) &&
+      blockerFault(task, task.teamId, other.id, board, (uid) => waiters.has(uid)) === null;
+  }
+  // `other` waits on `task`: a loop if `task` already waits on `other`.
+  const below = transitiveBlockers(board, task.uid);
+  return (other) =>
+    isOpen(other.status) &&
+    other.uid !== task.uid &&
+    !blockerIdsOf(other, board).includes(task.id) &&
+    blockerFault(other, other.teamId, task.id, board, () => below.has(other.uid)) === null;
 }
 
 /** The change that links `task` to `other` as `side` says, and the task

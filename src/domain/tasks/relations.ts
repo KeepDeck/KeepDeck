@@ -164,13 +164,29 @@ function inBoardOrder(board: TaskBoard, uids: readonly string[]): string[] {
   return [...uids].sort((a, b) => place.get(a)! - place.get(b)!);
 }
 
-/** Whether following the gating links backwards from `from` (what it
- * waits on, and what that waits on) ever arrives at `target`. */
-export function waitsOn(board: TaskBoard, from: string, target: string, seen = new Set<string>()): boolean {
-  if (from === target) return true;
-  if (seen.has(from)) return false;
-  seen.add(from);
-  return GATING_KINDS.some((kind) => into(board, kind, from).some((relation) => waitsOn(board, relation.from, target, seen)));
+/** Every task `uid` waits on, however far down — what it waits on, what
+ * that waits on, and so on, by every gating kind; `uid` itself included.
+ * One walk answers every "would this close a loop?" about it. */
+export function transitiveBlockers(board: TaskBoard, uid: string): ReadonlySet<string> {
+  return walk(uid, (at) => GATING_KINDS.flatMap((kind) => into(board, kind, at)).map((relation) => relation.from));
+}
+
+/** Every task that waits on `uid`, however far up; `uid` itself included. */
+export function transitiveWaiters(board: TaskBoard, uid: string): ReadonlySet<string> {
+  return walk(uid, (at) => GATING_KINDS.flatMap((kind) => outOf(board, kind, at)).map((relation) => relation.to));
+}
+
+function walk(start: string, next: (uid: string) => string[]): Set<string> {
+  const seen = new Set([start]);
+  const queue = [start];
+  while (queue.length > 0) {
+    for (const uid of next(queue.pop()!)) {
+      if (seen.has(uid)) continue;
+      seen.add(uid);
+      queue.push(uid);
+    }
+  }
+  return seen;
 }
 
 /** Canonical order — kind, then from, then to — so the same links saved
