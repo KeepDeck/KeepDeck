@@ -341,7 +341,7 @@ describe("commentsOf / changesOf — what was said, and what was changed, apart"
       label: "More for task-4",
       actions: [
         { id: "duplicate", label: "Duplicate", refusal: null },
-        { id: "transfer", label: "Transfer to team…", refusal: null },
+        { id: "transfer", label: "Transfer", refusal: null },
       ],
     });
     // Only the other teams are offered.

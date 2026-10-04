@@ -147,7 +147,7 @@ export const TASK_DETAIL_WORDS = {
   copiedTo: (id: string) => `copied to ${id}`,
   transferred: (from: string, to: string) => `moved from ${from} to ${to}`,
   duplicate: "Duplicate",
-  transfer: "Transfer to team…",
+  transfer: "Transfer",
   transferPrompt: "Transfer to",
   transferConfirm: (team: string) => `Move it to ${team}? It goes unassigned, back to To do.`,
   transferMove: "Move",
