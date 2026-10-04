@@ -301,6 +301,8 @@ describe("fields only the lead sets", () => {
       max: TASK_CAPS.titleMax,
       length: TASK_CAPS.titleMax + 1,
     });
+    // Characters, not UTF-16 units: an emoji counts once.
+    expect(refusalOf(t, { kind: "title", to: "👍".repeat(TASK_CAPS.titleMax) }, lead)).toBeNull();
     // Measured as kept: spaces at the ends do not count.
     expect(refusalOf(t, { kind: "title", to: `  ${"x".repeat(TASK_CAPS.titleMax)}  ` }, lead)).toBeNull();
     expect(refusalOf(t, { kind: "body", to: "x".repeat(TASK_CAPS.bodyMax + 1) }, lead)).toEqual({

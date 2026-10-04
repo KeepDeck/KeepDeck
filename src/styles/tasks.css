@@ -269,9 +269,12 @@
    edge, shadow) like everything else that floats over the deck. */
 .tasks__row--ghost {
   /* The shell's shadow carries a 1px ring OUTSIDE its edge (tokens.css
-     --kd-shadow-float), top and bottom: two pixels shorter, so the lifted
-     row stands exactly as tall as the row it left. */
+     --kd-shadow-float), top and bottom, and the shell's border wraps all
+     four sides where the row has only its foot: a pixel less padding each
+     way and two less height, so the lifted row stands as tall as the row
+     it left. */
   min-height: 32px;
+  padding-block: 6px;
   border-radius: var(--kd-radius-control);
 }
 
@@ -898,6 +901,11 @@
   color: var(--kd-text-3);
   font-size: var(--kd-font-small);
   font-variant-numeric: tabular-nums;
+}
+
+/* Past the cap: the count says so in the failed hue; sending is refused. */
+.tasks__count--over {
+  color: var(--status-failed);
 }
 
 /* One line, its send beside it: the field and the button stand one

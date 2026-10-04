@@ -78,6 +78,7 @@ export function TaskDetail({
     void onLabel(view.id, typed).then((landed) => setLabelDraft((current) => labelDraftAfter(current, typed, landed)));
   };
   const sendable = composerCanSend(composer);
+  const commentCount = fieldCount("comment", composer.draft);
   const send = () => {
     const begun = beginSend(composer);
     if (!begun) return;
@@ -110,7 +111,9 @@ export function TaskDetail({
             </TipButton>
           </span>
         </div>
-        <h3 className="tasks__detail-title kd-selectable">{view.title}</h3>
+        <h3 className="tasks__detail-title kd-selectable" dir="auto">
+          {view.title}
+        </h3>
       </header>
 
       <div className="tasks__detail-body">
@@ -290,11 +293,13 @@ export function TaskDetail({
                 className="form__input tasks__comment-input"
                 placeholder={TASK_DETAIL_WORDS.commentPlaceholder}
                 aria-label={TASK_DETAIL_WORDS.comment}
+                aria-describedby={`${activityId}-count`}
                 value={composer.draft}
-                maxLength={view.commentMax}
                 onChange={(e) => setComposer((current) => typeDraft(current, e.target.value))}
               />
-              <span className="tasks__count">{fieldCount(composer.draft, view.commentMax)}</span>
+              <span id={`${activityId}-count`} className={commentCount.className}>
+                {commentCount.text}
+              </span>
             </div>
             <Button onClick={send} disabled={!sendable}>
               {TASK_DETAIL_WORDS.comment}

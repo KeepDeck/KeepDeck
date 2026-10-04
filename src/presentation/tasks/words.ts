@@ -4,7 +4,15 @@
  * detail and the card footer cannot disagree.
  */
 import type { TasksView } from "../../domain/settings";
-import { TASK_PRIORITIES, USER_NAME, type TaskPriority, type TaskStatus } from "../../domain/tasks";
+import {
+  TASK_PRIORITIES,
+  USER_NAME,
+  capOf,
+  keptLength,
+  type CappedField,
+  type TaskPriority,
+  type TaskStatus,
+} from "../../domain/tasks";
 
 /** The tracker's two views, as the toolbar's choice row names them. */
 export const VIEW_WORDS = {
@@ -45,9 +53,17 @@ export function statusTone(status: TaskStatus): StatusTone {
 }
 
 /** A capped field's count under it — what is taken of how much there is
- * (`37/120`), counted as the cap is (UTF-16 units, the field's maxLength). */
-export function fieldCount(text: string, max: number): string {
-  return `${text.length}/${max}`;
+ * (`37/120`), in the domain's own measure (`keptLength`: as it would be
+ * kept, in characters), and marked once it is past the cap. The field
+ * itself takes any text: the count says it is too long, and sending it is
+ * refused, rather than the field silently cutting what was typed. */
+export function fieldCount(field: CappedField, text: string): { text: string; className: string } {
+  const length = keptLength(field, text);
+  const max = capOf(field);
+  return {
+    text: `${length}/${max}`,
+    className: length > max ? "tasks__count tasks__count--over" : "tasks__count",
+  };
 }
 
 /** The domain stores `user`; a person reading their own name reads "you". */

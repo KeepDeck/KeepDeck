@@ -369,8 +369,14 @@ describe("statusRing — a task's place on the ladder as a ring", () => {
 });
 
 describe("fieldCount — a capped field's count", () => {
-  it("says what is taken of how much there is", () => {
-    expect(fieldCount("", 120)).toBe("0/120");
-    expect(fieldCount("Draft the skill", 120)).toBe("15/120");
+  it("says what is taken of how much there is, in the domain's measure, and marks it past the cap", () => {
+    expect(fieldCount("title", "")).toEqual({ text: "0/120", className: "tasks__count" });
+    expect(fieldCount("title", "Draft the skill")).toEqual({ text: "15/120", className: "tasks__count" });
+    // As kept: a title's spaces at its ends do not count; a brief's do.
+    expect(fieldCount("title", "  Draft  ").text).toBe("5/120");
+    expect(fieldCount("body", "  Draft  ").text).toBe("9/8192");
+    // Characters, not UTF-16 units: an emoji is one.
+    expect(fieldCount("comment", "👍👍").text).toBe("2/4000");
+    expect(fieldCount("title", "x".repeat(121))).toEqual({ text: "121/120", className: "tasks__count tasks__count--over" });
   });
 });
