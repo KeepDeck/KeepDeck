@@ -83,6 +83,9 @@ describe("Tasks text never widens its box", () => {
     expect(getComputedStyle(mount("tasks__row-title")).whiteSpace).not.toBe("nowrap");
     const row = readStyles("tasks.css");
     expect(ruleBody(row, ".tasks__row").height).toBeUndefined();
+    // What stands beside a wrapped title keeps to its first line.
+    expect(ruleBody(row, ".tasks__row")["align-items"]).toBe("flex-start");
+    expect(ruleBody(row, ".tasks__row-open")["align-items"]).toBe("flex-start");
   });
 
   it("a row's age stays on one line", () => {

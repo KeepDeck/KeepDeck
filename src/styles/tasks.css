@@ -487,11 +487,13 @@
    lies under the rest, spanning it. */
 /* A row is one line while its title is, and grows a line for each line
    the title wraps to — the whole title, never cut (the windowed list
-   measures each row). */
+   measures each row). Everything beside the title stands on its FIRST
+   line: one line height (18px) for every part, tops aligned. */
 .tasks__row {
   position: relative;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  line-height: 18px;
   gap: 10px;
   min-height: 34px;
   box-sizing: border-box;
@@ -516,7 +518,7 @@
 .tasks__row-open {
   display: flex;
   flex: 1;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
   min-width: 0;
   padding: 0;
@@ -554,8 +556,13 @@
 .tasks__row-title {
   flex: 1;
   min-width: 0;
-  line-height: 18px;
   overflow-wrap: break-word;
+}
+
+/* The ring stands in a line's height, centred on the first line. */
+.tasks__row .status-ring-box {
+  align-items: center;
+  height: 18px;
 }
 
 
