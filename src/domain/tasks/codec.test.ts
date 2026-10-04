@@ -98,4 +98,14 @@ describe("board codec — labels", () => {
     const json = stored(["ui"]).replace('"log":[]', '"log":[{"at":1,"from":"lead","field":"labels","was":null,"now":"ui"}]');
     expect(decodeBoard(json).ok).toBe(true);
   });
+
+  it("reads a copy's two log ends, and still refuses a log field it does not know", () => {
+    const withLog = (field: string) =>
+      stored(["ui"]).replace('"log":[]', `"log":[{"at":1,"from":"lead","field":"${field}","was":null,"now":"task-2"}]`);
+    for (const field of ["copiedFrom", "copiedTo"]) {
+      const read = decodeBoard(withLog(field));
+      expect(read.ok && read.board.tasks[0].log[0].field, field).toBe(field);
+    }
+    expect(decodeBoard(withLog("movedTo"))).toMatchObject({ ok: false, fault: { kind: "bad-task", field: "log" } });
+  });
 });

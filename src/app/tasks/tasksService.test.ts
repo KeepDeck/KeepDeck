@@ -107,6 +107,20 @@ describe("createTasksService", () => {
     expect(events.map((e) => e.kind)).toEqual(["created"]);
   });
 
+  it("duplicating writes the copy and the source's record in one write, and announces the copy as one", async () => {
+    const { service, store, events } = setup();
+    await service.create("ws-1", { teamId: "team-1", title: "Draft" }, lead);
+    await flush();
+    const copy = await service.duplicate("ws-1", "task-1", lead);
+    expect(copy.ok && copy.task.id).toBe("task-2");
+    await flush();
+    expect(store.writes).toHaveLength(2);
+    const written = JSON.parse(store.writes[1].json) as { tasks: { id: string; log: { field: string }[] }[] };
+    expect(written.tasks.find((t) => t.id === "task-1")?.log.map((e) => e.field)).toEqual(["copiedTo"]);
+    expect(events[events.length - 1]).toMatchObject({ kind: "created", copiedFrom: "task-1", task: { id: "task-2" } });
+    expect(await service.duplicate("ws-1", "task-9", lead)).toEqual({ ok: false, refusal: { kind: "unknown-task", id: "task-9" } });
+  });
+
   it("the roster is the team's live roles, so an assignee off the team is refused", async () => {
     const { service } = setup();
     expect(service.rosterOf("ws-1", "team-1")).toEqual(["lead", "impl-1", "impl-2"]);
