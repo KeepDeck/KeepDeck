@@ -1,0 +1,40 @@
+// @vitest-environment happy-dom
+import { act, createElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { RenameInput } from "./RenameInput";
+import { useInlineRename } from "./useInlineRename";
+
+(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+function Host({ multiline, commit }: { multiline?: boolean; commit: (key: string, name: string) => void }) {
+  const rename = useInlineRename(commit);
+  return rename.editing === null
+    ? createElement("button", { onClick: () => rename.start("k", "Draft") }, "edit")
+    : createElement(RenameInput, { rename, className: "site", label: "Name", multiline });
+}
+
+describe("RenameInput", () => {
+  let root: Root;
+  beforeEach(() => {
+    document.body.innerHTML = "<div id='host'></div>";
+    root = createRoot(document.getElementById("host")!);
+  });
+  afterEach(() => act(() => root.unmount()));
+
+  it("is one line by default, and wraps as a growing field when the name may — Enter still commits, no line break", () => {
+    const commit = vi.fn();
+    act(() => root.render(createElement(Host, { commit })));
+    act(() => document.querySelector("button")!.click());
+    expect(document.querySelector("input.rename-input")).not.toBeNull();
+
+    act(() => root.render(createElement(Host, { commit, multiline: true, key: "wrap" })));
+    act(() => document.querySelector("button")!.click());
+    const field = document.querySelector<HTMLTextAreaElement>("textarea.rename-input.rename-input--multiline")!;
+    expect(field.value).toBe("Draft");
+    const enter = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
+    act(() => void field.dispatchEvent(enter));
+    expect(enter.defaultPrevented).toBe(true);
+    expect(commit).toHaveBeenCalledWith("k", "Draft");
+  });
+});

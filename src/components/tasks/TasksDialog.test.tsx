@@ -398,9 +398,10 @@ describe("TasksDialog", () => {
     await flush();
     const panel = () => document.querySelector('aside[aria-label="Task task-1"]')!;
     const typeAndEnter = (text: string) => {
-      const field = panel().querySelector<HTMLInputElement>(".tasks__detail-title-edit")!;
+      // A wrapping field — the title may run to several lines.
+      const field = panel().querySelector<HTMLTextAreaElement>("textarea.tasks__detail-title-edit")!;
       act(() => {
-        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(field, text);
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(field, text);
         field.dispatchEvent(new Event("input", { bubbles: true }));
       });
       act(() => void field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));

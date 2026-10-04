@@ -164,7 +164,7 @@ export function TaskDetail({
           </span>
         </div>
         {rename.editing === view.id ? (
-          <RenameInput rename={rename} className="tasks__detail-title-edit" label={TASK_DETAIL_WORDS.renameField} />
+          <RenameInput rename={rename} className="tasks__detail-title-edit" label={TASK_DETAIL_WORDS.renameField} multiline />
         ) : (
           <h3
             className="tasks__detail-title kd-selectable"
