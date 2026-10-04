@@ -384,6 +384,35 @@
   overflow-y: auto;
 }
 
+/* A group folding or unfolding moves the rows after it: they slide to
+   their new places (the windowed list places each by transform), and the
+   rows a fold opens fade in where they land. The strip's clock and curve,
+   the chevron's — one motion. A row the scroll mounts is no arrival
+   (VirtualList's data-arriving), so scrolling replays nothing. */
+.tasks__list-item {
+  transition: transform 140ms cubic-bezier(0.33, 1, 0.68, 1);
+}
+
+.tasks__list-item[data-arriving] {
+  animation: tasks-row-arrive 140ms cubic-bezier(0.33, 1, 0.68, 1);
+}
+
+@keyframes tasks-row-arrive {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tasks__list-item {
+    transition: none;
+  }
+
+  .tasks__list-item[data-arriving] {
+    animation: none;
+  }
+}
+
 /* The pinned heading: the group of the first row in view, over the rows
    as they scroll under it — on the list's own surface, so they pass
    beneath it rather than through it. */

@@ -65,6 +65,13 @@ describe("Tasks text never widens its box", () => {
     expect(css).not.toMatch(/\.tasks__detail--wide \.tasks__detail-body/);
   });
 
+  it("slides the list's rows to their places and fades a fold's rows in, resting under reduced motion", () => {
+    const css = readStyles("tasks.css");
+    expect(ruleBody(css, ".tasks__list-item").transition).toBe("transform 140ms cubic-bezier(0.33, 1, 0.68, 1)");
+    expect(ruleBody(css, ".tasks__list-item[data-arriving]").animation).toContain("tasks-row-arrive");
+    expect(css).toMatch(/prefers-reduced-motion: reduce\)\s*\{\s*\.tasks__list-item \{\s*transition: none;/);
+  });
+
   it("a row's age stays on one line", () => {
     expect(getComputedStyle(mount("tasks__row-age")).whiteSpace).toBe("nowrap");
   });

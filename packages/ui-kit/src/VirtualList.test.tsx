@@ -95,6 +95,50 @@ describe("VirtualList", () => {
     expect(host.querySelectorAll("ul.list__spacer > li.list__item > .row").length).toBe(3);
   });
 
+  describe("arrivals (data-arriving)", () => {
+    const renderList = (list: readonly string[]) =>
+      act(() =>
+        root.render(
+          createElement(VirtualList<string>, {
+            items: list,
+            itemKey: (item) => item,
+            estimate: () => ROW,
+            render: (item) => createElement("span", { className: "row" }, item),
+            className: "list",
+          }),
+        ),
+      );
+    const arrived = () =>
+      [...host.querySelectorAll<HTMLElement>("[data-arriving]")].map((el) => el.textContent);
+
+    it("marks only the items that joined the list — none on the first paint, none for the scroll", async () => {
+      restore = pinListViewport("list", 200, 300, ROW);
+      const first = ["a", "b", "c"];
+      renderList(first);
+      expect(arrived()).toEqual([]);
+      const unfolded = ["a", "x", "y", "b", "c"];
+      renderList(unfolded);
+      expect(arrived()).toEqual(["x", "y"]);
+      // A render of the same items keeps the set: an entrance runs to its end.
+      renderList(unfolded);
+      expect(arrived()).toEqual(["x", "y"]);
+      // The next change starts over: what stayed is no arrival.
+      renderList(["a", "b", "c"]);
+      expect(arrived()).toEqual([]);
+    });
+
+    it("never marks a row the scroll mounts", async () => {
+      restore = pinListViewport("list", 200, 300, ROW);
+      renderList(items);
+      await act(async () => {
+        const list = host.querySelector<HTMLElement>(".list")!;
+        list.scrollTop = 200 * ROW;
+        list.dispatchEvent(new Event("scroll"));
+      });
+      expect(arrived()).toEqual([]);
+    });
+  });
+
   describe("the item kept in view (revealKey)", () => {
     const renderRevealing = (revealKey: string | null, list: readonly string[] = items) =>
       act(() =>

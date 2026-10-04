@@ -48,6 +48,29 @@ export interface VirtualListProps<T> extends VirtualListMarkup {
 }
 
 /**
+ * The keys that joined the list at its last change — new to `items`, not
+ * merely scrolled into the window (a group unfolded, a task created). A
+ * consumer may animate them in (`[data-arriving]`); a row the scroll
+ * mounts is not arriving, so scrolling never replays an entrance. Nothing
+ * arrives on the first paint: the list was not anywhere before it.
+ *
+ * Held per CHANGE of the items, not per render: a render in between (a
+ * hover) keeps the set, so an entrance runs to its end. Written during
+ * render, idempotently — a second render of the same items (StrictMode)
+ * finds them already recorded and keeps the same set.
+ */
+function useArriving<T>(items: readonly T[], itemKey: (item: T) => string): ReadonlySet<string> {
+  const track = useRef<{ items: readonly T[]; arriving: ReadonlySet<string> } | null>(null);
+  if (track.current === null) {
+    track.current = { items, arriving: new Set() };
+  } else if (track.current.items !== items) {
+    const before = new Set(track.current.items.map(itemKey));
+    track.current = { items, arriving: new Set(items.map(itemKey).filter((key) => !before.has(key))) };
+  }
+  return track.current.arriving;
+}
+
+/**
  * The windowed list as a component: the scroll container, a spacer the
  * height of every item, and only the items in view (plus a few beyond)
  * mounted, absolutely positioned inside it. The engine is `useRowWindow`;
@@ -71,6 +94,7 @@ export function VirtualList<T>({
   item,
 }: VirtualListProps<T>) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const arriving = useArriving(items, itemKey);
   const rowWindow = useRowWindow({ rows: items, keyOf: itemKey, estimate, scrollRef, coveredTop: sticky?.height });
   // A focused row scrolled out keeps the keyboard's place on the list.
   useFocusHandoff(scrollRef);
@@ -120,6 +144,7 @@ export function VirtualList<T>({
             key={slot.key}
             ref={rowWindow.measure}
             data-index={slot.index}
+            data-arriving={arriving.has(slot.key as string) || undefined}
             className={item?.className}
             style={{
               position: "absolute",
