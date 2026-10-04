@@ -1,6 +1,7 @@
 import type { Workspace } from "../../domain/deck";
 import { leadRole } from "../../domain/mail";
 import type { DecodeFault, NotCarried } from "../../domain/tasks";
+import { blockerLinkWords } from "../../presentation/tasks/words";
 import type { TaskProblem, UnsavedBoard } from "./tasksService";
 
 /** Why an Off was refused: the boards the store would have closed over
@@ -120,11 +121,8 @@ export function refusalText(refusal: TaskProblem): string {
     case "not-yours-to-transfer":
       return `handing a task to another team is ${lead}'s — ask them`;
     case "transfer-linked": {
-      const links = [
-        ...refusal.blockers.map((id) => `it waits on ${id}`),
-        ...refusal.dependants.map((id) => `${id} waits on it`),
-      ];
-      return `a task linked by blockers stays on its team — ${links.join("; ")}; unlink first (blockers do not cross teams)`;
+      const links = blockerLinkWords(refusal).join("; ");
+      return `a task linked by blockers stays on its team — ${links}; unlink first (blockers do not cross teams)`;
     }
   }
 }

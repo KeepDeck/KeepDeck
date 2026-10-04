@@ -712,5 +712,11 @@ describe("transferTask — the same task, handed to another team", () => {
     const closedDependant = task({ id: "task-3", status: "cancelled", blockedBy: ["task-1"] });
     const moved = go(task({ id: "task-1", blockedBy: ["task-2"] }), lead, [done, closedDependant]);
     expect(moved.ok && moved.task.blockedBy).toEqual([]);
+    // The closed dependant loses the link, logged at the transfer's time —
+    // yet it was not touched by anyone, so its `updated` stays.
+    const left = moved.ok ? moved.board.tasks.find((t) => t.id === "task-3") : undefined;
+    expect(left?.blockedBy).toEqual([]);
+    expect(left?.log[left.log.length - 1]).toMatchObject({ at: 9_000, field: "blockedBy", was: "task-1", now: null });
+    expect(left?.updated).toBe(closedDependant.updated);
   });
 });

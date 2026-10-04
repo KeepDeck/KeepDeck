@@ -9,7 +9,7 @@ import { statusMark, statusRing, taskCardView, taskCardClassName } from "./taskC
 import { TASK_DETAIL_WORDS, changesOf, commentsOf, renamedTitle, pickedArtifact, pickedStatus, taskDetailClassName, taskDetailView } from "./taskDetailView";
 import { teamCardTasksLine } from "./teamCardTasksLine";
 import { teamOnScreen } from "./teamOnScreen";
-import { fieldCount, personName, priorityMark, statusTone, FIELD_WORDS, POOL_CHOICE } from "./words";
+import { blockerLinkWords, fieldCount, personName, priorityMark, statusTone, FIELD_WORDS, POOL_CHOICE } from "./words";
 
 const NOW = 100_000;
 const ROSTER = ["lead", "impl-1", "impl-2"];
@@ -431,5 +431,15 @@ describe("fieldCount — a capped field's count", () => {
     // Characters, not UTF-16 units: an emoji is one.
     expect(fieldCount("comment", "👍👍").text).toBe("2/4000");
     expect(fieldCount("title", "x".repeat(121))).toEqual({ text: "121/120", className: "tasks__count tasks__count--over" });
+  });
+});
+
+describe("blockerLinkWords — the links that keep a task on its team", () => {
+  it("names what it waits on, then what waits on it", () => {
+    expect(blockerLinkWords({ blockers: ["task-2"], dependants: ["task-3", "task-4"] })).toEqual([
+      "it waits on task-2",
+      "task-3 waits on it",
+      "task-4 waits on it",
+    ]);
   });
 });

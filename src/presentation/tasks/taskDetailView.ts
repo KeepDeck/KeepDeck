@@ -19,6 +19,7 @@ import {
   BOARD_ORDER,
   POOL_CHOICE,
   STATUS_LABEL,
+  blockerLinkWords,
   priorityChoices,
   type ChoiceView,
   personName,
@@ -328,8 +329,7 @@ function transferRefusal(task: Task, board: TaskBoard, otherTeams: number): stri
   if (problem === null) return null;
   if (problem.kind === "transfer-closed") return TASK_DETAIL_WORDS.transferClosed(STATUS_LABEL[problem.status].toLowerCase());
   if (problem.kind === "transfer-linked") {
-    const links = [...problem.blockers.map((id) => `it waits on ${id}`), ...problem.dependants.map((id) => `${id} waits on it`)];
-    return TASK_DETAIL_WORDS.transferLinked(links.join(", "));
+    return TASK_DETAIL_WORDS.transferLinked(blockerLinkWords(problem).join(", "));
   }
   return null;
 }
