@@ -360,10 +360,19 @@ describe("commentsOf / changesOf — what was said, and what was changed, apart"
     expect(taskDetailView(linked.tasks[0], linked, ROSTER, 0, [], false, teams).menu.actions[2].refusal).toContain("task-6 waits on it");
   });
 
-  it("renames to the typed title — nothing for an empty one or the same one", () => {
+  it("renames to the typed title — nothing for an empty one, or for the title the edit began with", () => {
     expect(renamedTitle("Draft", "  Draft the skill ")).toBe("Draft the skill");
     expect(renamedTitle("Draft", "   ")).toBeNull();
+    // Untouched since it began: no write, even if the title changed meanwhile.
     expect(renamedTitle("Draft", " Draft ")).toBeNull();
+  });
+
+  it("warns, in the transfer's confirm, that work under way stops", () => {
+    const teams = [{ id: "team-1", name: "api" }, { id: "team-2", name: "web" }];
+    const b = board([task({ id: "task-1", status: "in-progress", assignee: "impl-1" }), task({ id: "task-2" })]);
+    const confirm = (t: typeof b.tasks[number]) => taskDetailView(t, b, ROSTER, 0, [], false, teams).transfer.confirm("web");
+    expect(confirm(b.tasks[0])).toContain("It is in progress with impl-1 — that work stops here.");
+    expect(confirm(b.tasks[1])).not.toContain("stops");
   });
 
   it("says a transfer in words, by the teams' names", () => {

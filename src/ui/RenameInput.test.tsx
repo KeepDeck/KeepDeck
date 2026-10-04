@@ -51,6 +51,6 @@ describe("RenameInput", () => {
     const enter = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
     act(() => void field.dispatchEvent(enter));
     expect(enter.defaultPrevented).toBe(true);
-    expect(commit).toHaveBeenCalledWith("k", "Draft");
+    expect(commit).toHaveBeenCalledWith("k", "Draft", "Draft");
   });
 });

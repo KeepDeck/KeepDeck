@@ -472,7 +472,7 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
         { board: held.board, roster: this.rosterOf(workspaceId, task.teamId), at: now() },
       );
       if (!result.ok) return result;
-      const board = replaceTask(held.board, result.task);
+      const { board } = result;
       const pending = commit(workspaceId, board);
       emit({ kind: "transferred", fromTeam: from?.name ?? task.teamId, workspaceId, task: result.task, actor });
       const saveError = await pending;

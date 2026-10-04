@@ -375,7 +375,7 @@ export function useTasksBoard(
     move: (taskId: string, to: TaskStatus) => void apply(taskId, [{ kind: "status", to }]),
     assign: (taskId: string, assignee: string) => void apply(taskId, [{ kind: "assign", assignee: assigneeOf(assignee) }]),
     setPriority: (taskId: string, to: TaskPriority) => void apply(taskId, [{ kind: "priority", to }]),
-    rename: (taskId: string, title: string) => void apply(taskId, [{ kind: "title", to: title }]),
+    rename: (taskId: string, title: string): Promise<boolean> => apply(taskId, [{ kind: "title", to: title }]),
     comment: (taskId: string, body: string) => apply(taskId, [{ kind: "comment", body }]),
     attachArtifact: (taskId: string, slug: string) => {
       const task = board ? findTask(board, taskId) : undefined;

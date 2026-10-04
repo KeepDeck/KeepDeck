@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { Dropdown } from "@keepdeck/ui-kit";
 import type { ArtifactsRegistryReadPort } from "../../app/artifacts/registryRead";
 import type { Workspace } from "../../domain/deck";
@@ -68,7 +69,10 @@ function WorkspaceBoard({
   const board = useTasksBoard(tasks, workspace, stageTeam, focus, onFocus, onClose, now, artifactReads);
   // Escape peels one layer; which one, and whether that is the dialog
   // itself, is the screen machine's call.
-  useEscape(board.escape, canClose);
+  // Scoped to the dialog's own surface: a confirm stacked over it (Duplicate,
+  // Transfer) owns its Escape, and one press must not peel two layers.
+  const surface = useRef<HTMLDivElement>(null);
+  useEscape(board.escape, canClose, surface);
   const view = tasksDialogView({
     ladder: board.ladder,
     drag: board.drag,
@@ -113,7 +117,7 @@ function WorkspaceBoard({
 
   return (
     <ModalOverlay>
-      <div className={view.className} role="dialog" aria-modal="true" aria-label={DIALOG_WORDS.title}>
+      <div ref={surface} className={view.className} role="dialog" aria-modal="true" aria-label={DIALOG_WORDS.title}>
         {/* The card in flight: the SAME card, drawn by the same component
             from the same view at the same width, under the point where it
             was gripped — the board's own copy stays put, dimmed, until the

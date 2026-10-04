@@ -41,8 +41,8 @@ interface TaskDetailProps {
   copying: boolean;
   /** Hand this task to another team. */
   onTransfer(taskId: string, teamId: string): void;
-  /** Give the task a new title. */
-  onRename(taskId: string, title: string): void;
+  /** Give the task a new title; resolves to whether it was taken. */
+  onRename(taskId: string, title: string): Promise<boolean>;
   /** The activity's heading: shut ⇄ open. */
   onToggleActivity(): void;
   onClose(): void;
@@ -91,9 +91,14 @@ export function TaskDetail({
   const [duplicating, setDuplicating] = useState(false);
   // The title edits in place — a double click on it, or Rename in the menu —
   // by the house's one inline-rename behaviour.
-  const rename = useInlineRename((taskId, typed) => {
-    const title = renamedTitle(view.title, typed);
-    if (title !== null) onRename(taskId, title);
+  const rename = useInlineRename((taskId, typed, from) => {
+    const title = renamedTitle(from, typed);
+    if (title === null) return;
+    // Refused (past the cap, say): the field opens again on what was typed,
+    // never dropping it — the refusal shows above as any write's does.
+    void onRename(taskId, title).then((landed) => {
+      if (!landed) rename.start(taskId, typed);
+    });
   });
   const actionOf: Record<TaskAction["id"], () => void> = {
     rename: () => rename.start(view.id, view.title),
@@ -140,7 +145,8 @@ export function TaskDetail({
             actions={view.menu.actions.map((action) => ({
               id: action.id,
               label: action.label,
-              disabled: copying || action.refusal !== null,
+              // A copy on its way holds back a second copy, and only that.
+              disabled: (action.id === "duplicate" && copying) || action.refusal !== null,
               refusal: action.refusal ?? undefined,
               onSelect: actionOf[action.id],
             }))}

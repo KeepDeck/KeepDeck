@@ -99,6 +99,8 @@ describe("task commands", () => {
     const moved = await run("task.transfer", { id: "task-1", to: "web" }, LEAD);
     expect(moved).toMatchObject({ id: "task-1", team: "web" });
     expect(moved.note).toContain("tell its lead with mail.send");
+    // Who held it is named too: it loses the task without a word from the board.
+    expect(moved.note).toContain("impl-1, who held it");
     // Off this team's board now: the lead reads only its own.
     expect(await refused("task.get", { id: "task-1" }, LEAD)).toContain("another team's board");
     expect(await refused("task.transfer", { id: "task-1", to: "nowhere" }, LEAD)).toBeTruthy();

@@ -312,6 +312,8 @@ function transferCommand(deps: TaskCommandDeps): CommandSpec {
         // The board delivers nothing — the new team hears of it only if told.
         note:
           `on ${target.value.name}'s board now, unassigned — the board tells nobody; tell its lead with mail.send, naming ${task.id}` +
+          // Who held it loses it without a word from the board, too.
+          (task.assignee !== null ? `, and ${task.assignee}, who held it` : "") +
           unsavedNote(saved, saveError),
       };
     },

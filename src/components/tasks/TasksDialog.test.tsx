@@ -423,6 +423,30 @@ describe("TasksDialog", () => {
     expect(titleOf()).toBe("Draft it");
   });
 
+  it("peels one layer per Escape: a confirm over the task, then the field inside it, each its own", async () => {
+    const { service } = await seeded();
+    focus = "task-1";
+    const render = mount(service);
+    render();
+    await flush();
+    const escape = (target: EventTarget = document.body) =>
+      act(() => void target.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+    act(() => document.querySelector<HTMLButtonElement>('aside[aria-label="Task task-1"] button[aria-label="More for task-1"]')!.click());
+    act(() => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find((b) => b.textContent?.includes("Duplicate"))!.click());
+    expect(document.querySelector('.confirm[role="dialog"]')).not.toBeNull();
+    escape();
+    await flush();
+    // The confirm went; the task stayed open.
+    expect(document.querySelector('.confirm[role="dialog"]')).toBeNull();
+    expect(focus).toBe("task-1");
+    // The title's field: its Escape ends the edit, and only that.
+    act(() => void document.querySelector('aside[aria-label="Task task-1"] .tasks__detail-title')!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+    escape(document.querySelector("textarea.tasks__detail-title-edit")!);
+    await flush();
+    expect(document.querySelector("textarea.tasks__detail-title-edit")).toBeNull();
+    expect(focus).toBe("task-1");
+  });
+
   it("creates a task from the form as the user and opens it", async () => {
     const { service } = await seeded();
     const render = mount(service);

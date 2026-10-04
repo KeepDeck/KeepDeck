@@ -18,7 +18,7 @@
  * it closes this menu only while focus is inside, so a dialog above keeps its
  * own Escape.
  */
-import { useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Button, type ButtonSize, type ButtonVariant } from "./Button";
 import { FloatingListbox } from "./FloatingListbox";
 import { useAwayClose } from "./useAwayClose";
@@ -84,6 +84,13 @@ export function MenuButton({
 
   useAwayClose(open, () => setOpen(false), rootRef, menuRef);
 
+  // A menu is walked by the keyboard: opened, focus is on its first item;
+  // the arrows (and Home / End) move it along, wrapping — the menu pattern
+  // its role announces.
+  useEffect(() => {
+    if (menuOpen) itemsOf(menuRef.current)[0]?.focus();
+  }, [menuOpen]);
+
   return (
     <div
       ref={rootRef}
@@ -94,7 +101,14 @@ export function MenuButton({
         if (event.key === "Escape" && open) {
           event.stopPropagation();
           closeAndRestore();
+          return;
         }
+        if (!menuOpen) return;
+        const items = itemsOf(menuRef.current);
+        const to = menuStep(event.key, items.indexOf(document.activeElement as HTMLButtonElement), items.length);
+        if (to === null) return;
+        event.preventDefault();
+        items[to]?.focus();
       }}
     >
       <Button
@@ -152,4 +166,29 @@ export function MenuButton({
       )}
     </div>
   );
+}
+
+/** A menu's items, in order. */
+function itemsOf(menu: HTMLElement | null): HTMLButtonElement[] {
+  return menu ? Array.from(menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')) : [];
+}
+
+/** Where a key moves the focus in a menu of `count` items from `at` (-1:
+ * none yet): Down and Up step, wrapping; Home and End go to the ends. Null
+ * for any other key. A refused item is still reached — its reason is read
+ * there. */
+export function menuStep(key: string, at: number, count: number): number | null {
+  if (count === 0) return null;
+  switch (key) {
+    case "ArrowDown":
+      return at < 0 ? 0 : (at + 1) % count;
+    case "ArrowUp":
+      return at < 0 ? count - 1 : (at - 1 + count) % count;
+    case "Home":
+      return 0;
+    case "End":
+      return count - 1;
+    default:
+      return null;
+  }
 }

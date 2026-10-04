@@ -264,7 +264,8 @@ export function capOf(field: CappedField): number {
  * is stored as written. The one measure the caps, the refusals and the
  * fields' counters all read. */
 export function keptLength(field: CappedField, text: string): number {
-  return [...(field === "body" ? text : text.trim())].length;
+  const kept = field === "body" ? text : field === "title" ? keptTitle(text) : text.trim();
+  return [...kept].length;
 }
 
 function overCap(field: CappedField, text: string): TaskRefusal | null {
@@ -282,8 +283,14 @@ export function commentProblem(body: string): TaskRefusal | null {
 /** A title is measured as it is kept — trimmed: spaces at its ends are
  * never stored, so they never count against the cap. */
 function validateTitle(title: string): TaskRefusal | null {
-  if (title.trim() === "") return { kind: "blank", field: "title" };
+  if (keptTitle(title) === "") return { kind: "blank", field: "title" };
   return overCap("title", title);
+}
+
+/** A title as it is kept: ONE line — a pasted line break becomes a space —
+ * trimmed. The board, the rows and the log all read a title as a line. */
+export function keptTitle(title: string): string {
+  return title.replace(/\s*[\r\n]+\s*/g, " ").trim();
 }
 
 function validateBody(body: string): TaskRefusal | null {
@@ -416,7 +423,7 @@ export function transition(
       if (!mayAssign(actor)) return refuse({ kind: "not-yours-to-assign", field: "title" });
       const bad = validateTitle(change.to);
       if (bad) return refuse(bad);
-      const title = change.to.trim();
+      const title = keptTitle(change.to);
       if (title === task.title) return { ok: true, task };
       return {
         ok: true,
@@ -639,7 +646,7 @@ export function createTask(
   const task: Task = {
     id: `task-${ctx.board.nextId}`,
     teamId: input.teamId,
-    title: input.title.trim(),
+    title: keptTitle(input.title),
     body,
     status,
     priority,
@@ -726,7 +733,7 @@ export function duplicateTask(
  * two read apart on the board — and cut at its end (with "…") when the
  * mark would carry it past the cap. */
 export function copyTitle(title: string): string {
-  const marked = `${COPY_MARK}${title.trim()}`;
+  const marked = `${COPY_MARK}${keptTitle(title)}`;
   if (keptLength("title", marked) <= TASK_CAPS.titleMax) return marked;
   return `${[...marked].slice(0, TASK_CAPS.titleMax - 1).join("").trimEnd()}…`;
 }
@@ -768,29 +775,48 @@ export function transferProblem(task: Task, actor: TaskActor, board: TaskBoard):
  * Hand `task` to another team of the same workspace: the same task — its
  * id, brief, labels, priority, artifacts, comments and log — on the
  * target's board, held by no one (a role belongs to its team) and back at
- * the ladder's start: todo, or the backlog if it was parked. Its resolved
- * blockers go (they hold nothing, and a link must not cross teams). The
- * log says `transferred: A → B`.
+ * the ladder's start: todo, or the backlog if it was parked.
+ *
+ * No link may cross teams, so the links that hold nothing go both ways:
+ * its resolved blockers, and its id from the CLOSED tasks that named it (a
+ * reopened one would otherwise wait on another team's task). The log says
+ * `transferred: A → B` and, before it, every field the move reset — who
+ * held it, where it stood, what it waited on — so the history reads whole.
  */
-export function transferTask(task: Task, teams: TransferTeams, actor: TaskActor, ctx: TransitionContext): TransitionResult {
+export function transferTask(
+  task: Task,
+  teams: TransferTeams,
+  actor: TaskActor,
+  ctx: TransitionContext,
+): { ok: true; task: Task; board: TaskBoard } | Refused {
   if (teams.to.id === task.teamId) return refuse({ kind: "transfer-same-team" });
   const problem = transferProblem(task, actor, ctx.board);
   if (problem) return refuse(problem);
   const by = actorName(actor) ?? "";
-  return {
-    ok: true,
-    task: logged(
-      task,
-      [{ at: ctx.at, from: by, field: "transferred", was: teams.from.name, now: teams.to.name }],
-      ctx.at,
-      {
-        teamId: teams.to.id,
-        assignee: null,
-        status: task.status === "backlog" ? "backlog" : "todo",
-        blockedBy: [],
-      },
-    ),
-  };
+  const at = ctx.at;
+  const status: TaskStatus = task.status === "backlog" ? "backlog" : "todo";
+  const reset: TaskLogEntry[] = [
+    ...(task.assignee !== null ? [{ at, from: by, field: "assignee" as const, was: task.assignee, now: null }] : []),
+    ...(task.status !== status ? [{ at, from: by, field: "status" as const, was: task.status, now: status }] : []),
+    ...(task.blockedBy.length > 0 ? [{ at, from: by, field: "blockedBy" as const, was: joined(task.blockedBy), now: null }] : []),
+  ];
+  const moved = logged(
+    task,
+    [...reset, { at, from: by, field: "transferred", was: teams.from.name, now: teams.to.name }],
+    at,
+    { teamId: teams.to.id, assignee: null, status, blockedBy: [] },
+  );
+  let board = replaceTask(ctx.board, moved);
+  for (const dependant of unblocks(task, ctx.board)) {
+    const blockedBy = dependant.blockedBy.filter((id) => id !== task.id);
+    board = replaceTask(
+      board,
+      logged(dependant, [{ at, from: by, field: "blockedBy", was: joined(dependant.blockedBy), now: joined(blockedBy) }], dependant.updated, {
+        blockedBy,
+      }),
+    );
+  }
+  return { ok: true, task: moved, board };
 }
 
 /** The board with `task` in place of the one that shares its id. */

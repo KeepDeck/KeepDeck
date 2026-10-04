@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TASK_CAPS, USER_ACTOR, blockerResolved, inLadderOrder, isOpen, type TaskActor, type TaskStatus } from "./model";
-import { addLabel, attachArtifact, copyTitle, createTask, detachArtifact, duplicateTask, transferTask, removeLabel, reachableStatuses, transition, type TaskChange, type TaskRefusal } from "./transition";
+import { addLabel, attachArtifact, copyTitle, createTask, keptTitle, detachArtifact, duplicateTask, transferTask, removeLabel, reachableStatuses, transition, type TaskChange, type TaskRefusal } from "./transition";
 import { ROSTER, board, impl1, lead, noTeam, peer1, stranger, task } from "./testSupport";
 
 const ctx = (tasks = [task({ id: "task-1" })]) => ({ board: board(tasks), roster: ROSTER, at: 5_000 });
@@ -204,6 +204,12 @@ describe("the backlog — work parked, not yet to be started", () => {
   it("is created in todo or the backlog — anything else is refused, by the domain itself", () => {
     const done = createTask({ teamId: "team-1", title: "x", status: "done" as never }, lead, ctx([]));
     expect(done.ok ? null : done.refusal).toEqual({ kind: "bad-create-status", status: "done", allowed: ["todo", "backlog"] });
+  });
+
+  it("keeps a title on one line: a pasted line break is a space", () => {
+    const made = createTask({ teamId: "team-1", title: "Line one\n  line two\r\n" }, lead, ctx([]));
+    expect(made.ok && made.task.title).toBe("Line one line two");
+    expect(keptTitle(" a\nb ")).toBe("a b");
   });
 
   it("reads a set of statuses in ladder order, each once, known ones only", () => {
@@ -655,6 +661,26 @@ describe("transferTask — the same task, handed to another team", () => {
     expect(moved.task.comments).toHaveLength(1);
     expect(moved.task.log[moved.task.log.length - 1]).toEqual({ at: 9_000, from: "lead", field: "transferred", was: "api", now: "web" });
     expect(moved.task.updated).toBe(9_000);
+  });
+
+  it("logs what the move reset — who held it, where it stood, what it waited on — before the move itself", () => {
+    const done = task({ id: "task-2", status: "done" });
+    const t = task({ id: "task-1", status: "in-progress", assignee: "impl-1", blockedBy: ["task-2"] });
+    const moved = go(t, lead, [done]);
+    expect(moved.ok && moved.task.log.slice(-4).map((e) => [e.field, e.was, e.now])).toEqual([
+      ["assignee", "impl-1", null],
+      ["status", "in-progress", "todo"],
+      ["blockedBy", "task-2", null],
+      ["transferred", "api", "web"],
+    ]);
+  });
+
+  it("takes its id out of the closed tasks that named it, so none waits across teams if reopened", () => {
+    const closed = task({ id: "task-3", status: "cancelled", blockedBy: ["task-1", "task-9"], updated: 5 });
+    const moved = go(task({ id: "task-1" }), lead, [closed]);
+    const after = moved.ok ? moved.board.tasks.find((x) => x.id === "task-3") : null;
+    expect(after?.blockedBy).toEqual(["task-9"]);
+    expect(after?.updated).toBe(5);
   });
 
   it("keeps parked work parked", () => {

@@ -155,13 +155,16 @@ export const TASK_DETAIL_WORDS = {
   duplicate: "Duplicate",
   duplicateTitle: (id: string) => `Duplicate ${id}`,
   duplicateMessage: (where: string) =>
-    `A new task with the same title, brief, priority, labels and artifacts, in ${where}, unassigned — without its comments or history.`,
+    `A new task with its brief, priority, labels and artifacts, titled "(copy) …", in ${where}, unassigned — without its comments or history.`,
   transfer: "Transfer",
   transferTitle: (id: string) => `Transfer ${id}`,
   transferPrompt: "To team",
-  transferConfirm: (team: string) => `Move it to ${team}? It goes unassigned, back to To do.`,
+  transferConfirm: (team: string, stops: string | null) =>
+    `Move it to ${team}? It goes unassigned, back to To do.${stops ? ` ${stops}` : ""}`,
+  transferStops: (status: string, holder: string | null) =>
+    holder ? `It is ${status} with ${holder} — that work stops here.` : `It is ${status} — that stops here.`,
   transferMove: "Move",
-  transferCancel: "Cancel",
+  cancel: "Cancel",
   transferNoTeam: "No other team in this workspace",
   transferClosed: (status: string) => `A ${status} task stays where it is — duplicate it instead`,
   transferLinked: (links: string) => `Linked by blockers — ${links}; unlink first`,
@@ -277,15 +280,15 @@ export function taskDetailView(
       title: TASK_DETAIL_WORDS.duplicateTitle(task.id),
       message: TASK_DETAIL_WORDS.duplicateMessage(task.status === "backlog" ? STATUS_LABEL.backlog : STATUS_LABEL.todo),
       confirm: TASK_DETAIL_WORDS.duplicate,
-      cancel: TASK_DETAIL_WORDS.transferCancel,
+      cancel: TASK_DETAIL_WORDS.cancel,
     },
     transfer: {
       title: TASK_DETAIL_WORDS.transferTitle(task.id),
       prompt: TASK_DETAIL_WORDS.transferPrompt,
       options: others.map((team) => ({ value: team.id, label: team.name })),
-      confirm: TASK_DETAIL_WORDS.transferConfirm,
+      confirm: (team: string) => TASK_DETAIL_WORDS.transferConfirm(team, transferStops(task)),
       move: TASK_DETAIL_WORDS.transferMove,
-      cancel: TASK_DETAIL_WORDS.transferCancel,
+      cancel: TASK_DETAIL_WORDS.cancel,
     },
     comments: commentsOf(task, now),
     commentsEmpty: task.comments.length === 0 ? TASK_DETAIL_WORDS.commentsEmpty : null,
@@ -300,10 +303,20 @@ export function taskDetailView(
 
 /** The title a rename commits, or null when there is nothing to change:
  * the typed text trimmed — empty keeps the title (a task has no automatic
- * name to fall back to), and the same title is no edit. */
-export function renamedTitle(current: string, typed: string): string | null {
+ * name to fall back to; the field's own rule, like Escape), and the title
+ * the edit BEGAN with is no edit — so a rename left untouched never writes
+ * back over a title an agent changed meanwhile. */
+export function renamedTitle(from: string, typed: string): string | null {
   const title = typed.trim();
-  return title === "" || title === current ? null : title;
+  return title === "" || title === from ? null : title;
+}
+
+/** What a transfer interrupts, said in its confirm: work under way (in
+ * progress, blocked, in review) is reset to To do on the new team — the
+ * person should know before they move it. Null for work not yet begun. */
+function transferStops(task: Task): string | null {
+  if (task.status !== "in-progress" && task.status !== "blocked" && task.status !== "review") return null;
+  return TASK_DETAIL_WORDS.transferStops(STATUS_LABEL[task.status].toLowerCase(), task.assignee);
 }
 
 /** Why the person may not hand this task to another team now, in words —
