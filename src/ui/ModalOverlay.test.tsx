@@ -27,6 +27,37 @@ describe("ModalOverlay", () => {
     act(() => root.unmount());
   });
 
+  it("keeps Tab inside: round the ends, past what cannot take focus", () => {
+    act(() =>
+      root.render(
+        createElement(
+          ModalOverlay,
+          null,
+          createElement("input", { id: "field" }),
+          createElement("button", { id: "go" }),
+          // Disabled, yet in the Tab order by its tabindex — it cannot take
+          // focus, so it is not the last stop.
+          createElement("button", { id: "off", disabled: true, tabIndex: 0 }),
+        ),
+      ),
+    );
+    const at = (id: string) => document.getElementById(id)!;
+    const tab = (shiftKey: boolean) => {
+      const event = new KeyboardEvent("keydown", { key: "Tab", shiftKey, bubbles: true, cancelable: true });
+      act(() => (document.activeElement as HTMLElement).dispatchEvent(event));
+      return event.defaultPrevented;
+    };
+    at("field").focus();
+    // Shift+Tab from the first goes round to the last that can take focus.
+    expect(tab(true)).toBe(true);
+    expect(document.activeElement).toBe(at("go"));
+    // Tab from the last goes round to the first, never out to the page.
+    expect(tab(false)).toBe(true);
+    expect(document.activeElement).toBe(at("field"));
+    // In between, the browser takes the step.
+    expect(tab(false)).toBe(false);
+  });
+
   it("portals the backdrop to <body>, OUTSIDE the stage it was spawned from", () => {
     act(() =>
       root.render(

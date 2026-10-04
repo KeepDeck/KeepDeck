@@ -26,7 +26,23 @@ describe("trappedTab — Tab inside a modal layer", () => {
 describe("tabStops — what Tab reaches in a layer", () => {
   it("is every focusable in order, but what opted out of the Tab order or is disabled", () => {
     const layer = document.createElement("div");
-    layer.innerHTML = `<input id="a"><button id="b" tabindex="-1"></button><button id="c" disabled></button><a id="d" href="#"></a><div id="e" tabindex="0"></div>`;
+    layer.innerHTML = [
+      `<input id="a">`,
+      `<button id="b" tabindex="-1"></button>`,
+      `<button id="c" disabled></button>`,
+      `<button id="c2" disabled tabindex="0"></button>`,
+      `<a id="d" href="#"></a>`,
+      `<div id="e" tabindex="0"></div>`,
+      `<input id="f" type="hidden">`,
+      `<button id="g" hidden></button>`,
+      `<div hidden><button id="h"></button></div>`,
+      `<div style="display: none"><button id="i"></button></div>`,
+      `<button id="j" style="visibility: hidden"></button>`,
+      `<div inert><button id="k"></button></div>`,
+      `<fieldset disabled><button id="l"></button></fieldset>`,
+    ].join("");
+    document.body.append(layer);
     expect(tabStops(layer).map((el) => el.id)).toEqual(["a", "d", "e"]);
+    layer.remove();
   });
 });
