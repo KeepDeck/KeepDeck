@@ -97,6 +97,12 @@ describe("relations — writing them", () => {
     ]);
   });
 
+  it("keeps a blocker not on this board through a change of the rest — it can't be named here, nor taken off", () => {
+    const far = board([task({ id: "task-1" }), task({ id: "task-2" })], 3, [relation("blocks", "task-9", "task-2")]);
+    const set = setBlockers(far, far.tasks[1], ["uid-task-1"], 9, "lead");
+    expect(set.relations.map((r) => r.from)).toEqual(["uid-task-1", "uid-task-9"]);
+  });
+
   it("is the same board when nothing changes", () => {
     expect(setBlockers(b, b.tasks[2], ["uid-task-1"], 9, "x")).toBe(b);
     expect(unlinked(b, () => false)).toBe(b);

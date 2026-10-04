@@ -212,7 +212,9 @@ export function setBlockers(
 ): TaskBoard {
   const current = into(board, "blocks", task.uid);
   const wanted = new Set(blockers);
-  const kept = current.filter((relation) => wanted.has(relation.from));
+  // A blocker not on this board can't be named here, so it can't be
+  // un-named either: it stays, not this board's to judge (task-224).
+  const kept = current.filter((relation) => wanted.has(relation.from) || taskByUid(board, relation.from) === undefined);
   const had = new Set(current.map((relation) => relation.from));
   const added = blockers
     .filter((uid) => !had.has(uid))

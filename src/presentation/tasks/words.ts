@@ -99,7 +99,7 @@ export function unsavedBanner(error: string, upgrade = false): string {
   // A board read in an older format lags because its upgrade has not
   // landed — maybe before the person changed anything at all.
   if (upgrade) {
-    return `The board's upgrade to linked tasks is not saved yet — ${error}. The old file is kept as board.${PRE_RELATIONS_COPY}.json, and the board retries on its own.`;
+    return `The board's upgrade to linked tasks is not saved yet — ${error}. The old file is left as it is until a copy of it is kept as board.${PRE_RELATIONS_COPY}.json; the board retries on its own.`;
   }
   return `Changes not saved yet — ${error}. The board keeps them and retries on its own.`;
 }
