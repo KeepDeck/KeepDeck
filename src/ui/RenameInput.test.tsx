@@ -26,12 +26,17 @@ describe("RenameInput", () => {
     const commit = vi.fn();
     act(() => root.render(createElement(Host, { commit })));
     act(() => document.querySelector("button")!.click());
-    expect(document.querySelector("input.rename-input")).not.toBeNull();
+    const line = document.querySelector<HTMLInputElement>("input.rename-input")!;
+    expect(document.activeElement).toBe(line);
+    expect([line.selectionStart, line.selectionEnd]).toEqual([5, 5]);
 
     act(() => root.render(createElement(Host, { commit, multiline: true, key: "wrap" })));
     act(() => document.querySelector("button")!.click());
     const field = document.querySelector<HTMLTextAreaElement>("textarea.rename-input.rename-input--multiline")!;
     expect(field.value).toBe("Draft");
+    // Focused, the caret at the end — where a rename goes on from.
+    expect(document.activeElement).toBe(field);
+    expect([field.selectionStart, field.selectionEnd]).toEqual([5, 5]);
     const enter = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
     act(() => void field.dispatchEvent(enter));
     expect(enter.defaultPrevented).toBe(true);
