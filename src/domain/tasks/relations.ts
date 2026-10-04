@@ -115,16 +115,22 @@ export function blockerIdsOf(task: Task, board: TaskBoard): string[] {
 export function openBlockersOf(task: Task, board: TaskBoard): string[] {
   // `holdsNothing` alone decides: an absent blocker is let go here, by
   // the rule, never by a lookup that happens to miss it.
-  const open = into(board, RELATION_GATE, task.uid)
+  const open = GATING_KINDS.flatMap((kind) => into(board, kind, task.uid))
     .filter((relation) => !holdsNothing(statusOf(board, relation.from)))
     .map((relation) => relation.from);
-  return inBoardOrder(board, open).map((uid) => taskByUid(board, uid)!.id);
+  return inBoardOrder(board, [...new Set(open)]).map((uid) => taskByUid(board, uid)!.id);
 }
 
-/** The one kind that gates the ladder's start, read from the table. */
-const RELATION_GATE: RelationKind = (Object.keys(RELATION_KINDS) as RelationKind[]).find(
+/** The kinds that gate the ladder's start, read from the table. */
+const GATING_KINDS: readonly RelationKind[] = (Object.keys(RELATION_KINDS) as RelationKind[]).filter(
   (kind) => RELATION_KINDS[kind].gatesStart,
-)!;
+);
+
+/** Whether a link of `kind` holds its `to` off the ladder's start — the
+ * table's column, for every rule that asks (the gate, a transfer). */
+export function gatesStart(kind: string): boolean {
+  return isRelationKind(kind) && RELATION_KINDS[kind].gatesStart;
+}
 
 /** The tasks waiting on `task` — the other side of `blocks`, present. */
 export function unblocks(task: Task, board: TaskBoard): Task[] {
@@ -229,14 +235,15 @@ export function unlinked(board: TaskBoard, drop: (relation: TaskRelation) => boo
 }
 
 /** Whether `relation` stays once the tasks in `gone` have left the
- * board: a link with no end left goes; one that held something holds
- * nothing now and goes; a fact stays (`outlivesAnEnd`). A kind this build
- * does not know is carried while either end is here — it is not ours to
- * judge. */
+ * board: a link with no end left goes; one whose `from` left goes (the
+ * copy, or the blocker, is gone); one whose `to` left stays only as a
+ * fact (`outlivesItsTo`). A kind this build does not know is carried while
+ * either end is here — it is not ours to judge. */
 export function outlives(relation: TaskRelation, gone: ReadonlySet<string>): boolean {
   const lostFrom = gone.has(relation.from);
   const lostTo = gone.has(relation.to);
   if (!lostFrom && !lostTo) return true;
   if (lostFrom && lostTo) return false;
-  return isRelationKind(relation.kind) ? RELATION_KINDS[relation.kind].outlivesAnEnd : true;
+  if (!isRelationKind(relation.kind)) return true;
+  return !lostFrom && RELATION_KINDS[relation.kind].outlivesItsTo;
 }

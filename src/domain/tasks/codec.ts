@@ -59,6 +59,12 @@ export type DecodeFault =
    * (null for an end not on the board, or one that is no uid at all). */
   | { kind: "bad-relation"; index: number; field: string; from: string | null; to: string | null };
 
+/** A legacy task's blockers the migration did not carry. */
+export interface DroppedBlockers {
+  id: string;
+  blockers: readonly string[];
+}
+
 export type DecodeResult =
   | {
       ok: true;
@@ -66,8 +72,15 @@ export type DecodeResult =
       /** Read from a board written before relations — its uids freshly
        * minted, so it must be written back before any uid leaves. */
       migrated: boolean;
+      /** The blockers a migration let go — a task naming itself or a key
+       * not on the board, which held nothing — for the owner to log. */
+      dropped: readonly DroppedBlockers[];
     }
   | { ok: false; fault: DecodeFault };
+
+/** The label a board written before relations is kept under, beside the
+ * upgraded one (`board.<label>.json`) — the way back for an older build. */
+export const PRE_RELATIONS_COPY = "pre-relations";
 
 export function encodeBoard(board: TaskBoard): string {
   return JSON.stringify(board);
@@ -101,6 +114,9 @@ export function decodeBoard(json: string, mintUid: () => string): DecodeResult {
     const read = decodeTask(entry, legacy, mintUid);
     if (!read.ok) return { ok: false, fault: { kind: "bad-task", index: i, id: read.id, field: read.field } };
     if (seen.has(read.task.id)) return { ok: false, fault: { kind: "duplicate-id", id: read.task.id } };
+    // The codec before relations read no uid: a twin there is not a fault
+    // it would have had, so the second one is drawn afresh.
+    if (legacy && uids.has(read.task.uid)) read.task = { ...read.task, uid: mintUid() };
     if (uids.has(read.task.uid)) return { ok: false, fault: { kind: "duplicate-uid", id: read.task.id } };
     seen.add(read.task.id);
     uids.add(read.task.uid);
@@ -115,22 +131,35 @@ export function decodeBoard(json: string, mintUid: () => string): DecodeResult {
     return { ok: false, fault: { kind: "bad-counter", atLeast: highest + 1 } };
   }
   const board: TaskBoard = { nextId: nextId as number, tasks, relations: [] };
-  if (legacy) return { ok: true, board: withRelations(board, migratedRelations(tasks, waits)), migrated: true };
+  if (legacy) {
+    const migrated = migratedRelations(tasks, waits);
+    return { ok: true, board: withRelations(board, migrated.relations), migrated: true, dropped: migrated.dropped };
+  }
   const relations = decodeRelations(raw.relations as unknown[], tasks);
   if (!relations.ok) return relations;
-  return { ok: true, board: withRelations(board, relations.relations), migrated: false };
+  return { ok: true, board: withRelations(board, relations.relations), migrated: false, dropped: [] };
 }
 
-/** A legacy board's links: its blockers, and its copies' sources. */
-function migratedRelations(tasks: readonly Task[], waits: ReadonlyMap<string, readonly string[]>): TaskRelation[] {
+/** A legacy board's links: its blockers, and its copies' sources — and
+ * the blockers it let go. */
+function migratedRelations(
+  tasks: readonly Task[],
+  waits: ReadonlyMap<string, readonly string[]>,
+): { relations: TaskRelation[]; dropped: DroppedBlockers[] } {
   const byKey = new Map(tasks.map((task) => [task.id, task]));
   const relations: TaskRelation[] = [];
+  const dropped: DroppedBlockers[] = [];
   for (const task of tasks) {
+    const gone: string[] = [];
     for (const key of new Set(waits.get(task.uid) ?? [])) {
       const blocker = byKey.get(key);
-      if (!blocker || blocker === task) continue;
+      if (!blocker || blocker === task) {
+        gone.push(key);
+        continue;
+      }
       relations.push({ kind: "blocks", from: blocker.uid, to: task.uid, at: task.created, by: null });
     }
+    if (gone.length > 0) dropped.push({ id: task.id, blockers: gone });
   }
   // A copy's source, from either end of the log — the latest per copy.
   const sources = new Map<string, TaskRelation>();
@@ -147,12 +176,12 @@ function migratedRelations(tasks: readonly Task[], waits: ReadonlyMap<string, re
       if (entry.field === "copiedTo") offer(byKey.get(entry.now), task, entry);
     }
   }
-  return [...relations, ...sources.values()];
+  return { relations: [...relations, ...sources.values()], dropped };
 }
 
 /** A board's links as stored, or the first that does not fit. An end not
  * on the board is no fault — a copy's source leaves with its team, and
- * the link stays (`outlivesAnEnd`); a kind this build does not know is
+ * the link stays (`outlivesItsTo`); a kind this build does not know is
  * carried as read. */
 function decodeRelations(
   raw: readonly unknown[],
@@ -206,10 +235,11 @@ function decodeTask(raw: unknown, legacy: boolean, mintUid: () => string): TaskR
   if (typeof id !== "string" || !isTaskId(id)) return { ok: false, id: null, field: "id" };
   const fail = (field: string): TaskRead => ({ ok: false, id, field });
   // A legacy task may already carry one (a hand edit, a half-written
-  // build); a new board's every task must.
-  if (raw.uid !== undefined && (typeof raw.uid !== "string" || !isTaskUid(raw.uid))) return fail("uid");
-  if (!legacy && raw.uid === undefined) return fail("uid");
-  const uid = typeof raw.uid === "string" ? raw.uid : mintUid();
+  // build): kept when it is one, drawn afresh when not — the codec before
+  // relations never read it. On a new board every task must have its own.
+  const valid = typeof raw.uid === "string" && isTaskUid(raw.uid);
+  if (!legacy && !valid) return fail(raw.uid === undefined ? "uid (a board with relations gives every task one)" : "uid");
+  const uid = valid ? (raw.uid as string) : mintUid();
   if (typeof raw.teamId !== "string" || raw.teamId === "") return fail("teamId");
   if (typeof raw.title !== "string") return fail("title");
   if (typeof raw.body !== "string") return fail("body");

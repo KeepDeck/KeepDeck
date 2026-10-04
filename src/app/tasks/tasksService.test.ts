@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { USER_ACTOR, agentActor, encodeBoard, type TaskBoard } from "../../domain/tasks";
 import { board, task } from "../../domain/tasks/testSupport";
-import { FORGOTTEN_WRITE, PRE_RELATIONS_COPY, createTasksService, type TaskEvent } from "./tasksService";
+import { PRE_RELATIONS_COPY } from "../../domain/tasks";
+import { FORGOTTEN_WRITE, createTasksService, type TaskEvent } from "./tasksService";
 import { fakeStore, teamedWorkspaces } from "./testSupport";
 
 const lead = agentActor("lead", "team-1");
@@ -108,12 +109,31 @@ describe("createTasksService", () => {
     await service.ready("ws-1");
     await flush();
     const state = service.peek("ws-1");
-    expect(state?.kind === "ready" && state.unsaved).toBe("the board's upgrade to linked tasks is not on disk yet: disk full");
+    expect(state).toMatchObject({ kind: "ready", unsaved: "disk full", upgrade: true });
     expect(store.files.get("ws-1")).toBe(legacyBytes);
+    // A change made meanwhile, whose write fails too, is still the upgrade's lag.
+    store.failNextWrite("disk full");
+    await service.apply("ws-1", "task-1", [{ kind: "title", to: "Meanwhile" }], USER_ACTOR);
+    expect(service.peek("ws-1")).toMatchObject({ kind: "ready", unsaved: "disk full", upgrade: true });
     tick();
     await flush();
-    expect(service.peek("ws-1")).toMatchObject({ kind: "ready", unsaved: null });
+    expect(service.peek("ws-1")).toEqual(expect.objectContaining({ kind: "ready", unsaved: null }));
+    expect(service.peek("ws-1")).not.toHaveProperty("upgrade");
     expect(JSON.parse(store.files.get("ws-1")!).relations).toHaveLength(1);
+  });
+
+  it("a workspace forgotten mid-upgrade comes back as a plain board: no second copy is kept for it", async () => {
+    const { service, store } = setup({ "ws-1": legacyBytes });
+    // Forgotten while its read is still out: that board never comes back.
+    service.board("ws-1");
+    const forgotten = service.forget("ws-1");
+    store.files.set("ws-1", encodeBoard(board([task({ id: "task-1" })])));
+    await forgotten;
+    store.files.set("ws-1", encodeBoard(board([task({ id: "task-1" })])));
+    await service.ready("ws-1");
+    await service.apply("ws-1", "task-1", [{ kind: "title", to: "Again" }], USER_ACTOR);
+    await flush();
+    expect(store.calls.filter((call) => call === "keepCopy")).toHaveLength(0);
   });
 
   it("a batch hands each change the board the last one left: a start is gated on the blocker set before it", async () => {

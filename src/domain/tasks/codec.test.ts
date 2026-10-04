@@ -36,8 +36,8 @@ describe("board codec", () => {
       7,
       [relation("copied-from", "task-2", "task-1")],
     );
-    expect(decodeBoard(encodeBoard(original), mint())).toEqual({ ok: true, board: original, migrated: false });
-    expect(decodeBoard(encodeBoard(EMPTY_BOARD), mint())).toEqual({ ok: true, board: EMPTY_BOARD, migrated: false });
+    expect(decodeBoard(encodeBoard(original), mint())).toEqual({ ok: true, board: original, migrated: false, dropped: [] });
+    expect(decodeBoard(encodeBoard(EMPTY_BOARD), mint())).toEqual({ ok: true, board: EMPTY_BOARD, migrated: false, dropped: [] });
   });
 
   it("carries a link of a kind it does not know, and one whose end is not on the board — as read", () => {
@@ -46,7 +46,7 @@ describe("board codec", () => {
       relation("copied-from", "task-1", "task-8"),
     ]);
     const read = decodeBoard(encodeBoard(original), mint());
-    expect(read).toEqual({ ok: true, board: original, migrated: false });
+    expect(read).toEqual({ ok: true, board: original, migrated: false, dropped: [] });
     expect(read.ok && copiedFromOf(read.board.tasks[0], read.board)).toBe("absent");
   });
 
@@ -57,7 +57,7 @@ describe("board codec", () => {
       [{ status: "waiting" }, "status"],
       [{ priority: "urgent" }, "priority"],
       [{ assignee: 3 }, "assignee"],
-      [{ uid: undefined }, "uid"],
+      [{ uid: undefined }, "uid (a board with relations gives every task one)"],
       [{ uid: "a b" }, "uid"],
       // Blockers are links on a new board: one on a task too is two answers.
       [{ blockedBy: [] }, "blockedBy (blockers are kept in relations)"],
@@ -161,7 +161,7 @@ describe("board codec — a board written before relations", () => {
   });
 
   it("reads an empty one as empty", () => {
-    expect(decodeBoard(legacy([]), mint())).toEqual({ ok: true, board: EMPTY_BOARD, migrated: true });
+    expect(decodeBoard(legacy([]), mint())).toEqual({ ok: true, board: EMPTY_BOARD, migrated: true, dropped: [] });
   });
 
   it("turns blockers into links: dated at the waiting task's making, by nobody it can name", () => {
@@ -170,9 +170,10 @@ describe("board codec — a board written before relations", () => {
     expect(blockerIdsOf(decoded.board.tasks[1], decoded.board)).toEqual(["task-1"]);
   });
 
-  it("never refuses what it read before — a repeat folds, a link to itself or to no task goes", () => {
+  it("never refuses what it read before — a repeat folds, a link to itself or to no task goes, and is said", () => {
     const decoded = read([legacyTask("task-1"), legacyTask("task-2", { blockedBy: ["task-1", "task-1", "task-2", "task-9"] })]);
     expect(decoded.board.relations.map((r) => [key(decoded, r.from), key(decoded, r.to)])).toEqual([["task-1", "task-2"]]);
+    expect(decoded.dropped).toEqual([{ id: "task-2", blockers: ["task-2", "task-9"] }]);
   });
 
   it("keeps a cycle and a link across teams — they show, and hold, today", () => {
@@ -225,7 +226,14 @@ describe("board codec — a board written before relations", () => {
     expect(old.board.tasks.every((t) => t.uid.startsWith("uid-minted-"))).toBe(true);
     const { uid: _uid, ...bare } = task({ id: "task-2" });
     const mixed = JSON.stringify({ nextId: 3, tasks: [task({ id: "task-1" }), bare], relations: [] });
-    expect(decodeBoard(mixed, mint())).toEqual({ ok: false, fault: { kind: "bad-task", index: 1, id: "task-2", field: "uid" } });
+    expect(decodeBoard(mixed, mint())).toEqual({
+      ok: false,
+      fault: { kind: "bad-task", index: 1, id: "task-2", field: "uid (a board with relations gives every task one)" },
+    });
+    // On an old board a uid is no rule it was written under: a broken one,
+    // or a twin, is drawn afresh rather than refused.
+    const odd = read([legacyTask("task-1", { uid: "a b" }), legacyTask("task-2", { uid: "same" }), legacyTask("task-3", { uid: "same" })]);
+    expect(odd.board.tasks.map((t) => t.uid)).toEqual(["uid-minted-1", "same", "uid-minted-2"]);
   });
 
   it("derives the same links each time it is read — only the uids are drawn afresh", () => {
@@ -240,7 +248,7 @@ describe("board codec — a board written before relations", () => {
   it("is written back in the new shape, which reads as not migrated", () => {
     const decoded = read([legacyTask("task-1"), legacyTask("task-2", { blockedBy: ["task-1"] })]);
     const again = decodeBoard(encodeBoard(decoded.board), mint());
-    expect(again).toEqual({ ok: true, board: decoded.board, migrated: false });
+    expect(again).toEqual({ ok: true, board: decoded.board, migrated: false, dropped: [] });
   });
 });
 

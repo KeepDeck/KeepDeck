@@ -340,6 +340,13 @@ describe("fields only the lead sets", () => {
     const ok = transition(b, { kind: "blockedBy", to: [" task-1 ", "task-1"] }, lead, c);
     expect(ok.ok && ok.task).toBe(b); // normalised to what it already was: no-op
   });
+
+  it("logs a set of blockers in board order, whatever order it was named in", () => {
+    const t = task({ id: "task-3" });
+    const c = ctx([task({ id: "task-1" }), task({ id: "task-2" }), t]);
+    const set = transition(t, { kind: "blockedBy", to: ["task-2", "task-1"] }, lead, c);
+    expect(set.ok && set.task.log[set.task.log.length - 1]).toMatchObject({ field: "blockedBy", was: null, now: "task-1,task-2" });
+  });
 });
 
 describe("what every member may do", () => {
@@ -705,6 +712,12 @@ describe("transferTask — the same task, handed to another team", () => {
     expect(moved.board.relations).toEqual(b.relations);
     expect(copiedFromOf(moved.task, moved.board)).toMatchObject({ id: "task-1" });
     expect(copiesOf(moved.task, moved.board).map((t) => t.id)).toEqual(["task-3"]);
+  });
+
+  it("leaves a blocker link whose other end is not on this board — not this board's to judge", () => {
+    const b = board([task({ id: "task-1" })], 2, [relation("blocks", "task-9", "task-1")]);
+    const moved = transferTask(b.tasks[0], teams, lead, { board: b, roster: ROSTER, at: 9_000 });
+    expect(moved.ok && moved.board.relations).toEqual(b.relations);
   });
 
   it("keeps parked work parked", () => {

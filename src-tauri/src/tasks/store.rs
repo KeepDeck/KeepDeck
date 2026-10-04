@@ -194,6 +194,7 @@ mod tests {
         assert_eq!(store.read("ws-1").unwrap_err(), OFF_MESSAGE);
         assert_eq!(store.write("ws-1", "{}").unwrap_err(), OFF_MESSAGE);
         assert_eq!(store.drop_workspace("ws-1").unwrap_err(), OFF_MESSAGE);
+        assert_eq!(store.keep_copy("ws-1", "pre-relations").unwrap_err(), OFF_MESSAGE);
     }
 
     #[test]
@@ -235,6 +236,8 @@ mod tests {
         for label in ["", "../x", "Pre", "a/b", "a.b"] {
             assert!(store.keep_copy("ws-1", label).is_err(), "{label}");
         }
+        // And the workspace id is judged by the same wall as every read.
+        assert!(store.keep_copy("../ws", "pre-relations").is_err());
     }
 
     #[test]

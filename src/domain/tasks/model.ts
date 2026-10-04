@@ -193,15 +193,16 @@ export interface RelationRule {
   gatesStart: boolean;
   /** At most one per `from` — a copy has one source. */
   onePerFrom: boolean;
-  /** Whether it stays when one of its ends leaves the board (a disbanded
-   * team's tasks go): a fact stays, and its gone end reads as gone; a
-   * link that held something holds nothing now. */
-  outlivesAnEnd: boolean;
+  /** Whether it stays when its `to` end leaves the board (a disbanded
+   * team's tasks go): a copy still came from its source, which reads as
+   * gone; a blocker that held something holds nothing now. Its `from`
+   * leaving takes any link with it — the copy itself is gone. */
+  outlivesItsTo: boolean;
 }
 
 export const RELATION_KINDS: Readonly<Record<RelationKind, RelationRule>> = {
-  blocks: { madeBy: "acceptor", removable: true, gatesStart: true, onePerFrom: false, outlivesAnEnd: false },
-  "copied-from": { madeBy: "duplicate", removable: false, gatesStart: false, onePerFrom: true, outlivesAnEnd: true },
+  blocks: { madeBy: "acceptor", removable: true, gatesStart: true, onePerFrom: false, outlivesItsTo: false },
+  "copied-from": { madeBy: "duplicate", removable: false, gatesStart: false, onePerFrom: true, outlivesItsTo: true },
 };
 
 /** Whether this build knows `kind` — the rest are carried, not read. */

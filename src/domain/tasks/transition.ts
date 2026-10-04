@@ -27,10 +27,12 @@ import {
 import {
   blockerIdsOf,
   findTask,
+  gatesStart,
   linked,
   openBlockersOf,
   replaceTask,
   setBlockers,
+  taskByUid,
   unblocks,
   unlinked,
   waitsOn,
@@ -496,14 +498,12 @@ function changeTask(
       if (bad) return refuse(bad);
       const was = blockerIdsOf(task, ctx.board);
       if (sameIds(ids, was)) return { ok: true, task };
-      const changed = logged(
-        task,
-        [{ at, from: by, field: "blockedBy", was: joined(was), now: joined(ids) }],
-        at,
-        {},
-      );
-      const board = setBlockers(replaceTask(ctx.board, changed), changed, uidsOf(ctx.board, ids), at, by);
-      return { ok: true, task: changed, board };
+      const linkedNow = setBlockers(ctx.board, task, uidsOf(ctx.board, ids), at, by);
+      // Both sides of the entry in board order: a set read back in another
+      // order is the same set, and the log should not say otherwise.
+      const now = blockerIdsOf(task, linkedNow);
+      const changed = logged(task, [{ at, from: by, field: "blockedBy", was: joined(was), now: joined(now) }], at, {});
+      return { ok: true, task: changed, board: replaceTask(linkedNow, changed) };
     }
     case "artifacts": {
       // Any member attaches: the assignee's report belongs on its task.
@@ -770,7 +770,7 @@ export function duplicateTask(
     from: copy.uid,
     to: source.uid,
     at: ctx.at,
-    by,
+    by: actorName(actor),
   });
   return { ok: true, board, task: copy, source: original, notCarried };
 }
@@ -851,7 +851,15 @@ export function transferTask(
       logged(dependant, [{ at, from: by, field: "blockedBy", was: joined(was), now: joined(now) }], dependant.updated, {}),
     );
   }
-  // Every blocker link it was in goes: what held it, and what it held.
-  board = unlinked(board, (relation) => relation.kind === "blocks" && (relation.from === task.uid || relation.to === task.uid));
+  // Every blocker link it was in with a task on this board goes — what
+  // held it, and what it held (logged above). A link whose other end is
+  // not here is not this board's to judge, so it stays (task-224).
+  const here = (uid: string) => taskByUid(ctx.board, uid) !== undefined;
+  board = unlinked(
+    board,
+    (relation) =>
+      gatesStart(relation.kind) &&
+      ((relation.from === task.uid && here(relation.to)) || (relation.to === task.uid && here(relation.from))),
+  );
   return { ok: true, task: moved, board };
 }

@@ -119,13 +119,15 @@ describe("relations — when tasks leave the board", () => {
     const copy = { kind: "copied-from", from: "uid-b", to: "uid-a", at: 1, by: null };
     expect(outlives(blocks, gone)).toBe(false);
     expect(outlives(copy, gone)).toBe(true);
+    // The copy itself gone: the fact about it goes with it.
+    expect(outlives(copy, new Set(["uid-b"]))).toBe(false);
     expect(outlives({ ...copy, from: "uid-a", to: "uid-c" }, new Set(["uid-a", "uid-c"]))).toBe(false);
     expect(outlives(blocks, new Set())).toBe(true);
     // A kind this build does not know is not ours to judge: kept while an end is here.
     expect(outlives({ ...blocks, kind: "relates" }, gone)).toBe(true);
     // The rule is the table's.
-    expect(RELATION_KINDS.blocks.outlivesAnEnd).toBe(false);
-    expect(RELATION_KINDS["copied-from"].outlivesAnEnd).toBe(true);
+    expect(RELATION_KINDS.blocks.outlivesItsTo).toBe(false);
+    expect(RELATION_KINDS["copied-from"].outlivesItsTo).toBe(true);
   });
 
   it("takes a disbanded team's links with its tasks — the copy's source link stays, read as gone", () => {
@@ -143,6 +145,9 @@ describe("relations — when tasks leave the board", () => {
     expect(kept.relations).toEqual([relation("copied-from", "task-2", "task-1")]);
     expect(copiedFromOf(kept.tasks[0], kept)).toBe("absent");
     expect(openBlockersOf(kept.tasks[0], kept)).toEqual([]);
+    // The copy's own team going takes the fact about it along.
+    const copyGone = keepTeams(board([task({ id: "task-1" }), task({ id: "task-2", teamId: "team-2" })], 3, [relation("copied-from", "task-2", "task-1")]), new Set(["team-1"]));
+    expect(copyGone.relations).toEqual([]);
     // Nothing leaves: the very same board.
     expect(keepTeams(b, new Set(["team-1", "team-2"]))).toBe(b);
   });

@@ -22,6 +22,7 @@
 import { membersOf, teamsOf, type Workspace } from "../../domain/deck";
 import {
   EMPTY_BOARD,
+  PRE_RELATIONS_COPY,
   createTask,
   decodeBoard,
   duplicateTask,
@@ -55,10 +56,6 @@ export interface TasksStorePort {
   keepCopy(args: { workspaceId: string; label: string }): Promise<void>;
 }
 
-/** The label the board written before relations is kept under, beside
- * the upgraded one — the way back for an older build. */
-export const PRE_RELATIONS_COPY = "pre-relations";
-
 export interface TasksServiceDeps {
   /** The deck as it stands — for rosters, read per call. */
   workspaces(): readonly Workspace[];
@@ -91,6 +88,10 @@ export type BoardState =
        * failure, verbatim — or null while disk and memory agree. The
        * board retries on its own; this is how a surface says so. */
       unsaved: string | null;
+      /** Present while the board was read in an older format and is not
+       * yet written in this one — what a lag on disk then IS: the
+       * upgrade, not the person's changes. */
+      upgrade?: true;
     }
   /** The file did not decode; its words, verbatim. Read-only until fixed. */
   | { kind: "unreadable"; error: string };
@@ -264,14 +265,19 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
     // has is about to go, and a board read now would be written back.
     if (closing.has(workspaceId)) return Promise.resolve({ kind: "loading" });
     set(workspaceId, { kind: "loading" });
+    /** Whether the file was in an older format — known only once read. */
+    let migrated = false;
     const loading = deps.store
       .read({ workspaceId })
       .then((json): BoardState => {
         if (json === null) return { kind: "ready", board: EMPTY_BOARD, unsaved: null };
         const decoded = decodeBoard(json, mintUid);
         if (decoded.ok) {
-          if (decoded.migrated) upgrading.add(workspaceId);
-          return { kind: "ready", board: decoded.board, unsaved: null };
+          migrated = decoded.migrated;
+          for (const left of decoded.dropped) {
+            log.warn("web:tasks", `${workspaceId}: upgrading the board let go of ${left.id}'s blockers ${left.blockers.join(", ")} — no such task, or itself; they held nothing`);
+          }
+          return { kind: "ready", board: decoded.board, unsaved: null, ...(migrated ? { upgrade: true as const } : {}) };
         }
         const error = decodeFaultText(decoded.fault);
         log.warn("web:tasks", `${workspaceId}: ${error} — the board is read-only until the file is fixed`);
@@ -290,7 +296,10 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
           // An upgraded board is written at once, so its uids are minted
           // once: until that write lands nothing outside has seen them,
           // and a read that comes back to the old file mints afresh.
-          if (state.kind === "ready" && upgrading.has(workspaceId)) void persist(workspaceId, state.board);
+          if (state.kind === "ready" && migrated) {
+            upgrading.add(workspaceId);
+            void persist(workspaceId, state.board);
+          }
           // A team disbanded while nobody held this board — the feature
           // off, the app closed — left its tasks in the file.
           prune(workspaceId);
@@ -326,11 +335,16 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
       try {
         if (upgrade) await deps.store.keepCopy({ workspaceId, label: PRE_RELATIONS_COPY });
         await deps.store.write({ workspaceId, json });
-        if (upgrade) upgrading.delete(workspaceId);
+        if (upgrade) {
+          upgrading.delete(workspaceId);
+          const state = states.get(workspaceId);
+          if (state?.kind === "ready" && state.upgrade) {
+            const { upgrade: _done, ...written } = state;
+            set(workspaceId, written);
+          }
+        }
       } catch (e: unknown) {
-        const error = upgrade
-          ? `the board's upgrade to linked tasks is not on disk yet: ${describeError(e)}`
-          : describeError(e);
+        const error = describeError(e);
         log.warn("web:tasks", `${workspaceId}: writing the board failed: ${error}`);
         // A board forgotten while this was on the wire has nothing to
         // mark and nothing to retry.
@@ -389,7 +403,12 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
    * mark carries over until a write lands. */
   const commit = (workspaceId: string, board: TaskBoard): Promise<string | null> => {
     const state = states.get(workspaceId);
-    set(workspaceId, { kind: "ready", board, unsaved: state?.kind === "ready" ? state.unsaved : null });
+    set(workspaceId, {
+      kind: "ready",
+      board,
+      unsaved: state?.kind === "ready" ? state.unsaved : null,
+      ...(state?.kind === "ready" && state.upgrade ? { upgrade: true as const } : {}),
+    });
     return persist(workspaceId, board);
   };
 
@@ -564,6 +583,7 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
       retries.delete(workspaceId);
       states.delete(workspaceId);
       loads.delete(workspaceId);
+      upgrading.delete(workspaceId);
       changed();
       const chain = writes.get(workspaceId);
       const close = async () => {
