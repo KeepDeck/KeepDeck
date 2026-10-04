@@ -90,10 +90,10 @@ export function TaskDetail({
           <StatusRing {...view.statusRing} />
           <span className="tasks__detail-meta kd-one-line">{view.meta}</span>
           <span className="tasks__detail-tools">
-            <Button size="sm" pressed={wide} onClick={onToggleWide}>
+            {/* An icon, explained by its tip — beside the close, its kin. */}
+            <TipButton size="sm" tip={DIALOG_WORDS.wide(wide)} onClick={onToggleWide}>
               {wide ? <RestoreIcon /> : <MaximizeIcon />}
-              {DIALOG_WORDS.wide(wide)}
-            </Button>
+            </TipButton>
             <TipButton size="sm" tip={TASK_DETAIL_WORDS.close} onClick={onClose}>
               <CloseIcon />
             </TipButton>
