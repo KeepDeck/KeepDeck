@@ -535,9 +535,13 @@
   font-size: var(--kd-font-small);
 }
 
+/* How long since it moved, one line: as wide as the longest the clock
+   says ("999d ago"), so the column stands straight — a fixed 36px broke
+   "4h ago" in two. */
 .tasks__row-age {
   flex: none;
-  width: 36px;
+  min-width: 8ch;
+  white-space: nowrap;
   color: var(--kd-text-3);
   font-size: var(--kd-font-small);
   font-variant-numeric: tabular-nums;

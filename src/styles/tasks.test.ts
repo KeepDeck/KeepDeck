@@ -56,6 +56,10 @@ describe("Tasks text never widens its box", () => {
     expect(getComputedStyle(link).whiteSpace).not.toBe("nowrap");
   });
 
+  it("a row's age stays on one line", () => {
+    expect(getComputedStyle(mount("tasks__row-age")).whiteSpace).toBe("nowrap");
+  });
+
   it("the open task grows to Expand and shrinks to Collapse — between two widths, eased", () => {
     // An auto width (or left: 0) does not transition: the card jumped.
     const card = getComputedStyle(mount("tasks__detail"));
