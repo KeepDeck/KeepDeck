@@ -74,12 +74,13 @@ export function unsavedBanner(error: string): string {
   return `Changes not saved yet — ${error}. The board keeps them and retries on its own.`;
 }
 
-/** What the pool is called wherever an empty assignee is shown. */
-export const POOL_LABEL = "pool";
+/** What an empty assignee is called wherever one is shown — the plain
+ * word, not the board's internal "pool". */
+export const POOL_LABEL = "unassigned";
 
 /** The assignee choice that leaves a task to whoever takes it — the same
  * line in the new-task form and in the task panel. */
-export const POOL_CHOICE: ChoiceView = { value: "", label: `${POOL_LABEL} — unassigned` };
+export const POOL_CHOICE: ChoiceView = { value: "", label: POOL_LABEL };
 
 /** A task's fields, named once for every surface that edits them. */
 export const FIELD_WORDS = {

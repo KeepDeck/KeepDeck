@@ -50,13 +50,13 @@ describe("taskCardView", () => {
     expect(taskCardView(b.tasks[2], b, NOW)).toMatchObject({
       id: "task-3",
       title: "Task task-3",
-      meta: "task-3 · pool · 2m ago",
+      meta: "task-3 · unassigned · 2m ago",
       priority: "HIGH",
       blockedBy: "blocked by task-1",
       tone: "none",
       cancelled: false,
       labels: [],
-      assignee: "pool",
+      assignee: "unassigned",
       age: "2m ago",
       ring: { fill: 0, tone: "none", barred: false, label: "To do" },
     });
@@ -223,7 +223,7 @@ describe("newTaskFormView", () => {
     const view = newTaskFormView(ROSTER);
     expect(view.assigneeOptions.map((o) => o.value)).toEqual(["", "lead", "impl-1", "impl-2"]);
     expect(view.addressHint).toContain("lead · impl-1 · impl-2");
-    expect(newTaskFormView([]).addressHint).toContain("pool");
+    expect(newTaskFormView([]).addressHint).toContain("unassigned");
   });
 });
 
