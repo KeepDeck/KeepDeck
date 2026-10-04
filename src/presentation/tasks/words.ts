@@ -13,6 +13,7 @@ export const VIEW_WORDS = {
 } as const;
 
 export const STATUS_LABEL: Record<TaskStatus, string> = {
+  backlog: "Backlog",
   todo: "To do",
   "in-progress": "In progress",
   blocked: "Blocked",
@@ -36,6 +37,7 @@ export function statusTone(status: TaskStatus): StatusTone {
       return "failed";
     case "done":
       return "done";
+    case "backlog":
     case "todo":
     case "cancelled":
       return "none";
@@ -96,9 +98,11 @@ export const NEW_TASK_LABEL = "+ Task";
 
 /** The order the board reads in, left to right — and the order every
  * status list follows. Blocked stands first: it is what waits on a
- * person, and a board is read from the left. */
+ * person, and a board is read from the left. Then the ladder in order:
+ * parked work, then what may be started, and on. */
 export const BOARD_ORDER: readonly TaskStatus[] = [
   "blocked",
+  "backlog",
   "todo",
   "in-progress",
   "review",

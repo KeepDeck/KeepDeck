@@ -34,7 +34,10 @@ import {
   findTask,
   isTaskId,
   isTaskPriority,
+  CREATE_STATUSES,
+  TASK_STATUSES,
   isTaskStatus,
+  type CreateStatus,
   issuable,
   mine,
   nextFor,
@@ -123,7 +126,7 @@ function statusArg(args: CommandArgs): TaskStatus | undefined {
   const value = str(args, "status");
   if (value === undefined) return undefined;
   if (!isTaskStatus(value)) {
-    throw new Error(`status must be todo, in-progress, blocked, review, done or cancelled, not "${value}"`);
+    throw new Error(`status must be one of ${TASK_STATUSES.join(", ")}, not "${value}"`);
   }
   return value;
 }
@@ -210,11 +213,16 @@ function createCommand(deps: TaskCommandDeps): CommandSpec {
       { name: "blockedBy", type: "string", description: "Task ids this one waits on, comma-separated — same board only" },
       { name: "artifacts", type: "string", description: "Artifact ids to attach, comma-separated" },
       { name: "labels", type: "string", description: "Labels, comma-separated — at most 5 words (lowercase, dashes between, ≤24 characters); \"Copy Edit\" is kept as copy-edit" },
+      { name: "status", type: "string", description: "todo (default) | backlog — backlog parks it: on the board, never issuable, until whoever hands out work moves it to todo" },
       TEAM_ARG,
     ],
     run: async (args, source) => {
       const who = caller(source, deps);
       const team = teamFor(args, who);
+      const status = str(args, "status");
+      if (status !== undefined && !(CREATE_STATUSES as readonly string[]).includes(status)) {
+        throw new Error(`a task is created in ${CREATE_STATUSES.join(" or ")}, not "${status}"`);
+      }
       const { task, saved, saveError } = settled(
         await deps.tasks.create(
           who.workspace.id,
@@ -227,6 +235,7 @@ function createCommand(deps: TaskCommandDeps): CommandSpec {
             blockedBy: ids(args, "blockedBy"),
             artifacts: ids(args, "artifacts"),
             labels: ids(args, "labels"),
+            status: status as CreateStatus | undefined,
           },
           who.actor,
         ),
@@ -302,7 +311,7 @@ function updateCommand(deps: TaskCommandDeps): CommandSpec {
     title: "Change a task: move it along, reassign it, edit its fields",
     args: [
       { name: "id", type: "string", required: true, description: "The task id (task-N)" },
-      { name: "status", type: "string", description: "todo | in-progress | blocked | review | done | cancelled. One step at a time: todo → in-progress → review → done, in-progress ⇄ blocked; accepting, returning, reopening and cancelling are for whoever hands out work. A refused move says where the task can go from where it is" },
+      { name: "status", type: "string", description: "backlog | todo | in-progress | blocked | review | done | cancelled. One step at a time: todo → in-progress → review → done, in-progress ⇄ blocked; backlog ⇄ todo (parking and unparking), accepting, returning, reopening and cancelling are for whoever hands out work. A refused move says where the task can go from where it is" },
       { name: "assignee", type: "string", description: "A role address on the team; \"pool\" to unassign" },
       { name: "priority", type: "string", description: "high | normal | low" },
       { name: "title", type: "string", description: "A new title" },

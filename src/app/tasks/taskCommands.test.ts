@@ -73,11 +73,20 @@ describe("task commands", () => {
     expect(await refused("task.update", { id: "task-1", status: "done" }, IMPL2)).toContain("is lead's");
   });
 
+  it("creates into the backlog when asked — never issuable there — and refuses any other start", async () => {
+    const { run, refused } = setup();
+    await run("task.create", { title: "Idea", status: "backlog" }, IMPL1);
+    const listed = (await run("task.list", { status: "backlog" }, LEAD)).tasks as { id: string; issuable: boolean }[];
+    expect(listed.map((t) => [t.id, t.issuable])).toEqual([["task-1", false]]);
+    expect(await refused("task.create", { title: "x", status: "done" }, LEAD)).toContain("created in todo or backlog");
+    expect(await refused("task.list", { status: "parked" }, LEAD)).toContain("backlog, todo");
+  });
+
   it("an illegal move teaches the ladder: the refusal says where the task can go from here", async () => {
     const { run, refused } = setup();
     await run("task.create", { title: "Already shipped", assignee: "impl-1" }, LEAD);
     expect(await refused("task.update", { id: "task-1", status: "done" }, LEAD)).toBe(
-      "a task cannot go from todo to done — from todo it can go to in-progress, cancelled",
+      "a task cannot go from todo to done — from todo it can go to backlog, in-progress, cancelled",
     );
     await run("task.update", { id: "task-1", status: "in-progress" }, IMPL1);
     await run("task.update", { id: "task-1", status: "review" }, IMPL1);

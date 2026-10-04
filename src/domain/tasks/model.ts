@@ -16,15 +16,18 @@
 import { parseRoleAddress, type RoleStanding } from "../mail/roles";
 
 /**
- * The status ladder. `review` is the assignee saying "finished — look";
+ * The status ladder. `backlog` is work parked: on the board, not yet to be
+ * started — no one takes it (it is never issuable) until whoever hands out
+ * work moves it to `todo`. `review` is the assignee saying "finished — look";
  * `done` is the team's lead (or the user) agreeing; `cancelled` is a task
  * that was taken off the board without being done. Both closed states
  * RESOLVE a blocker (see [`blockerResolved`]): a cancelled prerequisite
  * must not hold its dependants hostage forever.
  */
-export type TaskStatus = "todo" | "in-progress" | "blocked" | "review" | "done" | "cancelled";
+export type TaskStatus = "backlog" | "todo" | "in-progress" | "blocked" | "review" | "done" | "cancelled";
 
 export const TASK_STATUSES: readonly TaskStatus[] = [
+  "backlog",
   "todo",
   "in-progress",
   "blocked",

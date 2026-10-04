@@ -288,8 +288,11 @@ describe("formDraft", () => {
       body: "",
       assignee: null,
       priority: "normal",
+      status: "todo",
     });
     expect(taskInputOf({ ...EMPTY_TASK_DRAFT, title: "Draft", assignee: "impl-2", priority: "high" }).assignee).toBe("impl-2");
+    // Parked from the form: it starts in the backlog.
+    expect(taskInputOf({ ...EMPTY_TASK_DRAFT, title: "Idea", status: "backlog" }).status).toBe("backlog");
   });
 });
 
@@ -325,8 +328,8 @@ describe("settingsView", () => {
 });
 
 describe("the screen's view and folds", () => {
-  it("opens with the closed work folded in the list", () => {
-    expect([...INITIAL_SCREEN.folded].sort()).toEqual(["cancelled", "done"]);
+  it("opens with the parked and the closed work folded in the list", () => {
+    expect([...INITIAL_SCREEN.folded].sort()).toEqual(["backlog", "cancelled", "done"]);
   });
 
   it("folds and unfolds one group at a heading's toggle", () => {

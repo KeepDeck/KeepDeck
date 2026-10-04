@@ -135,7 +135,7 @@ describe("TasksDialog", () => {
     // The status picker offers the person every status, in board order.
     const statusPicker = () => document.querySelector<HTMLButtonElement>('button[aria-label="Status"]')!;
     const options = () => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="option"]'));
-    const EVERY = ["Blocked", "To do", "In progress", "Review", "Done", "Cancelled"];
+    const EVERY = ["Blocked", "Backlog", "To do", "In progress", "Review", "Done", "Cancelled"];
     act(() => statusPicker().click());
     await flush();
     expect(options().map((o) => o.textContent)).toEqual(EVERY);
@@ -210,11 +210,12 @@ describe("TasksDialog", () => {
       const open = (row: HTMLElement) => row.querySelector<HTMLButtonElement>(".tasks__row-open")!;
       const headings = () =>
         Array.from(document.querySelectorAll<HTMLButtonElement>(".tasks__list-item .tasks__group")).map((h) => h.textContent);
-      // All six groups stand, as the board's columns do; the closed work
-      // opens folded — Cancelled is a heading with its count, no rows.
-      expect(headings()).toEqual(["Blocked0", "To do1", "In progress0", "Review0", "Done0", "Cancelled1"]);
+      // All seven groups stand, as the board's columns do; the parked and
+      // the closed work open folded — Cancelled is a heading with its
+      // count, no rows.
+      expect(headings()).toEqual(["Blocked0", "Backlog0", "To do1", "In progress0", "Review0", "Done0", "Cancelled1"]);
       expect(rows().map((r) => r.querySelector(".tasks__row-title")?.textContent)).toEqual(["Draft the skill"]);
-      act(() => Array.from(document.querySelectorAll<HTMLButtonElement>(".tasks__list-item .tasks__group"))[5].click());
+      act(() => Array.from(document.querySelectorAll<HTMLButtonElement>(".tasks__list-item .tasks__group"))[6].click());
       await flush();
       expect(rows().map((r) => r.querySelector(".tasks__row-title")?.textContent)).toEqual(["Draft the skill", "Pooled work"]);
 

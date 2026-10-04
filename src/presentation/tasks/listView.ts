@@ -39,8 +39,9 @@ export interface ListRow {
 
 export type ListItem = ListHeading | ListRow;
 
-/** What a list opens with folded: the closed work, which only grows. */
-export const FOLDED_AT_OPEN: ReadonlySet<TaskStatus> = new Set<TaskStatus>(["done", "cancelled"]);
+/** What a list opens with folded: the parked work and the closed — the
+ * groups that only grow and are not what is read first. */
+export const FOLDED_AT_OPEN: ReadonlySet<TaskStatus> = new Set<TaskStatus>(["backlog", "done", "cancelled"]);
 
 /** The list's items: every status's heading, always — the same six groups
  * as the board's six columns, an empty one with its 0 — and the rows of

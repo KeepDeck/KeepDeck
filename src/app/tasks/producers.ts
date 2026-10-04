@@ -59,8 +59,10 @@ function wording(
 /** What a move is called, from where it stood to where it went. */
 function moveTitle(id: string, from: TaskStatus, to: TaskStatus): string {
   switch (to) {
+    case "backlog":
+      return `${id} moved to the backlog`;
     case "todo":
-      return `${id} reopened`;
+      return from === "backlog" ? `${id} is ready to start` : `${id} reopened`;
     case "in-progress":
       return from === "todo" ? `${id} started` : `${id} back in progress`;
     case "blocked":

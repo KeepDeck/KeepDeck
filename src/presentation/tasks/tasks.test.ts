@@ -83,15 +83,17 @@ describe("boardView", () => {
     const columns = boardView(b.tasks, b, NOW, NO_QUERY);
     expect(columns.map((c) => `${c.status}:${c.count}`)).toEqual([
       "blocked:0",
+      "backlog:0",
       "todo:2",
       "in-progress:0",
       "review:0",
       "done:2",
       "cancelled:1",
     ]);
-    expect(columns[1].cards.map((c) => c.id)).toEqual(["task-2", "task-1"]);
+    const column = (status: string) => columns.find((c) => c.status === status)!;
+    expect(column("todo").cards.map((c) => c.id)).toEqual(["task-2", "task-1"]);
     // Done shows its cards: no column is folded away.
-    expect(columns[4].cards.map((c) => c.id)).toEqual(["task-4", "task-3"]);
+    expect(column("done").cards.map((c) => c.id)).toEqual(["task-4", "task-3"]);
   });
 
   it("always shows Cancelled, its cards marked as taken off the board", () => {
@@ -139,6 +141,7 @@ describe("taskDetailView", () => {
     expect(view.status).toBe("todo");
     expect(view.statusOptions.map((o) => `${o.value}:${o.tone}`)).toEqual([
       "blocked:failed",
+      "backlog:none",
       "todo:none",
       "in-progress:working",
       "review:waiting",
@@ -224,6 +227,10 @@ describe("newTaskFormView", () => {
     expect(view.assigneeOptions.map((o) => o.value)).toEqual(["", "lead", "impl-1", "impl-2"]);
     expect(view.addressHint).toContain("lead · impl-1 · impl-2");
     expect(newTaskFormView([]).addressHint).toContain("unassigned");
+    expect(newTaskFormView([]).statusOptions).toEqual([
+      { value: "todo", label: "To do" },
+      { value: "backlog", label: "Backlog" },
+    ]);
   });
 });
 
@@ -350,7 +357,9 @@ describe("commentsOf / changesOf — what was said, and what was changed, apart"
 
 describe("statusRing — a task's place on the ladder as a ring", () => {
   it("fills by the rung, in the status's hue; blocked is barred, cancelled a grey disc", () => {
-    expect(statusRing("todo")).toEqual({ fill: 0, tone: "none", barred: false, label: "To do" });
+    expect(statusRing("todo")).toEqual({ fill: 0, tone: "none", barred: false, dashed: false, label: "To do" });
+    // Parked: not yet on the ladder — an empty ring, dashed.
+    expect(statusRing("backlog")).toEqual({ fill: 0, tone: "none", barred: false, dashed: true, label: "Backlog" });
     expect(statusRing("in-progress")).toMatchObject({ fill: 50, tone: "working", barred: false });
     expect(statusRing("review")).toMatchObject({ fill: 75, tone: "waiting" });
     expect(statusRing("done")).toMatchObject({ fill: 100, tone: "done" });

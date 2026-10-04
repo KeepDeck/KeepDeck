@@ -76,7 +76,7 @@ export type TaskRefusal =
   | { kind: "not-your-task"; assignee: string | null }
   /** A working role editing what only the lead sets. */
   | { kind: "not-yours-to-assign"; field: TaskField }
-  /** A working role accepting, returning, reopening or cancelling. */
+  /** A working role accepting, returning, reopening, parking or cancelling. */
   | { kind: "review-not-yours" }
   | {
       kind: "illegal-transition";
@@ -148,6 +148,11 @@ const EDGES: readonly {
   who: "worker" | "acceptor";
   needsBlockersResolved?: true;
 }[] = [
+  // Parked and unparked by whoever hands out work: a backlog task is not
+  // anyone's to start until it is moved to todo.
+  { from: "backlog", to: "todo", who: "acceptor" },
+  { from: "todo", to: "backlog", who: "acceptor" },
+  { from: "backlog", to: "cancelled", who: "acceptor" },
   { from: "todo", to: "in-progress", who: "worker", needsBlockersResolved: true },
   { from: "in-progress", to: "blocked", who: "worker" },
   { from: "blocked", to: "in-progress", who: "worker", needsBlockersResolved: true },
@@ -530,7 +535,14 @@ export interface CreateTaskInput {
   blockedBy?: readonly string[];
   artifacts?: readonly string[];
   labels?: readonly string[];
+  /** Where it starts: on the ladder (`todo`, the default) or parked in
+   * the backlog — anyone may park an idea; starting it is another matter. */
+  status?: CreateStatus;
 }
+
+/** The statuses a task may be created in. */
+export type CreateStatus = Extract<TaskStatus, "todo" | "backlog">;
+export const CREATE_STATUSES: readonly CreateStatus[] = ["todo", "backlog"];
 
 export type CreateResult =
   | { ok: true; board: TaskBoard; task: Task }
@@ -585,7 +597,7 @@ export function createTask(
     teamId: input.teamId,
     title: input.title.trim(),
     body,
-    status: "todo",
+    status: input.status ?? "todo",
     priority,
     assignee,
     author: actorName(actor) ?? "",

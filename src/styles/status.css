@@ -246,6 +246,12 @@
   opacity: 1;
 }
 
+/* Parked (a backlog task): the outline dashed — on the board, not yet on
+   the ladder. */
+.progress-ring--pie.status-ring--dashed::before {
+  border: 1px dashed currentColor;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .progress-ring.status-ring,
   .status-ring__bar {

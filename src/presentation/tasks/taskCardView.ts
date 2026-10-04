@@ -53,6 +53,7 @@ export function blockerChip(board: TaskBoard, id: string): BlockerChip {
 
 /** How far along each status stands on the ladder, as a ring's fill. */
 const LADDER_FILL: Record<TaskStatus, number> = {
+  backlog: 0,
   todo: 0,
   blocked: 0,
   "in-progress": 50,
@@ -69,6 +70,7 @@ export function statusRing(status: TaskStatus): StatusRingProps {
     fill: LADDER_FILL[status],
     tone: statusTone(status),
     barred: status === "blocked",
+    dashed: status === "backlog",
     label: STATUS_LABEL[status],
   };
 }
