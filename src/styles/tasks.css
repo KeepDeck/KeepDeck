@@ -707,12 +707,15 @@
   }
 }
 
+/* The open task's title, whole — never clamped: it is where the full
+   title is read. A long unbroken run breaks rather than widen the card. */
 .tasks__detail-title {
   margin: 6px 0 0;
   color: var(--kd-text);
   font-size: var(--kd-font-title);
   font-weight: 600;
   line-height: 1.3;
+  overflow-wrap: break-word;
 }
 
 .tasks__detail-meta {

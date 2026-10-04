@@ -110,7 +110,7 @@ export function TaskDetail({
             </TipButton>
           </span>
         </div>
-        <h3 className="tasks__detail-title kd-two-lines">{view.title}</h3>
+        <h3 className="tasks__detail-title kd-selectable">{view.title}</h3>
       </header>
 
       <div className="tasks__detail-body">

@@ -13,6 +13,7 @@ const PROSE = [
   "tasks__error",
   "tasks__placeholder-title",
   "tasks__row-title",
+  "tasks__detail-title",
 ];
 
 function mount(className: string): HTMLElement {
