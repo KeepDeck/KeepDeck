@@ -42,7 +42,6 @@ export {
 export { Chip, type ChipProps } from "./Chip.tsx";
 export { Dropdown, type DropdownOption } from "./Dropdown.tsx";
 export { Combobox, fuzzyFilter, fuzzyFilterBy } from "./Combobox.tsx";
-export { SearchPicker, type SearchPickerOption } from "./SearchPicker.tsx";
 export {
   MenuButton,
   type MenuAction,

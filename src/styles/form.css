@@ -546,51 +546,6 @@
   color: transparent;
 }
 
-/* SearchPicker (ui-kit): a small + that opens a search over a long list,
-   Linear's way. The + sits in a row of chips at their height; the field it
-   opens is the same size, so the row does not jump. */
-.search-picker {
-  display: inline-flex;
-  align-items: center;
-}
-
-.search-picker__open {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border: 1px dashed var(--kd-seam-strong);
-  border-radius: var(--kd-radius-mark);
-  background: transparent;
-  color: var(--kd-text-3);
-  cursor: pointer;
-}
-
-.search-picker__open svg {
-  width: 12px;
-  height: 12px;
-}
-
-.search-picker__open:hover {
-  border-style: solid;
-  color: var(--kd-text);
-}
-
-.search-picker__field {
-  width: 180px;
-  height: 20px;
-  padding: 0 6px;
-  font-size: var(--kd-font-small);
-}
-
-.search-picker__empty {
-  padding: 7px 8px;
-  color: var(--kd-text-3);
-  font-size: var(--kd-font-small);
-}
-
 /* In-app dropdown (ui/Dropdown.tsx): a form field that opens our own menu —
    never the OS popup. The open list is portaled to <body>, so overflow on a
    panel can never clip it. */

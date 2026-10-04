@@ -15,10 +15,11 @@ import { teamsOf, type Workspace } from "../../domain/deck";
 import {
   USER_ACTOR,
   addLabel,
-  addBlocker,
   attachArtifact,
+  blockerLink,
   detachArtifact,
   removeBlocker,
+  type BlockerSide,
   findTask,
   reachableStatuses,
   removeLabel,
@@ -384,7 +385,15 @@ export function useTasksBoard(
       if (!task) return;
       void apply(taskId, [attachArtifact(task, slug)]);
     },
-    block: (taskId: string, blockerId: string) => void apply(taskId, [addBlocker(blockerId)]),
+    /** Link two tasks by a blocker link, `side` as the first stands on it:
+     * the change goes to whichever of them waits (`blockerLink`). */
+    link: (taskId: string, otherId: string, side: BlockerSide) => {
+      const task = board ? findTask(board, taskId) : undefined;
+      const other = board ? findTask(board, otherId) : undefined;
+      if (!task || !other) return;
+      const { taskId: waiting, change } = blockerLink(task, other, side);
+      void apply(waiting, [change]);
+    },
     unblock: (taskId: string, blockerId: string) => void apply(taskId, [removeBlocker(blockerId)]),
     /** Resolves to whether the label landed; the field clears only then. */
     addLabel: (taskId: string, label: string): Promise<boolean> => apply(taskId, [addLabel(label)]),

@@ -109,7 +109,7 @@ function WorkspaceBoard({
       onSelect={board.select}
       onAttach={board.attachArtifact}
       onDetach={board.detachArtifact}
-      onBlock={board.block}
+      onLink={board.link}
       onUnblock={board.unblock}
       onOpenArtifact={board.openArtifact}
       onLabel={board.addLabel}

@@ -374,18 +374,29 @@ function validateBlockers(
   return null;
 }
 
-/** The tasks `task` could be made to wait on now: its team's open tasks
- * the `blockedBy` change would take — not itself, not one it already
- * waits on, none that waits on it (a cycle) — in board order. The picker
+/** Which side of a blocker link `task` is to stand on: it waits on the
+ * other (`blocked-by`), or the other waits on it (`blocks`). */
+export type BlockerSide = "blocked-by" | "blocks";
+
+/** The tasks `task` could be linked to as `side` says, now: its team's
+ * open tasks the `blockedBy` change would take on the waiting end — not
+ * itself, no link twice, none closing a cycle — in board order. A picker
  * offers exactly these, so it never offers what the change refuses. */
-export function blockerCandidates(task: Task, board: TaskBoard): Task[] {
-  const current = blockerIdsOf(task, board);
-  return tasksOfTeam(board, task.teamId).filter(
-    (other) =>
-      isOpen(other.status) &&
-      !current.includes(other.id) &&
-      validateBlockers(task, task.teamId, [...current, other.id], board) === null,
-  );
+export function blockerCandidates(task: Task, board: TaskBoard, side: BlockerSide = "blocked-by"): Task[] {
+  return tasksOfTeam(board, task.teamId).filter((other) => {
+    if (!isOpen(other.status) || other.uid === task.uid) return false;
+    const [waiting, waitedOn] = side === "blocked-by" ? [task, other] : [other, task];
+    const current = blockerIdsOf(waiting, board);
+    return !current.includes(waitedOn.id) && validateBlockers(waiting, waiting.teamId, [...current, waitedOn.id], board) === null;
+  });
+}
+
+/** The change that links `task` to `other` as `side` says, and the task
+ * it is made on — always the waiting one, whose blockers it sets. */
+export function blockerLink(task: Task, other: Task, side: BlockerSide): { taskId: string; change: TaskChange } {
+  return side === "blocked-by"
+    ? { taskId: task.id, change: addBlocker(other.id) }
+    : { taskId: other.id, change: addBlocker(task.id) };
 }
 
 /** The uids of the tasks named by `ids` — every one known (validated). */

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TASK_CAPS, USER_ACTOR, blockerResolved, inLadderOrder, isOpen, type TaskActor, type TaskStatus } from "./model";
-import { addBlocker, addLabel, attachArtifact, blockerCandidates, createTask, removeBlocker, keptTitle, detachArtifact, duplicateTask, transferTask, removeLabel, reachableStatuses, transition, type TaskChange, type TaskRefusal } from "./transition";
+import { addBlocker, addLabel, attachArtifact, blockerCandidates, blockerLink, createTask, removeBlocker, keptTitle, detachArtifact, duplicateTask, transferTask, removeLabel, reachableStatuses, transition, type TaskChange, type TaskRefusal } from "./transition";
 import { blockerIdsOf, copiedFromOf, copiesOf } from "./relations";
 import { ROSTER, board, impl1, lead, mintSequence, noTeam, peer1, relation, stranger, task } from "./testSupport";
 
@@ -350,9 +350,22 @@ describe("fields only the lead sets", () => {
       task({ id: "task-4", status: "done" }),
       task({ id: "task-5", teamId: "team-2" }),
       task({ id: "task-6", blockedBy: ["task-1"] }),
+      // task-7 waits on task-8, which waits on task-1: task-1 waiting on
+      // task-7 would close a loop, task-7 waiting on task-1 would not.
+      task({ id: "task-7", blockedBy: ["task-8"] }),
+      task({ id: "task-8", blockedBy: ["task-1"] }),
     ];
     const b = board(tasks);
     expect(blockerCandidates(b.tasks[0], b).map((x) => x.id)).toEqual(["task-3"]);
+    // The other side: what could wait on task-1 — not task-2, which it
+    // waits on (a cycle), nor task-6 and task-8, which already do.
+    expect(blockerCandidates(b.tasks[0], b, "blocks").map((x) => x.id)).toEqual(["task-3", "task-7"]);
+  });
+
+  it("links on the waiting task, whichever side the link was asked from", () => {
+    const [a, b] = [task({ id: "task-1" }), task({ id: "task-2" })];
+    expect(blockerLink(a, b, "blocked-by")).toEqual({ taskId: "task-1", change: addBlocker("task-2") });
+    expect(blockerLink(a, b, "blocks")).toEqual({ taskId: "task-2", change: addBlocker("task-1") });
   });
 
   it("adds and removes one blocker on the blockers as they stand when the change lands", () => {

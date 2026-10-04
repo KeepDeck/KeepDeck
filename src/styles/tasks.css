@@ -833,6 +833,32 @@
   text-decoration: line-through;
 }
 
+/* A row's + in the open task: opens the palette that adds to the row. The
+   height of the chips beside it, so the row does not jump. */
+.tasks__add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px dashed var(--kd-seam-strong);
+  border-radius: var(--kd-radius-mark);
+  background: transparent;
+  color: var(--kd-text-3);
+  cursor: pointer;
+}
+
+.tasks__add svg {
+  width: 12px;
+  height: 12px;
+}
+
+.tasks__add:hover {
+  border-style: solid;
+  color: var(--kd-text);
+}
+
 /* An attachment, or a blocker in the open task: its words open it, its ×
    takes it off. */
 .tasks__tag--artifact,

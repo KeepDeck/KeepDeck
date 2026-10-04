@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { StrictMode, act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { createTasksService, type TasksService } from "../../app/tasks";
 import { fakeStore, teamedWorkspaces } from "../../app/tasks/testSupport";
 import { USER_ACTOR, agentActor, blockerIdsOf } from "../../domain/tasks";
@@ -108,6 +108,13 @@ function mount(service: TasksService | null, initial = teamedWorkspaces()[0], st
     return act(() => root.render(strict ? createElement(StrictMode, null, dialog) : dialog));
   };
   return render;
+}
+
+/** A palette row by its words. */
+function paletteOption(label: string): HTMLButtonElement {
+  return Array.from(document.querySelectorAll<HTMLButtonElement>(".palette__item")).find(
+    (row) => row.querySelector(".palette__label")?.textContent === label,
+  )!;
 }
 
 async function seeded() {
@@ -802,6 +809,8 @@ describe("TasksDialog", () => {
   });
 
   it("attaches an artifact from the registry, opens it on click, and detaches it", async () => {
+    const restorePalette = pinListViewport("palette__list", 400, 640, 34);
+    onTestFinished(restorePalette);
     registry.rows = [{ id: "kd-tasks", title: "KeepDeck Tasks" }];
     const { service } = await seeded();
     const render = mount(service);
@@ -810,17 +819,17 @@ describe("TasksDialog", () => {
     act(() => cards()[0].click());
     await flush();
     await flush();
-    const picker = document.querySelector<HTMLButtonElement>('button[aria-label="Attach artifact"]')!;
+    const picker = document.querySelector<HTMLButtonElement>('button[aria-label="Attach an artifact"]')!;
     act(() => picker.click());
     await flush();
-    act(() => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="option"]')).find((o) => o.textContent === "KeepDeck Tasks")!.click());
+    act(() => paletteOption("KeepDeck Tasks").click());
     await flush();
     render();
     await flush();
     let state = service.peek("ws-1");
     expect(state?.kind === "ready" && state.board.tasks[0].artifacts).toEqual(["kd-tasks"]);
     // Attached: the picker has nothing left to offer; the row opens it.
-    expect(document.querySelector('button[aria-label="Attach artifact"]')).toBeNull();
+    expect(document.querySelector('button[aria-label="Attach an artifact"]')).toBeNull();
     // The chip opens it; its slug is in its title, the durable half.
     const row = buttons().find((b) => b.textContent === "KeepDeck Tasks")!;
     expect(row.title).toContain("kd-tasks");
@@ -834,6 +843,8 @@ describe("TasksDialog", () => {
   });
 
   it("makes the open task wait on another from the Blocked by row, and lets it go again", async () => {
+    const restorePalette = pinListViewport("palette__list", 400, 640, 34);
+    onTestFinished(restorePalette);
     const { service } = await seeded();
     const render = mount(service);
     render();
@@ -844,7 +855,9 @@ describe("TasksDialog", () => {
     const picker = document.querySelector<HTMLButtonElement>('button[aria-label="Add a blocker"]')!;
     act(() => picker.click());
     await flush();
-    act(() => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="option"]')).find((o) => o.textContent === "task-2 · Pooled work")!.click());
+    // A palette over the panel, naming what is picked.
+    expect(document.querySelector<HTMLInputElement>(".palette__field")?.placeholder).toBe("Find a task task-1 waits on…");
+    act(() => paletteOption("task-2  Pooled work").click());
     await flush();
     render();
     await flush();
@@ -859,6 +872,38 @@ describe("TasksDialog", () => {
     act(() => document.querySelector<HTMLButtonElement>('button[aria-label="Stop waiting on task-2"]')!.click());
     await flush();
     expect(blockers()).toEqual([]);
+  });
+
+  it("links from the task's menu the other way round — a task that waits on this one — and Escape shuts only the palette", async () => {
+    const restorePalette = pinListViewport("palette__list", 400, 640, 34);
+    onTestFinished(restorePalette);
+    const { service } = await seeded();
+    const render = mount(service);
+    render();
+    await flush();
+    act(() => cards()[0].click());
+    await flush();
+    await flush();
+    const menu = () => document.querySelector<HTMLButtonElement>('button[aria-label="More for task-1"]')!;
+    const item = (label: string) =>
+      Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find((b) => b.textContent?.includes(label))!;
+    // Escape closes the palette, not the open task under it.
+    act(() => menu().click());
+    act(() => item("Blocks…").click());
+    await flush();
+    act(() => document.querySelector<HTMLInputElement>(".palette__field")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    await flush();
+    expect(document.querySelector(".palette")).toBeNull();
+    expect(document.querySelector('aside[aria-label="Task task-1"]')).not.toBeNull();
+    act(() => menu().click());
+    act(() => item("Blocks…").click());
+    await flush();
+    expect(document.querySelector<HTMLInputElement>(".palette__field")?.placeholder).toBe("Find a task that waits on task-1…");
+    act(() => paletteOption("task-2  Pooled work").click());
+    await flush();
+    const state = service.peek("ws-1");
+    // The link is made on the waiting task: task-2 now waits on task-1.
+    expect(state?.kind === "ready" && blockerIdsOf(state.board.tasks[1], state.board)).toEqual(["task-1"]);
   });
 
   it("closed columns show their cards and offer no Hide or Show", async () => {

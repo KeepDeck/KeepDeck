@@ -4,6 +4,7 @@ import {
   USER_ACTOR,
   blockerCandidates,
   blockerIdsOf,
+  type BlockerSide,
   blockersOf,
   copiedFromOf,
   copiesOf,
@@ -66,11 +67,14 @@ export interface TaskDetailView {
    * gone) holds nothing and is struck through. */
   blockers: (BlockerChip & { removeLabel: string })[];
   blockersEmpty: string | null;
-  /** The tasks it could be made to wait on (`blockerCandidates`), for the
-   * picker; empty when there are none, and `blockerAddEmpty` says so. */
-  blockerOptions: ChoiceView[];
-  blockerAddEmpty: string | null;
   unblocks: { id: string; title: string }[];
+  /** The pickers the task opens — one palette each (`PaletteView`): what
+   * it may wait on, what may wait on it, what may be attached. */
+  palettes: Record<PaletteKind, PaletteView>;
+  /** Whether a task could be added on each side — its row's + is offered
+   * then, and the menu's item is not refused. */
+  canAddBlocker: boolean;
+  canAddDependant: boolean;
   /** Where it was copied from, and the copies made of it — one row each,
    * only when there is something to say. A source no longer on the board
    * is said to be gone. */
@@ -85,8 +89,8 @@ export interface TaskDetailView {
   labelOptions: string[];
   /** Null while another label fits; the words for why not when full. */
   labelsFull: string | null;
-  /** The workspace's artifacts not yet on this task — what may be attached. */
-  attachOptions: ChoiceView[];
+  /** Whether any artifact is left to attach — the + is offered then. */
+  canAttach: boolean;
   /** Nothing published to attach: a one-word value, the reason in its
    * tooltip. Null when the workspace has artifacts. */
   attachEmpty: { text: string; title: string } | null;
@@ -132,9 +136,22 @@ export interface FeedChange {
 /** An action the task's menu offers — the component binds each to its
  * intent. A refused one is shown, greyed, with why. */
 export interface TaskAction {
-  id: "rename" | "duplicate" | "transfer";
+  id: "rename" | "blocked-by" | "blocks" | "duplicate" | "transfer";
   label: string;
   refusal: string | null;
+}
+
+/** What a task's pickers pick: a task it waits on, a task that waits on
+ * it, an artifact to attach. */
+export type PaletteKind = BlockerSide | "artifact";
+
+/** One palette, as the component maps it: its name, the prompt that says
+ * what is picked, its sections of rows, and what it says when none match. */
+export interface PaletteView {
+  label: string;
+  placeholder: string;
+  empty: string;
+  sections: { title: string; items: { value: string; label: string; hint: string; ring?: StatusRingProps }[] }[];
 }
 
 export interface CommentItem {
@@ -190,12 +207,23 @@ export const TASK_DETAIL_WORDS = {
   trimmed: (max: number, what: string) => `At the board's limit — it keeps only the last ${max} ${what}`,
   detach: "Detach",
   addBlocker: "Add a blocker",
-  blockerPrompt: "Find a task to wait on…",
-  noMatch: "nothing matches",
-  noBlockerToAdd: "none to add",
+  addDependant: "Add a task that waits on this one",
+  blockedByAction: "Blocked by…",
+  blocksAction: "Blocks…",
+  blockedByTitle: "Blocked by",
+  blocksTitle: "Blocks",
+  blockedByPrompt: (id: string) => `Find a task ${id} waits on…`,
+  blocksPrompt: (id: string) => `Find a task that waits on ${id}…`,
+  tasksSection: "Tasks",
+  artifactsSection: "Artifacts",
+  noTaskMatches: "No task matches — only the team's open tasks that keep the links free of cycles",
+  noArtifactMatches: "No artifact matches",
+  nothingToWaitOn: "No task on its team it could wait on",
+  nothingWaitsOn: "No task on its team could wait on it",
   removeBlocker: (id: string) => `Stop waiting on ${id}`,
   attach: "Attach artifact",
   attachPrompt: "Find an artifact…",
+  addArtifact: "Attach an artifact",
   commentPlaceholder: "Add a comment — it stays with the task",
   comment: "Comment",
 } as const;
@@ -241,7 +269,9 @@ export function taskDetailView(
   }));
   const assigneeValues = [...new Set([...roster, ...(task.assignee ? [task.assignee] : [])])];
   const blockedBy = blockerIdsOf(task, board);
-  const candidates = blockerCandidates(task, board);
+  const waitsOn = blockerCandidates(task, board, "blocked-by");
+  const waitedBy = blockerCandidates(task, board, "blocks");
+  const attachable = artifacts.filter((artifact) => !task.artifacts.includes(artifact.id));
   return {
     id: task.id,
     title: task.title,
@@ -268,8 +298,13 @@ export function taskDetailView(
       blockedBy.length > 0 ? null : task.status === "todo" && issuable(task, board) ? "none — can start now" : "none",
     unblocks: unblocks(task, board).map((other) => ({ id: other.id, title: other.title })),
     copies: copyRows(task, board),
-    blockerOptions: candidates.map((other) => ({ value: other.id, label: `${other.id} · ${other.title}` })),
-    blockerAddEmpty: candidates.length === 0 ? TASK_DETAIL_WORDS.noBlockerToAdd : null,
+    palettes: {
+      "blocked-by": taskPalette(task, waitsOn, "blocked-by"),
+      blocks: taskPalette(task, waitedBy, "blocks"),
+      artifact: artifactPalette(attachable),
+    },
+    canAddBlocker: waitsOn.length > 0,
+    canAddDependant: waitedBy.length > 0,
     labels: task.labels.map((label) => ({ label, removeLabel: `Remove ${label}` })),
     labelOptions: labelsOf({ tasks: tasksOfTeam(board, task.teamId) }).filter((label) => !task.labels.includes(label)),
     labelsFull: task.labels.length >= TASK_CAPS.labelsMax ? TASK_DETAIL_WORDS.labelsFull(TASK_CAPS.labelsMax) : null,
@@ -284,9 +319,7 @@ export function taskDetailView(
         detachLabel: `${TASK_DETAIL_WORDS.detach} ${slug}`,
       };
     }),
-    attachOptions: artifacts
-      .filter((artifact) => !task.artifacts.includes(artifact.id))
-      .map((artifact) => ({ value: artifact.id, label: artifact.title })),
+    canAttach: attachable.length > 0,
     // With every published artifact attached, the chips say it all.
     attachEmpty:
       artifacts.length === 0
@@ -296,6 +329,16 @@ export function taskDetailView(
       label: TASK_DETAIL_WORDS.menu(task.id),
       actions: [
         { id: "rename", label: TASK_DETAIL_WORDS.rename, refusal: null },
+        {
+          id: "blocked-by",
+          label: TASK_DETAIL_WORDS.blockedByAction,
+          refusal: waitsOn.length === 0 ? TASK_DETAIL_WORDS.nothingToWaitOn : null,
+        },
+        {
+          id: "blocks",
+          label: TASK_DETAIL_WORDS.blocksAction,
+          refusal: waitedBy.length === 0 ? TASK_DETAIL_WORDS.nothingWaitsOn : null,
+        },
         { id: "duplicate", label: TASK_DETAIL_WORDS.duplicate, refusal: null },
         { id: "transfer", label: TASK_DETAIL_WORDS.transfer, refusal: transferRefusal(task, board, others.length) },
       ],
@@ -341,6 +384,43 @@ export function renamedTitle(from: string, typed: string): string | null {
 function transferStops(task: Task): string | null {
   if (task.status !== "in-progress" && task.status !== "blocked" && task.status !== "review") return null;
   return TASK_DETAIL_WORDS.transferStops(STATUS_LABEL[task.status].toLowerCase(), task.assignee);
+}
+
+/** A palette of tasks to link to `task` as `side` says: each by its key
+ * and title, its status ring before it and its status after. */
+function taskPalette(task: Task, candidates: readonly Task[], side: BlockerSide): PaletteView {
+  const blockedBy = side === "blocked-by";
+  return {
+    label: blockedBy ? TASK_DETAIL_WORDS.blockedByTitle : TASK_DETAIL_WORDS.blocksTitle,
+    placeholder: blockedBy ? TASK_DETAIL_WORDS.blockedByPrompt(task.id) : TASK_DETAIL_WORDS.blocksPrompt(task.id),
+    empty: TASK_DETAIL_WORDS.noTaskMatches,
+    sections: [
+      {
+        title: TASK_DETAIL_WORDS.tasksSection,
+        items: candidates.map((other) => ({
+          value: other.id,
+          label: `${other.id}  ${other.title}`,
+          hint: STATUS_LABEL[other.status],
+          ring: statusMark(other.status),
+        })),
+      },
+    ],
+  };
+}
+
+/** The palette of artifacts to attach: each by its title, its slug after. */
+function artifactPalette(attachable: readonly ArtifactRef[]): PaletteView {
+  return {
+    label: TASK_DETAIL_WORDS.attach,
+    placeholder: TASK_DETAIL_WORDS.attachPrompt,
+    empty: TASK_DETAIL_WORDS.noArtifactMatches,
+    sections: [
+      {
+        title: TASK_DETAIL_WORDS.artifactsSection,
+        items: attachable.map((artifact) => ({ value: artifact.id, label: artifact.title, hint: artifact.id })),
+      },
+    ],
+  };
 }
 
 /** Why the person may not hand this task to another team now, in words —
