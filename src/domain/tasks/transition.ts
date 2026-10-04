@@ -95,7 +95,9 @@ export type TaskRefusal =
   | { kind: "cross-team-blocker"; ids: readonly string[] }
   | { kind: "self-blocker" }
   | { kind: "cyclic-blocker"; ids: readonly string[] }
-  | { kind: "field-cap"; field: "title" | "body" | "comment"; max: number }
+  /** A field past its cap: which, how long it is, how long it may be —
+   * measured as it would be KEPT (a title and a comment trimmed). */
+  | { kind: "field-cap"; field: "title" | "body" | "comment"; max: number; length: number }
   /** A task asked to start anywhere but where a task may be created. */
   | { kind: "bad-create-status"; status: string; allowed: readonly TaskStatus[] }
   /** A label that is not a word: empty, too long, or with a character
@@ -240,22 +242,25 @@ export function commentProblem(body: string): TaskRefusal | null {
   const trimmed = body.trim();
   if (trimmed === "") return { kind: "blank", field: "comment" };
   if (trimmed.length > TASK_CAPS.commentMax) {
-    return { kind: "field-cap", field: "comment", max: TASK_CAPS.commentMax };
+    return { kind: "field-cap", field: "comment", max: TASK_CAPS.commentMax, length: trimmed.length };
   }
   return null;
 }
 
+/** A title is measured as it is kept — trimmed: spaces at its ends are
+ * never stored, so they never count against the cap. */
 function validateTitle(title: string): TaskRefusal | null {
-  if (title.trim() === "") return { kind: "blank", field: "title" };
-  if (title.length > TASK_CAPS.titleMax) {
-    return { kind: "field-cap", field: "title", max: TASK_CAPS.titleMax };
+  const kept = title.trim();
+  if (kept === "") return { kind: "blank", field: "title" };
+  if (kept.length > TASK_CAPS.titleMax) {
+    return { kind: "field-cap", field: "title", max: TASK_CAPS.titleMax, length: kept.length };
   }
   return null;
 }
 
 function validateBody(body: string): TaskRefusal | null {
   return body.length > TASK_CAPS.bodyMax
-    ? { kind: "field-cap", field: "body", max: TASK_CAPS.bodyMax }
+    ? { kind: "field-cap", field: "body", max: TASK_CAPS.bodyMax, length: body.length }
     : null;
 }
 
