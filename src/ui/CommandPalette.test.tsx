@@ -57,6 +57,17 @@ describe("CommandPalette", () => {
     act(() => list.dispatchEvent(new Event("scroll")));
     // Wrapped to the last row: revealed, so mounted.
     expect(document.querySelector(".palette__item--active .palette__label")?.textContent).toBe("task-499  Work");
+    // Named to the field, with its place in the whole list.
+    const active = document.querySelector<HTMLElement>(".palette__item--active")!;
+    expect(field().getAttribute("aria-activedescendant")).toBe(active.id);
+    expect([active.getAttribute("aria-posinset"), active.getAttribute("aria-setsize")]).toEqual(["500", "500"]);
+    // Scrolled away by hand: the row leaves the page, and the field names nothing.
+    act(() => {
+      list.scrollTop = 0;
+      list.dispatchEvent(new Event("scroll"));
+    });
+    expect(document.querySelector(".palette__item--active")).toBeNull();
+    expect(field().hasAttribute("aria-activedescendant")).toBe(false);
   });
 
   const field = () => document.querySelector<HTMLInputElement>(".palette__field")!;

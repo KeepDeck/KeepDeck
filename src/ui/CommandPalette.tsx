@@ -56,6 +56,15 @@ export function CommandPalette({ label, placeholder, sections, empty, onPick, on
   const field = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   const [highlight, setHighlight] = useState(0);
+  /** The field names the highlighted row only while the window has it on
+   * the page — a row scrolled out by hand is gone, and the field must not
+   * name an element that is not there. Written by the row itself as it
+   * mounts and leaves: no state, so no render the list's anchoring would
+   * answer by scrolling back. */
+  const nameActive = (row: HTMLElement | null) => {
+    if (row) field.current?.setAttribute("aria-activedescendant", row.id);
+    else field.current?.removeAttribute("aria-activedescendant");
+  };
   const listId = useId();
   useEscape(onClose, true, surface);
   // The keyboard goes back where it came from once the palette is done —
@@ -122,7 +131,6 @@ export function CommandPalette({ label, placeholder, sections, empty, onPick, on
             aria-expanded
             aria-controls={listId}
             aria-autocomplete="list"
-            aria-activedescendant={flat.length ? optionId(cursor) : undefined}
             aria-label={label}
             placeholder={placeholder}
             value={query}
@@ -153,7 +161,12 @@ export function CommandPalette({ label, placeholder, sections, empty, onPick, on
                     type="button"
                     role="option"
                     id={optionId(row.at)}
+                    ref={row.at === cursor ? nameActive : undefined}
                     aria-selected={row.at === cursor}
+                    // Where it stands in the whole list, not just the
+                    // window of it on the page.
+                    aria-setsize={flat.length}
+                    aria-posinset={row.at + 1}
                     // The field holds the keyboard (a combobox): rows are
                     // reached by the arrows, not by Tab.
                     tabIndex={-1}
