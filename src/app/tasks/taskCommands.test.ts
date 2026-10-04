@@ -73,6 +73,14 @@ describe("task commands", () => {
     expect(await refused("task.update", { id: "task-1", status: "done" }, IMPL2)).toContain("is lead's");
   });
 
+  it("refuses a title past its cap in words an agent can act on", async () => {
+    const { run, refused } = setup();
+    const long = "x".repeat(121);
+    expect(await refused("task.create", { title: long }, LEAD)).toBe("title must be at most 120 characters");
+    await run("task.create", { title: "Short" }, LEAD);
+    expect(await refused("task.update", { id: "task-1", title: long }, LEAD)).toBe("title must be at most 120 characters");
+  });
+
   it("creates into the backlog when asked — never issuable there — and refuses any other start", async () => {
     const { run, refused } = setup();
     await run("task.create", { title: "Idea", status: "backlog" }, IMPL1);
