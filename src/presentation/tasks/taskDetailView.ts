@@ -81,6 +81,7 @@ export interface TaskDetailView {
   /** Handing it to another team: the teams it may go to, and the words of
    * the inline confirm. */
   transfer: {
+    title: string;
     prompt: string;
     options: ChoiceView[];
     confirm: (team: string) => string;
@@ -148,7 +149,8 @@ export const TASK_DETAIL_WORDS = {
   transferred: (from: string, to: string) => `moved from ${from} to ${to}`,
   duplicate: "Duplicate",
   transfer: "Transfer",
-  transferPrompt: "Transfer to",
+  transferTitle: (id: string) => `Transfer ${id}`,
+  transferPrompt: "To team",
   transferConfirm: (team: string) => `Move it to ${team}? It goes unassigned, back to To do.`,
   transferMove: "Move",
   transferCancel: "Cancel",
@@ -263,6 +265,7 @@ export function taskDetailView(
       ],
     },
     transfer: {
+      title: TASK_DETAIL_WORDS.transferTitle(task.id),
       prompt: TASK_DETAIL_WORDS.transferPrompt,
       options: others.map((team) => ({ value: team.id, label: team.name })),
       confirm: TASK_DETAIL_WORDS.transferConfirm,

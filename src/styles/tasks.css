@@ -710,23 +710,12 @@
   }
 }
 
-/* The transfer's inline confirm, under the title: where to, what it
-   means, and the two answers. */
-.tasks__transfer {
+/* The transfer dialog's team pick, above its message's answers. */
+.tasks__transfer-pick {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin-top: 10px;
-  padding: 8px 10px;
-  border: 1px solid var(--kd-seam);
-  border-radius: var(--kd-radius-pop);
-}
-
-.tasks__transfer-actions {
-  display: flex;
+  flex-direction: column;
   gap: 6px;
-  margin-left: auto;
+  margin-bottom: 16px;
 }
 
 /* The open task's title, whole — never clamped: it is where the full

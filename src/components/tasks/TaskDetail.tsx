@@ -24,6 +24,7 @@ import { Button } from "../../ui/Button";
 import { TipButton } from "../../ui/TipButton";
 import { CloseIcon, MaximizeIcon, RestoreIcon } from "@keepdeck/ui-kit/icons";
 import { RemoveButton } from "../../ui/RemoveButton";
+import { ConfirmDialog } from "../../ui/ConfirmDialog";
 import { useGrowingField } from "../../ui/useGrowingField";
 
 interface TaskDetailProps {
@@ -150,26 +151,30 @@ export function TaskDetail({
         <h3 className="tasks__detail-title kd-selectable" dir="auto">
           {view.title}
         </h3>
+        {/* The house confirm, centred over everything: where to, what it
+            means, and the two answers. */}
         {transferTeam && (
-          <div className="tasks__transfer" role="group" aria-label={view.transfer.prompt}>
-            <span className="tasks__prop-label">{view.transfer.prompt}</span>
-            <Dropdown
-              ariaLabel={view.transfer.prompt}
-              size="sm"
-              options={view.transfer.options}
-              value={transferTeam.value}
-              onChange={setTransferTo}
-            />
-            <span className="tasks__muted">{view.transfer.confirm(transferTeam.label)}</span>
-            <span className="tasks__transfer-actions">
-              <Button size="sm" onClick={() => setTransferTo(null)}>
-                {view.transfer.cancel}
-              </Button>
-              <Button size="sm" variant="primary" onClick={() => onTransfer(view.id, transferTeam.value)}>
-                {view.transfer.move}
-              </Button>
-            </span>
-          </div>
+          <ConfirmDialog
+            title={view.transfer.title}
+            message={view.transfer.confirm(transferTeam.label)}
+            confirmLabel={view.transfer.move}
+            cancelLabel={view.transfer.cancel}
+            onConfirm={() => {
+              setTransferTo(null);
+              onTransfer(view.id, transferTeam.value);
+            }}
+            onCancel={() => setTransferTo(null)}
+          >
+            <label className="tasks__transfer-pick">
+              <span className="tasks__prop-label">{view.transfer.prompt}</span>
+              <Dropdown
+                ariaLabel={view.transfer.prompt}
+                options={view.transfer.options}
+                value={transferTeam.value}
+                onChange={setTransferTo}
+              />
+            </label>
+          </ConfirmDialog>
         )}
       </header>
 

@@ -359,7 +359,7 @@ describe("TasksDialog", () => {
     expect(focus).toBe(copy?.id);
   });
 
-  it("transfers the open task to another team from its menu: confirmed inline, then the panel closes", async () => {
+  it("transfers the open task to another team from its menu: confirmed in a dialog, then the panel closes", async () => {
     const { service } = await seeded();
     focus = "task-1";
     const render = mount(service);
@@ -368,7 +368,9 @@ describe("TasksDialog", () => {
     act(() => document.querySelector<HTMLButtonElement>('aside[aria-label="Task task-1"] button[aria-label="More for task-1"]')!.click());
     act(() => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find((b) => b.textContent?.includes("Transfer"))!.click());
     await flush();
-    const confirm = document.querySelector(".tasks__transfer")!;
+    // A dialog of its own, over everything.
+    const confirm = document.querySelector('.confirm[role="dialog"]')!;
+    expect(confirm.querySelector(".confirm__title")?.textContent).toBe("Transfer task-1");
     expect(confirm.textContent).toContain("Move it to web?");
     act(() => Array.from(confirm.querySelectorAll<HTMLButtonElement>("button")).find((b) => b.textContent === "Move")!.click());
     await flush();
