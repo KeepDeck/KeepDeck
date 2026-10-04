@@ -1,29 +1,11 @@
-import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { fuzzyFilterBy } from "@keepdeck/ui-kit/Combobox";
+import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { VirtualList } from "@keepdeck/ui-kit/VirtualList";
 import { noAutoCorrect } from "./inputProps";
 import { ModalOverlay } from "./ModalOverlay";
+import { clampCursor, paletteRows, stepCursor, type PaletteItem, type PaletteRow, type PaletteSection } from "./paletteRows";
 import { useEscape } from "./useEscape";
 
-/** One row a palette offers: what a pick hands back, what it reads, the
- * quiet word at its end, and what stands before it (a status ring). */
-export interface PaletteItem {
-  value: string;
-  label: string;
-  hint?: string;
-  leading?: ReactNode;
-}
-
-export interface PaletteSection {
-  title: string;
-  items: readonly PaletteItem[];
-}
-
-/** A line of the windowed list: a section's heading, or a row with its
- * place among the rows (what the arrows count). */
-type PaletteRow =
-  | { kind: "section"; key: string; title: string }
-  | { kind: "item"; key: string; item: PaletteItem; at: number };
+export type { PaletteItem, PaletteSection } from "./paletteRows";
 
 const rowKey = (row: PaletteRow) => row.key;
 /** A heading's and a row's first-paint height; measured after. */
@@ -82,20 +64,12 @@ export function CommandPalette({ label, placeholder, sections, empty, onPick, on
     };
   }, [opener]);
 
-  const shown = sections
-    .map((section) => ({ ...section, items: fuzzyFilterBy(section.items, query, (item) => `${item.label} ${item.hint ?? ""}`) }))
-    .filter((section) => section.items.length > 0);
-  const flat = shown.flatMap((section) => section.items);
-  const cursor = Math.min(highlight, Math.max(flat.length - 1, 0));
+  // What is shown, and where the highlight stands, are paletteRows' and
+  // the cursor rules' to say.
+  const { rows, count } = paletteRows(sections, query);
+  const cursor = clampCursor(highlight, count);
   const optionId = (index: number) => `${listId}-option-${index}`;
-  // One windowed list of headings and rows — a board's worth of tasks
-  // mounts only what is in view.
-  const rows: PaletteRow[] = [];
-  let at = 0;
-  for (const section of shown) {
-    rows.push({ kind: "section", key: `section:${section.title}`, title: section.title });
-    for (const item of section.items) rows.push({ kind: "item", key: `item:${item.value}`, item, at: at++ });
-  }
+  const highlighted = rows.find((row) => row.kind === "item" && row.at === cursor);
 
   const pick = (item: PaletteItem) => {
     onPick(item.value);
@@ -104,12 +78,12 @@ export function CommandPalette({ label, placeholder, sections, empty, onPick, on
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
-      if (flat.length) setHighlight((cursor + (event.key === "ArrowDown" ? 1 : -1) + flat.length) % flat.length);
+      setHighlight(stepCursor(cursor, count, event.key === "ArrowDown" ? 1 : -1));
     } else if (event.key === "Enter") {
       // An IME's Enter confirms what is being composed — it picks nothing.
       if (event.nativeEvent.isComposing) return;
       event.preventDefault();
-      if (flat.length) pick(flat[cursor]);
+      if (highlighted?.kind === "item") pick(highlighted.item);
     }
   };
 
@@ -128,8 +102,9 @@ export function CommandPalette({ label, placeholder, sections, empty, onPick, on
             ref={field}
             className="palette__field"
             role="combobox"
-            aria-expanded
-            aria-controls={listId}
+            // A list to point at only while there is one.
+            aria-expanded={count > 0}
+            aria-controls={count > 0 ? listId : undefined}
             aria-autocomplete="list"
             aria-label={label}
             placeholder={placeholder}
@@ -140,7 +115,7 @@ export function CommandPalette({ label, placeholder, sections, empty, onPick, on
             }}
             onKeyDown={onKeyDown}
           />
-          {flat.length === 0 ? (
+          {count === 0 ? (
             <p className="palette__empty">{empty}</p>
           ) : (
             <VirtualList
@@ -152,7 +127,7 @@ export function CommandPalette({ label, placeholder, sections, empty, onPick, on
               role="listbox"
               ariaLabel={label}
               // The highlighted row is kept in view as the arrows move it.
-              revealKey={rows.find((row) => row.kind === "item" && row.at === cursor)?.key ?? null}
+              revealKey={highlighted?.key ?? null}
               render={(row) =>
                 row.kind === "section" ? (
                   <p className="palette__section">{row.title}</p>
@@ -165,7 +140,7 @@ export function CommandPalette({ label, placeholder, sections, empty, onPick, on
                     aria-selected={row.at === cursor}
                     // Where it stands in the whole list, not just the
                     // window of it on the page.
-                    aria-setsize={flat.length}
+                    aria-setsize={count}
                     aria-posinset={row.at + 1}
                     // The field holds the keyboard (a combobox): rows are
                     // reached by the arrows, not by Tab.

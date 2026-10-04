@@ -105,6 +105,9 @@ describe("CommandPalette", () => {
 
   it("says nothing matches, and then Enter picks nothing", () => {
     type("zzz");
+    // No list to point the field at.
+    expect(field().getAttribute("aria-expanded")).toBe("false");
+    expect(field().hasAttribute("aria-controls")).toBe(false);
     expect(document.querySelector(".palette__empty")?.textContent).toBe("No task matches");
     key("Enter");
     expect(onPick).not.toHaveBeenCalled();
