@@ -20,9 +20,20 @@ describe("RenameInput", () => {
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
   });
-  afterEach(() => act(() => root.unmount()));
+  afterEach(() => {
+    act(() => root.unmount());
+    vi.restoreAllMocks();
+  });
 
   it("is one line by default, and wraps as a growing field when the name may — Enter still commits, no line break", () => {
+    // As WebKit does: focusing a field puts its caret at the START.
+    for (const proto of [HTMLInputElement.prototype, HTMLTextAreaElement.prototype]) {
+      const focus = proto.focus;
+      vi.spyOn(proto, "focus").mockImplementation(function (this: HTMLInputElement) {
+        focus.call(this);
+        this.setSelectionRange(0, 0);
+      });
+    }
     const commit = vi.fn();
     act(() => root.render(createElement(Host, { commit })));
     act(() => document.querySelector("button")!.click());
