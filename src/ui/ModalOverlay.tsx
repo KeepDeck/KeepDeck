@@ -1,6 +1,7 @@
 import { dropBlocker } from "@keepdeck/ui-kit/dropBlocker";
 import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { tabStops, trappedTab } from "./focusTrap";
 import { inertBackground } from "./inertBackground";
 
 /**
@@ -47,6 +48,17 @@ export function ModalOverlay({ children }: { children: ReactNode }) {
       className="modal-overlay"
       tabIndex={-1}
       {...dropBlocker()}
+      // Tab stays in the dialog: the page behind is inert, and a step out
+      // would land the keyboard on nothing (`trappedTab`).
+      onKeyDown={(event) => {
+        const layer = layerRef.current;
+        if (event.key !== "Tab" || !layer) return;
+        const stops = tabStops(layer);
+        const to = trappedTab(stops.length, stops.indexOf(document.activeElement as HTMLElement), event.shiftKey);
+        if (to === null) return;
+        event.preventDefault();
+        if (to >= 0) stops[to].focus();
+      }}
     >
       {children}
     </div>,

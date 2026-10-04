@@ -142,6 +142,18 @@ describe("CommandPalette", () => {
     expect(document.activeElement).toBe(opener);
   });
 
+  it("keeps the keyboard on its field through Tab and Shift+Tab — the modal's one stop", () => {
+    for (const shiftKey of [false, true]) {
+      const tab = new KeyboardEvent("keydown", { key: "Tab", shiftKey, bubbles: true, cancelable: true });
+      act(() => field().dispatchEvent(tab));
+      expect(tab.defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(field());
+    }
+    // And the arrows still walk the list from there.
+    key("ArrowDown");
+    expect(document.querySelector(".palette__item--active .palette__label")?.textContent).toBe("task-3  Ship the release");
+  });
+
   it("picks on a click", () => {
     act(() => [...document.querySelectorAll<HTMLButtonElement>(".palette__item")][1].click());
     expect(onPick).toHaveBeenCalledWith("task-3");
