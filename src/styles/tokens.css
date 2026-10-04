@@ -90,6 +90,10 @@
      control, a row or a popover, a tile, a dialog or a sheet. Circles
      (50%) and pills (999px) are shapes, not steps, and stay literal. */
   --kd-radius-mark: 4px;
+  /* The disclosure motion — a thing opening or closing: the chevron's
+     turn, the list's rows closing up and arriving. The strip's clock and
+     curve (STRIP_MOTION_MS). */
+  --kd-disclosure-motion: 140ms cubic-bezier(0.33, 1, 0.68, 1);
   --kd-radius-control: 6px;
   --kd-radius-pop: 8px;
   --kd-radius-tile: 10px;

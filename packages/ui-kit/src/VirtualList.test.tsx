@@ -2,7 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { VirtualList } from "./VirtualList";
+import { LIST_MOTION_WINDOW_MS, VirtualList } from "./VirtualList";
 import { installResizeObserver, pinListViewport } from "./virtualGeometry.test-support";
 
 (
@@ -95,8 +95,8 @@ describe("VirtualList", () => {
     expect(host.querySelectorAll("ul.list__spacer > li.list__item > .row").length).toBe(3);
   });
 
-  describe("arrivals (data-arriving)", () => {
-    const renderList = (list: readonly string[]) =>
+  describe("the list's own motion (easeKey → data-easing, data-arriving)", () => {
+    const renderList = (list: readonly string[], easeKey: unknown) =>
       act(() =>
         root.render(
           createElement(VirtualList<string>, {
@@ -105,37 +105,43 @@ describe("VirtualList", () => {
             estimate: () => ROW,
             render: (item) => createElement("span", { className: "row" }, item),
             className: "list",
+            easeKey,
           }),
         ),
       );
-    const arrived = () =>
-      [...host.querySelectorAll<HTMLElement>("[data-arriving]")].map((el) => el.textContent);
+    const easing = () => host.querySelector(".list")!.hasAttribute("data-easing");
+    const arrived = () => [...host.querySelectorAll<HTMLElement>("[data-arriving]")].map((el) => el.textContent);
 
-    it("marks only the items that joined the list — none on the first paint, none for the scroll", async () => {
+    it("moves only the change the consumer asked for, marking the items that joined there", () => {
       restore = pinListViewport("list", 200, 300, ROW);
-      const first = ["a", "b", "c"];
-      renderList(first);
-      expect(arrived()).toEqual([]);
-      const unfolded = ["a", "x", "y", "b", "c"];
-      renderList(unfolded);
+      renderList(["a", "b", "c"], 1);
+      // Nothing moves on the first paint.
+      expect([easing(), arrived()]).toEqual([false, []]);
+      // The person's act: the token changes with the items.
+      renderList(["a", "x", "y", "b", "c"], 2);
+      expect([easing(), arrived()]).toEqual([true, ["x", "y"]]);
+      // A render of the same items keeps the marks: an entrance runs out.
+      renderList(["a", "x", "y", "b", "c"], 2);
       expect(arrived()).toEqual(["x", "y"]);
-      // A render of the same items keeps the set: an entrance runs to its end.
-      renderList(unfolded);
-      expect(arrived()).toEqual(["x", "y"]);
-      // The next change starts over: what stayed is no arrival.
-      renderList(["a", "b", "c"]);
-      expect(arrived()).toEqual([]);
+      // An agent's change, the anchoring's: the items change, the token
+      // does not — it lands still.
+      renderList(["z", "a", "x", "y", "b", "c"], 2);
+      expect([easing(), arrived()]).toEqual([false, []]);
     });
 
-    it("never marks a row the scroll mounts", async () => {
+    it("drops the marks past their window, so a row the scroll mounts later never replays an entrance", async () => {
       restore = pinListViewport("list", 200, 300, ROW);
-      renderList(items);
-      await act(async () => {
-        const list = host.querySelector<HTMLElement>(".list")!;
-        list.scrollTop = 200 * ROW;
-        list.dispatchEvent(new Event("scroll"));
-      });
-      expect(arrived()).toEqual([]);
+      const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
+      try {
+        renderList(["a", "b"], 1);
+        renderList(["a", "x", "b"], 2);
+        expect(arrived()).toEqual(["x"]);
+        now.mockReturnValue(1_000 + LIST_MOTION_WINDOW_MS);
+        renderList(["a", "x", "b"], 2);
+        expect([easing(), arrived()]).toEqual([false, []]);
+      } finally {
+        now.mockRestore();
+      }
     });
   });
 

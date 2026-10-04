@@ -384,17 +384,20 @@
   overflow-y: auto;
 }
 
-/* A group folding or unfolding moves the rows after it: they slide to
-   their new places (the windowed list places each by transform), and the
-   rows a fold opens fade in where they land. The strip's clock and curve,
-   the chevron's — one motion. A row the scroll mounts is no arrival
-   (VirtualList's data-arriving), so scrolling replays nothing. */
-.tasks__list-item {
-  transition: transform 140ms cubic-bezier(0.33, 1, 0.68, 1);
+/* A group the person folds or unfolds moves the rows after it: they
+   slide to their new places (the windowed list places each by transform)
+   and the rows a fold opens fade in where they land; the folded rows go
+   at once — the fold reads as their going and the rest closing up. Only
+   that change eases (VirtualList's data-easing, keyed by the folds):
+   a task an agent moves, a drop, the anchoring that keeps the reader's
+   place all land still — easing them made the reader's rows jump and
+   settle. The disclosure motion, the chevron's. */
+.tasks__list[data-easing] .tasks__list-item {
+  transition: transform var(--kd-disclosure-motion);
 }
 
-.tasks__list-item[data-arriving] {
-  animation: tasks-row-arrive 140ms cubic-bezier(0.33, 1, 0.68, 1);
+.tasks__list[data-easing] .tasks__list-item[data-arriving] {
+  animation: tasks-row-arrive var(--kd-disclosure-motion);
 }
 
 @keyframes tasks-row-arrive {
@@ -404,11 +407,11 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .tasks__list-item {
+  .tasks__list[data-easing] .tasks__list-item {
     transition: none;
   }
 
-  .tasks__list-item[data-arriving] {
+  .tasks__list[data-easing] .tasks__list-item[data-arriving] {
     animation: none;
   }
 }

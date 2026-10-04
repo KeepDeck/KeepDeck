@@ -65,11 +65,17 @@ describe("Tasks text never widens its box", () => {
     expect(css).not.toMatch(/\.tasks__detail--wide \.tasks__detail-body/);
   });
 
-  it("slides the list's rows to their places and fades a fold's rows in, resting under reduced motion", () => {
+  it("eases only the person's fold — the rows slide, a fold's rows fade in — resting under reduced motion", () => {
     const css = readStyles("tasks.css");
-    expect(ruleBody(css, ".tasks__list-item").transition).toBe("transform 140ms cubic-bezier(0.33, 1, 0.68, 1)");
-    expect(ruleBody(css, ".tasks__list-item[data-arriving]").animation).toContain("tasks-row-arrive");
-    expect(css).toMatch(/prefers-reduced-motion: reduce\)\s*\{\s*\.tasks__list-item \{\s*transition: none;/);
+    // Keyed by data-easing: an agent's move or the anchoring lands still.
+    expect(ruleBody(css, ".tasks__list[data-easing] .tasks__list-item").transition).toBe("transform var(--kd-disclosure-motion)");
+    expect(ruleBody(css, ".tasks__list[data-easing] .tasks__list-item[data-arriving]").animation).toBe(
+      "tasks-row-arrive var(--kd-disclosure-motion)",
+    );
+    expect(css).not.toMatch(/(^|\n)\.tasks__list-item \{[^}]*transition/);
+    const rest = css.slice(css.indexOf("@media (prefers-reduced-motion: reduce) {\n  .tasks__list[data-easing]"));
+    expect(rest).toMatch(/\.tasks__list\[data-easing\] \.tasks__list-item \{\s*transition: none;/);
+    expect(rest).toMatch(/\.tasks__list\[data-easing\] \.tasks__list-item\[data-arriving\] \{\s*animation: none;/);
   });
 
   it("a row's age stays on one line", () => {

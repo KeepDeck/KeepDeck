@@ -32,7 +32,7 @@ const tasks = [
 describe("TaskList", () => {
   it("draws a heading per status and a line per task, with its labels and what holds it", () => {
     const items = listView(tasks, board(tasks), 0, NO_QUERY, new Set(), "task-1");
-    act(() => root.render(createElement(TaskList, { items, openId: null, drag: IDLE, hover: null, onArm: vi.fn(), onHover: vi.fn(), onDrop: vi.fn(), onSelect: vi.fn(), onFold: vi.fn(), onLabel: vi.fn() })));
+    act(() => root.render(createElement(TaskList, { items, openId: null, drag: IDLE, hover: null, folded: new Set<never>(), onArm: vi.fn(), onHover: vi.fn(), onDrop: vi.fn(), onSelect: vi.fn(), onFold: vi.fn(), onLabel: vi.fn() })));
     const rows = [...host.querySelectorAll<HTMLElement>(".tasks__row")];
     expect(rows.map((r) => r.querySelector(".tasks__row-title")?.textContent)).toEqual(["Wire", "Draft"]);
     expect(rows[1].querySelector(".kd-tag")?.textContent).toBe("copy");
@@ -48,7 +48,7 @@ describe("TaskList", () => {
     const onFold = vi.fn();
     const onLabel = vi.fn();
     const items = listView(tasks, board(tasks), 0, NO_QUERY, new Set(), null);
-    act(() => root.render(createElement(TaskList, { items, openId: null, drag: IDLE, hover: null, onArm: vi.fn(), onHover: vi.fn(), onDrop: vi.fn(), onSelect, onFold, onLabel })));
+    act(() => root.render(createElement(TaskList, { items, openId: null, drag: IDLE, hover: null, folded: new Set<never>(), onArm: vi.fn(), onHover: vi.fn(), onDrop: vi.fn(), onSelect, onFold, onLabel })));
     act(() => host.querySelector<HTMLButtonElement>(".tasks__row-open")!.click());
     expect(onSelect).toHaveBeenCalledWith("task-2");
     // A label narrows the view; a blocker opens the task that holds it.
@@ -68,7 +68,7 @@ describe("TaskList", () => {
     const onDrop = vi.fn();
     const onHover = vi.fn();
     const items = listView(tasks, board(tasks), 0, NO_QUERY, new Set(), null);
-    act(() => root.render(createElement(TaskList, { items, openId: null, drag: IDLE, hover: null, onArm: vi.fn(), onHover, onDrop, onSelect: vi.fn(), onFold: vi.fn(), onLabel: vi.fn() })));
+    act(() => root.render(createElement(TaskList, { items, openId: null, drag: IDLE, hover: null, folded: new Set<never>(), onArm: vi.fn(), onHover, onDrop, onSelect: vi.fn(), onFold: vi.fn(), onLabel: vi.fn() })));
     // At the top it lies right over the first heading, so a release there
     // reaches it, not the heading under it.
     const pinned = host.querySelector<HTMLButtonElement>(".tasks__list-pinned .tasks__group")!;

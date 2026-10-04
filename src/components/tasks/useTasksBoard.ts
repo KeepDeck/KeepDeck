@@ -334,6 +334,7 @@ export function useTasksBoard(
     setView: (next: TrackerView) => updateSettings({ tasksView: next }),
     listItems,
     fold: (status: TaskStatus) => run({ type: "fold", status }),
+    folded: screen.folded,
     filters,
     nothingFound,
     toggleBlocked: () => run({ type: "blockedOnly" }),

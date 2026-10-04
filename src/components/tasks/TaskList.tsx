@@ -34,11 +34,14 @@ interface TaskListProps {
   onFold(status: TaskStatus): void;
   /** A label clicked on a row: narrow the view to it. */
   onLabel(label: string): void;
+  /** The folded groups — the person's own act: a change of it, and only
+   * that, eases the list (VirtualList easeKey). */
+  folded: ReadonlySet<TaskStatus>;
 }
 
 /** The tracker's list view: a heading per status — pinned while its rows
  * scroll — and one line per task. Windowed, like the board's columns. */
-export function TaskList({ items, openId, drag, hover, onSelect, onFold, onLabel, onArm, onHover, onDrop }: TaskListProps) {
+export function TaskList({ items, openId, drag, hover, folded, onSelect, onFold, onLabel, onArm, onHover, onDrop }: TaskListProps) {
   // A group answers the pointer wherever it is under it: its heading, or
   // one of its rows.
   const dropTarget = (status: TaskStatus) => ({
@@ -54,6 +57,7 @@ export function TaskList({ items, openId, drag, hover, onSelect, onFold, onLabel
       className="tasks__list"
       item={{ className: "tasks__list-item" }}
       revealKey={openId}
+      easeKey={folded}
       sticky={{
         className: "tasks__list-pinned",
         height: LIST_HEAD_ESTIMATE_PX,
