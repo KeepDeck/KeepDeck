@@ -833,9 +833,18 @@
   text-decoration: line-through;
 }
 
-/* An attachment: its title opens it, its × takes it off. */
-.tasks__tag--artifact {
+/* An attachment, or a blocker in the open task: its words open it, its ×
+   takes it off. */
+.tasks__tag--artifact,
+.tasks__blocker--edit {
   padding-right: 0;
+}
+
+/* A blocker's words keep the chip's hue and strike: blocking or resolved
+   is the chip's to say, not the link's. */
+.tasks__blocker--edit .tasks__link {
+  color: inherit;
+  text-decoration: inherit;
 }
 
 .tasks__prop-label {

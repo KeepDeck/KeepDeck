@@ -6,7 +6,7 @@ import { NO_QUERY } from "./queryView";
 import { LADDER_WORDS, tasksLadder } from "./ladderView";
 import { newTaskFormView, NEW_TASK_WORDS } from "./newTaskFormView";
 import { statusMark, statusRing, taskCardView, taskCardClassName } from "./taskCardView";
-import { TASK_DETAIL_WORDS, changesOf, commentsOf, renamedTitle, pickedArtifact, pickedStatus, taskDetailClassName, taskDetailView } from "./taskDetailView";
+import { TASK_DETAIL_WORDS, changesOf, commentsOf, renamedTitle, pickedStatus, taskDetailClassName, taskDetailView } from "./taskDetailView";
 import { teamCardTasksLine } from "./teamCardTasksLine";
 import { teamOnScreen } from "./teamOnScreen";
 import { blockerLinkWords, fieldCount, unsavedBanner, personName, priorityMark, statusTone, FIELD_WORDS, POOL_CHOICE } from "./words";
@@ -125,8 +125,6 @@ describe("task panel and form words and classes", () => {
   it("a pick asks for nothing when it changes nothing", () => {
     expect(pickedStatus("todo", "todo")).toBeNull();
     expect(pickedStatus("todo", "in-progress")).toBe("in-progress");
-    expect(pickedArtifact("")).toBeNull();
-    expect(pickedArtifact("kd-a")).toBe("kd-a");
   });
 
   it("names the form's own buttons", () => {
@@ -170,7 +168,13 @@ describe("taskDetailView", () => {
     expect(view.statusRing).toEqual(statusMark("todo"));
     expect(statusMark("todo")).toEqual({ ...statusRing("todo"), decorative: true });
     expect(view.blockers).toEqual([
-      { id: "task-1", text: "task-1 · in progress", resolved: false, className: "kd-tag kd-tag--outline tasks__tag--blocking" },
+      {
+        id: "task-1",
+        text: "task-1 · in progress",
+        resolved: false,
+        className: "kd-tag kd-tag--outline tasks__tag--blocking",
+        removeLabel: "Stop waiting on task-1",
+      },
     ]);
     expect(view.blockersEmpty).toBeNull();
     expect(view.unblocks).toEqual([{ id: "task-3", title: "Task task-3" }]);
@@ -470,5 +474,22 @@ describe("unsavedBanner — what a board lagging its disk says", () => {
     expect(upgrade).toContain("upgrade to linked tasks is not saved yet — disk full");
     expect(upgrade).toContain("board.pre-relations.json");
     expect(upgrade).not.toContain("Changes");
+  });
+});
+
+describe("taskDetailView — editing what a task waits on", () => {
+  it("offers the team's tasks it could wait on, each by key and title, and a cross on each blocker", () => {
+    const b = board([task({ id: "task-1", blockedBy: ["task-2"] }), task({ id: "task-2" }), task({ id: "task-3", title: "Ship" })]);
+    const view = taskDetailView(b.tasks[0], b, ROSTER, NOW);
+    expect(view.blockerOptions).toEqual([{ value: "task-3", label: "task-3 · Ship" }]);
+    expect(view.blockerAddEmpty).toBeNull();
+    expect(view.blockers.map((chip) => chip.removeLabel)).toEqual(["Stop waiting on task-2"]);
+  });
+
+  it("says there is nothing to add when no task could be one", () => {
+    const b = board([task({ id: "task-1" })]);
+    const view = taskDetailView(b.tasks[0], b, ROSTER, NOW);
+    expect(view.blockerOptions).toEqual([]);
+    expect(view.blockerAddEmpty).toBe(TASK_DETAIL_WORDS.noBlockerToAdd);
   });
 });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TASK_CAPS, USER_ACTOR, blockerResolved, inLadderOrder, isOpen, type TaskActor, type TaskStatus } from "./model";
-import { addLabel, attachArtifact, createTask, keptTitle, detachArtifact, duplicateTask, transferTask, removeLabel, reachableStatuses, transition, type TaskChange, type TaskRefusal } from "./transition";
+import { addBlocker, addLabel, attachArtifact, blockerCandidates, createTask, removeBlocker, keptTitle, detachArtifact, duplicateTask, transferTask, removeLabel, reachableStatuses, transition, type TaskChange, type TaskRefusal } from "./transition";
 import { blockerIdsOf, copiedFromOf, copiesOf } from "./relations";
 import { ROSTER, board, impl1, lead, mintSequence, noTeam, peer1, relation, stranger, task } from "./testSupport";
 
@@ -339,6 +339,34 @@ describe("fields only the lead sets", () => {
     expect(refusalOf(a, { kind: "blockedBy", to: ["task-2"] }, lead, c)).toEqual({ kind: "cyclic-blocker", ids: ["task-2"] });
     const ok = transition(b, { kind: "blockedBy", to: [" task-1 ", "task-1"] }, lead, c);
     expect(ok.ok && ok.task).toBe(b); // normalised to what it already was: no-op
+  });
+
+  it("offers as blockers exactly what the change would take: the team's open tasks, not itself, none twice, none in a cycle", () => {
+    const t = task({ id: "task-1", blockedBy: ["task-2"] });
+    const tasks = [
+      t,
+      task({ id: "task-2" }),
+      task({ id: "task-3" }),
+      task({ id: "task-4", status: "done" }),
+      task({ id: "task-5", teamId: "team-2" }),
+      task({ id: "task-6", blockedBy: ["task-1"] }),
+    ];
+    const b = board(tasks);
+    expect(blockerCandidates(b.tasks[0], b).map((x) => x.id)).toEqual(["task-3"]);
+  });
+
+  it("adds and removes one blocker on the blockers as they stand when the change lands", () => {
+    const t = task({ id: "task-3" });
+    const c = ctx([task({ id: "task-1" }), task({ id: "task-2" }), t]);
+    const one = transition(t, addBlocker("task-1"), lead, c);
+    if (!one.ok) throw new Error("refused");
+    const two = transition(one.task, addBlocker("task-2"), lead, { ...c, board: one.board });
+    if (!two.ok) throw new Error("refused");
+    expect(blockerIdsOf(two.task, two.board)).toEqual(["task-1", "task-2"]);
+    const off = transition(two.task, removeBlocker("task-1"), lead, { ...c, board: two.board });
+    expect(off.ok && blockerIdsOf(off.task, off.board)).toEqual(["task-2"]);
+    // By the change's own rules: a working role may not, a cycle may not.
+    expect(refusalOf(t, addBlocker("task-1"), impl1, c)).toEqual({ kind: "not-yours-to-assign", field: "blockedBy" });
   });
 
   it("logs a set of blockers in board order, whatever order it was named in", () => {

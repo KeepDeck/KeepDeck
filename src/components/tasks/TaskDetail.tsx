@@ -1,5 +1,5 @@
 import { Fragment, useId, useRef, useState } from "react";
-import { Combobox, DisclosureChevron, Dropdown, MenuButton, StatusRing } from "@keepdeck/ui-kit";
+import { Combobox, DisclosureChevron, Dropdown, MenuButton, SearchPicker, StatusRing } from "@keepdeck/ui-kit";
 import type { TaskPriority, TaskStatus } from "../../domain/tasks";
 import {
   DIALOG_WORDS,
@@ -12,7 +12,6 @@ import {
   labelDraftAfter,
   labelSendable,
   finishSend,
-  pickedArtifact,
   pickedStatus,
   taskDetailClassName,
   renamedTitle,
@@ -54,6 +53,8 @@ interface TaskDetailProps {
   onComment(taskId: string, body: string): Promise<boolean>;
   onSelect(taskId: string): void;
   onAttach(taskId: string, slug: string): void;
+  onBlock(taskId: string, blockerId: string): void;
+  onUnblock(taskId: string, blockerId: string): void;
   onDetach(taskId: string, slug: string): void;
   onOpenArtifact(slug: string): void;
   /** Resolves to whether the label landed — the field keeps a refused one. */
@@ -80,6 +81,8 @@ export function TaskDetail({
   onSelect,
   onAttach,
   onDetach,
+  onBlock,
+  onUnblock,
   onOpenArtifact,
   onLabel,
   onUnlabel,
@@ -303,15 +306,25 @@ export function TaskDetail({
               <span className="tasks__muted">{view.blockersEmpty}</span>
             ) : (
               view.blockers.map((blocker) => (
-                <button
-                  key={blocker.id}
-                  type="button"
-                  className={blocker.className}
-                  onClick={() => onSelect(blocker.id)}
-                >
-                  {blocker.text}
-                </button>
+                <span key={blocker.id} className={`${blocker.className} tasks__blocker--edit`}>
+                  {/* The chip opens the blocker; the cross lets it go. */}
+                  <button type="button" className="tasks__link" onClick={() => onSelect(blocker.id)}>
+                    {blocker.text}
+                  </button>
+                  <RemoveButton size="sm" label={blocker.removeLabel} onClick={() => onUnblock(view.id, blocker.id)} />
+                </span>
               ))
+            )}
+            {view.blockerOptions.length > 0 ? (
+              <SearchPicker
+                label={TASK_DETAIL_WORDS.addBlocker}
+                placeholder={TASK_DETAIL_WORDS.blockerPrompt}
+                options={view.blockerOptions}
+                onPick={(id) => onBlock(view.id, id)}
+                empty={TASK_DETAIL_WORDS.noMatch}
+              />
+            ) : (
+              view.blockerAddEmpty && <span className="tasks__muted">{view.blockerAddEmpty}</span>
             )}
           </dd>
 
@@ -362,16 +375,12 @@ export function TaskDetail({
               </span>
             ))}
             {view.attachOptions.length > 0 ? (
-              <Dropdown
-                ariaLabel={TASK_DETAIL_WORDS.attach}
-                options={[{ value: "", label: TASK_DETAIL_WORDS.attachPrompt }, ...view.attachOptions]}
-                value=""
-                onChange={(picked) => {
-                  const slug = pickedArtifact(picked);
-                  if (slug !== null) onAttach(view.id, slug);
-                }}
-                variant="inline"
-                quiet
+              <SearchPicker
+                label={TASK_DETAIL_WORDS.attach}
+                placeholder={TASK_DETAIL_WORDS.attachPrompt}
+                options={view.attachOptions}
+                onPick={(slug) => onAttach(view.id, slug)}
+                empty={TASK_DETAIL_WORDS.noMatch}
               />
             ) : (
               view.attachEmpty && (

@@ -15,8 +15,10 @@ import { teamsOf, type Workspace } from "../../domain/deck";
 import {
   USER_ACTOR,
   addLabel,
+  addBlocker,
   attachArtifact,
   detachArtifact,
+  removeBlocker,
   findTask,
   reachableStatuses,
   removeLabel,
@@ -382,6 +384,8 @@ export function useTasksBoard(
       if (!task) return;
       void apply(taskId, [attachArtifact(task, slug)]);
     },
+    block: (taskId: string, blockerId: string) => void apply(taskId, [addBlocker(blockerId)]),
+    unblock: (taskId: string, blockerId: string) => void apply(taskId, [removeBlocker(blockerId)]),
     /** Resolves to whether the label landed; the field clears only then. */
     addLabel: (taskId: string, label: string): Promise<boolean> => apply(taskId, [addLabel(label)]),
     removeLabel: (taskId: string, label: string) => void apply(taskId, [removeLabel(label)]),

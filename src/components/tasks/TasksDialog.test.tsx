@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTasksService, type TasksService } from "../../app/tasks";
 import { fakeStore, teamedWorkspaces } from "../../app/tasks/testSupport";
-import { USER_ACTOR, agentActor } from "../../domain/tasks";
+import { USER_ACTOR, agentActor, blockerIdsOf } from "../../domain/tasks";
 import { installResizeObserver, pinListViewport } from "@keepdeck/ui-kit/virtualGeometry.test-support";
 import { TasksDialog } from "./TasksDialog";
 import type { TasksAccess } from "./useTasksBoard";
@@ -833,6 +833,34 @@ describe("TasksDialog", () => {
     registry.rows = [];
   });
 
+  it("makes the open task wait on another from the Blocked by row, and lets it go again", async () => {
+    const { service } = await seeded();
+    const render = mount(service);
+    render();
+    await flush();
+    act(() => cards()[0].click());
+    await flush();
+    await flush();
+    const picker = document.querySelector<HTMLButtonElement>('button[aria-label="Add a blocker"]')!;
+    act(() => picker.click());
+    await flush();
+    act(() => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="option"]')).find((o) => o.textContent === "task-2 · Pooled work")!.click());
+    await flush();
+    render();
+    await flush();
+    const blockers = () => {
+      const state = service.peek("ws-1");
+      if (state?.kind !== "ready") return null;
+      return blockerIdsOf(state.board.tasks[0], state.board);
+    };
+    expect(blockers()).toEqual(["task-2"]);
+    // Waiting on the only other task: nothing left to offer.
+    expect(document.querySelector('button[aria-label="Add a blocker"]')).toBeNull();
+    act(() => document.querySelector<HTMLButtonElement>('button[aria-label="Stop waiting on task-2"]')!.click());
+    await flush();
+    expect(blockers()).toEqual([]);
+  });
+
   it("closed columns show their cards and offer no Hide or Show", async () => {
     const { service } = await seeded();
     await service.apply("ws-1", "task-1", [{ kind: "status", to: "done" }], USER_ACTOR);
@@ -1059,7 +1087,8 @@ describe("TasksDialog", () => {
     expect(cards().every((c) => c.querySelector(".tasks__card-title")?.classList.contains("kd-one-line"))).toBe(true);
     // The panel is where the whole title is read: never clamped.
     expect(document.querySelector('aside[aria-label="Task task-1"] .tasks__detail-title')?.classList.contains("kd-two-lines")).toBe(false);
-    const blocker = document.querySelector('aside[aria-label="Task task-1"] .tasks__tag--blocking');
+    // Its words open the blocker; the cross beside them lets it go.
+    const blocker = document.querySelector('aside[aria-label="Task task-1"] .tasks__tag--blocking .tasks__link');
     expect(blocker?.textContent).toBe("task-2 · to do");
   });
 

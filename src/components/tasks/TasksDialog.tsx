@@ -109,6 +109,8 @@ function WorkspaceBoard({
       onSelect={board.select}
       onAttach={board.attachArtifact}
       onDetach={board.detachArtifact}
+      onBlock={board.block}
+      onUnblock={board.unblock}
       onOpenArtifact={board.openArtifact}
       onLabel={board.addLabel}
       onUnlabel={board.removeLabel}

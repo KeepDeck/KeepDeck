@@ -2,6 +2,7 @@ import { formatAge } from "../../domain/usage";
 import {
   TASK_CAPS,
   USER_ACTOR,
+  blockerCandidates,
   blockerIdsOf,
   blockersOf,
   copiedFromOf,
@@ -63,8 +64,12 @@ export interface TaskDetailView {
   statusOptions: StatusChoiceView[];
   /** Each blocker with where it stands; a resolved one (done, cancelled,
    * gone) holds nothing and is struck through. */
-  blockers: BlockerChip[];
+  blockers: (BlockerChip & { removeLabel: string })[];
   blockersEmpty: string | null;
+  /** The tasks it could be made to wait on (`blockerCandidates`), for the
+   * picker; empty when there are none, and `blockerAddEmpty` says so. */
+  blockerOptions: ChoiceView[];
+  blockerAddEmpty: string | null;
   unblocks: { id: string; title: string }[];
   /** Where it was copied from, and the copies made of it — one row each,
    * only when there is something to say. A source no longer on the board
@@ -184,8 +189,13 @@ export const TASK_DETAIL_WORDS = {
   labelRemoved: (label: string) => `removed label ${label}`,
   trimmed: (max: number, what: string) => `At the board's limit — it keeps only the last ${max} ${what}`,
   detach: "Detach",
+  addBlocker: "Add a blocker",
+  blockerPrompt: "Find a task to wait on…",
+  noMatch: "nothing matches",
+  noBlockerToAdd: "none to add",
+  removeBlocker: (id: string) => `Stop waiting on ${id}`,
   attach: "Attach artifact",
-  attachPrompt: "Attach an artifact",
+  attachPrompt: "Find an artifact…",
   commentPlaceholder: "Add a comment — it stays with the task",
   comment: "Comment",
 } as const;
@@ -194,12 +204,6 @@ export const TASK_DETAIL_WORDS = {
  * person picked where the task already stands. */
 export function pickedStatus(current: TaskStatus, picked: string): TaskStatus | null {
   return picked === current ? null : (picked as TaskStatus);
-}
-
-/** What a pick in the attach picker asks for: the artifact, or nothing for
- * the prompt line at its head. */
-export function pickedArtifact(picked: string): string | null {
-  return picked === "" ? null : picked;
 }
 
 /** The panel's classes: wide while the task fills the stage. */
@@ -237,6 +241,7 @@ export function taskDetailView(
   }));
   const assigneeValues = [...new Set([...roster, ...(task.assignee ? [task.assignee] : [])])];
   const blockedBy = blockerIdsOf(task, board);
+  const candidates = blockerCandidates(task, board);
   return {
     id: task.id,
     title: task.title,
@@ -255,11 +260,16 @@ export function taskDetailView(
     ],
     priorityOptions: priorityChoices(),
     statusOptions,
-    blockers: blockersOf(task, board).map(blockerChip),
+    blockers: blockersOf(task, board).map((blocker) => ({
+      ...blockerChip(blocker),
+      removeLabel: TASK_DETAIL_WORDS.removeBlocker(blocker.id),
+    })),
     blockersEmpty:
       blockedBy.length > 0 ? null : task.status === "todo" && issuable(task, board) ? "none — can start now" : "none",
     unblocks: unblocks(task, board).map((other) => ({ id: other.id, title: other.title })),
     copies: copyRows(task, board),
+    blockerOptions: candidates.map((other) => ({ value: other.id, label: `${other.id} · ${other.title}` })),
+    blockerAddEmpty: candidates.length === 0 ? TASK_DETAIL_WORDS.noBlockerToAdd : null,
     labels: task.labels.map((label) => ({ label, removeLabel: `Remove ${label}` })),
     labelOptions: labelsOf({ tasks: tasksOfTeam(board, task.teamId) }).filter((label) => !task.labels.includes(label)),
     labelsFull: task.labels.length >= TASK_CAPS.labelsMax ? TASK_DETAIL_WORDS.labelsFull(TASK_CAPS.labelsMax) : null,

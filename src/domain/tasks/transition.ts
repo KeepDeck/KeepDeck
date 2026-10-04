@@ -36,6 +36,7 @@ import {
   waitsOn,
   withTasks,
 } from "./relations";
+import { tasksOfTeam } from "./board";
 
 export type TaskChange =
   /** Take a pool task for yourself, without starting it. */
@@ -46,6 +47,10 @@ export type TaskChange =
   | { kind: "title"; to: string }
   | { kind: "body"; to: string }
   | { kind: "blockedBy"; to: readonly string[] }
+  /** One blocker on, or off — applied to the blockers as they stand when
+   * the change lands, so one an agent set meanwhile stays. */
+  | { kind: "addBlocker"; id: string }
+  | { kind: "removeBlocker"; id: string }
   | { kind: "artifacts"; to: readonly string[] }
   /** The whole set, replacing what is there. */
   | { kind: "labels"; to: readonly string[] }
@@ -64,6 +69,16 @@ export function attachArtifact(task: Pick<Task, "artifacts">, slug: string): Tas
 /** The change that takes `slug` off `task`'s attachments. */
 export function detachArtifact(task: Pick<Task, "artifacts">, slug: string): TaskChange {
   return { kind: "artifacts", to: task.artifacts.filter((other) => other !== slug) };
+}
+
+/** The change that makes a task wait on `id` as well. */
+export function addBlocker(id: string): TaskChange {
+  return { kind: "addBlocker", id };
+}
+
+/** The change that lets a task stop waiting on `id`. */
+export function removeBlocker(id: string): TaskChange {
+  return { kind: "removeBlocker", id };
 }
 
 /** The change that puts `label` on a task. Normalising it, and folding a
@@ -359,6 +374,20 @@ function validateBlockers(
   return null;
 }
 
+/** The tasks `task` could be made to wait on now: its team's open tasks
+ * the `blockedBy` change would take — not itself, not one it already
+ * waits on, none that waits on it (a cycle) — in board order. The picker
+ * offers exactly these, so it never offers what the change refuses. */
+export function blockerCandidates(task: Task, board: TaskBoard): Task[] {
+  const current = blockerIdsOf(task, board);
+  return tasksOfTeam(board, task.teamId).filter(
+    (other) =>
+      isOpen(other.status) &&
+      !current.includes(other.id) &&
+      validateBlockers(task, task.teamId, [...current, other.id], board) === null,
+  );
+}
+
 /** The uids of the tasks named by `ids` — every one known (validated). */
 function uidsOf(board: TaskBoard, ids: readonly string[]): string[] {
   return ids.map((id) => findTask(board, id)!.uid);
@@ -503,6 +532,15 @@ function changeTask(
       const changed = logged(task, [{ at, from: by, field: "blockedBy", was: joined(was), now: joined(now) }], at, {});
       return { ok: true, task: changed, board: replaceTask(linkedNow, changed) };
     }
+    case "addBlocker":
+      return changeTask(task, { kind: "blockedBy", to: [...blockerIdsOf(task, ctx.board), change.id] }, actor, ctx);
+    case "removeBlocker":
+      return changeTask(
+        task,
+        { kind: "blockedBy", to: blockerIdsOf(task, ctx.board).filter((id) => id !== change.id) },
+        actor,
+        ctx,
+      );
     case "artifacts": {
       // Any member attaches: the assignee's report belongs on its task.
       const ids = normalizeIds(change.to);
