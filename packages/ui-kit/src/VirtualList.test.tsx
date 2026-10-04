@@ -188,7 +188,7 @@ describe("VirtualList", () => {
               render: (item) => createElement("span", { className: "row" }, item),
               className: "list",
               revealKey,
-              sticky: { className: "pinned", height: 30, render: () => "pinned" },
+              sticky: { className: "pinned", height: 30, render: () => "pinned", heads: () => false },
             }),
           ),
         );
@@ -521,11 +521,12 @@ describe("VirtualList as a grouped list", () => {
           className: "list",
           sticky: {
             className: "pinned",
-            height: 0,
+            height: H,
             render: (first) => {
               for (let i = first; i >= 0; i--) if (list[i]?.head) return `group ${list[i].group}`;
               return null;
             },
+            heads: (g) => g.head,
           },
         }),
       ),
@@ -553,6 +554,22 @@ describe("VirtualList as a grouped list", () => {
     expect(pinned()).toBe("group 2");
     await scrollTo(22 * H - 5);
     expect(pinned()).toBe("group 1");
+  });
+
+  it("lets the next heading push the pinned one up, by the part it has run into", async () => {
+    render(grouped(30));
+    const shift = () => host.querySelector<HTMLElement>(".pinned")!.style.transform;
+    // Group 2's heading starts at 22·H; the pinned heading is H tall.
+    await scrollTo(22 * H - 2 * H);
+    expect(pinned()).toBe("group 1");
+    expect(shift()).toBe("");
+    await scrollTo(22 * H - 5);
+    expect(pinned()).toBe("group 1");
+    expect(shift()).toBe(`translateY(${5 - H}px)`);
+    // Past the top: group 2's own heading is pinned, unpushed.
+    await scrollTo(22 * H + 1);
+    expect(pinned()).toBe("group 2");
+    expect(shift()).toBe("");
   });
 
   it("keeps the row being read where it is when a group above it folds", async () => {

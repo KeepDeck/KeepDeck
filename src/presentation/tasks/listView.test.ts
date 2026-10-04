@@ -4,6 +4,7 @@ import {
   LIST_HEAD_ESTIMATE_PX,
   LIST_ROW_ESTIMATE_PX,
   headingOf,
+  isListHeading,
   listHeadingClassName,
   listItemEstimate,
   listItemKey,
@@ -101,6 +102,10 @@ describe("listView — the board's tasks as one list", () => {
     expect(headingOf(items, 6)?.status).toBe("in-progress");
     expect(headingOf(items, 99)?.status).toBe("cancelled");
     expect(headingOf([], 0)).toBeNull();
+    // A group starts at its heading, never at one of its rows.
+    expect(isListHeading(items[0])).toBe(true);
+    expect(isListHeading(items[1])).toBe(false);
+    expect(isListHeading(items[2])).toBe(true);
   });
 
   it("dresses a heading in its status, folded or open", () => {

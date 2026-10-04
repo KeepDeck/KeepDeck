@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useReducer, useRef, type ReactNode } from "react";
+import { pinnedShift } from "./pinnedShift";
 import { changedAfter } from "./rowAnchor";
 import { useFocusHandoff } from "./useFocusHandoff";
 import { useRowWindow } from "./useRowWindow";
@@ -44,8 +45,15 @@ export interface VirtualListProps<T> extends VirtualListMarkup {
    * absolutely, so CSS `position: sticky` cannot reach one of them; this
    * is the one sticky layer, over every item, taking no room of its own.
    * Return null for no heading. `height` is the room it covers: a row
-   * revealed upward stops below it. */
-  sticky?: { className: string; height: number; render: (firstVisibleIndex: number) => ReactNode };
+   * revealed upward stops below it. `heads` says which items start a
+   * group — the next one, reaching the top, pushes the pinned heading out
+   * ahead of it (`pinnedShift`) instead of sliding under it. */
+  sticky?: {
+    className: string;
+    height: number;
+    render: (firstVisibleIndex: number) => ReactNode;
+    heads: (item: T) => boolean;
+  };
   /** The consumer's token for a change the person made (a fold): when it
    * changes with the items, that change may move (`useListMotion`), and
    * the item it happened after (the heading folded) holds its place — the
@@ -189,6 +197,13 @@ export function VirtualList<T>({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [revealKey]);
 
+  const shift = sticky
+    ? pinnedShift(rowWindow.items, rowWindow.firstVisibleIndex, rowWindow.scrollTop, sticky.height, (index) =>
+        sticky.heads(items[index]),
+      )
+    : 0;
+  const pinnedStyle = shift < 0 ? { transform: `translateY(${shift}px)` } : undefined;
+
   const Spacer = spacer?.as ?? "div";
   const Item = item?.as ?? "div";
   // The name and role go on the list itself: a `ul` spacer IS the list a
@@ -209,7 +224,9 @@ export function VirtualList<T>({
         // Zero tall, so it pushes nothing down; its content hangs over the
         // rows below it, pinned to the scroll box's top while they scroll.
         <div style={{ position: "sticky", top: 0, height: 0, zIndex: 1 }}>
-          <div className={sticky.className}>{sticky.render(rowWindow.firstVisibleIndex)}</div>
+          <div className={sticky.className} style={pinnedStyle}>
+            {sticky.render(rowWindow.firstVisibleIndex)}
+          </div>
         </div>
       )}
       <Spacer

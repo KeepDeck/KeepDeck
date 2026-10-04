@@ -5,6 +5,7 @@ import { VirtualList } from "@keepdeck/ui-kit/VirtualList";
 import type { TaskStatus } from "../../domain/tasks";
 import {
   headingOf,
+  isListHeading,
   listHeadingDropClassName,
   listRowClassName,
   rowGrip,
@@ -61,6 +62,7 @@ export function TaskList({ items, openId, drag, hover, folded, onSelect, onFold,
       sticky={{
         className: "tasks__list-pinned",
         height: LIST_HEAD_ESTIMATE_PX,
+        heads: isListHeading,
         // The pinned heading stands over the group's own: it takes a drop
         // as the group does, and is the pointer's alone — the real heading
         // is the one the keyboard and a reader reach, never a second.

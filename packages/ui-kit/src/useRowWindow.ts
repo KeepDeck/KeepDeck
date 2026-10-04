@@ -43,6 +43,8 @@ export interface RowWindow {
    * it); -1 while nothing is mounted. What a sticky heading asks which
    * group it heads. */
   firstVisibleIndex: number;
+  /** The scroll offset the window was drawn for. */
+  scrollTop: number;
   /** The measured height of every row — the spacer's height. */
   totalSize: number;
   /** ONE callback for every row's ref — a fresh arrow per row would ride
@@ -113,6 +115,7 @@ export function useRowWindow<Row>({
     lastIndex,
     atEnd: rows.length > 0 && lastIndex === rows.length - 1,
     firstVisibleIndex: firstVisible ? firstVisible.index : -1,
+    scrollTop: offset,
     totalSize: virtualizer.getTotalSize(),
     measure,
     reveal,
