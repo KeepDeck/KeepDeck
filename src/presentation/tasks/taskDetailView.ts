@@ -165,7 +165,7 @@ export function taskDetailView(
   /** The workspace's artifacts, as the registry lists them; empty when the
    * feature is off or nothing is published. */
   artifacts: readonly ArtifactRef[] = [],
-  /** The whole history shown, not its compact form (`feedOf`). */
+  /** The activity (`changesOf`) opened under its heading. */
   activityOpen = false,
 ): TaskDetailView {
   const ctx = { board, roster, at: now };
