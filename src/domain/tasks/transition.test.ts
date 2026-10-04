@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TASK_CAPS, USER_ACTOR, blockerResolved, inLadderOrder, isOpen, type TaskActor, type TaskStatus } from "./model";
-import { addLabel, attachArtifact, createTask, detachArtifact, duplicateTask, removeLabel, reachableStatuses, transition, type TaskChange, type TaskRefusal } from "./transition";
+import { addLabel, attachArtifact, createTask, detachArtifact, duplicateTask, transferTask, removeLabel, reachableStatuses, transition, type TaskChange, type TaskRefusal } from "./transition";
 import { ROSTER, board, impl1, lead, noTeam, peer1, stranger, task } from "./testSupport";
 
 const ctx = (tasks = [task({ id: "task-1" })]) => ({ board: board(tasks), roster: ROSTER, at: 5_000 });
@@ -623,5 +623,59 @@ describe("duplicateTask — a fresh copy, its own history", () => {
       { field: "priority", was: "high" },
       { field: "labels", was: "copy,ui" },
     ]);
+  });
+});
+
+describe("transferTask — the same task, handed to another team", () => {
+  const teams = { from: { id: "team-1", name: "api" }, to: { id: "team-2", name: "web" } };
+  const go = (t: ReturnType<typeof task>, actor: TaskActor, others: ReturnType<typeof task>[] = []) =>
+    transferTask(t, teams, actor, { ...ctx([t, ...others]), at: 9_000 });
+
+  it("keeps the task — its id, words and history — and hands it over unheld, back at todo", () => {
+    const t = task({
+      id: "task-1",
+      status: "review",
+      assignee: "impl-1",
+      priority: "high",
+      labels: ["ui"],
+      comments: [{ n: 1, at: 1, from: "lead", body: "go" }],
+    });
+    const moved = go(t, lead);
+    if (!moved.ok) throw new Error("refused");
+    expect(moved.task).toMatchObject({ id: "task-1", teamId: "team-2", assignee: null, status: "todo", priority: "high", labels: ["ui"] });
+    expect(moved.task.comments).toHaveLength(1);
+    expect(moved.task.log[moved.task.log.length - 1]).toEqual({ at: 9_000, from: "lead", field: "transferred", was: "api", now: "web" });
+    expect(moved.task.updated).toBe(9_000);
+  });
+
+  it("keeps parked work parked", () => {
+    const moved = go(task({ id: "task-1", status: "backlog" }), lead);
+    expect(moved.ok && moved.task.status).toBe("backlog");
+  });
+
+  it("refuses a closed task, its own team, and an actor who does not hand out work", () => {
+    expect(go(task({ id: "task-1", status: "done" }), lead)).toEqual({ ok: false, refusal: { kind: "transfer-closed", status: "done" } });
+    const same = transferTask(task({ id: "task-1" }), { ...teams, to: teams.from }, lead, ctx([]));
+    expect(same).toEqual({ ok: false, refusal: { kind: "transfer-same-team" } });
+    expect(go(task({ id: "task-1", assignee: "impl-1" }), impl1)).toEqual({ ok: false, refusal: { kind: "not-yours-to-transfer" } });
+    expect(go(task({ id: "task-1" }), USER_ACTOR).ok).toBe(true);
+  });
+
+  it("refuses while live blocker links tie it to its team — naming them — and drops the ones that hold nothing", () => {
+    const blocker = task({ id: "task-2", status: "in-progress" });
+    const dependant = task({ id: "task-3", blockedBy: ["task-1"] });
+    expect(go(task({ id: "task-1", blockedBy: ["task-2"] }), lead, [blocker])).toEqual({
+      ok: false,
+      refusal: { kind: "transfer-linked", blockers: ["task-2"], dependants: [] },
+    });
+    expect(go(task({ id: "task-1" }), lead, [dependant])).toEqual({
+      ok: false,
+      refusal: { kind: "transfer-linked", blockers: [], dependants: ["task-3"] },
+    });
+    // A done blocker and a cancelled dependant hold nothing: it goes, the stale link left behind.
+    const done = task({ id: "task-2", status: "done" });
+    const closedDependant = task({ id: "task-3", status: "cancelled", blockedBy: ["task-1"] });
+    const moved = go(task({ id: "task-1", blockedBy: ["task-2"] }), lead, [done, closedDependant]);
+    expect(moved.ok && moved.task.blockedBy).toEqual([]);
   });
 });

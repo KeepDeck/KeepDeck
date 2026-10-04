@@ -7,7 +7,12 @@
  * center, not a column.
  */
 import { findTeam, type Workspace } from "../../domain/deck";
-import { createdWords, movedWords, type TaskNotificationWords } from "../../presentation/tasks/notificationWords";
+import {
+  createdWords,
+  movedWords,
+  transferredWords,
+  type TaskNotificationWords,
+} from "../../presentation/tasks/notificationWords";
 import { notify } from "../notificationCenter";
 import type { TaskEvent } from "./tasksService";
 
@@ -16,9 +21,9 @@ export interface TaskProducerDeps {
 }
 
 export function announceTask(event: TaskEvent, deps: TaskProducerDeps): void {
-  // A creation by the user is their own act; the board is right in front
-  // of them.
-  if (event.kind === "created" && event.actor.kind !== "agent") return;
+  // A creation or a transfer by the user is their own act; the board is
+  // right in front of them.
+  if ((event.kind === "created" || event.kind === "transferred") && event.actor.kind !== "agent") return;
   const workspace = deps.workspaces().find((candidate) => candidate.id === event.workspaceId);
   // No workspace, no board to open on a click: say nothing.
   if (!workspace) return;
@@ -33,7 +38,13 @@ export function announceTask(event: TaskEvent, deps: TaskProducerDeps): void {
 }
 
 function wording(event: TaskEvent, team: string): TaskNotificationWords {
-  return event.kind === "created"
-    ? createdWords(event.task, event.actor.kind === "agent" ? event.actor.role : null, team, event.copiedFrom)
-    : movedWords(event.task, event.from, team);
+  const by = event.actor.kind === "agent" ? event.actor.role : null;
+  switch (event.kind) {
+    case "created":
+      return createdWords(event.task, by, team, event.copiedFrom);
+    case "moved":
+      return movedWords(event.task, event.from, team);
+    case "transferred":
+      return transferredWords(event.task, by, event.fromTeam, team);
+  }
 }

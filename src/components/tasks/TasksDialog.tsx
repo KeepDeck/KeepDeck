@@ -94,6 +94,7 @@ function WorkspaceBoard({
       onToggleWide={board.toggleWide}
       onDuplicate={board.duplicate}
       copying={board.copying}
+      onTransfer={board.transfer}
       onToggleActivity={board.toggleActivity}
       onClose={board.close}
       onMove={board.move}

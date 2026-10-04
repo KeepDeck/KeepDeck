@@ -111,5 +111,20 @@ export function refusalText(refusal: TaskProblem): string {
       return `the board file could not be read and is not written to until fixed: ${refusal.error}`;
     case "unknown-task":
       return `no such task: ${refusal.id}`;
+    case "unknown-team":
+      return `no team "${refusal.team}" in this workspace to hand it to`;
+    case "transfer-closed":
+      return `a ${refusal.status} task has nothing left to hand over — duplicate it to start the work again elsewhere`;
+    case "transfer-same-team":
+      return "that task is already on that team's board";
+    case "not-yours-to-transfer":
+      return `handing a task to another team is ${lead}'s — ask them`;
+    case "transfer-linked": {
+      const links = [
+        ...refusal.blockers.map((id) => `it waits on ${id}`),
+        ...refusal.dependants.map((id) => `${id} waits on it`),
+      ];
+      return `a task linked by blockers stays on its team — ${links.join("; ")}; unlink first (blockers do not cross teams)`;
+    }
   }
 }

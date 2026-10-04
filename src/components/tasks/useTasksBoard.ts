@@ -233,7 +233,7 @@ export function useTasksBoard(
   });
 
   const open = taskOnScreen(board, focus, teamId);
-  const detail = open ? taskDetailView(open, board!, roster, now, knownArtifacts, screen.activityOpen) : null;
+  const detail = open ? taskDetailView(open, board!, roster, now, knownArtifacts, screen.activityOpen, teams) : null;
   const columns = useMemo(
     () => (board && view === "board" ? boardView(teamTasks, board, now, query) : []),
     [board, view, teamTasks, now, query],
@@ -414,6 +414,16 @@ export function useTasksBoard(
       });
     },
     copying,
+    /** Hand a task to another team; on success it has left this board, so
+     * the panel closes. */
+    transfer: (taskId: string, teamId: string) => {
+      if (!service || workspaceId === null) return;
+      void write(async () => {
+        const result = await service.transfer(workspaceId, taskId, teamId, USER_ACTOR);
+        if (result.ok) run({ type: "close" });
+        return result;
+      });
+    },
     create: async (input: Omit<CreateTaskInput, "teamId">) => {
       if (!service || workspaceId === null || teamId === null) return;
       await write(async () => {

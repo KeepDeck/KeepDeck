@@ -30,7 +30,7 @@ const OTHER_LEAD = from("pane-5");
 const LONER = from("pane-7");
 
 describe("task commands", () => {
-  it("registers eight commands and unregisters them together", () => {
+  it("registers nine commands and unregisters them together", () => {
     const { registry, dispose } = setup();
     expect(registry.list().map((c) => c.id).sort()).toEqual([
       "task.comment",
@@ -40,6 +40,7 @@ describe("task commands", () => {
       "task.list",
       "task.mine",
       "task.next",
+      "task.transfer",
       "task.update",
     ]);
     dispose();
@@ -89,6 +90,18 @@ describe("task commands", () => {
     const parked = await run("task.duplicate", { id: "task-1" }, LEAD);
     expect(parked.note).toContain("parked in the team's backlog");
     expect(parked.note).not.toContain("pool");
+  });
+
+  it("transfers a task to another team by name, the lead's to do, and says to tell them", async () => {
+    const { run, refused } = setup();
+    await run("task.create", { title: "Hand over", assignee: "impl-1" }, LEAD);
+    expect(await refused("task.transfer", { id: "task-1", to: "web" }, IMPL1)).toContain("handing a task to another team is lead's");
+    const moved = await run("task.transfer", { id: "task-1", to: "web" }, LEAD);
+    expect(moved).toMatchObject({ id: "task-1", team: "web" });
+    expect(moved.note).toContain("tell its lead with mail.send");
+    // Off this team's board now: the lead reads only its own.
+    expect(await refused("task.get", { id: "task-1" }, LEAD)).toContain("another team's board");
+    expect(await refused("task.transfer", { id: "task-1", to: "nowhere" }, LEAD)).toBeTruthy();
   });
 
   it("refuses a title past its cap in words an agent can act on", async () => {

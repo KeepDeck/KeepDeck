@@ -333,12 +333,30 @@ describe("commentsOf / changesOf — what was said, and what was changed, apart"
     expect(new Set(changesOf({ log: [labels(1, "a,b", "b,c")] }, 0).map((item) => item.key)).size).toBe(2);
   });
 
-  it("offers the task's menu: Duplicate", () => {
-    const b = board([task({ id: "task-4" })]);
-    expect(taskDetailView(b.tasks[0], b, ROSTER, 0).menu).toEqual({
+  it("offers the task's menu: Duplicate, and Transfer — refused, with why, where it cannot go", () => {
+    const teams = [{ id: "team-1", name: "api" }, { id: "team-2", name: "web" }];
+    const b = board([task({ id: "task-4" }), task({ id: "task-5", status: "done" })]);
+    const view = taskDetailView(b.tasks[0], b, ROSTER, 0, [], false, teams);
+    expect(view.menu).toEqual({
       label: "More for task-4",
-      actions: [{ id: "duplicate", label: "Duplicate" }],
+      actions: [
+        { id: "duplicate", label: "Duplicate", refusal: null },
+        { id: "transfer", label: "Transfer to team…", refusal: null },
+      ],
     });
+    // Only the other teams are offered.
+    expect(view.transfer.options).toEqual([{ value: "team-2", label: "web" }]);
+    const refusal = (t: typeof b.tasks[number], within = teams) =>
+      taskDetailView(t, b, ROSTER, 0, [], false, within).menu.actions[1].refusal;
+    expect(refusal(b.tasks[0], [teams[0]])).toBe("No other team in this workspace");
+    expect(refusal(b.tasks[1])).toContain("done task stays where it is");
+    const linked = board([task({ id: "task-4" }), task({ id: "task-6", blockedBy: ["task-4"] })]);
+    expect(taskDetailView(linked.tasks[0], linked, ROSTER, 0, [], false, teams).menu.actions[1].refusal).toContain("task-6 waits on it");
+  });
+
+  it("says a transfer in words, by the teams' names", () => {
+    const entry = { at: 1, from: "lead", field: "transferred" as const, was: "api", now: "web" };
+    expect(changesOf({ log: [entry] }, 0).map((c) => c.text)).toEqual(["moved from api to web"]);
   });
 
   it("says a copy's two ends in words", () => {

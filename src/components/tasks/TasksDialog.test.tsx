@@ -359,6 +359,24 @@ describe("TasksDialog", () => {
     expect(focus).toBe(copy?.id);
   });
 
+  it("transfers the open task to another team from its menu: confirmed inline, then the panel closes", async () => {
+    const { service } = await seeded();
+    focus = "task-1";
+    const render = mount(service);
+    render();
+    await flush();
+    act(() => document.querySelector<HTMLButtonElement>('aside[aria-label="Task task-1"] button[aria-label="More for task-1"]')!.click());
+    act(() => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find((b) => b.textContent?.includes("Transfer"))!.click());
+    await flush();
+    const confirm = document.querySelector(".tasks__transfer")!;
+    expect(confirm.textContent).toContain("Move it to web?");
+    act(() => Array.from(confirm.querySelectorAll<HTMLButtonElement>("button")).find((b) => b.textContent === "Move")!.click());
+    await flush();
+    const state = service.peek("ws-1");
+    expect(state?.kind === "ready" && state.board.tasks.find((t) => t.id === "task-1")?.teamId).toBe("team-2");
+    expect(focus).toBeNull();
+  });
+
   it("creates a task from the form as the user and opens it", async () => {
     const { service } = await seeded();
     const render = mount(service);

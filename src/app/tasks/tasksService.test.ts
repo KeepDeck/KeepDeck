@@ -121,6 +121,16 @@ describe("createTasksService", () => {
     expect(await service.duplicate("ws-1", "task-9", lead)).toEqual({ ok: false, refusal: { kind: "unknown-task", id: "task-9" } });
   });
 
+  it("transfers to a live team of the workspace only, and announces it", async () => {
+    const { service, events } = setup();
+    await service.create("ws-1", { teamId: "team-1", title: "Hand over" }, lead);
+    await flush();
+    expect(await service.transfer("ws-1", "task-1", "team-9", lead)).toEqual({ ok: false, refusal: { kind: "unknown-team", team: "team-9" } });
+    const moved = await service.transfer("ws-1", "task-1", "team-2", lead);
+    expect(moved.ok && moved.task.teamId).toBe("team-2");
+    expect(events[events.length - 1]).toMatchObject({ kind: "transferred", fromTeam: "api", task: { id: "task-1" } });
+  });
+
   it("the roster is the team's live roles, so an assignee off the team is refused", async () => {
     const { service } = setup();
     expect(service.rosterOf("ws-1", "team-1")).toEqual(["lead", "impl-1", "impl-2"]);

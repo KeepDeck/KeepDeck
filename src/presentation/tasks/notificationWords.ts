@@ -32,6 +32,21 @@ export function createdWords(
   };
 }
 
+/** A task an agent handed from one team to another — the board it is on
+ * now is `to`'s, in its pool. */
+export function transferredWords(
+  task: Pick<Task, "id" | "title">,
+  by: string | null,
+  from: string,
+  to: string,
+): TaskNotificationWords {
+  return {
+    title: `${by ?? "an agent"} moved ${task.id} from ${from} to ${to}`,
+    body: `${task.title} · unassigned · ${to}`,
+    severity: "info",
+  };
+}
+
 /** A task's move, from `from` to where it stands now. */
 export function movedWords(
   task: Pick<Task, "id" | "title" | "status" | "assignee">,

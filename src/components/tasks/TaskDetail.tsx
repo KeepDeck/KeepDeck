@@ -17,6 +17,7 @@ import {
   taskDetailClassName,
   typeDraft,
   type FeedChange,
+  type TaskAction,
   type TaskDetailView,
 } from "../../presentation/tasks";
 import { Button } from "../../ui/Button";
@@ -34,6 +35,8 @@ interface TaskDetailProps {
   onDuplicate(taskId: string): void;
   /** A copy is on its way: the control waits. */
   copying: boolean;
+  /** Hand this task to another team. */
+  onTransfer(taskId: string, teamId: string): void;
   /** The activity's heading: shut ⇄ open. */
   onToggleActivity(): void;
   onClose(): void;
@@ -60,6 +63,7 @@ export function TaskDetail({
   onToggleWide,
   onDuplicate,
   copying,
+  onTransfer,
   onToggleActivity,
   onClose,
   onMove,
@@ -74,6 +78,13 @@ export function TaskDetail({
   onUnlabel,
 }: TaskDetailProps) {
   const [composer, setComposer] = useState(EMPTY_COMPOSER);
+  // The transfer's inline confirm: the team picked, or null while closed.
+  const [transferTo, setTransferTo] = useState<string | null>(null);
+  const actionOf: Record<TaskAction["id"], () => void> = {
+    duplicate: () => onDuplicate(view.id),
+    transfer: () => setTransferTo(view.transfer.options[0]?.value ?? null),
+  };
+  const transferTeam = view.transfer.options.find((option) => option.value === transferTo);
   const commentField = useRef<HTMLTextAreaElement>(null);
   const activityId = useId();
   useGrowingField(commentField, composer.draft);
@@ -113,8 +124,9 @@ export function TaskDetail({
             actions={view.menu.actions.map((action) => ({
               id: action.id,
               label: action.label,
-              disabled: copying,
-              onSelect: () => onDuplicate(view.id),
+              disabled: copying || action.refusal !== null,
+              refusal: action.refusal ?? undefined,
+              onSelect: actionOf[action.id],
             }))}
           >
             ⋯
@@ -138,6 +150,27 @@ export function TaskDetail({
         <h3 className="tasks__detail-title kd-selectable" dir="auto">
           {view.title}
         </h3>
+        {transferTeam && (
+          <div className="tasks__transfer" role="group" aria-label={view.transfer.prompt}>
+            <span className="tasks__prop-label">{view.transfer.prompt}</span>
+            <Dropdown
+              ariaLabel={view.transfer.prompt}
+              size="sm"
+              options={view.transfer.options}
+              value={transferTeam.value}
+              onChange={setTransferTo}
+            />
+            <span className="tasks__muted">{view.transfer.confirm(transferTeam.label)}</span>
+            <span className="tasks__transfer-actions">
+              <Button size="sm" onClick={() => setTransferTo(null)}>
+                {view.transfer.cancel}
+              </Button>
+              <Button size="sm" variant="primary" onClick={() => onTransfer(view.id, transferTeam.value)}>
+                {view.transfer.move}
+              </Button>
+            </span>
+          </div>
+        )}
       </header>
 
       <div className="tasks__detail-body">

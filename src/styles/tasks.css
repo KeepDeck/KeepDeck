@@ -710,6 +710,25 @@
   }
 }
 
+/* The transfer's inline confirm, under the title: where to, what it
+   means, and the two answers. */
+.tasks__transfer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--kd-seam);
+  border-radius: var(--kd-radius-pop);
+}
+
+.tasks__transfer-actions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
 /* The open task's title, whole — never clamped: it is where the full
    title is read. A long unbroken run breaks rather than widen the card. */
 .tasks__detail-title {

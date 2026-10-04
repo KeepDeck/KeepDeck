@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { task } from "../../domain/tasks/testSupport";
-import { createdWords, movedWords } from "./notificationWords";
+import { createdWords, movedWords, transferredWords } from "./notificationWords";
 
 describe("the board's notification words", () => {
   it("says a task put on the board, or parked in the backlog — not one to take", () => {
@@ -22,5 +22,13 @@ describe("the board's notification words", () => {
     expect(title("backlog", "in-progress")).toBe("task-1 started");
     expect(title("review", "in-progress")).toBe("task-1 back in progress");
     expect(movedWords(task({ id: "task-1", status: "blocked" }), "in-progress", "web").severity).toBe("warning");
+  });
+
+  it("says an agent's transfer: from which team to which", () => {
+    expect(transferredWords(task({ id: "task-4", title: "Hand over" }), "lead", "api", "web")).toEqual({
+      title: "lead moved task-4 from api to web",
+      body: "Hand over · unassigned · web",
+      severity: "info",
+    });
   });
 });

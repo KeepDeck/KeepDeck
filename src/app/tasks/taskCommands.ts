@@ -1,5 +1,5 @@
 /**
- * The task commands — `task.create`, `task.duplicate`, `task.list`, `task.get`,
+ * The task commands — `task.create`, `task.duplicate`, `task.transfer`, `task.list`, `task.get`,
  * `task.update`, `task.comment`, `task.next`, `task.mine` — what an agent
  * uses to put work on its team's board and read it back, and therefore
  * the MCP tools it sees for it.
@@ -285,6 +285,39 @@ function duplicateCommand(deps: TaskCommandDeps): CommandSpec {
   };
 }
 
+function transferCommand(deps: TaskCommandDeps): CommandSpec {
+  return {
+    id: "task.transfer",
+    title:
+      "Hand a task to another team of this workspace: the same task (id, brief, labels, comments and log kept) on their board, unassigned, back in todo (the backlog if it is parked). Yours to do if you hand out work; refused for a closed task, or one still linked by blockers to your team",
+    args: [
+      { name: "id", type: "string", required: true, description: "The task to hand over (task-N)" },
+      { name: "to", type: "string", required: true, description: "The team to hand it to — its name or id, in this workspace" },
+      TEAM_ARG,
+    ],
+    run: async (args, source) => {
+      const who = caller(source, deps);
+      const team = teamFor(args, who);
+      const board = await boardOf(deps, who.workspace.id);
+      const task = visible(board, taskIdArg(args), team);
+      const target = resolveTeamRef(who.workspace, str(args, "to") ?? "");
+      if (!target.ok) throw new Error(target.message);
+      const { saved, saveError } = settled(
+        await deps.tasks.transfer(who.workspace.id, task.id, target.value.id, who.actor),
+      );
+      return {
+        id: task.id,
+        team: target.value.name,
+        saved,
+        // The board delivers nothing — the new team hears of it only if told.
+        note:
+          `on ${target.value.name}'s board now, unassigned — the board tells nobody; tell its lead with mail.send, naming ${task.id}` +
+          unsavedNote(saved, saveError),
+      };
+    },
+  };
+}
+
 function listCommand(deps: TaskCommandDeps): CommandSpec {
   return {
     id: "task.list",
@@ -464,6 +497,7 @@ export function registerTaskCommands(registry: CommandRegistry, deps: TaskComman
   const disposers = [
     createCommand,
     duplicateCommand,
+    transferCommand,
     listCommand,
     getCommand,
     updateCommand,

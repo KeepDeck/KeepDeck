@@ -9,7 +9,7 @@
  * outranks everyone and walks no ladder at all — any status, any time.
  * A prohibition binds the act, never the channel.
  */
-import { openBlockersOf, findTask } from "./board";
+import { openBlockersOf, findTask, unblocks } from "./board";
 import {
   DEFAULT_PRIORITY,
   TASK_CAPS,
@@ -17,6 +17,7 @@ import {
   acceptsWork,
   actorName,
   blockerResolved,
+  isOpen,
   type Task,
   type TaskActor,
   type TaskBoard,
@@ -99,6 +100,14 @@ export type TaskRefusal =
   /** A field past its cap: which, how long it is, how long it may be —
    * measured as it would be KEPT (a title and a comment trimmed). */
   | { kind: "field-cap"; field: "title" | "body" | "comment"; max: number; length: number }
+  /** A transfer that cannot be made: of a closed task, to its own team,
+   * by an actor who does not hand out work, or of a task still linked by
+   * blockers to its team (`blockers` it waits on, `dependants` waiting on
+   * it — cross-team links are not allowed). */
+  | { kind: "transfer-closed"; status: TaskStatus }
+  | { kind: "transfer-same-team" }
+  | { kind: "not-yours-to-transfer" }
+  | { kind: "transfer-linked"; blockers: readonly string[]; dependants: readonly string[] }
   /** A task asked to start anywhere but where a task may be created. */
   | { kind: "bad-create-status"; status: string; allowed: readonly TaskStatus[] }
   /** A label that is not a word: empty, too long, or with a character
@@ -715,6 +724,63 @@ export function duplicateTask(
 
 /** What a copy left at its default, and what the source had there. */
 export type NotCarried = { field: "priority" | "labels"; was: string };
+
+/** The teams a transfer is between: their ids, and their names as the log
+ * keeps them. The target is a live team of the workspace — the caller's to
+ * know (the deck), not the board's. */
+export interface TransferTeams {
+  from: { id: string; name: string };
+  to: { id: string; name: string };
+}
+
+/** Why `task` may not be transferred by `actor` now, or null when it may —
+ * everything but the target, which only the caller knows: the rule the
+ * transfer applies and a menu asks before offering it. */
+export function transferProblem(task: Task, actor: TaskActor, board: TaskBoard): TaskRefusal | null {
+  const membership = onTeam(actor, task.teamId);
+  if (membership) return membership;
+  if (!mayAssign(actor)) return { kind: "not-yours-to-transfer" };
+  if (!isOpen(task.status)) return { kind: "transfer-closed", status: task.status };
+  // Live links only: a resolved blocker holds nothing, a closed dependant
+  // waits on nothing — and a link to either stays behind harmlessly.
+  const blockers = openBlockersOf(task, board);
+  const dependants = unblocks(task, board)
+    .filter((other) => isOpen(other.status))
+    .map((other) => other.id);
+  if (blockers.length > 0 || dependants.length > 0) {
+    return { kind: "transfer-linked", blockers, dependants };
+  }
+  return null;
+}
+
+/**
+ * Hand `task` to another team of the same workspace: the same task — its
+ * id, brief, labels, priority, artifacts, comments and log — on the
+ * target's board, held by no one (a role belongs to its team) and back at
+ * the ladder's start: todo, or the backlog if it was parked. Its resolved
+ * blockers go (they hold nothing, and a link must not cross teams). The
+ * log says `transferred: A → B`.
+ */
+export function transferTask(task: Task, teams: TransferTeams, actor: TaskActor, ctx: TransitionContext): TransitionResult {
+  if (teams.to.id === task.teamId) return refuse({ kind: "transfer-same-team" });
+  const problem = transferProblem(task, actor, ctx.board);
+  if (problem) return refuse(problem);
+  const by = actorName(actor) ?? "";
+  return {
+    ok: true,
+    task: logged(
+      task,
+      [{ at: ctx.at, from: by, field: "transferred", was: teams.from.name, now: teams.to.name }],
+      ctx.at,
+      {
+        teamId: teams.to.id,
+        assignee: null,
+        status: task.status === "backlog" ? "backlog" : "todo",
+        blockedBy: [],
+      },
+    ),
+  };
+}
 
 /** The board with `task` in place of the one that shares its id. */
 export function replaceTask(board: TaskBoard, task: Task): TaskBoard {
