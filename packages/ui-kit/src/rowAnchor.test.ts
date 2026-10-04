@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pickAnchor, type AnchorRow, type AnchorState } from "./rowAnchor";
+import { changedAfter, pickAnchor, type AnchorRow, type AnchorState } from "./rowAnchor";
 
 // The anchor's CHOICE, verified directly — numbers, not pixels. The
 // stand computes no geometry; the compensation half (the measured start
@@ -33,5 +33,19 @@ describe("rowAnchor — the anchor's choice", () => {
     // window is youth, not death, and must never read as a vanished
     // key (that reading would restore the jump).
     expect(pickAnchor([], 320)).toBeUndefined();
+  });
+});
+
+describe("changedAfter — the item a change happened after", () => {
+  it("is the heading whose group opened or shut", () => {
+    expect(changedAfter(["h0", "h1", "h2"], ["h0", "h1", "r0", "r1", "h2"])).toBe("h1");
+    expect(changedAfter(["h0", "h1", "r0", "r1", "h2"], ["h0", "h1", "h2"])).toBe("h1");
+    // The last group opening: the rows join at the end.
+    expect(changedAfter(["h0", "h1"], ["h0", "h1", "r0"])).toBe("h1");
+  });
+
+  it("is nothing when the rows part at the very top, or not at all", () => {
+    expect(changedAfter(["h0", "h1"], ["r0", "h0", "h1"])).toBeNull();
+    expect(changedAfter(["h0", "h1"], ["h0", "h1"])).toBeNull();
   });
 });

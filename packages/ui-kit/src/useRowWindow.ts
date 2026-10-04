@@ -24,6 +24,9 @@ export interface RowWindowInput<Row> {
   /** Room at the top a layer covers (a pinned heading): a row revealed
    * upward stops below it, not under it. */
   coveredTop?: number;
+  /** The row the person's own change of `rows` happened at, held in place
+   * (`useRowAnchoring`'s `holdKey`). */
+  holdKey?: string | null;
 }
 
 export interface RowWindow {
@@ -70,6 +73,7 @@ export function useRowWindow<Row>({
   scrollRef,
   overscan = OVERSCAN_ROWS,
   coveredTop = 0,
+  holdKey = null,
 }: RowWindowInput<Row>): RowWindow {
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -88,6 +92,7 @@ export function useRowWindow<Row>({
     virtualItems: items,
     lastVirtualIndex: lastIndex,
     rowVirtualizer: virtualizer,
+    holdKey,
   });
   const measure = useCallback(
     (element: HTMLElement | null) => virtualizer.measureElement(element),

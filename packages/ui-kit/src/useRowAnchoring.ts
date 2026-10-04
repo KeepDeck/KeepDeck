@@ -22,6 +22,12 @@ interface UseRowAnchoringInput<Row> {
     ReactVirtualizer<HTMLElement, HTMLElement>,
     "measurementsCache" | "getTotalSize"
   >;
+  /** The row a change of THIS queue was the person's own act at (the
+   * heading of a group they folded), or null. Held instead of the first
+   * row in view: the rows the act opens go below it, and a row scrolled
+   * up under the top edge comes down to it — never an act whose result
+   * lands above the viewport, out of sight. */
+  holdKey?: string | null;
 }
 
 /** Keep the first visible row at its viewport offset when the list grows
@@ -56,6 +62,7 @@ export function useRowAnchoring<Row>({
   virtualItems,
   lastVirtualIndex,
   rowVirtualizer,
+  holdKey = null,
 }: UseRowAnchoringInput<Row>): void {
   // The insertion-above correction — TWO SEPARATE EFFECTS, never one:
   // ARMING remembers the first fully visible row and its offset (it
@@ -128,9 +135,23 @@ export function useRowAnchoring<Row>({
     const prevQueue = queueRef.current;
     queueRef.current = queue;
     if (prevQueue === queue) return; // not a queue change — never act
+    const scrollTop = list.scrollTop;
+    // The person's own act holds the row it happened at: where it stands
+    // when in view or below, at the top edge when it was scrolled up past
+    // it. Rows above it did not move, so its start is the same as before.
+    const held = holdKey === null ? -1 : indexOfAnchor(queue, keyOf, holdKey);
+    const heldStart = held >= 0 ? startOf(held) : null;
+    if (holdKey !== null && heldStart !== null) {
+      const target = Math.min(scrollTop, heldStart);
+      anchorRef.current = { key: holdKey, offset: heldStart - target };
+      if (target !== scrollTop) {
+        list.scrollTop = target;
+        list.dispatchEvent(new Event("scroll"));
+      }
+      return;
+    }
     const prev = anchorRef.current;
     if (prev === null) return;
-    const scrollTop = list.scrollTop;
     const nextIndex = indexOfAnchor(queue, keyOf, prev.key);
     if (nextIndex >= 0) {
       // Positions as measured NOW (see `startOf`): the rows that just

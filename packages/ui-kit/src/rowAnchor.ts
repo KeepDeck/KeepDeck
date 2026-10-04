@@ -53,3 +53,17 @@ export function pickAnchor(
 ): AnchorRow | undefined {
   return [...rows].sort((a, b) => a.start - b.start).find((r) => r.start >= scrollTop);
 }
+
+/** Where a change of the rows happened, as the item it happened AFTER: the
+ * key standing just before the first place the two orders part — a
+ * heading whose group opened or shut under it. Null when they part at the
+ * very top, or not at all. What a person's own change (a fold) holds in
+ * place, instead of the first row in view: the rows it opened go below
+ * the heading clicked, never above the viewport where nobody sees them. */
+export function changedAfter(before: readonly string[], after: readonly string[]): string | null {
+  const length = Math.min(before.length, after.length);
+  let at = 0;
+  while (at < length && before[at] === after[at]) at++;
+  if (at === before.length && at === after.length) return null;
+  return at > 0 ? after[at - 1] : null;
+}

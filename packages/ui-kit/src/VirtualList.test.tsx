@@ -509,11 +509,12 @@ describe("VirtualList as a grouped list", () => {
     restore();
   });
 
-  const render = (list: readonly G[]) =>
+  const render = (list: readonly G[], easeKey?: unknown) =>
     act(() =>
       root.render(
         createElement(VirtualList<G>, {
           items: list,
+          easeKey,
           itemKey: (g) => g.key,
           estimate: H,
           render: (g) => createElement("span", { className: g.head ? "head" : "row" }, g.key),
@@ -599,5 +600,65 @@ describe("VirtualList as a grouped list", () => {
     render(grouped(30, new Set([9])));
     await act(async () => {});
     expect(top("head:9")).toBe(before);
+  });
+
+  describe("the person's own fold (easeKey) holds the heading folded", () => {
+    // Group 9 folded: its heading is item 99, at 99·H.
+    const shut = new Set([9]);
+
+    it("opens a group whose heading is scrolled up under the top edge BELOW it — the heading comes down to the top", async () => {
+      render(grouped(30, shut), shut);
+      await scrollTo(99 * H);
+      await scrollTo(99 * H + 5);
+      const open = new Set<number>();
+      render(grouped(30), open);
+      await act(async () => {});
+      expect(top("head:9")).toBe(0);
+      expect(top("g9r0")).toBe(H);
+    });
+
+    it("leaves the scroll alone when the heading opened is in view — the rows push down what is under it", async () => {
+      render(grouped(30, shut), shut);
+      await scrollTo(97 * H);
+      await scrollTo(97 * H + 2);
+      const before = top("head:9");
+      const open = new Set<number>();
+      render(grouped(30), open);
+      await act(async () => {});
+      expect(top("head:9")).toBe(before);
+      expect(top("g9r0")).toBe(before + H);
+    });
+
+    it("shuts a group read deep inside onto its heading, at the top", async () => {
+      const open = new Set<number>();
+      render(grouped(30), open);
+      await scrollTo(99 * H + 5 * H);
+      await scrollTo(99 * H + 5 * H + 3);
+      render(grouped(30, shut), shut);
+      await act(async () => {});
+      expect(top("head:9")).toBe(0);
+      expect(top("head:10")).toBe(H);
+    });
+
+    it("holds nothing on a later change that was not the person's — the row being read stays", async () => {
+      render(grouped(30, shut), shut);
+      await scrollTo(99 * H + 5);
+      const open = new Set<number>();
+      render(grouped(30), open);
+      await act(async () => {});
+      await scrollTo(150 * H);
+      await scrollTo(150 * H + 3);
+      const before = top("g13r7");
+      // The same rows again (a tick re-dated them), under the same token.
+      render(grouped(30), open);
+      await act(async () => {});
+      expect(top("g13r7")).toBe(before);
+      // An agent's move above, under the same token.
+      const moved = grouped(30).filter((g) => g.key !== "g20r0");
+      moved.splice(1, 0, { key: "g20r0", head: false, group: 0 });
+      render(moved, open);
+      await act(async () => {});
+      expect(top("g13r7")).toBe(before);
+    });
   });
 });
