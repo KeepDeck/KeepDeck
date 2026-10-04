@@ -338,7 +338,6 @@ describe("TasksDialog", () => {
     await flush();
     const before = service.peek("ws-1");
     const count = before?.kind === "ready" ? before.board.tasks.length : 0;
-    // Two presses before the first lands make ONE copy: a copy cannot be taken back.
     // The task's menu stands with its id and state, not among the window's controls.
     const menu = document.querySelector('aside[aria-label="Task task-1"] button[aria-label="More for task-1"]')!;
     expect(menu.closest(".tasks__detail-tools")).toBeNull();
@@ -348,8 +347,20 @@ describe("TasksDialog", () => {
       act(() => document.querySelector<HTMLButtonElement>('aside[aria-label="Task task-1"] button[aria-label="More for task-1"]')!.click());
       act(() => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find((b) => b.textContent?.includes("Duplicate"))!.click());
     };
+    const confirmCopy = () => {
+      const dialog = document.querySelector('.confirm[role="dialog"]')!;
+      act(() => Array.from(dialog.querySelectorAll<HTMLButtonElement>("button")).find((b) => b.textContent === "Duplicate")!.click());
+    };
+    // The menu only asks: nothing is made until the dialog's Duplicate.
     choose();
-    choose();
+    expect(document.querySelector('.confirm[role="dialog"] .confirm__title')?.textContent).toBe("Duplicate task-1");
+    const asked = service.peek("ws-1");
+    expect(asked?.kind === "ready" && asked.board.tasks.length).toBe(count);
+    confirmCopy();
+    // While that copy is on its way, the menu offers no second one.
+    act(() => document.querySelector<HTMLButtonElement>('aside[aria-label="Task task-1"] button[aria-label="More for task-1"]')!.click());
+    const again = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find((b) => b.textContent?.includes("Duplicate"));
+    expect(again?.disabled || again?.getAttribute("aria-disabled") === "true").toBe(true);
     await flush();
     const state = service.peek("ws-1");
     expect(state?.kind === "ready" && state.board.tasks.length).toBe(count + 1);

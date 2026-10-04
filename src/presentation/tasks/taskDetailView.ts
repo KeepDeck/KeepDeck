@@ -78,8 +78,11 @@ export interface TaskDetailView {
   attachEmpty: { text: string; title: string } | null;
   /** The task's menu (⋯): what else may be done with it, in order. */
   menu: { label: string; actions: TaskAction[] };
+  /** Copying it: the confirm's words — a copy is one more task on the
+   * board, never made by a stray click. */
+  duplicate: { title: string; message: string; confirm: string; cancel: string };
   /** Handing it to another team: the teams it may go to, and the words of
-   * the inline confirm. */
+   * its confirm. */
   transfer: {
     title: string;
     prompt: string;
@@ -148,6 +151,9 @@ export const TASK_DETAIL_WORDS = {
   copiedTo: (id: string) => `copied to ${id}`,
   transferred: (from: string, to: string) => `moved from ${from} to ${to}`,
   duplicate: "Duplicate",
+  duplicateTitle: (id: string) => `Duplicate ${id}`,
+  duplicateMessage: (where: string) =>
+    `A new task with the same title, brief, priority, labels and artifacts, in ${where}, unassigned — without its comments or history.`,
   transfer: "Transfer",
   transferTitle: (id: string) => `Transfer ${id}`,
   transferPrompt: "To team",
@@ -263,6 +269,12 @@ export function taskDetailView(
         { id: "duplicate", label: TASK_DETAIL_WORDS.duplicate, refusal: null },
         { id: "transfer", label: TASK_DETAIL_WORDS.transfer, refusal: transferRefusal(task, board, others.length) },
       ],
+    },
+    duplicate: {
+      title: TASK_DETAIL_WORDS.duplicateTitle(task.id),
+      message: TASK_DETAIL_WORDS.duplicateMessage(task.status === "backlog" ? STATUS_LABEL.backlog : STATUS_LABEL.todo),
+      confirm: TASK_DETAIL_WORDS.duplicate,
+      cancel: TASK_DETAIL_WORDS.transferCancel,
     },
     transfer: {
       title: TASK_DETAIL_WORDS.transferTitle(task.id),

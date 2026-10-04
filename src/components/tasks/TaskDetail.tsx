@@ -81,8 +81,10 @@ export function TaskDetail({
   const [composer, setComposer] = useState(EMPTY_COMPOSER);
   // The transfer's inline confirm: the team picked, or null while closed.
   const [transferTo, setTransferTo] = useState<string | null>(null);
+  // The copy's confirm, open or not: a stray click must not make a task.
+  const [duplicating, setDuplicating] = useState(false);
   const actionOf: Record<TaskAction["id"], () => void> = {
-    duplicate: () => onDuplicate(view.id),
+    duplicate: () => setDuplicating(true),
     transfer: () => setTransferTo(view.transfer.options[0]?.value ?? null),
   };
   const transferTeam = view.transfer.options.find((option) => option.value === transferTo);
@@ -151,6 +153,19 @@ export function TaskDetail({
         <h3 className="tasks__detail-title kd-selectable" dir="auto">
           {view.title}
         </h3>
+        {duplicating && (
+          <ConfirmDialog
+            title={view.duplicate.title}
+            message={view.duplicate.message}
+            confirmLabel={view.duplicate.confirm}
+            cancelLabel={view.duplicate.cancel}
+            onConfirm={() => {
+              setDuplicating(false);
+              onDuplicate(view.id);
+            }}
+            onCancel={() => setDuplicating(false)}
+          />
+        )}
         {/* The house confirm, centred over everything: where to, what it
             means, and the two answers. */}
         {transferTeam && (

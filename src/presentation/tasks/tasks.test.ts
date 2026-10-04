@@ -344,6 +344,11 @@ describe("commentsOf / changesOf — what was said, and what was changed, apart"
         { id: "transfer", label: "Transfer", refusal: null },
       ],
     });
+    // A copy is asked for, never made by a stray click; the words say where it lands.
+    expect(view.duplicate.title).toBe("Duplicate task-4");
+    expect(view.duplicate.message).toContain("in To do, unassigned");
+    const parked = board([task({ id: "task-7", status: "backlog" })]);
+    expect(taskDetailView(parked.tasks[0], parked, ROSTER, 0).duplicate.message).toContain("in Backlog");
     // Only the other teams are offered.
     expect(view.transfer.options).toEqual([{ value: "team-2", label: "web" }]);
     const refusal = (t: typeof b.tasks[number], within = teams) =>
