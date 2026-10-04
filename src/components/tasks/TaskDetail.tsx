@@ -21,7 +21,7 @@ import {
 } from "../../presentation/tasks";
 import { Button } from "../../ui/Button";
 import { TipButton } from "../../ui/TipButton";
-import { CloseIcon, MaximizeIcon, RestoreIcon } from "@keepdeck/ui-kit/icons";
+import { CloseIcon, CopyIcon, MaximizeIcon, RestoreIcon } from "@keepdeck/ui-kit/icons";
 import { RemoveButton } from "../../ui/RemoveButton";
 import { useGrowingField } from "../../ui/useGrowingField";
 
@@ -30,6 +30,8 @@ interface TaskDetailProps {
   /** Whether the task fills the stage; the head offers the way there and back. */
   wide: boolean;
   onToggleWide(): void;
+  /** Copy this task as a fresh one, and open the copy. */
+  onDuplicate(taskId: string): void;
   /** The activity's heading: shut ⇄ open. */
   onToggleActivity(): void;
   onClose(): void;
@@ -54,6 +56,7 @@ export function TaskDetail({
   view,
   wide,
   onToggleWide,
+  onDuplicate,
   onToggleActivity,
   onClose,
   onMove,
@@ -96,6 +99,9 @@ export function TaskDetail({
           <StatusRing {...view.statusRing} />
           <span className="tasks__detail-meta kd-one-line">{view.meta}</span>
           <span className="tasks__detail-tools">
+            <TipButton size="sm" tip={TASK_DETAIL_WORDS.duplicate} onClick={() => onDuplicate(view.id)}>
+              <CopyIcon />
+            </TipButton>
             {/* An icon, explained by its tip — beside the close, its kin. */}
             <TipButton
               size="sm"

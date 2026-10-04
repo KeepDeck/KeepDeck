@@ -1,5 +1,5 @@
 /**
- * The task commands — `task.create`, `task.list`, `task.get`,
+ * The task commands — `task.create`, `task.duplicate`, `task.list`, `task.get`,
  * `task.update`, `task.comment`, `task.next`, `task.mine` — what an agent
  * uses to put work on its team's board and read it back, and therefore
  * the MCP tools it sees for it.
@@ -257,6 +257,38 @@ function createCommand(deps: TaskCommandDeps): CommandSpec {
   };
 }
 
+function duplicateCommand(deps: TaskCommandDeps): CommandSpec {
+  return {
+    id: "task.duplicate",
+    title:
+      "Copy a task as a fresh one: its title, brief, priority, labels, artifacts and blockers, in todo (the backlog if it is parked), held by no one — not its comments, log or assignee. Both tasks' logs say it was copied",
+    args: [{ name: "id", type: "string", required: true, description: "The task to copy (task-N)" }, TEAM_ARG],
+    run: async (args, source) => {
+      const who = caller(source, deps);
+      const team = teamFor(args, who);
+      const board = await boardOf(deps, who.workspace.id);
+      const original = visible(board, taskIdArg(args), team);
+      const { task, saved, saveError } = settled(await deps.tasks.duplicate(who.workspace.id, original.id, who.actor));
+      // What the create's rules kept from the copy, said — not dropped quietly.
+      const left = [
+        task.priority !== original.priority && `priority (${original.priority}) — yours to set is normal`,
+        task.labels.length < original.labels.length && "labels — a pool task's are the lead's to set",
+      ].filter(Boolean);
+      return {
+        id: task.id,
+        copiedFrom: original.id,
+        status: task.status,
+        priority: task.priority,
+        saved,
+        note:
+          `copied from ${original.id}, in the team's pool` +
+          (left.length > 0 ? `; not carried over: ${left.join("; ")}` : "") +
+          unsavedNote(saved, saveError),
+      };
+    },
+  };
+}
+
 function listCommand(deps: TaskCommandDeps): CommandSpec {
   return {
     id: "task.list",
@@ -435,6 +467,7 @@ function mineCommand(deps: TaskCommandDeps): CommandSpec {
 export function registerTaskCommands(registry: CommandRegistry, deps: TaskCommandDeps): () => void {
   const disposers = [
     createCommand,
+    duplicateCommand,
     listCommand,
     getCommand,
     updateCommand,

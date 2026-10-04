@@ -123,6 +123,9 @@ export const TASK_DETAIL_WORDS = {
   activity: "Activity",
   changesEmpty: "Nothing changed yet",
   labelAdded: (label: string) => `added label ${label}`,
+  copiedFrom: (id: string) => `copied from ${id}`,
+  copiedTo: (id: string) => `copied to ${id}`,
+  duplicate: "Duplicate",
   labelRemoved: (label: string) => `removed label ${label}`,
   trimmed: (max: number, what: string) => `At the board's limit — it keeps only the last ${max} ${what}`,
   detach: "Detach",
@@ -277,6 +280,8 @@ function changeItems(entry: Task["log"][number], key: string, now: number): Feed
       ...before.filter((label) => !after.includes(label)).map((label) => line(TASK_DETAIL_WORDS.labelRemoved(label), `-${label}`)),
     ];
   }
+  if (entry.field === "copiedFrom") return [line(TASK_DETAIL_WORDS.copiedFrom(entry.now ?? "—"))];
+  if (entry.field === "copiedTo") return [line(TASK_DETAIL_WORDS.copiedTo(entry.now ?? "—"))];
   if (entry.field === "body") {
     return [line(`edited the brief (the previous version is kept in the log: ${entry.was?.length ?? 0} characters)`)];
   }

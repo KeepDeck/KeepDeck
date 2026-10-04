@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TASK_CAPS, USER_ACTOR, blockerResolved, inLadderOrder, isOpen, type TaskActor, type TaskStatus } from "./model";
-import { addLabel, attachArtifact, createTask, detachArtifact, removeLabel, reachableStatuses, transition, type TaskChange, type TaskRefusal } from "./transition";
+import { addLabel, attachArtifact, createTask, detachArtifact, duplicateTask, removeLabel, reachableStatuses, transition, type TaskChange, type TaskRefusal } from "./transition";
 import { ROSTER, board, impl1, lead, noTeam, peer1, stranger, task } from "./testSupport";
 
 const ctx = (tasks = [task({ id: "task-1" })]) => ({ board: board(tasks), roster: ROSTER, at: 5_000 });
@@ -562,5 +562,56 @@ describe("addLabel / removeLabel — the changes the open task's label field mak
     expect(applied(t, removeLabel(" Design ")).labels).toEqual(["ui"]);
     const meanwhile = task({ id: "task-1", labels: ["design", "ui", "urgent"] });
     expect(applied(meanwhile, removeLabel("design")).labels).toEqual(["ui", "urgent"]);
+  });
+});
+
+describe("duplicateTask — a fresh copy, its own history", () => {
+  const source = task({
+    id: "task-1",
+    title: "Draft the copy",
+    body: "the brief",
+    priority: "high",
+    assignee: "impl-1",
+    status: "review",
+    labels: ["copy", "ui"],
+    artifacts: ["kd-a"],
+    blockedBy: ["task-2"],
+    comments: [{ n: 1, at: 1, from: "lead", body: "go" }],
+    log: [{ at: 1, from: "lead", field: "status", was: "todo", now: "in-progress" }],
+  });
+  const blocker = task({ id: "task-2", status: "done" });
+  const at = (actor: TaskActor) => duplicateTask(source, actor, { ...ctx([source, blocker]), at: 9_000 });
+
+  it("copies the work and none of its history, held by no one, in todo", () => {
+    const made = at(lead);
+    if (!made.ok) throw new Error("refused");
+    expect(made.task).toMatchObject({
+      title: "Draft the copy",
+      body: "the brief",
+      priority: "high",
+      assignee: null,
+      status: "todo",
+      labels: ["copy", "ui"],
+      artifacts: ["kd-a"],
+      blockedBy: ["task-2"],
+      comments: [],
+      teamId: source.teamId,
+    });
+    expect(made.task.id).not.toBe(source.id);
+    // Each end says so: the copy where it came from, the source where it went.
+    expect(made.task.log).toEqual([{ at: 9_000, from: "lead", field: "copiedFrom", was: null, now: "task-1" }]);
+    expect(made.source.log[made.source.log.length - 1]).toEqual({ at: 9_000, from: "lead", field: "copiedTo", was: null, now: made.task.id });
+    expect(made.board.tasks.find((t) => t.id === "task-1")).toBe(made.source);
+  });
+
+  it("parks the copy of a parked task", () => {
+    const parked = { ...source, status: "backlog" as const };
+    const made = duplicateTask(parked, lead, ctx([parked, blocker]));
+    expect(made.ok && made.task.status).toBe("backlog");
+  });
+
+  it("keeps a working role's copy within what it may set: normal priority, no labels on a pool task", () => {
+    const made = at(impl1);
+    expect(made.ok && [made.task.priority, made.task.labels]).toEqual(["normal", []]);
   });
 });

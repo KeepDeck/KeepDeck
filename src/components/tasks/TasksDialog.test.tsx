@@ -331,6 +331,20 @@ describe("TasksDialog", () => {
     }
   });
 
+  it("duplicates the open task as a fresh one and opens the copy", async () => {
+    const { service } = await seeded();
+    focus = "task-1";
+    mount(service)();
+    await flush();
+    act(() => document.querySelector<HTMLButtonElement>('aside[aria-label="Task task-1"] button[aria-label="Duplicate"]')!.click());
+    await flush();
+    const state = service.peek("ws-1");
+    const copy = state?.kind === "ready" ? state.board.tasks[state.board.tasks.length - 1] : null;
+    expect(copy?.title).toBe("Draft the skill");
+    expect(copy?.assignee).toBeNull();
+    expect(focus).toBe(copy?.id);
+  });
+
   it("creates a task from the form as the user and opens it", async () => {
     const { service } = await seeded();
     const render = mount(service);

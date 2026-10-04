@@ -15,7 +15,7 @@
  */
 import {
   TASK_CAPS,
-  TASK_FIELDS,
+  LOG_FIELDS,
   isTaskId,
   isTaskPriority,
   isTaskStatus,
@@ -26,7 +26,7 @@ import {
 } from "./model";
 import { normalizeLabels } from "./transition";
 
-const FIELDS = new Set<string>(TASK_FIELDS);
+const FIELDS = new Set<string>(LOG_FIELDS);
 
 /** What the codec can say about a file it refused. */
 export type DecodeFault =

@@ -393,6 +393,15 @@ export function useTasksBoard(
         .then(() => setError(null))
         .catch((e: unknown) => setError(describeError(e)));
     },
+    /** Copy a task as a fresh one and open the copy. */
+    duplicate: (taskId: string) => {
+      if (!service || workspaceId === null) return;
+      void write(async () => {
+        const result = await service.duplicate(workspaceId, taskId, USER_ACTOR);
+        if (result.ok) run({ type: "created", id: result.task.id });
+        return result;
+      });
+    },
     create: async (input: Omit<CreateTaskInput, "teamId">) => {
       if (!service || workspaceId === null || teamId === null) return;
       await write(async () => {

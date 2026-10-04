@@ -24,6 +24,7 @@ import {
   EMPTY_BOARD,
   createTask,
   decodeBoard,
+  duplicateTask,
   encodeBoard,
   findTask,
   keepTeams,
@@ -133,6 +134,9 @@ export interface TasksService {
   /** The role addresses on a team right now — what an assignee must be. */
   rosterOf(workspaceId: string, teamId: string): string[];
   create(workspaceId: string, input: CreateTaskInput, actor: TaskActor): Promise<TaskResult>;
+  /** Copy `taskId` as a fresh task (`duplicateTask`): the copy is the
+   * result's task; both tasks' logs say so. */
+  duplicate(workspaceId: string, taskId: string, actor: TaskActor): Promise<TaskResult>;
   /** Apply `changes` in order, all or nothing: a refusal anywhere leaves
    * the board as it was and writes nothing. */
   apply(
@@ -394,6 +398,24 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
       const result = createTask(input, actor, {
         board: held.board,
         roster: this.rosterOf(workspaceId, input.teamId),
+        at: now(),
+      });
+      if (!result.ok) return result;
+      const pending = commit(workspaceId, result.board);
+      emit({ kind: "created", workspaceId, task: result.task, actor });
+      const saveError = await pending;
+      return { ok: true, task: result.task, board: result.board, saved: saveError === null, saveError };
+    },
+    async duplicate(workspaceId, taskId, actor) {
+      await load(workspaceId);
+      // From here to `commit`: no await.
+      const held = liveBoard(workspaceId);
+      if (!held.ok) return held;
+      const source = findTask(held.board, taskId);
+      if (!source) return { ok: false, refusal: { kind: "unknown-task", id: taskId } };
+      const result = duplicateTask(source, actor, {
+        board: held.board,
+        roster: this.rosterOf(workspaceId, source.teamId),
         at: now(),
       });
       if (!result.ok) return result;

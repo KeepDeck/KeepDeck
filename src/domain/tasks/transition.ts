@@ -651,6 +651,46 @@ export function createTask(
 }
 
 /** The board with `task` in place of the one that shares its id. */
+/**
+ * A copy of `source`, made as a fresh task: its title, brief, priority,
+ * labels, artifacts and blockers, on its team, in todo — or in the
+ * backlog when the source is parked — and held by no one. Not its
+ * comments, its log, its dates or its assignee: a copy starts its own
+ * history, which opens with where it came from, and the source's log says
+ * where it was copied to.
+ *
+ * By the create's own rules (`createTask`): what the actor may not set at
+ * creation is left at its default rather than refusing the copy — a
+ * working role's copy is at normal priority, and carries labels only when
+ * the actor could label a pool task (whoever hands out work).
+ */
+export function duplicateTask(
+  source: Task,
+  actor: TaskActor,
+  ctx: TransitionContext,
+): { ok: true; board: TaskBoard; task: Task; source: Task } | { ok: false; refusal: TaskRefusal } {
+  const made = createTask(
+    {
+      teamId: source.teamId,
+      title: source.title,
+      body: source.body,
+      assignee: null,
+      priority: mayAssign(actor) ? source.priority : DEFAULT_PRIORITY,
+      blockedBy: source.blockedBy,
+      artifacts: source.artifacts,
+      labels: mayLabel(actor, { assignee: null }) ? source.labels : [],
+      status: source.status === "backlog" ? "backlog" : "todo",
+    },
+    actor,
+    ctx,
+  );
+  if (!made.ok) return made;
+  const by = actorName(actor) ?? "";
+  const copy = logged(made.task, [{ at: ctx.at, from: by, field: "copiedFrom", was: null, now: source.id }], ctx.at, {});
+  const original = logged(source, [{ at: ctx.at, from: by, field: "copiedTo", was: null, now: copy.id }], ctx.at, {});
+  return { ok: true, board: replaceTask(replaceTask(made.board, copy), original), task: copy, source: original };
+}
+
 export function replaceTask(board: TaskBoard, task: Task): TaskBoard {
   return {
     nextId: board.nextId,

@@ -92,6 +92,7 @@ function WorkspaceBoard({
       view={board.detail}
       wide={board.wide}
       onToggleWide={board.toggleWide}
+      onDuplicate={board.duplicate}
       onToggleActivity={board.toggleActivity}
       onClose={board.close}
       onMove={board.move}

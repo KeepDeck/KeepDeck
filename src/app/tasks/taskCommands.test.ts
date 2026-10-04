@@ -30,11 +30,12 @@ const OTHER_LEAD = from("pane-5");
 const LONER = from("pane-7");
 
 describe("task commands", () => {
-  it("registers seven commands and unregisters them together", () => {
+  it("registers eight commands and unregisters them together", () => {
     const { registry, dispose } = setup();
     expect(registry.list().map((c) => c.id).sort()).toEqual([
       "task.comment",
       "task.create",
+      "task.duplicate",
       "task.get",
       "task.list",
       "task.mine",
@@ -71,6 +72,18 @@ describe("task commands", () => {
     await run("task.update", { id: "task-1", status: "in-progress" }, IMPL2);
     await run("task.update", { id: "task-1", status: "review" }, IMPL2);
     expect(await refused("task.update", { id: "task-1", status: "done" }, IMPL2)).toContain("is lead's");
+  });
+
+  it("duplicates a task as a fresh one, and says what a working role's copy could not carry", async () => {
+    const { run } = setup();
+    await run("task.create", { title: "Original", priority: "high", labels: "ui" }, LEAD);
+    const copy = await run("task.duplicate", { id: "task-1" }, LEAD);
+    expect(copy).toMatchObject({ id: "task-2", copiedFrom: "task-1", status: "todo", priority: "high" });
+    const mine = await run("task.duplicate", { id: "task-1" }, IMPL1);
+    expect(mine.note).toContain("not carried over: priority (high)");
+    expect(mine.note).toContain("labels");
+    const original = await run("task.get", { id: "task-1" }, LEAD);
+    expect(JSON.stringify(original)).toContain("copiedTo");
   });
 
   it("refuses a title past its cap in words an agent can act on", async () => {

@@ -333,6 +333,12 @@ describe("commentsOf / changesOf — what was said, and what was changed, apart"
     expect(new Set(changesOf({ log: [labels(1, "a,b", "b,c")] }, 0).map((item) => item.key)).size).toBe(2);
   });
 
+  it("says a copy's two ends in words", () => {
+    const entry = (field: "copiedFrom" | "copiedTo", now: string) => ({ at: 1, from: "lead", field, was: null, now });
+    expect(changesOf({ log: [entry("copiedFrom", "task-1")] }, 0).map((c) => c.text)).toEqual(["copied from task-1"]);
+    expect(changesOf({ log: [entry("copiedTo", "task-9")] }, 0).map((c) => c.text)).toEqual(["copied to task-9"]);
+  });
+
   it("keeps a change's key as the log is cut from the front at its cap", () => {
     const log = [1, 2, 3, 4, 5].map((at) => change(at, `s${at}`));
     const keyOf = (feed: ReturnType<typeof changesOf>, text: string) => feed.find((item) => item.text === text)?.key;
