@@ -77,6 +77,8 @@ export interface TaskDetailView {
   attachEmpty: { text: string; title: string } | null;
   /** The task's history as one timeline — what was said and what was
    * changed, oldest first. See `feedOf`. */
+  /** The history's heading: its toggle between compact and whole. */
+  activity: { label: string; open: boolean };
   feed: FeedItem[];
   feedEmpty: string | null;
   /** The board keeps the last so many changes and comments, each cut on
@@ -97,7 +99,9 @@ export interface FeedChange {
 
 export type FeedItem =
   | { kind: "comment"; key: string; who: string; age: string; body: string }
-  | FeedChange;
+  | FeedChange
+  /** Compact: a run of changes folded between its first and its last. */
+  | { kind: "more"; key: string; label: string };
 
 /** Every word the panel says that is not the task's own — the component
  * maps these and spells nothing. */
@@ -112,6 +116,7 @@ export const TASK_DETAIL_WORDS = {
   labelPrompt: "+ label",
   labelsFull: (max: number) => `${max} labels — take one off to add another`,
   activity: "Activity",
+  moreChanges: (n: number) => `${n} more ${n === 1 ? "change" : "changes"}`,
   labelAdded: (label: string) => `added label ${label}`,
   labelRemoved: (label: string) => `removed label ${label}`,
   feedTrimmed: (changes: number, comments: number) =>
@@ -154,6 +159,8 @@ export function taskDetailView(
   /** The workspace's artifacts, as the registry lists them; empty when the
    * feature is off or nothing is published. */
   artifacts: readonly ArtifactRef[] = [],
+  /** The whole history shown, not its compact form (`feedOf`). */
+  activityOpen = false,
 ): TaskDetailView {
   const ctx = { board, roster, at: now };
   const reachable = new Set(reachableStatuses(task, USER_ACTOR, ctx));
@@ -207,7 +214,8 @@ export function taskDetailView(
       artifacts.length === 0
         ? { text: "none", title: "Nothing published in this workspace yet — agents attach with task.update artifacts=<id>" }
         : null,
-    feed: feedOf(task, now),
+    activity: { label: TASK_DETAIL_WORDS.activity, open: activityOpen },
+    feed: feedOf(task, now, !activityOpen),
     feedEmpty: task.comments.length === 0 && task.log.length === 0 ? "Nothing said or changed yet" : null,
     feedTrimmed:
       task.log.length >= TASK_CAPS.logMax || task.comments.length >= TASK_CAPS.commentsMax
@@ -221,10 +229,12 @@ export function taskDetailView(
  * What was said and what was changed, as ONE timeline, oldest first — the
  * thread and the log were two lists a reader had to put back together.
  * Within a moment, the change comes before the comment that came with it.
- * Every entry is shown — nothing folds: a fold hid the very changes a
- * reader opened the history to see.
+ * Compact (the history's resting form), a run of changes with nothing said
+ * between them folds to its first and its last once at least two would
+ * hide — a fold over one line saves nothing — so a status walking its
+ * ladder does not bury what people wrote; the heading opens it whole.
  */
-export function feedOf(task: Pick<Task, "comments" | "log">, now: number): FeedItem[] {
+export function feedOf(task: Pick<Task, "comments" | "log">, now: number, compact = false): FeedItem[] {
   // A change's key is what it is — its moment and field, counted among
   // its twins — never its place: the log is cut from the front at its cap,
   // and a place-key re-keyed every line on each new entry.
@@ -252,8 +262,38 @@ export function feedOf(task: Pick<Task, "comments" | "log">, now: number): FeedI
       } as FeedItem,
     })),
   ].sort((a, b) => a.at - b.at || a.order - b.order);
-  return timeline.map(({ item }) => item);
+  const items = timeline.map(({ item }) => item);
+  if (!compact) return items;
+  const feed: FeedItem[] = [];
+  let run: FeedChange[] = [];
+  const flush = () => {
+    if (run.length > RUN_SHOWN + 1) {
+      const hidden = run.slice(1, -1);
+      feed.push(
+        run[0],
+        { kind: "more", key: `more-${hidden[0].key}`, label: TASK_DETAIL_WORDS.moreChanges(hidden.length) },
+        run[run.length - 1],
+      );
+    } else {
+      feed.push(...run);
+    }
+    run = [];
+  };
+  for (const item of items) {
+    if (item.kind === "change") {
+      run.push(item);
+    } else {
+      flush();
+      feed.push(item);
+    }
+  }
+  flush();
+  return feed;
 }
+
+/** How many changes in a row stand unfolded in the compact history: the
+ * first and the last. */
+const RUN_SHOWN = 2;
 
 /** What one log entry says in the timeline — usually one line. A labels
  * entry holds the set before and after; the timeline says what moved: a

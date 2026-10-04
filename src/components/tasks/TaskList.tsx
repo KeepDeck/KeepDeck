@@ -1,4 +1,5 @@
 import type { PointerEvent } from "react";
+import { DisclosureChevron } from "@keepdeck/ui-kit/DisclosureChevron";
 import { StatusRing } from "@keepdeck/ui-kit/StatusRing";
 import { VirtualList } from "@keepdeck/ui-kit/VirtualList";
 import type { TaskStatus } from "../../domain/tasks";
@@ -142,6 +143,7 @@ function GroupHeading({
       tabIndex={pinned ? -1 : undefined}
       onClick={() => onFold(heading.status)}
     >
+      <DisclosureChevron open={!heading.folded} />
       <StatusRing {...heading.ring} />
       <span className="tasks__group-label">{heading.label}</span>
       <span className="tasks__group-count">{heading.count}</span>

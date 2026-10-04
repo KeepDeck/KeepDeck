@@ -476,6 +476,20 @@ describe("TasksDialog", () => {
     expect(state?.kind === "ready" && state.board.tasks.find((t) => t.title === "Task 0")?.status).toBe("done");
   });
 
+  it("the history rests compact and opens whole from its heading, its chevron turning", async () => {
+    const { service } = await seeded();
+    focus = "task-1";
+    mount(service)();
+    await flush();
+    const heading = () => document.querySelector<HTMLButtonElement>(".tasks__section--toggle")!;
+    expect(heading().getAttribute("aria-expanded")).toBe("false");
+    expect(heading().querySelector(".kd-chevron")?.className).toBe("kd-chevron");
+    act(() => heading().click());
+    await flush();
+    expect(heading().getAttribute("aria-expanded")).toBe("true");
+    expect(heading().querySelector(".kd-chevron")?.className).toBe("kd-chevron kd-chevron--open");
+  });
+
   it("the open task floats over the whole dialog, its toolbar included — not under it in the stage", async () => {
     const { service } = await seeded();
     focus = "task-1";

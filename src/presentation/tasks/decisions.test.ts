@@ -198,6 +198,14 @@ describe("screenState", () => {
     expect(screenReducer(INITIAL_SCREEN, { type: "dropped", status: "done", view: "board" }, null).state.folded.has("done")).toBe(true);
   });
 
+  it("rests the history compact, and its heading toggles it whole, kept from task to task", () => {
+    expect(INITIAL_SCREEN.activityOpen).toBe(false);
+    const open = screenReducer(INITIAL_SCREEN, { type: "toggleActivity" }, null).state;
+    expect(open.activityOpen).toBe(true);
+    expect(screenReducer(open, { type: "card", id: "task-2", open: "task-1" }, null).state.activityOpen).toBe(true);
+    expect(screenReducer(open, { type: "toggleActivity" }, null).state.activityOpen).toBe(false);
+  });
+
   it("walks the list with J / K only over the list, and never while the form is up", () => {
     expect(walksRows({ composing: false }, "list")).toBe(true);
     expect(walksRows({ composing: true }, "list")).toBe(false);

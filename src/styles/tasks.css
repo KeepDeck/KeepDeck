@@ -425,15 +425,9 @@
   color: var(--kd-text);
 }
 
-.tasks__group::before {
-  content: "▾";
-  flex: none;
-  width: 10px;
-  color: var(--kd-text-4);
-}
-
-.tasks__group--folded::before {
-  content: "▸";
+/* The fold's chevron: the house's (DisclosureChevron), quiet. */
+.tasks__group .kd-chevron {
+  color: var(--kd-text-3);
 }
 
 /* A status with nothing in it: still named, so the six groups stand as
@@ -683,6 +677,39 @@
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
+}
+
+/* A heading that opens what it heads (the history): the heading's own
+   look, its chevron beside the word, the pointer's. */
+.tasks__section--toggle {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.tasks__section--toggle:hover {
+  color: var(--kd-text-2);
+}
+
+/* A compact history's folded run: a quiet line that opens it whole. */
+.tasks__feed-more {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--kd-text-3);
+  font: inherit;
+  font-size: var(--kd-font-small);
+  cursor: pointer;
+}
+
+.tasks__feed-more:hover {
+  color: var(--kd-text-2);
 }
 
 /* The brief: the task's own words, on a tile of their own. */

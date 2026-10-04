@@ -208,16 +208,6 @@
   outline-offset: -1px;
 }
 
-/* The chevron points at the list: right while it is closed, down while it
-   is open. */
-.strip__toggle svg {
-  transition: transform 140ms cubic-bezier(0.33, 1, 0.68, 1);
-}
-
-.strip__toggle[aria-expanded="true"] svg {
-  transform: rotate(90deg);
-}
-
 /* A workspace's teams, under its row, lined up with its name. Its box IS
    what the motion drives, so it has no padding and no margin of its own:
    rows past a shrinking height are cut (never painted over the marks
@@ -412,7 +402,6 @@
 
 @media (prefers-reduced-motion: reduce) {
   .strip__tile,
-  .strip__toggle svg,
   .strip__col,
   .strip:not(.strip--revealed) .strip__name,
   .strip:not(.strip--revealed) .strip__toggle,

@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronIcon, PlusIcon } from "@keepdeck/ui-kit/icons";
+import { PlusIcon } from "@keepdeck/ui-kit/icons";
+import { DisclosureChevron } from "@keepdeck/ui-kit/DisclosureChevron";
 import { collectMarkRects, markGroups } from "../../app/stripDnd";
 import {
   animateElementReorder,
@@ -249,7 +250,7 @@ export function WorkspaceStrip({
                       {toggle.count !== null && (
                         <span className="strip__count">{toggle.count}</span>
                       )}
-                      <ChevronIcon />
+                      <DisclosureChevron open={toggle.expanded} />
                     </button>
                   )}
                 </div>

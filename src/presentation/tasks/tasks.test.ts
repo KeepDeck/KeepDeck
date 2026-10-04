@@ -296,7 +296,7 @@ describe("feedOf — a task's history as one timeline", () => {
   const change = (at: number, now: string) => ({ at, from: "lead", field: "status" as const, was: null, now });
   const comment = (n: number, at: number) => ({ n, at, from: "impl-1", body: `c${n}` });
   const shape = (task: Parameters<typeof feedOf>[0]) =>
-    feedOf(task, 10_000).map((item) => (item.kind === "comment" ? item.body : item.text));
+    feedOf(task, 10_000).map((item) => (item.kind === "comment" ? item.body : item.kind === "change" ? item.text : item.label));
 
   it("interleaves what was said and what was changed, oldest first — a change before the comment that came with it", () => {
     expect(shape({ log: [change(1, "a"), change(3, "b")], comments: [comment(1, 2), comment(2, 3)] })).toEqual([
@@ -307,9 +307,38 @@ describe("feedOf — a task's history as one timeline", () => {
     ]);
   });
 
-  it("shows every change — a run of them never folds", () => {
+  it("shows every change when open — a run never folds", () => {
     const log = [1, 2, 3, 4, 5].map((at) => change(at, `s${at}`));
     expect(shape({ log, comments: [] })).toEqual(["s1", "s2", "s3", "s4", "s5"].map((now) => `status: — → ${now}`));
+  });
+
+  it("compact, folds a run to its first and last once two or more would hide; a comment breaks a run", () => {
+    const compact = (task: Parameters<typeof feedOf>[0]) =>
+      feedOf(task, 0, true).map((item) => (item.kind === "comment" ? item.body : item.kind === "change" ? item.text : item.label));
+    const log = [1, 2, 3, 4, 5].map((at) => change(at, `s${at}`));
+    expect(compact({ log, comments: [] })).toEqual(["status: — → s1", "3 more changes", "status: — → s5"]);
+    // Three in a row: a fold would hide one line behind one line — no fold.
+    expect(compact({ log: log.slice(0, 3), comments: [] })).toHaveLength(3);
+    // The change at a comment's moment comes first; then the comment breaks the run.
+    expect(compact({ log, comments: [comment(1, 3)] })).toEqual([
+      "status: — → s1",
+      "status: — → s2",
+      "status: — → s3",
+      "c1",
+      "status: — → s4",
+      "status: — → s5",
+    ]);
+  });
+
+  it("rests compact, and opens whole from its heading", () => {
+    const log = [1, 2, 3, 4, 5].map((at) => change(at, `s${at}`));
+    const b = board([task({ id: "task-1", log })]);
+    const rest = taskDetailView(b.tasks[0], b, ROSTER, 0);
+    expect(rest.activity).toEqual({ label: "Activity", open: false });
+    expect(rest.feed.some((item) => item.kind === "more")).toBe(true);
+    const open = taskDetailView(b.tasks[0], b, ROSTER, 0, [], true);
+    expect(open.activity.open).toBe(true);
+    expect(open.feed).toHaveLength(5);
   });
 
   it("keys every item uniquely", () => {

@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { Combobox, Dropdown, StatusRing } from "@keepdeck/ui-kit";
+import { Combobox, DisclosureChevron, Dropdown, StatusRing } from "@keepdeck/ui-kit";
 import type { TaskPriority, TaskStatus } from "../../domain/tasks";
 import {
   DIALOG_WORDS,
@@ -29,6 +29,8 @@ interface TaskDetailProps {
   /** Whether the task fills the stage; the head offers the way there and back. */
   wide: boolean;
   onToggleWide(): void;
+  /** The history's heading: compact ⇄ whole. */
+  onToggleActivity(): void;
   onClose(): void;
   onMove(taskId: string, to: TaskStatus): void;
   onAssign(taskId: string, assignee: string): void;
@@ -51,6 +53,7 @@ export function TaskDetail({
   view,
   wide,
   onToggleWide,
+  onToggleActivity,
   onClose,
   onMove,
   onAssign,
@@ -258,7 +261,15 @@ export function TaskDetail({
             <p className="tasks__body kd-selectable">{view.body}</p>
           )}
 
-          <span className="tasks__section">{TASK_DETAIL_WORDS.activity}</span>
+          <button
+            type="button"
+            className="tasks__section tasks__section--toggle"
+            aria-expanded={view.activity.open}
+            onClick={onToggleActivity}
+          >
+            {view.activity.label}
+            <DisclosureChevron open={view.activity.open} />
+          </button>
           {view.feedEmpty && <p className="tasks__muted">{view.feedEmpty}</p>}
           {view.feedTrimmed && <p className="tasks__muted">{view.feedTrimmed}</p>}
           <ul className="tasks__feed">
@@ -270,8 +281,15 @@ export function TaskDetail({
                   </span>
                   <span className="tasks__comment-body kd-selectable">{item.body}</span>
                 </li>
-              ) : (
+              ) : item.kind === "change" ? (
                 <FeedChangeLine key={item.key} change={item} />
+              ) : (
+                // A fold opens the whole history, as the heading does.
+                <li key={item.key} className="tasks__log">
+                  <button type="button" className="tasks__feed-more" onClick={onToggleActivity}>
+                    {item.label}
+                  </button>
+                </li>
               ),
             )}
           </ul>

@@ -28,6 +28,9 @@ export interface ScreenState {
   hover: TaskStatus | null;
   /** The list's folded groups — a reading posture for the dialog's life. */
   folded: ReadonlySet<TaskStatus>;
+  /** The open task's history shown whole, not compact — a reading
+   * posture for the dialog's life, kept from task to task. */
+  activityOpen: boolean;
   /** What the views narrow to, and the team whose board it was set on —
    * read through [`queryOn`]: another team's board shows unnarrowed, its
    * labels being its own, however it came on screen (a pick, or a link to
@@ -44,6 +47,7 @@ export const INITIAL_SCREEN: ScreenState = {
   folded: FOLDED_AT_OPEN,
   query: NO_QUERY,
   queryTeam: null,
+  activityOpen: false,
 };
 
 /** The screen a dialog opens on: the team the stage has open is the
@@ -73,6 +77,8 @@ export type ScreenAction =
    * row is seen where it went rather than vanishing into a fold. A drop on
    * the board leaves the list's folds alone. */
   | { type: "dropped"; status: TaskStatus; view: TrackerView }
+  /** The history's heading: compact ⇄ whole. */
+  | { type: "toggleActivity" }
   /** The toolbar's Blocked toggle. */
   | { type: "blockedOnly" }
   /** A label to narrow to; null, or the one already narrowing, widens. */
@@ -146,6 +152,8 @@ function step(state: ScreenState, action: ScreenAction): ScreenOutcome {
       if (action.view !== "list" || !state.folded.has(action.status)) return { state };
       return { state: { ...state, folded: toggleFold(state.folded, action.status) } };
     }
+    case "toggleActivity":
+      return { state: { ...state, activityOpen: !state.activityOpen } };
     case "blockedOnly": {
       const query = queryOn(state, state.chosenTeam);
       return { state: { ...state, query: { ...query, blockedOnly: !query.blockedOnly }, queryTeam: state.chosenTeam } };

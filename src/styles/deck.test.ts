@@ -216,7 +216,8 @@ describe("the workspace strip's open column", () => {
     // behind drifts the moment the clock changes.
     const curve = `${STRIP_MOTION_MS}ms cubic-bezier(0.33, 1, 0.68, 1)`;
     expect(ruleBody(strip, ".strip__col").transition).toContain(`box-shadow ${curve}`);
-    expect(ruleBody(strip, ".strip__toggle svg").transition).toBe(`transform ${curve}`);
+    // The chevron is the house's (base.css .kd-chevron), on this clock too.
+    expect(ruleBody(readStyles("base.css"), ".kd-chevron").transition).toBe(`transform ${curve}`);
   });
 
   it("widens on the clock its team lists move on, so the edge and a list arrive together", () => {
@@ -239,7 +240,7 @@ describe("the workspace strip's open column", () => {
   });
 
   it("rests the chevron's turn under reduced motion, with the strip's other motion", () => {
-    expect(strip).toMatch(/prefers-reduced-motion: reduce\)\s*\{[^}]*\.strip__toggle svg[^}]*transition: none/);
+    expect(readStyles("base.css")).toMatch(/prefers-reduced-motion: reduce\)\s*\{[^}]*\.kd-chevron[^}]*transition: none/);
   });
 
   it("leaves a workspace's group unpositioned, so the reorder measures through the list", () => {

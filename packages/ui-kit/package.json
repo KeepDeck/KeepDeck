@@ -14,6 +14,7 @@
     "./ProgressRing": "./src/ProgressRing.tsx",
     "./StatusRing": "./src/StatusRing.tsx",
     "./Segmented": "./src/Segmented.tsx",
+    "./DisclosureChevron": "./src/DisclosureChevron.tsx",
     "./icons": "./src/icons.tsx",
     "./Dropdown": "./src/Dropdown.tsx",
     "./Combobox": "./src/Combobox.tsx",
