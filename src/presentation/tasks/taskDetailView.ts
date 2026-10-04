@@ -115,6 +115,8 @@ export const TASK_DETAIL_WORDS = {
   labelsFull: (max: number) => `${max} labels — take one off to add another`,
   activity: "Activity",
   moreChanges: (n: number) => `${n} more ${n === 1 ? "change" : "changes"}`,
+  labelAdded: (label: string) => `added label ${label}`,
+  labelRemoved: (label: string) => `removed label ${label}`,
   feedTrimmed: (changes: number, comments: number) =>
     `This task's history is at the board's limit — it keeps only the last ${changes} changes and ${comments} comments`,
   detach: "Detach",
@@ -242,7 +244,10 @@ export function feedOf(task: Pick<Task, "comments" | "log">, now: number): FeedI
     return n === 0 ? base : `${base}-${n}`;
   };
   const timeline = [
-    ...task.log.map((entry) => ({ at: entry.at, order: 0, item: changeItem(entry, keyOf(entry), now) as FeedItem })),
+    ...task.log.flatMap((entry) => {
+      const key = keyOf(entry);
+      return changeItems(entry, key, now).map((item) => ({ at: entry.at, order: 0, item: item as FeedItem }));
+    }),
     ...task.comments.map((comment) => ({
       at: comment.at,
       order: 1,
@@ -283,15 +288,33 @@ export function feedOf(task: Pick<Task, "comments" | "log">, now: number): FeedI
   return feed;
 }
 
-function changeItem(entry: Task["log"][number], key: string, now: number): FeedChange {
-  return {
+/** What one log entry says in the timeline — usually one line. A labels
+ * entry holds the set before and after; the timeline says what moved: a
+ * line per label put on or taken off ("added label ui"), never the two
+ * sets side by side. */
+function changeItems(entry: Task["log"][number], key: string, now: number): FeedChange[] {
+  const line = (text: string, suffix = ""): FeedChange => ({
     kind: "change",
-    key,
+    key: key + suffix,
     who: personName(entry.from),
-    text:
-      entry.field === "body"
-        ? `edited the brief (the previous version is kept in the log: ${entry.was?.length ?? 0} characters)`
-        : `${entry.field}: ${entry.was ?? "—"} → ${entry.now ?? "—"}`,
+    text,
     age: formatAge(entry.at, now),
-  };
+  });
+  if (entry.field === "labels") {
+    const before = labelSet(entry.was);
+    const after = labelSet(entry.now);
+    return [
+      ...after.filter((label) => !before.includes(label)).map((label) => line(TASK_DETAIL_WORDS.labelAdded(label), `+${label}`)),
+      ...before.filter((label) => !after.includes(label)).map((label) => line(TASK_DETAIL_WORDS.labelRemoved(label), `-${label}`)),
+    ];
+  }
+  if (entry.field === "body") {
+    return [line(`edited the brief (the previous version is kept in the log: ${entry.was?.length ?? 0} characters)`)];
+  }
+  return [line(`${entry.field}: ${entry.was ?? "—"} → ${entry.now ?? "—"}`)];
+}
+
+/** A logged label set ("a,b"; null for none) as its labels. */
+function labelSet(joined: string | null): string[] {
+  return joined === null ? [] : joined.split(",");
 }

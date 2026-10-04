@@ -346,6 +346,16 @@ describe("feedOf — a task's history as one timeline", () => {
     expect(new Set(twins.map((item) => item.key)).size).toBe(2);
   });
 
+  it("says a label put on or taken off, one line each — not the sets before and after", () => {
+    const labels = (at: number, was: string | null, now: string | null) => ({ at, from: "lead", field: "labels" as const, was, now });
+    expect(shape({ log: [labels(1, null, "ui")], comments: [] })).toEqual(["added label ui"]);
+    expect(shape({ log: [labels(1, "test", null)], comments: [] })).toEqual(["removed label test"]);
+    // One entry that swapped a set (an agent's replace) says each move.
+    expect(shape({ log: [labels(1, "a,b", "b,c")], comments: [] })).toEqual(["added label c", "removed label a"]);
+    const feed = feedOf({ log: [labels(1, "a,b", "b,c")], comments: [] }, 0);
+    expect(new Set(feed.map((item) => item.key)).size).toBe(2);
+  });
+
   it("keeps a change's key as the log is cut from the front at its cap", () => {
     const log = [1, 2, 3, 4, 5].map((at) => change(at, `s${at}`));
     const keyOf = (feed: ReturnType<typeof feedOf>, text: string) =>
