@@ -365,7 +365,7 @@ describe("TasksDialog", () => {
     const state = service.peek("ws-1");
     expect(state?.kind === "ready" && state.board.tasks.length).toBe(count + 1);
     const copy = state?.kind === "ready" ? state.board.tasks[state.board.tasks.length - 1] : null;
-    expect(copy?.title).toBe("Draft the skill");
+    expect(copy?.title).toBe("(copy) Draft the skill");
     expect(copy?.assignee).toBeNull();
     expect(focus).toBe(copy?.id);
   });
@@ -388,6 +388,38 @@ describe("TasksDialog", () => {
     const state = service.peek("ws-1");
     expect(state?.kind === "ready" && state.board.tasks.find((t) => t.id === "task-1")?.teamId).toBe("team-2");
     expect(focus).toBeNull();
+  });
+
+  it("renames the open task in place — a double click on its title, or Rename in its menu", async () => {
+    const { service } = await seeded();
+    focus = "task-1";
+    const render = mount(service);
+    render();
+    await flush();
+    const panel = () => document.querySelector('aside[aria-label="Task task-1"]')!;
+    const typeAndEnter = (text: string) => {
+      const field = panel().querySelector<HTMLInputElement>(".tasks__detail-title-edit")!;
+      act(() => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(field, text);
+        field.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      act(() => void field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+    };
+    const titleOf = () => {
+      const state = service.peek("ws-1");
+      return state?.kind === "ready" ? state.board.tasks.find((t) => t.id === "task-1")?.title : null;
+    };
+    act(() => void panel().querySelector(".tasks__detail-title")!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+    typeAndEnter("Draft the skill, again");
+    await flush();
+    expect(titleOf()).toBe("Draft the skill, again");
+    render();
+    await flush();
+    act(() => panel().querySelector<HTMLButtonElement>('button[aria-label="More for task-1"]')!.click());
+    act(() => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find((b) => b.textContent?.includes("Rename"))!.click());
+    typeAndEnter("Draft it");
+    await flush();
+    expect(titleOf()).toBe("Draft it");
   });
 
   it("creates a task from the form as the user and opens it", async () => {

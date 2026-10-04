@@ -15,6 +15,7 @@ import {
   pickedArtifact,
   pickedStatus,
   taskDetailClassName,
+  renamedTitle,
   typeDraft,
   type FeedChange,
   type TaskAction,
@@ -25,6 +26,8 @@ import { TipButton } from "../../ui/TipButton";
 import { CloseIcon, MaximizeIcon, RestoreIcon } from "@keepdeck/ui-kit/icons";
 import { RemoveButton } from "../../ui/RemoveButton";
 import { ConfirmDialog } from "../../ui/ConfirmDialog";
+import { RenameInput } from "../../ui/RenameInput";
+import { useInlineRename } from "../../ui/useInlineRename";
 import { useGrowingField } from "../../ui/useGrowingField";
 
 interface TaskDetailProps {
@@ -38,6 +41,8 @@ interface TaskDetailProps {
   copying: boolean;
   /** Hand this task to another team. */
   onTransfer(taskId: string, teamId: string): void;
+  /** Give the task a new title. */
+  onRename(taskId: string, title: string): void;
   /** The activity's heading: shut ⇄ open. */
   onToggleActivity(): void;
   onClose(): void;
@@ -65,6 +70,7 @@ export function TaskDetail({
   onDuplicate,
   copying,
   onTransfer,
+  onRename,
   onToggleActivity,
   onClose,
   onMove,
@@ -83,7 +89,14 @@ export function TaskDetail({
   const [transferTo, setTransferTo] = useState<string | null>(null);
   // The copy's confirm, open or not: a stray click must not make a task.
   const [duplicating, setDuplicating] = useState(false);
+  // The title edits in place — a double click on it, or Rename in the menu —
+  // by the house's one inline-rename behaviour.
+  const rename = useInlineRename((taskId, typed) => {
+    const title = renamedTitle(view.title, typed);
+    if (title !== null) onRename(taskId, title);
+  });
   const actionOf: Record<TaskAction["id"], () => void> = {
+    rename: () => rename.start(view.id, view.title),
     duplicate: () => setDuplicating(true),
     transfer: () => setTransferTo(view.transfer.options[0]?.value ?? null),
   };
@@ -150,9 +163,17 @@ export function TaskDetail({
             </TipButton>
           </span>
         </div>
-        <h3 className="tasks__detail-title kd-selectable" dir="auto">
-          {view.title}
-        </h3>
+        {rename.editing === view.id ? (
+          <RenameInput rename={rename} className="tasks__detail-title-edit" label={TASK_DETAIL_WORDS.renameField} />
+        ) : (
+          <h3
+            className="tasks__detail-title kd-selectable"
+            dir="auto"
+            onDoubleClick={() => rename.start(view.id, view.title)}
+          >
+            {view.title}
+          </h3>
+        )}
         {duplicating && (
           <ConfirmDialog
             title={view.duplicate.title}

@@ -691,7 +691,7 @@ export function duplicateTask(
   const made = createTask(
     {
       teamId: source.teamId,
-      title: source.title,
+      title: copyTitle(source.title),
       body: source.body,
       assignee: null,
       priority,
@@ -721,6 +721,17 @@ export function duplicateTask(
   ];
   return { ok: true, board: replaceTask(replaceTask(made.board, copy), original), task: copy, source: original, notCarried };
 }
+
+/** A copy's title: the source's, marked `(copy) ` at its start — so the
+ * two read apart on the board — and cut at its end (with "…") when the
+ * mark would carry it past the cap. */
+export function copyTitle(title: string): string {
+  const marked = `${COPY_MARK}${title.trim()}`;
+  if (keptLength("title", marked) <= TASK_CAPS.titleMax) return marked;
+  return `${[...marked].slice(0, TASK_CAPS.titleMax - 1).join("").trimEnd()}…`;
+}
+
+const COPY_MARK = "(copy) ";
 
 /** What a copy left at its default, and what the source had there. */
 export type NotCarried = { field: "priority" | "labels"; was: string };

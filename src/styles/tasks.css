@@ -710,6 +710,16 @@
   }
 }
 
+/* The title, edited in place: the house rename field (rename.css), the
+   title's size and the head's width. */
+.tasks__detail-title-edit {
+  box-sizing: border-box;
+  width: 100%;
+  margin-top: 6px;
+  font-size: var(--kd-font-title);
+  font-weight: 600;
+}
+
 /* The transfer dialog's team pick, above its message's answers. */
 .tasks__transfer-pick {
   display: flex;

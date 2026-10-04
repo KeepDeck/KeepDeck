@@ -118,7 +118,7 @@ export interface FeedChange {
 /** An action the task's menu offers — the component binds each to its
  * intent. A refused one is shown, greyed, with why. */
 export interface TaskAction {
-  id: "duplicate" | "transfer";
+  id: "rename" | "duplicate" | "transfer";
   label: string;
   refusal: string | null;
 }
@@ -150,6 +150,8 @@ export const TASK_DETAIL_WORDS = {
   copiedFrom: (id: string) => `copied from ${id}`,
   copiedTo: (id: string) => `copied to ${id}`,
   transferred: (from: string, to: string) => `moved from ${from} to ${to}`,
+  rename: "Rename",
+  renameField: "Task title",
   duplicate: "Duplicate",
   duplicateTitle: (id: string) => `Duplicate ${id}`,
   duplicateMessage: (where: string) =>
@@ -266,6 +268,7 @@ export function taskDetailView(
     menu: {
       label: TASK_DETAIL_WORDS.menu(task.id),
       actions: [
+        { id: "rename", label: TASK_DETAIL_WORDS.rename, refusal: null },
         { id: "duplicate", label: TASK_DETAIL_WORDS.duplicate, refusal: null },
         { id: "transfer", label: TASK_DETAIL_WORDS.transfer, refusal: transferRefusal(task, board, others.length) },
       ],
@@ -293,6 +296,14 @@ export function taskDetailView(
       task.comments.length >= TASK_CAPS.commentsMax ? TASK_DETAIL_WORDS.trimmed(TASK_CAPS.commentsMax, "comments") : null,
     changesTrimmed: task.log.length >= TASK_CAPS.logMax ? TASK_DETAIL_WORDS.trimmed(TASK_CAPS.logMax, "changes") : null,
   };
+}
+
+/** The title a rename commits, or null when there is nothing to change:
+ * the typed text trimmed — empty keeps the title (a task has no automatic
+ * name to fall back to), and the same title is no edit. */
+export function renamedTitle(current: string, typed: string): string | null {
+  const title = typed.trim();
+  return title === "" || title === current ? null : title;
 }
 
 /** Why the person may not hand this task to another team now, in words —

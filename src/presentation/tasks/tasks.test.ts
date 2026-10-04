@@ -6,7 +6,7 @@ import { NO_QUERY } from "./queryView";
 import { LADDER_WORDS, tasksLadder } from "./ladderView";
 import { newTaskFormView, NEW_TASK_WORDS } from "./newTaskFormView";
 import { statusMark, statusRing, taskCardView, taskCardClassName } from "./taskCardView";
-import { TASK_DETAIL_WORDS, changesOf, commentsOf, pickedArtifact, pickedStatus, taskDetailClassName, taskDetailView } from "./taskDetailView";
+import { TASK_DETAIL_WORDS, changesOf, commentsOf, renamedTitle, pickedArtifact, pickedStatus, taskDetailClassName, taskDetailView } from "./taskDetailView";
 import { teamCardTasksLine } from "./teamCardTasksLine";
 import { teamOnScreen } from "./teamOnScreen";
 import { fieldCount, personName, priorityMark, statusTone, FIELD_WORDS, POOL_CHOICE } from "./words";
@@ -340,6 +340,7 @@ describe("commentsOf / changesOf — what was said, and what was changed, apart"
     expect(view.menu).toEqual({
       label: "More for task-4",
       actions: [
+        { id: "rename", label: "Rename", refusal: null },
         { id: "duplicate", label: "Duplicate", refusal: null },
         { id: "transfer", label: "Transfer", refusal: null },
       ],
@@ -352,11 +353,17 @@ describe("commentsOf / changesOf — what was said, and what was changed, apart"
     // Only the other teams are offered.
     expect(view.transfer.options).toEqual([{ value: "team-2", label: "web" }]);
     const refusal = (t: typeof b.tasks[number], within = teams) =>
-      taskDetailView(t, b, ROSTER, 0, [], false, within).menu.actions[1].refusal;
+      taskDetailView(t, b, ROSTER, 0, [], false, within).menu.actions[2].refusal;
     expect(refusal(b.tasks[0], [teams[0]])).toBe("No other team in this workspace");
     expect(refusal(b.tasks[1])).toContain("done task stays where it is");
     const linked = board([task({ id: "task-4" }), task({ id: "task-6", blockedBy: ["task-4"] })]);
-    expect(taskDetailView(linked.tasks[0], linked, ROSTER, 0, [], false, teams).menu.actions[1].refusal).toContain("task-6 waits on it");
+    expect(taskDetailView(linked.tasks[0], linked, ROSTER, 0, [], false, teams).menu.actions[2].refusal).toContain("task-6 waits on it");
+  });
+
+  it("renames to the typed title — nothing for an empty one or the same one", () => {
+    expect(renamedTitle("Draft", "  Draft the skill ")).toBe("Draft the skill");
+    expect(renamedTitle("Draft", "   ")).toBeNull();
+    expect(renamedTitle("Draft", " Draft ")).toBeNull();
   });
 
   it("says a transfer in words, by the teams' names", () => {

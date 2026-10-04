@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TASK_CAPS, USER_ACTOR, blockerResolved, inLadderOrder, isOpen, type TaskActor, type TaskStatus } from "./model";
-import { addLabel, attachArtifact, createTask, detachArtifact, duplicateTask, transferTask, removeLabel, reachableStatuses, transition, type TaskChange, type TaskRefusal } from "./transition";
+import { addLabel, attachArtifact, copyTitle, createTask, detachArtifact, duplicateTask, transferTask, removeLabel, reachableStatuses, transition, type TaskChange, type TaskRefusal } from "./transition";
 import { ROSTER, board, impl1, lead, noTeam, peer1, stranger, task } from "./testSupport";
 
 const ctx = (tasks = [task({ id: "task-1" })]) => ({ board: board(tasks), roster: ROSTER, at: 5_000 });
@@ -587,7 +587,8 @@ describe("duplicateTask — a fresh copy, its own history", () => {
     const made = at(lead);
     if (!made.ok) throw new Error("refused");
     expect(made.task).toMatchObject({
-      title: "Draft the copy",
+      // Marked, so the two read apart on the board.
+      title: "(copy) Draft the copy",
       body: "the brief",
       priority: "high",
       assignee: null,
@@ -607,6 +608,14 @@ describe("duplicateTask — a fresh copy, its own history", () => {
     // Nearly a read: the source's date stays, so an old task is not lifted.
     expect(made.source.updated).toBe(source.updated);
     expect(made.notCarried).toEqual([]);
+  });
+
+  it("marks a copy's title, cutting its end with an ellipsis where the mark would pass the cap", () => {
+    expect(copyTitle("Draft")).toBe("(copy) Draft");
+    const full = copyTitle("x".repeat(TASK_CAPS.titleMax));
+    expect([...full]).toHaveLength(TASK_CAPS.titleMax);
+    expect(full.startsWith("(copy) x")).toBe(true);
+    expect(full.endsWith("…")).toBe(true);
   });
 
   it("parks the copy of a parked task", () => {
