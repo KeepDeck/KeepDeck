@@ -101,6 +101,24 @@ export function TaskDetail({
         <div className="tasks__detail-line">
           <StatusRing {...view.statusRing} />
           <span className="tasks__detail-meta kd-one-line">{view.meta}</span>
+          {/* The task's own menu stands with what names the task — its id
+              and state, as Linear's beside the issue key — apart from the
+              window's controls at the line's end. Bordered, not ghost: a
+              ghost glyph went unseen. */}
+          <MenuButton
+            variant="secondary"
+            size="sm"
+            className="tasks__detail-menu"
+            ariaLabel={view.menu.label}
+            actions={view.menu.actions.map((action) => ({
+              id: action.id,
+              label: action.label,
+              disabled: copying,
+              onSelect: () => onDuplicate(view.id),
+            }))}
+          >
+            ⋯
+          </MenuButton>
           <span className="tasks__detail-tools">
             {/* An icon, explained by its tip — beside the close, its kin. */}
             <TipButton
@@ -117,29 +135,9 @@ export function TaskDetail({
             </TipButton>
           </span>
         </div>
-        {/* The task's own menu stands with the task — beside its title,
-            not among the window's controls above. */}
-        <div className="tasks__detail-titleline">
-          <h3 className="tasks__detail-title kd-selectable" dir="auto">
-            {view.title}
-          </h3>
-          {/* A bordered button, not chrome: it is the task's actions, and a
-              ghost glyph beside a heading went unseen. */}
-          <MenuButton
-            variant="secondary"
-            size="sm"
-            className="tasks__detail-menu"
-            ariaLabel={view.menu.label}
-            actions={view.menu.actions.map((action) => ({
-              id: action.id,
-              label: action.label,
-              disabled: copying,
-              onSelect: () => onDuplicate(view.id),
-            }))}
-          >
-            ⋯
-          </MenuButton>
-        </div>
+        <h3 className="tasks__detail-title kd-selectable" dir="auto">
+          {view.title}
+        </h3>
       </header>
 
       <div className="tasks__detail-body">

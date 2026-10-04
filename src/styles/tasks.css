@@ -710,20 +710,6 @@
   }
 }
 
-/* The title and the task's menu: the menu on the title's first line. */
-.tasks__detail-titleline {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  margin-top: 6px;
-}
-
-.tasks__detail-titleline > .tasks__detail-title {
-  flex: 1;
-  min-width: 0;
-  margin: 0;
-}
-
 /* The open task's title, whole — never clamped: it is where the full
    title is read. A long unbroken run breaks rather than widen the card. */
 .tasks__detail-title {
@@ -736,7 +722,9 @@
 }
 
 .tasks__detail-meta {
-  flex: 1;
+  /* As wide as its words, so the task's menu follows them; the window's
+     controls take the line's end (margin-left: auto). */
+  flex: 0 1 auto;
   min-width: 0;
   color: var(--kd-text-3);
   font-size: var(--kd-font-small);

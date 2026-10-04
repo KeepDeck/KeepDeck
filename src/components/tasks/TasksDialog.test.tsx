@@ -339,10 +339,10 @@ describe("TasksDialog", () => {
     const before = service.peek("ws-1");
     const count = before?.kind === "ready" ? before.board.tasks.length : 0;
     // Two presses before the first lands make ONE copy: a copy cannot be taken back.
-    // The task's menu stands by its title, not among the window's controls.
+    // The task's menu stands with its id and state, not among the window's controls.
     const menu = document.querySelector('aside[aria-label="Task task-1"] button[aria-label="More for task-1"]')!;
     expect(menu.closest(".tasks__detail-tools")).toBeNull();
-    expect(menu.closest(".tasks__detail-titleline")).not.toBeNull();
+    expect(menu.closest(".tasks__detail-line")).not.toBeNull();
     // Through the task's menu (⋯), opened again for the second press.
     const choose = () => {
       act(() => document.querySelector<HTMLButtonElement>('aside[aria-label="Task task-1"] button[aria-label="More for task-1"]')!.click());
