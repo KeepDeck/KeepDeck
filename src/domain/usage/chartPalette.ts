@@ -42,7 +42,9 @@ export const CHART_HEIGHT = 240;
 
 /** The stack's rounded cap, in px — half the chrome's mark radius
  * (`--kd-radius-mark`): a column is a few px wide, and the mark's 4px
- * domed it. tokens.test.ts holds the relation. */
+ * domed it. recharts clamps it to half the column's width and height, so
+ * the hourly view's narrowest columns and a 1–2px stack still round as far
+ * as they can — expected. tokens.test.ts holds the relation. */
 export const CHART_BAR_RADIUS = 2;
 
 /* Chart CHROME — grid, axes, inks, tooltip surfaces. Beside the series

@@ -113,7 +113,7 @@ export function UsageChart({
           {/* The stack is rounded as ONE column — its cap's corners, whatever
               segment happens to be on top, however thin: a per-segment
               radius left a sliver of a cap square on a square stack. */}
-          <BarStack stackId="tokens" radius={[CHART_BAR_RADIUS, CHART_BAR_RADIUS, 0, 0]}>
+          <BarStack radius={[CHART_BAR_RADIUS, CHART_BAR_RADIUS, 0, 0]}>
             {timeline.agents.map((agent) => (
               <Bar
                 key={agent}
