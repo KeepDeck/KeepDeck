@@ -131,3 +131,10 @@ describe("a board column's edge", () => {
     }
   });
 });
+
+describe("the label slot", () => {
+  it("drops its \"+ label\" offer once it has the keys", () => {
+    const css = readStyles("form.css");
+    expect(ruleBody(css, ".combobox--slot .combobox__input:focus::placeholder").color).toBe("transparent");
+  });
+});
