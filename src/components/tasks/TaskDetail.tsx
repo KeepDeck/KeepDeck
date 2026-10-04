@@ -123,8 +123,10 @@ export function TaskDetail({
           <h3 className="tasks__detail-title kd-selectable" dir="auto">
             {view.title}
           </h3>
+          {/* A bordered button, not chrome: it is the task's actions, and a
+              ghost glyph beside a heading went unseen. */}
           <MenuButton
-            variant="ghost"
+            variant="secondary"
             size="sm"
             className="tasks__detail-menu"
             ariaLabel={view.menu.label}
