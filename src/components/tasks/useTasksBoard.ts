@@ -163,6 +163,10 @@ export function useTasksBoard(
   };
   const dragEndedAt = useRef<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // A copy on its way: the ref answers a second press at once, the state
+  // shows the Duplicate control as busy.
+  const duplicating = useRef(false);
+  const [copying, setCopying] = useState(false);
   // The board's posture — the view, the list's folds — is a setting, kept
   // across openings and launches (user); every change reads the latest
   // stored posture, so a change that lands later (a drop's move) never
@@ -393,15 +397,23 @@ export function useTasksBoard(
         .then(() => setError(null))
         .catch((e: unknown) => setError(describeError(e)));
     },
-    /** Copy a task as a fresh one and open the copy. */
+    /** Copy a task as a fresh one and open the copy — in the panel as it
+     * stands (wide stays wide). One copy per press: a second press while
+     * one is on its way does nothing, since a copy cannot be taken back. */
     duplicate: (taskId: string) => {
-      if (!service || workspaceId === null) return;
+      if (!service || workspaceId === null || duplicating.current) return;
+      duplicating.current = true;
+      setCopying(true);
       void write(async () => {
         const result = await service.duplicate(workspaceId, taskId, USER_ACTOR);
-        if (result.ok) run({ type: "created", id: result.task.id });
+        if (result.ok) run({ type: "card", id: result.task.id, open: null });
         return result;
+      }).finally(() => {
+        duplicating.current = false;
+        setCopying(false);
       });
     },
+    copying,
     create: async (input: Omit<CreateTaskInput, "teamId">) => {
       if (!service || workspaceId === null || teamId === null) return;
       await write(async () => {

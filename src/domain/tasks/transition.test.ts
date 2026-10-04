@@ -575,12 +575,13 @@ describe("duplicateTask — a fresh copy, its own history", () => {
     status: "review",
     labels: ["copy", "ui"],
     artifacts: ["kd-a"],
-    blockedBy: ["task-2"],
+    blockedBy: ["task-2", "task-3"],
     comments: [{ n: 1, at: 1, from: "lead", body: "go" }],
     log: [{ at: 1, from: "lead", field: "status", was: "todo", now: "in-progress" }],
   });
-  const blocker = task({ id: "task-2", status: "done" });
-  const at = (actor: TaskActor) => duplicateTask(source, actor, { ...ctx([source, blocker]), at: 9_000 });
+  const blocker = task({ id: "task-2", status: "in-progress" });
+  const resolved = task({ id: "task-3", status: "done" });
+  const at = (actor: TaskActor) => duplicateTask(source, actor, { ...ctx([source, blocker, resolved]), at: 9_000 });
 
   it("copies the work and none of its history, held by no one, in todo", () => {
     const made = at(lead);
@@ -593,6 +594,7 @@ describe("duplicateTask — a fresh copy, its own history", () => {
       status: "todo",
       labels: ["copy", "ui"],
       artifacts: ["kd-a"],
+      // Only the blockers that still hold: a done one holds nothing.
       blockedBy: ["task-2"],
       comments: [],
       teamId: source.teamId,
@@ -602,16 +604,24 @@ describe("duplicateTask — a fresh copy, its own history", () => {
     expect(made.task.log).toEqual([{ at: 9_000, from: "lead", field: "copiedFrom", was: null, now: "task-1" }]);
     expect(made.source.log[made.source.log.length - 1]).toEqual({ at: 9_000, from: "lead", field: "copiedTo", was: null, now: made.task.id });
     expect(made.board.tasks.find((t) => t.id === "task-1")).toBe(made.source);
+    // Nearly a read: the source's date stays, so an old task is not lifted.
+    expect(made.source.updated).toBe(source.updated);
+    expect(made.notCarried).toEqual([]);
   });
 
   it("parks the copy of a parked task", () => {
     const parked = { ...source, status: "backlog" as const };
-    const made = duplicateTask(parked, lead, ctx([parked, blocker]));
+    const made = duplicateTask(parked, lead, ctx([parked, blocker, resolved]));
     expect(made.ok && made.task.status).toBe("backlog");
   });
 
   it("keeps a working role's copy within what it may set: normal priority, no labels on a pool task", () => {
     const made = at(impl1);
     expect(made.ok && [made.task.priority, made.task.labels]).toEqual(["normal", []]);
+    // And says what it left, for whoever asked to tell them.
+    expect(made.ok && made.notCarried).toEqual([
+      { field: "priority", was: "high" },
+      { field: "labels", was: "copy,ui" },
+    ]);
   });
 });

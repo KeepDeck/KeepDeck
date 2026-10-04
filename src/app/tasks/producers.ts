@@ -34,6 +34,6 @@ export function announceTask(event: TaskEvent, deps: TaskProducerDeps): void {
 
 function wording(event: TaskEvent, team: string): TaskNotificationWords {
   return event.kind === "created"
-    ? createdWords(event.task, event.actor.kind === "agent" ? event.actor.role : null, team)
+    ? createdWords(event.task, event.actor.kind === "agent" ? event.actor.role : null, team, event.copiedFrom)
     : movedWords(event.task, event.from, team);
 }

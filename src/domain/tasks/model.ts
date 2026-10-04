@@ -86,7 +86,6 @@ export interface TaskComment {
   body: string;
 }
 
-/** One change to one field — the audit trail a human reads under a task. */
 /** What the log names: a field a change touched, or a copy's two ends —
  * `copiedFrom` on the copy, `copiedTo` on the task it was copied from
  * (`now` the other task's id). */
@@ -96,6 +95,7 @@ export type LogField = TaskField | "copiedFrom" | "copiedTo";
  * against. */
 export const LOG_FIELDS: readonly LogField[] = [...TASK_FIELDS, "copiedFrom", "copiedTo"];
 
+/** One change to one field — the audit trail a human reads under a task. */
 export interface TaskLogEntry {
   at: number;
   from: string;

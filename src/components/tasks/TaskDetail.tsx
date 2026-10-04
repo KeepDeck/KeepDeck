@@ -32,6 +32,8 @@ interface TaskDetailProps {
   onToggleWide(): void;
   /** Copy this task as a fresh one, and open the copy. */
   onDuplicate(taskId: string): void;
+  /** A copy is on its way: the control waits. */
+  copying: boolean;
   /** The activity's heading: shut ⇄ open. */
   onToggleActivity(): void;
   onClose(): void;
@@ -57,6 +59,7 @@ export function TaskDetail({
   wide,
   onToggleWide,
   onDuplicate,
+  copying,
   onToggleActivity,
   onClose,
   onMove,
@@ -99,7 +102,7 @@ export function TaskDetail({
           <StatusRing {...view.statusRing} />
           <span className="tasks__detail-meta kd-one-line">{view.meta}</span>
           <span className="tasks__detail-tools">
-            <TipButton size="sm" tip={TASK_DETAIL_WORDS.duplicate} onClick={() => onDuplicate(view.id)}>
+            <TipButton size="sm" tip={TASK_DETAIL_WORDS.duplicate} disabled={copying} onClick={() => onDuplicate(view.id)}>
               <CopyIcon />
             </TipButton>
             {/* An icon, explained by its tip — beside the close, its kin. */}

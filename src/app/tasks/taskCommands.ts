@@ -52,7 +52,7 @@ import {
   type TaskPriority,
   type TaskStatus,
 } from "../../domain/tasks";
-import { refusalText } from "./refusalText";
+import { notCarriedText, refusalText } from "./refusalText";
 import type { TaskResult, TasksService } from "./tasksService";
 
 export interface TaskCommandDeps {
@@ -268,22 +268,18 @@ function duplicateCommand(deps: TaskCommandDeps): CommandSpec {
       const team = teamFor(args, who);
       const board = await boardOf(deps, who.workspace.id);
       const original = visible(board, taskIdArg(args), team);
-      const { task, saved, saveError } = settled(await deps.tasks.duplicate(who.workspace.id, original.id, who.actor));
-      // What the create's rules kept from the copy, said — not dropped quietly.
-      const left = [
-        task.priority !== original.priority && `priority (${original.priority}) — yours to set is normal`,
-        task.labels.length < original.labels.length && "labels — a pool task's are the lead's to set",
-      ].filter(Boolean);
+      const result = await deps.tasks.duplicate(who.workspace.id, original.id, who.actor);
+      const { task, saved, saveError } = settled(result);
+      // What the create's rules left out is the domain's answer, said here.
+      const left = result.ok ? notCarriedText(result.notCarried) : null;
+      const where = task.status === "backlog" ? "parked in the team's backlog" : "in the team's pool";
       return {
         id: task.id,
         copiedFrom: original.id,
         status: task.status,
         priority: task.priority,
         saved,
-        note:
-          `copied from ${original.id}, in the team's pool` +
-          (left.length > 0 ? `; not carried over: ${left.join("; ")}` : "") +
-          unsavedNote(saved, saveError),
+        note: `copied from ${original.id}, ${where}` + (left ? `; ${left}` : "") + unsavedNote(saved, saveError),
       };
     },
   };

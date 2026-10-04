@@ -1,6 +1,6 @@
 import type { Workspace } from "../../domain/deck";
 import { leadRole } from "../../domain/mail";
-import type { DecodeFault } from "../../domain/tasks";
+import type { DecodeFault, NotCarried } from "../../domain/tasks";
 import type { TaskProblem, UnsavedBoard } from "./tasksService";
 
 /** Why an Off was refused: the boards the store would have closed over
@@ -39,6 +39,18 @@ export function decodeFaultText(fault: DecodeFault): string {
  * agent should have wanted. The ONE switch over the kinds; the domain
  * writes no English and the dialog renders the same kinds its own way.
  */
+/** What a copy left at its default, said to the agent that asked for it
+ * (task.duplicate), or null when it carried everything. */
+export function notCarriedText(left: readonly NotCarried[]): string | null {
+  if (left.length === 0) return null;
+  const said = left.map((item) =>
+    item.field === "priority"
+      ? `priority (${item.was}) — yours to set at creation is normal`
+      : `labels (${item.was}) — a pool task's are the lead's to set`,
+  );
+  return `not carried over: ${said.join("; ")}`;
+}
+
 export function refusalText(refusal: TaskProblem): string {
   const lead = leadRole().id;
   switch (refusal.kind) {

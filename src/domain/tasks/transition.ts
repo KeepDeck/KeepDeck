@@ -16,6 +16,7 @@ import {
   TASK_STATUSES,
   acceptsWork,
   actorName,
+  blockerResolved,
   type Task,
   type TaskActor,
   type TaskBoard,
@@ -650,7 +651,6 @@ export function createTask(
   };
 }
 
-/** The board with `task` in place of the one that shares its id. */
 /**
  * A copy of `source`, made as a fresh task: its title, brief, priority,
  * labels, artifacts and blockers, on its team, in todo — or in the
@@ -662,23 +662,36 @@ export function createTask(
  * By the create's own rules (`createTask`): what the actor may not set at
  * creation is left at its default rather than refusing the copy — a
  * working role's copy is at normal priority, and carries labels only when
- * the actor could label a pool task (whoever hands out work).
+ * the actor could label a pool task (whoever hands out work) — and what
+ * was left is answered (`notCarried`), for whoever asked to say so.
+ *
+ * Its blockers are the source's that still hold — a blocker done,
+ * cancelled or gone holds nothing, and a copy is new work. A copy is
+ * nearly a read of the source: the source's log records it, but its
+ * `updated` stays — copying an old task must not bring it to the top.
  */
 export function duplicateTask(
   source: Task,
   actor: TaskActor,
   ctx: TransitionContext,
-): { ok: true; board: TaskBoard; task: Task; source: Task } | { ok: false; refusal: TaskRefusal } {
+):
+  | { ok: true; board: TaskBoard; task: Task; source: Task; notCarried: NotCarried[] }
+  | { ok: false; refusal: TaskRefusal } {
+  const priority = mayAssign(actor) ? source.priority : DEFAULT_PRIORITY;
+  const labels = mayLabel(actor, { assignee: null }) ? source.labels : [];
   const made = createTask(
     {
       teamId: source.teamId,
       title: source.title,
       body: source.body,
       assignee: null,
-      priority: mayAssign(actor) ? source.priority : DEFAULT_PRIORITY,
-      blockedBy: source.blockedBy,
+      priority,
+      blockedBy: source.blockedBy.filter((id) => {
+        const blocker = findTask(ctx.board, id);
+        return blocker !== undefined && !blockerResolved(blocker.status);
+      }),
       artifacts: source.artifacts,
-      labels: mayLabel(actor, { assignee: null }) ? source.labels : [],
+      labels,
       status: source.status === "backlog" ? "backlog" : "todo",
     },
     actor,
@@ -687,10 +700,23 @@ export function duplicateTask(
   if (!made.ok) return made;
   const by = actorName(actor) ?? "";
   const copy = logged(made.task, [{ at: ctx.at, from: by, field: "copiedFrom", was: null, now: source.id }], ctx.at, {});
-  const original = logged(source, [{ at: ctx.at, from: by, field: "copiedTo", was: null, now: copy.id }], ctx.at, {});
-  return { ok: true, board: replaceTask(replaceTask(made.board, copy), original), task: copy, source: original };
+  const original = logged(
+    source,
+    [{ at: ctx.at, from: by, field: "copiedTo", was: null, now: copy.id }],
+    source.updated,
+    {},
+  );
+  const notCarried: NotCarried[] = [
+    ...(priority !== source.priority ? [{ field: "priority" as const, was: source.priority }] : []),
+    ...(labels.length < source.labels.length ? [{ field: "labels" as const, was: source.labels.join(",") }] : []),
+  ];
+  return { ok: true, board: replaceTask(replaceTask(made.board, copy), original), task: copy, source: original, notCarried };
 }
 
+/** What a copy left at its default, and what the source had there. */
+export type NotCarried = { field: "priority" | "labels"; was: string };
+
+/** The board with `task` in place of the one that shares its id. */
 export function replaceTask(board: TaskBoard, task: Task): TaskBoard {
   return {
     nextId: board.nextId,

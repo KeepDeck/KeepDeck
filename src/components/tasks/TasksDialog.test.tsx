@@ -336,9 +336,17 @@ describe("TasksDialog", () => {
     focus = "task-1";
     mount(service)();
     await flush();
-    act(() => document.querySelector<HTMLButtonElement>('aside[aria-label="Task task-1"] button[aria-label="Duplicate"]')!.click());
+    const before = service.peek("ws-1");
+    const count = before?.kind === "ready" ? before.board.tasks.length : 0;
+    // Two presses before the first lands make ONE copy: a copy cannot be taken back.
+    act(() => {
+      const press = () => document.querySelector<HTMLButtonElement>('aside[aria-label="Task task-1"] button[aria-label="Duplicate"]')!.click();
+      press();
+      press();
+    });
     await flush();
     const state = service.peek("ws-1");
+    expect(state?.kind === "ready" && state.board.tasks.length).toBe(count + 1);
     const copy = state?.kind === "ready" ? state.board.tasks[state.board.tasks.length - 1] : null;
     expect(copy?.title).toBe("Draft the skill");
     expect(copy?.assignee).toBeNull();

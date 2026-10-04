@@ -84,6 +84,11 @@ describe("task commands", () => {
     expect(mine.note).toContain("labels");
     const original = await run("task.get", { id: "task-1" }, LEAD);
     expect(JSON.stringify(original)).toContain("copiedTo");
+    // Where the copy went is said as it is: a parked source's copy is parked.
+    await run("task.update", { id: "task-1", status: "backlog" }, LEAD);
+    const parked = await run("task.duplicate", { id: "task-1" }, LEAD);
+    expect(parked.note).toContain("parked in the team's backlog");
+    expect(parked.note).not.toContain("pool");
   });
 
   it("refuses a title past its cap in words an agent can act on", async () => {

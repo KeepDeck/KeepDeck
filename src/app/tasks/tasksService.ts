@@ -25,6 +25,7 @@ import {
   createTask,
   decodeBoard,
   duplicateTask,
+  type NotCarried,
   encodeBoard,
   findTask,
   keepTeams,
@@ -117,7 +118,12 @@ export type TaskEvent = {
   workspaceId: string;
   task: Task;
   actor: TaskActor;
-} & ({ kind: "created" } | { kind: "moved"; from: TaskStatus });
+} & ({ kind: "created"; copiedFrom?: string } | { kind: "moved"; from: TaskStatus });
+
+/** A duplicate's answer: the copy, and what it left at its default. */
+export type DuplicateResult =
+  | (Extract<TaskResult, { ok: true }> & { notCarried: readonly NotCarried[] })
+  | Extract<TaskResult, { ok: false }>;
 
 export interface TasksService {
   /** One workspace's board as held here. Asking for a board nobody asked
@@ -136,7 +142,7 @@ export interface TasksService {
   create(workspaceId: string, input: CreateTaskInput, actor: TaskActor): Promise<TaskResult>;
   /** Copy `taskId` as a fresh task (`duplicateTask`): the copy is the
    * result's task; both tasks' logs say so. */
-  duplicate(workspaceId: string, taskId: string, actor: TaskActor): Promise<TaskResult>;
+  duplicate(workspaceId: string, taskId: string, actor: TaskActor): Promise<DuplicateResult>;
   /** Apply `changes` in order, all or nothing: a refusal anywhere leaves
    * the board as it was and writes nothing. */
   apply(
@@ -364,6 +370,22 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
     if (kept !== state.board) void commit(workspaceId, kept);
   };
 
+
+  /** A task that joined the board — made, or copied: the write, the
+   * announcement, and the answer, said once for both. */
+  async function commitCreated(
+    workspaceId: string,
+    board: TaskBoard,
+    task: Task,
+    actor: TaskActor,
+    copiedFrom?: string,
+  ): Promise<Extract<TaskResult, { ok: true }>> {
+    const pending = commit(workspaceId, board);
+    emit({ kind: "created", workspaceId, task, actor, ...(copiedFrom === undefined ? {} : { copiedFrom }) });
+    const saveError = await pending;
+    return { ok: true, task, board, saved: saveError === null, saveError };
+  }
+
   return {
     board(workspaceId) {
       const state = states.get(workspaceId);
@@ -401,10 +423,7 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
         at: now(),
       });
       if (!result.ok) return result;
-      const pending = commit(workspaceId, result.board);
-      emit({ kind: "created", workspaceId, task: result.task, actor });
-      const saveError = await pending;
-      return { ok: true, task: result.task, board: result.board, saved: saveError === null, saveError };
+      return commitCreated(workspaceId, result.board, result.task, actor);
     },
     async duplicate(workspaceId, taskId, actor) {
       await load(workspaceId);
@@ -419,10 +438,8 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
         at: now(),
       });
       if (!result.ok) return result;
-      const pending = commit(workspaceId, result.board);
-      emit({ kind: "created", workspaceId, task: result.task, actor });
-      const saveError = await pending;
-      return { ok: true, task: result.task, board: result.board, saved: saveError === null, saveError };
+      const made = await commitCreated(workspaceId, result.board, result.task, actor, source.id);
+      return { ...made, notCarried: result.notCarried };
     },
     async apply(workspaceId, taskId, changes, actor) {
       await load(workspaceId);

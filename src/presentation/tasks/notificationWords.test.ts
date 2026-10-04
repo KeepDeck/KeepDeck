@@ -7,6 +7,8 @@ describe("the board's notification words", () => {
     expect(createdWords(task({ id: "task-1", title: "Idea" }), "impl-1", "web").title).toBe("impl-1 put a task on web's board");
     expect(createdWords(task({ id: "task-1", status: "backlog" }), "impl-1", "web").title).toBe("impl-1 parked a task in web's backlog");
     expect(createdWords(task({ id: "task-1" }), null, "web").title).toBe("an agent put a task on web's board");
+    // A copy says what it is a copy of.
+    expect(createdWords(task({ id: "task-9" }), "impl-1", "web", "task-1").title).toBe("impl-1 put a copy of task-1 on web's board");
   });
 
   it("names each move by where it went, and where it came from where that matters", () => {
