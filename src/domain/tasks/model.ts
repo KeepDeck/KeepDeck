@@ -182,9 +182,12 @@ export type RelationKind = "blocks" | "copied-from";
 /** What a kind of link IS — the one place each rule about it lives: the
  * gate, the transfer, the board's housekeeping and the codec read these
  * columns and state none of them again. A new kind is a new row (and a
- * new column only when a rule reads it). Who makes each is its writer's:
- * `blocks` through the `blockedBy` change, whose author hands out work;
- * `copied-from` by the duplicate alone — no change takes one away. */
+ * new column only when a rule reads it). Who makes each is its writers':
+ * `blocks` from the blockers a task is created with (any member may
+ * create one waiting on its team's tasks), a duplicate's carried-over
+ * open blockers, and the `blockedBy` change, which only whoever hands out
+ * work may make; `copied-from` by the duplicate alone — no change takes
+ * one away. */
 export interface RelationRule {
   /** Whether its `from` end, while open, holds its `to` end off the
    * ladder's start (`issuable`, the start edges). */
