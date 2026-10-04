@@ -64,7 +64,7 @@ describe("Tasks text never widens its box", () => {
     // An auto width (or left: 0) does not transition: the card jumped.
     const card = getComputedStyle(mount("tasks__detail"));
     expect(card.transition).toContain("width");
-    expect(getComputedStyle(mount("tasks__detail tasks__detail--wide")).width).toBe("100%");
+    expect(getComputedStyle(mount("tasks__detail tasks__detail--wide")).width).toBe("calc(100% - 24px)");
   });
 
   it("a list heading stands as tall as the list guesses and the pinned one covers", () => {

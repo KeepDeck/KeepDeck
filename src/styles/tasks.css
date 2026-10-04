@@ -4,6 +4,8 @@
    ladder's own (status.css): a task in review wears the waiting hue a
    pane waiting for the user wears. */
 .tasks {
+  /* The open task floats over the dialog (.tasks__detail). */
+  position: relative;
   width: min(1180px, 94vw);
   max-width: none;
   height: min(780px, 88vh);
@@ -556,22 +558,23 @@
 .tasks__row--done .tasks__row-title {
   color: var(--kd-text-2);
 }
-/* The open task: a card floating over the list or the board, inset from
-   the stage's edges — nothing under it moves. The view beside it stays
-   interactive: a row or a card can still be picked while a task is open.
-   Expanded, it spans the stage. */
+/* The open task: a card floating over the dialog's right side, its
+   toolbar included — the task's own head is the head there, not a second
+   one under the dialog's. Nothing under it moves, and the view beside it
+   stays interactive: a row or a card can still be picked while a task is
+   open. Expanded, it spans the dialog. */
 .tasks__detail {
   position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
+  top: 12px;
+  right: 12px;
+  bottom: 12px;
   /* One, never more: a picker's menu opened from the card lands in the
      modal's own layer at z-index 1, after the card in the DOM — a card
      above 1 buries its own menus. */
   z-index: 1;
   /* The width names the whole box, edges included. */
   box-sizing: border-box;
-  width: min(440px, 100%);
+  width: min(440px, calc(100% - 24px));
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -585,7 +588,7 @@
 
 /* Compound on purpose: it must outrank the card's own width above. */
 .tasks__detail.tasks__detail--wide {
-  width: 100%;
+  width: calc(100% - 24px);
 }
 
 .tasks__detail-head {

@@ -230,9 +230,12 @@ function WorkspaceBoard({
                 />
               </div>
             )}
-            {panel}
           </div>
         )}
+        {/* The open task or the form: over the whole dialog's right side,
+            its head included — under the dialog's own toolbar it showed a
+            second close and a second row of controls beneath the first. */}
+        {view.body.kind === "stage" && panel}
       </div>
     </ModalOverlay>
   );

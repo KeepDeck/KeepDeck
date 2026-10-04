@@ -476,6 +476,16 @@ describe("TasksDialog", () => {
     expect(state?.kind === "ready" && state.board.tasks.find((t) => t.title === "Task 0")?.status).toBe("done");
   });
 
+  it("the open task floats over the whole dialog, its toolbar included — not under it in the stage", async () => {
+    const { service } = await seeded();
+    focus = "task-1";
+    mount(service)();
+    await flush();
+    const card = document.querySelector(".tasks__detail")!;
+    expect(card.parentElement?.getAttribute("role")).toBe("dialog");
+    expect(card.closest(".tasks__stage")).toBeNull();
+  });
+
   it("a list row is dragged onto another group — its heading, even folded — and the task moves there", async () => {
     const restoreList = pinListViewport("tasks__list", 600, 900, 34);
     try {
