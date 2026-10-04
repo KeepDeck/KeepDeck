@@ -780,12 +780,14 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
   padding: 8px 10px;
   border-radius: var(--kd-radius-pop);
   background-color: var(--kd-tile);
 }
 
+/* Who and when: a small, quiet line over the words — the words are what
+   is read, in the full ink; the name only leads them. */
 .tasks__comment-who {
   color: var(--kd-text-3);
   font-size: var(--kd-font-small);
@@ -793,11 +795,11 @@
 
 .tasks__comment-who b {
   color: var(--kd-text-2);
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .tasks__comment-body {
-  color: var(--kd-text-2);
+  color: var(--kd-text);
   font-size: var(--kd-font-normal);
   white-space: pre-wrap;
 }
