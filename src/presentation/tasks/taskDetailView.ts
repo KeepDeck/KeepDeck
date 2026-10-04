@@ -208,7 +208,8 @@ export function taskDetailView(
         slug,
         title: known?.title ?? slug,
         known: known !== undefined,
-        openTitle: known ? "Open in the browser" : "No longer published",
+        // What a press does, then the durable half a teammate is given.
+        openTitle: `${known ? "Open in the browser" : "No longer published"} — ${slug}`,
         detachLabel: `${TASK_DETAIL_WORDS.detach} ${slug}`,
       };
     }),

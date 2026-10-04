@@ -939,6 +939,13 @@
   background-color: var(--kd-seam-strong);
 }
 
+/* An empty list takes no room — no gap held for nothing (the card's
+   labels, the panel's comments). */
+.tasks__comments:empty,
+.tasks__labels:empty {
+  display: none;
+}
+
 /* What was said: the task's comments, a column of tiles. */
 .tasks__comments {
   margin: 0;

@@ -134,9 +134,14 @@ describe("stepRow — J and K walk the tasks", () => {
   });
 
   it("reads j as down, k as up, anything else as no step", () => {
-    expect(rowStepOf("j")).toBe(1);
-    expect(rowStepOf("k")).toBe(-1);
-    expect(rowStepOf("J")).toBeNull();
+    const key = (k: string, over: Partial<{ chord: boolean; inField: boolean }> = {}) =>
+      rowStepOf({ key: k, chord: false, inField: false, ...over });
+    expect(key("j")).toBe(1);
+    expect(key("k")).toBe(-1);
+    expect(key("J")).toBeNull();
+    // A chord is a shortcut's; a letter in a field is text.
+    expect(key("j", { chord: true })).toBeNull();
+    expect(key("k", { inField: true })).toBeNull();
   });
 });
 

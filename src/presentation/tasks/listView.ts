@@ -140,9 +140,12 @@ export function stepRow(items: readonly ListItem[], openId: string | null, step:
   return rows[Math.min(Math.max(at + step, 0), rows.length - 1)].key;
 }
 
-/** The keys that walk the list, and which way. */
-export function rowStepOf(key: string): 1 | -1 | null {
-  return key === "j" ? 1 : key === "k" ? -1 : null;
+/** The keys that walk the list, and which way — a bare J or K only, and
+ * never while a field has the keys (a comment, a label being typed): a
+ * chord is a shortcut's, a letter in a field is text. */
+export function rowStepOf(key: { key: string; chord: boolean; inField: boolean }): 1 | -1 | null {
+  if (key.chord || key.inField) return null;
+  return key.key === "j" ? 1 : key.key === "k" ? -1 : null;
 }
 
 /** A group's part in a drag in flight — the board's own rule, asked of the

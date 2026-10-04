@@ -9,6 +9,7 @@ import { refusalOf, tasksEnableStatus } from "../../app/tasks/enableStatus";
 import { readyBoard } from "../../app/tasks/tasksService";
 import { updateSettings } from "../../app/settingsManager";
 import { useSettings } from "../../app/useSettings";
+import { DEFAULT_SETTINGS } from "../../domain/settings";
 import { refusalText } from "../../app/tasks/refusalText";
 import { teamsOf, type Workspace } from "../../domain/deck";
 import {
@@ -32,7 +33,7 @@ import {
   boardView,
   cardInFlight,
   dragOutlived,
-  taskInFlight,
+  taskOnScreen,
   escapeDrag,
   listView,
   rowStepOf,
@@ -159,7 +160,7 @@ export function useTasksBoard(
   const dragEndedAt = useRef<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Which view: a setting, kept across openings and launches (user).
-  const view = useSettings()?.tasksView ?? "board";
+  const view = (useSettings() ?? DEFAULT_SETTINGS).tasksView;
 
   const board = readyBoard(state);
   const unsaved = state?.kind === "ready" && state.unsaved !== null ? unsavedBanner(state.unsaved) : null;
@@ -187,7 +188,7 @@ export function useTasksBoard(
   useEffect(() => {
     if (drag.kind === "idle") return;
     const targetsOf = (id: string) => {
-      const task = taskInFlight(board, id, teamId);
+      const task = taskOnScreen(board, id, teamId);
       return board && task ? new Set(reachableStatuses(task, USER_ACTOR, { board, roster, at: now })) : null;
     };
     const onMove = (event: PointerEvent) => updateDrag(moveCard(dragRef.current, event.clientX, event.clientY, targetsOf));
@@ -214,9 +215,8 @@ export function useTasksBoard(
     taskCount: teamTasks.length,
   });
 
-  const selected = focusedTask;
-  const detail =
-    selected && selected.teamId === teamId ? taskDetailView(selected, board!, roster, now, knownArtifacts, screen.activityOpen) : null;
+  const open = taskOnScreen(board, focus, teamId);
+  const detail = open ? taskDetailView(open, board!, roster, now, knownArtifacts, screen.activityOpen) : null;
   const columns = useMemo(
     () => (board && view === "board" ? boardView(teamTasks, board, now, query) : []),
     [board, view, teamTasks, now, query],
@@ -247,10 +247,13 @@ export function useTasksBoard(
   useEffect(() => {
     if (!walks) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      const step = rowStepOf(event.key);
-      if (step === null || event.metaKey || event.ctrlKey || event.altKey) return;
       const target = event.target;
-      if (target instanceof Element && target.closest("input, textarea, [contenteditable='true']")) return;
+      const step = rowStepOf({
+        key: event.key,
+        chord: event.metaKey || event.ctrlKey || event.altKey,
+        inField: target instanceof Element && target.closest("input, textarea, [contenteditable='true']") !== null,
+      });
+      if (step === null) return;
       const next = stepRow(listItems, openId, step);
       if (next === null) return;
       event.preventDefault();

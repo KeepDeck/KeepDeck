@@ -231,7 +231,7 @@ export function TaskDetail({
                   type="button"
                   className="tasks__link"
                   disabled={!artifact.known}
-                  title={`${artifact.openTitle} — ${artifact.slug}`}
+                  title={artifact.openTitle}
                   onClick={() => onOpenArtifact(artifact.slug)}
                 >
                   {artifact.title}
@@ -271,18 +271,16 @@ export function TaskDetail({
           <span className="tasks__section">{TASK_DETAIL_WORDS.comments}</span>
           {view.commentsEmpty && <p className="tasks__muted">{view.commentsEmpty}</p>}
           {view.commentsTrimmed && <p className="tasks__muted">{view.commentsTrimmed}</p>}
-          {view.comments.length > 0 && (
-            <ul className="tasks__comments">
-              {view.comments.map((comment) => (
-                <li key={comment.key} className="tasks__comment">
-                  <span className="tasks__comment-who">
-                    <b>{comment.who}</b> · {comment.age}
-                  </span>
-                  <span className="tasks__comment-body kd-selectable">{comment.body}</span>
-                </li>
-              ))}
-            </ul>
-          )}
+          <ul className="tasks__comments">
+            {view.comments.map((comment) => (
+              <li key={comment.key} className="tasks__comment">
+                <span className="tasks__comment-who">
+                  <b>{comment.who}</b> · {comment.age}
+                </span>
+                <span className="tasks__comment-body kd-selectable">{comment.body}</span>
+              </li>
+            ))}
+          </ul>
           <div className="tasks__composer-row">
             <textarea
               ref={commentField}
