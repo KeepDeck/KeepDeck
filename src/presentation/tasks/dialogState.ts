@@ -49,4 +49,7 @@ export const DIALOG_WORDS = {
   newTask: NEW_TASK_LABEL,
   close: "Close tasks",
   wide: (wide: boolean) => (wide ? "Collapse" : "Expand"),
+  /** The toggle's name — what it IS; its state rides aria-expanded and
+   * the tip says what the next press does. */
+  expand: "Expand",
 } as const;

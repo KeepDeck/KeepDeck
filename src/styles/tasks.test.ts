@@ -56,6 +56,26 @@ describe("Tasks text never widens its box", () => {
     expect(getComputedStyle(link).whiteSpace).not.toBe("nowrap");
   });
 
+  it("lays the open task out in two columns by its own width, not by the Expand class", () => {
+    // The class flips at once while the width eases; the layout must turn
+    // with the width, or a 260px column stands in a 440px card mid-ease.
+    const css = readStyles("tasks.css");
+    expect(css).toMatch(/\.tasks__detail \{\s*container-type: inline-size;\s*\}/);
+    expect(css).toMatch(/@container \(min-width: 720px\)\s*\{\s*\.tasks__detail-body \{[^}]*display: grid/);
+    expect(css).not.toMatch(/\.tasks__detail--wide \.tasks__detail-body/);
+  });
+
+  it("a row's age stays on one line", () => {
+    expect(getComputedStyle(mount("tasks__row-age")).whiteSpace).toBe("nowrap");
+  });
+
+  it("the open task grows to Expand and shrinks to Collapse — between two widths, eased", () => {
+    // An auto width (or left: 0) does not transition: the card jumped.
+    const card = getComputedStyle(mount("tasks__detail"));
+    expect(card.transition).toContain("width");
+    expect(getComputedStyle(mount("tasks__detail tasks__detail--wide")).width).toBe("calc(100% - 24px)");
+  });
+
   it("a list heading stands as tall as the list guesses and the pinned one covers", () => {
     // The reveal's padding under the pinned heading is LIST_HEAD_ESTIMATE_PX:
     // a heading of another height would hide a row's top or leave a gap.
@@ -74,7 +94,7 @@ describe("Tasks text never widens its box", () => {
   });
 
   it("an inline offer is quiet: the quiet ink wins over the inline variant's", () => {
-    // The open task's "Attach an artifact…" is both; at equal specificity
+    // The open task's "Attach an artifact" is both; at equal specificity
     // the later rule wins, and the inline one used to be later.
     const button = (classes: string) => {
       const field = mount(classes);
@@ -118,5 +138,12 @@ describe("a board column's edge", () => {
       expect(body["border-width"], state).toBeUndefined();
       expect(body.border, state).toBeUndefined();
     }
+  });
+});
+
+describe("the label slot", () => {
+  it("drops its \"+ label\" offer once it has the keys", () => {
+    const css = readStyles("form.css");
+    expect(ruleBody(css, ".combobox--slot .combobox__input:focus::placeholder").color).toBe("transparent");
   });
 });

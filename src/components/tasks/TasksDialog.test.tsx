@@ -476,6 +476,38 @@ describe("TasksDialog", () => {
     expect(state?.kind === "ready" && state.board.tasks.find((t) => t.title === "Task 0")?.status).toBe("done");
   });
 
+  it("the history rests compact and opens whole from its heading, its chevron turning", async () => {
+    const { service } = await seeded();
+    focus = "task-1";
+    mount(service)();
+    await flush();
+    const heading = () => document.querySelector<HTMLButtonElement>(".tasks__section--toggle")!;
+    expect(heading().getAttribute("aria-expanded")).toBe("false");
+    expect(heading().querySelector(".kd-chevron")?.className).toBe("kd-chevron");
+    act(() => heading().click());
+    await flush();
+    expect(heading().getAttribute("aria-expanded")).toBe("true");
+    expect(heading().querySelector(".kd-chevron")?.className).toBe("kd-chevron kd-chevron--open");
+  });
+
+  it("the open task floats over the whole dialog, its toolbar included — not under it in the stage", async () => {
+    const { service } = await seeded();
+    focus = "task-1";
+    mount(service)();
+    await flush();
+    const card = document.querySelector(".tasks__detail")!;
+    expect(card.parentElement?.getAttribute("role")).toBe("dialog");
+    expect(card.closest(".tasks__stage")).toBeNull();
+    // The head under it is out of reach while it is up.
+    expect(document.querySelector(".tasks__head")!.hasAttribute("inert")).toBe(true);
+    // Expand is named for what it is; its state is said, not its next press.
+    const expand = card.querySelector<HTMLButtonElement>('button[aria-label="Expand"]')!;
+    expect(expand.getAttribute("aria-expanded")).toBe("false");
+    act(() => expand.click());
+    await flush();
+    expect(card.querySelector('button[aria-label="Expand"]')!.getAttribute("aria-expanded")).toBe("true");
+  });
+
   it("a list row is dragged onto another group — its heading, even folded — and the task moves there", async () => {
     const restoreList = pinListViewport("tasks__list", 600, 900, 34);
     try {

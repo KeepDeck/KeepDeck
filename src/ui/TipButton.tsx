@@ -44,6 +44,10 @@ export interface TipButtonProps {
   variant?: ButtonVariant;
   size?: ButtonSize;
   disabled?: boolean;
+  /** A disclosure's state, for a toggle that opens or widens something in
+   *  place (the open task's Expand) — said to assistive tech, while the
+   *  tip says what the next press will do. */
+  expanded?: boolean;
   onClick(): void;
   delayMs?: number;
   children: ReactNode;
@@ -55,6 +59,7 @@ export function TipButton({
   variant,
   size,
   disabled,
+  expanded,
   onClick,
   delayMs = BAR_TIP_DELAY_MS,
   children,
@@ -66,6 +71,7 @@ export function TipButton({
         size={size}
         label={label ?? tip}
         disabled={disabled}
+        expanded={expanded}
         onClick={onClick}
       >
         {children}

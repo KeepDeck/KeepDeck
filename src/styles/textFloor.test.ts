@@ -15,7 +15,6 @@ const MARKS_AND_DISABLED = [
   ".ui-remove", // RemoveButton: a row's × (detach, delete, drop)
   ".tasks__card--cancelled .tasks__card-title", // a cancelled task
   ".tasks__row--cancelled .tasks__row-title", // the same task, as a list row
-  ".tasks__group::before", // the fold chevron of a list heading
   ".tasks__link:disabled",
 ];
 

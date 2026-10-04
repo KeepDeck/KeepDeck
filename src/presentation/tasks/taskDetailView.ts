@@ -13,7 +13,7 @@ import {
   type TaskStatus,
 } from "../../domain/tasks";
 import type { StatusRingProps } from "@keepdeck/ui-kit/StatusRing";
-import { blockerChip, roleInitials, statusMark, type BlockerChip } from "./taskCardView";
+import { blockerChip, statusMark, type BlockerChip } from "./taskCardView";
 import {
   BOARD_ORDER,
   POOL_CHOICE,
@@ -49,7 +49,7 @@ export interface TaskDetailView {
   /** The pool first, then the roster — and the current assignee even off
    * the roster, so the control can show what the task says. */
   assignee: string;
-  assigneeOptions: (ChoiceView & { initials: string | null })[];
+  assigneeOptions: ChoiceView[];
   priorityOptions: ChoiceView[];
   /** What the status picker offers: where the task stands, then where the
    * PERSON may move it — the transition table's answer, in ladder order,
@@ -75,14 +75,20 @@ export interface TaskDetailView {
   /** Nothing published to attach: a one-word value, the reason in its
    * tooltip. Null when the workspace has artifacts. */
   attachEmpty: { text: string; title: string } | null;
-  /** The task's history as one timeline — what was said and what was
-   * changed, oldest first. See `feedOf`. */
-  feed: FeedItem[];
-  feedEmpty: string | null;
-  /** The board keeps the last so many changes and comments, each cut on
-   * its own: once either is at its limit (cut, or cut at the next entry),
-   * the timeline's start says so — null while neither is. */
-  feedTrimmed: string | null;
+  /** What was said, oldest first — the task's substance, always shown,
+   * the composer under it (`commentsOf`). */
+  comments: CommentItem[];
+  commentsEmpty: string | null;
+  /** What was changed — the agents' stream of status, label and assignee
+   * moves — under its heading, shut until opened (`changesOf`). */
+  activity: { label: string; open: boolean };
+  changes: FeedChange[];
+  changesEmpty: string | null;
+  /** The board keeps the last so many comments and changes, each list cut
+   * on its own: at its limit (cut, or cut at the next entry) the list says
+   * so — null while it is not. */
+  commentsTrimmed: string | null;
+  changesTrimmed: string | null;
   /** The composer's bound — the domain's, so the field cannot outgrow it. */
   commentMax: number;
 }
@@ -95,11 +101,12 @@ export interface FeedChange {
   age: string;
 }
 
-export type FeedItem =
-  | { kind: "comment"; key: string; who: string; age: string; body: string }
-  | FeedChange
-  /** A run of changes folded between its first and its last. */
-  | { kind: "more"; key: string; label: string; changes: FeedChange[] };
+export interface CommentItem {
+  key: string;
+  who: string;
+  age: string;
+  body: string;
+}
 
 /** Every word the panel says that is not the task's own — the component
  * maps these and spells nothing. */
@@ -113,13 +120,16 @@ export const TASK_DETAIL_WORDS = {
   addLabel: "Add a label",
   labelPrompt: "+ label",
   labelsFull: (max: number) => `${max} labels — take one off to add another`,
+  comments: "Comments",
+  commentsEmpty: "Nothing said yet",
   activity: "Activity",
-  moreChanges: (n: number) => `${n} more ${n === 1 ? "change" : "changes"}`,
-  feedTrimmed: (changes: number, comments: number) =>
-    `This task's history is at the board's limit — it keeps only the last ${changes} changes and ${comments} comments`,
+  changesEmpty: "Nothing changed yet",
+  labelAdded: (label: string) => `added label ${label}`,
+  labelRemoved: (label: string) => `removed label ${label}`,
+  trimmed: (max: number, what: string) => `At the board's limit — it keeps only the last ${max} ${what}`,
   detach: "Detach",
   attach: "Attach artifact",
-  attachPrompt: "Attach an artifact…",
+  attachPrompt: "Attach an artifact",
   commentPlaceholder: "Add a comment — it stays with the task",
   comment: "Comment",
 } as const;
@@ -155,6 +165,8 @@ export function taskDetailView(
   /** The workspace's artifacts, as the registry lists them; empty when the
    * feature is off or nothing is published. */
   artifacts: readonly ArtifactRef[] = [],
+  /** The activity (`changesOf`) opened under its heading. */
+  activityOpen = false,
 ): TaskDetailView {
   const ctx = { board, roster, at: now };
   const reachable = new Set(reachableStatuses(task, USER_ACTOR, ctx));
@@ -178,8 +190,8 @@ export function taskDetailView(
     bodyEmpty: task.body.trim() === "" ? "No brief — the title is all there is" : null,
     assignee: task.assignee ?? "",
     assigneeOptions: [
-      { ...POOL_CHOICE, initials: roleInitials(null) },
-      ...assigneeValues.map((role) => ({ value: role, label: role, initials: roleInitials(role) })),
+      POOL_CHOICE,
+      ...assigneeValues.map((role) => ({ value: role, label: role })),
     ],
     priorityOptions: priorityChoices(),
     statusOptions,
@@ -208,90 +220,72 @@ export function taskDetailView(
       artifacts.length === 0
         ? { text: "none", title: "Nothing published in this workspace yet — agents attach with task.update artifacts=<id>" }
         : null,
-    feed: feedOf(task, now),
-    feedEmpty: task.comments.length === 0 && task.log.length === 0 ? "Nothing said or changed yet" : null,
-    feedTrimmed:
-      task.log.length >= TASK_CAPS.logMax || task.comments.length >= TASK_CAPS.commentsMax
-        ? TASK_DETAIL_WORDS.feedTrimmed(TASK_CAPS.logMax, TASK_CAPS.commentsMax)
-        : null,
+    comments: commentsOf(task, now),
+    commentsEmpty: task.comments.length === 0 ? TASK_DETAIL_WORDS.commentsEmpty : null,
+    activity: { label: TASK_DETAIL_WORDS.activity, open: activityOpen },
+    changes: changesOf(task, now),
+    changesEmpty: task.log.length === 0 ? TASK_DETAIL_WORDS.changesEmpty : null,
+    commentsTrimmed:
+      task.comments.length >= TASK_CAPS.commentsMax ? TASK_DETAIL_WORDS.trimmed(TASK_CAPS.commentsMax, "comments") : null,
+    changesTrimmed: task.log.length >= TASK_CAPS.logMax ? TASK_DETAIL_WORDS.trimmed(TASK_CAPS.logMax, "changes") : null,
     commentMax: TASK_CAPS.commentMax,
   };
 }
 
-/** How many changes in a row stand unfolded: the first and the last. */
-const RUN_SHOWN = 2;
+/** What was said, oldest first (the order the board keeps). */
+export function commentsOf(task: Pick<Task, "comments">, now: number): CommentItem[] {
+  return task.comments.map((comment) => ({
+    key: `comment-${comment.n}`,
+    who: personName(comment.from),
+    age: formatAge(comment.at, now),
+    body: comment.body,
+  }));
+}
 
 /**
- * What was said and what was changed, as ONE timeline, oldest first — the
- * thread and the log were two lists a reader had to put back together.
- * Within a moment, the change comes before the comment that came with it.
- * A run of changes with nothing said between them folds to its first and
- * its last once at least two would hide — a fold over one line saves
- * nothing: a task's status walking its ladder must not bury what people
- * wrote.
+ * What was changed, oldest first, every entry — nothing folds: a fold hid
+ * the very lines a reader opened the activity for.
  */
-export function feedOf(task: Pick<Task, "comments" | "log">, now: number): FeedItem[] {
+export function changesOf(task: Pick<Task, "log">, now: number): FeedChange[] {
   // A change's key is what it is — its moment and field, counted among
   // its twins — never its place: the log is cut from the front at its cap,
-  // and a place-key shifted on every new entry, closing an open fold.
+  // and a place-key re-keyed every line on each new entry.
   const seen = new Map<string, number>();
-  const keyOf = (entry: Task["log"][number]) => {
+  return task.log.flatMap((entry) => {
     const base = `change-${entry.at}-${entry.field}`;
     const n = seen.get(base) ?? 0;
     seen.set(base, n + 1);
-    return n === 0 ? base : `${base}-${n}`;
-  };
-  const timeline = [
-    ...task.log.map((entry) => ({ at: entry.at, order: 0, item: changeItem(entry, keyOf(entry), now) as FeedItem })),
-    ...task.comments.map((comment) => ({
-      at: comment.at,
-      order: 1,
-      item: {
-        kind: "comment",
-        key: `comment-${comment.n}`,
-        who: personName(comment.from),
-        age: formatAge(comment.at, now),
-        body: comment.body,
-      } as FeedItem,
-    })),
-  ].sort((a, b) => a.at - b.at || a.order - b.order);
-  const feed: FeedItem[] = [];
-  let run: FeedChange[] = [];
-  const flush = () => {
-    if (run.length > RUN_SHOWN + 1) {
-      const hidden = run.slice(1, -1);
-      feed.push(run[0], {
-        kind: "more",
-        key: `more-${hidden[0].key}`,
-        label: TASK_DETAIL_WORDS.moreChanges(hidden.length),
-        changes: hidden,
-      }, run[run.length - 1]);
-    } else {
-      feed.push(...run);
-    }
-    run = [];
-  };
-  for (const { item } of timeline) {
-    if (item.kind === "change") {
-      run.push(item);
-    } else {
-      flush();
-      feed.push(item);
-    }
-  }
-  flush();
-  return feed;
+    return changeItems(entry, n === 0 ? base : `${base}-${n}`, now);
+  });
 }
 
-function changeItem(entry: Task["log"][number], key: string, now: number): FeedChange {
-  return {
+/** What one log entry says in the timeline — usually one line. A labels
+ * entry holds the set before and after; the timeline says what moved: a
+ * line per label put on or taken off ("added label ui"), never the two
+ * sets side by side. */
+function changeItems(entry: Task["log"][number], key: string, now: number): FeedChange[] {
+  const line = (text: string, suffix = ""): FeedChange => ({
     kind: "change",
-    key,
+    key: key + suffix,
     who: personName(entry.from),
-    text:
-      entry.field === "body"
-        ? `edited the brief (the previous version is kept in the log: ${entry.was?.length ?? 0} characters)`
-        : `${entry.field}: ${entry.was ?? "—"} → ${entry.now ?? "—"}`,
+    text,
     age: formatAge(entry.at, now),
-  };
+  });
+  if (entry.field === "labels") {
+    const before = labelSet(entry.was);
+    const after = labelSet(entry.now);
+    return [
+      ...after.filter((label) => !before.includes(label)).map((label) => line(TASK_DETAIL_WORDS.labelAdded(label), `+${label}`)),
+      ...before.filter((label) => !after.includes(label)).map((label) => line(TASK_DETAIL_WORDS.labelRemoved(label), `-${label}`)),
+    ];
+  }
+  if (entry.field === "body") {
+    return [line(`edited the brief (the previous version is kept in the log: ${entry.was?.length ?? 0} characters)`)];
+  }
+  return [line(`${entry.field}: ${entry.was ?? "—"} → ${entry.now ?? "—"}`)];
+}
+
+/** A logged label set ("a,b"; null for none) as its labels. */
+function labelSet(joined: string | null): string[] {
+  return joined === null ? [] : joined.split(",");
 }

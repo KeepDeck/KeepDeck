@@ -4,6 +4,8 @@
    ladder's own (status.css): a task in review wears the waiting hue a
    pane waiting for the user wears. */
 .tasks {
+  /* The open task floats over the dialog (.tasks__detail). */
+  position: relative;
   width: min(1180px, 94vw);
   max-width: none;
   height: min(780px, 88vh);
@@ -423,15 +425,9 @@
   color: var(--kd-text);
 }
 
-.tasks__group::before {
-  content: "▾";
-  flex: none;
-  width: 10px;
-  color: var(--kd-text-4);
-}
-
-.tasks__group--folded::before {
-  content: "▸";
+/* The fold's chevron: the house's (DisclosureChevron), quiet. */
+.tasks__group .kd-chevron {
+  color: var(--kd-text-3);
 }
 
 /* A status with nothing in it: still named, so the six groups stand as
@@ -535,9 +531,13 @@
   font-size: var(--kd-font-small);
 }
 
+/* How long since it moved, one line: as wide as the longest the clock
+   says ("999d ago"), so the column stands straight — a fixed 36px broke
+   "4h ago" in two. */
 .tasks__row-age {
   flex: none;
-  width: 36px;
+  min-width: 8ch;
+  white-space: nowrap;
   color: var(--kd-text-3);
   font-size: var(--kd-font-small);
   font-variant-numeric: tabular-nums;
@@ -552,33 +552,37 @@
 .tasks__row--done .tasks__row-title {
   color: var(--kd-text-2);
 }
-/* The open task: a card floating over the list or the board, inset from
-   the stage's edges — nothing under it moves. The view beside it stays
-   interactive: a row or a card can still be picked while a task is open.
-   Expanded, it spans the stage. */
+/* The open task: a card floating over the dialog's right side, its
+   toolbar included — the task's own head is the head there, not a second
+   one under the dialog's. Nothing under it moves, and the view beside it
+   stays interactive: a row or a card can still be picked while a task is
+   open. Expanded, it spans the dialog. */
 .tasks__detail {
   position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
+  top: 12px;
+  right: 12px;
+  bottom: 12px;
   /* One, never more: a picker's menu opened from the card lands in the
      modal's own layer at z-index 1, after the card in the DOM — a card
      above 1 buries its own menus. */
   z-index: 1;
   /* The width names the whole box, edges included. */
   box-sizing: border-box;
-  width: min(440px, 100%);
+  width: min(440px, calc(100% - 24px));
   display: flex;
   flex-direction: column;
   min-height: 0;
   /* Surface, edge and shadow are the float shell's (float.css). */
   border-radius: var(--kd-radius-tile);
   overflow: hidden;
+  /* Expand and Collapse grow and shrink it from the right edge: two
+     explicit widths, so the change between them animates (auto does not). */
+  transition: width 220ms ease;
 }
 
-.tasks__detail--wide {
-  left: 0;
-  width: auto;
+/* Compound on purpose: it must outrank the card's own width above. */
+.tasks__detail.tasks__detail--wide {
+  width: calc(100% - 24px);
 }
 
 .tasks__detail-head {
@@ -613,34 +617,45 @@
   overflow-y: auto;
 }
 
-.tasks__detail--wide .tasks__detail-body {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 260px;
-  align-items: start;
-  gap: 24px;
-}
-
-.tasks__detail--wide .tasks__props {
-  grid-column: 2;
-  grid-row: 1;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 4px;
-}
-
-.tasks__detail--wide .tasks__prop-label:not(:first-child) {
-  margin-top: 8px;
-}
-
-.tasks__detail--wide .tasks__detail-main {
-  grid-column: 1;
-  grid-row: 1;
-}
-
 .tasks__detail-main {
   display: flex;
   flex-direction: column;
   gap: 10px;
   min-width: 0;
+}
+
+/* Room enough, the properties stand beside the story and the story gets
+   the room. Asked of the card's own width, not of the Expand class: the
+   class flips at once while the width eases, and a 260px column stood in
+   a still-440px card for the whole turn. Now the layout turns when the
+   card is wide enough, mid-ease, both ways. */
+.tasks__detail {
+  container-type: inline-size;
+}
+
+@container (min-width: 720px) {
+  .tasks__detail-body {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 260px;
+    align-items: start;
+    gap: 24px;
+  }
+
+  .tasks__detail-body > .tasks__props {
+    grid-column: 2;
+    grid-row: 1;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+
+  .tasks__detail-body > .tasks__props > .tasks__prop-label:not(:first-child) {
+    margin-top: 8px;
+  }
+
+  .tasks__detail-body > .tasks__detail-main {
+    grid-column: 1;
+    grid-row: 1;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -666,25 +681,6 @@
 
 
 
-/* An assignee's mark beside its name. */
-.tasks__avatar {
-  display: inline-grid;
-  place-items: center;
-  flex: none;
-  min-width: 20px;
-  height: 20px;
-  padding: 0 3px;
-  box-sizing: border-box;
-  margin-right: 6px;
-  border-radius: 999px;
-  background-color: var(--kd-hover);
-  color: var(--kd-text-2);
-  font-size: var(--kd-font-small);
-  letter-spacing: -0.02em;
-  font-weight: 700;
-  vertical-align: middle;
-}
-
 .tasks__section {
   margin-top: 10px;
   color: var(--kd-text-3);
@@ -693,6 +689,25 @@
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
+
+/* A heading that opens what it heads (the activity): the heading's own
+   look, its chevron beside the word, the pointer's. */
+.tasks__section--toggle {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.tasks__section--toggle:hover {
+  color: var(--kd-text-2);
+}
+
 
 /* The brief: the task's own words, on a tile of their own. */
 .tasks__body {
@@ -792,12 +807,14 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
   padding: 8px 10px;
   border-radius: var(--kd-radius-pop);
   background-color: var(--kd-tile);
 }
 
+/* Who and when: a small, quiet line over the words — the words are what
+   is read, in the full ink; the name only leads them. */
 .tasks__comment-who {
   color: var(--kd-text-3);
   font-size: var(--kd-font-small);
@@ -805,16 +822,17 @@
 
 .tasks__comment-who b {
   color: var(--kd-text-2);
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .tasks__comment-body {
-  color: var(--kd-text-2);
+  color: var(--kd-text);
   font-size: var(--kd-font-normal);
   white-space: pre-wrap;
 }
 
-/* One line until there is more to say; its send beside it. */
+/* One line, its send beside it: the field and the button stand one
+   height (the medium button's), bottoms on one line as the field grows. */
 .tasks__composer-row {
   display: flex;
   align-items: flex-end;
@@ -827,16 +845,20 @@
   resize: vertical;
 }
 
-/* A comment: one line until there is more to say. */
+/* A comment: one line, the button's height — grows with what is typed
+   (useGrowingField) up to a few lines, then scrolls. No resize grip: a
+   corner handle on a one-line field read as broken. */
 .tasks__comment-input {
   flex: 1;
   min-width: 0;
-  height: 34px;
-  min-height: 34px;
+  /* 1 + 8 + 18 + 8 + 1: the medium button's box (1 + 9 + 16 + 9 + 1). */
+  min-height: 36px;
+  max-height: 120px;
   box-sizing: border-box;
   margin: 0;
-  padding: 7px 10px;
-  resize: vertical;
+  padding: 8px 10px;
+  line-height: 18px;
+  resize: none;
 }
 
 .tasks__composer-actions {
@@ -845,8 +867,15 @@
   gap: 8px;
 }
 
-/* The task's one timeline: comments, and the changes between them, on a
-   line down the left edge with a dot per event. */
+/* The activity, opened: its notes, then its changes. */
+.tasks__activity {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* The task's activity: its changes, on a line down the left edge with a
+   dot per change. */
 .tasks__feed {
   position: relative;
   margin: 0;
@@ -878,34 +907,19 @@
   background-color: var(--kd-seam-strong);
 }
 
-.tasks__feed > .tasks__comment::before {
-  top: 12px;
-  background-color: var(--kd-text-3);
-}
-
-/* Nested inside a fold, the run sits on the same line — no second rail. */
-.tasks__feed .tasks__feed {
-  padding-left: 0;
-}
-
-.tasks__feed .tasks__feed::before {
-  content: none;
+/* What was said: the task's comments, a column of tiles. */
+.tasks__comments {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .tasks__log {
   position: relative;
   font-size: var(--kd-font-small);
-}
-
-/* A folded run of changes: its line opens it in place. */
-.tasks__feed-more summary {
-  color: var(--kd-text-3);
-  font-size: var(--kd-font-small);
-  cursor: pointer;
-}
-
-.tasks__feed-more[open] > .tasks__feed {
-  margin-top: 6px;
 }
 
 .tasks__log-who {

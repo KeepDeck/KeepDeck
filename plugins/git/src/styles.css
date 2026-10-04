@@ -79,28 +79,6 @@
   color: var(--kd-text-2);
 }
 
-/* The mark turns; the header does not. `display: flex` so the span is
-   exactly the icon's box and the centre it turns about is the mark's, not
-   a line box's. 140ms, the deck's hover tempo. */
-.git__chev {
-  display: flex;
-  flex: none;
-  color: var(--kd-text-3);
-  transform-origin: 50% 50%;
-  transition: transform 140ms ease;
-}
-
-.git__sec--open .git__chev {
-  transform: rotate(90deg);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  /* The chevron still turns — it just arrives turned. */
-  .git__chev {
-    transition: none;
-  }
-}
-
 .git__secname {
   flex: none;
 }

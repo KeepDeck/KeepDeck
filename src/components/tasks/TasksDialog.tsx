@@ -92,6 +92,7 @@ function WorkspaceBoard({
       view={board.detail}
       wide={board.wide}
       onToggleWide={board.toggleWide}
+      onToggleActivity={board.toggleActivity}
       onClose={board.close}
       onMove={board.move}
       onAssign={board.assign}
@@ -124,7 +125,7 @@ function WorkspaceBoard({
             )}
           </div>
         )}
-        <div className="tasks__head">
+        <div className="tasks__head" inert={view.headInert}>
           <h2 className="form__title tasks__title">{DIALOG_WORDS.title}</h2>
           {view.toolbar && (
             <div className="tasks__toolbar">
@@ -230,9 +231,12 @@ function WorkspaceBoard({
                 />
               </div>
             )}
-            {panel}
           </div>
         )}
+        {/* The open task or the form: over the whole dialog's right side,
+            its head included — under the dialog's own toolbar it showed a
+            second close and a second row of controls beneath the first. */}
+        {view.body.kind === "stage" && panel}
       </div>
     </ModalOverlay>
   );

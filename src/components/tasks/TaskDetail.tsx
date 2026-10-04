@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Combobox, Dropdown, StatusRing } from "@keepdeck/ui-kit";
+import { useId, useRef, useState } from "react";
+import { Combobox, DisclosureChevron, Dropdown, StatusRing } from "@keepdeck/ui-kit";
 import type { TaskPriority, TaskStatus } from "../../domain/tasks";
 import {
   DIALOG_WORDS,
@@ -22,12 +22,15 @@ import { Button } from "../../ui/Button";
 import { TipButton } from "../../ui/TipButton";
 import { CloseIcon, MaximizeIcon, RestoreIcon } from "@keepdeck/ui-kit/icons";
 import { RemoveButton } from "../../ui/RemoveButton";
+import { useGrowingField } from "../../ui/useGrowingField";
 
 interface TaskDetailProps {
   view: TaskDetailView;
   /** Whether the task fills the stage; the head offers the way there and back. */
   wide: boolean;
   onToggleWide(): void;
+  /** The activity's heading: shut ⇄ open. */
+  onToggleActivity(): void;
   onClose(): void;
   onMove(taskId: string, to: TaskStatus): void;
   onAssign(taskId: string, assignee: string): void;
@@ -50,6 +53,7 @@ export function TaskDetail({
   view,
   wide,
   onToggleWide,
+  onToggleActivity,
   onClose,
   onMove,
   onAssign,
@@ -63,6 +67,9 @@ export function TaskDetail({
   onUnlabel,
 }: TaskDetailProps) {
   const [composer, setComposer] = useState(EMPTY_COMPOSER);
+  const commentField = useRef<HTMLTextAreaElement>(null);
+  const activityId = useId();
+  useGrowingField(commentField, composer.draft);
   const [labelDraft, setLabelDraft] = useState("");
   const submitLabel = () => {
     const typed = labelDraft;
@@ -87,10 +94,16 @@ export function TaskDetail({
           <StatusRing {...view.statusRing} />
           <span className="tasks__detail-meta kd-one-line">{view.meta}</span>
           <span className="tasks__detail-tools">
-            <Button size="sm" pressed={wide} onClick={onToggleWide}>
+            {/* An icon, explained by its tip — beside the close, its kin. */}
+            <TipButton
+              size="sm"
+              tip={DIALOG_WORDS.wide(wide)}
+              label={DIALOG_WORDS.expand}
+              expanded={wide}
+              onClick={onToggleWide}
+            >
               {wide ? <RestoreIcon /> : <MaximizeIcon />}
-              {DIALOG_WORDS.wide(wide)}
-            </Button>
+            </TipButton>
             <TipButton size="sm" tip={TASK_DETAIL_WORDS.close} onClick={onClose}>
               <CloseIcon />
             </TipButton>
@@ -129,19 +142,7 @@ export function TaskDetail({
           <dd>
             <Dropdown
               ariaLabel={FIELD_WORDS.assignee}
-              options={view.assigneeOptions.map((option) => ({
-                value: option.value,
-                label: (
-                  <>
-                    {option.initials && (
-                      <span className="tasks__avatar" aria-hidden>
-                        {option.initials}
-                      </span>
-                    )}
-                    {option.label}
-                  </>
-                ),
-              }))}
+              options={view.assigneeOptions}
               value={view.assignee}
               onChange={(value) => onAssign(view.id, value)}
               variant="inline"
@@ -267,48 +268,58 @@ export function TaskDetail({
             <p className="tasks__body kd-selectable">{view.body}</p>
           )}
 
-          <span className="tasks__section">{TASK_DETAIL_WORDS.activity}</span>
-          {view.feedEmpty && <p className="tasks__muted">{view.feedEmpty}</p>}
-          {view.feedTrimmed && <p className="tasks__muted">{view.feedTrimmed}</p>}
-          <ul className="tasks__feed">
-            {view.feed.map((item) =>
-              item.kind === "comment" ? (
-                <li key={item.key} className="tasks__comment">
+          <span className="tasks__section">{TASK_DETAIL_WORDS.comments}</span>
+          {view.commentsEmpty && <p className="tasks__muted">{view.commentsEmpty}</p>}
+          {view.commentsTrimmed && <p className="tasks__muted">{view.commentsTrimmed}</p>}
+          {view.comments.length > 0 && (
+            <ul className="tasks__comments">
+              {view.comments.map((comment) => (
+                <li key={comment.key} className="tasks__comment">
                   <span className="tasks__comment-who">
-                    <b>{item.who}</b> · {item.age}
+                    <b>{comment.who}</b> · {comment.age}
                   </span>
-                  <span className="tasks__comment-body kd-selectable">{item.body}</span>
+                  <span className="tasks__comment-body kd-selectable">{comment.body}</span>
                 </li>
-              ) : item.kind === "change" ? (
-                <FeedChangeLine key={item.key} change={item} />
-              ) : (
-                <li key={item.key} className="tasks__log">
-                  <details className="tasks__feed-more">
-                    <summary>{item.label}</summary>
-                    <ul className="tasks__feed">
-                      {item.changes.map((change) => (
-                        <FeedChangeLine key={change.key} change={change} />
-                      ))}
-                    </ul>
-                  </details>
-                </li>
-              ),
-            )}
-          </ul>
+              ))}
+            </ul>
+          )}
           <div className="tasks__composer-row">
-          <textarea
-            rows={1}
-            className="form__input tasks__comment-input"
-            placeholder={TASK_DETAIL_WORDS.commentPlaceholder}
-            aria-label={TASK_DETAIL_WORDS.comment}
-            value={composer.draft}
-            maxLength={view.commentMax}
-            onChange={(e) => setComposer((current) => typeDraft(current, e.target.value))}
-          />
-            <Button size="sm" onClick={send} disabled={!sendable}>
+            <textarea
+              ref={commentField}
+              rows={1}
+              className="form__input tasks__comment-input"
+              placeholder={TASK_DETAIL_WORDS.commentPlaceholder}
+              aria-label={TASK_DETAIL_WORDS.comment}
+              value={composer.draft}
+              maxLength={view.commentMax}
+              onChange={(e) => setComposer((current) => typeDraft(current, e.target.value))}
+            />
+            <Button onClick={send} disabled={!sendable}>
               {TASK_DETAIL_WORDS.comment}
             </Button>
           </div>
+
+          <button
+            type="button"
+            className="tasks__section tasks__section--toggle"
+            aria-expanded={view.activity.open}
+            aria-controls={view.activity.open ? activityId : undefined}
+            onClick={onToggleActivity}
+          >
+            {view.activity.label}
+            <DisclosureChevron open={view.activity.open} />
+          </button>
+          {view.activity.open && (
+            <div id={activityId} className="tasks__activity">
+              {view.changesEmpty && <p className="tasks__muted">{view.changesEmpty}</p>}
+              {view.changesTrimmed && <p className="tasks__muted">{view.changesTrimmed}</p>}
+              <ul className="tasks__feed">
+                {view.changes.map((change) => (
+                  <FeedChangeLine key={change.key} change={change} />
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       </div>
     </aside>

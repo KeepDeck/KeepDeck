@@ -45,6 +45,7 @@ describe("tasksDialogView", () => {
       },
       body: { kind: "stage", main: { kind: "columns" } },
       panel: null,
+      headInert: false,
       ghost: null,
     });
   });
@@ -70,6 +71,10 @@ describe("tasksDialogView", () => {
   });
 
   it("the form outranks an open task for the panel; + Task needs a team", () => {
+    // Under a panel the head is out of reach — no Tab stop nobody can see.
+    expect(view({ detailOpen: true }).headInert).toBe(true);
+    expect(view({ composing: true }).headInert).toBe(true);
+    expect(view().headInert).toBe(false);
     expect(view({ composing: true, detailOpen: true }).panel).toBe("form");
     expect(view({ detailOpen: true }).panel).toBe("detail");
     expect(view({ teamId: null }).newTaskDisabled).toBe(true);

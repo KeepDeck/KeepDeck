@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { ChevronIcon } from "@keepdeck/ui-kit/icons";
+import { DisclosureChevron } from "@keepdeck/ui-kit/DisclosureChevron";
 import type { SectionId } from "../presentation/sections";
 
 /**
@@ -42,11 +42,7 @@ export function Section({
         aria-controls={bodyId}
         onClick={() => onToggle(id)}
       >
-        {/* One drawn mark, turned by CSS when open — ui-kit's chevron,
-            not two glyphs swapping. */}
-        <span className="git__chev" aria-hidden>
-          <ChevronIcon />
-        </span>
+        <DisclosureChevron open={open} />
         <span className="git__secname">{label}</span>
         {aside}
         {count !== null && <span className="git__count">{count}</span>}

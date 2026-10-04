@@ -37,8 +37,12 @@ export interface TasksDialogView {
   /** List and Board — the two views, as the toolbar's choice row. */
   viewChoice: { ariaLabel: string; value: TrackerView; options: { value: TrackerView; label: string }[] };
   body: DialogBody;
-  /** The panel over the stage: the new-task form outranks an open task. */
+  /** The panel over the dialog: the new-task form outranks an open task. */
   panel: "form" | "detail" | null;
+  /** The dialog's head lies under the panel: out of reach while it does —
+   * no Tab stop on a control nobody can see. Escape still peels the panel,
+   * then closes the dialog. */
+  headInert: boolean;
   /** The card in flight, where it is drawn — null while nothing is. */
   /** The task in flight, drawn as the view it left draws it: a card over
    * the board, a row over the list. */
@@ -68,6 +72,7 @@ export function tasksDialogView(input: {
   const staged = ladder.kind === "board" || ladder.kind === "empty";
   const box = ghostBox(drag);
   const card = input.inFlight;
+  const panel = input.composing ? "form" : input.detailOpen ? "detail" : null;
   return {
     className: drag.kind === "dragging" ? "form tasks tasks--dragging" : "form tasks",
     toolbar: staged,
@@ -79,7 +84,8 @@ export function tasksDialogView(input: {
       options: TASKS_VIEWS.map((view) => ({ value: view, label: VIEW_WORDS.label[view] })),
     },
     body: staged ? { kind: "stage", main: stageMain(ladder, input.wide, input.view, input.nothingFound) } : placeholder(ladder),
-    panel: input.composing ? "form" : input.detailOpen ? "detail" : null,
+    panel,
+    headInert: staged && panel !== null,
     ghost: box && card ? ghostOf(box, input.view === "list" ? "row" : "card", card) : null,
   };
 }

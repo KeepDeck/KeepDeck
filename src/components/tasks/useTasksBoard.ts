@@ -216,7 +216,7 @@ export function useTasksBoard(
 
   const selected = focusedTask;
   const detail =
-    selected && selected.teamId === teamId ? taskDetailView(selected, board!, roster, now, knownArtifacts) : null;
+    selected && selected.teamId === teamId ? taskDetailView(selected, board!, roster, now, knownArtifacts, screen.activityOpen) : null;
   const columns = useMemo(
     () => (board && view === "board" ? boardView(teamTasks, board, now, query) : []),
     [board, view, teamTasks, now, query],
@@ -346,6 +346,7 @@ export function useTasksBoard(
     toggleCompose: () => run({ type: "toggleCompose" }),
     wide: wideView(screen, detail !== null),
     toggleWide: () => run({ type: "toggleWide", detailOpen: detail !== null }),
+    toggleActivity: () => run({ type: "toggleActivity" }),
     narrow: () => run({ type: "narrow" }),
     form,
     error,
