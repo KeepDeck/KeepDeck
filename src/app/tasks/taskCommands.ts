@@ -34,12 +34,15 @@ import {
   findTask,
   isTaskId,
   isTaskPriority,
+  TASK_STATUSES,
   isTaskStatus,
+  type CreateStatus,
   issuable,
   mine,
   nextFor,
   normalizeLabel,
   poolOf,
+  countByStatus,
   tasksOfTeam,
   unblocks,
   type Task,
@@ -123,7 +126,7 @@ function statusArg(args: CommandArgs): TaskStatus | undefined {
   const value = str(args, "status");
   if (value === undefined) return undefined;
   if (!isTaskStatus(value)) {
-    throw new Error(`status must be todo, in-progress, blocked, review, done or cancelled, not "${value}"`);
+    throw new Error(`status must be one of ${TASK_STATUSES.join(", ")}, not "${value}"`);
   }
   return value;
 }
@@ -210,11 +213,14 @@ function createCommand(deps: TaskCommandDeps): CommandSpec {
       { name: "blockedBy", type: "string", description: "Task ids this one waits on, comma-separated — same board only" },
       { name: "artifacts", type: "string", description: "Artifact ids to attach, comma-separated" },
       { name: "labels", type: "string", description: "Labels, comma-separated — at most 5 words (lowercase, dashes between, ≤24 characters); \"Copy Edit\" is kept as copy-edit" },
+      { name: "status", type: "string", description: "todo (default) | backlog — backlog parks it: on the board, never issuable, until whoever hands out work moves it to todo" },
       TEAM_ARG,
     ],
     run: async (args, source) => {
       const who = caller(source, deps);
       const team = teamFor(args, who);
+      // Where it may start is the domain's to judge (createTask).
+      const status = str(args, "status");
       const { task, saved, saveError } = settled(
         await deps.tasks.create(
           who.workspace.id,
@@ -227,6 +233,7 @@ function createCommand(deps: TaskCommandDeps): CommandSpec {
             blockedBy: ids(args, "blockedBy"),
             artifacts: ids(args, "artifacts"),
             labels: ids(args, "labels"),
+            status: status as CreateStatus | undefined,
           },
           who.actor,
         ),
@@ -302,7 +309,7 @@ function updateCommand(deps: TaskCommandDeps): CommandSpec {
     title: "Change a task: move it along, reassign it, edit its fields",
     args: [
       { name: "id", type: "string", required: true, description: "The task id (task-N)" },
-      { name: "status", type: "string", description: "todo | in-progress | blocked | review | done | cancelled. One step at a time: todo → in-progress → review → done, in-progress ⇄ blocked; accepting, returning, reopening and cancelling are for whoever hands out work. A refused move says where the task can go from where it is" },
+      { name: "status", type: "string", description: "backlog | todo | in-progress | blocked | review | done | cancelled. One step at a time: todo → in-progress → review → done, in-progress ⇄ blocked; backlog ⇄ todo parks and unparks your own task; accepting, returning, reopening and cancelling are for whoever hands out work. A refused move says where the task can go from where it is" },
       { name: "assignee", type: "string", description: "A role address on the team; \"pool\" to unassign" },
       { name: "priority", type: "string", description: "high | normal | low" },
       { name: "title", type: "string", description: "A new title" },
@@ -389,6 +396,10 @@ function nextCommand(deps: TaskCommandDeps): CommandSpec {
       const board = await boardOf(deps, who.workspace.id);
       const head = who.role === undefined ? null : nextFor(board, team.id, who.role);
       const pool = poolOf(board, team.id).length;
+      const parked = countByStatus(tasksOfTeam(board, team.id)).backlog;
+      // Parked work is no queue's — but an agent told "nothing" should
+      // hear that there is some, and whose call it is.
+      const backlog = parked > 0 ? `; ${parked} parked in the backlog, for whoever hands out work to move to todo` : "";
       return {
         task: head === null ? null : row(head, board),
         pool,
@@ -396,8 +407,8 @@ function nextCommand(deps: TaskCommandDeps): CommandSpec {
           ? {
               note:
                 pool > 0
-                  ? `nothing on your queue can start now; the pool holds ${pool} — task.list assignee=pool shows them, task.update status=in-progress takes one`
-                  : "nothing on your queue can start now, and the pool is empty",
+                  ? `nothing on your queue can start now; the pool holds ${pool} — task.list assignee=pool shows them, task.update status=in-progress takes one${backlog}`
+                  : `nothing on your queue can start now, and the pool is empty${backlog}`,
             }
           : {}),
       };

@@ -471,6 +471,12 @@ const DECK_MIGRATIONS: Record<number, Migration> = {
  *       task_* commands and the Tasks dialog — off by default).
  * 23 — + tasksView (board|list): the view the Tasks dialog opens in, the
  *       last one picked.
+ * 24 — + tasksBoard { view, list: { folded } }: the Tasks dialog's
+ *       posture as one bag — its view, and each view's own arrangement
+ *       (the list's folded status groups). − tasksView:
+ *       graduated into tasksBoard.view (a stored choice carries across,
+ *       like experimentRunPresets at v5), then consumed. Additive: an
+ *       older reader keeps its own tasksView default — no raised floor.
  *
  * No ladder: the document is per-key tolerant (independent facts,
  * hand-editable), which IS its migration mechanism while changes stay
@@ -478,7 +484,7 @@ const DECK_MIGRATIONS: Record<number, Migration> = {
  * step that changes a field's meaning gets a `migrateSettingsFromV*toV*`
  * here, a ladder like the deck's, and a raised floor.
  */
-export const SETTINGS_VERSION = 23;
+export const SETTINGS_VERSION = 24;
 export const SETTINGS_MIN_READER = 1;
 
 /** The file's effective compatibility floor: what it declares, else its own

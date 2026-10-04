@@ -7,8 +7,7 @@
  * center, not a column.
  */
 import { findTeam, type Workspace } from "../../domain/deck";
-import type { NotificationSeverity } from "../../domain/notifications";
-import type { TaskStatus } from "../../domain/tasks";
+import { createdWords, movedWords, type TaskNotificationWords } from "../../presentation/tasks/notificationWords";
 import { notify } from "../notificationCenter";
 import type { TaskEvent } from "./tasksService";
 
@@ -33,43 +32,8 @@ export function announceTask(event: TaskEvent, deps: TaskProducerDeps): void {
   });
 }
 
-function wording(
-  event: TaskEvent,
-  team: string,
-): { title: string; body: string; severity: NotificationSeverity } {
-  const { task } = event;
-  switch (event.kind) {
-    case "created": {
-      const by = event.actor.kind === "agent" ? (event.actor.role ?? "an agent") : "you";
-      return {
-        title: `${by} put a task on ${team}'s board`,
-        body: `${task.id} · ${task.title}`,
-        severity: "info",
-      };
-    }
-    case "moved":
-      return {
-        title: moveTitle(task.id, event.from, task.status),
-        body: `${task.title} · ${task.assignee ?? "unassigned"} · ${team}`,
-        severity: task.status === "blocked" ? "warning" : "info",
-      };
-  }
-}
-
-/** What a move is called, from where it stood to where it went. */
-function moveTitle(id: string, from: TaskStatus, to: TaskStatus): string {
-  switch (to) {
-    case "todo":
-      return `${id} reopened`;
-    case "in-progress":
-      return from === "todo" ? `${id} started` : `${id} back in progress`;
-    case "blocked":
-      return `${id} is blocked`;
-    case "review":
-      return `${id} is ready for review`;
-    case "done":
-      return `${id} accepted`;
-    case "cancelled":
-      return `${id} cancelled`;
-  }
+function wording(event: TaskEvent, team: string): TaskNotificationWords {
+  return event.kind === "created"
+    ? createdWords(event.task, event.actor.kind === "agent" ? event.actor.role : null, team)
+    : movedWords(event.task, event.from, team);
 }

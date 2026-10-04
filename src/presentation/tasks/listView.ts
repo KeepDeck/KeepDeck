@@ -39,9 +39,6 @@ export interface ListRow {
 
 export type ListItem = ListHeading | ListRow;
 
-/** What a list opens with folded: the closed work, which only grows. */
-export const FOLDED_AT_OPEN: ReadonlySet<TaskStatus> = new Set<TaskStatus>(["done", "cancelled"]);
-
 /** The list's items: every status's heading, always — the same six groups
  * as the board's six columns, an empty one with its 0 — and the rows of
  * each open group. */
@@ -92,14 +89,6 @@ export function headingOf(items: readonly ListItem[], index: number): ListHeadin
     if (item.kind === "head") return item;
   }
   return null;
-}
-
-/** The folded set after a heading's toggle. */
-export function toggleFold(folded: ReadonlySet<TaskStatus>, status: TaskStatus): ReadonlySet<TaskStatus> {
-  const next = new Set(folded);
-  if (next.has(status)) next.delete(status);
-  else next.add(status);
-  return next;
 }
 
 /** A heading's classes: its status's hue, and folded or open. */

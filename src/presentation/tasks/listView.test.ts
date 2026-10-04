@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { board, task } from "../../domain/tasks/testSupport";
 import {
-  FOLDED_AT_OPEN,
   LIST_HEAD_ESTIMATE_PX,
   LIST_ROW_ESTIMATE_PX,
   headingOf,
@@ -15,7 +14,6 @@ import {
   rowGrip,
   rowStepOf,
   stepRow,
-  toggleFold,
   type ListItem,
 } from "./listView";
 import { NO_QUERY } from "./queryView";
@@ -38,6 +36,7 @@ describe("listView — the board's tasks as one list", () => {
     expect(keys(listView(tasks, b, 0, NO_QUERY, NONE, null))).toEqual([
       "head:blocked",
       "task-3",
+      "head:backlog",
       "head:todo",
       "task-2",
       "task-1",
@@ -48,15 +47,15 @@ describe("listView — the board's tasks as one list", () => {
       "task-4",
       "head:cancelled",
     ]);
-    // The same six groups, left to right, as the board's columns.
+    // The same seven groups, left to right, as the board's columns.
     const heads = listView(tasks, b, 0, NO_QUERY, NONE, null).filter((i) => i.kind === "head");
     expect(heads.map((h) => h.kind === "head" && h.status)).toEqual([...BOARD_ORDER]);
   });
 
   it("heads every status even when the query leaves it empty, counting what it shows", () => {
     const items = listView(tasks, b, 0, { blockedOnly: false, label: "ui" }, NONE, null);
-    expect(keys(items)).toEqual(["head:blocked", "head:todo", "head:in-progress", "head:review", "task-5", "head:done", "head:cancelled"]);
-    expect(items[3]).toMatchObject({ kind: "head", label: "Review", count: 1, folded: false });
+    expect(keys(items)).toEqual(["head:blocked", "head:backlog", "head:todo", "head:in-progress", "head:review", "task-5", "head:done", "head:cancelled"]);
+    expect(items[4]).toMatchObject({ kind: "head", label: "Review", count: 1, folded: false });
     expect(items[0]).toMatchObject({ kind: "head", count: 0 });
     expect(listHeadingClassName(items[0] as never)).toContain("tasks__group--empty");
   });
@@ -66,6 +65,7 @@ describe("listView — the board's tasks as one list", () => {
     expect(keys(items)).toEqual([
       "head:blocked",
       "task-3",
+      "head:backlog",
       "head:todo",
       "head:in-progress",
       "head:review",
@@ -74,11 +74,7 @@ describe("listView — the board's tasks as one list", () => {
       "task-4",
       "head:cancelled",
     ]);
-    expect(items[2]).toMatchObject({ kind: "head", count: 2, folded: true });
-  });
-
-  it("opens with the closed work folded", () => {
-    expect([...FOLDED_AT_OPEN].sort()).toEqual(["cancelled", "done"]);
+    expect(items[3]).toMatchObject({ kind: "head", count: 2, folded: true });
   });
 
   it("marks the row of the open task, and only it", () => {
@@ -100,16 +96,11 @@ describe("listView — the board's tasks as one list", () => {
   it("names the group any index is in — a heading heads itself; nothing before the first", () => {
     const items = listView(tasks, b, 0, NO_QUERY, NONE, null);
     expect(headingOf(items, 0)?.status).toBe("blocked");
-    expect(headingOf(items, 4)?.status).toBe("todo");
-    expect(headingOf(items, 5)?.status).toBe("in-progress");
+    expect(headingOf(items, 2)?.status).toBe("backlog");
+    expect(headingOf(items, 5)?.status).toBe("todo");
+    expect(headingOf(items, 6)?.status).toBe("in-progress");
     expect(headingOf(items, 99)?.status).toBe("cancelled");
     expect(headingOf([], 0)).toBeNull();
-  });
-
-  it("toggles a fold without touching the others", () => {
-    const once = toggleFold(new Set(["done"]), "todo");
-    expect([...once].sort()).toEqual(["done", "todo"]);
-    expect([...toggleFold(once, "done")]).toEqual(["todo"]);
   });
 
   it("dresses a heading in its status, folded or open", () => {

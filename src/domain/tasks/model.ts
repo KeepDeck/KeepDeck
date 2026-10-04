@@ -16,15 +16,21 @@
 import { parseRoleAddress, type RoleStanding } from "../mail/roles";
 
 /**
- * The status ladder. `review` is the assignee saying "finished — look";
+ * The status ladder. `backlog` is work parked: on the board, not yet to be
+ * started — never issuable, so nothing hands it out — until it is moved to
+ * `todo`. Parking and unparking are steps of one's own work: the assignee
+ * makes them on its own task (as the lead and the user may on any); a
+ * parked pool task is unparked by whoever hands out work, since no one
+ * holds it. `review` is the assignee saying "finished — look";
  * `done` is the team's lead (or the user) agreeing; `cancelled` is a task
  * that was taken off the board without being done. Both closed states
  * RESOLVE a blocker (see [`blockerResolved`]): a cancelled prerequisite
  * must not hold its dependants hostage forever.
  */
-export type TaskStatus = "todo" | "in-progress" | "blocked" | "review" | "done" | "cancelled";
+export type TaskStatus = "backlog" | "todo" | "in-progress" | "blocked" | "review" | "done" | "cancelled";
 
 export const TASK_STATUSES: readonly TaskStatus[] = [
+  "backlog",
   "todo",
   "in-progress",
   "blocked",
@@ -32,6 +38,13 @@ export const TASK_STATUSES: readonly TaskStatus[] = [
   "done",
   "cancelled",
 ];
+
+/** The statuses among `values` this build knows, in ladder order, each
+ * once — whatever order and repeats they came in. A stored set of
+ * statuses (the list's folds) is read, and changed, through it. */
+export function inLadderOrder(values: readonly unknown[]): TaskStatus[] {
+  return TASK_STATUSES.filter((status) => values.includes(status));
+}
 
 /** Three rungs and no numbers: numbers breed arguments about 7 versus 8. */
 export type TaskPriority = "high" | "normal" | "low";

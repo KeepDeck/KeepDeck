@@ -135,7 +135,7 @@ describe("TasksDialog", () => {
     // The status picker offers the person every status, in board order.
     const statusPicker = () => document.querySelector<HTMLButtonElement>('button[aria-label="Status"]')!;
     const options = () => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="option"]'));
-    const EVERY = ["Blocked", "To do", "In progress", "Review", "Done", "Cancelled"];
+    const EVERY = ["Blocked", "Backlog", "To do", "In progress", "Review", "Done", "Cancelled"];
     act(() => statusPicker().click());
     await flush();
     expect(options().map((o) => o.textContent)).toEqual(EVERY);
@@ -210,11 +210,12 @@ describe("TasksDialog", () => {
       const open = (row: HTMLElement) => row.querySelector<HTMLButtonElement>(".tasks__row-open")!;
       const headings = () =>
         Array.from(document.querySelectorAll<HTMLButtonElement>(".tasks__list-item .tasks__group")).map((h) => h.textContent);
-      // All six groups stand, as the board's columns do; the closed work
-      // opens folded — Cancelled is a heading with its count, no rows.
-      expect(headings()).toEqual(["Blocked0", "To do1", "In progress0", "Review0", "Done0", "Cancelled1"]);
+      // All seven groups stand, as the board's columns do; the parked and
+      // the closed work open folded — Cancelled is a heading with its
+      // count, no rows.
+      expect(headings()).toEqual(["Blocked0", "Backlog0", "To do1", "In progress0", "Review0", "Done0", "Cancelled1"]);
       expect(rows().map((r) => r.querySelector(".tasks__row-title")?.textContent)).toEqual(["Draft the skill"]);
-      act(() => Array.from(document.querySelectorAll<HTMLButtonElement>(".tasks__list-item .tasks__group"))[5].click());
+      act(() => Array.from(document.querySelectorAll<HTMLButtonElement>(".tasks__list-item .tasks__group"))[6].click());
       await flush();
       expect(rows().map((r) => r.querySelector(".tasks__row-title")?.textContent)).toEqual(["Draft the skill", "Pooled work"]);
 
@@ -294,13 +295,40 @@ describe("TasksDialog", () => {
     expect(cards().length).toBeGreaterThan(0);
     act(() => button("List").click());
     await flush();
-    expect(settingsStore.current?.tasksView).toBe("list");
+    expect(settingsStore.current?.tasksBoard.view).toBe("list");
     act(() => root.unmount());
     root = createRoot(host);
     mount(service)();
     await flush();
     expect(cards()).toEqual([]);
     expect(document.querySelector(".tasks__list")).not.toBeNull();
+  });
+
+  it("keeps the list's folds across closing and opening the dialog — they are settings too", async () => {
+    const restoreList = pinListViewport("tasks__list", 600, 900, 34);
+    try {
+      const { service } = await seeded();
+      settingsStore.current = { ...DEFAULT_SETTINGS, tasksBoard: { ...DEFAULT_SETTINGS.tasksBoard, view: "list" } };
+      mount(service)();
+      await flush();
+      const heading = (label: string) =>
+        Array.from(document.querySelectorAll<HTMLButtonElement>(".tasks__list-item .tasks__group")).find(
+          (h) => h.querySelector(".tasks__group-label")?.textContent === label,
+        )!;
+      // To do opens unfolded, Done folded — then the person turns both.
+      act(() => heading("To do").click());
+      act(() => heading("Done").click());
+      await flush();
+      expect(settingsStore.current?.tasksBoard.list.folded).toEqual(["backlog", "todo", "cancelled"]);
+      act(() => root.unmount());
+      root = createRoot(host);
+      mount(service)();
+      await flush();
+      expect(heading("To do").getAttribute("aria-expanded")).toBe("false");
+      expect(heading("Done").getAttribute("aria-expanded")).toBe("true");
+    } finally {
+      restoreList();
+    }
   });
 
   it("creates a task from the form as the user and opens it", async () => {
@@ -512,7 +540,7 @@ describe("TasksDialog", () => {
     const restoreList = pinListViewport("tasks__list", 600, 900, 34);
     try {
       const { service } = await seeded();
-      settingsStore.current = { ...DEFAULT_SETTINGS, tasksView: "list" };
+      settingsStore.current = { ...DEFAULT_SETTINGS, tasksBoard: { ...DEFAULT_SETTINGS.tasksBoard, view: "list" } };
       mount(service)();
       await flush();
       const pointer = (type: string, target: EventTarget, x: number, y: number) =>

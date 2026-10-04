@@ -72,20 +72,6 @@ export function bucketShares(
   return shares;
 }
 
-/** The agent whose segment caps the bucket's stack — the last one in roster
- * order that burned anything, since the chart stacks in roster order. Only
- * the cap is rounded; a rounded corner mid-stack reads as a notch. Null for
- * a silent bucket. */
-export function stackTop(
-  bucket: TimelineBucket,
-  agents: readonly string[],
-): string | null {
-  for (let index = agents.length - 1; index >= 0; index--) {
-    if ((bucket.byAgent[agents[index]]?.totalTokens ?? 0) > 0) return agents[index];
-  }
-  return null;
-}
-
 /** Every agent the ledger has EVER seen, sorted — the stable roster that
  * keys chart colors. Period-filtered agent lists must never key colors:
  * that is how a period switch repaints a provider. */

@@ -54,6 +54,13 @@ export function NewTaskForm({ view, onCreate, onCancel }: NewTaskFormProps) {
         maxLength={view.bodyMax}
         onChange={(e) => setDraft({ ...draft, body: e.target.value })}
       />
+      <span className="tasks__section">{FIELD_WORDS.status}</span>
+      <Segmented
+        ariaLabel={FIELD_WORDS.status}
+        options={view.statusOptions}
+        value={draft.status}
+        onChange={(status) => setDraft({ ...draft, status })}
+      />
       <span className="tasks__section">{FIELD_WORDS.priority}</span>
       <Segmented
         ariaLabel={FIELD_WORDS.priority}

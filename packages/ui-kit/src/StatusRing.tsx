@@ -9,6 +9,8 @@ export interface StatusRingProps {
   tone: StatusRingTone;
   /** Struck through: stopped, waiting on something else. */
   barred?: boolean;
+  /** A dashed outline: not yet on the ladder at all (parked). */
+  dashed?: boolean;
   /** What it says, for the pointer and assistive tech. */
   label: string;
   /** Beside the word it pictures ("In progress"): a picture only, kept
@@ -23,14 +25,16 @@ export interface StatusRingProps {
  * "stopped". A place on a ladder rests (none of the status dots' rhythms,
  * decision 2026-10-04); a move along it eases — fill and hue glide.
  */
-export function StatusRing({ fill, tone, barred = false, label, decorative = false }: StatusRingProps) {
+export function StatusRing({ fill, tone, barred = false, dashed = false, label, decorative = false }: StatusRingProps) {
   const named = decorative ? { "aria-hidden": true } : { role: "img", "aria-label": label, title: label };
   return (
     <span className="status-ring-box" {...named}>
       <ProgressRing
         shape="pie"
         value={fill}
-        className={["status-ring", `status-ring--${tone}`, barred && "status-ring--barred"].filter(Boolean).join(" ")}
+        className={["status-ring", `status-ring--${tone}`, barred && "status-ring--barred", dashed && "status-ring--dashed"]
+          .filter(Boolean)
+          .join(" ")}
       >
         <span className="status-ring__bar" />
       </ProgressRing>

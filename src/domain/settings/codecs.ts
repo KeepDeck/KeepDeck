@@ -1,7 +1,9 @@
 import type { AgentType } from "../agents";
 import { isRecord } from "../json";
+import { inLadderOrder, isTaskStatus } from "../tasks";
 import {
   DOCK_MODES,
+  TASKS_FOLDED_DEFAULT,
   TASKS_VIEWS,
   NOTIFICATION_MODES,
   SCROLLBACK_MAX,
@@ -10,6 +12,7 @@ import {
   USAGE_DISPLAYS,
   type NotificationsMode,
   type Settings,
+  type TasksView,
   type SettingsKey,
 } from "./types";
 
@@ -44,6 +47,11 @@ const DEFAULT_NOTIFICATIONS = freezeBag<Settings["notifications"]>({
   enabled: true,
   mode: "system-and-app",
   mutedPlugins: [],
+});
+
+const DEFAULT_TASKS_BOARD: Settings["tasksBoard"] = Object.freeze({
+  view: "board",
+  list: Object.freeze({ folded: Object.freeze([...TASKS_FOLDED_DEFAULT]) }),
 });
 
 /** Where a discarded stored value is reported, so a load can say what it
@@ -173,6 +181,33 @@ function readNotifications(
 }
 
 /**
+ * The tasks board's posture. Each field read on its own: a view this build
+ * does not know keeps the default view, a status it does not know is
+ * dropped from the folds (and said), and the folds come back in ladder
+ * order, each once — a hand edit's order or repeat is no posture.
+ */
+function readTasksBoard(value: unknown, discard: Discard): Settings["tasksBoard"] | undefined {
+  if (!isRecord(value)) return undefined;
+  let view = DEFAULT_TASKS_BOARD.view;
+  if (TASKS_VIEWS.includes(value.view as TasksView)) view = value.view as TasksView;
+  else if (value.view !== undefined) discard("tasksBoard.view");
+  let list = DEFAULT_TASKS_BOARD.list;
+  if (isRecord(value.list)) list = readTasksList(value.list, discard);
+  else if (value.list !== undefined) discard("tasksBoard.list");
+  return { view, list };
+}
+
+function readTasksList(value: Record<string, unknown>, discard: Discard): Settings["tasksBoard"]["list"] {
+  const stored = value.folded;
+  if (!Array.isArray(stored)) {
+    if (stored !== undefined) discard("tasksBoard.list.folded");
+    return { folded: [...DEFAULT_TASKS_BOARD.list.folded] };
+  }
+  if (stored.some((status) => !isTaskStatus(status))) discard("tasksBoard.list.folded");
+  return { folded: inLadderOrder(stored) };
+}
+
+/**
  * THE settings table: every key's default and its tolerant reader, together.
  *
  * The mapped type over `SettingsKey` is TOTAL, so adding a field to `Settings`
@@ -203,7 +238,7 @@ const SETTINGS_CODECS: { [K in SettingsKey]: SettingCodec<Settings[K]> } = {
   artifacts: { default: false, read: readBoolean },
   artifactAutoOpen: { default: true, read: readBoolean },
   tasks: { default: false, read: readBoolean },
-  tasksView: { default: "board", read: readOneOf(TASKS_VIEWS) },
+  tasksBoard: { default: DEFAULT_TASKS_BOARD, read: readTasksBoard },
 };
 
 /** The table as entries, typed once so every consumer doesn't re-assert the

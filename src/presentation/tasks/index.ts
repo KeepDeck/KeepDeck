@@ -3,6 +3,7 @@ export * from "./taskCardView";
 export * from "./boardView";
 export * from "./queryView";
 export * from "./listView";
+export * from "./boardSettings";
 export * from "./taskDetailView";
 export * from "./newTaskFormView";
 export * from "./ladderView";

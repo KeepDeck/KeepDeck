@@ -1,9 +1,11 @@
-import { TASK_CAPS, type TaskPriority } from "../../domain/tasks";
-import { POOL_CHOICE, priorityChoices, type ChoiceView } from "./words";
+import { CREATE_STATUSES, TASK_CAPS, type CreateStatus, type TaskPriority } from "../../domain/tasks";
+import { POOL_CHOICE, STATUS_LABEL, priorityChoices, type ChoiceView } from "./words";
 
 export interface NewTaskFormView {
   assigneeOptions: ChoiceView[];
   priorityOptions: (ChoiceView & { value: TaskPriority })[];
+  /** Where it starts: To do, or the backlog. */
+  statusOptions: (ChoiceView & { value: CreateStatus })[];
   titleMax: number;
   bodyMax: number;
   /** Under the assignee: the addresses teammates use, or that nobody is
@@ -28,6 +30,7 @@ export function newTaskFormView(roster: readonly string[]): NewTaskFormView {
       ...roster.map((role) => ({ value: role, label: role })),
     ],
     priorityOptions: priorityChoices(),
+    statusOptions: CREATE_STATUSES.map((status) => ({ value: status, label: STATUS_LABEL[status] })),
     titleMax: TASK_CAPS.titleMax,
     bodyMax: TASK_CAPS.bodyMax,
     addressHint:

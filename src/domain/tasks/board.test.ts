@@ -123,7 +123,7 @@ describe("counts", () => {
       task({ id: "task-5", status: "done" }),
       task({ id: "task-6", status: "cancelled" }),
     ];
-    expect(countByStatus(tasks)).toEqual({ todo: 1, "in-progress": 0, blocked: 1, review: 2, done: 1, cancelled: 1 });
+    expect(countByStatus(tasks)).toEqual({ backlog: 0, todo: 1, "in-progress": 0, blocked: 1, review: 2, done: 1, cancelled: 1 });
   });
 });
 

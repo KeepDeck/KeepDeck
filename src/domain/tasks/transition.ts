@@ -96,6 +96,8 @@ export type TaskRefusal =
   | { kind: "self-blocker" }
   | { kind: "cyclic-blocker"; ids: readonly string[] }
   | { kind: "field-cap"; field: "title" | "body" | "comment"; max: number }
+  /** A task asked to start anywhere but where a task may be created. */
+  | { kind: "bad-create-status"; status: string; allowed: readonly TaskStatus[] }
   /** A label that is not a word: empty, too long, or with a character
    * outside lowercase letters, digits and inner dashes. */
   | { kind: "bad-label"; label: string; max: number }
@@ -148,6 +150,12 @@ const EDGES: readonly {
   who: "worker" | "acceptor";
   needsBlockersResolved?: true;
 }[] = [
+  // Parked and unparked like any step of one's own work — by its assignee,
+  // the lead or the user; a backlog task is no one's to START until it is
+  // moved to todo. Cancelling it stays the acceptor's, as everywhere.
+  { from: "backlog", to: "todo", who: "worker" },
+  { from: "todo", to: "backlog", who: "worker" },
+  { from: "backlog", to: "cancelled", who: "acceptor" },
   { from: "todo", to: "in-progress", who: "worker", needsBlockersResolved: true },
   { from: "in-progress", to: "blocked", who: "worker" },
   { from: "blocked", to: "in-progress", who: "worker", needsBlockersResolved: true },
@@ -530,7 +538,14 @@ export interface CreateTaskInput {
   blockedBy?: readonly string[];
   artifacts?: readonly string[];
   labels?: readonly string[];
+  /** Where it starts: on the ladder (`todo`, the default) or parked in
+   * the backlog — anyone may park an idea; starting it is another matter. */
+  status?: CreateStatus;
 }
+
+/** The statuses a task may be created in. */
+export type CreateStatus = Extract<TaskStatus, "todo" | "backlog">;
+export const CREATE_STATUSES: readonly CreateStatus[] = ["todo", "backlog"];
 
 export type CreateResult =
   | { ok: true; board: TaskBoard; task: Task }
@@ -573,6 +588,10 @@ export function createTask(
   const blockedBy = normalizeIds(input.blockedBy ?? []);
   const badBlockers = validateBlockers(null, input.teamId, blockedBy, ctx.board);
   if (badBlockers) return refuse(badBlockers);
+  const status = input.status ?? "todo";
+  if (!(CREATE_STATUSES as readonly string[]).includes(status)) {
+    return refuse({ kind: "bad-create-status", status, allowed: CREATE_STATUSES });
+  }
   const labels = normalizeLabels(input.labels ?? []);
   if (!labels.ok) return labels;
   // The labelling rule the change applies: a working role labels only
@@ -585,7 +604,7 @@ export function createTask(
     teamId: input.teamId,
     title: input.title.trim(),
     body,
-    status: "todo",
+    status,
     priority,
     assignee,
     author: actorName(actor) ?? "",

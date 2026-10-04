@@ -40,9 +40,12 @@ export const OVERFLOW_COLOR = "#596273";
  * from this constant so the overview cannot jump when the chunk lands. */
 export const CHART_HEIGHT = 240;
 
-/** The stack's rounded cap, in px — the chrome's mark radius
- * (`--kd-radius-mark`); tokens.test.ts holds it there. */
-export const CHART_BAR_RADIUS = 4;
+/** The stack's rounded cap, in px — half the chrome's mark radius
+ * (`--kd-radius-mark`): a column is a few px wide, and the mark's 4px
+ * domed it. recharts clamps it to half the column's width and height, so
+ * the hourly view's narrowest columns and a 1–2px stack still round as far
+ * as they can — expected. tokens.test.ts holds the relation. */
+export const CHART_BAR_RADIUS = 2;
 
 /* Chart CHROME — grid, axes, inks, tooltip surfaces. Beside the series
  * palette so a design pass finds every chart color in ONE module. SVG props
