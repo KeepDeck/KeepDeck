@@ -29,7 +29,7 @@ interface TaskDetailProps {
   /** Whether the task fills the stage; the head offers the way there and back. */
   wide: boolean;
   onToggleWide(): void;
-  /** The history's heading: compact ⇄ whole. */
+  /** The activity's heading: shut ⇄ open. */
   onToggleActivity(): void;
   onClose(): void;
   onMove(taskId: string, to: TaskStatus): void;

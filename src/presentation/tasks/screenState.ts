@@ -28,8 +28,8 @@ export interface ScreenState {
   hover: TaskStatus | null;
   /** The list's folded groups — a reading posture for the dialog's life. */
   folded: ReadonlySet<TaskStatus>;
-  /** The open task's history shown whole, not compact — a reading
-   * posture for the dialog's life, kept from task to task. */
+  /** The open task's activity (its changes) opened under its heading —
+   * a reading posture for the dialog's life, kept from task to task. */
   activityOpen: boolean;
   /** What the views narrow to, and the team whose board it was set on —
    * read through [`queryOn`]: another team's board shows unnarrowed, its
@@ -77,7 +77,7 @@ export type ScreenAction =
    * row is seen where it went rather than vanishing into a fold. A drop on
    * the board leaves the list's folds alone. */
   | { type: "dropped"; status: TaskStatus; view: TrackerView }
-  /** The history's heading: compact ⇄ whole. */
+  /** The activity's heading: shut ⇄ open. */
   | { type: "toggleActivity" }
   /** The toolbar's Blocked toggle. */
   | { type: "blockedOnly" }
