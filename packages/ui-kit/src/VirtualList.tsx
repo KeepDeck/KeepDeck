@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useReducer, useRef, type ReactNode } from "react";
 import { useFocusHandoff } from "./useFocusHandoff";
 import { useRowWindow } from "./useRowWindow";
 
@@ -76,11 +76,9 @@ function useListMotion<T>(
   itemKey: (item: T) => string,
   easeKey: unknown,
 ): { easing: boolean; arriving: ReadonlySet<string> } {
-  const track = useRef<{ items: readonly T[]; easeKey: unknown; at: number; arriving: ReadonlySet<string> | null } | null>(
-    null,
-  );
+  const track = useRef<{ items: readonly T[]; easeKey: unknown; arriving: ReadonlySet<string> | null } | null>(null);
   if (track.current === null) {
-    track.current = { items, easeKey, at: 0, arriving: null };
+    track.current = { items, easeKey, arriving: null };
   } else if (easeKey === undefined && track.current.easeKey === undefined) {
     // A list that never eases (no token) pays nothing per change.
     track.current.items = items;
@@ -95,16 +93,24 @@ function useListMotion<T>(
       track.current = { ...previous, items };
     } else {
       const was = new Set(before);
-      track.current = {
-        items,
-        easeKey,
-        at: Date.now(),
-        arriving: eased ? new Set(after.filter((key) => !was.has(key))) : null,
-      };
+      track.current = { items, easeKey, arriving: eased ? new Set(after.filter((key) => !was.has(key))) : null };
     }
   }
-  const live = track.current.arriving !== null && Date.now() - track.current.at < LIST_MOTION_WINDOW_MS;
-  return { easing: live, arriving: live ? track.current.arriving! : NONE };
+  // The marks expire on a timer, not by a clock read in render: the timer
+  // drops them and renders once more, so whatever renders after sees none.
+  const arriving = track.current.arriving;
+  const [, expired] = useReducer((n: number) => n + 1, 0);
+  useEffect(() => {
+    if (arriving === null) return;
+    const timer = setTimeout(() => {
+      if (track.current?.arriving === arriving) {
+        track.current.arriving = null;
+        expired();
+      }
+    }, LIST_MOTION_WINDOW_MS);
+    return () => clearTimeout(timer);
+  }, [arriving]);
+  return { easing: arriving !== null, arriving: arriving ?? NONE };
 }
 
 const NONE: ReadonlySet<string> = new Set();

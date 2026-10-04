@@ -131,16 +131,17 @@ describe("VirtualList", () => {
 
     it("drops the marks past their window, so a row the scroll mounts later never replays an entrance", async () => {
       restore = pinListViewport("list", 200, 300, ROW);
-      const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
+      vi.useFakeTimers();
       try {
         renderList(["a", "b"], 1);
         renderList(["a", "x", "b"], 2);
         expect(arrived()).toEqual(["x"]);
-        now.mockReturnValue(1_000 + LIST_MOTION_WINDOW_MS);
-        renderList(["a", "x", "b"], 2);
+        act(() => void vi.advanceTimersByTime(LIST_MOTION_WINDOW_MS - 1));
+        expect(arrived()).toEqual(["x"]);
+        act(() => void vi.advanceTimersByTime(1));
         expect([easing(), arrived()]).toEqual([false, []]);
       } finally {
-        now.mockRestore();
+        vi.useRealTimers();
       }
     });
   });
