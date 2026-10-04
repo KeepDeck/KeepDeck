@@ -101,9 +101,10 @@ function holdsNothing(status: TaskStatus | "absent"): boolean {
   return status === "absent" || blockerResolved(status);
 }
 
-/** The tasks `task` waits on, present on the board, in board order. */
+/** The tasks `task` waits on — by every kind that gates the start —
+ * present on the board, in board order. */
 export function blockersOf(task: Task, board: TaskBoard): Task[] {
-  return present(board, into(board, "blocks", task.uid).map((relation) => relation.from));
+  return present(board, [...new Set(GATING_KINDS.flatMap((kind) => into(board, kind, task.uid)).map((relation) => relation.from))]);
 }
 
 /** The keys of the tasks `task` waits on — what `blockedBy` reads as. */
@@ -134,7 +135,7 @@ export function gatesStart(kind: string): boolean {
 
 /** The tasks waiting on `task` — the other side of `blocks`, present. */
 export function unblocks(task: Task, board: TaskBoard): Task[] {
-  return present(board, outOf(board, "blocks", task.uid).map((relation) => relation.to));
+  return present(board, [...new Set(GATING_KINDS.flatMap((kind) => outOf(board, kind, task.uid)).map((relation) => relation.to))]);
 }
 
 /** Where `task` was copied from: the source, `"absent"` when it has left
@@ -168,7 +169,7 @@ export function waitsOn(board: TaskBoard, from: string, target: string, seen = n
   if (from === target) return true;
   if (seen.has(from)) return false;
   seen.add(from);
-  return into(board, "blocks", from).some((relation) => waitsOn(board, relation.from, target, seen));
+  return GATING_KINDS.some((kind) => into(board, kind, from).some((relation) => waitsOn(board, relation.from, target, seen)));
 }
 
 /** Canonical order — kind, then from, then to — so the same links saved

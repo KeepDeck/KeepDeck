@@ -136,6 +136,21 @@ describe("createTasksService", () => {
     expect(store.calls.filter((call) => call === "keepCopy")).toHaveLength(0);
   });
 
+  it("an upgrade whose copy cannot be kept writes nothing — the old file stays as it was — and retries both", async () => {
+    const { service, store, tick } = setup({ "ws-1": legacyBytes });
+    store.failNextCopy("permission denied");
+    await service.ready("ws-1");
+    await flush();
+    expect(store.calls).toEqual(["keepCopy"]);
+    expect(store.files.get("ws-1")).toBe(legacyBytes);
+    expect(store.copies.size).toBe(0);
+    expect(service.peek("ws-1")).toMatchObject({ kind: "ready", unsaved: "permission denied", upgrade: true });
+    tick();
+    await flush();
+    expect(store.calls).toEqual(["keepCopy", "keepCopy", "write"]);
+    expect(store.copies.get(`ws-1:${PRE_RELATIONS_COPY}`)).toBe(legacyBytes);
+  });
+
   it("a batch hands each change the board the last one left: a start is gated on the blocker set before it", async () => {
     const onDisk = board([task({ id: "task-1", status: "in-progress" }), task({ id: "task-2", assignee: "lead" })], 3);
     const { service, store } = setup({ "ws-1": encodeBoard(onDisk) });

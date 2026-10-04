@@ -12,6 +12,7 @@ export function fakeStore(initial: Record<string, string> = {}) {
   /** The copies kept beside a board, by workspace and label. */
   const copies = new Map<string, string>();
   let failNext: string | null = null;
+  let failCopy: string | null = null;
   /** A write whose bytes land at once but whose answer waits. */
   let holdNext: Promise<void> | null = null;
   /** A drop that removes the file at once but whose answer waits. */
@@ -35,6 +36,11 @@ export function fakeStore(initial: Record<string, string> = {}) {
     },
     keepCopy: async ({ workspaceId, label }) => {
       calls.push("keepCopy");
+      if (failCopy !== null) {
+        const why = failCopy;
+        failCopy = null;
+        throw new Error(why);
+      }
       const key = `${workspaceId}:${label}`;
       const now = files.get(workspaceId);
       if (!copies.has(key) && now !== undefined) copies.set(key, now);
@@ -57,6 +63,10 @@ export function fakeStore(initial: Record<string, string> = {}) {
     copies,
     failNextWrite(why: string) {
       failNext = why;
+    },
+    /** The next copy kept beside a board fails. */
+    failNextCopy(why: string) {
+      failCopy = why;
     },
     /** The next write's bytes land, but its answer waits for the release. */
     holdNextWrite(): () => void {
