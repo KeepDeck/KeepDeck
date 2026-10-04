@@ -819,8 +819,8 @@
 }
 
 /* A comment: one line, the button's height — grows with what is typed
-   where the engine can (field-sizing), up to a few lines, then scrolls.
-   No resize grip: a corner handle on a one-line field read as broken. */
+   (useGrowingField) up to a few lines, then scrolls. No resize grip: a
+   corner handle on a one-line field read as broken. */
 .tasks__comment-input {
   flex: 1;
   min-width: 0;
@@ -832,7 +832,6 @@
   padding: 8px 10px;
   line-height: 18px;
   resize: none;
-  field-sizing: content;
 }
 
 .tasks__composer-actions {

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Combobox, Dropdown, StatusRing } from "@keepdeck/ui-kit";
 import type { TaskPriority, TaskStatus } from "../../domain/tasks";
 import {
@@ -22,6 +22,7 @@ import { Button } from "../../ui/Button";
 import { TipButton } from "../../ui/TipButton";
 import { CloseIcon, MaximizeIcon, RestoreIcon } from "@keepdeck/ui-kit/icons";
 import { RemoveButton } from "../../ui/RemoveButton";
+import { useGrowingField } from "../../ui/useGrowingField";
 
 interface TaskDetailProps {
   view: TaskDetailView;
@@ -63,6 +64,8 @@ export function TaskDetail({
   onUnlabel,
 }: TaskDetailProps) {
   const [composer, setComposer] = useState(EMPTY_COMPOSER);
+  const commentField = useRef<HTMLTextAreaElement>(null);
+  useGrowingField(commentField, composer.draft);
   const [labelDraft, setLabelDraft] = useState("");
   const submitLabel = () => {
     const typed = labelDraft;
@@ -285,6 +288,7 @@ export function TaskDetail({
           </ul>
           <div className="tasks__composer-row">
             <textarea
+              ref={commentField}
               rows={1}
               className="form__input tasks__comment-input"
               placeholder={TASK_DETAIL_WORDS.commentPlaceholder}
