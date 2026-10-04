@@ -1,5 +1,5 @@
 import { useId, useRef, useState } from "react";
-import { Combobox, DisclosureChevron, Dropdown, StatusRing } from "@keepdeck/ui-kit";
+import { Combobox, DisclosureChevron, Dropdown, MenuButton, StatusRing } from "@keepdeck/ui-kit";
 import type { TaskPriority, TaskStatus } from "../../domain/tasks";
 import {
   DIALOG_WORDS,
@@ -21,7 +21,7 @@ import {
 } from "../../presentation/tasks";
 import { Button } from "../../ui/Button";
 import { TipButton } from "../../ui/TipButton";
-import { CloseIcon, CopyIcon, MaximizeIcon, RestoreIcon } from "@keepdeck/ui-kit/icons";
+import { CloseIcon, MaximizeIcon, RestoreIcon } from "@keepdeck/ui-kit/icons";
 import { RemoveButton } from "../../ui/RemoveButton";
 import { useGrowingField } from "../../ui/useGrowingField";
 
@@ -102,9 +102,6 @@ export function TaskDetail({
           <StatusRing {...view.statusRing} />
           <span className="tasks__detail-meta kd-one-line">{view.meta}</span>
           <span className="tasks__detail-tools">
-            <TipButton size="sm" tip={TASK_DETAIL_WORDS.duplicate} disabled={copying} onClick={() => onDuplicate(view.id)}>
-              <CopyIcon />
-            </TipButton>
             {/* An icon, explained by its tip — beside the close, its kin. */}
             <TipButton
               size="sm"
@@ -120,9 +117,27 @@ export function TaskDetail({
             </TipButton>
           </span>
         </div>
-        <h3 className="tasks__detail-title kd-selectable" dir="auto">
-          {view.title}
-        </h3>
+        {/* The task's own menu stands with the task — beside its title,
+            not among the window's controls above. */}
+        <div className="tasks__detail-titleline">
+          <h3 className="tasks__detail-title kd-selectable" dir="auto">
+            {view.title}
+          </h3>
+          <MenuButton
+            variant="ghost"
+            size="sm"
+            className="tasks__detail-menu"
+            ariaLabel={view.menu.label}
+            actions={view.menu.actions.map((action) => ({
+              id: action.id,
+              label: action.label,
+              disabled: copying,
+              onSelect: () => onDuplicate(view.id),
+            }))}
+          >
+            ⋯
+          </MenuButton>
+        </div>
       </header>
 
       <div className="tasks__detail-body">

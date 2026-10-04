@@ -75,6 +75,8 @@ export interface TaskDetailView {
   /** Nothing published to attach: a one-word value, the reason in its
    * tooltip. Null when the workspace has artifacts. */
   attachEmpty: { text: string; title: string } | null;
+  /** The task's menu (⋯): what else may be done with it, in order. */
+  menu: { label: string; actions: TaskAction[] };
   /** What was said, oldest first — the task's substance, always shown,
    * the composer under it (`commentsOf`). */
   comments: CommentItem[];
@@ -97,6 +99,12 @@ export interface FeedChange {
   who: string;
   text: string;
   age: string;
+}
+
+/** An action the task's menu offers — the component binds each to its intent. */
+export interface TaskAction {
+  id: "duplicate";
+  label: string;
 }
 
 export interface CommentItem {
@@ -126,6 +134,7 @@ export const TASK_DETAIL_WORDS = {
   copiedFrom: (id: string) => `copied from ${id}`,
   copiedTo: (id: string) => `copied to ${id}`,
   duplicate: "Duplicate",
+  menu: (id: string) => `More for ${id}`,
   labelRemoved: (label: string) => `removed label ${label}`,
   trimmed: (max: number, what: string) => `At the board's limit — it keeps only the last ${max} ${what}`,
   detach: "Detach",
@@ -222,6 +231,7 @@ export function taskDetailView(
       artifacts.length === 0
         ? { text: "none", title: "Nothing published in this workspace yet — agents attach with task.update artifacts=<id>" }
         : null,
+    menu: { label: TASK_DETAIL_WORDS.menu(task.id), actions: [{ id: "duplicate", label: TASK_DETAIL_WORDS.duplicate }] },
     comments: commentsOf(task, now),
     commentsEmpty: task.comments.length === 0 ? TASK_DETAIL_WORDS.commentsEmpty : null,
     activity: { label: TASK_DETAIL_WORDS.activity, open: activityOpen },

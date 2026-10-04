@@ -333,6 +333,14 @@ describe("commentsOf / changesOf — what was said, and what was changed, apart"
     expect(new Set(changesOf({ log: [labels(1, "a,b", "b,c")] }, 0).map((item) => item.key)).size).toBe(2);
   });
 
+  it("offers the task's menu: Duplicate", () => {
+    const b = board([task({ id: "task-4" })]);
+    expect(taskDetailView(b.tasks[0], b, ROSTER, 0).menu).toEqual({
+      label: "More for task-4",
+      actions: [{ id: "duplicate", label: "Duplicate" }],
+    });
+  });
+
   it("says a copy's two ends in words", () => {
     const entry = (field: "copiedFrom" | "copiedTo", now: string) => ({ at: 1, from: "lead", field, was: null, now });
     expect(changesOf({ log: [entry("copiedFrom", "task-1")] }, 0).map((c) => c.text)).toEqual(["copied from task-1"]);

@@ -339,11 +339,17 @@ describe("TasksDialog", () => {
     const before = service.peek("ws-1");
     const count = before?.kind === "ready" ? before.board.tasks.length : 0;
     // Two presses before the first lands make ONE copy: a copy cannot be taken back.
-    act(() => {
-      const press = () => document.querySelector<HTMLButtonElement>('aside[aria-label="Task task-1"] button[aria-label="Duplicate"]')!.click();
-      press();
-      press();
-    });
+    // The task's menu stands by its title, not among the window's controls.
+    const menu = document.querySelector('aside[aria-label="Task task-1"] button[aria-label="More for task-1"]')!;
+    expect(menu.closest(".tasks__detail-tools")).toBeNull();
+    expect(menu.closest(".tasks__detail-titleline")).not.toBeNull();
+    // Through the task's menu (⋯), opened again for the second press.
+    const choose = () => {
+      act(() => document.querySelector<HTMLButtonElement>('aside[aria-label="Task task-1"] button[aria-label="More for task-1"]')!.click());
+      act(() => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find((b) => b.textContent?.includes("Duplicate"))!.click());
+    };
+    choose();
+    choose();
     await flush();
     const state = service.peek("ws-1");
     expect(state?.kind === "ready" && state.board.tasks.length).toBe(count + 1);
