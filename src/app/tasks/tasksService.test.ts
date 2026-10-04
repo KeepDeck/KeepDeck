@@ -134,6 +134,14 @@ describe("createTasksService", () => {
     expect(store.writes).toEqual([]);
   });
 
+  it("a task made here, or copied, gets a uid of its own from the minter — one per task", async () => {
+    const { service } = setup();
+    const made = await service.create("ws-1", { teamId: "team-1", title: "First" }, USER_ACTOR);
+    const copy = await service.duplicate("ws-1", "task-1", USER_ACTOR);
+    expect(made.ok && made.task.uid).toBe("minted-1");
+    expect(copy.ok && copy.task.uid).toBe("minted-2");
+  });
+
   it("a workspace never written loads as an empty board, and asking is what starts the load", async () => {
     const { service } = setup();
     let told = 0;

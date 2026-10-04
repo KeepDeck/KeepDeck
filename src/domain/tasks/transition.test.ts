@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { TASK_CAPS, USER_ACTOR, blockerResolved, inLadderOrder, isOpen, type TaskActor, type TaskStatus } from "./model";
 import { addLabel, attachArtifact, createTask, keptTitle, detachArtifact, duplicateTask, transferTask, removeLabel, reachableStatuses, transition, type TaskChange, type TaskRefusal } from "./transition";
 import { blockerIdsOf, copiedFromOf, copiesOf } from "./relations";
-import { ROSTER, board, impl1, lead, mintSequence, noTeam, peer1, stranger, task } from "./testSupport";
+import { ROSTER, board, impl1, lead, mintSequence, noTeam, peer1, relation, stranger, task } from "./testSupport";
 
 const ctx = (tasks = [task({ id: "task-1" })]) => ({ board: board(tasks), roster: ROSTER, at: 5_000, mintUid: mintSequence() });
 
@@ -693,6 +693,18 @@ describe("transferTask — the same task, handed to another team", () => {
     const after = moved.board.tasks.find((x) => x.id === "task-3")!;
     expect(blockerIdsOf(after, moved.board)).toEqual(["task-4"]);
     expect(after.updated).toBe(5);
+  });
+
+  it("keeps a copy's links through the move — a fact crosses teams; only blocker links are dropped", () => {
+    const source = task({ id: "task-1" });
+    const copy = task({ id: "task-2" });
+    const copyOfIt = task({ id: "task-3" });
+    const b = board([source, copy, copyOfIt], 4, [relation("copied-from", "task-2", "task-1"), relation("copied-from", "task-3", "task-2")]);
+    const moved = transferTask(copy, teams, lead, { board: b, roster: ROSTER, at: 9_000 });
+    if (!moved.ok) throw new Error("refused");
+    expect(moved.board.relations).toEqual(b.relations);
+    expect(copiedFromOf(moved.task, moved.board)).toMatchObject({ id: "task-1" });
+    expect(copiesOf(moved.task, moved.board).map((t) => t.id)).toEqual(["task-3"]);
   });
 
   it("keeps parked work parked", () => {

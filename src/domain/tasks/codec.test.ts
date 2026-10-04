@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { decodeBoard, encodeBoard } from "./codec";
 import { EMPTY_BOARD } from "./model";
+import { issuable } from "./board";
 import { blockerIdsOf, copiedFromOf } from "./relations";
-import { board, mintSequence, relation, task } from "./testSupport";
+import { transition } from "./transition";
+import { board, lead, mintSequence, relation, task } from "./testSupport";
 
 const mint = () => mintSequence("uid-minted-");
 
@@ -174,6 +176,7 @@ describe("board codec — a board written before relations", () => {
   });
 
   it("keeps a cycle and a link across teams — they show, and hold, today", () => {
+    // (Held: see the migrated-cycle gate test below.)
     const decoded = read([
       legacyTask("task-1", { blockedBy: ["task-2"] }),
       legacyTask("task-2", { blockedBy: ["task-1"] }),
@@ -210,6 +213,19 @@ describe("board codec — a board written before relations", () => {
     ]);
     // The log keeps what it said either way.
     expect(decoded.board.tasks[3].log).toHaveLength(1);
+  });
+
+  it("links nothing for a copy whose log keeps neither end — what survived is all it reads", () => {
+    const decoded = read([legacyTask("task-1", { log: [entry("status", "todo", 3)] }), legacyTask("task-2")]);
+    expect(decoded.board.relations).toEqual([]);
+  });
+
+  it("mints a uid for every task of an old board; on a new one, a task without a uid is refused", () => {
+    const old = read([legacyTask("task-1"), legacyTask("task-2")]);
+    expect(old.board.tasks.every((t) => t.uid.startsWith("uid-minted-"))).toBe(true);
+    const { uid: _uid, ...bare } = task({ id: "task-2" });
+    const mixed = JSON.stringify({ nextId: 3, tasks: [task({ id: "task-1" }), bare], relations: [] });
+    expect(decodeBoard(mixed, mint())).toEqual({ ok: false, fault: { kind: "bad-task", index: 1, id: "task-2", field: "uid" } });
   });
 
   it("derives the same links each time it is read — only the uids are drawn afresh", () => {
@@ -276,5 +292,21 @@ describe("board codec — labels", () => {
       expect(read.ok && read.board.tasks[0].log[0].field, field).toBe(field);
     }
     expect(decodeBoard(withLog("movedTo"), mint())).toMatchObject({ ok: false, fault: { kind: "bad-task", field: "log" } });
+  });
+});
+
+describe("board codec — a migrated cycle still holds", () => {
+  it("leaves both tasks of a cycle on disk unissuable, each start refused naming the other", () => {
+    const decoded = decodeBoard(
+      legacy([legacyTask("task-1", { blockedBy: ["task-2"] }), legacyTask("task-2", { blockedBy: ["task-1"] })]),
+      mint(),
+    );
+    if (!decoded.ok) throw new Error("refused");
+    const [one, two] = decoded.board.tasks;
+    expect(issuable(one, decoded.board)).toBe(false);
+    expect(issuable(two, decoded.board)).toBe(false);
+    const start = (t: typeof one) => transition(t, { kind: "status", to: "in-progress" }, lead, { board: decoded.board, roster: ["lead"], at: 1 });
+    expect(start(one)).toEqual({ ok: false, refusal: { kind: "blocked-by-open", blockers: ["task-2"] } });
+    expect(start(two)).toEqual({ ok: false, refusal: { kind: "blocked-by-open", blockers: ["task-1"] } });
   });
 });
