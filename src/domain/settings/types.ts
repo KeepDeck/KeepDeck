@@ -1,3 +1,4 @@
+import type { TaskStatus } from "../tasks";
 import type { AgentType } from "../agents";
 
 /**
@@ -135,10 +136,30 @@ export interface Settings {
    * to an agent by the board itself — a task is told about by mail.
    * Default off. */
   tasks: boolean;
-  /** The view the Tasks dialog opens in — the last one picked, kept across
-   * openings and launches (user). Default the board. */
-  tasksView: TasksView;
+  /** The Tasks dialog's reading posture, kept across openings and
+   * launches (user): the view it opens in, and each view's own
+   * arrangement. One object, because it is one posture — what the person
+   * last arranged the board to show. */
+  tasksBoard: TasksBoardSettings;
 }
+
+export interface TasksBoardSettings {
+  /** The view the dialog opens in — the last one picked. */
+  view: TasksView;
+  /** The list view's arrangement. Each view keeps its own, so what one
+   * view grows (a sort, a filter) never has to be told apart from the
+   * other's by name. */
+  list: TasksListSettings;
+}
+
+export interface TasksListSettings {
+  /** The folded status groups, in ladder order, each once. */
+  folded: TaskStatus[];
+}
+
+/** The groups a list folds until the person says otherwise: the parked
+ * work and the closed — the ones that only grow and are not read first. */
+export const TASKS_FOLDED_DEFAULT: readonly TaskStatus[] = ["backlog", "done", "cancelled"];
 
 /** Every settings key. `keyof Settings` here, and the codec table is checked
  * against it, so the key set has exactly one home. */

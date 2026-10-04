@@ -189,16 +189,6 @@ describe("screenState", () => {
     expect(queryOn(there, "team-2")).toEqual({ blockedOnly: true, label: null });
   });
 
-  it("opens the folded list group a task's move lands in, and leaves an open one as it is", () => {
-    expect(INITIAL_SCREEN.folded.has("done")).toBe(true);
-    const dropped = screenReducer(INITIAL_SCREEN, { type: "dropped", status: "done", view: "list" }, null).state;
-    expect(dropped.folded.has("done")).toBe(false);
-    expect(dropped.folded.has("cancelled")).toBe(true);
-    expect(screenReducer(dropped, { type: "dropped", status: "done", view: "list" }, null).state.folded.has("done")).toBe(false);
-    // A drop on the board leaves the list's folds alone.
-    expect(screenReducer(INITIAL_SCREEN, { type: "dropped", status: "done", view: "board" }, null).state.folded.has("done")).toBe(true);
-  });
-
   it("rests the history compact, and its heading toggles it whole, kept from task to task", () => {
     expect(INITIAL_SCREEN.activityOpen).toBe(false);
     const open = screenReducer(INITIAL_SCREEN, { type: "toggleActivity" }, null).state;
@@ -324,18 +314,5 @@ describe("settingsView", () => {
       "Off is waiting: keepdeck's board — disk full. The board keeps the changes and retries on its own; Off completes once they are saved.",
     );
     expect(offWaitingHint(null)).toBeNull();
-  });
-});
-
-describe("the screen's view and folds", () => {
-  it("opens with the parked and the closed work folded in the list", () => {
-    expect([...INITIAL_SCREEN.folded].sort()).toEqual(["backlog", "cancelled", "done"]);
-  });
-
-  it("folds and unfolds one group at a heading's toggle", () => {
-    const opened = screenReducer(INITIAL_SCREEN, { type: "fold", status: "done" }, null).state;
-    expect(opened.folded.has("done")).toBe(false);
-    expect(opened.folded.has("cancelled")).toBe(true);
-    expect(screenReducer(opened, { type: "fold", status: "done" }, null).state.folded.has("done")).toBe(true);
   });
 });

@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { board, task } from "../../domain/tasks/testSupport";
 import {
-  FOLDED_AT_OPEN,
   LIST_HEAD_ESTIMATE_PX,
   LIST_ROW_ESTIMATE_PX,
   headingOf,
@@ -15,7 +14,6 @@ import {
   rowGrip,
   rowStepOf,
   stepRow,
-  toggleFold,
   type ListItem,
 } from "./listView";
 import { NO_QUERY } from "./queryView";
@@ -79,10 +77,6 @@ describe("listView — the board's tasks as one list", () => {
     expect(items[3]).toMatchObject({ kind: "head", count: 2, folded: true });
   });
 
-  it("opens with the parked and the closed work folded", () => {
-    expect([...FOLDED_AT_OPEN].sort()).toEqual(["backlog", "cancelled", "done"]);
-  });
-
   it("marks the row of the open task, and only it", () => {
     const rows = listView(tasks, b, 0, NO_QUERY, NONE, "task-2").filter((i) => i.kind === "row");
     expect(rows.map((r) => r.kind === "row" && [r.key, r.open, r.className.includes("tasks__row--open")])).toContainEqual([
@@ -107,12 +101,6 @@ describe("listView — the board's tasks as one list", () => {
     expect(headingOf(items, 6)?.status).toBe("in-progress");
     expect(headingOf(items, 99)?.status).toBe("cancelled");
     expect(headingOf([], 0)).toBeNull();
-  });
-
-  it("toggles a fold without touching the others", () => {
-    const once = toggleFold(new Set(["done"]), "todo");
-    expect([...once].sort()).toEqual(["done", "todo"]);
-    expect([...toggleFold(once, "done")]).toEqual(["todo"]);
   });
 
   it("dresses a heading in its status, folded or open", () => {

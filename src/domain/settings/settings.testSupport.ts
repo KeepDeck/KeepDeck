@@ -52,17 +52,18 @@ export const NON_DEFAULT: { [K in SettingsKey]: Settings[K] } = {
   artifacts: true,
   artifactAutoOpen: false,
   tasks: true,
-  tasksView: "list",
+  tasksBoard: { view: "list", list: { folded: ["done"] } },
 };
 
 export const SETTINGS_KEYS = Object.keys(DEFAULT_SETTINGS) as SettingsKey[];
 
 /**
- * A value no setting can make sense of, per key. The two Record-shaped keys
+ * A value no setting can make sense of, per key. The Record-shaped keys
  * need a value that is not a record at all — an object of nonsense passes their
  * top-level guard and degrades through the ordinary empty-bag path, which
  * proves nothing about rejection.
  */
 export function wrongShapeFor(key: SettingsKey): unknown {
-  return key === "plugins" || key === "notifications" ? "not a record" : { nope: true };
+  // A bag's wrong shape is a non-record; anything else's, a record.
+  return key === "plugins" || key === "notifications" || key === "tasksBoard" ? "not a record" : { nope: true };
 }

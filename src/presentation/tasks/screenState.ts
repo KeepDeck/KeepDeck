@@ -9,11 +9,10 @@
 import type { TasksView } from "../../domain/settings";
 import type { TaskStatus } from "../../domain/tasks";
 import { escapeTarget, selectionAfterClick } from "./dialogState";
-import { FOLDED_AT_OPEN, toggleFold } from "./listView";
 import { NO_QUERY, withLabel, type TaskQuery } from "./queryView";
 
 /** The two views of the one set of tasks (`queryView`) — a setting, kept
- * across openings (`Settings.tasksView`). */
+ * across openings (`Settings.tasksBoard.view`, `boardSettings`). */
 export type TrackerView = TasksView;
 
 export interface ScreenState {
@@ -26,8 +25,6 @@ export interface ScreenState {
   wide: boolean;
   /** The column a card in flight is over. */
   hover: TaskStatus | null;
-  /** The list's folded groups — a reading posture for the dialog's life. */
-  folded: ReadonlySet<TaskStatus>;
   /** The open task's activity (its changes) opened under its heading —
    * a reading posture for the dialog's life, kept from task to task. */
   activityOpen: boolean;
@@ -44,7 +41,6 @@ export const INITIAL_SCREEN: ScreenState = {
   composing: false,
   wide: false,
   hover: null,
-  folded: FOLDED_AT_OPEN,
   query: NO_QUERY,
   queryTeam: null,
   activityOpen: false,
@@ -71,12 +67,6 @@ export type ScreenAction =
   | { type: "escape"; detailOpen: boolean }
   | { type: "team"; id: string }
   | { type: "hover"; status: TaskStatus | null; dragging: boolean }
-  /** A list heading's toggle. */
-  | { type: "fold"; status: TaskStatus }
-  /** A task's move by a drop landed: in the list, its group opens, so the
-   * row is seen where it went rather than vanishing into a fold. A drop on
-   * the board leaves the list's folds alone. */
-  | { type: "dropped"; status: TaskStatus; view: TrackerView }
   /** The activity's heading: shut ⇄ open. */
   | { type: "toggleActivity" }
   /** The toolbar's Blocked toggle. */
@@ -146,12 +136,6 @@ function step(state: ScreenState, action: ScreenAction): ScreenOutcome {
       return { state: { ...state, hover: action.dragging ? action.status : null } };
     case "created":
       return { state: { ...state, composing: false, wide: false }, focus: action.id };
-    case "fold":
-      return { state: { ...state, folded: toggleFold(state.folded, action.status) } };
-    case "dropped": {
-      if (action.view !== "list" || !state.folded.has(action.status)) return { state };
-      return { state: { ...state, folded: toggleFold(state.folded, action.status) } };
-    }
     case "toggleActivity":
       return { state: { ...state, activityOpen: !state.activityOpen } };
     case "blockedOnly": {

@@ -7,9 +7,9 @@ import type { ArtifactsRegistryReadPort } from "../../app/artifacts/registryRead
 import { describeError } from "../../ipc/log";
 import { refusalOf, tasksEnableStatus } from "../../app/tasks/enableStatus";
 import { readyBoard } from "../../app/tasks/tasksService";
-import { updateSettings } from "../../app/settingsManager";
+import { getSettings, updateSettings } from "../../app/settingsManager";
 import { useSettings } from "../../app/useSettings";
-import { DEFAULT_SETTINGS } from "../../domain/settings";
+import { DEFAULT_SETTINGS, type TasksBoardSettings } from "../../domain/settings";
 import { refusalText } from "../../app/tasks/refusalText";
 import { teamsOf, type Workspace } from "../../domain/deck";
 import {
@@ -31,6 +31,10 @@ import {
   armCard,
   assigneeOf,
   boardView,
+  boardAfterDrop,
+  boardFolded,
+  boardWithFold,
+  boardWithView,
   cardInFlight,
   dragOutlived,
   taskOnScreen,
@@ -159,8 +163,17 @@ export function useTasksBoard(
   };
   const dragEndedAt = useRef<number | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // Which view: a setting, kept across openings and launches (user).
-  const view = (useSettings() ?? DEFAULT_SETTINGS).tasksView;
+  // The board's posture — the view, the list's folds — is a setting, kept
+  // across openings and launches (user); every change reads the latest
+  // stored posture, so a change that lands later (a drop's move) never
+  // writes back a stale one.
+  const posture = (useSettings() ?? DEFAULT_SETTINGS).tasksBoard;
+  const view = posture.view;
+  const folded = useMemo(() => boardFolded(posture), [posture]);
+  const keepPosture = (change: (stored: TasksBoardSettings) => TasksBoardSettings | null) => {
+    const next = change((getSettings() ?? DEFAULT_SETTINGS).tasksBoard);
+    if (next !== null) updateSettings({ tasksBoard: next });
+  };
 
   const board = readyBoard(state);
   const unsaved = state?.kind === "ready" && state.unsaved !== null ? unsavedBanner(state.unsaved) : null;
@@ -226,8 +239,8 @@ export function useTasksBoard(
   // a fresh array per pointer move re-ran that on every one.
   const openId = detail?.id ?? null;
   const listItems = useMemo(
-    () => (board && view === "list" ? listView(teamTasks, board, now, query, screen.folded, openId) : []),
-    [board, view, teamTasks, now, query, screen.folded, openId],
+    () => (board && view === "list" ? listView(teamTasks, board, now, query, folded, openId) : []),
+    [board, view, teamTasks, now, query, folded, openId],
   );
   const filters = queryToolbarView(query);
   const nothingFound = findsNothing(teamTasks, query);
@@ -274,7 +287,7 @@ export function useTasksBoard(
     const move = outcome.move;
     if (move) {
       void apply(move.id, [{ kind: "status", to: move.to }]).then((landed) => {
-        if (landed) run({ type: "dropped", status: move.to, view });
+        if (landed) keepPosture((stored) => boardAfterDrop(stored, move.to, view));
       });
     }
     run({ type: "hover", status: null, dragging: false });
@@ -334,10 +347,10 @@ export function useTasksBoard(
     /** Released over a column. */
     dropOn: release,
     view,
-    setView: (next: TrackerView) => updateSettings({ tasksView: next }),
+    setView: (next: TrackerView) => keepPosture((stored) => boardWithView(stored, next)),
     listItems,
-    fold: (status: TaskStatus) => run({ type: "fold", status }),
-    folded: screen.folded,
+    fold: (status: TaskStatus) => keepPosture((stored) => boardWithFold(stored, status)),
+    folded,
     filters,
     nothingFound,
     toggleBlocked: () => run({ type: "blockedOnly" }),

@@ -6,7 +6,7 @@ import {
   hydrateSettings,
   serializeSettings,
 } from ".";
-import { restore } from "./settings.testSupport";
+import { report, restore } from "./settings.testSupport";
 
 /** Per-key tolerant reading of a stored settings document. */
 
@@ -47,7 +47,7 @@ describe("hydrateSettings", () => {
       usageDisplay: "left",
       parkAgentsOnLaunch: true,
       artifacts: true,
-      tasksView: "list",
+      tasksBoard: { view: "list", list: { folded: ["done"] } },
     };
     const doc = restore(JSON.stringify(stored));
     expect(doc.settings).toEqual({
@@ -64,7 +64,7 @@ describe("hydrateSettings", () => {
       artifacts: true,
       artifactAutoOpen: true,
       tasks: false,
-      tasksView: "list",
+      tasksBoard: { view: "list", list: { folded: ["done"] } },
     });
     // Everything the file said is a decision; `remoteAgents`,
     // `artifactAutoOpen` and `tasks`, which it did not mention, are not.
@@ -216,6 +216,29 @@ describe("hydrateSettings — the plugins bag", () => {
     // the same erasure this document model exists to prevent.
     const doc = restore('{"plugins":{"enabled":{},"values":{},"consented":{}}}');
     expect(doc.chosen.plugins).toEqual({ enabled: {}, values: {}, consented: {} });
+  });
+
+  it("reads the tasks board's posture field by field — a bad view or status degrades only itself, folds in ladder order", () => {
+    const stored = JSON.stringify({ tasksBoard: { view: "grid", list: { folded: ["done", "nope", "backlog", "done"] } } });
+    expect(restore(stored).settings.tasksBoard).toEqual({ view: "board", list: { folded: ["backlog", "done"] } });
+    expect(report(stored).degraded).toEqual(expect.arrayContaining(["tasksBoard.view", "tasksBoard.list.folded"]));
+    // A posture that says nothing of the list keeps the list's defaults.
+    expect(restore(JSON.stringify({ tasksBoard: { view: "list" } })).settings.tasksBoard).toEqual({
+      view: "list",
+      list: { folded: ["backlog", "done", "cancelled"] },
+    });
+    // An empty fold list is a choice: every group open.
+    expect(restore(JSON.stringify({ tasksBoard: { list: { folded: [] } } })).settings.tasksBoard.list.folded).toEqual([]);
+  });
+
+  it("v24 graduation: a stored tasksView becomes the board's view, and is never written back", () => {
+    const doc = restore(JSON.stringify({ version: 23, tasksView: "list" }));
+    expect(doc.settings.tasksBoard.view).toBe("list");
+    expect(doc.chosen).toHaveProperty("tasksBoard");
+    expect(JSON.parse(serializeSettings(doc))).not.toHaveProperty("tasksView");
+    // The board's own view outranks the retired key.
+    const both = restore(JSON.stringify({ tasksView: "list", tasksBoard: { view: "board" } }));
+    expect(both.settings.tasksBoard.view).toBe("board");
   });
 
   it("v5 graduation: an explicit experimentRunPresets=false disables the Run plugin", () => {
