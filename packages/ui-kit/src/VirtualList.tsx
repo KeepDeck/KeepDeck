@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useReducer, useRef, type ReactNode } from "react";
-import { changedAfter } from "./rowAnchor";
+import { motionOf } from "./listMotion";
 import { useFocusHandoff } from "./useFocusHandoff";
 import { usePinnedHeading } from "./usePinnedHeading";
 import { useRowWindow } from "./useRowWindow";
@@ -60,7 +60,9 @@ export interface VirtualListProps<T> extends VirtualListMarkup {
    * changes with the items, that change may move (`useListMotion`), and
    * the item it happened after (the heading folded) holds its place — the
    * rows it opens go below it, never above the viewport. Any value
-   * compared by identity; absent, the list never eases. */
+   * compared by identity; absent, the list never eases. It must change by
+   * the person's act ONLY: a change written by anyone else under it would
+   * be eased and held as theirs, the list scrolling to its place. */
   easeKey?: unknown;
 }
 
@@ -103,23 +105,10 @@ function useListMotion<T>(
     // A list that never eases (no token) pays nothing per change.
     track.current.items = items;
   } else if (track.current.items !== items) {
+    // What this change marks is `motionOf`'s to say; held here per change.
     const previous = track.current;
-    const eased = previous.easeKey !== easeKey;
-    const before = previous.items.map(itemKey);
-    const after = items.map(itemKey);
-    if (!eased && sameKeys(before, after)) {
-      // A fresh array of the same rows (a clock tick re-dated them): no
-      // change of place, so the marks stand — an entrance runs out.
-      track.current = { ...previous, items, held: null };
-    } else {
-      const was = new Set(before);
-      track.current = {
-        items,
-        easeKey,
-        arriving: eased ? new Set(after.filter((key) => !was.has(key))) : null,
-        held: eased ? changedAfter(before, after) : null,
-      };
-    }
+    const marks = motionOf(previous.items.map(itemKey), items.map(itemKey), previous.easeKey !== easeKey, previous);
+    track.current = { items, easeKey, ...marks };
   }
   // The marks expire on a timer, not by a clock read in render: the timer
   // drops them and renders once more, so whatever renders after sees none.
@@ -140,9 +129,6 @@ function useListMotion<T>(
 
 const NONE: ReadonlySet<string> = new Set();
 
-function sameKeys(a: readonly string[], b: readonly string[]): boolean {
-  return a.length === b.length && a.every((key, i) => key === b[i]);
-}
 
 /**
  * The windowed list as a component: the scroll container, a spacer the

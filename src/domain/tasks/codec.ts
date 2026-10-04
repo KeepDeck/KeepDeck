@@ -70,7 +70,8 @@ export type DecodeResult =
       ok: true;
       board: TaskBoard;
       /** Read from a board written before relations — its uids freshly
-       * minted, so it must be written back before any uid leaves. */
+       * drawn, for the owner to write back at once (until then a re-read
+       * draws them afresh). */
       migrated: boolean;
       /** The blockers a migration let go — a task naming itself or a key
        * not on the board, which held nothing — for the owner to log. */

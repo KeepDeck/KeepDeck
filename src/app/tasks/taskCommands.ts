@@ -279,7 +279,7 @@ function duplicateCommand(deps: TaskCommandDeps): CommandSpec {
   return {
     id: "task.duplicate",
     title:
-      "Copy a task as a fresh one: its title, brief, priority, labels, artifacts and blockers, in todo (the backlog if it is parked), held by no one — not its comments, log or assignee. Both tasks' logs say it was copied",
+      "Copy a task as a fresh one under the SAME title: its brief, priority, labels, artifacts and the blockers still open, in todo (the backlog if it is parked), held by no one — not its comments, log or assignee. The copy is linked to its source (task.get: copiedFrom on the copy, copies on the source), and both logs say so",
     args: [{ name: "id", type: "string", required: true, description: "The task to copy (task-N)" }, TEAM_ARG],
     run: async (args, source) => {
       const who = caller(source, deps);
@@ -373,7 +373,7 @@ function getCommand(deps: TaskCommandDeps): CommandSpec {
   return {
     id: "task.get",
     title:
-      "Read one task whole: brief, thread, log (a brief edit keeps the previous brief in `was`), blockers with their statuses, what it unblocks, issuable (can be started now)",
+      "Read one task whole: brief, thread, log (a brief edit keeps the previous brief in `was`), blockers with their statuses, what it unblocks, issuable (can be started now), copiedFrom (the key it was copied from, \"gone\" if that task left the board, null if it is no copy) and copies (keys of its copies — one may be on another team's board)",
     args: [{ name: "id", type: "string", required: true, description: "The task id (task-N)" }],
     run: async (args, source) => {
       const who = caller(source, deps);

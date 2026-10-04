@@ -110,7 +110,7 @@ export interface Task {
   /** The task's own identity: random, global, never changes — what a
    * relation names, so a link survives anything the key does not (a task
    * on another workspace's board, one day; task-224, task-226). Minted by
-   * the app and handed in (`TransitionContext.mintUid`): the domain draws
+   * the app and handed in (`CreateContext.mintUid`): the domain draws
    * no random numbers. Never shown to an agent — they address `id`. */
   uid: string;
   /** `task-N` — the KEY people and agents read and write: minted per
@@ -171,8 +171,8 @@ export interface TaskRelation {
   from: string;
   to: string;
   at: number;
-  /** Who made the link; null for a blocker carried over from a board
-   * written before relations, which never said. */
+  /** Who made the link; null when that is not known — a blocker carried
+   * over from a board written before relations, or an actor with no name. */
   by: string | null;
 }
 
@@ -180,14 +180,12 @@ export interface TaskRelation {
 export type RelationKind = "blocks" | "copied-from";
 
 /** What a kind of link IS — the one place each rule about it lives: the
- * write paths, the gate, the board's housekeeping and the codec read
- * these columns and state none of them again. A new kind is a new row. */
+ * gate, the transfer, the board's housekeeping and the codec read these
+ * columns and state none of them again. A new kind is a new row (and a
+ * new column only when a rule reads it). Who makes each is its writer's:
+ * `blocks` through the `blockedBy` change, whose author hands out work;
+ * `copied-from` by the duplicate alone — no change takes one away. */
 export interface RelationRule {
-  /** Who makes one: whoever hands out work (through `blockedBy`), or only
-   * the duplicate, as the record of what it did. */
-  madeBy: "acceptor" | "duplicate";
-  /** Whether a change may take it away again — a copy's source is a fact. */
-  removable: boolean;
   /** Whether its `from` end, while open, holds its `to` end off the
    * ladder's start (`issuable`, the start edges). */
   gatesStart: boolean;
@@ -201,8 +199,8 @@ export interface RelationRule {
 }
 
 export const RELATION_KINDS: Readonly<Record<RelationKind, RelationRule>> = {
-  blocks: { madeBy: "acceptor", removable: true, gatesStart: true, onePerFrom: false, outlivesItsTo: false },
-  "copied-from": { madeBy: "duplicate", removable: false, gatesStart: false, onePerFrom: true, outlivesItsTo: true },
+  blocks: { gatesStart: true, onePerFrom: false, outlivesItsTo: false },
+  "copied-from": { gatesStart: false, onePerFrom: true, outlivesItsTo: true },
 };
 
 /** Whether this build knows `kind` — the rest are carried, not read. */

@@ -27,14 +27,12 @@ import {
 import {
   blockerIdsOf,
   findTask,
-  gatesStart,
   linked,
   openBlockersOf,
   replaceTask,
   setBlockers,
-  taskByUid,
   unblocks,
-  unlinked,
+  withoutGates,
   waitsOn,
   withTasks,
 } from "./relations";
@@ -795,7 +793,7 @@ export function transferProblem(task: Task, actor: TaskActor, board: TaskBoard):
   if (!mayAssign(actor)) return { kind: "not-yours-to-transfer" };
   if (!isOpen(task.status)) return { kind: "transfer-closed", status: task.status };
   // Live links only: a resolved blocker holds nothing, a closed dependant
-  // waits on nothing — and a link to either stays behind harmlessly.
+  // waits on nothing — so neither refuses; the move takes those links off.
   const blockers = openBlockersOf(task, board);
   const dependants = unblocks(task, board)
     .filter((other) => isOpen(other.status))
@@ -812,9 +810,11 @@ export function transferProblem(task: Task, actor: TaskActor, board: TaskBoard):
  * target's board, held by no one (a role belongs to its team) and back at
  * the ladder's start: todo, or the backlog if it was parked.
  *
- * No link may cross teams, so the links that hold nothing go both ways:
- * its resolved blockers, and its id from the CLOSED tasks that named it (a
- * reopened one would otherwise wait on another team's task). The log says
+ * No blocker link may cross teams, so the ones that hold nothing go both
+ * ways (`withoutGates`): its resolved blockers, and its id from the CLOSED
+ * tasks that named it (a reopened one would otherwise wait on another
+ * team's task). A copy's link is a fact and goes with it, across teams; a
+ * link to a task not on this board is not this board's to judge. The log says
  * `transferred: A → B` and, before it, every field the move reset — who
  * held it, where it stood, what it waited on — so the history reads whole.
  */
@@ -851,15 +851,8 @@ export function transferTask(
       logged(dependant, [{ at, from: by, field: "blockedBy", was: joined(was), now: joined(now) }], dependant.updated, {}),
     );
   }
-  // Every blocker link it was in with a task on this board goes — what
-  // held it, and what it held (logged above). A link whose other end is
-  // not here is not this board's to judge, so it stays (task-224).
-  const here = (uid: string) => taskByUid(ctx.board, uid) !== undefined;
-  board = unlinked(
-    board,
-    (relation) =>
-      gatesStart(relation.kind) &&
-      ((relation.from === task.uid && here(relation.to)) || (relation.to === task.uid && here(relation.from))),
-  );
+  // Every blocker link it was in goes — what held it, and what it held
+  // (logged above).
+  board = withoutGates(board, task.uid);
   return { ok: true, task: moved, board };
 }

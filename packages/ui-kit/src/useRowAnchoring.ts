@@ -4,7 +4,7 @@ import type {
   ReactVirtualizer,
   VirtualItem,
 } from "@tanstack/react-virtual";
-import { pickAnchor, type AnchorState } from "./rowAnchor";
+import { heldScroll, pickAnchor, type AnchorState } from "./rowAnchor";
 
 interface UseRowAnchoringInput<Row> {
   /** The SCROLL container — a list element in one caller, the panel
@@ -139,13 +139,13 @@ export function useRowAnchoring<Row>({
     // The person's own act holds the row it happened at: where it stands
     // when in view or below, at the top edge when it was scrolled up past
     // it. Rows above it did not move, so its start is the same as before.
-    const held = holdKey === null ? -1 : indexOfAnchor(queue, keyOf, holdKey);
-    const heldStart = held >= 0 ? startOf(held) : null;
+    const heldIndex = holdKey === null ? -1 : indexOfAnchor(queue, keyOf, holdKey);
+    const heldStart = heldIndex >= 0 ? startOf(heldIndex) : null;
     if (holdKey !== null && heldStart !== null) {
-      const target = Math.min(scrollTop, heldStart);
-      anchorRef.current = { key: holdKey, offset: heldStart - target };
-      if (target !== scrollTop) {
-        list.scrollTop = target;
+      const held = heldScroll(scrollTop, heldStart);
+      anchorRef.current = { key: holdKey, offset: held.offset };
+      if (held.scrollTop !== scrollTop) {
+        list.scrollTop = held.scrollTop;
         list.dispatchEvent(new Event("scroll"));
       }
       return;

@@ -1,5 +1,5 @@
 import { formatAge } from "../../domain/usage";
-import { blockerIdsOf, blockerResolved, findTask, openBlockersOf, type Task, type TaskBoard, type TaskStatus } from "../../domain/tasks";
+import { blockerResolved, blockersOf, openBlockersOf, type Task, type TaskBoard, type TaskStatus } from "../../domain/tasks";
 import type { StatusRingProps } from "@keepdeck/ui-kit/StatusRing";
 import { POOL_LABEL, STATUS_LABEL, priorityMark, statusTone, type StatusTone } from "./words";
 import { taskOnScreen, type DragState } from "./cardDrag";
@@ -32,20 +32,20 @@ export interface TaskCardView {
 /** One blocker as a chip: where it stands, and whether it still holds. */
 export interface BlockerChip {
   id: string;
-  /** `task-1 · in progress`, or `· gone` for an id the board lost. */
+  /** `task-1 · in progress`. */
   text: string;
   resolved: boolean;
   className: string;
 }
 
-/** THE blocker chip — a row's, a card's, the open task's. A resolved one
- * (done, cancelled, gone) holds nothing and is struck through. */
-export function blockerChip(board: TaskBoard, id: string): BlockerChip {
-  const blocker = findTask(board, id);
-  const resolved = blocker === undefined || blockerResolved(blocker.status);
+/** THE blocker chip — a row's, a card's, the open task's — for a blocker
+ * on this board (one that is not has no key here to show; task-224). A
+ * resolved one (done, cancelled) holds nothing and is struck through. */
+export function blockerChip(blocker: Task): BlockerChip {
+  const resolved = blockerResolved(blocker.status);
   return {
-    id,
-    text: `${id} · ${blocker ? STATUS_LABEL[blocker.status].toLowerCase() : "gone"}`,
+    id: blocker.id,
+    text: `${blocker.id} · ${STATUS_LABEL[blocker.status].toLowerCase()}`,
     resolved,
     className: resolved ? "kd-tag kd-tag--outline tasks__tag--resolved" : "kd-tag kd-tag--outline tasks__tag--blocking",
   };
@@ -141,6 +141,6 @@ export function taskCardView(task: Task, board: TaskBoard, now: number): TaskCar
     assignee: task.assignee ?? POOL_LABEL,
     age: formatAge(task.updated, now),
     ring: statusRing(task.status),
-    blockerChips: blockerIdsOf(task, board).map((id) => blockerChip(board, id)),
+    blockerChips: blockersOf(task, board).map(blockerChip),
   };
 }

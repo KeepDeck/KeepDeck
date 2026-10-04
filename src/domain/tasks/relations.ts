@@ -133,7 +133,8 @@ export function gatesStart(kind: string): boolean {
   return isRelationKind(kind) && RELATION_KINDS[kind].gatesStart;
 }
 
-/** The tasks waiting on `task` — the other side of `blocks`, present. */
+/** The tasks waiting on `task` — the other side of every gating link,
+ * present, in board order. */
 export function unblocks(task: Task, board: TaskBoard): Task[] {
   return present(board, [...new Set(GATING_KINDS.flatMap((kind) => outOf(board, kind, task.uid)).map((relation) => relation.to))]);
 }
@@ -163,8 +164,8 @@ function inBoardOrder(board: TaskBoard, uids: readonly string[]): string[] {
   return [...uids].sort((a, b) => place.get(a)! - place.get(b)!);
 }
 
-/** Whether following `blocks` backwards from `from` (what it waits on,
- * and what that waits on) ever arrives at `target`. */
+/** Whether following the gating links backwards from `from` (what it
+ * waits on, and what that waits on) ever arrives at `target`. */
 export function waitsOn(board: TaskBoard, from: string, target: string, seen = new Set<string>()): boolean {
   if (from === target) return true;
   if (seen.has(from)) return false;
@@ -223,6 +224,21 @@ export function setBlockers(
   if (added.length === 0 && kept.length === current.length) return board;
   const others = board.relations.filter((relation) => !(relation.kind === "blocks" && relation.to === task.uid));
   return withRelations(board, [...others, ...kept, ...added]);
+}
+
+/** The board with `uid` taken out of every link that gates a start
+ * between it and another task ON this board — what a task leaving its
+ * team takes with it (`transferTask`). A link whose other end is not here
+ * is not this board's to judge (task-224), and a fact (a copy's source)
+ * is no gate: both stay. */
+export function withoutGates(board: TaskBoard, uid: string): TaskBoard {
+  const here = (other: string) => taskByUid(board, other) !== undefined;
+  return unlinked(
+    board,
+    (relation) =>
+      gatesStart(relation.kind) &&
+      ((relation.from === uid && here(relation.to)) || (relation.to === uid && here(relation.from))),
+  );
 }
 
 /** The board with a link added — the duplicate's record of its source. */

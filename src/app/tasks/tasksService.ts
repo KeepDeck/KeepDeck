@@ -198,10 +198,6 @@ export interface TasksService {
 export function createTasksService(deps: TasksServiceDeps): TasksService {
   const now = deps.now ?? (() => Date.now());
   const mintUid = deps.mintUid ?? mintTaskUid;
-  /** Workspaces whose board was read in an older format and is not yet
-   * written in this one: the old file is kept aside before that first
-   * write, and a failure says it is the upgrade that did not land. */
-  const upgrading = new Set<string>();
   const schedule =
     deps.schedule ??
     ((fn: () => void, ms: number) => {
@@ -265,19 +261,16 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
     // has is about to go, and a board read now would be written back.
     if (closing.has(workspaceId)) return Promise.resolve({ kind: "loading" });
     set(workspaceId, { kind: "loading" });
-    /** Whether the file was in an older format — known only once read. */
-    let migrated = false;
     const loading = deps.store
       .read({ workspaceId })
       .then((json): BoardState => {
         if (json === null) return { kind: "ready", board: EMPTY_BOARD, unsaved: null };
         const decoded = decodeBoard(json, mintUid);
         if (decoded.ok) {
-          migrated = decoded.migrated;
           for (const left of decoded.dropped) {
             log.warn("web:tasks", `${workspaceId}: upgrading the board let go of ${left.id}'s blockers ${left.blockers.join(", ")} — no such task, or itself; they held nothing`);
           }
-          return { kind: "ready", board: decoded.board, unsaved: null, ...(migrated ? { upgrade: true as const } : {}) };
+          return { kind: "ready", board: decoded.board, unsaved: null, ...(decoded.migrated ? { upgrade: true as const } : {}) };
         }
         const error = decodeFaultText(decoded.fault);
         log.warn("web:tasks", `${workspaceId}: ${error} — the board is read-only until the file is fixed`);
@@ -293,13 +286,11 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
         // out must not come back as a board.
         if (!disposed && loads.get(workspaceId) === loading) {
           set(workspaceId, state);
-          // An upgraded board is written at once, so its uids are minted
-          // once: until that write lands nothing outside has seen them,
-          // and a read that comes back to the old file mints afresh.
-          if (state.kind === "ready" && migrated) {
-            upgrading.add(workspaceId);
-            void persist(workspaceId, state.board);
-          }
+          // An upgraded board is written at once, so its uids are drawn
+          // once. Until that write lands they live only in this session —
+          // no agent ever sees one — and a read that comes back to the old
+          // file draws them afresh, renaming nothing anyone holds.
+          if (state.kind === "ready" && state.upgrade) void persist(workspaceId, state.board);
           // A team disbanded while nobody held this board — the feature
           // off, the app closed — left its tasks in the file.
           prune(workspaceId);
@@ -331,17 +322,17 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
       // Its turn came after the workspace was forgotten: the board this
       // would write is gone, and writing it would bring it back.
       if (epochOf(workspaceId) !== epoch) return FORGOTTEN_WRITE;
-      const upgrade = upgrading.has(workspaceId);
+      // The board's own state says whether this write is the upgrade's —
+      // read at its turn, so a write queued behind the upgrade is not.
+      const held = states.get(workspaceId);
+      const upgrade = held?.kind === "ready" && held.upgrade === true;
       try {
         if (upgrade) await deps.store.keepCopy({ workspaceId, label: PRE_RELATIONS_COPY });
         await deps.store.write({ workspaceId, json });
-        if (upgrade) {
-          upgrading.delete(workspaceId);
-          const state = states.get(workspaceId);
-          if (state?.kind === "ready" && state.upgrade) {
-            const { upgrade: _done, ...written } = state;
-            set(workspaceId, written);
-          }
+        const state = states.get(workspaceId);
+        if (upgrade && state?.kind === "ready" && state.upgrade) {
+          const { upgrade: _done, ...written } = state;
+          set(workspaceId, written);
         }
       } catch (e: unknown) {
         const error = describeError(e);
@@ -583,7 +574,6 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
       retries.delete(workspaceId);
       states.delete(workspaceId);
       loads.delete(workspaceId);
-      upgrading.delete(workspaceId);
       changed();
       const chain = writes.get(workspaceId);
       const close = async () => {

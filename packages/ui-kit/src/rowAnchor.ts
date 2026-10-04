@@ -54,6 +54,16 @@ export function pickAnchor(
   return [...rows].sort((a, b) => a.start - b.start).find((r) => r.start >= scrollTop);
 }
 
+/** Where the list stands once a person's own change held `start` — the
+ * row it happened at (`changedAfter`): the scroll stays when that row is
+ * in view or below, and comes up to it when it was scrolled past, so what
+ * the change opens is below it, in sight. Its offset is where the anchor
+ * holds it from then on. */
+export function heldScroll(scrollTop: number, start: number): { scrollTop: number; offset: number } {
+  const target = Math.min(scrollTop, start);
+  return { scrollTop: target, offset: start - target };
+}
+
 /** Where a change of the rows happened, as the item it happened AFTER: the
  * key standing just before the first place the two orders part — a
  * heading whose group opened or shut under it. Null when they part at the

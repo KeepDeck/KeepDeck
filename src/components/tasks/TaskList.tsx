@@ -36,7 +36,9 @@ interface TaskListProps {
   /** A label clicked on a row: narrow the view to it. */
   onLabel(label: string): void;
   /** The folded groups — the person's own act: a change of it, and only
-   * that, eases the list (VirtualList easeKey). */
+   * that, eases the list and holds the heading folded (VirtualList
+   * easeKey). Only the person's fold writes it today; a second writer
+   * would need its own token. */
   folded: ReadonlySet<TaskStatus>;
 }
 

@@ -3,6 +3,7 @@ import {
   TASK_CAPS,
   USER_ACTOR,
   blockerIdsOf,
+  blockersOf,
   copiedFromOf,
   copiesOf,
   issuable,
@@ -254,7 +255,7 @@ export function taskDetailView(
     ],
     priorityOptions: priorityChoices(),
     statusOptions,
-    blockers: blockedBy.map((id) => blockerChip(board, id)),
+    blockers: blockersOf(task, board).map(blockerChip),
     blockersEmpty:
       blockedBy.length > 0 ? null : task.status === "todo" && issuable(task, board) ? "none — can start now" : "none",
     unblocks: unblocks(task, board).map((other) => ({ id: other.id, title: other.title })),
