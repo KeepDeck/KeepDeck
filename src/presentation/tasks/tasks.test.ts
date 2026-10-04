@@ -296,9 +296,7 @@ describe("feedOf — a task's history as one timeline", () => {
   const change = (at: number, now: string) => ({ at, from: "lead", field: "status" as const, was: null, now });
   const comment = (n: number, at: number) => ({ n, at, from: "impl-1", body: `c${n}` });
   const shape = (task: Parameters<typeof feedOf>[0]) =>
-    feedOf(task, 10_000).map((item) =>
-      item.kind === "comment" ? item.body : item.kind === "change" ? item.text : `[${item.label}: ${item.changes.map((c) => c.text).join(", ")}]`,
-    );
+    feedOf(task, 10_000).map((item) => (item.kind === "comment" ? item.body : item.text));
 
   it("interleaves what was said and what was changed, oldest first — a change before the comment that came with it", () => {
     expect(shape({ log: [change(1, "a"), change(3, "b")], comments: [comment(1, 2), comment(2, 3)] })).toEqual([
@@ -309,37 +307,15 @@ describe("feedOf — a task's history as one timeline", () => {
     ]);
   });
 
-  it("folds a run to its first and last once two or more would hide", () => {
+  it("shows every change — a run of them never folds", () => {
     const log = [1, 2, 3, 4, 5].map((at) => change(at, `s${at}`));
-    expect(shape({ log, comments: [] })).toEqual([
-      "status: — → s1",
-      "[3 more changes: status: — → s2, status: — → s3, status: — → s4]",
-      "status: — → s5",
-    ]);
-    // Three in a row: a fold would hide one line behind one line — no fold.
-    expect(shape({ log: log.slice(0, 3), comments: [] })).toEqual(["status: — → s1", "status: — → s2", "status: — → s3"]);
-    expect(shape({ log: log.slice(0, 4), comments: [] })).toEqual([
-      "status: — → s1",
-      "[2 more changes: status: — → s2, status: — → s3]",
-      "status: — → s4",
-    ]);
+    expect(shape({ log, comments: [] })).toEqual(["s1", "s2", "s3", "s4", "s5"].map((now) => `status: — → ${now}`));
   });
 
-  it("leaves two changes in a row alone, and lets a comment break a run", () => {
-    expect(shape({ log: [change(1, "a"), change(2, "b")], comments: [] })).toEqual(["status: — → a", "status: — → b"]);
-    expect(shape({ log: [change(1, "a"), change(2, "b"), change(4, "c"), change(5, "d")], comments: [comment(1, 3)] })).toEqual([
-      "status: — → a",
-      "status: — → b",
-      "c1",
-      "status: — → c",
-      "status: — → d",
-    ]);
-  });
-
-  it("keys every item uniquely — a folded run's included", () => {
+  it("keys every item uniquely", () => {
     const log = [1, 2, 3, 4].map((at) => change(at, `s${at}`));
     const feed = feedOf({ log, comments: [comment(1, 5)] }, 0);
-    const keys = feed.flatMap((item) => (item.kind === "more" ? [item.key, ...item.changes.map((c) => c.key)] : [item.key]));
+    const keys = feed.map((item) => item.key);
     expect(new Set(keys).size).toBe(keys.length);
     // Twins — the same moment, the same field — still key apart.
     const twins = feedOf({ log: [change(1, "a"), change(1, "b")], comments: [] }, 0);
@@ -359,7 +335,7 @@ describe("feedOf — a task's history as one timeline", () => {
   it("keeps a change's key as the log is cut from the front at its cap", () => {
     const log = [1, 2, 3, 4, 5].map((at) => change(at, `s${at}`));
     const keyOf = (feed: ReturnType<typeof feedOf>, text: string) =>
-      feed.flatMap((item) => (item.kind === "more" ? item.changes : [item])).find((item) => "text" in item && item.text === text)?.key;
+      feed.find((item) => item.kind === "change" && item.text === text)?.key;
     const before = feedOf({ log, comments: [] }, 0);
     const after = feedOf({ log: [...log.slice(1), change(6, "s6")], comments: [] }, 0);
     expect(keyOf(after, "status: — → s3")).toBe(keyOf(before, "status: — → s3"));

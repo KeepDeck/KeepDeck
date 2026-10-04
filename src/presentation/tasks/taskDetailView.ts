@@ -97,9 +97,7 @@ export interface FeedChange {
 
 export type FeedItem =
   | { kind: "comment"; key: string; who: string; age: string; body: string }
-  | FeedChange
-  /** A run of changes folded between its first and its last. */
-  | { kind: "more"; key: string; label: string; changes: FeedChange[] };
+  | FeedChange;
 
 /** Every word the panel says that is not the task's own — the component
  * maps these and spells nothing. */
@@ -114,7 +112,6 @@ export const TASK_DETAIL_WORDS = {
   labelPrompt: "+ label",
   labelsFull: (max: number) => `${max} labels — take one off to add another`,
   activity: "Activity",
-  moreChanges: (n: number) => `${n} more ${n === 1 ? "change" : "changes"}`,
   labelAdded: (label: string) => `added label ${label}`,
   labelRemoved: (label: string) => `removed label ${label}`,
   feedTrimmed: (changes: number, comments: number) =>
@@ -220,22 +217,17 @@ export function taskDetailView(
   };
 }
 
-/** How many changes in a row stand unfolded: the first and the last. */
-const RUN_SHOWN = 2;
-
 /**
  * What was said and what was changed, as ONE timeline, oldest first — the
  * thread and the log were two lists a reader had to put back together.
  * Within a moment, the change comes before the comment that came with it.
- * A run of changes with nothing said between them folds to its first and
- * its last once at least two would hide — a fold over one line saves
- * nothing: a task's status walking its ladder must not bury what people
- * wrote.
+ * Every entry is shown — nothing folds: a fold hid the very changes a
+ * reader opened the history to see.
  */
 export function feedOf(task: Pick<Task, "comments" | "log">, now: number): FeedItem[] {
   // A change's key is what it is — its moment and field, counted among
   // its twins — never its place: the log is cut from the front at its cap,
-  // and a place-key shifted on every new entry, closing an open fold.
+  // and a place-key re-keyed every line on each new entry.
   const seen = new Map<string, number>();
   const keyOf = (entry: Task["log"][number]) => {
     const base = `change-${entry.at}-${entry.field}`;
@@ -260,32 +252,7 @@ export function feedOf(task: Pick<Task, "comments" | "log">, now: number): FeedI
       } as FeedItem,
     })),
   ].sort((a, b) => a.at - b.at || a.order - b.order);
-  const feed: FeedItem[] = [];
-  let run: FeedChange[] = [];
-  const flush = () => {
-    if (run.length > RUN_SHOWN + 1) {
-      const hidden = run.slice(1, -1);
-      feed.push(run[0], {
-        kind: "more",
-        key: `more-${hidden[0].key}`,
-        label: TASK_DETAIL_WORDS.moreChanges(hidden.length),
-        changes: hidden,
-      }, run[run.length - 1]);
-    } else {
-      feed.push(...run);
-    }
-    run = [];
-  };
-  for (const { item } of timeline) {
-    if (item.kind === "change") {
-      run.push(item);
-    } else {
-      flush();
-      feed.push(item);
-    }
-  }
-  flush();
-  return feed;
+  return timeline.map(({ item }) => item);
 }
 
 /** What one log entry says in the timeline — usually one line. A labels

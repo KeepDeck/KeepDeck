@@ -270,19 +270,8 @@ export function TaskDetail({
                   </span>
                   <span className="tasks__comment-body kd-selectable">{item.body}</span>
                 </li>
-              ) : item.kind === "change" ? (
-                <FeedChangeLine key={item.key} change={item} />
               ) : (
-                <li key={item.key} className="tasks__log">
-                  <details className="tasks__feed-more">
-                    <summary>{item.label}</summary>
-                    <ul className="tasks__feed">
-                      {item.changes.map((change) => (
-                        <FeedChangeLine key={change.key} change={change} />
-                      ))}
-                    </ul>
-                  </details>
-                </li>
+                <FeedChangeLine key={item.key} change={item} />
               ),
             )}
           </ul>

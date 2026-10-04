@@ -895,17 +895,6 @@
   font-size: var(--kd-font-small);
 }
 
-/* A folded run of changes: its line opens it in place. */
-.tasks__feed-more summary {
-  color: var(--kd-text-3);
-  font-size: var(--kd-font-small);
-  cursor: pointer;
-}
-
-.tasks__feed-more[open] > .tasks__feed {
-  margin-top: 6px;
-}
-
 .tasks__log-who {
   color: var(--kd-text-3);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
