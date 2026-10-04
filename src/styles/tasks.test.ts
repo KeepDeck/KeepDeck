@@ -85,7 +85,7 @@ describe("Tasks text never widens its box", () => {
   });
 
   it("an inline offer is quiet: the quiet ink wins over the inline variant's", () => {
-    // The open task's "Attach an artifact…" is both; at equal specificity
+    // The open task's "Attach an artifact" is both; at equal specificity
     // the later rule wins, and the inline one used to be later.
     const button = (classes: string) => {
       const field = mount(classes);

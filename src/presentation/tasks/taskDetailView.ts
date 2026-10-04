@@ -119,7 +119,7 @@ export const TASK_DETAIL_WORDS = {
     `This task's history is at the board's limit — it keeps only the last ${changes} changes and ${comments} comments`,
   detach: "Detach",
   attach: "Attach artifact",
-  attachPrompt: "Attach an artifact…",
+  attachPrompt: "Attach an artifact",
   commentPlaceholder: "Add a comment — it stays with the task",
   comment: "Comment",
 } as const;

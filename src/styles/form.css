@@ -607,7 +607,7 @@
   height: 10px;
 }
 
-/* An offer, not a value ("Attach an artifact…"): quieter ink, small type —
+/* An offer, not a value ("Attach an artifact"): quieter ink, small type —
    after the variants, so an inline offer is quiet too (same specificity). */
 .dropdown--quiet .dropdown__button {
   color: var(--kd-text-3);
