@@ -309,7 +309,7 @@ function updateCommand(deps: TaskCommandDeps): CommandSpec {
     title: "Change a task: move it along, reassign it, edit its fields",
     args: [
       { name: "id", type: "string", required: true, description: "The task id (task-N)" },
-      { name: "status", type: "string", description: "backlog | todo | in-progress | blocked | review | done | cancelled. One step at a time: todo → in-progress → review → done, in-progress ⇄ blocked; backlog ⇄ todo (parking and unparking), accepting, returning, reopening and cancelling are for whoever hands out work. A refused move says where the task can go from where it is" },
+      { name: "status", type: "string", description: "backlog | todo | in-progress | blocked | review | done | cancelled. One step at a time: todo → in-progress → review → done, in-progress ⇄ blocked; backlog ⇄ todo parks and unparks your own task; accepting, returning, reopening and cancelling are for whoever hands out work. A refused move says where the task can go from where it is" },
       { name: "assignee", type: "string", description: "A role address on the team; \"pool\" to unassign" },
       { name: "priority", type: "string", description: "high | normal | low" },
       { name: "title", type: "string", description: "A new title" },

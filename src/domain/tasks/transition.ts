@@ -76,7 +76,7 @@ export type TaskRefusal =
   | { kind: "not-your-task"; assignee: string | null }
   /** A working role editing what only the lead sets. */
   | { kind: "not-yours-to-assign"; field: TaskField }
-  /** A working role accepting, returning, reopening, parking or cancelling. */
+  /** A working role accepting, returning, reopening or cancelling. */
   | { kind: "review-not-yours" }
   | {
       kind: "illegal-transition";
@@ -150,10 +150,11 @@ const EDGES: readonly {
   who: "worker" | "acceptor";
   needsBlockersResolved?: true;
 }[] = [
-  // Parked and unparked by whoever hands out work: a backlog task is not
-  // anyone's to start until it is moved to todo.
-  { from: "backlog", to: "todo", who: "acceptor" },
-  { from: "todo", to: "backlog", who: "acceptor" },
+  // Parked and unparked like any step of one's own work — by its assignee,
+  // the lead or the user; a backlog task is no one's to START until it is
+  // moved to todo. Cancelling it stays the acceptor's, as everywhere.
+  { from: "backlog", to: "todo", who: "worker" },
+  { from: "todo", to: "backlog", who: "worker" },
   { from: "backlog", to: "cancelled", who: "acceptor" },
   { from: "todo", to: "in-progress", who: "worker", needsBlockersResolved: true },
   { from: "in-progress", to: "blocked", who: "worker" },
