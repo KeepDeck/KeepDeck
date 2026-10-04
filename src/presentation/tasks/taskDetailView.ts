@@ -13,7 +13,7 @@ import {
   type TaskStatus,
 } from "../../domain/tasks";
 import type { StatusRingProps } from "@keepdeck/ui-kit/StatusRing";
-import { blockerChip, roleInitials, statusMark, type BlockerChip } from "./taskCardView";
+import { blockerChip, statusMark, type BlockerChip } from "./taskCardView";
 import {
   BOARD_ORDER,
   POOL_CHOICE,
@@ -49,7 +49,7 @@ export interface TaskDetailView {
   /** The pool first, then the roster — and the current assignee even off
    * the roster, so the control can show what the task says. */
   assignee: string;
-  assigneeOptions: (ChoiceView & { initials: string | null })[];
+  assigneeOptions: ChoiceView[];
   priorityOptions: ChoiceView[];
   /** What the status picker offers: where the task stands, then where the
    * PERSON may move it — the transition table's answer, in ladder order,
@@ -178,8 +178,8 @@ export function taskDetailView(
     bodyEmpty: task.body.trim() === "" ? "No brief — the title is all there is" : null,
     assignee: task.assignee ?? "",
     assigneeOptions: [
-      { ...POOL_CHOICE, initials: roleInitials(null) },
-      ...assigneeValues.map((role) => ({ value: role, label: role, initials: roleInitials(role) })),
+      POOL_CHOICE,
+      ...assigneeValues.map((role) => ({ value: role, label: role })),
     ],
     priorityOptions: priorityChoices(),
     statusOptions,

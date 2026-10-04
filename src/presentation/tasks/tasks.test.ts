@@ -5,7 +5,7 @@ import { boardView, columnLabelClassName } from "./boardView";
 import { NO_QUERY } from "./queryView";
 import { LADDER_WORDS, tasksLadder } from "./ladderView";
 import { newTaskFormView, NEW_TASK_WORDS } from "./newTaskFormView";
-import { roleInitials, statusMark, statusRing, taskCardView, taskCardClassName } from "./taskCardView";
+import { statusMark, statusRing, taskCardView, taskCardClassName } from "./taskCardView";
 import { TASK_DETAIL_WORDS, feedOf, pickedArtifact, pickedStatus, taskDetailClassName, taskDetailView } from "./taskDetailView";
 import { teamCardTasksLine } from "./teamCardTasksLine";
 import { teamOnScreen } from "./teamOnScreen";
@@ -57,7 +57,6 @@ describe("taskCardView", () => {
       cancelled: false,
       labels: [],
       assignee: "pool",
-      initials: null,
       age: "2m ago",
       ring: { fill: 0, tone: "none", barred: false, label: "To do" },
     });
@@ -113,7 +112,7 @@ describe("task panel and form words and classes", () => {
     const detail = taskDetailView(b.tasks[0], b, ["lead"], NOW, [{ id: "kd-a", title: "A" }]);
     expect(newTaskFormView(["lead"]).assigneeOptions[0]).toBe(POOL_CHOICE);
     // The same words, with the pool's mark beside them.
-    expect(detail.assigneeOptions[0]).toEqual({ ...POOL_CHOICE, initials: null });
+    expect(detail.assigneeOptions[0]).toEqual(POOL_CHOICE);
     expect(FIELD_WORDS).toEqual({ title: "Title", brief: "Brief", status: "Status", priority: "Priority", assignee: "Assignee" });
     // The detach tooltip and its accessible label say the same word.
     expect(detail.artifacts[0].detachLabel).toBe(`${TASK_DETAIL_WORDS.detach} kd-a`);
@@ -364,15 +363,6 @@ describe("feedOf — a task's history as one timeline", () => {
       TASK_DETAIL_WORDS.feedTrimmed(TASK_CAPS.logMax, TASK_CAPS.commentsMax),
     );
     expect(full({ comments: Array.from({ length: TASK_CAPS.commentsMax }, (_, i) => comment(i + 1, i)) })).not.toBeNull();
-  });
-});
-
-describe("roleInitials", () => {
-  it("is a role's kind and number, or its first two letters; none for the pool", () => {
-    expect(roleInitials("analyst-2")).toBe("A2");
-    expect(roleInitials("reviewer-12")).toBe("R12");
-    expect(roleInitials("lead")).toBe("LE");
-    expect(roleInitials(null)).toBeNull();
   });
 });
 

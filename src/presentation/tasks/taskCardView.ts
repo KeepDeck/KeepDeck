@@ -21,9 +21,6 @@ export interface TaskCardView {
   labels: readonly string[];
   /** The parts of `meta`, for a row that lays them out in columns. */
   assignee: string;
-  /** The assignee's mark: `A2` for analyst-2, `LE` for the lead; none for
-   * the pool — nobody to mark. */
-  initials: string | null;
   age: string;
   /** The status as a small ring, filled as far as the ladder has come. */
   ring: StatusRingProps;
@@ -52,14 +49,6 @@ export function blockerChip(board: TaskBoard, id: string): BlockerChip {
     resolved,
     className: resolved ? "kd-tag kd-tag--outline tasks__tag--resolved" : "kd-tag kd-tag--outline tasks__tag--blocking",
   };
-}
-
-/** A role's mark in two letters: its kind's first letter and its number
- * (`analyst-2` → `A2`), the two first letters otherwise (`lead` → `LE`). */
-export function roleInitials(role: string | null): string | null {
-  if (role === null) return null;
-  const numbered = /^([a-z])[a-z]*-(\d+)$/i.exec(role);
-  return (numbered ? numbered[1] + numbered[2] : role.slice(0, 2)).toUpperCase();
 }
 
 /** How far along each status stands on the ladder, as a ring's fill. */
@@ -148,7 +137,6 @@ export function taskCardView(task: Task, board: TaskBoard, now: number): TaskCar
     cancelled: task.status === "cancelled",
     labels: task.labels,
     assignee: task.assignee ?? POOL_LABEL,
-    initials: roleInitials(task.assignee),
     age: formatAge(task.updated, now),
     ring: statusRing(task.status),
     blockerChips: task.blockedBy.map((id) => blockerChip(board, id)),

@@ -129,19 +129,7 @@ export function TaskDetail({
           <dd>
             <Dropdown
               ariaLabel={FIELD_WORDS.assignee}
-              options={view.assigneeOptions.map((option) => ({
-                value: option.value,
-                label: (
-                  <>
-                    {option.initials && (
-                      <span className="tasks__avatar" aria-hidden>
-                        {option.initials}
-                      </span>
-                    )}
-                    {option.label}
-                  </>
-                ),
-              }))}
+              options={view.assigneeOptions}
               value={view.assignee}
               onChange={(value) => onAssign(view.id, value)}
               variant="inline"

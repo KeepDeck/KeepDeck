@@ -222,14 +222,7 @@ export function TaskRowLine({
           </span>
         ),
       )}
-      <span className="tasks__row-who">
-        {card.initials && (
-          <span className="tasks__avatar" aria-hidden>
-            {card.initials}
-          </span>
-        )}
-        {card.assignee}
-      </span>
+      <span className="tasks__row-who">{card.assignee}</span>
       <span className="tasks__row-age">{card.age}</span>
     </>
   );
