@@ -56,6 +56,13 @@ describe("Tasks text never widens its box", () => {
     expect(getComputedStyle(link).whiteSpace).not.toBe("nowrap");
   });
 
+  it("the open task grows to Expand and shrinks to Collapse — between two widths, eased", () => {
+    // An auto width (or left: 0) does not transition: the card jumped.
+    const card = getComputedStyle(mount("tasks__detail"));
+    expect(card.transition).toContain("width");
+    expect(getComputedStyle(mount("tasks__detail tasks__detail--wide")).width).toBe("100%");
+  });
+
   it("a list heading stands as tall as the list guesses and the pinned one covers", () => {
     // The reveal's padding under the pinned heading is LIST_HEAD_ESTIMATE_PX:
     // a heading of another height would hide a row's top or leave a gap.

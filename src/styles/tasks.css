@@ -574,11 +574,14 @@
   /* Surface, edge and shadow are the float shell's (float.css). */
   border-radius: var(--kd-radius-tile);
   overflow: hidden;
+  /* Expand and Collapse grow and shrink it from the right edge: two
+     explicit widths, so the change between them animates (auto does not). */
+  transition: width 220ms ease;
 }
 
-.tasks__detail--wide {
-  left: 0;
-  width: auto;
+/* Compound on purpose: it must outrank the card's own width above. */
+.tasks__detail.tasks__detail--wide {
+  width: 100%;
 }
 
 .tasks__detail-head {
