@@ -271,7 +271,7 @@
   /* The shell's shadow carries a 1px ring OUTSIDE its edge (tokens.css
      --kd-shadow-float), top and bottom: two pixels shorter, so the lifted
      row stands exactly as tall as the row it left. */
-  height: 32px;
+  min-height: 32px;
   border-radius: var(--kd-radius-control);
 }
 
@@ -485,15 +485,18 @@
    what holds it, who has it, how long since it moved. The row is not a
    button — its labels and blockers are controls — so its open control
    lies under the rest, spanning it. */
+/* A row is one line while its title is, and grows a line for each line
+   the title wraps to — the whole title, never cut (the windowed list
+   measures each row). */
 .tasks__row {
   position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
-  height: 34px;
+  min-height: 34px;
   box-sizing: border-box;
   min-width: 0;
-  padding: 0 12px;
+  padding: 7px 12px;
   border-bottom: 1px solid var(--kd-hover);
   color: var(--kd-text);
   font-size: var(--kd-font-normal);
@@ -516,7 +519,6 @@
   align-items: center;
   gap: 10px;
   min-width: 0;
-  height: 100%;
   padding: 0;
   border: 0;
   background: transparent;
@@ -552,6 +554,8 @@
 .tasks__row-title {
   flex: 1;
   min-width: 0;
+  line-height: 18px;
+  overflow-wrap: break-word;
 }
 
 
