@@ -617,34 +617,45 @@
   overflow-y: auto;
 }
 
-.tasks__detail--wide .tasks__detail-body {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 260px;
-  align-items: start;
-  gap: 24px;
-}
-
-.tasks__detail--wide .tasks__props {
-  grid-column: 2;
-  grid-row: 1;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 4px;
-}
-
-.tasks__detail--wide .tasks__prop-label:not(:first-child) {
-  margin-top: 8px;
-}
-
-.tasks__detail--wide .tasks__detail-main {
-  grid-column: 1;
-  grid-row: 1;
-}
-
 .tasks__detail-main {
   display: flex;
   flex-direction: column;
   gap: 10px;
   min-width: 0;
+}
+
+/* Room enough, the properties stand beside the story and the story gets
+   the room. Asked of the card's own width, not of the Expand class: the
+   class flips at once while the width eases, and a 260px column stood in
+   a still-440px card for the whole turn. Now the layout turns when the
+   card is wide enough, mid-ease, both ways. */
+.tasks__detail {
+  container-type: inline-size;
+}
+
+@container (min-width: 720px) {
+  .tasks__detail-body {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 260px;
+    align-items: start;
+    gap: 24px;
+  }
+
+  .tasks__detail-body > .tasks__props {
+    grid-column: 2;
+    grid-row: 1;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+
+  .tasks__detail-body > .tasks__props > .tasks__prop-label:not(:first-child) {
+    margin-top: 8px;
+  }
+
+  .tasks__detail-body > .tasks__detail-main {
+    grid-column: 1;
+    grid-row: 1;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -854,6 +865,13 @@
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+/* The activity, opened: its notes, then its changes. */
+.tasks__activity {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 /* The task's activity: its changes, on a line down the left edge with a

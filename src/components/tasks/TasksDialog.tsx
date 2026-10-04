@@ -125,7 +125,7 @@ function WorkspaceBoard({
             )}
           </div>
         )}
-        <div className="tasks__head">
+        <div className="tasks__head" inert={view.headInert}>
           <h2 className="form__title tasks__title">{DIALOG_WORDS.title}</h2>
           {view.toolbar && (
             <div className="tasks__toolbar">

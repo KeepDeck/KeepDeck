@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { Combobox, DisclosureChevron, Dropdown, StatusRing } from "@keepdeck/ui-kit";
 import type { TaskPriority, TaskStatus } from "../../domain/tasks";
 import {
@@ -68,6 +68,7 @@ export function TaskDetail({
 }: TaskDetailProps) {
   const [composer, setComposer] = useState(EMPTY_COMPOSER);
   const commentField = useRef<HTMLTextAreaElement>(null);
+  const activityId = useId();
   useGrowingField(commentField, composer.draft);
   const [labelDraft, setLabelDraft] = useState("");
   const submitLabel = () => {
@@ -94,7 +95,13 @@ export function TaskDetail({
           <span className="tasks__detail-meta kd-one-line">{view.meta}</span>
           <span className="tasks__detail-tools">
             {/* An icon, explained by its tip — beside the close, its kin. */}
-            <TipButton size="sm" tip={DIALOG_WORDS.wide(wide)} onClick={onToggleWide}>
+            <TipButton
+              size="sm"
+              tip={DIALOG_WORDS.wide(wide)}
+              label={DIALOG_WORDS.expand}
+              expanded={wide}
+              onClick={onToggleWide}
+            >
               {wide ? <RestoreIcon /> : <MaximizeIcon />}
             </TipButton>
             <TipButton size="sm" tip={TASK_DETAIL_WORDS.close} onClick={onClose}>
@@ -296,13 +303,14 @@ export function TaskDetail({
             type="button"
             className="tasks__section tasks__section--toggle"
             aria-expanded={view.activity.open}
+            aria-controls={view.activity.open ? activityId : undefined}
             onClick={onToggleActivity}
           >
             {view.activity.label}
             <DisclosureChevron open={view.activity.open} />
           </button>
           {view.activity.open && (
-            <>
+            <div id={activityId} className="tasks__activity">
               {view.changesEmpty && <p className="tasks__muted">{view.changesEmpty}</p>}
               {view.changesTrimmed && <p className="tasks__muted">{view.changesTrimmed}</p>}
               <ul className="tasks__feed">
@@ -310,7 +318,7 @@ export function TaskDetail({
                   <FeedChangeLine key={change.key} change={change} />
                 ))}
               </ul>
-            </>
+            </div>
           )}
         </div>
       </div>

@@ -56,6 +56,15 @@ describe("Tasks text never widens its box", () => {
     expect(getComputedStyle(link).whiteSpace).not.toBe("nowrap");
   });
 
+  it("lays the open task out in two columns by its own width, not by the Expand class", () => {
+    // The class flips at once while the width eases; the layout must turn
+    // with the width, or a 260px column stands in a 440px card mid-ease.
+    const css = readStyles("tasks.css");
+    expect(css).toMatch(/\.tasks__detail \{\s*container-type: inline-size;\s*\}/);
+    expect(css).toMatch(/@container \(min-width: 720px\)\s*\{\s*\.tasks__detail-body \{[^}]*display: grid/);
+    expect(css).not.toMatch(/\.tasks__detail--wide \.tasks__detail-body/);
+  });
+
   it("a row's age stays on one line", () => {
     expect(getComputedStyle(mount("tasks__row-age")).whiteSpace).toBe("nowrap");
   });

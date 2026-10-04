@@ -498,6 +498,14 @@ describe("TasksDialog", () => {
     const card = document.querySelector(".tasks__detail")!;
     expect(card.parentElement?.getAttribute("role")).toBe("dialog");
     expect(card.closest(".tasks__stage")).toBeNull();
+    // The head under it is out of reach while it is up.
+    expect(document.querySelector(".tasks__head")!.hasAttribute("inert")).toBe(true);
+    // Expand is named for what it is; its state is said, not its next press.
+    const expand = card.querySelector<HTMLButtonElement>('button[aria-label="Expand"]')!;
+    expect(expand.getAttribute("aria-expanded")).toBe("false");
+    act(() => expand.click());
+    await flush();
+    expect(card.querySelector('button[aria-label="Expand"]')!.getAttribute("aria-expanded")).toBe("true");
   });
 
   it("a list row is dragged onto another group — its heading, even folded — and the task moves there", async () => {
