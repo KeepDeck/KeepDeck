@@ -208,7 +208,7 @@ describe("taskDetailView — artifacts", () => {
       { slug: "gone", title: "gone", known: false, openTitle: "No longer published — gone", detachLabel: "Detach gone" },
     ]);
     expect(view.canAttach).toBe(true);
-    expect(view.palettes.artifact.sections).toEqual([
+    expect(view.palette("artifact").sections).toEqual([
       { title: TASK_DETAIL_WORDS.artifactsSection, items: [{ value: "kd-tasks-ui", label: "UI prototypes", hint: "kd-tasks-ui" }] },
     ]);
     expect(view.attachEmpty).toBeNull();
@@ -492,7 +492,7 @@ describe("taskDetailView — linking tasks from the open one", () => {
   const view = taskDetailView(b.tasks[0], b, ROSTER, NOW);
 
   it("offers, in a palette that names what is picked, the tasks it could wait on — key, title, ring, status", () => {
-    expect(view.palettes["blocked-by"]).toEqual({
+    expect(view.palette("blocked-by")).toEqual({
       label: "Blocked by",
       placeholder: "Find a task task-1 waits on…",
       empty: TASK_DETAIL_WORDS.noTaskMatches,
@@ -505,8 +505,8 @@ describe("taskDetailView — linking tasks from the open one", () => {
   });
 
   it("offers the other side too: what could wait on it — never what it waits on (a cycle)", () => {
-    expect(view.palettes.blocks.placeholder).toBe("Find a task that waits on task-1…");
-    expect(view.palettes.blocks.sections[0].items.map((item) => item.value)).toEqual(["task-3"]);
+    expect(view.palette("blocks").placeholder).toBe("Find a task that waits on task-1…");
+    expect(view.palette("blocks").sections[0].items.map((item: { value: string }) => item.value)).toEqual(["task-3"]);
     expect(view.canAddDependant).toBe(true);
   });
 
@@ -520,5 +520,10 @@ describe("taskDetailView — linking tasks from the open one", () => {
     const lone = taskDetailView(alone.tasks[0], alone, ROSTER, NOW);
     expect(actions(lone).map((a) => a.refusal)).toEqual([TASK_DETAIL_WORDS.nothingToWaitOn, TASK_DETAIL_WORDS.nothingWaitsOn]);
     expect([lone.canAddBlocker, lone.canAddDependant]).toEqual([false, false]);
+    // Nothing waits on it and nothing could: no Unblocks row. Something
+    // could: the row is drawn, its + the way to add the first.
+    expect(lone.unblocksShown).toBe(false);
+    expect(view.unblocks).toEqual([]);
+    expect(view.unblocksShown).toBe(true);
   });
 });

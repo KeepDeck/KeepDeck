@@ -97,6 +97,7 @@ export function TaskDetail({
   const [duplicating, setDuplicating] = useState(false);
   /** The picker open over the task, if any. */
   const [palette, setPalette] = useState<PaletteKind | null>(null);
+  const current = palette ? view.palette(palette) : null;
   const pick = (kind: PaletteKind, value: string) =>
     kind === "artifact" ? onAttach(view.id, value) : onLink(view.id, value, kind);
   // The title edits in place — a double click on it, or Rename in the menu —
@@ -192,12 +193,12 @@ export function TaskDetail({
             {view.title}
           </h3>
         )}
-        {palette && (
+        {palette && current && (
           <CommandPalette
-            label={view.palettes[palette].label}
-            placeholder={view.palettes[palette].placeholder}
-            empty={view.palettes[palette].empty}
-            sections={view.palettes[palette].sections.map((section) => ({
+            label={current.label}
+            placeholder={current.placeholder}
+            empty={current.empty}
+            sections={current.sections.map((section) => ({
               title: section.title,
               items: section.items.map((item) => ({
                 value: item.value,
@@ -345,10 +346,11 @@ export function TaskDetail({
             {view.canAddBlocker && <AddButton label={TASK_DETAIL_WORDS.addBlocker} onClick={() => setPalette("blocked-by")} />}
           </dd>
 
-          {view.unblocks.length > 0 && (
+          {view.unblocksShown && (
             <>
               <dt className="tasks__prop-label">{TASK_DETAIL_WORDS.unblocks}</dt>
               <dd className="tasks__chips">
+                {view.unblocks.length === 0 && <span className="tasks__muted">{TASK_DETAIL_WORDS.none}</span>}
                 {view.unblocks.map((other) => (
                   <button key={other.id} type="button" className="kd-tag kd-tag--outline" title={other.title} onClick={() => onSelect(other.id)}>
                     {other.id}

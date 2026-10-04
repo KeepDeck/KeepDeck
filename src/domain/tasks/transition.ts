@@ -383,12 +383,22 @@ export type BlockerSide = "blocked-by" | "blocks";
  * itself, no link twice, none closing a cycle — in board order. A picker
  * offers exactly these, so it never offers what the change refuses. */
 export function blockerCandidates(task: Task, board: TaskBoard, side: BlockerSide = "blocked-by"): Task[] {
-  return tasksOfTeam(board, task.teamId).filter((other) => {
-    if (!isOpen(other.status) || other.uid === task.uid) return false;
-    const [waiting, waitedOn] = side === "blocked-by" ? [task, other] : [other, task];
-    const current = blockerIdsOf(waiting, board);
-    return !current.includes(waitedOn.id) && validateBlockers(waiting, waiting.teamId, [...current, waitedOn.id], board) === null;
-  });
+  return tasksOfTeam(board, task.teamId).filter((other) => mayLink(task, other, board, side));
+}
+
+/** Whether any task could be linked to `task` as `side` says — what a +
+ * or a menu item asks, stopping at the first. */
+export function hasBlockerCandidate(task: Task, board: TaskBoard, side: BlockerSide): boolean {
+  return tasksOfTeam(board, task.teamId).some((other) => mayLink(task, other, board, side));
+}
+
+/** THE rule both ask: `other` is open, not `task`, not linked to it this
+ * way already, and the change on the waiting end would take it. */
+function mayLink(task: Task, other: Task, board: TaskBoard, side: BlockerSide): boolean {
+  if (!isOpen(other.status) || other.uid === task.uid) return false;
+  const [waiting, waitedOn] = side === "blocked-by" ? [task, other] : [other, task];
+  const current = blockerIdsOf(waiting, board);
+  return !current.includes(waitedOn.id) && validateBlockers(waiting, waiting.teamId, [...current, waitedOn.id], board) === null;
 }
 
 /** The change that links `task` to `other` as `side` says, and the task

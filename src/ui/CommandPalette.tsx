@@ -58,7 +58,20 @@ export function CommandPalette({ label, placeholder, sections, empty, onPick, on
   const [highlight, setHighlight] = useState(0);
   const listId = useId();
   useEscape(onClose, true, surface);
-  useLayoutEffect(() => field.current?.focus(), []);
+  // The keyboard goes back where it came from once the palette is done —
+  // the + that opened it — when that is still on screen. Read as the first
+  // render runs: by the effects, the overlay has made it inert and blurred.
+  const [opener] = useState(() => (document.activeElement instanceof HTMLElement ? document.activeElement : null));
+  useLayoutEffect(() => {
+    field.current?.focus();
+    return () => {
+      // After the overlay has let the background go: until then the
+      // opener is inert and takes no focus.
+      queueMicrotask(() => {
+        if (opener?.isConnected) opener.focus();
+      });
+    };
+  }, [opener]);
 
   const shown = sections
     .map((section) => ({ ...section, items: fuzzyFilterBy(section.items, query, (item) => `${item.label} ${item.hint ?? ""}`) }))
@@ -84,6 +97,8 @@ export function CommandPalette({ label, placeholder, sections, empty, onPick, on
       event.preventDefault();
       if (flat.length) setHighlight((cursor + (event.key === "ArrowDown" ? 1 : -1) + flat.length) % flat.length);
     } else if (event.key === "Enter") {
+      // An IME's Enter confirms what is being composed — it picks nothing.
+      if (event.nativeEvent.isComposing) return;
       event.preventDefault();
       if (flat.length) pick(flat[cursor]);
     }
@@ -139,6 +154,9 @@ export function CommandPalette({ label, placeholder, sections, empty, onPick, on
                     role="option"
                     id={optionId(row.at)}
                     aria-selected={row.at === cursor}
+                    // The field holds the keyboard (a combobox): rows are
+                    // reached by the arrows, not by Tab.
+                    tabIndex={-1}
                     className={`palette__item${row.at === cursor ? " palette__item--active" : ""}`}
                     // Keep the field focused: a click is a pick, not a blur.
                     onMouseDown={(event) => event.preventDefault()}

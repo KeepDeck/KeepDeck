@@ -109,6 +109,25 @@ describe("CommandPalette", () => {
     expect(onPick).not.toHaveBeenCalled();
   });
 
+  it("picks nothing on the Enter that confirms an IME's composition", () => {
+    act(() => field().dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, isComposing: true })));
+    expect(onPick).not.toHaveBeenCalled();
+  });
+
+  it("keeps its rows out of the Tab order, and hands the keyboard back to what opened it", async () => {
+    expect([...document.querySelectorAll<HTMLButtonElement>(".palette__item")].every((row) => row.tabIndex === -1)).toBe(true);
+    act(() => root.unmount());
+    const opener = document.createElement("button");
+    document.body.append(opener);
+    opener.focus();
+    root = createRoot(document.getElementById("host")!);
+    act(() => root.render(createElement(CommandPalette, { label: "x", placeholder: "x", sections: SECTIONS, empty: "x", onPick, onClose })));
+    expect(document.activeElement).toBe(field());
+    act(() => root.render(createElement("span")));
+    await Promise.resolve();
+    expect(document.activeElement).toBe(opener);
+  });
+
   it("picks on a click", () => {
     act(() => [...document.querySelectorAll<HTMLButtonElement>(".palette__item")][1].click());
     expect(onPick).toHaveBeenCalledWith("task-3");

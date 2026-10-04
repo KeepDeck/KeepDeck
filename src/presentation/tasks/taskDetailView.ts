@@ -4,6 +4,7 @@ import {
   USER_ACTOR,
   blockerCandidates,
   blockerIdsOf,
+  hasBlockerCandidate,
   type BlockerSide,
   blockersOf,
   copiedFromOf,
@@ -68,13 +69,17 @@ export interface TaskDetailView {
   blockers: (BlockerChip & { removeLabel: string })[];
   blockersEmpty: string | null;
   unblocks: { id: string; title: string }[];
-  /** The pickers the task opens — one palette each (`PaletteView`): what
-   * it may wait on, what may wait on it, what may be attached. */
-  palettes: Record<PaletteKind, PaletteView>;
+  /** The picker the task opens, of each kind (`PaletteView`): what it may
+   * wait on, what may wait on it, what may be attached. Built when asked —
+   * when one is open — not on every render of the panel. */
+  palette(kind: PaletteKind): PaletteView;
   /** Whether a task could be added on each side — its row's + is offered
    * then, and the menu's item is not refused. */
   canAddBlocker: boolean;
   canAddDependant: boolean;
+  /** Whether the Unblocks row is drawn: when something waits on it, or
+   * something could be made to (its + is the way to add the first). */
+  unblocksShown: boolean;
   /** Where it was copied from, and the copies made of it — one row each,
    * only when there is something to say. A source no longer on the board
    * is said to be gone. */
@@ -206,6 +211,7 @@ export const TASK_DETAIL_WORDS = {
   labelRemoved: (label: string) => `removed label ${label}`,
   trimmed: (max: number, what: string) => `At the board's limit — it keeps only the last ${max} ${what}`,
   detach: "Detach",
+  none: "none",
   addBlocker: "Add a blocker",
   addDependant: "Add a task that waits on this one",
   blockedByAction: "Blocked by…",
@@ -269,8 +275,8 @@ export function taskDetailView(
   }));
   const assigneeValues = [...new Set([...roster, ...(task.assignee ? [task.assignee] : [])])];
   const blockedBy = blockerIdsOf(task, board);
-  const waitsOn = blockerCandidates(task, board, "blocked-by");
-  const waitedBy = blockerCandidates(task, board, "blocks");
+  const canAddBlocker = hasBlockerCandidate(task, board, "blocked-by");
+  const canAddDependant = hasBlockerCandidate(task, board, "blocks");
   const attachable = artifacts.filter((artifact) => !task.artifacts.includes(artifact.id));
   return {
     id: task.id,
@@ -298,13 +304,11 @@ export function taskDetailView(
       blockedBy.length > 0 ? null : task.status === "todo" && issuable(task, board) ? "none — can start now" : "none",
     unblocks: unblocks(task, board).map((other) => ({ id: other.id, title: other.title })),
     copies: copyRows(task, board),
-    palettes: {
-      "blocked-by": taskPalette(task, waitsOn, "blocked-by"),
-      blocks: taskPalette(task, waitedBy, "blocks"),
-      artifact: artifactPalette(attachable),
-    },
-    canAddBlocker: waitsOn.length > 0,
-    canAddDependant: waitedBy.length > 0,
+    palette: (kind) =>
+      kind === "artifact" ? artifactPalette(attachable) : taskPalette(task, blockerCandidates(task, board, kind), kind),
+    canAddBlocker,
+    canAddDependant,
+    unblocksShown: unblocks(task, board).length > 0 || canAddDependant,
     labels: task.labels.map((label) => ({ label, removeLabel: `Remove ${label}` })),
     labelOptions: labelsOf({ tasks: tasksOfTeam(board, task.teamId) }).filter((label) => !task.labels.includes(label)),
     labelsFull: task.labels.length >= TASK_CAPS.labelsMax ? TASK_DETAIL_WORDS.labelsFull(TASK_CAPS.labelsMax) : null,
@@ -332,12 +336,12 @@ export function taskDetailView(
         {
           id: "blocked-by",
           label: TASK_DETAIL_WORDS.blockedByAction,
-          refusal: waitsOn.length === 0 ? TASK_DETAIL_WORDS.nothingToWaitOn : null,
+          refusal: canAddBlocker ? null : TASK_DETAIL_WORDS.nothingToWaitOn,
         },
         {
           id: "blocks",
           label: TASK_DETAIL_WORDS.blocksAction,
-          refusal: waitedBy.length === 0 ? TASK_DETAIL_WORDS.nothingWaitsOn : null,
+          refusal: canAddDependant ? null : TASK_DETAIL_WORDS.nothingWaitsOn,
         },
         { id: "duplicate", label: TASK_DETAIL_WORDS.duplicate, refusal: null },
         { id: "transfer", label: TASK_DETAIL_WORDS.transfer, refusal: transferRefusal(task, board, others.length) },
