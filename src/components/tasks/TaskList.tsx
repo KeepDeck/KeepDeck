@@ -5,6 +5,7 @@ import { VirtualList } from "@keepdeck/ui-kit/VirtualList";
 import type { TaskStatus } from "../../domain/tasks";
 import {
   headingOf,
+  isListHeading,
   listHeadingDropClassName,
   listRowClassName,
   rowGrip,
@@ -35,7 +36,9 @@ interface TaskListProps {
   /** A label clicked on a row: narrow the view to it. */
   onLabel(label: string): void;
   /** The folded groups — the person's own act: a change of it, and only
-   * that, eases the list (VirtualList easeKey). */
+   * that, eases the list and holds the heading folded (VirtualList
+   * easeKey). Only the person's fold writes it today; a second writer
+   * would need its own token. */
   folded: ReadonlySet<TaskStatus>;
 }
 
@@ -61,6 +64,7 @@ export function TaskList({ items, openId, drag, hover, folded, onSelect, onFold,
       sticky={{
         className: "tasks__list-pinned",
         height: LIST_HEAD_ESTIMATE_PX,
+        heads: isListHeading,
         // The pinned heading stands over the group's own: it takes a drop
         // as the group does, and is the pointer's alone — the real heading
         // is the one the keyboard and a reader reach, never a second.

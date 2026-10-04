@@ -81,12 +81,18 @@ export function listItemEstimate(item: ListItem): number {
   return item.kind === "head" ? LIST_HEAD_ESTIMATE_PX : LIST_ROW_ESTIMATE_PX;
 }
 
+/** Whether a list item starts a group — what the pinned heading is
+ * pushed out by, and what `headingOf` walks back to. */
+export function isListHeading(item: ListItem): item is ListHeading {
+  return item.kind === "head";
+}
+
 /** The heading of the group the row at `index` is in — what the pinned
  * heading shows for the first row in view. Null before the first heading. */
 export function headingOf(items: readonly ListItem[], index: number): ListHeading | null {
   for (let i = Math.min(index, items.length - 1); i >= 0; i--) {
     const item = items[i];
-    if (item.kind === "head") return item;
+    if (isListHeading(item)) return item;
   }
   return null;
 }

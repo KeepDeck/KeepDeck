@@ -22,6 +22,7 @@
 import { membersOf, teamsOf, type Workspace } from "../../domain/deck";
 import {
   EMPTY_BOARD,
+  PRE_RELATIONS_COPY,
   createTask,
   decodeBoard,
   duplicateTask,
@@ -30,7 +31,6 @@ import {
   encodeBoard,
   findTask,
   keepTeams,
-  replaceTask,
   transition,
   type CreateTaskInput,
   type Task,
@@ -41,6 +41,7 @@ import {
   type TaskStatus,
 } from "../../domain/tasks";
 import { describeError, log } from "../../ipc/log";
+import { mintTaskUid } from "../ids";
 import { decodeFaultText } from "./refusalText";
 
 /** The store as this owner reads and writes it — a PORT, bound to IPC at
@@ -50,6 +51,9 @@ export interface TasksStorePort {
   write(args: { workspaceId: string; json: string }): Promise<void>;
   /** Remove a workspace's board from disk. Idempotent. */
   drop(args: { workspaceId: string }): Promise<void>;
+  /** Keep the board as it is on disk now beside it, under `label`, once —
+   * what a format change takes before its first write. */
+  keepCopy(args: { workspaceId: string; label: string }): Promise<void>;
 }
 
 export interface TasksServiceDeps {
@@ -57,6 +61,8 @@ export interface TasksServiceDeps {
   workspaces(): readonly Workspace[];
   store: TasksStorePort;
   now?(): number;
+  /** A fresh task uid; random by default, injected so tests pin it. */
+  mintUid?(): string;
   /** `setTimeout`, injected so tests drive the clock. Returns its cancel. */
   schedule?(fn: () => void, ms: number): () => void;
 }
@@ -82,6 +88,10 @@ export type BoardState =
        * failure, verbatim — or null while disk and memory agree. The
        * board retries on its own; this is how a surface says so. */
       unsaved: string | null;
+      /** Present while the board was read in an older format and is not
+       * yet written in this one — what a lag on disk then IS: the
+       * upgrade, not the person's changes. */
+      upgrade?: true;
     }
   /** The file did not decode; its words, verbatim. Read-only until fixed. */
   | { kind: "unreadable"; error: string };
@@ -187,6 +197,7 @@ export interface TasksService {
 
 export function createTasksService(deps: TasksServiceDeps): TasksService {
   const now = deps.now ?? (() => Date.now());
+  const mintUid = deps.mintUid ?? mintTaskUid;
   const schedule =
     deps.schedule ??
     ((fn: () => void, ms: number) => {
@@ -254,8 +265,13 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
       .read({ workspaceId })
       .then((json): BoardState => {
         if (json === null) return { kind: "ready", board: EMPTY_BOARD, unsaved: null };
-        const decoded = decodeBoard(json);
-        if (decoded.ok) return { kind: "ready", board: decoded.board, unsaved: null };
+        const decoded = decodeBoard(json, mintUid);
+        if (decoded.ok) {
+          for (const left of decoded.dropped) {
+            log.warn("web:tasks", `${workspaceId}: upgrading the board let go of ${left.id}'s blockers ${left.blockers.join(", ")} — no such task, or itself; they held nothing`);
+          }
+          return { kind: "ready", board: decoded.board, unsaved: null, ...(decoded.migrated ? { upgrade: true as const } : {}) };
+        }
         const error = decodeFaultText(decoded.fault);
         log.warn("web:tasks", `${workspaceId}: ${error} — the board is read-only until the file is fixed`);
         return { kind: "unreadable", error };
@@ -270,6 +286,11 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
         // out must not come back as a board.
         if (!disposed && loads.get(workspaceId) === loading) {
           set(workspaceId, state);
+          // An upgraded board is written at once, so its uids are drawn
+          // once. Until that write lands they live only in this session —
+          // no agent ever sees one — and a read that comes back to the old
+          // file draws them afresh, renaming nothing anyone holds.
+          if (state.kind === "ready" && state.upgrade) void persist(workspaceId, state.board);
           // A team disbanded while nobody held this board — the feature
           // off, the app closed — left its tasks in the file.
           prune(workspaceId);
@@ -301,8 +322,18 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
       // Its turn came after the workspace was forgotten: the board this
       // would write is gone, and writing it would bring it back.
       if (epochOf(workspaceId) !== epoch) return FORGOTTEN_WRITE;
+      // The board's own state says whether this write is the upgrade's —
+      // read at its turn, so a write queued behind the upgrade is not.
+      const held = states.get(workspaceId);
+      const upgrade = held?.kind === "ready" && held.upgrade === true;
       try {
+        if (upgrade) await deps.store.keepCopy({ workspaceId, label: PRE_RELATIONS_COPY });
         await deps.store.write({ workspaceId, json });
+        const state = states.get(workspaceId);
+        if (upgrade && state?.kind === "ready" && state.upgrade) {
+          const { upgrade: _done, ...written } = state;
+          set(workspaceId, written);
+        }
       } catch (e: unknown) {
         const error = describeError(e);
         log.warn("web:tasks", `${workspaceId}: writing the board failed: ${error}`);
@@ -363,7 +394,12 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
    * mark carries over until a write lands. */
   const commit = (workspaceId: string, board: TaskBoard): Promise<string | null> => {
     const state = states.get(workspaceId);
-    set(workspaceId, { kind: "ready", board, unsaved: state?.kind === "ready" ? state.unsaved : null });
+    set(workspaceId, {
+      kind: "ready",
+      board,
+      unsaved: state?.kind === "ready" ? state.unsaved : null,
+      ...(state?.kind === "ready" && state.upgrade ? { upgrade: true as const } : {}),
+    });
     return persist(workspaceId, board);
   };
 
@@ -433,6 +469,7 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
         board: held.board,
         roster: this.rosterOf(workspaceId, input.teamId),
         at: now(),
+        mintUid,
       });
       if (!result.ok) return result;
       return commitCreated(workspaceId, result.board, result.task, actor);
@@ -448,6 +485,7 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
         board: held.board,
         roster: this.rosterOf(workspaceId, source.teamId),
         at: now(),
+        mintUid,
       });
       if (!result.ok) return result;
       const made = await commitCreated(workspaceId, result.board, result.task, actor, source.id);
@@ -489,13 +527,15 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
       let board = held.board;
       const at = now();
       const roster = this.rosterOf(workspaceId, before.teamId);
+      // Each change reads the board the one before it left — tasks AND
+      // links: a blocker set first is what a start after it is gated on.
       for (const change of changes) {
         const result = transition(task, change, actor, { board, roster, at });
         if (!result.ok) return result;
         task = result.task;
-        board = replaceTask(board, task);
+        board = result.board;
       }
-      if (task === before) {
+      if (board === held.board) {
         // Nothing to write — but "saved" is about the BOARD, not this call:
         // after a failed write, repeating a change must not read as the
         // durable success the first attempt was denied.

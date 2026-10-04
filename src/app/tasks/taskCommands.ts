@@ -30,7 +30,10 @@ import { senderOf } from "../../domain/mail";
 import {
   TASK_FIELDS,
   agentActor,
+  blockerIdsOf,
   compareQueue,
+  copiedFromOf,
+  copiesOf,
   findTask,
   isTaskId,
   isTaskPriority,
@@ -49,6 +52,7 @@ import {
   type TaskActor,
   type TaskBoard,
   type TaskChange,
+  type TaskField,
   type TaskPriority,
   type TaskStatus,
 } from "../../domain/tasks";
@@ -147,7 +151,7 @@ function row(task: Task, board: TaskBoard) {
     priority: task.priority,
     assignee: task.assignee,
     author: task.author,
-    blockedBy: task.blockedBy,
+    blockedBy: blockerIdsOf(task, board),
     labels: task.labels,
     issuable: issuable(task, board),
     artifacts: task.artifacts.length,
@@ -156,14 +160,28 @@ function row(task: Task, board: TaskBoard) {
   };
 }
 
-/** A task whole, plus what the board knows around it. */
+/** A task whole, plus what the board knows around it. Its uid stays
+ * out: an agent addresses a task by its key, and only by its key. */
 function full(task: Task, board: TaskBoard) {
+  const { uid: _uid, ...shown } = task;
+  const source = copiedFromOf(task, board);
+  const blockedBy = blockerIdsOf(task, board);
   return {
-    ...task,
+    ...shown,
+    blockedBy,
     issuable: issuable(task, board),
-    blockers: task.blockedBy.map((id) => ({ id, status: findTask(board, id)?.status ?? null })),
+    blockers: blockedBy.map((id) => ({ id, status: findTask(board, id)?.status ?? null })),
     unblocks: unblocks(task, board).map((other) => other.id),
+    /** The key of the task this was copied from — null for a task that is
+     * no copy, "gone" when the source has left the board. */
+    copiedFrom: source === null ? null : source === "absent" ? "gone" : source.id,
+    copies: copiesOf(task, board).map((copy) => copy.id),
   };
+}
+
+/** A field as a change reads it — `blockedBy` from the board's links. */
+function fieldOf(task: Task, board: TaskBoard, field: TaskField): unknown {
+  return field === "blockedBy" ? blockerIdsOf(task, board) : task[field];
 }
 
 /** The one sentence a caller hears when its change is held but not yet
@@ -261,7 +279,7 @@ function duplicateCommand(deps: TaskCommandDeps): CommandSpec {
   return {
     id: "task.duplicate",
     title:
-      "Copy a task as a fresh one: its title, brief, priority, labels, artifacts and blockers, in todo (the backlog if it is parked), held by no one — not its comments, log or assignee. Both tasks' logs say it was copied",
+      "Copy a task as a fresh one under the SAME title: its brief, priority, labels, artifacts and the blockers still open, in todo (the backlog if it is parked), held by no one — not its comments, log or assignee. The copy is linked to its source (task.get: copiedFrom on the copy, copies on the source), and both logs say so",
     args: [{ name: "id", type: "string", required: true, description: "The task to copy (task-N)" }, TEAM_ARG],
     run: async (args, source) => {
       const who = caller(source, deps);
@@ -355,7 +373,7 @@ function getCommand(deps: TaskCommandDeps): CommandSpec {
   return {
     id: "task.get",
     title:
-      "Read one task whole: brief, thread, log (a brief edit keeps the previous brief in `was`), blockers with their statuses, what it unblocks, issuable (can be started now)",
+      "Read one task whole: brief, thread, log (a brief edit keeps the previous brief in `was`), blockers with their statuses, what it unblocks, issuable (can be started now), copiedFrom (the key it was copied from, \"gone\" if that task left the board, null if it is no copy) and copies (keys of its copies — one may be on another team's board)",
     args: [{ name: "id", type: "string", required: true, description: "The task id (task-N)" }],
     run: async (args, source) => {
       const who = caller(source, deps);
@@ -405,8 +423,10 @@ function updateCommand(deps: TaskCommandDeps): CommandSpec {
       }
       const board = await boardOf(deps, who.workspace.id);
       const before = visible(board, id, team);
-      const { task, saved, saveError } = settled(await deps.tasks.apply(who.workspace.id, id, changes, who.actor));
-      const changed = TASK_FIELDS.filter((field) => JSON.stringify(before[field]) !== JSON.stringify(task[field]));
+      const { task, board: after, saved, saveError } = settled(await deps.tasks.apply(who.workspace.id, id, changes, who.actor));
+      const changed = TASK_FIELDS.filter(
+        (field) => JSON.stringify(fieldOf(before, board, field)) !== JSON.stringify(fieldOf(task, after, field)),
+      );
       return {
         id: task.id,
         changed,

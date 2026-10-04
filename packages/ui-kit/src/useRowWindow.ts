@@ -24,6 +24,9 @@ export interface RowWindowInput<Row> {
   /** Room at the top a layer covers (a pinned heading): a row revealed
    * upward stops below it, not under it. */
   coveredTop?: number;
+  /** The row the person's own change of `rows` happened at, held in place
+   * (`useRowAnchoring`'s `holdKey`). */
+  holdKey?: string | null;
 }
 
 export interface RowWindow {
@@ -36,10 +39,6 @@ export interface RowWindow {
    * a list shorter than its viewport has its end in view from the first
    * paint, and a grower must hear that too. False for an empty list. */
   atEnd: boolean;
-  /** The first row any part of which is in view (not the overscan above
-   * it); -1 while nothing is mounted. What a sticky heading asks which
-   * group it heads. */
-  firstVisibleIndex: number;
   /** The measured height of every row — the spacer's height. */
   totalSize: number;
   /** ONE callback for every row's ref — a fresh arrow per row would ride
@@ -70,6 +69,7 @@ export function useRowWindow<Row>({
   scrollRef,
   overscan = OVERSCAN_ROWS,
   coveredTop = 0,
+  holdKey = null,
 }: RowWindowInput<Row>): RowWindow {
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -88,6 +88,7 @@ export function useRowWindow<Row>({
     virtualItems: items,
     lastVirtualIndex: lastIndex,
     rowVirtualizer: virtualizer,
+    holdKey,
   });
   const measure = useCallback(
     (element: HTMLElement | null) => virtualizer.measureElement(element),
@@ -101,13 +102,10 @@ export function useRowWindow<Row>({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
-  const offset = virtualizer.scrollOffset ?? 0;
-  const firstVisible = items.find((item) => item.end > offset);
   return {
     items,
     lastIndex,
     atEnd: rows.length > 0 && lastIndex === rows.length - 1,
-    firstVisibleIndex: firstVisible ? firstVisible.index : -1,
     totalSize: virtualizer.getTotalSize(),
     measure,
     reveal,

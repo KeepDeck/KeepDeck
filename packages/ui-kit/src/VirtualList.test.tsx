@@ -188,7 +188,7 @@ describe("VirtualList", () => {
               render: (item) => createElement("span", { className: "row" }, item),
               className: "list",
               revealKey,
-              sticky: { className: "pinned", height: 30, render: () => "pinned" },
+              sticky: { className: "pinned", height: 30, render: () => "pinned", heads: () => false },
             }),
           ),
         );
@@ -509,22 +509,24 @@ describe("VirtualList as a grouped list", () => {
     restore();
   });
 
-  const render = (list: readonly G[]) =>
+  const render = (list: readonly G[], easeKey?: unknown) =>
     act(() =>
       root.render(
         createElement(VirtualList<G>, {
           items: list,
+          easeKey,
           itemKey: (g) => g.key,
           estimate: H,
           render: (g) => createElement("span", { className: g.head ? "head" : "row" }, g.key),
           className: "list",
           sticky: {
             className: "pinned",
-            height: 0,
+            height: H,
             render: (first) => {
               for (let i = first; i >= 0; i--) if (list[i]?.head) return `group ${list[i].group}`;
               return null;
             },
+            heads: (g) => g.head,
           },
         }),
       ),
@@ -552,6 +554,26 @@ describe("VirtualList as a grouped list", () => {
     expect(pinned()).toBe("group 2");
     await scrollTo(22 * H - 5);
     expect(pinned()).toBe("group 1");
+  });
+
+  it("lets the next heading push the pinned one up, by the part it has run into", async () => {
+    render(grouped(30));
+    const shift = () => host.querySelector<HTMLElement>(".pinned")!.style.transform;
+    // Group 2's heading starts at 22·H; the pinned heading is H tall.
+    await scrollTo(22 * H - 2 * H);
+    expect(pinned()).toBe("group 1");
+    expect(shift()).toBe("");
+    // A pixel at a time through the push, every step between renders of
+    // the window: the pinned heading follows the scroll, not the renders.
+    for (let into = 1; into < H; into++) {
+      await scrollTo(22 * H - H + into);
+      expect(pinned()).toBe("group 1");
+      expect(shift()).toBe(`translateY(${-into}px)`);
+    }
+    // Past the top: group 2's own heading is pinned, unpushed.
+    await scrollTo(22 * H + 1);
+    expect(pinned()).toBe("group 2");
+    expect(shift()).toBe("");
   });
 
   it("keeps the row being read where it is when a group above it folds", async () => {
@@ -599,5 +621,65 @@ describe("VirtualList as a grouped list", () => {
     render(grouped(30, new Set([9])));
     await act(async () => {});
     expect(top("head:9")).toBe(before);
+  });
+
+  describe("the person's own fold (easeKey) holds the heading folded", () => {
+    // Group 9 folded: its heading is item 99, at 99·H.
+    const shut = new Set([9]);
+
+    it("opens a group whose heading is scrolled up under the top edge BELOW it — the heading comes down to the top", async () => {
+      render(grouped(30, shut), shut);
+      await scrollTo(99 * H);
+      await scrollTo(99 * H + 5);
+      const open = new Set<number>();
+      render(grouped(30), open);
+      await act(async () => {});
+      expect(top("head:9")).toBe(0);
+      expect(top("g9r0")).toBe(H);
+    });
+
+    it("leaves the scroll alone when the heading opened is in view — the rows push down what is under it", async () => {
+      render(grouped(30, shut), shut);
+      await scrollTo(97 * H);
+      await scrollTo(97 * H + 2);
+      const before = top("head:9");
+      const open = new Set<number>();
+      render(grouped(30), open);
+      await act(async () => {});
+      expect(top("head:9")).toBe(before);
+      expect(top("g9r0")).toBe(before + H);
+    });
+
+    it("shuts a group read deep inside onto its heading, at the top", async () => {
+      const open = new Set<number>();
+      render(grouped(30), open);
+      await scrollTo(99 * H + 5 * H);
+      await scrollTo(99 * H + 5 * H + 3);
+      render(grouped(30, shut), shut);
+      await act(async () => {});
+      expect(top("head:9")).toBe(0);
+      expect(top("head:10")).toBe(H);
+    });
+
+    it("holds nothing on a later change that was not the person's — the row being read stays", async () => {
+      render(grouped(30, shut), shut);
+      await scrollTo(99 * H + 5);
+      const open = new Set<number>();
+      render(grouped(30), open);
+      await act(async () => {});
+      await scrollTo(150 * H);
+      await scrollTo(150 * H + 3);
+      const before = top("g13r7");
+      // The same rows again (a tick re-dated them), under the same token.
+      render(grouped(30), open);
+      await act(async () => {});
+      expect(top("g13r7")).toBe(before);
+      // An agent's move above, under the same token.
+      const moved = grouped(30).filter((g) => g.key !== "g20r0");
+      moved.splice(1, 0, { key: "g20r0", head: false, group: 0 });
+      render(moved, open);
+      await act(async () => {});
+      expect(top("g13r7")).toBe(before);
+    });
   });
 });

@@ -9,14 +9,12 @@
  * outranks everyone and walks no ladder at all — any status, any time.
  * A prohibition binds the act, never the channel.
  */
-import { openBlockersOf, findTask, unblocks } from "./board";
 import {
   DEFAULT_PRIORITY,
   TASK_CAPS,
   TASK_STATUSES,
   acceptsWork,
   actorName,
-  blockerResolved,
   isOpen,
   type Task,
   type TaskActor,
@@ -26,6 +24,18 @@ import {
   type TaskPriority,
   type TaskStatus,
 } from "./model";
+import {
+  blockerIdsOf,
+  findTask,
+  linked,
+  openBlockersOf,
+  replaceTask,
+  setBlockers,
+  unblocks,
+  withoutGates,
+  waitsOn,
+  withTasks,
+} from "./relations";
 
 export type TaskChange =
   /** Take a pool task for yourself, without starting it. */
@@ -129,9 +139,23 @@ export interface TransitionContext {
   at: number;
 }
 
+/** What a write that MAKES a task needs besides: a fresh uid — random,
+ * global, the app's to draw (the domain draws no random numbers). Asked
+ * once per task made. */
+export interface CreateContext extends TransitionContext {
+  mintUid(): string;
+}
+
+/** Every write's answer: the task as it now stands, and the board it
+ * stands on — tasks and links alike, so a caller commits ONE value and a
+ * batch hands each change the board the last one left. The SAME board
+ * when nothing changed. */
 export type TransitionResult =
-  | { ok: true; task: Task }
+  | { ok: true; task: Task; board: TaskBoard }
   | { ok: false; refusal: TaskRefusal };
+
+/** A change to the task alone, before it is put back on the board. */
+type TaskOnly = { ok: true; task: Task; board?: TaskBoard } | { ok: false; refusal: TaskRefusal };
 
 type Refused = { ok: false; refusal: TaskRefusal };
 
@@ -318,30 +342,31 @@ function validateAssignee(
  * would never surface as anything but "nothing is issuable".
  */
 function validateBlockers(
-  taskId: string | null,
+  task: Task | null,
   teamId: string,
   ids: readonly string[],
   board: TaskBoard,
 ): TaskRefusal | null {
-  if (taskId !== null && ids.includes(taskId)) return { kind: "self-blocker" };
+  if (task !== null && ids.includes(task.id)) return { kind: "self-blocker" };
   const unknown = ids.filter((id) => findTask(board, id) === undefined);
   if (unknown.length > 0) return { kind: "unknown-blocker", ids: unknown };
   const foreign = ids.filter((id) => findTask(board, id)?.teamId !== teamId);
   if (foreign.length > 0) return { kind: "cross-team-blocker", ids: foreign };
-  if (taskId !== null) {
-    const cyclic = ids.filter((id) => reaches(board, id, taskId, new Set()));
+  if (task !== null) {
+    const cyclic = ids.filter((id) => waitsOn(board, findTask(board, id)!.uid, task.uid));
     if (cyclic.length > 0) return { kind: "cyclic-blocker", ids: cyclic };
   }
   return null;
 }
 
-/** Whether following `blockedBy` from `fromId` ever arrives at `target`. */
-function reaches(board: TaskBoard, fromId: string, target: string, seen: Set<string>): boolean {
-  if (fromId === target) return true;
-  if (seen.has(fromId)) return false;
-  seen.add(fromId);
-  const from = findTask(board, fromId);
-  return from !== undefined && from.blockedBy.some((next) => reaches(board, next, target, seen));
+/** The uids of the tasks named by `ids` — every one known (validated). */
+function uidsOf(board: TaskBoard, ids: readonly string[]): string[] {
+  return ids.map((id) => findTask(board, id)!.uid);
+}
+
+/** Whether two key lists name the same tasks, in any order. */
+function sameIds(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((id) => b.includes(id));
 }
 
 function logged(
@@ -361,6 +386,22 @@ export function transition(
   actor: TaskActor,
   ctx: TransitionContext,
 ): TransitionResult {
+  const result = changeTask(task, change, actor, ctx);
+  if (!result.ok) return result;
+  if (result.board) return { ok: true, task: result.task, board: result.board };
+  return {
+    ok: true,
+    task: result.task,
+    board: result.task === task ? ctx.board : replaceTask(ctx.board, result.task),
+  };
+}
+
+function changeTask(
+  task: Task,
+  change: TaskChange,
+  actor: TaskActor,
+  ctx: TransitionContext,
+): TaskOnly {
   const membership = onTeam(actor, task.teamId);
   if (membership) return refuse(membership);
   const by = actorName(actor) ?? "";
@@ -451,18 +492,16 @@ export function transition(
     case "blockedBy": {
       if (!mayAssign(actor)) return refuse({ kind: "not-yours-to-assign", field: "blockedBy" });
       const ids = normalizeIds(change.to);
-      const bad = validateBlockers(task.id, task.teamId, ids, ctx.board);
+      const bad = validateBlockers(task, task.teamId, ids, ctx.board);
       if (bad) return refuse(bad);
-      if (joined(ids) === joined(task.blockedBy)) return { ok: true, task };
-      return {
-        ok: true,
-        task: logged(
-          task,
-          [{ at, from: by, field: "blockedBy", was: joined(task.blockedBy), now: joined(ids) }],
-          at,
-          { blockedBy: ids },
-        ),
-      };
+      const was = blockerIdsOf(task, ctx.board);
+      if (sameIds(ids, was)) return { ok: true, task };
+      const linkedNow = setBlockers(ctx.board, task, uidsOf(ctx.board, ids), at, by);
+      // Both sides of the entry in board order: a set read back in another
+      // order is the same set, and the log should not say otherwise.
+      const now = blockerIdsOf(task, linkedNow);
+      const changed = logged(task, [{ at, from: by, field: "blockedBy", was: joined(was), now: joined(now) }], at, {});
+      return { ok: true, task: changed, board: replaceTask(linkedNow, changed) };
     }
     case "artifacts": {
       // Any member attaches: the assignee's report belongs on its task.
@@ -494,10 +533,10 @@ export function transition(
       };
     }
     case "addLabel":
-      return transition(task, { kind: "labels", to: [...task.labels, change.label] }, actor, ctx);
+      return changeTask(task, { kind: "labels", to: [...task.labels, change.label] }, actor, ctx);
     case "removeLabel": {
       const gone = normalizeLabel(change.label);
-      return transition(task, { kind: "labels", to: task.labels.filter((label) => label !== gone) }, actor, ctx);
+      return changeTask(task, { kind: "labels", to: task.labels.filter((label) => label !== gone) }, actor, ctx);
     }
     case "comment": {
       const problem = commentProblem(change.body);
@@ -519,7 +558,7 @@ function moveStatus(
   actor: TaskActor,
   ctx: TransitionContext,
   by: string,
-): TransitionResult {
+): TaskOnly {
   if (to === task.status) return { ok: true, task };
   // The PERSON is not on the ladder: they move a task anywhere, blockers
   // notwithstanding — the board is theirs to correct, and a rule that
@@ -603,7 +642,7 @@ export type CreateResult =
 export function createTask(
   input: CreateTaskInput,
   actor: TaskActor,
-  ctx: TransitionContext,
+  ctx: CreateContext,
 ): CreateResult {
   const membership = onTeam(actor, input.teamId);
   if (membership) return refuse(membership);
@@ -644,6 +683,7 @@ export function createTask(
     return refuse({ kind: "not-yours-to-label", assignee });
   }
   const task: Task = {
+    uid: ctx.mintUid(),
     id: `task-${ctx.board.nextId}`,
     teamId: input.teamId,
     title: keptTitle(input.title),
@@ -652,7 +692,6 @@ export function createTask(
     priority,
     assignee,
     author: actorName(actor) ?? "",
-    blockedBy,
     artifacts: normalizeIds(input.artifacts ?? []),
     labels: labels.labels,
     comments: [],
@@ -660,10 +699,11 @@ export function createTask(
     created: ctx.at,
     updated: ctx.at,
   };
+  const added = withTasks({ ...ctx.board, nextId: ctx.board.nextId + 1 }, [...ctx.board.tasks, task]);
   return {
     ok: true,
     task,
-    board: { nextId: ctx.board.nextId + 1, tasks: [...ctx.board.tasks, task] },
+    board: setBlockers(added, task, uidsOf(ctx.board, blockedBy), ctx.at, actorName(actor)),
   };
 }
 
@@ -689,7 +729,7 @@ export function createTask(
 export function duplicateTask(
   source: Task,
   actor: TaskActor,
-  ctx: TransitionContext,
+  ctx: CreateContext,
 ):
   | { ok: true; board: TaskBoard; task: Task; source: Task; notCarried: NotCarried[] }
   | { ok: false; refusal: TaskRefusal } {
@@ -698,14 +738,11 @@ export function duplicateTask(
   const made = createTask(
     {
       teamId: source.teamId,
-      title: copyTitle(source.title),
+      title: source.title,
       body: source.body,
       assignee: null,
       priority,
-      blockedBy: source.blockedBy.filter((id) => {
-        const blocker = findTask(ctx.board, id);
-        return blocker !== undefined && !blockerResolved(blocker.status);
-      }),
+      blockedBy: openBlockersOf(source, ctx.board),
       artifacts: source.artifacts,
       labels,
       status: source.status === "backlog" ? "backlog" : "todo",
@@ -726,19 +763,15 @@ export function duplicateTask(
     ...(priority !== source.priority ? [{ field: "priority" as const, was: source.priority }] : []),
     ...(labels.length < source.labels.length ? [{ field: "labels" as const, was: source.labels.join(",") }] : []),
   ];
-  return { ok: true, board: replaceTask(replaceTask(made.board, copy), original), task: copy, source: original, notCarried };
+  const board = linked(replaceTask(replaceTask(made.board, copy), original), {
+    kind: "copied-from",
+    from: copy.uid,
+    to: source.uid,
+    at: ctx.at,
+    by: actorName(actor),
+  });
+  return { ok: true, board, task: copy, source: original, notCarried };
 }
-
-/** A copy's title: the source's, marked `(copy) ` at its start — so the
- * two read apart on the board — and cut at its end (with "…") when the
- * mark would carry it past the cap. */
-export function copyTitle(title: string): string {
-  const marked = `${COPY_MARK}${keptTitle(title)}`;
-  if (keptLength("title", marked) <= TASK_CAPS.titleMax) return marked;
-  return `${[...marked].slice(0, TASK_CAPS.titleMax - 1).join("").trimEnd()}…`;
-}
-
-const COPY_MARK = "(copy) ";
 
 /** What a copy left at its default, and what the source had there. */
 export type NotCarried = { field: "priority" | "labels"; was: string };
@@ -760,7 +793,7 @@ export function transferProblem(task: Task, actor: TaskActor, board: TaskBoard):
   if (!mayAssign(actor)) return { kind: "not-yours-to-transfer" };
   if (!isOpen(task.status)) return { kind: "transfer-closed", status: task.status };
   // Live links only: a resolved blocker holds nothing, a closed dependant
-  // waits on nothing — and a link to either stays behind harmlessly.
+  // waits on nothing — so neither refuses; the move takes those links off.
   const blockers = openBlockersOf(task, board);
   const dependants = unblocks(task, board)
     .filter((other) => isOpen(other.status))
@@ -777,9 +810,11 @@ export function transferProblem(task: Task, actor: TaskActor, board: TaskBoard):
  * target's board, held by no one (a role belongs to its team) and back at
  * the ladder's start: todo, or the backlog if it was parked.
  *
- * No link may cross teams, so the links that hold nothing go both ways:
- * its resolved blockers, and its id from the CLOSED tasks that named it (a
- * reopened one would otherwise wait on another team's task). The log says
+ * No blocker link may cross teams, so the ones that hold nothing go both
+ * ways (`withoutGates`): its resolved blockers, and its id from the CLOSED
+ * tasks that named it (a reopened one would otherwise wait on another
+ * team's task). A copy's link is a fact and goes with it, across teams; a
+ * link to a task not on this board is not this board's to judge. The log says
  * `transferred: A → B` and, before it, every field the move reset — who
  * held it, where it stood, what it waited on — so the history reads whole.
  */
@@ -795,34 +830,29 @@ export function transferTask(
   const by = actorName(actor) ?? "";
   const at = ctx.at;
   const status: TaskStatus = task.status === "backlog" ? "backlog" : "todo";
+  const waited = blockerIdsOf(task, ctx.board);
   const reset: TaskLogEntry[] = [
     ...(task.assignee !== null ? [{ at, from: by, field: "assignee" as const, was: task.assignee, now: null }] : []),
     ...(task.status !== status ? [{ at, from: by, field: "status" as const, was: task.status, now: status }] : []),
-    ...(task.blockedBy.length > 0 ? [{ at, from: by, field: "blockedBy" as const, was: joined(task.blockedBy), now: null }] : []),
+    ...(waited.length > 0 ? [{ at, from: by, field: "blockedBy" as const, was: joined(waited), now: null }] : []),
   ];
   const moved = logged(
     task,
     [...reset, { at, from: by, field: "transferred", was: teams.from.name, now: teams.to.name }],
     at,
-    { teamId: teams.to.id, assignee: null, status, blockedBy: [] },
+    { teamId: teams.to.id, assignee: null, status },
   );
   let board = replaceTask(ctx.board, moved);
   for (const dependant of unblocks(task, ctx.board)) {
-    const blockedBy = dependant.blockedBy.filter((id) => id !== task.id);
+    const was = blockerIdsOf(dependant, ctx.board);
+    const now = was.filter((id) => id !== task.id);
     board = replaceTask(
       board,
-      logged(dependant, [{ at, from: by, field: "blockedBy", was: joined(dependant.blockedBy), now: joined(blockedBy) }], dependant.updated, {
-        blockedBy,
-      }),
+      logged(dependant, [{ at, from: by, field: "blockedBy", was: joined(was), now: joined(now) }], dependant.updated, {}),
     );
   }
+  // Every blocker link it was in goes — what held it, and what it held
+  // (logged above).
+  board = withoutGates(board, task.uid);
   return { ok: true, task: moved, board };
-}
-
-/** The board with `task` in place of the one that shares its id. */
-export function replaceTask(board: TaskBoard, task: Task): TaskBoard {
-  return {
-    nextId: board.nextId,
-    tasks: board.tasks.map((existing) => (existing.id === task.id ? task : existing)),
-  };
 }

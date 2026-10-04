@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pickAnchor, type AnchorRow, type AnchorState } from "./rowAnchor";
+import { changedAfter, heldScroll, pickAnchor, type AnchorRow, type AnchorState } from "./rowAnchor";
 
 // The anchor's CHOICE, verified directly — numbers, not pixels. The
 // stand computes no geometry; the compensation half (the measured start
@@ -33,5 +33,30 @@ describe("rowAnchor — the anchor's choice", () => {
     // window is youth, not death, and must never read as a vanished
     // key (that reading would restore the jump).
     expect(pickAnchor([], 320)).toBeUndefined();
+  });
+});
+
+describe("changedAfter — the item a change happened after", () => {
+  it("is the heading whose group opened or shut", () => {
+    expect(changedAfter(["h0", "h1", "h2"], ["h0", "h1", "r0", "r1", "h2"])).toBe("h1");
+    expect(changedAfter(["h0", "h1", "r0", "r1", "h2"], ["h0", "h1", "h2"])).toBe("h1");
+    // The last group opening: the rows join at the end.
+    expect(changedAfter(["h0", "h1"], ["h0", "h1", "r0"])).toBe("h1");
+  });
+
+  it("is nothing when the rows part at the very top, or not at all", () => {
+    expect(changedAfter(["h0", "h1"], ["r0", "h0", "h1"])).toBeNull();
+    expect(changedAfter(["h0", "h1"], ["h0", "h1"])).toBeNull();
+  });
+});
+
+describe("heldScroll — where a person's change leaves the list", () => {
+  it("stays when the row it happened at is in view or below", () => {
+    expect(heldScroll(100, 140)).toEqual({ scrollTop: 100, offset: 40 });
+    expect(heldScroll(100, 100)).toEqual({ scrollTop: 100, offset: 0 });
+  });
+
+  it("comes up to the row when it was scrolled past, which then stands at the top", () => {
+    expect(heldScroll(100, 60)).toEqual({ scrollTop: 60, offset: 0 });
   });
 });

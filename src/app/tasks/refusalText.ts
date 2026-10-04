@@ -31,6 +31,14 @@ export function decodeFaultText(fault: DecodeFault): string {
       return `board.json: tasks[${fault.index}]${fault.id ? ` (${fault.id})` : ""}: ${fault.field} does not fit`;
     case "duplicate-id":
       return `board.json: duplicate task id ${fault.id}`;
+    case "duplicate-uid":
+      return `board.json: ${fault.id} has the uid of another task`;
+    case "relations-not-array":
+      return "board.json: relations must be an array";
+    case "bad-relation": {
+      const end = (key: string | null) => key ?? "a task not on this board";
+      return `board.json: relations[${fault.index}] (${end(fault.from)} → ${end(fault.to)}): ${fault.field} does not fit`;
+    }
   }
 }
 

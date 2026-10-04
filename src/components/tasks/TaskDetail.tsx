@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from "react";
+import { Fragment, useId, useRef, useState } from "react";
 import { Combobox, DisclosureChevron, Dropdown, MenuButton, StatusRing } from "@keepdeck/ui-kit";
 import type { TaskPriority, TaskStatus } from "../../domain/tasks";
 import {
@@ -327,6 +327,20 @@ export function TaskDetail({
               </dd>
             </>
           )}
+
+          {view.copies.map((row) => (
+            <Fragment key={row.label}>
+              <dt className="tasks__prop-label">{row.label}</dt>
+              <dd className="tasks__chips">
+                {row.tasks.map((other) => (
+                  <button key={other.id} type="button" className="kd-tag kd-tag--outline" title={other.title} onClick={() => onSelect(other.id)}>
+                    {other.id}
+                  </button>
+                ))}
+                {row.gone && <span className="tasks__muted">{row.gone}</span>}
+              </dd>
+            </Fragment>
+          ))}
 
           <dt className="tasks__prop-label">{TASK_DETAIL_WORDS.artifacts}</dt>
           <dd className="tasks__chips">

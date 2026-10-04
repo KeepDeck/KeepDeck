@@ -196,6 +196,7 @@ pub fn run() {
             tasks::tasks_read,
             tasks::tasks_write,
             tasks::tasks_drop_workspace,
+            tasks::tasks_keep_copy,
             bridge::bridge_nudge,
             bridge::bridge_pane_dir,
             bridge::bridge_reply,

@@ -70,6 +70,7 @@ function setup() {
         await store.port.write(args);
         order.push("write");
       },
+      keepCopy: (args) => store.port.keepCopy(args),
       enable: () => {
         const g = gate();
         calls.push({ kind: "enable", gate: g, settled: false });
@@ -374,7 +375,7 @@ describe("createTasksFeature", () => {
 
     await h.setTasks(true);
     await h.settleNext();
-    expect(await h.feature.access.current()!.ready("ws-1")).toEqual({ kind: "ready", board: { nextId: 1, tasks: [] }, unsaved: null });
+    expect(await h.feature.access.current()!.ready("ws-1")).toEqual({ kind: "ready", board: { nextId: 1, tasks: [], relations: [] }, unsaved: null });
   });
 
   it("forgets a workspace through the owner — after the write on the wire, before nothing else; dispose takes the owner and the commands down", async () => {

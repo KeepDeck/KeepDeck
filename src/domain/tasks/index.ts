@@ -5,5 +5,6 @@
  */
 export * from "./model";
 export * from "./board";
+export * from "./relations";
 export * from "./transition";
 export * from "./codec";

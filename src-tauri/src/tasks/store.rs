@@ -115,6 +115,31 @@ impl TasksStore {
         })
     }
 
+    /// Keep the board as it is now beside it, as `board.<label>.json` —
+    /// once: a copy already there is the first one, and stays. What a
+    /// change of the board's FORMAT takes before its first write, so an
+    /// older build (or a person) has the old file to go back to. Nothing
+    /// to keep — no board yet — is no failure.
+    pub fn keep_copy(&self, workspace_id: &str, label: &str) -> Result<(), String> {
+        if !is_label(label) {
+            return Err(format!("unsafe board copy label: {label:?}"));
+        }
+        self.with_enabled(|root, data| {
+            require_safe(workspace_id)?;
+            let _guard = data.lock().expect("tasks data poisoned");
+            let copy = root.join("ws").join(workspace_id).join(format!("board.{label}.json"));
+            if copy.exists() {
+                return Ok(());
+            }
+            match fs::read(board_path(root, workspace_id)) {
+                Ok(bytes) => write_atomic(&copy, &bytes)
+                    .map_err(|e| format!("keeping a copy of the task board for {workspace_id} failed: {e}")),
+                Err(e) if e.kind() == ErrorKind::NotFound => Ok(()),
+                Err(e) => Err(format!("reading the task board for {workspace_id} failed: {e}")),
+            }
+        })
+    }
+
     /// Drop a workspace's board — called from workspace deletion, the one
     /// place that knows the live workspace set. Idempotent on absence.
     pub fn drop_workspace(&self, workspace_id: &str) -> Result<(), String> {
@@ -128,6 +153,13 @@ impl TasksStore {
             }
         })
     }
+}
+
+/// A copy's label becomes part of a file name: lowercase words and dashes.
+fn is_label(label: &str) -> bool {
+    !label.is_empty()
+        && label.len() <= 40
+        && label.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 
 fn board_path(root: &Path, workspace_id: &str) -> PathBuf {
@@ -162,6 +194,7 @@ mod tests {
         assert_eq!(store.read("ws-1").unwrap_err(), OFF_MESSAGE);
         assert_eq!(store.write("ws-1", "{}").unwrap_err(), OFF_MESSAGE);
         assert_eq!(store.drop_workspace("ws-1").unwrap_err(), OFF_MESSAGE);
+        assert_eq!(store.keep_copy("ws-1", "pre-relations").unwrap_err(), OFF_MESSAGE);
     }
 
     #[test]
@@ -180,6 +213,31 @@ mod tests {
         assert!(dir.path().join("tasks/ws/ws-1/board.json").is_file());
         // Another workspace's board is another file.
         assert_eq!(store.read("ws-2").unwrap(), None);
+    }
+
+    #[test]
+    fn a_kept_copy_is_the_board_as_it_was_and_only_the_first_one_stays() {
+        let (dir, store) = enabled_store();
+        // Nothing written yet: nothing to keep, and no failure.
+        store.keep_copy("ws-1", "pre-relations").expect("nothing to keep");
+        assert!(!dir.path().join("tasks/ws/ws-1/board.pre-relations.json").exists());
+        store.write("ws-1", "old").unwrap();
+        store.keep_copy("ws-1", "pre-relations").expect("keep");
+        store.write("ws-1", "new").unwrap();
+        store.keep_copy("ws-1", "pre-relations").expect("keep again");
+        let kept = std::fs::read_to_string(dir.path().join("tasks/ws/ws-1/board.pre-relations.json")).unwrap();
+        assert_eq!(kept, "old");
+        assert_eq!(store.read("ws-1").unwrap().as_deref(), Some("new"));
+    }
+
+    #[test]
+    fn a_copy_label_that_is_no_plain_word_is_refused() {
+        let (_dir, store) = enabled_store();
+        for label in ["", "../x", "Pre", "a/b", "a.b"] {
+            assert!(store.keep_copy("ws-1", label).is_err(), "{label}");
+        }
+        // And the workspace id is judged by the same wall as every read.
+        assert!(store.keep_copy("../ws", "pre-relations").is_err());
     }
 
     #[test]

@@ -7,11 +7,10 @@ import {
   labelsOf,
   mine,
   nextFor,
-  openBlockersOf,
   poolOf,
   queueOf,
-  unblocks,
 } from "./board";
+import { openBlockersOf, unblocks } from "./relations";
 import { board, task } from "./testSupport";
 
 describe("issuable", () => {

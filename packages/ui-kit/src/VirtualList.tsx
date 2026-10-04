@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useReducer, useRef, type ReactNode } from "react";
+import { motionOf } from "./listMotion";
 import { useFocusHandoff } from "./useFocusHandoff";
+import { usePinnedHeading } from "./usePinnedHeading";
 import { useRowWindow } from "./useRowWindow";
 
 /** The elements a consumer's list is made of, when the defaults (plain
@@ -42,12 +44,25 @@ export interface VirtualListProps<T> extends VirtualListMarkup {
    * in view — a grouped list's "which group am I in". Items are placed
    * absolutely, so CSS `position: sticky` cannot reach one of them; this
    * is the one sticky layer, over every item, taking no room of its own.
-   * Return null for no heading. `height` is the room it covers: a row
-   * revealed upward stops below it. */
-  sticky?: { className: string; height: number; render: (firstVisibleIndex: number) => ReactNode };
+   * Return null for no heading. `height` is the room it covers — a row
+   * revealed upward stops below it — and the distance the next group's
+   * heading pushes it out over, so it is the heading's real height. `heads`
+   * says which items start a group: the next one, reaching the top, pushes
+   * the pinned heading out ahead of it (`pinnedFrame`) instead of sliding
+   * under it. */
+  sticky?: {
+    className: string;
+    height: number;
+    render: (firstVisibleIndex: number) => ReactNode;
+    heads: (item: T) => boolean;
+  };
   /** The consumer's token for a change the person made (a fold): when it
-   * changes with the items, that change may move (`useListMotion`). Any
-   * value compared by identity; absent, the list never eases. */
+   * changes with the items, that change may move (`useListMotion`), and
+   * the item it happened after (the heading folded) holds its place — the
+   * rows it opens go below it, never above the viewport. Any value
+   * compared by identity; absent, the list never eases. It must change by
+   * the person's act ONLY: a change written by anyone else under it would
+   * be eased and held as theirs, the list scrolling to its place. */
   easeKey?: unknown;
 }
 
@@ -75,26 +90,25 @@ function useListMotion<T>(
   items: readonly T[],
   itemKey: (item: T) => string,
   easeKey: unknown,
-): { easing: boolean; arriving: ReadonlySet<string> } {
-  const track = useRef<{ items: readonly T[]; easeKey: unknown; arriving: ReadonlySet<string> | null } | null>(null);
+): { easing: boolean; arriving: ReadonlySet<string>; held: string | null } {
+  const track = useRef<{
+    items: readonly T[];
+    easeKey: unknown;
+    arriving: ReadonlySet<string> | null;
+    /** The item the person's change happened after — for THIS change of
+     * the items only: a later one, theirs or not, holds nothing. */
+    held: string | null;
+  } | null>(null);
   if (track.current === null) {
-    track.current = { items, easeKey, arriving: null };
+    track.current = { items, easeKey, arriving: null, held: null };
   } else if (easeKey === undefined && track.current.easeKey === undefined) {
     // A list that never eases (no token) pays nothing per change.
     track.current.items = items;
   } else if (track.current.items !== items) {
+    // What this change marks is `motionOf`'s to say; held here per change.
     const previous = track.current;
-    const eased = previous.easeKey !== easeKey;
-    const before = previous.items.map(itemKey);
-    const after = items.map(itemKey);
-    if (!eased && sameKeys(before, after)) {
-      // A fresh array of the same rows (a clock tick re-dated them): no
-      // change of place, so the marks stand — an entrance runs out.
-      track.current = { ...previous, items };
-    } else {
-      const was = new Set(before);
-      track.current = { items, easeKey, arriving: eased ? new Set(after.filter((key) => !was.has(key))) : null };
-    }
+    const marks = motionOf(previous.items.map(itemKey), items.map(itemKey), previous.easeKey !== easeKey, previous);
+    track.current = { items, easeKey, ...marks };
   }
   // The marks expire on a timer, not by a clock read in render: the timer
   // drops them and renders once more, so whatever renders after sees none.
@@ -110,14 +124,11 @@ function useListMotion<T>(
     }, LIST_MOTION_WINDOW_MS);
     return () => clearTimeout(timer);
   }, [arriving]);
-  return { easing: arriving !== null, arriving: arriving ?? NONE };
+  return { easing: arriving !== null, arriving: arriving ?? NONE, held: track.current.held };
 }
 
 const NONE: ReadonlySet<string> = new Set();
 
-function sameKeys(a: readonly string[], b: readonly string[]): boolean {
-  return a.length === b.length && a.every((key, i) => key === b[i]);
-}
 
 /**
  * The windowed list as a component: the scroll container, a spacer the
@@ -145,7 +156,14 @@ export function VirtualList<T>({
 }: VirtualListProps<T>) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const motion = useListMotion(items, itemKey, easeKey);
-  const rowWindow = useRowWindow({ rows: items, keyOf: itemKey, estimate, scrollRef, coveredTop: sticky?.height });
+  const rowWindow = useRowWindow({
+    rows: items,
+    keyOf: itemKey,
+    estimate,
+    scrollRef,
+    coveredTop: sticky?.height,
+    holdKey: motion.held,
+  });
   // A focused row scrolled out keeps the keyboard's place on the list.
   useFocusHandoff(scrollRef);
 
@@ -167,6 +185,13 @@ export function VirtualList<T>({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [revealKey]);
 
+  const pinned = usePinnedHeading(
+    scrollRef,
+    rowWindow.items,
+    sticky?.height ?? 0,
+    sticky ? (index) => sticky.heads(items[index]) : null,
+  );
+
   const Spacer = spacer?.as ?? "div";
   const Item = item?.as ?? "div";
   // The name and role go on the list itself: a `ul` spacer IS the list a
@@ -183,11 +208,13 @@ export function VirtualList<T>({
       tabIndex={-1}
       data-easing={motion.easing || undefined}
     >
-      {sticky && rowWindow.firstVisibleIndex >= 0 && (
+      {sticky && pinned.first >= 0 && (
         // Zero tall, so it pushes nothing down; its content hangs over the
         // rows below it, pinned to the scroll box's top while they scroll.
         <div style={{ position: "sticky", top: 0, height: 0, zIndex: 1 }}>
-          <div className={sticky.className}>{sticky.render(rowWindow.firstVisibleIndex)}</div>
+          <div className={sticky.className} ref={pinned.layerRef}>
+            {sticky.render(pinned.first)}
+          </div>
         </div>
       )}
       <Spacer

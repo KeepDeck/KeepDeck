@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { USER_ACTOR, agentActor, encodeBoard, type TaskBoard } from "../../domain/tasks";
 import { board, task } from "../../domain/tasks/testSupport";
+import { PRE_RELATIONS_COPY } from "../../domain/tasks";
 import { FORGOTTEN_WRITE, createTasksService, type TaskEvent } from "./tasksService";
 import { fakeStore, teamedWorkspaces } from "./testSupport";
 
@@ -17,6 +18,10 @@ function setup(files: Record<string, string> = {}) {
     workspaces: () => workspaces,
     store: store.port,
     now: () => 42,
+    mintUid: (() => {
+      let n = 0;
+      return () => `minted-${++n}`;
+    })(),
     schedule: (fn) => {
       timers.push(fn);
       return () => {
@@ -72,12 +77,112 @@ describe("createTasksService", () => {
     expect(store.writes).toHaveLength(writesBefore + 1);
   });
 
+  /** A board as a build before relations wrote it. */
+  const legacyBytes = JSON.stringify({
+    nextId: 3,
+    tasks: [1, 2].map((n) => {
+      const { uid: _uid, ...stored } = task({ id: `task-${n}` });
+      return { ...stored, blockedBy: n === 2 ? ["task-1"] : [] };
+    }),
+  });
+
+  it("a board from before relations is upgraded and written back at once — its old file kept aside first", async () => {
+    const { service, store } = setup({ "ws-1": legacyBytes });
+    const state = await service.ready("ws-1");
+    if (state.kind !== "ready") throw new Error(state.kind);
+    expect(state.board.tasks.map((t) => t.uid)).toEqual(["minted-1", "minted-2"]);
+    expect(state.board.relations).toEqual([{ kind: "blocks", from: "minted-1", to: "minted-2", at: 1_000, by: null }]);
+    await flush();
+    // The copy, then the write: the old bytes are the way back.
+    expect(store.calls).toEqual(["keepCopy", "write"]);
+    expect(store.copies.get(`ws-1:${PRE_RELATIONS_COPY}`)).toBe(legacyBytes);
+    expect(JSON.parse(store.files.get("ws-1")!).relations).toHaveLength(1);
+    // Upgraded once: the next write keeps no second copy.
+    await service.apply("ws-1", "task-1", [{ kind: "title", to: "Renamed" }], USER_ACTOR);
+    await flush();
+    expect(store.calls).toEqual(["keepCopy", "write", "write"]);
+  });
+
+  it("an upgrade that does not land says so in its own words, and lands on the retry", async () => {
+    const { service, store, tick } = setup({ "ws-1": legacyBytes });
+    store.failNextWrite("disk full");
+    await service.ready("ws-1");
+    await flush();
+    const state = service.peek("ws-1");
+    expect(state).toMatchObject({ kind: "ready", unsaved: "disk full", upgrade: true });
+    expect(store.files.get("ws-1")).toBe(legacyBytes);
+    // A change made meanwhile, whose write fails too, is still the upgrade's lag.
+    store.failNextWrite("disk full");
+    await service.apply("ws-1", "task-1", [{ kind: "title", to: "Meanwhile" }], USER_ACTOR);
+    expect(service.peek("ws-1")).toMatchObject({ kind: "ready", unsaved: "disk full", upgrade: true });
+    tick();
+    await flush();
+    expect(service.peek("ws-1")).toEqual(expect.objectContaining({ kind: "ready", unsaved: null }));
+    expect(service.peek("ws-1")).not.toHaveProperty("upgrade");
+    expect(JSON.parse(store.files.get("ws-1")!).relations).toHaveLength(1);
+  });
+
+  it("a workspace forgotten mid-upgrade comes back as a plain board: no second copy is kept for it", async () => {
+    const { service, store } = setup({ "ws-1": legacyBytes });
+    // Forgotten while its read is still out: that board never comes back.
+    service.board("ws-1");
+    const forgotten = service.forget("ws-1");
+    store.files.set("ws-1", encodeBoard(board([task({ id: "task-1" })])));
+    await forgotten;
+    store.files.set("ws-1", encodeBoard(board([task({ id: "task-1" })])));
+    await service.ready("ws-1");
+    await service.apply("ws-1", "task-1", [{ kind: "title", to: "Again" }], USER_ACTOR);
+    await flush();
+    expect(store.calls.filter((call) => call === "keepCopy")).toHaveLength(0);
+  });
+
+  it("an upgrade whose copy cannot be kept writes nothing — the old file stays as it was — and retries both", async () => {
+    const { service, store, tick } = setup({ "ws-1": legacyBytes });
+    store.failNextCopy("permission denied");
+    await service.ready("ws-1");
+    await flush();
+    expect(store.calls).toEqual(["keepCopy"]);
+    expect(store.files.get("ws-1")).toBe(legacyBytes);
+    expect(store.copies.size).toBe(0);
+    expect(service.peek("ws-1")).toMatchObject({ kind: "ready", unsaved: "permission denied", upgrade: true });
+    tick();
+    await flush();
+    expect(store.calls).toEqual(["keepCopy", "keepCopy", "write"]);
+    expect(store.copies.get(`ws-1:${PRE_RELATIONS_COPY}`)).toBe(legacyBytes);
+  });
+
+  it("a batch hands each change the board the last one left: a start is gated on the blocker set before it", async () => {
+    const onDisk = board([task({ id: "task-1", status: "in-progress" }), task({ id: "task-2", assignee: "lead" })], 3);
+    const { service, store } = setup({ "ws-1": encodeBoard(onDisk) });
+    await service.ready("ws-1");
+    const result = await service.apply(
+      "ws-1",
+      "task-2",
+      [
+        { kind: "blockedBy", to: ["task-1"] },
+        { kind: "status", to: "in-progress" },
+      ],
+      lead,
+    );
+    expect(result).toEqual({ ok: false, refusal: { kind: "blocked-by-open", blockers: ["task-1"] } });
+    await flush();
+    expect(store.writes).toEqual([]);
+  });
+
+  it("a task made here, or copied, gets a uid of its own from the minter — one per task", async () => {
+    const { service } = setup();
+    const made = await service.create("ws-1", { teamId: "team-1", title: "First" }, USER_ACTOR);
+    const copy = await service.duplicate("ws-1", "task-1", USER_ACTOR);
+    expect(made.ok && made.task.uid).toBe("minted-1");
+    expect(copy.ok && copy.task.uid).toBe("minted-2");
+  });
+
   it("a workspace never written loads as an empty board, and asking is what starts the load", async () => {
     const { service } = setup();
     let told = 0;
     service.subscribe(() => (told += 1));
     expect(service.board("ws-1")).toEqual({ kind: "loading" });
-    expect(await service.ready("ws-1")).toEqual({ kind: "ready", board: { nextId: 1, tasks: [] }, unsaved: null });
+    expect(await service.ready("ws-1")).toEqual({ kind: "ready", board: { nextId: 1, tasks: [], relations: [] }, unsaved: null });
     expect(told).toBeGreaterThanOrEqual(2);
   });
 
@@ -230,7 +335,7 @@ describe("createTasksService", () => {
     expect(store.calls).toEqual(["write", "drop"]);
     expect(store.files.has("ws-1")).toBe(false);
     expect(service.board("ws-1")).toEqual({ kind: "loading" });
-    expect(await service.ready("ws-1")).toEqual({ kind: "ready", board: { nextId: 1, tasks: [] }, unsaved: null });
+    expect(await service.ready("ws-1")).toEqual({ kind: "ready", board: { nextId: 1, tasks: [], relations: [] }, unsaved: null });
   });
 
   it("a write queued behind one still on the wire does not recreate a forgotten board", async () => {
@@ -263,7 +368,7 @@ describe("createTasksService", () => {
     expect(queued.ok && queued.saved).toBe(false);
     expect(queued.ok && queued.saveError).toBe(FORGOTTEN_WRITE);
     // Afterwards the id is a fresh workspace: an empty board, its own writes.
-    expect(await service.ready("ws-1")).toEqual({ kind: "ready", board: { nextId: 1, tasks: [] }, unsaved: null });
+    expect(await service.ready("ws-1")).toEqual({ kind: "ready", board: { nextId: 1, tasks: [], relations: [] }, unsaved: null });
     await service.create("ws-1", { teamId: "team-1", title: "new" }, lead);
     await flush();
     expect((JSON.parse(store.files.get("ws-1")!) as TaskBoard).tasks.map((t) => t.title)).toEqual(["new"]);

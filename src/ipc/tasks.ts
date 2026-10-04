@@ -35,3 +35,9 @@ export async function tasksWrite(payload: {
 export async function tasksDropWorkspace(wsId: string): Promise<void> {
   await invoke("tasks_drop_workspace", { wsId });
 }
+
+/** Keep the board as it is now beside it as `board.<label>.json`, once —
+ * what a format change takes before its first write. */
+export async function tasksKeepCopy(payload: { workspaceId: string; label: string }): Promise<void> {
+  await invoke("tasks_keep_copy", { payload });
+}

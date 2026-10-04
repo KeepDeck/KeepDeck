@@ -107,8 +107,15 @@ export interface TaskLogEntry {
 }
 
 export interface Task {
-  /** `task-N`, minted per workspace by [`TaskBoard.nextId`]; never reused,
-   * unlike `pane-N` — a cancelled task must not hand its number to the next. */
+  /** The task's own identity: random, global, never changes — what a
+   * relation names, so a link survives anything the key does not (a task
+   * on another workspace's board, one day; task-224, task-226). Minted by
+   * the app and handed in (`CreateContext.mintUid`): the domain draws
+   * no random numbers. Never shown to an agent — they address `id`. */
+  uid: string;
+  /** `task-N` — the KEY people and agents read and write: minted per
+   * workspace by [`TaskBoard.nextId`]; never reused, unlike `pane-N` — a
+   * cancelled task must not hand its number to the next. */
   id: string;
   /** The team whose board this is on. It changes only by a transfer
    * (`transferTask`) — to another team of the same workspace. */
@@ -123,8 +130,6 @@ export interface Task {
   assignee: string | null;
   /** Who put it on the board: a role address, or [`USER_NAME`]. */
   author: string;
-  /** Tasks of the same workspace that must resolve first. */
-  blockedBy: readonly string[];
   /** Artifact ids (slugs) of this workspace. */
   artifacts: readonly string[];
   /** Free words to sort and find tasks by, normalised (`normalizeLabel`)
@@ -143,9 +148,68 @@ export interface TaskBoard {
    * number a cancelled task gave up. */
   nextId: number;
   tasks: readonly Task[];
+  /** How its tasks are linked — one record per link, never a field on a
+   * task (see [`TaskRelation`]). Kept in canonical order
+   * (`withRelations`), so saving the same links again is no edit. */
+  relations: readonly TaskRelation[];
 }
 
-export const EMPTY_BOARD: TaskBoard = { nextId: 1, tasks: [] };
+export const EMPTY_BOARD: TaskBoard = { nextId: 1, tasks: [], relations: [] };
+
+/**
+ * One link between two tasks: ONE record, both sides read from it — what
+ * every tracker with real relations does (research: relations-storage-
+ * research). Its ends are task UIDS, so it does not care where either
+ * task is shown or what it is called. Stored in one direction per kind
+ * (`RelationRule`): `blocks` from the blocker to the task it holds,
+ * `copied-from` from the copy to its source.
+ */
+export interface TaskRelation {
+  /** A [`RelationKind`] this build knows — or a newer build's, kept as
+   * read and used by no rule, so an older build is not locked out. */
+  kind: string;
+  from: string;
+  to: string;
+  at: number;
+  /** Who made the link; null when that is not known — a blocker carried
+   * over from a board written before relations, or an actor with no name. */
+  by: string | null;
+}
+
+/** The kinds of link this build knows. */
+export type RelationKind = "blocks" | "copied-from";
+
+/** What a kind of link IS — the one place each rule about it lives: the
+ * gate, the transfer, the board's housekeeping and the codec read these
+ * columns and state none of them again. A new kind is a new row (and a
+ * new column only when a rule reads it). Who makes each is its writers':
+ * `blocks` from the blockers a task is created with (any member may
+ * create one waiting on its team's tasks), a duplicate's carried-over
+ * open blockers, and the `blockedBy` change, which only whoever hands out
+ * work may make; `copied-from` by the duplicate alone — no change takes
+ * one away. */
+export interface RelationRule {
+  /** Whether its `from` end, while open, holds its `to` end off the
+   * ladder's start (`issuable`, the start edges). */
+  gatesStart: boolean;
+  /** At most one per `from` — a copy has one source. */
+  onePerFrom: boolean;
+  /** Whether it stays when its `to` end leaves the board (a disbanded
+   * team's tasks go): a copy still came from its source, which reads as
+   * gone; a blocker that held something holds nothing now. Its `from`
+   * leaving takes any link with it — the copy itself is gone. */
+  outlivesItsTo: boolean;
+}
+
+export const RELATION_KINDS: Readonly<Record<RelationKind, RelationRule>> = {
+  blocks: { gatesStart: true, onePerFrom: false, outlivesItsTo: false },
+  "copied-from": { gatesStart: false, onePerFrom: true, outlivesItsTo: true },
+};
+
+/** Whether this build knows `kind` — the rest are carried, not read. */
+export function isRelationKind(kind: string): kind is RelationKind {
+  return Object.prototype.hasOwnProperty.call(RELATION_KINDS, kind);
+}
 
 /** How the deck names the person in `author`, `from` and the log. The UI
  * renders it as "you"; the domain stores this one word. */
@@ -227,6 +291,12 @@ export function blockerResolved(status: TaskStatus): boolean {
  * it did rather than told its task does not exist. */
 export function isTaskId(value: string): boolean {
   return /^task-\d+$/.test(value);
+}
+
+/** Whether `value` has the shape of a task uid — what the app mints (a
+ * UUID) and anything like it: letters, digits and dashes, bounded. */
+export function isTaskUid(value: string): boolean {
+  return /^[A-Za-z0-9-]{1,64}$/.test(value);
 }
 
 export function isTaskStatus(value: string): value is TaskStatus {

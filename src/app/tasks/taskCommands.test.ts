@@ -85,6 +85,11 @@ describe("task commands", () => {
     expect(mine.note).toContain("labels");
     const original = await run("task.get", { id: "task-1" }, LEAD);
     expect(JSON.stringify(original)).toContain("copiedTo");
+    // The link, both ways, by key — and no uid: agents address keys only.
+    expect(original.task).toMatchObject({ copiedFrom: null, copies: ["task-2", "task-3"] });
+    const read = (await run("task.get", { id: "task-2" }, LEAD)).task;
+    expect(read).toMatchObject({ copiedFrom: "task-1", copies: [], blockedBy: [], title: "Original" });
+    expect(read).not.toHaveProperty("uid");
     // Where the copy went is said as it is: a parked source's copy is parked.
     await run("task.update", { id: "task-1", status: "backlog" }, LEAD);
     const parked = await run("task.duplicate", { id: "task-1" }, LEAD);

@@ -78,6 +78,20 @@ pub fn tasks_write(state: State<TasksState>, payload: WritePayload) -> Result<()
     state.store.write(&payload.workspace_id, &payload.json)
 }
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeepCopyPayload {
+    workspace_id: String,
+    label: String,
+}
+
+/// Keep the board as it is now as `board.<label>.json`, once — before a
+/// format change's first write.
+#[tauri::command(async)]
+pub fn tasks_keep_copy(state: State<TasksState>, payload: KeepCopyPayload) -> Result<(), String> {
+    state.store.keep_copy(&payload.workspace_id, &payload.label)
+}
+
 /// Drop a closing workspace's board. Idempotent.
 #[tauri::command(async)]
 pub fn tasks_drop_workspace(state: State<TasksState>, ws_id: String) -> Result<(), String> {

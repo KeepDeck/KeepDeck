@@ -6,7 +6,6 @@
 import type { RoleStanding } from "../mail/roles";
 import {
   acceptsWork,
-  blockerResolved,
   isOpen,
   TASK_STATUSES,
   type Task,
@@ -14,26 +13,9 @@ import {
   type TaskPriority,
   type TaskStatus,
 } from "./model";
+import { openBlockersOf, outlives, withRelations, withTasks } from "./relations";
 
 const PRIORITY_RANK: Record<TaskPriority, number> = { high: 0, normal: 1, low: 2 };
-
-/** The task with `id`, if the board holds it. */
-export function findTask(board: TaskBoard, id: string): Task | undefined {
-  return board.tasks.find((task) => task.id === id);
-}
-
-/**
- * The blockers of `task` that still stand: named tasks that are open. An id
- * the board does not hold is treated as resolved — a task is never deleted,
- * so such an id can only come from a hand-edited file, and a phantom that
- * blocks forever is the worse failure.
- */
-export function openBlockersOf(task: Task, board: TaskBoard): string[] {
-  return task.blockedBy.filter((id) => {
-    const blocker = findTask(board, id);
-    return blocker !== undefined && !blockerResolved(blocker.status);
-  });
-}
 
 /**
  * Whether a task may be handed out or taken: waiting in `todo` with every
@@ -44,12 +26,6 @@ export function openBlockersOf(task: Task, board: TaskBoard): string[] {
  */
 export function issuable(task: Task, board: TaskBoard): boolean {
   return task.status === "todo" && openBlockersOf(task, board).length === 0;
-}
-
-/** The tasks `blocked by` this one — the reverse edge, derived, never
- * stored. What accepting a prerequisite releases. */
-export function unblocks(task: Task, board: TaskBoard): Task[] {
-  return board.tasks.filter((other) => other.blockedBy.includes(task.id));
 }
 
 /** Queue order: higher priority first, then the older task, then the id
@@ -66,12 +42,16 @@ export function compareQueue(a: Task, b: Task): number {
  * The board with only the tasks of `teamIds` — a team the deck no longer
  * has takes its tasks with it (the user's decision: a disbanded team's
  * board is deleted, not archived). Ids are never handed out again: the
- * counter stays where it is. The SAME board when nothing goes, so a
- * caller can tell a change from none by reference.
+ * counter stays where it is. Their links go too, but for the facts that
+ * outlive an end (a copy's source). The SAME board when nothing goes, so
+ * a caller can tell a change from none by reference.
  */
 export function keepTeams(board: TaskBoard, teamIds: ReadonlySet<string>): TaskBoard {
   if (board.tasks.every((task) => teamIds.has(task.teamId))) return board;
-  return { ...board, tasks: board.tasks.filter((task) => teamIds.has(task.teamId)) };
+  const gone = new Set(board.tasks.filter((task) => !teamIds.has(task.teamId)).map((task) => task.uid));
+  // Their links go with them, each kind as its rule says (`outlives`).
+  const kept = withTasks(board, board.tasks.filter((task) => !gone.has(task.uid)));
+  return withRelations(kept, board.relations.filter((relation) => outlives(relation, gone)));
 }
 
 /** A team's tasks, in board order. */

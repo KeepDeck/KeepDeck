@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TASK_CAPS } from "../../domain/tasks";
-import { board, task } from "../../domain/tasks/testSupport";
+import { board, relation, task } from "../../domain/tasks/testSupport";
 import { boardView, columnLabelClassName } from "./boardView";
 import { NO_QUERY } from "./queryView";
 import { LADDER_WORDS, tasksLadder } from "./ladderView";
@@ -9,7 +9,7 @@ import { statusMark, statusRing, taskCardView, taskCardClassName } from "./taskC
 import { TASK_DETAIL_WORDS, changesOf, commentsOf, renamedTitle, pickedArtifact, pickedStatus, taskDetailClassName, taskDetailView } from "./taskDetailView";
 import { teamCardTasksLine } from "./teamCardTasksLine";
 import { teamOnScreen } from "./teamOnScreen";
-import { blockerLinkWords, fieldCount, personName, priorityMark, statusTone, FIELD_WORDS, POOL_CHOICE } from "./words";
+import { blockerLinkWords, fieldCount, unsavedBanner, personName, priorityMark, statusTone, FIELD_WORDS, POOL_CHOICE } from "./words";
 
 const NOW = 100_000;
 const ROSTER = ["lead", "impl-1", "impl-2"];
@@ -441,5 +441,34 @@ describe("blockerLinkWords — the links that keep a task on its team", () => {
       "task-3 waits on it",
       "task-4 waits on it",
     ]);
+  });
+});
+
+describe("taskDetailView — a task's copy links", () => {
+  const b = board(
+    [task({ id: "task-1", title: "Source" }), task({ id: "task-2", title: "Copy" }), task({ id: "task-3" }), task({ id: "task-4" })],
+    5,
+    [relation("copied-from", "task-2", "task-1"), relation("copied-from", "task-4", "task-9")],
+  );
+  const rows = (index: number) => taskDetailView(b.tasks[index], b, ROSTER, NOW).copies;
+
+  it("says where a copy came from, and what was copied from a source — each a task to open", () => {
+    expect(rows(1)).toEqual([{ label: TASK_DETAIL_WORDS.copiedFromLabel, tasks: [{ id: "task-1", title: "Source" }], gone: null }]);
+    expect(rows(0)).toEqual([{ label: TASK_DETAIL_WORDS.copiesLabel, tasks: [{ id: "task-2", title: "Copy" }], gone: null }]);
+  });
+
+  it("says a source no longer on the board is gone, and says nothing of a task that is no copy", () => {
+    expect(rows(3)).toEqual([{ label: TASK_DETAIL_WORDS.copiedFromLabel, tasks: [], gone: TASK_DETAIL_WORDS.copyGone }]);
+    expect(rows(2)).toEqual([]);
+  });
+});
+
+describe("unsavedBanner — what a board lagging its disk says", () => {
+  it("speaks of the person's changes, or — for a board read in an older format — of its upgrade and the kept file", () => {
+    expect(unsavedBanner("disk full")).toBe("Changes not saved yet — disk full. The board keeps them and retries on its own.");
+    const upgrade = unsavedBanner("disk full", true);
+    expect(upgrade).toContain("upgrade to linked tasks is not saved yet — disk full");
+    expect(upgrade).toContain("board.pre-relations.json");
+    expect(upgrade).not.toContain("Changes");
   });
 });

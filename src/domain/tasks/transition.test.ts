@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { TASK_CAPS, USER_ACTOR, blockerResolved, inLadderOrder, isOpen, type TaskActor, type TaskStatus } from "./model";
-import { addLabel, attachArtifact, copyTitle, createTask, keptTitle, detachArtifact, duplicateTask, transferTask, removeLabel, reachableStatuses, transition, type TaskChange, type TaskRefusal } from "./transition";
-import { ROSTER, board, impl1, lead, noTeam, peer1, stranger, task } from "./testSupport";
+import { addLabel, attachArtifact, createTask, keptTitle, detachArtifact, duplicateTask, transferTask, removeLabel, reachableStatuses, transition, type TaskChange, type TaskRefusal } from "./transition";
+import { blockerIdsOf, copiedFromOf, copiesOf } from "./relations";
+import { ROSTER, board, impl1, lead, mintSequence, noTeam, peer1, relation, stranger, task } from "./testSupport";
 
-const ctx = (tasks = [task({ id: "task-1" })]) => ({ board: board(tasks), roster: ROSTER, at: 5_000 });
+const ctx = (tasks = [task({ id: "task-1" })]) => ({ board: board(tasks), roster: ROSTER, at: 5_000, mintUid: mintSequence() });
 
 function refusalOf(
   t: ReturnType<typeof task>,
@@ -339,6 +340,13 @@ describe("fields only the lead sets", () => {
     const ok = transition(b, { kind: "blockedBy", to: [" task-1 ", "task-1"] }, lead, c);
     expect(ok.ok && ok.task).toBe(b); // normalised to what it already was: no-op
   });
+
+  it("logs a set of blockers in board order, whatever order it was named in", () => {
+    const t = task({ id: "task-3" });
+    const c = ctx([task({ id: "task-1" }), task({ id: "task-2" }), t]);
+    const set = transition(t, { kind: "blockedBy", to: ["task-2", "task-1"] }, lead, c);
+    expect(set.ok && set.task.log[set.task.log.length - 1]).toMatchObject({ field: "blockedBy", was: null, now: "task-1,task-2" });
+  });
 });
 
 describe("what every member may do", () => {
@@ -385,7 +393,7 @@ describe("what every member may do", () => {
 });
 
 describe("createTask", () => {
-  const empty = { board: board([]), roster: ROSTER, at: 7_000 };
+  const empty = { board: board([]), roster: ROSTER, at: 7_000, mintUid: mintSequence() };
 
   it("mints task-N from the board's counter and advances it", () => {
     const first = createTask({ teamId: "team-1", title: "  Draft the skill " }, lead, empty);
@@ -400,6 +408,8 @@ describe("createTask", () => {
       created: 7_000,
     });
     expect(first.board.nextId).toBe(2);
+    // Its own identity, drawn once — what a link to it names.
+    expect(first.task.uid).toBe("uid-new-1");
     const second = createTask({ teamId: "team-1", title: "Next" }, USER_ACTOR, { ...empty, board: first.board });
     expect(second.ok && second.task.id).toBe("task-2");
     expect(second.ok && second.task.author).toBe("user");
@@ -429,7 +439,7 @@ describe("createTask", () => {
     };
     const refused = createTask({ teamId: "team-1", title: "x" }, lead, full);
     expect(!refused.ok && refused.refusal).toEqual({ kind: "board-full", max: TASK_CAPS.tasksMax });
-    const edge = { ...empty, board: { nextId: Number.MAX_SAFE_INTEGER, tasks: [] } };
+    const edge = { ...empty, board: { nextId: Number.MAX_SAFE_INTEGER, tasks: [], relations: [] } };
     const exhausted = createTask({ teamId: "team-1", title: "x" }, lead, edge);
     expect(!exhausted.ok && exhausted.refusal).toEqual({ kind: "counter-exhausted" });
   });
@@ -593,20 +603,25 @@ describe("duplicateTask — a fresh copy, its own history", () => {
     const made = at(lead);
     if (!made.ok) throw new Error("refused");
     expect(made.task).toMatchObject({
-      // Marked, so the two read apart on the board.
-      title: "(copy) Draft the copy",
+      // The source's own title: the link, not a mark in the words, says
+      // which is the copy (it is in the open task, `copiedFromOf`).
+      title: "Draft the copy",
       body: "the brief",
       priority: "high",
       assignee: null,
       status: "todo",
       labels: ["copy", "ui"],
       artifacts: ["kd-a"],
-      // Only the blockers that still hold: a done one holds nothing.
-      blockedBy: ["task-2"],
       comments: [],
       teamId: source.teamId,
     });
     expect(made.task.id).not.toBe(source.id);
+    // Only the blockers that still hold: a done one holds nothing.
+    expect(blockerIdsOf(made.task, made.board)).toEqual(["task-2"]);
+    // The copy is linked to its source — a fact, made only here.
+    expect(made.board.relations).toContainEqual({ kind: "copied-from", from: made.task.uid, to: source.uid, at: 9_000, by: "lead" });
+    expect(copiedFromOf(made.task, made.board)).toBe(made.source);
+    expect(copiesOf(made.source, made.board)).toEqual([made.task]);
     // Each end says so: the copy where it came from, the source where it went.
     expect(made.task.log).toEqual([{ at: 9_000, from: "lead", field: "copiedFrom", was: null, now: "task-1" }]);
     expect(made.source.log[made.source.log.length - 1]).toEqual({ at: 9_000, from: "lead", field: "copiedTo", was: null, now: made.task.id });
@@ -616,12 +631,14 @@ describe("duplicateTask — a fresh copy, its own history", () => {
     expect(made.notCarried).toEqual([]);
   });
 
-  it("marks a copy's title, cutting its end with an ellipsis where the mark would pass the cap", () => {
-    expect(copyTitle("Draft")).toBe("(copy) Draft");
-    const full = copyTitle("x".repeat(TASK_CAPS.titleMax));
-    expect([...full]).toHaveLength(TASK_CAPS.titleMax);
-    expect(full.startsWith("(copy) x")).toBe(true);
-    expect(full.endsWith("…")).toBe(true);
+  it("copies a copy under the same title, linked to the copy it was made from — nothing stacks, nothing is cut", () => {
+    const long = { ...source, title: "x".repeat(TASK_CAPS.titleMax) };
+    const first = duplicateTask(long, lead, ctx([long, blocker, resolved]));
+    if (!first.ok) throw new Error("refused");
+    const second = duplicateTask(first.task, lead, { ...ctx([]), board: first.board });
+    if (!second.ok) throw new Error("refused");
+    expect(second.task.title).toBe(long.title);
+    expect(copiedFromOf(second.task, second.board)).toMatchObject({ id: first.task.id });
   });
 
   it("parks the copy of a parked task", () => {
@@ -676,11 +693,31 @@ describe("transferTask — the same task, handed to another team", () => {
   });
 
   it("takes its id out of the closed tasks that named it, so none waits across teams if reopened", () => {
-    const closed = task({ id: "task-3", status: "cancelled", blockedBy: ["task-1", "task-9"], updated: 5 });
-    const moved = go(task({ id: "task-1" }), lead, [closed]);
-    const after = moved.ok ? moved.board.tasks.find((x) => x.id === "task-3") : null;
-    expect(after?.blockedBy).toEqual(["task-9"]);
-    expect(after?.updated).toBe(5);
+    const closed = task({ id: "task-3", status: "cancelled", blockedBy: ["task-1", "task-4"], updated: 5 });
+    const other = task({ id: "task-4", status: "done" });
+    const moved = go(task({ id: "task-1" }), lead, [closed, other]);
+    if (!moved.ok) throw new Error("refused");
+    const after = moved.board.tasks.find((x) => x.id === "task-3")!;
+    expect(blockerIdsOf(after, moved.board)).toEqual(["task-4"]);
+    expect(after.updated).toBe(5);
+  });
+
+  it("keeps a copy's links through the move — a fact crosses teams; only blocker links are dropped", () => {
+    const source = task({ id: "task-1" });
+    const copy = task({ id: "task-2" });
+    const copyOfIt = task({ id: "task-3" });
+    const b = board([source, copy, copyOfIt], 4, [relation("copied-from", "task-2", "task-1"), relation("copied-from", "task-3", "task-2")]);
+    const moved = transferTask(copy, teams, lead, { board: b, roster: ROSTER, at: 9_000 });
+    if (!moved.ok) throw new Error("refused");
+    expect(moved.board.relations).toEqual(b.relations);
+    expect(copiedFromOf(moved.task, moved.board)).toMatchObject({ id: "task-1" });
+    expect(copiesOf(moved.task, moved.board).map((t) => t.id)).toEqual(["task-3"]);
+  });
+
+  it("leaves a blocker link whose other end is not on this board — not this board's to judge", () => {
+    const b = board([task({ id: "task-1" })], 2, [relation("blocks", "task-9", "task-1")]);
+    const moved = transferTask(b.tasks[0], teams, lead, { board: b, roster: ROSTER, at: 9_000 });
+    expect(moved.ok && moved.board.relations).toEqual(b.relations);
   });
 
   it("keeps parked work parked", () => {
@@ -711,11 +748,13 @@ describe("transferTask — the same task, handed to another team", () => {
     const done = task({ id: "task-2", status: "done" });
     const closedDependant = task({ id: "task-3", status: "cancelled", blockedBy: ["task-1"] });
     const moved = go(task({ id: "task-1", blockedBy: ["task-2"] }), lead, [done, closedDependant]);
-    expect(moved.ok && moved.task.blockedBy).toEqual([]);
+    if (!moved.ok) throw new Error("refused");
+    expect(blockerIdsOf(moved.task, moved.board)).toEqual([]);
     // The closed dependant loses the link, logged at the transfer's time —
     // yet it was not touched by anyone, so its `updated` stays.
-    const left = moved.ok ? moved.board.tasks.find((t) => t.id === "task-3") : undefined;
-    expect(left?.blockedBy).toEqual([]);
+    const left = moved.board.tasks.find((t) => t.id === "task-3");
+    expect(left && blockerIdsOf(left, moved.board)).toEqual([]);
+    expect(moved.board.relations.filter((r) => r.kind === "blocks")).toEqual([]);
     expect(left?.log[left.log.length - 1]).toMatchObject({ at: 9_000, field: "blockedBy", was: "task-1", now: null });
     expect(left?.updated).toBe(closedDependant.updated);
   });
