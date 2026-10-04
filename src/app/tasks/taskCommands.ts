@@ -1,5 +1,5 @@
 /**
- * The task commands — `task.create`, `task.list`, `task.get`,
+ * The task commands — `task.create`, `task.duplicate`, `task.transfer`, `task.list`, `task.get`,
  * `task.update`, `task.comment`, `task.next`, `task.mine` — what an agent
  * uses to put work on its team's board and read it back, and therefore
  * the MCP tools it sees for it.
@@ -52,7 +52,7 @@ import {
   type TaskPriority,
   type TaskStatus,
 } from "../../domain/tasks";
-import { refusalText } from "./refusalText";
+import { notCarriedText, refusalText } from "./refusalText";
 import type { TaskResult, TasksService } from "./tasksService";
 
 export interface TaskCommandDeps {
@@ -257,6 +257,69 @@ function createCommand(deps: TaskCommandDeps): CommandSpec {
   };
 }
 
+function duplicateCommand(deps: TaskCommandDeps): CommandSpec {
+  return {
+    id: "task.duplicate",
+    title:
+      "Copy a task as a fresh one: its title, brief, priority, labels, artifacts and blockers, in todo (the backlog if it is parked), held by no one — not its comments, log or assignee. Both tasks' logs say it was copied",
+    args: [{ name: "id", type: "string", required: true, description: "The task to copy (task-N)" }, TEAM_ARG],
+    run: async (args, source) => {
+      const who = caller(source, deps);
+      const team = teamFor(args, who);
+      const board = await boardOf(deps, who.workspace.id);
+      const original = visible(board, taskIdArg(args), team);
+      const result = await deps.tasks.duplicate(who.workspace.id, original.id, who.actor);
+      const { task, saved, saveError } = settled(result);
+      // What the create's rules left out is the domain's answer, said here.
+      const left = result.ok ? notCarriedText(result.notCarried) : null;
+      const where = task.status === "backlog" ? "parked in the team's backlog" : "in the team's pool";
+      return {
+        id: task.id,
+        copiedFrom: original.id,
+        status: task.status,
+        priority: task.priority,
+        saved,
+        note: `copied from ${original.id}, ${where}` + (left ? `; ${left}` : "") + unsavedNote(saved, saveError),
+      };
+    },
+  };
+}
+
+function transferCommand(deps: TaskCommandDeps): CommandSpec {
+  return {
+    id: "task.transfer",
+    title:
+      "Hand a task to another team of this workspace: the same task (id, brief, labels, comments and log kept) on their board, unassigned, back in todo (the backlog if it is parked). Yours to do if you hand out work; refused for a closed task, or one still linked by blockers to your team",
+    args: [
+      { name: "id", type: "string", required: true, description: "The task to hand over (task-N)" },
+      { name: "to", type: "string", required: true, description: "The team to hand it to — its name or id, in this workspace" },
+      TEAM_ARG,
+    ],
+    run: async (args, source) => {
+      const who = caller(source, deps);
+      const team = teamFor(args, who);
+      const board = await boardOf(deps, who.workspace.id);
+      const task = visible(board, taskIdArg(args), team);
+      const target = resolveTeamRef(who.workspace, str(args, "to") ?? "");
+      if (!target.ok) throw new Error(target.message);
+      const { saved, saveError } = settled(
+        await deps.tasks.transfer(who.workspace.id, task.id, target.value.id, who.actor),
+      );
+      return {
+        id: task.id,
+        team: target.value.name,
+        saved,
+        // The board delivers nothing — the new team hears of it only if told.
+        note:
+          `on ${target.value.name}'s board now, unassigned — the board tells nobody; tell its lead with mail.send, naming ${task.id}` +
+          // Who held it loses it without a word from the board, too.
+          (task.assignee !== null ? `, and ${task.assignee}, who held it` : "") +
+          unsavedNote(saved, saveError),
+      };
+    },
+  };
+}
+
 function listCommand(deps: TaskCommandDeps): CommandSpec {
   return {
     id: "task.list",
@@ -435,6 +498,8 @@ function mineCommand(deps: TaskCommandDeps): CommandSpec {
 export function registerTaskCommands(registry: CommandRegistry, deps: TaskCommandDeps): () => void {
   const disposers = [
     createCommand,
+    duplicateCommand,
+    transferCommand,
     listCommand,
     getCommand,
     updateCommand,

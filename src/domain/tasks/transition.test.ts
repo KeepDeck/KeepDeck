@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TASK_CAPS, USER_ACTOR, blockerResolved, inLadderOrder, isOpen, type TaskActor, type TaskStatus } from "./model";
-import { addLabel, attachArtifact, createTask, detachArtifact, removeLabel, reachableStatuses, transition, type TaskChange, type TaskRefusal } from "./transition";
+import { addLabel, attachArtifact, copyTitle, createTask, keptTitle, detachArtifact, duplicateTask, transferTask, removeLabel, reachableStatuses, transition, type TaskChange, type TaskRefusal } from "./transition";
 import { ROSTER, board, impl1, lead, noTeam, peer1, stranger, task } from "./testSupport";
 
 const ctx = (tasks = [task({ id: "task-1" })]) => ({ board: board(tasks), roster: ROSTER, at: 5_000 });
@@ -204,6 +204,12 @@ describe("the backlog — work parked, not yet to be started", () => {
   it("is created in todo or the backlog — anything else is refused, by the domain itself", () => {
     const done = createTask({ teamId: "team-1", title: "x", status: "done" as never }, lead, ctx([]));
     expect(done.ok ? null : done.refusal).toEqual({ kind: "bad-create-status", status: "done", allowed: ["todo", "backlog"] });
+  });
+
+  it("keeps a title on one line: a pasted line break is a space", () => {
+    const made = createTask({ teamId: "team-1", title: "Line one\n  line two\r\n" }, lead, ctx([]));
+    expect(made.ok && made.task.title).toBe("Line one line two");
+    expect(keptTitle(" a\nb ")).toBe("a b");
   });
 
   it("reads a set of statuses in ladder order, each once, known ones only", () => {
@@ -562,5 +568,155 @@ describe("addLabel / removeLabel — the changes the open task's label field mak
     expect(applied(t, removeLabel(" Design ")).labels).toEqual(["ui"]);
     const meanwhile = task({ id: "task-1", labels: ["design", "ui", "urgent"] });
     expect(applied(meanwhile, removeLabel("design")).labels).toEqual(["ui", "urgent"]);
+  });
+});
+
+describe("duplicateTask — a fresh copy, its own history", () => {
+  const source = task({
+    id: "task-1",
+    title: "Draft the copy",
+    body: "the brief",
+    priority: "high",
+    assignee: "impl-1",
+    status: "review",
+    labels: ["copy", "ui"],
+    artifacts: ["kd-a"],
+    blockedBy: ["task-2", "task-3"],
+    comments: [{ n: 1, at: 1, from: "lead", body: "go" }],
+    log: [{ at: 1, from: "lead", field: "status", was: "todo", now: "in-progress" }],
+  });
+  const blocker = task({ id: "task-2", status: "in-progress" });
+  const resolved = task({ id: "task-3", status: "done" });
+  const at = (actor: TaskActor) => duplicateTask(source, actor, { ...ctx([source, blocker, resolved]), at: 9_000 });
+
+  it("copies the work and none of its history, held by no one, in todo", () => {
+    const made = at(lead);
+    if (!made.ok) throw new Error("refused");
+    expect(made.task).toMatchObject({
+      // Marked, so the two read apart on the board.
+      title: "(copy) Draft the copy",
+      body: "the brief",
+      priority: "high",
+      assignee: null,
+      status: "todo",
+      labels: ["copy", "ui"],
+      artifacts: ["kd-a"],
+      // Only the blockers that still hold: a done one holds nothing.
+      blockedBy: ["task-2"],
+      comments: [],
+      teamId: source.teamId,
+    });
+    expect(made.task.id).not.toBe(source.id);
+    // Each end says so: the copy where it came from, the source where it went.
+    expect(made.task.log).toEqual([{ at: 9_000, from: "lead", field: "copiedFrom", was: null, now: "task-1" }]);
+    expect(made.source.log[made.source.log.length - 1]).toEqual({ at: 9_000, from: "lead", field: "copiedTo", was: null, now: made.task.id });
+    expect(made.board.tasks.find((t) => t.id === "task-1")).toBe(made.source);
+    // Nearly a read: the source's date stays, so an old task is not lifted.
+    expect(made.source.updated).toBe(source.updated);
+    expect(made.notCarried).toEqual([]);
+  });
+
+  it("marks a copy's title, cutting its end with an ellipsis where the mark would pass the cap", () => {
+    expect(copyTitle("Draft")).toBe("(copy) Draft");
+    const full = copyTitle("x".repeat(TASK_CAPS.titleMax));
+    expect([...full]).toHaveLength(TASK_CAPS.titleMax);
+    expect(full.startsWith("(copy) x")).toBe(true);
+    expect(full.endsWith("…")).toBe(true);
+  });
+
+  it("parks the copy of a parked task", () => {
+    const parked = { ...source, status: "backlog" as const };
+    const made = duplicateTask(parked, lead, ctx([parked, blocker, resolved]));
+    expect(made.ok && made.task.status).toBe("backlog");
+  });
+
+  it("keeps a working role's copy within what it may set: normal priority, no labels on a pool task", () => {
+    const made = at(impl1);
+    expect(made.ok && [made.task.priority, made.task.labels]).toEqual(["normal", []]);
+    // And says what it left, for whoever asked to tell them.
+    expect(made.ok && made.notCarried).toEqual([
+      { field: "priority", was: "high" },
+      { field: "labels", was: "copy,ui" },
+    ]);
+  });
+});
+
+describe("transferTask — the same task, handed to another team", () => {
+  const teams = { from: { id: "team-1", name: "api" }, to: { id: "team-2", name: "web" } };
+  const go = (t: ReturnType<typeof task>, actor: TaskActor, others: ReturnType<typeof task>[] = []) =>
+    transferTask(t, teams, actor, { ...ctx([t, ...others]), at: 9_000 });
+
+  it("keeps the task — its id, words and history — and hands it over unheld, back at todo", () => {
+    const t = task({
+      id: "task-1",
+      status: "review",
+      assignee: "impl-1",
+      priority: "high",
+      labels: ["ui"],
+      comments: [{ n: 1, at: 1, from: "lead", body: "go" }],
+    });
+    const moved = go(t, lead);
+    if (!moved.ok) throw new Error("refused");
+    expect(moved.task).toMatchObject({ id: "task-1", teamId: "team-2", assignee: null, status: "todo", priority: "high", labels: ["ui"] });
+    expect(moved.task.comments).toHaveLength(1);
+    expect(moved.task.log[moved.task.log.length - 1]).toEqual({ at: 9_000, from: "lead", field: "transferred", was: "api", now: "web" });
+    expect(moved.task.updated).toBe(9_000);
+  });
+
+  it("logs what the move reset — who held it, where it stood, what it waited on — before the move itself", () => {
+    const done = task({ id: "task-2", status: "done" });
+    const t = task({ id: "task-1", status: "in-progress", assignee: "impl-1", blockedBy: ["task-2"] });
+    const moved = go(t, lead, [done]);
+    expect(moved.ok && moved.task.log.slice(-4).map((e) => [e.field, e.was, e.now])).toEqual([
+      ["assignee", "impl-1", null],
+      ["status", "in-progress", "todo"],
+      ["blockedBy", "task-2", null],
+      ["transferred", "api", "web"],
+    ]);
+  });
+
+  it("takes its id out of the closed tasks that named it, so none waits across teams if reopened", () => {
+    const closed = task({ id: "task-3", status: "cancelled", blockedBy: ["task-1", "task-9"], updated: 5 });
+    const moved = go(task({ id: "task-1" }), lead, [closed]);
+    const after = moved.ok ? moved.board.tasks.find((x) => x.id === "task-3") : null;
+    expect(after?.blockedBy).toEqual(["task-9"]);
+    expect(after?.updated).toBe(5);
+  });
+
+  it("keeps parked work parked", () => {
+    const moved = go(task({ id: "task-1", status: "backlog" }), lead);
+    expect(moved.ok && moved.task.status).toBe("backlog");
+  });
+
+  it("refuses a closed task, its own team, and an actor who does not hand out work", () => {
+    expect(go(task({ id: "task-1", status: "done" }), lead)).toEqual({ ok: false, refusal: { kind: "transfer-closed", status: "done" } });
+    const same = transferTask(task({ id: "task-1" }), { ...teams, to: teams.from }, lead, ctx([]));
+    expect(same).toEqual({ ok: false, refusal: { kind: "transfer-same-team" } });
+    expect(go(task({ id: "task-1", assignee: "impl-1" }), impl1)).toEqual({ ok: false, refusal: { kind: "not-yours-to-transfer" } });
+    expect(go(task({ id: "task-1" }), USER_ACTOR).ok).toBe(true);
+  });
+
+  it("refuses while live blocker links tie it to its team — naming them — and drops the ones that hold nothing", () => {
+    const blocker = task({ id: "task-2", status: "in-progress" });
+    const dependant = task({ id: "task-3", blockedBy: ["task-1"] });
+    expect(go(task({ id: "task-1", blockedBy: ["task-2"] }), lead, [blocker])).toEqual({
+      ok: false,
+      refusal: { kind: "transfer-linked", blockers: ["task-2"], dependants: [] },
+    });
+    expect(go(task({ id: "task-1" }), lead, [dependant])).toEqual({
+      ok: false,
+      refusal: { kind: "transfer-linked", blockers: [], dependants: ["task-3"] },
+    });
+    // A done blocker and a cancelled dependant hold nothing: it goes, the stale link left behind.
+    const done = task({ id: "task-2", status: "done" });
+    const closedDependant = task({ id: "task-3", status: "cancelled", blockedBy: ["task-1"] });
+    const moved = go(task({ id: "task-1", blockedBy: ["task-2"] }), lead, [done, closedDependant]);
+    expect(moved.ok && moved.task.blockedBy).toEqual([]);
+    // The closed dependant loses the link, logged at the transfer's time —
+    // yet it was not touched by anyone, so its `updated` stays.
+    const left = moved.ok ? moved.board.tasks.find((t) => t.id === "task-3") : undefined;
+    expect(left?.blockedBy).toEqual([]);
+    expect(left?.log[left.log.length - 1]).toMatchObject({ at: 9_000, field: "blockedBy", was: "task-1", now: null });
+    expect(left?.updated).toBe(closedDependant.updated);
   });
 });

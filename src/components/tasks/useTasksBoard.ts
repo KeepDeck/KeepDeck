@@ -163,6 +163,10 @@ export function useTasksBoard(
   };
   const dragEndedAt = useRef<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // A copy on its way: the ref answers a second press at once, the state
+  // shows the Duplicate control as busy.
+  const duplicating = useRef(false);
+  const [copying, setCopying] = useState(false);
   // The board's posture — the view, the list's folds — is a setting, kept
   // across openings and launches (user); every change reads the latest
   // stored posture, so a change that lands later (a drop's move) never
@@ -229,7 +233,7 @@ export function useTasksBoard(
   });
 
   const open = taskOnScreen(board, focus, teamId);
-  const detail = open ? taskDetailView(open, board!, roster, now, knownArtifacts, screen.activityOpen) : null;
+  const detail = open ? taskDetailView(open, board!, roster, now, knownArtifacts, screen.activityOpen, teams) : null;
   const columns = useMemo(
     () => (board && view === "board" ? boardView(teamTasks, board, now, query) : []),
     [board, view, teamTasks, now, query],
@@ -371,6 +375,7 @@ export function useTasksBoard(
     move: (taskId: string, to: TaskStatus) => void apply(taskId, [{ kind: "status", to }]),
     assign: (taskId: string, assignee: string) => void apply(taskId, [{ kind: "assign", assignee: assigneeOf(assignee) }]),
     setPriority: (taskId: string, to: TaskPriority) => void apply(taskId, [{ kind: "priority", to }]),
+    rename: (taskId: string, title: string): Promise<boolean> => apply(taskId, [{ kind: "title", to: title }]),
     comment: (taskId: string, body: string) => apply(taskId, [{ kind: "comment", body }]),
     attachArtifact: (taskId: string, slug: string) => {
       const task = board ? findTask(board, taskId) : undefined;
@@ -392,6 +397,33 @@ export function useTasksBoard(
       void openArtifactByRef(workspaceId, slug)
         .then(() => setError(null))
         .catch((e: unknown) => setError(describeError(e)));
+    },
+    /** Copy a task as a fresh one and open the copy — in the panel as it
+     * stands (wide stays wide). One copy per press: a second press while
+     * one is on its way does nothing, since a copy cannot be taken back. */
+    duplicate: (taskId: string) => {
+      if (!service || workspaceId === null || duplicating.current) return;
+      duplicating.current = true;
+      setCopying(true);
+      void write(async () => {
+        const result = await service.duplicate(workspaceId, taskId, USER_ACTOR);
+        if (result.ok) run({ type: "card", id: result.task.id, open: null });
+        return result;
+      }).finally(() => {
+        duplicating.current = false;
+        setCopying(false);
+      });
+    },
+    copying,
+    /** Hand a task to another team; on success it has left this board, so
+     * the panel closes. */
+    transfer: (taskId: string, teamId: string) => {
+      if (!service || workspaceId === null) return;
+      void write(async () => {
+        const result = await service.transfer(workspaceId, taskId, teamId, USER_ACTOR);
+        if (result.ok) run({ type: "close" });
+        return result;
+      });
     },
     create: async (input: Omit<CreateTaskInput, "teamId">) => {
       if (!service || workspaceId === null || teamId === null) return;

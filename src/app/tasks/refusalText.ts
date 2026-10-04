@@ -1,6 +1,7 @@
 import type { Workspace } from "../../domain/deck";
 import { leadRole } from "../../domain/mail";
-import type { DecodeFault } from "../../domain/tasks";
+import type { DecodeFault, NotCarried } from "../../domain/tasks";
+import { blockerLinkWords } from "../../presentation/tasks/words";
 import type { TaskProblem, UnsavedBoard } from "./tasksService";
 
 /** Why an Off was refused: the boards the store would have closed over
@@ -39,6 +40,18 @@ export function decodeFaultText(fault: DecodeFault): string {
  * agent should have wanted. The ONE switch over the kinds; the domain
  * writes no English and the dialog renders the same kinds its own way.
  */
+/** What a copy left at its default, said to the agent that asked for it
+ * (task.duplicate), or null when it carried everything. */
+export function notCarriedText(left: readonly NotCarried[]): string | null {
+  if (left.length === 0) return null;
+  const said = left.map((item) =>
+    item.field === "priority"
+      ? `priority (${item.was}) — yours to set at creation is normal`
+      : `labels (${item.was}) — a pool task's are the lead's to set`,
+  );
+  return `not carried over: ${said.join("; ")}`;
+}
+
 export function refusalText(refusal: TaskProblem): string {
   const lead = leadRole().id;
   switch (refusal.kind) {
@@ -99,5 +112,17 @@ export function refusalText(refusal: TaskProblem): string {
       return `the board file could not be read and is not written to until fixed: ${refusal.error}`;
     case "unknown-task":
       return `no such task: ${refusal.id}`;
+    case "unknown-team":
+      return `no team "${refusal.team}" in this workspace to hand it to`;
+    case "transfer-closed":
+      return `a ${refusal.status} task has nothing left to hand over — duplicate it to start the work again elsewhere`;
+    case "transfer-same-team":
+      return "that task is already on that team's board";
+    case "not-yours-to-transfer":
+      return `handing a task to another team is ${lead}'s — ask them`;
+    case "transfer-linked": {
+      const links = blockerLinkWords(refusal).join("; ");
+      return `a task linked by blockers stays on its team — ${links}; unlink first (blockers do not cross teams)`;
+    }
   }
 }

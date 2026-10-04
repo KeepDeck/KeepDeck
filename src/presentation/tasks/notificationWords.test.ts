@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { task } from "../../domain/tasks/testSupport";
-import { createdWords, movedWords } from "./notificationWords";
+import { createdWords, movedWords, transferredWords } from "./notificationWords";
 
 describe("the board's notification words", () => {
   it("says a task put on the board, or parked in the backlog — not one to take", () => {
     expect(createdWords(task({ id: "task-1", title: "Idea" }), "impl-1", "web").title).toBe("impl-1 put a task on web's board");
     expect(createdWords(task({ id: "task-1", status: "backlog" }), "impl-1", "web").title).toBe("impl-1 parked a task in web's backlog");
     expect(createdWords(task({ id: "task-1" }), null, "web").title).toBe("an agent put a task on web's board");
+    // A copy says what it is a copy of.
+    expect(createdWords(task({ id: "task-9" }), "impl-1", "web", "task-1").title).toBe("impl-1 put a copy of task-1 on web's board");
   });
 
   it("names each move by where it went, and where it came from where that matters", () => {
@@ -20,5 +22,13 @@ describe("the board's notification words", () => {
     expect(title("backlog", "in-progress")).toBe("task-1 started");
     expect(title("review", "in-progress")).toBe("task-1 back in progress");
     expect(movedWords(task({ id: "task-1", status: "blocked" }), "in-progress", "web").severity).toBe("warning");
+  });
+
+  it("says an agent's transfer: from which team to which", () => {
+    expect(transferredWords(task({ id: "task-4", title: "Hand over" }), "lead", "api", "web")).toEqual({
+      title: "lead moved task-4 from api to web",
+      body: "Hand over · unassigned · web",
+      severity: "info",
+    });
   });
 });

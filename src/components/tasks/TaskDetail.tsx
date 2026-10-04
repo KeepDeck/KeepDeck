@@ -1,5 +1,5 @@
 import { useId, useRef, useState } from "react";
-import { Combobox, DisclosureChevron, Dropdown, StatusRing } from "@keepdeck/ui-kit";
+import { Combobox, DisclosureChevron, Dropdown, MenuButton, StatusRing } from "@keepdeck/ui-kit";
 import type { TaskPriority, TaskStatus } from "../../domain/tasks";
 import {
   DIALOG_WORDS,
@@ -15,14 +15,19 @@ import {
   pickedArtifact,
   pickedStatus,
   taskDetailClassName,
+  renamedTitle,
   typeDraft,
   type FeedChange,
+  type TaskAction,
   type TaskDetailView,
 } from "../../presentation/tasks";
 import { Button } from "../../ui/Button";
 import { TipButton } from "../../ui/TipButton";
 import { CloseIcon, MaximizeIcon, RestoreIcon } from "@keepdeck/ui-kit/icons";
 import { RemoveButton } from "../../ui/RemoveButton";
+import { ConfirmDialog } from "../../ui/ConfirmDialog";
+import { RenameInput } from "../../ui/RenameInput";
+import { useInlineRename } from "../../ui/useInlineRename";
 import { useGrowingField } from "../../ui/useGrowingField";
 
 interface TaskDetailProps {
@@ -30,6 +35,14 @@ interface TaskDetailProps {
   /** Whether the task fills the stage; the head offers the way there and back. */
   wide: boolean;
   onToggleWide(): void;
+  /** Copy this task as a fresh one, and open the copy. */
+  onDuplicate(taskId: string): void;
+  /** A copy is on its way: the control waits. */
+  copying: boolean;
+  /** Hand this task to another team. */
+  onTransfer(taskId: string, teamId: string): void;
+  /** Give the task a new title; resolves to whether it was taken. */
+  onRename(taskId: string, title: string): Promise<boolean>;
   /** The activity's heading: shut ⇄ open. */
   onToggleActivity(): void;
   onClose(): void;
@@ -54,6 +67,10 @@ export function TaskDetail({
   view,
   wide,
   onToggleWide,
+  onDuplicate,
+  copying,
+  onTransfer,
+  onRename,
   onToggleActivity,
   onClose,
   onMove,
@@ -68,6 +85,27 @@ export function TaskDetail({
   onUnlabel,
 }: TaskDetailProps) {
   const [composer, setComposer] = useState(EMPTY_COMPOSER);
+  // The transfer's inline confirm: the team picked, or null while closed.
+  const [transferTo, setTransferTo] = useState<string | null>(null);
+  // The copy's confirm, open or not: a stray click must not make a task.
+  const [duplicating, setDuplicating] = useState(false);
+  // The title edits in place — a double click on it, or Rename in the menu —
+  // by the house's one inline-rename behaviour.
+  const rename = useInlineRename((taskId, typed, from) => {
+    const title = renamedTitle(from, typed);
+    if (title === null) return;
+    // Refused (past the cap, say): the field opens again on what was typed,
+    // never dropping it — the refusal shows above as any write's does.
+    void onRename(taskId, title).then((landed) => {
+      if (!landed) rename.start(taskId, typed);
+    });
+  });
+  const actionOf: Record<TaskAction["id"], () => void> = {
+    rename: () => rename.start(view.id, view.title),
+    duplicate: () => setDuplicating(true),
+    transfer: () => setTransferTo(view.transfer.options[0]?.value ?? null),
+  };
+  const transferTeam = view.transfer.options.find((option) => option.value === transferTo);
   const commentField = useRef<HTMLTextAreaElement>(null);
   const activityId = useId();
   useGrowingField(commentField, composer.draft);
@@ -95,6 +133,26 @@ export function TaskDetail({
         <div className="tasks__detail-line">
           <StatusRing {...view.statusRing} />
           <span className="tasks__detail-meta kd-one-line">{view.meta}</span>
+          {/* The task's own menu stands with what names the task — its id
+              and state, as Linear's beside the issue key — apart from the
+              window's controls at the line's end. Bordered, not ghost: a
+              ghost glyph went unseen. */}
+          <MenuButton
+            variant="secondary"
+            size="sm"
+            className="tasks__detail-menu"
+            ariaLabel={view.menu.label}
+            actions={view.menu.actions.map((action) => ({
+              id: action.id,
+              label: action.label,
+              // A copy on its way holds back a second copy, and only that.
+              disabled: (action.id === "duplicate" && copying) || action.refusal !== null,
+              refusal: action.refusal ?? undefined,
+              onSelect: actionOf[action.id],
+            }))}
+          >
+            ⋯
+          </MenuButton>
           <span className="tasks__detail-tools">
             {/* An icon, explained by its tip — beside the close, its kin. */}
             <TipButton
@@ -111,9 +169,55 @@ export function TaskDetail({
             </TipButton>
           </span>
         </div>
-        <h3 className="tasks__detail-title kd-selectable" dir="auto">
-          {view.title}
-        </h3>
+        {rename.editing === view.id ? (
+          <RenameInput rename={rename} className="tasks__detail-title-edit" label={TASK_DETAIL_WORDS.renameField} multiline />
+        ) : (
+          <h3
+            className="tasks__detail-title kd-selectable"
+            dir="auto"
+            onDoubleClick={() => rename.start(view.id, view.title)}
+          >
+            {view.title}
+          </h3>
+        )}
+        {duplicating && (
+          <ConfirmDialog
+            title={view.duplicate.title}
+            message={view.duplicate.message}
+            confirmLabel={view.duplicate.confirm}
+            cancelLabel={view.duplicate.cancel}
+            onConfirm={() => {
+              setDuplicating(false);
+              onDuplicate(view.id);
+            }}
+            onCancel={() => setDuplicating(false)}
+          />
+        )}
+        {/* The house confirm, centred over everything: where to, what it
+            means, and the two answers. */}
+        {transferTeam && (
+          <ConfirmDialog
+            title={view.transfer.title}
+            message={view.transfer.confirm(transferTeam.label)}
+            confirmLabel={view.transfer.move}
+            cancelLabel={view.transfer.cancel}
+            onConfirm={() => {
+              setTransferTo(null);
+              onTransfer(view.id, transferTeam.value);
+            }}
+            onCancel={() => setTransferTo(null)}
+          >
+            <label className="tasks__transfer-pick">
+              <span className="tasks__prop-label">{view.transfer.prompt}</span>
+              <Dropdown
+                ariaLabel={view.transfer.prompt}
+                options={view.transfer.options}
+                value={transferTeam.value}
+                onChange={setTransferTo}
+              />
+            </label>
+          </ConfirmDialog>
+        )}
       </header>
 
       <div className="tasks__detail-body">

@@ -86,11 +86,22 @@ export interface TaskComment {
   body: string;
 }
 
+/** What the log names: a field a change touched, a copy's two ends —
+ * `copiedFrom` on the copy, `copiedTo` on the task it was copied from
+ * (`now` the other task's id) — or a transfer, `transferred` (`was` and
+ * `now` the two teams' NAMES: a team id is reused once its team is gone,
+ * a name read back is what the board was then). */
+export type LogField = TaskField | "copiedFrom" | "copiedTo" | "transferred";
+
+/** Every name a log entry may carry — what the codec checks entries
+ * against. */
+export const LOG_FIELDS: readonly LogField[] = [...TASK_FIELDS, "copiedFrom", "copiedTo", "transferred"];
+
 /** One change to one field — the audit trail a human reads under a task. */
 export interface TaskLogEntry {
   at: number;
   from: string;
-  field: TaskField;
+  field: LogField;
   was: string | null;
   now: string | null;
 }
@@ -99,7 +110,8 @@ export interface Task {
   /** `task-N`, minted per workspace by [`TaskBoard.nextId`]; never reused,
    * unlike `pane-N` — a cancelled task must not hand its number to the next. */
   id: string;
-  /** The team whose board this is on. A task never moves between teams. */
+  /** The team whose board this is on. It changes only by a transfer
+   * (`transferTask`) — to another team of the same workspace. */
   teamId: string;
   title: string;
   /** Markdown. Long briefs belong in an artifact named under `artifacts`. */

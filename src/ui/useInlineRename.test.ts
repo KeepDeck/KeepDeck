@@ -45,7 +45,19 @@ describe("useInlineRename", () => {
     act(() => api.start("ws-1", "old"));
     act(() => api.inputProps.onChange({ target: { value: "  new name  " } }));
     act(() => api.inputProps.onKeyDown({ key: "Enter" }));
-    expect(commit).toHaveBeenCalledWith("ws-1", "new name");
+    // With the name the edit began from: "unchanged" is measured from there.
+    expect(commit).toHaveBeenCalledWith("ws-1", "new name", "old");
+    expect(api.editing).toBeNull();
+  });
+
+  it("does not commit on a composing IME's Enter, and keeps its Escape from the layers around it", () => {
+    act(() => api.start("ws-1", "old"));
+    act(() => api.inputProps.onKeyDown({ key: "Enter", nativeEvent: { isComposing: true } }));
+    expect(commit).not.toHaveBeenCalled();
+    expect(api.editing).toBe("ws-1");
+    const stopPropagation = vi.fn();
+    act(() => api.inputProps.onKeyDown({ key: "Escape", stopPropagation }));
+    expect(stopPropagation).toHaveBeenCalled();
     expect(api.editing).toBeNull();
   });
 
@@ -55,7 +67,7 @@ describe("useInlineRename", () => {
     act(() => api.start("ws-1", "old"));
     act(() => api.inputProps.onChange({ target: { value: "   " } }));
     act(() => api.inputProps.onBlur({ currentTarget: field() }));
-    expect(commit).toHaveBeenCalledWith("ws-1", "");
+    expect(commit).toHaveBeenCalledWith("ws-1", "", "old");
   });
 
   it("Escape cancels without committing", () => {

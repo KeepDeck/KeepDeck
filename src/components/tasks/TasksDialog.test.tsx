@@ -331,6 +331,122 @@ describe("TasksDialog", () => {
     }
   });
 
+  it("duplicates the open task as a fresh one and opens the copy", async () => {
+    const { service } = await seeded();
+    focus = "task-1";
+    mount(service)();
+    await flush();
+    const before = service.peek("ws-1");
+    const count = before?.kind === "ready" ? before.board.tasks.length : 0;
+    // The task's menu stands with its id and state, not among the window's controls.
+    const menu = document.querySelector('aside[aria-label="Task task-1"] button[aria-label="More for task-1"]')!;
+    expect(menu.closest(".tasks__detail-tools")).toBeNull();
+    expect(menu.closest(".tasks__detail-line")).not.toBeNull();
+    // Through the task's menu (⋯), opened again for the second press.
+    const choose = () => {
+      act(() => document.querySelector<HTMLButtonElement>('aside[aria-label="Task task-1"] button[aria-label="More for task-1"]')!.click());
+      act(() => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find((b) => b.textContent?.includes("Duplicate"))!.click());
+    };
+    const confirmCopy = () => {
+      const dialog = document.querySelector('.confirm[role="dialog"]')!;
+      act(() => Array.from(dialog.querySelectorAll<HTMLButtonElement>("button")).find((b) => b.textContent === "Duplicate")!.click());
+    };
+    // The menu only asks: nothing is made until the dialog's Duplicate.
+    choose();
+    expect(document.querySelector('.confirm[role="dialog"] .confirm__title')?.textContent).toBe("Duplicate task-1");
+    const asked = service.peek("ws-1");
+    expect(asked?.kind === "ready" && asked.board.tasks.length).toBe(count);
+    confirmCopy();
+    // While that copy is on its way, the menu offers no second one.
+    act(() => document.querySelector<HTMLButtonElement>('aside[aria-label="Task task-1"] button[aria-label="More for task-1"]')!.click());
+    const again = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find((b) => b.textContent?.includes("Duplicate"));
+    expect(again?.disabled || again?.getAttribute("aria-disabled") === "true").toBe(true);
+    await flush();
+    const state = service.peek("ws-1");
+    expect(state?.kind === "ready" && state.board.tasks.length).toBe(count + 1);
+    const copy = state?.kind === "ready" ? state.board.tasks[state.board.tasks.length - 1] : null;
+    expect(copy?.title).toBe("(copy) Draft the skill");
+    expect(copy?.assignee).toBeNull();
+    expect(focus).toBe(copy?.id);
+  });
+
+  it("transfers the open task to another team from its menu: confirmed in a dialog, then the panel closes", async () => {
+    const { service } = await seeded();
+    focus = "task-1";
+    const render = mount(service);
+    render();
+    await flush();
+    act(() => document.querySelector<HTMLButtonElement>('aside[aria-label="Task task-1"] button[aria-label="More for task-1"]')!.click());
+    act(() => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find((b) => b.textContent?.includes("Transfer"))!.click());
+    await flush();
+    // A dialog of its own, over everything.
+    const confirm = document.querySelector('.confirm[role="dialog"]')!;
+    expect(confirm.querySelector(".confirm__title")?.textContent).toBe("Transfer task-1");
+    expect(confirm.textContent).toContain("Move it to web?");
+    act(() => Array.from(confirm.querySelectorAll<HTMLButtonElement>("button")).find((b) => b.textContent === "Move")!.click());
+    await flush();
+    const state = service.peek("ws-1");
+    expect(state?.kind === "ready" && state.board.tasks.find((t) => t.id === "task-1")?.teamId).toBe("team-2");
+    expect(focus).toBeNull();
+  });
+
+  it("renames the open task in place — a double click on its title, or Rename in its menu", async () => {
+    const { service } = await seeded();
+    focus = "task-1";
+    const render = mount(service);
+    render();
+    await flush();
+    const panel = () => document.querySelector('aside[aria-label="Task task-1"]')!;
+    const typeAndEnter = (text: string) => {
+      // A wrapping field — the title may run to several lines.
+      const field = panel().querySelector<HTMLTextAreaElement>("textarea.tasks__detail-title-edit")!;
+      act(() => {
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(field, text);
+        field.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      act(() => void field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+    };
+    const titleOf = () => {
+      const state = service.peek("ws-1");
+      return state?.kind === "ready" ? state.board.tasks.find((t) => t.id === "task-1")?.title : null;
+    };
+    act(() => void panel().querySelector(".tasks__detail-title")!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+    typeAndEnter("Draft the skill, again");
+    await flush();
+    expect(titleOf()).toBe("Draft the skill, again");
+    render();
+    await flush();
+    act(() => panel().querySelector<HTMLButtonElement>('button[aria-label="More for task-1"]')!.click());
+    act(() => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find((b) => b.textContent?.includes("Rename"))!.click());
+    typeAndEnter("Draft it");
+    await flush();
+    expect(titleOf()).toBe("Draft it");
+  });
+
+  it("peels one layer per Escape: a confirm over the task, then the field inside it, each its own", async () => {
+    const { service } = await seeded();
+    focus = "task-1";
+    const render = mount(service);
+    render();
+    await flush();
+    const escape = (target: EventTarget = document.body) =>
+      act(() => void target.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+    act(() => document.querySelector<HTMLButtonElement>('aside[aria-label="Task task-1"] button[aria-label="More for task-1"]')!.click());
+    act(() => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find((b) => b.textContent?.includes("Duplicate"))!.click());
+    expect(document.querySelector('.confirm[role="dialog"]')).not.toBeNull();
+    escape();
+    await flush();
+    // The confirm went; the task stayed open.
+    expect(document.querySelector('.confirm[role="dialog"]')).toBeNull();
+    expect(focus).toBe("task-1");
+    // The title's field: its Escape ends the edit, and only that.
+    act(() => void document.querySelector('aside[aria-label="Task task-1"] .tasks__detail-title')!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+    escape(document.querySelector("textarea.tasks__detail-title-edit")!);
+    await flush();
+    expect(document.querySelector("textarea.tasks__detail-title-edit")).toBeNull();
+    expect(focus).toBe("task-1");
+  });
+
   it("creates a task from the form as the user and opens it", async () => {
     const { service } = await seeded();
     const render = mount(service);

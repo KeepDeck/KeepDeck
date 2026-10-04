@@ -18,7 +18,7 @@ export interface InlineRename {
     value: string;
     onChange(event: { target: { value: string } }): void;
     onBlur(event: { currentTarget: Node }): void;
-    onKeyDown(event: { key: string }): void;
+    onKeyDown(event: RenameKey): void;
   };
 }
 
@@ -40,12 +40,23 @@ export interface InlineRename {
  * the keyboard — before that a rename could only be blurred by a click, which
  * IS the user leaving the field.
  */
+/** A key press in the field, as much of it as the rename reads. */
+export interface RenameKey {
+  key: string;
+  /** Mid-composition (IME): Enter picks the candidate, it does not commit. */
+  nativeEvent?: { isComposing?: boolean };
+  stopPropagation?(): void;
+}
+
 export function useInlineRename(
-  commit: (key: string, name: string) => void,
+  /** `from` is the name the edit began with — what "unchanged" means, even
+   * when the subject was renamed elsewhere while the field stood open. */
+  commit: (key: string, name: string, from: string) => void,
   allowed = true,
 ): InlineRename {
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
+  const [from, setFrom] = useState("");
 
   // A surface that may no longer hold the keyboard must not be left with an
   // edit in flight. A modal layer blurs the field itself, but a covering dock
@@ -58,7 +69,7 @@ export function useInlineRename(
 
   const commitDraft = () => {
     if (editing === null) return;
-    commit(editing, draft.trim());
+    commit(editing, draft.trim(), from);
     setEditing(null);
   };
 
@@ -66,6 +77,7 @@ export function useInlineRename(
     editing,
     start(key, current) {
       setDraft(current);
+      setFrom(current);
       setEditing(key);
     },
     inputProps: {
@@ -79,8 +91,15 @@ export function useInlineRename(
         commitDraft();
       },
       onKeyDown: (event) => {
-        if (event.key === "Enter") commitDraft();
-        else if (event.key === "Escape") setEditing(null);
+        if (event.key === "Enter") {
+          // A composing IME's Enter picks its candidate: the name is not done.
+          if (!event.nativeEvent?.isComposing) commitDraft();
+        } else if (event.key === "Escape") {
+          // The field's own Escape — it ends the edit, and goes no further:
+          // the dialog around it keeps its own (its layer is not the field's).
+          event.stopPropagation?.();
+          setEditing(null);
+        }
       },
     },
   };

@@ -6,10 +6,10 @@ import { NO_QUERY } from "./queryView";
 import { LADDER_WORDS, tasksLadder } from "./ladderView";
 import { newTaskFormView, NEW_TASK_WORDS } from "./newTaskFormView";
 import { statusMark, statusRing, taskCardView, taskCardClassName } from "./taskCardView";
-import { TASK_DETAIL_WORDS, changesOf, commentsOf, pickedArtifact, pickedStatus, taskDetailClassName, taskDetailView } from "./taskDetailView";
+import { TASK_DETAIL_WORDS, changesOf, commentsOf, renamedTitle, pickedArtifact, pickedStatus, taskDetailClassName, taskDetailView } from "./taskDetailView";
 import { teamCardTasksLine } from "./teamCardTasksLine";
 import { teamOnScreen } from "./teamOnScreen";
-import { fieldCount, personName, priorityMark, statusTone, FIELD_WORDS, POOL_CHOICE } from "./words";
+import { blockerLinkWords, fieldCount, personName, priorityMark, statusTone, FIELD_WORDS, POOL_CHOICE } from "./words";
 
 const NOW = 100_000;
 const ROSTER = ["lead", "impl-1", "impl-2"];
@@ -333,6 +333,59 @@ describe("commentsOf / changesOf — what was said, and what was changed, apart"
     expect(new Set(changesOf({ log: [labels(1, "a,b", "b,c")] }, 0).map((item) => item.key)).size).toBe(2);
   });
 
+  it("offers the task's menu: Duplicate, and Transfer — refused, with why, where it cannot go", () => {
+    const teams = [{ id: "team-1", name: "api" }, { id: "team-2", name: "web" }];
+    const b = board([task({ id: "task-4" }), task({ id: "task-5", status: "done" })]);
+    const view = taskDetailView(b.tasks[0], b, ROSTER, 0, [], false, teams);
+    expect(view.menu).toEqual({
+      label: "More for task-4",
+      actions: [
+        { id: "rename", label: "Rename", refusal: null },
+        { id: "duplicate", label: "Duplicate", refusal: null },
+        { id: "transfer", label: "Transfer", refusal: null },
+      ],
+    });
+    // A copy is asked for, never made by a stray click; the words say where it lands.
+    expect(view.duplicate.title).toBe("Duplicate task-4");
+    expect(view.duplicate.message).toContain("in To do, unassigned");
+    const parked = board([task({ id: "task-7", status: "backlog" })]);
+    expect(taskDetailView(parked.tasks[0], parked, ROSTER, 0).duplicate.message).toContain("in Backlog");
+    // Only the other teams are offered.
+    expect(view.transfer.options).toEqual([{ value: "team-2", label: "web" }]);
+    const refusal = (t: typeof b.tasks[number], within = teams) =>
+      taskDetailView(t, b, ROSTER, 0, [], false, within).menu.actions[2].refusal;
+    expect(refusal(b.tasks[0], [teams[0]])).toBe("No other team in this workspace");
+    expect(refusal(b.tasks[1])).toContain("done task stays where it is");
+    const linked = board([task({ id: "task-4" }), task({ id: "task-6", blockedBy: ["task-4"] })]);
+    expect(taskDetailView(linked.tasks[0], linked, ROSTER, 0, [], false, teams).menu.actions[2].refusal).toContain("task-6 waits on it");
+  });
+
+  it("renames to the typed title — nothing for an empty one, or for the title the edit began with", () => {
+    expect(renamedTitle("Draft", "  Draft the skill ")).toBe("Draft the skill");
+    expect(renamedTitle("Draft", "   ")).toBeNull();
+    // Untouched since it began: no write, even if the title changed meanwhile.
+    expect(renamedTitle("Draft", " Draft ")).toBeNull();
+  });
+
+  it("warns, in the transfer's confirm, that work under way stops", () => {
+    const teams = [{ id: "team-1", name: "api" }, { id: "team-2", name: "web" }];
+    const b = board([task({ id: "task-1", status: "in-progress", assignee: "impl-1" }), task({ id: "task-2" })]);
+    const confirm = (t: typeof b.tasks[number]) => taskDetailView(t, b, ROSTER, 0, [], false, teams).transfer.confirm("web");
+    expect(confirm(b.tasks[0])).toContain("It is in progress with impl-1 — that work stops here.");
+    expect(confirm(b.tasks[1])).not.toContain("stops");
+  });
+
+  it("says a transfer in words, by the teams' names", () => {
+    const entry = { at: 1, from: "lead", field: "transferred" as const, was: "api", now: "web" };
+    expect(changesOf({ log: [entry] }, 0).map((c) => c.text)).toEqual(["moved from api to web"]);
+  });
+
+  it("says a copy's two ends in words", () => {
+    const entry = (field: "copiedFrom" | "copiedTo", now: string) => ({ at: 1, from: "lead", field, was: null, now });
+    expect(changesOf({ log: [entry("copiedFrom", "task-1")] }, 0).map((c) => c.text)).toEqual(["copied from task-1"]);
+    expect(changesOf({ log: [entry("copiedTo", "task-9")] }, 0).map((c) => c.text)).toEqual(["copied to task-9"]);
+  });
+
   it("keeps a change's key as the log is cut from the front at its cap", () => {
     const log = [1, 2, 3, 4, 5].map((at) => change(at, `s${at}`));
     const keyOf = (feed: ReturnType<typeof changesOf>, text: string) => feed.find((item) => item.text === text)?.key;
@@ -378,5 +431,15 @@ describe("fieldCount — a capped field's count", () => {
     // Characters, not UTF-16 units: an emoji is one.
     expect(fieldCount("comment", "👍👍").text).toBe("2/4000");
     expect(fieldCount("title", "x".repeat(121))).toEqual({ text: "121/120", className: "tasks__count tasks__count--over" });
+  });
+});
+
+describe("blockerLinkWords — the links that keep a task on its team", () => {
+  it("names what it waits on, then what waits on it", () => {
+    expect(blockerLinkWords({ blockers: ["task-2"], dependants: ["task-3", "task-4"] })).toEqual([
+      "it waits on task-2",
+      "task-3 waits on it",
+      "task-4 waits on it",
+    ]);
   });
 });

@@ -16,11 +16,33 @@ export interface TaskNotificationWords {
 /** A task an agent put on the board — parked, if it went to the backlog,
  * so the center says it is not one to take. `by` is the role, or null for
  * an agent with none. */
-export function createdWords(task: Pick<Task, "id" | "title" | "status">, by: string | null, team: string): TaskNotificationWords {
+export function createdWords(
+  task: Pick<Task, "id" | "title" | "status">,
+  by: string | null,
+  team: string,
+  /** The task this one is a copy of, when it is one. */
+  copiedFrom?: string,
+): TaskNotificationWords {
   const who = by ?? "an agent";
+  const what = copiedFrom === undefined ? "a task" : `a copy of ${copiedFrom}`;
   return {
-    title: task.status === "backlog" ? `${who} parked a task in ${team}'s backlog` : `${who} put a task on ${team}'s board`,
+    title: task.status === "backlog" ? `${who} parked ${what} in ${team}'s backlog` : `${who} put ${what} on ${team}'s board`,
     body: `${task.id} · ${task.title}`,
+    severity: "info",
+  };
+}
+
+/** A task an agent handed from one team to another — the board it is on
+ * now is `to`'s, in its pool. */
+export function transferredWords(
+  task: Pick<Task, "id" | "title">,
+  by: string | null,
+  from: string,
+  to: string,
+): TaskNotificationWords {
+  return {
+    title: `${by ?? "an agent"} moved ${task.id} from ${from} to ${to}`,
+    body: `${task.title} · unassigned · ${to}`,
     severity: "info",
   };
 }

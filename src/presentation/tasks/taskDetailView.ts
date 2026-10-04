@@ -6,6 +6,7 @@ import {
   labelsOf,
   reachableStatuses,
   tasksOfTeam,
+  transferProblem,
   unblocks,
   type Task,
   type TaskBoard,
@@ -18,6 +19,7 @@ import {
   BOARD_ORDER,
   POOL_CHOICE,
   STATUS_LABEL,
+  blockerLinkWords,
   priorityChoices,
   type ChoiceView,
   personName,
@@ -75,6 +77,21 @@ export interface TaskDetailView {
   /** Nothing published to attach: a one-word value, the reason in its
    * tooltip. Null when the workspace has artifacts. */
   attachEmpty: { text: string; title: string } | null;
+  /** The task's menu (⋯): what else may be done with it, in order. */
+  menu: { label: string; actions: TaskAction[] };
+  /** Copying it: the confirm's words — a copy is one more task on the
+   * board, never made by a stray click. */
+  duplicate: { title: string; message: string; confirm: string; cancel: string };
+  /** Handing it to another team: the teams it may go to, and the words of
+   * its confirm. */
+  transfer: {
+    title: string;
+    prompt: string;
+    options: ChoiceView[];
+    confirm: (team: string) => string;
+    move: string;
+    cancel: string;
+  };
   /** What was said, oldest first — the task's substance, always shown,
    * the composer under it (`commentsOf`). */
   comments: CommentItem[];
@@ -97,6 +114,14 @@ export interface FeedChange {
   who: string;
   text: string;
   age: string;
+}
+
+/** An action the task's menu offers — the component binds each to its
+ * intent. A refused one is shown, greyed, with why. */
+export interface TaskAction {
+  id: "rename" | "duplicate" | "transfer";
+  label: string;
+  refusal: string | null;
 }
 
 export interface CommentItem {
@@ -123,6 +148,28 @@ export const TASK_DETAIL_WORDS = {
   activity: "Activity",
   changesEmpty: "Nothing changed yet",
   labelAdded: (label: string) => `added label ${label}`,
+  copiedFrom: (id: string) => `copied from ${id}`,
+  copiedTo: (id: string) => `copied to ${id}`,
+  transferred: (from: string, to: string) => `moved from ${from} to ${to}`,
+  rename: "Rename",
+  renameField: "Task title",
+  duplicate: "Duplicate",
+  duplicateTitle: (id: string) => `Duplicate ${id}`,
+  duplicateMessage: (where: string) =>
+    `A new task with its brief, priority, labels and artifacts, titled "(copy) …", in ${where}, unassigned — without its comments or history.`,
+  transfer: "Transfer",
+  transferTitle: (id: string) => `Transfer ${id}`,
+  transferPrompt: "To team",
+  transferConfirm: (team: string, stops: string | null) =>
+    `Move it to ${team}? It goes unassigned, back to To do.${stops ? ` ${stops}` : ""}`,
+  transferStops: (status: string, holder: string | null) =>
+    holder ? `It is ${status} with ${holder} — that work stops here.` : `It is ${status} — that stops here.`,
+  transferMove: "Move",
+  cancel: "Cancel",
+  transferNoTeam: "No other team in this workspace",
+  transferClosed: (status: string) => `A ${status} task stays where it is — duplicate it instead`,
+  transferLinked: (links: string) => `Linked by blockers — ${links}; unlink first`,
+  menu: (id: string) => `More for ${id}`,
   labelRemoved: (label: string) => `removed label ${label}`,
   trimmed: (max: number, what: string) => `At the board's limit — it keeps only the last ${max} ${what}`,
   detach: "Detach",
@@ -165,8 +212,11 @@ export function taskDetailView(
   artifacts: readonly ArtifactRef[] = [],
   /** The activity (`changesOf`) opened under its heading. */
   activityOpen = false,
+  /** The workspace's live teams — where a transfer may go (the deck's). */
+  teams: readonly { id: string; name: string }[] = [],
 ): TaskDetailView {
   const ctx = { board, roster, at: now };
+  const others = teams.filter((team) => team.id !== task.teamId);
   const reachable = new Set(reachableStatuses(task, USER_ACTOR, ctx));
   const statusOptions = BOARD_ORDER.filter((to) => to === task.status || reachable.has(to)).map((to) => ({
     value: to,
@@ -219,6 +269,28 @@ export function taskDetailView(
       artifacts.length === 0
         ? { text: "none", title: "Nothing published in this workspace yet — agents attach with task.update artifacts=<id>" }
         : null,
+    menu: {
+      label: TASK_DETAIL_WORDS.menu(task.id),
+      actions: [
+        { id: "rename", label: TASK_DETAIL_WORDS.rename, refusal: null },
+        { id: "duplicate", label: TASK_DETAIL_WORDS.duplicate, refusal: null },
+        { id: "transfer", label: TASK_DETAIL_WORDS.transfer, refusal: transferRefusal(task, board, others.length) },
+      ],
+    },
+    duplicate: {
+      title: TASK_DETAIL_WORDS.duplicateTitle(task.id),
+      message: TASK_DETAIL_WORDS.duplicateMessage(task.status === "backlog" ? STATUS_LABEL.backlog : STATUS_LABEL.todo),
+      confirm: TASK_DETAIL_WORDS.duplicate,
+      cancel: TASK_DETAIL_WORDS.cancel,
+    },
+    transfer: {
+      title: TASK_DETAIL_WORDS.transferTitle(task.id),
+      prompt: TASK_DETAIL_WORDS.transferPrompt,
+      options: others.map((team) => ({ value: team.id, label: team.name })),
+      confirm: (team: string) => TASK_DETAIL_WORDS.transferConfirm(team, transferStops(task)),
+      move: TASK_DETAIL_WORDS.transferMove,
+      cancel: TASK_DETAIL_WORDS.cancel,
+    },
     comments: commentsOf(task, now),
     commentsEmpty: task.comments.length === 0 ? TASK_DETAIL_WORDS.commentsEmpty : null,
     activity: { label: TASK_DETAIL_WORDS.activity, open: activityOpen },
@@ -228,6 +300,38 @@ export function taskDetailView(
       task.comments.length >= TASK_CAPS.commentsMax ? TASK_DETAIL_WORDS.trimmed(TASK_CAPS.commentsMax, "comments") : null,
     changesTrimmed: task.log.length >= TASK_CAPS.logMax ? TASK_DETAIL_WORDS.trimmed(TASK_CAPS.logMax, "changes") : null,
   };
+}
+
+/** The title a rename commits, or null when there is nothing to change:
+ * the typed text trimmed — empty keeps the title (a task has no automatic
+ * name to fall back to; the field's own rule, like Escape), and the title
+ * the edit BEGAN with is no edit — so a rename left untouched never writes
+ * back over a title an agent changed meanwhile. */
+export function renamedTitle(from: string, typed: string): string | null {
+  const title = typed.trim();
+  return title === "" || title === from ? null : title;
+}
+
+/** What a transfer interrupts, said in its confirm: work under way (in
+ * progress, blocked, in review) is reset to To do on the new team — the
+ * person should know before they move it. Null for work not yet begun. */
+function transferStops(task: Task): string | null {
+  if (task.status !== "in-progress" && task.status !== "blocked" && task.status !== "review") return null;
+  return TASK_DETAIL_WORDS.transferStops(STATUS_LABEL[task.status].toLowerCase(), task.assignee);
+}
+
+/** Why the person may not hand this task to another team now, in words —
+ * the domain's rule (`transferProblem`) asked as the user, plus the one
+ * thing only the deck knows: that there is another team to hand it to. */
+function transferRefusal(task: Task, board: TaskBoard, otherTeams: number): string | null {
+  if (otherTeams === 0) return TASK_DETAIL_WORDS.transferNoTeam;
+  const problem = transferProblem(task, USER_ACTOR, board);
+  if (problem === null) return null;
+  if (problem.kind === "transfer-closed") return TASK_DETAIL_WORDS.transferClosed(STATUS_LABEL[problem.status].toLowerCase());
+  if (problem.kind === "transfer-linked") {
+    return TASK_DETAIL_WORDS.transferLinked(blockerLinkWords(problem).join(", "));
+  }
+  return null;
 }
 
 /** What was said, oldest first (the order the board keeps). */
@@ -277,6 +381,9 @@ function changeItems(entry: Task["log"][number], key: string, now: number): Feed
       ...before.filter((label) => !after.includes(label)).map((label) => line(TASK_DETAIL_WORDS.labelRemoved(label), `-${label}`)),
     ];
   }
+  if (entry.field === "copiedFrom") return [line(TASK_DETAIL_WORDS.copiedFrom(entry.now ?? "—"))];
+  if (entry.field === "copiedTo") return [line(TASK_DETAIL_WORDS.copiedTo(entry.now ?? "—"))];
+  if (entry.field === "transferred") return [line(TASK_DETAIL_WORDS.transferred(entry.was ?? "—", entry.now ?? "—"))];
   if (entry.field === "body") {
     return [line(`edited the brief (the previous version is kept in the log: ${entry.was?.length ?? 0} characters)`)];
   }

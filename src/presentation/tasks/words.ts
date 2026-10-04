@@ -131,3 +131,10 @@ export const BOARD_ORDER: readonly TaskStatus[] = [
   "done",
   "cancelled",
 ];
+
+/** The blocker links that keep a task on its team, as the person reads
+ * them: what it waits on, then what waits on it. One wording for the
+ * detail's menu and the agents' refusal. */
+export function blockerLinkWords(links: { blockers: readonly string[]; dependants: readonly string[] }): string[] {
+  return [...links.blockers.map((id) => `it waits on ${id}`), ...links.dependants.map((id) => `${id} waits on it`)];
+}

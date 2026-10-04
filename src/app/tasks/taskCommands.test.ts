@@ -30,15 +30,17 @@ const OTHER_LEAD = from("pane-5");
 const LONER = from("pane-7");
 
 describe("task commands", () => {
-  it("registers seven commands and unregisters them together", () => {
+  it("registers nine commands and unregisters them together", () => {
     const { registry, dispose } = setup();
     expect(registry.list().map((c) => c.id).sort()).toEqual([
       "task.comment",
       "task.create",
+      "task.duplicate",
       "task.get",
       "task.list",
       "task.mine",
       "task.next",
+      "task.transfer",
       "task.update",
     ]);
     dispose();
@@ -71,6 +73,37 @@ describe("task commands", () => {
     await run("task.update", { id: "task-1", status: "in-progress" }, IMPL2);
     await run("task.update", { id: "task-1", status: "review" }, IMPL2);
     expect(await refused("task.update", { id: "task-1", status: "done" }, IMPL2)).toContain("is lead's");
+  });
+
+  it("duplicates a task as a fresh one, and says what a working role's copy could not carry", async () => {
+    const { run } = setup();
+    await run("task.create", { title: "Original", priority: "high", labels: "ui" }, LEAD);
+    const copy = await run("task.duplicate", { id: "task-1" }, LEAD);
+    expect(copy).toMatchObject({ id: "task-2", copiedFrom: "task-1", status: "todo", priority: "high" });
+    const mine = await run("task.duplicate", { id: "task-1" }, IMPL1);
+    expect(mine.note).toContain("not carried over: priority (high)");
+    expect(mine.note).toContain("labels");
+    const original = await run("task.get", { id: "task-1" }, LEAD);
+    expect(JSON.stringify(original)).toContain("copiedTo");
+    // Where the copy went is said as it is: a parked source's copy is parked.
+    await run("task.update", { id: "task-1", status: "backlog" }, LEAD);
+    const parked = await run("task.duplicate", { id: "task-1" }, LEAD);
+    expect(parked.note).toContain("parked in the team's backlog");
+    expect(parked.note).not.toContain("pool");
+  });
+
+  it("transfers a task to another team by name, the lead's to do, and says to tell them", async () => {
+    const { run, refused } = setup();
+    await run("task.create", { title: "Hand over", assignee: "impl-1" }, LEAD);
+    expect(await refused("task.transfer", { id: "task-1", to: "web" }, IMPL1)).toContain("handing a task to another team is lead's");
+    const moved = await run("task.transfer", { id: "task-1", to: "web" }, LEAD);
+    expect(moved).toMatchObject({ id: "task-1", team: "web" });
+    expect(moved.note).toContain("tell its lead with mail.send");
+    // Who held it is named too: it loses the task without a word from the board.
+    expect(moved.note).toContain("impl-1, who held it");
+    // Off this team's board now: the lead reads only its own.
+    expect(await refused("task.get", { id: "task-1" }, LEAD)).toContain("another team's board");
+    expect(await refused("task.transfer", { id: "task-1", to: "nowhere" }, LEAD)).toBeTruthy();
   });
 
   it("refuses a title past its cap in words an agent can act on", async () => {

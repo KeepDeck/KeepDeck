@@ -14,6 +14,12 @@
   outline: none;
 }
 
+.rename-input--multiline {
+  display: block;
+  resize: none;
+  overflow-y: hidden;
+}
+
 .rename-input:focus {
   border-color: var(--kd-focus);
 }

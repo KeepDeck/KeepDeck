@@ -24,6 +24,9 @@ import {
   EMPTY_BOARD,
   createTask,
   decodeBoard,
+  duplicateTask,
+  transferTask,
+  type NotCarried,
   encodeBoard,
   findTask,
   keepTeams,
@@ -94,7 +97,9 @@ export function readyBoard(state: BoardState | null | undefined): TaskBoard | nu
 export type TaskProblem =
   | TaskRefusal
   | { kind: "board-unreadable"; error: string }
-  | { kind: "unknown-task"; id: string };
+  | { kind: "unknown-task"; id: string }
+  /** A transfer to a team the workspace does not have (any more). */
+  | { kind: "unknown-team"; team: string };
 
 export type TaskResult =
   | {
@@ -116,7 +121,17 @@ export type TaskEvent = {
   workspaceId: string;
   task: Task;
   actor: TaskActor;
-} & ({ kind: "created" } | { kind: "moved"; from: TaskStatus });
+} & (
+  | { kind: "created"; copiedFrom?: string }
+  | { kind: "moved"; from: TaskStatus }
+  /** Handed to another team: the task stands on the target now. */
+  | { kind: "transferred"; fromTeam: string }
+);
+
+/** A duplicate's answer: the copy, and what it left at its default. */
+export type DuplicateResult =
+  | (Extract<TaskResult, { ok: true }> & { notCarried: readonly NotCarried[] })
+  | Extract<TaskResult, { ok: false }>;
 
 export interface TasksService {
   /** One workspace's board as held here. Asking for a board nobody asked
@@ -133,6 +148,13 @@ export interface TasksService {
   /** The role addresses on a team right now — what an assignee must be. */
   rosterOf(workspaceId: string, teamId: string): string[];
   create(workspaceId: string, input: CreateTaskInput, actor: TaskActor): Promise<TaskResult>;
+  /** Copy `taskId` as a fresh task (`duplicateTask`): the copy is the
+   * result's task; both tasks' logs say so. */
+  duplicate(workspaceId: string, taskId: string, actor: TaskActor): Promise<DuplicateResult>;
+  /** Hand `taskId` to `toTeamId`, a live team of the same workspace
+   * (`transferTask`). The deck says which teams are live — a board may
+   * still hold a disbanded team's id. */
+  transfer(workspaceId: string, taskId: string, toTeamId: string, actor: TaskActor): Promise<TaskResult>;
   /** Apply `changes` in order, all or nothing: a refusal anywhere leaves
    * the board as it was and writes nothing. */
   apply(
@@ -360,6 +382,22 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
     if (kept !== state.board) void commit(workspaceId, kept);
   };
 
+
+  /** A task that joined the board — made, or copied: the write, the
+   * announcement, and the answer, said once for both. */
+  async function commitCreated(
+    workspaceId: string,
+    board: TaskBoard,
+    task: Task,
+    actor: TaskActor,
+    copiedFrom?: string,
+  ): Promise<Extract<TaskResult, { ok: true }>> {
+    const pending = commit(workspaceId, board);
+    emit({ kind: "created", workspaceId, task, actor, ...(copiedFrom === undefined ? {} : { copiedFrom }) });
+    const saveError = await pending;
+    return { ok: true, task, board, saved: saveError === null, saveError };
+  }
+
   return {
     board(workspaceId) {
       const state = states.get(workspaceId);
@@ -397,10 +435,48 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
         at: now(),
       });
       if (!result.ok) return result;
-      const pending = commit(workspaceId, result.board);
-      emit({ kind: "created", workspaceId, task: result.task, actor });
+      return commitCreated(workspaceId, result.board, result.task, actor);
+    },
+    async duplicate(workspaceId, taskId, actor) {
+      await load(workspaceId);
+      // From here to `commit`: no await.
+      const held = liveBoard(workspaceId);
+      if (!held.ok) return held;
+      const source = findTask(held.board, taskId);
+      if (!source) return { ok: false, refusal: { kind: "unknown-task", id: taskId } };
+      const result = duplicateTask(source, actor, {
+        board: held.board,
+        roster: this.rosterOf(workspaceId, source.teamId),
+        at: now(),
+      });
+      if (!result.ok) return result;
+      const made = await commitCreated(workspaceId, result.board, result.task, actor, source.id);
+      return { ...made, notCarried: result.notCarried };
+    },
+    async transfer(workspaceId, taskId, toTeamId, actor) {
+      await load(workspaceId);
+      // From here to `commit`: no await.
+      const held = liveBoard(workspaceId);
+      if (!held.ok) return held;
+      const task = findTask(held.board, taskId);
+      if (!task) return { ok: false, refusal: { kind: "unknown-task", id: taskId } };
+      const workspace = deps.workspaces().find((candidate) => candidate.id === workspaceId);
+      const teams = workspace ? teamsOf(workspace) : [];
+      const to = teams.find((team) => team.id === toTeamId);
+      if (!to) return { ok: false, refusal: { kind: "unknown-team", team: toTeamId } };
+      const from = teams.find((team) => team.id === task.teamId);
+      const result = transferTask(
+        task,
+        { from: { id: task.teamId, name: from?.name ?? task.teamId }, to: { id: to.id, name: to.name } },
+        actor,
+        { board: held.board, roster: this.rosterOf(workspaceId, task.teamId), at: now() },
+      );
+      if (!result.ok) return result;
+      const { board } = result;
+      const pending = commit(workspaceId, board);
+      emit({ kind: "transferred", fromTeam: from?.name ?? task.teamId, workspaceId, task: result.task, actor });
       const saveError = await pending;
-      return { ok: true, task: result.task, board: result.board, saved: saveError === null, saveError };
+      return { ok: true, task: result.task, board, saved: saveError === null, saveError };
     },
     async apply(workspaceId, taskId, changes, actor) {
       await load(workspaceId);

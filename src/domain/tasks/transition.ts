@@ -9,13 +9,15 @@
  * outranks everyone and walks no ladder at all — any status, any time.
  * A prohibition binds the act, never the channel.
  */
-import { openBlockersOf, findTask } from "./board";
+import { openBlockersOf, findTask, unblocks } from "./board";
 import {
   DEFAULT_PRIORITY,
   TASK_CAPS,
   TASK_STATUSES,
   acceptsWork,
   actorName,
+  blockerResolved,
+  isOpen,
   type Task,
   type TaskActor,
   type TaskBoard,
@@ -98,6 +100,14 @@ export type TaskRefusal =
   /** A field past its cap: which, how long it is, how long it may be —
    * measured as it would be KEPT (a title and a comment trimmed). */
   | { kind: "field-cap"; field: "title" | "body" | "comment"; max: number; length: number }
+  /** A transfer that cannot be made: of a closed task, to its own team,
+   * by an actor who does not hand out work, or of a task still linked by
+   * blockers to its team (`blockers` it waits on, `dependants` waiting on
+   * it — cross-team links are not allowed). */
+  | { kind: "transfer-closed"; status: TaskStatus }
+  | { kind: "transfer-same-team" }
+  | { kind: "not-yours-to-transfer" }
+  | { kind: "transfer-linked"; blockers: readonly string[]; dependants: readonly string[] }
   /** A task asked to start anywhere but where a task may be created. */
   | { kind: "bad-create-status"; status: string; allowed: readonly TaskStatus[] }
   /** A label that is not a word: empty, too long, or with a character
@@ -254,7 +264,8 @@ export function capOf(field: CappedField): number {
  * is stored as written. The one measure the caps, the refusals and the
  * fields' counters all read. */
 export function keptLength(field: CappedField, text: string): number {
-  return [...(field === "body" ? text : text.trim())].length;
+  const kept = field === "body" ? text : field === "title" ? keptTitle(text) : text.trim();
+  return [...kept].length;
 }
 
 function overCap(field: CappedField, text: string): TaskRefusal | null {
@@ -272,8 +283,14 @@ export function commentProblem(body: string): TaskRefusal | null {
 /** A title is measured as it is kept — trimmed: spaces at its ends are
  * never stored, so they never count against the cap. */
 function validateTitle(title: string): TaskRefusal | null {
-  if (title.trim() === "") return { kind: "blank", field: "title" };
+  if (keptTitle(title) === "") return { kind: "blank", field: "title" };
   return overCap("title", title);
+}
+
+/** A title as it is kept: ONE line — a pasted line break becomes a space —
+ * trimmed. The board, the rows and the log all read a title as a line. */
+export function keptTitle(title: string): string {
+  return title.replace(/\s*[\r\n]+\s*/g, " ").trim();
 }
 
 function validateBody(body: string): TaskRefusal | null {
@@ -406,7 +423,7 @@ export function transition(
       if (!mayAssign(actor)) return refuse({ kind: "not-yours-to-assign", field: "title" });
       const bad = validateTitle(change.to);
       if (bad) return refuse(bad);
-      const title = change.to.trim();
+      const title = keptTitle(change.to);
       if (title === task.title) return { ok: true, task };
       return {
         ok: true,
@@ -629,7 +646,7 @@ export function createTask(
   const task: Task = {
     id: `task-${ctx.board.nextId}`,
     teamId: input.teamId,
-    title: input.title.trim(),
+    title: keptTitle(input.title),
     body,
     status,
     priority,
@@ -648,6 +665,158 @@ export function createTask(
     task,
     board: { nextId: ctx.board.nextId + 1, tasks: [...ctx.board.tasks, task] },
   };
+}
+
+/**
+ * A copy of `source`, made as a fresh task: its title, brief, priority,
+ * labels, artifacts and blockers, on its team, in todo — or in the
+ * backlog when the source is parked — and held by no one. Not its
+ * comments, its log, its dates or its assignee: a copy starts its own
+ * history, which opens with where it came from, and the source's log says
+ * where it was copied to.
+ *
+ * By the create's own rules (`createTask`): what the actor may not set at
+ * creation is left at its default rather than refusing the copy — a
+ * working role's copy is at normal priority, and carries labels only when
+ * the actor could label a pool task (whoever hands out work) — and what
+ * was left is answered (`notCarried`), for whoever asked to say so.
+ *
+ * Its blockers are the source's that still hold — a blocker done,
+ * cancelled or gone holds nothing, and a copy is new work. A copy is
+ * nearly a read of the source: the source's log records it, but its
+ * `updated` stays — copying an old task must not bring it to the top.
+ */
+export function duplicateTask(
+  source: Task,
+  actor: TaskActor,
+  ctx: TransitionContext,
+):
+  | { ok: true; board: TaskBoard; task: Task; source: Task; notCarried: NotCarried[] }
+  | { ok: false; refusal: TaskRefusal } {
+  const priority = mayAssign(actor) ? source.priority : DEFAULT_PRIORITY;
+  const labels = mayLabel(actor, { assignee: null }) ? source.labels : [];
+  const made = createTask(
+    {
+      teamId: source.teamId,
+      title: copyTitle(source.title),
+      body: source.body,
+      assignee: null,
+      priority,
+      blockedBy: source.blockedBy.filter((id) => {
+        const blocker = findTask(ctx.board, id);
+        return blocker !== undefined && !blockerResolved(blocker.status);
+      }),
+      artifacts: source.artifacts,
+      labels,
+      status: source.status === "backlog" ? "backlog" : "todo",
+    },
+    actor,
+    ctx,
+  );
+  if (!made.ok) return made;
+  const by = actorName(actor) ?? "";
+  const copy = logged(made.task, [{ at: ctx.at, from: by, field: "copiedFrom", was: null, now: source.id }], ctx.at, {});
+  const original = logged(
+    source,
+    [{ at: ctx.at, from: by, field: "copiedTo", was: null, now: copy.id }],
+    source.updated,
+    {},
+  );
+  const notCarried: NotCarried[] = [
+    ...(priority !== source.priority ? [{ field: "priority" as const, was: source.priority }] : []),
+    ...(labels.length < source.labels.length ? [{ field: "labels" as const, was: source.labels.join(",") }] : []),
+  ];
+  return { ok: true, board: replaceTask(replaceTask(made.board, copy), original), task: copy, source: original, notCarried };
+}
+
+/** A copy's title: the source's, marked `(copy) ` at its start — so the
+ * two read apart on the board — and cut at its end (with "…") when the
+ * mark would carry it past the cap. */
+export function copyTitle(title: string): string {
+  const marked = `${COPY_MARK}${keptTitle(title)}`;
+  if (keptLength("title", marked) <= TASK_CAPS.titleMax) return marked;
+  return `${[...marked].slice(0, TASK_CAPS.titleMax - 1).join("").trimEnd()}…`;
+}
+
+const COPY_MARK = "(copy) ";
+
+/** What a copy left at its default, and what the source had there. */
+export type NotCarried = { field: "priority" | "labels"; was: string };
+
+/** The teams a transfer is between: their ids, and their names as the log
+ * keeps them. The target is a live team of the workspace — the caller's to
+ * know (the deck), not the board's. */
+export interface TransferTeams {
+  from: { id: string; name: string };
+  to: { id: string; name: string };
+}
+
+/** Why `task` may not be transferred by `actor` now, or null when it may —
+ * everything but the target, which only the caller knows: the rule the
+ * transfer applies and a menu asks before offering it. */
+export function transferProblem(task: Task, actor: TaskActor, board: TaskBoard): TaskRefusal | null {
+  const membership = onTeam(actor, task.teamId);
+  if (membership) return membership;
+  if (!mayAssign(actor)) return { kind: "not-yours-to-transfer" };
+  if (!isOpen(task.status)) return { kind: "transfer-closed", status: task.status };
+  // Live links only: a resolved blocker holds nothing, a closed dependant
+  // waits on nothing — and a link to either stays behind harmlessly.
+  const blockers = openBlockersOf(task, board);
+  const dependants = unblocks(task, board)
+    .filter((other) => isOpen(other.status))
+    .map((other) => other.id);
+  if (blockers.length > 0 || dependants.length > 0) {
+    return { kind: "transfer-linked", blockers, dependants };
+  }
+  return null;
+}
+
+/**
+ * Hand `task` to another team of the same workspace: the same task — its
+ * id, brief, labels, priority, artifacts, comments and log — on the
+ * target's board, held by no one (a role belongs to its team) and back at
+ * the ladder's start: todo, or the backlog if it was parked.
+ *
+ * No link may cross teams, so the links that hold nothing go both ways:
+ * its resolved blockers, and its id from the CLOSED tasks that named it (a
+ * reopened one would otherwise wait on another team's task). The log says
+ * `transferred: A → B` and, before it, every field the move reset — who
+ * held it, where it stood, what it waited on — so the history reads whole.
+ */
+export function transferTask(
+  task: Task,
+  teams: TransferTeams,
+  actor: TaskActor,
+  ctx: TransitionContext,
+): { ok: true; task: Task; board: TaskBoard } | Refused {
+  if (teams.to.id === task.teamId) return refuse({ kind: "transfer-same-team" });
+  const problem = transferProblem(task, actor, ctx.board);
+  if (problem) return refuse(problem);
+  const by = actorName(actor) ?? "";
+  const at = ctx.at;
+  const status: TaskStatus = task.status === "backlog" ? "backlog" : "todo";
+  const reset: TaskLogEntry[] = [
+    ...(task.assignee !== null ? [{ at, from: by, field: "assignee" as const, was: task.assignee, now: null }] : []),
+    ...(task.status !== status ? [{ at, from: by, field: "status" as const, was: task.status, now: status }] : []),
+    ...(task.blockedBy.length > 0 ? [{ at, from: by, field: "blockedBy" as const, was: joined(task.blockedBy), now: null }] : []),
+  ];
+  const moved = logged(
+    task,
+    [...reset, { at, from: by, field: "transferred", was: teams.from.name, now: teams.to.name }],
+    at,
+    { teamId: teams.to.id, assignee: null, status, blockedBy: [] },
+  );
+  let board = replaceTask(ctx.board, moved);
+  for (const dependant of unblocks(task, ctx.board)) {
+    const blockedBy = dependant.blockedBy.filter((id) => id !== task.id);
+    board = replaceTask(
+      board,
+      logged(dependant, [{ at, from: by, field: "blockedBy", was: joined(dependant.blockedBy), now: joined(blockedBy) }], dependant.updated, {
+        blockedBy,
+      }),
+    );
+  }
+  return { ok: true, task: moved, board };
 }
 
 /** The board with `task` in place of the one that shares its id. */

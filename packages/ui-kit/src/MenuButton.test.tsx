@@ -2,7 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { MenuButton, type MenuButtonProps } from "./MenuButton";
+import { MenuButton, menuStep, type MenuButtonProps } from "./MenuButton";
 
 (
   globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -218,5 +218,35 @@ describe("MenuButton", () => {
     } finally {
       document.removeEventListener("keydown", onOuterEscape);
     }
+  });
+
+  it("is walked by the keyboard: opened on its first item, arrows step and wrap, Home and End go to the ends", () => {
+    const calls: string[] = [];
+    render({ actions: ACTIONS(calls) });
+    act(() => trigger().click());
+    expect(document.activeElement).toBe(items()[0]);
+    const press = (key: string) =>
+      act(() => void document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true })));
+    press("ArrowDown");
+    expect(document.activeElement).toBe(items()[1]);
+    press("End");
+    expect(document.activeElement).toBe(items()[items().length - 1]);
+    press("ArrowDown");
+    expect(document.activeElement).toBe(items()[0]);
+    press("ArrowUp");
+    expect(document.activeElement).toBe(items()[items().length - 1]);
+  });
+});
+
+describe("menuStep", () => {
+  it("steps and wraps, from none to an end, and ignores other keys", () => {
+    expect(menuStep("ArrowDown", -1, 3)).toBe(0);
+    expect(menuStep("ArrowUp", -1, 3)).toBe(2);
+    expect(menuStep("ArrowDown", 2, 3)).toBe(0);
+    expect(menuStep("ArrowUp", 0, 3)).toBe(2);
+    expect(menuStep("Home", 2, 3)).toBe(0);
+    expect(menuStep("End", 0, 3)).toBe(2);
+    expect(menuStep("Enter", 0, 3)).toBeNull();
+    expect(menuStep("ArrowDown", -1, 0)).toBeNull();
   });
 });
