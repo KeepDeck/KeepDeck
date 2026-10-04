@@ -2,14 +2,21 @@ import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "re
 import { VirtualList } from "@keepdeck/ui-kit/VirtualList";
 import { noAutoCorrect } from "./inputProps";
 import { ModalOverlay } from "./ModalOverlay";
-import { clampCursor, paletteRows, stepCursor, type PaletteItem, type PaletteRow, type PaletteSection } from "./paletteRows";
+import {
+  clampCursor,
+  paletteItemClassName,
+  paletteRowHeight,
+  paletteRows,
+  stepCursor,
+  type PaletteItem,
+  type PaletteRow,
+  type PaletteSection,
+} from "./paletteRows";
 import { useEscape } from "./useEscape";
 
 export type { PaletteItem, PaletteSection } from "./paletteRows";
 
 const rowKey = (row: PaletteRow) => row.key;
-/** A heading's and a row's first-paint height; measured after. */
-const rowHeight = (row: PaletteRow) => (row.kind === "section" ? 28 : 34);
 
 interface CommandPaletteProps {
   /** What it is for — its name to a screen reader. */
@@ -121,7 +128,7 @@ export function CommandPalette({ label, placeholder, sections, empty, onPick, on
             <VirtualList
               items={rows}
               itemKey={rowKey}
-              estimate={rowHeight}
+              estimate={paletteRowHeight}
               className="palette__list"
               id={listId}
               role="listbox"
@@ -145,7 +152,7 @@ export function CommandPalette({ label, placeholder, sections, empty, onPick, on
                     // The field holds the keyboard (a combobox): rows are
                     // reached by the arrows, not by Tab.
                     tabIndex={-1}
-                    className={`palette__item${row.at === cursor ? " palette__item--active" : ""}`}
+                    className={paletteItemClassName(row.at === cursor)}
                     // Keep the field focused: a click is a pick, not a blur.
                     onMouseDown={(event) => event.preventDefault()}
                     onMouseMove={() => setHighlight(row.at)}

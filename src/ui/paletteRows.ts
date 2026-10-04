@@ -39,6 +39,17 @@ export function paletteRows(sections: readonly PaletteSection[], query: string):
   return { rows, count: at };
 }
 
+/** A heading's and a row's first-paint height — the window's guess,
+ * corrected by measurement. */
+export function paletteRowHeight(row: PaletteRow): number {
+  return row.kind === "section" ? 28 : 34;
+}
+
+/** A row's classes: highlighted or not. */
+export function paletteItemClassName(active: boolean): string {
+  return active ? "palette__item palette__item--active" : "palette__item";
+}
+
 /** The highlighted row after an arrow: one step, round the ends. */
 export function stepCursor(cursor: number, count: number, step: 1 | -1): number {
   return count === 0 ? 0 : (cursor + step + count) % count;

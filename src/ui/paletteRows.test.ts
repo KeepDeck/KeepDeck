@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clampCursor, paletteRows, stepCursor } from "./paletteRows";
+import { clampCursor, paletteItemClassName, paletteRowHeight, paletteRows, stepCursor } from "./paletteRows";
 
 const SECTIONS = [
   { title: "Tasks", items: [{ value: "a", label: "Draft the skill", hint: "To do" }, { value: "b", label: "Ship", hint: "In progress" }] },
@@ -27,5 +27,14 @@ describe("the palette's cursor", () => {
     expect(stepCursor(0, 0, 1)).toBe(0);
     expect(clampCursor(5, 2)).toBe(1);
     expect(clampCursor(0, 0)).toBe(0);
+  });
+});
+
+describe("a palette row's look", () => {
+  it("guesses a heading shorter than a row, and marks the highlighted one", () => {
+    const { rows } = paletteRows(SECTIONS, "");
+    expect(rows.slice(0, 2).map(paletteRowHeight)).toEqual([28, 34]);
+    expect(paletteItemClassName(true)).toBe("palette__item palette__item--active");
+    expect(paletteItemClassName(false)).toBe("palette__item");
   });
 });
