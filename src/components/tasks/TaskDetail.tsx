@@ -284,16 +284,16 @@ export function TaskDetail({
             )}
           </ul>
           <div className="tasks__composer-row">
-          <textarea
-            rows={1}
-            className="form__input tasks__comment-input"
-            placeholder={TASK_DETAIL_WORDS.commentPlaceholder}
-            aria-label={TASK_DETAIL_WORDS.comment}
-            value={composer.draft}
-            maxLength={view.commentMax}
-            onChange={(e) => setComposer((current) => typeDraft(current, e.target.value))}
-          />
-            <Button size="sm" onClick={send} disabled={!sendable}>
+            <textarea
+              rows={1}
+              className="form__input tasks__comment-input"
+              placeholder={TASK_DETAIL_WORDS.commentPlaceholder}
+              aria-label={TASK_DETAIL_WORDS.comment}
+              value={composer.draft}
+              maxLength={view.commentMax}
+              onChange={(e) => setComposer((current) => typeDraft(current, e.target.value))}
+            />
+            <Button onClick={send} disabled={!sendable}>
               {TASK_DETAIL_WORDS.comment}
             </Button>
           </div>
