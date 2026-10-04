@@ -1,14 +1,5 @@
 import { useMemo, type CSSProperties } from "react";
-import {
-  Bar,
-  BarChart,
-  Legend,
-  Rectangle,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  type BarShapeProps,
-} from "recharts";
+import { Bar, BarChart, BarStack, Legend, ResponsiveContainer, Tooltip, XAxis } from "recharts";
 import { formatBucket, formatTokens, tokenSegments } from "../../domain/usage";
 import {
   ledgerSeriesColors,
@@ -22,7 +13,6 @@ import {
 } from "../../domain/usage/chartPalette";
 import {
   bucketShares,
-  stackTop,
   usageTimeline,
   type TimelineBucket,
   type UsageTimeline,
@@ -120,29 +110,22 @@ export function UsageChart({
               </span>
             )}
           />
-          {timeline.agents.map((agent) => (
-            <Bar
-              key={agent}
-              name={agent}
-              dataKey={(bucket: TimelineBucket) =>
-                bucket.byAgent[agent]?.totalTokens ?? 0
-              }
-              stackId="tokens"
-              fill={colors.get(agent)}
-              shape={(props: BarShapeProps) => (
-                <Rectangle
-                  {...props}
-                  radius={
-                    stackTop(props.payload as TimelineBucket, timeline.agents) ===
-                    agent
-                      ? [CHART_BAR_RADIUS, CHART_BAR_RADIUS, 0, 0]
-                      : 0
-                  }
-                />
-              )}
-              isAnimationActive={false}
-            />
-          ))}
+          {/* The stack is rounded as ONE column — its cap's corners, whatever
+              segment happens to be on top, however thin: a per-segment
+              radius left a sliver of a cap square on a square stack. */}
+          <BarStack stackId="tokens" radius={[CHART_BAR_RADIUS, CHART_BAR_RADIUS, 0, 0]}>
+            {timeline.agents.map((agent) => (
+              <Bar
+                key={agent}
+                name={agent}
+                dataKey={(bucket: TimelineBucket) =>
+                  bucket.byAgent[agent]?.totalTokens ?? 0
+                }
+                fill={colors.get(agent)}
+                isAnimationActive={false}
+              />
+            ))}
+          </BarStack>
         </BarChart>
       </ResponsiveContainer>
     </section>

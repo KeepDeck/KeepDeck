@@ -190,8 +190,8 @@ describe("the design tokens", () => {
     }
   });
 
-  it("round the chart's stack caps with the chrome's mark radius", () => {
-    expect(`${chart.CHART_BAR_RADIUS}px`).toBe(declared(tokens, "--kd-radius-mark"));
+  it("round the chart's stack caps at half the chrome's mark radius — a column is a few px wide", () => {
+    expect(`${chart.CHART_BAR_RADIUS * 2}px`).toBe(declared(tokens, "--kd-radius-mark"));
   });
 
   it("draw the chart's chrome in the chrome's tokens", () => {
