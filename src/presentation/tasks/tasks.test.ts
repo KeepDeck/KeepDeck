@@ -9,7 +9,7 @@ import { statusMark, statusRing, taskCardView, taskCardClassName } from "./taskC
 import { TASK_DETAIL_WORDS, changesOf, commentsOf, pickedArtifact, pickedStatus, taskDetailClassName, taskDetailView } from "./taskDetailView";
 import { teamCardTasksLine } from "./teamCardTasksLine";
 import { teamOnScreen } from "./teamOnScreen";
-import { personName, priorityMark, statusTone, FIELD_WORDS, POOL_CHOICE } from "./words";
+import { fieldCount, personName, priorityMark, statusTone, FIELD_WORDS, POOL_CHOICE } from "./words";
 
 const NOW = 100_000;
 const ROSTER = ["lead", "impl-1", "impl-2"];
@@ -365,5 +365,12 @@ describe("statusRing — a task's place on the ladder as a ring", () => {
     expect(statusRing("done")).toMatchObject({ fill: 100, tone: "done" });
     expect(statusRing("blocked")).toMatchObject({ fill: 0, tone: "failed", barred: true });
     expect(statusRing("cancelled")).toMatchObject({ fill: 100, tone: "none", barred: false });
+  });
+});
+
+describe("fieldCount — a capped field's count", () => {
+  it("says what is taken of how much there is", () => {
+    expect(fieldCount("", 120)).toBe("0/120");
+    expect(fieldCount("Draft the skill", 120)).toBe("15/120");
   });
 });

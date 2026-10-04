@@ -44,6 +44,12 @@ export function statusTone(status: TaskStatus): StatusTone {
   }
 }
 
+/** A capped field's count under it — what is taken of how much there is
+ * (`37/120`), counted as the cap is (UTF-16 units, the field's maxLength). */
+export function fieldCount(text: string, max: number): string {
+  return `${text.length}/${max}`;
+}
+
 /** The domain stores `user`; a person reading their own name reads "you". */
 export function personName(name: string): string {
   return name === USER_NAME ? "you" : name;

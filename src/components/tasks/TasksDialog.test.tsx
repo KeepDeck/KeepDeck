@@ -345,6 +345,8 @@ describe("TasksDialog", () => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(title, "Review the copy");
       title.dispatchEvent(new Event("input", { bubbles: true }));
     });
+    // The title's count under it: what is taken of the cap.
+    expect(title.parentElement?.querySelector(".tasks__count")?.textContent).toBe("15/120");
     await flush();
     act(() => button("Create task").click());
     await flush();

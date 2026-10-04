@@ -874,11 +874,35 @@
   white-space: pre-wrap;
 }
 
+/* A capped field and its count under it: what is taken of how much. */
+.tasks__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.tasks__field--grow {
+  flex: 1;
+}
+
+.tasks__field > .form__input {
+  margin-bottom: 0;
+}
+
+.tasks__count {
+  align-self: flex-end;
+  color: var(--kd-text-3);
+  font-size: var(--kd-font-small);
+  font-variant-numeric: tabular-nums;
+}
+
 /* One line, its send beside it: the field and the button stand one
-   height (the medium button's), bottoms on one line as the field grows. */
+   height (the medium button's), tops on one line as the field grows
+   down; the field's count sits under it. */
 .tasks__composer-row {
   display: flex;
-  align-items: flex-end;
+  align-items: flex-start;
   gap: 8px;
 }
 

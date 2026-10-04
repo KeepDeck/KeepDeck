@@ -8,6 +8,7 @@ import {
   TASK_DETAIL_WORDS,
   beginSend,
   composerCanSend,
+  fieldCount,
   labelDraftAfter,
   labelSendable,
   finishSend,
@@ -282,16 +283,19 @@ export function TaskDetail({
             ))}
           </ul>
           <div className="tasks__composer-row">
-            <textarea
-              ref={commentField}
-              rows={1}
-              className="form__input tasks__comment-input"
-              placeholder={TASK_DETAIL_WORDS.commentPlaceholder}
-              aria-label={TASK_DETAIL_WORDS.comment}
-              value={composer.draft}
-              maxLength={view.commentMax}
-              onChange={(e) => setComposer((current) => typeDraft(current, e.target.value))}
-            />
+            <div className="tasks__field tasks__field--grow">
+              <textarea
+                ref={commentField}
+                rows={1}
+                className="form__input tasks__comment-input"
+                placeholder={TASK_DETAIL_WORDS.commentPlaceholder}
+                aria-label={TASK_DETAIL_WORDS.comment}
+                value={composer.draft}
+                maxLength={view.commentMax}
+                onChange={(e) => setComposer((current) => typeDraft(current, e.target.value))}
+              />
+              <span className="tasks__count">{fieldCount(composer.draft, view.commentMax)}</span>
+            </div>
             <Button onClick={send} disabled={!sendable}>
               {TASK_DETAIL_WORDS.comment}
             </Button>
