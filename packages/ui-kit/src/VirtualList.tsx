@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useReducer, useRef, type ReactNode } from "react";
-import { pinnedShift } from "./pinnedShift";
 import { changedAfter } from "./rowAnchor";
 import { useFocusHandoff } from "./useFocusHandoff";
+import { usePinnedHeading } from "./usePinnedHeading";
 import { useRowWindow } from "./useRowWindow";
 
 /** The elements a consumer's list is made of, when the defaults (plain
@@ -44,10 +44,12 @@ export interface VirtualListProps<T> extends VirtualListMarkup {
    * in view — a grouped list's "which group am I in". Items are placed
    * absolutely, so CSS `position: sticky` cannot reach one of them; this
    * is the one sticky layer, over every item, taking no room of its own.
-   * Return null for no heading. `height` is the room it covers: a row
-   * revealed upward stops below it. `heads` says which items start a
-   * group — the next one, reaching the top, pushes the pinned heading out
-   * ahead of it (`pinnedShift`) instead of sliding under it. */
+   * Return null for no heading. `height` is the room it covers — a row
+   * revealed upward stops below it — and the distance the next group's
+   * heading pushes it out over, so it is the heading's real height. `heads`
+   * says which items start a group: the next one, reaching the top, pushes
+   * the pinned heading out ahead of it (`pinnedFrame`) instead of sliding
+   * under it. */
   sticky?: {
     className: string;
     height: number;
@@ -197,12 +199,12 @@ export function VirtualList<T>({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [revealKey]);
 
-  const shift = sticky
-    ? pinnedShift(rowWindow.items, rowWindow.firstVisibleIndex, rowWindow.scrollTop, sticky.height, (index) =>
-        sticky.heads(items[index]),
-      )
-    : 0;
-  const pinnedStyle = shift < 0 ? { transform: `translateY(${shift}px)` } : undefined;
+  const pinned = usePinnedHeading(
+    scrollRef,
+    rowWindow.items,
+    sticky?.height ?? 0,
+    sticky ? (index) => sticky.heads(items[index]) : null,
+  );
 
   const Spacer = spacer?.as ?? "div";
   const Item = item?.as ?? "div";
@@ -220,12 +222,12 @@ export function VirtualList<T>({
       tabIndex={-1}
       data-easing={motion.easing || undefined}
     >
-      {sticky && rowWindow.firstVisibleIndex >= 0 && (
+      {sticky && pinned.first >= 0 && (
         // Zero tall, so it pushes nothing down; its content hangs over the
         // rows below it, pinned to the scroll box's top while they scroll.
         <div style={{ position: "sticky", top: 0, height: 0, zIndex: 1 }}>
-          <div className={sticky.className} style={pinnedStyle}>
-            {sticky.render(rowWindow.firstVisibleIndex)}
+          <div className={sticky.className} ref={pinned.layerRef}>
+            {sticky.render(pinned.first)}
           </div>
         </div>
       )}

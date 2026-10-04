@@ -563,9 +563,13 @@ describe("VirtualList as a grouped list", () => {
     await scrollTo(22 * H - 2 * H);
     expect(pinned()).toBe("group 1");
     expect(shift()).toBe("");
-    await scrollTo(22 * H - 5);
-    expect(pinned()).toBe("group 1");
-    expect(shift()).toBe(`translateY(${5 - H}px)`);
+    // A pixel at a time through the push, every step between renders of
+    // the window: the pinned heading follows the scroll, not the renders.
+    for (let into = 1; into < H; into++) {
+      await scrollTo(22 * H - H + into);
+      expect(pinned()).toBe("group 1");
+      expect(shift()).toBe(`translateY(${-into}px)`);
+    }
     // Past the top: group 2's own heading is pinned, unpushed.
     await scrollTo(22 * H + 1);
     expect(pinned()).toBe("group 2");
