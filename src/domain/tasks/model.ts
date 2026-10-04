@@ -36,6 +36,13 @@ export const TASK_STATUSES: readonly TaskStatus[] = [
   "cancelled",
 ];
 
+/** The statuses among `values` this build knows, in ladder order, each
+ * once — whatever order and repeats they came in. A stored set of
+ * statuses (the list's folds) is read, and changed, through it. */
+export function inLadderOrder(values: readonly unknown[]): TaskStatus[] {
+  return TASK_STATUSES.filter((status) => values.includes(status));
+}
+
 /** Three rungs and no numbers: numbers breed arguments about 7 versus 8. */
 export type TaskPriority = "high" | "normal" | "low";
 

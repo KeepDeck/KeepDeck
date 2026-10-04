@@ -1,6 +1,6 @@
 import type { AgentType } from "../agents";
 import { isRecord } from "../json";
-import { TASK_STATUSES, isTaskStatus, type TaskStatus } from "../tasks";
+import { inLadderOrder, isTaskStatus } from "../tasks";
 import {
   DOCK_MODES,
   TASKS_FOLDED_DEFAULT,
@@ -51,7 +51,7 @@ const DEFAULT_NOTIFICATIONS = freezeBag<Settings["notifications"]>({
 
 const DEFAULT_TASKS_BOARD: Settings["tasksBoard"] = Object.freeze({
   view: "board",
-  list: Object.freeze({ folded: Object.freeze([...TASKS_FOLDED_DEFAULT]) as TaskStatus[] }),
+  list: Object.freeze({ folded: Object.freeze([...TASKS_FOLDED_DEFAULT]) }),
 });
 
 /** Where a discarded stored value is reported, so a load can say what it
@@ -203,8 +203,8 @@ function readTasksList(value: Record<string, unknown>, discard: Discard): Settin
     if (stored !== undefined) discard("tasksBoard.list.folded");
     return { folded: [...DEFAULT_TASKS_BOARD.list.folded] };
   }
-  for (const status of stored) if (!isTaskStatus(status)) discard("tasksBoard.list.folded");
-  return { folded: TASK_STATUSES.filter((status) => stored.includes(status)) };
+  if (stored.some((status) => !isTaskStatus(status))) discard("tasksBoard.list.folded");
+  return { folded: inLadderOrder(stored) };
 }
 
 /**

@@ -79,6 +79,9 @@ describe("task commands", () => {
     const listed = (await run("task.list", { status: "backlog" }, LEAD)).tasks as { id: string; issuable: boolean }[];
     expect(listed.map((t) => [t.id, t.issuable])).toEqual([["task-1", false]]);
     expect(await refused("task.create", { title: "x", status: "done" }, LEAD)).toContain("created in todo or backlog");
+    // Nothing to take — but the parked work is named, and whose call it is.
+    const next = await run("task.next", {}, IMPL1);
+    expect(next.note).toContain("1 parked in the backlog");
     expect(await refused("task.list", { status: "parked" }, LEAD)).toContain("backlog, todo");
   });
 

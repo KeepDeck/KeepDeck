@@ -34,7 +34,6 @@ import {
   findTask,
   isTaskId,
   isTaskPriority,
-  CREATE_STATUSES,
   TASK_STATUSES,
   isTaskStatus,
   type CreateStatus,
@@ -43,6 +42,7 @@ import {
   nextFor,
   normalizeLabel,
   poolOf,
+  countByStatus,
   tasksOfTeam,
   unblocks,
   type Task,
@@ -219,10 +219,8 @@ function createCommand(deps: TaskCommandDeps): CommandSpec {
     run: async (args, source) => {
       const who = caller(source, deps);
       const team = teamFor(args, who);
+      // Where it may start is the domain's to judge (createTask).
       const status = str(args, "status");
-      if (status !== undefined && !(CREATE_STATUSES as readonly string[]).includes(status)) {
-        throw new Error(`a task is created in ${CREATE_STATUSES.join(" or ")}, not "${status}"`);
-      }
       const { task, saved, saveError } = settled(
         await deps.tasks.create(
           who.workspace.id,
@@ -398,6 +396,10 @@ function nextCommand(deps: TaskCommandDeps): CommandSpec {
       const board = await boardOf(deps, who.workspace.id);
       const head = who.role === undefined ? null : nextFor(board, team.id, who.role);
       const pool = poolOf(board, team.id).length;
+      const parked = countByStatus(tasksOfTeam(board, team.id)).backlog;
+      // Parked work is no queue's — but an agent told "nothing" should
+      // hear that there is some, and whose call it is.
+      const backlog = parked > 0 ? `; ${parked} parked in the backlog, for whoever hands out work to move to todo` : "";
       return {
         task: head === null ? null : row(head, board),
         pool,
@@ -405,8 +407,8 @@ function nextCommand(deps: TaskCommandDeps): CommandSpec {
           ? {
               note:
                 pool > 0
-                  ? `nothing on your queue can start now; the pool holds ${pool} — task.list assignee=pool shows them, task.update status=in-progress takes one`
-                  : "nothing on your queue can start now, and the pool is empty",
+                  ? `nothing on your queue can start now; the pool holds ${pool} — task.list assignee=pool shows them, task.update status=in-progress takes one${backlog}`
+                  : `nothing on your queue can start now, and the pool is empty${backlog}`,
             }
           : {}),
       };

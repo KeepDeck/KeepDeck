@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { TASK_CAPS, USER_ACTOR, blockerResolved, isOpen, type TaskActor, type TaskStatus } from "./model";
+import { TASK_CAPS, USER_ACTOR, blockerResolved, inLadderOrder, isOpen, type TaskActor, type TaskStatus } from "./model";
 import { addLabel, attachArtifact, createTask, detachArtifact, removeLabel, reachableStatuses, transition, type TaskChange, type TaskRefusal } from "./transition";
 import { ROSTER, board, impl1, lead, noTeam, peer1, stranger, task } from "./testSupport";
 
@@ -195,6 +195,15 @@ describe("the backlog — work parked, not yet to be started", () => {
     expect(parked.ok && parked.task.status).toBe("backlog");
     const plain = createTask({ teamId: "team-1", title: "Work" }, lead, ctx([]));
     expect(plain.ok && plain.task.status).toBe("todo");
+  });
+
+  it("is created in todo or the backlog — anything else is refused, by the domain itself", () => {
+    const done = createTask({ teamId: "team-1", title: "x", status: "done" as never }, lead, ctx([]));
+    expect(done.ok ? null : done.refusal).toEqual({ kind: "bad-create-status", status: "done", allowed: ["todo", "backlog"] });
+  });
+
+  it("reads a set of statuses in ladder order, each once, known ones only", () => {
+    expect(inLadderOrder(["done", "nope", "backlog", "done", 7])).toEqual(["backlog", "done"]);
   });
 
   it("holds its dependants: a parked prerequisite is not done", () => {

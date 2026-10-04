@@ -87,6 +87,8 @@ export function refusalText(refusal: TaskProblem): string {
       return refusal.assignee === null
         ? `that task is in the pool — its labels are ${lead}'s to set until somebody holds it`
         : `that task is ${refusal.assignee}'s — its labels are theirs and ${lead}'s`;
+    case "bad-create-status":
+      return `a task is created in ${refusal.allowed.join(" or ")}, not "${refusal.status}"`;
     case "too-many-labels":
       return `a task carries at most ${refusal.max} labels — take one off first`;
     case "board-full":

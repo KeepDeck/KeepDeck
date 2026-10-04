@@ -154,7 +154,7 @@ export interface TasksBoardSettings {
 
 export interface TasksListSettings {
   /** The folded status groups, in ladder order, each once. */
-  folded: TaskStatus[];
+  folded: readonly TaskStatus[];
 }
 
 /** The groups a list folds until the person says otherwise: the parked

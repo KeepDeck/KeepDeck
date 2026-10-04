@@ -4,7 +4,7 @@
  * folded groups. Every change answers the whole new posture, for the
  * settings owner to keep — the dialog holds none of it itself.
  */
-import { TASK_STATUSES, type TaskStatus } from "../../domain/tasks";
+import { inLadderOrder, type TaskStatus } from "../../domain/tasks";
 import type { TasksBoardSettings, TasksView } from "../../domain/settings";
 
 /** The list's folded groups, as a set to ask. */
@@ -31,8 +31,4 @@ export function boardWithFold(board: TasksBoardSettings, status: TaskStatus): Ta
 export function boardAfterDrop(board: TasksBoardSettings, status: TaskStatus, view: TasksView): TasksBoardSettings | null {
   if (view !== "list" || !board.list.folded.includes(status)) return null;
   return boardWithFold(board, status);
-}
-
-function inLadderOrder(statuses: readonly TaskStatus[]): TaskStatus[] {
-  return TASK_STATUSES.filter((status) => statuses.includes(status));
 }

@@ -96,6 +96,8 @@ export type TaskRefusal =
   | { kind: "self-blocker" }
   | { kind: "cyclic-blocker"; ids: readonly string[] }
   | { kind: "field-cap"; field: "title" | "body" | "comment"; max: number }
+  /** A task asked to start anywhere but where a task may be created. */
+  | { kind: "bad-create-status"; status: string; allowed: readonly TaskStatus[] }
   /** A label that is not a word: empty, too long, or with a character
    * outside lowercase letters, digits and inner dashes. */
   | { kind: "bad-label"; label: string; max: number }
@@ -585,6 +587,10 @@ export function createTask(
   const blockedBy = normalizeIds(input.blockedBy ?? []);
   const badBlockers = validateBlockers(null, input.teamId, blockedBy, ctx.board);
   if (badBlockers) return refuse(badBlockers);
+  const status = input.status ?? "todo";
+  if (!(CREATE_STATUSES as readonly string[]).includes(status)) {
+    return refuse({ kind: "bad-create-status", status, allowed: CREATE_STATUSES });
+  }
   const labels = normalizeLabels(input.labels ?? []);
   if (!labels.ok) return labels;
   // The labelling rule the change applies: a working role labels only
@@ -597,7 +603,7 @@ export function createTask(
     teamId: input.teamId,
     title: input.title.trim(),
     body,
-    status: input.status ?? "todo",
+    status,
     priority,
     assignee,
     author: actorName(actor) ?? "",
