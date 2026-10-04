@@ -365,7 +365,9 @@ describe("TasksDialog", () => {
     const state = service.peek("ws-1");
     expect(state?.kind === "ready" && state.board.tasks.length).toBe(count + 1);
     const copy = state?.kind === "ready" ? state.board.tasks[state.board.tasks.length - 1] : null;
-    expect(copy?.title).toBe("(copy) Draft the skill");
+    // Its source's title, and the link says which one is the copy.
+    expect(copy?.title).toBe("Draft the skill");
+    expect(document.body.textContent).toContain("Copied from");
     expect(copy?.assignee).toBeNull();
     expect(focus).toBe(copy?.id);
   });

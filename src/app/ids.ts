@@ -54,3 +54,10 @@ export function mintMcpToken(): string {
 export function mintBridgeToken(): string {
   return crypto.randomUUID();
 }
+
+/** Mint a task uid — the task's own identity, global and permanent
+ * (`Task.uid`): a whole UUID, since tasks of every workspace share its
+ * space and none is ever handed out twice. */
+export function mintTaskUid(): string {
+  return crypto.randomUUID();
+}

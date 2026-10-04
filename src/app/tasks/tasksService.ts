@@ -30,7 +30,6 @@ import {
   encodeBoard,
   findTask,
   keepTeams,
-  replaceTask,
   transition,
   type CreateTaskInput,
   type Task,
@@ -41,6 +40,7 @@ import {
   type TaskStatus,
 } from "../../domain/tasks";
 import { describeError, log } from "../../ipc/log";
+import { mintTaskUid } from "../ids";
 import { decodeFaultText } from "./refusalText";
 
 /** The store as this owner reads and writes it — a PORT, bound to IPC at
@@ -50,13 +50,22 @@ export interface TasksStorePort {
   write(args: { workspaceId: string; json: string }): Promise<void>;
   /** Remove a workspace's board from disk. Idempotent. */
   drop(args: { workspaceId: string }): Promise<void>;
+  /** Keep the board as it is on disk now beside it, under `label`, once —
+   * what a format change takes before its first write. */
+  keepCopy(args: { workspaceId: string; label: string }): Promise<void>;
 }
+
+/** The label the board written before relations is kept under, beside
+ * the upgraded one — the way back for an older build. */
+export const PRE_RELATIONS_COPY = "pre-relations";
 
 export interface TasksServiceDeps {
   /** The deck as it stands — for rosters, read per call. */
   workspaces(): readonly Workspace[];
   store: TasksStorePort;
   now?(): number;
+  /** A fresh task uid; random by default, injected so tests pin it. */
+  mintUid?(): string;
   /** `setTimeout`, injected so tests drive the clock. Returns its cancel. */
   schedule?(fn: () => void, ms: number): () => void;
 }
@@ -187,6 +196,11 @@ export interface TasksService {
 
 export function createTasksService(deps: TasksServiceDeps): TasksService {
   const now = deps.now ?? (() => Date.now());
+  const mintUid = deps.mintUid ?? mintTaskUid;
+  /** Workspaces whose board was read in an older format and is not yet
+   * written in this one: the old file is kept aside before that first
+   * write, and a failure says it is the upgrade that did not land. */
+  const upgrading = new Set<string>();
   const schedule =
     deps.schedule ??
     ((fn: () => void, ms: number) => {
@@ -254,8 +268,11 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
       .read({ workspaceId })
       .then((json): BoardState => {
         if (json === null) return { kind: "ready", board: EMPTY_BOARD, unsaved: null };
-        const decoded = decodeBoard(json);
-        if (decoded.ok) return { kind: "ready", board: decoded.board, unsaved: null };
+        const decoded = decodeBoard(json, mintUid);
+        if (decoded.ok) {
+          if (decoded.migrated) upgrading.add(workspaceId);
+          return { kind: "ready", board: decoded.board, unsaved: null };
+        }
         const error = decodeFaultText(decoded.fault);
         log.warn("web:tasks", `${workspaceId}: ${error} — the board is read-only until the file is fixed`);
         return { kind: "unreadable", error };
@@ -270,6 +287,10 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
         // out must not come back as a board.
         if (!disposed && loads.get(workspaceId) === loading) {
           set(workspaceId, state);
+          // An upgraded board is written at once, so its uids are minted
+          // once: until that write lands nothing outside has seen them,
+          // and a read that comes back to the old file mints afresh.
+          if (state.kind === "ready" && upgrading.has(workspaceId)) void persist(workspaceId, state.board);
           // A team disbanded while nobody held this board — the feature
           // off, the app closed — left its tasks in the file.
           prune(workspaceId);
@@ -301,10 +322,15 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
       // Its turn came after the workspace was forgotten: the board this
       // would write is gone, and writing it would bring it back.
       if (epochOf(workspaceId) !== epoch) return FORGOTTEN_WRITE;
+      const upgrade = upgrading.has(workspaceId);
       try {
+        if (upgrade) await deps.store.keepCopy({ workspaceId, label: PRE_RELATIONS_COPY });
         await deps.store.write({ workspaceId, json });
+        if (upgrade) upgrading.delete(workspaceId);
       } catch (e: unknown) {
-        const error = describeError(e);
+        const error = upgrade
+          ? `the board's upgrade to linked tasks is not on disk yet: ${describeError(e)}`
+          : describeError(e);
         log.warn("web:tasks", `${workspaceId}: writing the board failed: ${error}`);
         // A board forgotten while this was on the wire has nothing to
         // mark and nothing to retry.
@@ -433,6 +459,7 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
         board: held.board,
         roster: this.rosterOf(workspaceId, input.teamId),
         at: now(),
+        mintUid,
       });
       if (!result.ok) return result;
       return commitCreated(workspaceId, result.board, result.task, actor);
@@ -448,6 +475,7 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
         board: held.board,
         roster: this.rosterOf(workspaceId, source.teamId),
         at: now(),
+        mintUid,
       });
       if (!result.ok) return result;
       const made = await commitCreated(workspaceId, result.board, result.task, actor, source.id);
@@ -489,13 +517,15 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
       let board = held.board;
       const at = now();
       const roster = this.rosterOf(workspaceId, before.teamId);
+      // Each change reads the board the one before it left — tasks AND
+      // links: a blocker set first is what a start after it is gated on.
       for (const change of changes) {
         const result = transition(task, change, actor, { board, roster, at });
         if (!result.ok) return result;
         task = result.task;
-        board = replaceTask(board, task);
+        board = result.board;
       }
-      if (task === before) {
+      if (board === held.board) {
         // Nothing to write — but "saved" is about the BOARD, not this call:
         // after a failed write, repeating a change must not read as the
         // durable success the first attempt was denied.

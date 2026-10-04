@@ -22,7 +22,7 @@ describe("announceTask", () => {
       body: "task-3 · Write the skill",
       severity: "info",
       source: { type: "tasks", workspace: { id: "ws-1", instance: workspaces[0].instance }, taskId: "task-3" },
-      tag: "tasks:ws-1:task-3",
+      tag: "tasks:ws-1:uid-task-3",
     });
   });
 
@@ -50,7 +50,7 @@ describe("announceTask", () => {
           title,
           body: "Store · impl-2 · api",
           severity: to === "blocked" ? "warning" : "info",
-          tag: "tasks:ws-1:task-1",
+          tag: "tasks:ws-1:uid-task-1",
         }),
       );
     }

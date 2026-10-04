@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TASK_CAPS } from "../../domain/tasks";
-import { board, task } from "../../domain/tasks/testSupport";
+import { board, relation, task } from "../../domain/tasks/testSupport";
 import { boardView, columnLabelClassName } from "./boardView";
 import { NO_QUERY } from "./queryView";
 import { LADDER_WORDS, tasksLadder } from "./ladderView";
@@ -441,5 +441,24 @@ describe("blockerLinkWords — the links that keep a task on its team", () => {
       "task-3 waits on it",
       "task-4 waits on it",
     ]);
+  });
+});
+
+describe("taskDetailView — a task's copy links", () => {
+  const b = board(
+    [task({ id: "task-1", title: "Source" }), task({ id: "task-2", title: "Copy" }), task({ id: "task-3" }), task({ id: "task-4" })],
+    5,
+    [relation("copied-from", "task-2", "task-1"), relation("copied-from", "task-4", "task-9")],
+  );
+  const rows = (index: number) => taskDetailView(b.tasks[index], b, ROSTER, NOW).copies;
+
+  it("says where a copy came from, and what was copied from a source — each a task to open", () => {
+    expect(rows(1)).toEqual([{ label: TASK_DETAIL_WORDS.copiedFromLabel, tasks: [{ id: "task-1", title: "Source" }], gone: null }]);
+    expect(rows(0)).toEqual([{ label: TASK_DETAIL_WORDS.copiesLabel, tasks: [{ id: "task-2", title: "Copy" }], gone: null }]);
+  });
+
+  it("says a source no longer on the board is gone, and says nothing of a task that is no copy", () => {
+    expect(rows(3)).toEqual([{ label: TASK_DETAIL_WORDS.copiedFromLabel, tasks: [], gone: TASK_DETAIL_WORDS.copyGone }]);
+    expect(rows(2)).toEqual([]);
   });
 });

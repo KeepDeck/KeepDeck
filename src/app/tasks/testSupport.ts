@@ -8,7 +8,9 @@ export function fakeStore(initial: Record<string, string> = {}) {
   const files = new Map(Object.entries(initial));
   const writes: { workspaceId: string; json: string }[] = [];
   /** Every call that touched the disk, in order. */
-  const calls: ("write" | "drop")[] = [];
+  const calls: ("write" | "drop" | "keepCopy")[] = [];
+  /** The copies kept beside a board, by workspace and label. */
+  const copies = new Map<string, string>();
   let failNext: string | null = null;
   /** A write whose bytes land at once but whose answer waits. */
   let holdNext: Promise<void> | null = null;
@@ -31,6 +33,12 @@ export function fakeStore(initial: Record<string, string> = {}) {
         await held;
       }
     },
+    keepCopy: async ({ workspaceId, label }) => {
+      calls.push("keepCopy");
+      const key = `${workspaceId}:${label}`;
+      const now = files.get(workspaceId);
+      if (!copies.has(key) && now !== undefined) copies.set(key, now);
+    },
     drop: async ({ workspaceId }) => {
       calls.push("drop");
       files.delete(workspaceId);
@@ -46,6 +54,7 @@ export function fakeStore(initial: Record<string, string> = {}) {
     files,
     writes,
     calls,
+    copies,
     failNextWrite(why: string) {
       failNext = why;
     },

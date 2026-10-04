@@ -33,7 +33,8 @@ export function announceTask(event: TaskEvent, deps: TaskProducerDeps): void {
   notify({
     ...words,
     source: { type: "tasks", workspace: { id: workspace.id, instance: workspace.instance }, taskId: task.id },
-    tag: `tasks:${workspace.id}:${task.id}`,
+    // Keyed on the uid: one slot per task whatever it is called.
+    tag: `tasks:${workspace.id}:${task.uid}`,
   });
 }
 

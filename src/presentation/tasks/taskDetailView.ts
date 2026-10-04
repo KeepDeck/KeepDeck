@@ -2,6 +2,9 @@ import { formatAge } from "../../domain/usage";
 import {
   TASK_CAPS,
   USER_ACTOR,
+  blockerIdsOf,
+  copiedFromOf,
+  copiesOf,
   issuable,
   labelsOf,
   reachableStatuses,
@@ -62,6 +65,10 @@ export interface TaskDetailView {
   blockers: BlockerChip[];
   blockersEmpty: string | null;
   unblocks: { id: string; title: string }[];
+  /** Where it was copied from, and the copies made of it — one row each,
+   * only when there is something to say. A source no longer on the board
+   * is said to be gone. */
+  copies: CopyRow[];
   /** Attached artifacts, titled when the registry knows them; a slug the
    * registry no longer holds is still shown — the task said so. */
   artifacts: { slug: string; title: string; known: boolean; openTitle: string; detachLabel: string }[];
@@ -138,6 +145,9 @@ export const TASK_DETAIL_WORDS = {
   close: "Close",
   blockers: "Blocked by",
   unblocks: "Unblocks",
+  copiedFromLabel: "Copied from",
+  copiesLabel: "Copies",
+  copyGone: "a task no longer on the board",
   artifacts: "Artifacts",
   labels: "Labels",
   addLabel: "Add a label",
@@ -156,7 +166,7 @@ export const TASK_DETAIL_WORDS = {
   duplicate: "Duplicate",
   duplicateTitle: (id: string) => `Duplicate ${id}`,
   duplicateMessage: (where: string) =>
-    `A new task with its brief, priority, labels and artifacts, titled "(copy) …", in ${where}, unassigned — without its comments or history.`,
+    `A new task with its brief, priority, labels and artifacts, under the same title, in ${where}, unassigned — without its comments or history.`,
   transfer: "Transfer",
   transferTitle: (id: string) => `Transfer ${id}`,
   transferPrompt: "To team",
@@ -225,6 +235,7 @@ export function taskDetailView(
     ring: statusMark(to),
   }));
   const assigneeValues = [...new Set([...roster, ...(task.assignee ? [task.assignee] : [])])];
+  const blockedBy = blockerIdsOf(task, board);
   return {
     id: task.id,
     title: task.title,
@@ -243,10 +254,11 @@ export function taskDetailView(
     ],
     priorityOptions: priorityChoices(),
     statusOptions,
-    blockers: task.blockedBy.map((id) => blockerChip(board, id)),
+    blockers: blockedBy.map((id) => blockerChip(board, id)),
     blockersEmpty:
-      task.blockedBy.length > 0 ? null : task.status === "todo" && issuable(task, board) ? "none — can start now" : "none",
+      blockedBy.length > 0 ? null : task.status === "todo" && issuable(task, board) ? "none — can start now" : "none",
     unblocks: unblocks(task, board).map((other) => ({ id: other.id, title: other.title })),
+    copies: copyRows(task, board),
     labels: task.labels.map((label) => ({ label, removeLabel: `Remove ${label}` })),
     labelOptions: labelsOf({ tasks: tasksOfTeam(board, task.teamId) }).filter((label) => !task.labels.includes(label)),
     labelsFull: task.labels.length >= TASK_CAPS.labelsMax ? TASK_DETAIL_WORDS.labelsFull(TASK_CAPS.labelsMax) : null,
@@ -332,6 +344,40 @@ function transferRefusal(task: Task, board: TaskBoard, otherTeams: number): stri
     return TASK_DETAIL_WORDS.transferLinked(blockerLinkWords(problem).join(", "));
   }
   return null;
+}
+
+/** One row of a task's copy links: what it names, the tasks it links to
+ * (each opens), and what to say of an end no longer on the board. */
+export interface CopyRow {
+  label: string;
+  tasks: { id: string; title: string }[];
+  gone: string | null;
+}
+
+/** A task's copy links as rows: its source, then its copies. */
+function copyRows(task: Task, board: TaskBoard): CopyRow[] {
+  const source = copiedFromOf(task, board);
+  const copies = copiesOf(task, board);
+  return [
+    ...(source === null
+      ? []
+      : [
+          {
+            label: TASK_DETAIL_WORDS.copiedFromLabel,
+            tasks: source === "absent" ? [] : [{ id: source.id, title: source.title }],
+            gone: source === "absent" ? TASK_DETAIL_WORDS.copyGone : null,
+          },
+        ]),
+    ...(copies.length === 0
+      ? []
+      : [
+          {
+            label: TASK_DETAIL_WORDS.copiesLabel,
+            tasks: copies.map((copy) => ({ id: copy.id, title: copy.title })),
+            gone: null,
+          },
+        ]),
+  ];
 }
 
 /** What was said, oldest first (the order the board keeps). */

@@ -1,5 +1,5 @@
 import { formatAge } from "../../domain/usage";
-import { blockerResolved, findTask, openBlockersOf, type Task, type TaskBoard, type TaskStatus } from "../../domain/tasks";
+import { blockerIdsOf, blockerResolved, findTask, openBlockersOf, type Task, type TaskBoard, type TaskStatus } from "../../domain/tasks";
 import type { StatusRingProps } from "@keepdeck/ui-kit/StatusRing";
 import { POOL_LABEL, STATUS_LABEL, priorityMark, statusTone, type StatusTone } from "./words";
 import { taskOnScreen, type DragState } from "./cardDrag";
@@ -141,6 +141,6 @@ export function taskCardView(task: Task, board: TaskBoard, now: number): TaskCar
     assignee: task.assignee ?? POOL_LABEL,
     age: formatAge(task.updated, now),
     ring: statusRing(task.status),
-    blockerChips: task.blockedBy.map((id) => blockerChip(board, id)),
+    blockerChips: blockerIdsOf(task, board).map((id) => blockerChip(board, id)),
   };
 }

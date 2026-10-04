@@ -41,7 +41,7 @@ import { artifactsDisable, artifactsEnable, artifactDropWorkspace } from "../ipc
 import { createTasksFeature } from "./tasks/tasksFeature";
 import { tasksEnableStatus } from "./tasks/enableStatus";
 import { announceTask } from "./tasks/producers";
-import { tasksDisable, tasksDropWorkspace, tasksEnable, tasksRead, tasksWrite } from "../ipc/tasks";
+import { tasksDisable, tasksDropWorkspace, tasksEnable, tasksKeepCopy, tasksRead, tasksWrite } from "../ipc/tasks";
 import { createPaneAttribution } from "./paneAttribution";
 import { createPluginDeckBridge } from "./pluginDeckBridge";
 import { createPluginManager } from "./pluginManager";
@@ -241,6 +241,7 @@ export function createAppRuntime(
       enable: tasksEnable,
       disable: tasksDisable,
       drop: ({ workspaceId }) => tasksDropWorkspace(workspaceId),
+      keepCopy: tasksKeepCopy,
     },
     announce: (event) => announceTask(event, { workspaces: () => deckStore.getSnapshot().workspaces }),
     status: tasksEnableStatus,
