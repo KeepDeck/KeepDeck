@@ -22,6 +22,8 @@ export function usePinnedHeading(
   const layerRef = useRef<HTMLDivElement>(null);
   const [first, setFirst] = useState(-1);
   const latest = useRef({ rows, height, heads });
+  // The group the layer's shift was last written for.
+  const shown = useRef(-1);
   // From a render (`settled`): the rows are this render's, and an empty
   // window means nothing to pin. From a scroll: the rows are the last
   // render's, and a fling past them keeps the heading until the window
@@ -32,8 +34,17 @@ export function usePinnedHeading(
     if (!list || !starts) return;
     const frame = pinnedFrame(mounted, list.scrollTop, tall, starts);
     if (frame.first < 0 && !settled) return;
+    // A new group from a scroll: its words come with a render, and the
+    // shift waits for that render's own placing — written now, the layer
+    // would stand at the new group's place for a frame still showing the
+    // old group's words.
+    if (!settled && frame.first !== shown.current) {
+      setFirst(frame.first);
+      return;
+    }
     const layer = layerRef.current;
     if (layer) layer.style.transform = frame.shift < 0 ? `translateY(${frame.shift}px)` : "";
+    shown.current = frame.first;
     setFirst(frame.first);
   });
   useLayoutEffect(() => {
