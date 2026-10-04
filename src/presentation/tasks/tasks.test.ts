@@ -9,7 +9,7 @@ import { statusMark, statusRing, taskCardView, taskCardClassName } from "./taskC
 import { TASK_DETAIL_WORDS, changesOf, commentsOf, pickedArtifact, pickedStatus, taskDetailClassName, taskDetailView } from "./taskDetailView";
 import { teamCardTasksLine } from "./teamCardTasksLine";
 import { teamOnScreen } from "./teamOnScreen";
-import { personName, priorityMark, statusTone, FIELD_WORDS, POOL_CHOICE } from "./words";
+import { fieldCount, personName, priorityMark, statusTone, FIELD_WORDS, POOL_CHOICE } from "./words";
 
 const NOW = 100_000;
 const ROSTER = ["lead", "impl-1", "impl-2"];
@@ -365,5 +365,18 @@ describe("statusRing — a task's place on the ladder as a ring", () => {
     expect(statusRing("done")).toMatchObject({ fill: 100, tone: "done" });
     expect(statusRing("blocked")).toMatchObject({ fill: 0, tone: "failed", barred: true });
     expect(statusRing("cancelled")).toMatchObject({ fill: 100, tone: "none", barred: false });
+  });
+});
+
+describe("fieldCount — a capped field's count", () => {
+  it("says what is taken of how much there is, in the domain's measure, and marks it past the cap", () => {
+    expect(fieldCount("title", "")).toEqual({ text: "0/120", className: "tasks__count" });
+    expect(fieldCount("title", "Draft the skill")).toEqual({ text: "15/120", className: "tasks__count" });
+    // As kept: a title's spaces at its ends do not count; a brief's do.
+    expect(fieldCount("title", "  Draft  ").text).toBe("5/120");
+    expect(fieldCount("body", "  Draft  ").text).toBe("9/8192");
+    // Characters, not UTF-16 units: an emoji is one.
+    expect(fieldCount("comment", "👍👍").text).toBe("2/4000");
+    expect(fieldCount("title", "x".repeat(121))).toEqual({ text: "121/120", className: "tasks__count tasks__count--over" });
   });
 });

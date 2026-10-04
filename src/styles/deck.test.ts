@@ -136,9 +136,10 @@ describe("the chosen plate and the drag's ghost", () => {
     expect(ruleBody(tasks, ".tasks__ghost").filter).toBeUndefined();
     expect(ruleBody(tasks, ".tasks__ghost--card").filter).toMatch(/^drop-shadow/);
     expect(readStyles("float.css")).toMatch(/\.tasks__row--ghost,/);
-    // As tall as the row it left, the shell's outer ring counted.
-    expect(ruleBody(tasks, ".tasks__row").height).toBe("34px");
-    expect(ruleBody(tasks, ".tasks__row--ghost").height).toBe("32px");
+    // As tall as the row it left, the shell's outer ring counted — at
+    // least; a title that wraps grows both alike.
+    expect(ruleBody(tasks, ".tasks__row")["min-height"]).toBe("34px");
+    expect(ruleBody(tasks, ".tasks__row--ghost")["min-height"]).toBe("32px");
   });
 });
 

@@ -6,8 +6,6 @@ export interface NewTaskFormView {
   priorityOptions: (ChoiceView & { value: TaskPriority })[];
   /** Where it starts: To do, or the backlog. */
   statusOptions: (ChoiceView & { value: CreateStatus })[];
-  titleMax: number;
-  bodyMax: number;
   /** Under the assignee: the addresses teammates use, or that nobody is
    * here yet. */
   addressHint: string;
@@ -31,8 +29,6 @@ export function newTaskFormView(roster: readonly string[]): NewTaskFormView {
     ],
     priorityOptions: priorityChoices(),
     statusOptions: CREATE_STATUSES.map((status) => ({ value: status, label: STATUS_LABEL[status] })),
-    titleMax: TASK_CAPS.titleMax,
-    bodyMax: TASK_CAPS.bodyMax,
     addressHint:
       roster.length > 0
         ? `The address teammates use — ${roster.join(" · ")} — or leave it unassigned, for whoever takes it.`

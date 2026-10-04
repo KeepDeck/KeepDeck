@@ -299,17 +299,24 @@ describe("fields only the lead sets", () => {
       kind: "field-cap",
       field: "title",
       max: TASK_CAPS.titleMax,
+      length: TASK_CAPS.titleMax + 1,
     });
+    // Characters, not UTF-16 units: an emoji counts once.
+    expect(refusalOf(t, { kind: "title", to: "👍".repeat(TASK_CAPS.titleMax) }, lead)).toBeNull();
+    // Measured as kept: spaces at the ends do not count.
+    expect(refusalOf(t, { kind: "title", to: `  ${"x".repeat(TASK_CAPS.titleMax)}  ` }, lead)).toBeNull();
     expect(refusalOf(t, { kind: "body", to: "x".repeat(TASK_CAPS.bodyMax + 1) }, lead)).toEqual({
       kind: "field-cap",
       field: "body",
       max: TASK_CAPS.bodyMax,
+      length: TASK_CAPS.bodyMax + 1,
     });
     expect(refusalOf(t, { kind: "comment", body: " " }, impl1)).toEqual({ kind: "blank", field: "comment" });
     expect(refusalOf(t, { kind: "comment", body: "x".repeat(TASK_CAPS.commentMax + 1) }, impl1)).toEqual({
       kind: "field-cap",
       field: "comment",
       max: TASK_CAPS.commentMax,
+      length: TASK_CAPS.commentMax + 1,
     });
   });
 

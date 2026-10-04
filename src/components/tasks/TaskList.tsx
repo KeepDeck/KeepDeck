@@ -182,7 +182,9 @@ export function TaskRowLine({
       <span className="tasks__mark tasks__row-mark">{card.priority}</span>
       <StatusRing {...card.ring} />
       <code className="tasks__row-id">{card.id}</code>
-      <span className="tasks__row-title kd-one-line">{card.title}</span>
+      <span className="tasks__row-title" dir="auto">
+        {card.title}
+      </span>
     </>
   );
   return (

@@ -78,7 +78,7 @@ export function refusalText(refusal: TaskProblem): string {
     case "cyclic-blocker":
       return `${refusal.ids.join(", ")} already waits on this task — that would be a cycle`;
     case "field-cap":
-      return `${refusal.field} must be at most ${refusal.max} characters`;
+      return `${refusal.field} is ${refusal.length} characters — at most ${refusal.max}; shorten it by ${refusal.length - refusal.max}`;
     case "blank":
       return `${refusal.field} must not be blank`;
     case "bad-label":

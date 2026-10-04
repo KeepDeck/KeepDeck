@@ -89,9 +89,7 @@ export interface TaskDetailView {
    * so — null while it is not. */
   commentsTrimmed: string | null;
   changesTrimmed: string | null;
-  /** The composer's bound — the domain's, so the field cannot outgrow it. */
-  commentMax: number;
-}
+  }
 
 export interface FeedChange {
   kind: "change";
@@ -229,7 +227,6 @@ export function taskDetailView(
     commentsTrimmed:
       task.comments.length >= TASK_CAPS.commentsMax ? TASK_DETAIL_WORDS.trimmed(TASK_CAPS.commentsMax, "comments") : null,
     changesTrimmed: task.log.length >= TASK_CAPS.logMax ? TASK_DETAIL_WORDS.trimmed(TASK_CAPS.logMax, "changes") : null,
-    commentMax: TASK_CAPS.commentMax,
   };
 }
 

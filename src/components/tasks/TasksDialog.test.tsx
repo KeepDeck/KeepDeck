@@ -345,6 +345,8 @@ describe("TasksDialog", () => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(title, "Review the copy");
       title.dispatchEvent(new Event("input", { bubbles: true }));
     });
+    // The title's count under it: what is taken of the cap.
+    expect(title.parentElement?.querySelector(".tasks__count")?.textContent).toBe("15/120");
     await flush();
     act(() => button("Create task").click());
     await flush();
@@ -930,15 +932,15 @@ describe("TasksDialog", () => {
     expect(buttons().some((b) => /cancelled/i.test(b.textContent ?? ""))).toBe(false);
   });
 
-  it("keeps a card's title to one line; the panel's title clamps to two; a blocker is a chip saying where it stands", async () => {
+  it("keeps a card's title to one line; the panel's title stands whole; a blocker is a chip saying where it stands", async () => {
     const { service } = await seeded();
     await service.apply("ws-1", "task-1", [{ kind: "blockedBy", to: ["task-2"] }], USER_ACTOR);
     focus = "task-1";
     mount(service)();
     await flush();
     expect(cards().every((c) => c.querySelector(".tasks__card-title")?.classList.contains("kd-one-line"))).toBe(true);
-    // The panel's title clamps to two lines.
-    expect(document.querySelector('aside[aria-label="Task task-1"] .tasks__detail-title')?.classList.contains("kd-two-lines")).toBe(true);
+    // The panel is where the whole title is read: never clamped.
+    expect(document.querySelector('aside[aria-label="Task task-1"] .tasks__detail-title')?.classList.contains("kd-two-lines")).toBe(false);
     const blocker = document.querySelector('aside[aria-label="Task task-1"] .tasks__tag--blocking');
     expect(blocker?.textContent).toBe("task-2 · to do");
   });

@@ -32,7 +32,16 @@ interface UseRowAnchoringInput<Row> {
  * one being read differs per list — a landed page here, an agent's
  * publish there — but the correction does not, and a second copy of it
  * would be a second place for the two-effects rule below to be got
- * wrong. */
+ * wrong.
+ *
+ * What this does NOT own: a row that keeps its key and changes HEIGHT (a
+ * title edited to wrap a second line). No queue change, so nothing here
+ * runs — the virtualizer's own re-measure answers it when the
+ * ResizeObserver reports, after the layout phase: a row ENTIRELY above
+ * the fold shifts the scroll by its growth (tanstack's default
+ * shouldAdjustScrollPositionOnItemSizeChange), so the row being read
+ * stays; a row spanning the fold grows below the reading line, and what
+ * is under it moves down — honestly, the content grew there. */
 /**
  * CONTRACT: the scroll element is mounted with the hook and stays the
  * same element for the hook's life — its scroll listener is attached once,

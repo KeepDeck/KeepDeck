@@ -95,7 +95,9 @@ export type TaskRefusal =
   | { kind: "cross-team-blocker"; ids: readonly string[] }
   | { kind: "self-blocker" }
   | { kind: "cyclic-blocker"; ids: readonly string[] }
-  | { kind: "field-cap"; field: "title" | "body" | "comment"; max: number }
+  /** A field past its cap: which, how long it is, how long it may be —
+   * measured as it would be KEPT (a title and a comment trimmed). */
+  | { kind: "field-cap"; field: "title" | "body" | "comment"; max: number; length: number }
   /** A task asked to start anywhere but where a task may be created. */
   | { kind: "bad-create-status"; status: string; allowed: readonly TaskStatus[] }
   /** A label that is not a word: empty, too long, or with a character
@@ -234,29 +236,54 @@ export function titleProblem(title: string): TaskRefusal | null {
   return validateTitle(title);
 }
 
+/** The capped text fields, and each one's cap. */
+export type CappedField = "title" | "body" | "comment";
+const CAPS: Record<CappedField, number> = {
+  title: TASK_CAPS.titleMax,
+  body: TASK_CAPS.bodyMax,
+  comment: TASK_CAPS.commentMax,
+};
+
+export function capOf(field: CappedField): number {
+  return CAPS[field];
+}
+
+/** A capped field's length as it is KEPT, and in the unit a person counts
+ * (characters, not UTF-16 units — the labels' measure too): a title and a
+ * comment are stored trimmed, so spaces at their ends never count; a brief
+ * is stored as written. The one measure the caps, the refusals and the
+ * fields' counters all read. */
+export function keptLength(field: CappedField, text: string): number {
+  return [...(field === "body" ? text : text.trim())].length;
+}
+
+function overCap(field: CappedField, text: string): TaskRefusal | null {
+  const length = keptLength(field, text);
+  return length > CAPS[field] ? { kind: "field-cap", field, max: CAPS[field], length } : null;
+}
+
 /** What is wrong with a comment, or nothing — same rule as the comment
  * change applies. */
 export function commentProblem(body: string): TaskRefusal | null {
-  const trimmed = body.trim();
-  if (trimmed === "") return { kind: "blank", field: "comment" };
-  if (trimmed.length > TASK_CAPS.commentMax) {
-    return { kind: "field-cap", field: "comment", max: TASK_CAPS.commentMax };
-  }
-  return null;
+  if (body.trim() === "") return { kind: "blank", field: "comment" };
+  return overCap("comment", body);
 }
 
+/** A title is measured as it is kept — trimmed: spaces at its ends are
+ * never stored, so they never count against the cap. */
 function validateTitle(title: string): TaskRefusal | null {
   if (title.trim() === "") return { kind: "blank", field: "title" };
-  if (title.length > TASK_CAPS.titleMax) {
-    return { kind: "field-cap", field: "title", max: TASK_CAPS.titleMax };
-  }
-  return null;
+  return overCap("title", title);
 }
 
 function validateBody(body: string): TaskRefusal | null {
-  return body.length > TASK_CAPS.bodyMax
-    ? { kind: "field-cap", field: "body", max: TASK_CAPS.bodyMax }
-    : null;
+  return overCap("body", body);
+}
+
+/** What is wrong with a brief, or nothing — the rule the change and the
+ * create apply, and the one a form asks before offering to submit. */
+export function bodyProblem(body: string): TaskRefusal | null {
+  return validateBody(body);
 }
 
 function validateAssignee(

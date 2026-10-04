@@ -12,6 +12,8 @@ const PROSE = [
   "tasks__log-text",
   "tasks__error",
   "tasks__placeholder-title",
+  "tasks__row-title",
+  "tasks__detail-title",
 ];
 
 function mount(className: string): HTMLElement {
@@ -76,6 +78,15 @@ describe("Tasks text never widens its box", () => {
     const rest = css.slice(css.indexOf("@media (prefers-reduced-motion: reduce) {\n  .tasks__list[data-easing]"));
     expect(rest).toMatch(/\.tasks__list\[data-easing\] \.tasks__list-item \{\s*transition: none;/);
     expect(rest).toMatch(/\.tasks__list\[data-easing\] \.tasks__list-item\[data-arriving\] \{\s*animation: none;/);
+  });
+
+  it("a list row's title wraps — the whole title, the row growing with it", () => {
+    expect(getComputedStyle(mount("tasks__row-title")).whiteSpace).not.toBe("nowrap");
+    const row = readStyles("tasks.css");
+    expect(ruleBody(row, ".tasks__row").height).toBeUndefined();
+    // What stands beside a wrapped title keeps to its first line.
+    expect(ruleBody(row, ".tasks__row")["align-items"]).toBe("flex-start");
+    expect(ruleBody(row, ".tasks__row-open")["align-items"]).toBe("flex-start");
   });
 
   it("a row's age stays on one line", () => {

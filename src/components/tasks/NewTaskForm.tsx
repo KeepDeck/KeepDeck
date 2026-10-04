@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Dropdown } from "@keepdeck/ui-kit";
 import type { CreateTaskInput } from "../../domain/tasks";
 import {
@@ -6,6 +6,7 @@ import {
   FIELD_WORDS,
   NEW_TASK_WORDS,
   canCreateTask,
+  fieldCount,
   taskInputOf,
   type NewTaskFormView,
 } from "../../presentation/tasks";
@@ -24,7 +25,10 @@ interface NewTaskFormProps {
  * + Task again and Escape put the form away. */
 export function NewTaskForm({ view, onCreate, onCancel }: NewTaskFormProps) {
   const [draft, setDraft] = useState(EMPTY_TASK_DRAFT);
-  const creatable = canCreateTask(draft.title);
+  const creatable = canCreateTask(draft.title, draft.body);
+  const titleCount = fieldCount("title", draft.title);
+  const bodyCount = fieldCount("body", draft.body);
+  const countId = useId();
   const submit = () => {
     if (!creatable) return;
     onCreate(taskInputOf(draft));
@@ -37,23 +41,34 @@ export function NewTaskForm({ view, onCreate, onCancel }: NewTaskFormProps) {
       <h3 className="tasks__detail-title">{NEW_TASK_WORDS.panel}</h3>
       <p className="tasks__muted">{NEW_TASK_WORDS.intro}</p>
       <span className="tasks__section">{FIELD_WORDS.title}</span>
-      <input
-        className="form__input"
-        aria-label={FIELD_WORDS.title}
-        value={draft.title}
-        maxLength={view.titleMax}
-        onChange={(e) => setDraft({ ...draft, title: e.target.value })}
-        autoFocus
-      />
+      <div className="tasks__field">
+        <input
+          className="form__input"
+          aria-label={FIELD_WORDS.title}
+          aria-describedby={`${countId}-title`}
+          dir="auto"
+          value={draft.title}
+          onChange={(e) => setDraft({ ...draft, title: e.target.value })}
+          autoFocus
+        />
+        <span id={`${countId}-title`} className={titleCount.className}>
+          {titleCount.text}
+        </span>
+      </div>
       <span className="tasks__section">{FIELD_WORDS.brief}</span>
-      <textarea
-        className="form__input tasks__composer"
-        aria-label={FIELD_WORDS.brief}
-        placeholder={view.bodyPlaceholder}
-        value={draft.body}
-        maxLength={view.bodyMax}
-        onChange={(e) => setDraft({ ...draft, body: e.target.value })}
-      />
+      <div className="tasks__field">
+        <textarea
+          className="form__input tasks__composer"
+          aria-label={FIELD_WORDS.brief}
+          placeholder={view.bodyPlaceholder}
+          aria-describedby={`${countId}-body`}
+          value={draft.body}
+          onChange={(e) => setDraft({ ...draft, body: e.target.value })}
+        />
+        <span id={`${countId}-body`} className={bodyCount.className}>
+          {bodyCount.text}
+        </span>
+      </div>
       <span className="tasks__section">{FIELD_WORDS.status}</span>
       <Segmented
         ariaLabel={FIELD_WORDS.status}
