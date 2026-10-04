@@ -261,38 +261,21 @@ export function TaskDetail({
             <p className="tasks__body kd-selectable">{view.body}</p>
           )}
 
-          <button
-            type="button"
-            className="tasks__section tasks__section--toggle"
-            aria-expanded={view.activity.open}
-            onClick={onToggleActivity}
-          >
-            {view.activity.label}
-            <DisclosureChevron open={view.activity.open} />
-          </button>
-          {view.feedEmpty && <p className="tasks__muted">{view.feedEmpty}</p>}
-          {view.feedTrimmed && <p className="tasks__muted">{view.feedTrimmed}</p>}
-          <ul className="tasks__feed">
-            {view.feed.map((item) =>
-              item.kind === "comment" ? (
-                <li key={item.key} className="tasks__comment">
+          <span className="tasks__section">{TASK_DETAIL_WORDS.comments}</span>
+          {view.commentsEmpty && <p className="tasks__muted">{view.commentsEmpty}</p>}
+          {view.commentsTrimmed && <p className="tasks__muted">{view.commentsTrimmed}</p>}
+          {view.comments.length > 0 && (
+            <ul className="tasks__comments">
+              {view.comments.map((comment) => (
+                <li key={comment.key} className="tasks__comment">
                   <span className="tasks__comment-who">
-                    <b>{item.who}</b> · {item.age}
+                    <b>{comment.who}</b> · {comment.age}
                   </span>
-                  <span className="tasks__comment-body kd-selectable">{item.body}</span>
+                  <span className="tasks__comment-body kd-selectable">{comment.body}</span>
                 </li>
-              ) : item.kind === "change" ? (
-                <FeedChangeLine key={item.key} change={item} />
-              ) : (
-                // A fold opens the whole history, as the heading does.
-                <li key={item.key} className="tasks__log">
-                  <button type="button" className="tasks__feed-more" onClick={onToggleActivity}>
-                    {item.label}
-                  </button>
-                </li>
-              ),
-            )}
-          </ul>
+              ))}
+            </ul>
+          )}
           <div className="tasks__composer-row">
             <textarea
               ref={commentField}
@@ -308,6 +291,27 @@ export function TaskDetail({
               {TASK_DETAIL_WORDS.comment}
             </Button>
           </div>
+
+          <button
+            type="button"
+            className="tasks__section tasks__section--toggle"
+            aria-expanded={view.activity.open}
+            onClick={onToggleActivity}
+          >
+            {view.activity.label}
+            <DisclosureChevron open={view.activity.open} />
+          </button>
+          {view.activity.open && (
+            <>
+              {view.changesEmpty && <p className="tasks__muted">{view.changesEmpty}</p>}
+              {view.changesTrimmed && <p className="tasks__muted">{view.changesTrimmed}</p>}
+              <ul className="tasks__feed">
+                {view.changes.map((change) => (
+                  <FeedChangeLine key={change.key} change={change} />
+                ))}
+              </ul>
+            </>
+          )}
         </div>
       </div>
     </aside>

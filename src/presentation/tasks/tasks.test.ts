@@ -6,7 +6,7 @@ import { NO_QUERY } from "./queryView";
 import { LADDER_WORDS, tasksLadder } from "./ladderView";
 import { newTaskFormView, NEW_TASK_WORDS } from "./newTaskFormView";
 import { statusMark, statusRing, taskCardView, taskCardClassName } from "./taskCardView";
-import { TASK_DETAIL_WORDS, feedOf, pickedArtifact, pickedStatus, taskDetailClassName, taskDetailView } from "./taskDetailView";
+import { TASK_DETAIL_WORDS, changesOf, commentsOf, pickedArtifact, pickedStatus, taskDetailClassName, taskDetailView } from "./taskDetailView";
 import { teamCardTasksLine } from "./teamCardTasksLine";
 import { teamOnScreen } from "./teamOnScreen";
 import { personName, priorityMark, statusTone, FIELD_WORDS, POOL_CHOICE } from "./words";
@@ -171,11 +171,11 @@ describe("taskDetailView", () => {
     ]);
     expect(view.blockersEmpty).toBeNull();
     expect(view.unblocks).toEqual([{ id: "task-3", title: "Task task-3" }]);
-    expect(view.feed.map(({ key: _key, ...rest }) => rest)).toEqual([
+    expect(view.changes.map(({ key: _key, ...rest }) => rest)).toEqual([
       { kind: "change", who: "lead", text: "assignee: — → impl-1", age: "1h ago" },
       { kind: "change", who: "impl-1", text: "edited the brief (the previous version is kept in the log: 0 characters)", age: "1m ago" },
-      { kind: "comment", who: "you", age: "1m ago", body: "go" },
     ]);
+    expect(view.comments.map(({ key: _key, ...rest }) => rest)).toEqual([{ who: "you", age: "1m ago", body: "go" }]);
     expect(view.assigneeOptions.map((o) => o.value)).toEqual(["", "lead", "impl-1", "impl-2"]);
   });
 
@@ -292,92 +292,59 @@ describe("taskDetailView — labels", () => {
   });
 });
 
-describe("feedOf — a task's history as one timeline", () => {
+describe("commentsOf / changesOf — what was said, and what was changed, apart", () => {
   const change = (at: number, now: string) => ({ at, from: "lead", field: "status" as const, was: null, now });
   const comment = (n: number, at: number) => ({ n, at, from: "impl-1", body: `c${n}` });
-  const shape = (task: Parameters<typeof feedOf>[0]) =>
-    feedOf(task, 10_000).map((item) => (item.kind === "comment" ? item.body : item.kind === "change" ? item.text : item.label));
+  const shape = (log: ReturnType<typeof change>[]) => changesOf({ log }, 10_000).map((item) => item.text);
 
-  it("interleaves what was said and what was changed, oldest first — a change before the comment that came with it", () => {
-    expect(shape({ log: [change(1, "a"), change(3, "b")], comments: [comment(1, 2), comment(2, 3)] })).toEqual([
-      "status: — → a",
-      "c1",
-      "status: — → b",
-      "c2",
-    ]);
+  it("lists what was said oldest first, and every change oldest first — nothing folds", () => {
+    expect(commentsOf({ comments: [comment(1, 2), comment(2, 3)] }, 10_000).map((c) => c.body)).toEqual(["c1", "c2"]);
+    const log = [1, 2, 3, 4, 5].map((at) => change(at, `s${at}`));
+    expect(shape(log)).toEqual(["s1", "s2", "s3", "s4", "s5"].map((now) => `status: — → ${now}`));
   });
 
-  it("shows every change when open — a run never folds", () => {
-    const log = [1, 2, 3, 4, 5].map((at) => change(at, `s${at}`));
-    expect(shape({ log, comments: [] })).toEqual(["s1", "s2", "s3", "s4", "s5"].map((now) => `status: — → ${now}`));
-  });
-
-  it("compact, folds a run to its first and last once two or more would hide; a comment breaks a run", () => {
-    const compact = (task: Parameters<typeof feedOf>[0]) =>
-      feedOf(task, 0, true).map((item) => (item.kind === "comment" ? item.body : item.kind === "change" ? item.text : item.label));
-    const log = [1, 2, 3, 4, 5].map((at) => change(at, `s${at}`));
-    expect(compact({ log, comments: [] })).toEqual(["status: — → s1", "3 more changes", "status: — → s5"]);
-    // Three in a row: a fold would hide one line behind one line — no fold.
-    expect(compact({ log: log.slice(0, 3), comments: [] })).toHaveLength(3);
-    // The change at a comment's moment comes first; then the comment breaks the run.
-    expect(compact({ log, comments: [comment(1, 3)] })).toEqual([
-      "status: — → s1",
-      "status: — → s2",
-      "status: — → s3",
-      "c1",
-      "status: — → s4",
-      "status: — → s5",
-    ]);
-  });
-
-  it("rests compact, and opens whole from its heading", () => {
-    const log = [1, 2, 3, 4, 5].map((at) => change(at, `s${at}`));
-    const b = board([task({ id: "task-1", log })]);
+  it("shows the comments always, the activity shut until its heading opens it", () => {
+    const b = board([task({ id: "task-1", log: [change(1, "a")], comments: [comment(1, 2)] })]);
     const rest = taskDetailView(b.tasks[0], b, ROSTER, 0);
     expect(rest.activity).toEqual({ label: "Activity", open: false });
-    expect(rest.feed.some((item) => item.kind === "more")).toBe(true);
-    const open = taskDetailView(b.tasks[0], b, ROSTER, 0, [], true);
-    expect(open.activity.open).toBe(true);
-    expect(open.feed).toHaveLength(5);
+    expect(rest.comments).toHaveLength(1);
+    expect(taskDetailView(b.tasks[0], b, ROSTER, 0, [], true).activity.open).toBe(true);
   });
 
-  it("keys every item uniquely", () => {
-    const log = [1, 2, 3, 4].map((at) => change(at, `s${at}`));
-    const feed = feedOf({ log, comments: [comment(1, 5)] }, 0);
-    const keys = feed.map((item) => item.key);
-    expect(new Set(keys).size).toBe(keys.length);
-    // Twins — the same moment, the same field — still key apart.
-    const twins = feedOf({ log: [change(1, "a"), change(1, "b")], comments: [] }, 0);
+  it("keys every change uniquely — twins, the same moment and field, included", () => {
+    const twins = changesOf({ log: [change(1, "a"), change(1, "b")] }, 0);
     expect(new Set(twins.map((item) => item.key)).size).toBe(2);
   });
 
   it("says a label put on or taken off, one line each — not the sets before and after", () => {
     const labels = (at: number, was: string | null, now: string | null) => ({ at, from: "lead", field: "labels" as const, was, now });
-    expect(shape({ log: [labels(1, null, "ui")], comments: [] })).toEqual(["added label ui"]);
-    expect(shape({ log: [labels(1, "test", null)], comments: [] })).toEqual(["removed label test"]);
+    const said = (entry: ReturnType<typeof labels>) => changesOf({ log: [entry] }, 0).map((item) => item.text);
+    expect(said(labels(1, null, "ui"))).toEqual(["added label ui"]);
+    expect(said(labels(1, "test", null))).toEqual(["removed label test"]);
     // One entry that swapped a set (an agent's replace) says each move.
-    expect(shape({ log: [labels(1, "a,b", "b,c")], comments: [] })).toEqual(["added label c", "removed label a"]);
-    const feed = feedOf({ log: [labels(1, "a,b", "b,c")], comments: [] }, 0);
-    expect(new Set(feed.map((item) => item.key)).size).toBe(2);
+    expect(said(labels(1, "a,b", "b,c"))).toEqual(["added label c", "removed label a"]);
+    expect(new Set(changesOf({ log: [labels(1, "a,b", "b,c")] }, 0).map((item) => item.key)).size).toBe(2);
   });
 
   it("keeps a change's key as the log is cut from the front at its cap", () => {
     const log = [1, 2, 3, 4, 5].map((at) => change(at, `s${at}`));
-    const keyOf = (feed: ReturnType<typeof feedOf>, text: string) =>
-      feed.find((item) => item.kind === "change" && item.text === text)?.key;
-    const before = feedOf({ log, comments: [] }, 0);
-    const after = feedOf({ log: [...log.slice(1), change(6, "s6")], comments: [] }, 0);
+    const keyOf = (feed: ReturnType<typeof changesOf>, text: string) => feed.find((item) => item.text === text)?.key;
+    const before = changesOf({ log }, 0);
+    const after = changesOf({ log: [...log.slice(1), change(6, "s6")] }, 0);
     expect(keyOf(after, "status: — → s3")).toBe(keyOf(before, "status: — → s3"));
   });
 
-  it("says when older history was trimmed — either cap, each on its own", () => {
+  it("says when a list is at the board's limit — each on its own", () => {
     const b = board([task({ id: "task-1" })]);
-    const full = (over: Partial<ReturnType<typeof task>>) => taskDetailView(task({ id: "task-1", ...over }), b, ROSTER, 0).feedTrimmed;
-    expect(full({})).toBeNull();
-    expect(full({ log: Array.from({ length: TASK_CAPS.logMax }, (_, i) => change(i, "x")) })).toBe(
-      TASK_DETAIL_WORDS.feedTrimmed(TASK_CAPS.logMax, TASK_CAPS.commentsMax),
-    );
-    expect(full({ comments: Array.from({ length: TASK_CAPS.commentsMax }, (_, i) => comment(i + 1, i)) })).not.toBeNull();
+    const view = (over: Partial<ReturnType<typeof task>>) => taskDetailView(task({ id: "task-1", ...over }), b, ROSTER, 0);
+    expect(view({}).changesTrimmed).toBeNull();
+    expect(view({}).commentsTrimmed).toBeNull();
+    const fullLog = view({ log: Array.from({ length: TASK_CAPS.logMax }, (_, i) => change(i, "x")) });
+    expect(fullLog.changesTrimmed).toBe(TASK_DETAIL_WORDS.trimmed(TASK_CAPS.logMax, "changes"));
+    expect(fullLog.commentsTrimmed).toBeNull();
+    const fullTalk = view({ comments: Array.from({ length: TASK_CAPS.commentsMax }, (_, i) => comment(i + 1, i)) });
+    expect(fullTalk.commentsTrimmed).not.toBeNull();
+    expect(fullTalk.changesTrimmed).toBeNull();
   });
 });
 

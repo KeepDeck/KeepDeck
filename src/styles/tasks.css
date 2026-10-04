@@ -679,7 +679,7 @@
   text-transform: uppercase;
 }
 
-/* A heading that opens what it heads (the history): the heading's own
+/* A heading that opens what it heads (the activity): the heading's own
    look, its chevron beside the word, the pointer's. */
 .tasks__section--toggle {
   display: inline-flex;
@@ -697,20 +697,6 @@
   color: var(--kd-text-2);
 }
 
-/* A compact history's folded run: a quiet line that opens it whole. */
-.tasks__feed-more {
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--kd-text-3);
-  font: inherit;
-  font-size: var(--kd-font-small);
-  cursor: pointer;
-}
-
-.tasks__feed-more:hover {
-  color: var(--kd-text-2);
-}
 
 /* The brief: the task's own words, on a tile of their own. */
 .tasks__body {
@@ -870,8 +856,8 @@
   gap: 8px;
 }
 
-/* The task's one timeline: comments, and the changes between them, on a
-   line down the left edge with a dot per event. */
+/* The task's activity: its changes, on a line down the left edge with a
+   dot per change. */
 .tasks__feed {
   position: relative;
   margin: 0;
@@ -903,18 +889,14 @@
   background-color: var(--kd-seam-strong);
 }
 
-.tasks__feed > .tasks__comment::before {
-  top: 12px;
-  background-color: var(--kd-text-3);
-}
-
-/* Nested inside a fold, the run sits on the same line — no second rail. */
-.tasks__feed .tasks__feed {
-  padding-left: 0;
-}
-
-.tasks__feed .tasks__feed::before {
-  content: none;
+/* What was said: the task's comments, a column of tiles. */
+.tasks__comments {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .tasks__log {

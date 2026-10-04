@@ -75,16 +75,20 @@ export interface TaskDetailView {
   /** Nothing published to attach: a one-word value, the reason in its
    * tooltip. Null when the workspace has artifacts. */
   attachEmpty: { text: string; title: string } | null;
-  /** The task's history as one timeline — what was said and what was
-   * changed, oldest first. See `feedOf`. */
-  /** The history's heading: its toggle between compact and whole. */
+  /** What was said, oldest first — the task's substance, always shown,
+   * the composer under it (`commentsOf`). */
+  comments: CommentItem[];
+  commentsEmpty: string | null;
+  /** What was changed — the agents' stream of status, label and assignee
+   * moves — under its heading, shut until opened (`changesOf`). */
   activity: { label: string; open: boolean };
-  feed: FeedItem[];
-  feedEmpty: string | null;
-  /** The board keeps the last so many changes and comments, each cut on
-   * its own: once either is at its limit (cut, or cut at the next entry),
-   * the timeline's start says so — null while neither is. */
-  feedTrimmed: string | null;
+  changes: FeedChange[];
+  changesEmpty: string | null;
+  /** The board keeps the last so many comments and changes, each list cut
+   * on its own: at its limit (cut, or cut at the next entry) the list says
+   * so — null while it is not. */
+  commentsTrimmed: string | null;
+  changesTrimmed: string | null;
   /** The composer's bound — the domain's, so the field cannot outgrow it. */
   commentMax: number;
 }
@@ -97,11 +101,12 @@ export interface FeedChange {
   age: string;
 }
 
-export type FeedItem =
-  | { kind: "comment"; key: string; who: string; age: string; body: string }
-  | FeedChange
-  /** Compact: a run of changes folded between its first and its last. */
-  | { kind: "more"; key: string; label: string };
+export interface CommentItem {
+  key: string;
+  who: string;
+  age: string;
+  body: string;
+}
 
 /** Every word the panel says that is not the task's own — the component
  * maps these and spells nothing. */
@@ -115,12 +120,13 @@ export const TASK_DETAIL_WORDS = {
   addLabel: "Add a label",
   labelPrompt: "+ label",
   labelsFull: (max: number) => `${max} labels — take one off to add another`,
+  comments: "Comments",
+  commentsEmpty: "Nothing said yet",
   activity: "Activity",
-  moreChanges: (n: number) => `${n} more ${n === 1 ? "change" : "changes"}`,
+  changesEmpty: "Nothing changed yet",
   labelAdded: (label: string) => `added label ${label}`,
   labelRemoved: (label: string) => `removed label ${label}`,
-  feedTrimmed: (changes: number, comments: number) =>
-    `This task's history is at the board's limit — it keeps only the last ${changes} changes and ${comments} comments`,
+  trimmed: (max: number, what: string) => `At the board's limit — it keeps only the last ${max} ${what}`,
   detach: "Detach",
   attach: "Attach artifact",
   attachPrompt: "Attach an artifact",
@@ -214,86 +220,44 @@ export function taskDetailView(
       artifacts.length === 0
         ? { text: "none", title: "Nothing published in this workspace yet — agents attach with task.update artifacts=<id>" }
         : null,
+    comments: commentsOf(task, now),
+    commentsEmpty: task.comments.length === 0 ? TASK_DETAIL_WORDS.commentsEmpty : null,
     activity: { label: TASK_DETAIL_WORDS.activity, open: activityOpen },
-    feed: feedOf(task, now, !activityOpen),
-    feedEmpty: task.comments.length === 0 && task.log.length === 0 ? "Nothing said or changed yet" : null,
-    feedTrimmed:
-      task.log.length >= TASK_CAPS.logMax || task.comments.length >= TASK_CAPS.commentsMax
-        ? TASK_DETAIL_WORDS.feedTrimmed(TASK_CAPS.logMax, TASK_CAPS.commentsMax)
-        : null,
+    changes: changesOf(task, now),
+    changesEmpty: task.log.length === 0 ? TASK_DETAIL_WORDS.changesEmpty : null,
+    commentsTrimmed:
+      task.comments.length >= TASK_CAPS.commentsMax ? TASK_DETAIL_WORDS.trimmed(TASK_CAPS.commentsMax, "comments") : null,
+    changesTrimmed: task.log.length >= TASK_CAPS.logMax ? TASK_DETAIL_WORDS.trimmed(TASK_CAPS.logMax, "changes") : null,
     commentMax: TASK_CAPS.commentMax,
   };
 }
 
+/** What was said, oldest first (the order the board keeps). */
+export function commentsOf(task: Pick<Task, "comments">, now: number): CommentItem[] {
+  return task.comments.map((comment) => ({
+    key: `comment-${comment.n}`,
+    who: personName(comment.from),
+    age: formatAge(comment.at, now),
+    body: comment.body,
+  }));
+}
+
 /**
- * What was said and what was changed, as ONE timeline, oldest first — the
- * thread and the log were two lists a reader had to put back together.
- * Within a moment, the change comes before the comment that came with it.
- * Compact (the history's resting form), a run of changes with nothing said
- * between them folds to its first and its last once at least two would
- * hide — a fold over one line saves nothing — so a status walking its
- * ladder does not bury what people wrote; the heading opens it whole.
+ * What was changed, oldest first, every entry — nothing folds: a fold hid
+ * the very lines a reader opened the activity for.
  */
-export function feedOf(task: Pick<Task, "comments" | "log">, now: number, compact = false): FeedItem[] {
+export function changesOf(task: Pick<Task, "log">, now: number): FeedChange[] {
   // A change's key is what it is — its moment and field, counted among
   // its twins — never its place: the log is cut from the front at its cap,
   // and a place-key re-keyed every line on each new entry.
   const seen = new Map<string, number>();
-  const keyOf = (entry: Task["log"][number]) => {
+  return task.log.flatMap((entry) => {
     const base = `change-${entry.at}-${entry.field}`;
     const n = seen.get(base) ?? 0;
     seen.set(base, n + 1);
-    return n === 0 ? base : `${base}-${n}`;
-  };
-  const timeline = [
-    ...task.log.flatMap((entry) => {
-      const key = keyOf(entry);
-      return changeItems(entry, key, now).map((item) => ({ at: entry.at, order: 0, item: item as FeedItem }));
-    }),
-    ...task.comments.map((comment) => ({
-      at: comment.at,
-      order: 1,
-      item: {
-        kind: "comment",
-        key: `comment-${comment.n}`,
-        who: personName(comment.from),
-        age: formatAge(comment.at, now),
-        body: comment.body,
-      } as FeedItem,
-    })),
-  ].sort((a, b) => a.at - b.at || a.order - b.order);
-  const items = timeline.map(({ item }) => item);
-  if (!compact) return items;
-  const feed: FeedItem[] = [];
-  let run: FeedChange[] = [];
-  const flush = () => {
-    if (run.length > RUN_SHOWN + 1) {
-      const hidden = run.slice(1, -1);
-      feed.push(
-        run[0],
-        { kind: "more", key: `more-${hidden[0].key}`, label: TASK_DETAIL_WORDS.moreChanges(hidden.length) },
-        run[run.length - 1],
-      );
-    } else {
-      feed.push(...run);
-    }
-    run = [];
-  };
-  for (const item of items) {
-    if (item.kind === "change") {
-      run.push(item);
-    } else {
-      flush();
-      feed.push(item);
-    }
-  }
-  flush();
-  return feed;
+    return changeItems(entry, n === 0 ? base : `${base}-${n}`, now);
+  });
 }
-
-/** How many changes in a row stand unfolded in the compact history: the
- * first and the last. */
-const RUN_SHOWN = 2;
 
 /** What one log entry says in the timeline — usually one line. A labels
  * entry holds the set before and after; the timeline says what moved: a
