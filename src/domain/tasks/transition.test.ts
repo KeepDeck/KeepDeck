@@ -206,6 +206,15 @@ describe("the backlog — work parked, not yet to be started", () => {
     expect(inLadderOrder(["done", "nope", "backlog", "done", 7])).toEqual(["backlog", "done"]);
   });
 
+  it("may name whom it is meant for: assigned while parked, its assignee still cannot start it", () => {
+    const parked = moved(task({ id: "task-1", status: "backlog" }), "backlog", lead);
+    const theirs = transition(parked, { kind: "assign", assignee: "impl-1" }, lead, ctx([parked]));
+    expect(theirs.ok && theirs.task.assignee).toBe("impl-1");
+    const held = theirs.ok ? theirs.task : parked;
+    expect(refusalOf(held, { kind: "status", to: "in-progress" }, impl1, ctx([held]))).toMatchObject({ kind: "illegal-transition" });
+    expect(refusalOf(held, { kind: "labels", to: ["ui"] }, impl1, ctx([held]))).toBeNull();
+  });
+
   it("holds its dependants: a parked prerequisite is not done", () => {
     expect(blockerResolved("backlog")).toBe(false);
     expect(isOpen("backlog")).toBe(true);
