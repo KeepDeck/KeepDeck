@@ -2,7 +2,7 @@ import { formatAge } from "../../domain/usage";
 import { blockerResolved, findTask, openBlockersOf, type Task, type TaskBoard, type TaskStatus } from "../../domain/tasks";
 import type { StatusRingProps } from "@keepdeck/ui-kit/StatusRing";
 import { POOL_LABEL, STATUS_LABEL, priorityMark, statusTone, type StatusTone } from "./words";
-import { taskInFlight, type DragState } from "./cardDrag";
+import { taskOnScreen, type DragState } from "./cardDrag";
 
 /** One task as a card says it: title, identity line, the two marks that
  * matter at a glance (priority, an unmet blocker). */
@@ -121,7 +121,7 @@ export function cardInFlight(
   now: number,
 ): TaskCardView | null {
   if (drag.kind !== "dragging" || board === null) return null;
-  const task = taskInFlight(board, drag.id, teamId);
+  const task = taskOnScreen(board, drag.id, teamId);
   return task ? taskCardView(task, board, now) : null;
 }
 

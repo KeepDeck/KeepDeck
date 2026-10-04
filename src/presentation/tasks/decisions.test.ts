@@ -15,7 +15,7 @@ import {
   ghostBox,
   moveCard,
   releaseCard,
-  taskInFlight,
+  taskOnScreen,
 } from "./cardDrag";
 import { EMPTY_COMPOSER, beginSend, composerCanSend, finishSend, labelDraftAfter, labelSendable, typeDraft } from "./composer";
 import { canCreateTask, canSendComment } from "./composerView";
@@ -83,13 +83,14 @@ describe("dialogState", () => {
     expect(escapeDrag(IDLE)).toBeNull();
   });
 
-  it("carries a task only while it is on the board on screen; a drag that outlived it ends", () => {
+  it("holds a task on screen only while it is on the board and the team shown; a drag that outlived it ends", () => {
     const b = board([task({ id: "task-1" }), task({ id: "task-2", teamId: "team-2" })]);
-    expect(taskInFlight(b, "task-1", "team-1")?.id).toBe("task-1");
-    expect(taskInFlight(b, "task-9", "team-1")).toBeNull();
+    expect(taskOnScreen(b, "task-1", "team-1")?.id).toBe("task-1");
+    expect(taskOnScreen(b, "task-9", "team-1")).toBeNull();
     // Moved to another team mid-drag: no task to drop on this board.
-    expect(taskInFlight(b, "task-2", "team-1")).toBeNull();
-    expect(taskInFlight(null, "task-1", "team-1")).toBeNull();
+    expect(taskOnScreen(b, "task-2", "team-1")).toBeNull();
+    expect(taskOnScreen(null, "task-1", "team-1")).toBeNull();
+    expect(taskOnScreen(b, null, "team-1")).toBeNull();
     const flying = moveCard(armCard("task-1", 0, 0, { width: 1, offsetX: 0, offsetY: 0 }), 50, 50, () => new Set());
     expect(dragOutlived(flying, null)).toEqual(IDLE);
     expect(dragOutlived(flying, { id: "task-1" })).toBeNull();

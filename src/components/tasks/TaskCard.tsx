@@ -41,15 +41,13 @@ export function TaskCard({ card, selected, dragging = false, onSelect, onArm }: 
         {card.priority && <span className="tasks__mark">{card.priority}</span>}
       </span>
       {card.blockedBy && <span className="tasks__card-blocked">{card.blockedBy}</span>}
-      {card.labels.length > 0 && (
-        <span className="tasks__labels">
-          {card.labels.map((label) => (
-            <span key={label} className="kd-tag">
-              {label}
-            </span>
-          ))}
-        </span>
-      )}
+      <span className="tasks__labels">
+        {card.labels.map((label) => (
+          <span key={label} className="kd-tag">
+            {label}
+          </span>
+        ))}
+      </span>
     </button>
   );
 }

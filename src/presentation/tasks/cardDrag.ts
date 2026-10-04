@@ -37,10 +37,12 @@ export type DragState =
 
 export const IDLE: DragState = { kind: "idle" };
 
-/** The task a drag carries, as long as it is still on the board on
- * screen: gone — deleted, or moved to another team — it is no task to
- * drop, and the drag ends. */
-export function taskInFlight(board: TaskBoard | null, id: string, teamId: string | null): Task | null {
+/** A task as the board on screen holds it: on the board, and on the team
+ * shown — deleted, or moved to another team, it is not there. The one rule
+ * for the task open (its panel) and the task in flight (a drag carries a
+ * task only while it is still there, and ends when it is not). */
+export function taskOnScreen(board: TaskBoard | null, id: string | null, teamId: string | null): Task | null {
+  if (id === null) return null;
   const task = board ? findTask(board, id) : undefined;
   return task && task.teamId === teamId ? task : null;
 }

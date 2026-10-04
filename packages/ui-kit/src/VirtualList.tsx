@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useReducer, useRef, type ReactNode } from "react";
 import { useFocusHandoff } from "./useFocusHandoff";
 import { useRowWindow } from "./useRowWindow";
 
@@ -45,6 +45,78 @@ export interface VirtualListProps<T> extends VirtualListMarkup {
    * Return null for no heading. `height` is the room it covers: a row
    * revealed upward stops below it. */
   sticky?: { className: string; height: number; render: (firstVisibleIndex: number) => ReactNode };
+  /** The consumer's token for a change the person made (a fold): when it
+   * changes with the items, that change may move (`useListMotion`). Any
+   * value compared by identity; absent, the list never eases. */
+  easeKey?: unknown;
+}
+
+/** How long a change's motion marks stand — past the longest entrance a
+ * consumer runs on them, short enough that a row the scroll mounts later
+ * never wears one. */
+export const LIST_MOTION_WINDOW_MS = 400;
+
+/**
+ * The list's own motion, asked for by the consumer and by nothing else: a
+ * change of `easeKey` (the consumer's token for "the person moved this" —
+ * a fold) with the items marks that ONE change as easing — the list's box
+ * wears `data-easing`, and the keys that joined the items there wear
+ * `data-arriving`. Any other change of the items (a status an agent moved,
+ * a measurement, the anchoring keeping the reader's place) marks nothing,
+ * so it lands still. The marks stand only LIST_MOTION_WINDOW_MS after the
+ * change: a later render (a scroll mounting a row) finds them gone, and
+ * scrolling never replays an entrance. Nothing moves on the first paint.
+ *
+ * Held per CHANGE of the rows, written during render idempotently — a
+ * second render of the same items (StrictMode, a hover), or a fresh array
+ * of the same rows in the same order, keeps the marks.
+ */
+function useListMotion<T>(
+  items: readonly T[],
+  itemKey: (item: T) => string,
+  easeKey: unknown,
+): { easing: boolean; arriving: ReadonlySet<string> } {
+  const track = useRef<{ items: readonly T[]; easeKey: unknown; arriving: ReadonlySet<string> | null } | null>(null);
+  if (track.current === null) {
+    track.current = { items, easeKey, arriving: null };
+  } else if (easeKey === undefined && track.current.easeKey === undefined) {
+    // A list that never eases (no token) pays nothing per change.
+    track.current.items = items;
+  } else if (track.current.items !== items) {
+    const previous = track.current;
+    const eased = previous.easeKey !== easeKey;
+    const before = previous.items.map(itemKey);
+    const after = items.map(itemKey);
+    if (!eased && sameKeys(before, after)) {
+      // A fresh array of the same rows (a clock tick re-dated them): no
+      // change of place, so the marks stand — an entrance runs out.
+      track.current = { ...previous, items };
+    } else {
+      const was = new Set(before);
+      track.current = { items, easeKey, arriving: eased ? new Set(after.filter((key) => !was.has(key))) : null };
+    }
+  }
+  // The marks expire on a timer, not by a clock read in render: the timer
+  // drops them and renders once more, so whatever renders after sees none.
+  const arriving = track.current.arriving;
+  const [, expired] = useReducer((n: number) => n + 1, 0);
+  useEffect(() => {
+    if (arriving === null) return;
+    const timer = setTimeout(() => {
+      if (track.current?.arriving === arriving) {
+        track.current.arriving = null;
+        expired();
+      }
+    }, LIST_MOTION_WINDOW_MS);
+    return () => clearTimeout(timer);
+  }, [arriving]);
+  return { easing: arriving !== null, arriving: arriving ?? NONE };
+}
+
+const NONE: ReadonlySet<string> = new Set();
+
+function sameKeys(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((key, i) => key === b[i]);
 }
 
 /**
@@ -67,10 +139,12 @@ export function VirtualList<T>({
   onReachEnd,
   revealKey = null,
   sticky,
+  easeKey,
   spacer,
   item,
 }: VirtualListProps<T>) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const motion = useListMotion(items, itemKey, easeKey);
   const rowWindow = useRowWindow({ rows: items, keyOf: itemKey, estimate, scrollRef, coveredTop: sticky?.height });
   // A focused row scrolled out keeps the keyboard's place on the list.
   useFocusHandoff(scrollRef);
@@ -102,7 +176,13 @@ export function VirtualList<T>({
   const spacerIsList = Spacer === "ul";
   return (
     // Focusable by script only — the handoff's landing, never a Tab stop.
-    <div className={className} ref={scrollRef} {...(spacerIsList ? {} : named)} tabIndex={-1}>
+    <div
+      className={className}
+      ref={scrollRef}
+      {...(spacerIsList ? {} : named)}
+      tabIndex={-1}
+      data-easing={motion.easing || undefined}
+    >
       {sticky && rowWindow.firstVisibleIndex >= 0 && (
         // Zero tall, so it pushes nothing down; its content hangs over the
         // rows below it, pinned to the scroll box's top while they scroll.
@@ -120,6 +200,7 @@ export function VirtualList<T>({
             key={slot.key}
             ref={rowWindow.measure}
             data-index={slot.index}
+            data-arriving={motion.arriving.has(slot.key as string) || undefined}
             className={item?.className}
             style={{
               position: "absolute",

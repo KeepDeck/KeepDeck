@@ -2,7 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { VirtualList } from "./VirtualList";
+import { LIST_MOTION_WINDOW_MS, VirtualList } from "./VirtualList";
 import { installResizeObserver, pinListViewport } from "./virtualGeometry.test-support";
 
 (
@@ -93,6 +93,57 @@ describe("VirtualList", () => {
     expect(host.querySelector(".list")!.hasAttribute("aria-label")).toBe(false);
     expect(spacer.style.height).toBe(`${3 * ROW}px`);
     expect(host.querySelectorAll("ul.list__spacer > li.list__item > .row").length).toBe(3);
+  });
+
+  describe("the list's own motion (easeKey → data-easing, data-arriving)", () => {
+    const renderList = (list: readonly string[], easeKey: unknown) =>
+      act(() =>
+        root.render(
+          createElement(VirtualList<string>, {
+            items: list,
+            itemKey: (item) => item,
+            estimate: () => ROW,
+            render: (item) => createElement("span", { className: "row" }, item),
+            className: "list",
+            easeKey,
+          }),
+        ),
+      );
+    const easing = () => host.querySelector(".list")!.hasAttribute("data-easing");
+    const arrived = () => [...host.querySelectorAll<HTMLElement>("[data-arriving]")].map((el) => el.textContent);
+
+    it("moves only the change the consumer asked for, marking the items that joined there", () => {
+      restore = pinListViewport("list", 200, 300, ROW);
+      renderList(["a", "b", "c"], 1);
+      // Nothing moves on the first paint.
+      expect([easing(), arrived()]).toEqual([false, []]);
+      // The person's act: the token changes with the items.
+      renderList(["a", "x", "y", "b", "c"], 2);
+      expect([easing(), arrived()]).toEqual([true, ["x", "y"]]);
+      // A render of the same items keeps the marks: an entrance runs out.
+      renderList(["a", "x", "y", "b", "c"], 2);
+      expect(arrived()).toEqual(["x", "y"]);
+      // An agent's change, the anchoring's: the items change, the token
+      // does not — it lands still.
+      renderList(["z", "a", "x", "y", "b", "c"], 2);
+      expect([easing(), arrived()]).toEqual([false, []]);
+    });
+
+    it("drops the marks past their window, so a row the scroll mounts later never replays an entrance", async () => {
+      restore = pinListViewport("list", 200, 300, ROW);
+      vi.useFakeTimers();
+      try {
+        renderList(["a", "b"], 1);
+        renderList(["a", "x", "b"], 2);
+        expect(arrived()).toEqual(["x"]);
+        act(() => void vi.advanceTimersByTime(LIST_MOTION_WINDOW_MS - 1));
+        expect(arrived()).toEqual(["x"]);
+        act(() => void vi.advanceTimersByTime(1));
+        expect([easing(), arrived()]).toEqual([false, []]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
   describe("the item kept in view (revealKey)", () => {

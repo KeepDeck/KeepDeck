@@ -384,6 +384,38 @@
   overflow-y: auto;
 }
 
+/* A group the person folds or unfolds moves the rows after it: they
+   slide to their new places (the windowed list places each by transform)
+   and the rows a fold opens fade in where they land; the folded rows go
+   at once — the fold reads as their going and the rest closing up. Only
+   that change eases (VirtualList's data-easing, keyed by the folds):
+   a task an agent moves, a drop, the anchoring that keeps the reader's
+   place all land still — easing them made the reader's rows jump and
+   settle. The disclosure motion, the chevron's. */
+.tasks__list[data-easing] .tasks__list-item {
+  transition: transform var(--kd-disclosure-motion);
+}
+
+.tasks__list[data-easing] .tasks__list-item[data-arriving] {
+  animation: tasks-row-arrive var(--kd-disclosure-motion);
+}
+
+@keyframes tasks-row-arrive {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tasks__list[data-easing] .tasks__list-item {
+    transition: none;
+  }
+
+  .tasks__list[data-easing] .tasks__list-item[data-arriving] {
+    animation: none;
+  }
+}
+
 /* The pinned heading: the group of the first row in view, over the rows
    as they scroll under it — on the list's own surface, so they pass
    beneath it rather than through it. */
@@ -905,6 +937,13 @@
   height: 5px;
   border-radius: 50%;
   background-color: var(--kd-seam-strong);
+}
+
+/* An empty list takes no room — no gap held for nothing (the card's
+   labels, the panel's comments). */
+.tasks__comments:empty,
+.tasks__labels:empty {
+  display: none;
 }
 
 /* What was said: the task's comments, a column of tiles. */

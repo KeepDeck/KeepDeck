@@ -217,7 +217,8 @@ describe("the workspace strip's open column", () => {
     const curve = `${STRIP_MOTION_MS}ms cubic-bezier(0.33, 1, 0.68, 1)`;
     expect(ruleBody(strip, ".strip__col").transition).toContain(`box-shadow ${curve}`);
     // The chevron is the house's (base.css .kd-chevron), on this clock too.
-    expect(ruleBody(readStyles("base.css"), ".kd-chevron").transition).toBe(`transform ${curve}`);
+    expect(ruleBody(readStyles("base.css"), ".kd-chevron").transition).toBe("transform var(--kd-disclosure-motion)");
+    expect(readStyles("tokens.css")).toContain(`--kd-disclosure-motion: ${curve};`);
   });
 
   it("widens on the clock its team lists move on, so the edge and a list arrive together", () => {
