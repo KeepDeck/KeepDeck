@@ -641,6 +641,21 @@ describe("VirtualList as a grouped list", () => {
       expect(list().scrollTop).toBe(50 * H);
     });
 
+    it("moves the walk with a compensation for someone else's rows landing above — the heading still ends at the top", async () => {
+      render(grouped(30, shut), shut);
+      await scrollTo(99 * H + 15);
+      const open = new Set<number>();
+      const opened = grouped(30);
+      render(opened, open);
+      await frames(48);
+      // An agent puts five tasks at the top of group 0, far above.
+      const landed = [opened[0], ...Array.from({ length: 5 }, (_, i) => ({ key: `new${i}`, head: false, group: 0 })), ...opened.slice(1)];
+      render(landed, open);
+      await frames(200);
+      expect(top("head:9")).toBe(0);
+      expect(list().scrollTop).toBe(104 * H);
+    });
+
     it("lets go of the walk the moment the person reaches for the wheel, before the scroll even moves", async () => {
       render(grouped(30, shut), shut);
       await scrollTo(99 * H + 15);

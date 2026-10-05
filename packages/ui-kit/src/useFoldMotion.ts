@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type RefObject } from "react";
+import { flushSync } from "react-dom";
 import {
   easeFold,
   foldFrame,
@@ -17,7 +18,8 @@ export const FOLD_MOTION_MS = 160;
  * draw as ghosts), how far along it is, and the person's scroll walk. */
 interface Motion<T> {
   segments: readonly FoldSegment[];
-  ghosts: ReadonlyMap<string, T>;
+  /** The rows that left, by key: the item and its old index. */
+  ghosts: ReadonlyMap<string, { item: T; index: number }>;
   startedAt: number | null;
   residual: number;
   /** The walk the fold's hold asked for: from where the scroll stood to
@@ -47,8 +49,8 @@ export interface FoldMotionInput<T> {
 export interface FoldMotion<T> {
   /** What to draw this render, or null when nothing is moving. */
   frame: FoldFrame | null;
-  /** A ghost's item, by key. */
-  ghost(key: string): T | undefined;
+  /** A ghost's item and its old index, by key. */
+  ghost(key: string): { item: T; index: number } | undefined;
   /** For the hold: take the scroll walk instead of writing it. True when
    * a fold is in flight to walk it. */
   takeWalk(from: number, to: number): boolean;
@@ -76,29 +78,38 @@ export function useFoldMotion<T>({ items, eased, readLayout, folds, scrollRef, o
   const motion = useRef<Motion<T> | null>(null);
   // The layout and items last drawn — the "before" of the next fold.
   const drawn = useRef<{ items: readonly T[]; layout: Layout } | null>(null);
-  // The change a motion was made for — a second render of it makes none.
-  const madeFor = useRef<readonly T[] | null>(null);
+  // Motions already put in flight — each is started once, whatever
+  // renders after.
+  const started = useRef(new WeakSet<Motion<T>>());
+  /** The motion the clock is running. */
+  const [running, setRunning] = useState<Motion<T> | null>(null);
 
   // The layout of this render, read once, when a fold is made or painted.
   let now: Layout | null = null;
   const layoutNow = () => (now ??= readLayout());
-  if (eased && madeFor.current !== items && drawn.current !== null && !reducedMotion()) {
-    const layout = layoutNow();
-    madeFor.current = items;
-    const segments = segmentsOf(drawn.current.layout, layout);
-    if (segments !== null && segments.length > 0) {
-      // A fold in flight is overtaken: its scroll lands where it was going.
-      finishWalk(motion.current, scrollRef.current);
-      const left = new Set(segments.flatMap((segment) => segment.ghosts.map((ghost) => ghost.key)));
-      const keyOf = new Map(drawn.current.layout.rows.map((row, index) => [row.key, index]));
-      const ghosts = new Map<string, T>();
-      for (const key of left) {
-        const index = keyOf.get(key);
-        if (index !== undefined) ghosts.set(key, drawn.current.items[index]);
-      }
-      motion.current = { segments, ghosts, startedAt: null, residual: 1, walk: null, written: null, released: false };
-    }
-  }
+  // The motion this change of the rows makes, if it is the person's: worked
+  // out in render, purely — what it writes (a walk landing) happens when
+  // it is put in flight, after the commit.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const made = useMemo(() => (eased && drawn.current !== null && !reducedMotion() ? motionFrom(drawn.current, layoutNow()) : null), [items]);
+  const inFlight = useRef<Motion<T> | null>(null);
+  inFlight.current = made !== null && !started.current.has(made) ? made : null;
+  /** Put this render's motion in flight — once: a fold in flight is
+   * overtaken, its scroll landing where it was going. Asked by the hold
+   * (whose layout effect runs first) and by this hook's own. */
+  const start = useCallback(() => {
+    const next = inFlight.current;
+    if (next === null || started.current.has(next)) return;
+    started.current.add(next);
+    finishWalk(motion.current, scrollRef.current);
+    motion.current = next;
+    // The clock starts for it — a render before the paint, in the layout
+    // phase this is asked in.
+    setRunning(next);
+  }, [scrollRef]);
+  useLayoutEffect(() => {
+    start();
+  });
 
   // What this render drew is the "before" of the next fold — kept only
   // by a list that folds, and only in its own copy.
@@ -107,7 +118,6 @@ export function useFoldMotion<T>({ items, eased, readLayout, folds, scrollRef, o
   });
 
   // The clock: one frame at a time while a motion lasts.
-  const running = motion.current;
   useEffect(() => {
     if (!running) return;
     const list = scrollRef.current;
@@ -124,7 +134,9 @@ export function useFoldMotion<T>({ items, eased, readLayout, folds, scrollRef, o
       running.residual = 1 - eased;
       walkTo(running, list, eased);
       if (eased >= 1) motion.current = null;
-      draw();
+      // Drawn in THIS frame: a render left to the scheduler would land after
+      // the paint, the rows a step behind the scroll the clock just wrote.
+      flushSync(draw);
       if (motion.current === running) frameId = requestAnimationFrame(tick);
     };
     frameId = requestAnimationFrame(tick);
@@ -134,7 +146,7 @@ export function useFoldMotion<T>({ items, eased, readLayout, folds, scrollRef, o
     };
   }, [running, scrollRef]);
 
-  const current = motion.current;
+  const current = inFlight.current ?? motion.current;
   // During a fold, which rows to mount is decided by where they are
   // DRAWN — so the scroll box is read here, the one time a render asks.
   const list = scrollRef.current;
@@ -148,6 +160,7 @@ export function useFoldMotion<T>({ items, eased, readLayout, folds, scrollRef, o
 
   const takeWalk = useCallback(
     (from: number, to: number) => {
+      start();
       const live = motion.current;
       const box = scrollRef.current;
       if (!live || !box) return false;
@@ -155,7 +168,7 @@ export function useFoldMotion<T>({ items, eased, readLayout, folds, scrollRef, o
       live.written = from;
       return true;
     },
-    [readLayout, scrollRef],
+    [readLayout, scrollRef, start],
   );
   const shifted = useCallback((by: number) => {
     const live = motion.current;
@@ -171,6 +184,20 @@ export function useFoldMotion<T>({ items, eased, readLayout, folds, scrollRef, o
   }, [scrollRef]);
   const ghost = useCallback((key: string) => motion.current?.ghosts.get(key), []);
   return { frame, ghost, takeWalk, shifted, settle };
+}
+
+/** The motion a change of the rows makes, from what was drawn before to
+ * the layout now — or null when it is no fold (nothing changed place, or
+ * the rows that stayed were reordered). */
+function motionFrom<T>(before: { items: readonly T[]; layout: Layout }, layout: Layout): Motion<T> | null {
+  const segments = segmentsOf(before.layout, layout);
+  if (segments === null || segments.length === 0) return null;
+  const left = new Set(segments.flatMap((segment) => segment.ghosts.map((ghost) => ghost.key)));
+  const ghosts = new Map<string, { item: T; index: number }>();
+  for (const [index, row] of before.layout.rows.entries()) {
+    if (left.has(row.key)) ghosts.set(row.key, { item: before.items[index], index });
+  }
+  return { segments, ghosts, startedAt: null, residual: 1, walk: null, written: null, released: false };
 }
 
 /** Move the person's scroll walk on to `eased` — unless the person has

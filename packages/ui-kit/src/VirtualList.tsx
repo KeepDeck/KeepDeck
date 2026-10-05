@@ -25,7 +25,9 @@ export interface VirtualListProps<T> extends VirtualListMarkup {
    * by measurement the moment the row reports its real box. */
   estimate: number | ((item: T) => number);
   /** The item's content. The list positions and measures the box around
-   * it, so the content takes no position of its own. */
+   * it, so the content takes no position of its own. A row that just left
+   * is drawn once more while a fold rolls it up, with the item and index
+   * it had before — inert, measured by nobody. */
   render: (item: T, index: number) => ReactNode;
   /** The scroll container's class — the consumer's, styled by it. */
   className: string;
@@ -243,10 +245,11 @@ export function VirtualList<T>({
                   .map((ghost) => {
                     const left = fold.ghost(ghost.key);
                     // A row that left, drawn as it was until the fold ends:
-                    // measured by nobody, reached by nothing.
+                    // measured by nobody, reached by nothing — rendered
+                    // with its index from before the change.
                     return left === undefined ? null : (
                       <Item key={`ghost:${ghost.key}`} className={item?.className} style={{ ...placed(ghost.top), pointerEvents: "none" }} inert aria-hidden>
-                        {render(left, -1)}
+                        {render(left.item, left.index)}
                       </Item>
                     );
                   })}
