@@ -2,7 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { LIST_MOTION_WINDOW_MS, VirtualList } from "./VirtualList";
+import { VirtualList } from "./VirtualList";
 import { installResizeObserver, pinListViewport } from "./virtualGeometry.test-support";
 
 (
@@ -93,57 +93,6 @@ describe("VirtualList", () => {
     expect(host.querySelector(".list")!.hasAttribute("aria-label")).toBe(false);
     expect(spacer.style.height).toBe(`${3 * ROW}px`);
     expect(host.querySelectorAll("ul.list__spacer > li.list__item > .row").length).toBe(3);
-  });
-
-  describe("the list's own motion (easeKey → data-easing, data-arriving)", () => {
-    const renderList = (list: readonly string[], easeKey: unknown) =>
-      act(() =>
-        root.render(
-          createElement(VirtualList<string>, {
-            items: list,
-            itemKey: (item) => item,
-            estimate: () => ROW,
-            render: (item) => createElement("span", { className: "row" }, item),
-            className: "list",
-            easeKey,
-          }),
-        ),
-      );
-    const easing = () => host.querySelector(".list")!.hasAttribute("data-easing");
-    const arrived = () => [...host.querySelectorAll<HTMLElement>("[data-arriving]")].map((el) => el.textContent);
-
-    it("moves only the change the consumer asked for, marking the items that joined there", () => {
-      restore = pinListViewport("list", 200, 300, ROW);
-      renderList(["a", "b", "c"], 1);
-      // Nothing moves on the first paint.
-      expect([easing(), arrived()]).toEqual([false, []]);
-      // The person's act: the token changes with the items.
-      renderList(["a", "x", "y", "b", "c"], 2);
-      expect([easing(), arrived()]).toEqual([true, ["x", "y"]]);
-      // A render of the same items keeps the marks: an entrance runs out.
-      renderList(["a", "x", "y", "b", "c"], 2);
-      expect(arrived()).toEqual(["x", "y"]);
-      // An agent's change, the anchoring's: the items change, the token
-      // does not — it lands still.
-      renderList(["z", "a", "x", "y", "b", "c"], 2);
-      expect([easing(), arrived()]).toEqual([false, []]);
-    });
-
-    it("drops the marks past their window, so a row the scroll mounts later never replays an entrance", async () => {
-      restore = pinListViewport("list", 200, 300, ROW);
-      vi.useFakeTimers();
-      try {
-        renderList(["a", "b"], 1);
-        renderList(["a", "x", "b"], 2);
-        expect(arrived()).toEqual(["x"]);
-        act(() => void vi.advanceTimersByTime(LIST_MOTION_WINDOW_MS - 1));
-        expect(arrived()).toEqual(["x"]);
-        act(() => void vi.advanceTimersByTime(1));
-        expect([easing(), arrived()]).toEqual([false, []]);
-      } finally {
-        vi.useRealTimers();
-      }
-    });
   });
 
   describe("the item kept in view (revealKey)", () => {
@@ -509,12 +458,13 @@ describe("VirtualList as a grouped list", () => {
     restore();
   });
 
-  const render = (list: readonly G[], easeKey?: unknown) =>
+  const render = (list: readonly G[], easeKey?: unknown, revealKey: string | null = null) =>
     act(() =>
       root.render(
         createElement(VirtualList<G>, {
           items: list,
           easeKey,
+          revealKey,
           itemKey: (g) => g.key,
           estimate: H,
           render: (g) => createElement("span", { className: g.head ? "head" : "row" }, g.key),
@@ -621,6 +571,137 @@ describe("VirtualList as a grouped list", () => {
     render(grouped(30, new Set([9])));
     await act(async () => {});
     expect(top("head:9")).toBe(before);
+  });
+
+  describe("the person's fold, played out by the list (useFoldMotion)", () => {
+    const shut = new Set([9]);
+    const box = () => host.querySelector<HTMLElement>(".list > div:not(:first-child) > div[style*='overflow: hidden']");
+    /** Frames of the clock, by time. */
+    const frames = async (ms: number) => {
+      await act(async () => {
+        vi.advanceTimersByTime(ms);
+      });
+    };
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ["requestAnimationFrame", "cancelAnimationFrame", "performance", "setTimeout", "clearTimeout"] });
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("unrolls an opened group from under its heading — even with the next heading far off screen — and ends final", async () => {
+      // Read near the top: group 9 is far below, its next heading further.
+      render(grouped(30, shut), shut);
+      await scrollTo(95 * H);
+      const open = new Set<number>();
+      render(grouped(30), open);
+      // A box under the heading, at nothing yet: what is below has not moved.
+      expect(box()).not.toBeNull();
+      expect(box()!.style.height).toBe("0px");
+      await frames(80);
+      const mid = Number.parseFloat(box()!.style.height);
+      expect(mid).toBeGreaterThan(0);
+      expect(mid).toBeLessThan(10 * H);
+      await frames(200);
+      // Done: no box, the layout final — the group's rows in their places.
+      expect(box()).toBeNull();
+      expect(top("g9r0") + list().scrollTop).toBe(100 * H);
+    });
+
+    it("rolls a shut group up into its heading, its rows drawn as ghosts until it is done", async () => {
+      const open = new Set<number>();
+      render(grouped(30), open);
+      await scrollTo(95 * H);
+      render(grouped(30, shut), shut);
+      const ghosts = () => [...host.querySelectorAll<HTMLElement>("[aria-hidden='true'][inert]")].map((g) => g.textContent);
+      expect(ghosts()).toContain("g9r0");
+      await frames(80);
+      expect(Number.parseFloat(box()!.style.height)).toBeLessThan(10 * H);
+      await frames(200);
+      expect(box()).toBeNull();
+      expect(ghosts()).toEqual([]);
+    });
+
+    it("walks the scroll the hold asks for over the fold — and lets the person's own scroll win", async () => {
+      // Group 9's heading scrolled up past the top: opening brings it down.
+      render(grouped(30, shut), shut);
+      await scrollTo(99 * H + 15);
+      render(grouped(30), new Set<number>());
+      await frames(48);
+      const walking = list().scrollTop;
+      expect(walking).toBeLessThan(99 * H + 15);
+      expect(walking).toBeGreaterThan(99 * H);
+      // The person scrolls (a scrollbar drag, keys): a scroll the clock did
+      // not write — the walk is theirs no more.
+      await act(async () => {
+        list().scrollTop = 50 * H;
+        list().dispatchEvent(new Event("scroll"));
+      });
+      await frames(200);
+      expect(list().scrollTop).toBe(50 * H);
+    });
+
+    it("lets go of the walk the moment the person reaches for the wheel, before the scroll even moves", async () => {
+      render(grouped(30, shut), shut);
+      await scrollTo(99 * H + 15);
+      render(grouped(30), new Set<number>());
+      await frames(48);
+      const held = list().scrollTop;
+      await act(async () => {
+        list().dispatchEvent(new Event("wheel"));
+      });
+      await frames(200);
+      expect(list().scrollTop).toBe(held);
+    });
+
+    it("pins the heading of the group shutting while its ghosts still fill the top", async () => {
+      // Reading deep in group 9 (its rows from 100·H), then shutting it.
+      const open = new Set<number>();
+      render(grouped(30), open);
+      await scrollTo(100 * H + 3 * H);
+      expect(pinned()).toBe("group 9");
+      render(grouped(30, shut), shut);
+      await frames(16);
+      expect(pinned()).toBe("group 9");
+    });
+
+    it("lands the fold before a reveal moves the scroll", async () => {
+      render(grouped(30, shut), shut);
+      await scrollTo(95 * H);
+      render(grouped(30), new Set<number>());
+      expect(box()).not.toBeNull();
+      render(grouped(30), new Set<number>(), "g20r5");
+      expect(box()).toBeNull();
+    });
+
+    it("keeps unrolling through an agent's change — a row moved elsewhere lands still, the fold goes on", async () => {
+      render(grouped(30, shut), shut);
+      await scrollTo(95 * H);
+      const open = new Set<number>();
+      const opened = grouped(30);
+      render(opened, open);
+      await frames(48);
+      const moved = opened.filter((g) => g.key !== "g20r0");
+      moved.splice(1, 0, { key: "g20r0", head: false, group: 0 });
+      render(moved, open);
+      expect(box()).not.toBeNull();
+      await frames(200);
+      expect(box()).toBeNull();
+      expect(top("g9r0") + list().scrollTop).toBe(101 * H);
+    });
+
+    it("lands at once under reduced motion", async () => {
+      const original = window.matchMedia;
+      window.matchMedia = ((query: string) => ({ matches: query.includes("reduce") }) as MediaQueryList) as typeof window.matchMedia;
+      try {
+        render(grouped(30, shut), shut);
+        await scrollTo(95 * H);
+        render(grouped(30), new Set<number>());
+        expect(box()).toBeNull();
+      } finally {
+        window.matchMedia = original;
+      }
+    });
   });
 
   describe("the person's own fold (easeKey) holds the heading folded", () => {
