@@ -151,6 +151,9 @@ export function VirtualList<T>({
     overscan: FOLD_OVERSCAN_PX,
   });
   foldRef.current = fold;
+  // Set as this render draws — the rows it mounts are measured in its own
+  // commit, before any effect could say so.
+  rowWindow.holdSizeCorrections(fold.frame !== null);
   // A focused row scrolled out keeps the keyboard's place on the list.
   useFocusHandoff(scrollRef);
 

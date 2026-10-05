@@ -50,6 +50,12 @@ export interface RowWindow {
    * its layout in one buffer it rewrites in place, so a layout kept from
    * an earlier render must not be a view of it. */
   readLayout(): { rows: { key: string; start: number; end: number }[]; total: number };
+  /** While a fold paints the list, a row measured for the first time must
+   * not move the scroll: the virtualizer corrects it as if the row stood
+   * at its FINAL place above the view, while the fold draws it elsewhere —
+   * and the correction cancels the person's wheel in flight (reviewer-3,
+   * task-249). On: no correction; off: the virtualizer's own rule. */
+  holdSizeCorrections(on: boolean): void;
   /** ONE callback for every row's ref — a fresh arrow per row would ride
    * the props and fell every row's memo on every parent render. The row
    * is resolved by its `data-index`. */
@@ -120,6 +126,9 @@ export function useRowWindow<Row>({
     lastIndex,
     atEnd: rows.length > 0 && lastIndex === rows.length - 1,
     totalSize: virtualizer.getTotalSize(),
+    holdSizeCorrections: (on: boolean) => {
+      virtualizer.shouldAdjustScrollPositionOnItemSizeChange = on ? () => false : undefined;
+    },
     readLayout: () => {
       const cache = virtualizer.measurementsCache;
       const laid: { key: string; start: number; end: number }[] = [];
