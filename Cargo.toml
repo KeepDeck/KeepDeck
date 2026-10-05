@@ -6,5 +6,6 @@ members = [
     "crates/keepdeck-pty",
     "crates/keepdeck-git",
     "crates/keepdeck-index",
+    "crates/keepdeck-tasks",
     "crates/keepdeck-voice",
 ]
