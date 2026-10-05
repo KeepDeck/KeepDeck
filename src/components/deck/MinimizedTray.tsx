@@ -383,8 +383,6 @@ export function MinimizedTray({
             title={entry.title}
             icon={entry.icon}
             yolo={entry.yolo}
-            // The sizer measures the REAL chip, stopped dot included.
-            stopped={entry.stopped}
           />
         ))}
       </div>

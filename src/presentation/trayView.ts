@@ -26,7 +26,12 @@ import {
   type Pane,
   type PaneVisibilityView,
 } from "../domain/deck";
-import { needsPerson, type PaneActivity } from "../domain/status";
+import {
+  needsPerson,
+  paneFrame,
+  type PaneActivity,
+  type StatusFrame,
+} from "../domain/status";
 
 export type ShelfReason = HideReason | "maximized";
 
@@ -72,12 +77,16 @@ export function trayView(
  * share one physical shelf, and a mixed shelf is named Hidden rather than
  * mislabeling stopped agents as merely minimized — as is a shelf holding a
  * tray pane that is not actually stopped. */
-function stateLabelOf(panes: readonly Pane[], entries: readonly ShelfEntry[]): TrayStateLabel {
+function stateLabelOf(
+  panes: readonly Pane[],
+  entries: readonly ShelfEntry[],
+): TrayStateLabel {
   const suspended = entries.filter((entry) => entry.reason === "suspendedTray");
   const others = entries.length - suspended.length;
   if (suspended.length > 0 && others > 0) return "Hidden";
   const byId = new Map(panes.map((pane) => [pane.id, pane]));
-  if (suspended.some((entry) => !paneIsSuspended(byId.get(entry.paneId)!))) return "Hidden";
+  if (suspended.some((entry) => !paneIsSuspended(byId.get(entry.paneId)!)))
+    return "Hidden";
   return suspended.length > 0 ? "Suspended" : "Minimized";
 }
 
@@ -123,11 +132,11 @@ export function emptyGridMessage(
   return { title, sub };
 }
 
-/** What a tray chip says about its agent: a dot in the state's hue, and
- * words only when the agent needs a person or has failed — those are the
- * minimized panes nobody is watching. A stopped agent wears a hollow dot. */
+/** What a tray chip says about its agent in words — only when the agent
+ * needs a person or has failed: those are the minimized panes nobody is
+ * watching. Its state's hue is the chip's frame (`trayChipFrame`). */
 export interface TrayChipStatus {
-  tone: PaneActivity["state"] | "stopped";
+  tone: PaneActivity["state"];
   word: string | null;
 }
 
@@ -140,14 +149,24 @@ const TRAY_WORDS: Partial<Record<PaneActivity["state"], string>> = {
 
 export function trayChipStatus(
   activity: Pick<PaneActivity, "state"> | undefined,
-  stopped: boolean,
 ): TrayChipStatus | null {
-  if (activity) {
-    return {
-      tone: activity.state,
-      word: needsPerson(activity.state) ? (TRAY_WORDS[activity.state] ?? null) : null,
-    };
-  }
-  if (stopped) return { tone: "stopped", word: null };
-  return null;
+  if (!activity) return null;
+  return {
+    tone: activity.state,
+    word: needsPerson(activity.state)
+      ? (TRAY_WORDS[activity.state] ?? null)
+      : null,
+  };
+}
+
+/** The frame a tray chip wears — the ONE mark of its agent's state: the
+ * pane's own frame, as an unselected pane that never fills the stage
+ * wears it (`paneFrame`), and a dashed, muted one for a stopped agent,
+ * which has no activity to frame. */
+export function trayChipFrame(
+  activity: Pick<PaneActivity, "state"> | undefined,
+  stopped: boolean,
+): StatusFrame | "stopped" {
+  const frame = paneFrame({ activity, selected: false, fullBleed: false });
+  return frame === "none" && !activity && stopped ? "stopped" : frame;
 }
