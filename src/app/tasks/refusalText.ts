@@ -112,8 +112,6 @@ export function refusalText(refusal: TaskProblem): string {
       return `a task is created in ${refusal.allowed.join(" or ")}, not "${refusal.status}"`;
     case "too-many-labels":
       return `a task carries at most ${refusal.max} labels — take one off first`;
-    case "board-full":
-      return `this workspace's board holds ${refusal.max} tasks — finish or cancel some first`;
     case "counter-exhausted":
       return "this board's id counter is exhausted — start a new workspace board";
     case "board-unreadable":

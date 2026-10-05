@@ -258,19 +258,16 @@ export function actorName(actor: TaskActor): string | null {
   return actor.kind === "user" ? USER_NAME : actor.role;
 }
 
-/** Bounds on what the board stores. Enforced HERE and nowhere else: the
- * store persists what the domain accepted, so a second copy of these
- * numbers in Rust would be the drift the design rules forbid. */
+/** Bounds on what one field holds — a FORMAT, enforced HERE and nowhere
+ * else: the store persists what the domain accepted, so a second copy of
+ * these numbers in Rust would be the drift the design rules forbid. How
+ * MUCH a board holds is not bounded: every comment, every log entry and
+ * every task is kept (the user's decision, task-221 — the database keeps
+ * everything, and what an agent is shown is the command layer's to size). */
 export const TASK_CAPS = {
   titleMax: 120,
   bodyMax: 8192,
   commentMax: 4000,
-  /** Oldest comments fall off past this; the log still records them. */
-  commentsMax: 200,
-  /** Oldest log entries fall off past this. */
-  logMax: 500,
-  /** Creating past this is refused, never silently cancelled. */
-  tasksMax: 2000,
   /** Labels on one task — a few words, not a taxonomy. */
   labelsMax: 5,
   labelMax: 24,

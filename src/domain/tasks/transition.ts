@@ -143,7 +143,6 @@ export type TaskRefusal =
   /** A working role labelling a task that is not its own. */
   | { kind: "not-yours-to-label"; assignee: string | null }
   | { kind: "blank"; field: "title" | "comment" }
-  | { kind: "board-full"; max: number }
   /** The id counter cannot mint another safe integer. Unreachable by
    * honest use; refused rather than overflowed. */
   | { kind: "counter-exhausted" };
@@ -466,7 +465,7 @@ function logged(
   at: number,
   patch: Partial<Task>,
 ): Task {
-  const log = [...task.log, ...entries].slice(-TASK_CAPS.logMax);
+  const log = [...task.log, ...entries];
   return { ...task, ...patch, log, updated: at };
 }
 
@@ -642,11 +641,9 @@ function changeTask(
       const problem = commentProblem(change.body);
       if (problem) return refuse(problem);
       const body = change.body.trim();
-      // Ordinals never repeat, even after the oldest fell off.
+      // Ordinals never repeat: the next is one past the highest.
       const n = task.comments.reduce((top, c) => Math.max(top, c.n), 0) + 1;
-      const comments = [...task.comments, { n, at, from: by, body }].slice(
-        -TASK_CAPS.commentsMax,
-      );
+      const comments = [...task.comments, { n, at, from: by, body }];
       return { ok: true, task: { ...task, comments, updated: at } };
     }
   }
@@ -746,9 +743,6 @@ export function createTask(
 ): CreateResult {
   const membership = onTeam(actor, input.teamId);
   if (membership) return refuse(membership);
-  if (ctx.board.tasks.length >= TASK_CAPS.tasksMax) {
-    return refuse({ kind: "board-full", max: TASK_CAPS.tasksMax });
-  }
   if (!Number.isSafeInteger(ctx.board.nextId + 1)) return refuse({ kind: "counter-exhausted" });
   const badTitle = validateTitle(input.title);
   if (badTitle) return refuse(badTitle);

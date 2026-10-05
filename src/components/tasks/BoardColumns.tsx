@@ -50,7 +50,7 @@ export function BoardColumns({
             <span className={columnLabelClassName(column.status)}>{column.label}</span>
             <span className="tasks__column-count">{column.count}</span>
           </header>
-          {/* Windowed: a board holds up to TASK_CAPS.tasksMax tasks, and the
+          {/* Windowed: a board holds every task it ever had, and the
               closed columns only grow. A card scrolled out is unmounted —
               the drag does not hold it (the ghost is drawn from the view,
               the pointer is followed on the window). */}

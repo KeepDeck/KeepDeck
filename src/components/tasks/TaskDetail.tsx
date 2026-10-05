@@ -415,7 +415,6 @@ export function TaskDetail({
 
           <span className="tasks__section">{TASK_DETAIL_WORDS.comments}</span>
           {view.commentsEmpty && <p className="tasks__muted">{view.commentsEmpty}</p>}
-          {view.commentsTrimmed && <p className="tasks__muted">{view.commentsTrimmed}</p>}
           <ul className="tasks__comments">
             {view.comments.map((comment) => (
               <li key={comment.key} className="tasks__comment">
@@ -460,7 +459,6 @@ export function TaskDetail({
           {view.activity.open && (
             <div id={activityId} className="tasks__activity">
               {view.changesEmpty && <p className="tasks__muted">{view.changesEmpty}</p>}
-              {view.changesTrimmed && <p className="tasks__muted">{view.changesTrimmed}</p>}
               <ul className="tasks__feed">
                 {view.changes.map((change) => (
                   <FeedChangeLine key={change.key} change={change} />

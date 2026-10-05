@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { TASK_CAPS } from "../../domain/tasks";
 import { board, relation, task } from "../../domain/tasks/testSupport";
 import { boardView, columnLabelClassName } from "./boardView";
 import { NO_QUERY } from "./queryView";
@@ -404,17 +403,13 @@ describe("commentsOf / changesOf — what was said, and what was changed, apart"
     expect(keyOf(after, "status: — → s3")).toBe(keyOf(before, "status: — → s3"));
   });
 
-  it("says when a list is at the board's limit — each on its own", () => {
+  it("shows every comment and every change, however many — nothing is cut", () => {
     const b = board([task({ id: "task-1" })]);
     const view = (over: Partial<ReturnType<typeof task>>) => taskDetailView(task({ id: "task-1", ...over }), b, ROSTER, 0);
-    expect(view({}).changesTrimmed).toBeNull();
-    expect(view({}).commentsTrimmed).toBeNull();
-    const fullLog = view({ log: Array.from({ length: TASK_CAPS.logMax }, (_, i) => change(i, "x")) });
-    expect(fullLog.changesTrimmed).toBe(TASK_DETAIL_WORDS.trimmed(TASK_CAPS.logMax, "changes"));
-    expect(fullLog.commentsTrimmed).toBeNull();
-    const fullTalk = view({ comments: Array.from({ length: TASK_CAPS.commentsMax }, (_, i) => comment(i + 1, i)) });
-    expect(fullTalk.commentsTrimmed).not.toBeNull();
-    expect(fullTalk.changesTrimmed).toBeNull();
+    const longLog = view({ log: Array.from({ length: 520 }, (_, i) => change(i, `s${i}`)) });
+    expect(longLog.changes).toHaveLength(520);
+    const longTalk = view({ comments: Array.from({ length: 250 }, (_, i) => comment(i + 1, i)) });
+    expect(longTalk.comments).toHaveLength(250);
   });
 });
 
