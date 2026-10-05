@@ -34,7 +34,6 @@ import {
   armCard,
   assigneeOf,
   boardView,
-  boardAfterDrop,
   boardFolded,
   boardWithFold,
   boardWithView,
@@ -172,8 +171,8 @@ export function useTasksBoard(
   const [copying, setCopying] = useState(false);
   // The board's posture — the view, the list's folds — is a setting, kept
   // across openings and launches (user); every change reads the latest
-  // stored posture, so a change that lands later (a drop's move) never
-  // writes back a stale one.
+  // stored posture, so a change that lands later never writes back a
+  // stale one.
   const posture = (useSettings() ?? DEFAULT_SETTINGS).tasksBoard;
   const view = posture.view;
   const folded = useMemo(() => boardFolded(posture), [posture]);
@@ -293,9 +292,9 @@ export function useTasksBoard(
     if (outcome.dragged) dragEndedAt.current = Date.now();
     const move = outcome.move;
     if (move) {
-      void apply(move.id, [{ kind: "status", to: move.to }]).then((landed) => {
-        if (landed) keepPosture((stored) => boardAfterDrop(stored, move.to, view));
-      });
+      // The group it goes into keeps its fold: the person's own act, never
+      // a drop's (user) — a folded one counts the task in its heading.
+      void apply(move.id, [{ kind: "status", to: move.to }]);
     }
     run({ type: "hover", status: null, dragging: false });
   };

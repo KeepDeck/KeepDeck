@@ -16,6 +16,11 @@ import { tasksInStatus, type TaskQuery } from "./queryView";
 import { statusMark, taskCardView, type TaskCardView } from "./taskCardView";
 import { BOARD_ORDER, STATUS_LABEL } from "./words";
 
+/** Where an item stands in its group's drawn block — what edges of the
+ * group's drop frame it draws: the heading opens it (`top`), or is all
+ * of it when no rows show (`whole`); the last row closes it (`bottom`). */
+export type GroupEdge = "whole" | "top" | "middle" | "bottom";
+
 export interface ListHeading {
   kind: "head";
   key: string;
@@ -24,6 +29,7 @@ export interface ListHeading {
   count: number;
   folded: boolean;
   ring: StatusRingProps;
+  edge: GroupEdge;
 }
 
 export interface ListRow {
@@ -35,6 +41,7 @@ export interface ListRow {
   /** The task open over the list right now. */
   open: boolean;
   className: string;
+  edge: GroupEdge;
 }
 
 export type ListItem = ListHeading | ListRow;
@@ -61,9 +68,15 @@ export function listView(
       count: shown.length,
       folded: isFolded,
       ring: statusMark(status),
+      edge: isFolded || shown.length === 0 ? "whole" : "top",
     };
     if (isFolded) return [heading];
-    return [heading, ...shown.map((task) => listRow(taskCardView(task, board, now), status, task.id === openId))];
+    return [
+      heading,
+      ...shown.map((task, at) =>
+        listRow(taskCardView(task, board, now), status, task.id === openId, at === shown.length - 1 ? "bottom" : "middle"),
+      ),
+    ];
   });
 }
 
@@ -109,13 +122,14 @@ export function listHeadingClassName(heading: Pick<ListHeading, "status" | "fold
     .join(" ");
 }
 
-function listRow(card: TaskCardView, status: TaskStatus, open: boolean): ListRow {
+function listRow(card: TaskCardView, status: TaskStatus, open: boolean, edge: GroupEdge): ListRow {
   return {
     kind: "row",
     key: card.id,
     status,
     card,
     open,
+    edge,
     // Its status's tone, cancelled, and the open one.
     className: ["tasks__row", `tasks__row--${card.tone}`, card.cancelled && "tasks__row--cancelled", open && "tasks__row--open"]
       .filter(Boolean)
@@ -144,12 +158,15 @@ export function rowStepOf(key: { key: string; chord: boolean; inField: boolean }
 }
 
 /** A group's part in a drag in flight — the board's own rule, asked of the
- * group: lit as a target, singled out under the pointer, dimmed where the
- * task may not go. The heading and the group's rows wear it alike, so a
- * drop anywhere in a group lands in it. */
-export function groupDropClassName(status: TaskStatus, drag: DragState, hover: TaskStatus | null): string | null {
-  const drop = dropStateOf(status, drag, hover);
-  return drop === null ? null : `tasks__drop--${drop}`;
+ * group: a target, the one under the pointer, or dimmed where the task
+ * may not go. The heading and the group's rows wear it alike, so a drop
+ * anywhere in a group lands in it; the group under the pointer is framed
+ * whole — each item draws its own edges of the frame (`GroupEdge`), as
+ * the windowed list draws each item on its own. */
+export function groupDropClassName(item: Pick<ListItem, "status" | "edge">, drag: DragState, hover: TaskStatus | null): string | null {
+  const drop = dropStateOf(item.status, drag, hover);
+  if (drop === null) return null;
+  return drop === "over" ? `tasks__drop--over tasks__drop-edge--${item.edge}` : `tasks__drop--${drop}`;
 }
 
 /** A row's classes as a drag sees it: its own, its group's part in the
@@ -157,7 +174,7 @@ export function groupDropClassName(status: TaskStatus, drag: DragState, hover: T
 export function listRowClassName(row: ListRow, drag: DragState, hover: TaskStatus | null): string {
   return [
     row.className,
-    groupDropClassName(row.status, drag, hover),
+    groupDropClassName(row, drag, hover),
     drag.kind === "dragging" && drag.id === row.key && "tasks__row--dragging",
   ]
     .filter(Boolean)
@@ -166,7 +183,7 @@ export function listRowClassName(row: ListRow, drag: DragState, hover: TaskStatu
 
 /** A heading's classes as a drag sees it. */
 export function listHeadingDropClassName(heading: ListHeading, drag: DragState, hover: TaskStatus | null): string {
-  return [listHeadingClassName(heading), groupDropClassName(heading.status, drag, hover)].filter(Boolean).join(" ");
+  return [listHeadingClassName(heading), groupDropClassName(heading, drag, hover)].filter(Boolean).join(" ");
 }
 
 /** Where a dragged row is held: the row whole, at the point pressed — the

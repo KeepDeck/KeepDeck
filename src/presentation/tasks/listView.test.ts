@@ -20,6 +20,7 @@ import {
 import { NO_QUERY } from "./queryView";
 import { IDLE, type DragState } from "./cardDrag";
 import { BOARD_ORDER } from "./words";
+import type { TaskStatus } from "../../domain/tasks";
 
 const tasks = [
   task({ id: "task-1", status: "todo", priority: "normal", created: 1 }),
@@ -152,10 +153,22 @@ describe("the list in a drag", () => {
   });
 
   it("lights a group as the board lights a column: target, under the pointer, or not allowed", () => {
-    expect(groupDropClassName("done", dragging, null)).toBe("tasks__drop--ok");
-    expect(groupDropClassName("done", dragging, "done")).toBe("tasks__drop--over");
-    expect(groupDropClassName("review", dragging, null)).toBe("tasks__drop--no");
-    expect(groupDropClassName("done", IDLE, null)).toBeNull();
+    const at = (status: TaskStatus) => ({ status, edge: "middle" as const });
+    expect(groupDropClassName(at("done"), dragging, null)).toBe("tasks__drop--ok");
+    expect(groupDropClassName(at("done"), dragging, "done")).toBe("tasks__drop--over tasks__drop-edge--middle");
+    expect(groupDropClassName(at("review"), dragging, null)).toBe("tasks__drop--no");
+    expect(groupDropClassName(at("done"), IDLE, null)).toBeNull();
+  });
+
+  it("frames the group under the pointer whole: its heading opens the frame, its last row closes it", () => {
+    const todo = listView(tasks, b, 0, NO_QUERY, NONE, null);
+    const edgeOf = (key: string) => todo.find((i) => i.key === key)!.edge;
+    expect([edgeOf("head:todo"), edgeOf("task-2"), edgeOf("task-1")]).toEqual(["top", "middle", "bottom"]);
+    // One row: it alone closes the frame.
+    expect([edgeOf("head:done"), edgeOf("task-4")]).toEqual(["top", "bottom"]);
+    // No rows shown — empty, or folded: the heading is the whole frame.
+    expect(edgeOf("head:in-progress")).toBe("whole");
+    expect(listView(tasks, b, 0, NO_QUERY, new Set(["todo"] as const), null).find((i) => i.key === "head:todo")!.edge).toBe("whole");
   });
 
   it("dims the row in flight and wears its group's part on every row and heading", () => {
