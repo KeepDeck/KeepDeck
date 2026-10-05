@@ -32,11 +32,6 @@ use sha2::{Digest, Sha256};
 use crate::fs_claim::{claim, ClaimedRoot};
 use crate::state::write_atomic;
 
-/// A bound on one board file — not a rule about content (the domain
-/// caps tasks, bodies and comments far below this) but a wall against a
-/// payload no honest board could produce.
-pub(crate) const BOARD_FILE_CAP_BYTES: usize = 64 * 1024 * 1024;
-
 const BOARD_FILE: &str = "board.json";
 
 /// The refusal every operation gives while the store is off. Mirrors the
@@ -62,6 +57,7 @@ struct Enabled {
 /// WHEN one is due is the store's (`Store::backup_if_due`).
 const BACKUP_TICK: std::time::Duration = std::time::Duration::from_secs(5 * 60);
 
+/// The copy each board file becomes once the boards live in the database.
 pub const PRE_DB_COPY: &str = "pre-db";
 
 impl Default for TasksStore {
@@ -163,68 +159,19 @@ impl TasksStore {
     pub fn retire_legacy(&self) -> Result<(), String> {
         let boards = self.legacy_boards()?;
         for board in boards {
-            self.keep_copy(&board.workspace, PRE_DB_COPY)?;
             self.with_enabled(|root, data| {
                 let _guard = data.lock().expect("tasks data poisoned");
-                fs::remove_file(board_path(root, &board.workspace))
-                    .map_err(|e| format!("retiring the board file of {} failed: {e}", board.workspace))
+                let file = board_path(root, &board.workspace);
+                let copy = file.with_file_name(format!("board.{PRE_DB_COPY}.json"));
+                // The first copy kept is the one that stays.
+                if !copy.exists() {
+                    write_atomic(&copy, board.json.as_bytes())
+                        .map_err(|e| format!("keeping the copy of {}'s board failed: {e}", board.workspace))?;
+                }
+                fs::remove_file(&file).map_err(|e| format!("retiring the board file of {} failed: {e}", board.workspace))
             })?;
         }
         Ok(())
-    }
-
-    /// One workspace's board as stored, or `None` when it has never been
-    /// written — absence is a fact, not a failure.
-    pub fn read(&self, workspace_id: &str) -> Result<Option<String>, String> {
-        self.with_enabled(|root, data| {
-            require_safe(workspace_id)?;
-            let _guard = data.lock().expect("tasks data poisoned");
-            match fs::read_to_string(board_path(root, workspace_id)) {
-                Ok(json) => Ok(Some(json)),
-                Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
-                Err(e) => Err(format!("reading the task board for {workspace_id} failed: {e}")),
-            }
-        })
-    }
-
-    /// Replace one workspace's board, atomically.
-    pub fn write(&self, workspace_id: &str, json: &str) -> Result<(), String> {
-        if json.len() > BOARD_FILE_CAP_BYTES {
-            return Err(format!(
-                "task board for {workspace_id} exceeds {BOARD_FILE_CAP_BYTES} bytes"
-            ));
-        }
-        self.with_enabled(|root, data| {
-            require_safe(workspace_id)?;
-            let _guard = data.lock().expect("tasks data poisoned");
-            write_atomic(&board_path(root, workspace_id), json.as_bytes())
-                .map_err(|e| format!("writing the task board for {workspace_id} failed: {e}"))
-        })
-    }
-
-    /// Keep the board as it is now beside it, as `board.<label>.json` —
-    /// once: a copy already there is the first one, and stays. What a
-    /// change of the board's FORMAT takes before its first write, so an
-    /// older build (or a person) has the old file to go back to. Nothing
-    /// to keep — no board yet — is no failure.
-    pub fn keep_copy(&self, workspace_id: &str, label: &str) -> Result<(), String> {
-        if !is_label(label) {
-            return Err(format!("unsafe board copy label: {label:?}"));
-        }
-        self.with_enabled(|root, data| {
-            require_safe(workspace_id)?;
-            let _guard = data.lock().expect("tasks data poisoned");
-            let copy = root.join("ws").join(workspace_id).join(format!("board.{label}.json"));
-            if copy.exists() {
-                return Ok(());
-            }
-            match fs::read(board_path(root, workspace_id)) {
-                Ok(bytes) => write_atomic(&copy, &bytes)
-                    .map_err(|e| format!("keeping a copy of the task board for {workspace_id} failed: {e}")),
-                Err(e) if e.kind() == ErrorKind::NotFound => Ok(()),
-                Err(e) => Err(format!("reading the task board for {workspace_id} failed: {e}")),
-            }
-        })
     }
 
     /// Drop a workspace's board — called from workspace deletion, the one
@@ -240,13 +187,6 @@ impl TasksStore {
             }
         })
     }
-}
-
-/// A copy's label becomes part of a file name: lowercase words and dashes.
-fn is_label(label: &str) -> bool {
-    !label.is_empty()
-        && label.len() <= 40
-        && label.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 
 /// The checksum the migration keeps for each source file.
@@ -302,128 +242,80 @@ mod tests {
         (dir, store)
     }
 
+    /// A board file as an earlier build wrote it.
+    fn put(dir: &tempfile::TempDir, workspace: &str, json: &str) {
+        let path = dir.path().join("tasks/ws").join(workspace);
+        std::fs::create_dir_all(&path).unwrap();
+        std::fs::write(path.join("board.json"), json).unwrap();
+    }
+
     #[test]
     fn every_operation_refuses_while_off_with_the_switch_named() {
         let store = TasksStore::default();
-        assert_eq!(store.read("ws-1").unwrap_err(), OFF_MESSAGE);
-        assert_eq!(store.write("ws-1", "{}").unwrap_err(), OFF_MESSAGE);
+        assert_eq!(store.legacy_boards().unwrap_err(), OFF_MESSAGE);
+        assert_eq!(store.retire_legacy().unwrap_err(), OFF_MESSAGE);
         assert_eq!(store.drop_workspace("ws-1").unwrap_err(), OFF_MESSAGE);
-        assert_eq!(store.keep_copy("ws-1", "pre-relations").unwrap_err(), OFF_MESSAGE);
+        assert_eq!(store.with_db(|db| db.status()).unwrap_err(), StoreError::Off);
     }
 
     #[test]
-    fn enable_is_idempotent_and_a_never_written_board_reads_as_absent() {
+    fn enabling_opens_the_database_beside_the_files_and_is_idempotent() {
         let (dir, store) = enabled_store();
         store.enable(&dir.path().join("tasks")).expect("second enable");
-        assert_eq!(store.read("ws-1").unwrap(), None);
-    }
-
-    #[test]
-    fn a_written_board_reads_back_verbatim_from_its_workspace_file() {
-        let (dir, store) = enabled_store();
-        let json = r#"{"nextId":3,"tasks":[{"id":"task-1"}]}"#;
-        store.write("ws-1", json).expect("write");
-        assert_eq!(store.read("ws-1").unwrap().as_deref(), Some(json));
-        assert!(dir.path().join("tasks/ws/ws-1/board.json").is_file());
-        // Another workspace's board is another file.
-        assert_eq!(store.read("ws-2").unwrap(), None);
-    }
-
-    #[test]
-    fn a_kept_copy_is_the_board_as_it_was_and_only_the_first_one_stays() {
-        let (dir, store) = enabled_store();
-        // Nothing written yet: nothing to keep, and no failure.
-        store.keep_copy("ws-1", "pre-relations").expect("nothing to keep");
-        assert!(!dir.path().join("tasks/ws/ws-1/board.pre-relations.json").exists());
-        store.write("ws-1", "old").unwrap();
-        store.keep_copy("ws-1", "pre-relations").expect("keep");
-        store.write("ws-1", "new").unwrap();
-        store.keep_copy("ws-1", "pre-relations").expect("keep again");
-        let kept = std::fs::read_to_string(dir.path().join("tasks/ws/ws-1/board.pre-relations.json")).unwrap();
-        assert_eq!(kept, "old");
-        assert_eq!(store.read("ws-1").unwrap().as_deref(), Some("new"));
-    }
-
-    #[test]
-    fn a_copy_label_that_is_no_plain_word_is_refused() {
-        let (_dir, store) = enabled_store();
-        for label in ["", "../x", "Pre", "a/b", "a.b"] {
-            assert!(store.keep_copy("ws-1", label).is_err(), "{label}");
-        }
-        // And the workspace id is judged by the same wall as every read.
-        assert!(store.keep_copy("../ws", "pre-relations").is_err());
-    }
-
-    #[test]
-    fn a_write_replaces_the_previous_board_whole() {
-        let (_dir, store) = enabled_store();
-        store.write("ws-1", "1").unwrap();
-        store.write("ws-1", "2").unwrap();
-        assert_eq!(store.read("ws-1").unwrap().as_deref(), Some("2"));
-    }
-
-    #[test]
-    fn a_payload_over_the_file_cap_is_refused_before_touching_the_disk() {
-        let (dir, store) = enabled_store();
-        let huge = "x".repeat(BOARD_FILE_CAP_BYTES + 1);
-        let refused = store.write("ws-1", &huge).unwrap_err();
-        assert!(refused.contains("exceeds"), "{refused}");
-        assert!(!dir.path().join("tasks/ws/ws-1").exists());
-    }
-
-    #[test]
-    fn an_unsafe_workspace_id_is_refused_on_every_door() {
-        let (_dir, store) = enabled_store();
-        for bad in ["../x", "a/b", "", "."] {
-            assert!(store.read(bad).unwrap_err().contains("unsafe workspace id"), "read {bad:?}");
-            assert!(store.write(bad, "{}").unwrap_err().contains("unsafe workspace id"), "write {bad:?}");
-            assert!(store.drop_workspace(bad).unwrap_err().contains("unsafe workspace id"), "drop {bad:?}");
-        }
-    }
-
-    #[test]
-    fn dropping_a_workspace_removes_its_board_and_is_idempotent() {
-        let (dir, store) = enabled_store();
-        store.write("ws-1", "{}").unwrap();
-        store.drop_workspace("ws-1").expect("drop");
-        assert!(!dir.path().join("tasks/ws/ws-1").exists());
-        assert_eq!(store.read("ws-1").unwrap(), None);
-        store.drop_workspace("ws-1").expect("drop again");
-    }
-
-    #[test]
-    fn enabling_opens_the_database_beside_the_files_and_off_refuses_it() {
-        let off = TasksStore::default();
-        assert_eq!(off.with_db(|db| db.status()).unwrap_err(), StoreError::Off);
-        let (dir, store) = enabled_store();
         assert!(matches!(store.with_db(|db| db.status()).unwrap(), keepdeck_tasks::StoreStatus::Ready { .. }));
         assert!(dir.path().join("tasks/tasks.db").is_file());
     }
 
     #[test]
     fn the_migration_reads_every_board_file_at_once_with_its_checksum() {
-        let (_dir, store) = enabled_store();
+        let (dir, store) = enabled_store();
         assert_eq!(store.legacy_boards().unwrap(), vec![]);
-        store.write("ws-2", "two").unwrap();
-        store.write("ws-1", "one").unwrap();
-        store.keep_copy("ws-1", "pre-relations").unwrap();
+        put(&dir, "ws-2", "two");
+        put(&dir, "ws-1", "one");
+        // A copy beside a board is no board.
+        std::fs::write(dir.path().join("tasks/ws/ws-1/board.pre-relations.json"), "old").unwrap();
         let boards = store.legacy_boards().unwrap();
-        assert_eq!(boards.iter().map(|b| (b.workspace.as_str(), b.json.as_str())).collect::<Vec<_>>(), vec![("ws-1", "one"), ("ws-2", "two")]);
-        // A checksum of the bytes: equal bytes, equal sums; other bytes, other sums.
+        assert_eq!(
+            boards.iter().map(|b| (b.workspace.as_str(), b.json.as_str())).collect::<Vec<_>>(),
+            vec![("ws-1", "one"), ("ws-2", "two")]
+        );
         assert_eq!(boards[0].checksum, checksum("one"));
         assert_ne!(boards[0].checksum, boards[1].checksum);
         assert_eq!(boards[0].checksum.len(), 64);
     }
 
     #[test]
-    fn retiring_the_files_keeps_each_board_as_its_pre_db_copy_only() {
+    fn retiring_the_files_keeps_each_board_as_its_first_pre_db_copy_only() {
         let (dir, store) = enabled_store();
-        store.write("ws-1", "one").unwrap();
+        put(&dir, "ws-1", "one");
         store.retire_legacy().unwrap();
         assert!(!dir.path().join("tasks/ws/ws-1/board.json").exists());
         assert_eq!(std::fs::read_to_string(dir.path().join("tasks/ws/ws-1/board.pre-db.json")).unwrap(), "one");
-        // Nothing left to read as a source.
         assert_eq!(store.legacy_boards().unwrap(), vec![]);
+        // An older build wrote a new file; retired again, the first copy stays.
+        put(&dir, "ws-1", "later");
+        store.retire_legacy().unwrap();
+        assert_eq!(std::fs::read_to_string(dir.path().join("tasks/ws/ws-1/board.pre-db.json")).unwrap(), "one");
+    }
+
+    #[test]
+    fn an_unsafe_workspace_id_is_refused_and_never_read() {
+        let (dir, store) = enabled_store();
+        for bad in ["../x", "a/b", "", "."] {
+            assert!(store.drop_workspace(bad).unwrap_err().contains("unsafe workspace id"), "drop {bad:?}");
+        }
+        std::fs::create_dir_all(dir.path().join("tasks/ws/.hidden")).unwrap();
+        std::fs::write(dir.path().join("tasks/ws/.hidden/board.json"), "x").unwrap();
+        assert!(store.legacy_boards().unwrap().iter().all(|b| b.workspace != ".hidden"));
+    }
+
+    #[test]
+    fn dropping_a_workspace_removes_its_files_and_is_idempotent() {
+        let (dir, store) = enabled_store();
+        put(&dir, "ws-1", "{}");
+        store.drop_workspace("ws-1").expect("drop");
+        assert!(!dir.path().join("tasks/ws/ws-1").exists());
+        store.drop_workspace("ws-1").expect("drop again");
     }
 
     #[test]

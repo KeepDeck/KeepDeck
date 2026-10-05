@@ -1,6 +1,7 @@
-//! Tasks: the team-owned board of work orders, persisted per workspace.
-//! The store owns the disk; the TS domain owns every rule about what a
-//! board holds; the TS owner keeps the live board and writes it whole.
+//! Tasks: the team-owned board of work orders, every board in ONE
+//! database (keepdeck-tasks). The store owns the disk; the TS domain owns
+//! every rule about what a board holds; the TS owner keeps the live board
+//! and hands the store the change from what the database confirmed.
 //! No display server and no delivery: a task never reaches an agent on
 //! its own — the board is a record (the user's decision, 2026-09-19).
 
@@ -51,47 +52,6 @@ pub fn tasks_enable(state: State<TasksState>) -> Result<(), String> {
 pub fn tasks_disable(state: State<TasksState>) {
     state.store.disable();
     log::info!("tasks: board store released");
-}
-
-#[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WorkspacePayload {
-    workspace_id: String,
-}
-
-#[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WritePayload {
-    workspace_id: String,
-    json: String,
-}
-
-/// One workspace's board as stored, or null when it was never written.
-#[tauri::command(async)]
-pub fn tasks_read(
-    state: State<TasksState>,
-    payload: WorkspacePayload,
-) -> Result<Option<String>, String> {
-    state.store.read(&payload.workspace_id)
-}
-
-#[tauri::command(async)]
-pub fn tasks_write(state: State<TasksState>, payload: WritePayload) -> Result<(), String> {
-    state.store.write(&payload.workspace_id, &payload.json)
-}
-
-#[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct KeepCopyPayload {
-    workspace_id: String,
-    label: String,
-}
-
-/// Keep the board as it is now as `board.<label>.json`, once — before a
-/// format change's first write.
-#[tauri::command(async)]
-pub fn tasks_keep_copy(state: State<TasksState>, payload: KeepCopyPayload) -> Result<(), String> {
-    state.store.keep_copy(&payload.workspace_id, &payload.label)
 }
 
 /// Drop a closing workspace's board — its rows in the database and its

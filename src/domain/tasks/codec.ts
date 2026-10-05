@@ -1,10 +1,11 @@
 /**
  * The board's stored form, in both directions.
  *
- * The store keeps bytes; this is the one place that says what bytes a
- * board is. Reading is UNTRUSTED: the file sits in the user's home where
- * any process of theirs can edit it, so every field is checked against the
- * vocabulary and a board that does not parse is refused WHOLE — dropping
+ * This is the one place that says what a stored board is. Reading is
+ * UNTRUSTED — a board file sits in the user's home where any process of
+ * theirs can edit it, and the database is checked the same way — so every
+ * field is checked against the vocabulary, and a board that does not parse
+ * is refused WHOLE: dropping
  * the tasks that did not fit and writing the rest back would erase them
  * on the next save, and losing work quietly is the worse failure. The
  * owner turns a refusal into a board it will not write to.
@@ -96,10 +97,6 @@ export type DecodeResult =
       dropped: readonly DroppedBlockers[];
     }
   | { ok: false; fault: DecodeFault };
-
-/** The label a board written before relations is kept under, beside the
- * upgraded one (`board.<label>.json`) — the way back for an older build. */
-export const PRE_RELATIONS_COPY = "pre-relations";
 
 export function encodeBoard(board: TaskBoard): string {
   return JSON.stringify(board);
