@@ -1,14 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  awaitingDecision,
   compareQueue,
   countByStatus,
   issuable,
   keepTeams,
   labelsOf,
-  mine,
-  nextFor,
-  poolOf,
-  queueOf,
 } from "./board";
 import { openBlockersOf, unblocks } from "./relations";
 import { board, task } from "./testSupport";
@@ -75,40 +72,16 @@ describe("compareQueue", () => {
   });
 });
 
-describe("queues", () => {
-  const b = board([
-    task({ id: "task-1", status: "in-progress", assignee: "impl-1" }),
-    task({ id: "task-2", assignee: "impl-1", priority: "low" }),
-    task({ id: "task-3", assignee: "impl-1", priority: "high", blockedBy: ["task-1"] }),
-    task({ id: "task-4", assignee: "impl-1" }),
-    task({ id: "task-5" }),
-    task({ id: "task-6", blockedBy: ["task-1"] }),
-    task({ id: "task-7", teamId: "team-2", assignee: "impl-1" }),
-    task({ id: "task-8", status: "review", assignee: "impl-2" }),
-  ]);
-
-  it("queueOf is a member's todo tasks in queue order, this team only", () => {
-    expect(queueOf(b, "team-1", "impl-1").map((t) => t.id)).toEqual(["task-3", "task-4", "task-2"]);
-  });
-
-  it("nextFor skips the blocked head and hands out the first issuable task", () => {
-    expect(nextFor(b, "team-1", "impl-1")?.id).toBe("task-4");
-    expect(nextFor(b, "team-1", "impl-2")).toBeNull();
-  });
-
-  it("poolOf is the unassigned issuable work", () => {
-    expect(poolOf(b, "team-1").map((t) => t.id)).toEqual(["task-5"]);
-  });
-
-  it("mine is the open work on a member's plate; who accepts also sees the team's review", () => {
-    expect(mine(b, "team-1", "impl-1", "reports").map((t) => t.id)).toEqual([
-      "task-3",
-      "task-1",
-      "task-4",
-      "task-2",
+describe("what waits on a decision", () => {
+  it("awaitingDecision is the team's review and blocked work, most urgent first", () => {
+    const decide = board([
+      task({ id: "task-1", status: "review", priority: "low", created: 1 }),
+      task({ id: "task-2", status: "blocked", priority: "high", created: 2 }),
+      task({ id: "task-3", status: "in-progress" }),
+      task({ id: "task-4", status: "review", teamId: "team-2" }),
+      task({ id: "task-5", status: "done" }),
     ]);
-    expect(mine(b, "team-1", "lead", "leads").map((t) => t.id)).toEqual(["task-8"]);
-    expect(mine(b, "team-1", "impl-2", "reports").map((t) => t.id)).toEqual(["task-8"]);
+    expect(awaitingDecision(decide, "team-1").map((t) => t.id)).toEqual(["task-2", "task-1"]);
   });
 });
 

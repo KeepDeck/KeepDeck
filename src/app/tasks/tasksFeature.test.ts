@@ -71,6 +71,8 @@ function setup() {
         order.push("write");
       },
       writeRefusal: () => store.port.writeRefusal(),
+      search: (args) => store.port.search(args),
+      revisions: (workspaceId) => store.port.revisions(workspaceId),
       enable: () => {
         const g = gate();
         calls.push({ kind: "enable", gate: g, settled: false });

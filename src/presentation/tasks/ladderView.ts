@@ -43,6 +43,6 @@ export const LADDER_WORDS: Record<Exclude<TasksLadder["kind"], "board" | "refusa
   loading: { title: "Loading…", hint: "" },
   empty: {
     title: "Nothing on the board yet",
-    hint: `Put work here with ${NEW_TASK_LABEL}; agents read the board themselves — task.list, task.mine`,
+    hint: `Put work here with ${NEW_TASK_LABEL}; agents read the board themselves — task.list, task.get`,
   },
 };

@@ -124,6 +124,22 @@ export function testDatabase(files: LegacyBoard[] = []) {
     drop: async (workspace) => {
       boards = boards.filter((b) => b.workspace !== workspace);
     },
+    // A word match over titles, briefs and comments — FTS5's own ranking is
+    // the Rust store's to test; here only which board and which task.
+    search: async (query, scope, limit) =>
+      boards
+        .filter((b) => scope.includes(b.board))
+        .flatMap((b) =>
+          b.tasks.flatMap((t) => [
+            ...(`${t.title}\n${t.body}`.toLowerCase().includes(query.toLowerCase())
+              ? [{ uid: t.uid, board: b.board, comment: null, snippet: `[${query}]` }]
+              : []),
+            ...t.comments
+              .filter((c) => c.body.toLowerCase().includes(query.toLowerCase()))
+              .map((c) => ({ uid: t.uid, board: b.board, comment: c.n, snippet: `[${query}]` })),
+          ]),
+        )
+        .slice(0, limit),
   };
 
   return {

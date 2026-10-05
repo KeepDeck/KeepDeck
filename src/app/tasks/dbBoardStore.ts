@@ -18,6 +18,7 @@
 import { EMPTY_BOARD, decodeBoard, type TaskBoard } from "../../domain/tasks";
 import type { Applied } from "../../ipc/generated/tasks/Applied";
 import type { ChangeSet } from "../../ipc/generated/tasks/ChangeSet";
+import type { SearchHit } from "../../ipc/generated/tasks/SearchHit";
 import type { StoreError } from "../../ipc/generated/tasks/StoreError";
 import type { StoredBoard } from "../../ipc/generated/tasks/StoredBoard";
 import { migrateBoards, type MigrationOutcome, type MigrationPort } from "./migration";
@@ -33,6 +34,7 @@ export interface TaskDatabasePort extends MigrationPort {
   load(workspace: string): Promise<StoredBoard | null>;
   apply(change: ChangeSet): Promise<Applied>;
   drop(workspace: string): Promise<void>;
+  search(query: string, boards: string[], limit: number): Promise<SearchHit[]>;
 }
 
 export interface DbBoardStoreDeps {
@@ -49,6 +51,8 @@ export interface DbBoardStoreDeps {
 interface Confirmed {
   board: string;
   rev: number;
+  /** Each task's latest change number. */
+  taskRevs: Map<string, number>;
   held: TaskBoard;
   /** A request sent whose answer never came: sent again before any other. */
   pending: { change: ChangeSet; target: TaskBoard } | null;
@@ -63,12 +67,17 @@ export function createDbBoardStore(deps: DbBoardStoreDeps): DbBoardStore {
   /** The boards read from their files, when they could not move. */
   let fallback: Map<string, BoardRead> | null = null;
 
-  const accept = (place: Confirmed, applied: Applied, target: TaskBoard) => {
+  /** The database answered: the change is what it holds now. */
+  const accept = (place: Confirmed, applied: Applied, change: ChangeSet, target: TaskBoard) => {
     const rev = applied.revs.find((r) => r.board === place.board)?.rev;
     if (rev === undefined) throw new Error(`the database answered without board ${place.board}`);
     place.rev = rev;
     place.held = target;
     place.pending = null;
+    for (const part of change.boards.filter((b) => b.board === place.board)) {
+      for (const task of part.tasks) place.taskRevs.set(task.uid, rev);
+      for (const uid of part.removed) place.taskRevs.delete(uid);
+    }
   };
 
   /** Read a board's confirmed state from the database again. */
@@ -79,6 +88,7 @@ export function createDbBoardStore(deps: DbBoardStoreDeps): DbBoardStore {
     if (!read.ok) throw new Error(decodeFaultText(read.fault, "the database"));
     place.board = stored.board;
     place.rev = stored.rev;
+    place.taskRevs = revsOf(stored);
     place.held = read.board;
   };
 
@@ -98,7 +108,7 @@ export function createDbBoardStore(deps: DbBoardStoreDeps): DbBoardStore {
       if (e.code === "conflict" || e.code === "constraint") await reread(workspace, place);
       throw new Error(storeErrorText(e));
     }
-    accept(place, applied, target);
+    accept(place, applied, change, target);
   };
 
   return {
@@ -141,7 +151,7 @@ export function createDbBoardStore(deps: DbBoardStoreDeps): DbBoardStore {
       }
       const read = boardFromStored(stored, deps.mintUid);
       if (!read.ok) return { kind: "unreadable", error: decodeFaultText(read.fault, "the database") };
-      confirmed.set(workspaceId, { board: stored.board, rev: stored.rev, held: read.board, pending: null });
+      confirmed.set(workspaceId, { board: stored.board, rev: stored.rev, taskRevs: revsOf(stored), held: read.board, pending: null });
       return { kind: "board", board: read.board };
     },
     async write({ workspaceId, board }) {
@@ -149,7 +159,7 @@ export function createDbBoardStore(deps: DbBoardStoreDeps): DbBoardStore {
       let place = confirmed.get(workspaceId);
       if (!place) {
         // The workspace's first write: a board of its own, new to the database.
-        place = { board: deps.mintUid(), rev: 0, held: EMPTY_BOARD, pending: null };
+        place = { board: deps.mintUid(), rev: 0, taskRevs: new Map(), held: EMPTY_BOARD, pending: null };
         confirmed.set(workspaceId, place);
       }
       if (place.pending) await send(workspaceId, place, place.pending.change, place.pending.target);
@@ -162,5 +172,21 @@ export function createDbBoardStore(deps: DbBoardStoreDeps): DbBoardStore {
       await deps.db.drop(workspaceId);
     },
     writeRefusal: () => readOnly,
+    async search({ workspaceId, query, limit }) {
+      // A board not in the database yet has nothing to find.
+      const place = confirmed.get(workspaceId);
+      if (fallback !== null || readOnly !== null || !place) return [];
+      const hits = await deps.db.search(query, [place.board], limit);
+      return hits.map((hit) => ({ uid: hit.uid, comment: hit.comment, snippet: hit.snippet }));
+    },
+    revisions(workspaceId) {
+      const place = confirmed.get(workspaceId);
+      return place ? { board: place.rev, tasks: place.taskRevs } : null;
+    },
   };
+}
+
+/** Each task's change number, as the database last said. */
+function revsOf(stored: StoredBoard): Map<string, number> {
+  return new Map(stored.tasks.map((task) => [task.uid, task.rev]));
 }

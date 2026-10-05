@@ -21,6 +21,8 @@ export function fakeStore(initial: Record<string, string> = {}) {
   /** A drop that removes the file at once but whose answer waits. */
   let holdDrop: Promise<void> | null = null;
   const mint = mintSequence("uid-read-");
+  /** Each write's change number, every task it carried taking it. */
+  const revs = new Map<string, { board: number; tasks: Map<string, number> }>();
   const port: TasksStorePort = {
     read: async ({ workspaceId }) => {
       const json = files.get(workspaceId);
@@ -35,6 +37,15 @@ export function fakeStore(initial: Record<string, string> = {}) {
         throw new Error(why);
       }
       const json = encodeBoard(board);
+      const before = files.get(workspaceId);
+      const was = before === undefined ? null : decodeBoard(before, mint);
+      const held = revs.get(workspaceId) ?? { board: 0, tasks: new Map<string, number>() };
+      held.board += 1;
+      for (const task of board.tasks) {
+        const old = was?.ok ? was.board.tasks.find((t) => t.uid === task.uid) : undefined;
+        if (!old || JSON.stringify(old) !== JSON.stringify(task)) held.tasks.set(task.uid, held.board);
+      }
+      revs.set(workspaceId, held);
       writes.push({ workspaceId, json });
       calls.push("write");
       files.set(workspaceId, json);
@@ -54,6 +65,20 @@ export function fakeStore(initial: Record<string, string> = {}) {
       }
     },
     writeRefusal: () => refusal,
+    // A word match over titles, briefs and comments of the board as written.
+    search: async ({ workspaceId, query, limit }) => {
+      const json = files.get(workspaceId);
+      const decoded = json === undefined ? null : decodeBoard(json, mint);
+      if (!decoded?.ok) return [];
+      const q = query.toLowerCase();
+      return decoded.board.tasks
+        .flatMap((t) => [
+          ...(`${t.title}\n${t.body}`.toLowerCase().includes(q) ? [{ uid: t.uid, comment: null, snippet: `[${query}]` }] : []),
+          ...t.comments.filter((c) => c.body.toLowerCase().includes(q)).map((c) => ({ uid: t.uid, comment: c.n, snippet: `[${query}]` })),
+        ])
+        .slice(0, limit);
+    },
+    revisions: (workspaceId) => revs.get(workspaceId) ?? null,
   };
   return {
     port,

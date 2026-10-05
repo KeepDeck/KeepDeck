@@ -1,8 +1,15 @@
 /**
- * The task commands — `task.create`, `task.duplicate`, `task.transfer`, `task.list`, `task.get`,
- * `task.update`, `task.comment`, `task.next`, `task.mine` — what an agent
- * uses to put work on its team's board and read it back, and therefore
- * the MCP tools it sees for it.
+ * The task commands — `task.create`, `task.duplicate`, `task.transfer`,
+ * `task.list`, `task.search`, `task.get`, `task.history`, `task.since`,
+ * `task.brief`, `task.update`, `task.comment` — what an agent uses to put
+ * work on its team's board and read it back, and therefore the MCP tools
+ * it sees for it.
+ *
+ * What an answer costs follows the work in flight and what changed, never
+ * the board's age (task-221): a list names the statuses it wants, closed
+ * work is read only when asked for, a task's history is its own command,
+ * and every answer carries counts (`more`) of what it left for another
+ * call — the agent sees it is there, and fetches it when it needs it.
  *
  * Registered while the Tasks toggle is on and the board is claimed, so a
  * tool exists only when a call can succeed. Every command reads WHO IS
@@ -29,9 +36,11 @@ import {
 import { senderOf } from "../../domain/mail";
 import {
   TASK_FIELDS,
+  acceptsWork,
+  awaitingDecision,
+  isOpen,
   agentActor,
   blockerIdsOf,
-  compareQueue,
   copiedFromOf,
   copiesOf,
   findTask,
@@ -41,10 +50,7 @@ import {
   isTaskStatus,
   type CreateStatus,
   issuable,
-  mine,
-  nextFor,
   normalizeLabel,
-  poolOf,
   countByStatus,
   tasksOfTeam,
   unblocks,
@@ -141,8 +147,15 @@ function taskIdArg(args: CommandArgs): string {
   return value;
 }
 
+/** What an answer leaves for another call, counted: the agent sees it is
+ * there. Comments, the change log and earlier briefs come by `task.history`
+ * (a closed task's comments too); an open task's comments come in `task.get`. */
+function more(task: Task) {
+  return { comments: task.comments.length, history: task.log.length, briefVersions: task.briefs.length };
+}
+
 /** A task as a list shows it: identity and standing, never the body or
- * the thread — `task.get` carries those. */
+ * the thread — `task.get` and `task.history` carry those. */
 function row(task: Task, board: TaskBoard) {
   return {
     id: task.id,
@@ -155,19 +168,24 @@ function row(task: Task, board: TaskBoard) {
     labels: task.labels,
     issuable: issuable(task, board),
     artifacts: task.artifacts.length,
-    comments: task.comments.length,
     updated: task.updated,
+    more: more(task),
   };
 }
 
-/** A task whole, plus what the board knows around it. Its uid stays
- * out: an agent addresses a task by its key, and only by its key. */
+/** A task as it stands now, plus what the board knows around it: its
+ * brief whole, and — while it is open — its discussion. Its log and earlier
+ * briefs are `task.history`'s; a closed task's comments are too (closed
+ * work is read when asked for, and its threads are the board's longest).
+ * Its uid stays out: an agent addresses a task by its key alone. */
 function full(task: Task, board: TaskBoard) {
-  const { uid: _uid, ...shown } = task;
+  const { uid: _uid, log: _log, briefs: _briefs, comments, ...shown } = task;
   const source = copiedFromOf(task, board);
   const blockedBy = blockerIdsOf(task, board);
   return {
     ...shown,
+    ...(isOpen(task.status) ? { comments } : {}),
+    more: more(task),
     blockedBy,
     issuable: issuable(task, board),
     blockers: blockedBy.map((id) => ({ id, status: findTask(board, id)?.status ?? null })),
@@ -338,33 +356,102 @@ function transferCommand(deps: TaskCommandDeps): CommandSpec {
   };
 }
 
+/** The statuses a call names, one or several ("todo,in-progress") — every
+ * one a status there is. */
+function statusesArg(args: CommandArgs, required: boolean): TaskStatus[] | undefined {
+  const named = ids(args, "status");
+  if (named === undefined || named.length === 0) {
+    if (required) throw new Error(`name the statuses you want — one or several of ${TASK_STATUSES.join(", ")} (closed work is done, cancelled)`);
+    return undefined;
+  }
+  for (const status of named) {
+    if (!isTaskStatus(status)) throw new Error(`status must be one of ${TASK_STATUSES.join(", ")}, not "${status}"`);
+  }
+  return named as TaskStatus[];
+}
+
+/** A team's tasks matching the filters every list-shaped answer shares. */
+function matching(board: TaskBoard, team: Team, args: CommandArgs, statuses: readonly TaskStatus[] | undefined): Task[] {
+  const assignee = str(args, "assignee");
+  const priority = priorityArg(args);
+  const label = str(args, "label");
+  const wanted = label === undefined ? undefined : normalizeLabel(label);
+  if (wanted === "") throw new Error(`"${label}" is not a label`);
+  return tasksOfTeam(board, team.id).filter(
+    (task) =>
+      (statuses === undefined || statuses.includes(task.status)) &&
+      (assignee === undefined || task.assignee === (assignee === "pool" ? null : assignee)) &&
+      (priority === undefined || task.priority === priority) &&
+      (wanted === undefined || task.labels.includes(wanted)),
+  );
+}
+
+const FILTER_ARGS = [
+  { name: "assignee", type: "string", description: "Only this role's tasks; \"pool\" for the unassigned" },
+  { name: "priority", type: "string", description: "Only tasks of this priority: high | normal | low" },
+  { name: "label", type: "string", description: "Only tasks carrying this label" },
+] as const;
+
+/** The board's latest change number — what `task.since` takes next. */
+function revOf(deps: TaskCommandDeps, workspaceId: string): number | null {
+  return deps.tasks.revisions(workspaceId)?.board ?? null;
+}
+
+const MORE_NOTE = "`more` counts what is left for task.history: comments, the change log, earlier briefs";
+
 function listCommand(deps: TaskCommandDeps): CommandSpec {
   return {
     id: "task.list",
-    title:
-      "List the team's tasks — per task: id, title, status, priority, assignee (null = pool), author, blockedBy, labels, issuable (can be started now: in todo with every blocker done or cancelled), counts of artifacts and comments, updated",
+    title: `List the team's tasks in the statuses you name — per task: id, title, status, priority, assignee (null = pool), author, blockedBy, labels, issuable (can be started now: in todo with every blocker done or cancelled), artifacts (count), updated. ${MORE_NOTE}. Closed work (done, cancelled) only when you name it; task.search finds a task by its words`,
     args: [
+      { name: "status", type: "string", required: true, description: "One or several statuses, comma-separated: backlog, todo, in-progress, blocked, review, done, cancelled" },
+      ...FILTER_ARGS,
       TEAM_ARG,
-      { name: "assignee", type: "string", description: "Only this role's tasks; \"pool\" for the unassigned" },
-      { name: "status", type: "string", description: "Only tasks in this status" },
-      { name: "label", type: "string", description: "Only tasks carrying this label" },
     ],
     run: async (args, source) => {
       const who = caller(source, deps);
       const team = teamFor(args, who);
+      const statuses = statusesArg(args, true);
       const board = await boardOf(deps, who.workspace.id);
-      const assignee = str(args, "assignee");
-      const status = statusArg(args);
-      const label = str(args, "label");
-      const wanted = label === undefined ? undefined : normalizeLabel(label);
-      if (wanted === "") throw new Error(`"${label}" is not a label`);
-      const tasks = tasksOfTeam(board, team.id).filter(
-        (task) =>
-          (assignee === undefined || task.assignee === (assignee === "pool" ? null : assignee)) &&
-          (status === undefined || task.status === status) &&
-          (wanted === undefined || task.labels.includes(wanted)),
-      );
-      return { count: tasks.length, tasks: tasks.map((task) => row(task, board)) };
+      const tasks = matching(board, team, args, statuses);
+      return { count: tasks.length, tasks: tasks.map((task) => row(task, board)), rev: revOf(deps, who.workspace.id) };
+    },
+  };
+}
+
+/** How many hits a search returns unless told otherwise. */
+const SEARCH_LIMIT = 20;
+
+function searchCommand(deps: TaskCommandDeps): CommandSpec {
+  return {
+    id: "task.search",
+    title: `Find the team's tasks by their words — title, brief and comments, closed work included — best match first, each with where it matched (its brief, or comment n) and the words around it. ${MORE_NOTE}`,
+    args: [
+      { name: "query", type: "string", required: true, description: "The words to find; a word being typed matches as a prefix" },
+      { name: "status", type: "string", description: "Only these statuses, comma-separated" },
+      ...FILTER_ARGS,
+      { name: "limit", type: "number", description: `At most this many hits (${SEARCH_LIMIT} by default)` },
+      TEAM_ARG,
+    ],
+    run: async (args, source) => {
+      const who = caller(source, deps);
+      const team = teamFor(args, who);
+      const query = str(args, "query");
+      if (query === undefined) throw new Error("say what to find");
+      const statuses = statusesArg(args, false);
+      const limit = typeof args.limit === "number" && args.limit > 0 ? Math.floor(args.limit) : SEARCH_LIMIT;
+      const board = await boardOf(deps, who.workspace.id);
+      // Asked of the whole board, then held to this caller's team and filters.
+      const allowed = new Set(matching(board, team, args, statuses).map((task) => task.uid));
+      const hits = (await deps.tasks.search(who.workspace.id, query, limit * 4)).filter((hit) => allowed.has(hit.uid)).slice(0, limit);
+      return {
+        count: hits.length,
+        hits: hits.map((hit) => {
+          const task = board.tasks.find((t) => t.uid === hit.uid)!;
+          return { ...row(task, board), matched: hit.comment === null ? "brief" : `comment ${hit.comment}`, snippet: hit.snippet };
+        }),
+        rev: revOf(deps, who.workspace.id),
+      };
     },
   };
 }
@@ -372,14 +459,95 @@ function listCommand(deps: TaskCommandDeps): CommandSpec {
 function getCommand(deps: TaskCommandDeps): CommandSpec {
   return {
     id: "task.get",
-    title:
-      "Read one task whole: brief, thread, log (a brief edit keeps the previous brief in `was`), blockers with their statuses, what it unblocks, issuable (can be started now), copiedFrom (the key it was copied from, \"gone\" if that task left the board, null if it is no copy) and copies (keys of its copies — one may be on another team's board)",
+    title: `Read one task as it stands: its brief whole, its thread while it is open, blockers with their statuses, what it unblocks, issuable (can be started now), copiedFrom (the key it was copied from, "gone" if that task left the board, null if it is no copy) and copies. ${MORE_NOTE} — a closed task's comments are there too`,
     args: [{ name: "id", type: "string", required: true, description: "The task id (task-N)" }],
     run: async (args, source) => {
       const who = caller(source, deps);
       const team = teamFor(args, who);
       const board = await boardOf(deps, who.workspace.id);
-      return { task: full(visible(board, taskIdArg(args), team), board) };
+      return { task: full(visible(board, taskIdArg(args), team), board), rev: revOf(deps, who.workspace.id) };
+    },
+  };
+}
+
+const HISTORY_KINDS = ["log", "comments", "briefs"] as const;
+type HistoryKind = (typeof HISTORY_KINDS)[number];
+
+function historyCommand(deps: TaskCommandDeps): CommandSpec {
+  return {
+    id: "task.history",
+    title: "A task's past, one kind at a time: its change log (who moved what, when — a brief edit names the versions), its comments, or its earlier briefs (each version's text)",
+    args: [
+      { name: "id", type: "string", required: true, description: "The task id (task-N)" },
+      { name: "kind", type: "string", description: "log (default) | comments | briefs" },
+      { name: "field", type: "string", description: "For the log: only changes of this field (status, assignee, body, …)" },
+    ],
+    run: async (args, source) => {
+      const who = caller(source, deps);
+      const team = teamFor(args, who);
+      const kind = (str(args, "kind") ?? "log") as HistoryKind;
+      if (!HISTORY_KINDS.includes(kind)) throw new Error(`kind must be ${HISTORY_KINDS.join(", ")}, not "${kind}"`);
+      const board = await boardOf(deps, who.workspace.id);
+      const task = visible(board, taskIdArg(args), team);
+      if (kind === "comments") return { id: task.id, comments: task.comments };
+      if (kind === "briefs") return { id: task.id, current: task.bodyV, briefs: task.briefs };
+      const field = str(args, "field");
+      return { id: task.id, log: field === undefined ? task.log : task.log.filter((entry) => entry.field === field) };
+    },
+  };
+}
+
+function sinceCommand(deps: TaskCommandDeps): CommandSpec {
+  return {
+    id: "task.since",
+    title: `What changed on the team's board since a mark: the tasks touched since then, as task.list rows. The mark is a rev — every task answer carries the board's, exact — or a time (ISO 8601, "2026-10-06T10:00"), which counts a task changed at that moment as changed. ${MORE_NOTE}`,
+    args: [
+      { name: "since", type: "string", required: true, description: "A rev from an earlier answer, or an ISO time" },
+      TEAM_ARG,
+    ],
+    run: async (args, source) => {
+      const who = caller(source, deps);
+      const team = teamFor(args, who);
+      const mark = str(args, "since") ?? "";
+      const board = await boardOf(deps, who.workspace.id);
+      const revisions = deps.tasks.revisions(who.workspace.id);
+      const changed = changedSince(board, team, mark, revisions?.tasks ?? new Map());
+      return { count: changed.length, tasks: changed.map((task) => row(task, board)), rev: revisions?.board ?? null };
+    },
+  };
+}
+
+/** The team's tasks changed after `mark` — a rev (exact) or a time (from it on). */
+function changedSince(board: TaskBoard, team: Team, mark: string, revs: ReadonlyMap<string, number>): Task[] {
+  const tasks = tasksOfTeam(board, team.id);
+  if (/^\d+$/.test(mark)) {
+    const rev = Number(mark);
+    return tasks.filter((task) => (revs.get(task.uid) ?? 0) > rev);
+  }
+  const at = Date.parse(mark);
+  if (Number.isNaN(at)) throw new Error(`"${mark}" is neither a rev nor a time — give a rev from an earlier answer, or an ISO time`);
+  return tasks.filter((task) => task.updated >= at);
+}
+
+function briefCommand(deps: TaskCommandDeps): CommandSpec {
+  return {
+    id: "task.brief",
+    title: "For whoever hands out work: the team's board at a glance — how many tasks stand in each open status, and what waits on your decision (tasks in review to accept or send back, tasks blocked), with the board's rev for task.since",
+    args: [TEAM_ARG],
+    run: async (args, source) => {
+      const who = caller(source, deps);
+      const team = teamFor(args, who);
+      if (who.actor.kind === "agent" && !acceptsWork(who.actor.standing)) {
+        throw new Error("task.brief is for whoever hands out work — your own tasks: task.list status=todo,in-progress,review,blocked assignee=<you>");
+      }
+      const board = await boardOf(deps, who.workspace.id);
+      const counts = countByStatus(tasksOfTeam(board, team.id));
+      const open = Object.fromEntries(TASK_STATUSES.filter(isOpen).map((status) => [status, counts[status]]));
+      return {
+        board: open,
+        waitingOnYou: awaitingDecision(board, team.id).map((task) => row(task, board)),
+        rev: revOf(deps, who.workspace.id),
+      };
     },
   };
 }
@@ -468,64 +636,19 @@ function commentCommand(deps: TaskCommandDeps): CommandSpec {
   };
 }
 
-function nextCommand(deps: TaskCommandDeps): CommandSpec {
-  return {
-    id: "task.next",
-    title: "The head of your queue: your first issuable task — in todo with every blocker done or cancelled. ONE task, chosen by priority then age, and where the pool stands; task.list is the whole board",
-    args: [],
-    run: async (_args, source) => {
-      const who = caller(source, deps);
-      const team = teamFor({}, who);
-      const board = await boardOf(deps, who.workspace.id);
-      const head = who.role === undefined ? null : nextFor(board, team.id, who.role);
-      const pool = poolOf(board, team.id).length;
-      const parked = countByStatus(tasksOfTeam(board, team.id)).backlog;
-      // Parked work is no queue's — but an agent told "nothing" should
-      // hear that there is some, and whose call it is.
-      const backlog = parked > 0 ? `; ${parked} parked in the backlog, for whoever hands out work to move to todo` : "";
-      return {
-        task: head === null ? null : row(head, board),
-        pool,
-        ...(head === null
-          ? {
-              note:
-                pool > 0
-                  ? `nothing on your queue can start now; the pool holds ${pool} — task.list assignee=pool shows them, task.update status=in-progress takes one${backlog}`
-                  : `nothing on your queue can start now, and the pool is empty${backlog}`,
-            }
-          : {}),
-      };
-    },
-  };
-}
-
-function mineCommand(deps: TaskCommandDeps): CommandSpec {
-  return {
-    id: "task.mine",
-    title: "Everything on your plate: your open tasks, plus the team's review if you accept work — task.list with assignee=you drops the review and keeps what is closed",
-    args: [],
-    run: async (_args, source) => {
-      const who = caller(source, deps);
-      const team = teamFor({}, who);
-      const board = await boardOf(deps, who.workspace.id);
-      const standing = who.actor.kind === "agent" ? who.actor.standing : null;
-      const tasks = who.role === undefined ? [] : mine(board, team.id, who.role, standing);
-      return { count: tasks.length, tasks: tasks.sort(compareQueue).map((task) => row(task, board)) };
-    },
-  };
-}
-
 export function registerTaskCommands(registry: CommandRegistry, deps: TaskCommandDeps): () => void {
   const disposers = [
     createCommand,
     duplicateCommand,
     transferCommand,
     listCommand,
+    searchCommand,
     getCommand,
+    historyCommand,
+    sinceCommand,
+    briefCommand,
     updateCommand,
     commentCommand,
-    nextCommand,
-    mineCommand,
   ].map((command) => registry.register(command(deps)));
   return () => {
     for (const dispose of disposers) dispose();

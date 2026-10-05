@@ -59,6 +59,24 @@ export interface TasksStorePort {
   /** Why no board can be written now (the boards have not moved to the
    * database, or it is damaged) — or null when writes go through. */
   writeRefusal(): string | null;
+  /** Full-text search over a workspace's tasks and their comments, best first. */
+  search(args: { workspaceId: string; query: string; limit: number }): Promise<readonly BoardHit[]>;
+  /** The number of the board's latest confirmed change, and of each task's;
+   * null before the board was read or written. */
+  revisions(workspaceId: string): BoardRevisions | null;
+}
+
+/** One search hit: the task, where it matched (null: its title or brief;
+ * a number: that comment), and the match in context. */
+export interface BoardHit {
+  uid: string;
+  comment: number | null;
+  snippet: string;
+}
+
+export interface BoardRevisions {
+  board: number;
+  tasks: ReadonlyMap<string, number>;
 }
 
 export interface TasksServiceDeps {
@@ -187,6 +205,10 @@ export interface TasksService {
   unsaved(): UnsavedBoard[];
   /** Why nothing can be written to any board now, or null. */
   readOnly(): string | null;
+  /** Tasks and comments of a workspace matching `query`, best first. */
+  search(workspaceId: string, query: string, limit: number): Promise<readonly BoardHit[]>;
+  /** The board's latest change number and each task's — what `since` reads. */
+  revisions(workspaceId: string): BoardRevisions | null;
   /** The workspace is gone: forget its board here, let the write already
    * on the wire land, annul the ones behind it, and only then drop the
    * file — a drop between a write and the next queued one let the next
@@ -563,6 +585,11 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
     },
     unsaved: () => dirtyEntries().map(([workspaceId, state]) => ({ workspaceId, error: state.unsaved })),
     readOnly: () => deps.store.writeRefusal(),
+    async search(workspaceId, query, limit) {
+      await load(workspaceId);
+      return deps.store.search({ workspaceId, query, limit });
+    },
+    revisions: (workspaceId) => deps.store.revisions(workspaceId),
     retainTeams() {
       for (const workspaceId of [...states.keys()]) prune(workspaceId);
     },
