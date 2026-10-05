@@ -16,3 +16,9 @@ db="$(mktemp -d)/schema.db"
 )
 rm -rf "$root/src/ipc/generated/tasks"
 (cd "$root" && cargo test -q -p keepdeck-tasks --lib export_bindings >/dev/null)
+# Every integer crosses IPC as a JS number: an i64 left without
+# #[ts(type = "number")] would generate `bigint` and lie about the wire.
+if grep -l "bigint" "$root/src/ipc/generated/tasks/"*.ts; then
+  echo "error: a generated task type says bigint — mark the field #[ts(type = \"number\")]" >&2
+  exit 1
+fi

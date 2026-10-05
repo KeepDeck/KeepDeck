@@ -22,7 +22,11 @@ pub enum StoreError {
     /// counter that would go back. Not tried again as it is.
     Constraint { detail: String },
     /// The change was computed against another state of a board.
-    Conflict { board: String, rev: i64 },
+    Conflict {
+        board: String,
+        #[ts(type = "number")]
+        rev: i64,
+    },
     /// The database is damaged. Nothing is written until the person
     /// restores it.
     Corrupt { detail: String },
