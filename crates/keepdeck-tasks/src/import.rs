@@ -50,6 +50,17 @@ pub struct MigrationSource {
     pub checksum: String,
 }
 
+/// A board file the migration reads: its workspace, its bytes, and their
+/// checksum (so a file that changes before the import is verified is seen).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "tasks/")]
+pub struct LegacyBoard {
+    pub workspace: String,
+    pub json: String,
+    pub checksum: String,
+}
+
 /// Import every board in one transaction, as `pending`. Refused unless the
 /// database holds no boards yet: a migration never lands on top of data.
 pub fn import(conn: &mut SqliteConnection, boards_in: &[StoredBoard], sources: &[MigrationSource]) -> Result<()> {

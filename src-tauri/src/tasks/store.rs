@@ -15,11 +15,19 @@
 //! on the data mutex — the same shape as the artifacts store. The TS owner
 //! keeps the live board in memory and writes whole boards, so the store
 //! never has to merge.
+//!
+//! The boards are moving into ONE database under the same root
+//! (`keepdeck-tasks`, task-221): opened at enable beside the files, it is
+//! the boards' source once the migration is active. The files are then
+//! read only by the migration and kept as `board.pre-db.json` copies.
 
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex, Weak};
+
+use keepdeck_tasks::{LegacyBoard, Store, StoreError};
+use sha2::{Digest, Sha256};
 
 use crate::fs_claim::{claim, ClaimedRoot};
 use crate::state::write_atomic;
@@ -40,10 +48,21 @@ pub struct TasksStore {
 }
 
 struct Enabled {
+    /// The database, shared with the backup ticker (which holds it weakly,
+    /// so it ends with the claim). Declared before the claim: fields drop
+    /// in order, and the database closes — log folded in — before the
+    /// claim is let go.
+    db: Arc<Mutex<Store>>,
     root: ClaimedRoot,
     /// Serializes every read and write of board files.
     data: Mutex<()>,
 }
+
+/// How often the backup ticker asks whether a backup is due; the rule of
+/// WHEN one is due is the store's (`Store::backup_if_due`).
+const BACKUP_TICK: std::time::Duration = std::time::Duration::from_secs(5 * 60);
+
+pub const PRE_DB_COPY: &str = "pre-db";
 
 impl Default for TasksStore {
     fn default() -> Self {
@@ -62,7 +81,13 @@ impl TasksStore {
             return Ok(());
         }
         let claimed = claim(root, "task board")?;
+        // Damage or a newer schema is no failure to enable: the store opens
+        // in the state that says so, and the UI offers the way out.
+        let db = Store::open(root).map_err(|e| e.to_string())?;
+        let db = Arc::new(Mutex::new(db));
+        spawn_backup_ticker(Arc::downgrade(&db));
         *enabled = Some(Enabled {
+            db,
             root: claimed,
             data: Mutex::new(()),
         });
@@ -84,6 +109,68 @@ impl TasksStore {
             return Err(OFF_MESSAGE.to_string());
         };
         run(state.root.root(), &state.data)
+    }
+
+    /// Run `op` on the open database.
+    pub fn with_db<T>(
+        &self,
+        op: impl FnOnce(&mut Store) -> Result<T, StoreError>,
+    ) -> Result<T, StoreError> {
+        let db = {
+            let enabled = self.enabled.lock().expect("tasks store poisoned");
+            match enabled.as_ref() {
+                Some(state) => state.db.clone(),
+                None => return Err(StoreError::Off),
+            }
+        };
+        let mut db = db.lock().expect("tasks db poisoned");
+        op(&mut db)
+    }
+
+    /// Every board file under the root, read at once for the migration —
+    /// all of them or the reason none could be read.
+    pub fn legacy_boards(&self) -> Result<Vec<LegacyBoard>, String> {
+        self.with_enabled(|root, data| {
+            let _guard = data.lock().expect("tasks data poisoned");
+            let ws_dir = root.join("ws");
+            let entries = match fs::read_dir(&ws_dir) {
+                Ok(entries) => entries,
+                Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
+                Err(e) => return Err(format!("reading {} failed: {e}", ws_dir.display())),
+            };
+            let mut boards = Vec::new();
+            for entry in entries {
+                let entry = entry.map_err(|e| format!("reading {} failed: {e}", ws_dir.display()))?;
+                let Some(workspace) = entry.file_name().to_str().map(str::to_string) else { continue };
+                if !crate::fs_names::is_safe_segment(&workspace) {
+                    continue;
+                }
+                let path = board_path(root, &workspace);
+                match fs::read_to_string(&path) {
+                    Ok(json) => boards.push(LegacyBoard { checksum: checksum(&json), workspace, json }),
+                    Err(e) if e.kind() == ErrorKind::NotFound => {}
+                    Err(e) => return Err(format!("reading {} failed: {e}", path.display())),
+                }
+            }
+            boards.sort_by(|a, b| a.workspace.cmp(&b.workspace));
+            Ok(boards)
+        })
+    }
+
+    /// After the migration is active: every `board.json` becomes its
+    /// `board.pre-db.json` copy — the files stop being a source. A copy
+    /// already there is the first one, and stays.
+    pub fn retire_legacy(&self) -> Result<(), String> {
+        let boards = self.legacy_boards()?;
+        for board in boards {
+            self.keep_copy(&board.workspace, PRE_DB_COPY)?;
+            self.with_enabled(|root, data| {
+                let _guard = data.lock().expect("tasks data poisoned");
+                fs::remove_file(board_path(root, &board.workspace))
+                    .map_err(|e| format!("retiring the board file of {} failed: {e}", board.workspace))
+            })?;
+        }
+        Ok(())
     }
 
     /// One workspace's board as stored, or `None` when it has never been
@@ -160,6 +247,33 @@ fn is_label(label: &str) -> bool {
     !label.is_empty()
         && label.len() <= 40
         && label.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+}
+
+/// The checksum the migration keeps for each source file.
+fn checksum(json: &str) -> String {
+    Sha256::digest(json.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Ask the store for a backup every tick while it is enabled; the ticker
+/// ends when the database it watches is gone (disable, or exit).
+fn spawn_backup_ticker(db: Weak<Mutex<Store>>) {
+    let spawned = std::thread::Builder::new().name("tasks-backup".into()).spawn(move || loop {
+        let Some(db) = db.upgrade() else { return };
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
+        match db.lock().expect("tasks db poisoned").backup_if_due(now) {
+            Ok(Some(taken)) => log::info!("tasks: backup taken at {}", taken.path.display()),
+            Ok(None) => {}
+            Err(error) => log::warn!("tasks: backup failed: {error}"),
+        }
+        drop(db);
+        std::thread::sleep(BACKUP_TICK);
+    });
+    if let Err(error) = spawned {
+        log::warn!("tasks: no backup ticker: {error}");
+    }
 }
 
 fn board_path(root: &Path, workspace_id: &str) -> PathBuf {
@@ -275,6 +389,41 @@ mod tests {
         assert!(!dir.path().join("tasks/ws/ws-1").exists());
         assert_eq!(store.read("ws-1").unwrap(), None);
         store.drop_workspace("ws-1").expect("drop again");
+    }
+
+    #[test]
+    fn enabling_opens_the_database_beside_the_files_and_off_refuses_it() {
+        let off = TasksStore::default();
+        assert_eq!(off.with_db(|db| db.status()).unwrap_err(), StoreError::Off);
+        let (dir, store) = enabled_store();
+        assert!(matches!(store.with_db(|db| db.status()).unwrap(), keepdeck_tasks::StoreStatus::Ready { .. }));
+        assert!(dir.path().join("tasks/tasks.db").is_file());
+    }
+
+    #[test]
+    fn the_migration_reads_every_board_file_at_once_with_its_checksum() {
+        let (_dir, store) = enabled_store();
+        assert_eq!(store.legacy_boards().unwrap(), vec![]);
+        store.write("ws-2", "two").unwrap();
+        store.write("ws-1", "one").unwrap();
+        store.keep_copy("ws-1", "pre-relations").unwrap();
+        let boards = store.legacy_boards().unwrap();
+        assert_eq!(boards.iter().map(|b| (b.workspace.as_str(), b.json.as_str())).collect::<Vec<_>>(), vec![("ws-1", "one"), ("ws-2", "two")]);
+        // A checksum of the bytes: equal bytes, equal sums; other bytes, other sums.
+        assert_eq!(boards[0].checksum, checksum("one"));
+        assert_ne!(boards[0].checksum, boards[1].checksum);
+        assert_eq!(boards[0].checksum.len(), 64);
+    }
+
+    #[test]
+    fn retiring_the_files_keeps_each_board_as_its_pre_db_copy_only() {
+        let (dir, store) = enabled_store();
+        store.write("ws-1", "one").unwrap();
+        store.retire_legacy().unwrap();
+        assert!(!dir.path().join("tasks/ws/ws-1/board.json").exists());
+        assert_eq!(std::fs::read_to_string(dir.path().join("tasks/ws/ws-1/board.pre-db.json")).unwrap(), "one");
+        // Nothing left to read as a source.
+        assert_eq!(store.legacy_boards().unwrap(), vec![]);
     }
 
     #[test]

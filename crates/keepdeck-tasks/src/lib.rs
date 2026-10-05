@@ -28,7 +28,7 @@ use std::path::{Path, PathBuf};
 use diesel::SqliteConnection;
 
 pub use error::{Result, StoreError};
-pub use import::{MigrationSource, MigrationState};
+pub use import::{LegacyBoard, MigrationSource, MigrationState};
 pub use model::*;
 
 /// Where the store stands, for the UI and the agents' refusals.
