@@ -24,11 +24,3 @@ export function boardWithFold(board: TasksBoardSettings, status: TaskStatus): Ta
     : inLadderOrder([...board.list.folded, status]);
   return { ...board, list: { ...board.list, folded } };
 }
-
-/** The posture after a task's move by a drop landed: in the list, the
- * folded group it went into opens, so the row is seen where it went; a
- * drop on the board leaves the list's folds alone. Null: nothing changes. */
-export function boardAfterDrop(board: TasksBoardSettings, status: TaskStatus, view: TasksView): TasksBoardSettings | null {
-  if (view !== "list" || !board.list.folded.includes(status)) return null;
-  return boardWithFold(board, status);
-}

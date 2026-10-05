@@ -351,18 +351,56 @@
 
 /* ── The list view: one windowed list, a heading per status ───────── */
 
-/* A group in a drag: its heading and its rows answer as the board's
-   columns do — a target edged in the done hue, the one under the pointer
-   on a tile, a group the task may not go to dimmed. */
-.tasks__group.tasks__drop--ok,
-.tasks__row.tasks__drop--ok {
-  box-shadow: inset 2px 0 0 var(--kd-ok);
+/* A group in a drag: the one under the pointer — where the task will
+   land — is framed whole in the done hue, its heading and rows on the
+   ok tint; a group the task may not go to is dimmed; the other targets
+   stay as they are, so only the landing place stands out. The tint wins
+   over a row's hover — the row under the pointer is the landing place,
+   not a gap in it — and the pinned heading wears it too (below). */
+.tasks__group.tasks__drop--over,
+.tasks__row.tasks__drop--over,
+.tasks__row.tasks__drop--over:hover {
+  position: relative;
+  background-color: var(--kd-ok-tint);
 }
 
-.tasks__group.tasks__drop--over,
-.tasks__row.tasks__drop--over {
-  background-color: var(--kd-tile);
-  box-shadow: inset 2px 0 0 var(--kd-ok-strong);
+/* The frame. The windowed list draws each item on its own, so each draws
+   its own edges of the one frame — over its whole box, its bottom seam
+   too (the 1px below), so the sides run unbroken and the frame's bottom
+   is the one line there. Laid over the item, it moves nothing. */
+.tasks__drop--over::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 -1px;
+  border: 1px solid var(--kd-ok-strong);
+  border-top-width: 0;
+  border-bottom-width: 0;
+  pointer-events: none;
+}
+
+.tasks__drop--over.tasks__drop-edge--whole,
+.tasks__drop--over.tasks__drop-edge--whole::after {
+  border-radius: var(--kd-radius-control);
+}
+
+.tasks__drop--over.tasks__drop-edge--top,
+.tasks__drop--over.tasks__drop-edge--top::after {
+  border-radius: var(--kd-radius-control) var(--kd-radius-control) 0 0;
+}
+
+.tasks__drop--over.tasks__drop-edge--bottom,
+.tasks__drop--over.tasks__drop-edge--bottom::after {
+  border-radius: 0 0 var(--kd-radius-control) var(--kd-radius-control);
+}
+
+.tasks__drop--over.tasks__drop-edge--whole::after,
+.tasks__drop--over.tasks__drop-edge--top::after {
+  border-top-width: 1px;
+}
+
+.tasks__drop--over.tasks__drop-edge--whole::after,
+.tasks__drop--over.tasks__drop-edge--bottom::after {
+  border-bottom-width: 1px;
 }
 
 .tasks__group.tasks__drop--no,
@@ -392,6 +430,12 @@
    beneath it rather than through it. */
 .tasks__list-pinned .tasks__group {
   background-color: var(--kd-tile);
+}
+
+/* …and under the pointer, the landing place's tint, as its rows wear it
+   (opaque too: rows still pass beneath it, never through). */
+.tasks__list-pinned .tasks__group.tasks__drop--over {
+  background-color: var(--kd-ok-tint);
 }
 
 /* Ruled out as a drop, the pinned heading dims its words, not itself:

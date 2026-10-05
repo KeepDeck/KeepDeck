@@ -15,11 +15,13 @@ import {
   rowGrip,
   rowStepOf,
   stepRow,
+  type GroupEdge,
   type ListItem,
 } from "./listView";
 import { NO_QUERY } from "./queryView";
 import { IDLE, type DragState } from "./cardDrag";
 import { BOARD_ORDER } from "./words";
+import type { TaskStatus } from "../../domain/tasks";
 
 const tasks = [
   task({ id: "task-1", status: "todo", priority: "normal", created: 1 }),
@@ -151,11 +153,48 @@ describe("the list in a drag", () => {
     expect(rowOf("task-4").status).toBe("done");
   });
 
-  it("lights a group as the board lights a column: target, under the pointer, or not allowed", () => {
-    expect(groupDropClassName("done", dragging, null)).toBe("tasks__drop--ok");
-    expect(groupDropClassName("done", dragging, "done")).toBe("tasks__drop--over");
-    expect(groupDropClassName("review", dragging, null)).toBe("tasks__drop--no");
-    expect(groupDropClassName("done", IDLE, null)).toBeNull();
+  it("lights only where the task will land, and dims where it may not go", () => {
+    const at = (status: TaskStatus, edge: GroupEdge = "middle") => ({ status, edge });
+    // A target the pointer is not over wears nothing.
+    expect(groupDropClassName(at("done"), dragging, null)).toBeNull();
+    expect(groupDropClassName(at("done"), dragging, "done")).toBe("tasks__drop--over tasks__drop-edge--middle");
+    // Each item hands on its own edge of the frame.
+    for (const edge of ["whole", "top", "bottom"] as const) {
+      expect(groupDropClassName(at("done", edge), dragging, "done")).toBe(`tasks__drop--over tasks__drop-edge--${edge}`);
+    }
+    expect(groupDropClassName(at("review"), dragging, null)).toBe("tasks__drop--no");
+    expect(groupDropClassName(at("done"), IDLE, null)).toBeNull();
+  });
+
+  it("frames the group under the pointer whole: its heading opens the frame, its last row closes it", () => {
+    const todo = listView(tasks, b, 0, NO_QUERY, NONE, null);
+    const edgeOf = (key: string) => todo.find((i) => i.key === key)!.edge;
+    expect([edgeOf("head:todo"), edgeOf("task-2"), edgeOf("task-1")]).toEqual(["top", "middle", "bottom"]);
+    // One row: it alone closes the frame.
+    expect([edgeOf("head:done"), edgeOf("task-4")]).toEqual(["top", "bottom"]);
+    // No rows shown — empty, or folded: the heading is the whole frame.
+    expect(edgeOf("head:in-progress")).toBe("whole");
+    expect(listView(tasks, b, 0, NO_QUERY, new Set(["todo"] as const), null).find((i) => i.key === "head:todo")!.edge).toBe("whole");
+  });
+
+  it("frames what the query leaves shown: its last shown row closes the frame, none shown is the heading alone", () => {
+    const labelled = [
+      task({ id: "task-1", status: "todo", labels: ["ui"], created: 1 }),
+      task({ id: "task-2", status: "todo", labels: ["ui"], created: 2 }),
+      task({ id: "task-3", status: "todo", created: 3 }),
+      task({ id: "task-4", status: "done" }),
+    ];
+    const items = listView(labelled, board(labelled), 0, { blockedOnly: false, label: "ui" }, NONE, null);
+    const edgeOf = (key: string) => items.find((i) => i.key === key)!.edge;
+    const todoRows = items.filter((i) => i.kind === "row" && i.status === "todo");
+    // Two shown of three: the second shown closes it, not the hidden third.
+    expect(todoRows.map((r) => r.edge)).toEqual(["middle", "bottom"]);
+    expect(edgeOf("head:todo")).toBe("top");
+    // Done has a task, but none the query shows: its heading alone.
+    expect(edgeOf("head:done")).toBe("whole");
+    // One shown: it alone closes the frame.
+    const one = listView(labelled.slice(1), board(labelled.slice(1)), 0, { blockedOnly: false, label: "ui" }, NONE, null);
+    expect(one.filter((i) => i.kind === "row").map((r) => r.edge)).toEqual(["bottom"]);
   });
 
   it("dims the row in flight and wears its group's part on every row and heading", () => {
@@ -163,7 +202,8 @@ describe("the list in a drag", () => {
     expect(listRowClassName(rowOf("task-4"), dragging, "done")).toContain("tasks__drop--over");
     expect(listRowClassName(rowOf("task-4"), IDLE, null)).toBe(rowOf("task-4").className);
     const done = items.find((i) => i.key === "head:done") as Extract<ListItem, { kind: "head" }>;
-    expect(listHeadingDropClassName(done, dragging, null)).toBe("tasks__group tasks__group--done tasks__drop--ok");
+    expect(listHeadingDropClassName(done, dragging, null)).toBe("tasks__group tasks__group--done");
+    expect(listHeadingDropClassName(done, dragging, "done")).toBe("tasks__group tasks__group--done tasks__drop--over tasks__drop-edge--top");
   });
 
   it("holds the row whole, where it was pressed", () => {

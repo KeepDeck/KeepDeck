@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_SETTINGS, type TasksBoardSettings } from "../../domain/settings";
-import { boardAfterDrop, boardFolded, boardWithFold, boardWithView } from "./boardSettings";
+import { boardFolded, boardWithFold, boardWithView } from "./boardSettings";
 
 const at = (folded: TasksBoardSettings["list"]["folded"], view: TasksBoardSettings["view"] = "list"): TasksBoardSettings => ({
   view,
@@ -23,11 +23,5 @@ describe("the board's stored posture", () => {
 
   it("picks a view and keeps the folds", () => {
     expect(boardWithView(at(["done"], "board"), "list")).toEqual(at(["done"], "list"));
-  });
-
-  it("opens the folded list group a drop's move lands in — nothing for an open one, or a drop on the board", () => {
-    expect(boardAfterDrop(at(["done", "cancelled"]), "done", "list")).toEqual(at(["cancelled"]));
-    expect(boardAfterDrop(at(["cancelled"]), "done", "list")).toBeNull();
-    expect(boardAfterDrop(at(["done"], "board"), "done", "board")).toBeNull();
   });
 });
