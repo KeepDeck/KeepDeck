@@ -1,10 +1,10 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { MouseEvent } from "react";
-import { activityBadge, paneFrame } from "../../domain/status";
+import { activityBadge } from "../../domain/status";
 import { usePaneActivity } from "../../app/usePaneActivity";
 import { RestoreUpIcon } from "../../ui/icons";
 import { YoloBadge } from "../../ui/badges";
-import { trayChipStatus, type TrayChipStatus } from "../../presentation/trayView";
+import { trayChipFrame, trayChipStatus, type TrayChipStatus } from "../../presentation/trayView";
 import type { GitBadge } from "../../ui/gitBadge";
 import { AgentGlyph, type AgentGlyphIcon } from "../../ui/AgentGlyph";
 import { MinimizedDetailsTooltip } from "./MinimizedDetailsTooltip";
@@ -40,9 +40,9 @@ interface MinimizedItemContentProps {
   title: string;
   /** The agent's brand mark; absent/null draws the neutral fallback. */
   icon?: AgentGlyphIcon | null;
-  /** The dot and, when it needs a person, the words — settled by
-   * trayChipStatus. The branch and the stopped marker are the hover
-   * details' to say; the chip keeps to who and how. */
+  /** The words, when it needs a person — settled by trayChipStatus. The
+   * state's hue is the chip's frame; the branch is the hover details' to
+   * say; the chip keeps to who and how. */
   status: TrayChipStatus | null;
   yolo?: boolean;
 }
@@ -56,9 +56,6 @@ export function MinimizedItemContent({
 }: MinimizedItemContentProps) {
   return (
     <>
-      {status && (
-        <span className={`minimized__status minimized__status--${status.tone}`} aria-hidden />
-      )}
       <span className="minimized__agent" aria-hidden>
         <AgentGlyph icon={icon} />
       </span>
@@ -83,13 +80,11 @@ export function MinimizedItemMeasure({
   title,
   icon,
   yolo,
-  stopped,
 }: {
   paneId: string;
   title: string;
   icon?: AgentGlyphIcon | null;
   yolo?: boolean;
-  stopped?: boolean;
 }) {
   const activity = usePaneActivity(paneId);
   return (
@@ -97,7 +92,7 @@ export function MinimizedItemMeasure({
       <MinimizedItemContent
         title={title}
         icon={icon}
-        status={trayChipStatus(activity, Boolean(stopped))}
+        status={trayChipStatus(activity)}
         yolo={yolo}
       />
     </span>
@@ -123,11 +118,9 @@ export function MinimizedItem({
   onClick,
 }: MinimizedItemProps) {
   // The stand-in wears the pane's status frame — attention must survive
-  // minimizing, and working/done stay worth a chip. The same domain
-  // decider as the pane's own border, fed the stand-in's true facts: a
-  // hidden pane is never the selected one and never fills the stage.
+  // minimizing, and working/done stay worth a chip (`trayChipFrame`).
   const activity = usePaneActivity(paneId);
-  const frame = paneFrame({ activity, selected: false, fullBleed: false });
+  const frame = trayChipFrame(activity, Boolean(stopped));
   // The hover details spell out what the frame only colours: the same
   // settled badge the pane header renders (domain formats, views render).
   const activityView = activity ? activityBadge(activity) : null;
@@ -192,7 +185,7 @@ export function MinimizedItem({
         <MinimizedItemContent
           title={title}
           icon={icon}
-          status={trayChipStatus(activity, Boolean(stopped))}
+          status={trayChipStatus(activity)}
           yolo={yolo}
         />
       </button>

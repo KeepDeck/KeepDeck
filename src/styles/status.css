@@ -77,10 +77,12 @@
   animation: status-frame-pulse 1s ease-in-out infinite;
 }
 
-.minimized__status--working { color: var(--status-working); }
-.minimized__status--waiting { color: var(--status-waiting); }
-.minimized__status--done { color: var(--status-done); }
-.minimized__status--failed { color: var(--status-failed); }
+/* A stopped agent has no activity to frame: a dashed, muted ring says it
+   is there but not running — what its hollow dot used to say. */
+.minimized.minimized--frame-stopped {
+  border: 1px dashed var(--kd-text-4);
+}
+
 .minimized__word--waiting { color: var(--status-waiting); }
 .minimized__word--failed { color: var(--status-failed); }
 

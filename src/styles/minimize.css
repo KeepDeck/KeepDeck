@@ -114,21 +114,6 @@
   flex: none;
 }
 
-/* The status dot leads the chip, as it leads the pane's header; its hue is
-   status.css's (.minimized__status--*). A stopped agent's dot is hollow. */
-.minimized__status {
-  flex: none;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background-color: currentColor;
-}
-
-.minimized__status--stopped {
-  background-color: transparent;
-  box-shadow: inset 0 0 0 1.5px var(--kd-text-4);
-}
-
 /* The words, only for an agent that needs a person or has failed —
    trayChipStatus decides; status.css colours them. */
 .minimized__word {

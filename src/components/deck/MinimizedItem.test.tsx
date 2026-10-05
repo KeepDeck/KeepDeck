@@ -62,7 +62,7 @@ describe("MinimizedItem", () => {
     vi.useRealTimers();
   });
 
-  it("leads with a hollow dot for a stopped agent, and keeps the branch to the details", () => {
+  it("frames a stopped agent with a dashed ring, no dot, and keeps the branch to the details", () => {
     render({
       paneId: "pane-1",
       title: "Claude 1",
@@ -73,7 +73,8 @@ describe("MinimizedItem", () => {
       onClick,
     });
     const chip = document.querySelector(".minimized")!;
-    expect(chip.firstElementChild!.className).toBe("minimized__status minimized__status--stopped");
+    expect(chip.classList.contains("minimized--frame-stopped")).toBe(true);
+    expect(chip.firstElementChild!.className).toBe("minimized__agent");
     expect(chip.querySelector(".minimized__branch")).toBeNull();
     expect(chip.querySelector(".minimized__word")).toBeNull();
   });
@@ -250,7 +251,7 @@ describe("MinimizedItem", () => {
     ).toContain("Done");
   });
 
-  it("a retired pane's stand-in is bare — the tracker is the one authority", () => {
+  it("a retired pane's stand-in keeps no status frame — the tracker is the one authority", () => {
     // Suspend goes through the orchestrator's retire, which clears the
     // pane's activity; the stand-in renders the store verbatim and derives
     // no liveness gate of its own.
@@ -270,6 +271,7 @@ describe("MinimizedItem", () => {
       onClick,
     });
     const button = document.querySelector<HTMLButtonElement>(".minimized")!;
-    expect(button.className).not.toContain("minimized--frame");
+    // No stale status frame: only the stopped ring a suspended agent wears.
+    expect(button.className).toBe("minimized minimized--chip minimized--frame-stopped");
   });
 });
