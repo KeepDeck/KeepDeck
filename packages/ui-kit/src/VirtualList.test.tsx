@@ -575,7 +575,7 @@ describe("VirtualList as a grouped list", () => {
 
   describe("the person's fold, played out by the list (useFoldMotion)", () => {
     const shut = new Set([9]);
-    const box = () => host.querySelector<HTMLElement>(".list > div:not(:first-child) > div[style*='overflow: hidden']");
+    const box = () => host.querySelector<HTMLElement>(".list > div:not(:first-child) > div[style*='overflow: clip']");
     /** Frames of the clock, by time. */
     const frames = async (ms: number) => {
       await act(async () => {
@@ -726,7 +726,7 @@ describe("VirtualList as a grouped list", () => {
       await frames(48);
       render(grouped(30), new Set<number>());
       // Two boxes: group 9 still unrolling, group 10 just begun.
-      expect(host.querySelectorAll(".list > div:not(:first-child) > div[style*='overflow: hidden']").length).toBe(2);
+      expect(host.querySelectorAll(".list > div:not(:first-child) > div[style*='overflow: clip']").length).toBe(2);
       await frames(300);
       expect(box()).toBeNull();
     });
@@ -754,6 +754,13 @@ describe("VirtualList as a grouped list", () => {
       } finally {
         window.matchMedia = original;
       }
+    });
+
+    it("clips its boxes without making them scroll containers, so the wheel stays the list's", async () => {
+      render(grouped(30, shut), shut);
+      await scrollTo(95 * H);
+      render(grouped(30), new Set<number>());
+      expect(box()!.style.overflow).toBe("clip");
     });
 
     it("lands at once under reduced motion", async () => {

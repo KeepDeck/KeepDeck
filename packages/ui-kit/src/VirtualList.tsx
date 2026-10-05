@@ -235,8 +235,10 @@ export function VirtualList<T>({
               ))}
             {frame.boxes.map((box) => (
               // One clipping box per place the rows changed: the group
-              // unrolls from under its heading, or rolls up into it.
-              <div key={`fold:${box.segment}`} style={{ position: "absolute", top: box.top, left: 0, width: "100%", height: box.height, overflow: "hidden" }}>
+              // unrolls from under its heading, or rolls up into it. CLIP,
+              // not hidden: a hidden box is a scroll container, and takes
+              // the person's wheel for itself (reviewer-3, task-249).
+              <div key={`fold:${box.segment}`} style={{ position: "absolute", top: box.top, left: 0, width: "100%", height: box.height, overflow: "clip" }}>
                 {frame.rows
                   .filter((row) => row.box === box.segment)
                   .map((row) => (
