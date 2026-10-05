@@ -3,6 +3,7 @@ import { flushSync } from "react-dom";
 import {
   easeFold,
   foldFrame,
+  mergeFolds,
   reachable,
   segmentsOf,
   walkAt,
@@ -14,17 +15,32 @@ import {
 /** How long a fold takes, start to end. */
 export const FOLD_MOTION_MS = 160;
 
-/** One fold in flight: where the rows changed, the rows that left (to
- * draw as ghosts), how far along it is, and the person's scroll walk. */
-interface Motion<T> {
+/** A fold worked out from one change of the rows, before it is put in
+ * flight: where the rows changed, and the rows that left (to draw as
+ * ghosts) with their items and old indexes. */
+interface Proposal<T> {
   segments: readonly FoldSegment[];
-  /** The rows that left, by key: the item and its old index. */
   ghosts: ReadonlyMap<string, { item: T; index: number }>;
+}
+
+/** One segment in flight, on its own clock: folds made one after another
+ * each run their own time. */
+interface Part {
+  segment: FoldSegment;
+  /** How much was left to play when its clock started (`mergeFolds`). */
+  from: number;
   startedAt: number | null;
   residual: number;
-  /** The walk the fold's hold asked for: from where the scroll stood to
-   * where the hold put the folded heading. */
-  walk: { from: number; to: number } | null;
+}
+
+/** The folds in flight, the rows they draw as ghosts, and the person's
+ * scroll walk. */
+interface Motion<T> {
+  parts: Part[];
+  ghosts: Map<string, { item: T; index: number }>;
+  /** The walk the latest fold's hold asked for: from where the scroll
+   * stood to where the hold put the folded heading, on its own clock. */
+  walk: { from: number; to: number; startedAt: number | null } | null;
   /** The scroll this clock last wrote — a different one is the person's. */
   written: number | null;
   /** The person took the scroll: the walk writes no more. */
@@ -78,37 +94,43 @@ export function useFoldMotion<T>({ items, eased, readLayout, folds, scrollRef, o
   const motion = useRef<Motion<T> | null>(null);
   // The layout and items last drawn — the "before" of the next fold.
   const drawn = useRef<{ items: readonly T[]; layout: Layout } | null>(null);
-  // Motions already put in flight — each is started once, whatever
-  // renders after.
-  const started = useRef(new WeakSet<Motion<T>>());
+  // Folds already put in flight — each is started once, whatever renders after.
+  const started = useRef(new WeakSet<Proposal<T>>());
   /** The motion the clock is running. */
   const [running, setRunning] = useState<Motion<T> | null>(null);
 
   // The layout of this render, read once, when a fold is made or painted.
   let now: Layout | null = null;
   const layoutNow = () => (now ??= readLayout());
-  // The motion this change of the rows makes, if it is the person's: worked
-  // out in render, purely — what it writes (a walk landing) happens when
-  // it is put in flight, after the commit.
+  // The fold this change of the rows makes, if it is the person's: worked
+  // out in render, purely — what it writes happens when it is put in
+  // flight, after the commit.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const made = useMemo(() => (eased && drawn.current !== null && !reducedMotion() ? motionFrom(drawn.current, layoutNow()) : null), [items]);
-  const inFlight = useRef<Motion<T> | null>(null);
-  inFlight.current = made !== null && !started.current.has(made) ? made : null;
-  /** Put this render's motion in flight — once: a fold in flight is
-   * overtaken, its scroll landing where it was going. Asked by the hold
-   * (whose layout effect runs first) and by this hook's own. True when it
-   * started one just now. */
+  const made = useMemo(() => (eased && drawn.current !== null && !reducedMotion() ? proposalFrom(drawn.current, layoutNow()) : null), [items]);
+  const pending = useRef<Proposal<T> | null>(null);
+  pending.current = made !== null && !started.current.has(made) ? made : null;
+  /** Put this render's fold in flight — once. A fold still playing goes on
+   * beside it; the same group folded back turns round from where it has
+   * got to (`mergeFolds`). Asked by the hold (whose layout effect runs
+   * first) and by this hook's own. True when it started one just now. */
   const start = useCallback(() => {
-    const next = inFlight.current;
+    const next = pending.current;
     if (next === null || started.current.has(next)) return false;
     started.current.add(next);
-    finishWalk(motion.current, scrollRef.current);
-    motion.current = next;
-    // The clock starts for it — a render before the paint, in the layout
-    // phase this is asked in.
-    setRunning(next);
+    const playing = motion.current;
+    const merged = mergeFolds(playing?.parts ?? [], next.segments);
+    const parts: Part[] = [
+      ...merged.kept.map((index) => playing!.parts[index]),
+      ...merged.added.map((part) => ({ ...part, startedAt: null, residual: part.from })),
+    ];
+    const ghosts = new Map(playing?.ghosts ?? []);
+    for (const [key, ghost] of next.ghosts) ghosts.set(key, ghost);
+    motion.current = { parts, ghosts, walk: playing?.walk ?? null, written: playing?.written ?? null, released: playing?.released ?? false };
+    // The clock runs it — a render before the paint, in the layout phase
+    // this is asked in.
+    setRunning(motion.current);
     return true;
-  }, [scrollRef]);
+  }, []);
   useLayoutEffect(() => {
     start();
   });
@@ -119,6 +141,14 @@ export function useFoldMotion<T>({ items, eased, readLayout, folds, scrollRef, o
     if (folds) drawn.current = { items, layout: layoutNow() };
   });
 
+  const settle = useCallback(() => {
+    if (!motion.current) return;
+    finishWalk(motion.current, scrollRef.current);
+    motion.current = null;
+    setRunning(null);
+    draw();
+  }, [scrollRef]);
+
   // The clock: one frame at a time while a motion lasts.
   useEffect(() => {
     if (!running) return;
@@ -128,14 +158,27 @@ export function useFoldMotion<T>({ items, eased, readLayout, folds, scrollRef, o
     };
     const events = ["wheel", "touchstart", "pointerdown"] as const;
     for (const name of events) list?.addEventListener(name, release, { passive: true });
+    // Reduced motion asked for mid-fold: the fold lands, now.
+    const preference = typeof window !== "undefined" ? window.matchMedia?.(REDUCE) : undefined;
+    const reduce = (event: MediaQueryListEvent) => {
+      if (event.matches) settle();
+    };
+    preference?.addEventListener?.("change", reduce);
     let frameId = 0;
-    const tick = (now: number) => {
+    const tick = (time: number) => {
       if (motion.current !== running) return;
-      running.startedAt ??= now;
-      const eased = easeFold((now - running.startedAt) / FOLD_MOTION_MS);
-      running.residual = 1 - eased;
-      walkTo(running, list, eased);
-      const done = eased >= 1;
+      let done = true;
+      for (const part of running.parts) {
+        part.startedAt ??= time;
+        part.residual = part.from * (1 - easeFold((time - part.startedAt) / FOLD_MOTION_MS));
+        if (part.residual > 0) done = false;
+      }
+      if (running.walk) {
+        running.walk.startedAt ??= time;
+        const walked = easeFold((time - running.walk.startedAt) / FOLD_MOTION_MS);
+        walkTo(running, list, walked);
+        if (walked < 1 && !running.released) done = false;
+      }
       if (done) motion.current = null;
       // Drawn in THIS frame: a render left to the scheduler would land after
       // the paint, the rows a step behind the scroll the clock just wrote.
@@ -150,20 +193,26 @@ export function useFoldMotion<T>({ items, eased, readLayout, folds, scrollRef, o
     return () => {
       cancelAnimationFrame(frameId);
       for (const name of events) list?.removeEventListener(name, release);
+      preference?.removeEventListener?.("change", reduce);
     };
-  }, [running, scrollRef]);
+  }, [running, scrollRef, settle]);
 
-  const current = inFlight.current ?? motion.current;
+  // What is drawn: the motion in flight, with this render's fold merged in
+  // as it will be once started (so the first frame is the fold's own).
+  const current = motion.current;
+  const parts = pending.current ? previewParts(current?.parts ?? [], pending.current.segments) : (current?.parts ?? []);
   // During a fold, which rows to mount is decided by where they are
   // DRAWN — so the scroll box is read here, the one time a render asks.
   const list = scrollRef.current;
-  const frame = current
-    ? foldFrame(current.segments, layoutNow(), current.residual, {
-        top: list?.scrollTop ?? 0,
-        height: list?.clientHeight ?? 0,
-        overscan,
-      })
-    : null;
+  const frame =
+    parts.length > 0
+      ? foldFrame(
+          parts.map((part) => part.segment),
+          layoutNow(),
+          parts.map((part) => part.residual),
+          { top: list?.scrollTop ?? 0, height: list?.clientHeight ?? 0, overscan },
+        )
+      : null;
 
   const takeWalk = useCallback(
     (from: number, to: number) => {
@@ -174,8 +223,9 @@ export function useFoldMotion<T>({ items, eased, readLayout, folds, scrollRef, o
       const live = motion.current;
       const box = scrollRef.current;
       if (!live || !box) return false;
-      live.walk = { from, to: reachable(to, readLayout().total, box.clientHeight) };
+      live.walk = { from, to: reachable(to, readLayout().total, box.clientHeight), startedAt: null };
       live.written = from;
+      live.released = false;
       return true;
     },
     [readLayout, scrollRef, start],
@@ -183,23 +233,30 @@ export function useFoldMotion<T>({ items, eased, readLayout, folds, scrollRef, o
   const shifted = useCallback((by: number) => {
     const live = motion.current;
     if (!live?.walk) return;
-    live.walk = { from: live.walk.from + by, to: live.walk.to + by };
+    live.walk = { ...live.walk, from: live.walk.from + by, to: live.walk.to + by };
     if (live.written !== null) live.written += by;
   }, []);
-  const settle = useCallback(() => {
-    if (!motion.current) return;
-    finishWalk(motion.current, scrollRef.current);
-    motion.current = null;
-    draw();
-  }, [scrollRef]);
-  const ghost = useCallback((key: string) => motion.current?.ghosts.get(key), []);
+  const ghost = useCallback(
+    (key: string) => motion.current?.ghosts.get(key) ?? pending.current?.ghosts.get(key),
+    [],
+  );
   return { frame, ghost, takeWalk, shifted, settle };
 }
 
-/** The motion a change of the rows makes, from what was drawn before to
- * the layout now — or null when it is no fold (nothing changed place, or
- * the rows that stayed were reordered). */
-function motionFrom<T>(before: { items: readonly T[]; layout: Layout }, layout: Layout): Motion<T> | null {
+/** The parts a fold not yet started would run with — for drawing the
+ * render it is made in, before its commit starts it. */
+function previewParts(playing: readonly Part[], next: readonly FoldSegment[]): Part[] {
+  const merged = mergeFolds(playing, next);
+  return [
+    ...merged.kept.map((index) => playing[index]),
+    ...merged.added.map((part) => ({ ...part, startedAt: null, residual: part.from })),
+  ];
+}
+
+/** The fold a change of the rows makes, from what was drawn before to the
+ * layout now — or null when it is no fold (nothing changed place, or the
+ * rows that stayed were reordered). */
+function proposalFrom<T>(before: { items: readonly T[]; layout: Layout }, layout: Layout): Proposal<T> | null {
   const segments = segmentsOf(before.layout, layout);
   if (segments === null || segments.length === 0) return null;
   const left = new Set(segments.flatMap((segment) => segment.ghosts.map((ghost) => ghost.key)));
@@ -207,7 +264,7 @@ function motionFrom<T>(before: { items: readonly T[]; layout: Layout }, layout: 
   for (const [index, row] of before.layout.rows.entries()) {
     if (left.has(row.key)) ghosts.set(row.key, { item: before.items[index], index });
   }
-  return { segments, ghosts, startedAt: null, residual: 1, walk: null, written: null, released: false };
+  return { segments, ghosts };
 }
 
 /** Move the person's scroll walk on to `eased` — unless the person has
@@ -230,6 +287,8 @@ function finishWalk<T>(motion: Motion<T> | null, list: HTMLElement | null): void
   if (motion) walkTo(motion, list, 1);
 }
 
+const REDUCE = "(prefers-reduced-motion: reduce)";
+
 function reducedMotion(): boolean {
-  return typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+  return typeof window !== "undefined" && window.matchMedia?.(REDUCE).matches === true;
 }

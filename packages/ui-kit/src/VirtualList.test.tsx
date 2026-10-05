@@ -705,6 +705,57 @@ describe("VirtualList as a grouped list", () => {
       expect(top("g9r0") + list().scrollTop).toBe(101 * H);
     });
 
+    it("turns a group folded back mid-way round from where it has got to — no snap shut first", async () => {
+      render(grouped(30, shut), shut);
+      await scrollTo(95 * H);
+      render(grouped(30), new Set<number>());
+      await frames(48);
+      const opened = Number.parseFloat(box()!.style.height);
+      expect(opened).toBeGreaterThan(0);
+      // Shut again before it is open: the box goes on from that height.
+      render(grouped(30, shut), new Set(shut));
+      expect(Number.parseFloat(box()!.style.height)).toBeCloseTo(opened);
+      await frames(300);
+      expect(box()).toBeNull();
+    });
+
+    it("lets a fold elsewhere play on while the next one starts", async () => {
+      render(grouped(30, new Set([9, 10])), new Set([9, 10]));
+      await scrollTo(95 * H);
+      render(grouped(30, new Set([10])), new Set([10]));
+      await frames(48);
+      render(grouped(30), new Set<number>());
+      // Two boxes: group 9 still unrolling, group 10 just begun.
+      expect(host.querySelectorAll(".list > div:not(:first-child) > div[style*='overflow: hidden']").length).toBe(2);
+      await frames(300);
+      expect(box()).toBeNull();
+    });
+
+    it("lands a fold in flight the moment reduced motion is asked for", async () => {
+      const listeners: ((event: { matches: boolean }) => void)[] = [];
+      const original = window.matchMedia;
+      window.matchMedia = ((query: string) =>
+        ({
+          matches: false,
+          media: query,
+          addEventListener: (_: string, fn: (event: { matches: boolean }) => void) => listeners.push(fn),
+          removeEventListener: () => {},
+        }) as unknown as MediaQueryList) as typeof window.matchMedia;
+      try {
+        render(grouped(30, shut), shut);
+        await scrollTo(95 * H);
+        render(grouped(30), new Set<number>());
+        await frames(16);
+        expect(box()).not.toBeNull();
+        await act(async () => {
+          for (const fn of listeners) fn({ matches: true });
+        });
+        expect(box()).toBeNull();
+      } finally {
+        window.matchMedia = original;
+      }
+    });
+
     it("lands at once under reduced motion", async () => {
       const original = window.matchMedia;
       window.matchMedia = ((query: string) => ({ matches: query.includes("reduce") }) as MediaQueryList) as typeof window.matchMedia;

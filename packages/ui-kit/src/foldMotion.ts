@@ -165,16 +165,17 @@ export interface FoldFrame {
 }
 
 /**
- * One frame of a motion, `residual` of the way from the final layout back
- * to the old one (1 at the start, 0 at the end): what to mount, where to
- * draw it. Only what meets `view` (plus its overscan) is mounted — chosen
+ * One frame of a motion — each segment `residuals[i]` of the way from the
+ * final layout back to the old one (1 at its start, 0 at its end; folds
+ * made one after another run on their own clocks): what to mount, where
+ * to draw it. Only what meets `view` (plus its overscan) is mounted — chosen
  * by where it is DRAWN, not by where the final layout puts it, or a long
  * opening would paint an empty viewport.
  */
 export function foldFrame(
   segments: readonly FoldSegment[],
   layout: Layout,
-  residual: number,
+  residuals: readonly number[],
   view: Viewport,
 ): FoldFrame {
   const runs = placed(segments, layout);
@@ -186,6 +187,7 @@ export function foldFrame(
   const boxes: FoldFrame["boxes"] = [];
   let above = 0;
   for (const run of runs) {
+    const residual = residuals[run.index] ?? 0;
     boxes.push({ segment: run.index, top: run.runStart - above, height: run.runEnd - run.runStart - residual * run.delta });
     above += residual * run.delta;
   }
@@ -196,7 +198,7 @@ export function foldFrame(
   for (const [index, row] of layout.rows.entries()) {
     // Runs wholly above this row have moved it by what they have yet to grow.
     while (next < runs.length && runs[next].runEnd <= row.start) {
-      shift += residual * runs[next].delta;
+      shift += (residuals[runs[next].index] ?? 0) * runs[next].delta;
       next++;
     }
     const run = next < runs.length && runs[next].runStart <= row.start && row.start < runs[next].runEnd ? next : -1;
@@ -228,7 +230,46 @@ export function foldFrame(
     }
   }
   occupancy.sort((x, y) => x.start - y.start);
-  return { rows, boxes, ghosts, total: layout.total - residual * runs.reduce((sum, run) => sum + run.delta, 0), occupancy };
+  const still = runs.reduce((sum, run) => sum + (residuals[run.index] ?? 0) * run.delta, 0);
+  return { rows, boxes, ghosts, total: layout.total - still, occupancy };
+}
+
+/** The spacer's height during a fold: as tall as what is drawn, and never
+ * shorter than the scroll needs — or the browser would clamp the walk. */
+export function foldSpacer(frame: FoldFrame, scrollTop: number, viewportHeight: number): number {
+  return Math.max(frame.total, scrollTop + viewportHeight);
+}
+
+/** One segment of a fold in flight: how much of it was left to play when
+ * its clock started (1 for a fresh fold; less for one turned back). */
+export interface FoldPart {
+  segment: FoldSegment;
+  from: number;
+}
+
+/**
+ * The parts a new fold makes, given the parts still playing and how far
+ * each has yet to go (`playing[i].residual`). A segment of the same place
+ * — the same group folded back before its fold has ended — takes over
+ * from where the one playing has got to: it starts with what that one
+ * has already done (1 − its residual), so a quick toggle turns the group
+ * round mid-way instead of snapping it shut or open first. Every other
+ * part playing goes on; a new place starts fresh.
+ */
+export function mergeFolds(
+  playing: readonly { segment: FoldSegment; residual: number }[],
+  next: readonly FoldSegment[],
+): { kept: number[]; added: FoldPart[] } {
+  const turned = new Set<number>();
+  const added = next.map((segment): FoldPart => {
+    const at = playing.findIndex(
+      (part, index) => !turned.has(index) && part.segment.pivot === segment.pivot && part.segment.boundary === segment.boundary,
+    );
+    if (at < 0) return { segment, from: 1 };
+    turned.add(at);
+    return { segment, from: 1 - playing[at].residual };
+  });
+  return { kept: playing.map((_, index) => index).filter((index) => !turned.has(index)), added };
 }
 
 /** Where the person's scroll walk stands, `eased` of the way from where

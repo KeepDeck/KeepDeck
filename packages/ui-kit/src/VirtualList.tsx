@@ -1,5 +1,6 @@
-import { useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
 import { marksOf, type ChangeMarks } from "./listMotion";
+import { foldSpacer } from "./foldMotion";
 import { useFoldMotion } from "./useFoldMotion";
 import { useFocusHandoff } from "./useFocusHandoff";
 import { usePinnedHeading } from "./usePinnedHeading";
@@ -215,7 +216,7 @@ export function VirtualList<T>({
       <Spacer
         className={spacer?.className}
         style={{
-          height: `${frame ? Math.max(frame.total, (scrollRef.current?.scrollTop ?? 0) + (scrollRef.current?.clientHeight ?? 0)) : rowWindow.totalSize}px`,
+          height: `${frame ? foldSpacer(frame, scrollRef.current?.scrollTop ?? 0, scrollRef.current?.clientHeight ?? 0) : rowWindow.totalSize}px`,
           position: "relative",
         }}
         {...(spacerIsList ? named : {})}
@@ -226,7 +227,7 @@ export function VirtualList<T>({
               .filter((row) => row.box === null)
               .map((row) => (
                 <Item key={row.key} ref={rowWindow.measure} data-index={row.index} className={item?.className} style={placed(row.top)}>
-                  {render(items[row.index], row.index)}
+                  <RowContent item={items[row.index]} index={row.index} render={render} />
                 </Item>
               ))}
             {frame.boxes.map((box) => (
@@ -237,7 +238,7 @@ export function VirtualList<T>({
                   .filter((row) => row.box === box.segment)
                   .map((row) => (
                     <Item key={row.key} ref={rowWindow.measure} data-index={row.index} className={item?.className} style={placed(row.top)}>
-                      {render(items[row.index], row.index)}
+                      <RowContent item={items[row.index]} index={row.index} render={render} />
                     </Item>
                   ))}
                 {frame.ghosts
@@ -249,7 +250,7 @@ export function VirtualList<T>({
                     // with its index from before the change.
                     return left === undefined ? null : (
                       <Item key={`ghost:${ghost.key}`} className={item?.className} style={{ ...placed(ghost.top), pointerEvents: "none" }} inert aria-hidden>
-                        {render(left.item, left.index)}
+                        <RowContent item={left.item} index={left.index} render={render} />
                       </Item>
                     );
                   })}
@@ -259,7 +260,7 @@ export function VirtualList<T>({
         ) : (
           rowWindow.items.map((slot) => (
             <Item key={slot.key} ref={rowWindow.measure} data-index={slot.index} className={item?.className} style={placed(slot.start)}>
-              {render(items[slot.index], slot.index)}
+              <RowContent item={items[slot.index]} index={slot.index} render={render} />
             </Item>
           ))
         )}
@@ -276,3 +277,21 @@ const FOLD_OVERSCAN_PX = 200;
 function placed(top: number) {
   return { position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${top}px)` } as const;
 }
+
+/**
+ * An item's content, rendered again only when its item, index or the
+ * consumer's render changes. A fold draws the list once a frame — only
+ * the boxes around the rows move, and the rows themselves (a task row's
+ * controls, its labels) are not built again ten times over.
+ */
+const RowContent = memo(function RowContent<T>({
+  item,
+  index,
+  render,
+}: {
+  item: T;
+  index: number;
+  render: (item: T, index: number) => ReactNode;
+}) {
+  return <>{render(item, index)}</>;
+}) as <T>(props: { item: T; index: number; render: (item: T, index: number) => ReactNode }) => ReactNode;
