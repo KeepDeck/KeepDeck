@@ -568,10 +568,10 @@ impl SessionIndex {
         keys: &[(String, String)],
     ) -> Result<Vec<(String, String, String)>, String> {
         let var_limit =
-            usize::try_from(
-                self.conn
-                    .limit(rusqlite::limits::Limit::SQLITE_LIMIT_VARIABLE_NUMBER),
-            )
+            self.conn
+                .limit(rusqlite::limits::Limit::SQLITE_LIMIT_VARIABLE_NUMBER)
+                .ok()
+                .and_then(|limit| usize::try_from(limit).ok())
                 .unwrap_or(0);
         // Two binds per key plus the MATCH bind; a limit below that
         // degrades to one key per ask rather than dividing by zero.
@@ -1876,7 +1876,8 @@ mod tests {
 
         index
             .conn
-            .set_limit(rusqlite::limits::Limit::SQLITE_LIMIT_VARIABLE_NUMBER, 13);
+            .set_limit(rusqlite::limits::Limit::SQLITE_LIMIT_VARIABLE_NUMBER, 13)
+            .unwrap();
 
         // Page wide enough to load the whole match set: 12 content
         // rows + 1 title row.
@@ -2095,10 +2096,10 @@ mod tests {
             // / 20 top-up passes — the multi-chunk price under the
             // same production mechanism, then the limit is restored.
             println!("width axis, FORCED multi-chunk (limit 101 → 50-key chunks):");
-            let prev_limit = index.conn.set_limit(
-                rusqlite::limits::Limit::SQLITE_LIMIT_VARIABLE_NUMBER,
-                101,
-            );
+            let prev_limit = index
+                .conn
+                .set_limit(rusqlite::limits::Limit::SQLITE_LIMIT_VARIABLE_NUMBER, 101)
+                .unwrap();
             for (width, offset) in [(50usize, 0usize), (500, 0), (1000, 0)] {
                 let (t_search, rows) = min_of(&|| {
                     index
@@ -2113,7 +2114,8 @@ mod tests {
             }
             index
                 .conn
-                .set_limit(rusqlite::limits::Limit::SQLITE_LIMIT_VARIABLE_NUMBER, prev_limit);
+                .set_limit(rusqlite::limits::Limit::SQLITE_LIMIT_VARIABLE_NUMBER, prev_limit)
+                .unwrap();
         }
     }
 }
