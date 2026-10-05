@@ -197,7 +197,7 @@ pub fn write_boards(conn: &mut SqliteConnection, boards_in: &[StoredBoard]) -> R
             }
             for b in &task.briefs {
                 diesel::insert_into(task_briefs::table)
-                    .values(&BriefRow { uid: task.uid.clone(), v: b.v, at: b.at, author: b.author.clone(), body: b.body.clone() })
+                    .values(&BriefRow { uid: task.uid.clone(), v: b.v, body: b.body.clone() })
                     .execute(conn)
                     .map_err(|e| named(e, what(format!("brief version {}", b.v))))?;
             }

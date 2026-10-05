@@ -49,12 +49,12 @@ CREATE TABLE task_keys (
 CREATE UNIQUE INDEX task_keys_current ON task_keys(uid) WHERE current = 1;
 CREATE INDEX task_keys_by_uid ON task_keys(uid);
 
+-- An earlier version of a brief: its number and its text. Who replaced it
+-- and when is the log's (field = body, was/now = the version numbers).
 CREATE TABLE task_briefs (
-    uid    TEXT NOT NULL REFERENCES tasks(uid) ON DELETE CASCADE,
-    v      BIGINT NOT NULL,
-    at     BIGINT NOT NULL,
-    author TEXT NOT NULL,
-    body   TEXT NOT NULL,
+    uid  TEXT NOT NULL REFERENCES tasks(uid) ON DELETE CASCADE,
+    v    BIGINT NOT NULL,
+    body TEXT NOT NULL,
     PRIMARY KEY (uid, v)
 ) WITHOUT ROWID;
 

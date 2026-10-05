@@ -86,8 +86,6 @@ pub struct LogRow {
 pub struct BriefRow {
     pub uid: String,
     pub v: i64,
-    pub at: i64,
-    pub author: String,
     pub body: String,
 }
 

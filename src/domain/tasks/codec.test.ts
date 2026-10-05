@@ -11,11 +11,16 @@ const mint = () => mintSequence("uid-minted-");
 /** A task as a board written before relations stored it: no uid, its
  * blockers on it. */
 const legacyTask = (id: string, over: Record<string, unknown> = {}) => {
-  const { uid: _uid, ...stored } = task({ id });
+  const { uid: _uid, bodyV: _v, briefs: _b, ...stored } = task({ id });
   return { ...stored, blockedBy: [], ...over };
 };
 
 const legacy = (tasks: Record<string, unknown>[], nextId = tasks.length + 1) => JSON.stringify({ nextId, tasks });
+/** A task as a build before brief versions wrote it: no `bodyV`, no `briefs`. */
+const encodedTask = (id: string) => {
+  const { bodyV: _v, briefs: _b, ...rest } = task({ id });
+  return rest;
+};
 
 describe("board codec", () => {
   it("round-trips a board with comments, a log and links, field for field", () => {
@@ -249,6 +254,71 @@ describe("board codec — a board written before relations", () => {
     const decoded = read([legacyTask("task-1"), legacyTask("task-2", { blockedBy: ["task-1"] })]);
     const again = decodeBoard(encodeBoard(decoded.board), mint());
     expect(again).toEqual({ ok: true, board: decoded.board, migrated: false, dropped: [] });
+  });
+});
+
+describe("board codec — brief versions", () => {
+  it("turns a log written before versions into versions — every old brief kept, the log keeping who and when", () => {
+    const old = {
+      nextId: 2,
+      relations: [],
+      tasks: [
+        {
+          ...encodedTask("task-1"),
+          body: "third",
+          log: [
+            { at: 1, from: "lead", field: "body", was: "first", now: null },
+            { at: 2, from: "impl-1", field: "status", was: "todo", now: "in-progress" },
+            { at: 3, from: "user", field: "body", was: "second", now: null },
+          ],
+        },
+      ],
+    };
+    const read = decodeBoard(JSON.stringify(old), mint());
+    if (!read.ok) throw new Error(JSON.stringify(read.fault));
+    expect(read.migrated).toBe(true);
+    const t = read.board.tasks[0];
+    expect(t.body).toBe("third");
+    expect(t.bodyV).toBe(3);
+    expect(t.briefs).toEqual([{ v: 1, body: "first" }, { v: 2, body: "second" }]);
+    expect(t.log).toEqual([
+      { at: 1, from: "lead", field: "body", was: "1", now: "2" },
+      { at: 2, from: "impl-1", field: "status", was: "todo", now: "in-progress" },
+      { at: 3, from: "user", field: "body", was: "2", now: "3" },
+    ]);
+    // Written back, it reads as it is — nothing left to upgrade.
+    expect(decodeBoard(encodeBoard(read.board), mint())).toEqual({ ok: true, board: read.board, migrated: false, dropped: [] });
+  });
+
+  it("restores every old brief exactly from what it wrote", () => {
+    const texts = ["", "a\nmulti-line brief — with ✓ marks", "x".repeat(8192)];
+    const log = texts.map((was, i) => ({ at: i, from: "lead", field: "body", was, now: null }));
+    const read = decodeBoard(JSON.stringify({ nextId: 2, relations: [], tasks: [{ ...encodedTask("task-1"), log }] }), mint());
+    if (!read.ok) throw new Error("refused");
+    expect(read.board.tasks[0].briefs.map((b) => b.body)).toEqual(texts);
+  });
+
+  it("refuses versions that do not count up to the current one, or carry more than a number and a text", () => {
+    const withBriefs = (bodyV: unknown, briefs: unknown) =>
+      decodeBoard(JSON.stringify({ nextId: 2, relations: [], tasks: [{ ...encodedTask("task-1"), bodyV, briefs }] }), mint());
+    expect(withBriefs(1, []).ok).toBe(true);
+    expect(withBriefs(2, [{ v: 1, body: "a" }]).ok).toBe(true);
+    for (const [bodyV, briefs] of [
+      [0, []],
+      [2, []],
+      [3, [{ v: 1, body: "a" }, { v: 3, body: "b" }]],
+      [2, [{ v: 1, body: "a", at: 5 }]],
+      [2, [{ v: 1 }]],
+    ] as const) {
+      const read = withBriefs(bodyV, briefs);
+      expect(!read.ok && read.fault.kind, JSON.stringify([bodyV, briefs])).toBe("bad-task");
+    }
+  });
+
+  it("refuses an old brief edit that kept no previous brief — it cannot be told apart from a lost one", () => {
+    const log = [{ at: 1, from: "lead", field: "body", was: null, now: null }];
+    const read = decodeBoard(JSON.stringify({ nextId: 2, relations: [], tasks: [{ ...encodedTask("task-1"), log }] }), mint());
+    expect(!read.ok && read.fault).toMatchObject({ kind: "bad-task", id: "task-1" });
   });
 });
 

@@ -568,14 +568,16 @@ function changeTask(
       const bad = validateBody(change.to);
       if (bad) return refuse(bad);
       if (change.to === task.body) return { ok: true, task };
-      // The PREVIOUS brief goes to the log, whole, and the new one is on
-      // the task: every version is kept exactly once, and a reviewer can
-      // read what the brief said before each edit. `now` is null because
-      // the current text is never a copy.
+      // The previous brief becomes a version; the log says which version
+      // replaced which, by whom and when. Every version is kept exactly
+      // once, and the log holds no brief text.
+      const next = task.bodyV + 1;
       return {
         ok: true,
-        task: logged(task, [{ at, from: by, field: "body", was: task.body, now: null }], at, {
+        task: logged(task, [{ at, from: by, field: "body", was: String(task.bodyV), now: String(next) }], at, {
           body: change.to,
+          bodyV: next,
+          briefs: [...task.briefs, { v: task.bodyV, body: task.body }],
         }),
       };
     }
@@ -782,6 +784,8 @@ export function createTask(
     teamId: input.teamId,
     title: keptTitle(input.title),
     body,
+    bodyV: 1,
+    briefs: [],
     status,
     priority,
     assignee,

@@ -433,14 +433,20 @@ describe("what every member may do", () => {
     expect(byUser.ok && byUser.task.comments[0].from).toBe("user");
   });
 
-  it("a brief edit keeps the previous brief in the log, whole, once", () => {
+  it("a brief edit keeps the previous brief as a version, and the log says which replaced which", () => {
     const t = task({ id: "task-1", assignee: "lead", body: "first" });
     const once = transition(t, { kind: "body", to: "second" }, lead, ctx([t]));
     if (!once.ok) throw new Error("refused");
-    expect(once.task.body).toBe("second");
-    expect(once.task.log).toEqual([{ at: 5_000, from: "lead", field: "body", was: "first", now: null }]);
+    expect(once.task).toMatchObject({ body: "second", bodyV: 2, briefs: [{ v: 1, body: "first" }] });
+    // Who and when is the log's; the log holds no brief text.
+    expect(once.task.log).toEqual([{ at: 5_000, from: "lead", field: "body", was: "1", now: "2" }]);
     const twice = transition(once.task, { kind: "body", to: "third" }, lead, ctx([once.task]));
-    expect(twice.ok && twice.task.log.map((e) => e.was)).toEqual(["first", "second"]);
+    if (!twice.ok) throw new Error("refused");
+    expect(twice.task.briefs).toEqual([{ v: 1, body: "first" }, { v: 2, body: "second" }]);
+    expect(twice.task.bodyV).toBe(3);
+    // The same brief again is no edit: no version, no log line.
+    const same = transition(twice.task, { kind: "body", to: "third" }, lead, ctx([twice.task]));
+    expect(same.ok && same.task).toBe(twice.task);
   });
 
   it("keeps the whole log — past where the board once cut it — oldest first", () => {

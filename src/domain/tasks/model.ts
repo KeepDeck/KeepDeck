@@ -97,6 +97,14 @@ export type LogField = TaskField | "copiedFrom" | "copiedTo" | "transferred";
  * against. */
 export const LOG_FIELDS: readonly LogField[] = [...TASK_FIELDS, "copiedFrom", "copiedTo", "transferred"];
 
+/** An earlier version of a task's brief: its number and its text. Who
+ * replaced it and when is the log's (`field: "body"`, `was`/`now` the
+ * version numbers) — said once, there. */
+export interface TaskBrief {
+  v: number;
+  body: string;
+}
+
 /** One change to one field — the audit trail a human reads under a task. */
 export interface TaskLogEntry {
   at: number;
@@ -123,6 +131,11 @@ export interface Task {
   title: string;
   /** Markdown. Long briefs belong in an artifact named under `artifacts`. */
   body: string;
+  /** The number of the brief's current version, from 1. */
+  bodyV: number;
+  /** The brief's earlier versions, oldest first — every one kept, so a
+   * reader can see what it said before each edit. */
+  briefs: readonly TaskBrief[];
   status: TaskStatus;
   priority: TaskPriority;
   /** A ROLE address (`impl-1`), never a pane id — roles are addresses and

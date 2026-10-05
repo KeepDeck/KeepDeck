@@ -47,8 +47,6 @@ diesel::table! {
     task_briefs (uid, v) {
         uid -> Text,
         v -> BigInt,
-        at -> BigInt,
-        author -> Text,
         body -> Text,
     }
 }

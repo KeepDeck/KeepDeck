@@ -32,6 +32,7 @@ import {
   isTaskStatus,
   type Task,
   type TaskBoard,
+  type TaskBrief,
   type TaskComment,
   type TaskLogEntry,
   type TaskRelation,
@@ -69,9 +70,9 @@ export type DecodeResult =
   | {
       ok: true;
       board: TaskBoard;
-      /** Read from a board written before relations — its uids freshly
-       * drawn, for the owner to write back at once (until then a re-read
-       * draws them afresh). */
+      /** Read from an older format — written before relations (its uids
+       * freshly drawn) or before brief versions — for the owner to write
+       * back at once (until then a re-read upgrades it afresh). */
       migrated: boolean;
       /** The blockers a migration let go — a task naming itself or a key
        * not on the board, which held nothing — for the owner to log. */
@@ -111,6 +112,7 @@ export function decodeBoard(json: string, mintUid: () => string): DecodeResult {
   const seen = new Set<string>();
   const uids = new Set<string>();
   let highest = 0;
+  let upgraded = false;
   for (const [i, entry] of raw.tasks.entries()) {
     const read = decodeTask(entry, legacy, mintUid);
     if (!read.ok) return { ok: false, fault: { kind: "bad-task", index: i, id: read.id, field: read.field } };
@@ -123,6 +125,7 @@ export function decodeBoard(json: string, mintUid: () => string): DecodeResult {
     uids.add(read.task.uid);
     highest = Math.max(highest, numberOf(read.task.id));
     tasks.push(read.task);
+    if (read.upgraded) upgraded = true;
     if (read.blockedBy) waits.set(read.task.uid, read.blockedBy);
   }
   // The counter must be a safe integer above every id on the board, or
@@ -138,7 +141,7 @@ export function decodeBoard(json: string, mintUid: () => string): DecodeResult {
   }
   const relations = decodeRelations(raw.relations as unknown[], tasks);
   if (!relations.ok) return relations;
-  return { ok: true, board: withRelations(board, relations.relations), migrated: false, dropped: [] };
+  return { ok: true, board: withRelations(board, relations.relations), migrated: upgraded, dropped: [] };
 }
 
 /** A legacy board's links: its blockers, and its copies' sources — and
@@ -227,7 +230,8 @@ function decodeRelations(
 
 type TaskRead =
   /** `blockedBy` is a legacy task's, for the migration to link. */
-  | { ok: true; task: Task; blockedBy?: readonly string[] }
+  /** `upgraded`: written before brief versions, its log rewritten into them. */
+  | { ok: true; task: Task; blockedBy?: readonly string[]; upgraded?: true }
   | { ok: false; id: string | null; field: string };
 
 function decodeTask(raw: unknown, legacy: boolean, mintUid: () => string): TaskRead {
@@ -269,15 +273,23 @@ function decodeTask(raw: unknown, legacy: boolean, mintUid: () => string): TaskR
   if (!Array.isArray(raw.comments) || !raw.comments.every(isComment)) return fail("comments");
   if (!Array.isArray(raw.log) || !raw.log.every(isLogEntry)) return fail("log");
   if (!isCount(raw.created) || !isCount(raw.updated)) return fail("created/updated");
+  // A task written before brief versions kept each previous brief whole
+  // in its log: those texts become versions now, and the log says which
+  // version replaced which.
+  const briefs = raw.bodyV === undefined ? versionsFromLog(raw.log as TaskLogEntry[]) : readBriefs(raw.bodyV, raw.briefs);
+  if (!briefs.ok) return fail(briefs.field);
   return {
     ok: true,
     ...(legacy ? { blockedBy: raw.blockedBy as string[] } : {}),
+    ...(raw.bodyV === undefined ? { upgraded: true } : {}),
     task: {
       uid,
       id,
       teamId: raw.teamId,
       title: raw.title,
       body: raw.body,
+      bodyV: briefs.bodyV,
+      briefs: briefs.briefs,
       status: raw.status,
       priority: raw.priority,
       assignee: raw.assignee,
@@ -285,11 +297,57 @@ function decodeTask(raw: unknown, legacy: boolean, mintUid: () => string): TaskR
       artifacts: raw.artifacts,
       labels: labels.labels,
       comments: raw.comments as TaskComment[],
-      log: raw.log as TaskLogEntry[],
+      log: briefs.log ?? (raw.log as TaskLogEntry[]),
       created: raw.created,
       updated: raw.updated,
     },
   };
+}
+
+type BriefsRead =
+  | { ok: true; bodyV: number; briefs: TaskBrief[]; log?: TaskLogEntry[] }
+  | { ok: false; field: string };
+
+/**
+ * A task's brief versions from a log written before them, where each edit
+ * kept the PREVIOUS brief whole in `was` (and `now` null). In log order,
+ * those texts are versions 1, 2, …; the current brief is the next. Each
+ * entry becomes "version k replaced by k + 1" — by whom and when unchanged
+ * — so nothing a reader could see is lost, and the log holds no text.
+ */
+export function versionsFromLog(log: readonly TaskLogEntry[]): BriefsRead {
+  const briefs: TaskBrief[] = [];
+  const out: TaskLogEntry[] = [];
+  for (const entry of log) {
+    if (entry.field !== "body") {
+      out.push(entry);
+      continue;
+    }
+    if (entry.was === null || entry.now !== null) return { ok: false, field: "log (a brief edit that kept no previous brief)" };
+    const v = briefs.length + 1;
+    briefs.push({ v, body: entry.was });
+    out.push({ ...entry, was: String(v), now: String(v + 1) });
+  }
+  return { ok: true, bodyV: briefs.length + 1, briefs, log: out };
+}
+
+/** Brief versions as written: 1, 2, … up to the one before the current. */
+function readBriefs(bodyV: unknown, raw: unknown): BriefsRead {
+  if (!isCount(bodyV) || bodyV < 1) return { ok: false, field: "bodyV" };
+  if (!Array.isArray(raw)) return { ok: false, field: "briefs" };
+  const briefs: TaskBrief[] = [];
+  for (const [i, brief] of raw.entries()) {
+    if (!isRecord(brief) || !onlyKeys(brief, ["v", "body"]) || brief.v !== i + 1 || typeof brief.body !== "string") {
+      return { ok: false, field: `briefs (version ${i + 1})` };
+    }
+    briefs.push({ v: brief.v, body: brief.body });
+  }
+  if (briefs.length !== bodyV - 1) return { ok: false, field: "briefs (every version before the current one)" };
+  return { ok: true, bodyV, briefs };
+}
+
+function onlyKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
+  return Object.keys(value).every((key) => keys.includes(key));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

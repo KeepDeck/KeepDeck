@@ -157,7 +157,7 @@ describe("taskDetailView", () => {
         comments: [{ n: 1, at: NOW - 60_000, from: "user", body: "go" }],
         log: [
           { at: NOW - 3_600_000, from: "lead", field: "assignee", was: null, now: "impl-1" },
-          { at: NOW - 60_000, from: "impl-1", field: "body", was: null, now: null },
+          { at: NOW - 60_000, from: "impl-1", field: "body", was: "1", now: "2" },
         ],
       }),
       task({ id: "task-3", blockedBy: ["task-2"] }),
@@ -179,7 +179,7 @@ describe("taskDetailView", () => {
     expect(view.unblocks).toEqual([{ id: "task-3", title: "Task task-3" }]);
     expect(view.changes.map(({ key: _key, ...rest }) => rest)).toEqual([
       { kind: "change", who: "lead", text: "assignee: — → impl-1", age: "1h ago" },
-      { kind: "change", who: "impl-1", text: "edited the brief (the previous version is kept in the log: 0 characters)", age: "1m ago" },
+      { kind: "change", who: "impl-1", text: "edited the brief (v1 → v2)", age: "1m ago" },
     ]);
     expect(view.comments.map(({ key: _key, ...rest }) => rest)).toEqual([{ who: "you", age: "1m ago", body: "go" }]);
     expect(view.assigneeOptions.map((o) => o.value)).toEqual(["", "lead", "impl-1", "impl-2"]);

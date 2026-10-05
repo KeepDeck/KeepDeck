@@ -133,7 +133,7 @@ pub fn load(conn: &mut SqliteConnection, board: &str) -> Result<StoredBoard> {
         .load(conn)?;
     for b in briefs {
         if let Some(&i) = at.get(&b.uid) {
-            out[i].briefs.push(StoredBrief { v: b.v, at: b.at, author: b.author, body: b.body });
+            out[i].briefs.push(StoredBrief { v: b.v, body: b.body });
         }
     }
     // A link is its `from` end's board's. One whose `from` end is gone from
@@ -434,7 +434,7 @@ fn append_log(conn: &mut SqliteConnection, uid: &str, entry: &StoredLogEntry) ->
 }
 
 fn append_brief(conn: &mut SqliteConnection, uid: &str, brief: &StoredBrief) -> Result<()> {
-    let row = BriefRow { uid: uid.to_string(), v: brief.v, at: brief.at, author: brief.author.clone(), body: brief.body.clone() };
+    let row = BriefRow { uid: uid.to_string(), v: brief.v, body: brief.body.clone() };
     let stored: Option<BriefRow> =
         task_briefs::table.find((uid, brief.v)).select(BriefRow::as_select()).first(conn).optional()?;
     match stored {

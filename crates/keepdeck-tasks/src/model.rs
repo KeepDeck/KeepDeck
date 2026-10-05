@@ -109,9 +109,6 @@ pub struct StoredLogEntry {
 pub struct StoredBrief {
     #[ts(type = "number")]
     pub v: i64,
-    #[ts(type = "number")]
-    pub at: i64,
-    pub author: String,
     pub body: String,
 }
 

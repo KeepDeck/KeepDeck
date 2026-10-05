@@ -183,7 +183,7 @@ fn round_trips_every_part_of_a_board() {
     t.artifacts = vec!["zeta".into(), "alpha".into()];
     t.comments = vec![StoredComment { n: 1, at: 5, author: "impl-1".into(), body: "first".into() }];
     t.log = vec![StoredLogEntry { seq: 0, at: 6, author: "lead".into(), field: "status".into(), was: Some("todo".into()), now: Some("review".into()) }];
-    t.briefs = vec![StoredBrief { v: 1, at: 2, author: "lead".into(), body: "old brief".into() }];
+    t.briefs = vec![StoredBrief { v: 1, body: "old brief".into() }];
     t.body_v = 2;
     t.old_keys = vec![StoredKey { board: "b0".into(), id: "task-9".into() }];
     let mut b = board("b1", Some("ws-1"), vec![task("u2", "task-2"), t]);
