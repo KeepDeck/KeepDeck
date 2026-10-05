@@ -689,6 +689,13 @@ describe("TasksDialog", () => {
       act(() => void pointer("pointerover", heading("Done"), 40, 300));
       await flush();
       expect(heading("Done").className).toContain("tasks__drop--over");
+      // Every group's fold as it stood before the drop.
+      const folds = () =>
+        Array.from(document.querySelectorAll<HTMLElement>(".tasks__list-item .tasks__group"), (h) => [
+          h.querySelector(".tasks__group-label")?.textContent,
+          h.getAttribute("aria-expanded"),
+        ]);
+      const before = folds();
       // Done is folded — its heading still takes the drop.
       act(() => void pointer("pointerup", heading("Done"), 40, 300));
       await flush();
@@ -698,6 +705,8 @@ describe("TasksDialog", () => {
       // The group it went into stays folded — a fold is the person's own
       // act — and counts the task in its heading.
       expect(heading("Done").getAttribute("aria-expanded")).toBe("false");
+      // …and no other group's fold moves either: a drop writes no fold.
+      expect(folds()).toEqual(before);
       expect(heading("Done").querySelector(".tasks__group-count")?.textContent).toBe("1");
       const titles = Array.from(document.querySelectorAll(".tasks__list .tasks__row .tasks__row-title"), (t) => t.textContent);
       expect(titles).not.toContain("Draft the skill");

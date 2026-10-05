@@ -178,8 +178,21 @@ describe("the list group a dragged task will land in", () => {
     expect(drawing("bottom")).toEqual(["bottom", "whole"]);
     // At rest a piece draws only its sides — down over the item's 1px
     // bottom seam, so the sides run unbroken.
+    expect(css).toMatch(/\.tasks__drop--over::after\s*\{\s*content:\s*"";/);
     const piece = ruleBody(css.replace('content: "";', ""), ".tasks__drop--over::after");
-    expect(piece).toMatchObject({ inset: "0 0 -1px", "border-top-width": "0", "border-bottom-width": "0" });
+    expect(piece).toEqual({
+      position: "absolute",
+      inset: "0 0 -1px",
+      border: "1px solid var(--kd-ok-strong)",
+      "border-top-width": "0",
+      "border-bottom-width": "0",
+      // Laid over the row, it must never take the drop's pointer.
+      "pointer-events": "none",
+    });
+  });
+
+  it("marks only the landing place: a group the task may go to but is not over wears nothing", () => {
+    expect(readStyles("tasks.css")).not.toMatch(/tasks__drop--ok/);
   });
 });
 

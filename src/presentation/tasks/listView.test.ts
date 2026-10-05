@@ -15,6 +15,7 @@ import {
   rowGrip,
   rowStepOf,
   stepRow,
+  type GroupEdge,
   type ListItem,
 } from "./listView";
 import { NO_QUERY } from "./queryView";
@@ -153,10 +154,14 @@ describe("the list in a drag", () => {
   });
 
   it("lights only where the task will land, and dims where it may not go", () => {
-    const at = (status: TaskStatus) => ({ status, edge: "middle" as const });
+    const at = (status: TaskStatus, edge: GroupEdge = "middle") => ({ status, edge });
     // A target the pointer is not over wears nothing.
     expect(groupDropClassName(at("done"), dragging, null)).toBeNull();
     expect(groupDropClassName(at("done"), dragging, "done")).toBe("tasks__drop--over tasks__drop-edge--middle");
+    // Each item hands on its own edge of the frame.
+    for (const edge of ["whole", "top", "bottom"] as const) {
+      expect(groupDropClassName(at("done", edge), dragging, "done")).toBe(`tasks__drop--over tasks__drop-edge--${edge}`);
+    }
     expect(groupDropClassName(at("review"), dragging, null)).toBe("tasks__drop--no");
     expect(groupDropClassName(at("done"), IDLE, null)).toBeNull();
   });
@@ -170,6 +175,26 @@ describe("the list in a drag", () => {
     // No rows shown — empty, or folded: the heading is the whole frame.
     expect(edgeOf("head:in-progress")).toBe("whole");
     expect(listView(tasks, b, 0, NO_QUERY, new Set(["todo"] as const), null).find((i) => i.key === "head:todo")!.edge).toBe("whole");
+  });
+
+  it("frames what the query leaves shown: its last shown row closes the frame, none shown is the heading alone", () => {
+    const labelled = [
+      task({ id: "task-1", status: "todo", labels: ["ui"], created: 1 }),
+      task({ id: "task-2", status: "todo", labels: ["ui"], created: 2 }),
+      task({ id: "task-3", status: "todo", created: 3 }),
+      task({ id: "task-4", status: "done" }),
+    ];
+    const items = listView(labelled, board(labelled), 0, { blockedOnly: false, label: "ui" }, NONE, null);
+    const edgeOf = (key: string) => items.find((i) => i.key === key)!.edge;
+    const todoRows = items.filter((i) => i.kind === "row" && i.status === "todo");
+    // Two shown of three: the second shown closes it, not the hidden third.
+    expect(todoRows.map((r) => r.edge)).toEqual(["middle", "bottom"]);
+    expect(edgeOf("head:todo")).toBe("top");
+    // Done has a task, but none the query shows: its heading alone.
+    expect(edgeOf("head:done")).toBe("whole");
+    // One shown: it alone closes the frame.
+    const one = listView(labelled.slice(1), board(labelled.slice(1)), 0, { blockedOnly: false, label: "ui" }, NONE, null);
+    expect(one.filter((i) => i.kind === "row").map((r) => r.edge)).toEqual(["bottom"]);
   });
 
   it("dims the row in flight and wears its group's part on every row and heading", () => {
