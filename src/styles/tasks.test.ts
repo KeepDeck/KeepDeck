@@ -193,6 +193,10 @@ describe("the list group a dragged task will land in", () => {
 
   it("marks only the landing place: a group the task may go to but is not over wears nothing", () => {
     expect(readStyles("tasks.css")).not.toMatch(/tasks__drop--ok/);
+    // Nor any stripe on a heading or a row that is not the landing place.
+    for (const className of ["tasks__group", "tasks__row"]) {
+      expect(getComputedStyle(item(className)).boxShadow, className).toMatch(/^(none)?$/);
+    }
   });
 });
 
