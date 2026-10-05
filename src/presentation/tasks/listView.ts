@@ -158,15 +158,16 @@ export function rowStepOf(key: { key: string; chord: boolean; inField: boolean }
 }
 
 /** A group's part in a drag in flight — the board's own rule, asked of the
- * group: a target, the one under the pointer, or dimmed where the task
- * may not go. The heading and the group's rows wear it alike, so a drop
- * anywhere in a group lands in it; the group under the pointer is framed
- * whole — each item draws its own edges of the frame (`GroupEdge`), as
- * the windowed list draws each item on its own. */
+ * group: the one under the pointer, framed whole (each item draws its own
+ * edges of the frame, `GroupEdge`, as the windowed list draws each item
+ * on its own), or dimmed where the task may not go. A group it may go to
+ * but is not over wears nothing: only the landing place stands out. The
+ * heading and the group's rows wear it alike, so a drop anywhere in a
+ * group lands in it. */
 export function groupDropClassName(item: Pick<ListItem, "status" | "edge">, drag: DragState, hover: TaskStatus | null): string | null {
   const drop = dropStateOf(item.status, drag, hover);
-  if (drop === null) return null;
-  return drop === "over" ? `tasks__drop--over tasks__drop-edge--${item.edge}` : `tasks__drop--${drop}`;
+  if (drop === "over") return `tasks__drop--over tasks__drop-edge--${item.edge}`;
+  return drop === "no" ? "tasks__drop--no" : null;
 }
 
 /** A row's classes as a drag sees it: its own, its group's part in the

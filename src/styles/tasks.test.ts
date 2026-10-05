@@ -145,6 +145,44 @@ describe("Tasks text never widens its box", () => {
   });
 });
 
+describe("the list group a dragged task will land in", () => {
+  const item = (className: string, parent: HTMLElement = document.body) => {
+    mount("");
+    const el = document.createElement("div");
+    el.className = className;
+    parent.append(el);
+    return el;
+  };
+
+  it("is on the ok tint whole — its rows, the row under the pointer, and the pinned heading", () => {
+    const tint = getComputedStyle(item("tasks__row tasks__drop--over tasks__drop-edge--middle")).backgroundColor;
+    expect(tint).not.toBe(getComputedStyle(item("tasks__row")).backgroundColor);
+    const pinned = mount("tasks__list-pinned");
+    expect(getComputedStyle(item("tasks__group tasks__drop--over tasks__drop-edge--top", pinned)).backgroundColor).toBe(tint);
+    // The row the pointer is on is hovered too: the tint must not give way
+    // to the hover's grey, a gap in the landing place.
+    const css = readStyles("tasks.css");
+    expect(css).toMatch(/\.tasks__row\.tasks__drop--over:hover\s*\{[^}]*background-color:\s*var\(--kd-ok-tint\)/);
+  });
+
+  it("is framed by its items' own edges: the heading opens it, the last row closes it, over each item's seam", () => {
+    // happy-dom computes no ::after, so the frame is read from the source:
+    // which edges draw the frame's top line, and which its bottom.
+    const css = readStyles("tasks.css");
+    const drawing = (side: "top" | "bottom") =>
+      [...css.matchAll(/([^{}]+)\{[^{}]*border-(top|bottom)-width:\s*1px/g)]
+        .filter((rule) => rule[2] === side)
+        .flatMap((rule) => [...rule[1].matchAll(/tasks__drop-edge--(\w+)::after/g)].map((edge) => edge[1]))
+        .sort();
+    expect(drawing("top")).toEqual(["top", "whole"]);
+    expect(drawing("bottom")).toEqual(["bottom", "whole"]);
+    // At rest a piece draws only its sides — down over the item's 1px
+    // bottom seam, so the sides run unbroken.
+    const piece = ruleBody(css.replace('content: "";', ""), ".tasks__drop--over::after");
+    expect(piece).toMatchObject({ inset: "0 0 -1px", "border-top-width": "0", "border-bottom-width": "0" });
+  });
+});
+
 describe("a board column's edge", () => {
   it("is reserved at rest, so a drag's dashed edge does not resize it", () => {
     // The drop states colour and dash the edge; they set no width. With no

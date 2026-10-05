@@ -152,9 +152,10 @@ describe("the list in a drag", () => {
     expect(rowOf("task-4").status).toBe("done");
   });
 
-  it("lights a group as the board lights a column: target, under the pointer, or not allowed", () => {
+  it("lights only where the task will land, and dims where it may not go", () => {
     const at = (status: TaskStatus) => ({ status, edge: "middle" as const });
-    expect(groupDropClassName(at("done"), dragging, null)).toBe("tasks__drop--ok");
+    // A target the pointer is not over wears nothing.
+    expect(groupDropClassName(at("done"), dragging, null)).toBeNull();
     expect(groupDropClassName(at("done"), dragging, "done")).toBe("tasks__drop--over tasks__drop-edge--middle");
     expect(groupDropClassName(at("review"), dragging, null)).toBe("tasks__drop--no");
     expect(groupDropClassName(at("done"), IDLE, null)).toBeNull();
@@ -176,7 +177,8 @@ describe("the list in a drag", () => {
     expect(listRowClassName(rowOf("task-4"), dragging, "done")).toContain("tasks__drop--over");
     expect(listRowClassName(rowOf("task-4"), IDLE, null)).toBe(rowOf("task-4").className);
     const done = items.find((i) => i.key === "head:done") as Extract<ListItem, { kind: "head" }>;
-    expect(listHeadingDropClassName(done, dragging, null)).toBe("tasks__group tasks__group--done tasks__drop--ok");
+    expect(listHeadingDropClassName(done, dragging, null)).toBe("tasks__group tasks__group--done");
+    expect(listHeadingDropClassName(done, dragging, "done")).toBe("tasks__group tasks__group--done tasks__drop--over tasks__drop-edge--top");
   });
 
   it("holds the row whole, where it was pressed", () => {
