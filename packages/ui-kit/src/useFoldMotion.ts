@@ -96,16 +96,18 @@ export function useFoldMotion<T>({ items, eased, readLayout, folds, scrollRef, o
   inFlight.current = made !== null && !started.current.has(made) ? made : null;
   /** Put this render's motion in flight — once: a fold in flight is
    * overtaken, its scroll landing where it was going. Asked by the hold
-   * (whose layout effect runs first) and by this hook's own. */
+   * (whose layout effect runs first) and by this hook's own. True when it
+   * started one just now. */
   const start = useCallback(() => {
     const next = inFlight.current;
-    if (next === null || started.current.has(next)) return;
+    if (next === null || started.current.has(next)) return false;
     started.current.add(next);
     finishWalk(motion.current, scrollRef.current);
     motion.current = next;
     // The clock starts for it — a render before the paint, in the layout
     // phase this is asked in.
     setRunning(next);
+    return true;
   }, [scrollRef]);
   useLayoutEffect(() => {
     start();
@@ -133,10 +135,15 @@ export function useFoldMotion<T>({ items, eased, readLayout, folds, scrollRef, o
       const eased = easeFold((now - running.startedAt) / FOLD_MOTION_MS);
       running.residual = 1 - eased;
       walkTo(running, list, eased);
-      if (eased >= 1) motion.current = null;
+      const done = eased >= 1;
+      if (done) motion.current = null;
       // Drawn in THIS frame: a render left to the scheduler would land after
       // the paint, the rows a step behind the scroll the clock just wrote.
-      flushSync(draw);
+      // Done, the clock lets the motion go — and its ghosts' items with it.
+      flushSync(() => {
+        draw();
+        if (done) setRunning(null);
+      });
       if (motion.current === running) frameId = requestAnimationFrame(tick);
     };
     frameId = requestAnimationFrame(tick);
@@ -160,7 +167,10 @@ export function useFoldMotion<T>({ items, eased, readLayout, folds, scrollRef, o
 
   const takeWalk = useCallback(
     (from: number, to: number) => {
-      start();
+      // Only a fold of THIS change walks its hold: a change of the person's
+      // that makes no motion (a reorder, reduced motion) holds at once,
+      // even while an earlier fold is still in flight.
+      if (!start()) return false;
       const live = motion.current;
       const box = scrollRef.current;
       if (!live || !box) return false;
