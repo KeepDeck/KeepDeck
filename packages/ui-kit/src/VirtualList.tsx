@@ -1,5 +1,7 @@
-import { useEffect, useLayoutEffect, useReducer, useRef, type ReactNode } from "react";
-import { motionOf } from "./listMotion";
+import { memo, useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
+import { marksOf, type ChangeMarks } from "./listMotion";
+import { foldSpacer } from "./foldMotion";
+import { useFoldMotion } from "./useFoldMotion";
 import { useFocusHandoff } from "./useFocusHandoff";
 import { usePinnedHeading } from "./usePinnedHeading";
 import { useRowWindow } from "./useRowWindow";
@@ -24,7 +26,9 @@ export interface VirtualListProps<T> extends VirtualListMarkup {
    * by measurement the moment the row reports its real box. */
   estimate: number | ((item: T) => number);
   /** The item's content. The list positions and measures the box around
-   * it, so the content takes no position of its own. */
+   * it, so the content takes no position of its own. A row that just left
+   * is drawn once more while a fold rolls it up, with the item and index
+   * it had before — inert, measured by nobody. */
   render: (item: T, index: number) => ReactNode;
   /** The scroll container's class — the consumer's, styled by it. */
   className: string;
@@ -60,78 +64,43 @@ export interface VirtualListProps<T> extends VirtualListMarkup {
     heads: (item: T) => boolean;
   };
   /** The consumer's token for a change the person made (a fold): when it
-   * changes with the items, that change may move (`useListMotion`), and
-   * the item it happened after (the heading folded) holds its place — the
-   * rows it opens go below it, never above the viewport. Any value
+   * changes with the items, that change is played out as a fold
+   * (`useFoldMotion`), and the item it happened after (the heading folded)
+   * holds its place — the rows it opens go below it, never above the
+   * viewport. Any value
    * compared by identity; absent, the list never eases. It must change by
    * the person's act ONLY: a change written by anyone else under it would
    * be eased and held as theirs, the list scrolling to its place. */
   easeKey?: unknown;
 }
 
-/** How long a change's motion marks stand — past the longest entrance a
- * consumer runs on them, short enough that a row the scroll mounts later
- * never wears one. */
-export const LIST_MOTION_WINDOW_MS = 400;
-
 /**
- * The list's own motion, asked for by the consumer and by nothing else: a
- * change of `easeKey` (the consumer's token for "the person moved this" —
- * a fold) with the items marks that ONE change as easing — the list's box
- * wears `data-easing`, and the keys that joined the items there wear
- * `data-arriving`. Any other change of the items (a status an agent moved,
- * a measurement, the anchoring keeping the reader's place) marks nothing,
- * so it lands still. The marks stand only LIST_MOTION_WINDOW_MS after the
- * change: a later render (a scroll mounting a row) finds them gone, and
- * scrolling never replays an entrance. Nothing moves on the first paint.
- *
- * Held per CHANGE of the rows, written during render idempotently — a
- * second render of the same items (StrictMode, a hover), or a fresh array
- * of the same rows in the same order, keeps the marks.
+ * What the latest change of the rows is (`marksOf`): the person's — a
+ * change of `easeKey` with the items, which moves and holds the item it
+ * happened after — or anyone else's, which lands still. Held per CHANGE of
+ * the rows, written during render idempotently: a second render of the
+ * same items keeps the marks; a fresh array of the same rows is a change
+ * of nobody's, and holds nothing.
  */
-function useListMotion<T>(
-  items: readonly T[],
-  itemKey: (item: T) => string,
-  easeKey: unknown,
-): { easing: boolean; arriving: ReadonlySet<string>; held: string | null } {
-  const track = useRef<{
-    items: readonly T[];
-    easeKey: unknown;
-    arriving: ReadonlySet<string> | null;
-    /** The item the person's change happened after — for THIS change of
-     * the items only: a later one, theirs or not, holds nothing. */
-    held: string | null;
-  } | null>(null);
+function useChangeMarks<T>(items: readonly T[], itemKey: (item: T) => string, easeKey: unknown): ChangeMarks {
+  const track = useRef<{ items: readonly T[]; easeKey: unknown; marks: ChangeMarks } | null>(null);
   if (track.current === null) {
-    track.current = { items, easeKey, arriving: null, held: null };
+    track.current = { items, easeKey, marks: STILL };
   } else if (easeKey === undefined && track.current.easeKey === undefined) {
     // A list that never eases (no token) pays nothing per change.
     track.current.items = items;
   } else if (track.current.items !== items) {
-    // What this change marks is `motionOf`'s to say; held here per change.
     const previous = track.current;
-    const marks = motionOf(previous.items.map(itemKey), items.map(itemKey), previous.easeKey !== easeKey, previous);
-    track.current = { items, easeKey, ...marks };
+    track.current = {
+      items,
+      easeKey,
+      marks: marksOf(previous.items.map(itemKey), items.map(itemKey), previous.easeKey !== easeKey),
+    };
   }
-  // The marks expire on a timer, not by a clock read in render: the timer
-  // drops them and renders once more, so whatever renders after sees none.
-  const arriving = track.current.arriving;
-  const [, expired] = useReducer((n: number) => n + 1, 0);
-  useEffect(() => {
-    if (arriving === null) return;
-    const timer = setTimeout(() => {
-      if (track.current?.arriving === arriving) {
-        track.current.arriving = null;
-        expired();
-      }
-    }, LIST_MOTION_WINDOW_MS);
-    return () => clearTimeout(timer);
-  }, [arriving]);
-  return { easing: arriving !== null, arriving: arriving ?? NONE, held: track.current.held };
+  return track.current.marks;
 }
 
-const NONE: ReadonlySet<string> = new Set();
-
+const STILL: ChangeMarks = { eased: false, held: null };
 
 /**
  * The windowed list as a component: the scroll container, a spacer the
@@ -159,15 +128,32 @@ export function VirtualList<T>({
   item,
 }: VirtualListProps<T>) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const motion = useListMotion(items, itemKey, easeKey);
+  const marks = useChangeMarks(items, itemKey, easeKey);
+  // The fold's hand-offs reach it through a ref: the anchoring is set up
+  // before the fold, which needs the layout the window lays out.
+  const foldRef = useRef<ReturnType<typeof useFoldMotion<T>> | null>(null);
   const rowWindow = useRowWindow({
     rows: items,
     keyOf: itemKey,
     estimate,
     scrollRef,
     coveredTop: sticky?.height,
-    holdKey: motion.held,
+    holdKey: marks.held,
+    holdWalk: (from, to) => foldRef.current?.takeWalk(from, to) ?? false,
+    onShift: (by) => foldRef.current?.shifted(by),
   });
+  const fold = useFoldMotion<T>({
+    items,
+    eased: marks.eased,
+    readLayout: rowWindow.readLayout,
+    folds: easeKey !== undefined,
+    scrollRef,
+    overscan: FOLD_OVERSCAN_PX,
+  });
+  foldRef.current = fold;
+  // Set as this render draws — the rows it mounts are measured in its own
+  // commit, before any effect could say so.
+  rowWindow.holdSizeCorrections(fold.frame !== null);
   // A focused row scrolled out keeps the keyboard's place on the list.
   useFocusHandoff(scrollRef);
 
@@ -183,15 +169,21 @@ export function VirtualList<T>({
     if (revealKey === null) return;
     const index = items.findIndex((it) => itemKey(it) === revealKey);
     // A key not (yet) among the items is not revealed later: the key must
-    // name an item of the same render that sets it.
-    if (index >= 0) reveal(index);
+    // name an item of the same render that sets it. A fold in flight lands
+    // first: the reveal reads the final layout, and so must the scroll.
+    if (index >= 0) {
+      fold.settle();
+      reveal(index);
+    }
     // A change of the key, never of the items: see `revealKey`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [revealKey]);
 
+  const frame = fold.frame;
   const pinned = usePinnedHeading(
     scrollRef,
-    rowWindow.items,
+    // During a fold the pinned heading reads what is DRAWN, ghosts and all.
+    frame ? frame.occupancy : rowWindow.items,
     sticky?.height ?? 0,
     sticky ? (index) => sticky.heads(items[index]) : null,
   );
@@ -210,7 +202,10 @@ export function VirtualList<T>({
       ref={scrollRef}
       {...(spacerIsList ? {} : named)}
       tabIndex={-1}
-      data-easing={motion.easing || undefined}
+      // The list keeps the reader's place itself (`useRowAnchoring`), and a
+      // fold paints the spacer over time: the browser's own scroll anchoring
+      // would answer both a second time.
+      style={{ overflowAnchor: "none" }}
     >
       {sticky && pinned.first >= 0 && (
         // Zero tall, so it pushes nothing down; its content hangs over the
@@ -223,28 +218,85 @@ export function VirtualList<T>({
       )}
       <Spacer
         className={spacer?.className}
-        style={{ height: `${rowWindow.totalSize}px`, position: "relative" }}
+        style={{
+          height: `${frame ? foldSpacer(frame, scrollRef.current?.scrollTop ?? 0, scrollRef.current?.clientHeight ?? 0) : rowWindow.totalSize}px`,
+          position: "relative",
+        }}
         {...(spacerIsList ? named : {})}
       >
-        {rowWindow.items.map((slot) => (
-          <Item
-            key={slot.key}
-            ref={rowWindow.measure}
-            data-index={slot.index}
-            data-arriving={motion.arriving.has(slot.key as string) || undefined}
-            className={item?.className}
-            style={{
-              position: "absolute",
-              top: 0,
-              left: 0,
-              width: "100%",
-              transform: `translateY(${slot.start}px)`,
-            }}
-          >
-            {render(items[slot.index], slot.index)}
-          </Item>
-        ))}
+        {frame ? (
+          <>
+            {frame.rows
+              .filter((row) => row.box === null)
+              .map((row) => (
+                <Item key={row.key} ref={rowWindow.measure} data-index={row.index} className={item?.className} style={placed(row.top)}>
+                  <RowContent item={items[row.index]} index={row.index} render={render} />
+                </Item>
+              ))}
+            {frame.boxes.map((box) => (
+              // One clipping box per place the rows changed: the group
+              // unrolls from under its heading, or rolls up into it. CLIP,
+              // not hidden: a hidden box is a scroll container, and takes
+              // the person's wheel for itself (reviewer-3, task-249).
+              <div key={`fold:${box.segment}`} style={{ position: "absolute", top: box.top, left: 0, width: "100%", height: box.height, overflow: "clip" }}>
+                {frame.rows
+                  .filter((row) => row.box === box.segment)
+                  .map((row) => (
+                    <Item key={row.key} ref={rowWindow.measure} data-index={row.index} className={item?.className} style={placed(row.top)}>
+                      <RowContent item={items[row.index]} index={row.index} render={render} />
+                    </Item>
+                  ))}
+                {frame.ghosts
+                  .filter((ghost) => ghost.segment === box.segment)
+                  .map((ghost) => {
+                    const left = fold.ghost(ghost.key);
+                    // A row that left, drawn as it was until the fold ends:
+                    // measured by nobody, reached by nothing — rendered
+                    // with its index from before the change.
+                    return left === undefined ? null : (
+                      <Item key={`ghost:${ghost.key}`} className={item?.className} style={{ ...placed(ghost.top), pointerEvents: "none" }} inert aria-hidden>
+                        <RowContent item={left.item} index={left.index} render={render} />
+                      </Item>
+                    );
+                  })}
+              </div>
+            ))}
+          </>
+        ) : (
+          rowWindow.items.map((slot) => (
+            <Item key={slot.key} ref={rowWindow.measure} data-index={slot.index} className={item?.className} style={placed(slot.start)}>
+              <RowContent item={items[slot.index]} index={slot.index} render={render} />
+            </Item>
+          ))
+        )}
       </Spacer>
     </div>
   );
 }
+
+/** How far past the view a fold mounts what it draws — the window's
+ * overscan, in pixels. */
+const FOLD_OVERSCAN_PX = 200;
+
+/** An item's box, at `top` within what holds it. */
+function placed(top: number) {
+  return { position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${top}px)` } as const;
+}
+
+/**
+ * An item's content, rendered again only when its item, index or the
+ * consumer's render changes. A fold draws the list once a frame — only
+ * the boxes around the rows move, and the rows themselves (a task row's
+ * controls, its labels) are not built again ten times over.
+ */
+const RowContent = memo(function RowContent<T>({
+  item,
+  index,
+  render,
+}: {
+  item: T;
+  index: number;
+  render: (item: T, index: number) => ReactNode;
+}) {
+  return <>{render(item, index)}</>;
+}) as <T>(props: { item: T; index: number; render: (item: T, index: number) => ReactNode }) => ReactNode;

@@ -67,17 +67,12 @@ describe("Tasks text never widens its box", () => {
     expect(css).not.toMatch(/\.tasks__detail--wide \.tasks__detail-body/);
   });
 
-  it("eases only the person's fold — the rows slide, a fold's rows fade in — resting under reduced motion", () => {
+  it("leaves a fold's motion to the list — no CSS transition or entrance on a row", () => {
+    // The list paints a fold itself (ui-kit useFoldMotion): a transition
+    // here would move only the rows that happened to be mounted.
     const css = readStyles("tasks.css");
-    // Keyed by data-easing: an agent's move or the anchoring lands still.
-    expect(ruleBody(css, ".tasks__list[data-easing] .tasks__list-item").transition).toBe("transform var(--kd-disclosure-motion)");
-    expect(ruleBody(css, ".tasks__list[data-easing] .tasks__list-item[data-arriving]").animation).toBe(
-      "tasks-row-arrive var(--kd-disclosure-motion)",
-    );
-    expect(css).not.toMatch(/(^|\n)\.tasks__list-item \{[^}]*transition/);
-    const rest = css.slice(css.indexOf("@media (prefers-reduced-motion: reduce) {\n  .tasks__list[data-easing]"));
-    expect(rest).toMatch(/\.tasks__list\[data-easing\] \.tasks__list-item \{\s*transition: none;/);
-    expect(rest).toMatch(/\.tasks__list\[data-easing\] \.tasks__list-item\[data-arriving\] \{\s*animation: none;/);
+    expect(css).not.toMatch(/\.tasks__list-item[^{]*\{[^}]*(transition|animation)/);
+    expect(css).not.toMatch(/data-easing|data-arriving/);
   });
 
   it("a list row's title wraps — the whole title, the row growing with it", () => {

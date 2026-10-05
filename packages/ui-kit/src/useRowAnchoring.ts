@@ -28,6 +28,12 @@ interface UseRowAnchoringInput<Row> {
    * up under the top edge comes down to it — never an act whose result
    * lands above the viewport, out of sight. */
   holdKey?: string | null;
+  /** A fold in flight that walks the scroll over time: the hold hands it
+   * the walk instead of jumping (true: it took it). */
+  holdWalk?: (from: number, to: number) => boolean;
+  /** Told how far a compensation moved the scroll — a fold in flight
+   * moves its walk with it. */
+  onShift?: (by: number) => void;
 }
 
 /** Keep the first visible row at its viewport offset when the list grows
@@ -63,6 +69,8 @@ export function useRowAnchoring<Row>({
   lastVirtualIndex,
   rowVirtualizer,
   holdKey = null,
+  holdWalk,
+  onShift,
 }: UseRowAnchoringInput<Row>): void {
   // The insertion-above correction — TWO SEPARATE EFFECTS, never one:
   // ARMING remembers the first fully visible row and its offset (it
@@ -144,7 +152,7 @@ export function useRowAnchoring<Row>({
     if (holdKey !== null && heldStart !== null) {
       const held = heldScroll(scrollTop, heldStart);
       anchorRef.current = { key: holdKey, offset: held.offset };
-      if (held.scrollTop !== scrollTop) {
+      if (held.scrollTop !== scrollTop && !holdWalk?.(scrollTop, held.scrollTop)) {
         list.scrollTop = held.scrollTop;
         list.dispatchEvent(new Event("scroll"));
       }
@@ -163,6 +171,7 @@ export function useRowAnchoring<Row>({
         const target = start - prev.offset;
         if (target !== scrollTop) {
           list.scrollTop = target;
+          onShift?.(list.scrollTop - scrollTop);
           // A programmatic scrollTop assignment fires a scroll event
           // in a real browser — dispatch it ourselves so the
           // virtualizer learns the new offset the way it would have.
