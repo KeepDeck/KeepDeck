@@ -39,6 +39,8 @@ export function decodeFaultText(fault: DecodeFault): string {
       const end = (key: string | null) => key ?? "a task not on this board";
       return `board.json: relations[${fault.index}] (${end(fault.from)} → ${end(fault.to)}): ${fault.field} does not fit`;
     }
+    case "unknown-field":
+      return `board.json: a field this KeepDeck does not know — "${fault.field}"`;
   }
 }
 

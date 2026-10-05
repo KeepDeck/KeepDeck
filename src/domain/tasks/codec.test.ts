@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decodeBoard, encodeBoard } from "./codec";
+import { decodeBoard, decodeBoardValue, encodeBoard } from "./codec";
 import { EMPTY_BOARD } from "./model";
 import { issuable } from "./board";
 import { blockerIdsOf, copiedFromOf } from "./relations";
@@ -254,6 +254,23 @@ describe("board codec — a board written before relations", () => {
     const decoded = read([legacyTask("task-1"), legacyTask("task-2", { blockedBy: ["task-1"] })]);
     const again = decodeBoard(encodeBoard(decoded.board), mint());
     expect(again).toEqual({ ok: true, board: decoded.board, migrated: false, dropped: [] });
+  });
+});
+
+describe("board codec — a field it does not know", () => {
+  it("is refused at every depth — what a reader drops, a writer erases on the next save", () => {
+    const one = (patch: Record<string, unknown>) => ({ ...task({ id: "task-1" }), ...patch });
+    const read = (value: unknown) => decodeBoardValue(value, mint());
+    expect(read({ nextId: 2, tasks: [], relations: [], colour: "red" })).toEqual({ ok: false, fault: { kind: "unknown-field", field: "colour" } });
+    const taskFault = (patch: Record<string, unknown>) => {
+      const result = read({ nextId: 2, tasks: [one(patch)], relations: [] });
+      return !result.ok && result.fault.kind === "bad-task" ? result.fault.field : null;
+    };
+    expect(taskFault({ colour: "red" })).toBe('unknown field "colour"');
+    expect(taskFault({ comments: [{ n: 1, at: 1, from: "lead", body: "x", edited: true }] })).toBe('comments[0]: unknown field "edited"');
+    expect(taskFault({ log: [{ at: 1, from: "lead", field: "status", was: null, now: "todo", why: "x" }] })).toBe('log[0]: unknown field "why"');
+    const withLink = read({ nextId: 2, tasks: [one({})], relations: [{ ...relation("blocks", "task-1", "task-9"), note: "x" }] });
+    expect(!withLink.ok && withLink.fault).toMatchObject({ kind: "bad-relation", field: 'unknown field "note"' });
   });
 });
 
