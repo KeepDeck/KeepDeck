@@ -8,7 +8,7 @@ import { statusMark, statusRing, taskCardView, taskCardClassName } from "./taskC
 import { TASK_DETAIL_WORDS, changesOf, commentsOf, renamedTitle, pickedStatus, taskDetailClassName, taskDetailView } from "./taskDetailView";
 import { teamCardTasksLine } from "./teamCardTasksLine";
 import { teamOnScreen } from "./teamOnScreen";
-import { blockerLinkWords, fieldCount, unsavedBanner, personName, priorityMark, statusTone, FIELD_WORDS, POOL_CHOICE } from "./words";
+import { blockerLinkWords, boardBanner, fieldCount, readOnlyBanner, unsavedBanner, personName, priorityMark, statusTone, FIELD_WORDS, POOL_CHOICE } from "./words";
 
 const NOW = 100_000;
 const ROSTER = ["lead", "impl-1", "impl-2"];
@@ -468,13 +468,18 @@ describe("taskDetailView — a task's copy links", () => {
   });
 });
 
-describe("unsavedBanner — what a board lagging its disk says", () => {
-  it("speaks of the person's changes, or — for a board read in an older format — of its upgrade and the kept file", () => {
+describe("the board's banners — a disk lagging, a board that cannot be written", () => {
+  it("speaks of the person's changes kept and retried, or of a board nothing can change, with the reason", () => {
     expect(unsavedBanner("disk full")).toBe("Changes not saved yet — disk full. The board keeps them and retries on its own.");
-    const upgrade = unsavedBanner("disk full", true);
-    expect(upgrade).toContain("upgrade to linked tasks is not saved yet — disk full");
-    expect(upgrade).toContain("board.pre-relations.json");
-    expect(upgrade).not.toContain("Changes");
+    expect(readOnlyBanner("the task database is damaged: page 3")).toBe(
+      "The board is read-only — the task database is damaged: page 3. Nothing can be changed until this is resolved.",
+    );
+  });
+
+  it("shows the read-only reason before any lag, and nothing when the board is fine", () => {
+    expect(boardBanner({ unsaved: "disk full", readOnly: "damaged" })).toBe(readOnlyBanner("damaged"));
+    expect(boardBanner({ unsaved: "disk full", readOnly: null })).toBe(unsavedBanner("disk full"));
+    expect(boardBanner({ unsaved: null, readOnly: null })).toBeNull();
   });
 });
 

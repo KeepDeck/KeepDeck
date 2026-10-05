@@ -70,7 +70,7 @@ function setup() {
         await store.port.write(args);
         order.push("write");
       },
-      keepCopy: (args) => store.port.keepCopy(args),
+      writeRefusal: () => store.port.writeRefusal(),
       enable: () => {
         const g = gate();
         calls.push({ kind: "enable", gate: g, settled: false });

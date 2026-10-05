@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { USER_ACTOR, agentActor, encodeBoard, type TaskBoard } from "../../domain/tasks";
 import { board, task } from "../../domain/tasks/testSupport";
-import { PRE_RELATIONS_COPY } from "../../domain/tasks";
 import { FORGOTTEN_WRITE, createTasksService, type TaskEvent } from "./tasksService";
 import { fakeStore, teamedWorkspaces } from "./testSupport";
 
@@ -77,98 +76,6 @@ describe("createTasksService", () => {
     expect(store.writes).toHaveLength(writesBefore + 1);
   });
 
-  /** A board as a build before relations wrote it. */
-  const legacyBytes = JSON.stringify({
-    nextId: 3,
-    tasks: [1, 2].map((n) => {
-      const { uid: _uid, ...stored } = task({ id: `task-${n}` });
-      return { ...stored, blockedBy: n === 2 ? ["task-1"] : [] };
-    }),
-  });
-
-  it("a board from before relations is upgraded and written back at once — its old file kept aside first", async () => {
-    const { service, store } = setup({ "ws-1": legacyBytes });
-    const state = await service.ready("ws-1");
-    if (state.kind !== "ready") throw new Error(state.kind);
-    expect(state.board.tasks.map((t) => t.uid)).toEqual(["minted-1", "minted-2"]);
-    expect(state.board.relations).toEqual([{ kind: "blocks", from: "minted-1", to: "minted-2", at: 1_000, by: null }]);
-    await flush();
-    // The copy, then the write: the old bytes are the way back.
-    expect(store.calls).toEqual(["keepCopy", "write"]);
-    expect(store.copies.get(`ws-1:${PRE_RELATIONS_COPY}`)).toBe(legacyBytes);
-    expect(JSON.parse(store.files.get("ws-1")!).relations).toHaveLength(1);
-    // Upgraded once: the next write keeps no second copy.
-    await service.apply("ws-1", "task-1", [{ kind: "title", to: "Renamed" }], USER_ACTOR);
-    await flush();
-    expect(store.calls).toEqual(["keepCopy", "write", "write"]);
-  });
-
-  it("an upgrade that does not land says so in its own words, and lands on the retry", async () => {
-    const { service, store, tick } = setup({ "ws-1": legacyBytes });
-    store.failNextWrite("disk full");
-    await service.ready("ws-1");
-    await flush();
-    const state = service.peek("ws-1");
-    expect(state).toMatchObject({ kind: "ready", unsaved: "disk full", upgrade: true });
-    expect(store.files.get("ws-1")).toBe(legacyBytes);
-    // A change made meanwhile, whose write fails too, is still the upgrade's lag.
-    store.failNextWrite("disk full");
-    await service.apply("ws-1", "task-1", [{ kind: "title", to: "Meanwhile" }], USER_ACTOR);
-    expect(service.peek("ws-1")).toMatchObject({ kind: "ready", unsaved: "disk full", upgrade: true });
-    tick();
-    await flush();
-    expect(service.peek("ws-1")).toEqual(expect.objectContaining({ kind: "ready", unsaved: null }));
-    expect(service.peek("ws-1")).not.toHaveProperty("upgrade");
-    expect(JSON.parse(store.files.get("ws-1")!).relations).toHaveLength(1);
-  });
-
-  it("a workspace forgotten mid-upgrade comes back as a plain board: no second copy is kept for it", async () => {
-    const { service, store } = setup({ "ws-1": legacyBytes });
-    // Forgotten while its read is still out: that board never comes back.
-    service.board("ws-1");
-    const forgotten = service.forget("ws-1");
-    store.files.set("ws-1", encodeBoard(board([task({ id: "task-1" })])));
-    await forgotten;
-    store.files.set("ws-1", encodeBoard(board([task({ id: "task-1" })])));
-    await service.ready("ws-1");
-    await service.apply("ws-1", "task-1", [{ kind: "title", to: "Again" }], USER_ACTOR);
-    await flush();
-    expect(store.calls.filter((call) => call === "keepCopy")).toHaveLength(0);
-  });
-
-  it("an upgrade whose copy cannot be kept writes nothing — the old file stays as it was — and retries both", async () => {
-    const { service, store, tick } = setup({ "ws-1": legacyBytes });
-    store.failNextCopy("permission denied");
-    await service.ready("ws-1");
-    await flush();
-    expect(store.calls).toEqual(["keepCopy"]);
-    expect(store.files.get("ws-1")).toBe(legacyBytes);
-    expect(store.copies.size).toBe(0);
-    expect(service.peek("ws-1")).toMatchObject({ kind: "ready", unsaved: "permission denied", upgrade: true });
-    tick();
-    await flush();
-    expect(store.calls).toEqual(["keepCopy", "keepCopy", "write"]);
-    expect(store.copies.get(`ws-1:${PRE_RELATIONS_COPY}`)).toBe(legacyBytes);
-  });
-
-  it("a batch hands each change the board the last one left: a start is gated on the blocker set before it", async () => {
-    const onDisk = board([task({ id: "task-1", status: "in-progress" }), task({ id: "task-2", assignee: "lead" })], 3);
-    const { service, store } = setup({ "ws-1": encodeBoard(onDisk) });
-    await service.ready("ws-1");
-    const result = await service.apply(
-      "ws-1",
-      "task-2",
-      [
-        { kind: "blockedBy", to: ["task-1"] },
-        { kind: "status", to: "in-progress" },
-      ],
-      lead,
-    );
-    expect(result).toEqual({ ok: false, refusal: { kind: "blocked-by-open", blockers: ["task-1"] } });
-    await flush();
-    expect(store.writes).toEqual([]);
-  });
-
   it("a task made here, or copied, gets a uid of its own from the minter — one per task", async () => {
     const { service } = setup();
     const made = await service.create("ws-1", { teamId: "team-1", title: "First" }, USER_ACTOR);
@@ -190,6 +97,20 @@ describe("createTasksService", () => {
     const stored = board([task({ id: "task-1", assignee: "impl-1" })], 5);
     const { service } = setup({ "ws-1": encodeBoard(stored) });
     expect(await service.ready("ws-1")).toEqual({ kind: "ready", board: stored, unsaved: null });
+  });
+
+  it("a board that reads but cannot be written refuses every change with the reason, and writes nothing", async () => {
+    const { service, store } = setup({ "ws-1": encodeBoard(board([task({ id: "task-1" })])) });
+    await service.ready("ws-1");
+    store.refuseWrites("the task database is damaged: page 3");
+    expect(service.readOnly()).toBe("the task database is damaged: page 3");
+    const made = await service.create("ws-1", { teamId: "team-1", title: "x" }, lead);
+    expect(!made.ok && made.refusal).toEqual({ kind: "board-read-only", error: "the task database is damaged: page 3" });
+    const moved = await service.apply("ws-1", "task-1", [{ kind: "comment", body: "x" }], lead);
+    expect(!moved.ok && moved.refusal.kind).toBe("board-read-only");
+    expect(store.writes).toEqual([]);
+    // Readable all the while.
+    expect(service.peek("ws-1")).toMatchObject({ kind: "ready" });
   });
 
   it("a board that does not decode is unreadable: refused for writing, never written back", async () => {

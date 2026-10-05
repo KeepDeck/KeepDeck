@@ -5,7 +5,6 @@
  */
 import type { TasksView } from "../../domain/settings";
 import {
-  PRE_RELATIONS_COPY,
   TASK_PRIORITIES,
   USER_NAME,
   capOf,
@@ -95,13 +94,21 @@ export function priorityChoices(): (ChoiceView & { value: TaskPriority })[] {
 }
 
 /** What the dialog says over a board whose disk lags its memory. */
-export function unsavedBanner(error: string, upgrade = false): string {
-  // A board read in an older format lags because its upgrade has not
-  // landed — maybe before the person changed anything at all.
-  if (upgrade) {
-    return `The board's upgrade to linked tasks is not saved yet — ${error}. The old file is left as it is until a copy of it is kept as board.${PRE_RELATIONS_COPY}.json; the board retries on its own.`;
-  }
+export function unsavedBanner(error: string): string {
   return `Changes not saved yet — ${error}. The board keeps them and retries on its own.`;
+}
+
+/** What a board that can be read but not written says: nothing the person
+ * does now would be kept, so the dialog says so before they try. */
+export function readOnlyBanner(reason: string): string {
+  return `The board is read-only — ${reason}. Nothing can be changed until this is resolved.`;
+}
+
+/** The one banner over the board: a board that cannot be written says so
+ * before a lag on its disk does — nothing new can lag behind it. */
+export function boardBanner(state: { unsaved: string | null; readOnly: string | null }): string | null {
+  if (state.readOnly !== null) return readOnlyBanner(state.readOnly);
+  return state.unsaved !== null ? unsavedBanner(state.unsaved) : null;
 }
 
 /** What an empty assignee is called wherever one is shown — the plain

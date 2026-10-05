@@ -1,49 +1,48 @@
 import type { Pane, Team, Workspace } from "../../domain/deck";
 import type { CommandSource } from "../../domain/commands";
 import { createWorkspaceInstance } from "../../domain/workspaceInstance";
+import { decodeBoard, encodeBoard } from "../../domain/tasks";
+import { mintSequence } from "../../domain/tasks/testSupport";
+import { decodeFaultText } from "./refusalText";
 import type { TasksStorePort } from "./tasksService";
 
-/** A store in memory, with the writes and drops it saw in order. */
+/** A store in memory, with the writes and drops it saw in order. It keeps
+ * each board as the JSON a file would hold, read through the codec — so a
+ * test can put any bytes "on disk", a broken board included. */
 export function fakeStore(initial: Record<string, string> = {}) {
   const files = new Map(Object.entries(initial));
   const writes: { workspaceId: string; json: string }[] = [];
   /** Every call that touched the disk, in order. */
-  const calls: ("write" | "drop" | "keepCopy")[] = [];
-  /** The copies kept beside a board, by workspace and label. */
-  const copies = new Map<string, string>();
+  const calls: ("write" | "drop")[] = [];
   let failNext: string | null = null;
-  let failCopy: string | null = null;
+  let refusal: string | null = null;
   /** A write whose bytes land at once but whose answer waits. */
   let holdNext: Promise<void> | null = null;
   /** A drop that removes the file at once but whose answer waits. */
   let holdDrop: Promise<void> | null = null;
+  const mint = mintSequence("uid-read-");
   const port: TasksStorePort = {
-    read: async ({ workspaceId }) => files.get(workspaceId) ?? null,
-    write: async (args) => {
+    read: async ({ workspaceId }) => {
+      const json = files.get(workspaceId);
+      if (json === undefined) return { kind: "none" };
+      const decoded = decodeBoard(json, mint);
+      return decoded.ok ? { kind: "board", board: decoded.board } : { kind: "unreadable", error: decodeFaultText(decoded.fault) };
+    },
+    write: async ({ workspaceId, board }) => {
       if (failNext !== null) {
         const why = failNext;
         failNext = null;
         throw new Error(why);
       }
-      writes.push(args);
+      const json = encodeBoard(board);
+      writes.push({ workspaceId, json });
       calls.push("write");
-      files.set(args.workspaceId, args.json);
+      files.set(workspaceId, json);
       if (holdNext !== null) {
         const held = holdNext;
         holdNext = null;
         await held;
       }
-    },
-    keepCopy: async ({ workspaceId, label }) => {
-      calls.push("keepCopy");
-      if (failCopy !== null) {
-        const why = failCopy;
-        failCopy = null;
-        throw new Error(why);
-      }
-      const key = `${workspaceId}:${label}`;
-      const now = files.get(workspaceId);
-      if (!copies.has(key) && now !== undefined) copies.set(key, now);
     },
     drop: async ({ workspaceId }) => {
       calls.push("drop");
@@ -54,19 +53,19 @@ export function fakeStore(initial: Record<string, string> = {}) {
         await held;
       }
     },
+    writeRefusal: () => refusal,
   };
   return {
     port,
     files,
     writes,
     calls,
-    copies,
     failNextWrite(why: string) {
       failNext = why;
     },
-    /** The next copy kept beside a board fails. */
-    failNextCopy(why: string) {
-      failCopy = why;
+    /** From now on nothing can be written, for `why` (null: writes again). */
+    refuseWrites(why: string | null) {
+      refusal = why;
     },
     /** The next write's bytes land, but its answer waits for the release. */
     holdNextWrite(): () => void {

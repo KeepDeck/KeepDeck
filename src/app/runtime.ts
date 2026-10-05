@@ -41,7 +41,23 @@ import { artifactsDisable, artifactsEnable, artifactDropWorkspace } from "../ipc
 import { createTasksFeature } from "./tasks/tasksFeature";
 import { tasksEnableStatus } from "./tasks/enableStatus";
 import { announceTask } from "./tasks/producers";
-import { tasksDisable, tasksDropWorkspace, tasksEnable, tasksKeepCopy, tasksRead, tasksWrite } from "../ipc/tasks";
+import {
+  isStoreError,
+  tasksActivateMigration,
+  tasksApply,
+  tasksDisable,
+  tasksDiscardMigration,
+  tasksDropWorkspace,
+  tasksEnable,
+  tasksImport,
+  tasksLegacyBoards,
+  tasksLoad,
+  tasksLoadAll,
+  tasksStatus,
+} from "../ipc/tasks";
+import { mintTaskUid } from "./ids";
+import { createDbBoardStore } from "./tasks/dbBoardStore";
+import { logMigration } from "./tasks/migrationLog";
 import { createPaneAttribution } from "./paneAttribution";
 import { createPluginDeckBridge } from "./pluginDeckBridge";
 import { createPluginManager } from "./pluginManager";
@@ -235,14 +251,25 @@ export function createAppRuntime(
     subscribeWorkspaces: deckStore.subscribe,
     settings: { tasks: () => getSettings()?.tasks ?? null, subscribe: subscribeSettings },
     socket: { up: () => mcp.service.status().socket !== null, subscribe: mcp.service.subscribe },
-    store: {
-      read: tasksRead,
-      write: tasksWrite,
-      enable: tasksEnable,
-      disable: tasksDisable,
-      drop: ({ workspaceId }) => tasksDropWorkspace(workspaceId),
-      keepCopy: tasksKeepCopy,
-    },
+    store: createDbBoardStore({
+      db: {
+        enable: tasksEnable,
+        disable: tasksDisable,
+        status: tasksStatus,
+        legacyBoards: tasksLegacyBoards,
+        import: tasksImport,
+        loadAll: tasksLoadAll,
+        activate: tasksActivateMigration,
+        discard: tasksDiscardMigration,
+        load: tasksLoad,
+        apply: tasksApply,
+        drop: tasksDropWorkspace,
+      },
+      workspaces: () => deckStore.getSnapshot().workspaces.map((workspace) => workspace.id),
+      mintUid: mintTaskUid,
+      isStoreError,
+      onMigration: logMigration,
+    }),
     announce: (event) => announceTask(event, { workspaces: () => deckStore.getSnapshot().workspaces }),
     status: tasksEnableStatus,
   });

@@ -53,7 +53,7 @@ import {
   taskDetailView,
   tasksLadder,
   teamOnScreen,
-  unsavedBanner,
+  boardBanner,
   queryToolbarView,
   findsNothing,
   queryOn,
@@ -182,7 +182,10 @@ export function useTasksBoard(
   };
 
   const board = readyBoard(state);
-  const unsaved = state?.kind === "ready" && state.unsaved !== null ? unsavedBanner(state.unsaved, state.upgrade) : null;
+  const unsaved = boardBanner({
+    unsaved: state?.kind === "ready" ? state.unsaved : null,
+    readOnly: service?.readOnly() ?? null,
+  });
   // The team on screen follows the task the dialog is on, then the choice.
   const focusedTask = board && focus !== null ? (findTask(board, focus) ?? null) : null;
   const teamId = teamOnScreen(
