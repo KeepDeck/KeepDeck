@@ -430,6 +430,8 @@ function listCommand(deps: TaskCommandDeps): CommandSpec {
 
 /** How many hits a search returns unless told otherwise. */
 const SEARCH_LIMIT = 20;
+/** How many more the store is asked for than are wanted, each round. */
+const SEARCH_OVERFETCH = 4;
 
 function searchCommand(deps: TaskCommandDeps): CommandSpec {
   return {
@@ -450,9 +452,18 @@ function searchCommand(deps: TaskCommandDeps): CommandSpec {
       const statuses = statusesArg(args, false);
       const limit = typeof args.limit === "number" && args.limit > 0 ? Math.floor(args.limit) : SEARCH_LIMIT;
       const board = await boardOf(deps, who.workspace.id);
-      // Asked of the whole board, then held to this caller's team and filters.
+      // Asked of the whole board, then held to this caller's team and
+      // filters — asked again, for more, while fewer than `limit` are kept
+      // and the board had more to give.
       const allowed = new Set(matching(board, team, args, statuses).map((task) => task.uid));
-      const hits = (await deps.tasks.search(who.workspace.id, query, limit * 4)).filter((hit) => allowed.has(hit.uid)).slice(0, limit);
+      let asked = limit * SEARCH_OVERFETCH;
+      let hits: Awaited<ReturnType<TasksService["search"]>>;
+      for (;;) {
+        const found = await deps.tasks.search(who.workspace.id, query, asked);
+        hits = found.filter((hit) => allowed.has(hit.uid)).slice(0, limit);
+        if (hits.length >= limit || found.length < asked) break;
+        asked *= SEARCH_OVERFETCH;
+      }
       return reply(deps, who.workspace.id, {
         count: hits.length,
         hits: hits.map((hit) => {

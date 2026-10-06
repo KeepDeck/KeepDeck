@@ -264,6 +264,11 @@ describe("task commands", () => {
       ["task-2", "comment 1"],
     ]);
     expect((await run("task.search", { query: "sqlite", status: "todo" }, LEAD)).count).toBe(1);
+    // Better matches of another team never crowd the caller's own out.
+    for (let i = 0; i < 90; i += 1) await run("task.create", { title: `web zinc ${i}` }, OTHER_LEAD);
+    await run("task.create", { title: "our zinc" }, LEAD);
+    const ours = await run("task.search", { query: "zinc", limit: 5 }, LEAD);
+    expect((ours.hits as { title: string }[]).map((h) => h.title)).toEqual(["our zinc"]);
   });
 
   it("since names what changed after a rev — or from a time — and every answer carries the rev to ask next", async () => {
