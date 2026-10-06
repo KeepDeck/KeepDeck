@@ -266,18 +266,19 @@ export function setEpic(board: TaskBoard, task: Task, epic: string | null, at: n
   return withRelations(board, [...others, ...added]);
 }
 
-/** The board with `uid` taken out of every link that gates a start
- * between it and another task ON this board — what a task leaving its
- * team takes with it (`transferTask`). A link whose other end is not here
- * is not this board's to judge (task-224), and a fact (a copy's source)
- * is no gate: both stay. */
-export function withoutGates(board: TaskBoard, uid: string): TaskBoard {
-  const here = (other: string) => taskByUid(board, other) !== undefined;
+/** The board with the tasks `moving` (uids) taken out of every link that
+ * gates a start between one of them and a task ON this board that stays —
+ * what tasks leaving their team take with them (`transferTask`): a link
+ * among them goes with them, whole. A link whose other end is not here is
+ * not this board's to judge (task-224), and a fact (a copy's source) is no
+ * gate: both stay. */
+export function withoutGates(board: TaskBoard, moving: ReadonlySet<string>): TaskBoard {
+  const stays = (other: string) => !moving.has(other) && taskByUid(board, other) !== undefined;
   return unlinked(
     board,
     (relation) =>
       gatesStart(relation.kind) &&
-      ((relation.from === uid && here(relation.to)) || (relation.to === uid && here(relation.from))),
+      ((moving.has(relation.from) && stays(relation.to)) || (moving.has(relation.to) && stays(relation.from))),
   );
 }
 

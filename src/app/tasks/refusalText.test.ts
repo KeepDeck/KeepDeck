@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decodeFaultText, migrationRefusalText, refusalText, storeErrorText } from "./refusalText";
+import { decodeFaultText, migrationRefusalText, notCarriedText, refusalText, storeErrorText } from "./refusalText";
 
 describe("decodeFaultText", () => {
   it("names a field the build does not know, quoted, so it can be found", () => {
@@ -48,6 +48,9 @@ describe("an epic's refusals", () => {
     expect(refusalText({ kind: "closed-epic", id: "task-1" })).toContain("reopen task-1 first");
     expect(refusalText({ kind: "cross-team-epic", id: "task-5" })).toContain("another team's board");
     expect(refusalText({ kind: "bad-create-kind", value: "story", allowed: ["task", "epic"] })).toBe('a task is made as task or epic, not "story"');
+    expect(notCarriedText([{ field: "parent", was: "task-1" }])).toBe(
+      "not carried over: the epic task-1 — it is closed, and open work enters no closed epic",
+    );
     expect(refusalText({ kind: "epic-has-open-work", open: [{ id: "task-2", status: "todo" }] })).toBe(
       "this epic still has open work — task-2 (to do); close or move them first",
     );

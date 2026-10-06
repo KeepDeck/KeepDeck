@@ -105,11 +105,16 @@ export function storeErrorText(error: StoreError): string {
  * (task.duplicate), or null when it carried everything. */
 export function notCarriedText(left: readonly NotCarried[]): string | null {
   if (left.length === 0) return null;
-  const said = left.map((item) =>
-    item.field === "priority"
-      ? `priority (${item.was}) — yours to set at creation is normal`
-      : `labels (${item.was}) — a pool task's are the lead's to set`,
-  );
+  const said = left.map((item) => {
+    switch (item.field) {
+      case "priority":
+        return `priority (${item.was}) — yours to set at creation is normal`;
+      case "labels":
+        return `labels (${item.was}) — a pool task's are the lead's to set`;
+      case "parent":
+        return `the epic ${item.was} — it is closed, and open work enters no closed epic`;
+    }
+  });
   return `not carried over: ${said.join("; ")}`;
 }
 

@@ -1085,3 +1085,94 @@ describe("epics — the family", () => {
     expect(moved(b.tasks[1], "todo", lead, on(reopened.board)).status).toBe("todo");
   });
 });
+
+describe("epics — a transfer moves the family whole, a copy keeps its place in it", () => {
+  const teams = { from: { id: "team-1", name: "api" }, to: { id: "team-2", name: "web" } };
+  const family = () =>
+    board(
+      [
+        task({ id: "task-1", kind: "epic", status: "in-progress", assignee: "lead" }),
+        task({ id: "task-2", status: "in-progress", assignee: "impl-1" }),
+        task({ id: "task-3", status: "done", assignee: "impl-2", blockedBy: ["task-2"] }),
+        task({ id: "task-4", status: "cancelled", blockedBy: ["task-3"] }),
+      ],
+      5,
+      [relation("child-of", "task-2", "task-1"), relation("child-of", "task-3", "task-1")],
+    );
+  const on = (b: ReturnType<typeof family>) => ({ board: b, roster: ROSTER, at: 9_000, mintUid: mintSequence() });
+  const at = (b: ReturnType<typeof family>, id: string) => b.tasks.find((t) => t.id === id)!;
+
+  it("moves an epic with every task under it — open work back to the start, closed work closed, the links among them kept", () => {
+    const b = family();
+    const moved = transferTask(at(b, "task-1"), teams, lead, on(b));
+    if (!moved.ok) throw new Error(`refused: ${JSON.stringify(moved)}`);
+    expect(moved.task).toMatchObject({ id: "task-1", teamId: "team-2", status: "todo", assignee: null });
+    expect(["task-1", "task-2", "task-3", "task-4"].map((id) => [id, at(moved.board, id).teamId, at(moved.board, id).status])).toEqual([
+      ["task-1", "team-2", "todo"],
+      ["task-2", "team-2", "todo"],
+      ["task-3", "team-2", "done"],
+      ["task-4", "team-1", "cancelled"],
+    ]);
+    expect(tasksOfEpic(moved.task, moved.board).map((t) => t.id)).toEqual(["task-2", "task-3"]);
+    // A link inside the family moves with it; one to what stays goes, logged once on the task left.
+    expect(blockerIdsOf(at(moved.board, "task-3"), moved.board)).toEqual(["task-2"]);
+    expect(blockerIdsOf(at(moved.board, "task-4"), moved.board)).toEqual([]);
+    expect(at(moved.board, "task-4").log.map((e) => [e.field, e.was, e.now])).toEqual([["blockedBy", "task-3", null]]);
+    const closed = at(moved.board, "task-3");
+    expect(closed.log.map((e) => [e.field, e.was, e.now])).toEqual([
+      ["assignee", "impl-2", null],
+      ["transferred", "api", "web"],
+    ]);
+  });
+
+  it("refuses an epic whose family is tied by live links to what stays — naming them", () => {
+    const b = board(
+      [task({ id: "task-1", kind: "epic" }), task({ id: "task-2", blockedBy: ["task-3"] }), task({ id: "task-3", status: "in-progress" })],
+      4,
+      [relation("child-of", "task-2", "task-1")],
+    );
+    expect(transferTask(b.tasks[0], teams, lead, on(b))).toEqual({
+      ok: false,
+      refusal: { kind: "transfer-linked", blockers: ["task-3"], dependants: [] },
+    });
+    // Both ends inside the family: nothing ties it to what stays.
+    const inside = board(
+      [task({ id: "task-1", kind: "epic" }), task({ id: "task-2", blockedBy: ["task-3"] }), task({ id: "task-3", status: "in-progress" })],
+      4,
+      [relation("child-of", "task-2", "task-1"), relation("child-of", "task-3", "task-1")],
+    );
+    const moved = transferTask(inside.tasks[0], teams, lead, on(inside));
+    expect(moved.ok && blockerIdsOf(at(moved.board, "task-2"), moved.board)).toEqual(["task-3"]);
+  });
+
+  it("takes a task moved alone out of its epic, and says so in its log", () => {
+    const b = family();
+    const moved = transferTask(at(b, "task-2"), teams, lead, on(b));
+    if (!moved.ok) throw new Error("refused");
+    expect(epicOf(moved.task, moved.board)).toBeNull();
+    expect(moved.board.relations.some((r) => r.kind === "child-of" && r.from === "uid-task-2")).toBe(false);
+    expect(moved.task.log.map((e) => e.field)).toContain("parent");
+    expect(moved.task.log.find((e) => e.field === "parent")).toMatchObject({ was: "task-1", now: null });
+  });
+
+  it("copies an epic as an epic with no tasks, and work into its open epic — a closed epic left behind, and said", () => {
+    const b = family();
+    const epicCopy = duplicateTask(at(b, "task-1"), lead, on(b));
+    if (!epicCopy.ok) throw new Error("refused");
+    expect(epicCopy.task.kind).toBe("epic");
+    expect(tasksOfEpic(epicCopy.task, epicCopy.board)).toEqual([]);
+    const workCopy = duplicateTask(at(b, "task-2"), impl1, on(b));
+    if (!workCopy.ok) throw new Error("refused");
+    expect(epicOf(workCopy.task, workCopy.board)?.id).toBe("task-1");
+    expect(workCopy.notCarried).toEqual([]);
+    const closedEpic = board(
+      [task({ id: "task-1", kind: "epic", status: "done" }), task({ id: "task-2", status: "done" })],
+      3,
+      [relation("child-of", "task-2", "task-1")],
+    );
+    const left = duplicateTask(closedEpic.tasks[1], lead, on(closedEpic));
+    if (!left.ok) throw new Error("refused");
+    expect(epicOf(left.task, left.board)).toBeNull();
+    expect(left.notCarried).toEqual([{ field: "parent", was: "task-1" }]);
+  });
+});
