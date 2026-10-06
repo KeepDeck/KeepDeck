@@ -274,6 +274,8 @@ describe("who holds a task after a move", () => {
     expect(moved(pool, "backlog", lead).assignee).toBeNull();
     // The person takes nothing.
     expect(moved(pool, "in-progress", USER_ACTOR).assignee).toBeNull();
+    // Sent back out of review, a pool task is not started: no one takes it.
+    expect(moved(task({ id: "task-1", status: "review" }), "in-progress", lead).assignee).toBeNull();
   });
 
   it("work sent back to the queue goes back to the pool, and the log says who held it", () => {

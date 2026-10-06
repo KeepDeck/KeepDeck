@@ -239,9 +239,14 @@ const EDGES: readonly { from: TaskStatus; to: TaskStatus; who: "worker" | "accep
  * is never held up by them. The user is held to neither.
  */
 function needsBlockersResolved(from: TaskStatus, to: TaskStatus): boolean {
-  // Out of review is a send-back or a withdrawal to finish what review
-  // found — never a start, so never held up.
-  return (to === "in-progress" && from !== "review") || (from === "review" && to === "done");
+  return entersWork(from, to) || (from === "review" && to === "done");
+}
+
+/** A move that starts or resumes work — from the queue or a block. Out of
+ * review into in-progress is a send-back, or the assignee's withdrawal to
+ * finish what review found: back to work already begun, not a start. */
+function entersWork(from: TaskStatus, to: TaskStatus): boolean {
+  return to === "in-progress" && from !== "review";
 }
 
 function joined(ids: readonly string[]): string | null {
@@ -697,7 +702,7 @@ function moveStatus(
   if (!edge) return refuse({ kind: "illegal-transition", from: task.status, to });
   if (edge.who === "acceptor" && !mayAssign(actor)) return refuse({ kind: "not-yours-to-move" });
   const role = actor.role;
-  const starts = to === "in-progress";
+  const starts = entersWork(task.status, to);
   // A working role moves its own task — or a pool task waiting in todo,
   // which it takes by starting it, and only so.
   if (!mayAssign(actor) && task.assignee !== role && !(task.assignee === null && task.status === "todo" && starts)) {
@@ -722,7 +727,7 @@ function moveStatus(
  * parking, a reopening, a block.
  */
 function assigneeAfter(task: Task, to: TaskStatus, role: string | null): string | null {
-  if (task.assignee === null && to === "in-progress") return role;
+  if (task.assignee === null && entersWork(task.status, to)) return role;
   if (WORK_STATUSES.includes(task.status) && QUEUE_STATUSES.includes(to)) return null;
   return task.assignee;
 }
