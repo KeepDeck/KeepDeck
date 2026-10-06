@@ -165,6 +165,25 @@ describe("migrateBoards — every board at once, nothing lost", () => {
     expect(countsLost(json, { ...read.board, tasks: read.board.tasks.slice(1) }, [])).toBe("tasks (2 in the file, 1 read)");
   });
 
+  it("moves a first build's brief edit that stored no text — no version invented, every one kept counted", async () => {
+    const json = JSON.stringify({
+      nextId: 2,
+      tasks: [
+        {
+          id: "task-1", teamId: "team-1", title: "T", body: "third", status: "todo", priority: "normal", assignee: null, author: "lead",
+          blockedBy: [], artifacts: [], comments: [], created: 1, updated: 1,
+          log: [{ at: 1, from: "lead", field: "body", was: null, now: null }, { at: 2, from: "lead", field: "body", was: "second", now: null }],
+        },
+      ],
+    });
+    const read = decodeBoard(json, mintSequence());
+    if (!read.ok) throw new Error(JSON.stringify(read.fault));
+    expect(countsLost(json, read.board, read.dropped)).toBeNull();
+    const db = testDatabase([file("ws-1", json)]);
+    expect(await migrateBoards(db.port, deps())).toMatchObject({ kind: "active" });
+    expect(held(db, "ws-1").tasks[0]).toMatchObject({ bodyV: 2, briefs: [{ v: 1, body: "second" }] });
+  });
+
   it("holds an old file's blockers to account: each one a link, or named as let go", async () => {
     const json = JSON.stringify({
       nextId: 3,

@@ -1,5 +1,6 @@
 import { formatAge } from "../../domain/usage";
 import {
+  isUnkeptBriefEdit,
   TASK_CAPS,
   USER_ACTOR,
   blockerCandidates,
@@ -205,6 +206,7 @@ export const TASK_DETAIL_WORDS = {
   menu: (id: string) => `More for ${id}`,
   labelRemoved: (label: string) => `removed label ${label}`,
   briefEdited: (was: string, now: string) => `edited the brief (v${was} → v${now})`,
+  briefEditedUnkept: "edited the brief (its earlier text was not kept)",
   detach: "Detach",
   none: "none",
   addBlocker: "Add a blocker",
@@ -517,6 +519,7 @@ function changeItems(entry: Task["log"][number], key: string, now: number): Feed
   if (entry.field === "copiedFrom") return [line(TASK_DETAIL_WORDS.copiedFrom(entry.now ?? "—"))];
   if (entry.field === "copiedTo") return [line(TASK_DETAIL_WORDS.copiedTo(entry.now ?? "—"))];
   if (entry.field === "transferred") return [line(TASK_DETAIL_WORDS.transferred(entry.was ?? "—", entry.now ?? "—"))];
+  if (isUnkeptBriefEdit(entry)) return [line(TASK_DETAIL_WORDS.briefEditedUnkept)];
   if (entry.field === "body") return [line(TASK_DETAIL_WORDS.briefEdited(entry.was ?? "—", entry.now ?? "—"))];
   return [line(`${entry.field}: ${entry.was ?? "—"} → ${entry.now ?? "—"}`)];
 }

@@ -355,12 +355,17 @@ type BriefsRead =
  * those texts are versions 1, 2, …; the current brief is the next. Each
  * entry becomes "version k replaced by k + 1" — by whom and when unchanged
  * — so nothing a reader could see is lost, and the log holds no text.
+ *
+ * The first builds kept no text at all (`was` and `now` both null): that
+ * brief was never stored, so there is no version to make. The entry stays
+ * as written — an edit whose earlier text was not kept — and no version is
+ * invented for it. Any other shape is refused.
  */
 export function versionsFromLog(log: readonly TaskLogEntry[]): BriefsRead {
   const briefs: TaskBrief[] = [];
   const out: TaskLogEntry[] = [];
   for (const entry of log) {
-    if (entry.field !== "body") {
+    if (entry.field !== "body" || isUnkeptBriefEdit(entry)) {
       out.push(entry);
       continue;
     }
@@ -370,6 +375,12 @@ export function versionsFromLog(log: readonly TaskLogEntry[]): BriefsRead {
     out.push({ ...entry, was: String(v), now: String(v + 1) });
   }
   return { ok: true, bodyV: briefs.length + 1, briefs, log: out };
+}
+
+/** A brief edit from the first builds, which kept neither text nor
+ * version: one that happened, whose earlier brief was never stored. */
+export function isUnkeptBriefEdit(entry: Pick<TaskLogEntry, "field" | "was" | "now">): boolean {
+  return entry.field === "body" && entry.was === null && entry.now === null;
 }
 
 /** Brief versions as written: 1, 2, … up to the one before the current. */

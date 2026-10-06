@@ -185,6 +185,11 @@ describe("taskDetailView", () => {
     expect(view.assigneeOptions.map((o) => o.value)).toEqual(["", "lead", "impl-1", "impl-2"]);
   });
 
+  it("says a first build's brief edit, which kept no text, was made — and that its earlier text was not kept", () => {
+    const b = board([task({ id: "task-1", log: [{ at: NOW - 60_000, from: "lead", field: "body", was: null, now: null }] })]);
+    expect(taskDetailView(b.tasks[0], b, ROSTER, NOW).changes.map((c) => c.text)).toEqual(["edited the brief (its earlier text was not kept)"]);
+  });
+
   it("a todo task with no blockers says it can start now; an off-roster assignee stays choosable", () => {
     const b = board([task({ id: "task-1", assignee: "tester-1" })]);
     const view = taskDetailView(b.tasks[0], b, ROSTER, NOW);

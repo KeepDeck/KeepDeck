@@ -14,7 +14,7 @@
  * is counted through; and the imported boards are read back from the
  * database through the same validator and compared whole.
  */
-import { decodeBoard, encodeBoard, type DroppedBlockers, type TaskBoard } from "../../domain/tasks";
+import { decodeBoard, encodeBoard, isUnkeptBriefEdit, type DroppedBlockers, type TaskBoard, type TaskLogEntry } from "../../domain/tasks";
 import type { LegacyBoard } from "../../ipc/generated/tasks/LegacyBoard";
 import type { MigrationSource } from "../../ipc/generated/tasks/MigrationSource";
 import type { StoreStatus } from "../../ipc/generated/tasks/StoreStatus";
@@ -158,7 +158,9 @@ export function countsLost(json: string, board: TaskBoard, dropped: readonly Dro
     const kept = board.tasks[i];
     if ((task.comments?.length ?? 0) !== kept.comments.length) return `comments of ${kept.id}`;
     if ((task.log?.length ?? 0) !== kept.log.length) return `log entries of ${kept.id}`;
-    const versions = task.briefs?.length ?? (task.log ?? []).filter((entry) => entry.field === "body").length;
+    // An edit of the first builds stored no text: it holds no version.
+    const versions =
+      task.briefs?.length ?? (task.log ?? []).filter((entry) => entry.field === "body" && !isUnkeptBriefEdit(entry as TaskLogEntry)).length;
     if (versions !== kept.briefs.length) return `brief versions of ${kept.id}`;
     if (task.blockedBy !== undefined) {
       const named = new Set(task.blockedBy).size;

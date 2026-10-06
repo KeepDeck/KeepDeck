@@ -341,8 +341,19 @@ describe("board codec — brief versions", () => {
     expect(read({}).ok).toBe(true);
   });
 
-  it("refuses an old brief edit that kept no previous brief — it cannot be told apart from a lost one", () => {
-    const log = [{ at: 1, from: "lead", field: "body", was: null, now: null }];
+  it("keeps a first build's brief edit, which stored no text, as it is — and invents no version for it", () => {
+    const unkept = { at: 1, from: "lead", field: "body", was: null, now: null };
+    const kept = { at: 2, from: "lead", field: "body", was: "second", now: null };
+    const read = decodeBoard(JSON.stringify({ nextId: 2, relations: [], tasks: [{ ...encodedTask("task-1"), log: [unkept, kept] }] }), mint());
+    if (!read.ok) throw new Error(JSON.stringify(read.fault));
+    const [t] = read.board.tasks;
+    expect(t.briefs).toEqual([{ v: 1, body: "second" }]);
+    expect(t.bodyV).toBe(2);
+    expect(t.log).toEqual([unkept, { ...kept, was: "1", now: "2" }]);
+  });
+
+  it("refuses an old brief edit of any other shape — it cannot be told what it held", () => {
+    const log = [{ at: 1, from: "lead", field: "body", was: null, now: "later" }];
     const read = decodeBoard(JSON.stringify({ nextId: 2, relations: [], tasks: [{ ...encodedTask("task-1"), log }] }), mint());
     expect(!read.ok && read.fault).toMatchObject({ kind: "bad-task", id: "task-1" });
   });
