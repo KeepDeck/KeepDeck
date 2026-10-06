@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createCommandRegistry, type CommandArgs, type CommandSource } from "../../domain/commands";
 import { WORKER_STEPS } from "../../domain/tasks";
-import { STATUS_ARG, registerTaskCommands } from "./taskCommands";
+import { EPIC_TASKS_SHOWN, STATUS_ARG, registerTaskCommands } from "./taskCommands";
 import { createTasksService } from "./tasksService";
 import { ANONYMOUS, fakeStore, from, teamedWorkspaces } from "./testSupport";
 
@@ -387,5 +387,93 @@ describe("task commands", () => {
     for (const promise of ["will reach", "next turn", "turn boundary", "wakes", "delivered to"]) {
       expect(words).not.toContain(promise);
     }
+  });
+});
+
+describe("task commands — epics", () => {
+  async function family() {
+    const kit = setup();
+    await kit.run("task.create", { title: "Epics", kind: "epic" }, IMPL1);
+    await kit.run("task.create", { title: "Schema", parent: "task-1" }, IMPL1);
+    await kit.run("task.create", { title: "Rules", parent: "task-1", assignee: "impl-2" }, LEAD);
+    await kit.run("task.create", { title: "Loose" }, LEAD);
+    return kit;
+  }
+
+  it("a member makes an epic and work under it; rows say which is an epic, its progress, and a task's epic", async () => {
+    const { run } = await family();
+    const listed = (await run("task.list", { status: "todo" }, LEAD)).tasks as Record<string, unknown>[];
+    expect(listed.map((t) => [t.id, t.kind, t.parent, t.progress])).toEqual([
+      ["task-1", "epic", undefined, { done: 0, open: 2, cancelled: 0 }],
+      ["task-2", undefined, "task-1", undefined],
+      ["task-3", undefined, "task-1", undefined],
+      ["task-4", undefined, undefined, undefined],
+    ]);
+    // A row of work under no epic carries nothing it does not have.
+    expect(Object.keys(listed[3])).not.toContain("parent");
+    expect(Object.keys(listed[3])).not.toContain("kind");
+  });
+
+  it("a list narrows to epics, to one epic's tasks, or to the tasks under none", async () => {
+    const { run } = await family();
+    const ids = async (args: Record<string, string>) =>
+      ((await run("task.list", { status: "todo", ...args }, LEAD)).tasks as { id: string }[]).map((t) => t.id);
+    expect(await ids({ kind: "epic" })).toEqual(["task-1"]);
+    expect(await ids({ parent: "task-1" })).toEqual(["task-2", "task-3"]);
+    expect(await ids({ parent: "none" })).toEqual(["task-1", "task-4"]);
+  });
+
+  it("get reads an epic with its progress and its tasks, and a task with its epic", async () => {
+    const { run } = await family();
+    const epic = (await run("task.get", { id: "task-1" }, LEAD)).task as Record<string, unknown>;
+    expect(epic).toMatchObject({
+      kind: "epic",
+      parent: null,
+      progress: { done: 0, open: 2, cancelled: 0 },
+      tasks: [
+        { id: "task-2", title: "Schema", status: "todo", assignee: null },
+        { id: "task-3", title: "Rules", status: "todo", assignee: "impl-2" },
+      ],
+    });
+    expect(epic).not.toHaveProperty("moreTasks");
+    const work = (await run("task.get", { id: "task-2" }, LEAD)).task as Record<string, unknown>;
+    expect(work).toMatchObject({ kind: "task", parent: { id: "task-1", title: "Epics" } });
+    expect(work).not.toHaveProperty("tasks");
+  });
+
+  it("get lists the first tasks of a big epic and counts the rest", async () => {
+    const { run } = setup();
+    await run("task.create", { title: "Big", kind: "epic" }, LEAD);
+    for (let i = 0; i < EPIC_TASKS_SHOWN + 3; i += 1) await run("task.create", { title: `Step ${i}`, parent: "task-1" }, LEAD);
+    const epic = (await run("task.get", { id: "task-1" }, LEAD)).task as { tasks: unknown[]; moreTasks: number };
+    expect(epic.tasks).toHaveLength(EPIC_TASKS_SHOWN);
+    expect(epic.moreTasks).toBe(3);
+  });
+
+  it("update moves a task between epics for whoever hands out work, names it changed, and refuses a working role", async () => {
+    const { run, refused } = await family();
+    await run("task.create", { title: "Other", kind: "epic" }, LEAD);
+    const moved = await run("task.update", { id: "task-4", parent: "task-5" }, LEAD);
+    expect(moved.changed).toEqual(["parent"]);
+    const out = await run("task.update", { id: "task-2", parent: "none" }, LEAD);
+    expect(out.changed).toEqual(["parent"]);
+    expect(((await run("task.get", { id: "task-2" }, LEAD)).task as Record<string, unknown>).parent).toBeNull();
+    expect(await refused("task.update", { id: "task-3", parent: "none" }, IMPL2)).toContain("parent is lead's to set");
+  });
+
+  it("refuses a kind that is no kind, an epic under an epic, and closing an epic with open work — naming it", async () => {
+    const { run, refused } = await family();
+    expect(await refused("task.create", { title: "x", kind: "story" }, LEAD)).toBe('kind must be task or epic, not "story"');
+    expect(await refused("task.create", { title: "x", kind: "epic", parent: "task-1" }, LEAD)).toContain("one level");
+    expect(await refused("task.update", { id: "task-1", status: "cancelled" }, LEAD)).toBe(
+      "this epic still has open work — task-2 (to do), task-3 (to do); close or move them first",
+    );
+    await run("task.update", { id: "task-2", status: "cancelled" }, LEAD);
+    await run("task.update", { id: "task-3", status: "cancelled" }, LEAD);
+    expect((await run("task.update", { id: "task-1", status: "cancelled" }, LEAD)).status).toBe("cancelled");
+  });
+
+  it("tells agents the epic rules in the words they read", () => {
+    expect(STATUS_ARG).toContain("An epic is done or cancelled only once every task under it is closed");
   });
 });

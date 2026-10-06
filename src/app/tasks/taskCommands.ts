@@ -44,10 +44,12 @@ import {
   agentActor,
   blockerIdsOf,
   epicOf,
+  epicProgress,
   copiedFromOf,
   copiesOf,
   findTask,
   isTaskId,
+  isTaskKind,
   isTaskPriority,
   TASK_STATUSES,
   WORKER_STEPS,
@@ -56,6 +58,7 @@ import {
   issuable,
   normalizeLabel,
   countByStatus,
+  tasksOfEpic,
   tasksOfTeam,
   unblocks,
   type Task,
@@ -63,6 +66,7 @@ import {
   type TaskBoard,
   type TaskChange,
   type TaskField,
+  type TaskKind,
   type TaskPriority,
   type TaskStatus,
 } from "../../domain/tasks";
@@ -145,6 +149,13 @@ function statusArg(args: CommandArgs): TaskStatus | undefined {
   return value;
 }
 
+function kindArg(args: CommandArgs): TaskKind | undefined {
+  const value = str(args, "kind");
+  if (value === undefined) return undefined;
+  if (!isTaskKind(value)) throw new Error(`kind must be task or epic, not "${value}"`);
+  return value;
+}
+
 function taskIdArg(args: CommandArgs): string {
   const value = str(args, "id") ?? "";
   if (!isTaskId(value)) throw new Error(`"${value}" is not a task id — ids look like task-N`);
@@ -159,11 +170,16 @@ function more(task: Task) {
 }
 
 /** A task as a list shows it: identity and standing, never the body or
- * the thread — `task.get` and `task.history` carry those. */
+ * the thread — `task.get` and `task.history` carry those. What only some
+ * tasks have is said only where it is: an epic's row says so, with its
+ * progress; a task under an epic names it. */
 function row(task: Task, board: TaskBoard) {
+  const epic = epicOf(task, board);
   return {
     id: task.id,
     title: task.title,
+    ...(task.kind === "epic" ? { kind: task.kind, progress: epicProgress(task, board) } : {}),
+    ...(epic !== null ? { parent: epic.id } : {}),
     status: task.status,
     priority: task.priority,
     assignee: task.assignee,
@@ -177,6 +193,21 @@ function row(task: Task, board: TaskBoard) {
   };
 }
 
+/** How many of an epic's tasks `task.get` lists; the rest are counted,
+ * and read by task.list parent=<epic>. */
+export const EPIC_TASKS_SHOWN = 30;
+
+/** An epic's tasks as `task.get` lists them: the least that tells where
+ * each stands. */
+function epicTasks(epic: Task, board: TaskBoard) {
+  const tasks = tasksOfEpic(epic, board);
+  return {
+    progress: epicProgress(epic, board),
+    tasks: tasks.slice(0, EPIC_TASKS_SHOWN).map((task) => ({ id: task.id, title: task.title, status: task.status, assignee: task.assignee })),
+    ...(tasks.length > EPIC_TASKS_SHOWN ? { moreTasks: tasks.length - EPIC_TASKS_SHOWN } : {}),
+  };
+}
+
 /** A task as it stands now, plus what the board knows around it: its
  * brief whole, and — while it is open — its discussion. Its log and earlier
  * briefs are `task.history`'s; a closed task's comments are too (closed
@@ -186,8 +217,11 @@ function full(task: Task, board: TaskBoard) {
   const { uid: _uid, log: _log, briefs: _briefs, comments, ...shown } = task;
   const source = copiedFromOf(task, board);
   const blockedBy = blockerIdsOf(task, board);
+  const epic = epicOf(task, board);
   return {
     ...shown,
+    parent: epic === null ? null : { id: epic.id, title: epic.title },
+    ...(task.kind === "epic" ? epicTasks(task, board) : {}),
     ...(isOpen(task.status) ? { comments } : {}),
     more: more(task),
     blockedBy,
@@ -257,6 +291,8 @@ function createCommand(deps: TaskCommandDeps): CommandSpec {
       { name: "artifacts", type: "string", description: "Artifact ids to attach, comma-separated" },
       { name: "labels", type: "string", description: "Labels, comma-separated — at most 5 words (lowercase, dashes between, ≤24 characters); \"Copy Edit\" is kept as copy-edit" },
       { name: "status", type: "string", description: "todo (default) | backlog — backlog parks it: on the board, never issuable, until whoever hands out work moves it to todo" },
+      { name: "kind", type: "string", description: "task (default) | epic — an epic groups tasks under it, one level deep; it walks the statuses as any task does, and closes only once every task under it is closed" },
+      { name: "parent", type: "string", description: "The epic to make it under (task-N): an open epic of the team; a task, not an epic, goes under one" },
       TEAM_ARG,
     ],
     run: async (args, source) => {
@@ -277,6 +313,8 @@ function createCommand(deps: TaskCommandDeps): CommandSpec {
             artifacts: ids(args, "artifacts"),
             labels: ids(args, "labels"),
             status: status as CreateStatus | undefined,
+            kind: kindArg(args),
+            parent: str(args, "parent"),
           },
           who.actor,
         ),
@@ -284,6 +322,8 @@ function createCommand(deps: TaskCommandDeps): CommandSpec {
       return reply(deps, who.workspace.id, {
         id: task.id,
         teamId: task.teamId,
+        ...(task.kind === "epic" ? { kind: task.kind } : {}),
+        ...(str(args, "parent") !== undefined ? { parent: str(args, "parent") } : {}),
         status: task.status,
         priority: task.priority,
         assignee: task.assignee,
@@ -304,7 +344,7 @@ function duplicateCommand(deps: TaskCommandDeps): CommandSpec {
   return {
     id: "task.duplicate",
     title:
-      "Copy a task as a fresh one under the SAME title: its brief, priority, labels, artifacts and the blockers still open, in todo (the backlog if it is parked), held by no one — not its comments, log or assignee. The copy is linked to its source (task.get: copiedFrom on the copy, copies on the source), and both logs say so",
+      "Copy a task as a fresh one under the SAME title: its brief, priority, labels, artifacts and the blockers still open, in todo (the backlog if it is parked), held by no one — not its comments, log or assignee. A copy of work stays under its epic while the epic is open; a copy of an epic is an epic with no tasks. The copy is linked to its source (task.get: copiedFrom on the copy, copies on the source), and both logs say so",
     args: [{ name: "id", type: "string", required: true, description: "The task to copy (task-N)" }, TEAM_ARG],
     run: async (args, source) => {
       const who = caller(source, deps);
@@ -332,7 +372,7 @@ function transferCommand(deps: TaskCommandDeps): CommandSpec {
   return {
     id: "task.transfer",
     title:
-      "Hand a task to another team of this workspace: the same task (id, brief, labels, comments and log kept) on their board, unassigned, back in todo (the backlog if it is parked). Yours to do if you hand out work; refused for a closed task, or one still linked by blockers to your team",
+      "Hand a task to another team of this workspace: the same task (id, brief, labels, comments and log kept) on their board, unassigned, back in todo (the backlog if it is parked). An epic goes with every task under it (closed ones stay closed); a task handed over alone leaves its epic. Yours to do if you hand out work; refused for a closed task, or one still linked by blockers to your team",
     args: [
       { name: "id", type: "string", required: true, description: "The task to hand over (task-N)" },
       { name: "to", type: "string", required: true, description: "The team to hand it to — its name or id, in this workspace" },
@@ -384,12 +424,16 @@ function matching(board: TaskBoard, team: Team, args: CommandArgs, statuses: rea
   const label = str(args, "label");
   const wanted = label === undefined ? undefined : normalizeLabel(label);
   if (wanted === "") throw new Error(`"${label}" is not a label`);
+  const kind = kindArg(args);
+  const parent = str(args, "parent");
   return tasksOfTeam(board, team.id).filter(
     (task) =>
       (statuses === undefined || statuses.includes(task.status)) &&
       (assignee === undefined || task.assignee === (assignee === "pool" ? null : assignee)) &&
       (priority === undefined || task.priority === priority) &&
-      (wanted === undefined || task.labels.includes(wanted)),
+      (wanted === undefined || task.labels.includes(wanted)) &&
+      (kind === undefined || task.kind === kind) &&
+      (parent === undefined || (epicOf(task, board)?.id ?? "none") === parent),
   );
 }
 
@@ -397,6 +441,8 @@ const FILTER_ARGS = [
   { name: "assignee", type: "string", description: "Only this role's tasks; \"pool\" for the unassigned" },
   { name: "priority", type: "string", description: "Only tasks of this priority: high | normal | low" },
   { name: "label", type: "string", description: "Only tasks carrying this label" },
+  { name: "kind", type: "string", description: "Only tasks of this kind: task | epic" },
+  { name: "parent", type: "string", description: "Only the tasks under this epic (task-N); \"none\" for those under no epic" },
 ] as const;
 
 /** The board's latest change number — what `task.since` takes next. */
@@ -416,7 +462,7 @@ const MORE_NOTE = "`more` counts what is left for task.history: comments, the ch
 function listCommand(deps: TaskCommandDeps): CommandSpec {
   return {
     id: "task.list",
-    title: `List the team's tasks in the statuses you name — per task: id, title, status, priority, assignee (null = pool), author, blockedBy, labels, issuable (can be started now: in todo with every blocker done or cancelled), artifacts (count), updated. ${MORE_NOTE}. Closed work (done, cancelled) only when you name it; task.search finds a task by its words`,
+    title: `List the team's tasks in the statuses you name — per task: id, title, status, priority, assignee (null = pool), author, blockedBy, labels, issuable (can be started now: in todo with every blocker done or cancelled), artifacts (count), updated; an epic adds kind and progress (its tasks done, open, cancelled — counted, never stored), a task under an epic adds parent. ${MORE_NOTE}. Closed work (done, cancelled) only when you name it; task.search finds a task by its words`,
     args: [
       { name: "status", type: "string", required: true, description: "One or several statuses, comma-separated: backlog, todo, in-progress, blocked, review, done, cancelled" },
       ...FILTER_ARGS,
@@ -483,7 +529,7 @@ function searchCommand(deps: TaskCommandDeps): CommandSpec {
 function getCommand(deps: TaskCommandDeps): CommandSpec {
   return {
     id: "task.get",
-    title: `Read one task as it stands: its brief whole, its thread while it is open, blockers with their statuses, what it unblocks, issuable (can be started now), copiedFrom (the key it was copied from, "gone" if that task left the board, null if it is no copy) and copies. ${MORE_NOTE} — a closed task's comments are there too`,
+    title: `Read one task as it stands: its brief whole, its thread while it is open, blockers with their statuses, what it unblocks, issuable (can be started now), parent (its epic, or null), copiedFrom (the key it was copied from, "gone" if that task left the board, null if it is no copy) and copies. An epic adds progress and its tasks (id, title, status, assignee; the first ${EPIC_TASKS_SHOWN} — moreTasks counts the rest, task.list parent=<epic> reads them all). Progress is counted from its tasks each time: a change under an epic is the task's in task.since, not the epic's. ${MORE_NOTE} — a closed task's comments are there too`,
     args: [{ name: "id", type: "string", required: true, description: "The task id (task-N)" }],
     run: async (args, source) => {
       const who = caller(source, deps);
@@ -572,7 +618,7 @@ function briefCommand(deps: TaskCommandDeps): CommandSpec {
 /** The status argument as task.update describes it — the assignee's steps
  * read off the domain's own table, so the words cannot drift from the
  * moves the domain allows. */
-export const STATUS_ARG = `${TASK_STATUSES.join(" | ")}. Your own task: ${WORKER_STEPS.map(([from, to]) => `${from} → ${to}`).join(", ")}. A pool task is taken by whoever starts it. Whoever hands out work also moves a task between any open statuses — work sent back to todo or backlog goes back to the pool — accepts it (review → done), reopens a closed one into todo or backlog, and cancels. Entering work from the queue or a block, and accepting it, wait for every blocker to be done or cancelled. A refused move says where the task can go from where it is`;
+export const STATUS_ARG = `${TASK_STATUSES.join(" | ")}. Your own task: ${WORKER_STEPS.map(([from, to]) => `${from} → ${to}`).join(", ")}. A pool task is taken by whoever starts it. Whoever hands out work also moves a task between any open statuses — work sent back to todo or backlog goes back to the pool — accepts it (review → done), reopens a closed one into todo or backlog, and cancels. Entering work from the queue or a block, and accepting it, wait for every blocker to be done or cancelled. An epic is done or cancelled only once every task under it is closed, and a task under a closed epic reopens only after the epic — for everyone. A refused move says where the task can go from where it is`;
 
 function updateCommand(deps: TaskCommandDeps): CommandSpec {
   return {
@@ -588,6 +634,7 @@ function updateCommand(deps: TaskCommandDeps): CommandSpec {
       { name: "blockedBy", type: "string", description: "Task ids this one waits on, comma-separated; empty string for none" },
       { name: "artifacts", type: "string", description: "Artifact ids attached, comma-separated; empty string for none" },
       { name: "labels", type: "string", description: "The task's labels, comma-separated, replacing the set; empty string for none. The assignee labels its own task; the lead any" },
+      { name: "parent", type: "string", description: "The epic it is under (task-N), \"none\" for none — whoever hands out work moves a task between epics" },
     ],
     run: async (args, source) => {
       const who = caller(source, deps);
@@ -606,10 +653,12 @@ function updateCommand(deps: TaskCommandDeps): CommandSpec {
       if (artifacts !== undefined) changes.push({ kind: "artifacts", to: artifacts });
       const labels = ids(args, "labels");
       if (labels !== undefined) changes.push({ kind: "labels", to: labels });
+      const parent = str(args, "parent");
+      if (parent !== undefined) changes.push({ kind: "parent", to: parent === "none" ? null : parent });
       const status = statusArg(args);
       if (status !== undefined) changes.push({ kind: "status", to: status });
       if (changes.length === 0) {
-        throw new Error("nothing to change — pass at least one of status, assignee, priority, title, body, blockedBy, artifacts, labels");
+        throw new Error("nothing to change — pass at least one of status, assignee, priority, title, body, blockedBy, artifacts, labels, parent");
       }
       const board = await boardOf(deps, who.workspace.id);
       const before = visible(board, id, team);
