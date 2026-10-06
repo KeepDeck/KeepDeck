@@ -2,11 +2,11 @@ import { useId, useState } from "react";
 import { Dropdown } from "@keepdeck/ui-kit";
 import type { CreateTaskInput } from "../../domain/tasks";
 import {
-  EMPTY_TASK_DRAFT,
   FIELD_WORDS,
   NEW_TASK_WORDS,
   canCreateTask,
   fieldCount,
+  takesAnEpic,
   taskInputOf,
   type NewTaskFormView,
 } from "../../presentation/tasks";
@@ -24,7 +24,7 @@ interface NewTaskFormProps {
  * dialog's is right above it, and two stacked read as a mistake — Cancel,
  * + Task again and Escape put the form away. */
 export function NewTaskForm({ view, onCreate, onCancel }: NewTaskFormProps) {
-  const [draft, setDraft] = useState(EMPTY_TASK_DRAFT);
+  const [draft, setDraft] = useState(view.draft);
   const creatable = canCreateTask(draft.title, draft.body);
   const titleCount = fieldCount("title", draft.title);
   const bodyCount = fieldCount("body", draft.body);
@@ -40,6 +40,13 @@ export function NewTaskForm({ view, onCreate, onCancel }: NewTaskFormProps) {
       <div className="tasks__compose-body">
       <h3 className="tasks__detail-title">{NEW_TASK_WORDS.panel}</h3>
       <p className="tasks__muted">{NEW_TASK_WORDS.intro}</p>
+      <span className="tasks__section">{NEW_TASK_WORDS.kind}</span>
+      <Segmented
+        ariaLabel={NEW_TASK_WORDS.kind}
+        options={view.kindOptions}
+        value={draft.kind}
+        onChange={(kind) => setDraft({ ...draft, kind })}
+      />
       <span className="tasks__section">{FIELD_WORDS.title}</span>
       <div className="tasks__field">
         <input
@@ -69,6 +76,18 @@ export function NewTaskForm({ view, onCreate, onCancel }: NewTaskFormProps) {
           {bodyCount.text}
         </span>
       </div>
+      {takesAnEpic(draft) && (
+        <>
+          <span className="tasks__section">{NEW_TASK_WORDS.epic}</span>
+          <Dropdown
+            ariaLabel={NEW_TASK_WORDS.epic}
+            options={view.epicOptions}
+            value={draft.parent}
+            onChange={(parent) => setDraft({ ...draft, parent })}
+            size="sm"
+          />
+        </>
+      )}
       <span className="tasks__section">{FIELD_WORDS.status}</span>
       <Segmented
         ariaLabel={FIELD_WORDS.status}

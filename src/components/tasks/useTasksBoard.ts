@@ -279,7 +279,7 @@ export function useTasksBoard(
     return () => window.removeEventListener("keydown", onKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [walks, listItems, openId]);
-  const form = newTaskFormView(roster);
+  const form = newTaskFormView(roster, board, teamId, screen.composeEpic);
 
   /** The pointer was released over `over` (a status group, or nothing). One
    * release is one outcome: decided from the ref, applied once, here. */
@@ -359,6 +359,10 @@ export function useTasksBoard(
     pickLabel: (label: string | null) => run({ type: "label", label }),
     composing,
     compose: () => run({ type: "compose" }),
+    /** The form, opened in an epic: the epic picked for the new task. */
+    composeIn: (epicId: string) => run({ type: "compose", epic: epicId }),
+    /** Put a task under an epic, or under none. */
+    setParent: (taskId: string, epicId: string | null) => void apply(taskId, [{ kind: "parent", to: epicId }]),
     cancelCompose: () => run({ type: "cancelCompose" }),
     toggleCompose: () => run({ type: "toggleCompose" }),
     wide: wideView(screen, detail !== null),

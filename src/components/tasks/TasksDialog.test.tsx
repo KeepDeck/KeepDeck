@@ -462,6 +462,70 @@ describe("TasksDialog", () => {
     expect(text()).toContain("by you");
   });
 
+  it("an epic's card lists its tasks, refuses Done in words while one is open, and makes a new task in it", async () => {
+    const { service } = await seeded();
+    await service.create("ws-1", { teamId: "team-1", title: "The epic", kind: "epic" }, USER_ACTOR);
+    await service.apply("ws-1", "task-1", [{ kind: "parent", to: "task-3" }], USER_ACTOR);
+    focus = "task-3";
+    const render = mount(service);
+    render();
+    await flush();
+    const card = () => document.querySelector<HTMLElement>('aside[aria-label="Task task-3"]')!;
+    expect(card().querySelector(".tasks__epic-chip")?.textContent).toBe("EPIC");
+    const section = () => card().querySelector<HTMLElement>('section[aria-label="Tasks of the epic"]')!;
+    expect([...section().querySelectorAll(".tasks__epic-task .tasks__row-title")].map((t) => t.textContent)).toEqual(["Draft the skill"]);
+    expect(section().querySelector(".tasks__epic-summary")?.textContent).toBe("0 of 1 done");
+    // The status menu: Done shown, refused, and why.
+    act(() => document.querySelector<HTMLButtonElement>('button[aria-label="Status"]')!.click());
+    await flush();
+    const done = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="option"]')).find((o) => o.textContent === "Done")!;
+    expect(done.disabled).toBe(true);
+    expect(document.querySelector(".dropdown__note")?.textContent).toBe("Done and Cancelled wait for the epic's tasks: task-1 (to do)");
+    act(() => document.querySelector<HTMLButtonElement>('button[aria-label="Status"]')!.click());
+    await flush();
+    // A new task made in the epic goes under it.
+    const newInEpic = Array.from(section().querySelectorAll<HTMLButtonElement>("button")).find((b) => b.textContent?.includes("New task in the epic"))!;
+    act(() => newInEpic.click());
+    await flush();
+    const epicPick = document.querySelector<HTMLButtonElement>('aside[aria-label="New task"] button[aria-label="Epic"] .dropdown__label');
+    expect(epicPick?.textContent).toBe("task-3 · The epic");
+    const title = document.querySelector<HTMLInputElement>('input[aria-label="Title"]')!;
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(title, "Second step");
+      title.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await flush();
+    act(() => button("Create task").click());
+    await flush();
+    const state = service.peek("ws-1");
+    if (state?.kind !== "ready") throw new Error("not ready");
+    const made = state.board.tasks.find((t) => t.title === "Second step")!;
+    expect(state.board.relations).toContainEqual(expect.objectContaining({ kind: "child-of", from: made.uid, to: state.board.tasks[2].uid }));
+  });
+
+  it("puts a task under an epic from its Epic picker, and out again", async () => {
+    const { service } = await seeded();
+    await service.create("ws-1", { teamId: "team-1", title: "The epic", kind: "epic" }, USER_ACTOR);
+    focus = "task-1";
+    mount(service)();
+    await flush();
+    const pick = (label: string) => {
+      act(() => document.querySelector<HTMLButtonElement>('aside[aria-label="Task task-1"] button[aria-label="Epic"]')!.click());
+      const option = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="option"]')).find((o) => o.textContent === label)!;
+      act(() => option.click());
+    };
+    pick("task-3 · The epic");
+    await flush();
+    const parentOf = () => {
+      const state = service.peek("ws-1");
+      return state?.kind === "ready" ? state.board.relations.filter((r) => r.kind === "child-of").length : -1;
+    };
+    expect(parentOf()).toBe(1);
+    pick("No epic");
+    await flush();
+    expect(parentOf()).toBe(0);
+  });
+
   it("the form can be put away three ways — Cancel, + Task again, Escape — and Escape does not take the dialog with it", async () => {
     const { service } = await seeded();
     const onClose = vi.fn();

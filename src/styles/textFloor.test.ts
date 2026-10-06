@@ -14,6 +14,7 @@ const MARKS_AND_DISABLED = [
   ".minimized.minimized--frame-stopped", // a stopped agent's dashed ring
   ".ui-remove", // RemoveButton: a row's × (detach, delete, drop)
   ".tasks__row--cancelled .tasks__row-title", // a cancelled task
+  ".tasks__epic-task--cancelled .tasks__row-title", // the same task, on its epic's card
   ".tasks__link:disabled",
   ".dropdown__option:disabled", // a picker's option refused now
 ];

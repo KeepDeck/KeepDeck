@@ -16,6 +16,9 @@ export interface ScreenState {
   chosenTeam: string | null;
   /** The new-task form is up. */
   composing: boolean;
+  /** The epic the form was opened in (an epic card's "new task in the
+   * epic"), picked for it; null for a form opened on its own. */
+  composeEpic: string | null;
   /** The open task fills the stage. Meaningful only with a task open —
    * read it through [`wideView`]. */
   wide: boolean;
@@ -41,6 +44,7 @@ export interface ScreenState {
 export const INITIAL_SCREEN: ScreenState = {
   chosenTeam: null,
   composing: false,
+  composeEpic: null,
   wide: false,
   hover: null,
   query: NO_QUERY,
@@ -62,7 +66,8 @@ export type ScreenAction =
   | { type: "row"; id: string; open: string | null }
   /** Put the open task away. */
   | { type: "close" }
-  | { type: "compose" }
+  /** The form, opened on its own or in an epic. */
+  | { type: "compose"; epic?: string }
   | { type: "cancelCompose" }
   /** The + Task button: opens the form, or closes it when it is up. */
   | { type: "toggleCompose" }
@@ -117,7 +122,7 @@ function step(state: ScreenState, action: ScreenAction): ScreenOutcome {
     case "close":
       return { state: { ...state, wide: false }, focus: null };
     case "compose":
-      return { state: { ...state, composing: true, wide: false }, focus: null };
+      return { state: { ...state, composing: true, composeEpic: action.epic ?? null, wide: false }, focus: null };
     case "cancelCompose":
       return { state: { ...state, composing: false } };
     case "toggleCompose":

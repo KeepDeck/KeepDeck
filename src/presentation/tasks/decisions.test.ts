@@ -18,7 +18,7 @@ import {
 import { EMPTY_COMPOSER, beginSend, composerCanSend, finishSend, labelDraftAfter, labelSendable, typeDraft } from "./composer";
 import { canCreateTask, canSendComment } from "./composerView";
 import { DIALOG_WORDS, escapeTarget, selectionAfterClick, teamControlView } from "./dialogState";
-import { EMPTY_TASK_DRAFT, assigneeOf, taskInputOf } from "./formDraft";
+import { EMPTY_TASK_DRAFT, assigneeOf, draftIn, takesAnEpic, taskInputOf } from "./formDraft";
 import { INITIAL_SCREEN, initialScreen, queryOn, restoreConfirm, screenReducer, walksRows, wideView, type ScreenState } from "./screenState";
 import { restoreView } from "./words";
 import { NO_QUERY } from "./queryView";
@@ -199,6 +199,13 @@ describe("screenState", () => {
     expect(screenReducer(open, { type: "toggleActivity" }, null).state.activityOpen).toBe(false);
   });
 
+  it("opens the form in an epic — picked for the new task — or on its own", () => {
+    expect(screenReducer(INITIAL_SCREEN, { type: "compose", epic: "task-3" }, null).state).toMatchObject({ composing: true, composeEpic: "task-3" });
+    const inEpic = screenReducer(INITIAL_SCREEN, { type: "compose", epic: "task-3" }, null).state;
+    expect(screenReducer(inEpic, { type: "compose" }, null).state.composeEpic).toBeNull();
+    expect(screenReducer(INITIAL_SCREEN, { type: "toggleCompose" }, null).state.composeEpic).toBeNull();
+  });
+
   it("folds an epic's tasks away at its chevron and back, for the dialog's life", () => {
     const folded = screenReducer(INITIAL_SCREEN, { type: "foldEpic", id: "task-1" }, null).state;
     expect([...folded.foldedEpics]).toEqual(["task-1"]);
@@ -287,10 +294,20 @@ describe("formDraft", () => {
       assignee: null,
       priority: "normal",
       status: "todo",
+      kind: "task",
     });
     expect(taskInputOf({ ...EMPTY_TASK_DRAFT, title: "Draft", assignee: "impl-2", priority: "high" }).assignee).toBe("impl-2");
     // Parked from the form: it starts in the backlog.
     expect(taskInputOf({ ...EMPTY_TASK_DRAFT, title: "Idea", status: "backlog" }).status).toBe("backlog");
+  });
+
+  it("opens in the epic it was opened in, and hands an epic over under none", () => {
+    expect(draftIn(null)).toBe(EMPTY_TASK_DRAFT);
+    expect(draftIn("task-3")).toEqual({ ...EMPTY_TASK_DRAFT, parent: "task-3" });
+    expect(taskInputOf({ ...draftIn("task-3"), title: "Step" })).toMatchObject({ kind: "task", parent: "task-3" });
+    // An epic picked, then the kind turned to epic: it goes under none.
+    expect(taskInputOf({ ...draftIn("task-3"), title: "Plan", kind: "epic" })).not.toHaveProperty("parent");
+    expect([takesAnEpic({ kind: "task" }), takesAnEpic({ kind: "epic" })]).toEqual([true, false]);
   });
 });
 

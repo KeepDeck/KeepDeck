@@ -735,6 +735,95 @@
 }
 
 
+/* An epic's tasks on its card, between the properties and the brief:
+   how far it has come, a line per task (each opens it), the two adds. */
+.tasks__epic {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.tasks__epic-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 0;
+}
+
+.tasks__epic-summary {
+  margin-left: auto;
+  color: var(--kd-text-2);
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.tasks__epic-bar.tasks__epic-bar--wide {
+  width: 100%;
+  height: 6px;
+}
+
+.tasks__epic-tasks {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--kd-seam);
+  border-radius: var(--kd-radius-pop);
+  overflow: hidden;
+}
+
+.tasks__epic-task {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-height: 30px;
+  box-sizing: border-box;
+  padding: 6px 10px;
+  border: 0;
+  border-bottom: 1px solid var(--kd-hover);
+  background: transparent;
+  color: var(--kd-text);
+  font: inherit;
+  font-size: var(--kd-font-normal);
+  line-height: 18px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tasks__epic-task:hover {
+  background-color: var(--kd-hover);
+}
+
+.tasks__epic-task:focus-visible {
+  outline: 1px solid var(--kd-focus);
+  outline-offset: -1px;
+}
+
+.tasks__epic-task .status-ring-box {
+  align-items: center;
+  height: 18px;
+}
+
+.tasks__epic-task--done .tasks__row-title {
+  color: var(--kd-text-2);
+}
+
+.tasks__epic-task--cancelled .tasks__row-title {
+  color: var(--kd-text-4);
+  text-decoration: line-through;
+}
+
+.tasks__epic-tasks > .tasks__muted {
+  padding: 8px 10px;
+}
+
+.tasks__epic-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 8px;
+}
+
 /* The brief: the task's own words, on a tile of their own. */
 .tasks__body {
   margin: 0;

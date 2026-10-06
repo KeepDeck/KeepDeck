@@ -78,7 +78,7 @@ describe("task panel and form words and classes", () => {
   it("the form and the panel share one pool line and one set of field names", () => {
     const b = board([task({ id: "task-1", artifacts: ["kd-a"] })]);
     const detail = taskDetailView(b.tasks[0], b, ["lead"], NOW, [{ id: "kd-a", title: "A" }]);
-    expect(newTaskFormView(["lead"]).assigneeOptions[0]).toBe(POOL_CHOICE);
+    expect(newTaskFormView(["lead"], null, null, null).assigneeOptions[0]).toBe(POOL_CHOICE);
     // The same words, with the pool's mark beside them.
     expect(detail.assigneeOptions[0]).toEqual(POOL_CHOICE);
     expect(FIELD_WORDS).toEqual({ title: "Title", brief: "Brief", status: "Status", priority: "Priority", assignee: "Assignee" });
@@ -166,6 +166,102 @@ describe("taskDetailView", () => {
   });
 });
 
+describe("taskDetailView — an epic and its tasks", () => {
+  const family = () =>
+    board(
+      [
+        task({ id: "task-1", kind: "epic", status: "review", title: "Plan" }),
+        task({ id: "task-2", status: "todo", title: "Schema", assignee: "impl-1" }),
+        task({ id: "task-3", status: "cancelled", title: "Old" }),
+        task({ id: "task-4", title: "Loose" }),
+        task({ id: "task-5", kind: "epic", title: "Other" }),
+      ],
+      6,
+      [relation("child-of", "task-2", "task-1"), relation("child-of", "task-3", "task-1")],
+    );
+
+  it("an epic's card: its chip, its tasks and progress, the adds — and no epic of its own", () => {
+    const b = family();
+    const view = taskDetailView(b.tasks[0], b, ROSTER, NOW);
+    expect(view.kindChip).toBe("EPIC");
+    expect(view.parent).toBeNull();
+    expect(view.epic).toMatchObject({
+      heading: "Tasks of the epic",
+      summary: "0 of 1 done",
+      progress: { count: "0/1", fill: 0 },
+      empty: null,
+      addNew: "New task in the epic",
+      addExisting: "Add an existing task",
+    });
+    expect(view.epic?.tasks.map((t) => [t.id, t.assignee, t.className])).toEqual([
+      ["task-2", "impl-1", "tasks__epic-task tasks__epic-task--todo"],
+      ["task-3", "unassigned", "tasks__epic-task tasks__epic-task--cancelled"],
+    ]);
+    // Only work under no epic may be added — not an epic, not its own.
+    expect(view.palette("epic-task").sections[0].items.map((item) => item.value)).toEqual(["task-4"]);
+  });
+
+  it("shows Done and Cancelled refused while work is open, the picker saying which", () => {
+    const b = family();
+    const view = taskDetailView(b.tasks[0], b, ROSTER, NOW);
+    const option = (value: string) => view.statusOptions.find((o) => o.value === value);
+    expect([option("done")?.disabled, option("cancelled")?.disabled, option("todo")?.disabled]).toEqual([true, true, false]);
+    expect(view.statusNote).toBe("Done and Cancelled wait for the epic's tasks: task-2 (to do)");
+    // Work closed: nothing refused, nothing said.
+    const closed = board(b.tasks.map((t) => (t.id === "task-2" ? { ...t, status: "done" as const } : t)), 6, b.relations);
+    const free = taskDetailView(closed.tasks[0], closed, ROSTER, NOW);
+    expect(free.statusOptions.every((o) => !o.disabled)).toBe(true);
+    expect(free.statusNote).toBeNull();
+  });
+
+  it("refuses reopening a task under a closed epic, saying to reopen the epic", () => {
+    const b = board([task({ id: "task-1", kind: "epic", status: "done" }), task({ id: "task-2", status: "done" })], 3, [relation("child-of", "task-2", "task-1")]);
+    const view = taskDetailView(b.tasks[1], b, ROSTER, NOW);
+    expect(view.statusOptions.filter((o) => o.disabled).map((o) => o.value)).toEqual(["blocked", "backlog", "todo", "in-progress", "review"]);
+    expect(view.statusNote).toBe("The epic task-1 is closed — reopen it first");
+  });
+
+  it("work's Epic picker: none, the epic it is under, and the ones it could go under", () => {
+    const b = family();
+    expect(taskDetailView(b.tasks[1], b, ROSTER, NOW).parent).toEqual({
+      value: "task-1",
+      options: [
+        { value: "", label: "No epic" },
+        { value: "task-1", label: "task-1 · Plan" },
+        { value: "task-5", label: "task-5 · Other" },
+      ],
+    });
+    expect(taskDetailView(b.tasks[3], b, ROSTER, NOW).parent?.value).toBe("");
+    expect(taskDetailView(b.tasks[3], b, ROSTER, NOW).kindChip).toBeNull();
+    expect(taskDetailView(b.tasks[3], b, ROSTER, NOW).epic).toBeNull();
+  });
+
+  it("says in the activity where a task went among epics", () => {
+    const at = 1;
+    const log = [
+      { at, from: "lead", field: "parent" as const, was: null, now: "task-1" },
+      { at, from: "lead", field: "parent" as const, was: "task-1", now: "task-5" },
+      { at, from: "user", field: "parent" as const, was: "task-5", now: null },
+    ];
+    expect(changesOf({ log }, NOW).map((c) => c.text)).toEqual([
+      "put under the epic task-1",
+      "moved from the epic task-1 to task-5",
+      "taken out of the epic task-5",
+    ]);
+  });
+});
+
+describe("newTaskFormView — the kind and the epic", () => {
+  it("offers work or an epic, and the team's open epics — none first — opening in the epic it was asked in", () => {
+    const b = board([task({ id: "task-1", kind: "epic", title: "Plan" }), task({ id: "task-2", kind: "epic", status: "done" }), task({ id: "task-3", kind: "epic", teamId: "team-2" })], 4);
+    const view = newTaskFormView(ROSTER, b, "team-1", "task-1");
+    expect(view.kindOptions).toEqual([{ value: "task", label: "Task" }, { value: "epic", label: "Epic" }]);
+    expect(view.epicOptions).toEqual([{ value: "", label: "No epic" }, { value: "task-1", label: "task-1 · Plan" }]);
+    expect(view.draft.parent).toBe("task-1");
+    expect(newTaskFormView(ROSTER, null, null, null).epicOptions).toEqual([{ value: "", label: "No epic" }]);
+  });
+});
+
 describe("taskDetailView — artifacts", () => {
   it("titles attached artifacts the registry knows, keeps unknown slugs, offers only what is not yet attached", () => {
     const b = board([task({ id: "task-1", artifacts: ["kd-tasks", "gone"] })]);
@@ -201,11 +297,11 @@ describe("teamOnScreen", () => {
 
 describe("newTaskFormView", () => {
   it("offers the pool first, then the roster, and says which addresses teammates use", () => {
-    const view = newTaskFormView(ROSTER);
+    const view = newTaskFormView(ROSTER, null, null, null);
     expect(view.assigneeOptions.map((o) => o.value)).toEqual(["", "lead", "impl-1", "impl-2"]);
     expect(view.addressHint).toContain("lead · impl-1 · impl-2");
-    expect(newTaskFormView([]).addressHint).toContain("unassigned");
-    expect(newTaskFormView([]).statusOptions).toEqual([
+    expect(newTaskFormView([], null, null, null).addressHint).toContain("unassigned");
+    expect(newTaskFormView([], null, null, null).statusOptions).toEqual([
       { value: "todo", label: "To do" },
       { value: "backlog", label: "Backlog" },
     ]);

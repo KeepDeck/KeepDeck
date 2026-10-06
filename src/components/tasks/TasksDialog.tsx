@@ -81,7 +81,13 @@ function WorkspaceBoard({
   });
   const panel =
     view.panel === "form" ? (
-    <NewTaskForm view={board.form} onCreate={(input) => void board.create(input)} onCancel={board.cancelCompose} />
+    <NewTaskForm
+      // Opened in another epic, the form starts over in it.
+      key={board.form.draft.parent}
+      view={board.form}
+      onCreate={(input) => void board.create(input)}
+      onCancel={board.cancelCompose}
+    />
   ) : view.panel === "detail" && board.detail ? (
     <TaskDetail
       // Keyed by the task: the panel's own state — a draft comment — must
@@ -108,6 +114,8 @@ function WorkspaceBoard({
       onOpenArtifact={board.openArtifact}
       onLabel={board.addLabel}
       onUnlabel={board.removeLabel}
+      onParent={board.setParent}
+      onNewInEpic={board.composeIn}
     />
   ) : null;
 
