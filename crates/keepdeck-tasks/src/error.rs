@@ -125,6 +125,8 @@ fn classify(message: &str) -> StoreError {
     }
 }
 
+pub type Result<T> = std::result::Result<T, StoreError>;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -154,4 +156,3 @@ mod tests {
     }
 }
 
-pub type Result<T> = std::result::Result<T, StoreError>;
