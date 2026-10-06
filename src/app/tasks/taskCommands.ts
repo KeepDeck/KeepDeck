@@ -49,6 +49,7 @@ import {
   isTaskId,
   isTaskPriority,
   TASK_STATUSES,
+  WORKER_STEPS,
   isTaskStatus,
   type CreateStatus,
   issuable,
@@ -564,13 +565,18 @@ function briefCommand(deps: TaskCommandDeps): CommandSpec {
   };
 }
 
+/** The status argument as task.update describes it — the assignee's steps
+ * read off the domain's own table, so the words cannot drift from the
+ * moves the domain allows. */
+export const STATUS_ARG = `${TASK_STATUSES.join(" | ")}. Your own task: ${WORKER_STEPS.map(([from, to]) => `${from} → ${to}`).join(", ")} (a pool task is taken by starting it). Whoever hands out work also moves a task between any open statuses, accepts it (review → done), reopens a closed one into todo or backlog, and cancels. Starting work and accepting it wait for every blocker to be done or cancelled. A refused move says where the task can go from where it is`;
+
 function updateCommand(deps: TaskCommandDeps): CommandSpec {
   return {
     id: "task.update",
     title: "Change a task: move it along, reassign it, edit its fields",
     args: [
       { name: "id", type: "string", required: true, description: "The task id (task-N)" },
-      { name: "status", type: "string", description: "backlog | todo | in-progress | blocked | review | done | cancelled. One step at a time: todo → in-progress → review → done, in-progress ⇄ blocked; backlog ⇄ todo parks and unparks your own task; accepting, returning, reopening and cancelling are for whoever hands out work. A refused move says where the task can go from where it is" },
+      { name: "status", type: "string", description: STATUS_ARG },
       { name: "assignee", type: "string", description: "A role address on the team; \"pool\" to unassign" },
       { name: "priority", type: "string", description: "high | normal | low" },
       { name: "title", type: "string", description: "A new title" },

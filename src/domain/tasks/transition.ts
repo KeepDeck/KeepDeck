@@ -104,8 +104,9 @@ export type TaskRefusal =
   | { kind: "not-your-task"; assignee: string | null }
   /** A working role editing what only the lead sets. */
   | { kind: "not-yours-to-assign"; field: TaskField }
-  /** A working role accepting, returning, reopening or cancelling. */
-  | { kind: "review-not-yours" }
+  /** A working role making a move that is whoever hands out work's:
+   * accepting, reopening, cancelling, or moving a task off its ladder. */
+  | { kind: "not-yours-to-move" }
   | {
       kind: "illegal-transition";
       from: TaskStatus;
@@ -189,37 +190,57 @@ function onTeam(actor: TaskActor, teamId: string): TaskRefusal | null {
   return null;
 }
 
+/** A step an agent makes: from one status to another. */
+export type StatusStep = readonly [from: TaskStatus, to: TaskStatus];
+
 /**
- * The ladder's edges. `worker` edges are the assignee's to make (and the
- * lead's, and the user's); `acceptor` edges belong to whoever hands out
- * work. A start needs every blocker resolved — the one rule `issuable`
- * also reads, asked here of the SAME blockers.
+ * The assignee's own steps — the lead's and the user's too. A backlog task
+ * is no one's to START until it is moved to todo; one handed in for review
+ * is withdrawn by its own assignee to finish what it found missing.
  */
-const EDGES: readonly {
-  from: TaskStatus;
-  to: TaskStatus;
-  who: "worker" | "acceptor";
-  needsBlockersResolved?: true;
-}[] = [
-  // Parked and unparked like any step of one's own work — by its assignee,
-  // the lead or the user; a backlog task is no one's to START until it is
-  // moved to todo. Cancelling it stays the acceptor's, as everywhere.
-  { from: "backlog", to: "todo", who: "worker" },
-  { from: "todo", to: "backlog", who: "worker" },
-  { from: "backlog", to: "cancelled", who: "acceptor" },
-  { from: "todo", to: "in-progress", who: "worker", needsBlockersResolved: true },
-  { from: "in-progress", to: "blocked", who: "worker" },
-  { from: "blocked", to: "in-progress", who: "worker", needsBlockersResolved: true },
-  { from: "in-progress", to: "review", who: "worker" },
-  { from: "review", to: "done", who: "acceptor" },
-  { from: "review", to: "in-progress", who: "acceptor" },
-  { from: "done", to: "todo", who: "acceptor" },
-  { from: "cancelled", to: "todo", who: "acceptor" },
-  { from: "todo", to: "cancelled", who: "acceptor" },
-  { from: "in-progress", to: "cancelled", who: "acceptor" },
-  { from: "blocked", to: "cancelled", who: "acceptor" },
-  { from: "review", to: "cancelled", who: "acceptor" },
+export const WORKER_STEPS: readonly StatusStep[] = [
+  ["backlog", "todo"],
+  ["todo", "backlog"],
+  ["todo", "in-progress"],
+  ["in-progress", "blocked"],
+  ["blocked", "in-progress"],
+  ["in-progress", "review"],
+  ["review", "in-progress"],
 ];
+
+const OPEN_STATUSES = TASK_STATUSES.filter(isOpen);
+const isWorkerStep = (from: TaskStatus, to: TaskStatus) => WORKER_STEPS.some(([f, t]) => f === from && t === to);
+
+/**
+ * Every move an agent may make, and whose it is. `worker` edges are the
+ * assignee's (and the lead's, and the user's); `acceptor` edges belong to
+ * whoever hands out work, who runs the queue: any move between open
+ * statuses, acceptance from review only (done means accepted, a step of
+ * its own even for the lead's own task), cancelling anything open, and
+ * reopening a closed task into todo or the backlog (task-285).
+ */
+const EDGES: readonly { from: TaskStatus; to: TaskStatus; who: "worker" | "acceptor" }[] = [
+  ...WORKER_STEPS.map(([from, to]) => ({ from, to, who: "worker" as const })),
+  ...OPEN_STATUSES.flatMap((from) =>
+    OPEN_STATUSES.filter((to) => to !== from && !isWorkerStep(from, to)).map((to) => ({ from, to, who: "acceptor" as const })),
+  ),
+  { from: "review", to: "done", who: "acceptor" },
+  ...OPEN_STATUSES.map((from) => ({ from, to: "cancelled" as const, who: "acceptor" as const })),
+  ...(["done", "cancelled"] as const).flatMap((from) =>
+    (["todo", "backlog"] as const).map((to) => ({ from, to, who: "acceptor" as const })),
+  ),
+];
+
+/**
+ * Where an agent's move needs every blocker resolved: entering work (a
+ * start, a resume) and acceptance — a task waiting on open work is neither
+ * to be begun nor called done. The one rule `issuable` also reads, asked
+ * here of the SAME blockers. Every other move steps away from the work and
+ * is never held up by them. The user is held to neither.
+ */
+function needsBlockersResolved(from: TaskStatus, to: TaskStatus): boolean {
+  return to === "in-progress" || (from === "review" && to === "done");
+}
 
 function joined(ids: readonly string[]): string | null {
   return ids.length === 0 ? null : ids.join(",");
@@ -675,7 +696,7 @@ function moveStatus(
   const entries: TaskLogEntry[] = [];
   let assignee = task.assignee;
   if (edge.who === "acceptor") {
-    if (!mayAssign(actor)) return refuse({ kind: "review-not-yours" });
+    if (!mayAssign(actor)) return refuse({ kind: "not-yours-to-move" });
   } else if (!mayAssign(actor)) {
     // A working role: its own task, or a pool task it takes by starting.
     const role = actor.kind === "agent" ? actor.role : null;
@@ -687,7 +708,7 @@ function moveStatus(
       entries.push({ at: ctx.at, from: by, field: "assignee", was: null, now: role });
     }
   }
-  if (edge.needsBlockersResolved) {
+  if (needsBlockersResolved(edge.from, edge.to)) {
     const open = openBlockersOf(task, ctx.board);
     if (open.length > 0) return refuse({ kind: "blocked-by-open", blockers: open });
   }

@@ -126,8 +126,8 @@ export function refusalText(refusal: TaskProblem): string {
         : `that task is ${refusal.assignee}'s — you move only your own; ask ${lead} to reassign it`;
     case "not-yours-to-assign":
       return `${refusal.field} is ${lead}'s to set on this team — you may create a task for yourself or the pool, or ask ${lead}`;
-    case "review-not-yours":
-      return `accepting, returning, reopening or cancelling a task is ${lead}'s — move yours to review and say so`;
+    case "not-yours-to-move":
+      return `that move is ${lead}'s — accepting, reopening, cancelling and moving a task off its assignee's ladder (back to todo or the backlog, a pause, a block before it starts); move yours along and tell ${lead} what you need`;
     case "illegal-transition": {
       const said = `a task cannot go from ${refusal.from} to ${refusal.to}`;
       if (refusal.reachable === undefined) return said;

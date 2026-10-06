@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createCommandRegistry, type CommandArgs, type CommandSource } from "../../domain/commands";
-import { registerTaskCommands } from "./taskCommands";
+import { WORKER_STEPS } from "../../domain/tasks";
+import { STATUS_ARG, registerTaskCommands } from "./taskCommands";
 import { createTasksService } from "./tasksService";
 import { ANONYMOUS, fakeStore, from, teamedWorkspaces } from "./testSupport";
 
@@ -28,6 +29,13 @@ const IMPL1 = from("pane-2");
 const IMPL2 = from("pane-3");
 const OTHER_LEAD = from("pane-5");
 const LONER = from("pane-7");
+
+describe("task.update's status words", () => {
+  it("name every step the domain gives an assignee, read off the same table", () => {
+    for (const [from, to] of WORKER_STEPS) expect(STATUS_ARG).toContain(`${from} → ${to}`);
+    expect(STATUS_ARG).toContain("review → done");
+  });
+});
 
 describe("task commands", () => {
   it("registers eleven commands and unregisters them together", () => {
@@ -141,13 +149,18 @@ describe("task commands", () => {
     const { run, refused } = setup();
     await run("task.create", { title: "Already shipped", assignee: "impl-1" }, LEAD);
     expect(await refused("task.update", { id: "task-1", status: "done" }, LEAD)).toBe(
-      "a task cannot go from todo to done — from todo it can go to backlog, in-progress, cancelled",
+      "a task cannot go from todo to done — from todo it can go to backlog, in-progress, blocked, review, cancelled",
     );
     await run("task.update", { id: "task-1", status: "in-progress" }, IMPL1);
     await run("task.update", { id: "task-1", status: "review" }, IMPL1);
-    // Review is the lead's to accept: the worker's list is empty, and said so.
-    expect(await refused("task.update", { id: "task-1", status: "todo" }, IMPL1)).toBe(
-      "a task cannot go from review to todo, and from review no move is yours",
+    // Requeueing is the lead's: the worker hears whose move it is.
+    expect(await refused("task.update", { id: "task-1", status: "todo" }, IMPL1)).toContain("that move is lead's");
+    // Its own task withdrawn from review is the worker's.
+    expect((await run("task.update", { id: "task-1", status: "in-progress" }, IMPL1)).status).toBe("in-progress");
+    await run("task.update", { id: "task-1", status: "review" }, IMPL1);
+    await run("task.update", { id: "task-1", status: "done" }, LEAD);
+    expect(await refused("task.update", { id: "task-1", status: "in-progress" }, LEAD)).toBe(
+      "a task cannot go from done to in-progress — from done it can go to backlog, todo",
     );
   });
 

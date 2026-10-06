@@ -53,30 +53,61 @@ describe("the ladder", () => {
     expect(t.updated).toBe(5_000);
   });
 
-  it("reserves acceptance, return, reopening and cancelling for whoever hands out work", () => {
+  it("reserves acceptance, reopening and cancelling for whoever hands out work", () => {
     const inReview = task({ id: "task-1", status: "review", assignee: "impl-1" });
-    expect(refusalOf(inReview, { kind: "status", to: "done" }, impl1)).toEqual({ kind: "review-not-yours" });
-    expect(refusalOf(inReview, { kind: "status", to: "in-progress" }, impl1)).toEqual({ kind: "review-not-yours" });
+    expect(refusalOf(inReview, { kind: "status", to: "done" }, impl1)).toEqual({ kind: "not-yours-to-move" });
     expect(moved(inReview, "done", lead).status).toBe("done");
     expect(moved(inReview, "in-progress", peer1).status).toBe("in-progress");
     expect(moved(inReview, "done", USER_ACTOR).status).toBe("done");
 
-    const done = task({ id: "task-1", status: "done" });
-    expect(refusalOf(done, { kind: "status", to: "todo" }, impl1)).toEqual({ kind: "review-not-yours" });
+    const done = task({ id: "task-1", status: "done", assignee: "impl-1" });
+    expect(refusalOf(done, { kind: "status", to: "todo" }, impl1)).toEqual({ kind: "not-yours-to-move" });
     expect(moved(done, "todo", lead).status).toBe("todo");
+    expect(moved(done, "backlog", lead).status).toBe("backlog");
+    expect(moved(task({ id: "task-1", status: "cancelled" }), "backlog", lead).status).toBe("backlog");
 
     const inProgress = task({ id: "task-1", status: "in-progress", assignee: "impl-1" });
-    expect(refusalOf(inProgress, { kind: "status", to: "cancelled" }, impl1)).toEqual({ kind: "review-not-yours" });
+    expect(refusalOf(inProgress, { kind: "status", to: "cancelled" }, impl1)).toEqual({ kind: "not-yours-to-move" });
     expect(moved(inProgress, "cancelled", lead).status).toBe("cancelled");
   });
 
+  it("lets the assignee withdraw its own task from review to finish it — and no one else's", () => {
+    const inReview = task({ id: "task-1", status: "review", assignee: "impl-1" });
+    expect(moved(inReview, "in-progress", impl1).status).toBe("in-progress");
+    const theirs = task({ id: "task-1", status: "review", assignee: "impl-2" });
+    expect(refusalOf(theirs, { kind: "status", to: "in-progress" }, impl1)).toEqual({ kind: "not-your-task", assignee: "impl-2" });
+  });
+
+  it("keeps the queue the lead's: any move between open statuses, the assignee kept", () => {
+    const open = ["backlog", "todo", "in-progress", "blocked", "review"] as const;
+    for (const from of open) {
+      for (const to of open) {
+        if (from === to) continue;
+        const t = task({ id: "task-1", status: from, assignee: "impl-1" });
+        const after = moved(t, to, lead);
+        expect([from, to, after.status]).toEqual([from, to, to]);
+        // A move changes the status only: who holds it is a separate edit.
+        expect(after.assignee).toBe("impl-1");
+      }
+    }
+    // A working role keeps its ladder: no requeue, no pause, no self-block.
+    for (const [from, to] of [["in-progress", "todo"], ["review", "backlog"], ["blocked", "todo"], ["todo", "blocked"]] as const) {
+      const own = task({ id: "task-1", status: from, assignee: "impl-1" });
+      expect(refusalOf(own, { kind: "status", to }, impl1)).toEqual({ kind: "not-yours-to-move" });
+    }
+  });
+
   it("refuses every edge the table does not name, and treats no-move as no-op", () => {
+    // Acceptance from review only; a closed task reopens into todo or the
+    // backlog only; nothing moves between the two closed statuses.
     const cases: [TaskStatus, TaskStatus][] = [
-      ["todo", "review"],
       ["todo", "done"],
       ["in-progress", "done"],
-      ["blocked", "review"],
+      ["blocked", "done"],
+      ["backlog", "done"],
       ["done", "in-progress"],
+      ["done", "review"],
+      ["cancelled", "blocked"],
       ["cancelled", "done"],
       ["done", "cancelled"],
     ];
@@ -99,7 +130,7 @@ describe("the ladder", () => {
   it("an illegal move names where the task can go — for THIS actor, blockers counted", () => {
     const t = task({ id: "task-2", assignee: "impl-1" });
     expect(refusalOf(t, { kind: "status", to: "done" }, lead, ctx([t]))).toMatchObject({
-      reachable: ["backlog", "in-progress", "cancelled"],
+      reachable: ["backlog", "in-progress", "blocked", "review", "cancelled"],
     });
     // A working role may not cancel: the start and the parking are its to make.
     expect(refusalOf(t, { kind: "status", to: "done" }, impl1, ctx([t]))).toMatchObject({
@@ -176,6 +207,23 @@ describe("the ladder", () => {
     const cancelled = task({ id: "task-1", status: "cancelled" });
     expect(moved(t, "in-progress", impl1, ctx([cancelled, t])).status).toBe("in-progress");
   });
+
+  it("acceptance waits for every blocker too — every other move steps away from the work and is never held up", () => {
+    const blocker = task({ id: "task-1", status: "in-progress", assignee: "impl-2" });
+    const inReview = task({ id: "task-2", status: "review", assignee: "impl-1", blockedBy: ["task-1"] });
+    const c = ctx([blocker, inReview]);
+    expect(refusalOf(inReview, { kind: "status", to: "done" }, lead, c)).toEqual({ kind: "blocked-by-open", blockers: ["task-1"] });
+    // The person is held to nothing.
+    expect(moved(inReview, "done", USER_ACTOR, c).status).toBe("done");
+    for (const to of ["backlog", "todo", "blocked", "cancelled"] as const) {
+      expect(moved(inReview, to, lead, c).status).toBe(to);
+    }
+    // Handing in is not held up either: acceptance is where it waits.
+    const doing = task({ id: "task-2", status: "in-progress", assignee: "impl-1", blockedBy: ["task-1"] });
+    expect(moved(doing, "review", impl1, ctx([blocker, doing])).status).toBe("review");
+    const resolved = task({ id: "task-1", status: "done" });
+    expect(moved(inReview, "done", lead, ctx([resolved, inReview])).status).toBe("done");
+  });
 });
 
 describe("the backlog — work parked, not yet to be started", () => {
@@ -185,14 +233,16 @@ describe("the backlog — work parked, not yet to be started", () => {
     const parked = task({ id: "task-1", status: "backlog", assignee: "impl-1" });
     expect(moved(parked, "todo", impl1).status).toBe("todo");
     expect(reachableStatuses(parked, impl1, ctx([parked]))).toEqual(["todo"]);
-    expect(reachableStatuses(parked, lead, ctx([parked]))).toEqual(["todo", "cancelled"]);
+    expect(reachableStatuses(parked, lead, ctx([parked]))).toEqual(["todo", "in-progress", "blocked", "review", "cancelled"]);
     // Not another worker's task, nor a pool one: no one holds it to move.
     const theirs = task({ id: "task-1", status: "backlog", assignee: "impl-2" });
     expect(refusalOf(theirs, { kind: "status", to: "todo" }, impl1, ctx([theirs]))).toMatchObject({ kind: "not-your-task" });
     const pool = task({ id: "task-1", status: "backlog" });
     expect(refusalOf(pool, { kind: "status", to: "todo" }, impl1, ctx([pool]))).toMatchObject({ kind: "not-your-task" });
-    // Never started from the backlog: it is parked first moved to todo.
-    expect(refusalOf(parked, { kind: "status", to: "in-progress" }, impl1, ctx([parked]))).toMatchObject({ kind: "illegal-transition" });
+    // Its assignee never starts it from the backlog: moved to todo first.
+    // Straight into work from there is the lead's move to make.
+    expect(refusalOf(parked, { kind: "status", to: "in-progress" }, impl1, ctx([parked]))).toEqual({ kind: "not-yours-to-move" });
+    expect(moved(parked, "in-progress", lead).status).toBe("in-progress");
   });
 
   it("is created there when asked, by anyone; todo by default", () => {
@@ -235,10 +285,13 @@ describe("reachableStatuses", () => {
   it("lists, in ladder order, exactly the rungs the actor may move to", () => {
     const t = task({ id: "task-1", assignee: "impl-1" });
     expect(reachableStatuses(t, impl1, ctx([t]))).toEqual(["backlog", "in-progress"]);
-    expect(reachableStatuses(t, lead, ctx([t]))).toEqual(["backlog", "in-progress", "cancelled"]);
+    expect(reachableStatuses(t, lead, ctx([t]))).toEqual(["backlog", "in-progress", "blocked", "review", "cancelled"]);
     const inReview = task({ id: "task-1", status: "review", assignee: "impl-1" });
-    expect(reachableStatuses(inReview, lead, ctx([inReview]))).toEqual(["in-progress", "done", "cancelled"]);
-    expect(reachableStatuses(inReview, impl1, ctx([inReview]))).toEqual([]);
+    expect(reachableStatuses(inReview, lead, ctx([inReview]))).toEqual(["backlog", "todo", "in-progress", "blocked", "done", "cancelled"]);
+    expect(reachableStatuses(inReview, impl1, ctx([inReview]))).toEqual(["in-progress"]);
+    const done = task({ id: "task-1", status: "done", assignee: "impl-1" });
+    expect(reachableStatuses(done, lead, ctx([done]))).toEqual(["backlog", "todo"]);
+    expect(reachableStatuses(done, impl1, ctx([done]))).toEqual([]);
   });
 });
 
