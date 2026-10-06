@@ -83,6 +83,9 @@ fn read_board(conn: &mut SqliteConnection, board: &str) -> Result<StoredBoard> {
             comments: Vec::new(),
             log: Vec::new(),
             briefs: Vec::new(),
+            created_rev: row.created_rev,
+            comment_revs: Vec::new(),
+            log_revs: Vec::new(),
         });
     }
     let on_board = tasks::table.filter(tasks::board.eq(board)).select(tasks::uid);
@@ -129,6 +132,7 @@ fn read_board(conn: &mut SqliteConnection, board: &str) -> Result<StoredBoard> {
     for c in comments {
         if let Some(&i) = at.get(&c.uid) {
             out[i].comments.push(StoredComment { n: c.n, at: c.at, author: c.author, body: c.body });
+            out[i].comment_revs.push(c.rev);
         }
     }
     let log: Vec<LogRow> = task_log::table
@@ -139,6 +143,7 @@ fn read_board(conn: &mut SqliteConnection, board: &str) -> Result<StoredBoard> {
     for e in log {
         if let Some(&i) = at.get(&e.uid) {
             out[i].log.push(StoredLogEntry { seq: e.seq, at: e.at, author: e.author, field: e.field, was: e.was, now: e.now });
+            out[i].log_revs.push(e.rev);
         }
     }
     let briefs: Vec<BriefRow> = task_briefs::table
@@ -331,7 +336,9 @@ fn apply_board(conn: &mut SqliteConnection, change: &BoardChange, in_change: &Ha
 }
 
 fn write_task(conn: &mut SqliteConnection, board: &str, rev: i64, task: &TaskWrite, in_change: &HashSet<&str>) -> Result<()> {
-    let lives_on: Option<String> = tasks::table.find(&task.uid).select(tasks::board).first(conn).optional()?;
+    let stored: Option<(String, i64)> =
+        tasks::table.find(&task.uid).select((tasks::board, tasks::created_rev)).first(conn).optional()?;
+    let lives_on = stored.as_ref().map(|(board, _)| board.clone());
     // A task leaves its board only in a change that names that board too:
     // its rev is checked, and it moves on with the task gone from it.
     if let Some(from) = lives_on.as_deref().filter(|from| *from != board && !in_change.contains(from)) {
@@ -355,6 +362,8 @@ fn write_task(conn: &mut SqliteConnection, board: &str, rev: i64, task: &TaskWri
         created: task.created,
         updated: task.updated,
         rev,
+        // Made by this change, or kept from the one that made it.
+        created_rev: stored.map_or(rev, |(_, created)| created),
     };
     diesel::insert_into(tasks::table).values(&row).on_conflict(tasks::uid).do_update().set(&row).execute(conn)?;
 
@@ -407,10 +416,10 @@ fn write_task(conn: &mut SqliteConnection, board: &str, rev: i64, task: &TaskWri
         }
     }
     for comment in &task.comments {
-        append_comment(conn, &task.uid, comment)?;
+        append_comment(conn, &task.uid, comment, rev)?;
     }
     for entry in &task.log {
-        append_log(conn, &task.uid, entry)?;
+        append_log(conn, &task.uid, entry, rev)?;
     }
     for brief in &task.briefs {
         append_brief(conn, &task.uid, brief)?;
@@ -428,19 +437,21 @@ fn key_taken(error: diesel::result::Error, board: &str, id: &str) -> StoreError 
 }
 
 /// History is appended, never rewritten: a row already stored is either
-/// sent again exactly (no change) or a contradiction.
-fn append_comment(conn: &mut SqliteConnection, uid: &str, comment: &StoredComment) -> Result<()> {
+/// sent again exactly (no change — whatever change it landed in) or a
+/// contradiction. A new row is stamped with the change it lands in.
+fn append_comment(conn: &mut SqliteConnection, uid: &str, comment: &StoredComment, rev: i64) -> Result<()> {
     let row = CommentRow {
         uid: uid.to_string(),
         n: comment.n,
         at: comment.at,
         author: comment.author.clone(),
         body: comment.body.clone(),
+        rev,
     };
     let stored: Option<CommentRow> =
         task_comments::table.find((uid, comment.n)).select(CommentRow::as_select()).first(conn).optional()?;
     match stored {
-        Some(stored) if stored == row => Ok(()),
+        Some(stored) if CommentRow { rev, ..stored.clone() } == row => Ok(()),
         Some(_) => Err(StoreError::Constraint { detail: format!("task {uid}: comment {} is stored with other content", comment.n) }),
         None => {
             diesel::insert_into(task_comments::table).values(&row).execute(conn)?;
@@ -449,7 +460,7 @@ fn append_comment(conn: &mut SqliteConnection, uid: &str, comment: &StoredCommen
     }
 }
 
-fn append_log(conn: &mut SqliteConnection, uid: &str, entry: &StoredLogEntry) -> Result<()> {
+fn append_log(conn: &mut SqliteConnection, uid: &str, entry: &StoredLogEntry, rev: i64) -> Result<()> {
     let row = LogRow {
         uid: uid.to_string(),
         seq: entry.seq,
@@ -458,11 +469,12 @@ fn append_log(conn: &mut SqliteConnection, uid: &str, entry: &StoredLogEntry) ->
         field: entry.field.clone(),
         was: entry.was.clone(),
         now: entry.now.clone(),
+        rev,
     };
     let stored: Option<LogRow> =
         task_log::table.find((uid, entry.seq)).select(LogRow::as_select()).first(conn).optional()?;
     match stored {
-        Some(stored) if stored == row => Ok(()),
+        Some(stored) if LogRow { rev, ..stored.clone() } == row => Ok(()),
         Some(_) => Err(StoreError::Constraint { detail: format!("task {uid}: log entry {} is stored with other content", entry.seq) }),
         None => {
             // A log grows at its end only: every entry before it is there.

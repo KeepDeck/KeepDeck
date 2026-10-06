@@ -28,6 +28,9 @@ fn task(uid: &str, key: &str) -> StoredTask {
         comments: vec![],
         log: vec![],
         briefs: vec![],
+        created_rev: 0,
+        comment_revs: vec![],
+        log_revs: vec![],
     }
 }
 
@@ -197,7 +200,36 @@ fn round_trips_every_part_of_a_board() {
     let mut b = board("b1", Some("ws-1"), vec![task("u2", "task-2"), t]);
     b.relations = vec![StoredRelation { kind: "blocks".into(), from: "u2".into(), to: "u1".into(), at: 7, by: None }];
     store.import(&[b.clone()], &[]).unwrap();
-    assert_eq!(store.load("b1").unwrap(), b);
+    // Read back with the change each row landed in: moved in, so 0.
+    let mut expected = b;
+    expected.tasks[1].comment_revs = vec![0];
+    expected.tasks[1].log_revs = vec![0];
+    assert_eq!(store.load("b1").unwrap(), expected);
+}
+
+#[test]
+fn every_task_comment_and_log_entry_says_the_change_it_landed_in() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = active_store(dir.path());
+    let t = store.load("b1").unwrap().tasks[0].clone();
+    let mut w = write_of(&t, 0);
+    w.comments = vec![StoredComment { n: 1, at: 2, author: "lead".into(), body: "one".into() }];
+    store.apply(&change("r1", vec![board_change("b1", 0, 3, vec![w.clone()])])).unwrap();
+    // Sent again with one more: the first keeps its change, the new one gets this.
+    w.comments.push(StoredComment { n: 2, at: 3, author: "lead".into(), body: "two".into() });
+    w.log = vec![StoredLogEntry { seq: 0, at: 3, author: "lead".into(), field: "status".into(), was: None, now: None }];
+    let mut fresh = write_of(&task("u3", "task-3"), 2);
+    fresh.key = Some("task-3".into());
+    store.apply(&change("r2", vec![board_change("b1", 1, 4, vec![w, fresh])])).unwrap();
+    let b1 = store.load("b1").unwrap();
+    assert_eq!((b1.tasks[0].comment_revs.clone(), b1.tasks[0].log_revs.clone()), (vec![1, 2], vec![2]));
+    // Made before the move: 0; made by a change: that change, kept after.
+    assert_eq!(b1.tasks[0].created_rev, 0);
+    assert_eq!(b1.tasks[2].created_rev, 2);
+    let mut again = write_of(&b1.tasks[2], 2);
+    again.title = "renamed".into();
+    store.apply(&change("r3", vec![board_change("b1", 2, 4, vec![again])])).unwrap();
+    assert_eq!(store.load("b1").unwrap().tasks[2].created_rev, 2);
 }
 
 #[test]

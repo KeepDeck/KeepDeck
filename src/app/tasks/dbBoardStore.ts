@@ -16,7 +16,7 @@
  * nothing is read or written. The reason is the port's `writeRefusal`,
  * and the service refuses every change with it.
  */
-import { EMPTY_BOARD, decodeBoard, type TaskBoard } from "../../domain/tasks";
+import { EMPTY_BOARD, decodeBoard, type TaskBoard, type TaskLanding } from "../../domain/tasks";
 import type { Applied } from "../../ipc/generated/tasks/Applied";
 import type { ChangeSet } from "../../ipc/generated/tasks/ChangeSet";
 import type { SearchHit } from "../../ipc/generated/tasks/SearchHit";
@@ -55,8 +55,8 @@ export interface DbBoardStoreDeps {
 interface Confirmed {
   board: string;
   rev: number;
-  /** Each task's latest change number. */
-  taskRevs: Map<string, number>;
+  /** When each task's parts landed, by the board's change numbers. */
+  landings: Map<string, TaskLanding>;
   held: TaskBoard;
   /** A request sent whose answer never came: sent again before any other. */
   pending: { change: ChangeSet; target: TaskBoard } | null;
@@ -104,8 +104,17 @@ export function createDbBoardStore(deps: DbBoardStoreDeps): DbBoardStore {
     place.held = target;
     place.pending = null;
     for (const part of change.boards.filter((b) => b.board === place.board)) {
-      for (const task of part.tasks) place.taskRevs.set(task.uid, rev);
-      for (const uid of part.removed) place.taskRevs.delete(uid);
+      for (const task of part.tasks) {
+        const was = place.landings.get(task.uid);
+        place.landings.set(task.uid, {
+          created: was?.created ?? rev,
+          rev,
+          // What the change carried is what it appended.
+          comments: [...(was?.comments ?? []), ...task.comments.map(() => rev)],
+          log: [...(was?.log ?? []), ...task.log.map(() => rev)],
+        });
+      }
+      for (const uid of part.removed) place.landings.delete(uid);
     }
   };
 
@@ -117,7 +126,7 @@ export function createDbBoardStore(deps: DbBoardStoreDeps): DbBoardStore {
     if (!read.ok) throw new Error(decodeFaultText(read.fault, "the database"));
     place.board = stored.board;
     place.rev = stored.rev;
-    place.taskRevs = revsOf(stored);
+    place.landings = landingsOf(stored);
     place.held = read.board;
   };
 
@@ -205,7 +214,7 @@ export function createDbBoardStore(deps: DbBoardStoreDeps): DbBoardStore {
       }
       const read = boardFromStored(stored, deps.mintUid);
       if (!read.ok) return { kind: "unreadable", error: decodeFaultText(read.fault, "the database") };
-      confirmed.set(workspaceId, { board: stored.board, rev: stored.rev, taskRevs: revsOf(stored), held: read.board, pending: null });
+      confirmed.set(workspaceId, { board: stored.board, rev: stored.rev, landings: landingsOf(stored), held: read.board, pending: null });
       return { kind: "board", board: read.board };
     },
     async write({ workspaceId, board }) {
@@ -219,8 +228,8 @@ export function createDbBoardStore(deps: DbBoardStoreDeps): DbBoardStore {
         if (read && !read.ok) throw new Error(decodeFaultText(read.fault, "the database"));
         place =
           stored && read?.ok
-            ? { board: stored.board, rev: stored.rev, taskRevs: revsOf(stored), held: read.board, pending: null }
-            : { board: deps.mintUid(), rev: 0, taskRevs: new Map(), held: EMPTY_BOARD, pending: null };
+            ? { board: stored.board, rev: stored.rev, landings: landingsOf(stored), held: read.board, pending: null }
+            : { board: deps.mintUid(), rev: 0, landings: new Map(), held: EMPTY_BOARD, pending: null };
         confirmed.set(workspaceId, place);
       }
       if (place.pending) {
@@ -251,7 +260,7 @@ export function createDbBoardStore(deps: DbBoardStoreDeps): DbBoardStore {
     },
     revisions(workspaceId) {
       const place = confirmed.get(workspaceId);
-      return place ? { board: place.rev, tasks: place.taskRevs } : null;
+      return place ? { board: place.rev, tasks: place.landings } : null;
     },
   };
 }
@@ -262,7 +271,9 @@ function recoveryOf(status: StoreStatus): Recovery | null {
   return status.kind === "damaged" || status.kind === "missing" ? { kind: status.kind, backups: status.backups } : null;
 }
 
-/** Each task's change number, as the database last said. */
-function revsOf(stored: StoredBoard): Map<string, number> {
-  return new Map(stored.tasks.map((task) => [task.uid, task.rev]));
+/** When each task's parts landed, as the database last said. */
+function landingsOf(stored: StoredBoard): Map<string, TaskLanding> {
+  return new Map(
+    stored.tasks.map((task) => [task.uid, { created: task.createdRev, rev: task.rev, comments: task.commentRevs, log: task.logRevs }]),
+  );
 }

@@ -29,4 +29,11 @@ artifacts: Array<string>, comments: Array<StoredComment>, log: Array<StoredLogEn
 /**
  * Earlier versions of the brief, oldest first; the current one is `body`.
  */
-briefs: Array<StoredBrief>, };
+briefs: Array<StoredBrief>,
+/**
+ * Read only — what "changed since a rev" is told from; ignored when
+ * boards are written whole. The board change that made the task
+ * (0: moved in from the files), and the one each comment and each
+ * log entry landed in, in their order.
+ */
+createdRev: number, commentRevs: number[], logRevs: number[], };

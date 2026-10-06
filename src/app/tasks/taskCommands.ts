@@ -38,6 +38,8 @@ import {
   TASK_FIELDS,
   acceptsWork,
   awaitingDecision,
+  changeSince,
+  sinceMark,
   isOpen,
   agentActor,
   blockerIdsOf,
@@ -500,7 +502,7 @@ function historyCommand(deps: TaskCommandDeps): CommandSpec {
 function sinceCommand(deps: TaskCommandDeps): CommandSpec {
   return {
     id: "task.since",
-    title: `What changed on the team's board since a mark: the tasks touched since then, as task.list rows. The mark is a rev — every task answer carries the board's, exact — or a time (ISO 8601, "2026-10-06T10:00"), which counts a task changed at that moment as changed. ${MORE_NOTE}`,
+    title: `What changed on the team's board since a mark: the tasks touched since then, as task.list rows, each with what changed — changed.new (made since), changed.comments (how many it gained), changed.fields (what its log says moved). The mark is a rev — every task answer carries the board's, exact — or a time (ISO 8601, "2026-10-06T10:00"), which counts a task changed at that moment as changed. ${MORE_NOTE}`,
     args: [
       { name: "since", type: "string", required: true, description: "A rev from an earlier answer, or an ISO time" },
       TEAM_ARG,
@@ -508,25 +510,18 @@ function sinceCommand(deps: TaskCommandDeps): CommandSpec {
     run: async (args, source) => {
       const who = caller(source, deps);
       const team = teamFor(args, who);
-      const mark = str(args, "since") ?? "";
+      const text = str(args, "since") ?? "";
+      const mark = sinceMark(text);
+      if (mark === null) throw new Error(`"${text}" is neither a rev nor a time — give a rev from an earlier answer, or an ISO time`);
       const board = await boardOf(deps, who.workspace.id);
       const revisions = deps.tasks.revisions(who.workspace.id);
-      const changed = changedSince(board, team, mark, revisions?.tasks ?? new Map());
-      return { count: changed.length, tasks: changed.map((task) => row(task, board)), rev: revisions?.board ?? null };
+      const changed = tasksOfTeam(board, team.id).flatMap((task) => {
+        const change = changeSince(task, mark, revisions?.tasks.get(task.uid));
+        return change === null ? [] : [{ ...row(task, board), changed: change }];
+      });
+      return { count: changed.length, tasks: changed, rev: revisions?.board ?? null };
     },
   };
-}
-
-/** The team's tasks changed after `mark` — a rev (exact) or a time (from it on). */
-function changedSince(board: TaskBoard, team: Team, mark: string, revs: ReadonlyMap<string, number>): Task[] {
-  const tasks = tasksOfTeam(board, team.id);
-  if (/^\d+$/.test(mark)) {
-    const rev = Number(mark);
-    return tasks.filter((task) => (revs.get(task.uid) ?? 0) > rev);
-  }
-  const at = Date.parse(mark);
-  if (Number.isNaN(at)) throw new Error(`"${mark}" is neither a rev nor a time — give a rev from an earlier answer, or an ISO time`);
-  return tasks.filter((task) => task.updated >= at);
 }
 
 function briefCommand(deps: TaskCommandDeps): CommandSpec {

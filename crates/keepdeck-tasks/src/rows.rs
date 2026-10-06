@@ -33,6 +33,7 @@ pub struct TaskRow {
     pub created: i64,
     pub updated: i64,
     pub rev: i64,
+    pub created_rev: i64,
 }
 
 #[derive(Queryable, Selectable, Insertable, Debug, Clone, PartialEq)]
@@ -67,6 +68,7 @@ pub struct CommentRow {
     pub at: i64,
     pub author: String,
     pub body: String,
+    pub rev: i64,
 }
 
 #[derive(Queryable, Selectable, Insertable, Debug, Clone, PartialEq)]
@@ -79,6 +81,7 @@ pub struct LogRow {
     pub field: String,
     pub was: Option<String>,
     pub now: Option<String>,
+    pub rev: i64,
 }
 
 #[derive(Queryable, Selectable, Insertable, Debug, Clone, PartialEq)]

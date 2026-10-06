@@ -46,6 +46,22 @@ describe("createDbBoardStore — the board reaches the database", () => {
     expect(db.requests[1].boards[0].expectedRev).toBe(1);
   });
 
+  it("knows when each part of a task landed: as the database read it, then as each write lands", async () => {
+    const { store } = await open();
+    const b = await readBoard(store);
+    const uid = b.tasks[0].uid;
+    // Moved in from the files: before every change.
+    expect(store.revisions("ws-1")?.tasks.get(uid)).toEqual({ created: 0, rev: 0, comments: [], log: [] });
+    const once = comment(b, "one");
+    await store.write({ workspaceId: "ws-1", board: once });
+    const twice = comment(once, "two");
+    await store.write({ workspaceId: "ws-1", board: twice });
+    expect(store.revisions("ws-1")?.tasks.get(uid)).toEqual({ created: 0, rev: 2, comments: [1, 2], log: [] });
+    const made = { ...twice, tasks: [...twice.tasks, { ...b.tasks[0], uid: "uid-new", id: "task-9", comments: [] }], nextId: 10 };
+    await store.write({ workspaceId: "ws-1", board: made });
+    expect(store.revisions("ws-1")?.tasks.get("uid-new")?.created).toBe(3);
+  });
+
   it("carries a refused write's change in the next one", async () => {
     const { db, store } = await open();
     const b = await readBoard(store);

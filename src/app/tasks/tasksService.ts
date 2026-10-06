@@ -36,6 +36,7 @@ import {
   type TaskChange,
   type TaskRefusal,
   type TaskStatus,
+  type TaskLanding,
 } from "../../domain/tasks";
 import { describeError, log } from "../../ipc/log";
 import { mintTaskUid } from "../ids";
@@ -93,7 +94,8 @@ export interface BoardHit {
 
 export interface BoardRevisions {
   board: number;
-  tasks: ReadonlyMap<string, number>;
+  /** When each task's parts landed, by uid. */
+  tasks: ReadonlyMap<string, TaskLanding>;
 }
 
 export interface TasksServiceDeps {

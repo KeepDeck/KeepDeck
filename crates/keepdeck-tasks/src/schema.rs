@@ -67,6 +67,7 @@ diesel::table! {
         at -> BigInt,
         author -> Text,
         body -> Text,
+        rev -> BigInt,
     }
 }
 
@@ -95,6 +96,7 @@ diesel::table! {
         field -> Text,
         was -> Nullable<Text>,
         now -> Nullable<Text>,
+        rev -> BigInt,
     }
 }
 
@@ -114,6 +116,7 @@ diesel::table! {
         created -> BigInt,
         updated -> BigInt,
         rev -> BigInt,
+        created_rev -> BigInt,
     }
 }
 

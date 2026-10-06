@@ -32,7 +32,10 @@ CREATE TABLE tasks (
     author    TEXT NOT NULL,
     created   BIGINT NOT NULL,
     updated   BIGINT NOT NULL,
-    rev       BIGINT NOT NULL
+    -- The board change that last touched it, and the one that made it
+    -- (0: moved in from the files): what "changed since" is told from.
+    rev         BIGINT NOT NULL,
+    created_rev BIGINT NOT NULL
 );
 CREATE INDEX tasks_by_board ON tasks(board, board_pos);
 CREATE INDEX tasks_by_rev ON tasks(board, rev);
@@ -77,6 +80,8 @@ CREATE TABLE task_comments (
     at     BIGINT NOT NULL,
     author TEXT NOT NULL,
     body   TEXT NOT NULL,
+    -- The board change it landed in (0: moved in from the files).
+    rev    BIGINT NOT NULL,
     PRIMARY KEY (uid, n)
 ) WITHOUT ROWID;
 
@@ -88,6 +93,8 @@ CREATE TABLE task_log (
     field  TEXT NOT NULL,
     was    TEXT,
     "now"  TEXT,
+    -- The board change it landed in (0: moved in from the files).
+    rev    BIGINT NOT NULL,
     PRIMARY KEY (uid, seq)
 ) WITHOUT ROWID;
 

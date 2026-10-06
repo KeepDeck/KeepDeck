@@ -142,6 +142,8 @@ fn write_boards(conn: &mut SqliteConnection, boards_in: &[StoredBoard]) -> Resul
                     created: task.created,
                     updated: task.updated,
                     rev: task.rev,
+                    // Moved in, not made by a change: every mark is after.
+                    created_rev: 0,
                 })
                 .execute(conn)
                 .map_err(|e| named(e, what(format!("uid {}", task.uid))))?;
@@ -169,7 +171,7 @@ fn write_boards(conn: &mut SqliteConnection, boards_in: &[StoredBoard]) -> Resul
             }
             for c in &task.comments {
                 diesel::insert_into(task_comments::table)
-                    .values(&CommentRow { uid: task.uid.clone(), n: c.n, at: c.at, author: c.author.clone(), body: c.body.clone() })
+                    .values(&CommentRow { uid: task.uid.clone(), n: c.n, at: c.at, author: c.author.clone(), body: c.body.clone(), rev: 0 })
                     .execute(conn)
                     .map_err(|e| named(e, what(format!("comment {}", c.n))))?;
                 search::index_comment(conn, &task.uid, c.n, &c.body)?;
@@ -187,6 +189,7 @@ fn write_boards(conn: &mut SqliteConnection, boards_in: &[StoredBoard]) -> Resul
                         field: e.field.clone(),
                         was: e.was.clone(),
                         now: e.now.clone(),
+                        rev: 0,
                     })
                     .execute(conn)?;
             }

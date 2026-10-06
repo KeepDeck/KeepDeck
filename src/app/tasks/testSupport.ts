@@ -1,7 +1,7 @@
 import type { Pane, Team, Workspace } from "../../domain/deck";
 import type { CommandSource } from "../../domain/commands";
 import { createWorkspaceInstance } from "../../domain/workspaceInstance";
-import { decodeBoard, encodeBoard } from "../../domain/tasks";
+import { decodeBoard, encodeBoard, type TaskLanding } from "../../domain/tasks";
 import { mintSequence } from "../../domain/tasks/testSupport";
 import { decodeFaultText } from "./refusalText";
 import type { TasksStorePort } from "./tasksService";
@@ -22,7 +22,7 @@ export function fakeStore(initial: Record<string, string> = {}) {
   let holdDrop: Promise<void> | null = null;
   const mint = mintSequence("uid-read-");
   /** Each write's change number, every task it carried taking it. */
-  const revs = new Map<string, { board: number; tasks: Map<string, number> }>();
+  const revs = new Map<string, { board: number; tasks: Map<string, TaskLanding> }>();
   const port: TasksStorePort = {
     read: async ({ workspaceId }) => {
       const json = files.get(workspaceId);
@@ -39,11 +39,21 @@ export function fakeStore(initial: Record<string, string> = {}) {
       const json = encodeBoard(board);
       const before = files.get(workspaceId);
       const was = before === undefined ? null : decodeBoard(before, mint);
-      const held = revs.get(workspaceId) ?? { board: 0, tasks: new Map<string, number>() };
+      const held = revs.get(workspaceId) ?? { board: 0, tasks: new Map<string, TaskLanding>() };
       held.board += 1;
+      const rev = held.board;
       for (const task of board.tasks) {
         const old = was?.ok ? was.board.tasks.find((t) => t.uid === task.uid) : undefined;
-        if (!old || JSON.stringify(old) !== JSON.stringify(task)) held.tasks.set(task.uid, held.board);
+        if (old && JSON.stringify(old) === JSON.stringify(task)) continue;
+        // What was on the file before any write here landed before rev 1.
+        const landed = held.tasks.get(task.uid);
+        const grown = (prev: readonly number[], length: number) => [...prev, ...new Array<number>(length - prev.length).fill(rev)];
+        held.tasks.set(task.uid, {
+          created: landed?.created ?? (old ? 0 : rev),
+          rev,
+          comments: grown(landed?.comments ?? new Array<number>(old?.comments.length ?? 0).fill(0), task.comments.length),
+          log: grown(landed?.log ?? new Array<number>(old?.log.length ?? 0).fill(0), task.log.length),
+        });
       }
       revs.set(workspaceId, held);
       writes.push({ workspaceId, json });

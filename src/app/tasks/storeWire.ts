@@ -129,6 +129,10 @@ export function storedFromBoard(
         now: entry.now,
       })),
       briefs: task.briefs.map((brief) => ({ v: brief.v, body: brief.body })),
+      // Read only: the store stamps what lands.
+      createdRev: 0,
+      commentRevs: [],
+      logRevs: [],
     })),
     relations: board.relations.map((relation) => ({
       kind: relation.kind,

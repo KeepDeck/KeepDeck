@@ -66,6 +66,16 @@ pub struct StoredTask {
     pub log: Vec<StoredLogEntry>,
     /// Earlier versions of the brief, oldest first; the current one is `body`.
     pub briefs: Vec<StoredBrief>,
+    /// Read only — what "changed since a rev" is told from; ignored when
+    /// boards are written whole. The board change that made the task
+    /// (0: moved in from the files), and the one each comment and each
+    /// log entry landed in, in their order.
+    #[ts(type = "number")]
+    pub created_rev: i64,
+    #[ts(type = "number[]")]
+    pub comment_revs: Vec<i64>,
+    #[ts(type = "number[]")]
+    pub log_revs: Vec<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]

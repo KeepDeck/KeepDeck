@@ -255,6 +255,20 @@ describe("task commands", () => {
     expect(await refused("task.since", { since: "yesterday-ish" }, LEAD)).toContain("neither a rev nor a time");
   });
 
+  it("since says what changed after each mark: the comments gained, the fields moved, a task new since", async () => {
+    const { run } = setup();
+    await run("task.create", { title: "a" }, LEAD);
+    const before = (await run("task.list", { status: "todo" }, LEAD)).rev as number;
+    await run("task.comment", { id: "task-1", body: "one" }, LEAD);
+    const between = (await run("task.list", { status: "todo" }, LEAD)).rev as number;
+    await run("task.comment", { id: "task-1", body: "two" }, LEAD);
+    await run("task.update", { id: "task-1", priority: "high" }, LEAD);
+    const changed = (mark: number) => run("task.since", { since: String(mark) }, LEAD).then((a) => (a.tasks as { changed: unknown }[])[0]?.changed);
+    expect(await changed(before - 1)).toEqual({ new: true, comments: 2, fields: ["priority"] });
+    expect(await changed(before)).toEqual({ new: false, comments: 2, fields: ["priority"] });
+    expect(await changed(between)).toEqual({ new: false, comments: 1, fields: ["priority"] });
+  });
+
   it("brief is the board at a glance for whoever hands out work — and refuses a working role", async () => {
     const { run, refused } = setup();
     await run("task.create", { title: "a", assignee: "impl-1" }, LEAD);
