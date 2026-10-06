@@ -7,14 +7,15 @@ describe("migrationLines — the move, board by board, in the log", () => {
       migrationLines({
         kind: "active",
         moved: [
-          { workspace: "ws-1", attached: true, adapted: false },
-          { workspace: "ws-5", attached: true, adapted: true },
-          { workspace: "ws-9", attached: false, adapted: false },
+          { workspace: "ws-1", attached: true, adapted: false, dropped: [] },
+          { workspace: "ws-5", attached: true, adapted: true, dropped: [{ id: "task-3", blockers: ["task-3", "task-40"] }] },
+          { workspace: "ws-9", attached: false, adapted: false, dropped: [] },
         ],
         retireError: null,
       }),
     ).toEqual([
       { level: "info", text: "board of ws-1 moved into the task database" },
+      { level: "warn", text: "board of ws-5: task-3's blockers task-3, task-40 held nothing (itself, or not on the board) — let go" },
       { level: "info", text: "board of ws-5 moved into the task database, adapted from an older shape" },
       { level: "warn", text: "board of ws-9 moved into the task database UNATTACHED — the deck has no such workspace; kept, shown nowhere" },
     ]);

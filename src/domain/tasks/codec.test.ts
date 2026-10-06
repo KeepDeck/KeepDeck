@@ -332,6 +332,15 @@ describe("board codec — brief versions", () => {
     }
   });
 
+  it("refuses versions without their number, or a number without its versions — either reading would let one go", () => {
+    const { bodyV: _v, briefs: _b, ...bare } = encodedTask("task-1") as Record<string, unknown>;
+    const read = (extra: Record<string, unknown>) =>
+      decodeBoard(JSON.stringify({ nextId: 2, relations: [], tasks: [{ ...bare, body: "now", log: [], ...extra }] }), mint());
+    expect(read({ briefs: [{ v: 1, body: "earlier brief" }] })).toMatchObject({ ok: false, fault: { kind: "bad-task", id: "task-1" } });
+    expect(read({ bodyV: 2 })).toMatchObject({ ok: false, fault: { kind: "bad-task", id: "task-1" } });
+    expect(read({}).ok).toBe(true);
+  });
+
   it("refuses an old brief edit that kept no previous brief — it cannot be told apart from a lost one", () => {
     const log = [{ at: 1, from: "lead", field: "body", was: null, now: null }];
     const read = decodeBoard(JSON.stringify({ nextId: 2, relations: [], tasks: [{ ...encodedTask("task-1"), log }] }), mint());

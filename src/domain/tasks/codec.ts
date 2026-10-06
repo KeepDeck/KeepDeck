@@ -313,6 +313,10 @@ function decodeTask(raw: unknown, legacy: boolean, mintUid: () => string): TaskR
   // A task written before brief versions kept each previous brief whole
   // in its log: those texts become versions now, and the log says which
   // version replaced which.
+  // The two come together or not at all: versions without their number
+  // (or a number without its versions) is a hand edit, and reading it
+  // either way would let something go.
+  if ((raw.bodyV === undefined) !== (raw.briefs === undefined)) return fail("bodyV and briefs (one without the other)");
   const briefs = raw.bodyV === undefined ? versionsFromLog(raw.log as TaskLogEntry[]) : readBriefs(raw.bodyV, raw.briefs);
   if (!briefs.ok) return fail(briefs.field);
   return {

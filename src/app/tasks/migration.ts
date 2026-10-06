@@ -14,7 +14,7 @@
  * is counted through; and the imported boards are read back from the
  * database through the same validator and compared whole.
  */
-import { decodeBoard, encodeBoard, type TaskBoard } from "../../domain/tasks";
+import { decodeBoard, encodeBoard, type DroppedBlockers, type TaskBoard } from "../../domain/tasks";
 import type { LegacyBoard } from "../../ipc/generated/tasks/LegacyBoard";
 import type { MigrationSource } from "../../ipc/generated/tasks/MigrationSource";
 import type { StoreStatus } from "../../ipc/generated/tasks/StoreStatus";
@@ -52,6 +52,9 @@ export interface MovedBoard {
   attached: boolean;
   /** Its file was read in an older or hand-edited shape and adapted. */
   adapted: boolean;
+  /** Blockers an old file named that held nothing (a task itself, a key
+   * not on the board) — let go by the codec, said in the log. */
+  dropped: readonly DroppedBlockers[];
 }
 
 export interface MigrationDeps {
@@ -69,13 +72,13 @@ export async function migrateBoards(port: MigrationPort, deps: MigrationDeps): P
   if (status.migration === "pending") await port.discard();
 
   const files = await port.legacyBoards();
-  const read: { file: LegacyBoard; board: TaskBoard; adapted: boolean }[] = [];
+  const read: { file: LegacyBoard; board: TaskBoard; adapted: boolean; dropped: readonly DroppedBlockers[] }[] = [];
   for (const file of files) {
     const decoded = decodeBoard(file.json, deps.mintUid);
     if (!decoded.ok) return { kind: "failed", reason: `${file.workspace}: ${decodeFaultText(decoded.fault)}` };
-    const lost = countsLost(file.json, decoded.board);
+    const lost = countsLost(file.json, decoded.board, decoded.dropped);
     if (lost !== null) return { kind: "failed", reason: `${file.workspace}: reading the board lost ${lost}` };
-    read.push({ file, board: decoded.board, adapted: decoded.migrated || encodeBoard(decoded.board) !== file.json });
+    read.push({ file, board: decoded.board, adapted: decoded.migrated || encodeBoard(decoded.board) !== file.json, dropped: decoded.dropped });
   }
 
   const known = new Set(deps.workspaces);
@@ -121,7 +124,7 @@ export async function migrateBoards(port: MigrationPort, deps: MigrationDeps): P
   }
   return {
     kind: "active",
-    moved: read.map(({ file, adapted }) => ({ workspace: file.workspace, attached: known.has(file.workspace), adapted })),
+    moved: read.map(({ file, adapted, dropped }) => ({ workspace: file.workspace, attached: known.has(file.workspace), adapted, dropped })),
     retireError: await retire(port),
   };
 }
@@ -138,19 +141,31 @@ async function retire(port: MigrationPort): Promise<string | null> {
 
 /**
  * What the read let go of, counted against the file itself: its tasks,
- * and each task's comments and log entries (a brief edit's entry becomes
- * a version AND stays a log line, so the count holds). Null when nothing
- * was lost. The codec refuses what it does not know; this catches what
- * it would read and drop.
+ * and each task's comments, log entries (a brief edit's entry becomes a
+ * version AND stays a log line, so the count holds) and brief versions
+ * (as written, or one per brief edit of an old log); and of an old
+ * file's blockers, each one became a link or is named in `dropped`.
+ * Null when nothing was lost. The codec refuses what it does not know;
+ * this catches what it would read and drop.
  */
-export function countsLost(json: string, board: TaskBoard): string | null {
-  const raw = JSON.parse(json) as { tasks?: { id?: unknown; comments?: unknown[]; log?: unknown[] }[] };
+export function countsLost(json: string, board: TaskBoard, dropped: readonly DroppedBlockers[]): string | null {
+  const raw = JSON.parse(json) as {
+    tasks?: { comments?: unknown[]; log?: { field?: unknown }[]; briefs?: unknown[]; blockedBy?: unknown[] }[];
+  };
   const tasks = raw.tasks ?? [];
   if (tasks.length !== board.tasks.length) return `tasks (${tasks.length} in the file, ${board.tasks.length} read)`;
   for (const [i, task] of tasks.entries()) {
     const kept = board.tasks[i];
     if ((task.comments?.length ?? 0) !== kept.comments.length) return `comments of ${kept.id}`;
     if ((task.log?.length ?? 0) !== kept.log.length) return `log entries of ${kept.id}`;
+    const versions = task.briefs?.length ?? (task.log ?? []).filter((entry) => entry.field === "body").length;
+    if (versions !== kept.briefs.length) return `brief versions of ${kept.id}`;
+    if (task.blockedBy !== undefined) {
+      const named = new Set(task.blockedBy).size;
+      const linked = board.relations.filter((r) => r.kind === "blocks" && r.to === kept.uid).length;
+      const letGo = dropped.find((d) => d.id === kept.id)?.blockers.length ?? 0;
+      if (named !== linked + letGo) return `blockers of ${kept.id}`;
+    }
   }
   return null;
 }

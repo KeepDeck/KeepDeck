@@ -19,6 +19,9 @@ export function migrationLines(outcome: MigrationOutcome): { level: "info" | "wa
     lines.push({ level: "warn", text: `the board files left could not all become copies (tried again at the next enable): ${outcome.retireError}` });
   }
   for (const board of outcome.moved) {
+    for (const { id, blockers } of board.dropped) {
+      lines.push({ level: "warn", text: `board of ${board.workspace}: ${id}'s blockers ${blockers.join(", ")} held nothing (itself, or not on the board) — let go` });
+    }
     lines.push({
       level: board.attached ? "info" : "warn",
       text: board.attached

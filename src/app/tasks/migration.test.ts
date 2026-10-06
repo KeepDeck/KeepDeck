@@ -44,8 +44,8 @@ describe("migrateBoards — every board at once, nothing lost", () => {
     expect(outcome).toEqual({
       kind: "active",
       moved: [
-        { workspace: "ws-1", attached: true, adapted: false },
-        { workspace: "ws-2", attached: true, adapted: false },
+        { workspace: "ws-1", attached: true, adapted: false, dropped: [] },
+        { workspace: "ws-2", attached: true, adapted: false, dropped: [] },
       ],
       retireError: null,
     });
@@ -98,7 +98,7 @@ describe("migrateBoards — every board at once, nothing lost", () => {
   it("keeps a board whose workspace the deck no longer has — unattached, and says so", async () => {
     const db = testDatabase([file("ws-9", written(current()))]);
     const outcome = await migrateBoards(db.port, deps(["ws-1"]));
-    expect(outcome).toEqual({ kind: "active", moved: [{ workspace: "ws-9", attached: false, adapted: false }], retireError: null });
+    expect(outcome).toEqual({ kind: "active", moved: [{ workspace: "ws-9", attached: false, adapted: false, dropped: [] }], retireError: null });
     expect(db.boards()[0].workspace).toBeNull();
   });
 
@@ -147,16 +147,47 @@ describe("migrateBoards — every board at once, nothing lost", () => {
     expect(db.migration()).toBe("none");
   });
 
-  it("counts every task, comment and log entry of the file through the read", () => {
+  it("counts every task, comment, log entry and brief version of the file through the read", () => {
     const json = written(current());
     const read = decodeBoard(json, mintSequence());
     if (!read.ok) throw new Error("does not decode");
-    expect(countsLost(json, read.board)).toBeNull();
+    expect(countsLost(json, read.board, [])).toBeNull();
     const lostComment = { ...read.board, tasks: read.board.tasks.map((t, i) => (i === 0 ? { ...t, comments: [] } : t)) };
-    expect(countsLost(json, lostComment)).toBe("comments of task-1");
+    expect(countsLost(json, lostComment, [])).toBe("comments of task-1");
     const lostEntry = { ...read.board, tasks: read.board.tasks.map((t, i) => (i === 0 ? { ...t, log: [] } : t)) };
-    expect(countsLost(json, lostEntry)).toBe("log entries of task-1");
-    expect(countsLost(json, { ...read.board, tasks: read.board.tasks.slice(1) })).toBe("tasks (2 in the file, 1 read)");
+    expect(countsLost(json, lostEntry, [])).toBe("log entries of task-1");
+    const edited = written(board([task({ id: "task-1", bodyV: 2, briefs: [{ v: 1, body: "first" }] })], 2));
+    const readEdited = decodeBoard(edited, mintSequence());
+    if (!readEdited.ok) throw new Error("does not decode");
+    expect(countsLost(edited, readEdited.board, [])).toBeNull();
+    const lostBrief = { ...readEdited.board, tasks: readEdited.board.tasks.map((t) => ({ ...t, briefs: [] })) };
+    expect(countsLost(edited, lostBrief, [])).toBe("brief versions of task-1");
+    expect(countsLost(json, { ...read.board, tasks: read.board.tasks.slice(1) }, [])).toBe("tasks (2 in the file, 1 read)");
+  });
+
+  it("holds an old file's blockers to account: each one a link, or named as let go", async () => {
+    const json = JSON.stringify({
+      nextId: 3,
+      tasks: [
+        {
+          id: "task-1", teamId: "team-1", title: "T", body: "", status: "todo", priority: "normal", assignee: null, author: "lead",
+          blockedBy: ["task-2", "task-1", "task-9"], artifacts: [], comments: [], log: [], created: 1, updated: 1,
+        },
+        {
+          id: "task-2", teamId: "team-1", title: "U", body: "", status: "done", priority: "normal", assignee: null, author: "lead",
+          blockedBy: [], artifacts: [], comments: [], log: [], created: 1, updated: 1,
+        },
+      ],
+    });
+    const read = decodeBoard(json, mintSequence());
+    if (!read.ok) throw new Error("does not decode");
+    expect(countsLost(json, read.board, read.dropped)).toBeNull();
+    // A link let go without being named is a loss.
+    expect(countsLost(json, { ...read.board, relations: [] }, read.dropped)).toBe("blockers of task-1");
+    expect(countsLost(json, read.board, [])).toBe("blockers of task-1");
+    // And the move says which.
+    const outcome = await migrateBoards(testDatabase([file("ws-1", json)]).port, deps());
+    expect(outcome).toMatchObject({ kind: "active", moved: [{ workspace: "ws-1", dropped: [{ id: "task-1", blockers: ["task-1", "task-9"] }] }] });
   });
 
   it("does not touch a database it cannot use", async () => {
