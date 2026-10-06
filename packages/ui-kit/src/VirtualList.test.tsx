@@ -299,6 +299,24 @@ describe("VirtualList", () => {
       expect(list().scrollTop).toBe(5 * ROW);
     });
 
+    it("keeps no foot through a spell of not following, even when rows arrive meanwhile", () => {
+      restore = pinListViewport("list", 200, 300, ROW);
+      renderThread(thread);
+      scrollTo(30 * ROW - 200);
+      const once = [...thread, "row 30"];
+      renderThread(once);
+      scrollTo(31 * ROW - 200);
+      renderThread(once, undefined, false);
+      scrollTo(5 * ROW);
+      // A row arrives while it does not follow; then it follows again with those rows.
+      const twice = [...once, "row 31"];
+      renderThread(twice, undefined, false);
+      renderThread(twice, undefined, true);
+      expect(list().scrollTop).toBe(5 * ROW);
+      renderThread([...twice, "row 32"]);
+      expect(list().scrollTop).toBe(5 * ROW);
+    });
+
     it("follows a second row arriving while the first is still measured toward the foot", () => {
       // Guessed 20 tall, measured 100: the first follow lands short of the real foot.
       restore = pinListViewport("list", 200, 300, 100);

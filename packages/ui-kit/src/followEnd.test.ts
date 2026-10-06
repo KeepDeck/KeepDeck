@@ -54,6 +54,7 @@ describe("the hold at the foot", () => {
   it("is dropped whole while the list does not follow, and kept while it does", () => {
     expect(holdWhileOff({ on: false, pinned: true, atFoot: true })).toEqual({ pinned: false, atFoot: false });
     expect(holdWhileOff({ on: true, pinned: true, atFoot: false })).toEqual({ pinned: true, atFoot: false });
+    expect(holdWhileOff({ on: true, pinned: false, atFoot: true })).toEqual({ pinned: false, atFoot: true });
   });
 
   it("counts the view at the foot while held, whatever the geometry says; otherwise as read", () => {
