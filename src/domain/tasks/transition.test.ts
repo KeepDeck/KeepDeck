@@ -255,6 +255,7 @@ describe("who may move a task where — the whole table", () => {
       (to === "in-progress" && from !== "review") || (from === "review" && to === "done");
     for (const from of TASK_STATUSES) {
       expect([from, reach(from, lead, true)]).toEqual([from, LEAD[from].filter((to) => !gated(from, to))]);
+      expect([from, reach(from, peer1, true)]).toEqual([from, LEAD[from].filter((to) => !gated(from, to))]);
       expect([from, reach(from, impl1, true)]).toEqual([from, OWN[from].filter((to) => !gated(from, to))]);
     }
   });
@@ -268,6 +269,9 @@ describe("who holds a task after a move", () => {
       expect(started.log[0]).toMatchObject({ field: "assignee", was: null, now: role });
     }
     expect(moved(task({ id: "task-1", status: "backlog" }), "in-progress", lead).assignee).toBe("lead");
+    // A working role takes a pool task waiting in todo, not one resumed from a block.
+    const blockedPool = task({ id: "task-1", status: "blocked" });
+    expect(refusalOf(blockedPool, { kind: "status", to: "in-progress" }, impl1)).toEqual({ kind: "not-your-task", assignee: null });
     // Parking a pool task is no way to take it — nor is it the worker's to park.
     const pool = task({ id: "task-1" });
     expect(refusalOf(pool, { kind: "status", to: "backlog" }, impl1)).toEqual({ kind: "not-your-task", assignee: null });
@@ -278,15 +282,17 @@ describe("who holds a task after a move", () => {
     expect(moved(task({ id: "task-1", status: "review" }), "in-progress", lead).assignee).toBeNull();
   });
 
-  it("work sent back to the queue goes back to the pool, and the log says who held it", () => {
-    for (const from of ["in-progress", "blocked", "review"] as const) {
-      for (const to of ["todo", "backlog"] as const) {
-        const sent = moved(task({ id: "task-1", status: from, assignee: "impl-1" }), to, lead);
-        expect([from, to, sent.assignee]).toEqual([from, to, null]);
-        expect(sent.log.map((e) => [e.field, e.was, e.now])).toEqual([
-          ["assignee", "impl-1", null],
-          ["status", from, to],
-        ]);
+  it("work sent back to the queue goes back to the pool, and the log says who held it — by a lead or a peer", () => {
+    for (const [actor, who] of [[lead, "lead"], [peer1, "peer-1"]] as const) {
+      for (const from of ["in-progress", "blocked", "review"] as const) {
+        for (const to of ["todo", "backlog"] as const) {
+          const sent = moved(task({ id: "task-1", status: from, assignee: "impl-1" }), to, actor);
+          expect([who, from, to, sent.assignee]).toEqual([who, from, to, null]);
+          expect(sent.log.map((e) => [e.field, e.was, e.now])).toEqual([
+            ["assignee", "impl-1", null],
+            ["status", from, to],
+          ]);
+        }
       }
     }
   });
