@@ -5,6 +5,7 @@ import type { Workspace } from "../../domain/deck";
 import { DIALOG_WORDS, tasksDialogView } from "../../presentation/tasks";
 import { Button } from "../../ui/Button";
 import { CloseButton } from "../../ui/CloseButton";
+import { ConfirmDialog } from "../../ui/ConfirmDialog";
 import { ModalOverlay } from "../../ui/ModalOverlay";
 import { useEscape } from "../../ui/useEscape";
 import { useWallClock } from "../../ui/useWallClock";
@@ -192,6 +193,22 @@ function WorkspaceBoard({
           <p className="tasks__error kd-selectable" role="alert">
             {board.unsaved}
           </p>
+        )}
+        {board.restore !== null && (
+          <div className="tasks__restore">
+            <Button onClick={board.askRestore}>{board.restore.label}</Button>
+          </div>
+        )}
+        {/* Restoring is the person's act alone, and it is confirmed. */}
+        {board.restoreConfirm !== null && (
+          <ConfirmDialog
+            title={board.restoreConfirm.title}
+            message={board.restoreConfirm.message}
+            confirmLabel={board.restoreConfirm.confirm}
+            cancelLabel={board.restoreConfirm.cancel}
+            onConfirm={board.confirmRestore}
+            onCancel={board.cancelRestore}
+          />
         )}
 
         {view.body.kind === "placeholder" ? (

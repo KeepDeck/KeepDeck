@@ -362,10 +362,11 @@ describe("fields only the lead sets", () => {
     expect(blockerCandidates(b.tasks[0], b, "blocks").map((x) => x.id)).toEqual(["task-3", "task-7"]);
   });
 
-  it("answers on a full board's longest chain at once — one walk, no recursion to overflow", () => {
+  it("answers on a long chain at once — one walk, no recursion to overflow", () => {
     // task-1 waits on task-2, which waits on task-3, … down to task-2000.
-    const chain = Array.from({ length: TASK_CAPS.tasksMax }, (_, i) =>
-      task({ id: `task-${i + 1}`, blockedBy: i + 1 < TASK_CAPS.tasksMax ? [`task-${i + 2}`] : [] }),
+    const length = 2000;
+    const chain = Array.from({ length }, (_, i) =>
+      task({ id: `task-${i + 1}`, blockedBy: i + 1 < length ? [`task-${i + 2}`] : [] }),
     );
     const b = board(chain);
     const middle = b.tasks[1000];
@@ -376,7 +377,7 @@ describe("fields only the lead sets", () => {
     // It may wait on nothing above it (they wait on it), and on everything
     // below but the one it already waits on.
     expect(waitsOn.map((t) => t.id)).not.toContain("task-1");
-    expect(waitsOn).toHaveLength(TASK_CAPS.tasksMax - 1001 - 1);
+    expect(waitsOn).toHaveLength(length - 1001 - 1);
     // Anything above may wait on it, but the one already does; nothing below may.
     expect(waitedBy).toHaveLength(1000 - 1);
     expect(waitedBy.map((t) => t.id)).not.toContain("task-2000");
@@ -411,17 +412,17 @@ describe("fields only the lead sets", () => {
 });
 
 describe("what every member may do", () => {
-  it("comments get monotone ordinals that survive eviction of the oldest", () => {
+  it("keeps every comment — past where the board once cut them — with ordinals that never repeat", () => {
     let t = task({ id: "task-1", assignee: "impl-2" });
-    for (let i = 0; i < TASK_CAPS.commentsMax + 2; i += 1) {
+    const many = 250;
+    for (let i = 0; i < many; i += 1) {
       const result = transition(t, { kind: "comment", body: `note ${i}` }, impl1, ctx([t]));
       if (!result.ok) throw new Error("refused");
       t = result.task;
     }
-    expect(t.comments).toHaveLength(TASK_CAPS.commentsMax);
-    expect(t.comments[0].n).toBe(3);
-    expect(t.comments[t.comments.length - 1].n).toBe(TASK_CAPS.commentsMax + 2);
-    expect(t.comments[t.comments.length - 1]).toMatchObject({ from: "impl-1", body: `note ${TASK_CAPS.commentsMax + 1}` });
+    expect(t.comments).toHaveLength(many);
+    expect(t.comments.map((c) => c.n)).toEqual(Array.from({ length: many }, (_, i) => i + 1));
+    expect(t.comments[0]).toMatchObject({ from: "impl-1", body: "note 0" });
   });
 
   it("any member attaches artifacts; the user signs as `user`", () => {
@@ -432,24 +433,32 @@ describe("what every member may do", () => {
     expect(byUser.ok && byUser.task.comments[0].from).toBe("user");
   });
 
-  it("a brief edit keeps the previous brief in the log, whole, once", () => {
+  it("a brief edit keeps the previous brief as a version, and the log says which replaced which", () => {
     const t = task({ id: "task-1", assignee: "lead", body: "first" });
     const once = transition(t, { kind: "body", to: "second" }, lead, ctx([t]));
     if (!once.ok) throw new Error("refused");
-    expect(once.task.body).toBe("second");
-    expect(once.task.log).toEqual([{ at: 5_000, from: "lead", field: "body", was: "first", now: null }]);
+    expect(once.task).toMatchObject({ body: "second", bodyV: 2, briefs: [{ v: 1, body: "first" }] });
+    // Who and when is the log's; the log holds no brief text.
+    expect(once.task.log).toEqual([{ at: 5_000, from: "lead", field: "body", was: "1", now: "2" }]);
     const twice = transition(once.task, { kind: "body", to: "third" }, lead, ctx([once.task]));
-    expect(twice.ok && twice.task.log.map((e) => e.was)).toEqual(["first", "second"]);
+    if (!twice.ok) throw new Error("refused");
+    expect(twice.task.briefs).toEqual([{ v: 1, body: "first" }, { v: 2, body: "second" }]);
+    expect(twice.task.bodyV).toBe(3);
+    // The same brief again is no edit: no version, no log line.
+    const same = transition(twice.task, { kind: "body", to: "third" }, lead, ctx([twice.task]));
+    expect(same.ok && same.task).toBe(twice.task);
   });
 
-  it("the log is bounded, oldest first to go", () => {
+  it("keeps the whole log — past where the board once cut it — oldest first", () => {
     let t = task({ id: "task-1", assignee: "lead" });
-    for (let i = 0; i < TASK_CAPS.logMax + 5; i += 1) {
+    const many = 520;
+    for (let i = 0; i < many; i += 1) {
       const result = transition(t, { kind: "priority", to: i % 2 ? "high" : "low" }, lead, ctx([t]));
       if (!result.ok) throw new Error("refused");
       t = result.task;
     }
-    expect(t.log).toHaveLength(TASK_CAPS.logMax);
+    expect(t.log).toHaveLength(many);
+    expect(t.log[0]).toMatchObject({ field: "priority", now: "low" });
   });
 });
 
@@ -487,19 +496,16 @@ describe("createTask", () => {
     expect(byLead.ok).toBe(true);
   });
 
-  it("checks team, roster, blockers and the board cap", () => {
+  it("checks team, roster and blockers — and creates on a board of any size", () => {
     const foreign = createTask({ teamId: "team-1", title: "x" }, stranger, empty);
     expect(!foreign.ok && foreign.refusal).toEqual({ kind: "not-on-team" });
     const ghost = createTask({ teamId: "team-1", title: "x", assignee: "ghost" }, lead, empty);
     expect(!ghost.ok && ghost.refusal).toEqual({ kind: "assignee-not-on-team", assignee: "ghost" });
     const unknown = createTask({ teamId: "team-1", title: "x", blockedBy: ["task-4"] }, lead, empty);
     expect(!unknown.ok && unknown.refusal).toEqual({ kind: "unknown-blocker", ids: ["task-4"] });
-    const full = {
-      ...empty,
-      board: board(Array.from({ length: TASK_CAPS.tasksMax }, (_, i) => task({ id: `task-${i + 1}` }))),
-    };
-    const refused = createTask({ teamId: "team-1", title: "x" }, lead, full);
-    expect(!refused.ok && refused.refusal).toEqual({ kind: "board-full", max: TASK_CAPS.tasksMax });
+    // No cap on how many: a board past the 2000 it once refused still takes one more.
+    const big = { ...empty, board: board(Array.from({ length: 2001 }, (_, i) => task({ id: `task-${i + 1}` })), 2002) };
+    expect(createTask({ teamId: "team-1", title: "x" }, lead, big).ok).toBe(true);
     const edge = { ...empty, board: { nextId: Number.MAX_SAFE_INTEGER, tasks: [], relations: [] } };
     const exhausted = createTask({ teamId: "team-1", title: "x" }, lead, edge);
     expect(!exhausted.ok && exhausted.refusal).toEqual({ kind: "counter-exhausted" });

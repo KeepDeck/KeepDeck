@@ -53,6 +53,11 @@
   font-size: var(--kd-font-small);
 }
 
+/* The way out of a damaged database, right under the banner that says so. */
+.tasks__restore {
+  margin: -4px 0 10px;
+}
+
 .tasks__placeholder {
   display: flex;
   flex: 1;

@@ -294,7 +294,13 @@ describe("teamBriefing — the board", () => {
     expect(lead).toContain('mail.send kind "task", naming the task id');
     expect(lead).toContain("the board tells nobody by itself");
     const impl = teamBriefing("api", "impl-1", roster, { board: true });
-    expect(impl).toContain("task.mine lists what is yours");
+    expect(impl).toContain("assignee=<you> shows what is yours");
+    // Commands that are gone are named nowhere.
+    for (const text of [lead, impl]) {
+      expect(text).not.toContain("task.mine");
+      expect(text).not.toContain("task.next");
+    }
+    expect(lead).toContain("task.brief");
     expect(impl).not.toContain("task.create");
     expect(impl).toContain("the board itself sends nothing");
     const peer = teamBriefing("web", "peer-1", ["peer-1", "peer-2"], { board: true });

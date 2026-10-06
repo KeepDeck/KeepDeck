@@ -1,0 +1,13 @@
+DROP TABLE search;
+DROP TABLE fts_docs;
+DROP TABLE requests;
+DROP TABLE relations;
+DROP TABLE task_log;
+DROP TABLE task_comments;
+DROP TABLE task_artifacts;
+DROP TABLE task_labels;
+DROP TABLE task_briefs;
+DROP TABLE task_keys;
+DROP TABLE tasks;
+DROP TABLE boards;
+DROP TABLE meta;

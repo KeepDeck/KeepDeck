@@ -3,7 +3,7 @@
  *
  * Mail is a message that lives only in the runtime; an artifact is a shared
  * object; a task is a WORK ORDER: durable, owned by a team, with a status
- * the board shows and an assignee `task.next` and `task.mine` read by. Nothing here
+ * the board shows and an assignee the lead names. Nothing here
  * reaches an agent on its own — the board is a record, and telling an
  * agent about its work is a letter somebody chooses to send (the user's
  * decision, 2026-09-19). So the model carries no delivery state at all: no
@@ -97,6 +97,14 @@ export type LogField = TaskField | "copiedFrom" | "copiedTo" | "transferred";
  * against. */
 export const LOG_FIELDS: readonly LogField[] = [...TASK_FIELDS, "copiedFrom", "copiedTo", "transferred"];
 
+/** An earlier version of a task's brief: its number and its text. Who
+ * replaced it and when is the log's (`field: "body"`, `was`/`now` the
+ * version numbers) — said once, there. */
+export interface TaskBrief {
+  v: number;
+  body: string;
+}
+
 /** One change to one field — the audit trail a human reads under a task. */
 export interface TaskLogEntry {
   at: number;
@@ -123,6 +131,11 @@ export interface Task {
   title: string;
   /** Markdown. Long briefs belong in an artifact named under `artifacts`. */
   body: string;
+  /** The number of the brief's current version, from 1. */
+  bodyV: number;
+  /** The brief's earlier versions, oldest first — every one kept, so a
+   * reader can see what it said before each edit. */
+  briefs: readonly TaskBrief[];
   status: TaskStatus;
   priority: TaskPriority;
   /** A ROLE address (`impl-1`), never a pane id — roles are addresses and
@@ -258,19 +271,16 @@ export function actorName(actor: TaskActor): string | null {
   return actor.kind === "user" ? USER_NAME : actor.role;
 }
 
-/** Bounds on what the board stores. Enforced HERE and nowhere else: the
- * store persists what the domain accepted, so a second copy of these
- * numbers in Rust would be the drift the design rules forbid. */
+/** Bounds on what one field holds — a FORMAT, enforced HERE and nowhere
+ * else: the store persists what the domain accepted, so a second copy of
+ * these numbers in Rust would be the drift the design rules forbid. How
+ * MUCH a board holds is not bounded: every comment, every log entry and
+ * every task is kept (the user's decision, task-221 — the database keeps
+ * everything, and what an agent is shown is the command layer's to size). */
 export const TASK_CAPS = {
   titleMax: 120,
   bodyMax: 8192,
   commentMax: 4000,
-  /** Oldest comments fall off past this; the log still records them. */
-  commentsMax: 200,
-  /** Oldest log entries fall off past this. */
-  logMax: 500,
-  /** Creating past this is refused, never silently cancelled. */
-  tasksMax: 2000,
   /** Labels on one task — a few words, not a taxonomy. */
   labelsMax: 5,
   labelMax: 24,

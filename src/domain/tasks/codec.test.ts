@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decodeBoard, encodeBoard } from "./codec";
+import { decodeBoard, decodeBoardValue, encodeBoard } from "./codec";
 import { EMPTY_BOARD } from "./model";
 import { issuable } from "./board";
 import { blockerIdsOf, copiedFromOf } from "./relations";
@@ -11,11 +11,16 @@ const mint = () => mintSequence("uid-minted-");
 /** A task as a board written before relations stored it: no uid, its
  * blockers on it. */
 const legacyTask = (id: string, over: Record<string, unknown> = {}) => {
-  const { uid: _uid, ...stored } = task({ id });
+  const { uid: _uid, bodyV: _v, briefs: _b, ...stored } = task({ id });
   return { ...stored, blockedBy: [], ...over };
 };
 
 const legacy = (tasks: Record<string, unknown>[], nextId = tasks.length + 1) => JSON.stringify({ nextId, tasks });
+/** A task as a build before brief versions wrote it: no `bodyV`, no `briefs`. */
+const encodedTask = (id: string) => {
+  const { bodyV: _v, briefs: _b, ...rest } = task({ id });
+  return rest;
+};
 
 describe("board codec", () => {
   it("round-trips a board with comments, a log and links, field for field", () => {
@@ -249,6 +254,108 @@ describe("board codec — a board written before relations", () => {
     const decoded = read([legacyTask("task-1"), legacyTask("task-2", { blockedBy: ["task-1"] })]);
     const again = decodeBoard(encodeBoard(decoded.board), mint());
     expect(again).toEqual({ ok: true, board: decoded.board, migrated: false, dropped: [] });
+  });
+});
+
+describe("board codec — a field it does not know", () => {
+  it("is refused at every depth — what a reader drops, a writer erases on the next save", () => {
+    const one = (patch: Record<string, unknown>) => ({ ...task({ id: "task-1" }), ...patch });
+    const read = (value: unknown) => decodeBoardValue(value, mint());
+    expect(read({ nextId: 2, tasks: [], relations: [], colour: "red" })).toEqual({ ok: false, fault: { kind: "unknown-field", field: "colour" } });
+    const taskFault = (patch: Record<string, unknown>) => {
+      const result = read({ nextId: 2, tasks: [one(patch)], relations: [] });
+      return !result.ok && result.fault.kind === "bad-task" ? result.fault.field : null;
+    };
+    expect(taskFault({ colour: "red" })).toBe('unknown field "colour"');
+    expect(taskFault({ comments: [{ n: 1, at: 1, from: "lead", body: "x", edited: true }] })).toBe('comments[0]: unknown field "edited"');
+    expect(taskFault({ log: [{ at: 1, from: "lead", field: "status", was: null, now: "todo", why: "x" }] })).toBe('log[0]: unknown field "why"');
+    const withLink = read({ nextId: 2, tasks: [one({})], relations: [{ ...relation("blocks", "task-1", "task-9"), note: "x" }] });
+    expect(!withLink.ok && withLink.fault).toMatchObject({ kind: "bad-relation", field: 'unknown field "note"' });
+  });
+});
+
+describe("board codec — brief versions", () => {
+  it("turns a log written before versions into versions — every old brief kept, the log keeping who and when", () => {
+    const old = {
+      nextId: 2,
+      relations: [],
+      tasks: [
+        {
+          ...encodedTask("task-1"),
+          body: "third",
+          log: [
+            { at: 1, from: "lead", field: "body", was: "first", now: null },
+            { at: 2, from: "impl-1", field: "status", was: "todo", now: "in-progress" },
+            { at: 3, from: "user", field: "body", was: "second", now: null },
+          ],
+        },
+      ],
+    };
+    const read = decodeBoard(JSON.stringify(old), mint());
+    if (!read.ok) throw new Error(JSON.stringify(read.fault));
+    expect(read.migrated).toBe(true);
+    const t = read.board.tasks[0];
+    expect(t.body).toBe("third");
+    expect(t.bodyV).toBe(3);
+    expect(t.briefs).toEqual([{ v: 1, body: "first" }, { v: 2, body: "second" }]);
+    expect(t.log).toEqual([
+      { at: 1, from: "lead", field: "body", was: "1", now: "2" },
+      { at: 2, from: "impl-1", field: "status", was: "todo", now: "in-progress" },
+      { at: 3, from: "user", field: "body", was: "2", now: "3" },
+    ]);
+    // Written back, it reads as it is — nothing left to upgrade.
+    expect(decodeBoard(encodeBoard(read.board), mint())).toEqual({ ok: true, board: read.board, migrated: false, dropped: [] });
+  });
+
+  it("restores every old brief exactly from what it wrote", () => {
+    const texts = ["", "a\nmulti-line brief — with ✓ marks", "x".repeat(8192)];
+    const log = texts.map((was, i) => ({ at: i, from: "lead", field: "body", was, now: null }));
+    const read = decodeBoard(JSON.stringify({ nextId: 2, relations: [], tasks: [{ ...encodedTask("task-1"), log }] }), mint());
+    if (!read.ok) throw new Error("refused");
+    expect(read.board.tasks[0].briefs.map((b) => b.body)).toEqual(texts);
+  });
+
+  it("refuses versions that do not count up to the current one, or carry more than a number and a text", () => {
+    const withBriefs = (bodyV: unknown, briefs: unknown) =>
+      decodeBoard(JSON.stringify({ nextId: 2, relations: [], tasks: [{ ...encodedTask("task-1"), bodyV, briefs }] }), mint());
+    expect(withBriefs(1, []).ok).toBe(true);
+    expect(withBriefs(2, [{ v: 1, body: "a" }]).ok).toBe(true);
+    for (const [bodyV, briefs] of [
+      [0, []],
+      [2, []],
+      [3, [{ v: 1, body: "a" }, { v: 3, body: "b" }]],
+      [2, [{ v: 1, body: "a", at: 5 }]],
+      [2, [{ v: 1 }]],
+    ] as const) {
+      const read = withBriefs(bodyV, briefs);
+      expect(!read.ok && read.fault.kind, JSON.stringify([bodyV, briefs])).toBe("bad-task");
+    }
+  });
+
+  it("refuses versions without their number, or a number without its versions — either reading would let one go", () => {
+    const { bodyV: _v, briefs: _b, ...bare } = encodedTask("task-1") as Record<string, unknown>;
+    const read = (extra: Record<string, unknown>) =>
+      decodeBoard(JSON.stringify({ nextId: 2, relations: [], tasks: [{ ...bare, body: "now", log: [], ...extra }] }), mint());
+    expect(read({ briefs: [{ v: 1, body: "earlier brief" }] })).toMatchObject({ ok: false, fault: { kind: "bad-task", id: "task-1" } });
+    expect(read({ bodyV: 2 })).toMatchObject({ ok: false, fault: { kind: "bad-task", id: "task-1" } });
+    expect(read({}).ok).toBe(true);
+  });
+
+  it("keeps a first build's brief edit, which stored no text, as it is — and invents no version for it", () => {
+    const unkept = { at: 1, from: "lead", field: "body", was: null, now: null };
+    const kept = { at: 2, from: "lead", field: "body", was: "second", now: null };
+    const read = decodeBoard(JSON.stringify({ nextId: 2, relations: [], tasks: [{ ...encodedTask("task-1"), log: [unkept, kept] }] }), mint());
+    if (!read.ok) throw new Error(JSON.stringify(read.fault));
+    const [t] = read.board.tasks;
+    expect(t.briefs).toEqual([{ v: 1, body: "second" }]);
+    expect(t.bodyV).toBe(2);
+    expect(t.log).toEqual([unkept, { ...kept, was: "1", now: "2" }]);
+  });
+
+  it("refuses an old brief edit of any other shape — it cannot be told what it held", () => {
+    const log = [{ at: 1, from: "lead", field: "body", was: null, now: "later" }];
+    const read = decodeBoard(JSON.stringify({ nextId: 2, relations: [], tasks: [{ ...encodedTask("task-1"), log }] }), mint());
+    expect(!read.ok && read.fault).toMatchObject({ kind: "bad-task", id: "task-1" });
   });
 });
 

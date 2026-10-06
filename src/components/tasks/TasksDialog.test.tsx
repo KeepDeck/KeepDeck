@@ -3,6 +3,7 @@ import { StrictMode, act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { createTasksService, type TasksService } from "../../app/tasks";
+import type { RestoreChoice } from "../../app/tasks/tasksService";
 import { fakeStore, teamedWorkspaces } from "../../app/tasks/testSupport";
 import { USER_ACTOR, agentActor, blockerIdsOf } from "../../domain/tasks";
 import { installResizeObserver, pinListViewport } from "@keepdeck/ui-kit/virtualGeometry.test-support";
@@ -126,6 +127,32 @@ async function seeded() {
 }
 
 describe("TasksDialog", () => {
+  it("offers a damaged database's restore, and restores only once the person confirms", async () => {
+    const workspaces = teamedWorkspaces();
+    const store = fakeStore();
+    const restored: RestoreChoice[] = [];
+    const takenAt = Date.now();
+    const service = createTasksService({
+      workspaces: () => workspaces,
+      store: { ...store.port, recovery: () => ({ kind: "damaged", backups: [takenAt] }), restore: async (choice) => void restored.push(choice) },
+      now: () => 1_000,
+    });
+    const render = mount(service);
+    render();
+    await flush();
+    const offer = Array.from(document.querySelectorAll<HTMLButtonElement>(".tasks__restore button"))[0];
+    expect(offer.textContent).toBe("Restore the backup from now");
+    act(() => offer.click());
+    await flush();
+    // Asked first: nothing restored yet.
+    expect(restored).toEqual([]);
+    expect(document.querySelector(".confirm__title")?.textContent).toBe("Restore the task database?");
+    const yes = Array.from(document.querySelectorAll<HTMLButtonElement>(".confirm__actions button")).find((b) => b.textContent === "Restore")!;
+    act(() => yes.click());
+    await flush();
+    expect(restored).toEqual([{ kind: "backup", at: takenAt }]);
+  });
+
   it("shows the board as columns, opens a task on click, and moves it with the status picker", async () => {
     const { service } = await seeded();
     const render = mount(service);

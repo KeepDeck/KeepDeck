@@ -1,10 +1,11 @@
 /**
  * The board's stored form, in both directions.
  *
- * The store keeps bytes; this is the one place that says what bytes a
- * board is. Reading is UNTRUSTED: the file sits in the user's home where
- * any process of theirs can edit it, so every field is checked against the
- * vocabulary and a board that does not parse is refused WHOLE — dropping
+ * This is the one place that says what a stored board is. Reading is
+ * UNTRUSTED — a board file sits in the user's home where any process of
+ * theirs can edit it, and the database is checked the same way — so every
+ * field is checked against the vocabulary, and a board that does not parse
+ * is refused WHOLE: dropping
  * the tasks that did not fit and writing the rest back would erase them
  * on the next save, and losing work quietly is the worse failure. The
  * owner turns a refusal into a board it will not write to.
@@ -32,6 +33,7 @@ import {
   isTaskStatus,
   type Task,
   type TaskBoard,
+  type TaskBrief,
   type TaskComment,
   type TaskLogEntry,
   type TaskRelation,
@@ -40,6 +42,21 @@ import { withRelations } from "./relations";
 import { normalizeLabels } from "./transition";
 
 const FIELDS = new Set<string>(LOG_FIELDS);
+
+/** The keys each stored object may carry — and nothing else. */
+const BOARD_KEYS = ["nextId", "tasks", "relations"];
+const TASK_KEYS = [
+  "uid", "id", "teamId", "title", "body", "bodyV", "briefs", "status", "priority", "assignee",
+  "author", "artifacts", "labels", "comments", "log", "created", "updated",
+];
+const COMMENT_KEYS = ["n", "at", "from", "body"];
+const LOG_KEYS = ["at", "from", "field", "was", "now"];
+const RELATION_KEYS = ["kind", "from", "to", "at", "by"];
+
+/** The first key of `value` not among `keys`, or null. */
+function strayKey(value: Record<string, unknown>, keys: readonly string[]): string | null {
+  return Object.keys(value).find((key) => !keys.includes(key)) ?? null;
+}
 
 /** What the codec can say about a file it refused. */
 export type DecodeFault =
@@ -57,7 +74,9 @@ export type DecodeFault =
   | { kind: "relations-not-array" }
   /** One link did not fit: which, which field, and the keys of its ends
    * (null for an end not on the board, or one that is no uid at all). */
-  | { kind: "bad-relation"; index: number; field: string; from: string | null; to: string | null };
+  | { kind: "bad-relation"; index: number; field: string; from: string | null; to: string | null }
+  /** A field on the board itself this build does not know. */
+  | { kind: "unknown-field"; field: string };
 
 /** A legacy task's blockers the migration did not carry. */
 export interface DroppedBlockers {
@@ -69,19 +88,15 @@ export type DecodeResult =
   | {
       ok: true;
       board: TaskBoard;
-      /** Read from a board written before relations — its uids freshly
-       * drawn, for the owner to write back at once (until then a re-read
-       * draws them afresh). */
+      /** Read from an older format — written before relations (its uids
+       * freshly drawn) or before brief versions — for the owner to write
+       * back at once (until then a re-read upgrades it afresh). */
       migrated: boolean;
       /** The blockers a migration let go — a task naming itself or a key
        * not on the board, which held nothing — for the owner to log. */
       dropped: readonly DroppedBlockers[];
     }
   | { ok: false; fault: DecodeFault };
-
-/** The label a board written before relations is kept under, beside the
- * upgraded one (`board.<label>.json`) — the way back for an older build. */
-export const PRE_RELATIONS_COPY = "pre-relations";
 
 export function encodeBoard(board: TaskBoard): string {
   return JSON.stringify(board);
@@ -101,7 +116,20 @@ export function decodeBoard(json: string, mintUid: () => string): DecodeResult {
   } catch (e) {
     return { ok: false, fault: { kind: "not-json", detail: (e as Error).message } };
   }
+  return decodeBoardValue(raw, mintUid);
+}
+
+/**
+ * A board from any untrusted source in the board's stored shape — a file
+ * parsed, or what the database handed back (`wire.ts` puts it in this
+ * shape). The ONE validator: every field checked against the vocabulary,
+ * and a field it does not know refused, at every depth — what a reader
+ * drops silently, a writer erases on the next save.
+ */
+export function decodeBoardValue(raw: unknown, mintUid: () => string): DecodeResult {
   if (!isRecord(raw)) return { ok: false, fault: { kind: "not-object" } };
+  const stray = strayKey(raw, BOARD_KEYS);
+  if (stray !== null) return { ok: false, fault: { kind: "unknown-field", field: stray } };
   if (!Array.isArray(raw.tasks)) return { ok: false, fault: { kind: "tasks-not-array" } };
   const legacy = raw.relations === undefined;
   if (!legacy && !Array.isArray(raw.relations)) return { ok: false, fault: { kind: "relations-not-array" } };
@@ -111,6 +139,7 @@ export function decodeBoard(json: string, mintUid: () => string): DecodeResult {
   const seen = new Set<string>();
   const uids = new Set<string>();
   let highest = 0;
+  let upgraded = false;
   for (const [i, entry] of raw.tasks.entries()) {
     const read = decodeTask(entry, legacy, mintUid);
     if (!read.ok) return { ok: false, fault: { kind: "bad-task", index: i, id: read.id, field: read.field } };
@@ -123,6 +152,7 @@ export function decodeBoard(json: string, mintUid: () => string): DecodeResult {
     uids.add(read.task.uid);
     highest = Math.max(highest, numberOf(read.task.id));
     tasks.push(read.task);
+    if (read.upgraded) upgraded = true;
     if (read.blockedBy) waits.set(read.task.uid, read.blockedBy);
   }
   // The counter must be a safe integer above every id on the board, or
@@ -138,7 +168,7 @@ export function decodeBoard(json: string, mintUid: () => string): DecodeResult {
   }
   const relations = decodeRelations(raw.relations as unknown[], tasks);
   if (!relations.ok) return relations;
-  return { ok: true, board: withRelations(board, relations.relations), migrated: false, dropped: [] };
+  return { ok: true, board: withRelations(board, relations.relations), migrated: upgraded, dropped: [] };
 }
 
 /** A legacy board's links: its blockers, and its copies' sources — and
@@ -205,6 +235,8 @@ function decodeRelations(
       },
     });
     if (!isRecord(entry)) return fail("shape");
+    const strayRelationKey = strayKey(entry, RELATION_KEYS);
+    if (strayRelationKey !== null) return fail(`unknown field "${strayRelationKey}"`);
     const { kind, from, to, at, by } = entry;
     if (typeof kind !== "string" || kind === "") return fail("kind");
     if (typeof from !== "string" || !isTaskUid(from)) return fail("from");
@@ -227,7 +259,8 @@ function decodeRelations(
 
 type TaskRead =
   /** `blockedBy` is a legacy task's, for the migration to link. */
-  | { ok: true; task: Task; blockedBy?: readonly string[] }
+  /** `upgraded`: written before brief versions, its log rewritten into them. */
+  | { ok: true; task: Task; blockedBy?: readonly string[]; upgraded?: true }
   | { ok: false; id: string | null; field: string };
 
 function decodeTask(raw: unknown, legacy: boolean, mintUid: () => string): TaskRead {
@@ -235,6 +268,10 @@ function decodeTask(raw: unknown, legacy: boolean, mintUid: () => string): TaskR
   const id = raw.id;
   if (typeof id !== "string" || !isTaskId(id)) return { ok: false, id: null, field: "id" };
   const fail = (field: string): TaskRead => ({ ok: false, id, field });
+  // Every key must be one a task has. `blockedBy` is judged by its own
+  // rule below: a legacy task's blockers, a new board's two answers.
+  const strayTaskKey = strayKey(raw, [...TASK_KEYS, "blockedBy"]);
+  if (strayTaskKey !== null) return fail(`unknown field "${strayTaskKey}"`);
   // A legacy task may already carry one (a hand edit, a half-written
   // build): kept when it is one, drawn afresh when not — the codec before
   // relations never read it. On a new board every task must have its own.
@@ -267,17 +304,33 @@ function decodeTask(raw: unknown, legacy: boolean, mintUid: () => string): TaskR
     return fail(refusal.kind === "bad-label" ? `label "${refusal.label}"` : `labels (more than ${TASK_CAPS.labelsMax})`);
   }
   if (!Array.isArray(raw.comments) || !raw.comments.every(isComment)) return fail("comments");
+  const strayComment = nestedStray(raw.comments, COMMENT_KEYS);
+  if (strayComment !== null) return fail(`comments[${strayComment.index}]: unknown field "${strayComment.key}"`);
   if (!Array.isArray(raw.log) || !raw.log.every(isLogEntry)) return fail("log");
+  const strayEntry = nestedStray(raw.log, LOG_KEYS);
+  if (strayEntry !== null) return fail(`log[${strayEntry.index}]: unknown field "${strayEntry.key}"`);
   if (!isCount(raw.created) || !isCount(raw.updated)) return fail("created/updated");
+  // A task written before brief versions kept each previous brief whole
+  // in its log: those texts become versions now, and the log says which
+  // version replaced which.
+  // The two come together or not at all: versions without their number
+  // (or a number without its versions) is a hand edit, and reading it
+  // either way would let something go.
+  if ((raw.bodyV === undefined) !== (raw.briefs === undefined)) return fail("bodyV and briefs (one without the other)");
+  const briefs = raw.bodyV === undefined ? versionsFromLog(raw.log as TaskLogEntry[]) : readBriefs(raw.bodyV, raw.briefs);
+  if (!briefs.ok) return fail(briefs.field);
   return {
     ok: true,
     ...(legacy ? { blockedBy: raw.blockedBy as string[] } : {}),
+    ...(raw.bodyV === undefined ? { upgraded: true } : {}),
     task: {
       uid,
       id,
       teamId: raw.teamId,
       title: raw.title,
       body: raw.body,
+      bodyV: briefs.bodyV,
+      briefs: briefs.briefs,
       status: raw.status,
       priority: raw.priority,
       assignee: raw.assignee,
@@ -285,11 +338,77 @@ function decodeTask(raw: unknown, legacy: boolean, mintUid: () => string): TaskR
       artifacts: raw.artifacts,
       labels: labels.labels,
       comments: raw.comments as TaskComment[],
-      log: raw.log as TaskLogEntry[],
+      log: briefs.log ?? (raw.log as TaskLogEntry[]),
       created: raw.created,
       updated: raw.updated,
     },
   };
+}
+
+type BriefsRead =
+  | { ok: true; bodyV: number; briefs: TaskBrief[]; log?: TaskLogEntry[] }
+  | { ok: false; field: string };
+
+/**
+ * A task's brief versions from a log written before them, where each edit
+ * kept the PREVIOUS brief whole in `was` (and `now` null). In log order,
+ * those texts are versions 1, 2, …; the current brief is the next. Each
+ * entry becomes "version k replaced by k + 1" — by whom and when unchanged
+ * — so nothing a reader could see is lost, and the log holds no text.
+ *
+ * The first builds kept no text at all (`was` and `now` both null): that
+ * brief was never stored, so there is no version to make. The entry stays
+ * as written — an edit whose earlier text was not kept — and no version is
+ * invented for it. Any other shape is refused.
+ */
+export function versionsFromLog(log: readonly TaskLogEntry[]): BriefsRead {
+  const briefs: TaskBrief[] = [];
+  const out: TaskLogEntry[] = [];
+  for (const entry of log) {
+    if (entry.field !== "body" || isUnkeptBriefEdit(entry)) {
+      out.push(entry);
+      continue;
+    }
+    if (entry.was === null || entry.now !== null) return { ok: false, field: "log (a brief edit that kept no previous brief)" };
+    const v = briefs.length + 1;
+    briefs.push({ v, body: entry.was });
+    out.push({ ...entry, was: String(v), now: String(v + 1) });
+  }
+  return { ok: true, bodyV: briefs.length + 1, briefs, log: out };
+}
+
+/** A brief edit from the first builds, which kept neither text nor
+ * version: one that happened, whose earlier brief was never stored. */
+export function isUnkeptBriefEdit(entry: Pick<TaskLogEntry, "field" | "was" | "now">): boolean {
+  return entry.field === "body" && entry.was === null && entry.now === null;
+}
+
+/** Brief versions as written: 1, 2, … up to the one before the current. */
+function readBriefs(bodyV: unknown, raw: unknown): BriefsRead {
+  if (!isCount(bodyV) || bodyV < 1) return { ok: false, field: "bodyV" };
+  if (!Array.isArray(raw)) return { ok: false, field: "briefs" };
+  const briefs: TaskBrief[] = [];
+  for (const [i, brief] of raw.entries()) {
+    if (!isRecord(brief) || !onlyKeys(brief, ["v", "body"]) || brief.v !== i + 1 || typeof brief.body !== "string") {
+      return { ok: false, field: `briefs (version ${i + 1})` };
+    }
+    briefs.push({ v: brief.v, body: brief.body });
+  }
+  if (briefs.length !== bodyV - 1) return { ok: false, field: "briefs (every version before the current one)" };
+  return { ok: true, bodyV, briefs };
+}
+
+function onlyKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
+  return strayKey(value, keys) === null;
+}
+
+/** The first entry of `list` carrying a key not among `keys`. */
+function nestedStray(list: readonly unknown[], keys: readonly string[]): { index: number; key: string } | null {
+  for (const [index, entry] of list.entries()) {
+    const key = isRecord(entry) ? strayKey(entry, keys) : null;
+    if (key !== null) return { index, key };
+  }
+  return null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

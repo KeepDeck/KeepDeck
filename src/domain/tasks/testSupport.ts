@@ -25,6 +25,8 @@ const build = (over: Partial<Task> & Pick<Task, "id">): Task => ({
   author: "lead",
   artifacts: [],
   labels: [],
+  bodyV: 1,
+  briefs: [],
   comments: [],
   log: [],
   created: 1_000,

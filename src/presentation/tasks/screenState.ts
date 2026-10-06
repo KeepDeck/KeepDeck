@@ -10,6 +10,7 @@ import type { TasksView } from "../../domain/settings";
 import type { TaskStatus } from "../../domain/tasks";
 import { escapeTarget, selectionAfterClick } from "./dialogState";
 import { NO_QUERY, withLabel, type TaskQuery } from "./queryView";
+import type { RestoreView } from "./words";
 
 /** The two views of the one set of tasks (`queryView`) — a setting, kept
  * across openings (`Settings.tasksBoard.view`, `boardSettings`). */
@@ -34,6 +35,9 @@ export interface ScreenState {
    * one of its tasks). */
   query: TaskQuery;
   queryTeam: string | null;
+  /** The restore's confirm is up: a stray click never replaces the
+   * database — only a confirmed one does. */
+  restoring: boolean;
 }
 
 export const INITIAL_SCREEN: ScreenState = {
@@ -44,6 +48,7 @@ export const INITIAL_SCREEN: ScreenState = {
   query: NO_QUERY,
   queryTeam: null,
   activityOpen: false,
+  restoring: false,
 };
 
 /** The screen a dialog opens on: the team the stage has open is the
@@ -74,7 +79,12 @@ export type ScreenAction =
   /** A label to narrow to; null, or the one already narrowing, widens. */
   | { type: "label"; label: string | null }
   /** A task was created from the form: it opens, the form goes. */
-  | { type: "created"; id: string };
+  | { type: "created"; id: string }
+  /** The restore's button: its confirm comes up. */
+  | { type: "askRestore" }
+  | { type: "cancelRestore" }
+  /** The confirm said yes: the restore runs, the confirm goes. */
+  | { type: "confirmRestore" };
 
 export interface ScreenOutcome {
   state: ScreenState;
@@ -82,6 +92,8 @@ export interface ScreenOutcome {
   focus?: string | null;
   /** The whole dialog closes. */
   closeDialog?: true;
+  /** The person confirmed the restore: run it. */
+  restore?: true;
 }
 
 /**
@@ -144,6 +156,13 @@ function step(state: ScreenState, action: ScreenAction): ScreenOutcome {
     }
     case "label":
       return { state: { ...state, query: withLabel(queryOn(state, state.chosenTeam), action.label), queryTeam: state.chosenTeam } };
+    case "askRestore":
+      return { state: { ...state, restoring: true } };
+    case "cancelRestore":
+      return { state: { ...state, restoring: false } };
+    case "confirmRestore":
+      // Only a confirm that is up says yes.
+      return state.restoring ? { state: { ...state, restoring: false }, restore: true } : { state };
   }
   return { state };
 }
@@ -152,6 +171,12 @@ function step(state: ScreenState, action: ScreenAction): ScreenOutcome {
  * filter set on another team's board does not follow to this one. */
 export function queryOn(state: Pick<ScreenState, "query" | "queryTeam">, teamId: string | null): TaskQuery {
   return state.queryTeam === teamId ? state.query : NO_QUERY;
+}
+
+/** The restore's confirm to show: the offer, while it is asked about —
+ * and none once the database needs no restore, asked or not. */
+export function restoreConfirm(state: Pick<ScreenState, "restoring">, offer: RestoreView | null): RestoreView | null {
+  return state.restoring ? offer : null;
 }
 
 /** Whether J / K walk the list: only over the list, and never while the

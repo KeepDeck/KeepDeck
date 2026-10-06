@@ -143,7 +143,6 @@ export type TaskRefusal =
   /** A working role labelling a task that is not its own. */
   | { kind: "not-yours-to-label"; assignee: string | null }
   | { kind: "blank"; field: "title" | "comment" }
-  | { kind: "board-full"; max: number }
   /** The id counter cannot mint another safe integer. Unreachable by
    * honest use; refused rather than overflowed. */
   | { kind: "counter-exhausted" };
@@ -466,7 +465,7 @@ function logged(
   at: number,
   patch: Partial<Task>,
 ): Task {
-  const log = [...task.log, ...entries].slice(-TASK_CAPS.logMax);
+  const log = [...task.log, ...entries];
   return { ...task, ...patch, log, updated: at };
 }
 
@@ -569,14 +568,16 @@ function changeTask(
       const bad = validateBody(change.to);
       if (bad) return refuse(bad);
       if (change.to === task.body) return { ok: true, task };
-      // The PREVIOUS brief goes to the log, whole, and the new one is on
-      // the task: every version is kept exactly once, and a reviewer can
-      // read what the brief said before each edit. `now` is null because
-      // the current text is never a copy.
+      // The previous brief becomes a version; the log says which version
+      // replaced which, by whom and when. Every version is kept exactly
+      // once, and the log holds no brief text.
+      const next = task.bodyV + 1;
       return {
         ok: true,
-        task: logged(task, [{ at, from: by, field: "body", was: task.body, now: null }], at, {
+        task: logged(task, [{ at, from: by, field: "body", was: String(task.bodyV), now: String(next) }], at, {
           body: change.to,
+          bodyV: next,
+          briefs: [...task.briefs, { v: task.bodyV, body: task.body }],
         }),
       };
     }
@@ -642,11 +643,9 @@ function changeTask(
       const problem = commentProblem(change.body);
       if (problem) return refuse(problem);
       const body = change.body.trim();
-      // Ordinals never repeat, even after the oldest fell off.
+      // Ordinals never repeat: the next is one past the highest.
       const n = task.comments.reduce((top, c) => Math.max(top, c.n), 0) + 1;
-      const comments = [...task.comments, { n, at, from: by, body }].slice(
-        -TASK_CAPS.commentsMax,
-      );
+      const comments = [...task.comments, { n, at, from: by, body }];
       return { ok: true, task: { ...task, comments, updated: at } };
     }
   }
@@ -746,9 +745,6 @@ export function createTask(
 ): CreateResult {
   const membership = onTeam(actor, input.teamId);
   if (membership) return refuse(membership);
-  if (ctx.board.tasks.length >= TASK_CAPS.tasksMax) {
-    return refuse({ kind: "board-full", max: TASK_CAPS.tasksMax });
-  }
   if (!Number.isSafeInteger(ctx.board.nextId + 1)) return refuse({ kind: "counter-exhausted" });
   const badTitle = validateTitle(input.title);
   if (badTitle) return refuse(badTitle);
@@ -788,6 +784,8 @@ export function createTask(
     teamId: input.teamId,
     title: keptTitle(input.title),
     body,
+    bodyV: 1,
+    briefs: [],
     status,
     priority,
     assignee,

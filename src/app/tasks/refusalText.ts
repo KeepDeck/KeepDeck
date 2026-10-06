@@ -1,3 +1,5 @@
+import type { StoreError } from "../../ipc/generated/tasks/StoreError";
+import type { MigrationOutcome } from "./migration";
 import type { Workspace } from "../../domain/deck";
 import { leadRole } from "../../domain/mail";
 import type { DecodeFault, NotCarried } from "../../domain/tasks";
@@ -17,28 +19,79 @@ export function unsavedBoardsText(unsaved: readonly UnsavedBoard[], workspaces: 
 
 /** Why a board file was refused, for the log and the dialog — the codec
  * names the fault, this names it in words. */
-export function decodeFaultText(fault: DecodeFault): string {
+export function decodeFaultText(fault: DecodeFault, source = "board.json"): string {
   switch (fault.kind) {
     case "not-json":
-      return `board.json is not JSON: ${fault.detail}`;
+      return `${source} is not JSON: ${fault.detail}`;
     case "not-object":
-      return "board.json is not an object";
+      return `${source} is not an object`;
     case "tasks-not-array":
-      return "board.json: tasks must be an array";
+      return `${source}: tasks must be an array`;
     case "bad-counter":
-      return `board.json: nextId must be a safe integer of at least ${fault.atLeast}, above every task id`;
+      return `${source}: nextId must be a safe integer of at least ${fault.atLeast}, above every task id`;
     case "bad-task":
-      return `board.json: tasks[${fault.index}]${fault.id ? ` (${fault.id})` : ""}: ${fault.field} does not fit`;
+      return `${source}: tasks[${fault.index}]${fault.id ? ` (${fault.id})` : ""}: ${fault.field} does not fit`;
     case "duplicate-id":
-      return `board.json: duplicate task id ${fault.id}`;
+      return `${source}: duplicate task id ${fault.id}`;
     case "duplicate-uid":
-      return `board.json: ${fault.id} has the uid of another task`;
+      return `${source}: ${fault.id} has the uid of another task`;
     case "relations-not-array":
-      return "board.json: relations must be an array";
+      return `${source}: relations must be an array`;
     case "bad-relation": {
       const end = (key: string | null) => key ?? "a task not on this board";
-      return `board.json: relations[${fault.index}] (${end(fault.from)} → ${end(fault.to)}): ${fault.field} does not fit`;
+      return `${source}: relations[${fault.index}] (${end(fault.from)} → ${end(fault.to)}): ${fault.field} does not fit`;
     }
+    case "unknown-field":
+      return `${source}: a field this KeepDeck does not know — "${fault.field}"`;
+  }
+}
+
+/** Why nothing can be written before the store is open. */
+export const BOARD_NOT_OPEN = "the task board is not open";
+
+/** A read that set out under a database since replaced (a restore). */
+export const BOARD_READ_STALE = "the task database was replaced while the board was read — read it again";
+
+/** Why nothing can be written after a move that did not make the database
+ * the source. */
+export function migrationRefusalText(outcome: Exclude<MigrationOutcome, { kind: "active" }>): string {
+  if (outcome.kind === "failed") return `the boards could not move into the task database — ${outcome.reason}`;
+  switch (outcome.status.kind) {
+    case "damaged":
+      return `the task database is damaged: ${outcome.status.detail}`;
+    case "missing":
+      return `the task database is missing, though ${outcome.status.detail}`;
+    case "tooNew":
+      return `a newer KeepDeck wrote the task database (${outcome.status.migration})`;
+  }
+}
+
+/** A coded refusal from the task database, in words for the person —
+ * and for the log line an unsaved board shows. */
+export function storeErrorText(error: StoreError): string {
+  switch (error.code) {
+    case "off":
+      return "the task board is off — turn Tasks on first";
+    case "busy":
+      return "another program has the task database open — try again once it lets go";
+    case "diskFull":
+      return "the disk is full";
+    case "io":
+      return `the disk refused: ${error.detail}`;
+    case "constraint":
+      return `the change does not fit the stored board: ${error.detail}`;
+    case "conflict":
+      return "the board changed in the database meanwhile — it was read again";
+    case "inconsistent":
+      return `board ${error.board} does not hold together in the task database: ${error.detail}`;
+    case "corrupt":
+      return `the task database is damaged: ${error.detail}`;
+    case "missing":
+      return `the task database is missing, though ${error.detail}`;
+    case "schemaTooNew":
+      return `a newer KeepDeck wrote the task database (${error.migration}) — this one neither reads nor writes it`;
+    case "invalid":
+      return error.detail;
   }
 }
 
@@ -112,10 +165,10 @@ export function refusalText(refusal: TaskProblem): string {
       return `a task is created in ${refusal.allowed.join(" or ")}, not "${refusal.status}"`;
     case "too-many-labels":
       return `a task carries at most ${refusal.max} labels — take one off first`;
-    case "board-full":
-      return `this workspace's board holds ${refusal.max} tasks — finish or cancel some first`;
     case "counter-exhausted":
       return "this board's id counter is exhausted — start a new workspace board";
+    case "board-read-only":
+      return `the board is read-only: ${refusal.error}`;
     case "board-unreadable":
       return `the board file could not be read and is not written to until fixed: ${refusal.error}`;
     case "unknown-task":

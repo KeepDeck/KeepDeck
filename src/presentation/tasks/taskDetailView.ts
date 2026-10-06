@@ -1,5 +1,6 @@
 import { formatAge } from "../../domain/usage";
 import {
+  isUnkeptBriefEdit,
   TASK_CAPS,
   USER_ACTOR,
   blockerCandidates,
@@ -123,11 +124,6 @@ export interface TaskDetailView {
   activity: { label: string; open: boolean };
   changes: FeedChange[];
   changesEmpty: string | null;
-  /** The board keeps the last so many comments and changes, each list cut
-   * on its own: at its limit (cut, or cut at the next entry) the list says
-   * so — null while it is not. */
-  commentsTrimmed: string | null;
-  changesTrimmed: string | null;
   }
 
 export interface FeedChange {
@@ -209,7 +205,8 @@ export const TASK_DETAIL_WORDS = {
   transferLinked: (links: string) => `Linked by blockers — ${links}; unlink first`,
   menu: (id: string) => `More for ${id}`,
   labelRemoved: (label: string) => `removed label ${label}`,
-  trimmed: (max: number, what: string) => `At the board's limit — it keeps only the last ${max} ${what}`,
+  briefEdited: (was: string, now: string) => `edited the brief (v${was} → v${now})`,
+  briefEditedUnkept: "edited the brief (its earlier text was not kept)",
   detach: "Detach",
   none: "none",
   addBlocker: "Add a blocker",
@@ -366,9 +363,6 @@ export function taskDetailView(
     activity: { label: TASK_DETAIL_WORDS.activity, open: activityOpen },
     changes: changesOf(task, now),
     changesEmpty: task.log.length === 0 ? TASK_DETAIL_WORDS.changesEmpty : null,
-    commentsTrimmed:
-      task.comments.length >= TASK_CAPS.commentsMax ? TASK_DETAIL_WORDS.trimmed(TASK_CAPS.commentsMax, "comments") : null,
-    changesTrimmed: task.log.length >= TASK_CAPS.logMax ? TASK_DETAIL_WORDS.trimmed(TASK_CAPS.logMax, "changes") : null,
   };
 }
 
@@ -491,8 +485,8 @@ export function commentsOf(task: Pick<Task, "comments">, now: number): CommentIt
  */
 export function changesOf(task: Pick<Task, "log">, now: number): FeedChange[] {
   // A change's key is what it is — its moment and field, counted among
-  // its twins — never its place: the log is cut from the front at its cap,
-  // and a place-key re-keyed every line on each new entry.
+  // its twins — never its place, so a line keeps its key whatever comes
+  // before it.
   const seen = new Map<string, number>();
   return task.log.flatMap((entry) => {
     const base = `change-${entry.at}-${entry.field}`;
@@ -525,9 +519,8 @@ function changeItems(entry: Task["log"][number], key: string, now: number): Feed
   if (entry.field === "copiedFrom") return [line(TASK_DETAIL_WORDS.copiedFrom(entry.now ?? "—"))];
   if (entry.field === "copiedTo") return [line(TASK_DETAIL_WORDS.copiedTo(entry.now ?? "—"))];
   if (entry.field === "transferred") return [line(TASK_DETAIL_WORDS.transferred(entry.was ?? "—", entry.now ?? "—"))];
-  if (entry.field === "body") {
-    return [line(`edited the brief (the previous version is kept in the log: ${entry.was?.length ?? 0} characters)`)];
-  }
+  if (isUnkeptBriefEdit(entry)) return [line(TASK_DETAIL_WORDS.briefEditedUnkept)];
+  if (entry.field === "body") return [line(TASK_DETAIL_WORDS.briefEdited(entry.was ?? "—", entry.now ?? "—"))];
   return [line(`${entry.field}: ${entry.was ?? "—"} → ${entry.now ?? "—"}`)];
 }
 

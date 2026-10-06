@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { TASK_CAPS } from "../../domain/tasks";
 import { board, relation, task } from "../../domain/tasks/testSupport";
 import { boardView, columnLabelClassName } from "./boardView";
 import { NO_QUERY } from "./queryView";
@@ -9,7 +8,7 @@ import { statusMark, statusRing, taskCardView, taskCardClassName } from "./taskC
 import { TASK_DETAIL_WORDS, changesOf, commentsOf, renamedTitle, pickedStatus, taskDetailClassName, taskDetailView } from "./taskDetailView";
 import { teamCardTasksLine } from "./teamCardTasksLine";
 import { teamOnScreen } from "./teamOnScreen";
-import { blockerLinkWords, fieldCount, unsavedBanner, personName, priorityMark, statusTone, FIELD_WORDS, POOL_CHOICE } from "./words";
+import { blockerLinkWords, boardBanner, fieldCount, readOnlyBanner, restoreView, unsavedBanner, personName, priorityMark, statusTone, FIELD_WORDS, POOL_CHOICE } from "./words";
 
 const NOW = 100_000;
 const ROSTER = ["lead", "impl-1", "impl-2"];
@@ -158,7 +157,7 @@ describe("taskDetailView", () => {
         comments: [{ n: 1, at: NOW - 60_000, from: "user", body: "go" }],
         log: [
           { at: NOW - 3_600_000, from: "lead", field: "assignee", was: null, now: "impl-1" },
-          { at: NOW - 60_000, from: "impl-1", field: "body", was: null, now: null },
+          { at: NOW - 60_000, from: "impl-1", field: "body", was: "1", now: "2" },
         ],
       }),
       task({ id: "task-3", blockedBy: ["task-2"] }),
@@ -180,10 +179,15 @@ describe("taskDetailView", () => {
     expect(view.unblocks).toEqual([{ id: "task-3", title: "Task task-3" }]);
     expect(view.changes.map(({ key: _key, ...rest }) => rest)).toEqual([
       { kind: "change", who: "lead", text: "assignee: — → impl-1", age: "1h ago" },
-      { kind: "change", who: "impl-1", text: "edited the brief (the previous version is kept in the log: 0 characters)", age: "1m ago" },
+      { kind: "change", who: "impl-1", text: "edited the brief (v1 → v2)", age: "1m ago" },
     ]);
     expect(view.comments.map(({ key: _key, ...rest }) => rest)).toEqual([{ who: "you", age: "1m ago", body: "go" }]);
     expect(view.assigneeOptions.map((o) => o.value)).toEqual(["", "lead", "impl-1", "impl-2"]);
+  });
+
+  it("says a first build's brief edit, which kept no text, was made — and that its earlier text was not kept", () => {
+    const b = board([task({ id: "task-1", log: [{ at: NOW - 60_000, from: "lead", field: "body", was: null, now: null }] })]);
+    expect(taskDetailView(b.tasks[0], b, ROSTER, NOW).changes.map((c) => c.text)).toEqual(["edited the brief (its earlier text was not kept)"]);
   });
 
   it("a todo task with no blockers says it can start now; an off-roster assignee stays choosable", () => {
@@ -404,17 +408,13 @@ describe("commentsOf / changesOf — what was said, and what was changed, apart"
     expect(keyOf(after, "status: — → s3")).toBe(keyOf(before, "status: — → s3"));
   });
 
-  it("says when a list is at the board's limit — each on its own", () => {
+  it("shows every comment and every change, however many — nothing is cut", () => {
     const b = board([task({ id: "task-1" })]);
     const view = (over: Partial<ReturnType<typeof task>>) => taskDetailView(task({ id: "task-1", ...over }), b, ROSTER, 0);
-    expect(view({}).changesTrimmed).toBeNull();
-    expect(view({}).commentsTrimmed).toBeNull();
-    const fullLog = view({ log: Array.from({ length: TASK_CAPS.logMax }, (_, i) => change(i, "x")) });
-    expect(fullLog.changesTrimmed).toBe(TASK_DETAIL_WORDS.trimmed(TASK_CAPS.logMax, "changes"));
-    expect(fullLog.commentsTrimmed).toBeNull();
-    const fullTalk = view({ comments: Array.from({ length: TASK_CAPS.commentsMax }, (_, i) => comment(i + 1, i)) });
-    expect(fullTalk.commentsTrimmed).not.toBeNull();
-    expect(fullTalk.changesTrimmed).toBeNull();
+    const longLog = view({ log: Array.from({ length: 520 }, (_, i) => change(i, `s${i}`)) });
+    expect(longLog.changes).toHaveLength(520);
+    const longTalk = view({ comments: Array.from({ length: 250 }, (_, i) => comment(i + 1, i)) });
+    expect(longTalk.comments).toHaveLength(250);
   });
 });
 
@@ -473,13 +473,50 @@ describe("taskDetailView — a task's copy links", () => {
   });
 });
 
-describe("unsavedBanner — what a board lagging its disk says", () => {
-  it("speaks of the person's changes, or — for a board read in an older format — of its upgrade and the kept file", () => {
+describe("restoreView — the way out of an unusable database", () => {
+  const HOUR = 3_600_000;
+  it("offers the newest verified backup, says how old it is and what a restore loses", () => {
+    const view = restoreView({ kind: "damaged", backups: [10 * HOUR, 9 * HOUR] }, 12 * HOUR)!;
+    expect(view.choice).toEqual({ kind: "backup", at: 10 * HOUR });
+    expect(view.label).toBe("Restore the backup from 2h ago");
+    expect(view.message).toContain("set aside, not deleted");
+    expect(view.message).toContain("every board open in this session is written over it");
+  });
+
+  it("says a missing database is missing — nothing of it is set aside", () => {
+    const view = restoreView({ kind: "missing", backups: [10 * HOUR] }, 12 * HOUR)!;
+    expect(view.choice).toEqual({ kind: "backup", at: 10 * HOUR });
+    expect(view.message).toMatch(/^The task database is missing\./);
+    expect(view.message).not.toContain("set aside");
+  });
+
+  it("with no backup to restore, offers a new database — never with a backup there", () => {
+    const view = restoreView({ kind: "damaged", backups: [] }, 0)!;
+    expect(view.choice).toEqual({ kind: "empty" });
+    expect(view.label).toBe("Start a new task database");
+    expect(view.confirm).toBe("Start new");
+    expect(view.message).toContain("Boards still in their files move into it");
+    expect(view.message).toContain("any other board is not in it");
+    expect(restoreView({ kind: "missing", backups: [] }, 0)!.message).toMatch(/^The task database is missing\. There is no backup/);
+  });
+
+  it("offers nothing when the database is usable", () => {
+    expect(restoreView(null, 0)).toBeNull();
+  });
+});
+
+describe("the board's banners — a disk lagging, a board that cannot be written", () => {
+  it("speaks of the person's changes kept and retried, or of a board nothing can change, with the reason", () => {
     expect(unsavedBanner("disk full")).toBe("Changes not saved yet — disk full. The board keeps them and retries on its own.");
-    const upgrade = unsavedBanner("disk full", true);
-    expect(upgrade).toContain("upgrade to linked tasks is not saved yet — disk full");
-    expect(upgrade).toContain("board.pre-relations.json");
-    expect(upgrade).not.toContain("Changes");
+    expect(readOnlyBanner("the task database is damaged: page 3")).toBe(
+      "The board is read-only — the task database is damaged: page 3. Nothing can be changed until this is resolved.",
+    );
+  });
+
+  it("shows the read-only reason before any lag, and nothing when the board is fine", () => {
+    expect(boardBanner({ unsaved: "disk full", readOnly: "damaged" })).toBe(readOnlyBanner("damaged"));
+    expect(boardBanner({ unsaved: "disk full", readOnly: null })).toBe(unsavedBanner("disk full"));
+    expect(boardBanner({ unsaved: null, readOnly: null })).toBeNull();
   });
 });
 

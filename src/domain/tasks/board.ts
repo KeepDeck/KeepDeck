@@ -1,12 +1,9 @@
 /**
- * Questions asked of a whole board: which task comes next, what is in a
- * member's queue, what a card's footer counts. One answer each, so the
- * MCP commands and the board's surfaces cannot disagree.
+ * Questions asked of a whole board: what can start, what waits on a
+ * decision, what a card's footer counts. One answer each, so the MCP
+ * commands and the board's surfaces cannot disagree.
  */
-import type { RoleStanding } from "../mail/roles";
 import {
-  acceptsWork,
-  isOpen,
   TASK_STATUSES,
   type Task,
   type TaskBoard,
@@ -19,10 +16,10 @@ const PRIORITY_RANK: Record<TaskPriority, number> = { high: 0, normal: 1, low: 2
 
 /**
  * Whether a task may be handed out or taken: waiting in `todo` with every
- * blocker resolved. THE rule `task.next` (its head and its pool count)
- * and the claim both ask — a todo task with an open blocker stays in its column with a
- * mark, which is not the `blocked` status (that one is the assignee saying
- * "I am waiting").
+ * blocker resolved. THE rule every answer's `issuable` and the start of a
+ * task both ask — a todo task with an open blocker stays in its column
+ * with a mark, which is not the `blocked` status (that one is the assignee
+ * saying "I am waiting").
  */
 export function issuable(task: Task, board: TaskBoard): boolean {
   return task.status === "todo" && openBlockersOf(task, board).length === 0;
@@ -59,40 +56,14 @@ export function tasksOfTeam(board: TaskBoard, teamId: string): Task[] {
   return board.tasks.filter((task) => task.teamId === teamId);
 }
 
-/** What one member has waiting: its `todo` tasks in queue order. */
-export function queueOf(board: TaskBoard, teamId: string, assignee: string | null): Task[] {
-  return tasksOfTeam(board, teamId)
-    .filter((task) => task.status === "todo" && task.assignee === assignee)
-    .sort(compareQueue);
-}
-
-/** The head of a member's queue: its first issuable task, or null. */
-export function nextFor(board: TaskBoard, teamId: string, assignee: string): Task | null {
-  return queueOf(board, teamId, assignee).find((task) => issuable(task, board)) ?? null;
-}
-
-/** The pool's issuable tasks — what anyone on the team may take. */
-export function poolOf(board: TaskBoard, teamId: string): Task[] {
-  return queueOf(board, teamId, null).filter((task) => issuable(task, board));
-}
-
 /**
- * Everything on one member's plate: open tasks assigned to it, plus — for
- * a member who accepts work — the team's tasks waiting in review.
+ * What waits on whoever hands out work, most urgent first: the team's
+ * tasks in review (to accept or send back) and the ones blocked (to
+ * unblock or rethink). Nothing else on the board needs that decision.
  */
-export function mine(
-  board: TaskBoard,
-  teamId: string,
-  role: string,
-  standing: RoleStanding | null,
-): Task[] {
-  const accepts = acceptsWork(standing);
+export function awaitingDecision(board: TaskBoard, teamId: string): Task[] {
   return tasksOfTeam(board, teamId)
-    .filter(
-      (task) =>
-        isOpen(task.status) &&
-        (task.assignee === role || (accepts && task.status === "review")),
-    )
+    .filter((task) => task.status === "review" || task.status === "blocked")
     .sort(compareQueue);
 }
 

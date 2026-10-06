@@ -21,7 +21,8 @@ import { EMPTY_COMPOSER, beginSend, composerCanSend, finishSend, labelDraftAfter
 import { canCreateTask, canSendComment } from "./composerView";
 import { DIALOG_WORDS, escapeTarget, selectionAfterClick, teamControlView } from "./dialogState";
 import { EMPTY_TASK_DRAFT, assigneeOf, taskInputOf } from "./formDraft";
-import { INITIAL_SCREEN, initialScreen, queryOn, screenReducer, walksRows, wideView, type ScreenState } from "./screenState";
+import { INITIAL_SCREEN, initialScreen, queryOn, restoreConfirm, screenReducer, walksRows, wideView, type ScreenState } from "./screenState";
+import { restoreView } from "./words";
 import { NO_QUERY } from "./queryView";
 import { teamOnScreen } from "./teamOnScreen";
 import { offWaitingHint, showTasksSocketHint } from "./settingsView";
@@ -129,6 +130,19 @@ describe("dialogState", () => {
 });
 
 describe("screenState", () => {
+  it("a restore runs only from its confirm, once, and the confirm shows only while there is one to offer", () => {
+    const offer = restoreView({ kind: "damaged", backups: [] }, 0);
+    const asked = screenReducer(INITIAL_SCREEN, { type: "askRestore" }, null);
+    expect(restoreConfirm(asked.state, offer)).toBe(offer);
+    expect(restoreConfirm(asked.state, null)).toBeNull();
+    expect(restoreConfirm(INITIAL_SCREEN, offer)).toBeNull();
+    expect(screenReducer(asked.state, { type: "cancelRestore" }, null)).toEqual({ state: INITIAL_SCREEN });
+    const yes = screenReducer(asked.state, { type: "confirmRestore" }, null);
+    expect(yes).toEqual({ state: INITIAL_SCREEN, restore: true });
+    // A second yes — or one with no confirm up — runs nothing.
+    expect(screenReducer(yes.state, { type: "confirmRestore" }, null).restore).toBeUndefined();
+  });
+
   const open: ScreenState = { ...INITIAL_SCREEN, composing: true, wide: true, chosenTeam: "team-1" };
 
   it("a card click opens it, closing the form; the open card's click puts it away and narrows", () => {

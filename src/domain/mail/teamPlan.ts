@@ -93,12 +93,12 @@ function rosterLine(address: string): string {
 function boardLine(standing: RoleStanding | null): string {
   switch (standing) {
     case "leads":
-      return 'This team has a board. Put work on it with task.create (task.update reassigns or reprioritises), then tell the assignee with mail.send kind "task", naming the task id — the board tells nobody by itself. task.list reads the board; what waits for your acceptance is in task.mine.';
+      return 'This team has a board. Put work on it with task.create (task.update reassigns or reprioritises), then tell the assignee with mail.send kind "task", naming the task id — the board tells nobody by itself. task.brief shows the board at a glance and what waits on your decision; task.list reads the statuses you name, task.search finds a task by its words.';
     case "peer":
-      return "This team has a board. task.create puts work on it, task.mine shows what is yours, task.update moves it along; tell whoever should take it by mail — the board tells nobody by itself.";
+      return "This team has a board. task.create puts work on it, task.brief shows it at a glance, task.update moves it along; tell whoever should take it by mail — the board tells nobody by itself.";
     case "reports":
     case null:
-      return "This team has a board. task.mine lists what is yours, task.get reads a task whole, task.update moves yours along (in progress, then review) and task.comment keeps the discussion with the task. A letter naming a task id points you at it; the board itself sends nothing.";
+      return "This team has a board. A letter naming a task id points you at your work — the board itself sends nothing: task.get reads the task, task.update moves it along (in progress, then review) and task.comment keeps the discussion with it. task.list with status and assignee=<you> shows what is yours.";
   }
 }
 
