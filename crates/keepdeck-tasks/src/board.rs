@@ -178,13 +178,15 @@ pub fn apply(conn: &mut SqliteConnection, change: &ChangeSet) -> Result<Applied>
         if !before.is_empty() {
             return Ok(Applied::AlreadyApplied { revs: before });
         }
-        let mut revs = Vec::with_capacity(change.boards.len());
-        let mut seen = HashSet::new();
+        let mut in_change = HashSet::new();
         for board_change in &change.boards {
-            if !seen.insert(board_change.board.as_str()) {
+            if !in_change.insert(board_change.board.as_str()) {
                 return Err(StoreError::Invalid { detail: format!("board {} twice in one change", board_change.board) });
             }
-            revs.push(apply_board(conn, board_change)?);
+        }
+        let mut revs = Vec::with_capacity(change.boards.len());
+        for board_change in &change.boards {
+            revs.push(apply_board(conn, board_change, &in_change)?);
         }
         remember(conn, &change.request_id, &revs)?;
         Ok(Applied::Applied { revs })
@@ -212,7 +214,7 @@ fn remember(conn: &mut SqliteConnection, request_id: &str, revs: &[BoardRev]) ->
     Ok(())
 }
 
-fn apply_board(conn: &mut SqliteConnection, change: &BoardChange) -> Result<BoardRev> {
+fn apply_board(conn: &mut SqliteConnection, change: &BoardChange, in_change: &HashSet<&str>) -> Result<BoardRev> {
     let stored: Option<BoardRow> =
         boards::table.find(&change.board).select(BoardRow::as_select()).first(conn).optional()?;
     let (next_id, rev) = match stored {
@@ -256,7 +258,7 @@ fn apply_board(conn: &mut SqliteConnection, change: &BoardChange) -> Result<Boar
         search::forget_task(conn, uid)?;
     }
     for task in &change.tasks {
-        write_task(conn, &change.board, new_rev, task)?;
+        write_task(conn, &change.board, new_rev, task, in_change)?;
     }
     for key in &change.relations_removed {
         diesel::delete(relations::table.find((&key.kind, &key.from, &key.to))).execute(conn)?;
@@ -293,8 +295,16 @@ fn apply_board(conn: &mut SqliteConnection, change: &BoardChange) -> Result<Boar
     Ok(BoardRev { board: change.board.clone(), rev: new_rev })
 }
 
-fn write_task(conn: &mut SqliteConnection, board: &str, rev: i64, task: &TaskWrite) -> Result<()> {
-    let existed = diesel::select(diesel::dsl::exists(tasks::table.find(&task.uid))).get_result::<bool>(conn)?;
+fn write_task(conn: &mut SqliteConnection, board: &str, rev: i64, task: &TaskWrite, in_change: &HashSet<&str>) -> Result<()> {
+    let lives_on: Option<String> = tasks::table.find(&task.uid).select(tasks::board).first(conn).optional()?;
+    // A task leaves its board only in a change that names that board too:
+    // its rev is checked, and it moves on with the task gone from it.
+    if let Some(from) = lives_on.as_deref().filter(|from| *from != board && !in_change.contains(from)) {
+        return Err(StoreError::Constraint {
+            detail: format!("task {} lives on board {from} — a move to board {board} names both boards", task.uid),
+        });
+    }
+    let existed = lives_on.is_some();
     let row = TaskRow {
         uid: task.uid.clone(),
         board: board.to_string(),

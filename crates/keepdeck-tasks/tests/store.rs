@@ -293,6 +293,21 @@ fn a_number_is_never_handed_out_twice_and_a_move_keeps_the_old_address() {
 }
 
 #[test]
+fn a_task_leaves_its_board_only_in_a_change_that_names_that_board() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = active_store(dir.path());
+    let t = store.load("b1").unwrap().tasks[0].clone();
+    let mut moved = write_of(&t, 0);
+    moved.key = Some("task-1".into());
+    let mut to = board_change("b2", 0, 2, vec![moved]);
+    to.workspace = Some("ws-2".into());
+    let silent = store.apply(&change("r1", vec![to]));
+    assert!(matches!(silent, Err(StoreError::Constraint { .. })), "{silent:?}");
+    assert_eq!(store.load("b1").unwrap().tasks.len(), 2);
+    assert_eq!(rev_of(&mut store, "b1"), 0);
+}
+
+#[test]
 fn a_change_over_several_boards_lands_whole_or_not_at_all() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = active_store(dir.path());
