@@ -26,7 +26,8 @@ export function testDatabase(files: LegacyBoard[] = []) {
   let sources: MigrationSource[] = [];
   let status: StoreStatus | null = null;
   const applied = new Map<string, Applied>();
-  let nextFault: { kind: "refuse"; error: StoreError } | { kind: "lose" } | null = null;
+  /** The faults the next applies meet, one each, in order. */
+  const faults: ({ kind: "refuse"; error: StoreError } | { kind: "lose" })[] = [];
   /** Called between the import and the read-back — a file changing mid-move. */
   let duringImport: (() => void) | null = null;
   const requests: ChangeSet[] = [];
@@ -126,8 +127,7 @@ export function testDatabase(files: LegacyBoard[] = []) {
       requests.push(clone(change));
       const before = applied.get(change.requestId);
       if (before) return { kind: "alreadyApplied", revs: before.revs } as Applied;
-      const fault = nextFault;
-      nextFault = null;
+      const fault = faults.shift() ?? null;
       if (fault?.kind === "refuse") throw fault.error;
       const snapshot = clone(boards);
       let revs;
@@ -189,10 +189,10 @@ export function testDatabase(files: LegacyBoard[] = []) {
       status = next;
     },
     refuseNextApply(error: StoreError) {
-      nextFault = { kind: "refuse", error };
+      faults.push({ kind: "refuse", error });
     },
     loseNextAnswer() {
-      nextFault = { kind: "lose" };
+      faults.push({ kind: "lose" });
     },
     /** Copy the boards as they are, as the backup taken at `at`. */
     takeBackup(at: number) {

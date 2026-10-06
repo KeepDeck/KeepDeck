@@ -121,9 +121,10 @@ export function createDbBoardStore(deps: DbBoardStoreDeps): DbBoardStore {
     place.held = read.board;
   };
 
-  /** Send one request; a coded refusal means it was NOT applied, anything
-   * else (the answer lost on the way) leaves it pending. */
-  const send = async (workspace: string, place: Confirmed, change: ChangeSet, target: TaskBoard) => {
+  /** Send one request. A coded refusal means it was NOT applied: it is
+   * answered (null: applied). Anything else — the answer lost on the way —
+   * leaves it pending and throws. */
+  const send = async (workspace: string, place: Confirmed, change: ChangeSet, target: TaskBoard): Promise<StoreError | null> => {
     place.pending = { change, target };
     let applied: Applied;
     try {
@@ -134,9 +135,26 @@ export function createDbBoardStore(deps: DbBoardStoreDeps): DbBoardStore {
       // Computed against a state the database no longer holds: read it
       // again, and the next write is computed against what is there.
       if (e.code === "conflict" || e.code === "constraint") await reread(workspace, place);
-      throw new Error(storeErrorText(e));
+      return e;
     }
     accept(place, applied, change, target);
+    return null;
+  };
+
+  /** The change from what the database confirmed to `target`, sent. A
+   * constraint on a database that is sound means the confirmed board was
+   * not what it holds: the board is written over what it holds ONCE —
+   * the change from what was just read back — and only a refusal of that
+   * reaches the caller (v10 §05). */
+  const sendChange = async (workspace: string, place: Confirmed, target: TaskBoard) => {
+    const change = boardChange(place.held, target, { board: place.board, workspace, rev: place.rev });
+    if (change === null) return;
+    let refused = await send(workspace, place, { requestId: deps.mintUid(), boards: [change] }, target);
+    if (refused?.code === "constraint" && readOnly === null) {
+      const whole = boardChange(place.held, target, { board: place.board, workspace, rev: place.rev });
+      refused = whole === null ? null : await send(workspace, place, { requestId: deps.mintUid(), boards: [whole] }, target);
+    }
+    if (refused !== null) throw new Error(storeErrorText(refused));
   };
 
   /** Where the database stands, settled: the boards moved into it (or
@@ -205,10 +223,11 @@ export function createDbBoardStore(deps: DbBoardStoreDeps): DbBoardStore {
             : { board: deps.mintUid(), rev: 0, taskRevs: new Map(), held: EMPTY_BOARD, pending: null };
         confirmed.set(workspaceId, place);
       }
-      if (place.pending) await send(workspaceId, place, place.pending.change, place.pending.target);
-      const change = boardChange(place.held, board, { board: place.board, workspace: workspaceId, rev: place.rev });
-      if (change === null) return;
-      await send(workspaceId, place, { requestId: deps.mintUid(), boards: [change] }, board);
+      if (place.pending) {
+        const refused = await send(workspaceId, place, place.pending.change, place.pending.target);
+        if (refused !== null) throw new Error(storeErrorText(refused));
+      }
+      await sendChange(workspaceId, place, board);
     },
     async drop({ workspaceId }) {
       confirmed.delete(workspaceId);

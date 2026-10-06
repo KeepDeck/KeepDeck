@@ -79,6 +79,22 @@ describe("createDbBoardStore — the board reaches the database", () => {
     expect(db.requests[db.requests.length - 1].boards[0].expectedRev).toBe(5);
   });
 
+  it("writes the board over what the database holds once, after a constraint — and says so only if that is refused too", async () => {
+    const { db, store } = await open();
+    const b = await readBoard(store);
+    db.refuseNextApply({ code: "constraint", detail: "comment 1 is stored with other content" });
+    await store.write({ workspaceId: "ws-1", board: comment(b, "x") });
+    expect(db.boards()[0].tasks[0].comments.map((c) => c.body)).toEqual(["x"]);
+    // Two requests: the refused one, then the change from what was read back.
+    expect(db.requests.length).toBe(2);
+    expect(db.requests[1].requestId).not.toBe(db.requests[0].requestId);
+    const again = comment(comment(b, "x"), "y");
+    db.refuseNextApply({ code: "constraint", detail: "still" });
+    db.refuseNextApply({ code: "constraint", detail: "still" });
+    await expect(store.write({ workspaceId: "ws-1", board: again })).rejects.toThrow("does not fit the stored board: still");
+    expect(db.requests.length).toBe(4);
+  });
+
   it("gives a workspace's first board an id of its own", async () => {
     const { db, store } = await open();
     expect(await store.read({ workspaceId: "ws-2" })).toEqual({ kind: "none" });
