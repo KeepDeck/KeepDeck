@@ -156,6 +156,13 @@ describe("relations — an epic and its tasks", () => {
     expect(setEpic(b, b.tasks[0], null, 1, null)).toBe(b);
   });
 
+  it("walks an epic's tasks before its close in the loop order, both ways — and blockers through it", () => {
+    // task-5 waits on the epic task-1; task-2 is under it.
+    const walked = board([...b.tasks, task({ id: "task-5", blockedBy: ["task-1"] })], 6, b.relations);
+    expect([...transitiveWaiters(walked, "uid-task-2")].sort()).toEqual(["uid-task-1", "uid-task-2", "uid-task-5"]);
+    expect([...transitiveBlockers(walked, "uid-task-5")].sort()).toEqual(["uid-task-1", "uid-task-2", "uid-task-3", "uid-task-5"]);
+  });
+
   it("says a task under an epic not on the board is under none", () => {
     expect(epicOf(b.tasks[3], b)).toBeNull();
   });

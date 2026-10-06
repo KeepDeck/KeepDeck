@@ -40,6 +40,16 @@ export function dropdownView(input: {
   className?: string;
 }): DropdownView {
   const { options, value } = input;
+  const items = options.map((option) => {
+    const selected = option.value === value;
+    return {
+      value: option.value,
+      label: option.label,
+      disabled: option.disabled === true,
+      selected,
+      className: selected ? "dropdown__option dropdown__option--active" : "dropdown__option",
+    };
+  });
   return {
     className: [
       "dropdown",
@@ -51,18 +61,9 @@ export function dropdownView(input: {
       .filter(Boolean)
       .join(" "),
     menuOpen: input.open && options.length > 0,
-    current: options.find((option) => option.value === value)?.label ?? value,
+    current: items.find((item) => item.selected)?.label ?? value,
     widthFrom: input.variant === "inline" ? "content" : "anchor",
-    items: options.map((option) => {
-      const selected = option.value === value;
-      return {
-        value: option.value,
-        label: option.label,
-        disabled: option.disabled === true,
-        selected,
-        className: selected ? "dropdown__option dropdown__option--active" : "dropdown__option",
-      };
-    }),
+    items,
   };
 }
 
