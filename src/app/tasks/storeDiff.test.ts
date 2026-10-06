@@ -92,6 +92,27 @@ describe("boardChange — what to write, against the confirmed board", () => {
     expect(boardChange(linked, unlinked, PLACE)!.relationsRemoved).toEqual([{ kind: "blocks", from: "uid-task-1", to: "uid-task-2" }]);
   });
 
+  it("writes the same task objects moved to other places — the board's order is the domain's", () => {
+    const swapped = { ...confirmed, tasks: [confirmed.tasks[1], confirmed.tasks[0]] };
+    const change = boardChange(confirmed, swapped, PLACE)!;
+    expect(change.tasks.map((t) => [t.uid, t.boardPos])).toEqual([
+      ["uid-task-2", 0],
+      ["uid-task-1", 1],
+    ]);
+  });
+
+  it("writes a link whose time alone, or whose author alone, changed", () => {
+    const linked = board([task({ id: "task-1" }), task({ id: "task-2" })], 3, [relation("blocks", "task-1", "task-2", 100, "lead")]);
+    const later = { ...linked, relations: [relation("blocks", "task-1", "task-2", 500, "lead")] };
+    expect(boardChange(linked, later, PLACE)!.relationsPut.map((r) => r.at)).toEqual([500]);
+    const byOther = { ...linked, relations: [relation("blocks", "task-1", "task-2", 100, "user")] };
+    expect(boardChange(linked, byOther, PLACE)!.relationsPut.map((r) => r.by)).toEqual(["user"]);
+  });
+
+  it("writes the counter moved on alone — a number handed out is never handed out again", () => {
+    expect(boardChange(confirmed, { ...confirmed, nextId: 9 }, PLACE)).toMatchObject({ nextId: 9, tasks: [], relationsPut: [] });
+  });
+
   it("writes a board rebuilt whole by value — every task, nothing wrong, history appended only", () => {
     const rebuilt = { ...confirmed, tasks: confirmed.tasks.map((t) => ({ ...t })) };
     const change = boardChange(confirmed, rebuilt, PLACE);
@@ -112,6 +133,15 @@ describe("boardChange — what to write, against the confirmed board", () => {
     expect(() => boardChange(talked, rewritten, PLACE)).toThrow(HistoryRewritten);
     const shortened = withTasks(talked, talked.tasks.map((t) => (t.id === "task-1" ? { ...t, comments: [] } : t)));
     expect(() => boardChange(talked, shortened, PLACE)).toThrow(HistoryRewritten);
+  });
+
+  it("refuses a log or a brief version rewritten under what the database holds, even with more appended", () => {
+    const edited = changed(changed(confirmed, "task-1", { kind: "priority", to: "high" }), "task-1", { kind: "body", to: "second" });
+    const rewrite = (patch: (t: Task) => Partial<Task>) => withTasks(edited, edited.tasks.map((t) => (t.id === "task-1" ? { ...t, ...patch(t) } : t)));
+    const relogged = rewrite((t) => ({ log: [{ ...t.log[0], now: "low" }, ...t.log.slice(1), { ...t.log[0], at: at + 1 }] }));
+    expect(() => boardChange(edited, relogged, PLACE)).toThrow(HistoryRewritten);
+    const rebriefed = rewrite(() => ({ briefs: [{ v: 1, body: "not what it was" }, { v: 2, body: "second" }] }));
+    expect(() => boardChange(edited, rebriefed, PLACE)).toThrow(HistoryRewritten);
   });
 });
 
