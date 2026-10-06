@@ -160,11 +160,15 @@ describe("Dropdown", () => {
     );
     act(() => button().click());
     const refused = [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')][1];
-    expect(refused.disabled).toBe(true);
+    // Reachable by a keyboard and a reader, refused, and described by why.
+    expect(refused.disabled).toBe(false);
     expect(refused.getAttribute("aria-disabled")).toBe("true");
+    const note = menu()?.querySelector(".dropdown__note");
+    expect(note?.textContent).toBe("Not now — it is closed");
+    expect(refused.getAttribute("aria-describedby")).toBe(note?.id);
+    expect([...document.querySelectorAll('[role="option"]')][0].hasAttribute("aria-describedby")).toBe(false);
     act(() => refused.click());
     expect(onChange).not.toHaveBeenCalled();
-    expect(menu()?.querySelector(".dropdown__note")?.textContent).toBe("Not now — it is closed");
     // No note, no small print.
     act(() => button().click());
     mount();

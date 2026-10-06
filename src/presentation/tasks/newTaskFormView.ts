@@ -9,7 +9,7 @@ import {
   type TaskPriority,
 } from "../../domain/tasks";
 import { draftIn, type TaskDraft } from "./formDraft";
-import { POOL_CHOICE, STATUS_LABEL, priorityChoices, type ChoiceView } from "./words";
+import { KIND_LABEL, NO_EPIC_CHOICE, POOL_CHOICE, STATUS_LABEL, epicChoice, priorityChoices, type ChoiceView } from "./words";
 
 export interface NewTaskFormView {
   assigneeOptions: ChoiceView[];
@@ -29,7 +29,7 @@ export interface NewTaskFormView {
   draft: TaskDraft;
 }
 
-const KIND_LABEL: Record<TaskKind, string> = { task: "Task", epic: "Epic" };
+
 
 /** The form's own words; the fields' names are FIELD_WORDS. */
 export const NEW_TASK_WORDS = {
@@ -37,9 +37,6 @@ export const NEW_TASK_WORDS = {
   intro: "Put work on the team's board — assign it now or leave it unassigned for whoever takes it.",
   cancel: "Cancel",
   create: "Create task",
-  kind: "Type",
-  epic: "Epic",
-  noEpic: "No epic",
 } as const;
 
 
@@ -55,8 +52,10 @@ export function newTaskFormView(
   const epics = board === null || teamId === null ? [] : epicCandidates({ kind: "task", teamId, status: "todo" }, board);
   return {
     kindOptions: TASK_KINDS.map((kind) => ({ value: kind, label: KIND_LABEL[kind] })),
-    epicOptions: [{ value: "", label: NEW_TASK_WORDS.noEpic }, ...epics.map((task) => ({ value: task.id, label: `${task.id} · ${task.title}` }))],
-    draft: draftIn(epic),
+    epicOptions: [NO_EPIC_CHOICE, ...epics.map(epicChoice)],
+    // Opened in an epic new work cannot go under (closed meanwhile): the
+    // form starts under none rather than on a pick it would refuse.
+    draft: draftIn(epic !== null && epics.some((candidate) => candidate.id === epic) ? epic : null),
     assigneeOptions: [
       POOL_CHOICE,
       ...roster.map((role) => ({ value: role, label: role })),

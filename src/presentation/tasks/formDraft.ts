@@ -3,7 +3,7 @@
  * with the domain's own defaults, so no component re-spells "normal" or
  * turns an empty pick into the pool on its own.
  */
-import { DEFAULT_PRIORITY, type CreateStatus, type CreateTaskInput, type TaskKind, type TaskPriority } from "../../domain/tasks";
+import { DEFAULT_PRIORITY, canHaveEpic, type CreateStatus, type CreateTaskInput, type TaskKind, type TaskPriority } from "../../domain/tasks";
 
 export interface TaskDraft {
   title: string;
@@ -34,9 +34,10 @@ export function draftIn(epic: string | null): TaskDraft {
   return epic === null ? EMPTY_TASK_DRAFT : { ...EMPTY_TASK_DRAFT, parent: epic };
 }
 
-/** Whether the draft asks for an epic: work does; an epic goes under none. */
+/** Whether the draft asks for an epic: the domain's answer for its kind
+ * (`canHaveEpic`) — work does; an epic goes under none. */
 export function takesAnEpic(draft: Pick<TaskDraft, "kind">): boolean {
-  return draft.kind === "task";
+  return canHaveEpic(draft.kind);
 }
 
 /** What a picker's value means: its empty pick is none — no assignee

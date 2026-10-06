@@ -6,6 +6,7 @@ import {
   DRAG_THRESHOLD_PX,
   IDLE,
   armRow,
+  armsOn,
   clickDisbelieved,
   dragOutlived,
   dropStateOf,
@@ -60,6 +61,8 @@ describe("rowDrag", () => {
     expect(clickDisbelieved(1_000, 1_000 + CLICK_AFTER_DRAG_MS - 1)).toBe(true);
     expect(clickDisbelieved(1_000, 1_000 + CLICK_AFTER_DRAG_MS)).toBe(false);
     expect(clickDisbelieved(null, 5)).toBe(false);
+    // Only the main button picks a row up.
+    expect([armsOn(0), armsOn(1), armsOn(2)]).toEqual([true, false, false]);
   });
 });
 

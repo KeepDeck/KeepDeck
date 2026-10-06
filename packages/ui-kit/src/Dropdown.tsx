@@ -103,10 +103,14 @@ export function Dropdown({
                 type="button"
                 role="option"
                 aria-selected={o.selected}
+                // Refused, yet reachable: a keyboard or a reader still meets
+                // it, and hears why (the note) — `disabled` would drop it from
+                // both. A press picks nothing.
                 aria-disabled={o.disabled || undefined}
-                disabled={o.disabled}
+                aria-describedby={o.disabled && note ? `${listId}-note` : undefined}
                 className={o.className}
                 onClick={() => {
+                  if (o.disabled) return;
                   onChange(o.value);
                   setOpen(false);
                   // The picked option is being unmounted with the menu; without
@@ -120,7 +124,7 @@ export function Dropdown({
             </li>
           ))}
           {note && (
-            <li role="none" className="dropdown__note">
+            <li role="none" id={`${listId}-note`} className="dropdown__note">
               {note}
             </li>
           )}

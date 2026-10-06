@@ -12,6 +12,7 @@ import {
   labelDraftAfter,
   labelSendable,
   finishSend,
+  pickedPriority,
   pickedStatus,
   taskDetailClassName,
   renamedTitle,
@@ -30,6 +31,7 @@ import { Button } from "../../ui/Button";
 import { TipButton } from "../../ui/TipButton";
 import { CloseIcon, MaximizeIcon, RestoreIcon } from "@keepdeck/ui-kit/icons";
 import { VirtualList } from "@keepdeck/ui-kit/VirtualList";
+import { EpicBar, EpicChip } from "./EpicMarks";
 import { RemoveButton } from "../../ui/RemoveButton";
 import { CommandPalette } from "../../ui/CommandPalette";
 import { ConfirmDialog } from "../../ui/ConfirmDialog";
@@ -209,17 +211,20 @@ export function TaskDetail({
                   ariaLabel={FIELD_WORDS.priority}
                   options={view.priorityOptions}
                   value={view.priority}
-                  onChange={(value) => onPriority(view.id, value as TaskPriority)}
+                  onChange={(value) => {
+                    const to = pickedPriority(view.priority, value);
+                    if (to !== null) onPriority(view.id, to);
+                  }}
                   variant="inline"
                 />
               </dd>
 
               {view.parent && (
                 <>
-                  <dt className="tasks__prop-label">{TASK_DETAIL_WORDS.epic}</dt>
+                  <dt className="tasks__prop-label">{FIELD_WORDS.epic}</dt>
                   <dd>
                     <Dropdown
-                      ariaLabel={TASK_DETAIL_WORDS.epic}
+                      ariaLabel={FIELD_WORDS.epic}
                       options={view.parent.options}
                       value={view.parent.value}
                       onChange={(value) => onParent(view.id, value)}
@@ -342,9 +347,7 @@ export function TaskDetail({
                   {view.epic.heading}
                   <span className="tasks__epic-summary">{view.epic.progress.summary}</span>
                 </h4>
-                <span className="tasks__epic-bar tasks__epic-bar--wide" aria-hidden>
-                  <span className="tasks__epic-fill" style={{ width: `${view.epic.progress.fill}%` }} />
-                </span>
+                <EpicBar fill={view.epic.progress.fill} className="tasks__epic-bar--wide" />
                 <div className="tasks__epic-tasks">
                   {view.epic.empty && <p className="tasks__muted">{view.epic.empty}</p>}
                   {view.epic.tasks.map((task) => (
@@ -358,9 +361,11 @@ export function TaskDetail({
                     </button>
                   ))}
                   <div className="tasks__epic-add">
-                    <Button size="sm" onClick={() => onNewInEpic(view.id)}>
-                      <PlusIcon /> {view.epic.addNew}
-                    </Button>
+                    {view.epic.addNew && (
+                      <Button size="sm" onClick={() => onNewInEpic(view.id)}>
+                        <PlusIcon /> {view.epic.addNew}
+                      </Button>
+                    )}
                     {view.epic.addExisting && (
                       <Button size="sm" onClick={() => setPalette("epic-task")}>
                         <PlusIcon /> {view.epic.addExisting}
@@ -425,7 +430,7 @@ export function TaskDetail({
       <header className="tasks__detail-head">
         <div className="tasks__detail-line">
           <StatusRing {...view.statusRing} />
-          {view.kindChip && <span className="kd-tag tasks__epic-chip">{view.kindChip}</span>}
+          {view.kindChip && <EpicChip text={view.kindChip} />}
           <span className="tasks__detail-meta kd-one-line">{view.meta}</span>
           {/* The task's own menu stands with what names the task — its id
               and state, as Linear's beside the issue key — apart from the

@@ -40,9 +40,9 @@ export function NewTaskForm({ view, onCreate, onCancel }: NewTaskFormProps) {
       <div className="tasks__compose-body">
       <h3 className="tasks__detail-title">{NEW_TASK_WORDS.panel}</h3>
       <p className="tasks__muted">{NEW_TASK_WORDS.intro}</p>
-      <span className="tasks__section">{NEW_TASK_WORDS.kind}</span>
+      <span className="tasks__section">{FIELD_WORDS.kind}</span>
       <Segmented
-        ariaLabel={NEW_TASK_WORDS.kind}
+        ariaLabel={FIELD_WORDS.kind}
         options={view.kindOptions}
         value={draft.kind}
         onChange={(kind) => setDraft({ ...draft, kind })}
@@ -78,9 +78,9 @@ export function NewTaskForm({ view, onCreate, onCancel }: NewTaskFormProps) {
       </div>
       {takesAnEpic(draft) && (
         <>
-          <span className="tasks__section">{NEW_TASK_WORDS.epic}</span>
+          <span className="tasks__section">{FIELD_WORDS.epic}</span>
           <Dropdown
-            ariaLabel={NEW_TASK_WORDS.epic}
+            ariaLabel={FIELD_WORDS.epic}
             options={view.epicOptions}
             value={draft.parent}
             onChange={(parent) => setDraft({ ...draft, parent })}

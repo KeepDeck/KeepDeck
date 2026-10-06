@@ -16,7 +16,7 @@ const MARKS_AND_DISABLED = [
   ".tasks__row--cancelled .tasks__row-title", // a cancelled task
   ".tasks__epic-task--cancelled .tasks__row-title", // the same task, on its epic's card
   ".tasks__link:disabled",
-  ".dropdown__option:disabled", // a picker's option refused now
+  '.dropdown__option[aria-disabled="true"]', // a picker's option refused now
 ];
 
 function sheets(): [string, string][] {

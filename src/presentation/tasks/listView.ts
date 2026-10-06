@@ -16,10 +16,10 @@
  */
 import type { StatusRingProps } from "@keepdeck/ui-kit/StatusRing";
 import { epicOf, tasksOfEpic, type Task, type TaskBoard, type TaskStatus } from "../../domain/tasks";
-import { dropStateOf, type RowGrip, type DragState } from "./rowDrag";
+import { dropStateOf, type DragState } from "./rowDrag";
 import { compareInStatus, matchesQuery, type TaskQuery } from "./queryView";
 import { statusMark, taskRowView, type TaskRowView } from "./taskRowView";
-import { BOARD_ORDER, STATUS_LABEL } from "./words";
+import { BOARD_ORDER, EPIC_FOLD_WORDS, STATUS_LABEL } from "./words";
 
 /** Where an item stands in its group's drawn block — what edges of the
  * group's drop frame it draws: the heading opens it (`top`), or is all
@@ -54,9 +54,6 @@ export interface ListRow {
 }
 
 export type ListItem = ListHeading | ListRow;
-
-/** The words of an epic's fold, by what a press does. */
-export const EPIC_FOLD_WORDS = { fold: "Hide the epic's tasks", unfold: "Show the epic's tasks" } as const;
 
 /** The list's items: every status's heading, always — an empty group
  * with its 0 — and the rows of each open group: its tasks in the tracker's
@@ -207,9 +204,10 @@ export function stepRow(items: readonly ListItem[], openId: string | null, step:
 
 /** The keys that walk the list, and which way — a bare J or K only, and
  * never while a field has the keys (a comment, a label being typed): a
- * chord is a shortcut's, a letter in a field is text. */
-export function rowStepOf(key: { key: string; chord: boolean; inField: boolean }): 1 | -1 | null {
-  if (key.chord || key.inField) return null;
+ * chord (with ⌘, Ctrl or Alt) is a shortcut's, a letter in a field is
+ * text. */
+export function rowStepOf(key: { key: string; metaKey: boolean; ctrlKey: boolean; altKey: boolean; inField: boolean }): 1 | -1 | null {
+  if (key.metaKey || key.ctrlKey || key.altKey || key.inField) return null;
   return key.key === "j" ? 1 : key.key === "k" ? -1 : null;
 }
 
@@ -241,10 +239,4 @@ export function listRowClassName(row: ListRow, drag: DragState, hover: TaskStatu
 /** A heading's classes as a drag sees it. */
 export function listHeadingDropClassName(heading: ListHeading, drag: DragState, hover: TaskStatus | null): string {
   return [listHeadingClassName(heading), groupDropClassName(heading, drag, hover)].filter(Boolean).join(" ");
-}
-
-/** Where a dragged row is held: the row whole, at the point pressed — the
- * ghost is the row itself, its width the list's. */
-export function rowGrip(row: { left: number; top: number; width: number }, x: number, y: number): RowGrip {
-  return { width: row.width, offsetX: x - row.left, offsetY: y - row.top };
 }

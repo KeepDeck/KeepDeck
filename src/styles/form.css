@@ -693,12 +693,12 @@
 
 /* An option shown but refused now: there, quiet, not a target — the
    menu's note says why. */
-.dropdown__option:disabled {
+.dropdown__option[aria-disabled="true"] {
   color: var(--kd-text-4);
   cursor: default;
 }
 
-.dropdown__option:disabled:hover {
+.dropdown__option[aria-disabled="true"]:hover {
   background-color: transparent;
 }
 

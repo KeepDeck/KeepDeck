@@ -81,5 +81,9 @@ describe("tasksDialogView", () => {
     const flying = view({ drag: dragging, inFlight: rowInFlight(dragging, b, "team-1", 0) });
     expect(flying.className).toBe("form tasks tasks--dragging");
     expect(flying.ghost).toEqual({ box: { left: 30, top: 40, width: 200 }, line: taskRowView(b.tasks[0], b, 0) });
+    // A ghost needs both its place and its row: the row gone mid-drag, or no drag, draws none.
+    expect(view({ drag: dragging, inFlight: null }).ghost).toBeNull();
+    expect(view({ drag: armed, inFlight: rowInFlight(dragging, b, "team-1", 0) }).ghost).toBeNull();
+    expect(rowInFlight(dragging, null, "team-1", 0)).toBeNull();
   });
 });

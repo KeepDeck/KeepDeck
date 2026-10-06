@@ -149,7 +149,7 @@ function WorkspaceBoard({
               {view.team.kind === "word" && <span className="tasks__team-name kd-one-line">{view.team.name}</span>}
               {board.filters.label && (
                 <Button size="sm" pressed label={board.filters.label.clear} onClick={() => board.pickLabel(null)}>
-                  {board.filters.label.text} ✕
+                  {board.filters.label.text}
                 </Button>
               )}
               <Button

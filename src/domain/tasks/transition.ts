@@ -31,6 +31,7 @@ import {
 import {
   blockerIdsOf,
   blockersOf,
+  canHaveEpic,
   epicOf,
   findTask,
   linked,
@@ -471,11 +472,10 @@ export function parentProblem(
   blockers: readonly string[] = [],
 ): TaskRefusal | null {
   const follows = task.uid === undefined ? blockers : [task.uid, ...blockers];
-  const ends = RELATION_KINDS["child-of"].ends!;
-  if (task.kind !== ends.from) return { kind: "epic-under-epic" };
+  if (!canHaveEpic(task.kind)) return { kind: "epic-under-epic" };
   const epic = findTask(board, id);
   if (epic === undefined) return { kind: "unknown-epic", id };
-  if (epic.kind !== ends.to) return { kind: "not-an-epic", id };
+  if (epic.kind !== RELATION_KINDS["child-of"].ends?.to) return { kind: "not-an-epic", id };
   if (epic.teamId !== task.teamId) return { kind: "cross-team-epic", id };
   if (isOpen(task.status) && !admitsOpenWork(epic)) return { kind: "closed-epic", id };
   const after = transitiveWaiters(board, epic.uid);
@@ -491,7 +491,7 @@ export function epicCandidates(
   task: Pick<Task, "kind" | "teamId" | "status"> & { uid?: string },
   board: TaskBoard,
 ): Task[] {
-  const current = task.uid === undefined ? null : epicOf(task as Task, board);
+  const current = task.uid === undefined ? null : epicOf({ uid: task.uid }, board);
   return tasksOfTeam(board, task.teamId).filter((epic) => epic !== current && parentProblem(task, epic.id, board) === null);
 }
 

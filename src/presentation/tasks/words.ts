@@ -11,6 +11,8 @@ import {
   capOf,
   keptLength,
   type CappedField,
+  type Task,
+  type TaskKind,
   type TaskPriority,
   type TaskStatus,
 } from "../../domain/tasks";
@@ -121,7 +123,26 @@ export const FIELD_WORDS = {
   status: "Status",
   priority: "Priority",
   assignee: "Assignee",
+  kind: "Type",
+  epic: "Epic",
 } as const;
+
+/** What a task is, as a choice names it. */
+export const KIND_LABEL: Record<TaskKind, string> = { task: "Task", epic: "Epic" };
+
+/** The chip that says a task is an epic — on its row and its card. */
+export const EPIC_CHIP = "EPIC";
+
+/** An epic's fold, by what a press does. */
+export const EPIC_FOLD_WORDS = { fold: "Hide the epic's tasks", unfold: "Show the epic's tasks" } as const;
+
+/** The Epic pickers' "none" — the form's and the card's alike. */
+export const NO_EPIC_CHOICE: ChoiceView = { value: "", label: "No epic" };
+
+/** An epic as an Epic picker offers it. */
+export function epicChoice(epic: Pick<Task, "id" | "title">): ChoiceView {
+  return { value: epic.id, label: `${epic.id} · ${epic.title}` };
+}
 
 /** The new-task button's label — and how a hint that points at it names it. */
 export const NEW_TASK_LABEL = "+ Task";

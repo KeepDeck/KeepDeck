@@ -3,7 +3,7 @@ import { board, relation, task } from "../../domain/tasks/testSupport";
 import { LADDER_WORDS, tasksLadder } from "./ladderView";
 import { newTaskFormView, NEW_TASK_WORDS } from "./newTaskFormView";
 import { epicMark, statusMark, statusRing, taskRowView } from "./taskRowView";
-import { TASK_DETAIL_WORDS, changesOf, commentsOf, menuActionDisabled, renamedTitle, pickedStatus, taskDetailClassName, taskDetailView } from "./taskDetailView";
+import { TASK_DETAIL_WORDS, changesOf, pickedPriority, commentsOf, menuActionDisabled, renamedTitle, pickedStatus, taskDetailClassName, taskDetailView } from "./taskDetailView";
 import { teamCardTasksLine } from "./teamCardTasksLine";
 import { teamOnScreen } from "./teamOnScreen";
 import { blockerLinkWords, openWorkWords, boardBanner, fieldCount, readOnlyBanner, restoreView, unsavedBanner, personName, priorityMark, statusTone, FIELD_WORDS, POOL_CHOICE } from "./words";
@@ -81,7 +81,7 @@ describe("task panel and form words and classes", () => {
     expect(newTaskFormView(["lead"], null, null, null).assigneeOptions[0]).toBe(POOL_CHOICE);
     // The same words, with the pool's mark beside them.
     expect(detail.assigneeOptions[0]).toEqual(POOL_CHOICE);
-    expect(FIELD_WORDS).toEqual({ title: "Title", brief: "Brief", status: "Status", priority: "Priority", assignee: "Assignee" });
+    expect(FIELD_WORDS).toEqual({ title: "Title", brief: "Brief", status: "Status", priority: "Priority", assignee: "Assignee", kind: "Type", epic: "Epic" });
     // The detach tooltip and its accessible label say the same word.
     expect(detail.artifacts[0].detachLabel).toBe(`${TASK_DETAIL_WORDS.detach} kd-a`);
     // Beside its word, the ring is a picture only — the word names it.
@@ -91,6 +91,10 @@ describe("task panel and form words and classes", () => {
   it("a pick asks for nothing when it changes nothing", () => {
     expect(pickedStatus("todo", "todo")).toBeNull();
     expect(pickedStatus("todo", "in-progress")).toBe("in-progress");
+    expect(pickedPriority("normal", "normal")).toBeNull();
+    expect(pickedPriority("normal", "high")).toBe("high");
+    // No priority at all asks for nothing either.
+    expect(pickedPriority("normal", "urgent")).toBeNull();
   });
 
   it("names the form's own buttons", () => {
@@ -220,6 +224,13 @@ describe("taskDetailView — an epic and its tasks", () => {
     expect(taskDetailView(b.tasks[0], b, ROSTER, NOW).epic?.empty).toBeNull();
   });
 
+  it("a closed epic offers no new task in it — it takes no open work", () => {
+    const b = board([task({ id: "task-1", kind: "epic", status: "done" })], 2);
+    expect(taskDetailView(b.tasks[0], b, ROSTER, NOW).epic?.addNew).toBeNull();
+    const open = board([task({ id: "task-1", kind: "epic" })], 2);
+    expect(taskDetailView(open.tasks[0], open, ROSTER, NOW).epic?.addNew).toBe("New task in the epic");
+  });
+
   it("shows Done and Cancelled refused while work is open, the picker saying which", () => {
     const b = family();
     const view = taskDetailView(b.tasks[0], b, ROSTER, NOW);
@@ -278,6 +289,12 @@ describe("newTaskFormView — the kind and the epic", () => {
     expect(view.epicOptions).toEqual([{ value: "", label: "No epic" }, { value: "task-1", label: "task-1 · Plan" }]);
     expect(view.draft.parent).toBe("task-1");
     expect(newTaskFormView(ROSTER, null, null, null).epicOptions).toEqual([{ value: "", label: "No epic" }]);
+    // Without a board, or without a team, there is no epic to offer.
+    expect(newTaskFormView(ROSTER, b, null, null).epicOptions).toEqual([{ value: "", label: "No epic" }]);
+    expect(newTaskFormView(ROSTER, null, "team-1", null).epicOptions).toEqual([{ value: "", label: "No epic" }]);
+    // Opened in an epic new work cannot go under: it starts under none.
+    expect(newTaskFormView(ROSTER, b, "team-1", "task-2").draft.parent).toBe("");
+    expect(newTaskFormView(ROSTER, b, "team-1", "task-9").draft.parent).toBe("");
   });
 });
 
@@ -528,6 +545,7 @@ describe("openWorkWords — an epic's open work in a phrase", () => {
     const seven = Array.from({ length: 7 }, (_, i) => ({ id: `task-${i + 1}`, status: "review" as const }));
     expect(openWorkWords(seven)).toBe("task-1 (review), task-2 (review), task-3 (review), task-4 (review), task-5 (review) and 2 more");
     expect(openWorkWords(seven.slice(0, 5))).not.toContain("more");
+    expect(openWorkWords(seven.slice(0, 6))).toMatch(/ and 1 more$/);
   });
 });
 

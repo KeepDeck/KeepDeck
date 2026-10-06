@@ -61,6 +61,18 @@ export function escapeDrag(state: DragState): DragState | null {
   return state.kind === "idle" ? null : IDLE;
 }
 
+/** Whether a press may pick a row up: the main button only — another opens
+ * no drag. */
+export function armsOn(button: number): boolean {
+  return button === 0;
+}
+
+/** Where a dragged row is held: the row whole, at the point pressed — the
+ * ghost is the row itself, its width the list's. */
+export function rowGrip(row: { left: number; top: number; width: number }, x: number, y: number): RowGrip {
+  return { width: row.width, offsetX: x - row.left, offsetY: y - row.top };
+}
+
 export function armRow(id: string, x: number, y: number, grip: RowGrip): DragState {
   return { kind: "armed", id, x, y, grip };
 }

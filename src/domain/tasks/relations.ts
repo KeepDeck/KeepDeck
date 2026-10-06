@@ -17,6 +17,7 @@ import {
   type RelationKind,
   type Task,
   type TaskBoard,
+  type TaskKind,
   type TaskRelation,
   type TaskStatus,
 } from "./model";
@@ -154,9 +155,15 @@ export function copiesOf(task: Task, board: TaskBoard): Task[] {
 
 /** The epic `task` is under, when it is on the board; null for a task
  * under none — or under one that is not here, which holds nothing. */
-export function epicOf(task: Task, board: TaskBoard): Task | null {
+export function epicOf(task: Pick<Task, "uid">, board: TaskBoard): Task | null {
   const link = outOf(board, "child-of", task.uid)[0];
   return link ? (taskByUid(board, link.to) ?? null) : null;
+}
+
+/** Whether a task of `kind` may stand under an epic — what the link's
+ * `from` end must be (`RelationRule.ends`): work does, an epic does not. */
+export function canHaveEpic(kind: TaskKind): boolean {
+  return RELATION_KINDS["child-of"].ends?.from === kind;
 }
 
 /** The tasks under `epic` that are on the board, in board order. */

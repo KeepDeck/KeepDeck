@@ -4,6 +4,7 @@ import { RELATION_KINDS } from "./model";
 import {
   blockerIdsOf,
   copiedFromOf,
+  canHaveEpic,
   copiesOf,
   epicOf,
   openBlockersOf,
@@ -161,6 +162,10 @@ describe("relations — an epic and its tasks", () => {
     const walked = board([...b.tasks, task({ id: "task-5", blockedBy: ["task-1"] })], 6, b.relations);
     expect([...transitiveWaiters(walked, "uid-task-2")].sort()).toEqual(["uid-task-1", "uid-task-2", "uid-task-5"]);
     expect([...transitiveBlockers(walked, "uid-task-5")].sort()).toEqual(["uid-task-1", "uid-task-2", "uid-task-3", "uid-task-5"]);
+  });
+
+  it("lets work stand under an epic, and no epic — what the link's from end must be", () => {
+    expect([canHaveEpic("task"), canHaveEpic("epic")]).toEqual([true, false]);
   });
 
   it("says a task under an epic not on the board is under none", () => {

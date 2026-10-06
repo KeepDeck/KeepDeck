@@ -2,12 +2,14 @@ import type { PointerEvent } from "react";
 import { DisclosureChevron } from "@keepdeck/ui-kit/DisclosureChevron";
 import { StatusRing } from "@keepdeck/ui-kit/StatusRing";
 import { VirtualList } from "@keepdeck/ui-kit/VirtualList";
+import { EpicBar, EpicChip } from "./EpicMarks";
 import type { TaskStatus } from "../../domain/tasks";
 import {
   headingOf,
   isListHeading,
   listHeadingDropClassName,
   listRowClassName,
+  armsOn,
   rowGrip,
   LIST_HEAD_ESTIMATE_PX,
   listItemEstimate,
@@ -126,7 +128,7 @@ export function TaskList({ items, openId, drag, hover, folds, onSelect, onFold, 
               open={{
                 pressed: item.open,
                 onPointerDown: (event) => {
-                  if (event.button !== 0) return;
+                  if (!armsOn(event.button)) return;
                   // The ghost is the row whole: measured from the row, not
                   // from its open control.
                   const row = event.currentTarget.parentElement ?? event.currentTarget;
@@ -204,7 +206,7 @@ export function TaskRowLine({
       <span className="tasks__mark tasks__row-mark">{line.priority}</span>
       <StatusRing {...line.ring} />
       <code className="tasks__row-id">{line.id}</code>
-      {line.epic && <span className="kd-tag tasks__epic-chip">{line.epic.chip}</span>}
+      {line.epic && <EpicChip text={line.epic.chip} />}
       <span className="tasks__row-title" dir="auto">
         {line.title}
       </span>
@@ -255,9 +257,7 @@ export function TaskRowLine({
       )}
       {line.epic && (
         <span className="tasks__epic-progress" title={line.epic.label}>
-          <span className="tasks__epic-bar" aria-hidden>
-            <span className="tasks__epic-fill" style={{ width: `${line.epic.fill}%` }} />
-          </span>
+          <EpicBar fill={line.epic.fill} />
           <span aria-label={line.epic.label}>{line.epic.count}</span>
         </span>
       )}

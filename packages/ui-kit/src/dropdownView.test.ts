@@ -8,6 +8,7 @@ describe("dropdownView — the Dropdown's decisions", () => {
     expect(dropdownView(base).menuOpen).toBe(true);
     expect(dropdownView({ ...base, open: false }).menuOpen).toBe(false);
     expect(dropdownView({ ...base, options: [] }).menuOpen).toBe(false);
+    expect(dropdownView({ ...base, options: [base.options[0]] }).menuOpen).toBe(true);
   });
 
   it("names the picked option in the closed control, or the raw value", () => {

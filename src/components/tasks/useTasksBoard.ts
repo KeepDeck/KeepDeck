@@ -5,6 +5,7 @@ import { artifactChanges } from "../../app/artifacts/changes";
 import { openArtifactByRef } from "../../app/artifacts/entryPoints";
 import type { ArtifactsRegistryReadPort } from "../../app/artifacts/registryRead";
 import { describeError } from "../../ipc/log";
+import { isTypingTarget } from "../../ui/typingTarget";
 import { refusalOf, tasksEnableStatus } from "../../app/tasks/enableStatus";
 import { readyBoard } from "../../app/tasks/tasksService";
 import { getSettings, updateSettings } from "../../app/settingsManager";
@@ -264,11 +265,12 @@ export function useTasksBoard(
   useEffect(() => {
     if (!walks) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      const target = event.target;
       const step = rowStepOf({
         key: event.key,
-        chord: event.metaKey || event.ctrlKey || event.altKey,
-        inField: target instanceof Element && target.closest("input, textarea, [contenteditable='true']") !== null,
+        metaKey: event.metaKey,
+        ctrlKey: event.ctrlKey,
+        altKey: event.altKey,
+        inField: isTypingTarget(event.target),
       });
       if (step === null) return;
       const next = stepRow(listItems, openId, step);

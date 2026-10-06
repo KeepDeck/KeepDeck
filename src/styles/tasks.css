@@ -1046,11 +1046,6 @@
   gap: 8px;
 }
 
-/* An empty list takes no room — no gap held for nothing (the card's labels). */
-.tasks__labels:empty {
-  display: none;
-}
-
 /* A change of the task's activity: a row on the line down the left edge,
    its dot on it. Each row draws its own stretch of the line — the rows
    are drawn only while in view, so one line down a whole list would

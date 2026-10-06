@@ -39,7 +39,7 @@ describe("queryToolbarView — the filters as the toolbar draws them", () => {
   it("shows the narrowing label as a chip that clears it — nothing while none narrows", () => {
     expect(queryToolbarView(NO_QUERY).label).toBeNull();
     expect(queryToolbarView({ label: "ui" }).label).toEqual({
-      text: "label: ui",
+      text: "label: ui ✕",
       clear: "Show every label, not only ui",
     });
   });

@@ -49,7 +49,7 @@ export interface QueryToolbarView {
 /** The filters as the toolbar draws them. */
 export function queryToolbarView(query: TaskQuery): QueryToolbarView {
   return {
-    label: query.label === null ? null : { text: QUERY_WORDS.label(query.label), clear: QUERY_WORDS.clearLabel(query.label) },
+    label: query.label === null ? null : { text: `${QUERY_WORDS.label(query.label)} ✕`, clear: QUERY_WORDS.clearLabel(query.label) },
   };
 }
 

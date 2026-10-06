@@ -9,19 +9,17 @@ import {
   listItemEstimate,
   listItemKey,
   listView,
-  EPIC_FOLD_WORDS,
   groupDropClassName,
   listHeadingDropClassName,
   listRowClassName,
-  rowGrip,
   rowStepOf,
   stepRow,
   type GroupEdge,
   type ListItem,
 } from "./listView";
 import { NO_QUERY } from "./queryView";
-import { IDLE, type DragState } from "./rowDrag";
-import { BOARD_ORDER } from "./words";
+import { IDLE, rowGrip, type DragState } from "./rowDrag";
+import { BOARD_ORDER, EPIC_FOLD_WORDS } from "./words";
 import type { TaskStatus } from "../../domain/tasks";
 
 const tasks = [
@@ -133,13 +131,15 @@ describe("stepRow — J and K walk the tasks", () => {
   });
 
   it("reads j as down, k as up, anything else as no step", () => {
-    const key = (k: string, over: Partial<{ chord: boolean; inField: boolean }> = {}) =>
-      rowStepOf({ key: k, chord: false, inField: false, ...over });
+    const key = (k: string, over: Partial<{ metaKey: boolean; ctrlKey: boolean; altKey: boolean; inField: boolean }> = {}) =>
+      rowStepOf({ key: k, metaKey: false, ctrlKey: false, altKey: false, inField: false, ...over });
     expect(key("j")).toBe(1);
     expect(key("k")).toBe(-1);
     expect(key("J")).toBeNull();
-    // A chord is a shortcut's; a letter in a field is text.
-    expect(key("j", { chord: true })).toBeNull();
+    // A chord — with any of ⌘, Ctrl, Alt — is a shortcut's; a letter in a field is text.
+    expect(key("j", { metaKey: true })).toBeNull();
+    expect(key("j", { ctrlKey: true })).toBeNull();
+    expect(key("j", { altKey: true })).toBeNull();
     expect(key("k", { inField: true })).toBeNull();
   });
 });
@@ -271,6 +271,14 @@ describe("listView — an epic with its tasks under it (B1)", () => {
     const labelledEpic = family.map((t) => (t.id === "task-1" ? { ...t, labels: ["plan"] } : t));
     const alone = listView(labelledEpic, board(labelledEpic, 7, fb.relations), 0, { label: "plan" }, OPEN, null);
     expect(keys(alone).filter((k) => !k.startsWith("head:"))).toEqual(["task-1"]);
+  });
+
+  it("dresses a cancelled row as cancelled, and no other", () => {
+    const rows = listView(family, fb, 0, NO_QUERY, OPEN, null).filter((i): i is Extract<ListItem, { kind: "row" }> => i.kind === "row");
+    expect(rows.filter((r) => r.className.includes("tasks__row--cancelled")).map((r) => r.key)).toEqual([]);
+    const withCancelled = [...family, task({ id: "task-7", status: "cancelled" })];
+    const all = listView(withCancelled, board(withCancelled, 8, fb.relations), 0, NO_QUERY, OPEN, null);
+    expect(all.filter((i) => i.kind === "row" && i.className.includes("tasks__row--cancelled")).map((i) => i.key)).toEqual(["task-7"]);
   });
 
   it("puts a task whose epic is not shown here at the top of its own group", () => {

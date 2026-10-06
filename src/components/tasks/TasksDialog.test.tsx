@@ -479,7 +479,7 @@ describe("TasksDialog", () => {
     act(() => document.querySelector<HTMLButtonElement>('button[aria-label="Status"]')!.click());
     await flush();
     const done = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="option"]')).find((o) => o.textContent === "Done")!;
-    expect(done.disabled).toBe(true);
+    expect(done.getAttribute("aria-disabled")).toBe("true");
     expect(document.querySelector(".dropdown__note")?.textContent).toBe("Done and Cancelled wait for the epic's tasks: task-1 (to do)");
     act(() => document.querySelector<HTMLButtonElement>('button[aria-label="Status"]')!.click());
     await flush();

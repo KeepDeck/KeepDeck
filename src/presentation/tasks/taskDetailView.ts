@@ -10,11 +10,14 @@ import {
   blockersOf,
   copiedFromOf,
   copiesOf,
+  canHaveEpic,
+  admitsOpenWork,
   epicCandidates,
   epicMoveProblem,
   epicOf,
   epicProgress,
   issuable,
+  isTaskPriority,
   labelsOf,
   parentProblem,
   reachableStatuses,
@@ -29,13 +32,16 @@ import {
   type TaskStatus,
 } from "../../domain/tasks";
 import type { StatusRingProps } from "@keepdeck/ui-kit/StatusRing";
-import { EPIC_CHIP, blockerChip, epicMark, statusMark, type BlockerChip, type EpicMarkView } from "./taskRowView";
+import { blockerChip, epicMark, statusMark, type BlockerChip, type EpicMarkView } from "./taskRowView";
 import {
   BOARD_ORDER,
   POOL_CHOICE,
   POOL_LABEL,
   STATUS_LABEL,
+  EPIC_CHIP,
+  NO_EPIC_CHOICE,
   blockerLinkWords,
+  epicChoice,
   openWorkWords,
   priorityChoices,
   type ChoiceView,
@@ -64,7 +70,8 @@ export interface EpicSectionView {
   progress: EpicMarkView;
   tasks: { id: string; title: string; ring: StatusRingProps; assignee: string; className: string }[];
   empty: string | null;
-  addNew: string;
+  /** Null while it is closed: a closed epic takes no open work. */
+  addNew: string | null;
   /** Null when no task of the team could go under it now. */
   addExisting: string | null;
 }
@@ -274,8 +281,6 @@ export const TASK_DETAIL_WORDS = {
   addArtifact: "Attach an artifact",
   commentPlaceholder: "Add a comment — it stays with the task",
   comment: "Comment",
-  epic: "Epic",
-  noEpic: "No epic",
   epicTasks: "Tasks of the epic",
   epicEmpty: "No tasks under it yet",
   epicAddNew: "New task in the epic",
@@ -294,6 +299,12 @@ export const TASK_DETAIL_WORDS = {
  * person picked where the task already stands. */
 export function pickedStatus(current: TaskStatus, picked: string): TaskStatus | null {
   return picked === current ? null : (picked as TaskStatus);
+}
+
+/** What a pick in the priority picker asks for: a priority, or nothing
+ * when it is the one the task has — or no priority at all. */
+export function pickedPriority(current: TaskPriority, picked: string): TaskPriority | null {
+  return picked === current || !isTaskPriority(picked) ? null : picked;
 }
 
 /** The panel's classes: wide while the task fills the stage. */
@@ -359,7 +370,7 @@ export function taskDetailView(
     statusOptions,
     statusNote: refused === null ? null : familyNote(refused),
     kindChip: task.kind === "epic" ? EPIC_CHIP : null,
-    parent: task.kind === "epic" ? null : parentPicker(task, board),
+    parent: canHaveEpic(task.kind) ? parentPicker(task, board) : null,
     epic: task.kind === "epic" ? epicSection(task, board) : null,
     blockers: blockersOf(task, board).map((blocker) => ({
       ...blockerChip(blocker),
@@ -491,10 +502,9 @@ function familyNote(problem: TaskRefusal): string | null {
  * under — the rule's own list (`epicCandidates`). */
 function parentPicker(task: Task, board: TaskBoard): { value: string; options: ChoiceView[] } {
   const current = epicOf(task, board);
-  const choice = (epic: Task) => ({ value: epic.id, label: `${epic.id} · ${epic.title}` });
   return {
-    value: current?.id ?? "",
-    options: [{ value: "", label: TASK_DETAIL_WORDS.noEpic }, ...(current ? [choice(current)] : []), ...epicCandidates(task, board).map(choice)],
+    value: current?.id ?? NO_EPIC_CHOICE.value,
+    options: [NO_EPIC_CHOICE, ...(current ? [epicChoice(current)] : []), ...epicCandidates(task, board).map(epicChoice)],
   };
 }
 
@@ -518,7 +528,7 @@ function epicSection(epic: Task, board: TaskBoard): EpicSectionView {
       className: `tasks__epic-task tasks__epic-task--${task.status}`,
     })),
     empty: tasks.length === 0 ? TASK_DETAIL_WORDS.epicEmpty : null,
-    addNew: TASK_DETAIL_WORDS.epicAddNew,
+    addNew: admitsOpenWork(epic) ? TASK_DETAIL_WORDS.epicAddNew : null,
     addExisting: epicTaskCandidates(epic, board).length > 0 ? TASK_DETAIL_WORDS.epicAddExisting : null,
   };
 }

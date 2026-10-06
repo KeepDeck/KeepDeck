@@ -1,7 +1,7 @@
 import { formatAge } from "../../domain/usage";
 import { blockerResolved, blockersOf, epicProgress, type EpicProgress, type Task, type TaskBoard, type TaskStatus } from "../../domain/tasks";
 import type { StatusRingProps } from "@keepdeck/ui-kit/StatusRing";
-import { POOL_LABEL, STATUS_LABEL, priorityMark, statusTone, type StatusTone } from "./words";
+import { EPIC_CHIP, POOL_LABEL, STATUS_LABEL, priorityMark, statusTone, type StatusTone } from "./words";
 import { taskOnScreen, type DragState } from "./rowDrag";
 
 /** One task as a list row says it, in columns: priority, status, id,
@@ -39,8 +39,6 @@ export interface EpicMarkView {
   /** `2 of 5 done`, the card's line. */
   summary: string;
 }
-
-export const EPIC_CHIP = "EPIC";
 
 /** An epic's mark from its progress (`epicProgress`). */
 export function epicMark(progress: EpicProgress): EpicMarkView {
