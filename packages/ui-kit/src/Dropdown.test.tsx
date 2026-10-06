@@ -146,6 +146,32 @@ describe("Dropdown", () => {
     expect(document.activeElement).toBe(button());
   });
 
+  it("shows a disabled option that cannot be picked, and its note under the options", () => {
+    act(() =>
+      root.render(
+        createElement(Dropdown, {
+          options: [OPTIONS[0], { ...OPTIONS[1], disabled: true }],
+          value: "/wt/a",
+          onChange,
+          ariaLabel: "Pick",
+          note: "Not now — it is closed",
+        }),
+      ),
+    );
+    act(() => button().click());
+    const refused = [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')][1];
+    expect(refused.disabled).toBe(true);
+    expect(refused.getAttribute("aria-disabled")).toBe("true");
+    act(() => refused.click());
+    expect(onChange).not.toHaveBeenCalled();
+    expect(menu()?.querySelector(".dropdown__note")?.textContent).toBe("Not now — it is closed");
+    // No note, no small print.
+    act(() => button().click());
+    mount();
+    act(() => button().click());
+    expect(menu()?.querySelector(".dropdown__note")).toBeNull();
+  });
+
   it("opens no listbox when there is nothing to pick", () => {
     mount("/wt/a", []);
     act(() => button().click());

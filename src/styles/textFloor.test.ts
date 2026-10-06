@@ -15,6 +15,7 @@ const MARKS_AND_DISABLED = [
   ".ui-remove", // RemoveButton: a row's × (detach, delete, drop)
   ".tasks__row--cancelled .tasks__row-title", // a cancelled task
   ".tasks__link:disabled",
+  ".dropdown__option:disabled", // a picker's option refused now
 ];
 
 function sheets(): [string, string][] {

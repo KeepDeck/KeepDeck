@@ -9,6 +9,9 @@ export interface DropdownOption {
    * text for most call sites, or a small composition (a name plus a status
    * icon) when text alone can't carry it. */
   label: ReactNode;
+  /** Shown but not to be picked — where a choice exists and is refused
+   * now; the menu's `note` says why. */
+  disabled?: boolean;
 }
 
 interface DropdownProps {
@@ -29,6 +32,9 @@ interface DropdownProps {
   /** An offer rather than a value ("Attach an artifact…"): quieter ink,
    *  small type — it says what can be done, not what is. */
   quiet?: boolean;
+  /** Words under the options, inside the menu — why an option is
+   *  disabled, said where the person meets it. */
+  note?: ReactNode;
 }
 
 /**
@@ -48,6 +54,7 @@ export function Dropdown({
   variant = "field",
   size = "md",
   quiet = false,
+  note,
 }: DropdownProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -118,6 +125,8 @@ export function Dropdown({
                 type="button"
                 role="option"
                 aria-selected={o.value === value}
+                aria-disabled={o.disabled || undefined}
+                disabled={o.disabled}
                 className={`dropdown__option${o.value === value ? " dropdown__option--active" : ""}`}
                 onClick={() => {
                   onChange(o.value);
@@ -132,6 +141,11 @@ export function Dropdown({
               </button>
             </li>
           ))}
+          {note && (
+            <li role="none" className="dropdown__note">
+              {note}
+            </li>
+          )}
         </FloatingListbox>
       )}
     </div>
