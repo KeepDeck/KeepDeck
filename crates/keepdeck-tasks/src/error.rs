@@ -85,6 +85,10 @@ impl From<diesel::result::Error> for StoreError {
             }
             E::DatabaseError(_, info) => classify(info.message()),
             E::NotFound => StoreError::Invalid { detail: "not found".into() },
+            // A row or a value this build cannot map: a bug, never the disk.
+            e @ (E::DeserializationError(_) | E::SerializationError(_) | E::QueryBuilderError(_)) => {
+                StoreError::Invalid { detail: e.to_string() }
+            }
             other => classify(&other.to_string()),
         }
     }
@@ -97,19 +101,56 @@ impl From<diesel::ConnectionError> for StoreError {
 }
 
 /// SQLite says what went wrong in words that do not change between
-/// releases (`sqlite3_errstr`); Diesel hands them over as text, so the
-/// class is read from them — the one place that does.
+/// releases (`sqlite3_errstr`); Diesel hands them over as text (not the
+/// extended code), so the class is read from them — the one place that
+/// does. Only what the disk or another opener caused is worth trying
+/// again; anything else — a statement SQLite refuses as written, a
+/// message nobody listed — is `Invalid`, never retried as if it might pass.
 fn classify(message: &str) -> StoreError {
     let m = message.to_ascii_lowercase();
     let detail = message.to_string();
-    if m.contains("malformed") || m.contains("not a database") {
+    let any = |words: &[&str]| words.iter().any(|w| m.contains(w));
+    if any(&["database disk image is malformed", "file is not a database", "not a database"]) {
         StoreError::Corrupt { detail }
-    } else if m.contains("database is locked") || m.contains("database table is locked") || m.contains("busy") {
+    } else if any(&["database is locked", "database table is locked"]) {
         StoreError::Busy
-    } else if m.contains("disk is full") {
+    } else if any(&["database or disk is full", "disk is full"]) {
         StoreError::DiskFull
-    } else {
+    } else if any(&["disk i/o error", "unable to open database file", "attempt to write a readonly database", "readonly database"]) {
         StoreError::Io { detail }
+    } else if any(&["constraint failed", "datatype mismatch"]) {
+        StoreError::Constraint { detail }
+    } else {
+        StoreError::Invalid { detail }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sqlite_words_map_to_what_the_owner_does_next() {
+        let table: &[(&str, StoreError)] = &[
+            ("database disk image is malformed", StoreError::Corrupt { detail: "database disk image is malformed".into() }),
+            ("file is not a database", StoreError::Corrupt { detail: "file is not a database".into() }),
+            ("database is locked", StoreError::Busy),
+            ("database table is locked", StoreError::Busy),
+            ("database or disk is full", StoreError::DiskFull),
+            ("disk I/O error", StoreError::Io { detail: "disk I/O error".into() }),
+            ("unable to open database file", StoreError::Io { detail: "unable to open database file".into() }),
+            ("attempt to write a readonly database", StoreError::Io { detail: "attempt to write a readonly database".into() }),
+            ("datatype mismatch", StoreError::Constraint { detail: "datatype mismatch".into() }),
+            ("ROWID constraint failed", StoreError::Constraint { detail: "ROWID constraint failed".into() }),
+            // Permanent: tried again they fail the same way.
+            ("too many SQL variables", StoreError::Invalid { detail: "too many SQL variables".into() }),
+            ("string or blob too big", StoreError::Invalid { detail: "string or blob too big".into() }),
+            ("no such table: tasks", StoreError::Invalid { detail: "no such table: tasks".into() }),
+            ("no such column: busy_flag", StoreError::Invalid { detail: "no such column: busy_flag".into() }),
+        ];
+        for (message, expected) in table {
+            assert_eq!(&classify(message), expected, "{message}");
+        }
     }
 }
 
