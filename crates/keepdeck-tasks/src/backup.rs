@@ -175,6 +175,6 @@ fn rotate(dir: &Path, now_ms: i64) -> Result<()> {
 pub fn verified(dir: &Path) -> Result<Vec<Backup>> {
     Ok(list(dir)?
         .into_iter()
-        .filter(|backup| db::open_read_only(&backup.path).and_then(|mut c| db::quick_check(&mut c)).is_ok())
+        .filter(|backup| check(&backup.path).is_ok())
         .collect())
 }
