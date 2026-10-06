@@ -350,6 +350,9 @@ fn earlier_data(root: &Path) -> Result<Option<String>> {
     if !backups.is_empty() {
         return Ok(Some(format!("{} of its backups are still there", backups.len())));
     }
+    if !backup::copies_before(&root.join(backup::BACKUP_DIR))?.is_empty() {
+        return Ok(Some("a copy taken before a schema step is still there".to_string()));
+    }
     let entries = std::fs::read_dir(root).map_err(|e| StoreError::Io { detail: format!("reading {}: {e}", root.display()) })?;
     let aside = entries
         .filter_map(|entry| entry.ok())

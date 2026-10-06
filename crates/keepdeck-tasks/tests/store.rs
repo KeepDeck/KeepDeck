@@ -169,6 +169,18 @@ fn a_database_with_data_is_copied_then_moved_forward_its_tasks_work() {
 }
 
 #[test]
+fn a_database_gone_with_only_its_copy_before_a_step_left_is_missing_not_new() {
+    let dir = tempfile::tempdir().unwrap();
+    at_first_schema(dir.path());
+    drop(Store::open(dir.path()).unwrap());
+    for suffix in ["", "-wal", "-shm"] {
+        let _ = std::fs::remove_file(dir.path().join(format!("tasks.db{suffix}")));
+    }
+    let mut store = Store::open(dir.path()).unwrap();
+    assert!(matches!(store.status().unwrap(), StoreStatus::Missing { .. }), "nothing is created over it in silence");
+}
+
+#[test]
 fn a_step_that_fails_is_named_not_retried_as_the_disk_and_copied_once() {
     use diesel::connection::SimpleConnection;
     use diesel::prelude::*;

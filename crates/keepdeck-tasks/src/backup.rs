@@ -22,6 +22,26 @@ pub const BACKUP_EVERY_MS: i64 = 60 * 60 * 1000;
 
 const PREFIX: &str = "tasks-";
 const SUFFIX: &str = ".db";
+/// The name a copy taken before a schema step starts with (`take_before`).
+const PRE_STEP: &str = "tasks-pre-";
+
+/// The copies taken before schema steps that are in `dir` — a half-written
+/// `.tmp` is none.
+pub fn copies_before(dir: &Path) -> Result<Vec<PathBuf>> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(StoreError::Io { detail: format!("reading {}: {e}", dir.display()) }),
+    };
+    Ok(entries
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            name.starts_with(PRE_STEP) && name.ends_with(SUFFIX)
+        })
+        .map(|entry| entry.path())
+        .collect())
+}
 
 /// One verified backup, newest first in every list.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -80,12 +100,12 @@ pub fn take(db_path: &Path, dir: &Path, now_ms: i64) -> Result<Backup> {
 /// away, never offered as an hourly backup — and taken once per step: a
 /// step that fails again finds its copy there and takes no second.
 pub fn take_before(db_path: &Path, dir: &Path, migration: &str) -> Result<PathBuf> {
-    let path = dir.join(format!("{PREFIX}pre-{migration}{SUFFIX}"));
+    let path = dir.join(format!("{PRE_STEP}{migration}{SUFFIX}"));
     if path.exists() {
         return Ok(path);
     }
     std::fs::create_dir_all(dir).map_err(|e| StoreError::Io { detail: format!("creating {}: {e}", dir.display()) })?;
-    let tmp = dir.join(format!("{PREFIX}pre-{migration}{SUFFIX}.tmp"));
+    let tmp = dir.join(format!("{PRE_STEP}{migration}{SUFFIX}.tmp"));
     let _ = std::fs::remove_file(&tmp);
     let mut source = db::open_read_only(db_path)?;
     diesel::sql_query("VACUUM INTO ?").bind::<Text, _>(tmp.to_string_lossy().into_owned()).execute(&mut source)?;

@@ -59,13 +59,8 @@ pub fn open_guarded(path: &Path, before_forward: impl FnOnce(&str) -> Result<()>
          PRAGMA secure_delete = ON;
          PRAGMA temp_store = MEMORY;"
     ))?;
-    let known: Vec<String> =
-        MigrationSource::<diesel::sqlite::Sqlite>::migrations(&MIGRATIONS)
-            .map_err(io)?
-            .iter()
-            .map(|m| m.name().version().to_string())
-            .collect();
-    let applied: Vec<String> = conn.applied_migrations().map_err(io)?.iter().map(|v| v.to_string()).collect();
+    let known = known_steps()?;
+    let applied = applied_steps(&mut conn)?;
     match schema_step(&known, &applied)? {
         SchemaStep::Current => {}
         SchemaStep::Fresh => migrate(&mut conn)?,
@@ -106,19 +101,31 @@ fn schema_step(known: &[String], applied: &[String]) -> Result<SchemaStep> {
     })
 }
 
-/// Bring the schema to this build's migrations. A step that fails is the
-/// step's fault, named: the disk did not refuse, and trying again changes
-/// nothing (`MigrationFailed`).
+/// The schema's steps this build carries, in order.
+fn known_steps() -> Result<Vec<String>> {
+    Ok(MigrationSource::<diesel::sqlite::Sqlite>::migrations(&MIGRATIONS)
+        .map_err(io)?
+        .iter()
+        .map(|m| m.name().version().to_string())
+        .collect())
+}
+
+/// The steps the database has taken.
+fn applied_steps(conn: &mut SqliteConnection) -> Result<Vec<String>> {
+    Ok(conn.applied_migrations().map_err(io)?.iter().map(|v| v.to_string()).collect())
+}
+
+/// Bring the schema to this build's migrations, one step at a time. A step
+/// that fails is that step's fault, named: the disk did not refuse, and
+/// trying again changes nothing (`MigrationFailed`).
 fn migrate(conn: &mut SqliteConnection) -> Result<()> {
-    let applied: Vec<String> = conn.applied_migrations().map_err(io)?.iter().map(|v| v.to_string()).collect();
-    conn.run_pending_migrations(MIGRATIONS).map_err(|error| {
-        let migration = MigrationSource::<diesel::sqlite::Sqlite>::migrations(&MIGRATIONS)
-            .ok()
-            .and_then(|all| all.iter().map(|m| m.name().version().to_string()).find(|v| !applied.contains(v)))
-            .unwrap_or_default();
-        StoreError::MigrationFailed { migration, detail: error.to_string() }
-    })?;
-    Ok(())
+    let known = known_steps()?;
+    loop {
+        let applied = applied_steps(conn)?;
+        let Some(next) = known.iter().find(|step| !applied.contains(step)) else { return Ok(()) };
+        conn.run_next_migration(MIGRATIONS)
+            .map_err(|error| StoreError::MigrationFailed { migration: next.clone(), detail: error.to_string() })?;
+    }
 }
 
 fn io(error: Box<dyn std::error::Error + Send + Sync>) -> StoreError {
