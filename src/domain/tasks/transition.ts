@@ -233,13 +233,15 @@ const EDGES: readonly { from: TaskStatus; to: TaskStatus; who: "worker" | "accep
 
 /**
  * Where an agent's move needs every blocker resolved: entering work (a
- * start, a resume) and acceptance — a task waiting on open work is neither
+ * start from the queue, a resume from blocked) and acceptance — a task waiting on open work is neither
  * to be begun nor called done. The one rule `issuable` also reads, asked
  * here of the SAME blockers. Every other move steps away from the work and
  * is never held up by them. The user is held to neither.
  */
 function needsBlockersResolved(from: TaskStatus, to: TaskStatus): boolean {
-  return to === "in-progress" || (from === "review" && to === "done");
+  // Out of review is a send-back or a withdrawal to finish what review
+  // found — never a start, so never held up.
+  return (to === "in-progress" && from !== "review") || (from === "review" && to === "done");
 }
 
 function joined(ids: readonly string[]): string | null {
@@ -693,28 +695,41 @@ function moveStatus(
   }
   const edge = EDGES.find((e) => e.from === task.status && e.to === to);
   if (!edge) return refuse({ kind: "illegal-transition", from: task.status, to });
-  const entries: TaskLogEntry[] = [];
-  let assignee = task.assignee;
-  if (edge.who === "acceptor") {
-    if (!mayAssign(actor)) return refuse({ kind: "not-yours-to-move" });
-  } else if (!mayAssign(actor)) {
-    // A working role: its own task, or a pool task it takes by starting.
-    const role = actor.kind === "agent" ? actor.role : null;
-    if (task.assignee !== role) {
-      if (task.assignee !== null || task.status !== "todo") {
-        return refuse({ kind: "not-your-task", assignee: task.assignee });
-      }
-      assignee = role;
-      entries.push({ at: ctx.at, from: by, field: "assignee", was: null, now: role });
-    }
+  if (edge.who === "acceptor" && !mayAssign(actor)) return refuse({ kind: "not-yours-to-move" });
+  const role = actor.role;
+  const starts = to === "in-progress";
+  // A working role moves its own task — or a pool task waiting in todo,
+  // which it takes by starting it, and only so.
+  if (!mayAssign(actor) && task.assignee !== role && !(task.assignee === null && task.status === "todo" && starts)) {
+    return refuse({ kind: "not-your-task", assignee: task.assignee });
   }
   if (needsBlockersResolved(edge.from, edge.to)) {
     const open = openBlockersOf(task, ctx.board);
     if (open.length > 0) return refuse({ kind: "blocked-by-open", blockers: open });
   }
+  const assignee = assigneeAfter(task, to, role);
+  const entries: TaskLogEntry[] = [];
+  if (assignee !== task.assignee) entries.push({ at: ctx.at, from: by, field: "assignee", was: task.assignee, now: assignee });
   entries.push({ at: ctx.at, from: by, field: "status", was: task.status, now: to });
   return { ok: true, task: logged(task, entries, ctx.at, { status: to, assignee }) };
 }
+
+/**
+ * Who holds a task after an agent's move (task-285): a pool task started
+ * is the starter's — a working role, a lead or a peer alike; a task sent
+ * from work back to the queue (todo or the backlog) goes back to the pool.
+ * Every other move leaves the holder as it was: the assignee's own
+ * parking, a reopening, a block.
+ */
+function assigneeAfter(task: Task, to: TaskStatus, role: string | null): string | null {
+  if (task.assignee === null && to === "in-progress") return role;
+  if (WORK_STATUSES.includes(task.status) && QUEUE_STATUSES.includes(to)) return null;
+  return task.assignee;
+}
+
+/** Where work is under way, and where it waits to be taken. */
+const WORK_STATUSES: readonly TaskStatus[] = ["in-progress", "blocked", "review"];
+const QUEUE_STATUSES: readonly TaskStatus[] = ["todo", "backlog"];
 
 /**
  * The statuses `actor` may move `task` to from where it stands, in ladder
