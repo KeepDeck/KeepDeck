@@ -6,7 +6,7 @@ import { statusMark, statusRing, taskRowView } from "./taskRowView";
 import { TASK_DETAIL_WORDS, changesOf, commentsOf, menuActionDisabled, renamedTitle, pickedStatus, taskDetailClassName, taskDetailView } from "./taskDetailView";
 import { teamCardTasksLine } from "./teamCardTasksLine";
 import { teamOnScreen } from "./teamOnScreen";
-import { blockerLinkWords, boardBanner, fieldCount, readOnlyBanner, restoreView, unsavedBanner, personName, priorityMark, statusTone, FIELD_WORDS, POOL_CHOICE } from "./words";
+import { blockerLinkWords, openWorkWords, boardBanner, fieldCount, readOnlyBanner, restoreView, unsavedBanner, personName, priorityMark, statusTone, FIELD_WORDS, POOL_CHOICE } from "./words";
 
 const NOW = 100_000;
 const ROSTER = ["lead", "impl-1", "impl-2"];
@@ -391,6 +391,15 @@ describe("fieldCount — a capped field's count", () => {
     // Characters, not UTF-16 units: an emoji is one.
     expect(fieldCount("comment", "👍👍").text).toBe("2/4000");
     expect(fieldCount("title", "x".repeat(121))).toEqual({ text: "121/120", className: "tasks__count tasks__count--over" });
+  });
+});
+
+describe("openWorkWords — an epic's open work in a phrase", () => {
+  it("names each where it stands, and counts what is past the first five", () => {
+    expect(openWorkWords([{ id: "task-3", status: "todo" }, { id: "task-5", status: "in-progress" }])).toBe("task-3 (to do), task-5 (in progress)");
+    const seven = Array.from({ length: 7 }, (_, i) => ({ id: `task-${i + 1}`, status: "review" as const }));
+    expect(openWorkWords(seven)).toBe("task-1 (review), task-2 (review), task-3 (review), task-4 (review), task-5 (review) and 2 more");
+    expect(openWorkWords(seven.slice(0, 5))).not.toContain("more");
   });
 });
 

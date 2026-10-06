@@ -6,13 +6,16 @@
  * Authority mirrors mail's: the actor's [`RoleStanding`] decides. A role
  * that LEADS (or a peer on a flat team) hands work out and accepts it; a
  * role that REPORTS moves only its own task along the ladder; the user
- * outranks everyone and walks no ladder at all — any status, any time.
+ * outranks everyone and walks no ladder at all — any status, any time,
+ * but for the one rule of an epic's family (`epicMoveProblem`).
  * A prohibition binds the act, never the channel.
  */
 import {
   DEFAULT_PRIORITY,
   TASK_CAPS,
   TASK_STATUSES,
+  RELATION_KINDS,
+  TASK_KINDS,
   acceptsWork,
   actorName,
   isOpen,
@@ -20,24 +23,27 @@ import {
   type TaskActor,
   type TaskBoard,
   type TaskField,
+  type TaskKind,
   type TaskLogEntry,
   type TaskPriority,
   type TaskStatus,
 } from "./model";
 import {
   blockerIdsOf,
+  epicOf,
   findTask,
   linked,
   openBlockersOf,
   replaceTask,
   setBlockers,
+  setEpic,
   unblocks,
   withoutGates,
   transitiveBlockers,
   transitiveWaiters,
   withTasks,
 } from "./relations";
-import { tasksOfTeam } from "./board";
+import { openWorkUnder, tasksOfTeam } from "./board";
 
 export type TaskChange =
   /** Take a pool task for yourself, without starting it. */
@@ -48,6 +54,8 @@ export type TaskChange =
   | { kind: "title"; to: string }
   | { kind: "body"; to: string }
   | { kind: "blockedBy"; to: readonly string[] }
+  /** The epic the task is under (its key), or none. */
+  | { kind: "parent"; to: string | null }
   /** One blocker on, or off — applied to the blockers as they stand when
    * the change lands, so one an agent set meanwhile stays. */
   | { kind: "addBlocker"; id: string }
@@ -124,6 +132,21 @@ export type TaskRefusal =
   | { kind: "cross-team-blocker"; ids: readonly string[] }
   | { kind: "self-blocker" }
   | { kind: "cyclic-blocker"; ids: readonly string[] }
+  /** An epic named that the board does not hold, or a task named as one
+   * that is work. */
+  | { kind: "unknown-epic"; id: string }
+  | { kind: "not-an-epic"; id: string }
+  /** An epic put under an epic: the family is one level deep. */
+  | { kind: "epic-under-epic" }
+  | { kind: "cross-team-epic"; id: string }
+  /** Open work entering an epic that is closed — created in it, put under
+   * it, or reopened under it. The epic is reopened first. */
+  | { kind: "closed-epic"; id: string }
+  /** An epic closed while work under it is open: each, where it stands —
+   * nothing is closed for it, nobody is held to less (the person too). */
+  | { kind: "epic-has-open-work"; open: readonly { id: string; status: TaskStatus }[] }
+  /** A task asked to be made as something that is neither work nor an epic. */
+  | { kind: "bad-create-kind"; value: string; allowed: readonly TaskKind[] }
   /** A field past its cap: which, how long it is, how long it may be —
    * measured as it would be KEPT (a title and a comment trimmed). */
   | { kind: "field-cap"; field: "title" | "body" | "comment"; max: number; length: number }
@@ -425,6 +448,55 @@ function validateBlockers(
   return null;
 }
 
+/**
+ * What is wrong with putting `task` under the epic `id`, or null — THE
+ * family rule, asked by the create, the `parent` change and every picker:
+ * the epic is on the board and is an epic, of the task's team; the task
+ * is work (an epic has no epic: what each end of the link must be is the
+ * table's, `RelationRule.ends`); and open work enters no closed epic.
+ */
+export function parentProblem(
+  task: Pick<Task, "kind" | "teamId" | "status">,
+  id: string,
+  board: TaskBoard,
+): TaskRefusal | null {
+  const ends = RELATION_KINDS["child-of"].ends!;
+  if (task.kind !== ends.from) return { kind: "epic-under-epic" };
+  const epic = findTask(board, id);
+  if (epic === undefined) return { kind: "unknown-epic", id };
+  if (epic.kind !== ends.to) return { kind: "not-an-epic", id };
+  if (epic.teamId !== task.teamId) return { kind: "cross-team-epic", id };
+  if (isOpen(task.status) && !isOpen(epic.status)) return { kind: "closed-epic", id };
+  return null;
+}
+
+/** The epics `task` could be put under now — its team's, open (or any,
+ * for a closed task), not the one it is under — in board order: what a
+ * picker offers, so it never offers what the change refuses. */
+export function epicCandidates(task: Task, board: TaskBoard): Task[] {
+  const current = epicOf(task, board);
+  return tasksOfTeam(board, task.teamId).filter((epic) => epic !== current && parentProblem(task, epic.id, board) === null);
+}
+
+/**
+ * What a status move breaks of the family, or null: an epic does not
+ * close while work under it is open (`openWorkUnder`), and a closed task
+ * does not reopen under a closed epic. The one rule that binds the person
+ * as it binds every agent — the board would otherwise say "closed" of an
+ * epic with work going on under it.
+ */
+export function epicMoveProblem(task: Task, to: TaskStatus, board: TaskBoard): TaskRefusal | null {
+  if (task.kind === "epic" && !isOpen(to)) {
+    const open = openWorkUnder(task, board);
+    if (open.length > 0) return { kind: "epic-has-open-work", open: open.map((other) => ({ id: other.id, status: other.status })) };
+  }
+  if (!isOpen(task.status) && isOpen(to)) {
+    const epic = epicOf(task, board);
+    if (epic !== null && !isOpen(epic.status)) return { kind: "closed-epic", id: epic.id };
+  }
+  return null;
+}
+
 /** Which side of a blocker link `task` is to stand on: it waits on the
  * other (`blocked-by`), or the other waits on it (`blocks`). */
 export type BlockerSide = "blocked-by" | "blocks";
@@ -623,6 +695,19 @@ function changeTask(
       const changed = logged(task, [{ at, from: by, field: "blockedBy", was: joined(was), now: joined(now) }], at, {});
       return { ok: true, task: changed, board: replaceTask(linkedNow, changed) };
     }
+    case "parent": {
+      if (!mayAssign(actor)) return refuse({ kind: "not-yours-to-assign", field: "parent" });
+      const id = change.to === null ? null : change.to.trim();
+      const was = epicOf(task, ctx.board)?.id ?? null;
+      if (id === was) return { ok: true, task };
+      if (id !== null) {
+        const bad = parentProblem(task, id, ctx.board);
+        if (bad) return refuse(bad);
+      }
+      const epic = id === null ? null : findTask(ctx.board, id)!.uid;
+      const changed = logged(task, [{ at, from: by, field: "parent", was, now: id }], at, {});
+      return { ok: true, task: changed, board: replaceTask(setEpic(ctx.board, task, epic, at, by), changed) };
+    }
     case "addBlocker":
       return changeTask(task, { kind: "blockedBy", to: [...blockerIdsOf(task, ctx.board), change.id] }, actor, ctx);
     case "removeBlocker":
@@ -687,6 +772,8 @@ function moveStatus(
   by: string,
 ): TaskOnly {
   if (to === task.status) return { ok: true, task };
+  const family = epicMoveProblem(task, to, ctx.board);
+  if (family) return refuse(family);
   // The PERSON is not on the ladder: they move a task anywhere, blockers
   // notwithstanding — the board is theirs to correct, and a rule that
   // refused them would be a rule about the agents applied to their user.
@@ -764,6 +851,12 @@ export interface CreateTaskInput {
   /** Where it starts: on the ladder (`todo`, the default) or parked in
    * the backlog — anyone may park an idea; starting it is another matter. */
   status?: CreateStatus;
+  /** Work (the default) or an epic — anyone who may make a task may make
+   * either. */
+  kind?: TaskKind;
+  /** The epic it is made under (a key): its author's choice, by the
+   * family rule (`parentProblem`). */
+  parent?: string;
 }
 
 /** The statuses a task may be created in. */
@@ -819,11 +912,18 @@ export function createTask(
   if (labels.labels.length > 0 && !mayLabel(actor, { assignee })) {
     return refuse({ kind: "not-yours-to-label", assignee });
   }
+  const kind = input.kind ?? "task";
+  if (!(TASK_KINDS as readonly string[]).includes(kind)) return refuse({ kind: "bad-create-kind", value: kind, allowed: TASK_KINDS });
+  const parent = input.parent?.trim() || null;
+  if (parent !== null) {
+    const bad = parentProblem({ kind, teamId: input.teamId, status }, parent, ctx.board);
+    if (bad) return refuse(bad);
+  }
   const task: Task = {
     uid: ctx.mintUid(),
     id: `task-${ctx.board.nextId}`,
     teamId: input.teamId,
-    kind: "task",
+    kind,
     title: keptTitle(input.title),
     body,
     bodyV: 1,
@@ -840,10 +940,11 @@ export function createTask(
     updated: ctx.at,
   };
   const added = withTasks({ ...ctx.board, nextId: ctx.board.nextId + 1 }, [...ctx.board.tasks, task]);
+  const blocked = setBlockers(added, task, uidsOf(ctx.board, blockedBy), ctx.at, actorName(actor));
   return {
     ok: true,
     task,
-    board: setBlockers(added, task, uidsOf(ctx.board, blockedBy), ctx.at, actorName(actor)),
+    board: parent === null ? blocked : setEpic(blocked, task, findTask(ctx.board, parent)!.uid, ctx.at, actorName(actor)),
   };
 }
 

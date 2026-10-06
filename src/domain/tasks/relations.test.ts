@@ -9,6 +9,7 @@ import {
   openBlockersOf,
   outlives,
   setBlockers,
+  setEpic,
   statusOf,
   tasksOfEpic,
   unblocks,
@@ -142,6 +143,17 @@ describe("relations — an epic and its tasks", () => {
     expect(epicOf(b.tasks[1], b)?.id).toBe("task-1");
     expect(tasksOfEpic(b.tasks[0], b).map((t) => t.id)).toEqual(["task-2", "task-3"]);
     expect(epicOf(b.tasks[0], b)).toBeNull();
+  });
+
+  it("puts a task under one epic as a diff — the same epic keeps who and when, the SAME board; another replaces it", () => {
+    const work = b.tasks[1];
+    expect(setEpic(b, work, "uid-task-1", 9_000, "impl-1")).toBe(b);
+    const moved = setEpic(b, work, "uid-task-9", 9_000, "impl-1");
+    expect(moved.relations.filter((r) => r.kind === "child-of" && r.from === work.uid)).toEqual([
+      { kind: "child-of", from: work.uid, to: "uid-task-9", at: 9_000, by: "impl-1" },
+    ]);
+    expect(setEpic(moved, work, null, 9_500, null).relations.some((r) => r.kind === "child-of" && r.from === work.uid)).toBe(false);
+    expect(setEpic(b, b.tasks[0], null, 1, null)).toBe(b);
   });
 
   it("says a task under an epic not on the board is under none", () => {

@@ -254,6 +254,18 @@ export function setBlockers(
   return withRelations(board, [...others, ...kept, ...added]);
 }
 
+/** The board with `task` under the epic `epic` (a uid), or under none
+ * (null) — as a DIFF: the same epic again keeps who put it there and
+ * when; the SAME board when nothing changes. One epic per task: the link
+ * to any other goes. */
+export function setEpic(board: TaskBoard, task: Task, epic: string | null, at: number, by: string | null): TaskBoard {
+  const current = outOf(board, "child-of", task.uid);
+  if (current.length === (epic === null ? 0 : 1) && (epic === null || current[0].to === epic)) return board;
+  const others = board.relations.filter((relation) => !(relation.kind === "child-of" && relation.from === task.uid));
+  const added: TaskRelation[] = epic === null ? [] : [{ kind: "child-of", from: task.uid, to: epic, at, by }];
+  return withRelations(board, [...others, ...added]);
+}
+
 /** The board with `uid` taken out of every link that gates a start
  * between it and another task ON this board — what a task leaving its
  * team takes with it (`transferTask`). A link whose other end is not here

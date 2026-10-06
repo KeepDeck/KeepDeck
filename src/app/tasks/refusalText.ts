@@ -3,7 +3,7 @@ import type { MigrationOutcome } from "./migration";
 import type { Workspace } from "../../domain/deck";
 import { leadRole } from "../../domain/mail";
 import type { DecodeFault, NotCarried } from "../../domain/tasks";
-import { blockerLinkWords } from "../../presentation/tasks/words";
+import { blockerLinkWords, openWorkWords } from "../../presentation/tasks/words";
 import type { TaskProblem, UnsavedBoard } from "./tasksService";
 
 /** Why an Off was refused: the boards the store would have closed over
@@ -181,6 +181,20 @@ export function refusalText(refusal: TaskProblem): string {
       return "that task is already on that team's board";
     case "not-yours-to-transfer":
       return `handing a task to another team is ${lead}'s — ask them`;
+    case "unknown-epic":
+      return `no such task: ${refusal.id}`;
+    case "not-an-epic":
+      return `${refusal.id} is a task, not an epic — a task goes under an epic`;
+    case "epic-under-epic":
+      return "an epic goes under no epic — epics are one level: an epic, and its tasks";
+    case "cross-team-epic":
+      return `${refusal.id} is on another team's board — a task's epic is on its own board`;
+    case "closed-epic":
+      return `the epic ${refusal.id} is closed — open work enters no closed epic; reopen ${refusal.id} first`;
+    case "epic-has-open-work":
+      return `this epic still has open work — ${openWorkWords(refusal.open)}; close or move them first`;
+    case "bad-create-kind":
+      return `a task is made as ${refusal.allowed.join(" or ")}, not "${refusal.value}"`;
     case "transfer-linked": {
       const links = blockerLinkWords(refusal).join("; ");
       return `a task linked by blockers stays on its team — ${links}; unlink first (blockers do not cross teams)`;

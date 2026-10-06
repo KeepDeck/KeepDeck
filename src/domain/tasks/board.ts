@@ -5,6 +5,7 @@
  */
 import {
   TASK_STATUSES,
+  isOpen,
   type Task,
   type TaskBoard,
   type TaskPriority,
@@ -83,6 +84,13 @@ export interface EpicProgress {
   done: number;
   open: number;
   cancelled: number;
+}
+
+/** The tasks under `epic` still open — THE question the rule "a closed
+ * epic holds no open work" asks, from whichever side it is asked: the
+ * epic closing, or work entering a closed one. In board order. */
+export function openWorkUnder(epic: Task, board: TaskBoard): Task[] {
+  return tasksOfEpic(epic, board).filter((task) => isOpen(task.status));
 }
 
 export function epicProgress(epic: Task, board: TaskBoard): EpicProgress {

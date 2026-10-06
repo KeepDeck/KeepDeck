@@ -147,6 +147,19 @@ export function blockerLinkWords(links: { blockers: readonly string[]; dependant
   return [...links.blockers.map((id) => `it waits on ${id}`), ...links.dependants.map((id) => `${id} waits on it`)];
 }
 
+/** How many of an epic's open tasks a sentence names before it counts
+ * the rest. */
+export const OPEN_WORK_NAMED = 5;
+
+/** An epic's open work as one phrase — `task-3 (to do), task-5 (in
+ * progress) and 12 more` — for the agents' refusal and the person's
+ * status menu alike. */
+export function openWorkWords(open: readonly { id: string; status: TaskStatus }[]): string {
+  const named = open.slice(0, OPEN_WORK_NAMED).map((task) => `${task.id} (${STATUS_LABEL[task.status].toLowerCase()})`);
+  const rest = open.length - named.length;
+  return rest > 0 ? `${named.join(", ")} and ${rest} more` : named.join(", ");
+}
+
 /** The way out an unusable task database offers: its newest backup that
  * passes the check, or — with none — an empty database. Null when the
  * database is usable. */
