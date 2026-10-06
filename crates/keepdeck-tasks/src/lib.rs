@@ -56,8 +56,26 @@ pub enum StoreStatus {
 }
 
 enum State {
-    Open { conn: SqliteConnection, changed_since_backup: bool },
+    /// `writes` counts the writes that landed; `backed_up` is the count the
+    /// newest backup was decided at — they differ while the boards changed
+    /// since.
+    Open { conn: SqliteConnection, writes: u64, backed_up: u64 },
     Unusable(StoreError),
+}
+
+/// A backup the store decided is due, taken on a connection of its own.
+pub struct BackupJob {
+    db_path: PathBuf,
+    dir: PathBuf,
+    at: i64,
+    /// The store's write count when it was decided.
+    writes: u64,
+}
+
+impl BackupJob {
+    pub fn take(&self) -> Result<backup::Backup> {
+        backup::take(&self.db_path, &self.dir, self.at)
+    }
 }
 
 /// The database of `<root>/tasks.db`, with its backups in `<root>/backups`.
@@ -81,7 +99,9 @@ impl Store {
             }
         }
         let state = match db::open(&path) {
-            Ok(conn) => State::Open { conn, changed_since_backup: false },
+            // Changed since the newest backup in an earlier session — the
+            // data a crash before the next hourly copy would lose.
+            Ok(conn) => State::Open { conn, writes: u64::from(newer_than_backups(&path, root)), backed_up: 0 },
             Err(error @ (StoreError::Corrupt { .. } | StoreError::SchemaTooNew { .. })) => {
                 log_unusable(&error);
                 State::Unusable(error)
@@ -127,10 +147,10 @@ impl Store {
     }
 
     fn write<T>(&mut self, write: impl FnOnce(&mut SqliteConnection) -> Result<T>) -> Result<T> {
-        let State::Open { conn, changed_since_backup } = &mut self.state else { return Err(self.refusal()) };
+        let State::Open { conn, writes, .. } = &mut self.state else { return Err(self.refusal()) };
         let result = write(conn);
         if result.is_ok() {
-            *changed_since_backup = true;
+            *writes += 1;
         }
         self.note(&result);
         result
@@ -210,22 +230,27 @@ impl Store {
         self.write(import::discard)
     }
 
-    /// Take a backup when one is due (none yet, or the newest older than an
-    /// hour while the boards changed). Never from a store that is not open.
-    pub fn backup_if_due(&mut self, now_ms: i64) -> Result<Option<backup::Backup>> {
-        let State::Open { changed_since_backup, .. } = &self.state else { return Ok(None) };
-        let dir = self.backup_dir();
-        if !backup::due(&dir, now_ms, *changed_since_backup)? {
+    /// Whether a backup is due (none yet, or the newest older than an hour
+    /// while the boards changed) — decided under the store's lock, with the
+    /// database checked first so damage is never copied into a good slot.
+    /// The copy itself is the job's, taken without the lock: the store's
+    /// writes never wait on it. Never from a store that is not open.
+    pub fn backup_due(&mut self, now_ms: i64) -> Result<Option<BackupJob>> {
+        let State::Open { writes, backed_up, .. } = &self.state else { return Ok(None) };
+        let writes = *writes;
+        if !backup::due(&self.backup_dir(), now_ms, writes != *backed_up)? {
             return Ok(None);
         }
-        // The copy is taken on its own connection; this one is checked first,
-        // so damage is never copied into a good slot.
         self.read(db::quick_check)?;
-        let taken = backup::take(&self.db_path(), &dir, now_ms)?;
-        if let State::Open { changed_since_backup, .. } = &mut self.state {
-            *changed_since_backup = false;
+        Ok(Some(BackupJob { db_path: self.db_path(), dir: self.backup_dir(), at: now_ms, writes }))
+    }
+
+    /// A job's backup is in the set: what it copied is backed up — the
+    /// writes that landed while it copied are not.
+    pub fn backup_taken(&mut self, job: &BackupJob) {
+        if let State::Open { backed_up, .. } = &mut self.state {
+            *backed_up = job.writes;
         }
-        Ok(Some(taken))
     }
 
     /// Restore from the backup taken at `at`: copied beside the database
@@ -270,7 +295,7 @@ impl Store {
         db::replace(&self.db_path(), staged, now_ms)?;
         match db::open(&self.db_path()) {
             Ok(conn) => {
-                self.state = State::Open { conn, changed_since_backup: true };
+                self.state = State::Open { conn, writes: 1, backed_up: 0 };
                 Ok(())
             }
             Err(error) => {
@@ -296,6 +321,19 @@ impl Drop for Store {
     fn drop(&mut self) {
         self.close();
     }
+}
+
+/// Whether the database changed after its newest backup was taken (by
+/// the files' times: the main file and its log). No backup: due anyway.
+fn newer_than_backups(path: &Path, root: &Path) -> bool {
+    let Ok(Some(newest)) = backup::list(&root.join(backup::BACKUP_DIR)).map(|b| b.into_iter().next()) else { return false };
+    let modified = |file: &Path| {
+        let at = std::fs::metadata(file).and_then(|m| m.modified()).ok()?;
+        at.duration_since(std::time::UNIX_EPOCH).ok().map(|d| d.as_millis() as i64)
+    };
+    let mut wal = path.as_os_str().to_owned();
+    wal.push("-wal");
+    [modified(path), modified(Path::new(&wal))].into_iter().flatten().any(|at| at > newest.at)
 }
 
 /// What says this root held a database before — so a missing file is a
@@ -329,7 +367,7 @@ mod tests {
         store.note(&met);
         assert!(matches!(store.load_workspace("ws-1"), Err(StoreError::Corrupt { .. })));
         assert!(matches!(store.status().unwrap(), StoreStatus::Damaged { .. }));
-        assert!(store.backup_if_due(i64::MAX).unwrap().is_none());
+        assert!(store.backup_due(i64::MAX).unwrap().is_none());
         // A transient failure is no damage: the store stays open.
         let mut fresh = Store::open(tempfile::tempdir().unwrap().path()).unwrap();
         fresh.note(&Err::<(), _>(StoreError::DiskFull));

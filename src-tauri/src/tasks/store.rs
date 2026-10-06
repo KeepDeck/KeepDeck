@@ -60,8 +60,10 @@ struct Database {
 }
 
 /// How often the backup ticker asks whether a backup is due; the rule of
-/// WHEN one is due is the store's (`Store::backup_if_due`).
+/// WHEN one is due is the store's (`Store::backup_due`).
 const BACKUP_TICK: std::time::Duration = std::time::Duration::from_secs(5 * 60);
+/// How long after enable the first tick waits.
+const FIRST_BACKUP_AFTER: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// The copy each board file becomes once the boards live in the database.
 pub const PRE_DB_COPY: &str = "pre-db";
@@ -202,22 +204,39 @@ fn checksum(json: &str) -> String {
 /// Ask the store for a backup every tick while it is enabled; the ticker
 /// ends when the database it watches is gone (disable, or exit).
 fn spawn_backup_ticker(db: Weak<Database>) {
-    let spawned = std::thread::Builder::new().name("tasks-backup".into()).spawn(move || loop {
-        let Some(db) = db.upgrade() else { return };
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as i64)
-            .unwrap_or(0);
-        match lock(&db.store).backup_if_due(now) {
-            Ok(Some(taken)) => log::info!("tasks: backup taken at {}", taken.path.display()),
-            Ok(None) => {}
-            Err(error) => log::warn!("tasks: backup failed: {error}"),
+    let spawned = std::thread::Builder::new().name("tasks-backup".into()).spawn(move || {
+        // Not at the very moment of enable: the first commands are the UI's.
+        std::thread::sleep(FIRST_BACKUP_AFTER);
+        loop {
+            let Some(db) = db.upgrade() else { return };
+            backup_once(&db);
+            drop(db);
+            std::thread::sleep(BACKUP_TICK);
         }
-        drop(db);
-        std::thread::sleep(BACKUP_TICK);
     });
     if let Err(error) = spawned {
         log::warn!("tasks: no backup ticker: {error}");
+    }
+}
+
+/// One tick: decided under the store's lock, copied without it — no
+/// command waits on a backup being taken.
+fn backup_once(db: &Database) {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+    let job = match lock(&db.store).backup_due(now) {
+        Ok(Some(job)) => job,
+        Ok(None) => return,
+        Err(error) => return log::warn!("tasks: backup not taken: {error}"),
+    };
+    match job.take() {
+        Ok(taken) => {
+            lock(&db.store).backup_taken(&job);
+            log::info!("tasks: backup taken at {}", taken.path.display());
+        }
+        Err(error) => log::warn!("tasks: backup failed: {error}"),
     }
 }
 

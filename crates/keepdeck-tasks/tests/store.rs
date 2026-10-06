@@ -84,6 +84,14 @@ fn active_store(root: &Path) -> Store {
     store
 }
 
+/// What the ticker does: decide under the lock, copy outside it, record.
+fn backup_if_due(store: &mut Store, now_ms: i64) -> Result<Option<backup::Backup>> {
+    let Some(job) = store.backup_due(now_ms)? else { return Ok(None) };
+    let taken = job.take()?;
+    store.backup_taken(&job);
+    Ok(Some(taken))
+}
+
 fn rev_of(store: &mut Store, b: &str) -> i64 {
     store.load(b).unwrap().rev
 }
@@ -324,7 +332,7 @@ fn one_board_that_does_not_hold_together_leaves_the_others_and_the_backups_worki
     assert_eq!(store.load("b2").unwrap().tasks.len(), 1);
     store.apply(&change("r1", vec![board_change("b2", 0, 2, vec![])])).unwrap();
     assert!(matches!(store.status().unwrap(), StoreStatus::Ready { .. }));
-    assert!(store.backup_if_due(1).unwrap().is_some());
+    assert!(backup_if_due(&mut store, 1).unwrap().is_some());
 }
 
 #[test]
@@ -434,17 +442,17 @@ fn backups_are_verified_kept_three_and_taken_when_due() {
     let mut store = active_store(dir.path());
     let hour = backup::BACKUP_EVERY_MS;
     // None yet: due at once.
-    assert!(store.backup_if_due(10).unwrap().is_some());
+    assert!(backup_if_due(&mut store, 10).unwrap().is_some());
     // Within the hour: not due, changed or not.
     store.apply(&change("r1", vec![board_change("b1", 0, 3, vec![])])).unwrap();
-    assert!(store.backup_if_due(10 + hour - 1).unwrap().is_none());
+    assert!(backup_if_due(&mut store, 10 + hour - 1).unwrap().is_none());
     // An hour on, after a change: due.
-    assert!(store.backup_if_due(10 + hour).unwrap().is_some());
+    assert!(backup_if_due(&mut store, 10 + hour).unwrap().is_some());
     // An hour more with no change: not due.
-    assert!(store.backup_if_due(10 + 2 * hour).unwrap().is_none());
+    assert!(backup_if_due(&mut store, 10 + 2 * hour).unwrap().is_none());
     for i in 1..=3 {
         store.apply(&change(&format!("s{i}"), vec![board_change("b1", i, 3, vec![])])).unwrap();
-        assert!(store.backup_if_due(10 + (2 + i) * hour).unwrap().is_some());
+        assert!(backup_if_due(&mut store, 10 + (2 + i) * hour).unwrap().is_some());
     }
     let kept = backup::list(&store.backup_dir()).unwrap();
     assert_eq!(kept.len(), 3);
@@ -452,6 +460,56 @@ fn backups_are_verified_kept_three_and_taken_when_due() {
     // A copy is a whole database.
     let mut copy = Store::open(&tempdir_with(&kept[0].path)).unwrap();
     assert_eq!(copy.load("b1").unwrap().rev, 4);
+}
+
+#[test]
+fn a_write_that_lands_while_a_backup_is_copied_is_not_counted_as_backed_up() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = active_store(dir.path());
+    let hour = backup::BACKUP_EVERY_MS;
+    let job = store.backup_due(10).unwrap().unwrap();
+    store.apply(&change("r1", vec![board_change("b1", 0, 3, vec![])])).unwrap();
+    job.take().unwrap();
+    store.backup_taken(&job);
+    assert!(store.backup_due(10 + hour).unwrap().is_some());
+}
+
+#[test]
+fn a_clock_that_was_ahead_neither_stops_the_backups_nor_keeps_its_copy() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = active_store(dir.path());
+    let hour = backup::BACKUP_EVERY_MS;
+    let ahead = 4_000_000_000_000; // the year 2096
+    backup_if_due(&mut store, ahead).unwrap().unwrap();
+    // The clock is right again: a change is backed up within the hour.
+    store.apply(&change("r1", vec![board_change("b1", 0, 3, vec![])])).unwrap();
+    assert!(backup_if_due(&mut store, 10 * hour).unwrap().is_some());
+    for i in 1..=2 {
+        store.apply(&change(&format!("s{i}"), vec![board_change("b1", i, 3, vec![])])).unwrap();
+        assert!(backup_if_due(&mut store, (10 + i) * hour).unwrap().is_some());
+    }
+    // Three copies taken by the right clock: the one from "2096" went first.
+    let kept: Vec<i64> = backup::list(&store.backup_dir()).unwrap().iter().map(|b| b.at).collect();
+    assert_eq!(kept, vec![12 * hour, 11 * hour, 10 * hour]);
+}
+
+#[test]
+fn changes_an_earlier_session_made_after_the_newest_backup_are_backed_up_without_a_new_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64;
+    let hour = backup::BACKUP_EVERY_MS;
+    let mut store = active_store(dir.path());
+    // The newest backup is two hours old; the database was written since.
+    backup_if_due(&mut store, now - 2 * hour).unwrap().unwrap();
+    store.apply(&change("r1", vec![board_change("b1", 0, 3, vec![])])).unwrap();
+    drop(store);
+    let mut store = Store::open(dir.path()).unwrap();
+    assert!(store.backup_due(now).unwrap().is_some());
+    backup_if_due(&mut store, now + 60_000).unwrap().unwrap();
+    drop(store);
+    // Nothing written after the newest backup: none due, however old it gets.
+    let mut store = Store::open(dir.path()).unwrap();
+    assert!(store.backup_due(now + 3 * hour).unwrap().is_none());
 }
 
 /// A fresh root holding `db` as its tasks.db.
@@ -465,7 +523,7 @@ fn tempdir_with(db: &Path) -> std::path::PathBuf {
 fn a_damaged_database_writes_nothing_and_is_restored_from_a_verified_backup() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = active_store(dir.path());
-    let taken = store.backup_if_due(1).unwrap().unwrap();
+    let taken = backup_if_due(&mut store, 1).unwrap().unwrap();
     drop(store);
     // A backup that fails the check is not offered.
     let bad = store_backup_named(dir.path(), 2);
@@ -477,7 +535,7 @@ fn a_damaged_database_writes_nothing_and_is_restored_from_a_verified_backup() {
     let StoreStatus::Damaged { backups, .. } = store.status().unwrap() else { panic!("not damaged") };
     assert_eq!(backups, vec![taken.at]);
     assert!(matches!(store.load("b1"), Err(StoreError::Corrupt { .. })));
-    assert!(store.backup_if_due(10_000_000).unwrap().is_none());
+    assert!(backup_if_due(&mut store, 10_000_000).unwrap().is_none());
     store.restore_backup(taken.at, 99).unwrap();
     assert_eq!(store.load("b1").unwrap().tasks.len(), 2);
     // The damaged file is kept aside, not deleted.
@@ -488,7 +546,7 @@ fn a_damaged_database_writes_nothing_and_is_restored_from_a_verified_backup() {
 fn a_restore_that_fails_on_the_way_leaves_the_damaged_store_as_it_was() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = active_store(dir.path());
-    let taken = store.backup_if_due(1).unwrap().unwrap();
+    let taken = backup_if_due(&mut store, 1).unwrap().unwrap();
     drop(store);
     let garbage = b"garbage that is not sqlite at all, for sure";
     std::fs::write(dir.path().join("tasks.db"), garbage).unwrap();
@@ -531,7 +589,7 @@ fn remove_database(root: &Path) {
 fn a_missing_database_beside_its_backups_is_never_created_empty_in_silence() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = active_store(dir.path());
-    let taken = store.backup_if_due(1).unwrap().unwrap();
+    let taken = backup_if_due(&mut store, 1).unwrap().unwrap();
     drop(store);
     remove_database(dir.path());
     let mut store = Store::open(dir.path()).unwrap();
@@ -572,7 +630,7 @@ fn a_missing_or_damaged_database_with_no_backup_is_started_empty_by_the_person_o
 fn a_healthy_database_is_never_replaced() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = active_store(dir.path());
-    let taken = store.backup_if_due(1).unwrap().unwrap();
+    let taken = backup_if_due(&mut store, 1).unwrap().unwrap();
     assert!(matches!(store.restore_backup(taken.at, 99), Err(StoreError::Invalid { .. })));
     assert!(!dir.path().join("tasks.db.damaged-99").exists());
     assert_eq!(store.load("b1").unwrap().tasks.len(), 2);
@@ -586,11 +644,11 @@ fn store_backup_named(root: &Path, at: i64) -> std::path::PathBuf {
 fn a_backup_that_fails_its_check_never_enters_the_set() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = active_store(dir.path());
-    store.backup_if_due(1).unwrap().unwrap();
+    backup_if_due(&mut store, 1).unwrap().unwrap();
     store.apply(&change("r1", vec![board_change("b1", 0, 3, vec![])])).unwrap();
-    store.backup_if_due(1 + backup::BACKUP_EVERY_MS).unwrap().unwrap();
+    backup_if_due(&mut store, 1 + backup::BACKUP_EVERY_MS).unwrap().unwrap();
     store.apply(&change("r2", vec![board_change("b1", 1, 3, vec![])])).unwrap();
-    store.backup_if_due(1 + 2 * backup::BACKUP_EVERY_MS).unwrap().unwrap();
+    backup_if_due(&mut store, 1 + 2 * backup::BACKUP_EVERY_MS).unwrap().unwrap();
     let before = backup::list(&store.backup_dir()).unwrap();
     assert_eq!(before.len(), 3);
     // A fourth, newer copy that is not a database: refused, the three untouched.

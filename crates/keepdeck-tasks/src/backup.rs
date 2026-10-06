@@ -52,11 +52,12 @@ pub fn list(dir: &Path) -> Result<Vec<Backup>> {
 }
 
 /// Whether a backup is due: none yet, or the newest older than an hour
-/// while the boards changed since.
+/// while the boards changed since. A newest taken "in the future" — the
+/// clock was ahead then — is no reason to wait: due on any change.
 pub fn due(dir: &Path, now_ms: i64, changed: bool) -> Result<bool> {
     Ok(match list(dir)?.first() {
         None => true,
-        Some(newest) => changed && now_ms - newest.at >= BACKUP_EVERY_MS,
+        Some(newest) => changed && (newest.at > now_ms || now_ms - newest.at >= BACKUP_EVERY_MS),
     })
 }
 
@@ -84,13 +85,16 @@ pub fn admit(candidate: &Path, dir: &Path, at: i64) -> Result<Backup> {
     }
     let path = dir.join(format!("{PREFIX}{at}{SUFFIX}"));
     std::fs::rename(candidate, &path).map_err(|e| StoreError::Io { detail: format!("placing the backup: {e}") })?;
-    rotate(dir)?;
+    rotate(dir, at)?;
     Ok(Backup { path, at })
 }
 
-/// Keep the newest three; the rest go.
-fn rotate(dir: &Path) -> Result<()> {
-    for old in list(dir)?.into_iter().skip(BACKUPS_KEPT) {
+/// Keep the newest three; the rest go. One named after `now` — taken by a
+/// clock that was ahead — is the first to go, never kept as "newest".
+fn rotate(dir: &Path, now_ms: i64) -> Result<()> {
+    let mut backups = list(dir)?;
+    backups.sort_by_key(|backup| (backup.at > now_ms, std::cmp::Reverse(backup.at)));
+    for old in backups.into_iter().skip(BACKUPS_KEPT) {
         std::fs::remove_file(&old.path)
             .map_err(|e| StoreError::Io { detail: format!("removing an old backup: {e}") })?;
     }
