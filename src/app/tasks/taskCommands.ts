@@ -568,7 +568,7 @@ function briefCommand(deps: TaskCommandDeps): CommandSpec {
 /** The status argument as task.update describes it — the assignee's steps
  * read off the domain's own table, so the words cannot drift from the
  * moves the domain allows. */
-export const STATUS_ARG = `${TASK_STATUSES.join(" | ")}. Your own task: ${WORKER_STEPS.map(([from, to]) => `${from} → ${to}`).join(", ")} (a pool task is taken by starting it). Whoever hands out work also moves a task between any open statuses, accepts it (review → done), reopens a closed one into todo or backlog, and cancels. Starting work and accepting it wait for every blocker to be done or cancelled. A refused move says where the task can go from where it is`;
+export const STATUS_ARG = `${TASK_STATUSES.join(" | ")}. Your own task: ${WORKER_STEPS.map(([from, to]) => `${from} → ${to}`).join(", ")}. A pool task is taken by whoever starts it. Whoever hands out work also moves a task between any open statuses — work sent back to todo or backlog goes back to the pool — accepts it (review → done), reopens a closed one into todo or backlog, and cancels. Entering work from the queue or a block, and accepting it, wait for every blocker to be done or cancelled. A refused move says where the task can go from where it is`;
 
 function updateCommand(deps: TaskCommandDeps): CommandSpec {
   return {
