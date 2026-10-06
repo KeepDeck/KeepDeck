@@ -43,6 +43,8 @@ export function testDatabase(files: LegacyBoard[] = []) {
   let loadFault: StoreError | null = null;
   /** The next load reads now and answers on release. */
   let loadHeld: Promise<void> | null = null;
+  /** The next status is read now and answered on release. */
+  let statusHeld: Promise<void> | null = null;
   const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
   const applyBoard = (change: ChangeSet["boards"][number]) => {
@@ -96,7 +98,13 @@ export function testDatabase(files: LegacyBoard[] = []) {
   const port: TaskDatabasePort = {
     enable: async () => {},
     disable: async () => {},
-    status: async () => status ?? { kind: "ready", migration },
+    status: async () => {
+      const answer = status ?? { kind: "ready" as const, migration };
+      const held = statusHeld;
+      statusHeld = null;
+      if (held !== null) await held;
+      return answer;
+    },
     legacyBoards: async () => clone(legacy),
     import: async (incoming, src) => {
       if (migration !== "none" || boards.length > 0) throw { code: "invalid", detail: "already imported" } satisfies StoreError;
@@ -126,13 +134,14 @@ export function testDatabase(files: LegacyBoard[] = []) {
       migration = "none";
     },
     load: async (workspace) => {
+      // What it answers is decided now; when, on release.
       const fault = loadFault;
       loadFault = null;
-      if (fault !== null) throw fault;
       const answer = clone(boards.find((b) => b.workspace === workspace) ?? null);
       const held = loadHeld;
       loadHeld = null;
       if (held !== null) await held;
+      if (fault !== null) throw fault;
       return answer;
     },
     apply: async (change) => {
@@ -212,6 +221,14 @@ export function testDatabase(files: LegacyBoard[] = []) {
     },
     refuseNextLoad(error: StoreError) {
       loadFault = error;
+    },
+    /** The next status is read now, and answered once released. */
+    holdNextStatus(): () => void {
+      let release!: () => void;
+      statusHeld = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return release;
     },
     /** The next load reads the board now, and answers once released. */
     holdNextLoad(): () => void {

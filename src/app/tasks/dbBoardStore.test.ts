@@ -151,6 +151,40 @@ describe("createDbBoardStore — the board reaches the database", () => {
     expect(db.boards()[0].tasks[0].comments.map((c) => c.body)).toEqual(["after"]);
   });
 
+  it("a refusal from the database a restore replaced changes nothing of the one in its place", async () => {
+    const { db, store } = await open();
+    await readBoard(store);
+    db.takeBackup(100);
+    // A load of the damaged database, refused only after the restore.
+    db.refuseNextLoad({ code: "corrupt", detail: "page 3" });
+    const release = db.holdNextLoad();
+    const stale = store.read({ workspaceId: "ws-1" });
+    db.setStatus({ kind: "damaged", detail: "page 3", backups: [100] });
+    await store.restore({ kind: "backup", at: 100 });
+    release();
+    await expect(stale).rejects.toMatchObject({ code: "corrupt" });
+    expect(store.writeRefusal()).toBeNull();
+    expect(store.recovery()).toBeNull();
+  });
+
+  it("a late answer about the database a restore replaced offers no restore of the healthy one", async () => {
+    const { db, store } = await open();
+    const b = await readBoard(store);
+    db.takeBackup(100);
+    db.setStatus({ kind: "damaged", detail: "page 3", backups: [100] });
+    db.refuseNextApply({ code: "corrupt", detail: "page 3" });
+    // The write learns the damage — but the status it asks answers late.
+    const release = db.holdNextStatus();
+    const failed = store.write({ workspaceId: "ws-1", board: comment(b, "x") });
+    await new Promise((r) => setTimeout(r, 0));
+    // The restore settles first; the old answer lands after.
+    await store.restore({ kind: "backup", at: 100 });
+    release();
+    await expect(failed).rejects.toThrow("damaged");
+    expect(store.recovery()).toBeNull();
+    expect(store.writeRefusal()).toBeNull();
+  });
+
   it("writes nothing once the database is found damaged, and says why", async () => {
     const { db, store } = await open();
     const b = await readBoard(store);

@@ -79,7 +79,10 @@ export function createDbBoardStore(deps: DbBoardStoreDeps): DbBoardStore {
 
   /** Ask the database how it stands, after a refusal said it is unusable. */
   const learnRecovery = async () => {
-    recovery = recoveryOf(await deps.db.status());
+    const asked = generation;
+    const status = await deps.db.status();
+    // An answer about a database since replaced says nothing of this one.
+    if (asked === generation) recovery = recoveryOf(status);
   };
 
   /**
@@ -89,9 +92,13 @@ export function createDbBoardStore(deps: DbBoardStoreDeps): DbBoardStore {
    * call met it first. The refusal still reaches the caller.
    */
   const call = async <T>(op: () => Promise<T>): Promise<T> => {
+    const asked = generation;
     try {
       return await op();
     } catch (e: unknown) {
+      // A refusal from a database since replaced (a restore) says nothing
+      // of the one in its place: it reaches the caller, and changes nothing.
+      if (asked !== generation) throw e;
       if (deps.isStoreError(e) && (e.code === "corrupt" || e.code === "missing" || e.code === "schemaTooNew")) {
         readOnly = storeErrorText(e);
         await learnRecovery();
