@@ -27,13 +27,6 @@ export function compareInStatus(status: TaskStatus): (a: Task, b: Task) => numbe
     : (a, b) => b.updated - a.updated || a.id.localeCompare(b.id);
 }
 
-/** The tasks of one status that the query shows, in their order. */
-export function tasksInStatus(tasks: readonly Task[], status: TaskStatus, query: TaskQuery): Task[] {
-  return tasks
-    .filter((task) => task.status === status && matchesQuery(task, query))
-    .sort(compareInStatus(status));
-}
-
 /** Whether the query narrows to nothing: something narrows, and no task
  * of the team gets through — said in words, not left as six zeros. */
 export function findsNothing(tasks: readonly Task[], query: TaskQuery): boolean {

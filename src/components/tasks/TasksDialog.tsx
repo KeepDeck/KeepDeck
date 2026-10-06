@@ -210,9 +210,10 @@ function WorkspaceBoard({
                   openId={board.detail?.id ?? null}
                   drag={board.drag}
                   hover={board.hover}
-                  folded={board.folded}
+                  folds={board.folds}
                   onSelect={board.select}
                   onFold={board.fold}
+                  onFoldEpic={board.foldEpic}
                   onLabel={board.pickLabel}
                   onArm={board.armDrag}
                   onHover={board.hoverGroup}

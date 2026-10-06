@@ -33,18 +33,19 @@ interface TaskListProps {
   openId: string | null;
   onSelect(id: string): void;
   onFold(status: TaskStatus): void;
+  /** An epic's chevron: its tasks folded away, or shown. */
+  onFoldEpic(id: string): void;
   /** A label clicked on a row: narrow the view to it. */
   onLabel(label: string): void;
-  /** The folded groups — the person's own act: a change of it, and only
-   * that, eases the list and holds the heading folded (VirtualList
-   * easeKey). Only the person's fold writes it today; a second writer
-   * would need its own token. */
-  folded: ReadonlySet<TaskStatus>;
+  /** The person's folds, of groups and of epics, as one token: a change of
+   * it, and only that, eases the list and holds the folded row in place
+   * (VirtualList easeKey). Only the person's folds write it. */
+  folds: unknown;
 }
 
 /** The tracker's list: a heading per status — pinned while its rows
  * scroll — and one line per task. Windowed. */
-export function TaskList({ items, openId, drag, hover, folded, onSelect, onFold, onLabel, onArm, onHover, onDrop }: TaskListProps) {
+export function TaskList({ items, openId, drag, hover, folds, onSelect, onFold, onFoldEpic, onLabel, onArm, onHover, onDrop }: TaskListProps) {
   // A group answers the pointer wherever it is under it: its heading, or
   // one of its rows.
   const dropTarget = (status: TaskStatus) => ({
@@ -60,7 +61,7 @@ export function TaskList({ items, openId, drag, hover, folded, onSelect, onFold,
       className="tasks__list"
       item={{ className: "tasks__list-item" }}
       revealKey={openId}
-      easeKey={folded}
+      easeKey={folds}
       sticky={{
         className: "tasks__list-pinned",
         height: LIST_HEAD_ESTIMATE_PX,
@@ -103,6 +104,23 @@ export function TaskList({ items, openId, drag, hover, folded, onSelect, onFold,
             className={listRowClassName(item, drag, hover)}
             {...dropTarget(item.status)}
           >
+            {/* An epic's fold is a control of its own, beside the row's —
+                never a button inside a button; a task under an epic stands
+                one step in. */}
+            {item.fold ? (
+              <button
+                type="button"
+                className="tasks__row-fold tasks__row-control"
+                aria-expanded={!item.fold.folded}
+                aria-label={item.fold.label}
+                title={item.fold.label}
+                onClick={() => onFoldEpic(item.line.id)}
+              >
+                <DisclosureChevron open={!item.fold.folded} />
+              </button>
+            ) : (
+              <span className="tasks__row-indent" aria-hidden />
+            )}
             <TaskRowLine
               line={item.line}
               open={{
@@ -186,6 +204,7 @@ export function TaskRowLine({
       <span className="tasks__mark tasks__row-mark">{line.priority}</span>
       <StatusRing {...line.ring} />
       <code className="tasks__row-id">{line.id}</code>
+      {line.epic && <span className="kd-tag tasks__epic-chip">{line.epic.chip}</span>}
       <span className="tasks__row-title" dir="auto">
         {line.title}
       </span>
@@ -233,6 +252,14 @@ export function TaskRowLine({
             {chip.id}
           </span>
         ),
+      )}
+      {line.epic && (
+        <span className="tasks__epic-progress" title={line.epic.label}>
+          <span className="tasks__epic-bar" aria-hidden>
+            <span className="tasks__epic-fill" style={{ width: `${line.epic.fill}%` }} />
+          </span>
+          <span aria-label={line.epic.label}>{line.epic.count}</span>
+        </span>
       )}
       <span className="tasks__row-who">{line.assignee}</span>
       <span className="tasks__row-age">{line.age}</span>

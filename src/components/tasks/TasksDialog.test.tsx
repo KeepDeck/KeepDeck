@@ -713,6 +713,36 @@ describe("TasksDialog", () => {
     expect(titles).not.toContain("Draft the skill");
   });
 
+  it("an epic stands with its tasks under it: its chevron folds them, and one dragged to a group changes status, staying under it", async () => {
+    const { service } = await seeded();
+    await service.create("ws-1", { teamId: "team-1", title: "The epic", kind: "epic" }, USER_ACTOR);
+    await service.apply("ws-1", "task-2", [{ kind: "parent", to: "task-3" }], USER_ACTOR);
+    mount(service)();
+    await flush();
+    // To do holds the epic (its own status) and the task under it; the task is in no other group.
+    expect(rowTitles()).toEqual(["Draft the skill", "The epic", "Pooled work"]);
+    expect(groupHeading("To do").querySelector(".tasks__group-count")?.textContent).toBe("3");
+    const fold = () => document.querySelector<HTMLButtonElement>(".tasks__list .tasks__row-fold")!;
+    act(() => fold().click());
+    await flush();
+    expect(rowTitles()).toEqual(["Draft the skill", "The epic"]);
+    act(() => fold().click());
+    await flush();
+    const pooled = () => rowOpens().find((c) => c.querySelector(".tasks__row-title")?.textContent === "Pooled work")!;
+    act(() => void pointerAt("pointerdown", pooled(), 10, 10));
+    await flush();
+    act(() => void pointerAt("pointermove", window, 40, 40));
+    await flush();
+    act(() => void pointerAt("pointerover", groupHeading("In progress"), 40, 300));
+    act(() => void pointerAt("pointerup", groupHeading("In progress"), 40, 300));
+    await flush();
+    const state = service.peek("ws-1");
+    expect(state?.kind === "ready" && state.board.tasks[1].status).toBe("in-progress");
+    // Still under its epic, in the epic's group — its ring says where it stands.
+    expect(rowTitles()).toEqual(["Draft the skill", "The epic", "Pooled work"]);
+    expect(pooled().closest(".tasks__row")?.className).toContain("tasks__row--under-epic");
+  });
+
   it("a release after a drag opens nothing; a press that does not travel is a click that opens the row", async () => {
     const { service } = await seeded();
     const render = mount(service);

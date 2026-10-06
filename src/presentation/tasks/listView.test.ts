@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { board, task } from "../../domain/tasks/testSupport";
+import { board, relation, task } from "../../domain/tasks/testSupport";
 import {
   LIST_HEAD_ESTIMATE_PX,
   LIST_ROW_ESTIMATE_PX,
@@ -9,6 +9,7 @@ import {
   listItemEstimate,
   listItemKey,
   listView,
+  EPIC_FOLD_WORDS,
   groupDropClassName,
   listHeadingDropClassName,
   listRowClassName,
@@ -210,4 +211,70 @@ describe("the list in a drag", () => {
     expect(rowGrip({ left: 100, top: 50, width: 900 }, 700, 60)).toEqual({ width: 900, offsetX: 600, offsetY: 10 });
   });
 
+});
+
+describe("listView — an epic with its tasks under it (B1)", () => {
+  const family = [
+    task({ id: "task-1", kind: "epic", status: "in-progress" }),
+    task({ id: "task-2", status: "done", updated: 10 }),
+    task({ id: "task-3", status: "todo", priority: "low", created: 3, labels: ["ui"] }),
+    task({ id: "task-4", status: "review" }),
+    task({ id: "task-5", status: "todo", priority: "high", created: 5 }),
+    task({ id: "task-6", status: "todo" }),
+  ];
+  const fb = board(family, 7, ["task-2", "task-3", "task-4", "task-5"].map((id) => relation("child-of", id, "task-1")));
+  const OPEN = new Set<TaskStatus>();
+
+  it("stands the epic in its own group, every task under it one step in, by group then queue order — and none in its own group", () => {
+    const items = listView(family, fb, 0, NO_QUERY, OPEN, null);
+    expect(keys(items)).toEqual([
+      "head:blocked",
+      "head:backlog",
+      "head:todo",
+      "task-6",
+      "head:in-progress",
+      "task-1",
+      "task-5",
+      "task-3",
+      "task-4",
+      "task-2",
+      "head:review",
+      "head:done",
+      "head:cancelled",
+    ]);
+    const row = (key: string) => items.find((i) => i.key === key) as Extract<ListItem, { kind: "row" }>;
+    expect([row("task-1").depth, row("task-4").depth, row("task-6").depth]).toEqual([0, 1, 0]);
+    // Every row of the group sits in it for a drop: the epic's status.
+    expect(row("task-4").status).toBe("in-progress");
+    expect(row("task-4").className).toContain("tasks__row--under-epic");
+    expect(row("task-1").fold).toEqual({ folded: false, label: EPIC_FOLD_WORDS.fold });
+    expect(row("task-4").fold).toBeNull();
+    expect(row("task-2").edge).toBe("bottom");
+    // A heading counts every row it holds: the epic and its four.
+    expect(items.find((i) => i.key === "head:in-progress")).toMatchObject({ count: 5 });
+    expect(items.find((i) => i.key === "head:review")).toMatchObject({ count: 0 });
+  });
+
+  it("folds an epic to its row — the heading still counting its tasks — and J / K walk what is shown", () => {
+    const items = listView(family, fb, 0, NO_QUERY, OPEN, null, new Set(["task-1"]));
+    expect(keys(items).slice(4, 7)).toEqual(["head:in-progress", "task-1", "head:review"]);
+    expect(items.find((i) => i.key === "task-1")).toMatchObject({ fold: { folded: true, label: EPIC_FOLD_WORDS.unfold } });
+    expect(items.find((i) => i.key === "head:in-progress")).toMatchObject({ count: 5 });
+    expect(stepRow(listView(family, fb, 0, NO_QUERY, OPEN, null), "task-1", 1)).toBe("task-5");
+  });
+
+  it("keeps a task the query lets through under its epic, the epic shown over it whether or not it matches", () => {
+    const items = listView(family, fb, 0, { label: "ui" }, OPEN, null);
+    expect(keys(items).filter((k) => !k.startsWith("head:"))).toEqual(["task-1", "task-3"]);
+    expect(items.find((i) => i.key === "head:in-progress")).toMatchObject({ count: 2 });
+    // An epic that matches with none of its tasks: shown alone.
+    const labelledEpic = family.map((t) => (t.id === "task-1" ? { ...t, labels: ["plan"] } : t));
+    const alone = listView(labelledEpic, board(labelledEpic, 7, fb.relations), 0, { label: "plan" }, OPEN, null);
+    expect(keys(alone).filter((k) => !k.startsWith("head:"))).toEqual(["task-1"]);
+  });
+
+  it("puts a task whose epic is not shown here at the top of its own group", () => {
+    const loose = family.filter((t) => t.id !== "task-1");
+    expect(keys(listView(loose, fb, 0, NO_QUERY, OPEN, null)).slice(0, 6)).toEqual(["head:blocked", "head:backlog", "head:todo", "task-5", "task-6", "task-3"]);
+  });
 });

@@ -7,11 +7,17 @@
  * heading is the toggle that brings them back, and the windowed list may
  * be holding the reader's place on it — a key that vanished would hand
  * that place to a neighbour.
+ *
+ * An epic stands in the group of its own status, and every task under it
+ * stands under it, one step in — closed ones too, in the order of the
+ * groups and then the tracker's one order — not in the groups of their own
+ * statuses (task-297, layout B1). Its own fold, like a group's, hides its
+ * tasks and keeps its row.
  */
 import type { StatusRingProps } from "@keepdeck/ui-kit/StatusRing";
-import type { Task, TaskBoard, TaskStatus } from "../../domain/tasks";
+import { epicOf, tasksOfEpic, type Task, type TaskBoard, type TaskStatus } from "../../domain/tasks";
 import { dropStateOf, type RowGrip, type DragState } from "./rowDrag";
-import { tasksInStatus, type TaskQuery } from "./queryView";
+import { compareInStatus, matchesQuery, type TaskQuery } from "./queryView";
 import { statusMark, taskRowView, type TaskRowView } from "./taskRowView";
 import { BOARD_ORDER, STATUS_LABEL } from "./words";
 
@@ -41,12 +47,23 @@ export interface ListRow {
   open: boolean;
   className: string;
   edge: GroupEdge;
+  /** 1 for a task under an epic, drawn one step in; 0 for the rest. */
+  depth: 0 | 1;
+  /** An epic's own fold, or null for a row that is no epic. */
+  fold: { folded: boolean; label: string } | null;
 }
 
 export type ListItem = ListHeading | ListRow;
 
+/** The words of an epic's fold, by what a press does. */
+export const EPIC_FOLD_WORDS = { fold: "Hide the epic's tasks", unfold: "Show the epic's tasks" } as const;
+
 /** The list's items: every status's heading, always — an empty group
- * with its 0 — and the rows of each open group. */
+ * with its 0 — and the rows of each open group: its tasks in the tracker's
+ * one order, each epic with its tasks under it unless the epic is folded
+ * (`foldedEpics`, by id). The query keeps a task under its epic, the epic
+ * shown over it whether or not it matches itself; a heading counts every
+ * row its group holds, an epic's tasks included, folded or not. */
 export function listView(
   tasks: readonly Task[],
   board: TaskBoard,
@@ -54,29 +71,55 @@ export function listView(
   query: TaskQuery,
   folded: ReadonlySet<TaskStatus>,
   openId: string | null,
+  foldedEpics: ReadonlySet<string> = NO_EPICS,
 ): ListItem[] {
+  const here = new Set(tasks.map((task) => task.uid));
+  const epicHere = (task: Task) => {
+    const epic = epicOf(task, board);
+    return epic !== null && here.has(epic.uid) ? epic : null;
+  };
+  // An epic's tasks, as the query shows them: by group, then queue order.
+  const under = (epic: Task) =>
+    tasksOfEpic(epic, board)
+      .filter((task) => here.has(task.uid) && matchesQuery(task, query))
+      .sort((a, b) => BOARD_ORDER.indexOf(a.status) - BOARD_ORDER.indexOf(b.status) || compareInStatus(a.status)(a, b));
   return BOARD_ORDER.flatMap((status): ListItem[] => {
-    const shown = tasksInStatus(tasks, status, query);
+    const tops = tasks
+      .filter((task) => task.status === status && epicHere(task) === null)
+      .map((task) => ({ task, kids: task.kind === "epic" ? under(task) : [] }))
+      .filter(({ task, kids }) => matchesQuery(task, query) || kids.length > 0)
+      .sort((a, b) => compareInStatus(status)(a.task, b.task));
+    const count = tops.reduce((sum, top) => sum + 1 + top.kids.length, 0);
     const isFolded = folded.has(status);
     const heading: ListHeading = {
       kind: "head",
       key: `head:${status}`,
       status,
       label: STATUS_LABEL[status],
-      count: shown.length,
+      count,
       folded: isFolded,
       ring: statusMark(status),
-      edge: isFolded || shown.length === 0 ? "whole" : "top",
+      edge: isFolded || count === 0 ? "whole" : "top",
     };
     if (isFolded) return [heading];
+    const placed = tops.flatMap(({ task, kids }) => {
+      const epicFolded = foldedEpics.has(task.id);
+      const fold = task.kind === "epic" ? { folded: epicFolded, label: epicFolded ? EPIC_FOLD_WORDS.unfold : EPIC_FOLD_WORDS.fold } : null;
+      return [
+        { task, depth: 0 as const, fold },
+        ...(epicFolded ? [] : kids.map((kid) => ({ task: kid, depth: 1 as const, fold: null }))),
+      ];
+    });
     return [
       heading,
-      ...shown.map((task, at) =>
-        listRow(taskRowView(task, board, now), status, task.id === openId, at === shown.length - 1 ? "bottom" : "middle"),
+      ...placed.map(({ task, depth, fold }, at) =>
+        listRow(taskRowView(task, board, now), status, task.id === openId, at === placed.length - 1 ? "bottom" : "middle", depth, fold),
       ),
     ];
   });
 }
+
+const NO_EPICS: ReadonlySet<string> = new Set();
 
 /** An item's identity in the windowed list — a task's id, a heading's
  * status; never an index. */
@@ -120,7 +163,14 @@ export function listHeadingClassName(heading: Pick<ListHeading, "status" | "fold
     .join(" ");
 }
 
-function listRow(line: TaskRowView, status: TaskStatus, open: boolean, edge: GroupEdge): ListRow {
+function listRow(
+  line: TaskRowView,
+  status: TaskStatus,
+  open: boolean,
+  edge: GroupEdge,
+  depth: 0 | 1,
+  fold: ListRow["fold"],
+): ListRow {
   return {
     kind: "row",
     key: line.id,
@@ -128,8 +178,16 @@ function listRow(line: TaskRowView, status: TaskStatus, open: boolean, edge: Gro
     line,
     open,
     edge,
+    depth,
+    fold,
     // Its status's tone, cancelled, and the open one.
-    className: ["tasks__row", `tasks__row--${line.tone}`, line.cancelled && "tasks__row--cancelled", open && "tasks__row--open"]
+    className: [
+      "tasks__row",
+      `tasks__row--${line.tone}`,
+      line.cancelled && "tasks__row--cancelled",
+      open && "tasks__row--open",
+      depth === 1 && "tasks__row--under-epic",
+    ]
       .filter(Boolean)
       .join(" "),
   };

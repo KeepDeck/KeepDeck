@@ -199,6 +199,13 @@ describe("screenState", () => {
     expect(screenReducer(open, { type: "toggleActivity" }, null).state.activityOpen).toBe(false);
   });
 
+  it("folds an epic's tasks away at its chevron and back, for the dialog's life", () => {
+    const folded = screenReducer(INITIAL_SCREEN, { type: "foldEpic", id: "task-1" }, null).state;
+    expect([...folded.foldedEpics]).toEqual(["task-1"]);
+    expect([...screenReducer(folded, { type: "foldEpic", id: "task-1" }, null).state.foldedEpics]).toEqual([]);
+    expect(INITIAL_SCREEN.foldedEpics.size).toBe(0);
+  });
+
   it("walks the list with J / K, never while the form is up", () => {
     expect(walksRows({ composing: false })).toBe(true);
     expect(walksRows({ composing: true })).toBe(false);

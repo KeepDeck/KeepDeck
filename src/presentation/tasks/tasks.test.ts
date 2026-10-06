@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { board, relation, task } from "../../domain/tasks/testSupport";
 import { LADDER_WORDS, tasksLadder } from "./ladderView";
 import { newTaskFormView, NEW_TASK_WORDS } from "./newTaskFormView";
-import { statusMark, statusRing, taskRowView } from "./taskRowView";
+import { epicMark, statusMark, statusRing, taskRowView } from "./taskRowView";
 import { TASK_DETAIL_WORDS, changesOf, commentsOf, menuActionDisabled, renamedTitle, pickedStatus, taskDetailClassName, taskDetailView } from "./taskDetailView";
 import { teamCardTasksLine } from "./teamCardTasksLine";
 import { teamOnScreen } from "./teamOnScreen";
@@ -52,6 +52,19 @@ describe("taskRowView", () => {
     ]);
     expect(taskRowView(b.tasks[0], b, NOW).blockerChips).toEqual([]);
     expect(taskRowView({ ...b.tasks[0], labels: ["ui"] }, b, NOW).labels).toEqual(["ui"]);
+  });
+});
+
+describe("epicMark — what says a row is an epic", () => {
+  it("counts done of the work it counts — cancelled work aside — as a count, a bar and words", () => {
+    expect(epicMark({ done: 2, open: 3, cancelled: 4 })).toEqual({ chip: "EPIC", count: "2/5", fill: 40, label: "2 of 5 tasks done" });
+    expect(epicMark({ done: 0, open: 0, cancelled: 1 })).toMatchObject({ count: "0/0", fill: 0 });
+  });
+
+  it("is a row's for an epic only", () => {
+    const b = board([task({ id: "task-1", kind: "epic" }), task({ id: "task-2", status: "done" })], 3, [relation("child-of", "task-2", "task-1")]);
+    expect(taskRowView(b.tasks[0], b, NOW).epic).toMatchObject({ count: "1/1", fill: 100 });
+    expect(taskRowView(b.tasks[1], b, NOW).epic).toBeNull();
   });
 });
 

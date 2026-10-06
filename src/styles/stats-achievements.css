@@ -12,7 +12,7 @@
      import each other — keep in sync with src/domain/usage/chartPalette.ts. */
   --rarity-uncommon: var(--kd-ok);
   --rarity-rare: var(--kd-info);
-  --rarity-epic: #9085e9;
+  --rarity-epic: var(--kd-epic);
   --rarity-legendary: var(--kd-warn);
 
   display: grid;

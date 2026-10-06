@@ -35,7 +35,8 @@ describe("the rarity palette", () => {
     // Written out rather than shared, because the two live in different
     // languages and neither can import the other — the same reason
     // chartPalette itself writes out its chrome inks.
-    expect(customProperty(achievements, "--rarity-epic")).toBe(SPARE_SLOTS[2]);
+    expect(customProperty(achievements, "--rarity-epic")).toBe("var(--kd-epic)");
+    expect(customProperty(tokens, "--kd-epic")).toBe(SPARE_SLOTS[2]);
   });
 
   it("keeps the ember canvas's fallback gold on --kd-warn", () => {

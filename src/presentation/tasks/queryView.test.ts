@@ -6,7 +6,6 @@ import {
   findsNothing,
   matchesQuery,
   queryToolbarView,
-  tasksInStatus,
   withLabel,
 } from "./queryView";
 
@@ -28,15 +27,12 @@ describe("the tracker's one set and one order", () => {
       task({ id: "task-3", status: "done", updated: 10 }),
       task({ id: "task-4", status: "done", updated: 30 }),
     ];
-    expect(tasksInStatus(tasks, "todo", NO_QUERY).map((t) => t.id)).toEqual(["task-2", "task-1"]);
-    expect(tasksInStatus(tasks, "done", NO_QUERY).map((t) => t.id)).toEqual(["task-4", "task-3"]);
+    const inOrder = (status: "todo" | "done") => tasks.filter((t) => t.status === status).sort(compareInStatus(status)).map((t) => t.id);
+    expect(inOrder("todo")).toEqual(["task-2", "task-1"]);
+    expect(inOrder("done")).toEqual(["task-4", "task-3"]);
     expect([...tasks].filter((t) => t.status === "done").sort(compareInStatus("done"))[0].id).toBe("task-4");
   });
 
-  it("applies the query within a status", () => {
-    const tasks = [task({ id: "task-1", labels: ["ui"] }), task({ id: "task-2" })];
-    expect(tasksInStatus(tasks, "todo", { label: "ui" }).map((t) => t.id)).toEqual(["task-1"]);
-  });
 });
 
 describe("queryToolbarView — the filters as the toolbar draws them", () => {

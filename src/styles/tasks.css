@@ -426,6 +426,76 @@
   text-align: right;
 }
 
+/* A row's lead: an epic's fold, or the room one takes — so every row's
+   columns stand straight — and one step more under an epic. */
+.tasks__row-fold,
+.tasks__row-indent {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 18px;
+}
+
+.tasks__row--under-epic .tasks__row-indent {
+  width: 32px;
+}
+
+/* Its chevron is the house's (DisclosureChevron), quiet; a control of its
+   own beside the row's, never inside it. */
+.tasks__row-fold {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--kd-text-3);
+  cursor: pointer;
+}
+
+.tasks__row-fold:hover {
+  color: var(--kd-text);
+}
+
+.tasks__row-fold:focus-visible {
+  outline: 1px solid var(--kd-focus);
+  outline-offset: -1px;
+}
+
+/* What says a row is an epic: its chip — the tag, in the epic's violet. */
+.kd-tag.tasks__epic-chip {
+  flex: none;
+  border-color: var(--kd-epic-line);
+  background-color: transparent;
+  color: var(--kd-epic);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+/* An epic's progress: done of the work it counts, as a bar and a count. */
+.tasks__epic-progress {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  color: var(--kd-text-2);
+  font-size: var(--kd-font-small);
+  font-variant-numeric: tabular-nums;
+}
+
+.tasks__epic-bar {
+  display: inline-flex;
+  width: 48px;
+  height: 4px;
+  border-radius: 999px;
+  background-color: var(--kd-seam);
+  overflow: hidden;
+}
+
+.tasks__epic-fill {
+  height: 100%;
+  background-color: var(--kd-ok);
+}
+
 .tasks__row--cancelled .tasks__row-title {
   color: var(--kd-text-4);
   text-decoration: line-through;

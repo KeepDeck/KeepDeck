@@ -1,5 +1,5 @@
 import { formatAge } from "../../domain/usage";
-import { blockerResolved, blockersOf, type Task, type TaskBoard, type TaskStatus } from "../../domain/tasks";
+import { blockerResolved, blockersOf, epicProgress, type EpicProgress, type Task, type TaskBoard, type TaskStatus } from "../../domain/tasks";
 import type { StatusRingProps } from "@keepdeck/ui-kit/StatusRing";
 import { POOL_LABEL, STATUS_LABEL, priorityMark, statusTone, type StatusTone } from "./words";
 import { taskOnScreen, type DragState } from "./rowDrag";
@@ -22,6 +22,33 @@ export interface TaskRowView {
   /** Every blocker named, each as a chip: standing (the failed hue) or
    * resolved (struck — it holds nothing). */
   blockerChips: BlockerChip[];
+  /** An epic's mark and how far it has come; null for work. */
+  epic: EpicMarkView | null;
+}
+
+/** What says a row is an epic: its chip, and its progress as a count and
+ * a bar — done of the work it counts (cancelled work is not counted). */
+export interface EpicMarkView {
+  chip: string;
+  /** `2/5`. */
+  count: string;
+  /** The bar's fill, 0–100. */
+  fill: number;
+  /** `2 of 5 tasks done`, for a reader. */
+  label: string;
+}
+
+export const EPIC_CHIP = "EPIC";
+
+/** An epic's mark from its progress (`epicProgress`). */
+export function epicMark(progress: EpicProgress): EpicMarkView {
+  const counted = progress.done + progress.open;
+  return {
+    chip: EPIC_CHIP,
+    count: `${progress.done}/${counted}`,
+    fill: counted === 0 ? 0 : Math.round((progress.done / counted) * 100),
+    label: `${progress.done} of ${counted} tasks done`,
+  };
 }
 
 /** One blocker as a chip: where it stands, and whether it still holds. */
@@ -102,5 +129,6 @@ export function taskRowView(task: Task, board: TaskBoard, now: number): TaskRowV
     age: formatAge(task.updated, now),
     ring: statusRing(task.status),
     blockerChips: blockersOf(task, board).map(blockerChip),
+    epic: task.kind === "epic" ? epicMark(epicProgress(task, board)) : null,
   };
 }
