@@ -1,4 +1,4 @@
-import { Fragment, useId, useRef, useState } from "react";
+import { Fragment, useId, useMemo, useRef, useState } from "react";
 import { Combobox, DisclosureChevron, Dropdown, MenuButton, PlusIcon, StatusRing } from "@keepdeck/ui-kit";
 import type { BlockerSide, TaskPriority, TaskStatus } from "../../domain/tasks";
 import {
@@ -145,7 +145,9 @@ export function TaskDetail({
       setComposer((current) => finishSend(current, accepted));
     });
   };
-  const rows = cardRows(view);
+  // Built once per view: a keystroke in the comment field re-renders the
+  // card, and must not hand the list a new set of rows each time.
+  const rows = useMemo(() => cardRows(view), [view]);
   const renderRow = (row: CardRow) => {
     switch (row.kind) {
       case "story":
@@ -316,7 +318,9 @@ export function TaskDetail({
       case "comments":
         return (
           <div className="tasks__card-heading">
-            <span className="tasks__section">{TASK_DETAIL_WORDS.comments}</span>
+            {/* A real heading: the comments are rows of the card's one
+                list, not a list of their own, so a reader reaches them by it. */}
+            <h4 className="tasks__section">{TASK_DETAIL_WORDS.comments}</h4>
             {view.commentsEmpty && <p className="tasks__muted">{view.commentsEmpty}</p>}
           </div>
         );
@@ -334,15 +338,17 @@ export function TaskDetail({
       case "activity":
         return (
           <div className="tasks__card-heading tasks__card-heading--activity">
-            <button
-              type="button"
-              className="tasks__section tasks__section--toggle"
-              aria-expanded={view.activity.open}
-              onClick={onToggleActivity}
-            >
-              {view.activity.label}
-              <DisclosureChevron open={view.activity.open} />
-            </button>
+            <h4 className="tasks__card-heading-title">
+              <button
+                type="button"
+                className="tasks__section tasks__section--toggle"
+                aria-expanded={view.activity.open}
+                onClick={onToggleActivity}
+              >
+                {view.activity.label}
+                <DisclosureChevron open={view.activity.open} />
+              </button>
+            </h4>
             {view.activity.open && view.changesEmpty && <p className="tasks__muted">{view.changesEmpty}</p>}
           </div>
         );

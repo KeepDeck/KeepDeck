@@ -704,6 +704,17 @@
   padding-top: 8px;
 }
 
+/* The headings are headings for a reader, and the section's own type for
+   the eye: no margin of their own, and the toggle's heading no size of
+   its own either — its button carries the section's type. */
+.tasks__card-heading > h4 {
+  margin: 0;
+}
+
+.tasks__card-heading-title {
+  font: inherit;
+}
+
 /* A comment's row: the tile and the gap under it. */
 .tasks__card-cell {
   padding-bottom: 6px;

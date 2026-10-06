@@ -677,6 +677,8 @@ describe("TasksDialog", () => {
     const drawn = document.querySelectorAll(".tasks__detail-body .tasks__comment").length;
     expect(drawn).toBeGreaterThan(0);
     expect(drawn).toBeLessThan(60);
+    // A reader reaches the comments by their heading.
+    expect(document.querySelector(".tasks__detail-body h4")?.textContent).toBe("Comments");
     // The field is not a row: it stands under the list, whatever is in view.
     const field = document.querySelector(".tasks__detail-composer textarea");
     expect(field).not.toBeNull();
@@ -690,6 +692,8 @@ describe("TasksDialog", () => {
     await flush();
     const heading = () => document.querySelector<HTMLButtonElement>(".tasks__section--toggle")!;
     expect(heading().getAttribute("aria-expanded")).toBe("false");
+    // The toggle is a heading's: a reader reaches the activity by it.
+    expect(heading().parentElement?.tagName).toBe("H4");
     expect(heading().querySelector(".kd-chevron")?.className).toBe("kd-chevron");
     act(() => heading().click());
     await flush();
