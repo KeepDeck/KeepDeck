@@ -31,7 +31,16 @@ const JOURNAL_SIZE_LIMIT: u64 = 16 * 1024 * 1024;
 /// schema forward. Every write is durable when its transaction returns:
 /// the UI and the agents are told "saved" (`synchronous = FULL`; a board
 /// is written by people and agents, not in bulk, so it costs a few ms).
+/// For a database just made, or one restored from a copy: nothing in it
+/// is owed a backup first.
 pub fn open(path: &Path) -> Result<SqliteConnection> {
+    open_guarded(path, || Ok(()))
+}
+
+/// [`open`], with `before_forward` run once the database is found to hold a
+/// schema this build moves forward — before any step of it, and only then.
+/// Its failure leaves the schema as it was and is the open's answer.
+pub fn open_guarded(path: &Path, before_forward: impl FnOnce() -> Result<()>) -> Result<SqliteConnection> {
     let mut conn = SqliteConnection::establish(&path.to_string_lossy())?;
     conn.batch_execute(&format!("PRAGMA busy_timeout = {BUSY_TIMEOUT_MS};"))?;
     // The check comes before any write, the schema's included.
@@ -49,23 +58,54 @@ pub fn open(path: &Path) -> Result<SqliteConnection> {
          PRAGMA secure_delete = ON;
          PRAGMA temp_store = MEMORY;"
     ))?;
-    migrate(&mut conn)?;
-    Ok(conn)
-}
-
-/// Bring the schema to this build's migrations — or refuse a database a
-/// newer build migrated further, before writing a byte.
-fn migrate(conn: &mut SqliteConnection) -> Result<()> {
     let known: Vec<String> =
         MigrationSource::<diesel::sqlite::Sqlite>::migrations(&MIGRATIONS)
             .map_err(io)?
             .iter()
             .map(|m| m.name().version().to_string())
             .collect();
-    let applied = conn.applied_migrations().map_err(io)?;
-    if let Some(unknown) = applied.iter().map(|v| v.to_string()).find(|v| !known.contains(v)) {
-        return Err(StoreError::SchemaTooNew { migration: unknown });
+    let applied: Vec<String> = conn.applied_migrations().map_err(io)?.iter().map(|v| v.to_string()).collect();
+    match schema_step(&known, &applied)? {
+        SchemaStep::Current => {}
+        SchemaStep::Fresh => migrate(&mut conn)?,
+        SchemaStep::Forward => {
+            before_forward()?;
+            migrate(&mut conn)?;
+        }
     }
+    Ok(conn)
+}
+
+/// What opening does to a database's schema.
+#[derive(Debug, PartialEq, Eq)]
+enum SchemaStep {
+    /// Every step this build knows is applied: nothing to do.
+    Current,
+    /// None applied — a database just made: its whole schema laid down,
+    /// with nothing in it to lose.
+    Fresh,
+    /// Some applied and more known: a schema with data under it moves on.
+    Forward,
+}
+
+/// The step from the migrations this build `known`s and the ones the
+/// database has `applied` — or a refusal of a database a newer build
+/// migrated further, before writing a byte.
+fn schema_step(known: &[String], applied: &[String]) -> Result<SchemaStep> {
+    if let Some(unknown) = applied.iter().find(|v| !known.contains(v)) {
+        return Err(StoreError::SchemaTooNew { migration: unknown.clone() });
+    }
+    Ok(if applied.len() == known.len() {
+        SchemaStep::Current
+    } else if applied.is_empty() {
+        SchemaStep::Fresh
+    } else {
+        SchemaStep::Forward
+    })
+}
+
+/// Bring the schema to this build's migrations.
+fn migrate(conn: &mut SqliteConnection) -> Result<()> {
     conn.run_pending_migrations(MIGRATIONS).map_err(io)?;
     Ok(())
 }
@@ -192,5 +232,31 @@ fn move_files(from: &Path, to: &Path) -> std::io::Result<()> {
 fn remove_files(path: &Path) {
     for file in files_of(path) {
         let _ = std::fs::remove_file(file);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn names(of: &[&str]) -> Vec<String> {
+        of.iter().map(|name| name.to_string()).collect()
+    }
+
+    #[test]
+    fn a_schema_with_data_under_it_is_the_only_one_moved_forward() {
+        let known = names(&["1", "2"]);
+        assert_eq!(schema_step(&known, &names(&["1", "2"])).unwrap(), SchemaStep::Current);
+        assert_eq!(schema_step(&known, &names(&[])).unwrap(), SchemaStep::Fresh);
+        assert_eq!(schema_step(&known, &names(&["1"])).unwrap(), SchemaStep::Forward);
+    }
+
+    #[test]
+    fn a_step_this_build_does_not_know_is_a_newer_builds_schema() {
+        let known = names(&["1"]);
+        assert_eq!(
+            schema_step(&known, &names(&["1", "2"])),
+            Err(StoreError::SchemaTooNew { migration: "2".into() })
+        );
     }
 }

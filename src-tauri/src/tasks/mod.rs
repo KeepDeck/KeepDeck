@@ -10,6 +10,7 @@ mod store;
 use tauri::State;
 
 pub use store::TasksStore;
+use store::now_ms;
 
 use keepdeck_tasks::{
     Applied, ChangeSet, LegacyBoard, MigrationSource, MigrationState, SearchHit, StoreError, StoreStatus, StoredBoard,
@@ -156,11 +157,4 @@ pub fn tasks_restore_backup(state: State<TasksState>, at: i64) -> Result<(), Sto
 #[tauri::command(async)]
 pub fn tasks_start_empty(state: State<TasksState>) -> Result<(), StoreError> {
     state.store.with_db(|db| db.start_empty(now_ms()))
-}
-
-fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
 }

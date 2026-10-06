@@ -89,7 +89,10 @@ pub struct Store {
 impl Store {
     /// Open the store under `root`. A damaged, missing or too-new database
     /// is no failure to open: the store opens in the state that says so.
-    pub fn open(root: &Path) -> Result<Store> {
+    /// A schema this build moves forward is backed up first (named `now_ms`),
+    /// verified like every backup; a copy that cannot be taken fails the
+    /// open, the schema as it was.
+    pub fn open(root: &Path, now_ms: i64) -> Result<Store> {
         std::fs::create_dir_all(root)
             .map_err(|e| StoreError::Io { detail: format!("creating {}: {e}", root.display()) })?;
         let path = root.join(db::DB_FILE);
@@ -100,7 +103,9 @@ impl Store {
                 return Ok(Store { root: root.to_path_buf(), state: State::Unusable(error) });
             }
         }
-        let state = match db::open(&path) {
+        let backups = root.join(backup::BACKUP_DIR);
+        let opened = db::open_guarded(&path, || backup::take(&path, &backups, now_ms).map(|_| ()));
+        let state = match opened {
             // Changed since the newest backup in an earlier session — the
             // data a crash before the next hourly copy would lose.
             Ok(conn) => State::Open { conn, writes: u64::from(newer_than_backups(&path, root)), backed_up: 0 },
@@ -355,10 +360,12 @@ fn log_unusable(error: &StoreError) {
 mod tests {
     use super::*;
 
+    const NOW: i64 = 1_000;
+
     #[test]
     fn damage_found_mid_session_makes_the_store_refuse_from_then_on() {
         let dir = tempfile::tempdir().unwrap();
-        let mut store = Store::open(dir.path()).unwrap();
+        let mut store = Store::open(dir.path(), NOW).unwrap();
         // A read that met damage — whatever the operation was.
         let met: Result<()> = Err(StoreError::Corrupt { detail: "page 3".into() });
         store.note(&met);
@@ -366,7 +373,7 @@ mod tests {
         assert!(matches!(store.status().unwrap(), StoreStatus::Damaged { .. }));
         assert!(store.backup_due(i64::MAX).unwrap().is_none());
         // A transient failure is no damage: the store stays open.
-        let mut fresh = Store::open(tempfile::tempdir().unwrap().path()).unwrap();
+        let mut fresh = Store::open(tempfile::tempdir().unwrap().path(), NOW).unwrap();
         fresh.note(&Err::<(), _>(StoreError::DiskFull));
         assert!(fresh.load_workspace("ws-1").unwrap().is_none());
     }

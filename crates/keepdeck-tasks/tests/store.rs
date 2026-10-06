@@ -7,6 +7,9 @@ use std::path::Path;
 
 use keepdeck_tasks::*;
 
+/// The clock a store is opened at: what a backup taken on open is named.
+const NOW: i64 = 1_000;
+
 fn task(uid: &str, key: &str) -> StoredTask {
     StoredTask {
         uid: uid.into(),
@@ -81,7 +84,7 @@ fn board_change(board: &str, expected_rev: i64, next_id: i64, tasks: Vec<TaskWri
 /// A store whose boards have moved: one board `b1` of workspace `ws-1` with
 /// task-1 and task-2.
 fn active_store(root: &Path) -> Store {
-    let mut store = Store::open(root).unwrap();
+    let mut store = Store::open(root, NOW).unwrap();
     store.import(&[board("b1", Some("ws-1"), vec![task("u1", "task-1"), task("u2", "task-2")])], &[]).unwrap();
     store.activate_migration().unwrap();
     store
@@ -102,14 +105,16 @@ fn rev_of(store: &mut Store, b: &str) -> i64 {
 #[test]
 fn opens_durable_wal_with_foreign_keys() {
     let dir = tempfile::tempdir().unwrap();
-    let mut store = Store::open(dir.path()).unwrap();
+    let mut store = Store::open(dir.path(), NOW).unwrap();
     assert_eq!(store.status().unwrap(), StoreStatus::Ready { migration: MigrationState::None });
     drop(store);
     // The WAL is a property of the file: it is still on after a reopen.
     let conn = rusqlite_free_check(dir.path());
     assert_eq!(conn, "wal");
     // Reopening runs no migration twice.
-    Store::open(dir.path()).unwrap();
+    Store::open(dir.path(), NOW).unwrap();
+    // A database just made, then reopened current, owes no backup on open.
+    assert!(backup::list(&dir.path().join(backup::BACKUP_DIR)).unwrap().is_empty());
 }
 
 /// The journal mode, read the way any other program would read it.
@@ -129,21 +134,23 @@ fn rusqlite_free_check(root: &Path) -> String {
 fn refuses_a_database_a_newer_build_migrated() {
     use diesel::prelude::*;
     let dir = tempfile::tempdir().unwrap();
-    drop(Store::open(dir.path()).unwrap());
+    drop(Store::open(dir.path(), NOW).unwrap());
     let mut conn = diesel::SqliteConnection::establish(&dir.path().join("tasks.db").to_string_lossy()).unwrap();
     diesel::sql_query("INSERT INTO __diesel_schema_migrations(version) VALUES ('2099-01-01-000000')")
         .execute(&mut conn)
         .unwrap();
     drop(conn);
-    let mut store = Store::open(dir.path()).unwrap();
+    let mut store = Store::open(dir.path(), NOW).unwrap();
     assert!(matches!(store.status().unwrap(), StoreStatus::TooNew { .. }));
     assert!(matches!(store.load_workspace("ws-1"), Err(StoreError::SchemaTooNew { .. })));
+    // Not this build's to move forward: nothing is copied for it.
+    assert!(backup::list(&dir.path().join(backup::BACKUP_DIR)).unwrap().is_empty());
 }
 
 #[test]
 fn a_migration_is_pending_until_activated_and_no_write_lands_before() {
     let dir = tempfile::tempdir().unwrap();
-    let mut store = Store::open(dir.path()).unwrap();
+    let mut store = Store::open(dir.path(), NOW).unwrap();
     let imported = board("b1", Some("ws-1"), vec![task("u1", "task-1")]);
     store.import(std::slice::from_ref(&imported), &[MigrationSource { workspace: "ws-1".into(), checksum: "abc".into() }]).unwrap();
     assert_eq!(store.migration_state().unwrap(), MigrationState::Pending);
@@ -163,7 +170,7 @@ fn a_migration_is_pending_until_activated_and_no_write_lands_before() {
 #[test]
 fn a_discarded_migration_leaves_nothing() {
     let dir = tempfile::tempdir().unwrap();
-    let mut store = Store::open(dir.path()).unwrap();
+    let mut store = Store::open(dir.path(), NOW).unwrap();
     store.import(&[board("b1", Some("ws-1"), vec![task("u1", "task-1")])], &[]).unwrap();
     store.discard_migration().unwrap();
     assert_eq!(store.migration_state().unwrap(), MigrationState::None);
@@ -174,7 +181,7 @@ fn a_discarded_migration_leaves_nothing() {
 #[test]
 fn the_import_names_what_it_refused() {
     let dir = tempfile::tempdir().unwrap();
-    let mut store = Store::open(dir.path()).unwrap();
+    let mut store = Store::open(dir.path(), NOW).unwrap();
     let mut t = task("u1", "task-1");
     let c = StoredComment { n: 1, at: 1, author: "lead".into(), body: "x".into() };
     t.comments = vec![c.clone(), c];
@@ -188,7 +195,7 @@ fn the_import_names_what_it_refused() {
 #[test]
 fn round_trips_every_part_of_a_board() {
     let dir = tempfile::tempdir().unwrap();
-    let mut store = Store::open(dir.path()).unwrap();
+    let mut store = Store::open(dir.path(), NOW).unwrap();
     let mut t = task("u1", "task-1");
     t.labels = vec!["storage".into(), "ui".into()];
     t.artifacts = vec!["zeta".into(), "alpha".into()];
@@ -356,14 +363,14 @@ fn a_task_leaves_its_board_only_in_a_change_that_names_that_board() {
 fn one_board_that_does_not_hold_together_leaves_the_others_and_the_backups_working() {
     use diesel::prelude::*;
     let dir = tempfile::tempdir().unwrap();
-    let mut store = Store::open(dir.path()).unwrap();
+    let mut store = Store::open(dir.path(), NOW).unwrap();
     store.import(&[board("b1", Some("ws-1"), vec![task("u1", "task-1")]), board("b2", Some("ws-2"), vec![task("u2", "task-1")])], &[]).unwrap();
     store.activate_migration().unwrap();
     drop(store);
     let mut conn = diesel::SqliteConnection::establish(&dir.path().join("tasks.db").to_string_lossy()).unwrap();
     diesel::sql_query("DELETE FROM task_keys WHERE uid = 'u1'").execute(&mut conn).unwrap();
     drop(conn);
-    let mut store = Store::open(dir.path()).unwrap();
+    let mut store = Store::open(dir.path(), NOW).unwrap();
     assert!(matches!(store.load("b1"), Err(StoreError::Inconsistent { board, .. }) if board == "b1"));
     // The database is sound: the other board reads and writes, backups go on.
     assert_eq!(store.load("b2").unwrap().tasks.len(), 1);
@@ -446,7 +453,7 @@ fn a_removed_task_takes_its_own_rows_and_its_search() {
 #[test]
 fn search_finds_tasks_and_comments_ranked_and_scoped() {
     let dir = tempfile::tempdir().unwrap();
-    let mut store = Store::open(dir.path()).unwrap();
+    let mut store = Store::open(dir.path(), NOW).unwrap();
     let mut a = task("u1", "task-1");
     a.title = "Move the board to SQLite".into();
     let mut b = task("u2", "task-2");
@@ -484,7 +491,7 @@ fn a_task_renamed_is_found_by_its_new_words_only_and_its_comments_stay_found() {
 #[test]
 fn a_board_of_any_size_is_dropped_whole() {
     let dir = tempfile::tempdir().unwrap();
-    let mut store = Store::open(dir.path()).unwrap();
+    let mut store = Store::open(dir.path(), NOW).unwrap();
     // More tasks than SQLite takes variables in one statement.
     let tasks: Vec<StoredTask> = (1..=33_000).map(|i| task(&format!("u{i}"), &format!("task-{i}"))).collect();
     let started = std::time::Instant::now();
@@ -537,7 +544,7 @@ fn backups_are_verified_kept_three_and_taken_when_due() {
     assert_eq!(kept.len(), 3);
     assert_eq!(kept[0].at, 10 + 5 * hour);
     // A copy is a whole database.
-    let mut copy = Store::open(&tempdir_with(&kept[0].path)).unwrap();
+    let mut copy = Store::open(&tempdir_with(&kept[0].path), NOW).unwrap();
     assert_eq!(copy.load("b1").unwrap().rev, 4);
 }
 
@@ -582,12 +589,12 @@ fn changes_an_earlier_session_made_after_the_newest_backup_are_backed_up_without
     backup_if_due(&mut store, now - 2 * hour).unwrap().unwrap();
     store.apply(&change("r1", vec![board_change("b1", 0, 3, vec![])])).unwrap();
     drop(store);
-    let mut store = Store::open(dir.path()).unwrap();
+    let mut store = Store::open(dir.path(), NOW).unwrap();
     assert!(store.backup_due(now).unwrap().is_some());
     backup_if_due(&mut store, now + 60_000).unwrap().unwrap();
     drop(store);
     // Nothing written after the newest backup: none due, however old it gets.
-    let mut store = Store::open(dir.path()).unwrap();
+    let mut store = Store::open(dir.path(), NOW).unwrap();
     assert!(store.backup_due(now + 3 * hour).unwrap().is_none());
 }
 
@@ -610,7 +617,7 @@ fn a_damaged_database_writes_nothing_and_is_restored_from_a_verified_backup() {
     // The database itself is damaged.
     std::fs::write(dir.path().join("tasks.db"), b"garbage that is not sqlite at all, for sure").unwrap();
     let _ = std::fs::remove_file(dir.path().join("tasks.db-wal"));
-    let mut store = Store::open(dir.path()).unwrap();
+    let mut store = Store::open(dir.path(), NOW).unwrap();
     let StoreStatus::Damaged { backups, .. } = store.status().unwrap() else { panic!("not damaged") };
     assert_eq!(backups, vec![taken.at]);
     assert!(matches!(store.load("b1"), Err(StoreError::Corrupt { .. })));
@@ -630,7 +637,7 @@ fn a_restore_that_fails_on_the_way_leaves_the_damaged_store_as_it_was() {
     let garbage = b"garbage that is not sqlite at all, for sure";
     std::fs::write(dir.path().join("tasks.db"), garbage).unwrap();
     let _ = std::fs::remove_file(dir.path().join("tasks.db-wal"));
-    let mut store = Store::open(dir.path()).unwrap();
+    let mut store = Store::open(dir.path(), NOW).unwrap();
     // The copy cannot be written where the candidate is built.
     std::fs::create_dir(dir.path().join("tasks.db.restoring")).unwrap();
     assert!(matches!(store.restore_backup(taken.at, 99), Err(StoreError::Io { .. })));
@@ -671,7 +678,7 @@ fn a_missing_database_beside_its_backups_is_never_created_empty_in_silence() {
     let taken = backup_if_due(&mut store, 1).unwrap().unwrap();
     drop(store);
     remove_database(dir.path());
-    let mut store = Store::open(dir.path()).unwrap();
+    let mut store = Store::open(dir.path(), NOW).unwrap();
     let StoreStatus::Missing { backups, .. } = store.status().unwrap() else { panic!("not missing") };
     assert_eq!(backups, vec![taken.at]);
     assert!(matches!(store.load_all(), Err(StoreError::Missing { .. })));
@@ -688,7 +695,7 @@ fn a_missing_or_damaged_database_with_no_backup_is_started_empty_by_the_person_o
     let garbage = b"garbage that is not sqlite at all, for sure";
     std::fs::write(dir.path().join("tasks.db"), garbage).unwrap();
     let _ = std::fs::remove_file(dir.path().join("tasks.db-wal"));
-    let mut store = Store::open(dir.path()).unwrap();
+    let mut store = Store::open(dir.path(), NOW).unwrap();
     assert_eq!(store.status().unwrap(), StoreStatus::Damaged { detail: store.load("b1").unwrap_err().to_string(), backups: vec![] });
     store.start_empty(5).unwrap();
     // A new database, no move yet: what is still in files moves next.
@@ -698,7 +705,7 @@ fn a_missing_or_damaged_database_with_no_backup_is_started_empty_by_the_person_o
     drop(store);
     // Gone again: the copy set aside says there was a database here.
     remove_database(dir.path());
-    let mut store = Store::open(dir.path()).unwrap();
+    let mut store = Store::open(dir.path(), NOW).unwrap();
     assert!(matches!(store.status().unwrap(), StoreStatus::Missing { backups, .. } if backups.is_empty()));
     store.start_empty(6).unwrap();
     assert_eq!(store.status().unwrap(), StoreStatus::Ready { migration: MigrationState::None });
@@ -743,14 +750,14 @@ fn a_backup_that_fails_its_check_never_enters_the_set() {
 fn a_migration_never_lands_on_boards_already_there() {
     use diesel::prelude::*;
     let dir = tempfile::tempdir().unwrap();
-    let mut store = Store::open(dir.path()).unwrap();
+    let mut store = Store::open(dir.path(), NOW).unwrap();
     store.import(&[board("b1", Some("ws-1"), vec![task("u1", "task-1")])], &[]).unwrap();
     drop(store);
     // Boards present, the migration's mark gone.
     let mut conn = diesel::SqliteConnection::establish(&dir.path().join("tasks.db").to_string_lossy()).unwrap();
     diesel::sql_query("DELETE FROM meta WHERE key = 'migration'").execute(&mut conn).unwrap();
     drop(conn);
-    let mut store = Store::open(dir.path()).unwrap();
+    let mut store = Store::open(dir.path(), NOW).unwrap();
     assert!(store.import(&[board("b2", Some("ws-2"), vec![])], &[]).is_err());
     assert_eq!(store.load_all().unwrap().len(), 1);
 }
