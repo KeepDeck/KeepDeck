@@ -470,7 +470,7 @@ const MORE_NOTE = "`more` counts what is left for task.history: comments, the ch
 function listCommand(deps: TaskCommandDeps): CommandSpec {
   return {
     id: "task.list",
-    title: `List the team's tasks in the statuses you name — per task: id, title, status, priority, assignee (null = pool), author, blockedBy, labels, issuable (can be started now: in todo with every blocker done or cancelled), artifacts (count), updated; an epic adds kind and progress (its tasks done, open, cancelled — counted, never stored), a task under an epic adds parent. ${MORE_NOTE}. Closed work (done, cancelled) only when you name it; task.search finds a task by its words`,
+    title: `List the team's tasks in the statuses you name — per task: id, title, status, priority, assignee (null = pool), author, blockedBy, labels, issuable (can be started now: in todo with every blocker done or cancelled), artifacts (count), updated; an epic adds kind and progress (its tasks done, open, cancelled — counted, never stored), a task under an epic adds parent; kind=epic lists the epics alone, parent=<epic> an epic's tasks. ${MORE_NOTE}. Closed work (done, cancelled) only when you name it; task.search finds a task by its words`,
     args: [
       { name: "status", type: "string", required: true, description: "One or several statuses, comma-separated: backlog, todo, in-progress, blocked, review, done, cancelled" },
       ...FILTER_ARGS,

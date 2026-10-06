@@ -469,7 +469,7 @@ describe("task commands — epics", () => {
     expect(((await run("task.get", { id: loose.id as string }, LEAD)).task as Record<string, unknown>).parent).toBeNull();
     expect(await refused("task.create", { title: "x", kind: "epic", parent: "task-1" }, LEAD)).toContain("one level");
     expect(await refused("task.update", { id: "task-1", status: "cancelled" }, LEAD)).toBe(
-      "this epic still has open work — task-2 (to do), task-3 (to do); close or move them first",
+      "this epic still has open work — task-2 (to do), task-3 (to do); close or move them first (task.list parent=<epic> lists them all)",
     );
     await run("task.update", { id: "task-2", status: "cancelled" }, LEAD);
     await run("task.update", { id: "task-3", status: "cancelled" }, LEAD);

@@ -189,7 +189,7 @@ export function refusalText(refusal: TaskProblem): string {
     case "not-yours-to-transfer":
       return `handing a task to another team is ${lead}'s — ask them`;
     case "unknown-epic":
-      return `no such task: ${refusal.id}`;
+      return `no task ${refusal.id} on this team's board — a task's epic is an epic of its own team (task.list kind=epic lists them)`;
     case "not-an-epic":
       return `${refusal.id} is a task, not an epic — a task goes under an epic`;
     case "epic-under-epic":
@@ -201,7 +201,7 @@ export function refusalText(refusal: TaskProblem): string {
     case "cyclic-epic":
       return `${refusal.ids.join(", ")} would wait on the epic ${refusal.id} — which closes only after its tasks; that would be a cycle`;
     case "epic-has-open-work":
-      return `this epic still has open work — ${openWorkWords(refusal.open)}; close or move them first`;
+      return `this epic still has open work — ${openWorkWords(refusal.open)}; close or move them first (task.list parent=<epic> lists them all)`;
     case "bad-create-kind":
       return `a task is made as ${refusal.allowed.join(" or ")}, not "${refusal.value}"`;
     case "transfer-linked": {

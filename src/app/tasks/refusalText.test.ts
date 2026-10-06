@@ -47,6 +47,9 @@ describe("the task database's refusals", () => {
 describe("an epic's refusals", () => {
   it("say what the family rule refused and the one next step", () => {
     expect(refusalText({ kind: "epic-under-epic" })).toContain("one level");
+    expect(refusalText({ kind: "unknown-epic", id: "task-9" })).toBe(
+      "no task task-9 on this team's board — a task's epic is an epic of its own team (task.list kind=epic lists them)",
+    );
     expect(refusalText({ kind: "not-an-epic", id: "task-2" })).toBe("task-2 is a task, not an epic — a task goes under an epic");
     expect(refusalText({ kind: "closed-epic", id: "task-1" })).toContain("reopen task-1 first");
     expect(refusalText({ kind: "cross-team-epic", id: "task-5" })).toContain("another team's board");
@@ -58,7 +61,7 @@ describe("an epic's refusals", () => {
       "not carried over: the epic task-1 — it is closed, and open work enters no closed epic",
     );
     expect(refusalText({ kind: "epic-has-open-work", open: [{ id: "task-2", status: "todo" }] })).toBe(
-      "this epic still has open work — task-2 (to do); close or move them first",
+      "this epic still has open work — task-2 (to do); close or move them first (task.list parent=<epic> lists them all)",
     );
   });
 });
