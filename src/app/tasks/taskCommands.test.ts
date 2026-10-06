@@ -213,6 +213,25 @@ describe("task commands", () => {
     expect(closed.more).toMatchObject({ comments: 1 });
   });
 
+  it("every answer carries the board's rev, and every answer about one task its more — writes and reads alike", async () => {
+    const { run } = setup();
+    const shaped = (answer: Record<string, unknown>, aboutOne: boolean) => {
+      expect(typeof answer.rev).toBe("number");
+      if (aboutOne) expect(answer.more).toMatchObject({ comments: expect.any(Number), history: expect.any(Number), briefVersions: expect.any(Number) });
+    };
+    shaped(await run("task.create", { title: "a" }, LEAD), true);
+    shaped(await run("task.comment", { id: "task-1", body: "x" }, LEAD), true);
+    shaped(await run("task.update", { id: "task-1", priority: "high" }, LEAD), true);
+    shaped(await run("task.duplicate", { id: "task-1" }, LEAD), true);
+    for (const kind of ["log", "comments", "briefs"]) shaped(await run("task.history", { id: "task-1", kind }, LEAD), true);
+    shaped(await run("task.transfer", { id: "task-2", to: "web" }, LEAD), true);
+    shaped(await run("task.get", { id: "task-1" }, LEAD), false);
+    shaped(await run("task.list", { status: "todo" }, LEAD), false);
+    shaped(await run("task.search", { query: "a" }, LEAD), false);
+    shaped(await run("task.since", { since: "0" }, LEAD), false);
+    shaped(await run("task.brief", {}, LEAD), false);
+  });
+
   it("history gives a task's log, comments or earlier briefs, the log filtered by field", async () => {
     const { run, refused } = setup();
     await run("task.create", { title: "a", assignee: "impl-1", body: "first" }, LEAD);
@@ -221,7 +240,13 @@ describe("task commands", () => {
     const log = (await run("task.history", { id: "task-1" }, IMPL1)).log as { field: string }[];
     expect(log.map((e) => e.field)).toEqual(["priority", "body"]);
     expect(((await run("task.history", { id: "task-1", field: "body" }, IMPL1)).log as unknown[]).length).toBe(1);
-    expect(await run("task.history", { id: "task-1", kind: "briefs" }, IMPL1)).toEqual({ id: "task-1", current: 2, briefs: [{ v: 1, body: "first" }] });
+    expect(await run("task.history", { id: "task-1", kind: "briefs" }, IMPL1)).toEqual({
+      id: "task-1",
+      current: 2,
+      briefs: [{ v: 1, body: "first" }],
+      more: { comments: 1, history: 2, briefVersions: 1 },
+      rev: 3,
+    });
     expect(((await run("task.history", { id: "task-1", kind: "comments" }, IMPL1)).comments as { body: string }[]).map((c) => c.body)).toEqual(["noted"]);
     expect(await refused("task.history", { id: "task-1", kind: "everything" }, IMPL1)).toContain("kind must be");
   });
@@ -297,6 +322,8 @@ describe("task commands", () => {
       assignee: "impl-2",
       priority: "low",
       saved: true,
+      more: { comments: 0, history: 4, briefVersions: 0 },
+      rev: 2,
     });
     expect((await run("task.update", { id: "task-1", assignee: "pool" }, LEAD)).assignee).toBeNull();
     expect(await refused("task.update", { id: "task-1" }, LEAD)).toContain("nothing to change");

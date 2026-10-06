@@ -276,7 +276,7 @@ function createCommand(deps: TaskCommandDeps): CommandSpec {
           who.actor,
         ),
       );
-      return {
+      return reply(deps, who.workspace.id, {
         id: task.id,
         teamId: task.teamId,
         status: task.status,
@@ -290,7 +290,7 @@ function createCommand(deps: TaskCommandDeps): CommandSpec {
             ? "in the team's pool — anyone on the team may take it; nobody is told by the board"
             : `assigned to ${task.assignee} — the board tells nobody; you can tell them with mail.send, naming ${task.id}`) +
           unsavedNote(saved, saveError),
-      };
+      }, task);
     },
   };
 }
@@ -311,14 +311,14 @@ function duplicateCommand(deps: TaskCommandDeps): CommandSpec {
       // What the create's rules left out is the domain's answer, said here.
       const left = result.ok ? notCarriedText(result.notCarried) : null;
       const where = task.status === "backlog" ? "parked in the team's backlog" : "in the team's pool";
-      return {
+      return reply(deps, who.workspace.id, {
         id: task.id,
         copiedFrom: original.id,
         status: task.status,
         priority: task.priority,
         saved,
         note: `copied from ${original.id}, ${where}` + (left ? `; ${left}` : "") + unsavedNote(saved, saveError),
-      };
+      }, task);
     },
   };
 }
@@ -340,10 +340,10 @@ function transferCommand(deps: TaskCommandDeps): CommandSpec {
       const task = visible(board, taskIdArg(args), team);
       const target = resolveTeamRef(who.workspace, str(args, "to") ?? "");
       if (!target.ok) throw new Error(target.message);
-      const { saved, saveError } = settled(
+      const { task: moved, saved, saveError } = settled(
         await deps.tasks.transfer(who.workspace.id, task.id, target.value.id, who.actor),
       );
-      return {
+      return reply(deps, who.workspace.id, {
         id: task.id,
         team: target.value.name,
         saved,
@@ -353,7 +353,7 @@ function transferCommand(deps: TaskCommandDeps): CommandSpec {
           // Who held it loses it without a word from the board, too.
           (task.assignee !== null ? `, and ${task.assignee}, who held it` : "") +
           unsavedNote(saved, saveError),
-      };
+      }, moved);
     },
   };
 }
@@ -399,6 +399,13 @@ function revOf(deps: TaskCommandDeps, workspaceId: string): number | null {
   return deps.tasks.revisions(workspaceId)?.board ?? null;
 }
 
+/** Every answer's one shape (v10 §06): what it says; when it is about one
+ * task, the counts of what that task left for another call (`more`); and
+ * always the board's rev, for the next task.since. */
+function reply(deps: TaskCommandDeps, workspaceId: string, body: Record<string, unknown>, about?: Task) {
+  return { ...body, ...(about === undefined ? {} : { more: more(about) }), rev: revOf(deps, workspaceId) };
+}
+
 const MORE_NOTE = "`more` counts what is left for task.history: comments, the change log, earlier briefs";
 
 function listCommand(deps: TaskCommandDeps): CommandSpec {
@@ -416,7 +423,7 @@ function listCommand(deps: TaskCommandDeps): CommandSpec {
       const statuses = statusesArg(args, true);
       const board = await boardOf(deps, who.workspace.id);
       const tasks = matching(board, team, args, statuses);
-      return { count: tasks.length, tasks: tasks.map((task) => row(task, board)), rev: revOf(deps, who.workspace.id) };
+      return reply(deps, who.workspace.id, { count: tasks.length, tasks: tasks.map((task) => row(task, board)) });
     },
   };
 }
@@ -446,14 +453,13 @@ function searchCommand(deps: TaskCommandDeps): CommandSpec {
       // Asked of the whole board, then held to this caller's team and filters.
       const allowed = new Set(matching(board, team, args, statuses).map((task) => task.uid));
       const hits = (await deps.tasks.search(who.workspace.id, query, limit * 4)).filter((hit) => allowed.has(hit.uid)).slice(0, limit);
-      return {
+      return reply(deps, who.workspace.id, {
         count: hits.length,
         hits: hits.map((hit) => {
           const task = board.tasks.find((t) => t.uid === hit.uid)!;
           return { ...row(task, board), matched: hit.comment === null ? "brief" : `comment ${hit.comment}`, snippet: hit.snippet };
         }),
-        rev: revOf(deps, who.workspace.id),
-      };
+      });
     },
   };
 }
@@ -467,7 +473,7 @@ function getCommand(deps: TaskCommandDeps): CommandSpec {
       const who = caller(source, deps);
       const team = teamFor(args, who);
       const board = await boardOf(deps, who.workspace.id);
-      return { task: full(visible(board, taskIdArg(args), team), board), rev: revOf(deps, who.workspace.id) };
+      return reply(deps, who.workspace.id, { task: full(visible(board, taskIdArg(args), team), board) });
     },
   };
 }
@@ -491,10 +497,11 @@ function historyCommand(deps: TaskCommandDeps): CommandSpec {
       if (!HISTORY_KINDS.includes(kind)) throw new Error(`kind must be ${HISTORY_KINDS.join(", ")}, not "${kind}"`);
       const board = await boardOf(deps, who.workspace.id);
       const task = visible(board, taskIdArg(args), team);
-      if (kind === "comments") return { id: task.id, comments: task.comments };
-      if (kind === "briefs") return { id: task.id, current: task.bodyV, briefs: task.briefs };
+      const answer = (body: Record<string, unknown>) => reply(deps, who.workspace.id, { id: task.id, ...body }, task);
+      if (kind === "comments") return answer({ comments: task.comments });
+      if (kind === "briefs") return answer({ current: task.bodyV, briefs: task.briefs });
       const field = str(args, "field");
-      return { id: task.id, log: field === undefined ? task.log : task.log.filter((entry) => entry.field === field) };
+      return answer({ log: field === undefined ? task.log : task.log.filter((entry) => entry.field === field) });
     },
   };
 }
@@ -519,7 +526,7 @@ function sinceCommand(deps: TaskCommandDeps): CommandSpec {
         const change = changeSince(task, mark, revisions?.tasks.get(task.uid));
         return change === null ? [] : [{ ...row(task, board), changed: change }];
       });
-      return { count: changed.length, tasks: changed, rev: revisions?.board ?? null };
+      return reply(deps, who.workspace.id, { count: changed.length, tasks: changed });
     },
   };
 }
@@ -538,11 +545,10 @@ function briefCommand(deps: TaskCommandDeps): CommandSpec {
       const board = await boardOf(deps, who.workspace.id);
       const counts = countByStatus(tasksOfTeam(board, team.id));
       const open = Object.fromEntries(TASK_STATUSES.filter(isOpen).map((status) => [status, counts[status]]));
-      return {
+      return reply(deps, who.workspace.id, {
         board: open,
         waitingOnYou: awaitingDecision(board, team.id).map((task) => row(task, board)),
-        rev: revOf(deps, who.workspace.id),
-      };
+      });
     },
   };
 }
@@ -590,7 +596,7 @@ function updateCommand(deps: TaskCommandDeps): CommandSpec {
       const changed = TASK_FIELDS.filter(
         (field) => JSON.stringify(fieldOf(before, board, field)) !== JSON.stringify(fieldOf(task, after, field)),
       );
-      return {
+      return reply(deps, who.workspace.id, {
         id: task.id,
         changed,
         status: task.status,
@@ -598,7 +604,7 @@ function updateCommand(deps: TaskCommandDeps): CommandSpec {
         priority: task.priority,
         saved,
         ...(saved ? {} : { note: unsavedNote(saved, saveError).trim() }),
-      };
+      }, task);
     },
   };
 }
@@ -621,12 +627,12 @@ function commentCommand(deps: TaskCommandDeps): CommandSpec {
       const { task, saved, saveError } = settled(
         await deps.tasks.apply(who.workspace.id, id, [{ kind: "comment", body }], who.actor),
       );
-      return {
+      return reply(deps, who.workspace.id, {
         id: task.id,
         n: task.comments[task.comments.length - 1]?.n ?? 0,
         saved,
         ...(saved ? {} : { note: unsavedNote(saved, saveError).trim() }),
-      };
+      }, task);
     },
   };
 }
