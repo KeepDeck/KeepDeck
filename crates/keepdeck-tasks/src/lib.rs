@@ -182,12 +182,7 @@ impl Store {
 
     /// Every board, attached or not — what a migration is read back as.
     pub fn load_all(&mut self) -> Result<Vec<StoredBoard>> {
-        self.read(|conn| {
-            use diesel::prelude::*;
-            let ids: Vec<String> =
-                schema::boards::table.select(schema::boards::board).order(schema::boards::board).load(conn)?;
-            ids.iter().map(|id| board::load(conn, id)).collect()
-        })
+        self.read(board::load_all)
     }
 
     pub fn apply(&mut self, change: &ChangeSet) -> Result<Applied> {

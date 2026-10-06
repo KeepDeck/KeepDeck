@@ -21,17 +21,32 @@ const REQUESTS_KEPT: i64 = 500;
 
 /// The board of a workspace, or `None` when the workspace has none yet.
 pub fn load_workspace(conn: &mut SqliteConnection, workspace: &str) -> Result<Option<StoredBoard>> {
-    let board: Option<String> =
-        boards::table.filter(boards::workspace.eq(workspace)).select(boards::board).first(conn).optional()?;
-    match board {
-        Some(board) => load(conn, &board).map(Some),
-        None => Ok(None),
-    }
+    conn.transaction(|conn| {
+        let board: Option<String> =
+            boards::table.filter(boards::workspace.eq(workspace)).select(boards::board).first(conn).optional()?;
+        match board {
+            Some(board) => read_board(conn, &board).map(Some),
+            None => Ok(None),
+        }
+    })
 }
 
 /// One board whole: its tasks in board order, each with everything it holds,
-/// and its links.
+/// and its links — every part read in ONE read transaction (in WAL, one
+/// snapshot), so another opener's write between two of them cannot tear it.
 pub fn load(conn: &mut SqliteConnection, board: &str) -> Result<StoredBoard> {
+    conn.transaction(|conn| read_board(conn, board))
+}
+
+/// Every board, attached or not, in one snapshot.
+pub fn load_all(conn: &mut SqliteConnection) -> Result<Vec<StoredBoard>> {
+    conn.transaction(|conn| {
+        let ids: Vec<String> = boards::table.select(boards::board).order(boards::board).load(conn)?;
+        ids.iter().map(|id| read_board(conn, id)).collect()
+    })
+}
+
+fn read_board(conn: &mut SqliteConnection, board: &str) -> Result<StoredBoard> {
     let stored: BoardRow = boards::table
         .find(board)
         .select(BoardRow::as_select())
