@@ -207,6 +207,35 @@ describe("VirtualList", () => {
       expect(list().scrollTop).toBe(5 * ROW);
     });
 
+    it("never follows a flag older than the layout: rows measured taller than their guess grew the list unscrolled", () => {
+      // Guessed 20 tall, measured 60: at mount the guess fits the box, the measure does not.
+      restore = pinListViewport("list", 200, 300, 60);
+      const few = thread.slice(0, 5);
+      renderThread(few);
+      expect(list().scrollTop).toBe(0);
+      // A render with the same rows (a keystroke elsewhere) must not jump to the foot.
+      renderThread([...few]);
+      expect(list().scrollTop).toBe(0);
+    });
+
+    it("leaves the person's own change where the fold holds it — and there, on the next render after it played", async () => {
+      restore = pinListViewport("list", 200, 300, ROW);
+      const token = {};
+      renderThread(thread, token);
+      scrollTo(30 * ROW - 200);
+      const opened = {};
+      const grown = [...thread, "row 30", "row 31", "row 32", "row 33", "row 34", "row 35", "row 36", "row 37", "row 38", "row 39"];
+      renderThread(grown, opened);
+      // The fold plays out: the list grows under the view, no scroll event.
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 700));
+      });
+      const held = list().scrollTop;
+      expect(list().scrollHeight).toBe(40 * ROW);
+      renderThread([...grown], opened);
+      expect(list().scrollTop).toBe(held);
+    });
+
     it("leaves the person's own change where the fold holds it", () => {
       restore = pinListViewport("list", 200, 300, ROW);
       const token = {};

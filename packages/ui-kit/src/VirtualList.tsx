@@ -286,10 +286,14 @@ export function VirtualList<T>({
 const END_SLACK_PX = 2;
 
 /**
- * `followEnd`'s rule: where the view stood before a change of the items
- * is read from the scroll itself (each scroll event, and once at mount);
- * when it stood at the end and the items changed, the foot is shown
- * again — in the layout phase, so the frame painted is already there.
+ * `followEnd`'s rule: when the view stood at the end before a change of
+ * the items, the foot is shown again — in the layout phase, so the frame
+ * painted is already there. Where the view stands is read from what is
+ * on screen NOW, after every commit as well as on every scroll: rows
+ * measured taller than their guess and a fold opened by the person grow
+ * the list with no scroll event at all, and a flag kept from before them
+ * would throw the view to the foot on the next render (reviewer-2,
+ * task-295).
  */
 function useFollowEnd<T>(
   scrollRef: RefObject<HTMLElement | null>,
@@ -298,21 +302,27 @@ function useFollowEnd<T>(
   revealEnd: () => void,
 ) {
   const atFoot = useRef(false);
+  const seen = useRef(items);
+  const read = (box: HTMLElement) => {
+    atFoot.current = box.scrollTop + box.clientHeight >= box.scrollHeight - END_SLACK_PX;
+  };
   useEffect(() => {
     const box = scrollRef.current;
     if (!on || !box) return;
-    const read = () => {
-      atFoot.current = box.scrollTop + box.clientHeight >= box.scrollHeight - END_SLACK_PX;
-    };
-    read();
-    box.addEventListener("scroll", read, { passive: true });
-    return () => box.removeEventListener("scroll", read);
+    const onScroll = () => read(box);
+    box.addEventListener("scroll", onScroll, { passive: true });
+    return () => box.removeEventListener("scroll", onScroll);
   }, [on, scrollRef]);
+  // Every commit: follow a change of the items if the view stood at the
+  // foot, then read where it stands for the next one.
   useLayoutEffect(() => {
-    if (on && atFoot.current) revealEnd();
-    // A change of the items, read once per change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items]);
+    const box = scrollRef.current;
+    if (!on || !box) return;
+    const changed = seen.current !== items;
+    seen.current = items;
+    if (changed && atFoot.current) revealEnd();
+    read(box);
+  });
 }
 
 /** How far past the view a fold mounts what it draws — the window's
