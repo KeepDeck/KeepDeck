@@ -1,4 +1,4 @@
-import { memo, useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, type ReactNode, type RefObject } from "react";
 import { marksOf, type ChangeMarks } from "./listMotion";
 import { foldSpacer } from "./foldMotion";
 import { useFoldMotion } from "./useFoldMotion";
@@ -72,6 +72,11 @@ export interface VirtualListProps<T> extends VirtualListMarkup {
    * the person's act ONLY: a change written by anyone else under it would
    * be eased and held as theirs, the list scrolling to its place. */
   easeKey?: unknown;
+  /** A list that grows at its foot (a thread): while the view stands at
+   * the end, rows added keep it there — the newest row in sight, as a
+   * chat holds it. Scrolled away from the end, an addition moves nothing.
+   * The person's own change (`easeKey`) stays where its fold holds it. */
+  followEnd?: boolean;
 }
 
 /**
@@ -126,6 +131,7 @@ export function VirtualList<T>({
   easeKey,
   spacer,
   item,
+  followEnd = false,
 }: VirtualListProps<T>) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const marks = useChangeMarks(items, itemKey, easeKey);
@@ -157,7 +163,8 @@ export function VirtualList<T>({
   // A focused row scrolled out keeps the keyboard's place on the list.
   useFocusHandoff(scrollRef);
 
-  const { atEnd, reveal } = rowWindow;
+  const { atEnd, reveal, revealEnd } = rowWindow;
+  useFollowEnd(scrollRef, followEnd, items, revealEnd);
   useEffect(() => {
     if (atEnd) onReachEnd?.();
   }, [atEnd, items.length, onReachEnd]);
@@ -272,6 +279,40 @@ export function VirtualList<T>({
       </Spacer>
     </div>
   );
+}
+
+/** How near the foot the view counts as "at the end" — a pixel's
+ * rounding, not a band the person must aim for. */
+const END_SLACK_PX = 2;
+
+/**
+ * `followEnd`'s rule: where the view stood before a change of the items
+ * is read from the scroll itself (each scroll event, and once at mount);
+ * when it stood at the end and the items changed, the foot is shown
+ * again — in the layout phase, so the frame painted is already there.
+ */
+function useFollowEnd<T>(
+  scrollRef: RefObject<HTMLElement | null>,
+  on: boolean,
+  items: readonly T[],
+  revealEnd: () => void,
+) {
+  const atFoot = useRef(false);
+  useEffect(() => {
+    const box = scrollRef.current;
+    if (!on || !box) return;
+    const read = () => {
+      atFoot.current = box.scrollTop + box.clientHeight >= box.scrollHeight - END_SLACK_PX;
+    };
+    read();
+    box.addEventListener("scroll", read, { passive: true });
+    return () => box.removeEventListener("scroll", read);
+  }, [on, scrollRef]);
+  useLayoutEffect(() => {
+    if (on && atFoot.current) revealEnd();
+    // A change of the items, read once per change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items]);
 }
 
 /** How far past the view a fold mounts what it draws — the window's

@@ -167,6 +167,57 @@ describe("VirtualList", () => {
     });
   });
 
+  describe("a list that grows at its foot (followEnd)", () => {
+    const thread = Array.from({ length: 30 }, (_, i) => `row ${i}`);
+    const renderThread = (list: readonly string[], easeKey?: unknown) =>
+      act(() =>
+        root.render(
+          createElement(VirtualList<string>, {
+            items: list,
+            itemKey: (item) => item,
+            estimate: () => ROW,
+            render: (item) => createElement("span", { className: "row" }, item),
+            className: "list",
+            followEnd: true,
+            easeKey,
+          }),
+        ),
+      );
+    const list = () => host.querySelector<HTMLElement>(".list")!;
+    const scrollTo = (top: number) =>
+      act(() => {
+        list().scrollTop = top;
+        list().dispatchEvent(new Event("scroll"));
+      });
+
+    it("keeps the newest row in sight while the view stands at the end", () => {
+      restore = pinListViewport("list", 200, 300, ROW);
+      renderThread(thread);
+      scrollTo(30 * ROW - 200);
+      renderThread([...thread, "row 30"]);
+      expect(list().scrollTop).toBe(31 * ROW - 200);
+    });
+
+    it("moves nothing for a view scrolled away from the end — nor at the first paint", () => {
+      restore = pinListViewport("list", 200, 300, ROW);
+      renderThread(thread);
+      expect(list().scrollTop).toBe(0);
+      scrollTo(5 * ROW);
+      renderThread([...thread, "row 30"]);
+      expect(list().scrollTop).toBe(5 * ROW);
+    });
+
+    it("leaves the person's own change where the fold holds it", () => {
+      restore = pinListViewport("list", 200, 300, ROW);
+      const token = {};
+      renderThread(thread, token);
+      scrollTo(30 * ROW - 200);
+      renderThread([...thread, "row 30", "row 31"], {});
+      // The fold holds the place the person acted at.
+      expect(list().scrollTop).toBe(30 * ROW - 200);
+    });
+  });
+
   describe("the keyboard's place when a focused row scrolls out", () => {
     const renderButtons = () =>
       act(() =>
