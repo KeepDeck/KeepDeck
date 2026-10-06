@@ -77,9 +77,9 @@ impl TasksStore {
         let claimed = claim(root, "task board")?;
         // Damage or a newer schema is no failure to enable: the store opens
         // in the state that says so, and the UI offers the way out.
-        // A schema this build moves forward is backed up first; a copy that
+        // A schema this build moves forward is copied first; a copy that
         // cannot be taken fails the enable, the database as it was.
-        let store = Store::open(root, now_ms()).map_err(|e| e.to_string())?;
+        let store = Store::open(root).map_err(|e| e.to_string())?;
         let db = Arc::new(Database { store: Mutex::new(store), claim: claimed });
         spawn_backup_ticker(Arc::downgrade(&db));
         *enabled = Some(Enabled {

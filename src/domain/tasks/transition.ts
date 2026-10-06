@@ -34,6 +34,7 @@ import {
   epicOf,
   findTask,
   linked,
+  taskByUid,
   openBlockersOf,
   replaceTask,
   setBlockers,
@@ -45,7 +46,7 @@ import {
   transitiveWaiters,
   withTasks,
 } from "./relations";
-import { openWorkUnder, tasksOfTeam } from "./board";
+import { admitsOpenWork, openWorkUnder, tasksOfTeam } from "./board";
 
 export type TaskChange =
   /** Take a pool task for yourself, without starting it. */
@@ -144,6 +145,9 @@ export type TaskRefusal =
   /** Open work entering an epic that is closed — created in it, put under
    * it, or reopened under it. The epic is reopened first. */
   | { kind: "closed-epic"; id: string }
+  /** Under the epic, the task would wait on its own epic's close: the epic
+   * already waits on these, which the task comes after. */
+  | { kind: "cyclic-epic"; id: string; ids: readonly string[] }
   /** An epic closed while work under it is open: each, where it stands —
    * nothing is closed for it, nobody is held to less (the person too). */
   | { kind: "epic-has-open-work"; open: readonly { id: string; status: TaskStatus }[] }
@@ -455,12 +459,16 @@ function validateBlockers(
  * family rule, asked by the create, the `parent` change and every picker:
  * the epic is on the board and is an epic, of the task's team; the task
  * is work (an epic has no epic: what each end of the link must be is the
- * table's, `RelationRule.ends`); and open work enters no closed epic.
+ * table's, `RelationRule.ends`); open work enters no closed epic; and no
+ * loop forms — the epic waits on none of `follows` (uids the task comes
+ * after: itself, or a task being made's blockers), since an epic closes
+ * only after its tasks.
  */
 export function parentProblem(
   task: Pick<Task, "kind" | "teamId" | "status">,
   id: string,
   board: TaskBoard,
+  follows: readonly string[] = [],
 ): TaskRefusal | null {
   const ends = RELATION_KINDS["child-of"].ends!;
   if (task.kind !== ends.from) return { kind: "epic-under-epic" };
@@ -468,16 +476,23 @@ export function parentProblem(
   if (epic === undefined) return { kind: "unknown-epic", id };
   if (epic.kind !== ends.to) return { kind: "not-an-epic", id };
   if (epic.teamId !== task.teamId) return { kind: "cross-team-epic", id };
-  if (isOpen(task.status) && !isOpen(epic.status)) return { kind: "closed-epic", id };
+  if (isOpen(task.status) && !admitsOpenWork(epic)) return { kind: "closed-epic", id };
+  const after = transitiveWaiters(board, epic.uid);
+  const looped = follows.filter((uid) => after.has(uid));
+  if (looped.length > 0) return { kind: "cyclic-epic", id, ids: looped.map((uid) => taskByUid(board, uid)?.id ?? uid) };
   return null;
 }
 
 /** The epics `task` could be put under now — its team's, open (or any,
  * for a closed task), not the one it is under — in board order: what a
  * picker offers, so it never offers what the change refuses. */
-export function epicCandidates(task: Task, board: TaskBoard): Task[] {
-  const current = epicOf(task, board);
-  return tasksOfTeam(board, task.teamId).filter((epic) => epic !== current && parentProblem(task, epic.id, board) === null);
+export function epicCandidates(
+  task: Pick<Task, "kind" | "teamId" | "status"> & { uid?: string },
+  board: TaskBoard,
+): Task[] {
+  const current = task.uid === undefined ? null : epicOf(task as Task, board);
+  const follows = task.uid === undefined ? [] : [task.uid];
+  return tasksOfTeam(board, task.teamId).filter((epic) => epic !== current && parentProblem(task, epic.id, board, follows) === null);
 }
 
 /**
@@ -494,7 +509,7 @@ export function epicMoveProblem(task: Task, to: TaskStatus, board: TaskBoard): T
   }
   if (!isOpen(task.status) && isOpen(to)) {
     const epic = epicOf(task, board);
-    if (epic !== null && !isOpen(epic.status)) return { kind: "closed-epic", id: epic.id };
+    if (epic !== null && !admitsOpenWork(epic)) return { kind: "closed-epic", id: epic.id };
   }
   return null;
 }
@@ -703,7 +718,7 @@ function changeTask(
       const was = epicOf(task, ctx.board)?.id ?? null;
       if (id === was) return { ok: true, task };
       if (id !== null) {
-        const bad = parentProblem(task, id, ctx.board);
+        const bad = parentProblem(task, id, ctx.board, [task.uid]);
         if (bad) return refuse(bad);
       }
       const epic = id === null ? null : findTask(ctx.board, id)!.uid;
@@ -918,7 +933,7 @@ export function createTask(
   if (!(TASK_KINDS as readonly string[]).includes(kind)) return refuse({ kind: "bad-create-kind", value: kind, allowed: TASK_KINDS });
   const parent = input.parent?.trim() || null;
   if (parent !== null) {
-    const bad = parentProblem({ kind, teamId: input.teamId, status }, parent, ctx.board);
+    const bad = parentProblem({ kind, teamId: input.teamId, status }, parent, ctx.board, uidsOf(ctx.board, blockedBy));
     if (bad) return refuse(bad);
   }
   const task: Task = {

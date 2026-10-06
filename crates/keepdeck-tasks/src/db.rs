@@ -34,13 +34,14 @@ const JOURNAL_SIZE_LIMIT: u64 = 16 * 1024 * 1024;
 /// For a database just made, or one restored from a copy: nothing in it
 /// is owed a backup first.
 pub fn open(path: &Path) -> Result<SqliteConnection> {
-    open_guarded(path, || Ok(()))
+    open_guarded(path, |_| Ok(()))
 }
 
 /// [`open`], with `before_forward` run once the database is found to hold a
-/// schema this build moves forward — before any step of it, and only then.
-/// Its failure leaves the schema as it was and is the open's answer.
-pub fn open_guarded(path: &Path, before_forward: impl FnOnce() -> Result<()>) -> Result<SqliteConnection> {
+/// schema this build moves forward — before any step of it, and only then,
+/// told the first step to come. Its failure leaves the schema as it was
+/// and is the open's answer.
+pub fn open_guarded(path: &Path, before_forward: impl FnOnce(&str) -> Result<()>) -> Result<SqliteConnection> {
     let mut conn = SqliteConnection::establish(&path.to_string_lossy())?;
     conn.batch_execute(&format!("PRAGMA busy_timeout = {BUSY_TIMEOUT_MS};"))?;
     // The check comes before any write, the schema's included.
@@ -69,7 +70,8 @@ pub fn open_guarded(path: &Path, before_forward: impl FnOnce() -> Result<()>) ->
         SchemaStep::Current => {}
         SchemaStep::Fresh => migrate(&mut conn)?,
         SchemaStep::Forward => {
-            before_forward()?;
+            let next = known.iter().find(|version| !applied.contains(version)).expect("a step to come");
+            before_forward(next)?;
             migrate(&mut conn)?;
         }
     }
@@ -104,9 +106,18 @@ fn schema_step(known: &[String], applied: &[String]) -> Result<SchemaStep> {
     })
 }
 
-/// Bring the schema to this build's migrations.
+/// Bring the schema to this build's migrations. A step that fails is the
+/// step's fault, named: the disk did not refuse, and trying again changes
+/// nothing (`MigrationFailed`).
 fn migrate(conn: &mut SqliteConnection) -> Result<()> {
-    conn.run_pending_migrations(MIGRATIONS).map_err(io)?;
+    let applied: Vec<String> = conn.applied_migrations().map_err(io)?.iter().map(|v| v.to_string()).collect();
+    conn.run_pending_migrations(MIGRATIONS).map_err(|error| {
+        let migration = MigrationSource::<diesel::sqlite::Sqlite>::migrations(&MIGRATIONS)
+            .ok()
+            .and_then(|all| all.iter().map(|m| m.name().version().to_string()).find(|v| !applied.contains(v)))
+            .unwrap_or_default();
+        StoreError::MigrationFailed { migration, detail: error.to_string() }
+    })?;
     Ok(())
 }
 

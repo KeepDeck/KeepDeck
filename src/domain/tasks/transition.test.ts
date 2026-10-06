@@ -1069,6 +1069,28 @@ describe("epics — the family", () => {
     expect(moved(epic, "in-progress", lead, on(b)).status).toBe("in-progress");
   });
 
+  it("forms no loop between an epic and its work — a task never waits on its own epic, however far", () => {
+    // task-2 under the epic task-1; task-3 waits on the epic.
+    const b = board(
+      [task({ id: "task-1", kind: "epic" }), task({ id: "task-2" }), task({ id: "task-3", blockedBy: ["task-1"] }), task({ id: "task-4" })],
+      5,
+      [relation("child-of", "task-2", "task-1")],
+    );
+    const t2 = b.tasks[1];
+    expect(refusalOf(t2, { kind: "addBlocker", id: "task-1" }, lead, on(b))).toEqual({ kind: "cyclic-blocker", ids: ["task-1"] });
+    expect(refusalOf(t2, { kind: "addBlocker", id: "task-3" }, lead, on(b))).toEqual({ kind: "cyclic-blocker", ids: ["task-3"] });
+    expect(blockerCandidates(t2, b).map((t) => t.id)).toEqual(["task-4"]);
+    // The other way: a task the epic already waits on goes under it in no way.
+    expect(refusalOf(b.tasks[2], { kind: "parent", to: "task-1" }, lead, on(b))).toEqual({ kind: "cyclic-epic", id: "task-1", ids: ["task-3"] });
+    expect(epicCandidates(b.tasks[2], b)).toEqual([]);
+    expect(createTask({ teamId: "team-1", title: "x", parent: "task-1", blockedBy: ["task-3"] }, lead, on(b))).toEqual({
+      ok: false,
+      refusal: { kind: "cyclic-epic", id: "task-1", ids: ["task-3"] },
+    });
+    // Waiting on another epic, or work waiting on an epic it is not under, is no loop.
+    expect(refusalOf(b.tasks[3], { kind: "parent", to: "task-1" }, lead, on(b))).toBeNull();
+  });
+
   it("reopens no task under a closed epic — the epic first, the person too", () => {
     const b = board(
       [task({ id: "task-1", kind: "epic", status: "done" }), task({ id: "task-2", status: "done" })],

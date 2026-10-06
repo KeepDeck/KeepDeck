@@ -2,8 +2,7 @@ import {
   CREATE_STATUSES,
   TASK_CAPS,
   TASK_KINDS,
-  parentProblem,
-  tasksOfTeam,
+  epicCandidates,
   type CreateStatus,
   type TaskBoard,
   type TaskKind,
@@ -52,10 +51,8 @@ export function newTaskFormView(
   /** The epic the form was opened in, or null. */
   epic: string | null,
 ): NewTaskFormView {
-  const epics =
-    board === null || teamId === null
-      ? []
-      : tasksOfTeam(board, teamId).filter((task) => parentProblem({ kind: "task", teamId, status: "todo" }, task.id, board) === null);
+  // The rule's own list, asked for work about to be made in todo.
+  const epics = board === null || teamId === null ? [] : epicCandidates({ kind: "task", teamId, status: "todo" }, board);
   return {
     kindOptions: TASK_KINDS.map((kind) => ({ value: kind, label: KIND_LABEL[kind] })),
     epicOptions: [{ value: "", label: NEW_TASK_WORDS.noEpic }, ...epics.map((task) => ({ value: task.id, label: `${task.id} · ${task.title}` }))],

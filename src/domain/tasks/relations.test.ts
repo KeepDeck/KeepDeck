@@ -164,7 +164,7 @@ describe("relations — an epic and its tasks", () => {
     const link = relation("child-of", "task-2", "task-1");
     expect(outlives(link, new Set(["uid-task-1"]))).toBe(false);
     expect(outlives(link, new Set(["uid-task-2"]))).toBe(false);
-    expect(RELATION_KINDS["child-of"]).toEqual({ gatesStart: false, onePerFrom: true, outlivesItsTo: false, ends: { from: "task", to: "epic" } });
+    expect(RELATION_KINDS["child-of"]).toEqual({ gatesStart: false, onePerFrom: true, outlivesItsTo: false, ends: { from: "task", to: "epic" }, ordersEnds: true });
   });
 });
 

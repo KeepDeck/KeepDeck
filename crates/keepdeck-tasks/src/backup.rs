@@ -74,6 +74,31 @@ pub fn take(db_path: &Path, dir: &Path, now_ms: i64) -> Result<Backup> {
     admit(&tmp, dir, now_ms)
 }
 
+/// The copy taken before the schema step `migration`: the database as the
+/// step found it — the way back if the step goes wrong. Its own name
+/// (`tasks-pre-<step>.db`), outside the set of three — never rotated
+/// away, never offered as an hourly backup — and taken once per step: a
+/// step that fails again finds its copy there and takes no second.
+pub fn take_before(db_path: &Path, dir: &Path, migration: &str) -> Result<PathBuf> {
+    let path = dir.join(format!("{PREFIX}pre-{migration}{SUFFIX}"));
+    if path.exists() {
+        return Ok(path);
+    }
+    std::fs::create_dir_all(dir).map_err(|e| StoreError::Io { detail: format!("creating {}: {e}", dir.display()) })?;
+    let tmp = dir.join(format!("{PREFIX}pre-{migration}{SUFFIX}.tmp"));
+    let _ = std::fs::remove_file(&tmp);
+    let mut source = db::open_read_only(db_path)?;
+    diesel::sql_query("VACUUM INTO ?").bind::<Text, _>(tmp.to_string_lossy().into_owned()).execute(&mut source)?;
+    drop(source);
+    let verified = db::open_read_only(&tmp).and_then(|mut copy| db::quick_check(&mut copy));
+    if let Err(error) = verified {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(error);
+    }
+    std::fs::rename(&tmp, &path).map_err(|e| StoreError::Io { detail: format!("placing the copy: {e}") })?;
+    Ok(path)
+}
+
 /// Let a candidate copy into the set — only once it has passed the check
 /// itself. A candidate that fails is removed and the set is untouched:
 /// the oldest good copy is never pushed out by a bad one.

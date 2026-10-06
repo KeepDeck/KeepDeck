@@ -44,6 +44,10 @@ pub enum StoreError {
     /// The request breaks the store's own rules (an unsafe name, a board
     /// that does not exist).
     Invalid { detail: String },
+    /// A step of the schema this build carries failed on this database:
+    /// the step's own fault, not the disk's — not tried again as it is.
+    /// The copy taken before it is beside the database.
+    MigrationFailed { migration: String, detail: String },
 }
 
 impl StoreError {
@@ -70,6 +74,9 @@ impl std::fmt::Display for StoreError {
                 write!(f, "the task database was written by a newer KeepDeck (migration {migration})")
             }
             StoreError::Invalid { detail } => write!(f, "{detail}"),
+            StoreError::MigrationFailed { migration, detail } => {
+                write!(f, "the task database could not be brought to this KeepDeck's schema (step {migration}): {detail}")
+            }
         }
     }
 }

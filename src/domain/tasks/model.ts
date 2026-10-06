@@ -230,14 +230,18 @@ export interface RelationRule {
    * a task's epic is an epic, and the task under it is work — so an epic
    * has no epic, and the family is one level deep by construction. */
   ends: { from: TaskKind; to: TaskKind } | null;
+  /** Whether its `from` comes before its `to` — a blocker before what it
+   * holds, a task before its epic's close: the order every "would this
+   * close a loop?" walks, so no two tasks can each wait on the other. */
+  ordersEnds: boolean;
 }
 
 export const RELATION_KINDS: Readonly<Record<RelationKind, RelationRule>> = {
-  blocks: { gatesStart: true, onePerFrom: false, outlivesItsTo: false, ends: null },
-  "copied-from": { gatesStart: false, onePerFrom: true, outlivesItsTo: true, ends: null },
+  blocks: { gatesStart: true, onePerFrom: false, outlivesItsTo: false, ends: null, ordersEnds: true },
+  "copied-from": { gatesStart: false, onePerFrom: true, outlivesItsTo: true, ends: null, ordersEnds: false },
   // A task has one epic; a task under an epic that left the board is
-  // under none.
-  "child-of": { gatesStart: false, onePerFrom: true, outlivesItsTo: false, ends: { from: "task", to: "epic" } },
+  // under none. An epic closes only after its tasks: the task comes first.
+  "child-of": { gatesStart: false, onePerFrom: true, outlivesItsTo: false, ends: { from: "task", to: "epic" }, ordersEnds: true },
 };
 
 /** Whether this build knows `kind` — the rest are carried, not read. */

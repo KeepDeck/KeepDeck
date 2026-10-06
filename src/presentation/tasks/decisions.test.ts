@@ -210,6 +210,8 @@ describe("screenState", () => {
     const folded = screenReducer(INITIAL_SCREEN, { type: "foldEpic", id: "task-1" }, null).state;
     expect([...folded.foldedEpics]).toEqual(["task-1"]);
     expect([...screenReducer(folded, { type: "foldEpic", id: "task-1" }, null).state.foldedEpics]).toEqual([]);
+    // A new set each time: the state it came from is never changed under it.
+    expect([...folded.foldedEpics]).toEqual(["task-1"]);
     expect(INITIAL_SCREEN.foldedEpics.size).toBe(0);
   });
 
@@ -307,6 +309,7 @@ describe("formDraft", () => {
     expect(taskInputOf({ ...draftIn("task-3"), title: "Step" })).toMatchObject({ kind: "task", parent: "task-3" });
     // An epic picked, then the kind turned to epic: it goes under none.
     expect(taskInputOf({ ...draftIn("task-3"), title: "Plan", kind: "epic" })).not.toHaveProperty("parent");
+    expect(taskInputOf({ ...EMPTY_TASK_DRAFT, title: "Plan", kind: "epic" }).kind).toBe("epic");
     expect([takesAnEpic({ kind: "task" }), takesAnEpic({ kind: "epic" })]).toEqual([true, false]);
   });
 });

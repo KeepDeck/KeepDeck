@@ -86,6 +86,13 @@ export interface EpicProgress {
   cancelled: number;
 }
 
+/** Whether open work may stand under `epic`: it is open itself. The one
+ * test behind "a closed epic holds no open work", from whichever side the
+ * family rules ask it. */
+export function admitsOpenWork(epic: Task): boolean {
+  return isOpen(epic.status);
+}
+
 /** The tasks under `epic` still open — THE question the rule "a closed
  * epic holds no open work" asks, from whichever side it is asked: the
  * epic closing, or work entering a closed one. In board order. */

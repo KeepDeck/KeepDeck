@@ -464,6 +464,9 @@ describe("task commands — epics", () => {
   it("refuses a kind that is no kind, an epic under an epic, and closing an epic with open work — naming it", async () => {
     const { run, refused } = await family();
     expect(await refused("task.create", { title: "x", kind: "story" }, LEAD)).toBe('kind must be task or epic, not "story"');
+    // "none" reads as no epic in every command.
+    const loose = await run("task.create", { title: "Loose too", parent: "none" }, LEAD);
+    expect(((await run("task.get", { id: loose.id as string }, LEAD)).task as Record<string, unknown>).parent).toBeNull();
     expect(await refused("task.create", { title: "x", kind: "epic", parent: "task-1" }, LEAD)).toContain("one level");
     expect(await refused("task.update", { id: "task-1", status: "cancelled" }, LEAD)).toBe(
       "this epic still has open work — task-2 (to do), task-3 (to do); close or move them first",

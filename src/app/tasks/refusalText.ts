@@ -92,6 +92,8 @@ export function storeErrorText(error: StoreError): string {
       return `a newer KeepDeck wrote the task database (${error.migration}) — this one neither reads nor writes it`;
     case "invalid":
       return error.detail;
+    case "migrationFailed":
+      return `the task database could not be brought to this KeepDeck's schema (step ${error.migration}): ${error.detail} — it is as it was, and a copy taken before the step is beside it`;
   }
 }
 
@@ -196,6 +198,8 @@ export function refusalText(refusal: TaskProblem): string {
       return `${refusal.id} is on another team's board — a task's epic is on its own board`;
     case "closed-epic":
       return `the epic ${refusal.id} is closed — open work enters no closed epic; reopen ${refusal.id} first`;
+    case "cyclic-epic":
+      return `${refusal.ids.join(", ")} would wait on the epic ${refusal.id} — which closes only after its tasks; that would be a cycle`;
     case "epic-has-open-work":
       return `this epic still has open work — ${openWorkWords(refusal.open)}; close or move them first`;
     case "bad-create-kind":

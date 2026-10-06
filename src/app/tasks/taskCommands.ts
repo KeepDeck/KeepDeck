@@ -156,6 +156,14 @@ function kindArg(args: CommandArgs): TaskKind | undefined {
   return value;
 }
 
+/** The epic an argument names — a key, or null for none ("none"); absent
+ * when not given. The one reading of the word, for every command. */
+function parentArg(args: CommandArgs): string | null | undefined {
+  const value = str(args, "parent");
+  if (value === undefined) return undefined;
+  return value === "none" ? null : value;
+}
+
 function taskIdArg(args: CommandArgs): string {
   const value = str(args, "id") ?? "";
   if (!isTaskId(value)) throw new Error(`"${value}" is not a task id — ids look like task-N`);
@@ -292,7 +300,7 @@ function createCommand(deps: TaskCommandDeps): CommandSpec {
       { name: "labels", type: "string", description: "Labels, comma-separated — at most 5 words (lowercase, dashes between, ≤24 characters); \"Copy Edit\" is kept as copy-edit" },
       { name: "status", type: "string", description: "todo (default) | backlog — backlog parks it: on the board, never issuable, until whoever hands out work moves it to todo" },
       { name: "kind", type: "string", description: "task (default) | epic — an epic groups tasks under it, one level deep; it walks the statuses as any task does, and closes only once every task under it is closed" },
-      { name: "parent", type: "string", description: "The epic to make it under (task-N): an open epic of the team; a task, not an epic, goes under one" },
+      { name: "parent", type: "string", description: "The epic to make it under (task-N), \"none\" or absent for none: an open epic of the team; a task, not an epic, goes under one" },
       TEAM_ARG,
     ],
     run: async (args, source) => {
@@ -314,7 +322,7 @@ function createCommand(deps: TaskCommandDeps): CommandSpec {
             labels: ids(args, "labels"),
             status: status as CreateStatus | undefined,
             kind: kindArg(args),
-            parent: str(args, "parent"),
+            parent: parentArg(args) ?? undefined,
           },
           who.actor,
         ),
@@ -323,7 +331,7 @@ function createCommand(deps: TaskCommandDeps): CommandSpec {
         id: task.id,
         teamId: task.teamId,
         ...(task.kind === "epic" ? { kind: task.kind } : {}),
-        ...(str(args, "parent") !== undefined ? { parent: str(args, "parent") } : {}),
+        ...(parentArg(args) ? { parent: parentArg(args) } : {}),
         status: task.status,
         priority: task.priority,
         assignee: task.assignee,
@@ -425,7 +433,7 @@ function matching(board: TaskBoard, team: Team, args: CommandArgs, statuses: rea
   const wanted = label === undefined ? undefined : normalizeLabel(label);
   if (wanted === "") throw new Error(`"${label}" is not a label`);
   const kind = kindArg(args);
-  const parent = str(args, "parent");
+  const parent = parentArg(args);
   return tasksOfTeam(board, team.id).filter(
     (task) =>
       (statuses === undefined || statuses.includes(task.status)) &&
@@ -433,7 +441,7 @@ function matching(board: TaskBoard, team: Team, args: CommandArgs, statuses: rea
       (priority === undefined || task.priority === priority) &&
       (wanted === undefined || task.labels.includes(wanted)) &&
       (kind === undefined || task.kind === kind) &&
-      (parent === undefined || (epicOf(task, board)?.id ?? "none") === parent),
+      (parent === undefined || (epicOf(task, board)?.id ?? null) === parent),
   );
 }
 
@@ -634,7 +642,7 @@ function updateCommand(deps: TaskCommandDeps): CommandSpec {
       { name: "blockedBy", type: "string", description: "Task ids this one waits on, comma-separated; empty string for none" },
       { name: "artifacts", type: "string", description: "Artifact ids attached, comma-separated; empty string for none" },
       { name: "labels", type: "string", description: "The task's labels, comma-separated, replacing the set; empty string for none. The assignee labels its own task; the lead any" },
-      { name: "parent", type: "string", description: "The epic it is under (task-N), \"none\" for none — whoever hands out work moves a task between epics" },
+      { name: "parent", type: "string", description: "The epic it is under (task-N), \"none\" for none — whoever hands out work moves a task between epics. Applied before status: to close a task and put it under a closed epic, close it first in its own call" },
     ],
     run: async (args, source) => {
       const who = caller(source, deps);
@@ -653,8 +661,8 @@ function updateCommand(deps: TaskCommandDeps): CommandSpec {
       if (artifacts !== undefined) changes.push({ kind: "artifacts", to: artifacts });
       const labels = ids(args, "labels");
       if (labels !== undefined) changes.push({ kind: "labels", to: labels });
-      const parent = str(args, "parent");
-      if (parent !== undefined) changes.push({ kind: "parent", to: parent === "none" ? null : parent });
+      const parent = parentArg(args);
+      if (parent !== undefined) changes.push({ kind: "parent", to: parent });
       const status = statusArg(args);
       if (status !== undefined) changes.push({ kind: "status", to: status });
       if (changes.length === 0) {

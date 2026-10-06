@@ -176,16 +176,23 @@ function inBoardOrder(board: TaskBoard, uids: readonly string[]): string[] {
   return [...uids].sort((a, b) => place.get(a)! - place.get(b)!);
 }
 
+/** The kinds that order their ends, read from the table. */
+const ORDERING_KINDS: readonly RelationKind[] = (Object.keys(RELATION_KINDS) as RelationKind[]).filter(
+  (kind) => RELATION_KINDS[kind].ordersEnds,
+);
+
 /** Every task `uid` waits on, however far down — what it waits on, what
- * that waits on, and so on, by every gating kind; `uid` itself included.
- * One walk answers every "would this close a loop?" about it. */
+ * that waits on, and so on, by every kind that orders its ends (a blocker,
+ * an epic's tasks before its close); `uid` itself included. One walk
+ * answers every "would this close a loop?" about it. */
 export function transitiveBlockers(board: TaskBoard, uid: string): ReadonlySet<string> {
-  return walk(uid, (at) => GATING_KINDS.flatMap((kind) => into(board, kind, at)).map((relation) => relation.from));
+  return walk(uid, (at) => ORDERING_KINDS.flatMap((kind) => into(board, kind, at)).map((relation) => relation.from));
 }
 
-/** Every task that waits on `uid`, however far up; `uid` itself included. */
+/** Every task that waits on `uid`, however far up — by the same order;
+ * `uid` itself included. */
 export function transitiveWaiters(board: TaskBoard, uid: string): ReadonlySet<string> {
-  return walk(uid, (at) => GATING_KINDS.flatMap((kind) => outOf(board, kind, at)).map((relation) => relation.to));
+  return walk(uid, (at) => ORDERING_KINDS.flatMap((kind) => outOf(board, kind, at)).map((relation) => relation.to));
 }
 
 function walk(start: string, next: (uid: string) => string[]): Set<string> {
