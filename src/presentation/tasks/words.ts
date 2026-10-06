@@ -1,9 +1,8 @@
 /**
  * The words the task surfaces share: what a status is called, how a
- * person is named, which hue a status wears. One home, so the board, the
- * detail and the card footer cannot disagree.
+ * person is named, which hue a status wears. One home, so the list, the
+ * detail and the team card cannot disagree.
  */
-import type { TasksView } from "../../domain/settings";
 import { formatAge } from "../../domain/usage";
 import type { Recovery, RestoreChoice } from "../../app/tasks/tasksService";
 import {
@@ -15,12 +14,6 @@ import {
   type TaskPriority,
   type TaskStatus,
 } from "../../domain/tasks";
-
-/** The tracker's two views, as the toolbar's choice row names them. */
-export const VIEW_WORDS = {
-  choice: "View",
-  label: { list: "List", board: "Board" } as Record<TasksView, string>,
-} as const;
 
 export const STATUS_LABEL: Record<TaskStatus, string> = {
   backlog: "Backlog",
@@ -133,10 +126,10 @@ export const FIELD_WORDS = {
 /** The new-task button's label — and how a hint that points at it names it. */
 export const NEW_TASK_LABEL = "+ Task";
 
-/** The order the board reads in, left to right — and the order every
- * status list follows. Blocked stands first: it is what waits on a
- * person, and a board is read from the left. Then the ladder in order:
- * parked work, then what may be started, and on. */
+/** The order the list's status groups read in, top to bottom — and the
+ * order every status list follows. Blocked stands first: it is what waits
+ * on a person. Then the ladder in order: parked work, then what may be
+ * started, and on. */
 export const BOARD_ORDER: readonly TaskStatus[] = [
   "blocked",
   "backlog",

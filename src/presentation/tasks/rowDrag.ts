@@ -1,21 +1,22 @@
 /**
- * Dragging a card between columns, as a machine with no DOM in it: what
- * a press, a move and a release DO. The hook feeds it pointer facts and
- * applies what it answers; the columns read `dropStateOf` for their look.
+ * Dragging a task between the list's status groups, as a machine with no
+ * DOM in it: what a press, a move and a release DO. The hook feeds it
+ * pointer facts and applies what it answers; the groups read
+ * `dropStateOf` for their look.
  * Every threshold and every rule about a drag lives here and is tested
  * without a browser.
  */
 import { findTask, type Task, type TaskBoard, type TaskStatus } from "../../domain/tasks";
 
-/** How far a pressed card travels before it is a drag and not a click. */
+/** How far a pressed row travels before it is a drag and not a click. */
 export const DRAG_THRESHOLD_PX = 6;
-/** The click the browser fires after a release must not open the card
+/** The click the browser fires after a release must not open the task
  * that was just dropped; this is how long such a click is disbelieved. */
 export const CLICK_AFTER_DRAG_MS = 250;
 
-/** Where the press landed on the card, and how wide the card was: the
+/** Where the press landed on the row, and how wide the row was: the
  * ghost is drawn at exactly that size, under exactly that point. */
-export interface CardGrip {
+export interface RowGrip {
   width: number;
   offsetX: number;
   offsetY: number;
@@ -24,13 +25,13 @@ export interface CardGrip {
 export type DragState =
   | { kind: "idle" }
   /** Pressed, not yet travelled: a click until proven otherwise. */
-  | { kind: "armed"; id: string; x: number; y: number; grip: CardGrip }
+  | { kind: "armed"; id: string; x: number; y: number; grip: RowGrip }
   | {
       kind: "dragging";
       id: string;
       x: number;
       y: number;
-      grip: CardGrip;
+      grip: RowGrip;
       /** Where it may land — judged once, when the drag began. */
       targets: ReadonlySet<TaskStatus>;
     };
@@ -53,23 +54,23 @@ export function dragOutlived(state: DragState, carried: unknown): DragState | nu
   return state.kind === "dragging" && carried === null ? IDLE : null;
 }
 
-/** Escape while a card is pressed or in flight puts it back — the key
+/** Escape while a row is pressed or in flight puts it back — the key
  * peels the drag before any layer under it. Null when there is no drag:
  * the key is the screen's to read. */
 export function escapeDrag(state: DragState): DragState | null {
   return state.kind === "idle" ? null : IDLE;
 }
 
-export function armCard(id: string, x: number, y: number, grip: CardGrip): DragState {
+export function armRow(id: string, x: number, y: number, grip: RowGrip): DragState {
   return { kind: "armed", id, x, y, grip };
 }
 
 /**
- * The pointer moved. An armed card becomes a drag past the threshold —
- * `targetsOf` answers where it may land, or null when the card is gone —
+ * The pointer moved. An armed row becomes a drag past the threshold —
+ * `targetsOf` answers where it may land, or null when the task is gone —
  * and a drag follows the pointer.
  */
-export function moveCard(
+export function moveRow(
   state: DragState,
   x: number,
   y: number,
@@ -84,11 +85,11 @@ export function moveCard(
 }
 
 /**
- * The pointer was released — over a column, or over nothing. A drag over
+ * The pointer was released — over a status group, or over nothing. A drag over
  * a target is a move; anything else is nothing. `dragged` says whether a
  * drag (not a mere press) just ended, for the click that follows.
  */
-export function releaseCard(
+export function releaseRow(
   state: DragState,
   over: TaskStatus | null,
 ): { state: DragState; move: { id: string; to: TaskStatus } | null; dragged: boolean } {
@@ -97,8 +98,8 @@ export function releaseCard(
   return { state: IDLE, move, dragged: true };
 }
 
-/** What a column is to the drag in flight: a target, the target under
- * the pointer, not a target — or nothing while no card is in flight. */
+/** What a status group is to the drag in flight: a target, the target
+ * under the pointer, not a target — or nothing while no task is in flight. */
 export function dropStateOf(
   status: TaskStatus,
   state: DragState,
@@ -109,33 +110,13 @@ export function dropStateOf(
   return hover === status ? "over" : "ok";
 }
 
-/** What a card on the board is right now: the one open in the panel, the
- * one in flight. */
-export function cardStateOf(
-  id: string,
-  selectedId: string | null,
-  state: DragState,
-): { selected: boolean; dragging: boolean } {
-  return { selected: id === selectedId, dragging: state.kind === "dragging" && state.id === id };
-}
-
-/** A column's classes: lit by its part in the drag in flight. */
-export function columnClassName(
-  status: TaskStatus,
-  state: DragState,
-  hover: TaskStatus | null,
-): string {
-  const drop = dropStateOf(status, state, hover);
-  return drop ? `tasks__column tasks__column--drop-${drop}` : "tasks__column";
-}
-
 /** Whether a click arriving `now` is the tail of a drag that ended at
  * `dragEndedAt`, and must not select anything. */
 export function clickDisbelieved(dragEndedAt: number | null, now: number): boolean {
   return dragEndedAt !== null && now - dragEndedAt < CLICK_AFTER_DRAG_MS;
 }
 
-/** Where the ghost is drawn: the card's box, under the grip point. */
+/** Where the ghost is drawn: the row's box, under the grip point. */
 export function ghostBox(state: DragState): { left: number; top: number; width: number } | null {
   if (state.kind !== "dragging") return null;
   return { left: state.x - state.grip.offsetX, top: state.y - state.grip.offsetY, width: state.grip.width };

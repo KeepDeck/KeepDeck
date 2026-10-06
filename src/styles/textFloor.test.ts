@@ -13,8 +13,7 @@ const MARKS_AND_DISABLED = [
   ".strip__team .team-dot--none", // a strip team row's idle ring
   ".minimized.minimized--frame-stopped", // a stopped agent's dashed ring
   ".ui-remove", // RemoveButton: a row's × (detach, delete, drop)
-  ".tasks__card--cancelled .tasks__card-title", // a cancelled task
-  ".tasks__row--cancelled .tasks__row-title", // the same task, as a list row
+  ".tasks__row--cancelled .tasks__row-title", // a cancelled task
   ".tasks__link:disabled",
 ];
 

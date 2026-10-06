@@ -31,13 +31,11 @@ import {
 } from "../../domain/tasks";
 import {
   IDLE,
-  armCard,
+  armRow,
   assigneeOf,
-  boardView,
   boardFolded,
   boardWithFold,
-  boardWithView,
-  cardInFlight,
+  rowInFlight,
   dragOutlived,
   taskOnScreen,
   escapeDrag,
@@ -46,9 +44,9 @@ import {
   stepRow,
   clickDisbelieved,
   initialScreen,
-  moveCard,
+  moveRow,
   newTaskFormView,
-  releaseCard,
+  releaseRow,
   screenReducer,
   taskDetailView,
   tasksLadder,
@@ -62,25 +60,19 @@ import {
   walksRows,
   wideView,
   type ArtifactRef,
-  type CardGrip,
+  type RowGrip,
   type DragState,
   type ScreenAction,
-  type TrackerView,
 } from "../../presentation/tasks";
 
 export type { TasksAccess } from "../../app/tasks/tasksFeature";
 
-export type { CardGrip } from "../../presentation/tasks";
+export type { RowGrip } from "../../presentation/tasks";
 
-
-
-/** A card in flight: which, what it is called, where the pointer is, and
- * the columns it may land in — judged once, when the drag began, by the
- * same table the picker reads. */
 
 
 /**
- * The dialog's machine: which team and view, what is selected, the form,
+ * The dialog's machine: which team, what is selected, the form,
  * and every write — all through the owner, all as the USER. The
  * components render what this hands them and decide nothing.
  *
@@ -157,9 +149,9 @@ export function useTasksBoard(
   }, [artifactReads, workspaceId, focus, artifactRevision]);
   const knownArtifacts = artifacts !== null && artifacts.ws === workspaceId ? artifacts.list : [];
   // Pointer events, not HTML5 drag: the webview hands the deck no native
-  // drags (the OS drop router owns them), so a card is dragged the way a
+  // drags (the OS drop router owns them), so a row is dragged the way a
   // pane is. What a press, a move and a release DO is the presentation
-  // machine's (`cardDrag`); this hook feeds it pointer facts. The ref is
+  // machine's (`rowDrag`); this hook feeds it pointer facts. The ref is
   // the state read by handlers — never a React updater, which StrictMode
   // runs twice and which must not perform IO.
   const [drag, setDrag] = useState<DragState>(IDLE);
@@ -174,12 +166,10 @@ export function useTasksBoard(
   // shows the Duplicate control as busy.
   const duplicating = useRef(false);
   const [copying, setCopying] = useState(false);
-  // The board's posture — the view, the list's folds — is a setting, kept
-  // across openings and launches (user); every change reads the latest
-  // stored posture, so a change that lands later never writes back a
-  // stale one.
+  // The board's posture — the list's folds — is a setting, kept across
+  // openings and launches (user); every change reads the latest stored
+  // posture, so a change that lands later never writes back a stale one.
   const posture = (useSettings() ?? DEFAULT_SETTINGS).tasksBoard;
-  const view = posture.view;
   const folded = useMemo(() => boardFolded(posture), [posture]);
   const keepPosture = (change: (stored: TasksBoardSettings) => TasksBoardSettings | null) => {
     const next = change((getSettings() ?? DEFAULT_SETTINGS).tasksBoard);
@@ -210,7 +200,7 @@ export function useTasksBoard(
     [service, workspaceId, teamId, revision],
   );
 
-  // The drag's window listeners live only while a card is pressed or in
+  // The drag's window listeners live only while a row is pressed or in
   // flight; they read the board and the roster, so they come after both.
   useEffect(() => {
     if (drag.kind === "idle") return;
@@ -218,8 +208,8 @@ export function useTasksBoard(
       const task = taskOnScreen(board, id, teamId);
       return board && task ? new Set(reachableStatuses(task, USER_ACTOR, { board, roster, at: now })) : null;
     };
-    const onMove = (event: PointerEvent) => updateDrag(moveCard(dragRef.current, event.clientX, event.clientY, targetsOf));
-    // A release anywhere ends the drag; a column's own release handler
+    const onMove = (event: PointerEvent) => updateDrag(moveRow(dragRef.current, event.clientX, event.clientY, targetsOf));
+    // A release anywhere ends the drag; a group's own release handler
     // (the drop) runs first, in the bubble phase before the window's.
     const onUp = () => release(null);
     window.addEventListener("pointermove", onMove);
@@ -244,21 +234,17 @@ export function useTasksBoard(
 
   const open = taskOnScreen(board, focus, teamId);
   const detail = open ? taskDetailView(open, board!, roster, now, knownArtifacts, screen.activityOpen, teams) : null;
-  const columns = useMemo(
-    () => (board && view === "board" ? boardView(teamTasks, board, now, query) : []),
-    [board, view, teamTasks, now, query],
-  );
   // Stable by identity between renders that change nothing it shows: the
   // windowed list anchors the reader's place on a CHANGE of its items, and
   // a fresh array per pointer move re-ran that on every one.
   const openId = detail?.id ?? null;
   const listItems = useMemo(
-    () => (board && view === "list" ? listView(teamTasks, board, now, query, folded, openId) : []),
-    [board, view, teamTasks, now, query, folded, openId],
+    () => (board ? listView(teamTasks, board, now, query, folded, openId) : []),
+    [board, teamTasks, now, query, folded, openId],
   );
   const filters = queryToolbarView(query);
   const nothingFound = findsNothing(teamTasks, query);
-  const inFlight = cardInFlight(drag, board, teamId, now);
+  const inFlight = rowInFlight(drag, board, teamId, now);
   // The task in flight left the board on screen: the drag has nothing to drop.
   useEffect(() => {
     const ended = dragOutlived(dragRef.current, inFlight);
@@ -270,7 +256,7 @@ export function useTasksBoard(
 
   // J / K walk the list's rows, the open task following — never while a
   // field has the keys (a comment, a label being typed).
-  const walks = walksRows(screen, view);
+  const walks = walksRows(screen);
   useEffect(() => {
     if (!walks) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -284,7 +270,7 @@ export function useTasksBoard(
       const next = stepRow(listItems, openId, step);
       if (next === null) return;
       event.preventDefault();
-      run({ type: "card", id: next, open: null });
+      run({ type: "row", id: next, open: null });
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -292,10 +278,10 @@ export function useTasksBoard(
   }, [walks, listItems, openId]);
   const form = newTaskFormView(roster);
 
-  /** The pointer was released over `over` (a column, or nothing). One
+  /** The pointer was released over `over` (a status group, or nothing). One
    * release is one outcome: decided from the ref, applied once, here. */
   const release = (over: TaskStatus | null) => {
-    const outcome = releaseCard(dragRef.current, over);
+    const outcome = releaseRow(dragRef.current, over);
     updateDrag(outcome.state);
     if (outcome.dragged) dragEndedAt.current = Date.now();
     const move = outcome.move;
@@ -334,13 +320,12 @@ export function useTasksBoard(
     teams: teams.map((team) => ({ id: team.id, name: team.name })),
     teamId,
     selectTeam: (id: string) => run({ type: "team", id }),
-    columns,
     detail,
-    /** A card was clicked: opened, or put away when it was the open one. */
+    /** A row was clicked: opened, or put away when it was the open one. */
     select: (taskId: string) => {
       // The click that follows a drop is the same press that dragged.
       if (clickDisbelieved(dragEndedAt.current, Date.now())) return;
-      run({ type: "card", id: taskId, open: focus });
+      run({ type: "row", id: taskId, open: focus });
     },
     close: () => run({ type: "close" }),
     escape: () => {
@@ -354,20 +339,17 @@ export function useTasksBoard(
     drag,
     inFlight,
     hover,
-    /** A card was pressed: it becomes a drag once the pointer travels. */
-    armDrag: (taskId: string, x: number, y: number, grip: CardGrip) => updateDrag(armCard(taskId, x, y, grip)),
-    /** The pointer is over a column, or over none. */
-    hoverColumn: (status: TaskStatus | null) => run({ type: "hover", status, dragging: dragRef.current.kind === "dragging" }),
-    /** Released over a column. */
+    /** A row was pressed: it becomes a drag once the pointer travels. */
+    armDrag: (taskId: string, x: number, y: number, grip: RowGrip) => updateDrag(armRow(taskId, x, y, grip)),
+    /** The pointer is over a status group, or over none. */
+    hoverGroup: (status: TaskStatus | null) => run({ type: "hover", status, dragging: dragRef.current.kind === "dragging" }),
+    /** Released over a status group. */
     dropOn: release,
-    view,
-    setView: (next: TrackerView) => keepPosture((stored) => boardWithView(stored, next)),
     listItems,
     fold: (status: TaskStatus) => keepPosture((stored) => boardWithFold(stored, status)),
     folded,
     filters,
     nothingFound,
-    toggleBlocked: () => run({ type: "blockedOnly" }),
     /** A label clicked on a row narrows the view to it; clicking the one
      * that already does, or clearing its chip, widens it again. */
     pickLabel: (label: string | null) => run({ type: "label", label }),
@@ -438,7 +420,7 @@ export function useTasksBoard(
       setCopying(true);
       void write(async () => {
         const result = await service.duplicate(workspaceId, taskId, USER_ACTOR);
-        if (result.ok) run({ type: "card", id: result.task.id, open: null });
+        if (result.ok) run({ type: "row", id: result.task.id, open: null });
         return result;
       }).finally(() => {
         duplicating.current = false;

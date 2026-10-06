@@ -6,7 +6,6 @@ import { appCss, readStyles, ruleBody } from "./testSupport";
 /** Every class that holds prose a person, an agent or the backend wrote —
  * a refusal or a failed read can carry a path as long as any brief. */
 const PROSE = [
-  "tasks__card-blocked",
   "tasks__body",
   "tasks__comment-body",
   "tasks__log-text",
@@ -125,24 +124,6 @@ describe("Tasks text never widens its box", () => {
     expect(button("dropdown dropdown--inline dropdown--quiet")).toBe(button("dropdown dropdown--quiet"));
     expect(button("dropdown dropdown--inline dropdown--quiet")).not.toBe(button("dropdown dropdown--inline"));
   });
-
-  it("a card may shrink to its column — it never grows to its widest word", () => {
-    expect(Number.parseFloat(getComputedStyle(mount("tasks__card")).minWidth)).toBe(0);
-  });
-
-  it("a card takes its column's width, not its title's", () => {
-    // The card is a <button>, whose auto width is its content's: in the
-    // windowed list's block item it grew to its one-line title and the
-    // column scrolled sideways.
-    const card = document.createElement("button");
-    card.className = "tasks__card";
-    mount("tasks__column-item").append(card);
-    const style = getComputedStyle(card);
-    expect(style.width).toBe("100%");
-    // 100% of the item is the whole card, padding and border included —
-    // a content box would still overhang the column by its padding.
-    expect(style.boxSizing).toBe("border-box");
-  });
 });
 
 describe("the list group a dragged task will land in", () => {
@@ -196,21 +177,6 @@ describe("the list group a dragged task will land in", () => {
     // Nor any stripe on a heading or a row that is not the landing place.
     for (const className of ["tasks__group", "tasks__row"]) {
       expect(getComputedStyle(item(className)).boxShadow, className).toMatch(/^(none)?$/);
-    }
-  });
-});
-
-describe("a board column's edge", () => {
-  it("is reserved at rest, so a drag's dashed edge does not resize it", () => {
-    // The drop states colour and dash the edge; they set no width. With no
-    // width reserved at rest they would draw the initial 3px and shift the
-    // board 6px under the card in flight.
-    const css = readStyles("tasks.css");
-    expect(ruleBody(css, ".tasks__column").border).toBe("1px solid transparent");
-    for (const state of [".tasks__column--drop-ok", ".tasks__column--drop-over"]) {
-      const body = ruleBody(css, state);
-      expect(body["border-width"], state).toBeUndefined();
-      expect(body.border, state).toBeUndefined();
     }
   });
 });

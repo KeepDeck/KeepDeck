@@ -1,20 +1,14 @@
 /**
  * The Tasks dialog's stored posture (`Settings.tasksBoard`) as the screen
- * reads it and as the person's acts change it: the view, and the list's
- * folded groups. Every change answers the whole new posture, for the
+ * reads it and as the person's acts change it: the list's folded groups. Every change answers the whole new posture, for the
  * settings owner to keep — the dialog holds none of it itself.
  */
 import { inLadderOrder, type TaskStatus } from "../../domain/tasks";
-import type { TasksBoardSettings, TasksView } from "../../domain/settings";
+import type { TasksBoardSettings } from "../../domain/settings";
 
 /** The list's folded groups, as a set to ask. */
 export function boardFolded(board: TasksBoardSettings): ReadonlySet<TaskStatus> {
   return new Set(board.list.folded);
-}
-
-/** The posture with `view` picked. */
-export function boardWithView(board: TasksBoardSettings, view: TasksView): TasksBoardSettings {
-  return { ...board, view };
 }
 
 /** The posture after a heading's toggle: the group folds, or unfolds. */

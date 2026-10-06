@@ -47,7 +47,7 @@ describe("hydrateSettings", () => {
       usageDisplay: "left",
       parkAgentsOnLaunch: true,
       artifacts: true,
-      tasksBoard: { view: "list", list: { folded: ["done"] } },
+      tasksBoard: { list: { folded: ["done"] } },
     };
     const doc = restore(JSON.stringify(stored));
     expect(doc.settings).toEqual({
@@ -64,7 +64,7 @@ describe("hydrateSettings", () => {
       artifacts: true,
       artifactAutoOpen: true,
       tasks: false,
-      tasksBoard: { view: "list", list: { folded: ["done"] } },
+      tasksBoard: { list: { folded: ["done"] } },
     });
     // Everything the file said is a decision; `remoteAgents`,
     // `artifactAutoOpen` and `tasks`, which it did not mention, are not.
@@ -218,27 +218,27 @@ describe("hydrateSettings — the plugins bag", () => {
     expect(doc.chosen.plugins).toEqual({ enabled: {}, values: {}, consented: {} });
   });
 
-  it("reads the tasks board's posture field by field — a bad view or status degrades only itself, folds in ladder order", () => {
-    const stored = JSON.stringify({ tasksBoard: { view: "grid", list: { folded: ["done", "nope", "backlog", "done"] } } });
-    expect(restore(stored).settings.tasksBoard).toEqual({ view: "board", list: { folded: ["backlog", "done"] } });
-    expect(report(stored).degraded).toEqual(expect.arrayContaining(["tasksBoard.view", "tasksBoard.list.folded"]));
+  it("reads the tasks board's posture — a bad status degrades only itself, folds in ladder order", () => {
+    const stored = JSON.stringify({ tasksBoard: { list: { folded: ["done", "nope", "backlog", "done"] } } });
+    expect(restore(stored).settings.tasksBoard).toEqual({ list: { folded: ["backlog", "done"] } });
+    expect(report(stored).degraded).toEqual(["tasksBoard.list.folded"]);
     // A posture that says nothing of the list keeps the list's defaults.
-    expect(restore(JSON.stringify({ tasksBoard: { view: "list" } })).settings.tasksBoard).toEqual({
-      view: "list",
+    expect(restore(JSON.stringify({ tasksBoard: {} })).settings.tasksBoard).toEqual({
       list: { folded: ["backlog", "done", "cancelled"] },
     });
     // An empty fold list is a choice: every group open.
     expect(restore(JSON.stringify({ tasksBoard: { list: { folded: [] } } })).settings.tasksBoard.list.folded).toEqual([]);
   });
 
-  it("v24 graduation: a stored tasksView becomes the board's view, and is never written back", () => {
-    const doc = restore(JSON.stringify({ version: 23, tasksView: "list" }));
-    expect(doc.settings.tasksBoard.view).toBe("list");
-    expect(doc.chosen).toHaveProperty("tasksBoard");
-    expect(JSON.parse(serializeSettings(doc))).not.toHaveProperty("tasksView");
-    // The board's own view outranks the retired key.
-    const both = restore(JSON.stringify({ tasksView: "list", tasksBoard: { view: "board" } }));
-    expect(both.settings.tasksBoard.view).toBe("board");
+  it("v25: a stored view — the board's, or the older tasksView — is consumed, never degraded or written back", () => {
+    const doc = restore(JSON.stringify({ version: 24, tasksView: "list", tasksBoard: { view: "board", list: { folded: [] } } }));
+    expect(doc.settings.tasksBoard).toEqual({ list: { folded: [] } });
+    expect(report(JSON.stringify({ tasksBoard: { view: "board" } })).degraded).toEqual([]);
+    const written = JSON.parse(serializeSettings(doc));
+    expect(written).not.toHaveProperty("tasksView");
+    expect(written.tasksBoard).toEqual({ list: { folded: [] } });
+    // A lone tasksView chooses nothing now.
+    expect(restore(JSON.stringify({ version: 23, tasksView: "list" })).chosen).not.toHaveProperty("tasksBoard");
   });
 
   it("v5 graduation: an explicit experimentRunPresets=false disables the Run plugin", () => {

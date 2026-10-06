@@ -12,21 +12,21 @@ import {
   LIST_HEAD_ESTIMATE_PX,
   listItemEstimate,
   listItemKey,
-  type CardGrip,
+  type RowGrip,
   type DragState,
   type ListHeading,
   type ListItem,
-  type TaskCardView,
+  type TaskRowView,
 } from "../../presentation/tasks";
 
 interface TaskListProps {
   items: ListItem[];
-  /** The drag in flight, shared with the board: a row is picked up like a
-   * card, and a group — its heading or any of its rows — is a drop target. */
+  /** The drag in flight: a row is picked up, and a group — its heading or
+   * any of its rows — is a drop target. */
   drag: DragState;
   /** The group the pointer is over while a task is in flight. */
   hover: TaskStatus | null;
-  onArm(id: string, x: number, y: number, grip: CardGrip): void;
+  onArm(id: string, x: number, y: number, grip: RowGrip): void;
   onHover(status: TaskStatus | null): void;
   onDrop(status: TaskStatus): void;
   /** The open task's row, kept in view as J / K move it. */
@@ -42,8 +42,8 @@ interface TaskListProps {
   folded: ReadonlySet<TaskStatus>;
 }
 
-/** The tracker's list view: a heading per status — pinned while its rows
- * scroll — and one line per task. Windowed, like the board's columns. */
+/** The tracker's list: a heading per status — pinned while its rows
+ * scroll — and one line per task. Windowed. */
 export function TaskList({ items, openId, drag, hover, folded, onSelect, onFold, onLabel, onArm, onHover, onDrop }: TaskListProps) {
   // A group answers the pointer wherever it is under it: its heading, or
   // one of its rows.
@@ -104,7 +104,7 @@ export function TaskList({ items, openId, drag, hover, folded, onSelect, onFold,
             {...dropTarget(item.status)}
           >
             <TaskRowLine
-              card={item.card}
+              line={item.line}
               open={{
                 pressed: item.open,
                 onPointerDown: (event) => {
@@ -112,9 +112,9 @@ export function TaskList({ items, openId, drag, hover, folded, onSelect, onFold,
                   // The ghost is the row whole: measured from the row, not
                   // from its open control.
                   const row = event.currentTarget.parentElement ?? event.currentTarget;
-                  onArm(item.card.id, event.clientX, event.clientY, rowGrip(row.getBoundingClientRect(), event.clientX, event.clientY));
+                  onArm(item.line.id, event.clientX, event.clientY, rowGrip(row.getBoundingClientRect(), event.clientX, event.clientY));
                 },
-                onClick: () => onSelect(item.card.id),
+                onClick: () => onSelect(item.line.id),
               }}
               onLabel={onLabel}
               onSelect={onSelect}
@@ -166,12 +166,12 @@ function GroupHeading({
  * same line as a picture (no handlers) — the row in flight IS the row.
  */
 export function TaskRowLine({
-  card,
+  line,
   open,
   onLabel,
   onSelect,
 }: {
-  card: TaskCardView;
+  line: TaskRowView;
   /** The row's own control — absent on the ghost, a picture. */
   open?: {
     pressed: boolean;
@@ -183,11 +183,11 @@ export function TaskRowLine({
 }) {
   const head = (
     <>
-      <span className="tasks__mark tasks__row-mark">{card.priority}</span>
-      <StatusRing {...card.ring} />
-      <code className="tasks__row-id">{card.id}</code>
+      <span className="tasks__mark tasks__row-mark">{line.priority}</span>
+      <StatusRing {...line.ring} />
+      <code className="tasks__row-id">{line.id}</code>
       <span className="tasks__row-title" dir="auto">
-        {card.title}
+        {line.title}
       </span>
     </>
   );
@@ -206,7 +206,7 @@ export function TaskRowLine({
       ) : (
         <span className="tasks__row-open">{head}</span>
       )}
-      {card.labels.map((label) =>
+      {line.labels.map((label) =>
         onLabel ? (
           <button key={label} type="button" className="kd-tag tasks__row-control" onClick={() => onLabel(label)}>
             {label}
@@ -217,7 +217,7 @@ export function TaskRowLine({
           </span>
         ),
       )}
-      {card.blockerChips.map((chip) =>
+      {line.blockerChips.map((chip) =>
         onSelect ? (
           <button
             key={chip.id}
@@ -234,8 +234,8 @@ export function TaskRowLine({
           </span>
         ),
       )}
-      <span className="tasks__row-who">{card.assignee}</span>
-      <span className="tasks__row-age">{card.age}</span>
+      <span className="tasks__row-who">{line.assignee}</span>
+      <span className="tasks__row-age">{line.age}</span>
     </>
   );
 }

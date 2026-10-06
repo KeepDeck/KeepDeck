@@ -22,7 +22,7 @@ import {
   type TaskStatus,
 } from "../../domain/tasks";
 import type { StatusRingProps } from "@keepdeck/ui-kit/StatusRing";
-import { blockerChip, statusMark, type BlockerChip } from "./taskCardView";
+import { blockerChip, statusMark, type BlockerChip } from "./taskRowView";
 import {
   BOARD_ORDER,
   POOL_CHOICE,

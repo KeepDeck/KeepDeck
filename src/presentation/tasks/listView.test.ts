@@ -19,7 +19,7 @@ import {
   type ListItem,
 } from "./listView";
 import { NO_QUERY } from "./queryView";
-import { IDLE, type DragState } from "./cardDrag";
+import { IDLE, type DragState } from "./rowDrag";
 import { BOARD_ORDER } from "./words";
 import type { TaskStatus } from "../../domain/tasks";
 
@@ -50,13 +50,13 @@ describe("listView — the board's tasks as one list", () => {
       "task-4",
       "head:cancelled",
     ]);
-    // The same seven groups, left to right, as the board's columns.
+    // The seven groups, top to bottom, in the board order.
     const heads = listView(tasks, b, 0, NO_QUERY, NONE, null).filter((i) => i.kind === "head");
     expect(heads.map((h) => h.kind === "head" && h.status)).toEqual([...BOARD_ORDER]);
   });
 
   it("heads every status even when the query leaves it empty, counting what it shows", () => {
-    const items = listView(tasks, b, 0, { blockedOnly: false, label: "ui" }, NONE, null);
+    const items = listView(tasks, b, 0, { label: "ui" }, NONE, null);
     expect(keys(items)).toEqual(["head:blocked", "head:backlog", "head:todo", "head:in-progress", "head:review", "task-5", "head:done", "head:cancelled"]);
     expect(items[4]).toMatchObject({ kind: "head", label: "Review", count: 1, folded: false });
     expect(items[0]).toMatchObject({ kind: "head", count: 0 });
@@ -184,7 +184,7 @@ describe("the list in a drag", () => {
       task({ id: "task-3", status: "todo", created: 3 }),
       task({ id: "task-4", status: "done" }),
     ];
-    const items = listView(labelled, board(labelled), 0, { blockedOnly: false, label: "ui" }, NONE, null);
+    const items = listView(labelled, board(labelled), 0, { label: "ui" }, NONE, null);
     const edgeOf = (key: string) => items.find((i) => i.key === key)!.edge;
     const todoRows = items.filter((i) => i.kind === "row" && i.status === "todo");
     // Two shown of three: the second shown closes it, not the hidden third.
@@ -193,7 +193,7 @@ describe("the list in a drag", () => {
     // Done has a task, but none the query shows: its heading alone.
     expect(edgeOf("head:done")).toBe("whole");
     // One shown: it alone closes the frame.
-    const one = listView(labelled.slice(1), board(labelled.slice(1)), 0, { blockedOnly: false, label: "ui" }, NONE, null);
+    const one = listView(labelled.slice(1), board(labelled.slice(1)), 0, { label: "ui" }, NONE, null);
     expect(one.filter((i) => i.kind === "row").map((r) => r.edge)).toEqual(["bottom"]);
   });
 

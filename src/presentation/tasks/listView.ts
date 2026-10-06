@@ -1,8 +1,7 @@
 /**
- * The tracker's list: the same tasks the board shows, in the same order
+ * The tracker's list: a team's tasks in the tracker's one order
  * (`queryView`), as ONE windowed list — a heading per status, then that
- * status's rows. The groups follow the board's columns left to right, so
- * switching views moves nothing but the layout.
+ * status's rows, the groups in `BOARD_ORDER`.
  *
  * A folded group keeps its heading in the list (only its rows go): the
  * heading is the toggle that brings them back, and the windowed list may
@@ -11,9 +10,9 @@
  */
 import type { StatusRingProps } from "@keepdeck/ui-kit/StatusRing";
 import type { Task, TaskBoard, TaskStatus } from "../../domain/tasks";
-import { dropStateOf, type CardGrip, type DragState } from "./cardDrag";
+import { dropStateOf, type RowGrip, type DragState } from "./rowDrag";
 import { tasksInStatus, type TaskQuery } from "./queryView";
-import { statusMark, taskCardView, type TaskCardView } from "./taskCardView";
+import { statusMark, taskRowView, type TaskRowView } from "./taskRowView";
 import { BOARD_ORDER, STATUS_LABEL } from "./words";
 
 /** Where an item stands in its group's drawn block — what edges of the
@@ -37,7 +36,7 @@ export interface ListRow {
   key: string;
   /** The group it is in — where a drop on it lands. */
   status: TaskStatus;
-  card: TaskCardView;
+  line: TaskRowView;
   /** The task open over the list right now. */
   open: boolean;
   className: string;
@@ -46,9 +45,8 @@ export interface ListRow {
 
 export type ListItem = ListHeading | ListRow;
 
-/** The list's items: every status's heading, always — the same six groups
- * as the board's six columns, an empty one with its 0 — and the rows of
- * each open group. */
+/** The list's items: every status's heading, always — an empty group
+ * with its 0 — and the rows of each open group. */
 export function listView(
   tasks: readonly Task[],
   board: TaskBoard,
@@ -74,7 +72,7 @@ export function listView(
     return [
       heading,
       ...shown.map((task, at) =>
-        listRow(taskCardView(task, board, now), status, task.id === openId, at === shown.length - 1 ? "bottom" : "middle"),
+        listRow(taskRowView(task, board, now), status, task.id === openId, at === shown.length - 1 ? "bottom" : "middle"),
       ),
     ];
   });
@@ -122,16 +120,16 @@ export function listHeadingClassName(heading: Pick<ListHeading, "status" | "fold
     .join(" ");
 }
 
-function listRow(card: TaskCardView, status: TaskStatus, open: boolean, edge: GroupEdge): ListRow {
+function listRow(line: TaskRowView, status: TaskStatus, open: boolean, edge: GroupEdge): ListRow {
   return {
     kind: "row",
-    key: card.id,
+    key: line.id,
     status,
-    card,
+    line,
     open,
     edge,
     // Its status's tone, cancelled, and the open one.
-    className: ["tasks__row", `tasks__row--${card.tone}`, card.cancelled && "tasks__row--cancelled", open && "tasks__row--open"]
+    className: ["tasks__row", `tasks__row--${line.tone}`, line.cancelled && "tasks__row--cancelled", open && "tasks__row--open"]
       .filter(Boolean)
       .join(" "),
   };
@@ -157,7 +155,7 @@ export function rowStepOf(key: { key: string; chord: boolean; inField: boolean }
   return key.key === "j" ? 1 : key.key === "k" ? -1 : null;
 }
 
-/** A group's part in a drag in flight — the board's own rule, asked of the
+/** A group's part in a drag in flight — the drag's own rule, asked of the
  * group: the one under the pointer, framed whole (each item draws its own
  * edges of the frame, `GroupEdge`, as the windowed list draws each item
  * on its own), or dimmed where the task may not go. A group it may go to
@@ -189,6 +187,6 @@ export function listHeadingDropClassName(heading: ListHeading, drag: DragState, 
 
 /** Where a dragged row is held: the row whole, at the point pressed — the
  * ghost is the row itself, its width the list's. */
-export function rowGrip(row: { left: number; top: number; width: number }, x: number, y: number): CardGrip {
+export function rowGrip(row: { left: number; top: number; width: number }, x: number, y: number): RowGrip {
   return { width: row.width, offsetX: x - row.left, offsetY: y - row.top };
 }

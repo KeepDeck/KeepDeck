@@ -1,13 +1,13 @@
 /**
  * The dialog's own decisions, apart from the markup: what Escape peels,
- * what a click on a card does to the selection, which card a ghost is,
- * what the team control is, and the dialog's words.
+ * what a click on a row does to the selection, what the team control
+ * is, and the dialog's words.
  */
 import { NEW_TASK_LABEL } from "./words";
 
 /**
  * What one Escape press takes away: the form when it is open, then the
- * wide view back to the board, then the open task, then the dialog.
+ * wide view back to the list, then the open task, then the dialog.
  * Closing the whole dialog out from under a half-typed brief is the one
  * thing the key must never do.
  */
@@ -22,7 +22,7 @@ export function escapeTarget(state: {
   return "dialog";
 }
 
-/** A click on a card: opens it, or puts it away when it is the open one. */
+/** A click on a row: opens it, or puts it away when it is the open one. */
 export function selectionAfterClick(open: string | null, clicked: string): string | null {
   return open === clicked ? null : clicked;
 }

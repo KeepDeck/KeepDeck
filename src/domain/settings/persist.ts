@@ -4,7 +4,7 @@ import {
   SETTINGS_VERSION,
   settingsFloorBreach,
 } from "../migrations";
-import { DEFAULT_SETTINGS, settingsCodecs } from "./codecs";
+import { settingsCodecs } from "./codecs";
 import { settingsDocument, type SettingsDocument } from "./document";
 import type { Settings } from "./types";
 
@@ -39,7 +39,8 @@ const KNOWN_KEYS: ReadonlySet<string> = new Set([
   "minimizeStyle",
   "deckLayout",
   "agentTeams",
-  // Graduated into a bag: revision 24 (tasksView became tasksBoard.view).
+  // Revision 24 graduated it into tasksBoard.view, which revision 25
+  // retired with the columns: nothing is left to map it onto.
   "tasksView",
   ...settingsCodecs().map(([key]) => key),
 ]);
@@ -102,7 +103,6 @@ export function hydrateSettings(json: string): HydratedSettings | null {
     (chosen as Record<string, unknown>)[key] = value;
   }
   graduateRunPresets(doc, chosen);
-  graduateTasksView(doc, chosen);
 
   return {
     doc: settingsDocument(chosen, collectExtras(doc, KNOWN_KEYS)),
@@ -139,20 +139,6 @@ function graduateRunPresets(
   };
 }
 
-/**
- * Settings v24 graduation: the tasks view, a key of its own at v23, is the
- * tasks board's `view` now. A stored choice carries across — the person
- * who picked the list keeps it — applied only while the board bag says
- * nothing of its own view; the retired key is consumed (in `KNOWN_KEYS`),
- * never re-written. The result is a CHOICE, so it enters `chosen`.
- */
-function graduateTasksView(doc: Record<string, unknown>, chosen: Partial<Settings>): void {
-  const view = doc.tasksView;
-  if (view !== "board" && view !== "list") return;
-  const stored = isRecord(doc.tasksBoard) ? doc.tasksBoard : null;
-  if (stored !== null && stored.view !== undefined) return;
-  chosen.tasksBoard = { ...(chosen.tasksBoard ?? DEFAULT_SETTINGS.tasksBoard), view };
-}
 
 /** Serialize for storage: the version markers, the preserved extras, then
  * exactly the settings this document says were chosen — in table order, so a

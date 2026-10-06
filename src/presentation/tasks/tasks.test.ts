@@ -1,10 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { board, relation, task } from "../../domain/tasks/testSupport";
-import { boardView, columnLabelClassName } from "./boardView";
-import { NO_QUERY } from "./queryView";
 import { LADDER_WORDS, tasksLadder } from "./ladderView";
 import { newTaskFormView, NEW_TASK_WORDS } from "./newTaskFormView";
-import { statusMark, statusRing, taskCardView, taskCardClassName } from "./taskCardView";
+import { statusMark, statusRing, taskRowView } from "./taskRowView";
 import { TASK_DETAIL_WORDS, changesOf, commentsOf, menuActionDisabled, renamedTitle, pickedStatus, taskDetailClassName, taskDetailView } from "./taskDetailView";
 import { teamCardTasksLine } from "./teamCardTasksLine";
 import { teamOnScreen } from "./teamOnScreen";
@@ -29,29 +27,17 @@ describe("words", () => {
   });
 });
 
-describe("taskCardClassName", () => {
-  it("names the tone always, and each of cancelled, in flight and grabbable only when it holds", () => {
-    const card = { tone: "working" as const, cancelled: false };
-    expect(taskCardClassName(card, { dragging: false, grabbable: false })).toBe("tasks__card tasks__card--working");
-    expect(taskCardClassName({ tone: "none", cancelled: true }, { dragging: true, grabbable: true })).toBe(
-      "tasks__card tasks__card--none tasks__card--cancelled tasks__card--dragging tasks__card--grabbable",
-    );
-  });
-});
-
-describe("taskCardView", () => {
-  it("reads id first, then the assignee or the pool, then the age; names open blockers only", () => {
+describe("taskRowView", () => {
+  it("says the priority, the assignee or the pool, the age, and every blocker as a chip", () => {
     const b = board([
       task({ id: "task-1", status: "in-progress", assignee: "impl-1" }),
       task({ id: "task-2", status: "done" }),
       task({ id: "task-3", blockedBy: ["task-1", "task-2"], priority: "high", updated: NOW - 120_000 }),
     ]);
-    expect(taskCardView(b.tasks[2], b, NOW)).toMatchObject({
+    expect(taskRowView(b.tasks[2], b, NOW)).toMatchObject({
       id: "task-3",
       title: "Task task-3",
-      meta: "task-3 · unassigned · 2m ago",
       priority: "HIGH",
-      blockedBy: "blocked by task-1",
       tone: "none",
       cancelled: false,
       labels: [],
@@ -60,44 +46,12 @@ describe("taskCardView", () => {
       ring: { fill: 0, tone: "none", barred: false, label: "To do" },
     });
     // Every blocker as a chip, a resolved one struck.
-    expect(taskCardView(b.tasks[2], b, NOW).blockerChips.map((c) => [c.id, c.resolved])).toEqual([
+    expect(taskRowView(b.tasks[2], b, NOW).blockerChips.map((c) => [c.id, c.resolved])).toEqual([
       ["task-1", false],
       ["task-2", true],
     ]);
-    expect(taskCardView(b.tasks[0], b, NOW).blockedBy).toBeNull();
-    expect(taskCardView({ ...b.tasks[0], labels: ["ui"] }, b, NOW).labels).toEqual(["ui"]);
-  });
-});
-
-describe("boardView", () => {
-  const b = board([
-    task({ id: "task-1", status: "todo", priority: "low", created: 1 }),
-    task({ id: "task-2", status: "todo", priority: "high", created: 2 }),
-    task({ id: "task-3", status: "done", updated: 10 }),
-    task({ id: "task-4", status: "done", updated: 20 }),
-    task({ id: "task-5", status: "cancelled" }),
-  ]);
-
-  it("lays the board out blocked-first, open columns in queue order, closed ones newest first — every column open, Cancelled included", () => {
-    const columns = boardView(b.tasks, b, NOW, NO_QUERY);
-    expect(columns.map((c) => `${c.status}:${c.count}`)).toEqual([
-      "blocked:0",
-      "backlog:0",
-      "todo:2",
-      "in-progress:0",
-      "review:0",
-      "done:2",
-      "cancelled:1",
-    ]);
-    const column = (status: string) => columns.find((c) => c.status === status)!;
-    expect(column("todo").cards.map((c) => c.id)).toEqual(["task-2", "task-1"]);
-    // Done shows its cards: no column is folded away.
-    expect(column("done").cards.map((c) => c.id)).toEqual(["task-4", "task-3"]);
-  });
-
-  it("always shows Cancelled, its cards marked as taken off the board", () => {
-    const columns = boardView(b.tasks, b, NOW, NO_QUERY);
-    expect(columns.find((c) => c.status === "cancelled")?.cards[0].cancelled).toBe(true);
+    expect(taskRowView(b.tasks[0], b, NOW).blockerChips).toEqual([]);
+    expect(taskRowView({ ...b.tasks[0], labels: ["ui"] }, b, NOW).labels).toEqual(["ui"]);
   });
 });
 
@@ -284,12 +238,6 @@ describe("ladder", () => {
     expect(tasksLadder({ ...base, taskCount: 0 })).toEqual({ kind: "empty" });
     expect(tasksLadder(base)).toEqual({ kind: "board" });
     expect(LADDER_WORDS.empty.hint).toContain("agents read the board themselves");
-  });
-});
-
-describe("columnLabelClassName", () => {
-  it("dresses a column's label in its status's hue", () => {
-    expect(columnLabelClassName("in-progress")).toBe("tasks__column-label tasks__column-label--in-progress");
   });
 });
 

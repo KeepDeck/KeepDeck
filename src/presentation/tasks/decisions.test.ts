@@ -5,18 +5,16 @@ import {
   CLICK_AFTER_DRAG_MS,
   DRAG_THRESHOLD_PX,
   IDLE,
-  armCard,
-  cardStateOf,
+  armRow,
   clickDisbelieved,
-  columnClassName,
   dragOutlived,
   dropStateOf,
   escapeDrag,
   ghostBox,
-  moveCard,
-  releaseCard,
+  moveRow,
+  releaseRow,
   taskOnScreen,
-} from "./cardDrag";
+} from "./rowDrag";
 import { EMPTY_COMPOSER, beginSend, composerCanSend, finishSend, labelDraftAfter, labelSendable, typeDraft } from "./composer";
 import { canCreateTask, canSendComment } from "./composerView";
 import { DIALOG_WORDS, escapeTarget, selectionAfterClick, teamControlView } from "./dialogState";
@@ -30,43 +28,35 @@ import { offWaitingHint, showTasksSocketHint } from "./settingsView";
 const grip = { width: 200, offsetX: 20, offsetY: 10 };
 const targets = new Set(["in-progress", "done"] as const);
 
-describe("cardDrag", () => {
+describe("rowDrag", () => {
   it("a press is a click until it travels the threshold; then it is a drag with its targets, following the pointer", () => {
-    const armed = armCard("task-1", 10, 10, grip);
-    expect(moveCard(armed, 12, 12, () => targets)).toBe(armed);
-    const dragging = moveCard(armed, 10 + DRAG_THRESHOLD_PX, 10, () => targets);
+    const armed = armRow("task-1", 10, 10, grip);
+    expect(moveRow(armed, 12, 12, () => targets)).toBe(armed);
+    const dragging = moveRow(armed, 10 + DRAG_THRESHOLD_PX, 10, () => targets);
     expect(dragging).toMatchObject({ kind: "dragging", id: "task-1", x: 16, y: 10, targets });
-    expect(moveCard(dragging, 100, 50, () => null)).toMatchObject({ kind: "dragging", x: 100, y: 50 });
+    expect(moveRow(dragging, 100, 50, () => null)).toMatchObject({ kind: "dragging", x: 100, y: 50 });
     expect(ghostBox(dragging)).toEqual({ left: 16 - 20, top: 0, width: 200 });
     expect(ghostBox(armed)).toBeNull();
   });
 
   it("a card that vanished under the press cannot become a drag", () => {
-    expect(moveCard(armCard("task-9", 0, 0, grip), 50, 50, () => null)).toBe(IDLE);
+    expect(moveRow(armRow("task-9", 0, 0, grip), 50, 50, () => null)).toBe(IDLE);
   });
 
   it("release over a target moves; over anything else, or from a mere press, nothing", () => {
-    const dragging = moveCard(armCard("task-1", 0, 0, grip), 50, 50, () => targets);
-    expect(releaseCard(dragging, "done")).toEqual({ state: IDLE, move: { id: "task-1", to: "done" }, dragged: true });
-    expect(releaseCard(dragging, "review")).toEqual({ state: IDLE, move: null, dragged: true });
-    expect(releaseCard(dragging, null)).toEqual({ state: IDLE, move: null, dragged: true });
-    expect(releaseCard(armCard("task-1", 0, 0, grip), "done")).toEqual({ state: IDLE, move: null, dragged: false });
+    const dragging = moveRow(armRow("task-1", 0, 0, grip), 50, 50, () => targets);
+    expect(releaseRow(dragging, "done")).toEqual({ state: IDLE, move: { id: "task-1", to: "done" }, dragged: true });
+    expect(releaseRow(dragging, "review")).toEqual({ state: IDLE, move: null, dragged: true });
+    expect(releaseRow(dragging, null)).toEqual({ state: IDLE, move: null, dragged: true });
+    expect(releaseRow(armRow("task-1", 0, 0, grip), "done")).toEqual({ state: IDLE, move: null, dragged: false });
   });
 
   it("columns read their part in the drag; the click after a drag is disbelieved briefly", () => {
-    const dragging = moveCard(armCard("task-1", 0, 0, grip), 50, 50, () => targets);
+    const dragging = moveRow(armRow("task-1", 0, 0, grip), 50, 50, () => targets);
     expect(dropStateOf("done", dragging, null)).toBe("ok");
     expect(dropStateOf("done", dragging, "done")).toBe("over");
     expect(dropStateOf("review", dragging, "review")).toBe("no");
     expect(dropStateOf("done", IDLE, "done")).toBeNull();
-    // …and wear it as their classes.
-    expect(columnClassName("done", dragging, "done")).toBe("tasks__column tasks__column--drop-over");
-    expect(columnClassName("review", dragging, null)).toBe("tasks__column tasks__column--drop-no");
-    expect(columnClassName("done", IDLE, "done")).toBe("tasks__column");
-    // A card knows whether it is the open one and whether it is in flight.
-    expect(cardStateOf("task-1", "task-1", dragging)).toEqual({ selected: true, dragging: true });
-    expect(cardStateOf("task-2", "task-1", dragging)).toEqual({ selected: false, dragging: false });
-    expect(cardStateOf("task-1", null, IDLE)).toEqual({ selected: false, dragging: false });
     expect(clickDisbelieved(1_000, 1_000 + CLICK_AFTER_DRAG_MS - 1)).toBe(true);
     expect(clickDisbelieved(1_000, 1_000 + CLICK_AFTER_DRAG_MS)).toBe(false);
     expect(clickDisbelieved(null, 5)).toBe(false);
@@ -80,7 +70,7 @@ describe("dialogState", () => {
     expect(escapeTarget({ composing: false, wide: false, detailOpen: true })).toBe("detail");
     expect(escapeTarget({ composing: false, wide: false, detailOpen: false })).toBe("dialog");
     // A drag is peeled before any layer: it goes back, and nothing closes.
-    expect(escapeDrag(armCard("task-1", 0, 0, { width: 1, offsetX: 0, offsetY: 0 }))).toEqual(IDLE);
+    expect(escapeDrag(armRow("task-1", 0, 0, { width: 1, offsetX: 0, offsetY: 0 }))).toEqual(IDLE);
     expect(escapeDrag(IDLE)).toBeNull();
   });
 
@@ -92,7 +82,7 @@ describe("dialogState", () => {
     expect(taskOnScreen(b, "task-2", "team-1")).toBeNull();
     expect(taskOnScreen(null, "task-1", "team-1")).toBeNull();
     expect(taskOnScreen(b, null, "team-1")).toBeNull();
-    const flying = moveCard(armCard("task-1", 0, 0, { width: 1, offsetX: 0, offsetY: 0 }), 50, 50, () => new Set());
+    const flying = moveRow(armRow("task-1", 0, 0, { width: 1, offsetX: 0, offsetY: 0 }), 50, 50, () => new Set());
     expect(dragOutlived(flying, null)).toEqual(IDLE);
     expect(dragOutlived(flying, { id: "task-1" })).toBeNull();
     expect(dragOutlived(IDLE, null)).toBeNull();
@@ -146,10 +136,10 @@ describe("screenState", () => {
   const open: ScreenState = { ...INITIAL_SCREEN, composing: true, wide: true, chosenTeam: "team-1" };
 
   it("a card click opens it, closing the form; the open card's click puts it away and narrows", () => {
-    const opened = screenReducer(open, { type: "card", id: "task-1", open: null }, null);
+    const opened = screenReducer(open, { type: "row", id: "task-1", open: null }, null);
     expect(opened.focus).toBe("task-1");
     expect(opened.state).toMatchObject({ composing: false, wide: true });
-    const closed = screenReducer(opened.state, { type: "card", id: "task-1", open: "task-1" }, null);
+    const closed = screenReducer(opened.state, { type: "row", id: "task-1", open: "task-1" }, null);
     expect(closed.focus).toBeNull();
     expect(closed.state.wide).toBe(false);
   });
@@ -181,17 +171,15 @@ describe("screenState", () => {
     expect(screenReducer(detail.state, { type: "escape", detailOpen: false }, null)).toEqual({ state: detail.state, closeDialog: true });
   });
 
-  it("another team takes the open task with it; a column hovers only under a drag", () => {
+  it("another team takes the open task with it; a group hovers only under a drag", () => {
     expect(screenReducer(open, { type: "team", id: "team-2" }, null)).toEqual({ state: { ...open, chosenTeam: "team-2", wide: false }, focus: null });
     expect(screenReducer(open, { type: "hover", status: "done", dragging: true }, null).state.hover).toBe("done");
     expect(screenReducer(open, { type: "hover", status: "done", dragging: false }, null).state.hover).toBeNull();
   });
 
-  it("narrows by Blocked and a label, per team: another team's board shows unnarrowed, however it came up", () => {
-    const blocked = screenReducer(INITIAL_SCREEN, { type: "blockedOnly" }, "team-1").state;
-    expect(queryOn(blocked, "team-1")).toEqual({ blockedOnly: true, label: null });
-    const labelled = screenReducer(blocked, { type: "label", label: "ui" }, "team-1").state;
-    expect(queryOn(labelled, "team-1")).toEqual({ blockedOnly: true, label: "ui" });
+  it("narrows by a label, per team: another team's board shows unnarrowed, however it came up", () => {
+    const labelled = screenReducer(INITIAL_SCREEN, { type: "label", label: "ui" }, "team-1").state;
+    expect(queryOn(labelled, "team-1")).toEqual({ label: "ui" });
     expect(queryOn(screenReducer(labelled, { type: "label", label: "ui" }, "team-1").state, "team-1").label).toBeNull();
     // A pick of another team, or a link that put its task on screen.
     expect(queryOn(screenReducer(labelled, { type: "team", id: "team-2" }, "team-1").state, "team-2")).toEqual(NO_QUERY);
@@ -199,22 +187,21 @@ describe("screenState", () => {
     // Back on the first team, its filter is still its own.
     expect(queryOn(labelled, "team-1").label).toBe("ui");
     // A filter set on the second team starts from nothing, not the first's.
-    const there = screenReducer(labelled, { type: "blockedOnly" }, "team-2").state;
-    expect(queryOn(there, "team-2")).toEqual({ blockedOnly: true, label: null });
+    const there = screenReducer(labelled, { type: "label", label: "api" }, "team-2").state;
+    expect(queryOn(there, "team-2")).toEqual({ label: "api" });
   });
 
   it("rests the history compact, and its heading toggles it whole, kept from task to task", () => {
     expect(INITIAL_SCREEN.activityOpen).toBe(false);
     const open = screenReducer(INITIAL_SCREEN, { type: "toggleActivity" }, null).state;
     expect(open.activityOpen).toBe(true);
-    expect(screenReducer(open, { type: "card", id: "task-2", open: "task-1" }, null).state.activityOpen).toBe(true);
+    expect(screenReducer(open, { type: "row", id: "task-2", open: "task-1" }, null).state.activityOpen).toBe(true);
     expect(screenReducer(open, { type: "toggleActivity" }, null).state.activityOpen).toBe(false);
   });
 
-  it("walks the list with J / K only over the list, and never while the form is up", () => {
-    expect(walksRows({ composing: false }, "list")).toBe(true);
-    expect(walksRows({ composing: true }, "list")).toBe(false);
-    expect(walksRows({ composing: false }, "board")).toBe(false);
+  it("walks the list with J / K, never while the form is up", () => {
+    expect(walksRows({ composing: false })).toBe(true);
+    expect(walksRows({ composing: true })).toBe(false);
   });
 
   it("the team on screen when the person acts becomes their choice — putting a task away never moves the board", () => {
@@ -227,7 +214,7 @@ describe("screenState", () => {
     const composingOpen = { ...linked, composing: true };
     const ways = [
       screenReducer(linked, { type: "close" }, "team-2"),
-      screenReducer(linked, { type: "card", id: "task-9", open: "task-9" }, "team-2"),
+      screenReducer(linked, { type: "row", id: "task-9", open: "task-9" }, "team-2"),
       screenReducer(linked, { type: "compose" }, "team-2"),
       // Delegated: escape→narrow→… and toggleCompose→compose go through
       // the machine's own steps, and the pin must not be lost on the way.

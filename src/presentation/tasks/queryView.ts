@@ -1,25 +1,19 @@
 /**
  * What the tracker shows of a team's tasks, and in what order — ONE set
- * and ONE order for every view of it (the board's columns today, the list
- * beside it), so switching views never reshuffles or loses a task. A
- * filter is a reading posture: held for the dialog's life, never stored.
+ * and ONE order for the list. A filter is a reading posture: held for the
+ * dialog's life, never stored.
  */
 import { compareQueue, isOpen, type Task, type TaskStatus } from "../../domain/tasks";
 
 export interface TaskQuery {
-  /** Only the tasks in `blocked`. */
-  blockedOnly: boolean;
   /** Only the tasks carrying this label; null for any. */
   label: string | null;
 }
 
-export const NO_QUERY: TaskQuery = { blockedOnly: false, label: null };
+export const NO_QUERY: TaskQuery = { label: null };
 
 export function matchesQuery(task: Task, query: TaskQuery): boolean {
-  return (
-    (!query.blockedOnly || task.status === "blocked") &&
-    (query.label === null || task.labels.includes(query.label))
-  );
+  return query.label === null || task.labels.includes(query.label);
 }
 
 /**
@@ -43,19 +37,17 @@ export function tasksInStatus(tasks: readonly Task[], status: TaskStatus, query:
 /** Whether the query narrows to nothing: something narrows, and no task
  * of the team gets through — said in words, not left as six zeros. */
 export function findsNothing(tasks: readonly Task[], query: TaskQuery): boolean {
-  const narrows = query.blockedOnly || query.label !== null;
+  const narrows = query.label !== null;
   return narrows && !tasks.some((task) => matchesQuery(task, query));
 }
 
 export const QUERY_WORDS = {
   nothing: { title: "No task matches", hint: "Clear the filter in the toolbar to see every task" },
-  blocked: "Blocked",
   label: (label: string) => `label: ${label}`,
   clearLabel: (label: string) => `Show every label, not only ${label}`,
 } as const;
 
 export interface QueryToolbarView {
-  blocked: { label: string; pressed: boolean };
   /** The label narrowing the view, as a chip that clears it — null while
    * none does. A label is picked by clicking it on a row. */
   label: { text: string; clear: string } | null;
@@ -64,7 +56,6 @@ export interface QueryToolbarView {
 /** The filters as the toolbar draws them. */
 export function queryToolbarView(query: TaskQuery): QueryToolbarView {
   return {
-    blocked: { label: QUERY_WORDS.blocked, pressed: query.blockedOnly },
     label: query.label === null ? null : { text: QUERY_WORDS.label(query.label), clear: QUERY_WORDS.clearLabel(query.label) },
   };
 }

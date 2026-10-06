@@ -131,10 +131,9 @@ describe("the chosen plate and the drag's ghost", () => {
     expect(block).not.toMatch(/border/);
   });
 
-  it("only the card's ghost casts a filter shadow; the list's row ghost wears the float shell", () => {
+  it("the row ghost casts no filter shadow — it wears the float shell", () => {
     const tasks = readStyles("tasks.css");
     expect(ruleBody(tasks, ".tasks__ghost").filter).toBeUndefined();
-    expect(ruleBody(tasks, ".tasks__ghost--card").filter).toMatch(/^drop-shadow/);
     expect(readStyles("float.css")).toMatch(/\.tasks__row--ghost,/);
     // As tall as the row it left, the shell's outer ring counted — at
     // least; a title that wraps grows both alike.

@@ -1,5 +1,5 @@
 /* Tasks ([tasks]) — the person's view of a team's board: a wide .form
-   card holding a toolbar, the ladder as columns,
+   card holding a toolbar, the team's list,
    and one task open in a panel on the right. Status hues are the
    ladder's own (status.css): a task in review wears the waiting hue a
    pane waiting for the user wears. */
@@ -76,9 +76,9 @@
   font-size: var(--kd-font-normal);
 }
 
-/* The stage: the board, and OVER its right edge — never
-   beside it — the open task or the form. A panel that took a column
-   moved every card on the board when it opened; a drawer moves nothing. */
+/* The stage: the list, and OVER its right edge — never beside it — the
+   open task or the form. A panel that took a column moved every row when
+   it opened; a drawer moves nothing. */
 .tasks__stage {
   position: relative;
   display: flex;
@@ -88,8 +88,8 @@
 
 .tasks__main {
   display: flex;
-  /* The stage is a row now (the drawers lie over it); without this the
-     board shrank to its content and the columns went narrow. */
+  /* The stage is a row (the drawers lie over it); without this the list
+     shrank to its content. */
   flex: 1;
   flex-direction: column;
   min-width: 0;
@@ -97,122 +97,29 @@
   overflow: auto;
 }
 
-/* Columns: one per status, equal width, each scrolling on its own. */
-.tasks__columns {
-  display: grid;
-  grid-auto-flow: column;
-  /* One fraction each, a folded column included, so the board always
-     fits its stage with no sideways scroll. Nothing opens BESIDE the
-     board any more — the drawers lie over it — so its width holds still. */
-  grid-auto-columns: minmax(0, 1fr);
-  gap: 10px;
-  flex: 1;
-  min-height: 0;
-}
-
-.tasks__column {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  min-height: 0;
-  /* Borderless at rest, but the 1px edge is RESERVED, transparent: the
-     drop states below colour it. Without a width of its own they would
-     draw the initial 3px and shove the board 6px mid-drag. */
-  border: 1px solid transparent;
-  border-radius: var(--kd-radius-tile);
-  background-color: var(--kd-tile);
-}
-
-.tasks__column-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--kd-seam);
-  font-size: var(--kd-font-small);
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--kd-text-3);
-}
-
-/* A status's tint, one set for both of its headings: the board's column
-   and the list's group. */
-.tasks__column-label--in-progress,
+/* A status's tint on its group heading. */
 .tasks__group--in-progress .tasks__group-label {
   color: var(--status-working);
 }
 
-.tasks__column-label--review,
 .tasks__group--review .tasks__group-label {
   color: var(--status-waiting);
 }
 
-.tasks__column-label--blocked,
 .tasks__group--blocked .tasks__group-label {
   color: var(--status-failed);
 }
 
-.tasks__column-label--done,
 .tasks__group--done .tasks__group-label {
   color: var(--status-done);
 }
 
-.tasks__column-count {
-  color: var(--kd-text-3);
-  font-weight: 500;
-}
-
-/* The column's scroll container — a windowed list: only the cards in view
-   are mounted, absolutely placed in a spacer the height of them all. */
-.tasks__column-body {
-  flex: 1;
-  min-height: 0;
-  padding: 8px;
-  overflow-y: auto;
-}
-
-/* The box the list places and measures around each card. Positioned
-   items take no flex gap, so the gap between cards is this padding —
-   inside the measured box, where a margin would not be. */
-.tasks__column-item {
-  padding-bottom: 6px;
-}
-
-/* The card IS the control: a step above its column's tile, filled — not
-   boxed — and its rim takes the status hue when selected, the way a pane's
-   frame does. The 1px edge is reserved, transparent at rest, for that rim. */
-.tasks__card {
-  display: flex;
-  flex-direction: column;
-  /* The card is a button, and a button's auto width is its content's:
-     inside the windowed list's block item it grew to its one-line title
-     and gave the column a sideways scroll. The item's width, always —
-     and never more than it: the width names the whole box, padding and
-     border included (the app has no global border-box), and without
-     min-width it grows to its widest word. */
-  width: 100%;
-  box-sizing: border-box;
-  min-width: 0;
-  gap: 4px;
-  padding: 8px 10px;
-  border: 1px solid transparent;
-  border-radius: var(--kd-radius-control);
-  background-color: var(--kd-hover);
-  color: var(--kd-text-2);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
 /* Prose people, agents and the backend write — a brief, comments, log
-   lines, a refusal or a failed read, the blocked-by line — wraps, and a
-   long unbroken run (a path, a constant) breaks rather than widening its
-   box. break-word, not anywhere: it breaks only a word that does not fit,
-   and leaves the box's own width alone. The card title, the team name, the
-   panel's title and its link rows are not prose: they take .kd-one-line
-   or .kd-two-lines. */
-.tasks__card-blocked,
+   lines, a refusal or a failed read — wraps, and a long unbroken run (a
+   path, a constant) breaks rather than widening its box. break-word, not
+   anywhere: it breaks only a word that does not fit, and leaves the box's
+   own width alone. The team name, the panel's title and its link rows
+   are not prose: they take .kd-one-line or .kd-two-lines. */
 .tasks__body,
 .tasks__comment-body,
 .tasks__log-text,
@@ -221,37 +128,14 @@
   overflow-wrap: break-word;
 }
 
-.tasks__card:hover,
-.tasks__card[aria-pressed="true"] {
-  background-color: var(--kd-selected);
-}
-
-.tasks__card[aria-pressed="true"] {
-  border-color: var(--kd-ok);
-}
-
-.tasks__card:focus-visible {
-  outline: 1px solid var(--kd-focus);
-  outline-offset: -1px;
-}
-
-.tasks__card--grabbable {
-  cursor: grab;
-}
-
-.tasks__card--dragging {
-  opacity: 0.4;
-}
-
-/* While a card is in flight the whole dialog says so: the hand closes.
+/* While a row is in flight the whole dialog says so: the hand closes.
    Selectability is base.css's alone — nothing here touches it. */
-.tasks--dragging,
-.tasks--dragging .tasks__card {
+.tasks--dragging {
   cursor: grabbing;
 }
 
-/* The card in flight, following the pointer: the card itself, lifted.
-   Above the drawers, through to nothing — it is a picture, the columns
+/* The row in flight, following the pointer: the row itself, lifted.
+   Above the drawers, through to nothing — it is a picture, the groups
    take the release. */
 .tasks__ghost {
   position: fixed;
@@ -259,18 +143,7 @@
   pointer-events: none;
 }
 
-/* The card's ghost floats on a shadow cast by its own shape. Only the
-   card's: on a ghost the width of the list, a filter left trails of itself
-   behind as it moved. */
-.tasks__ghost--card {
-  filter: drop-shadow(0 12px 24px rgba(0, 0, 0, 0.55));
-}
-
-.tasks__ghost .tasks__card {
-  border-color: var(--kd-ok);
-}
-
-/* The list's ghost: the row, lifted — the float shell (float.css: surface,
+/* The ghost: the row, lifted — the float shell (float.css: surface,
    edge, shadow) like everything else that floats over the deck. */
 .tasks__row--ghost {
   /* The shell's shadow carries a 1px ring OUTSIDE its edge (tokens.css
@@ -283,65 +156,11 @@
   border-radius: var(--kd-radius-control);
 }
 
-/* While a card is in flight: the columns it may land in open up, the
-   ones it may not step back — the transition table drawn on the board. */
-.tasks__column--drop-ok {
-  border-color: var(--kd-ok);
-  border-style: dashed;
-}
-
-.tasks__column--drop-no {
-  opacity: 0.45;
-}
-
-/* The target under the pointer, singled out from the other targets. */
-.tasks__column--drop-over {
-  border-color: var(--kd-ok-strong);
-  border-style: dashed;
-  background-color: var(--kd-tile);
-}
-
-.tasks__card--cancelled .tasks__card-title {
-  color: var(--kd-text-4);
-  text-decoration: line-through;
-}
-
-.tasks__card-title {
-  font-size: var(--kd-font-normal);
-  line-height: 1.35;
-}
-
-.tasks__card-meta {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  color: var(--kd-text-3);
-  font-size: var(--kd-font-small);
-}
-
-.tasks__card-meta code {
-  color: var(--kd-text-3);
-  font-size: var(--kd-font-small);
-}
-
 .tasks__mark {
   color: var(--status-waiting);
   font-size: var(--kd-font-small);
   font-weight: 700;
   letter-spacing: 0.06em;
-}
-
-.tasks__card-blocked {
-  color: var(--status-failed);
-  font-size: var(--kd-font-small);
-}
-
-/* A task's labels: quiet words, no colour — colour is state. */
-.tasks__labels {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  min-width: 0;
 }
 
 /* A label on the open task, with its ×: the tag (badges.css .kd-tag),
@@ -354,7 +173,7 @@
   display: inline-flex;
 }
 
-/* ── The list view: one windowed list, a heading per status ───────── */
+/* ── The list: one windowed list, a heading per status ─────────────── */
 
 /* A group in a drag: the one under the pointer — where the task will
    land — is framed whole in the done hue, its heading and rows on the
@@ -482,8 +301,8 @@
   color: var(--kd-text-3);
 }
 
-/* A status with nothing in it: still named, so the six groups stand as
-   the board's six columns do — quieter. */
+/* A status with nothing in it: still named, so every status stands in
+   the list — quieter. */
 .tasks__group--empty {
   color: var(--kd-text-3);
 }
@@ -615,10 +434,11 @@
 .tasks__row--done .tasks__row-title {
   color: var(--kd-text-2);
 }
+
 /* The open task: a card floating over the dialog's right side, its
    toolbar included — the task's own head is the head there, not a second
    one under the dialog's. Nothing under it moves, and the view beside it
-   stays interactive: a row or a card can still be picked while a task is
+   stays interactive: a row can still be picked while a task is
    open. Expanded, it spans the dialog. */
 .tasks__detail {
   position: absolute;
