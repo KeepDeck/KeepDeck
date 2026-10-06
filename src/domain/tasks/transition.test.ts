@@ -1167,6 +1167,23 @@ describe("epics — a transfer moves the family whole, a copy keeps its place in
     expect(moved.ok && blockerIdsOf(at(moved.board, "task-2"), moved.board)).toEqual(["task-3"]);
   });
 
+  it("lets a closed task of the family go whatever it was linked to — closed, it holds and waits on nothing", () => {
+    for (const status of ["done", "cancelled"] as const) {
+      // The closed child waits on outside work, or outside work waits on it.
+      for (const links of [[relation("blocks", "task-3", "task-2")], [relation("blocks", "task-2", "task-3")]]) {
+        const b = board(
+          [task({ id: "task-1", kind: "epic" }), task({ id: "task-2", status }), task({ id: "task-3" })],
+          4,
+          [relation("child-of", "task-2", "task-1"), ...links],
+        );
+        const moved = transferTask(b.tasks[0], teams, lead, on(b));
+        if (!moved.ok) throw new Error(`refused: ${JSON.stringify(moved.refusal)}`);
+        expect(at(moved.board, "task-2").teamId).toBe("team-2");
+        expect(moved.board.relations.some((r) => r.kind === "blocks")).toBe(false);
+      }
+    }
+  });
+
   it("takes a task moved alone out of its epic, and says so in its log", () => {
     const b = family();
     const moved = transferTask(at(b, "task-2"), teams, lead, on(b));

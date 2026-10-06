@@ -1070,11 +1070,14 @@ export function transferProblem(task: Task, actor: TaskActor, board: TaskBoard):
   // holds nothing, a closed dependant waits on nothing — so neither
   // refuses; the move takes those links off. A link inside a moving
   // family moves with it.
+  // A closed task of the family holds nothing and waits on nothing: only
+  // its open work has live links.
   const movers = transferFamily(task, board);
   const moving = new Set(movers.map((mover) => mover.id));
-  const blockers = [...new Set(movers.flatMap((mover) => openBlockersOf(mover, board)))].filter((id) => !moving.has(id));
+  const live = movers.filter((mover) => isOpen(mover.status));
+  const blockers = [...new Set(live.flatMap((mover) => openBlockersOf(mover, board)))].filter((id) => !moving.has(id));
   const dependants = [
-    ...new Set(movers.flatMap((mover) => unblocks(mover, board).filter((other) => isOpen(other.status)).map((other) => other.id))),
+    ...new Set(live.flatMap((mover) => unblocks(mover, board).filter((other) => isOpen(other.status)).map((other) => other.id))),
   ].filter((id) => !moving.has(id));
   if (blockers.length > 0 || dependants.length > 0) {
     return { kind: "transfer-linked", blockers, dependants };
