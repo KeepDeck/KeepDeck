@@ -41,7 +41,12 @@ export function sinceMark(text: string): SinceMark | null {
  * read, not the last: appended in order is not dated in order (clocks
  * step back). */
 export function changedAt(task: Task): number {
-  return Math.max(task.created, task.updated, ...task.log.map((entry) => entry.at), ...task.comments.map((comment) => comment.at));
+  // A loop, not Math.max(...): a history has no cap, and a spread of it
+  // past the engine's argument limit throws.
+  let at = Math.max(task.created, task.updated);
+  for (const entry of task.log) if (entry.at > at) at = entry.at;
+  for (const comment of task.comments) if (comment.at > at) at = comment.at;
+  return at;
 }
 
 /** What changed on `task` after `mark`, or null when nothing did. A rev

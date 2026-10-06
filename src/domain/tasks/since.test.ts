@@ -36,6 +36,11 @@ describe("changeSince — what changed on a task after a mark", () => {
     expect(changeSince(source, { kind: "time", at: 1500 }, undefined)).toEqual({ new: false, comments: 0, fields: ["copiedTo"] });
   });
 
+  it("dates a history of any length — no cap on it, so no limit of the engine either", () => {
+    const log = Array.from({ length: 200_000 }, (_, i) => entry("status", 1000 + (i === 77 ? 9000 : i % 10)));
+    expect(changedAt(task({ id: "task-9", created: 1, updated: 1, log }))).toBe(10_000);
+  });
+
   it("reads every entry's time, not the last appended — a clock that stepped back hides nothing", () => {
     const logged = task({ id: "task-3", created: 1000, updated: 1000, log: [entry("copiedTo", 2000), entry("status", 1200)] });
     expect(changedAt(logged)).toBe(2000);
