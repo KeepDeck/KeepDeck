@@ -161,7 +161,9 @@ impl TasksStore {
                 let _guard = lock(data);
                 let file = board_path(root, &board.workspace);
                 let copy = file.with_file_name(format!("board.{PRE_DB_COPY}.json"));
-                // The first copy kept is the one that stays.
+                // The first copy kept is the one that stays. A board.json
+                // found beside it is a leftover of the same move (no build
+                // ever goes back to writing the files), so it is not kept.
                 if !copy.exists() {
                     write_atomic(&copy, board.json.as_bytes())
                         .map_err(|e| format!("keeping the copy of {}'s board failed: {e}", board.workspace))?;
