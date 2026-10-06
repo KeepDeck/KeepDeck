@@ -9,7 +9,7 @@ import type { StoredLogEntry } from "./StoredLogEntry";
  * brief versions are APPENDED — the store never deletes one, and one sent
  * again exactly as stored is no change.
  */
-export type TaskWrite = { uid: string, boardPos: number, teamId: string | null, title: string, body: string, bodyV: number, status: string, priority: string, assignee: string | null, author: string, created: number, updated: number,
+export type TaskWrite = { uid: string, boardPos: number, teamId: string | null, title: string, body: string, bodyV: number, status: string, priority: string, assignee: string | null, author: string, created: number, updated: number, 
 /**
  * A new current address on this board: a new task's, or a moved one's.
  */

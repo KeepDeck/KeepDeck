@@ -35,4 +35,12 @@ describe("changeSince — what changed on a task after a mark", () => {
     expect(changedAt(source)).toBe(2000);
     expect(changeSince(source, { kind: "time", at: 1500 }, undefined)).toEqual({ new: false, comments: 0, fields: ["copiedTo"] });
   });
+
+  it("reads every entry's time, not the last appended — a clock that stepped back hides nothing", () => {
+    const logged = task({ id: "task-3", created: 1000, updated: 1000, log: [entry("copiedTo", 2000), entry("status", 1200)] });
+    expect(changedAt(logged)).toBe(2000);
+    expect(changeSince(logged, { kind: "time", at: 1500 }, undefined)).toEqual({ new: false, comments: 0, fields: ["copiedTo"] });
+    const talked = task({ id: "task-4", created: 1000, updated: 1000, comments: [comment(1, 2500), comment(2, 1100)] });
+    expect(changedAt(talked)).toBe(2500);
+  });
 });

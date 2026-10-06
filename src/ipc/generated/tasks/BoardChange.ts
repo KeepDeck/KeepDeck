@@ -3,25 +3,25 @@ import type { RelationKey } from "./RelationKey";
 import type { StoredRelation } from "./StoredRelation";
 import type { TaskWrite } from "./TaskWrite";
 
-export type BoardChange = { board: string,
+export type BoardChange = { board: string, 
 /**
  * The workspace a board being created belongs to; must match an
  * existing board's.
  */
-workspace: string | null,
+workspace: string | null, 
 /**
  * The board's rev the change was computed against; 0 for a new board.
  */
-expectedRev: number,
+expectedRev: number, 
 /**
  * Never less than the stored counter.
  */
-nextId: number,
+nextId: number, 
 /**
  * Tasks written in full: new ones, changed ones, and ones arriving
  * from another board.
  */
-tasks: Array<TaskWrite>,
+tasks: Array<TaskWrite>, 
 /**
  * Tasks that left the boards altogether (a disbanded team's).
  */

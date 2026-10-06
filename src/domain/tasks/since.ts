@@ -35,11 +35,13 @@ export function sinceMark(text: string): SinceMark | null {
   return Number.isNaN(at) ? null : { kind: "time", at };
 }
 
-/** The last moment anything of the task changed: its fields (`updated`),
- * and its log and thread — a copy made of it or a blocker of it handed
- * away writes its log without moving `updated`. */
+/** The last moment anything of the task changed: its making, its fields
+ * (`updated`), and its log and thread — a copy made of it or a blocker of
+ * it handed away writes its log without moving `updated`. Every entry is
+ * read, not the last: appended in order is not dated in order (clocks
+ * step back). */
 export function changedAt(task: Task): number {
-  return Math.max(task.updated, task.log[task.log.length - 1]?.at ?? 0, task.comments[task.comments.length - 1]?.at ?? 0);
+  return Math.max(task.created, task.updated, ...task.log.map((entry) => entry.at), ...task.comments.map((comment) => comment.at));
 }
 
 /** What changed on `task` after `mark`, or null when nothing did. A rev

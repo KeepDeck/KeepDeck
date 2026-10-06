@@ -3,11 +3,11 @@
 /**
  * One search hit, best first.
  */
-export type SearchHit = { uid: string, board: string,
+export type SearchHit = { uid: string, board: string, 
 /**
  * Where it matched: the task itself, or one of its comments (`n`).
  */
-comment: number | null,
+comment: number | null, 
 /**
  * The match in context, with `[` `]` around the matched words.
  */
