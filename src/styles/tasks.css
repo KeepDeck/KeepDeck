@@ -669,15 +669,52 @@
   margin-left: auto;
 }
 
-/* Expanded: the properties stand beside the story, the story gets the room. */
+/* Everything between the head and the comment field: one windowed list
+   (task-280), its rows absolutely placed in a spacer — so spacing is each
+   row's own padding, measured with it; a margin would not be. */
 .tasks__detail-body {
   flex: 1;
   min-height: 0;
+  overflow-y: auto;
+}
+
+.tasks__card-row {
+  box-sizing: border-box;
+  padding: 0 16px;
+}
+
+/* The story and the properties: one row, a column of its own. */
+.tasks__card-story {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  padding: 14px 16px;
-  overflow-y: auto;
+  padding: 14px 0;
+}
+
+/* A section's heading (the comments, the activity's toggle) and the word
+   for none under it. */
+.tasks__card-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 6px;
+}
+
+.tasks__card-heading--activity {
+  padding-top: 8px;
+}
+
+/* A comment's row: the tile and the gap under it. */
+.tasks__card-cell {
+  padding-bottom: 6px;
+}
+
+/* The comment field: under the list, always in reach — a new comment
+   never pushes it out of view, and it never leaves the page. */
+.tasks__detail-composer {
+  flex: none;
+  padding: 10px 16px;
+  border-top: 1px solid var(--kd-seam);
 }
 
 .tasks__detail-main {
@@ -697,25 +734,25 @@
 }
 
 @container (min-width: 720px) {
-  .tasks__detail-body {
+  .tasks__card-story {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 260px;
     align-items: start;
     gap: 24px;
   }
 
-  .tasks__detail-body > .tasks__props {
+  .tasks__card-story > .tasks__props {
     grid-column: 2;
     grid-row: 1;
     grid-template-columns: minmax(0, 1fr);
     gap: 4px;
   }
 
-  .tasks__detail-body > .tasks__props > .tasks__prop-label:not(:first-child) {
+  .tasks__card-story > .tasks__props > .tasks__prop-label:not(:first-child) {
     margin-top: 8px;
   }
 
-  .tasks__detail-body > .tasks__detail-main {
+  .tasks__card-story > .tasks__detail-main {
     grid-column: 1;
     grid-row: 1;
   }
@@ -1019,66 +1056,40 @@
   gap: 8px;
 }
 
-/* The activity, opened: its notes, then its changes. */
-.tasks__activity {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+/* An empty list takes no room — no gap held for nothing (the card's labels). */
+.tasks__labels:empty {
+  display: none;
 }
 
-/* The task's activity: its changes, on a line down the left edge with a
-   dot per change. */
-.tasks__feed {
+/* A change of the task's activity: a row on the line down the left edge,
+   its dot on it. Each row draws its own stretch of the line — the rows
+   are drawn only while in view, so one line down a whole list would
+   break wherever a row is not. */
+.tasks__log {
   position: relative;
-  margin: 0;
-  padding: 0 0 0 14px;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  padding: 3px 0 3px 14px;
+  font-size: var(--kd-font-small);
 }
 
-.tasks__feed::before {
+.tasks__log::before {
   content: "";
   position: absolute;
-  top: 4px;
-  bottom: 4px;
+  top: 0;
+  bottom: 0;
   left: 4px;
   width: 1px;
   background-color: var(--kd-seam);
 }
 
-.tasks__feed > li::before {
+.tasks__log::after {
   content: "";
   position: absolute;
-  left: -12px;
-  top: 7px;
+  left: 2px;
+  top: 10px;
   width: 5px;
   height: 5px;
   border-radius: 50%;
   background-color: var(--kd-seam-strong);
-}
-
-/* An empty list takes no room — no gap held for nothing (the card's
-   labels, the panel's comments). */
-.tasks__comments:empty,
-.tasks__labels:empty {
-  display: none;
-}
-
-/* What was said: the task's comments, a column of tiles. */
-.tasks__comments {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.tasks__log {
-  position: relative;
-  font-size: var(--kd-font-small);
 }
 
 .tasks__log-who {

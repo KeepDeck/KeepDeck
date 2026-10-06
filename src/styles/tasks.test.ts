@@ -63,8 +63,8 @@ describe("Tasks text never widens its box", () => {
     // with the width, or a 260px column stands in a 440px card mid-ease.
     const css = readStyles("tasks.css");
     expect(css).toMatch(/\.tasks__detail \{\s*container-type: inline-size;\s*\}/);
-    expect(css).toMatch(/@container \(min-width: 720px\)\s*\{\s*\.tasks__detail-body \{[^}]*display: grid/);
-    expect(css).not.toMatch(/\.tasks__detail--wide \.tasks__detail-body/);
+    expect(css).toMatch(/@container \(min-width: 720px\)\s*\{\s*\.tasks__card-story \{[^}]*display: grid/);
+    expect(css).not.toMatch(/\.tasks__detail--wide \.tasks__card-story/);
   });
 
   it("leaves a fold's motion to the list — no CSS transition or entrance on a row", () => {
