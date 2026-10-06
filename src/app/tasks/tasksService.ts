@@ -618,6 +618,15 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
     async restore(choice) {
       await drain();
       await deps.store.restore(choice);
+      // A board that could not be read from the unusable database — or
+      // was being read from it — is read again from what took its place;
+      // a read still out answers into nothing.
+      for (const [workspaceId, state] of [...states.entries()]) {
+        if (state.kind === "ready") continue;
+        states.delete(workspaceId);
+        loads.delete(workspaceId);
+        void load(workspaceId);
+      }
       // What is held here is newer than the backup: it is written over it.
       await Promise.all(
         [...states.entries()]

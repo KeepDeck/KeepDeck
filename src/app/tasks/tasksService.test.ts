@@ -112,6 +112,16 @@ describe("createTasksService", () => {
     expect((JSON.parse(store.files.get("ws-1")!) as TaskBoard).tasks.map((t) => t.title)).toEqual(["Task task-1", "newer than any backup"]);
   });
 
+  it("a board unreadable from the damaged database is read again from the restored one", async () => {
+    const { service, store } = setup({ "ws-1": "not json" });
+    expect((await service.ready("ws-1")).kind).toBe("unreadable");
+    // The restore puts a readable board back.
+    store.files.set("ws-1", encodeBoard(board([task({ id: "task-1" })])));
+    await service.restore({ kind: "backup", at: 5 });
+    const after = await service.ready("ws-1");
+    expect(after.kind === "ready" && after.board.tasks.map((t) => t.id)).toEqual(["task-1"]);
+  });
+
   it("a board that reads but cannot be written refuses every change with the reason, and writes nothing", async () => {
     const { service, store } = setup({ "ws-1": encodeBoard(board([task({ id: "task-1" })])) });
     await service.ready("ws-1");
