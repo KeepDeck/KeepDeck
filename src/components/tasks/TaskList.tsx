@@ -109,7 +109,7 @@ export function TaskList({ items, openId, drag, hover, folds, onSelect, onFold, 
             {/* An epic's fold is a control of its own, beside the row's —
                 never a button inside a button; a task under an epic stands
                 one step in. */}
-            {item.fold ? (
+            {item.fold && (
               <button
                 type="button"
                 className="tasks__row-fold tasks__row-control"
@@ -120,9 +120,8 @@ export function TaskList({ items, openId, drag, hover, folds, onSelect, onFold, 
               >
                 <DisclosureChevron open={!item.fold.folded} />
               </button>
-            ) : (
-              <span className="tasks__row-indent" aria-hidden />
             )}
+            {item.lead === "indent" && <span className="tasks__row-indent" aria-hidden />}
             <TaskRowLine
               line={item.line}
               open={{

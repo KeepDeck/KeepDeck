@@ -48,7 +48,7 @@ export function epicMark(progress: EpicProgress): EpicMarkView {
     count: `${progress.done}/${counted}`,
     fill: counted === 0 ? 0 : Math.round((progress.done / counted) * 100),
     label: `${progress.done} of ${counted} tasks done`,
-    summary: `${progress.done} of ${counted} done`,
+    summary: `${progress.done}/${counted} done`,
   };
 }
 

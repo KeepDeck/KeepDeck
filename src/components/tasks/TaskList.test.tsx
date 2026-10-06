@@ -35,6 +35,8 @@ describe("TaskList", () => {
     act(() => root.render(createElement(TaskList, { items, openId: null, drag: IDLE, hover: null, folds: null, onFoldEpic: vi.fn(), onArm: vi.fn(), onHover: vi.fn(), onDrop: vi.fn(), onSelect: vi.fn(), onFold: vi.fn(), onLabel: vi.fn() })));
     const rows = [...host.querySelectorAll<HTMLElement>(".tasks__row")];
     expect(rows.map((r) => r.querySelector(".tasks__row-title")?.textContent)).toEqual(["Wire", "Draft"]);
+    // With no epic about them, the rows lead with nothing: no fold, no step in.
+    expect(rows.some((r) => r.querySelector(".tasks__row-fold, .tasks__row-indent"))).toBe(false);
     expect(rows[1].querySelector(".kd-tag")?.textContent).toBe("copy");
     expect(rows[0].querySelector(".tasks__tag--blocking")?.textContent).toBe("task-1");
     expect(rows[0].querySelector(".tasks__row-who")?.textContent).toBe("unassigned");
@@ -95,6 +97,8 @@ describe("TaskList", () => {
     expect(epic.querySelector(".tasks__epic-progress")?.textContent).toBe("1/1");
     expect(epic.querySelector<HTMLElement>(".tasks__epic-fill")?.style.width).toBe("100%");
     expect(step.className).toContain("tasks__row--under-epic");
+    expect(step.querySelector(".tasks__row-indent")).not.toBeNull();
+    expect(epic.querySelector(".tasks__row-indent")).toBeNull();
     expect(step.querySelector(".tasks__epic-chip")).toBeNull();
     const fold = epic.querySelector<HTMLButtonElement>(".tasks__row-fold")!;
     expect(fold.getAttribute("aria-expanded")).toBe("true");

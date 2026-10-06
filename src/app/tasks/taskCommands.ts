@@ -58,7 +58,6 @@ import {
   issuable,
   normalizeLabel,
   countByStatus,
-  tasksOfEpic,
   tasksOfTeam,
   unblocks,
   type Task,
@@ -201,21 +200,6 @@ function row(task: Task, board: TaskBoard) {
   };
 }
 
-/** How many of an epic's tasks `task.get` lists; the rest are counted,
- * and read by task.list parent=<epic>. */
-export const EPIC_TASKS_SHOWN = 30;
-
-/** An epic's tasks as `task.get` lists them: the least that tells where
- * each stands. */
-function epicTasks(epic: Task, board: TaskBoard) {
-  const tasks = tasksOfEpic(epic, board);
-  return {
-    progress: epicProgress(epic, board),
-    tasks: tasks.slice(0, EPIC_TASKS_SHOWN).map((task) => ({ id: task.id, title: task.title, status: task.status, assignee: task.assignee })),
-    ...(tasks.length > EPIC_TASKS_SHOWN ? { moreTasks: tasks.length - EPIC_TASKS_SHOWN } : {}),
-  };
-}
-
 /** A task as it stands now, plus what the board knows around it: its
  * brief whole, and — while it is open — its discussion. Its log and earlier
  * briefs are `task.history`'s; a closed task's comments are too (closed
@@ -229,7 +213,9 @@ function full(task: Task, board: TaskBoard) {
   return {
     ...shown,
     parent: epic === null ? null : { id: epic.id, title: epic.title },
-    ...(task.kind === "epic" ? epicTasks(task, board) : {}),
+    // An epic's own tasks are asked for by status, as any work is
+    // (task.list parent=<epic>): its card says only how far it has come.
+    ...(task.kind === "epic" ? { progress: epicProgress(task, board) } : {}),
     ...(isOpen(task.status) ? { comments } : {}),
     more: more(task),
     blockedBy,
@@ -537,7 +523,7 @@ function searchCommand(deps: TaskCommandDeps): CommandSpec {
 function getCommand(deps: TaskCommandDeps): CommandSpec {
   return {
     id: "task.get",
-    title: `Read one task as it stands: its brief whole, its thread while it is open, blockers with their statuses, what it unblocks, issuable (can be started now), parent (its epic, or null), copiedFrom (the key it was copied from, "gone" if that task left the board, null if it is no copy) and copies. An epic adds progress and its tasks (id, title, status, assignee; the first ${EPIC_TASKS_SHOWN} — moreTasks counts the rest, task.list parent=<epic> reads them all). Progress is counted from its tasks each time: a change under an epic is the task's in task.since, not the epic's. ${MORE_NOTE} — a closed task's comments are there too`,
+    title: `Read one task as it stands: its brief whole, its thread while it is open, blockers with their statuses, what it unblocks, issuable (can be started now), parent (its epic, or null), copiedFrom (the key it was copied from, "gone" if that task left the board, null if it is no copy) and copies. An epic adds progress (its tasks done, open, cancelled); its tasks themselves come from task.list parent=<epic> status=…, by the statuses you want. Progress is counted from its tasks each time: a change under an epic is the task's in task.since, not the epic's. ${MORE_NOTE} — a closed task's comments are there too`,
     args: [{ name: "id", type: "string", required: true, description: "The task id (task-N)" }],
     run: async (args, source) => {
       const who = caller(source, deps);

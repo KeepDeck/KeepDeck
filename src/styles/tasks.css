@@ -426,8 +426,8 @@
   text-align: right;
 }
 
-/* A row's lead: an epic's fold, or the room one takes — so every row's
-   columns stand straight — and one step more under an epic. */
+/* A row's lead is its own: an epic leads with its fold, a task under an
+   epic with a step in past the fold — any other row with nothing. */
 .tasks__row-fold,
 .tasks__row-indent {
   display: inline-flex;
@@ -438,7 +438,7 @@
   height: 18px;
 }
 
-.tasks__row--under-epic .tasks__row-indent {
+.tasks__row-indent {
   width: 32px;
 }
 

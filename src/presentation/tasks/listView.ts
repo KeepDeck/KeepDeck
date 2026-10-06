@@ -51,6 +51,9 @@ export interface ListRow {
   depth: 0 | 1;
   /** An epic's own fold, or null for a row that is no epic. */
   fold: { folded: boolean; label: string } | null;
+  /** What the row leads with, its own: an epic its fold, a task under an
+   * epic the step in, any other row nothing. */
+  lead: "fold" | "indent" | "none";
 }
 
 export type ListItem = ListHeading | ListRow;
@@ -177,6 +180,7 @@ function listRow(
     edge,
     depth,
     fold,
+    lead: fold !== null ? "fold" : depth === 1 ? "indent" : "none",
     // Its status's tone, cancelled, and the open one.
     className: [
       "tasks__row",

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createCommandRegistry, type CommandArgs, type CommandSource } from "../../domain/commands";
 import { WORKER_STEPS } from "../../domain/tasks";
-import { EPIC_TASKS_SHOWN, STATUS_ARG, registerTaskCommands } from "./taskCommands";
+import { STATUS_ARG, registerTaskCommands } from "./taskCommands";
 import { createTasksService } from "./tasksService";
 import { ANONYMOUS, fakeStore, from, teamedWorkspaces } from "./testSupport";
 
@@ -423,31 +423,17 @@ describe("task commands — epics", () => {
     expect(await ids({ parent: "none" })).toEqual(["task-1", "task-4"]);
   });
 
-  it("get reads an epic with its progress and its tasks, and a task with its epic", async () => {
+  it("get reads an epic with its progress and none of its tasks — those come by status from list; a task with its epic", async () => {
     const { run } = await family();
     const epic = (await run("task.get", { id: "task-1" }, LEAD)).task as Record<string, unknown>;
-    expect(epic).toMatchObject({
-      kind: "epic",
-      parent: null,
-      progress: { done: 0, open: 2, cancelled: 0 },
-      tasks: [
-        { id: "task-2", title: "Schema", status: "todo", assignee: null },
-        { id: "task-3", title: "Rules", status: "todo", assignee: "impl-2" },
-      ],
-    });
+    expect(epic).toMatchObject({ kind: "epic", parent: null, progress: { done: 0, open: 2, cancelled: 0 } });
+    expect(epic).not.toHaveProperty("tasks");
     expect(epic).not.toHaveProperty("moreTasks");
+    const todo = (await run("task.list", { status: "todo", parent: "task-1" }, LEAD)).tasks as { id: string }[];
+    expect(todo.map((t) => t.id)).toEqual(["task-2", "task-3"]);
     const work = (await run("task.get", { id: "task-2" }, LEAD)).task as Record<string, unknown>;
     expect(work).toMatchObject({ kind: "task", parent: { id: "task-1", title: "Epics" } });
-    expect(work).not.toHaveProperty("tasks");
-  });
-
-  it("get lists the first tasks of a big epic and counts the rest", async () => {
-    const { run } = setup();
-    await run("task.create", { title: "Big", kind: "epic" }, LEAD);
-    for (let i = 0; i < EPIC_TASKS_SHOWN + 3; i += 1) await run("task.create", { title: `Step ${i}`, parent: "task-1" }, LEAD);
-    const epic = (await run("task.get", { id: "task-1" }, LEAD)).task as { tasks: unknown[]; moreTasks: number };
-    expect(epic.tasks).toHaveLength(EPIC_TASKS_SHOWN);
-    expect(epic.moreTasks).toBe(3);
+    expect(work).not.toHaveProperty("progress");
   });
 
   it("update moves a task between epics for whoever hands out work, names it changed, and refuses a working role", async () => {

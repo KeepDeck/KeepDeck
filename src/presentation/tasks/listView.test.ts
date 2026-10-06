@@ -244,6 +244,8 @@ describe("listView — an epic with its tasks under it (B1)", () => {
     ]);
     const row = (key: string) => items.find((i) => i.key === key) as Extract<ListItem, { kind: "row" }>;
     expect([row("task-1").depth, row("task-4").depth, row("task-6").depth]).toEqual([0, 1, 0]);
+    // The lead is the row's own: the epic's fold, its task's step in, nothing for the rest.
+    expect([row("task-1").lead, row("task-4").lead, row("task-6").lead]).toEqual(["fold", "indent", "none"]);
     // Every row of the group sits in it for a drop: the epic's status.
     expect(row("task-4").status).toBe("in-progress");
     expect(row("task-4").className).toContain("tasks__row--under-epic");
