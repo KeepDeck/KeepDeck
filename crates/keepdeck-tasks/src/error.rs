@@ -113,7 +113,7 @@ impl From<diesel::ConnectionError> for StoreError {
 /// does. Only what the disk or another opener caused is worth trying
 /// again; anything else — a statement SQLite refuses as written, a
 /// message nobody listed — is `Invalid`, never retried as if it might pass.
-fn classify(message: &str) -> StoreError {
+pub(crate) fn classify(message: &str) -> StoreError {
     let m = message.to_ascii_lowercase();
     let detail = message.to_string();
     let any = |words: &[&str]| words.iter().any(|w| m.contains(w));

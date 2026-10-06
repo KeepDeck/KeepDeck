@@ -15,6 +15,7 @@ import {
   tasksOfEpic,
   unblocks,
   unlinked,
+  withoutGates,
   transitiveBlockers,
   transitiveWaiters,
   withRelations,
@@ -177,6 +178,24 @@ describe("relations — an epic and its tasks", () => {
     expect(outlives(link, new Set(["uid-task-1"]))).toBe(false);
     expect(outlives(link, new Set(["uid-task-2"]))).toBe(false);
     expect(RELATION_KINDS["child-of"]).toEqual({ gatesStart: false, onePerFrom: true, outlivesItsTo: false, ends: { from: "task", to: "epic" }, ordersEnds: true });
+  });
+});
+
+describe("withoutGates — what tasks leaving their team take off", () => {
+  it("drops the blocker links between what moves and what stays, keeps the ones among what moves, and a link to no task here", () => {
+    const b = board(
+      [task({ id: "task-1" }), task({ id: "task-2", blockedBy: ["task-1"] }), task({ id: "task-3", blockedBy: ["task-2"] })],
+      4,
+      [relation("blocks", "task-9", "task-2"), relation("copied-from", "task-3", "task-2")],
+    );
+    const after = withoutGates(b, new Set(["uid-task-1", "uid-task-2"]));
+    expect(after.relations).toEqual([
+      relation("blocks", "task-1", "task-2"),
+      relation("blocks", "task-9", "task-2"),
+      relation("copied-from", "task-3", "task-2"),
+    ]);
+    // Nothing between what moves and what stays: the same board.
+    expect(withoutGates(b, new Set(["uid-task-1", "uid-task-2", "uid-task-3"]))).toBe(b);
   });
 });
 

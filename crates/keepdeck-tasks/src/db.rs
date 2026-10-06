@@ -116,15 +116,25 @@ fn applied_steps(conn: &mut SqliteConnection) -> Result<Vec<String>> {
 }
 
 /// Bring the schema to this build's migrations, one step at a time. A step
-/// that fails is that step's fault, named: the disk did not refuse, and
-/// trying again changes nothing (`MigrationFailed`).
+/// that fails for the disk's or another opener's reason says so, as any
+/// write does (busy, full, refused, damaged — tried again or restored);
+/// one that fails on its own is that step's fault, named, and trying again
+/// changes nothing (`MigrationFailed`).
 fn migrate(conn: &mut SqliteConnection) -> Result<()> {
     let known = known_steps()?;
     loop {
         let applied = applied_steps(conn)?;
         let Some(next) = known.iter().find(|step| !applied.contains(step)) else { return Ok(()) };
-        conn.run_next_migration(MIGRATIONS)
-            .map_err(|error| StoreError::MigrationFailed { migration: next.clone(), detail: error.to_string() })?;
+        conn.run_next_migration(MIGRATIONS).map_err(|error| step_failure(next, &error.to_string()))?;
+    }
+}
+
+/// What a step's failure is: the disk's or another opener's, as the one
+/// classification says (`error::classify`), or the step's own.
+fn step_failure(migration: &str, detail: &str) -> StoreError {
+    match crate::error::classify(detail) {
+        outside @ (StoreError::Busy | StoreError::DiskFull | StoreError::Io { .. } | StoreError::Corrupt { .. }) => outside,
+        _ => StoreError::MigrationFailed { migration: migration.to_string(), detail: detail.to_string() },
     }
 }
 
@@ -267,6 +277,18 @@ mod tests {
         assert_eq!(schema_step(&known, &names(&["1", "2"])).unwrap(), SchemaStep::Current);
         assert_eq!(schema_step(&known, &names(&[])).unwrap(), SchemaStep::Fresh);
         assert_eq!(schema_step(&known, &names(&["1"])).unwrap(), SchemaStep::Forward);
+    }
+
+    #[test]
+    fn a_step_failing_for_the_disk_says_so_and_one_failing_on_its_own_is_named() {
+        assert_eq!(step_failure("2", "database is locked"), StoreError::Busy);
+        assert_eq!(step_failure("2", "database or disk is full"), StoreError::DiskFull);
+        assert!(matches!(step_failure("2", "disk I/O error"), StoreError::Io { .. }));
+        assert!(matches!(step_failure("2", "database disk image is malformed"), StoreError::Corrupt { .. }));
+        assert_eq!(
+            step_failure("2", "duplicate column name: kind"),
+            StoreError::MigrationFailed { migration: "2".into(), detail: "duplicate column name: kind".into() }
+        );
     }
 
     #[test]

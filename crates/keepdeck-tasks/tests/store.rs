@@ -200,6 +200,32 @@ fn the_copy_before_a_step_is_taken_once_and_kept_as_it_was() {
 }
 
 #[test]
+fn a_copy_before_a_step_that_fails_its_check_is_taken_again() {
+    use diesel::prelude::*;
+    use diesel_migrations::MigrationHarness;
+    let dir = tempfile::tempdir().unwrap();
+    at_first_schema(dir.path());
+    std::fs::create_dir_all(dir.path().join(backup::BACKUP_DIR)).unwrap();
+    std::fs::write(copy_before_epics(dir.path()), b"not a database").unwrap();
+    drop(Store::open(dir.path()).unwrap());
+    // The way back is a real one: the first schema, checked.
+    let mut copy = diesel::SqliteConnection::establish(&copy_before_epics(dir.path()).to_string_lossy()).unwrap();
+    assert_eq!(copy.applied_migrations().unwrap().len(), 1);
+}
+
+#[test]
+fn an_epic_moved_in_from_the_files_stays_an_epic() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(dir.path()).unwrap();
+    let mut epic = task("u1", "task-1");
+    epic.kind = "epic".into();
+    store.import(&[board("b1", Some("ws-1"), vec![epic, task("u2", "task-2")])], &[]).unwrap();
+    store.activate_migration().unwrap();
+    let kinds: Vec<String> = store.load("b1").unwrap().tasks.into_iter().map(|t| t.kind).collect();
+    assert_eq!(kinds, ["epic", "task"]);
+}
+
+#[test]
 fn a_step_that_fails_is_named_not_retried_as_the_disk_and_copied_once() {
     use diesel::connection::SimpleConnection;
     use diesel::prelude::*;

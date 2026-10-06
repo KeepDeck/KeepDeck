@@ -93,10 +93,13 @@ pub fn take(db_path: &Path, dir: &Path, now_ms: i64) -> Result<Backup> {
 /// step found it — the way back if the step goes wrong. Its own name
 /// (`tasks-pre-<step>.db`), outside the set of three — never rotated
 /// away, never offered as an hourly backup — and taken once per step: a
-/// step that fails again finds its copy there and takes no second.
+/// step that fails again finds its copy there and takes no second. A copy
+/// found there is checked first; one that fails the check is no way back,
+/// and goes — the step has not run, so the database is still as it found
+/// it, and a fresh copy is the same copy.
 pub fn take_before(db_path: &Path, dir: &Path, migration: &str) -> Result<PathBuf> {
     let path = dir.join(format!("{PRE_STEP}{migration}{SUFFIX}"));
-    if path.exists() {
+    if path.exists() && verify(&path).is_ok() {
         return Ok(path);
     }
     let tmp = snapshot(db_path, dir, &format!("{PRE_STEP}{migration}{SUFFIX}"))?;

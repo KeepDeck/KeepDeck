@@ -19,6 +19,7 @@ import {
   acceptsWork,
   actorName,
   isOpen,
+  isTaskKind,
   type Task,
   type TaskActor,
   type TaskBoard,
@@ -930,7 +931,7 @@ export function createTask(
     return refuse({ kind: "not-yours-to-label", assignee });
   }
   const kind = input.kind ?? "task";
-  if (!(TASK_KINDS as readonly string[]).includes(kind)) return refuse({ kind: "bad-create-kind", value: kind, allowed: TASK_KINDS });
+  if (!isTaskKind(kind)) return refuse({ kind: "bad-create-kind", value: kind, allowed: TASK_KINDS });
   const parent = input.parent?.trim() || null;
   if (parent !== null) {
     const bad = parentProblem({ kind, teamId: input.teamId, status }, parent, ctx.board, uidsOf(ctx.board, blockedBy));
