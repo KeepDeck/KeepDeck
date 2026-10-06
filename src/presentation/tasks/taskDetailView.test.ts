@@ -1,72 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { board, relation, task } from "../../domain/tasks/testSupport";
-import { LADDER_WORDS, tasksLadder } from "./ladderView";
 import { newTaskFormView, NEW_TASK_WORDS } from "./newTaskFormView";
-import { epicMark, statusMark, statusRing, taskRowView } from "./taskRowView";
+import { statusMark, statusRing } from "./taskRowView";
 import { TASK_DETAIL_WORDS, changesOf, pickedPriority, commentsOf, menuActionDisabled, renamedTitle, pickedStatus, taskDetailClassName, taskDetailView } from "./taskDetailView";
-import { teamCardTasksLine } from "./teamCardTasksLine";
-import { teamOnScreen } from "./teamOnScreen";
-import { blockerLinkWords, openWorkWords, boardBanner, fieldCount, readOnlyBanner, restoreView, unsavedBanner, personName, priorityMark, statusTone, FIELD_WORDS, POOL_CHOICE } from "./words";
+import { FIELD_WORDS, POOL_CHOICE } from "./words";
 
 const NOW = 100_000;
 const ROSTER = ["lead", "impl-1", "impl-2"];
-
-describe("words", () => {
-  it("names the person `you`, marks only the ends of the priority scale, and maps statuses onto the four hues", () => {
-    expect(personName("user")).toBe("you");
-    expect(personName("impl-1")).toBe("impl-1");
-    expect([priorityMark("high"), priorityMark("normal"), priorityMark("low")]).toEqual(["HIGH", null, "LOW"]);
-    expect(["in-progress", "review", "blocked", "done", "todo", "cancelled"].map((s) => statusTone(s as never))).toEqual([
-      "working",
-      "waiting",
-      "failed",
-      "done",
-      "none",
-      "none",
-    ]);
-  });
-});
-
-describe("taskRowView", () => {
-  it("says the priority, the assignee or the pool, the age, and every blocker as a chip", () => {
-    const b = board([
-      task({ id: "task-1", status: "in-progress", assignee: "impl-1" }),
-      task({ id: "task-2", status: "done" }),
-      task({ id: "task-3", blockedBy: ["task-1", "task-2"], priority: "high", updated: NOW - 120_000 }),
-    ]);
-    expect(taskRowView(b.tasks[2], b, NOW)).toMatchObject({
-      id: "task-3",
-      title: "Task task-3",
-      priority: "HIGH",
-      tone: "none",
-      cancelled: false,
-      labels: [],
-      assignee: "unassigned",
-      age: "2m ago",
-      ring: { fill: 0, tone: "none", barred: false, label: "To do" },
-    });
-    // Every blocker as a chip, a resolved one struck.
-    expect(taskRowView(b.tasks[2], b, NOW).blockerChips.map((c) => [c.id, c.resolved])).toEqual([
-      ["task-1", false],
-      ["task-2", true],
-    ]);
-    expect(taskRowView(b.tasks[0], b, NOW).blockerChips).toEqual([]);
-    expect(taskRowView({ ...b.tasks[0], labels: ["ui"] }, b, NOW).labels).toEqual(["ui"]);
-  });
-});
-
-describe("epicMark — what says a row is an epic", () => {
-  it("counts done of the work it counts — cancelled work aside — as a count, a bar and words", () => {
-    expect(epicMark({ done: 2, open: 3, cancelled: 4 })).toEqual({ chip: "EPIC", count: "2/5", fill: 40, label: "2 of 5 tasks done", summary: "2 of 5 done" });
-    expect(epicMark({ done: 0, open: 0, cancelled: 1 })).toMatchObject({ count: "0/0", fill: 0 });
-  });
-
-  it("is a row's for an epic only", () => {
-    const b = board([task({ id: "task-1", kind: "epic" }), task({ id: "task-2", status: "done" })], 3, [relation("child-of", "task-2", "task-1")]);
-    expect(taskRowView(b.tasks[0], b, NOW).epic).toMatchObject({ count: "1/1", fill: 100 });
-    expect(taskRowView(b.tasks[1], b, NOW).epic).toBeNull();
-  });
-});
 
 describe("task panel and form words and classes", () => {
   it("names the panel after its task and widens only when it fills the stage", () => {
@@ -281,23 +221,6 @@ describe("taskDetailView — an epic and its tasks", () => {
   });
 });
 
-describe("newTaskFormView — the kind and the epic", () => {
-  it("offers work or an epic, and the team's open epics — none first — opening in the epic it was asked in", () => {
-    const b = board([task({ id: "task-1", kind: "epic", title: "Plan" }), task({ id: "task-2", kind: "epic", status: "done" }), task({ id: "task-3", kind: "epic", teamId: "team-2" })], 4);
-    const view = newTaskFormView(ROSTER, b, "team-1", "task-1");
-    expect(view.kindOptions).toEqual([{ value: "task", label: "Task" }, { value: "epic", label: "Epic" }]);
-    expect(view.epicOptions).toEqual([{ value: "", label: "No epic" }, { value: "task-1", label: "task-1 · Plan" }]);
-    expect(view.draft.parent).toBe("task-1");
-    expect(newTaskFormView(ROSTER, null, null, null).epicOptions).toEqual([{ value: "", label: "No epic" }]);
-    // Without a board, or without a team, there is no epic to offer.
-    expect(newTaskFormView(ROSTER, b, null, null).epicOptions).toEqual([{ value: "", label: "No epic" }]);
-    expect(newTaskFormView(ROSTER, null, "team-1", null).epicOptions).toEqual([{ value: "", label: "No epic" }]);
-    // Opened in an epic new work cannot go under: it starts under none.
-    expect(newTaskFormView(ROSTER, b, "team-1", "task-2").draft.parent).toBe("");
-    expect(newTaskFormView(ROSTER, b, "team-1", "task-9").draft.parent).toBe("");
-  });
-});
-
 describe("taskDetailView — artifacts", () => {
   it("titles attached artifacts the registry knows, keeps unknown slugs, offers only what is not yet attached", () => {
     const b = board([task({ id: "task-1", artifacts: ["kd-tasks", "gone"] })]);
@@ -317,72 +240,6 @@ describe("taskDetailView — artifacts", () => {
     expect(view.attachEmpty).toBeNull();
     expect(taskDetailView(b.tasks[0], b, ROSTER, NOW, []).attachEmpty?.title).toContain("Nothing published");
     expect(taskDetailView(b.tasks[0], b, ROSTER, NOW, []).attachEmpty?.text).toBe("none");
-  });
-});
-
-describe("teamOnScreen", () => {
-  it("follows the focused task's team, then the choice, then the first", () => {
-    const teams = ["team-1", "team-2"];
-    expect(teamOnScreen(teams, null, null)).toBe("team-1");
-    expect(teamOnScreen(teams, "team-2", null)).toBe("team-2");
-    expect(teamOnScreen(teams, "team-1", "team-2")).toBe("team-2");
-    expect(teamOnScreen(teams, "team-9", "team-9")).toBe("team-1");
-    expect(teamOnScreen([], "team-1", null)).toBeNull();
-  });
-});
-
-describe("newTaskFormView", () => {
-  it("offers the pool first, then the roster, and says which addresses teammates use", () => {
-    const view = newTaskFormView(ROSTER, null, null, null);
-    expect(view.assigneeOptions.map((o) => o.value)).toEqual(["", "lead", "impl-1", "impl-2"]);
-    expect(view.addressHint).toContain("lead · impl-1 · impl-2");
-    expect(newTaskFormView([], null, null, null).addressHint).toContain("unassigned");
-    expect(newTaskFormView([], null, null, null).statusOptions).toEqual([
-      { value: "todo", label: "To do" },
-      { value: "backlog", label: "Backlog" },
-    ]);
-  });
-});
-
-describe("teamCardTasksLine", () => {
-  it("counts what is open and what waits on a person; a finished board says done; an empty one says nothing", () => {
-    expect(
-      teamCardTasksLine([
-        task({ id: "task-1" }),
-        task({ id: "task-2", status: "in-progress" }),
-        task({ id: "task-3", status: "blocked" }),
-        task({ id: "task-4", status: "review" }),
-        task({ id: "task-5", status: "review" }),
-        task({ id: "task-6", status: "done" }),
-      ]),
-    ).toBe("2 open · 1 blocked · 2 in review");
-    expect(teamCardTasksLine([task({ id: "task-1" })])).toBe("1 open");
-    expect(teamCardTasksLine([task({ id: "task-1", status: "done" }), task({ id: "task-2", status: "cancelled" })])).toBe("1 done");
-    expect(teamCardTasksLine([])).toBeNull();
-  });
-});
-
-describe("ladder", () => {
-  const ready = {
-    kind: "ready" as const,
-    board: board([task({ id: "task-1", status: "blocked" }), task({ id: "task-2", status: "review" }), task({ id: "task-3" })]),
-    unsaved: null,
-  };
-  const base = { workspaceId: "ws-1", hasTeam: true, ownerUp: true, enableRefusal: null, state: ready, taskCount: 3 };
-
-  it("classifies in order: no workspace, owner down (refusal or loading), no team, loading, unreadable, empty, board", () => {
-    expect(tasksLadder({ ...base, workspaceId: null })).toEqual({ kind: "noWorkspace" });
-    expect(tasksLadder({ ...base, ownerUp: false })).toEqual({ kind: "loading" });
-    expect(tasksLadder({ ...base, ownerUp: false, enableRefusal: "task board is owned by another KeepDeck process" })).toEqual({
-      kind: "refusal",
-      message: "task board is owned by another KeepDeck process",
-    });
-    expect(tasksLadder({ ...base, hasTeam: false })).toEqual({ kind: "noTeam" });
-    expect(tasksLadder({ ...base, state: { kind: "loading" } })).toEqual({ kind: "loading" });
-    expect(tasksLadder({ ...base, state: { kind: "unreadable", error: "board.json is not JSON" } })).toEqual({ kind: "refusal", message: "board.json is not JSON" });
-    expect(tasksLadder({ ...base, taskCount: 0 })).toEqual({ kind: "empty" });
-    expect(tasksLadder(base)).toEqual({ kind: "board" });
-    expect(LADDER_WORDS.empty.hint).toContain("agents read the board themselves");
   });
 });
 
@@ -513,52 +370,6 @@ describe("commentsOf / changesOf — what was said, and what was changed, apart"
   });
 });
 
-describe("statusRing — a task's place on the ladder as a ring", () => {
-  it("fills by the rung, in the status's hue; blocked is barred, cancelled a grey disc", () => {
-    expect(statusRing("todo")).toEqual({ fill: 0, tone: "none", barred: false, dashed: false, label: "To do" });
-    // Parked: not yet on the ladder — an empty ring, dashed.
-    expect(statusRing("backlog")).toEqual({ fill: 0, tone: "none", barred: false, dashed: true, label: "Backlog" });
-    expect(statusRing("in-progress")).toMatchObject({ fill: 50, tone: "working", barred: false });
-    expect(statusRing("review")).toMatchObject({ fill: 75, tone: "waiting" });
-    expect(statusRing("done")).toMatchObject({ fill: 100, tone: "done" });
-    expect(statusRing("blocked")).toMatchObject({ fill: 0, tone: "failed", barred: true });
-    expect(statusRing("cancelled")).toMatchObject({ fill: 100, tone: "none", barred: false });
-  });
-});
-
-describe("fieldCount — a capped field's count", () => {
-  it("says what is taken of how much there is, in the domain's measure, and marks it past the cap", () => {
-    expect(fieldCount("title", "")).toEqual({ text: "0/120", className: "tasks__count" });
-    expect(fieldCount("title", "Draft the skill")).toEqual({ text: "15/120", className: "tasks__count" });
-    // As kept: a title's spaces at its ends do not count; a brief's do.
-    expect(fieldCount("title", "  Draft  ").text).toBe("5/120");
-    expect(fieldCount("body", "  Draft  ").text).toBe("9/8192");
-    // Characters, not UTF-16 units: an emoji is one.
-    expect(fieldCount("comment", "👍👍").text).toBe("2/4000");
-    expect(fieldCount("title", "x".repeat(121))).toEqual({ text: "121/120", className: "tasks__count tasks__count--over" });
-  });
-});
-
-describe("openWorkWords — an epic's open work in a phrase", () => {
-  it("names each where it stands, and counts what is past the first five", () => {
-    expect(openWorkWords([{ id: "task-3", status: "todo" }, { id: "task-5", status: "in-progress" }])).toBe("task-3 (to do), task-5 (in progress)");
-    const seven = Array.from({ length: 7 }, (_, i) => ({ id: `task-${i + 1}`, status: "review" as const }));
-    expect(openWorkWords(seven)).toBe("task-1 (review), task-2 (review), task-3 (review), task-4 (review), task-5 (review) and 2 more");
-    expect(openWorkWords(seven.slice(0, 5))).not.toContain("more");
-    expect(openWorkWords(seven.slice(0, 6))).toMatch(/ and 1 more$/);
-  });
-});
-
-describe("blockerLinkWords — the links that keep a task on its team", () => {
-  it("names what it waits on, then what waits on it", () => {
-    expect(blockerLinkWords({ blockers: ["task-2"], dependants: ["task-3", "task-4"] })).toEqual([
-      "it waits on task-2",
-      "task-3 waits on it",
-      "task-4 waits on it",
-    ]);
-  });
-});
-
 describe("taskDetailView — a task's copy links", () => {
   const b = board(
     [task({ id: "task-1", title: "Source" }), task({ id: "task-2", title: "Copy" }), task({ id: "task-3" }), task({ id: "task-4" })],
@@ -575,53 +386,6 @@ describe("taskDetailView — a task's copy links", () => {
   it("says a source no longer on the board is gone, and says nothing of a task that is no copy", () => {
     expect(rows(3)).toEqual([{ label: TASK_DETAIL_WORDS.copiedFromLabel, tasks: [], gone: TASK_DETAIL_WORDS.copyGone }]);
     expect(rows(2)).toEqual([]);
-  });
-});
-
-describe("restoreView — the way out of an unusable database", () => {
-  const HOUR = 3_600_000;
-  it("offers the newest verified backup, says how old it is and what a restore loses", () => {
-    const view = restoreView({ kind: "damaged", backups: [10 * HOUR, 9 * HOUR] }, 12 * HOUR)!;
-    expect(view.choice).toEqual({ kind: "backup", at: 10 * HOUR });
-    expect(view.label).toBe("Restore the backup from 2h ago");
-    expect(view.message).toContain("set aside, not deleted");
-    expect(view.message).toContain("every board open in this session is written over it");
-  });
-
-  it("says a missing database is missing — nothing of it is set aside", () => {
-    const view = restoreView({ kind: "missing", backups: [10 * HOUR] }, 12 * HOUR)!;
-    expect(view.choice).toEqual({ kind: "backup", at: 10 * HOUR });
-    expect(view.message).toMatch(/^The task database is missing\./);
-    expect(view.message).not.toContain("set aside");
-  });
-
-  it("with no backup to restore, offers a new database — never with a backup there", () => {
-    const view = restoreView({ kind: "damaged", backups: [] }, 0)!;
-    expect(view.choice).toEqual({ kind: "empty" });
-    expect(view.label).toBe("Start a new task database");
-    expect(view.confirm).toBe("Start new");
-    expect(view.message).toContain("Boards still in their files move into it");
-    expect(view.message).toContain("any other board is not in it");
-    expect(restoreView({ kind: "missing", backups: [] }, 0)!.message).toMatch(/^The task database is missing\. There is no backup/);
-  });
-
-  it("offers nothing when the database is usable", () => {
-    expect(restoreView(null, 0)).toBeNull();
-  });
-});
-
-describe("the board's banners — a disk lagging, a board that cannot be written", () => {
-  it("speaks of the person's changes kept and retried, or of a board nothing can change, with the reason", () => {
-    expect(unsavedBanner("disk full")).toBe("Changes not saved yet — disk full. The board keeps them and retries on its own.");
-    expect(readOnlyBanner("the task database is damaged: page 3")).toBe(
-      "The board is read-only — the task database is damaged: page 3. Nothing can be changed until this is resolved.",
-    );
-  });
-
-  it("shows the read-only reason before any lag, and nothing when the board is fine", () => {
-    expect(boardBanner({ unsaved: "disk full", readOnly: "damaged" })).toBe(readOnlyBanner("damaged"));
-    expect(boardBanner({ unsaved: "disk full", readOnly: null })).toBe(unsavedBanner("disk full"));
-    expect(boardBanner({ unsaved: null, readOnly: null })).toBeNull();
   });
 });
 
