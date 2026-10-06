@@ -11,11 +11,18 @@ describe("migrationLines — the move, board by board, in the log", () => {
           { workspace: "ws-5", attached: true, adapted: true },
           { workspace: "ws-9", attached: false, adapted: false },
         ],
+        retireError: null,
       }),
     ).toEqual([
       { level: "info", text: "board of ws-1 moved into the task database" },
       { level: "info", text: "board of ws-5 moved into the task database, adapted from an older shape" },
       { level: "warn", text: "board of ws-9 moved into the task database UNATTACHED — the deck has no such workspace; kept, shown nowhere" },
+    ]);
+  });
+
+  it("warns when the files left could not all become copies — the boards moved all the same", () => {
+    expect(migrationLines({ kind: "active", moved: [], retireError: "the disk refused: ws-1" })).toEqual([
+      { level: "warn", text: "the board files left could not all become copies (tried again at the next enable): the disk refused: ws-1" },
     ]);
   });
 

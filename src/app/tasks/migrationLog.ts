@@ -14,12 +14,19 @@ export function migrationLines(outcome: MigrationOutcome): { level: "info" | "wa
   if (outcome.kind === "unusable") {
     return [{ level: "warn", text: `the task database cannot be used (${outcome.status.kind}) — the boards are read-only` }];
   }
-  return outcome.moved.map((board) => ({
-    level: board.attached ? "info" : "warn",
-    text: board.attached
-      ? `board of ${board.workspace} moved into the task database${board.adapted ? ", adapted from an older shape" : ""}`
-      : `board of ${board.workspace} moved into the task database UNATTACHED — the deck has no such workspace; kept, shown nowhere`,
-  }));
+  const lines: { level: "info" | "warn"; text: string }[] = [];
+  if (outcome.retireError !== null) {
+    lines.push({ level: "warn", text: `the board files left could not all become copies (tried again at the next enable): ${outcome.retireError}` });
+  }
+  for (const board of outcome.moved) {
+    lines.push({
+      level: board.attached ? "info" : "warn",
+      text: board.attached
+        ? `board of ${board.workspace} moved into the task database${board.adapted ? ", adapted from an older shape" : ""}`
+        : `board of ${board.workspace} moved into the task database UNATTACHED — the deck has no such workspace; kept, shown nowhere`,
+    });
+  }
+  return lines;
 }
 
 export function logMigration(outcome: MigrationOutcome): void {

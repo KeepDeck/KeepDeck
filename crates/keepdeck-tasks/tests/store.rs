@@ -654,7 +654,8 @@ fn a_missing_or_damaged_database_with_no_backup_is_started_empty_by_the_person_o
     let mut store = Store::open(dir.path()).unwrap();
     assert_eq!(store.status().unwrap(), StoreStatus::Damaged { detail: store.load("b1").unwrap_err().to_string(), backups: vec![] });
     store.start_empty(5).unwrap();
-    assert_eq!(store.status().unwrap(), StoreStatus::Ready { migration: MigrationState::Active });
+    // A new database, no move yet: what is still in files moves next.
+    assert_eq!(store.status().unwrap(), StoreStatus::Ready { migration: MigrationState::None });
     assert_eq!(store.load_all().unwrap(), vec![]);
     assert_eq!(std::fs::read(dir.path().join("tasks.db.damaged-5")).unwrap(), garbage);
     drop(store);
@@ -663,7 +664,7 @@ fn a_missing_or_damaged_database_with_no_backup_is_started_empty_by_the_person_o
     let mut store = Store::open(dir.path()).unwrap();
     assert!(matches!(store.status().unwrap(), StoreStatus::Missing { backups, .. } if backups.is_empty()));
     store.start_empty(6).unwrap();
-    assert_eq!(store.status().unwrap(), StoreStatus::Ready { migration: MigrationState::Active });
+    assert_eq!(store.status().unwrap(), StoreStatus::Ready { migration: MigrationState::None });
     // A healthy one is not started over.
     assert!(matches!(store.start_empty(7), Err(StoreError::Invalid { .. })));
 }

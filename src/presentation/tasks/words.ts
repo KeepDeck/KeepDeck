@@ -173,10 +173,10 @@ export function restoreView(recovery: Recovery | null, now: number): RestoreView
   if (at === undefined) {
     return {
       choice: { kind: "empty" },
-      label: "Start an empty task database",
-      title: "Start an empty task database?",
-      message: `${lost} There is no backup to restore: an empty database takes its place, and every board open in this session is written into it. Boards not open now are not in it.`,
-      confirm: "Start empty",
+      label: "Start a new task database",
+      title: "Start a new task database?",
+      message: `${lost} There is no backup to restore: a new database takes its place. Boards still in their files move into it, and every board open in this session is written into it; any other board is not in it.`,
+      confirm: "Start new",
       cancel: "Cancel",
     };
   }

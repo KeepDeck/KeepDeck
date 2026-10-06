@@ -47,7 +47,10 @@ describe("migrateBoards — every board at once, nothing lost", () => {
         { workspace: "ws-1", attached: true, adapted: false },
         { workspace: "ws-2", attached: true, adapted: false },
       ],
+      retireError: null,
     });
+    // The files are copies now.
+    expect(db.legacy()).toEqual([]);
     expect(db.migration()).toBe("active");
     // Field for field what the files held.
     expect(encodeBoard(held(db, "ws-1"))).toBe(one);
@@ -56,11 +59,14 @@ describe("migrateBoards — every board at once, nothing lost", () => {
     expect(db.legacy()).toEqual([]);
   });
 
-  it("does nothing once moved", async () => {
+  it("moves nothing once moved — and finishes making the files left copies", async () => {
     const db = testDatabase([file("ws-1", encodeBoard(current()))]);
-    await migrateBoards(db.port, deps());
-    db.setLegacy([file("ws-1", "{}")]);
-    expect(await migrateBoards(db.port, deps())).toEqual({ kind: "active", moved: [] });
+    db.refuseNextRetire({ code: "io", detail: "rename refused" });
+    // The move stands though the files could not become copies this time.
+    expect(await migrateBoards(db.port, deps())).toMatchObject({ kind: "active", retireError: JSON.stringify({ code: "io", detail: "rename refused" }) });
+    expect(db.legacy().length).toBe(1);
+    expect(await migrateBoards(db.port, deps())).toEqual({ kind: "active", moved: [], retireError: null });
+    expect(db.legacy()).toEqual([]);
   });
 
   it("adapts an old board — before relations and brief versions — into the current shape, every brief kept", async () => {
@@ -92,7 +98,7 @@ describe("migrateBoards — every board at once, nothing lost", () => {
   it("keeps a board whose workspace the deck no longer has — unattached, and says so", async () => {
     const db = testDatabase([file("ws-9", written(current()))]);
     const outcome = await migrateBoards(db.port, deps(["ws-1"]));
-    expect(outcome).toEqual({ kind: "active", moved: [{ workspace: "ws-9", attached: false, adapted: false }] });
+    expect(outcome).toEqual({ kind: "active", moved: [{ workspace: "ws-9", attached: false, adapted: false }], retireError: null });
     expect(db.boards()[0].workspace).toBeNull();
   });
 
@@ -112,6 +118,16 @@ describe("migrateBoards — every board at once, nothing lost", () => {
     expect(outcome.kind).toBe("failed");
     expect(db.migration()).toBe("none");
     expect(db.boards()).toEqual([]);
+  });
+
+  it("throws the import away when the activation is refused: the files stay the source", async () => {
+    const db = testDatabase([file("ws-1", encodeBoard(current()))]);
+    db.refuseNextActivate({ code: "diskFull" });
+    const outcome = await migrateBoards(db.port, deps());
+    expect(outcome).toEqual({ kind: "failed", reason: `activating the boards in the database: ${JSON.stringify({ code: "diskFull" })}` });
+    expect(db.migration()).toBe("none");
+    expect(db.boards()).toEqual([]);
+    expect(db.legacy().length).toBe(1);
   });
 
   it("starts over a move cut short between import and activation", async () => {

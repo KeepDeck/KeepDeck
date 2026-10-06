@@ -75,9 +75,14 @@ export async function tasksMigrationSources(): Promise<MigrationSource[]> {
   return await invoke<MigrationSource[]>("tasks_migration_sources");
 }
 
-/** The database becomes the source; every board.json becomes its board.pre-db.json copy. */
+/** The database becomes the source. */
 export async function tasksActivateMigration(): Promise<void> {
   await invoke("tasks_activate_migration");
+}
+
+/** Every board.json left becomes its board.pre-db.json copy — once the database is the source. */
+export async function tasksRetireLegacy(): Promise<void> {
+  await invoke("tasks_retire_legacy");
 }
 
 export async function tasksDiscardMigration(): Promise<void> {
@@ -88,7 +93,7 @@ export async function tasksRestoreBackup(at: number): Promise<void> {
   await invoke("tasks_restore_backup", { at });
 }
 
-/** No backup to restore: an empty database takes the place of the one lost. */
+/** No backup to restore: a new database takes the place of the one lost. */
 export async function tasksStartEmpty(): Promise<void> {
   await invoke("tasks_start_empty");
 }

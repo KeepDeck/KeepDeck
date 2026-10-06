@@ -28,14 +28,18 @@ export interface MigrationPort {
   legacyBoards(): Promise<LegacyBoard[]>;
   import(boards: StoredBoard[], sources: MigrationSource[]): Promise<void>;
   loadAll(): Promise<StoredBoard[]>;
-  /** The database becomes the source; the files become copies. */
+  /** The database becomes the source. */
   activate(): Promise<void>;
+  /** Once it is: every board file left becomes its copy. */
+  retireLegacy(): Promise<void>;
   discard(): Promise<void>;
 }
 
 export type MigrationOutcome =
-  /** The boards live in the database — moved earlier, or just now. */
-  | { kind: "active"; moved: readonly MovedBoard[] }
+  /** The boards live in the database — moved earlier, or just now.
+   * `retireError`: the files left could not all become copies this time
+   * (asked again at the next enable); nothing of the boards depends on it. */
+  | { kind: "active"; moved: readonly MovedBoard[]; retireError: string | null }
   /** Nothing switched: the files are still the source, and why. */
   | { kind: "failed"; reason: string }
   /** The database cannot be used at all (damaged, or a newer build's). */
@@ -59,7 +63,7 @@ export interface MigrationDeps {
 export async function migrateBoards(port: MigrationPort, deps: MigrationDeps): Promise<MigrationOutcome> {
   const status = await port.status();
   if (status.kind !== "ready") return { kind: "unusable", status };
-  if (status.migration === "active") return { kind: "active", moved: [] };
+  if (status.migration === "active") return { kind: "active", moved: [], retireError: await retire(port) };
   // A move cut short (the app closed between import and activation): the
   // files are still the source, so it starts over from them.
   if (status.migration === "pending") await port.discard();
@@ -87,7 +91,12 @@ export async function migrateBoards(port: MigrationPort, deps: MigrationDeps): P
 
   // From here a failure throws the import away whole: the files stay the source.
   const abandon = async (reason: string): Promise<MigrationOutcome> => {
-    await port.discard();
+    try {
+      await port.discard();
+    } catch (e: unknown) {
+      // Still pending: the next enable throws it away and starts over.
+      return { kind: "failed", reason: `${reason}; throwing the import away: ${describe(e)}` };
+    }
     return { kind: "failed", reason };
   };
   const back = await port.loadAll();
@@ -105,11 +114,26 @@ export async function migrateBoards(port: MigrationPort, deps: MigrationDeps): P
     now.length === files.length && now.every((file) => sources.some((s) => s.workspace === file.workspace && s.checksum === file.checksum));
   if (!unchanged) return abandon("a board file changed while it was being moved — the move starts over at the next launch");
 
-  await port.activate();
+  try {
+    await port.activate();
+  } catch (e: unknown) {
+    return abandon(`activating the boards in the database: ${describe(e)}`);
+  }
   return {
     kind: "active",
     moved: read.map(({ file, adapted }) => ({ workspace: file.workspace, attached: known.has(file.workspace), adapted })),
+    retireError: await retire(port),
   };
+}
+
+/** Make every board file left a copy; why not, when it could not. */
+async function retire(port: MigrationPort): Promise<string | null> {
+  try {
+    await port.retireLegacy();
+    return null;
+  } catch (e: unknown) {
+    return describe(e);
+  }
 }
 
 /**

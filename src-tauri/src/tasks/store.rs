@@ -162,7 +162,8 @@ impl TasksStore {
 
     /// After the migration is active: every `board.json` becomes its
     /// `board.pre-db.json` copy — the files stop being a source. A copy
-    /// already there is the first one, and stays.
+    /// already there (a retire cut short after it) is the first one, and
+    /// stays. Nothing left: nothing to do.
     pub fn retire_legacy(&self) -> Result<(), String> {
         let boards = self.legacy_boards()?;
         for board in boards {
@@ -326,8 +327,7 @@ mod tests {
         assert!(!dir.path().join("tasks/ws/ws-1/board.json").exists());
         assert_eq!(std::fs::read_to_string(dir.path().join("tasks/ws/ws-1/board.pre-db.json")).unwrap(), "one");
         assert_eq!(store.legacy_boards().unwrap(), vec![]);
-        // An older build wrote a new file; retired again, the first copy stays.
-        put(&dir, "ws-1", "later");
+        // Asked again with nothing left: nothing happens.
         store.retire_legacy().unwrap();
         assert_eq!(std::fs::read_to_string(dir.path().join("tasks/ws/ws-1/board.pre-db.json")).unwrap(), "one");
     }

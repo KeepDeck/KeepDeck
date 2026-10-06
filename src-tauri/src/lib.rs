@@ -203,6 +203,7 @@ pub fn run() {
             tasks::tasks_import,
             tasks::tasks_migration_sources,
             tasks::tasks_activate_migration,
+            tasks::tasks_retire_legacy,
             tasks::tasks_discard_migration,
             tasks::tasks_restore_backup,
             tasks::tasks_start_empty,

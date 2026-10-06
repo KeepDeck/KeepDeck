@@ -122,30 +122,37 @@ export function createDbBoardStore(deps: DbBoardStoreDeps): DbBoardStore {
     accept(place, applied, change, target);
   };
 
+  /** Where the database stands, settled: the boards moved into it (or
+   * moved earlier), or the reason nothing can be written. Every board is
+   * read from it afresh after. */
+  const settle = async () => {
+    confirmed.clear();
+    fallback = null;
+    const outcome = await migrateBoards(deps.db, { workspaces: deps.workspaces(), mintUid: deps.mintUid });
+    deps.onMigration?.(outcome);
+    recovery = outcome.kind === "unusable" ? recoveryOf(outcome.status) : null;
+    if (outcome.kind === "active") {
+      readOnly = null;
+      return;
+    }
+    readOnly = migrationRefusalText(outcome);
+    if (outcome.kind === "failed") {
+      // Still the source: read, never written.
+      fallback = new Map();
+      for (const file of await deps.db.legacyBoards()) {
+        const decoded = decodeBoard(file.json, deps.mintUid);
+        fallback.set(
+          file.workspace,
+          decoded.ok ? { kind: "board", board: decoded.board } : { kind: "unreadable", error: decodeFaultText(decoded.fault) },
+        );
+      }
+    }
+  };
+
   return {
     async enable() {
       await deps.db.enable();
-      confirmed.clear();
-      fallback = null;
-      const outcome = await migrateBoards(deps.db, { workspaces: deps.workspaces(), mintUid: deps.mintUid });
-      deps.onMigration?.(outcome);
-      recovery = outcome.kind === "unusable" ? recoveryOf(outcome.status) : null;
-      if (outcome.kind === "active") {
-        readOnly = null;
-        return;
-      }
-      readOnly = migrationRefusalText(outcome);
-      if (outcome.kind === "failed") {
-        // Still the source: read, never written.
-        fallback = new Map();
-        for (const file of await deps.db.legacyBoards()) {
-          const decoded = decodeBoard(file.json, deps.mintUid);
-          fallback.set(
-            file.workspace,
-            decoded.ok ? { kind: "board", board: decoded.board } : { kind: "unreadable", error: decodeFaultText(decoded.fault) },
-          );
-        }
-      }
+      await settle();
     },
     async disable() {
       confirmed.clear();
@@ -202,11 +209,9 @@ export function createDbBoardStore(deps: DbBoardStoreDeps): DbBoardStore {
     async restore(choice) {
       if (choice.kind === "backup") await deps.db.restoreBackup(choice.at);
       else await deps.db.startEmpty();
-      // The database is whole again, and holds the backup's boards (or
-      // none): every board is read from it afresh before the next write.
-      confirmed.clear();
-      recovery = null;
-      readOnly = null;
+      // The database is whole again — the backup's boards, or a new one
+      // that boards still in their files move into, as at enable.
+      await settle();
     },
     revisions(workspaceId) {
       const place = confirmed.get(workspaceId);

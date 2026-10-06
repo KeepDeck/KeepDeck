@@ -485,12 +485,13 @@ describe("restoreView — the way out of an unusable database", () => {
     expect(view.message).not.toContain("set aside");
   });
 
-  it("with no backup to restore, offers an empty database — never with a backup there", () => {
+  it("with no backup to restore, offers a new database — never with a backup there", () => {
     const view = restoreView({ kind: "damaged", backups: [] }, 0)!;
     expect(view.choice).toEqual({ kind: "empty" });
-    expect(view.label).toBe("Start an empty task database");
-    expect(view.confirm).toBe("Start empty");
-    expect(view.message).toContain("Boards not open now are not in it");
+    expect(view.label).toBe("Start a new task database");
+    expect(view.confirm).toBe("Start new");
+    expect(view.message).toContain("Boards still in their files move into it");
+    expect(view.message).toContain("any other board is not in it");
     expect(restoreView({ kind: "missing", backups: [] }, 0)!.message).toMatch(/^The task database is missing\. There is no backup/);
   });
 

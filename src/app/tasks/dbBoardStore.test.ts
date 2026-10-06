@@ -134,6 +134,19 @@ describe("createDbBoardStore — the board reaches the database", () => {
     expect(db.boards().map((b) => b.workspace)).toEqual(["ws-1"]);
   });
 
+  it("a new database started in a missing one's place takes in the boards still in their files", async () => {
+    const files = [file("ws-1", encodeBoard(board([task({ id: "task-1" })], 2)))];
+    const db = testDatabase(files);
+    db.setStatus({ kind: "missing", detail: "a copy of it set aside is still there", backups: [] });
+    const store = createDbBoardStore({ db: db.port, workspaces: () => ["ws-1"], mintUid: mintSequence("uid-s-"), isStoreError: isTestStoreError });
+    await store.enable();
+    expect(db.legacy().length).toBe(1);
+    await store.restore({ kind: "empty" });
+    expect(db.migration()).toBe("active");
+    expect((await readBoard(store)).tasks.map((t) => t.id)).toEqual(["task-1"]);
+    expect(db.legacy()).toEqual([]);
+  });
+
   it("learns a database gone missing from a refusal, as it learns damage", async () => {
     const { db, store } = await open();
     const b = await readBoard(store);

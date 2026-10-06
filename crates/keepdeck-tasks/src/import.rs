@@ -115,12 +115,6 @@ pub fn discard(conn: &mut SqliteConnection) -> Result<()> {
     })
 }
 
-/// Mark a database the person started empty as the source: nothing is
-/// left to move into it.
-pub fn mark_active(conn: &mut SqliteConnection) -> Result<()> {
-    meta::set(conn, STATE_KEY, "active")
-}
-
 /// Write boards whole into an empty database. Every refusal says what and
 /// where.
 fn write_boards(conn: &mut SqliteConnection, boards_in: &[StoredBoard]) -> Result<()> {

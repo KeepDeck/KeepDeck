@@ -267,15 +267,15 @@ impl Store {
         self.replace_with(&staged, now_ms)
     }
 
-    /// Start over with an empty database — the person's choice when there
-    /// is no backup to restore. What was there goes aside, never deleted;
-    /// the boards held in the session are written into it after.
+    /// Start over with a new database — the person's choice when there is
+    /// no backup to restore. What was there goes aside, never deleted. The
+    /// new one has had no move yet: boards still in their files move into
+    /// it, and the boards held in the session are written into it after.
     pub fn start_empty(&mut self, now_ms: i64) -> Result<()> {
         self.require_restorable()?;
         let staged = db::staged_path(&self.db_path());
         db::stage(&staged, |path| {
             let mut conn = db::open(path)?;
-            import::mark_active(&mut conn)?;
             db::checkpoint(&mut conn)
         })?;
         self.replace_with(&staged, now_ms)

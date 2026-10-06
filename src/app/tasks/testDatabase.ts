@@ -34,6 +34,10 @@ export function testDatabase(files: LegacyBoard[] = []) {
   const backups = new Map<number, StoredBoard[]>();
   /** What the import stores, in place of what it was given — a database that loses a row. */
   let tamper = (incoming: StoredBoard[]) => incoming;
+  /** What the next retire of the files refuses with. */
+  let retireFault: StoreError | null = null;
+  /** What the next activation refuses with. */
+  let activateFault: StoreError | null = null;
   const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
   const applyBoard = (change: ChangeSet["boards"][number]) => {
@@ -92,8 +96,17 @@ export function testDatabase(files: LegacyBoard[] = []) {
     },
     loadAll: async () => clone(boards),
     activate: async () => {
+      const fault = activateFault;
+      activateFault = null;
+      if (fault !== null) throw fault;
       migration = "active";
       sources = [];
+    },
+    retireLegacy: async () => {
+      if (migration !== "active") throw { code: "invalid", detail: "not moved yet" } satisfies StoreError;
+      const fault = retireFault;
+      retireFault = null;
+      if (fault !== null) throw fault;
       legacy = [];
     },
     discard: async () => {
@@ -150,7 +163,7 @@ export function testDatabase(files: LegacyBoard[] = []) {
     },
     startEmpty: async () => {
       boards = [];
-      migration = "active";
+      migration = "none";
       status = null;
     },
   };
@@ -177,6 +190,12 @@ export function testDatabase(files: LegacyBoard[] = []) {
     /** Copy the boards as they are, as the backup taken at `at`. */
     takeBackup(at: number) {
       backups.set(at, clone(boards));
+    },
+    refuseNextActivate(error: StoreError) {
+      activateFault = error;
+    },
+    refuseNextRetire(error: StoreError) {
+      retireFault = error;
     },
     onImport(fn: () => void) {
       duringImport = fn;

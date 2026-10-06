@@ -11,7 +11,9 @@ use tauri::State;
 
 pub use store::TasksStore;
 
-use keepdeck_tasks::{Applied, ChangeSet, LegacyBoard, MigrationSource, SearchHit, StoreError, StoreStatus, StoredBoard};
+use keepdeck_tasks::{
+    Applied, ChangeSet, LegacyBoard, MigrationSource, MigrationState, SearchHit, StoreError, StoreStatus, StoredBoard,
+};
 
 pub struct TasksState {
     store: TasksStore,
@@ -120,11 +122,21 @@ pub fn tasks_migration_sources(state: State<TasksState>) -> Result<Vec<Migration
     state.store.with_db(|db| db.migration_sources())
 }
 
-/// The import read back equal: the database becomes the source, and the
-/// files become `board.pre-db.json` copies.
+/// The import read back equal: the database becomes the source.
 #[tauri::command(async)]
 pub fn tasks_activate_migration(state: State<TasksState>) -> Result<(), StoreError> {
-    state.store.with_db(|db| db.activate_migration())?;
+    state.store.with_db(|db| db.activate_migration())
+}
+
+/// The database is the source: every board file left becomes its
+/// `board.pre-db.json` copy. Asked after the activation and at every
+/// enable while active, so a retire cut short (a crash, a refused rename)
+/// is finished by the next.
+#[tauri::command(async)]
+pub fn tasks_retire_legacy(state: State<TasksState>) -> Result<(), StoreError> {
+    if state.store.with_db(|db| db.migration_state())? != MigrationState::Active {
+        return Err(StoreError::Invalid { detail: "the boards have not moved to the database yet".into() });
+    }
     state.store.retire_legacy().map_err(|detail| StoreError::Io { detail })
 }
 
