@@ -151,7 +151,7 @@ pub fn load(conn: &mut SqliteConnection, board: &str) -> Result<StoredBoard> {
         .load(conn)?;
 
     if let Some(task) = out.iter().find(|task| task.key.is_empty()) {
-        return Err(StoreError::Corrupt { detail: format!("task {} has no current address on board {board}", task.uid) });
+        return Err(StoreError::Inconsistent { board: board.to_string(), detail: format!("task {} has no current address", task.uid) });
     }
     Ok(StoredBoard {
         board: stored.board,

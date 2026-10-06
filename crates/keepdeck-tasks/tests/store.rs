@@ -308,6 +308,26 @@ fn a_task_leaves_its_board_only_in_a_change_that_names_that_board() {
 }
 
 #[test]
+fn one_board_that_does_not_hold_together_leaves_the_others_and_the_backups_working() {
+    use diesel::prelude::*;
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(dir.path()).unwrap();
+    store.import(&[board("b1", Some("ws-1"), vec![task("u1", "task-1")]), board("b2", Some("ws-2"), vec![task("u2", "task-1")])], &[]).unwrap();
+    store.activate_migration().unwrap();
+    drop(store);
+    let mut conn = diesel::SqliteConnection::establish(&dir.path().join("tasks.db").to_string_lossy()).unwrap();
+    diesel::sql_query("DELETE FROM task_keys WHERE uid = 'u1'").execute(&mut conn).unwrap();
+    drop(conn);
+    let mut store = Store::open(dir.path()).unwrap();
+    assert!(matches!(store.load("b1"), Err(StoreError::Inconsistent { board, .. }) if board == "b1"));
+    // The database is sound: the other board reads and writes, backups go on.
+    assert_eq!(store.load("b2").unwrap().tasks.len(), 1);
+    store.apply(&change("r1", vec![board_change("b2", 0, 2, vec![])])).unwrap();
+    assert!(matches!(store.status().unwrap(), StoreStatus::Ready { .. }));
+    assert!(store.backup_if_due(1).unwrap().is_some());
+}
+
+#[test]
 fn a_change_over_several_boards_lands_whole_or_not_at_all() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = active_store(dir.path());

@@ -79,6 +79,8 @@ export function storeErrorText(error: StoreError): string {
       return `the change does not fit the stored board: ${error.detail}`;
     case "conflict":
       return "the board changed in the database meanwhile — it was read again";
+    case "inconsistent":
+      return `board ${error.board} does not hold together in the task database: ${error.detail}`;
     case "corrupt":
       return `the task database is damaged: ${error.detail}`;
     case "missing":

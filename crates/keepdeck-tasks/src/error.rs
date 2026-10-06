@@ -27,6 +27,10 @@ pub enum StoreError {
         #[ts(type = "number")]
         rev: i64,
     },
+    /// One board's rows break the store's own invariants (a task with no
+    /// current address): that board is not read. The database is sound —
+    /// every other board reads and writes on.
+    Inconsistent { board: String, detail: String },
     /// The database is damaged. Nothing is written until the person
     /// restores it.
     Corrupt { detail: String },
@@ -59,6 +63,7 @@ impl std::fmt::Display for StoreError {
             StoreError::Io { detail } => write!(f, "the disk refused: {detail}"),
             StoreError::Constraint { detail } => write!(f, "the change does not fit the stored board: {detail}"),
             StoreError::Conflict { board, rev } => write!(f, "board {board} changed meanwhile (now at {rev})"),
+            StoreError::Inconsistent { board, detail } => write!(f, "board {board} does not hold together: {detail}"),
             StoreError::Corrupt { detail } => write!(f, "the task database is damaged: {detail}"),
             StoreError::Missing { detail } => write!(f, "the task database is missing, though {detail}"),
             StoreError::SchemaTooNew { migration } => {

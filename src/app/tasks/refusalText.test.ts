@@ -28,6 +28,9 @@ describe("the task database's refusals", () => {
   it("word every code — the retryable ones as what to wait for", () => {
     expect(storeErrorText({ code: "busy" })).toContain("another program");
     expect(storeErrorText({ code: "corrupt", detail: "page 3" })).toBe("the task database is damaged: page 3");
+    expect(storeErrorText({ code: "inconsistent", board: "b1", detail: "task u1 has no current address" })).toBe(
+      "board b1 does not hold together in the task database: task u1 has no current address",
+    );
     expect(storeErrorText({ code: "missing", detail: "a copy of it set aside is still there" })).toBe(
       "the task database is missing, though a copy of it set aside is still there",
     );
