@@ -85,12 +85,7 @@ pub fn due(dir: &Path, now_ms: i64, changed: bool) -> Result<bool> {
 /// so the store's writes are never held up — verify it, and only then let
 /// it into the set of three.
 pub fn take(db_path: &Path, dir: &Path, now_ms: i64) -> Result<Backup> {
-    std::fs::create_dir_all(dir).map_err(|e| StoreError::Io { detail: format!("creating {}: {e}", dir.display()) })?;
-    let tmp = dir.join(format!("{PREFIX}{now_ms}{SUFFIX}.tmp"));
-    let _ = std::fs::remove_file(&tmp);
-    let mut source = db::open_read_only(db_path)?;
-    diesel::sql_query("VACUUM INTO ?").bind::<Text, _>(tmp.to_string_lossy().into_owned()).execute(&mut source)?;
-    drop(source);
+    let tmp = snapshot(db_path, dir, &format!("{PREFIX}{now_ms}{SUFFIX}"))?;
     admit(&tmp, dir, now_ms)
 }
 
@@ -104,30 +99,41 @@ pub fn take_before(db_path: &Path, dir: &Path, migration: &str) -> Result<PathBu
     if path.exists() {
         return Ok(path);
     }
+    let tmp = snapshot(db_path, dir, &format!("{PRE_STEP}{migration}{SUFFIX}"))?;
+    verify(&tmp)?;
+    std::fs::rename(&tmp, &path).map_err(|e| StoreError::Io { detail: format!("placing the copy: {e}") })?;
+    Ok(path)
+}
+
+/// A consistent copy of the database at `db_path`, written beside `name`
+/// in `dir` as a `.tmp` — on a connection of its own, so the store's
+/// writes are never held up. Not yet checked: what it becomes is the
+/// caller's, once it passes (`verify`).
+fn snapshot(db_path: &Path, dir: &Path, name: &str) -> Result<PathBuf> {
     std::fs::create_dir_all(dir).map_err(|e| StoreError::Io { detail: format!("creating {}: {e}", dir.display()) })?;
-    let tmp = dir.join(format!("{PRE_STEP}{migration}{SUFFIX}.tmp"));
+    let tmp = dir.join(format!("{name}.tmp"));
     let _ = std::fs::remove_file(&tmp);
     let mut source = db::open_read_only(db_path)?;
     diesel::sql_query("VACUUM INTO ?").bind::<Text, _>(tmp.to_string_lossy().into_owned()).execute(&mut source)?;
     drop(source);
-    let verified = db::open_read_only(&tmp).and_then(|mut copy| db::quick_check(&mut copy));
-    if let Err(error) = verified {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(error);
+    Ok(tmp)
+}
+
+/// Whether a candidate copy passes the check — and, when it does not, it
+/// is removed: a bad copy is never kept as one.
+fn verify(candidate: &Path) -> Result<()> {
+    let verified = db::open_read_only(candidate).and_then(|mut copy| db::quick_check(&mut copy));
+    if verified.is_err() {
+        let _ = std::fs::remove_file(candidate);
     }
-    std::fs::rename(&tmp, &path).map_err(|e| StoreError::Io { detail: format!("placing the copy: {e}") })?;
-    Ok(path)
+    verified
 }
 
 /// Let a candidate copy into the set — only once it has passed the check
 /// itself. A candidate that fails is removed and the set is untouched:
 /// the oldest good copy is never pushed out by a bad one.
 pub fn admit(candidate: &Path, dir: &Path, at: i64) -> Result<Backup> {
-    let verified = db::open_read_only(candidate).and_then(|mut copy| db::quick_check(&mut copy));
-    if let Err(error) = verified {
-        let _ = std::fs::remove_file(candidate);
-        return Err(error);
-    }
+    verify(candidate)?;
     let path = dir.join(format!("{PREFIX}{at}{SUFFIX}"));
     std::fs::rename(candidate, &path).map_err(|e| StoreError::Io { detail: format!("placing the backup: {e}") })?;
     rotate(dir, at)?;

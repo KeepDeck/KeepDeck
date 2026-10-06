@@ -181,6 +181,25 @@ fn a_database_gone_with_only_its_copy_before_a_step_left_is_missing_not_new() {
 }
 
 #[test]
+fn the_copy_before_a_step_is_taken_once_and_kept_as_it_was() {
+    use diesel::connection::SimpleConnection;
+    use diesel::prelude::*;
+    let dir = tempfile::tempdir().unwrap();
+    at_first_schema(dir.path());
+    let db = dir.path().join("tasks.db");
+    let backups = dir.path().join(backup::BACKUP_DIR);
+    let copy = backup::take_before(&db, &backups, "20261007000002").unwrap();
+    let first = std::fs::read(&copy).unwrap();
+    // The database changes; the same step asks again: the copy is the one
+    // taken first, byte for byte.
+    let mut conn = diesel::SqliteConnection::establish(&db.to_string_lossy()).unwrap();
+    conn.batch_execute("UPDATE tasks SET title = 'Changed since'").unwrap();
+    drop(conn);
+    assert_eq!(backup::take_before(&db, &backups, "20261007000002").unwrap(), copy);
+    assert_eq!(std::fs::read(&copy).unwrap(), first);
+}
+
+#[test]
 fn a_step_that_fails_is_named_not_retried_as_the_disk_and_copied_once() {
     use diesel::connection::SimpleConnection;
     use diesel::prelude::*;
