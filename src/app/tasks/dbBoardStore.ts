@@ -35,6 +35,7 @@ export interface TaskDatabasePort extends MigrationPort {
   apply(change: ChangeSet): Promise<Applied>;
   drop(workspace: string): Promise<void>;
   search(query: string, boards: string[], limit: number): Promise<SearchHit[]>;
+  restoreBackup(at: number): Promise<void>;
 }
 
 export interface DbBoardStoreDeps {
@@ -66,6 +67,14 @@ export function createDbBoardStore(deps: DbBoardStoreDeps): DbBoardStore {
   let readOnly: string | null = BOARD_NOT_OPEN;
   /** The boards read from their files, when they could not move. */
   let fallback: Map<string, BoardRead> | null = null;
+  /** The database is damaged: the verified backups, newest first. */
+  let damaged: { backups: readonly number[] } | null = null;
+
+  /** Ask the database how it stands, after a refusal said it is damaged. */
+  const learnDamage = async () => {
+    const status = await deps.db.status();
+    if (status.kind === "damaged") damaged = { backups: status.backups };
+  };
 
   /** The database answered: the change is what it holds now. */
   const accept = (place: Confirmed, applied: Applied, change: ChangeSet, target: TaskBoard) => {
@@ -103,6 +112,7 @@ export function createDbBoardStore(deps: DbBoardStoreDeps): DbBoardStore {
       if (!deps.isStoreError(e)) throw e;
       place.pending = null;
       if (e.code === "corrupt" || e.code === "schemaTooNew") readOnly = storeErrorText(e);
+      if (e.code === "corrupt") await learnDamage();
       // Computed against a state the database no longer holds: read it
       // again, and the next write is computed against what is there.
       if (e.code === "conflict" || e.code === "constraint") await reread(workspace, place);
@@ -118,6 +128,7 @@ export function createDbBoardStore(deps: DbBoardStoreDeps): DbBoardStore {
       fallback = null;
       const outcome = await migrateBoards(deps.db, { workspaces: deps.workspaces(), mintUid: deps.mintUid });
       deps.onMigration?.(outcome);
+      damaged = outcome.kind === "unusable" && outcome.status.kind === "damaged" ? { backups: outcome.status.backups } : null;
       if (outcome.kind === "active") {
         readOnly = null;
         return;
@@ -158,8 +169,15 @@ export function createDbBoardStore(deps: DbBoardStoreDeps): DbBoardStore {
       if (readOnly !== null) throw new Error(readOnly);
       let place = confirmed.get(workspaceId);
       if (!place) {
-        // The workspace's first write: a board of its own, new to the database.
-        place = { board: deps.mintUid(), rev: 0, taskRevs: new Map(), held: EMPTY_BOARD, pending: null };
+        // Not read since the database last changed under us (a restore):
+        // what it holds now is the base. None there: a board of its own.
+        const stored = await deps.db.load(workspaceId);
+        const read = stored === null ? null : boardFromStored(stored, deps.mintUid);
+        if (read && !read.ok) throw new Error(decodeFaultText(read.fault, "the database"));
+        place =
+          stored && read?.ok
+            ? { board: stored.board, rev: stored.rev, taskRevs: revsOf(stored), held: read.board, pending: null }
+            : { board: deps.mintUid(), rev: 0, taskRevs: new Map(), held: EMPTY_BOARD, pending: null };
         confirmed.set(workspaceId, place);
       }
       if (place.pending) await send(workspaceId, place, place.pending.change, place.pending.target);
@@ -178,6 +196,15 @@ export function createDbBoardStore(deps: DbBoardStoreDeps): DbBoardStore {
       if (fallback !== null || readOnly !== null || !place) return [];
       const hits = await deps.db.search(query, [place.board], limit);
       return hits.map((hit) => ({ uid: hit.uid, comment: hit.comment, snippet: hit.snippet }));
+    },
+    damage: () => damaged,
+    async restore(at) {
+      await deps.db.restoreBackup(at);
+      // The database is whole again, and holds the backup's boards: every
+      // board is read from it afresh before the next write.
+      confirmed.clear();
+      damaged = null;
+      readOnly = null;
     },
     revisions(workspaceId) {
       const place = confirmed.get(workspaceId);

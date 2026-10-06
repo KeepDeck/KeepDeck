@@ -8,7 +8,7 @@ import { statusMark, statusRing, taskCardView, taskCardClassName } from "./taskC
 import { TASK_DETAIL_WORDS, changesOf, commentsOf, renamedTitle, pickedStatus, taskDetailClassName, taskDetailView } from "./taskDetailView";
 import { teamCardTasksLine } from "./teamCardTasksLine";
 import { teamOnScreen } from "./teamOnScreen";
-import { blockerLinkWords, boardBanner, fieldCount, readOnlyBanner, unsavedBanner, personName, priorityMark, statusTone, FIELD_WORDS, POOL_CHOICE } from "./words";
+import { blockerLinkWords, boardBanner, fieldCount, readOnlyBanner, restoreView, unsavedBanner, personName, priorityMark, statusTone, FIELD_WORDS, POOL_CHOICE } from "./words";
 
 const NOW = 100_000;
 const ROSTER = ["lead", "impl-1", "impl-2"];
@@ -465,6 +465,22 @@ describe("taskDetailView — a task's copy links", () => {
   it("says a source no longer on the board is gone, and says nothing of a task that is no copy", () => {
     expect(rows(3)).toEqual([{ label: TASK_DETAIL_WORDS.copiedFromLabel, tasks: [], gone: TASK_DETAIL_WORDS.copyGone }]);
     expect(rows(2)).toEqual([]);
+  });
+});
+
+describe("restoreView — the way out of a damaged database", () => {
+  const HOUR = 3_600_000;
+  it("offers the newest verified backup, says how old it is and what a restore loses", () => {
+    const view = restoreView({ backups: [10 * HOUR, 9 * HOUR] }, 12 * HOUR)!;
+    expect(view.at).toBe(10 * HOUR);
+    expect(view.label).toBe("Restore the backup from 2h ago");
+    expect(view.message).toContain("set aside, not deleted");
+    expect(view.message).toContain("every board open in this session is written over it");
+  });
+
+  it("offers nothing when the database is fine, or has no backup to restore from", () => {
+    expect(restoreView(null, 0)).toBeNull();
+    expect(restoreView({ backups: [] }, 0)).toBeNull();
   });
 });
 

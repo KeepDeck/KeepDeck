@@ -1,10 +1,11 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { Dropdown } from "@keepdeck/ui-kit";
 import type { ArtifactsRegistryReadPort } from "../../app/artifacts/registryRead";
 import type { Workspace } from "../../domain/deck";
 import { DIALOG_WORDS, tasksDialogView } from "../../presentation/tasks";
 import { Button } from "../../ui/Button";
 import { CloseButton } from "../../ui/CloseButton";
+import { ConfirmDialog } from "../../ui/ConfirmDialog";
 import { ModalOverlay } from "../../ui/ModalOverlay";
 import { useEscape } from "../../ui/useEscape";
 import { useWallClock } from "../../ui/useWallClock";
@@ -67,6 +68,8 @@ function WorkspaceBoard({
 }: TasksDialogProps) {
   const now = useWallClock(0, true);
   const board = useTasksBoard(tasks, workspace, stageTeam, focus, onFocus, onClose, now, artifactReads);
+  // The restore's confirm, open or not: a stray click must not replace the database.
+  const [restoring, setRestoring] = useState(false);
   // Escape peels one layer; which one, and whether that is the dialog
   // itself, is the screen machine's call.
   // Scoped to the dialog's own surface: a confirm stacked over it (Duplicate,
@@ -192,6 +195,25 @@ function WorkspaceBoard({
           <p className="tasks__error kd-selectable" role="alert">
             {board.unsaved}
           </p>
+        )}
+        {board.restore !== null && (
+          <div className="tasks__restore">
+            <Button onClick={() => setRestoring(true)}>{board.restore.label}</Button>
+          </div>
+        )}
+        {/* Restoring is the person's act alone, and it is confirmed. */}
+        {restoring && board.restore !== null && (
+          <ConfirmDialog
+            title={board.restore.title}
+            message={board.restore.message}
+            confirmLabel={board.restore.confirm}
+            cancelLabel={board.restore.cancel}
+            onConfirm={() => {
+              setRestoring(false);
+              board.restoreFrom(board.restore!.at);
+            }}
+            onCancel={() => setRestoring(false)}
+          />
         )}
 
         {view.body.kind === "placeholder" ? (

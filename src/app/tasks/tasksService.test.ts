@@ -99,6 +99,19 @@ describe("createTasksService", () => {
     expect(await service.ready("ws-1")).toEqual({ kind: "ready", board: stored, unsaved: null });
   });
 
+  it("a restore puts the backup back, then writes every board it holds over it", async () => {
+    const { service, store } = setup({ "ws-1": encodeBoard(board([task({ id: "task-1" })])) });
+    await service.ready("ws-1");
+    await service.create("ws-1", { teamId: "team-1", title: "newer than any backup" }, lead);
+    const before = store.writes.length;
+    // The backup knows nothing of the new task: the store's restore puts it back.
+    store.files.set("ws-1", encodeBoard(board([task({ id: "task-1" })])));
+    const left = await service.restore(5);
+    expect(left).toEqual([]);
+    expect(store.writes.length).toBe(before + 1);
+    expect((JSON.parse(store.files.get("ws-1")!) as TaskBoard).tasks.map((t) => t.title)).toEqual(["Task task-1", "newer than any backup"]);
+  });
+
   it("a board that reads but cannot be written refuses every change with the reason, and writes nothing", async () => {
     const { service, store } = setup({ "ws-1": encodeBoard(board([task({ id: "task-1" })])) });
     await service.ready("ws-1");

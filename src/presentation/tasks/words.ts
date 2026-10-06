@@ -4,6 +4,7 @@
  * detail and the card footer cannot disagree.
  */
 import type { TasksView } from "../../domain/settings";
+import { formatAge } from "../../domain/usage";
 import {
   TASK_PRIORITIES,
   USER_NAME,
@@ -150,4 +151,29 @@ export const BOARD_ORDER: readonly TaskStatus[] = [
  * detail's menu and the agents' refusal. */
 export function blockerLinkWords(links: { blockers: readonly string[]; dependants: readonly string[] }): string[] {
   return [...links.blockers.map((id) => `it waits on ${id}`), ...links.dependants.map((id) => `${id} waits on it`)];
+}
+
+/** The restore a damaged task database offers — from its newest backup
+ * that passes the check — or null when there is none to offer. */
+export interface RestoreView {
+  at: number;
+  label: string;
+  title: string;
+  message: string;
+  confirm: string;
+  cancel: string;
+}
+
+export function restoreView(damage: { backups: readonly number[] } | null, now: number): RestoreView | null {
+  const at = damage?.backups[0];
+  if (at === undefined) return null;
+  const age = formatAge(at, now);
+  return {
+    at,
+    label: `Restore the backup from ${age}`,
+    title: "Restore the task database?",
+    message: `The damaged database is set aside, not deleted. The backup from ${age} takes its place, and every board open in this session is written over it. Changes made since then to boards not open now are lost.`,
+    confirm: "Restore",
+    cancel: "Cancel",
+  };
 }

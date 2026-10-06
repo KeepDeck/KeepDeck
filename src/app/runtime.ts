@@ -53,6 +53,7 @@ import {
   tasksLegacyBoards,
   tasksLoad,
   tasksLoadAll,
+  tasksRestoreBackup,
   tasksSearch,
   tasksStatus,
 } from "../ipc/tasks";
@@ -266,6 +267,7 @@ export function createAppRuntime(
         apply: tasksApply,
         drop: tasksDropWorkspace,
         search: tasksSearch,
+        restoreBackup: tasksRestoreBackup,
       },
       workspaces: () => deckStore.getSnapshot().workspaces.map((workspace) => workspace.id),
       mintUid: mintTaskUid,

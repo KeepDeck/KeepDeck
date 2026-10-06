@@ -97,6 +97,28 @@ describe("createDbBoardStore — the board reaches the database", () => {
     await expect(store.write({ workspaceId: "ws-1", board: comment(b, "y") })).rejects.toThrow("damaged");
   });
 
+  it("restores a damaged database from a backup, and the board held in memory is written over it — nothing of either lost", async () => {
+    const { db, store } = await open();
+    const b = await readBoard(store);
+    await store.write({ workspaceId: "ws-1", board: comment(b, "in the backup") });
+    db.takeBackup(100);
+    // Saved after the backup — then the database is found damaged.
+    const one = comment(comment(b, "in the backup"), "saved after the backup");
+    await store.write({ workspaceId: "ws-1", board: one });
+    const two = comment(one, "only in memory");
+    db.setStatus({ kind: "damaged", detail: "page 3", backups: [100] });
+    db.refuseNextApply({ code: "corrupt", detail: "page 3" });
+    await expect(store.write({ workspaceId: "ws-1", board: two })).rejects.toThrow("damaged");
+    expect(store.damage()).toEqual({ backups: [100] });
+    await store.restore(100);
+    expect(store.writeRefusal()).toBeNull();
+    expect(store.damage()).toBeNull();
+    // The memory's board, newer than the backup, is written over it as a change.
+    await store.write({ workspaceId: "ws-1", board: two });
+    // Read afresh from the restored database, so nothing the backup lacks is skipped.
+    expect(db.boards()[0].tasks[0].comments.map((c) => c.body)).toEqual(["in the backup", "saved after the backup", "only in memory"]);
+  });
+
   it("keeps the boards readable from their files, and refuses writes, when they could not move", async () => {
     const good = file("ws-1", encodeBoard(board([task({ id: "task-1" })], 2)));
     const bad = file("ws-2", "not json");

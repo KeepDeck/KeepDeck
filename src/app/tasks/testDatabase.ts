@@ -30,6 +30,8 @@ export function testDatabase(files: LegacyBoard[] = []) {
   /** Called between the import and the read-back — a file changing mid-move. */
   let duringImport: (() => void) | null = null;
   const requests: ChangeSet[] = [];
+  /** Copies of the boards, by when they were taken. */
+  const backups = new Map<number, StoredBoard[]>();
   /** What the import stores, in place of what it was given — a database that loses a row. */
   let tamper = (incoming: StoredBoard[]) => incoming;
   const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
@@ -140,6 +142,12 @@ export function testDatabase(files: LegacyBoard[] = []) {
           ]),
         )
         .slice(0, limit),
+    restoreBackup: async (at) => {
+      const backup = backups.get(at);
+      if (!backup) throw { code: "invalid", detail: `no backup at ${at}` } satisfies StoreError;
+      boards = clone(backup);
+      status = null;
+    },
   };
 
   return {
@@ -160,6 +168,10 @@ export function testDatabase(files: LegacyBoard[] = []) {
     },
     loseNextAnswer() {
       nextFault = { kind: "lose" };
+    },
+    /** Copy the boards as they are, as the backup taken at `at`. */
+    takeBackup(at: number) {
+      backups.set(at, clone(boards));
     },
     onImport(fn: () => void) {
       duringImport = fn;

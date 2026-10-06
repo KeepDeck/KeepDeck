@@ -54,6 +54,7 @@ import {
   tasksLadder,
   teamOnScreen,
   boardBanner,
+  restoreView,
   queryToolbarView,
   findsNothing,
   queryOn,
@@ -377,6 +378,13 @@ export function useTasksBoard(
     form,
     error,
     unsaved,
+    /** The restore a damaged database offers, or null. */
+    restore: restoreView(service?.damage() ?? null, now),
+    /** The person confirmed it: the backup takes the damaged database's place. */
+    restoreFrom: (at: number) => {
+      if (!service) return;
+      void service.restore(at).then(() => setError(null), (e: unknown) => setError(describeError(e)));
+    },
     move: (taskId: string, to: TaskStatus) => void apply(taskId, [{ kind: "status", to }]),
     assign: (taskId: string, assignee: string) => void apply(taskId, [{ kind: "assign", assignee: assigneeOf(assignee) }]),
     setPriority: (taskId: string, to: TaskPriority) => void apply(taskId, [{ kind: "priority", to }]),
