@@ -36,7 +36,8 @@ export function findsNothing(tasks: readonly Task[], query: TaskQuery): boolean 
 
 export const QUERY_WORDS = {
   nothing: { title: "No task matches", hint: "Clear the filter in the toolbar to see every task" },
-  label: (label: string) => `label: ${label}`,
+  /** The chip that narrows the view to a label, and clears it. */
+  chip: (label: string) => `label: ${label} ✕`,
   clearLabel: (label: string) => `Show every label, not only ${label}`,
 } as const;
 
@@ -49,7 +50,7 @@ export interface QueryToolbarView {
 /** The filters as the toolbar draws them. */
 export function queryToolbarView(query: TaskQuery): QueryToolbarView {
   return {
-    label: query.label === null ? null : { text: `${QUERY_WORDS.label(query.label)} ✕`, clear: QUERY_WORDS.clearLabel(query.label) },
+    label: query.label === null ? null : { text: QUERY_WORDS.chip(query.label), clear: QUERY_WORDS.clearLabel(query.label) },
   };
 }
 

@@ -113,9 +113,10 @@ export function rowInFlight(
   teamId: string | null,
   now: number,
 ): TaskRowView | null {
-  if (drag.kind !== "dragging" || board === null) return null;
+  if (drag.kind !== "dragging") return null;
+  // A task on screen is on a board: none, and there is no task.
   const task = taskOnScreen(board, drag.id, teamId);
-  return task ? taskRowView(task, board, now) : null;
+  return task ? taskRowView(task, board!, now) : null;
 }
 
 export function taskRowView(task: Task, board: TaskBoard, now: number): TaskRowView {
