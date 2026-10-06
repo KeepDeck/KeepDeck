@@ -153,6 +153,27 @@ export interface FloatingListboxProps
    *  for. `content` sizes to the widest item instead — the only honest answer
    *  when the anchor is a small button that opens a list of longer labels. */
   widthFrom?: "anchor" | "content";
+  /** Called when the anchor has scrolled out of the box that shows it (a
+   *  scrolling container it sits in): the list closes rather than hang
+   *  over whatever now stands where the anchor was — a card's head, the
+   *  field under a list. */
+  onAnchorHidden?: () => void;
+}
+
+/** Whether the anchor's box lies wholly outside one of the boxes that
+ *  clip it — the rule `onAnchorHidden` asks. */
+export function anchorOutOfView(anchor: FloatingListboxAnchorRect & { bottom: number }, clips: readonly { top: number; bottom: number; left: number; right: number }[]): boolean {
+  return clips.some((box) => anchor.bottom <= box.top || anchor.top >= box.bottom || anchor.right <= box.left || anchor.left >= box.right);
+}
+
+/** The boxes of the scrolling containers `element` sits in, nearest first. */
+function clippingBoxes(element: HTMLElement): DOMRect[] {
+  const boxes: DOMRect[] = [];
+  for (let parent = element.parentElement; parent && parent !== document.body; parent = parent.parentElement) {
+    const style = getComputedStyle(parent);
+    if (/(auto|scroll|hidden|clip)/.test(`${style.overflowY} ${style.overflowX}`)) boxes.push(parent.getBoundingClientRect());
+  }
+  return boxes;
 }
 
 function samePlacement(
@@ -182,8 +203,11 @@ export function FloatingListbox({
   style,
   role = "listbox",
   widthFrom = "anchor",
+  onAnchorHidden,
   ...listProps
 }: FloatingListboxProps) {
+  const hiddenRef = useRef(onAnchorHidden);
+  hiddenRef.current = onAnchorHidden;
   const ownListRef = useRef<HTMLUListElement | null>(null);
   const externalRefCleanup = useRef<(() => void) | null>(null);
   const [placement, setPlacement] =
@@ -225,6 +249,10 @@ export function FloatingListbox({
     if (!anchor || !list) return;
 
     const anchorRect = anchor.getBoundingClientRect();
+    if (hiddenRef.current && anchorOutOfView(anchorRect, clippingBoxes(anchor))) {
+      hiddenRef.current();
+      return;
+    }
     // What the content wants, measured before anything is imposed on it —
     // and only when the caller asked, so a field-anchored list never pays a
     // second layout for an answer it will not use.

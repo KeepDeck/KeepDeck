@@ -110,6 +110,7 @@ export function Dropdown({
           id={listId}
           aria-label={ariaLabel}
           widthFrom={variant === "inline" ? "content" : "anchor"}
+          onAnchorHidden={() => setOpen(false)}
         >
           {options.map((o) => (
             <li key={o.value}>

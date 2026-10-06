@@ -132,6 +132,7 @@ export function MenuButton({
           role="menu"
           widthFrom="content"
           aria-label={ariaLabel}
+          onAnchorHidden={() => setOpen(false)}
         >
           {actions.map((action) => (
             <li key={action.id} role="none">
