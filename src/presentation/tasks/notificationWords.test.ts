@@ -17,6 +17,13 @@ describe("the board's notification words", () => {
     expect(title("todo", "backlog")).toBe("task-1 moved to the backlog");
     expect(title("backlog", "todo")).toBe("task-1 is ready to start");
     expect(title("done", "todo")).toBe("task-1 reopened");
+    expect(title("cancelled", "todo")).toBe("task-1 reopened");
+    // Work sent back to the queue was never closed: it is not "reopened".
+    for (const from of ["in-progress", "blocked", "review"] as const) {
+      expect(title(from, "todo")).toBe("task-1 is back in the queue");
+      expect(title(from, "backlog")).toBe("task-1 moved to the backlog");
+    }
+    expect(title("done", "backlog")).toBe("task-1 reopened into the backlog");
     // Started from the ladder's start — waiting, or parked — not "back".
     expect(title("todo", "in-progress")).toBe("task-1 started");
     expect(title("backlog", "in-progress")).toBe("task-1 started");
