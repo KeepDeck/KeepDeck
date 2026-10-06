@@ -6,7 +6,7 @@ import { openArtifactByRef } from "../../app/artifacts/entryPoints";
 import type { ArtifactsRegistryReadPort } from "../../app/artifacts/registryRead";
 import { describeError } from "../../ipc/log";
 import { refusalOf, tasksEnableStatus } from "../../app/tasks/enableStatus";
-import { readyBoard, type RestoreChoice } from "../../app/tasks/tasksService";
+import { readyBoard } from "../../app/tasks/tasksService";
 import { getSettings, updateSettings } from "../../app/settingsManager";
 import { useSettings } from "../../app/useSettings";
 import { DEFAULT_SETTINGS, type TasksBoardSettings } from "../../domain/settings";
@@ -54,6 +54,7 @@ import {
   tasksLadder,
   teamOnScreen,
   boardBanner,
+  restoreConfirm,
   restoreView,
   queryToolbarView,
   findsNothing,
@@ -123,10 +124,13 @@ export function useTasksBoard(
       setScreen(outcome.state);
       if (outcome.focus !== undefined) onFocus(outcome.focus);
       if (outcome.closeDialog) onClose();
+      return outcome;
     },
     [onFocus, onClose],
   );
   const { chosenTeam, composing, hover } = screen;
+  /** The way out an unusable database offers, or null. */
+  const offer = restoreView(service?.recovery() ?? null, now);
   /** The workspace's artifacts, for the open task's attachments. Read
    * when a task is open and re-read when the registry changes; empty
    * (never an error) when the artifacts feature is off. */
@@ -379,11 +383,15 @@ export function useTasksBoard(
     error,
     unsaved,
     /** The way out an unusable database offers, or null. */
-    restore: restoreView(service?.recovery() ?? null, now),
+    restore: offer,
+    /** Its confirm, while it is asked about. */
+    restoreConfirm: restoreConfirm(screen, offer),
+    askRestore: () => run({ type: "askRestore" }),
+    cancelRestore: () => run({ type: "cancelRestore" }),
     /** The person confirmed it: their choice takes the database's place. */
-    restoreFrom: (choice: RestoreChoice) => {
-      if (!service) return;
-      void service.restore(choice).then(() => setError(null), (e: unknown) => setError(describeError(e)));
+    confirmRestore: () => {
+      if (!run({ type: "confirmRestore" }).restore || !service || !offer) return;
+      void service.restore(offer.choice).then(() => setError(null), (e: unknown) => setError(describeError(e)));
     },
     move: (taskId: string, to: TaskStatus) => void apply(taskId, [{ kind: "status", to }]),
     assign: (taskId: string, assignee: string) => void apply(taskId, [{ kind: "assign", assignee: assigneeOf(assignee) }]),

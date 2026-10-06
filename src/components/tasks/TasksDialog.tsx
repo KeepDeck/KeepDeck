@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef } from "react";
 import { Dropdown } from "@keepdeck/ui-kit";
 import type { ArtifactsRegistryReadPort } from "../../app/artifacts/registryRead";
 import type { Workspace } from "../../domain/deck";
@@ -68,8 +68,6 @@ function WorkspaceBoard({
 }: TasksDialogProps) {
   const now = useWallClock(0, true);
   const board = useTasksBoard(tasks, workspace, stageTeam, focus, onFocus, onClose, now, artifactReads);
-  // The restore's confirm, open or not: a stray click must not replace the database.
-  const [restoring, setRestoring] = useState(false);
   // Escape peels one layer; which one, and whether that is the dialog
   // itself, is the screen machine's call.
   // Scoped to the dialog's own surface: a confirm stacked over it (Duplicate,
@@ -198,21 +196,18 @@ function WorkspaceBoard({
         )}
         {board.restore !== null && (
           <div className="tasks__restore">
-            <Button onClick={() => setRestoring(true)}>{board.restore.label}</Button>
+            <Button onClick={board.askRestore}>{board.restore.label}</Button>
           </div>
         )}
         {/* Restoring is the person's act alone, and it is confirmed. */}
-        {restoring && board.restore !== null && (
+        {board.restoreConfirm !== null && (
           <ConfirmDialog
-            title={board.restore.title}
-            message={board.restore.message}
-            confirmLabel={board.restore.confirm}
-            cancelLabel={board.restore.cancel}
-            onConfirm={() => {
-              setRestoring(false);
-              board.restoreFrom(board.restore!.choice);
-            }}
-            onCancel={() => setRestoring(false)}
+            title={board.restoreConfirm.title}
+            message={board.restoreConfirm.message}
+            confirmLabel={board.restoreConfirm.confirm}
+            cancelLabel={board.restoreConfirm.cancel}
+            onConfirm={board.confirmRestore}
+            onCancel={board.cancelRestore}
           />
         )}
 
