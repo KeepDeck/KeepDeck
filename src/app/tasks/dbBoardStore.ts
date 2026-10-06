@@ -25,7 +25,7 @@ import type { StoreStatus } from "../../ipc/generated/tasks/StoreStatus";
 import type { StoredBoard } from "../../ipc/generated/tasks/StoredBoard";
 import { migrateBoards, type MigrationOutcome, type MigrationPort } from "./migration";
 import { BOARD_NOT_OPEN, BOARD_READ_STALE, decodeFaultText, migrationRefusalText, storeErrorText } from "./refusalText";
-import { boardChange } from "./storeDiff";
+import { boardChange, HistoryRewritten } from "./storeDiff";
 import { boardFromStored } from "./storeWire";
 import type { BoardRead, Recovery, TasksStorePort } from "./tasksService";
 
@@ -168,13 +168,21 @@ export function createDbBoardStore(deps: DbBoardStoreDeps): DbBoardStore {
    * constraint on a database that is sound means the confirmed board was
    * not what it holds: the board is written over what it holds ONCE —
    * the change from what was just read back — and only a refusal of that
-   * reaches the caller (v10 §05). */
+   * reaches the caller (v10 §05). A replacement never deletes or rewrites
+   * history (§05 too): where the board here contradicts history the
+   * database holds, there is no replacement to make, and that is said. */
   const sendChange = async (workspace: string, place: Confirmed, target: TaskBoard) => {
     const change = boardChange(place.held, target, { board: place.board, workspace, rev: place.rev });
     if (change === null) return;
     let refused = await send(workspace, place, { requestId: deps.mintUid(), boards: [change] }, target);
     if (refused?.code === "constraint" && readOnly === null) {
-      const whole = boardChange(place.held, target, { board: place.board, workspace, rev: place.rev });
+      let whole: ChangeSet["boards"][number] | null;
+      try {
+        whole = boardChange(place.held, target, { board: place.board, workspace, rev: place.rev });
+      } catch (e: unknown) {
+        if (!(e instanceof HistoryRewritten)) throw e;
+        throw new Error(`${storeErrorText(refused)} — and ${e.message}, so nothing was written over it`);
+      }
       refused = whole === null ? null : await send(workspace, place, { requestId: deps.mintUid(), boards: [whole] }, target);
     }
     if (refused !== null) throw new Error(storeErrorText(refused));

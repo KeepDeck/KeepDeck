@@ -111,6 +111,19 @@ describe("createDbBoardStore — the board reaches the database", () => {
     expect(db.requests.length).toBe(4);
   });
 
+  it("writes nothing over history the database holds otherwise — a real collision is refused, said, and lost from neither side", async () => {
+    const { db, store } = await open();
+    const b = await readBoard(store);
+    // Another writer put comment 1 there first.
+    db.boards()[0].tasks[0].comments.push({ n: 1, at: 1, author: "elsewhere", body: "theirs" });
+    const ours = comment(b, "ours");
+    await expect(store.write({ workspaceId: "ws-1", board: ours })).rejects.toThrow(
+      /^the change does not fit the stored board: comment 1 is stored with other content — and the board rewrote history .*nothing was written over it$/,
+    );
+    expect(db.boards()[0].tasks[0].comments.map((c) => c.body)).toEqual(["theirs"]);
+    expect(db.requests.length).toBe(1);
+  });
+
   it("gives a workspace's first board an id of its own", async () => {
     const { db, store } = await open();
     expect(await store.read({ workspaceId: "ws-2" })).toEqual({ kind: "none" });

@@ -66,7 +66,13 @@ export function testDatabase(files: LegacyBoard[] = []) {
       });
       if (w.labels) task.labels = [...w.labels].sort();
       if (w.artifacts) task.artifacts = [...w.artifacts];
-      for (const c of w.comments) if (!task.comments.some((x) => x.n === c.n)) task.comments.push(c);
+      for (const c of w.comments) {
+        const stored = task.comments.find((x) => x.n === c.n);
+        if (!stored) task.comments.push(c);
+        else if (JSON.stringify(stored) !== JSON.stringify(c)) {
+          throw { code: "constraint", detail: `comment ${c.n} is stored with other content` } satisfies StoreError;
+        }
+      }
       for (const e of w.log) {
         if (task.log.some((x) => x.seq === e.seq)) continue;
         if (e.seq !== task.log.length) throw { code: "constraint", detail: "log gap" } satisfies StoreError;
