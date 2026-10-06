@@ -24,7 +24,7 @@
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
 use keepdeck_tasks::{LegacyBoard, Store, StoreError};
 use sha2::{Digest, Sha256};
@@ -43,14 +43,20 @@ pub struct TasksStore {
 }
 
 struct Enabled {
-    /// The database, shared with the backup ticker (which holds it weakly,
-    /// so it ends with the claim). Declared before the claim: fields drop
-    /// in order, and the database closes — log folded in — before the
-    /// claim is let go.
-    db: Arc<Mutex<Store>>,
-    root: ClaimedRoot,
+    /// Shared with every operation in flight and the backup ticker.
+    db: Arc<Database>,
     /// Serializes every read and write of board files.
     data: Mutex<()>,
+}
+
+/// The database and the claim on its root, held together: whoever still
+/// holds one holds both, so the claim is let go only once the database is
+/// closed — never while an operation or a backup still has it open.
+struct Database {
+    /// Declared before the claim: fields drop in order, and the store
+    /// closes — log folded in — before the claim goes.
+    store: Mutex<Store>,
+    claim: ClaimedRoot,
 }
 
 /// How often the backup ticker asks whether a backup is due; the rule of
@@ -72,39 +78,41 @@ impl TasksStore {
     /// Claim the root (idempotent — enabling while enabled IS the state
     /// asked for). Contention surfaces verbatim so the toggle can say WHY.
     pub fn enable(&self, root: &Path) -> Result<(), String> {
-        let mut enabled = self.enabled.lock().expect("tasks store poisoned");
+        let mut enabled = lock(&self.enabled);
         if enabled.is_some() {
             return Ok(());
         }
         let claimed = claim(root, "task board")?;
         // Damage or a newer schema is no failure to enable: the store opens
         // in the state that says so, and the UI offers the way out.
-        let db = Store::open(root).map_err(|e| e.to_string())?;
-        let db = Arc::new(Mutex::new(db));
+        let store = Store::open(root).map_err(|e| e.to_string())?;
+        let db = Arc::new(Database { store: Mutex::new(store), claim: claimed });
         spawn_backup_ticker(Arc::downgrade(&db));
         *enabled = Some(Enabled {
             db,
-            root: claimed,
             data: Mutex::new(()),
         });
         Ok(())
     }
 
-    /// Release the claim. Off while off is a no-op.
+    /// Close the database and release the claim. An operation still in
+    /// flight finishes first; one that holds the database after finds it
+    /// closed, and the claim goes with the last holder. Off while off is a
+    /// no-op.
     pub fn disable(&self) {
-        let mut enabled = self.enabled.lock().expect("tasks store poisoned");
-        *enabled = None;
+        let Some(enabled) = lock(&self.enabled).take() else { return };
+        lock(&enabled.db.store).close();
     }
 
     fn with_enabled<T>(
         &self,
         run: impl FnOnce(&Path, &Mutex<()>) -> Result<T, String>,
     ) -> Result<T, String> {
-        let enabled = self.enabled.lock().expect("tasks store poisoned");
+        let enabled = lock(&self.enabled);
         let Some(state) = enabled.as_ref() else {
             return Err(OFF_MESSAGE.to_string());
         };
-        run(state.root.root(), &state.data)
+        run(state.db.claim.root(), &state.data)
     }
 
     /// Run `op` on the open database.
@@ -112,22 +120,19 @@ impl TasksStore {
         &self,
         op: impl FnOnce(&mut Store) -> Result<T, StoreError>,
     ) -> Result<T, StoreError> {
-        let db = {
-            let enabled = self.enabled.lock().expect("tasks store poisoned");
-            match enabled.as_ref() {
-                Some(state) => state.db.clone(),
-                None => return Err(StoreError::Off),
-            }
+        let db = match lock(&self.enabled).as_ref() {
+            Some(state) => state.db.clone(),
+            None => return Err(StoreError::Off),
         };
-        let mut db = db.lock().expect("tasks db poisoned");
-        op(&mut db)
+        let mut store = lock(&db.store);
+        op(&mut store)
     }
 
     /// Every board file under the root, read at once for the migration —
     /// all of them or the reason none could be read.
     pub fn legacy_boards(&self) -> Result<Vec<LegacyBoard>, String> {
         self.with_enabled(|root, data| {
-            let _guard = data.lock().expect("tasks data poisoned");
+            let _guard = lock(data);
             let ws_dir = root.join("ws");
             let entries = match fs::read_dir(&ws_dir) {
                 Ok(entries) => entries,
@@ -160,7 +165,7 @@ impl TasksStore {
         let boards = self.legacy_boards()?;
         for board in boards {
             self.with_enabled(|root, data| {
-                let _guard = data.lock().expect("tasks data poisoned");
+                let _guard = lock(data);
                 let file = board_path(root, &board.workspace);
                 let copy = file.with_file_name(format!("board.{PRE_DB_COPY}.json"));
                 // The first copy kept is the one that stays.
@@ -179,7 +184,7 @@ impl TasksStore {
     pub fn drop_workspace(&self, workspace_id: &str) -> Result<(), String> {
         self.with_enabled(|root, data| {
             require_safe(workspace_id)?;
-            let _guard = data.lock().expect("tasks data poisoned");
+            let _guard = lock(data);
             match fs::remove_dir_all(root.join("ws").join(workspace_id)) {
                 Ok(()) => Ok(()),
                 Err(e) if e.kind() == ErrorKind::NotFound => Ok(()),
@@ -196,14 +201,14 @@ fn checksum(json: &str) -> String {
 
 /// Ask the store for a backup every tick while it is enabled; the ticker
 /// ends when the database it watches is gone (disable, or exit).
-fn spawn_backup_ticker(db: Weak<Mutex<Store>>) {
+fn spawn_backup_ticker(db: Weak<Database>) {
     let spawned = std::thread::Builder::new().name("tasks-backup".into()).spawn(move || loop {
         let Some(db) = db.upgrade() else { return };
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis() as i64)
             .unwrap_or(0);
-        match db.lock().expect("tasks db poisoned").backup_if_due(now) {
+        match lock(&db.store).backup_if_due(now) {
             Ok(Some(taken)) => log::info!("tasks: backup taken at {}", taken.path.display()),
             Ok(None) => {}
             Err(error) => log::warn!("tasks: backup failed: {error}"),
@@ -214,6 +219,16 @@ fn spawn_backup_ticker(db: Weak<Mutex<Store>>) {
     if let Err(error) = spawned {
         log::warn!("tasks: no backup ticker: {error}");
     }
+}
+
+/// A lock that outlives a panic under it: one operation that panicked
+/// must not turn every later task command into a panic too. What it was
+/// doing is the store's transaction to have rolled back.
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|poisoned| {
+        log::error!("tasks: a task operation panicked; carrying on");
+        poisoned.into_inner()
+    })
 }
 
 fn board_path(root: &Path, workspace_id: &str) -> PathBuf {
@@ -316,6 +331,32 @@ mod tests {
         store.drop_workspace("ws-1").expect("drop");
         assert!(!dir.path().join("tasks/ws/ws-1").exists());
         store.drop_workspace("ws-1").expect("drop again");
+    }
+
+    #[test]
+    fn disabling_closes_the_database_and_the_claim_goes_with_its_last_holder() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("tasks");
+        let first = TasksStore::default();
+        first.enable(&root).unwrap();
+        // An operation — or the backup ticker — still holds the database.
+        let held = lock(&first.enabled).as_ref().unwrap().db.clone();
+        first.disable();
+        assert_eq!(lock(&held.store).status().unwrap_err(), StoreError::Off);
+        let second = TasksStore::default();
+        assert!(second.enable(&root).is_err(), "the claim went while the database was still held");
+        drop(held);
+        second.enable(&root).expect("claim after the last holder let go");
+    }
+
+    #[test]
+    fn a_panic_under_the_lock_leaves_the_store_usable() {
+        let (_dir, store) = enabled_store();
+        let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = store.with_db(|_| -> Result<(), StoreError> { panic!("mid-operation") });
+        }));
+        assert!(caught.is_err());
+        assert!(store.with_db(|db| db.status()).is_ok());
     }
 
     #[test]
