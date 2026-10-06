@@ -1,6 +1,7 @@
-import { memo, useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, type ReactNode, type RefObject } from "react";
 import { marksOf, type ChangeMarks } from "./listMotion";
 import { foldSpacer } from "./foldMotion";
+import { atListFoot, followsChange, footAfter, holdWhileOff, pinAfterCommit, pinAfterScroll } from "./followEnd";
 import { useFoldMotion } from "./useFoldMotion";
 import { useFocusHandoff } from "./useFocusHandoff";
 import { usePinnedHeading } from "./usePinnedHeading";
@@ -72,6 +73,11 @@ export interface VirtualListProps<T> extends VirtualListMarkup {
    * the person's act ONLY: a change written by anyone else under it would
    * be eased and held as theirs, the list scrolling to its place. */
   easeKey?: unknown;
+  /** A list that grows at its foot (a thread): while the view stands at
+   * the end, rows added keep it there — the newest row in sight, as a
+   * chat holds it. Scrolled away from the end, an addition moves nothing.
+   * The person's own change (`easeKey`) stays where its fold holds it. */
+  followEnd?: boolean;
 }
 
 /**
@@ -126,6 +132,7 @@ export function VirtualList<T>({
   easeKey,
   spacer,
   item,
+  followEnd = false,
 }: VirtualListProps<T>) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const marks = useChangeMarks(items, itemKey, easeKey);
@@ -157,7 +164,8 @@ export function VirtualList<T>({
   // A focused row scrolled out keeps the keyboard's place on the list.
   useFocusHandoff(scrollRef);
 
-  const { atEnd, reveal } = rowWindow;
+  const { atEnd, reveal, revealEnd } = rowWindow;
+  useFollowEnd(scrollRef, followEnd, items, marks.eased, revealEnd);
   useEffect(() => {
     if (atEnd) onReachEnd?.();
   }, [atEnd, items.length, onReachEnd]);
@@ -272,6 +280,57 @@ export function VirtualList<T>({
       </Spacer>
     </div>
   );
+}
+
+/**
+ * `followEnd` applied (its rules: `followEnd.ts`): after every commit, in
+ * the layout phase so the frame painted is already there, a change is
+ * followed or not, and where the view stands is noted for the next. Read
+ * after every commit as well as on every scroll: rows measured taller
+ * than their guess and a fold grow the list with no scroll event at all,
+ * and a flag kept from before them would throw the view to the foot on
+ * the next render (reviewer-2, task-295).
+ */
+function useFollowEnd<T>(
+  scrollRef: RefObject<HTMLElement | null>,
+  on: boolean,
+  items: readonly T[],
+  eased: boolean,
+  revealEnd: () => void,
+) {
+  const atFoot = useRef(false);
+  const pinned = useRef(false);
+  /** The lowest the view has stood since it was held at the foot. */
+  const peak = useRef(0);
+  const seen = useRef(items);
+  useEffect(() => {
+    const box = scrollRef.current;
+    if (!on || !box) return;
+    const onScroll = () => {
+      const after = pinAfterScroll({ pinned: pinned.current, scrollTop: box.scrollTop, peak: peak.current });
+      pinned.current = after.pinned;
+      peak.current = after.peak;
+      atFoot.current = footAfter({ pinned: pinned.current, readAtFoot: atListFoot(box) });
+    };
+    box.addEventListener("scroll", onScroll, { passive: true });
+    return () => box.removeEventListener("scroll", onScroll);
+  }, [on, scrollRef]);
+  useLayoutEffect(() => {
+    const box = scrollRef.current;
+    const kept = holdWhileOff({ on, pinned: pinned.current, atFoot: atFoot.current });
+    pinned.current = kept.pinned;
+    atFoot.current = kept.atFoot;
+    if (!on || !box) return;
+    const changed = seen.current !== items;
+    seen.current = items;
+    const followed = followsChange({ on, changed, wasAtFoot: atFoot.current, eased });
+    if (followed) revealEnd();
+    pinned.current = pinAfterCommit({ pinned: pinned.current, followed, eased: changed && eased });
+    // `peak` is the scroll events' alone: the list commits inside a scroll
+    // event, before the handler hears it, and a commit writing it would
+    // hide the very move up the handler is there to see.
+    atFoot.current = footAfter({ pinned: pinned.current, readAtFoot: atListFoot(box) });
+  });
 }
 
 /** How far past the view a fold mounts what it draws — the window's

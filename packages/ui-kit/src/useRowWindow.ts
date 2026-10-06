@@ -63,6 +63,8 @@ export interface RowWindow {
   /** Scroll just enough to show row `index` — nothing when it is in view
    * already. Mounted or not: the window owns the offsets. */
   reveal(index: number): void;
+  /** Scroll the last row's foot to the viewport's foot. */
+  revealEnd(): void;
 }
 
 /**
@@ -121,6 +123,9 @@ export function useRowWindow<Row>({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
+  const revealEnd = () => {
+    if (rows.length > 0) virtualizer.scrollToIndex(rows.length - 1, { align: "end" });
+  };
   return {
     items,
     lastIndex,
@@ -141,5 +146,6 @@ export function useRowWindow<Row>({
     },
     measure,
     reveal,
+    revealEnd,
   };
 }

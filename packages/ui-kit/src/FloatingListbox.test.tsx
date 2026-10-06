@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   FloatingListbox,
+  anchorOutOfView,
   calculateFloatingListboxPlacement,
   type FloatingListboxAnchorRect,
 } from "./FloatingListbox";
@@ -21,6 +22,21 @@ const rect = (
   left: 8,
   width: 200,
   ...overrides,
+});
+
+describe("anchorOutOfView", () => {
+  const box = { top: 100, bottom: 400, left: 0, right: 300 };
+  it("says an anchor scrolled wholly past a clipping box is out of view — on any side", () => {
+    expect(anchorOutOfView(rect({ top: 60, bottom: 100 }), [box])).toBe(true);
+    expect(anchorOutOfView(rect({ top: 400, bottom: 432 }), [box])).toBe(true);
+    expect(anchorOutOfView(rect({ left: 300, right: 500 }), [box])).toBe(true);
+  });
+
+  it("keeps an anchor in view while any part of it shows, or with nothing clipping it", () => {
+    expect(anchorOutOfView(rect({ top: 90, bottom: 110 }), [box])).toBe(false);
+    expect(anchorOutOfView(rect({ top: 150, bottom: 180 }), [box])).toBe(false);
+    expect(anchorOutOfView(rect(), [])).toBe(false);
+  });
 });
 
 describe("calculateFloatingListboxPlacement", () => {
@@ -234,6 +250,22 @@ describe("FloatingListbox", () => {
     expect(list.style.top).toBe("136px");
     expect(list.style.left).toBe("40px");
     expect(list.style.width).toBe("180px");
+  });
+
+  it("says so when its anchor scrolls out of the box that shows it, and only then", () => {
+    const scroller = document.body.appendChild(document.createElement("div"));
+    scroller.style.overflowY = "auto";
+    scroller.appendChild(anchor);
+    scroller.getBoundingClientRect = () => ({ top: 80, bottom: 300, left: 0, right: 400, width: 400, height: 220, x: 0, y: 80, toJSON: () => ({}) }) as DOMRect;
+    const hidden = vi.fn();
+    act(() => {
+      root!.render(createElement(FloatingListbox, { anchorRef: { current: anchor }, onAnchorHidden: hidden }, createElement("li", null, "main")));
+    });
+    expect(hidden).not.toHaveBeenCalled();
+    // Scrolled up past the box's top edge.
+    anchorRect = rect({ top: 40, bottom: 72, left: 40, right: 220, width: 180 });
+    act(() => void scroller.dispatchEvent(new Event("scroll")));
+    expect(hidden).toHaveBeenCalledTimes(1);
   });
 
   it("keeps a menu inside its existing overlay stacking context", () => {

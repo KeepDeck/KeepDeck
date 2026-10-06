@@ -214,6 +214,7 @@ export function Combobox({
           listRef={menuRef}
           id={listId}
           aria-label={ariaLabel}
+          onAnchorHidden={() => setOpen(false)}
         >
           {filtered.map((option, index) => (
             <li key={option}>

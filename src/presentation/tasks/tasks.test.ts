@@ -5,7 +5,7 @@ import { NO_QUERY } from "./queryView";
 import { LADDER_WORDS, tasksLadder } from "./ladderView";
 import { newTaskFormView, NEW_TASK_WORDS } from "./newTaskFormView";
 import { statusMark, statusRing, taskCardView, taskCardClassName } from "./taskCardView";
-import { TASK_DETAIL_WORDS, changesOf, commentsOf, renamedTitle, pickedStatus, taskDetailClassName, taskDetailView } from "./taskDetailView";
+import { TASK_DETAIL_WORDS, changesOf, commentsOf, menuActionDisabled, renamedTitle, pickedStatus, taskDetailClassName, taskDetailView } from "./taskDetailView";
 import { teamCardTasksLine } from "./teamCardTasksLine";
 import { teamOnScreen } from "./teamOnScreen";
 import { blockerLinkWords, boardBanner, fieldCount, readOnlyBanner, restoreView, unsavedBanner, personName, priorityMark, statusTone, FIELD_WORDS, POOL_CHOICE } from "./words";
@@ -366,6 +366,8 @@ describe("commentsOf / changesOf — what was said, and what was changed, apart"
     expect(taskDetailView(parked.tasks[0], parked, ROSTER, 0).duplicate.message).toContain("in Backlog");
     // Only the other teams are offered.
     expect(view.transfer.options).toEqual([{ value: "team-2", label: "web" }]);
+    // The picker opens on the first team it may go to.
+    expect(view.transfer.initial).toBe("team-2");
     const refusal = (t: typeof b.tasks[number], within = teams) =>
       taskDetailView(t, b, ROSTER, 0, [], false, within).menu.actions.find((a) => a.id === "transfer")!.refusal;
     expect(refusal(b.tasks[0], [teams[0]])).toBe("No other team in this workspace");
@@ -560,7 +562,22 @@ describe("taskDetailView — linking tasks from the open one", () => {
     // Nothing waits on it and nothing could: no Unblocks row. Something
     // could: the row is drawn, its + the way to add the first.
     expect(lone.unblocksShown).toBe(false);
+    expect(lone.unblocksEmpty).toBe("none");
     expect(view.unblocks).toEqual([]);
     expect(view.unblocksShown).toBe(true);
+    // The row says none until something waits on it.
+    expect(view.unblocksEmpty).toBe("none");
+    const waited = board([task({ id: "task-1" }), task({ id: "task-2" })], 3, [relation("blocks", "task-1", "task-2")]);
+    expect(taskDetailView(waited.tasks[0], waited, ROSTER, NOW).unblocksEmpty).toBeNull();
+  });
+});
+
+describe("menuActionDisabled — what the open task's menu holds back", () => {
+  const action = (id: "duplicate" | "transfer" | "rename", refusal: string | null = null) => ({ id, label: id, refusal });
+  it("holds back what the board refuses, and a second copy while one is on its way — only that", () => {
+    expect(menuActionDisabled(action("transfer", "no other team"), false)).toBe(true);
+    expect(menuActionDisabled(action("duplicate"), true)).toBe(true);
+    expect(menuActionDisabled(action("duplicate"), false)).toBe(false);
+    expect(menuActionDisabled(action("rename"), true)).toBe(false);
   });
 });

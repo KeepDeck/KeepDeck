@@ -5,7 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 
 import { createTasksService, type TasksService } from "../../app/tasks";
 import type { RestoreChoice } from "../../app/tasks/tasksService";
 import { fakeStore, teamedWorkspaces } from "../../app/tasks/testSupport";
-import { USER_ACTOR, agentActor, blockerIdsOf } from "../../domain/tasks";
+import { USER_ACTOR, agentActor, blockerIdsOf, encodeBoard } from "../../domain/tasks";
+import { board as boardOf, task as taskOf } from "../../domain/tasks/testSupport";
 import { installResizeObserver, pinListViewport } from "@keepdeck/ui-kit/virtualGeometry.test-support";
 import { TasksDialog } from "./TasksDialog";
 import type { TasksAccess } from "./useTasksBoard";
@@ -60,14 +61,17 @@ const onFocus = (id: string | null) => {
   focus = id;
 };
 
-/** The columns are windowed lists: happy-dom lays nothing out, so the
- * browser's geometry is imitated — each column 600px tall, a card 64. */
+/** The columns and the open task's card are windowed lists: happy-dom
+ * lays nothing out, so the browser's geometry is imitated — each column
+ * 600px tall, a card 64; the open card tall enough to draw every row. */
 let restoreViewport: () => void;
+let restoreCard: () => void;
 
 beforeEach(() => {
   settingsStore.current = DEFAULT_SETTINGS;
   installResizeObserver();
   restoreViewport = pinListViewport("tasks__column-body", 600);
+  restoreCard = pinListViewport("tasks__detail-body", 4000, 440, 40);
   document.body.innerHTML = "";
   host = document.body.appendChild(document.createElement("div"));
   root = createRoot(host);
@@ -76,6 +80,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   act(() => root.unmount());
+  restoreCard();
   restoreViewport();
 });
 
@@ -658,6 +663,28 @@ describe("TasksDialog", () => {
     expect(state?.kind === "ready" && state.board.tasks.find((t) => t.title === "Task 0")?.status).toBe("done");
   });
 
+  it("draws a long thread a window at a time, the comment field under it whole", async () => {
+    // A card shorter than its thread: 300 comments, a few in view.
+    const restoreShort = pinListViewport("tasks__detail-body", 400, 440, 40);
+    onTestFinished(restoreShort);
+    const comments = Array.from({ length: 300 }, (_, i) => ({ n: i + 1, at: 1_000 + i, from: "lead", body: `note ${i + 1}` }));
+    const store = fakeStore({ "ws-1": encodeBoard(boardOf([taskOf({ id: "task-1", teamId: "team-1", comments })], 2)) });
+    const workspaces = teamedWorkspaces();
+    const service = createTasksService({ workspaces: () => workspaces, store: store.port, now: () => 1_000 });
+    focus = "task-1";
+    mount(service)();
+    await flush();
+    const drawn = document.querySelectorAll(".tasks__detail-body .tasks__comment").length;
+    expect(drawn).toBeGreaterThan(0);
+    expect(drawn).toBeLessThan(60);
+    // A reader reaches the comments by their heading.
+    expect(document.querySelector(".tasks__detail-body h4")?.textContent).toBe("Comments");
+    // The field is not a row: it stands under the list, whatever is in view.
+    const field = document.querySelector(".tasks__detail-composer textarea");
+    expect(field).not.toBeNull();
+    expect(field!.closest(".tasks__detail-body")).toBeNull();
+  });
+
   it("the history rests compact and opens whole from its heading, its chevron turning", async () => {
     const { service } = await seeded();
     focus = "task-1";
@@ -665,6 +692,8 @@ describe("TasksDialog", () => {
     await flush();
     const heading = () => document.querySelector<HTMLButtonElement>(".tasks__section--toggle")!;
     expect(heading().getAttribute("aria-expanded")).toBe("false");
+    // The toggle is a heading's: a reader reaches the activity by it.
+    expect(heading().parentElement?.tagName).toBe("H4");
     expect(heading().querySelector(".kd-chevron")?.className).toBe("kd-chevron");
     act(() => heading().click());
     await flush();
