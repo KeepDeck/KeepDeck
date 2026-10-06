@@ -97,6 +97,27 @@ describe("createDbBoardStore — the board reaches the database", () => {
     await expect(store.write({ workspaceId: "ws-1", board: comment(b, "y") })).rejects.toThrow("damaged");
   });
 
+  it("writes nothing once a newer build is found to own the database — and offers no restore over it", async () => {
+    const { db, store } = await open();
+    const b = await readBoard(store);
+    db.refuseNextApply({ code: "schemaTooNew", migration: "2099" });
+    await expect(store.write({ workspaceId: "ws-1", board: comment(b, "x") })).rejects.toThrow("newer KeepDeck");
+    expect(store.writeRefusal()).toBe("a newer KeepDeck wrote the task database (2099) — this one neither reads nor writes it");
+    expect(store.recovery()).toBeNull();
+  });
+
+  it("learns damage from whichever call meets it — a read as well as a write", async () => {
+    const { db, store } = await open();
+    const held = await readBoard(store);
+    db.setStatus({ kind: "damaged", detail: "page 3", backups: [100] });
+    db.refuseNextLoad({ code: "corrupt", detail: "page 3" });
+    await expect(store.read({ workspaceId: "ws-2" })).rejects.toMatchObject({ code: "corrupt" });
+    expect(store.writeRefusal()).toBe("the task database is damaged: page 3");
+    expect(store.recovery()).toEqual({ kind: "damaged", backups: [100] });
+    // The board already held is not written either.
+    await expect(store.write({ workspaceId: "ws-1", board: comment(held, "x") })).rejects.toThrow("damaged");
+  });
+
   it("restores a damaged database from a backup, and the board held in memory is written over it — nothing of either lost", async () => {
     const { db, store } = await open();
     const b = await readBoard(store);

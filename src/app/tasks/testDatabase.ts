@@ -38,6 +38,8 @@ export function testDatabase(files: LegacyBoard[] = []) {
   let retireFault: StoreError | null = null;
   /** What the next activation refuses with. */
   let activateFault: StoreError | null = null;
+  /** What the next load refuses with. */
+  let loadFault: StoreError | null = null;
   const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
   const applyBoard = (change: ChangeSet["boards"][number]) => {
@@ -114,7 +116,12 @@ export function testDatabase(files: LegacyBoard[] = []) {
       sources = [];
       migration = "none";
     },
-    load: async (workspace) => clone(boards.find((b) => b.workspace === workspace) ?? null),
+    load: async (workspace) => {
+      const fault = loadFault;
+      loadFault = null;
+      if (fault !== null) throw fault;
+      return clone(boards.find((b) => b.workspace === workspace) ?? null);
+    },
     apply: async (change) => {
       requests.push(clone(change));
       const before = applied.get(change.requestId);
@@ -190,6 +197,9 @@ export function testDatabase(files: LegacyBoard[] = []) {
     /** Copy the boards as they are, as the backup taken at `at`. */
     takeBackup(at: number) {
       backups.set(at, clone(boards));
+    },
+    refuseNextLoad(error: StoreError) {
+      loadFault = error;
     },
     refuseNextActivate(error: StoreError) {
       activateFault = error;

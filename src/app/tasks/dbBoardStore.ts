@@ -78,6 +78,24 @@ export function createDbBoardStore(deps: DbBoardStoreDeps): DbBoardStore {
     recovery = recoveryOf(await deps.db.status());
   };
 
+  /**
+   * Every call to the database goes through here: a refusal saying the
+   * database cannot be used at all — damaged, gone, a newer build's —
+   * makes the store read-only, with the way to recover learned, whichever
+   * call met it first. The refusal still reaches the caller.
+   */
+  const call = async <T>(op: () => Promise<T>): Promise<T> => {
+    try {
+      return await op();
+    } catch (e: unknown) {
+      if (deps.isStoreError(e) && (e.code === "corrupt" || e.code === "missing" || e.code === "schemaTooNew")) {
+        readOnly = storeErrorText(e);
+        await learnRecovery();
+      }
+      throw e;
+    }
+  };
+
   /** The database answered: the change is what it holds now. */
   const accept = (place: Confirmed, applied: Applied, change: ChangeSet, target: TaskBoard) => {
     const rev = applied.revs.find((r) => r.board === place.board)?.rev;
@@ -93,7 +111,7 @@ export function createDbBoardStore(deps: DbBoardStoreDeps): DbBoardStore {
 
   /** Read a board's confirmed state from the database again. */
   const reread = async (workspace: string, place: Confirmed) => {
-    const stored = await deps.db.load(workspace);
+    const stored = await call(() => deps.db.load(workspace));
     if (stored === null) return;
     const read = boardFromStored(stored, deps.mintUid);
     if (!read.ok) throw new Error(decodeFaultText(read.fault, "the database"));
@@ -109,12 +127,10 @@ export function createDbBoardStore(deps: DbBoardStoreDeps): DbBoardStore {
     place.pending = { change, target };
     let applied: Applied;
     try {
-      applied = await deps.db.apply(change);
+      applied = await call(() => deps.db.apply(change));
     } catch (e: unknown) {
       if (!deps.isStoreError(e)) throw e;
       place.pending = null;
-      if (e.code === "corrupt" || e.code === "missing" || e.code === "schemaTooNew") readOnly = storeErrorText(e);
-      if (e.code === "corrupt" || e.code === "missing") await learnRecovery();
       // Computed against a state the database no longer holds: read it
       // again, and the next write is computed against what is there.
       if (e.code === "conflict" || e.code === "constraint") await reread(workspace, place);
@@ -164,7 +180,7 @@ export function createDbBoardStore(deps: DbBoardStoreDeps): DbBoardStore {
     async read({ workspaceId }) {
       if (fallback !== null) return fallback.get(workspaceId) ?? { kind: "none" };
       if (readOnly !== null) return { kind: "unreadable", error: readOnly };
-      const stored = await deps.db.load(workspaceId);
+      const stored = await call(() => deps.db.load(workspaceId));
       if (stored === null) {
         confirmed.delete(workspaceId);
         return { kind: "none" };
@@ -180,7 +196,7 @@ export function createDbBoardStore(deps: DbBoardStoreDeps): DbBoardStore {
       if (!place) {
         // Not read since the database last changed under us (a restore):
         // what it holds now is the base. None there: a board of its own.
-        const stored = await deps.db.load(workspaceId);
+        const stored = await call(() => deps.db.load(workspaceId));
         const read = stored === null ? null : boardFromStored(stored, deps.mintUid);
         if (read && !read.ok) throw new Error(decodeFaultText(read.fault, "the database"));
         place =
@@ -196,14 +212,14 @@ export function createDbBoardStore(deps: DbBoardStoreDeps): DbBoardStore {
     },
     async drop({ workspaceId }) {
       confirmed.delete(workspaceId);
-      await deps.db.drop(workspaceId);
+      await call(() => deps.db.drop(workspaceId));
     },
     writeRefusal: () => readOnly,
     async search({ workspaceId, query, limit }) {
       // A board not in the database yet has nothing to find.
       const place = confirmed.get(workspaceId);
       if (fallback !== null || readOnly !== null || !place) return [];
-      const hits = await deps.db.search(query, [place.board], limit);
+      const hits = await call(() => deps.db.search(query, [place.board], limit));
       return hits.map((hit) => ({ uid: hit.uid, comment: hit.comment, snippet: hit.snippet }));
     },
     recovery: () => recovery,
