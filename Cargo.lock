@@ -2704,7 +2704,7 @@ dependencies = [
 
 [[package]]
 name = "keepdeck"
-version = "0.29.10"
+version = "0.30.0"
 dependencies = [
  "base64 0.22.1",
  "block2",
