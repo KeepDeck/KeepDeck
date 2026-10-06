@@ -6,15 +6,15 @@ import type { StoredTask } from "./StoredTask";
  * One board as stored: the tasks in board order, the links whose `from`
  * end is on it, its counter and the number of its latest change.
  */
-export type StoredBoard = { 
+export type StoredBoard = {
 /**
  * The board's own id — never a workspace id, which is reused.
  */
-board: string, 
+board: string,
 /**
  * The workspace this board belongs to; none for an unattached board.
  */
-workspace: string | null, nextId: number, 
+workspace: string | null, nextId: number,
 /**
  * The number of the board's latest change; 0 for a board never written.
  */

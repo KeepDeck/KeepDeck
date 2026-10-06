@@ -16,6 +16,9 @@ db="$(mktemp -d)/schema.db"
 )
 rm -rf "$root/src/ipc/generated/tasks"
 (cd "$root" && cargo test -q -p keepdeck-tasks --lib export_bindings >/dev/null)
+# ts-rs leaves a space at the end of some lines; the repo's diff check
+# refuses trailing whitespace, so the generated files are trimmed.
+perl -pi -e 's/[ \t]+$//' "$root/src/ipc/generated/tasks/"*.ts
 # Every integer crosses IPC as a JS number: an i64 left without
 # #[ts(type = "number")] would generate `bigint` and lie about the wire.
 if grep -l "bigint" "$root/src/ipc/generated/tasks/"*.ts; then

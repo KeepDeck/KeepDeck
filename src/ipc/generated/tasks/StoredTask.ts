@@ -4,28 +4,28 @@ import type { StoredComment } from "./StoredComment";
 import type { StoredKey } from "./StoredKey";
 import type { StoredLogEntry } from "./StoredLogEntry";
 
-export type StoredTask = { uid: string, 
+export type StoredTask = { uid: string,
 /**
  * Its current address on this board (`task-N`).
  */
-key: string, 
+key: string,
 /**
  * Addresses it had before — on this board or another — that still
  * lead to it.
  */
-oldKeys: Array<StoredKey>, teamId: string | null, title: string, body: string, 
+oldKeys: Array<StoredKey>, teamId: string | null, title: string, body: string,
 /**
  * The number of the brief's current version.
  */
-bodyV: number, status: string, priority: string, assignee: string | null, author: string, created: number, updated: number, 
+bodyV: number, status: string, priority: string, assignee: string | null, author: string, created: number, updated: number,
 /**
  * The board change that last touched this task.
  */
-rev: number, labels: Array<string>, 
+rev: number, labels: Array<string>,
 /**
  * In their order on the task.
  */
-artifacts: Array<string>, comments: Array<StoredComment>, log: Array<StoredLogEntry>, 
+artifacts: Array<string>, comments: Array<StoredComment>, log: Array<StoredLogEntry>,
 /**
  * Earlier versions of the brief, oldest first; the current one is `body`.
  */
