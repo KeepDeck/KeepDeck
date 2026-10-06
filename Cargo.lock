@@ -2786,6 +2786,8 @@ dependencies = [
  "libsqlite3-sys",
  "log",
  "serde",
+ "serde_json",
+ "sha2",
  "tempfile",
  "ts-rs",
 ]

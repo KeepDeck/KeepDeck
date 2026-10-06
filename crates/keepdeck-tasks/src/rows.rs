@@ -106,4 +106,5 @@ pub struct RequestRow {
     pub board: String,
     pub rev: i64,
     pub seq: i64,
+    pub digest: String,
 }

@@ -112,6 +112,9 @@ CREATE TABLE requests (
     board      TEXT NOT NULL,
     rev        BIGINT NOT NULL,
     seq        BIGINT NOT NULL,
+    -- What the request held (sha-256 of it): the same id with other
+    -- content is refused, never answered "already applied".
+    digest     TEXT NOT NULL,
     PRIMARY KEY (request_id, board)
 ) WITHOUT ROWID;
 CREATE INDEX requests_by_seq ON requests(seq);

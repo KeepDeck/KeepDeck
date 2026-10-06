@@ -173,10 +173,17 @@ pub fn apply(conn: &mut SqliteConnection, change: &ChangeSet) -> Result<Applied>
         return Err(StoreError::Invalid { detail: "a change needs a request id".into() });
     }
     conn.immediate_transaction(|conn| {
-        // Sent again after its answer was lost: answered, never applied twice.
+        // Sent again after its answer was lost: answered, never applied
+        // twice. The same id with other content is no repeat.
+        let digest = digest_of(change)?;
         let before = applied_revs(conn, &change.request_id)?;
-        if !before.is_empty() {
-            return Ok(Applied::AlreadyApplied { revs: before });
+        if let Some((_, stored)) = before.first() {
+            if *stored != digest {
+                return Err(StoreError::Constraint {
+                    detail: format!("request {} was applied with other content", change.request_id),
+                });
+            }
+            return Ok(Applied::AlreadyApplied { revs: before.into_iter().map(|(rev, _)| rev).collect() });
         }
         let mut in_change = HashSet::new();
         for board_change in &change.boards {
@@ -188,26 +195,39 @@ pub fn apply(conn: &mut SqliteConnection, change: &ChangeSet) -> Result<Applied>
         for board_change in &change.boards {
             revs.push(apply_board(conn, board_change, &in_change)?);
         }
-        remember(conn, &change.request_id, &revs)?;
+        remember(conn, &change.request_id, &digest, &revs)?;
         Ok(Applied::Applied { revs })
     })
 }
 
-fn applied_revs(conn: &mut SqliteConnection, request_id: &str) -> Result<Vec<BoardRev>> {
-    let rows: Vec<(String, i64)> = requests::table
-        .filter(requests::request_id.eq(request_id))
-        .order(requests::board)
-        .select((requests::board, requests::rev))
-        .load(conn)?;
-    Ok(rows.into_iter().map(|(board, rev)| BoardRev { board, rev }).collect())
+/// What a change held, as a fingerprint stored with its id.
+fn digest_of(change: &ChangeSet) -> Result<String> {
+    use sha2::{Digest, Sha256};
+    let bytes = serde_json::to_vec(change).map_err(|e| StoreError::Invalid { detail: format!("reading the change: {e}") })?;
+    Ok(Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect())
 }
 
-fn remember(conn: &mut SqliteConnection, request_id: &str, revs: &[BoardRev]) -> Result<()> {
+fn applied_revs(conn: &mut SqliteConnection, request_id: &str) -> Result<Vec<(BoardRev, String)>> {
+    let rows: Vec<(String, i64, String)> = requests::table
+        .filter(requests::request_id.eq(request_id))
+        .order(requests::board)
+        .select((requests::board, requests::rev, requests::digest))
+        .load(conn)?;
+    Ok(rows.into_iter().map(|(board, rev, digest)| (BoardRev { board, rev }, digest)).collect())
+}
+
+fn remember(conn: &mut SqliteConnection, request_id: &str, digest: &str, revs: &[BoardRev]) -> Result<()> {
     let last: Option<i64> = requests::table.select(diesel::dsl::max(requests::seq)).first(conn)?;
     let seq = last.unwrap_or(0) + 1;
     let rows: Vec<RequestRow> = revs
         .iter()
-        .map(|rev| RequestRow { request_id: request_id.to_string(), board: rev.board.clone(), rev: rev.rev, seq })
+        .map(|rev| RequestRow {
+            request_id: request_id.to_string(),
+            board: rev.board.clone(),
+            rev: rev.rev,
+            seq,
+            digest: digest.to_string(),
+        })
         .collect();
     diesel::insert_into(requests::table).values(&rows).execute(conn)?;
     diesel::delete(requests::table.filter(requests::seq.le(seq - REQUESTS_KEPT))).execute(conn)?;

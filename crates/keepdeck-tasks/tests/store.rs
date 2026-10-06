@@ -232,6 +232,11 @@ fn a_request_sent_again_is_answered_not_applied_twice() {
     assert_eq!(again, Applied::AlreadyApplied { revs: vec![BoardRev { board: "b1".into(), rev: 1 }] });
     assert_eq!(rev_of(&mut store, "b1"), 1);
     assert_eq!(store.load("b1").unwrap().tasks[0].comments.len(), 1);
+    // The same id with other content is no repeat: refused, not answered.
+    let mut other = first.clone();
+    other.boards[0].next_id = 4;
+    assert!(matches!(store.apply(&other), Err(StoreError::Constraint { .. })));
+    assert_eq!(store.load("b1").unwrap().next_id, 3);
 }
 
 #[test]

@@ -208,7 +208,9 @@ pub struct TaskWrite {
 pub enum Applied {
     /// Applied now; the boards' new revs.
     Applied { revs: Vec<BoardRev> },
-    /// This request was applied before (its answer was lost); its revs then.
+    /// This request was applied before (its answer was lost); its revs
+    /// THEN — a board written since has moved on, so whoever hears this
+    /// reads the board again before trusting them.
     AlreadyApplied { revs: Vec<BoardRev> },
 }
 

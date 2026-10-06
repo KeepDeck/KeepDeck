@@ -40,6 +40,7 @@ diesel::table! {
         board -> Text,
         rev -> BigInt,
         seq -> BigInt,
+        digest -> Text,
     }
 }
 
