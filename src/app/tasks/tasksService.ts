@@ -332,7 +332,7 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
     const loading = deps.store
       .read({ workspaceId })
       .then((read): BoardState => {
-        if (read.kind === "none") return { kind: "ready", board: EMPTY_BOARD, unsaved: null };
+        if (read.kind === "none") return { kind: "ready", board: freeze(EMPTY_BOARD), unsaved: null };
         if (read.kind === "board") return { kind: "ready", board: freeze(read.board), unsaved: null };
         log.warn("web:tasks", `${workspaceId}: ${read.error} — the board is read-only`);
         return { kind: "unreadable", error: read.error };

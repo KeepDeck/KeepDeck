@@ -93,6 +93,18 @@ describe("createTasksService", () => {
     expect(told).toBeGreaterThanOrEqual(2);
   });
 
+  it("holds every board frozen in development — read, empty, or changed — so a change in place fails loudly", async () => {
+    const { service } = setup({ "ws-1": encodeBoard(board([task({ id: "task-1" })])) });
+    const deep = (b: TaskBoard) => Object.isFrozen(b) && Object.isFrozen(b.tasks) && b.tasks.every((t) => Object.isFrozen(t) && Object.isFrozen(t.log));
+    const read = await service.ready("ws-1");
+    expect(read.kind === "ready" && deep(read.board)).toBe(true);
+    const empty = await service.ready("ws-2");
+    expect(empty.kind === "ready" && Object.isFrozen(empty.board) && Object.isFrozen(empty.board.tasks)).toBe(true);
+    await service.create("ws-1", { teamId: "team-1", title: "new" }, lead);
+    const changed = await service.ready("ws-1");
+    expect(changed.kind === "ready" && changed.board.tasks.length === 2 && deep(changed.board)).toBe(true);
+  });
+
   it("a stored board comes back decoded", async () => {
     const stored = board([task({ id: "task-1", assignee: "impl-1" })], 5);
     const { service } = setup({ "ws-1": encodeBoard(stored) });
