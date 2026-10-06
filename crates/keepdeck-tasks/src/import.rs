@@ -1,5 +1,5 @@
 //! Writing whole boards into the database at once — the migration from
-//! the JSON files, and a restore from the boards held in memory.
+//! the JSON files.
 //!
 //! The migration is ONE step for every board (the user's rule: no state
 //! where some boards live in the database and some in files). It lands as
@@ -115,14 +115,9 @@ pub fn discard(conn: &mut SqliteConnection) -> Result<()> {
     })
 }
 
-/// Mark a database written whole (a restore from memory) as the source.
-pub fn mark_active(conn: &mut SqliteConnection) -> Result<()> {
-    meta::set(conn, STATE_KEY, "active")
-}
-
-/// Write boards whole into an empty database: what a migration and a
-/// restore from memory share. Every refusal says what and where.
-pub fn write_boards(conn: &mut SqliteConnection, boards_in: &[StoredBoard]) -> Result<()> {
+/// Write boards whole into an empty database. Every refusal says what and
+/// where.
+fn write_boards(conn: &mut SqliteConnection, boards_in: &[StoredBoard]) -> Result<()> {
     let board_rows: Vec<BoardRow> = boards_in
         .iter()
         .map(|b| BoardRow { board: b.board.clone(), workspace: b.workspace.clone(), next_id: b.next_id, rev: b.rev })

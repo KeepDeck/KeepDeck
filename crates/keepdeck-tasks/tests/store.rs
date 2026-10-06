@@ -454,20 +454,6 @@ fn store_backup_named(root: &Path, at: i64) -> std::path::PathBuf {
 }
 
 #[test]
-fn a_damaged_database_is_restored_from_the_boards_in_memory() {
-    let dir = tempfile::tempdir().unwrap();
-    let mut store = active_store(dir.path());
-    let held = store.load_all().unwrap();
-    drop(store);
-    std::fs::write(dir.path().join("tasks.db"), b"garbage that is not sqlite at all, for sure").unwrap();
-    let _ = std::fs::remove_file(dir.path().join("tasks.db-wal"));
-    let mut store = Store::open(dir.path()).unwrap();
-    store.restore_boards(&held, 5).unwrap();
-    assert_eq!(store.migration_state().unwrap(), MigrationState::Active);
-    assert_eq!(store.load_all().unwrap(), held);
-}
-
-#[test]
 fn a_backup_that_fails_its_check_never_enters_the_set() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = active_store(dir.path());

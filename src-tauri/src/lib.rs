@@ -205,7 +205,6 @@ pub fn run() {
             tasks::tasks_activate_migration,
             tasks::tasks_discard_migration,
             tasks::tasks_restore_backup,
-            tasks::tasks_restore_boards,
             bridge::bridge_nudge,
             bridge::bridge_pane_dir,
             bridge::bridge_reply,

@@ -224,22 +224,6 @@ impl Store {
         self.reopen()
     }
 
-    /// Restore from boards held in memory — newer than any backup when the
-    /// damage was found mid-session. The damaged files go aside and the
-    /// boards are written into a fresh database, already the source.
-    pub fn restore_boards(&mut self, boards: &[StoredBoard], now_ms: i64) -> Result<()> {
-        let path = self.db_path();
-        self.close();
-        db::set_aside(&path, now_ms)?;
-        let mut conn = db::open(&path)?;
-        conn.immediate_transaction(|conn| {
-            import::write_boards(conn, boards)?;
-            import::mark_active(conn)
-        })?;
-        drop(conn);
-        self.reopen()
-    }
-
     fn reopen(&mut self) -> Result<()> {
         let conn = db::open(&self.db_path())?;
         self.state = State::Open { conn, changed_since_backup: true };

@@ -87,7 +87,3 @@ export async function tasksDiscardMigration(): Promise<void> {
 export async function tasksRestoreBackup(at: number): Promise<void> {
   await invoke("tasks_restore_backup", { at });
 }
-
-export async function tasksRestoreBoards(boards: StoredBoard[]): Promise<void> {
-  await invoke("tasks_restore_boards", { boards });
-}

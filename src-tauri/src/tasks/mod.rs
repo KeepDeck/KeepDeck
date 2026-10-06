@@ -140,11 +140,6 @@ pub fn tasks_restore_backup(state: State<TasksState>, at: i64) -> Result<(), Sto
     state.store.with_db(|db| db.restore_backup(at, now_ms()))
 }
 
-#[tauri::command(async)]
-pub fn tasks_restore_boards(state: State<TasksState>, boards: Vec<StoredBoard>) -> Result<(), StoreError> {
-    state.store.with_db(|db| db.restore_boards(&boards, now_ms()))
-}
-
 fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
