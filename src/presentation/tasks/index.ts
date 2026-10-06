@@ -5,6 +5,7 @@ export * from "./queryView";
 export * from "./listView";
 export * from "./boardSettings";
 export * from "./taskDetailView";
+export * from "./cardRows";
 export * from "./newTaskFormView";
 export * from "./ladderView";
 export * from "./teamCardTasksLine";
