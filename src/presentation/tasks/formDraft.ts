@@ -39,9 +39,15 @@ export function takesAnEpic(draft: Pick<TaskDraft, "kind">): boolean {
   return draft.kind === "task";
 }
 
+/** What a picker's value means: its empty pick is none — no assignee
+ * (the pool), no epic. The one reading, for every picker that offers none. */
+export function pickedOrNone(value: string): string | null {
+  return value === "" ? null : value;
+}
+
 /** The assignee a picker's value means: an empty pick is the pool. */
 export function assigneeOf(value: string): string | null {
-  return value === "" ? null : value;
+  return pickedOrNone(value);
 }
 
 export function taskInputOf(draft: TaskDraft): Omit<CreateTaskInput, "teamId"> {
@@ -53,6 +59,6 @@ export function taskInputOf(draft: TaskDraft): Omit<CreateTaskInput, "teamId"> {
     status: draft.status,
     kind: draft.kind,
     // An epic picked, then the kind turned to epic: an epic goes under none.
-    ...(takesAnEpic(draft) && draft.parent !== "" ? { parent: draft.parent } : {}),
+    ...(takesAnEpic(draft) && pickedOrNone(draft.parent) !== null ? { parent: draft.parent } : {}),
   };
 }

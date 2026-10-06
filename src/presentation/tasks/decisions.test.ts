@@ -18,7 +18,7 @@ import {
 import { EMPTY_COMPOSER, beginSend, composerCanSend, finishSend, labelDraftAfter, labelSendable, typeDraft } from "./composer";
 import { canCreateTask, canSendComment } from "./composerView";
 import { DIALOG_WORDS, escapeTarget, selectionAfterClick, teamControlView } from "./dialogState";
-import { EMPTY_TASK_DRAFT, assigneeOf, draftIn, takesAnEpic, taskInputOf } from "./formDraft";
+import { EMPTY_TASK_DRAFT, assigneeOf, draftIn, pickedOrNone, takesAnEpic, taskInputOf } from "./formDraft";
 import { INITIAL_SCREEN, initialScreen, queryOn, restoreConfirm, screenReducer, walksRows, wideView, type ScreenState } from "./screenState";
 import { restoreView } from "./words";
 import { NO_QUERY } from "./queryView";
@@ -39,7 +39,7 @@ describe("rowDrag", () => {
     expect(ghostBox(armed)).toBeNull();
   });
 
-  it("a card that vanished under the press cannot become a drag", () => {
+  it("a row that vanished under the press cannot become a drag", () => {
     expect(moveRow(armRow("task-9", 0, 0, grip), 50, 50, () => null)).toBe(IDLE);
   });
 
@@ -51,7 +51,7 @@ describe("rowDrag", () => {
     expect(releaseRow(armRow("task-1", 0, 0, grip), "done")).toEqual({ state: IDLE, move: null, dragged: false });
   });
 
-  it("columns read their part in the drag; the click after a drag is disbelieved briefly", () => {
+  it("groups read their part in the drag; the click after a drag is disbelieved briefly", () => {
     const dragging = moveRow(armRow("task-1", 0, 0, grip), 50, 50, () => targets);
     expect(dropStateOf("done", dragging, null)).toBe("ok");
     expect(dropStateOf("done", dragging, "done")).toBe("over");
@@ -290,6 +290,7 @@ describe("formDraft", () => {
     expect(EMPTY_TASK_DRAFT.priority).toBe("normal");
     expect(assigneeOf("")).toBeNull();
     expect(assigneeOf("impl-1")).toBe("impl-1");
+    expect([pickedOrNone(""), pickedOrNone("task-3")]).toEqual([null, "task-3"]);
     expect(taskInputOf({ ...EMPTY_TASK_DRAFT, title: "Draft", assignee: "" })).toEqual({
       title: "Draft",
       body: "",

@@ -57,7 +57,7 @@ describe("taskRowView", () => {
 
 describe("epicMark — what says a row is an epic", () => {
   it("counts done of the work it counts — cancelled work aside — as a count, a bar and words", () => {
-    expect(epicMark({ done: 2, open: 3, cancelled: 4 })).toEqual({ chip: "EPIC", count: "2/5", fill: 40, label: "2 of 5 tasks done" });
+    expect(epicMark({ done: 2, open: 3, cancelled: 4 })).toEqual({ chip: "EPIC", count: "2/5", fill: 40, label: "2 of 5 tasks done", summary: "2 of 5 done" });
     expect(epicMark({ done: 0, open: 0, cancelled: 1 })).toMatchObject({ count: "0/0", fill: 0 });
   });
 
@@ -187,8 +187,7 @@ describe("taskDetailView — an epic and its tasks", () => {
     expect(view.parent).toBeNull();
     expect(view.epic).toMatchObject({
       heading: "Tasks of the epic",
-      summary: "0 of 1 done",
-      progress: { count: "0/1", fill: 0 },
+      progress: { count: "0/1", fill: 0, summary: "0 of 1 done" },
       empty: null,
       addNew: "New task in the epic",
       addExisting: "Add an existing task",
@@ -199,6 +198,18 @@ describe("taskDetailView — an epic and its tasks", () => {
     ]);
     // Only work under no epic may be added — not an epic, not its own.
     expect(view.palette("epic-task").sections[0].items.map((item) => item.value)).toEqual(["task-4"]);
+  });
+
+  it("an epic with no tasks says so; with no task left to add, it offers no Add an existing task", () => {
+    const lone = board([task({ id: "task-1", kind: "epic" })], 2);
+    const view = taskDetailView(lone.tasks[0], lone, ROSTER, NOW).epic!;
+    expect(view.empty).toBe("No tasks under it yet");
+    expect(view.tasks).toEqual([]);
+    expect(view.addExisting).toBeNull();
+    expect(view.addNew).toBe("New task in the epic");
+    // Tasks under it: nothing empty to say.
+    const b = family();
+    expect(taskDetailView(b.tasks[0], b, ROSTER, NOW).epic?.empty).toBeNull();
   });
 
   it("shows Done and Cancelled refused while work is open, the picker saying which", () => {

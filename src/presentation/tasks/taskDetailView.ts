@@ -60,9 +60,8 @@ export interface StatusChoiceView extends ChoiceView {
  * two ways to add one. */
 export interface EpicSectionView {
   heading: string;
-  /** `2 of 5 done`, and the bar's fill. */
+  /** `2 of 5 done`, and the bar's fill (`epicMark`, the one owner). */
   progress: EpicMarkView;
-  summary: string;
   tasks: { id: string; title: string; ring: StatusRingProps; assignee: string; className: string }[];
   empty: string | null;
   addNew: string;
@@ -278,7 +277,6 @@ export const TASK_DETAIL_WORDS = {
   epic: "Epic",
   noEpic: "No epic",
   epicTasks: "Tasks of the epic",
-  epicDone: (done: number, counted: number) => `${done} of ${counted} done`,
   epicEmpty: "No tasks under it yet",
   epicAddNew: "New task in the epic",
   epicAddExisting: "Add an existing task",
@@ -512,7 +510,6 @@ function epicSection(epic: Task, board: TaskBoard): EpicSectionView {
   return {
     heading: TASK_DETAIL_WORDS.epicTasks,
     progress: epicMark(progress),
-    summary: TASK_DETAIL_WORDS.epicDone(progress.done, progress.done + progress.open),
     tasks: tasks.map((task) => ({
       id: task.id,
       title: task.title,

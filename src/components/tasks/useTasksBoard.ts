@@ -33,6 +33,7 @@ import {
   IDLE,
   armRow,
   assigneeOf,
+  pickedOrNone,
   boardFolded,
   boardWithFold,
   rowInFlight,
@@ -361,8 +362,8 @@ export function useTasksBoard(
     compose: () => run({ type: "compose" }),
     /** The form, opened in an epic: the epic picked for the new task. */
     composeIn: (epicId: string) => run({ type: "compose", epic: epicId }),
-    /** Put a task under an epic, or under none. */
-    setParent: (taskId: string, epicId: string | null) => void apply(taskId, [{ kind: "parent", to: epicId }]),
+    /** Put a task under the epic a pick names, or under none. */
+    setParent: (taskId: string, picked: string) => void apply(taskId, [{ kind: "parent", to: pickedOrNone(picked) }]),
     cancelCompose: () => run({ type: "cancelCompose" }),
     toggleCompose: () => run({ type: "toggleCompose" }),
     wide: wideView(screen, detail !== null),

@@ -69,8 +69,9 @@ interface TaskDetailProps {
   /** Resolves to whether the label landed — the field keeps a refused one. */
   onLabel(taskId: string, label: string): Promise<boolean>;
   onUnlabel(taskId: string, label: string): void;
-  /** Put a task under an epic (its id), or under none (null). */
-  onParent(taskId: string, epicId: string | null): void;
+  /** Put a task under the epic a pick names — its id, or the empty pick
+   * for none. */
+  onParent(taskId: string, picked: string): void;
   /** Open the new-task form with this epic picked. */
   onNewInEpic(epicId: string): void;
 }
@@ -221,7 +222,7 @@ export function TaskDetail({
                       ariaLabel={TASK_DETAIL_WORDS.epic}
                       options={view.parent.options}
                       value={view.parent.value}
-                      onChange={(value) => onParent(view.id, value || null)}
+                      onChange={(value) => onParent(view.id, value)}
                       variant="inline"
                     />
                   </dd>
@@ -339,7 +340,7 @@ export function TaskDetail({
               <section className="tasks__epic" aria-label={view.epic.heading}>
                 <h4 className="tasks__section tasks__epic-head">
                   {view.epic.heading}
-                  <span className="tasks__epic-summary">{view.epic.summary}</span>
+                  <span className="tasks__epic-summary">{view.epic.progress.summary}</span>
                 </h4>
                 <span className="tasks__epic-bar tasks__epic-bar--wide" aria-hidden>
                   <span className="tasks__epic-fill" style={{ width: `${view.epic.progress.fill}%` }} />

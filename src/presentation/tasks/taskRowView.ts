@@ -36,6 +36,8 @@ export interface EpicMarkView {
   fill: number;
   /** `2 of 5 tasks done`, for a reader. */
   label: string;
+  /** `2 of 5 done`, the card's line. */
+  summary: string;
 }
 
 export const EPIC_CHIP = "EPIC";
@@ -48,6 +50,7 @@ export function epicMark(progress: EpicProgress): EpicMarkView {
     count: `${progress.done}/${counted}`,
     fill: counted === 0 ? 0 : Math.round((progress.done / counted) * 100),
     label: `${progress.done} of ${counted} tasks done`,
+    summary: `${progress.done} of ${counted} done`,
   };
 }
 
