@@ -1,7 +1,7 @@
 import { memo, useEffect, useLayoutEffect, useRef, type ReactNode, type RefObject } from "react";
 import { marksOf, type ChangeMarks } from "./listMotion";
 import { foldSpacer } from "./foldMotion";
-import { atListFoot, followsChange, footAfter, pinAfterCommit, pinAfterScroll } from "./followEnd";
+import { atListFoot, followsChange, footAfter, holdWhileOff, pinAfterCommit, pinAfterScroll } from "./followEnd";
 import { useFoldMotion } from "./useFoldMotion";
 import { useFocusHandoff } from "./useFocusHandoff";
 import { usePinnedHeading } from "./usePinnedHeading";
@@ -317,6 +317,9 @@ function useFollowEnd<T>(
   }, [on, scrollRef]);
   useLayoutEffect(() => {
     const box = scrollRef.current;
+    const kept = holdWhileOff({ on, pinned: pinned.current, atFoot: atFoot.current });
+    pinned.current = kept.pinned;
+    atFoot.current = kept.atFoot;
     if (!on || !box) return;
     const changed = seen.current !== items;
     seen.current = items;

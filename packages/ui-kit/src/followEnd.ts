@@ -48,6 +48,16 @@ export function pinAfterScroll(input: { pinned: boolean; scrollTop: number; peak
   return { pinned: input.scrollTop >= peak - END_SLACK_PX, peak };
 }
 
+/**
+ * What a list that stops following keeps of its hold: nothing. While off
+ * it hears no scroll, so a hold kept through it would outlive whatever
+ * the person did meanwhile — and pull them back to an old foot when it
+ * follows again (reviewer-3, task-294).
+ */
+export function holdWhileOff(input: { on: boolean; pinned: boolean; atFoot: boolean }): { pinned: boolean; atFoot: boolean } {
+  return input.on ? { pinned: input.pinned, atFoot: input.atFoot } : { pinned: false, atFoot: false };
+}
+
 /** Where the view counts as standing for the next change: held at the
  * foot, or at it as read now. */
 export function footAfter(input: { pinned: boolean; readAtFoot: boolean }): boolean {

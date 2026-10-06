@@ -285,6 +285,20 @@ describe("VirtualList", () => {
       expect(list().scrollTop).toBe(foot - 30);
     });
 
+    it("keeps no hold through a spell of not following: back on, it follows from where the view is", () => {
+      restore = pinListViewport("list", 200, 300, ROW);
+      renderThread(thread);
+      scrollTo(30 * ROW - 200);
+      const once = [...thread, "row 30"];
+      renderThread(once);
+      scrollTo(31 * ROW - 200);
+      renderThread(once, undefined, false);
+      scrollTo(5 * ROW);
+      renderThread(once, undefined, true);
+      renderThread([...once, "row 31"]);
+      expect(list().scrollTop).toBe(5 * ROW);
+    });
+
     it("follows a second row arriving while the first is still measured toward the foot", () => {
       // Guessed 20 tall, measured 100: the first follow lands short of the real foot.
       restore = pinListViewport("list", 200, 300, 100);

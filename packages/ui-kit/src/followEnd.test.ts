@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { END_SLACK_PX, atListFoot, followsChange, footAfter, pinAfterCommit, pinAfterScroll } from "./followEnd";
+import { END_SLACK_PX, atListFoot, followsChange, footAfter, holdWhileOff, pinAfterCommit, pinAfterScroll } from "./followEnd";
 
 describe("atListFoot — where the view stands", () => {
   const box = (scrollTop: number) => ({ scrollTop, clientHeight: 200, scrollHeight: 600 });
@@ -49,6 +49,11 @@ describe("the hold at the foot", () => {
     let state = { pinned: true, peak: 400 };
     for (let top = 399; top >= 390; top -= 1) state = pinAfterScroll({ ...state, scrollTop: top });
     expect(state.pinned).toBe(false);
+  });
+
+  it("is dropped whole while the list does not follow, and kept while it does", () => {
+    expect(holdWhileOff({ on: false, pinned: true, atFoot: true })).toEqual({ pinned: false, atFoot: false });
+    expect(holdWhileOff({ on: true, pinned: true, atFoot: false })).toEqual({ pinned: true, atFoot: false });
   });
 
   it("counts the view at the foot while held, whatever the geometry says; otherwise as read", () => {
