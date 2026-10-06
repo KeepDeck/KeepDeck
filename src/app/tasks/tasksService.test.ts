@@ -210,11 +210,11 @@ describe("createTasksService", () => {
       "task-1",
       [
         { kind: "priority", to: "high" },
-        { kind: "status", to: "review" }, // todo → review: not an edge
+        { kind: "status", to: "done" }, // todo → done: acceptance is from review only
       ],
       lead,
     );
-    expect(!result.ok && result.refusal).toMatchObject({ kind: "illegal-transition", from: "todo", to: "review" });
+    expect(!result.ok && result.refusal).toMatchObject({ kind: "illegal-transition", from: "todo", to: "done" });
     expect(service.board("ws-1")).toBe(before);
     await flush();
     expect(store.writes).toHaveLength(1);

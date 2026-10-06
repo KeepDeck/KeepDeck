@@ -5,7 +5,7 @@
  * place; the producer (app/tasks/producers) only delivers them.
  */
 import type { NotificationSeverity } from "../../domain/notifications";
-import type { Task, TaskStatus } from "../../domain/tasks";
+import { isOpen, type Task, type TaskStatus } from "../../domain/tasks";
 
 export interface TaskNotificationWords {
   title: string;
@@ -63,9 +63,11 @@ export function movedWords(
 function moveTitle(id: string, from: TaskStatus, to: TaskStatus): string {
   switch (to) {
     case "backlog":
-      return `${id} moved to the backlog`;
+      return isOpen(from) ? `${id} moved to the backlog` : `${id} reopened into the backlog`;
     case "todo":
-      return from === "backlog" ? `${id} is ready to start` : `${id} reopened`;
+      // Reopened only what was closed; work sent back is back in the queue.
+      if (!isOpen(from)) return `${id} reopened`;
+      return from === "backlog" ? `${id} is ready to start` : `${id} is back in the queue`;
     case "in-progress":
       // From the ladder's start — waiting, or parked — it started; from
       // anywhere further on, it came back.
