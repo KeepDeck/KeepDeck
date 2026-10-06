@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { board, task } from "../../domain/tasks/testSupport";
+import { board, relation, task } from "../../domain/tasks/testSupport";
 import {
   LIST_HEAD_ESTIMATE_PX,
   LIST_ROW_ESTIMATE_PX,
@@ -12,15 +12,14 @@ import {
   groupDropClassName,
   listHeadingDropClassName,
   listRowClassName,
-  rowGrip,
   rowStepOf,
   stepRow,
   type GroupEdge,
   type ListItem,
 } from "./listView";
 import { NO_QUERY } from "./queryView";
-import { IDLE, type DragState } from "./cardDrag";
-import { BOARD_ORDER } from "./words";
+import { IDLE, rowGrip, type DragState } from "./rowDrag";
+import { BOARD_ORDER, EPIC_FOLD_WORDS } from "./words";
 import type { TaskStatus } from "../../domain/tasks";
 
 const tasks = [
@@ -50,13 +49,13 @@ describe("listView — the board's tasks as one list", () => {
       "task-4",
       "head:cancelled",
     ]);
-    // The same seven groups, left to right, as the board's columns.
+    // The seven groups, top to bottom, in the board order.
     const heads = listView(tasks, b, 0, NO_QUERY, NONE, null).filter((i) => i.kind === "head");
     expect(heads.map((h) => h.kind === "head" && h.status)).toEqual([...BOARD_ORDER]);
   });
 
   it("heads every status even when the query leaves it empty, counting what it shows", () => {
-    const items = listView(tasks, b, 0, { blockedOnly: false, label: "ui" }, NONE, null);
+    const items = listView(tasks, b, 0, { label: "ui" }, NONE, null);
     expect(keys(items)).toEqual(["head:blocked", "head:backlog", "head:todo", "head:in-progress", "head:review", "task-5", "head:done", "head:cancelled"]);
     expect(items[4]).toMatchObject({ kind: "head", label: "Review", count: 1, folded: false });
     expect(items[0]).toMatchObject({ kind: "head", count: 0 });
@@ -132,13 +131,15 @@ describe("stepRow — J and K walk the tasks", () => {
   });
 
   it("reads j as down, k as up, anything else as no step", () => {
-    const key = (k: string, over: Partial<{ chord: boolean; inField: boolean }> = {}) =>
-      rowStepOf({ key: k, chord: false, inField: false, ...over });
+    const key = (k: string, over: Partial<{ metaKey: boolean; ctrlKey: boolean; altKey: boolean; inField: boolean }> = {}) =>
+      rowStepOf({ key: k, metaKey: false, ctrlKey: false, altKey: false, inField: false, ...over });
     expect(key("j")).toBe(1);
     expect(key("k")).toBe(-1);
     expect(key("J")).toBeNull();
-    // A chord is a shortcut's; a letter in a field is text.
-    expect(key("j", { chord: true })).toBeNull();
+    // A chord — with any of ⌘, Ctrl, Alt — is a shortcut's; a letter in a field is text.
+    expect(key("j", { metaKey: true })).toBeNull();
+    expect(key("j", { ctrlKey: true })).toBeNull();
+    expect(key("j", { altKey: true })).toBeNull();
     expect(key("k", { inField: true })).toBeNull();
   });
 });
@@ -184,7 +185,7 @@ describe("the list in a drag", () => {
       task({ id: "task-3", status: "todo", created: 3 }),
       task({ id: "task-4", status: "done" }),
     ];
-    const items = listView(labelled, board(labelled), 0, { blockedOnly: false, label: "ui" }, NONE, null);
+    const items = listView(labelled, board(labelled), 0, { label: "ui" }, NONE, null);
     const edgeOf = (key: string) => items.find((i) => i.key === key)!.edge;
     const todoRows = items.filter((i) => i.kind === "row" && i.status === "todo");
     // Two shown of three: the second shown closes it, not the hidden third.
@@ -193,7 +194,7 @@ describe("the list in a drag", () => {
     // Done has a task, but none the query shows: its heading alone.
     expect(edgeOf("head:done")).toBe("whole");
     // One shown: it alone closes the frame.
-    const one = listView(labelled.slice(1), board(labelled.slice(1)), 0, { blockedOnly: false, label: "ui" }, NONE, null);
+    const one = listView(labelled.slice(1), board(labelled.slice(1)), 0, { label: "ui" }, NONE, null);
     expect(one.filter((i) => i.kind === "row").map((r) => r.edge)).toEqual(["bottom"]);
   });
 
@@ -210,4 +211,80 @@ describe("the list in a drag", () => {
     expect(rowGrip({ left: 100, top: 50, width: 900 }, 700, 60)).toEqual({ width: 900, offsetX: 600, offsetY: 10 });
   });
 
+});
+
+describe("listView — an epic with its tasks under it (B1)", () => {
+  const family = [
+    task({ id: "task-1", kind: "epic", status: "in-progress" }),
+    task({ id: "task-2", status: "done", updated: 10 }),
+    task({ id: "task-3", status: "todo", priority: "low", created: 3, labels: ["ui"] }),
+    task({ id: "task-4", status: "review" }),
+    task({ id: "task-5", status: "todo", priority: "high", created: 5 }),
+    task({ id: "task-6", status: "todo" }),
+  ];
+  const fb = board(family, 7, ["task-2", "task-3", "task-4", "task-5"].map((id) => relation("child-of", id, "task-1")));
+  const OPEN = new Set<TaskStatus>();
+
+  it("stands the epic in its own group, every task under it one step in, by group then queue order — and none in its own group", () => {
+    const items = listView(family, fb, 0, NO_QUERY, OPEN, null);
+    expect(keys(items)).toEqual([
+      "head:blocked",
+      "head:backlog",
+      "head:todo",
+      "task-6",
+      "head:in-progress",
+      "task-1",
+      "task-5",
+      "task-3",
+      "task-4",
+      "task-2",
+      "head:review",
+      "head:done",
+      "head:cancelled",
+    ]);
+    const row = (key: string) => items.find((i) => i.key === key) as Extract<ListItem, { kind: "row" }>;
+    expect([row("task-1").depth, row("task-4").depth, row("task-6").depth]).toEqual([0, 1, 0]);
+    // The lead is the row's own: the epic's fold, its task's step in, nothing for the rest.
+    expect([row("task-1").lead, row("task-4").lead, row("task-6").lead]).toEqual(["fold", "indent", "none"]);
+    // Every row of the group sits in it for a drop: the epic's status.
+    expect(row("task-4").status).toBe("in-progress");
+    expect(row("task-4").className).toContain("tasks__row--under-epic");
+    expect(row("task-1").fold).toEqual({ folded: false, label: EPIC_FOLD_WORDS.fold });
+    expect(row("task-4").fold).toBeNull();
+    expect(row("task-2").edge).toBe("bottom");
+    // A heading counts every row it holds: the epic and its four.
+    expect(items.find((i) => i.key === "head:in-progress")).toMatchObject({ count: 5 });
+    expect(items.find((i) => i.key === "head:review")).toMatchObject({ count: 0 });
+  });
+
+  it("folds an epic to its row — the heading still counting its tasks — and J / K walk what is shown", () => {
+    const items = listView(family, fb, 0, NO_QUERY, OPEN, null, new Set(["task-1"]));
+    expect(keys(items).slice(4, 7)).toEqual(["head:in-progress", "task-1", "head:review"]);
+    expect(items.find((i) => i.key === "task-1")).toMatchObject({ fold: { folded: true, label: EPIC_FOLD_WORDS.unfold } });
+    expect(items.find((i) => i.key === "head:in-progress")).toMatchObject({ count: 5 });
+    expect(stepRow(listView(family, fb, 0, NO_QUERY, OPEN, null), "task-1", 1)).toBe("task-5");
+  });
+
+  it("keeps a task the query lets through under its epic, the epic shown over it whether or not it matches", () => {
+    const items = listView(family, fb, 0, { label: "ui" }, OPEN, null);
+    expect(keys(items).filter((k) => !k.startsWith("head:"))).toEqual(["task-1", "task-3"]);
+    expect(items.find((i) => i.key === "head:in-progress")).toMatchObject({ count: 2 });
+    // An epic that matches with none of its tasks: shown alone.
+    const labelledEpic = family.map((t) => (t.id === "task-1" ? { ...t, labels: ["plan"] } : t));
+    const alone = listView(labelledEpic, board(labelledEpic, 7, fb.relations), 0, { label: "plan" }, OPEN, null);
+    expect(keys(alone).filter((k) => !k.startsWith("head:"))).toEqual(["task-1"]);
+  });
+
+  it("dresses a cancelled row as cancelled, and no other", () => {
+    const rows = listView(family, fb, 0, NO_QUERY, OPEN, null).filter((i): i is Extract<ListItem, { kind: "row" }> => i.kind === "row");
+    expect(rows.filter((r) => r.className.includes("tasks__row--cancelled")).map((r) => r.key)).toEqual([]);
+    const withCancelled = [...family, task({ id: "task-7", status: "cancelled" })];
+    const all = listView(withCancelled, board(withCancelled, 8, fb.relations), 0, NO_QUERY, OPEN, null);
+    expect(all.filter((i) => i.kind === "row" && i.className.includes("tasks__row--cancelled")).map((i) => i.key)).toEqual(["task-7"]);
+  });
+
+  it("puts a task whose epic is not shown here at the top of its own group", () => {
+    const loose = family.filter((t) => t.id !== "task-1");
+    expect(keys(listView(loose, fb, 0, NO_QUERY, OPEN, null)).slice(0, 6)).toEqual(["head:blocked", "head:backlog", "head:todo", "task-5", "task-6", "task-3"]);
+  });
 });

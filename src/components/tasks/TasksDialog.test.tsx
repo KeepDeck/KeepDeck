@@ -27,8 +27,8 @@ const artifactReads: ArtifactsRegistryReadPort = {
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-// The settings owner as a live in-memory store: the dialog reads its view
-// from it and writes the view back on a switch.
+// The settings owner as a live in-memory store: the dialog reads the
+// list's folds from it and writes them back on a toggle.
 const settingsStore = vi.hoisted(() => ({
   current: null as Settings | null,
   listeners: new Set<() => void>(),
@@ -61,16 +61,16 @@ const onFocus = (id: string | null) => {
   focus = id;
 };
 
-/** The columns and the open task's card are windowed lists: happy-dom
- * lays nothing out, so the browser's geometry is imitated — each column
- * 600px tall, a card 64; the open card tall enough to draw every row. */
+/** The list and the open task's card are windowed lists: happy-dom lays
+ * nothing out, so the browser's geometry is imitated — the list 600px tall
+ * and 900 wide, a row 34; the open card tall enough to draw every row. */
 let restoreViewport: () => void;
 let restoreCard: () => void;
 
 beforeEach(() => {
   settingsStore.current = DEFAULT_SETTINGS;
   installResizeObserver();
-  restoreViewport = pinListViewport("tasks__column-body", 600);
+  restoreViewport = pinListViewport("tasks__list", 600, 900, 34);
   restoreCard = pinListViewport("tasks__detail-body", 4000, 440, 40);
   document.body.innerHTML = "";
   host = document.body.appendChild(document.createElement("div"));
@@ -93,7 +93,9 @@ const button = (label: string) => {
   return found;
 };
 const teamPicked = () => document.querySelector('button[aria-label="Team"] .dropdown__label')?.textContent;
-const cards = () => Array.from(document.querySelectorAll<HTMLButtonElement>(".tasks__card"));
+/** Each shown row's own control — what a click opens. */
+const rowOpens = () => Array.from(document.querySelectorAll<HTMLButtonElement>(".tasks__row .tasks__row-open"));
+const rowTitles = () => Array.from(document.querySelectorAll(".tasks__list .tasks__row-title")).map((t) => t.textContent);
 
 function mount(service: TasksService | null, initial = teamedWorkspaces()[0], strict = false) {
   let workspace = initial;
@@ -158,15 +160,17 @@ describe("TasksDialog", () => {
     expect(restored).toEqual([{ kind: "backup", at: takenAt }]);
   });
 
-  it("shows the board as columns, opens a task on click, and moves it with the status picker", async () => {
+  it("shows the board as a list, opens a task on click, and moves it with the status picker", async () => {
     const { service } = await seeded();
     const render = mount(service);
     render();
     await flush();
     expect(text()).toContain("To do");
-    expect(cards().map((c) => c.querySelector(".tasks__card-title")?.textContent)).toEqual(["Draft the skill", "Pooled work"]);
+    expect(rowTitles()).toEqual(["Draft the skill", "Pooled work"]);
+    // One view: no switch between views in the toolbar.
+    expect(document.querySelector('[role="radiogroup"][aria-label="View"]')).toBeNull();
 
-    act(() => cards()[0].click());
+    act(() => rowOpens()[0].click());
     await flush();
     expect(focus).toBe("task-1");
     expect(text()).toContain("by lead");
@@ -189,101 +193,61 @@ describe("TasksDialog", () => {
     expect(options().map((o) => o.textContent)).toEqual(EVERY);
   });
 
-  it("narrows to blocked work from the toolbar, and to a label clicked on a row — its chip clears it", async () => {
-    const restoreList = pinListViewport("tasks__list", 600, 900, 34);
-    try {
-      const { service } = await seeded();
-      await service.apply("ws-1", "task-2", [{ kind: "labels", to: ["copy"] }], USER_ACTOR);
-      const render = mount(service);
-      render();
-      await flush();
-      const titles = () => cards().map((c) => c.querySelector(".tasks__card-title")?.textContent);
-      const blocked = () => document.querySelector<HTMLButtonElement>(".tasks__filter")!;
-      const chip = () => document.querySelector<HTMLButtonElement>('button[aria-label="Show every label, not only copy"]');
-
-      act(() => blocked().click());
-      await flush();
-      expect(blocked().getAttribute("aria-pressed")).toBe("true");
-      expect(titles()).toEqual([]);
-      act(() => blocked().click());
-      await flush();
-      expect(titles()).toEqual(["Draft the skill", "Pooled work"]);
-
-      // A label is picked where it is read: on a row of the list.
-      act(() => button("List").click());
-      await flush();
-      expect(chip()).toBeNull();
-      act(() => document.querySelector<HTMLButtonElement>(".tasks__row .kd-tag:not(.kd-tag--outline)")!.click());
-      await flush();
-      const rowTitles = () => Array.from(document.querySelectorAll(".tasks__row-title")).map((t) => t.textContent);
-      expect(rowTitles()).toEqual(["Pooled work"]);
-      expect(chip()?.textContent).toBe("label: copy ✕");
-      // The same filter holds on the board.
-      act(() => button("Board").click());
-      await flush();
-      expect(titles()).toEqual(["Pooled work"]);
-      act(() => chip()!.click());
-      await flush();
-      expect(titles()).toEqual(["Draft the skill", "Pooled work"]);
-      expect(chip()).toBeNull();
-    } finally {
-      restoreList();
-    }
+  it("narrows to a label clicked on a row — its chip clears it; there is no Blocked filter", async () => {
+    const { service } = await seeded();
+    await service.apply("ws-1", "task-2", [{ kind: "labels", to: ["copy"] }], USER_ACTOR);
+    const render = mount(service);
+    render();
+    await flush();
+    const chip = () => document.querySelector<HTMLButtonElement>('button[aria-label="Show every label, not only copy"]');
+    expect(buttons().some((b) => b.textContent?.trim() === "Blocked")).toBe(false);
+    expect(chip()).toBeNull();
+    act(() => document.querySelector<HTMLButtonElement>(".tasks__row .kd-tag:not(.kd-tag--outline)")!.click());
+    await flush();
+    expect(rowTitles()).toEqual(["Pooled work"]);
+    expect(chip()?.textContent).toBe("label: copy ✕");
+    act(() => chip()!.click());
+    await flush();
+    expect(rowTitles()).toEqual(["Draft the skill", "Pooled work"]);
+    expect(chip()).toBeNull();
   });
 
-  it("shows the same tasks as a list: switched from the toolbar, grouped, folded, opened from a row", async () => {
-    const restoreList = pinListViewport("tasks__list", 600, 900, 34);
-    try {
-      const { service } = await seeded();
-      await service.apply("ws-1", "task-2", [{ kind: "status", to: "cancelled" }], USER_ACTOR);
-      const render = mount(service);
-      render();
-      await flush();
-      const view = (label: string) =>
-        Array.from(document.querySelectorAll<HTMLButtonElement>('[role="radiogroup"][aria-label="View"] [role="radio"]')).find((b) => b.textContent === label)!;
-      expect(view("Board").getAttribute("aria-checked")).toBe("true");
-      act(() => view("List").click());
-      await flush();
-      expect(cards()).toEqual([]);
-      const rows = () => Array.from(document.querySelectorAll<HTMLElement>(".tasks__row"));
-      const open = (row: HTMLElement) => row.querySelector<HTMLButtonElement>(".tasks__row-open")!;
-      const headings = () =>
-        Array.from(document.querySelectorAll<HTMLButtonElement>(".tasks__list-item .tasks__group")).map((h) => h.textContent);
-      // All seven groups stand, as the board's columns do; the parked and
-      // the closed work open folded — Cancelled is a heading with its
-      // count, no rows.
-      expect(headings()).toEqual(["Blocked0", "Backlog0", "To do1", "In progress0", "Review0", "Done0", "Cancelled1"]);
-      expect(rows().map((r) => r.querySelector(".tasks__row-title")?.textContent)).toEqual(["Draft the skill"]);
-      act(() => Array.from(document.querySelectorAll<HTMLButtonElement>(".tasks__list-item .tasks__group"))[6].click());
-      await flush();
-      expect(rows().map((r) => r.querySelector(".tasks__row-title")?.textContent)).toEqual(["Draft the skill", "Pooled work"]);
+  it("groups the list by status, folds a group, opens a task from a row, and walks with J / K", async () => {
+    const { service } = await seeded();
+    await service.apply("ws-1", "task-2", [{ kind: "status", to: "cancelled" }], USER_ACTOR);
+    const render = mount(service);
+    render();
+    await flush();
+    const rows = () => Array.from(document.querySelectorAll<HTMLElement>(".tasks__row"));
+    const open = (row: HTMLElement) => row.querySelector<HTMLButtonElement>(".tasks__row-open")!;
+    const headings = () =>
+      Array.from(document.querySelectorAll<HTMLButtonElement>(".tasks__list-item .tasks__group")).map((h) => h.textContent);
+    // All seven groups stand; the parked and the closed work open folded
+    // — Cancelled is a heading with its count, no rows.
+    expect(headings()).toEqual(["Blocked0", "Backlog0", "To do1", "In progress0", "Review0", "Done0", "Cancelled1"]);
+    expect(rows().map((r) => r.querySelector(".tasks__row-title")?.textContent)).toEqual(["Draft the skill"]);
+    act(() => Array.from(document.querySelectorAll<HTMLButtonElement>(".tasks__list-item .tasks__group"))[6].click());
+    await flush();
+    expect(rows().map((r) => r.querySelector(".tasks__row-title")?.textContent)).toEqual(["Draft the skill", "Pooled work"]);
 
-      // A row opens its task over the list; the list stays where it is.
-      act(() => open(rows()[0]).click());
-      await flush();
-      render();
-      await flush();
-      expect(focus).toBe("task-1");
-      expect(text()).toContain("by lead");
-      expect(open(rows()[0]).getAttribute("aria-pressed")).toBe("true");
-      // J walks to the next task, the card following; not while typing.
-      act(() => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "j" })));
-      await flush();
-      render();
-      await flush();
-      expect(focus).toBe("task-2");
-      const composer = document.querySelector<HTMLTextAreaElement>("textarea")!;
-      act(() => void composer.dispatchEvent(new KeyboardEvent("keydown", { key: "k", bubbles: true })));
-      await flush();
-      expect(focus).toBe("task-2");
-      // The open task stays open across the switch back to the board.
-      act(() => view("Board").click());
-      await flush();
-      expect(cards().length).toBeGreaterThan(0);
-      expect(text()).toContain("task-2 · Cancelled");
-    } finally {
-      restoreList();
-    }
+    // A row opens its task over the list; the list stays where it is.
+    act(() => open(rows()[0]).click());
+    await flush();
+    render();
+    await flush();
+    expect(focus).toBe("task-1");
+    expect(text()).toContain("by lead");
+    expect(open(rows()[0]).getAttribute("aria-pressed")).toBe("true");
+    // J walks to the next task, the card following; not while typing.
+    act(() => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "j" })));
+    await flush();
+    render();
+    await flush();
+    expect(focus).toBe("task-2");
+    const composer = document.querySelector<HTMLTextAreaElement>("textarea")!;
+    act(() => void composer.dispatchEvent(new KeyboardEvent("keydown", { key: "k", bubbles: true })));
+    await flush();
+    expect(focus).toBe("task-2");
   });
 
   it("labels the open task from its card and takes a label off — the field keeps a refused one", async () => {
@@ -291,7 +255,7 @@ describe("TasksDialog", () => {
     const render = mount(service);
     render();
     await flush();
-    act(() => cards()[0].click());
+    act(() => rowOpens()[0].click());
     await flush();
     render();
     await flush();
@@ -327,28 +291,11 @@ describe("TasksDialog", () => {
     expect(labelsOnTask()).toEqual([]);
   });
 
-  it("keeps the view picked across closing and opening the dialog — it is a setting", async () => {
-    const { service } = await seeded();
-    mount(service)();
-    await flush();
-    expect(cards().length).toBeGreaterThan(0);
-    act(() => button("List").click());
-    await flush();
-    expect(settingsStore.current?.tasksBoard.view).toBe("list");
-    act(() => root.unmount());
-    root = createRoot(host);
-    mount(service)();
-    await flush();
-    expect(cards()).toEqual([]);
-    expect(document.querySelector(".tasks__list")).not.toBeNull();
-  });
-
   it("keeps the list's folds across closing and opening the dialog — they are settings too", async () => {
     const restoreList = pinListViewport("tasks__list", 600, 900, 34);
     try {
       const { service } = await seeded();
-      settingsStore.current = { ...DEFAULT_SETTINGS, tasksBoard: { ...DEFAULT_SETTINGS.tasksBoard, view: "list" } };
-      mount(service)();
+            mount(service)();
       await flush();
       const heading = (label: string) =>
         Array.from(document.querySelectorAll<HTMLButtonElement>(".tasks__list-item .tasks__group")).find(
@@ -515,6 +462,70 @@ describe("TasksDialog", () => {
     expect(text()).toContain("by you");
   });
 
+  it("an epic's card lists its tasks, refuses Done in words while one is open, and makes a new task in it", async () => {
+    const { service } = await seeded();
+    await service.create("ws-1", { teamId: "team-1", title: "The epic", kind: "epic" }, USER_ACTOR);
+    await service.apply("ws-1", "task-1", [{ kind: "parent", to: "task-3" }], USER_ACTOR);
+    focus = "task-3";
+    const render = mount(service);
+    render();
+    await flush();
+    const card = () => document.querySelector<HTMLElement>('aside[aria-label="Task task-3"]')!;
+    expect(card().querySelector(".tasks__epic-chip")?.textContent).toBe("EPIC");
+    const section = () => card().querySelector<HTMLElement>('section[aria-label="Tasks of the epic"]')!;
+    expect([...section().querySelectorAll(".tasks__epic-task .tasks__row-title")].map((t) => t.textContent)).toEqual(["Draft the skill"]);
+    expect(section().querySelector(".tasks__epic-summary")?.textContent).toBe("0 of 1 done");
+    // The status menu: Done shown, refused, and why.
+    act(() => document.querySelector<HTMLButtonElement>('button[aria-label="Status"]')!.click());
+    await flush();
+    const done = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="option"]')).find((o) => o.textContent === "Done")!;
+    expect(done.getAttribute("aria-disabled")).toBe("true");
+    expect(document.querySelector(".dropdown__note")?.textContent).toBe("Done and Cancelled wait for the epic's tasks: task-1 (to do)");
+    act(() => document.querySelector<HTMLButtonElement>('button[aria-label="Status"]')!.click());
+    await flush();
+    // A new task made in the epic goes under it.
+    const newInEpic = Array.from(section().querySelectorAll<HTMLButtonElement>("button")).find((b) => b.textContent?.includes("New task in the epic"))!;
+    act(() => newInEpic.click());
+    await flush();
+    const epicPick = document.querySelector<HTMLButtonElement>('aside[aria-label="New task"] button[aria-label="Epic"] .dropdown__label');
+    expect(epicPick?.textContent).toBe("task-3 · The epic");
+    const title = document.querySelector<HTMLInputElement>('input[aria-label="Title"]')!;
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(title, "Second step");
+      title.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await flush();
+    act(() => button("Create task").click());
+    await flush();
+    const state = service.peek("ws-1");
+    if (state?.kind !== "ready") throw new Error("not ready");
+    const made = state.board.tasks.find((t) => t.title === "Second step")!;
+    expect(state.board.relations).toContainEqual(expect.objectContaining({ kind: "child-of", from: made.uid, to: state.board.tasks[2].uid }));
+  });
+
+  it("puts a task under an epic from its Epic picker, and out again", async () => {
+    const { service } = await seeded();
+    await service.create("ws-1", { teamId: "team-1", title: "The epic", kind: "epic" }, USER_ACTOR);
+    focus = "task-1";
+    mount(service)();
+    await flush();
+    const pick = (label: string) => {
+      act(() => document.querySelector<HTMLButtonElement>('aside[aria-label="Task task-1"] button[aria-label="Epic"]')!.click());
+      const option = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="option"]')).find((o) => o.textContent === label)!;
+      act(() => option.click());
+    };
+    pick("task-3 · The epic");
+    await flush();
+    const parentOf = () => {
+      const state = service.peek("ws-1");
+      return state?.kind === "ready" ? state.board.relations.filter((r) => r.kind === "child-of").length : -1;
+    };
+    expect(parentOf()).toBe(1);
+    pick("No epic");
+    await flush();
+    expect(parentOf()).toBe(0);
+  });
+
   it("the form can be put away three ways — Cancel, + Task again, Escape — and Escape does not take the dialog with it", async () => {
     const { service } = await seeded();
     const onClose = vi.fn();
@@ -583,20 +594,20 @@ describe("TasksDialog", () => {
     await flush();
     const panel = () => document.querySelector('aside[aria-label="Task task-1"]');
 
-    act(() => cards()[0].click());
+    act(() => rowOpens()[0].click());
     await flush();
     expect(panel()).not.toBeNull();
     act(() => button("Close").click());
     await flush();
     expect(panel()).toBeNull();
 
-    act(() => cards()[0].click());
+    act(() => rowOpens()[0].click());
     await flush();
-    act(() => cards()[0].click());
+    act(() => rowOpens()[0].click());
     await flush();
     expect(panel()).toBeNull();
 
-    act(() => cards()[0].click());
+    act(() => rowOpens()[0].click());
     await flush();
     act(() => {
       document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
@@ -615,49 +626,50 @@ describe("TasksDialog", () => {
     }
     return service;
   }
-  const columnBody = (label: string) =>
-    document.querySelector<HTMLElement>(`section[aria-label="${label}"] .tasks__column-body`)!;
+  /** A status group's heading in the list, by its words. */
+  const groupHeading = (label: string) =>
+    Array.from(document.querySelectorAll<HTMLElement>(".tasks__list-item .tasks__group")).find(
+      (h) => h.querySelector(".tasks__group-label")?.textContent === label,
+    )!;
+  const pointerAt = (type: string, target: EventTarget, x: number, y: number) =>
+    target.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0 }));
 
-  it("a column mounts the cards in view, not its whole pile — and still counts them all", async () => {
+  it("the list mounts the rows in view, not its whole pile — and its heading still counts them all", async () => {
     const render = mount(await crowded(200));
     render();
     await flush();
-    const todo = document.querySelector<HTMLElement>('section[aria-label="To do"]')!;
-    expect(todo.querySelector(".tasks__column-count")?.textContent).toBe("200");
-    const mounted = todo.querySelectorAll(".tasks__card").length;
+    expect(groupHeading("To do").querySelector(".tasks__group-count")?.textContent).toBe("200");
+    const mounted = document.querySelectorAll(".tasks__list .tasks__row").length;
     expect(mounted).toBeGreaterThan(0);
     expect(mounted).toBeLessThan(40);
   });
 
-  it("a drag survives its card scrolling out of the window: the ghost stays, the drop lands", async () => {
+  it("a drag survives its row scrolling out of the window: the ghost stays, the drop lands", async () => {
     const service = await crowded(60);
     const render = mount(service);
     render();
     await flush();
-    const pointer = (type: string, target: EventTarget, x: number, y: number) =>
-      target.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0 }));
-    const first = cards().find((c) => c.querySelector(".tasks__card-title")?.textContent === "Task 0")!;
-    act(() => pointer("pointerdown", first, 10, 10));
+    const first = rowOpens().find((c) => c.querySelector(".tasks__row-title")?.textContent === "Task 0")!;
+    act(() => void pointerAt("pointerdown", first, 10, 10));
     await flush();
-    act(() => pointer("pointermove", window, 40, 40));
+    act(() => void pointerAt("pointermove", window, 40, 40));
     await flush();
 
-    // Scroll To do far down: the card being dragged leaves the window.
-    const body = columnBody("To do");
+    // Scroll the list far down: the row being dragged leaves the window.
+    const list = document.querySelector<HTMLElement>(".tasks__list")!;
     act(() => {
-      body.scrollTop = 60 * 64 - 600;
-      body.dispatchEvent(new Event("scroll"));
+      list.scrollTop = 60 * 34;
+      list.dispatchEvent(new Event("scroll"));
     });
     await flush();
-    // The column's cards only — the ghost is a card too.
-    const titles = Array.from(body.querySelectorAll(".tasks__card-title")).map((t) => t.textContent);
-    expect(titles.length).toBeGreaterThan(0);
-    expect(titles).not.toContain("Task 0");
-    expect(document.querySelector(".tasks__ghost .tasks__card-title")?.textContent).toBe("Task 0");
+    // The list's rows only — the ghost is a row too.
+    expect(rowTitles().length).toBeGreaterThan(0);
+    expect(rowTitles()).not.toContain("Task 0");
+    expect(document.querySelector(".tasks__ghost .tasks__row-title")?.textContent).toBe("Task 0");
 
-    const done = document.querySelector<HTMLElement>('section[aria-label="Done"]')!;
-    act(() => pointer("pointerover", done, 300, 40));
-    act(() => pointer("pointerup", done, 300, 40));
+    const done = groupHeading("Done");
+    act(() => void pointerAt("pointerover", done, 40, 300));
+    act(() => void pointerAt("pointerup", done, 40, 300));
     await flush();
     const state = service.peek("ws-1");
     expect(state?.kind === "ready" && state.board.tasks.find((t) => t.title === "Task 0")?.status).toBe("done");
@@ -720,106 +732,112 @@ describe("TasksDialog", () => {
   });
 
   it("a list row is dragged onto another group — its heading, even folded — and the task moves there", async () => {
-    const restoreList = pinListViewport("tasks__list", 600, 900, 34);
-    try {
-      const { service } = await seeded();
-      settingsStore.current = { ...DEFAULT_SETTINGS, tasksBoard: { ...DEFAULT_SETTINGS.tasksBoard, view: "list" } };
-      mount(service)();
-      await flush();
-      const pointer = (type: string, target: EventTarget, x: number, y: number) =>
-        target.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0 }));
-      const heading = (label: string) =>
-        Array.from(document.querySelectorAll<HTMLElement>(".tasks__list-item .tasks__group")).find((h) =>
-          h.querySelector(".tasks__group-label")?.textContent === label,
-        )!;
-      const row = () => document.querySelector<HTMLElement>(".tasks__row-open")!;
-
-      act(() => void pointer("pointerdown", row(), 10, 10));
-      await flush();
-      act(() => void pointer("pointermove", window, 40, 40));
-      await flush();
-      // The ghost is the list's own row — never the board's card.
-      expect(document.querySelector(".tasks__ghost .tasks__card")).toBeNull();
-      expect(document.querySelector(".tasks__ghost .tasks__row .tasks__row-title")?.textContent).toBe("Draft the skill");
-      expect(document.querySelector(".tasks__list .tasks__row")!.className).toContain("tasks__row--dragging");
-      act(() => void pointer("pointerover", heading("Done"), 40, 300));
-      await flush();
-      expect(heading("Done").className).toContain("tasks__drop--over");
-      // Every group's fold as it stood before the drop.
-      const folds = () =>
-        Array.from(document.querySelectorAll<HTMLElement>(".tasks__list-item .tasks__group"), (h) => [
-          h.querySelector(".tasks__group-label")?.textContent,
-          h.getAttribute("aria-expanded"),
-        ]);
-      const before = folds();
-      // Done is folded — its heading still takes the drop.
-      act(() => void pointer("pointerup", heading("Done"), 40, 300));
-      await flush();
-      const state = service.peek("ws-1");
-      expect(state?.kind === "ready" && state.board.tasks[0].status).toBe("done");
-      expect(document.querySelector(".tasks__ghost")).toBeNull();
-      // The group it went into stays folded — a fold is the person's own
-      // act — and counts the task in its heading.
-      expect(heading("Done").getAttribute("aria-expanded")).toBe("false");
-      // …and no other group's fold moves either: a drop writes no fold.
-      expect(folds()).toEqual(before);
-      expect(heading("Done").querySelector(".tasks__group-count")?.textContent).toBe("1");
-      const titles = Array.from(document.querySelectorAll(".tasks__list .tasks__row .tasks__row-title"), (t) => t.textContent);
-      expect(titles).not.toContain("Draft the skill");
-    } finally {
-      restoreList();
-    }
-  });
-
-  it("a card is dragged with the pointer and dropped on a column; a plain press still opens one", async () => {
     const { service } = await seeded();
-    const render = mount(service);
-    render();
+    mount(service)();
     await flush();
-    const column = (label: string) => document.querySelector<HTMLElement>(`section[aria-label="${label}"]`)!;
     const pointer = (type: string, target: EventTarget, x: number, y: number) =>
       target.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0 }));
+    const heading = (label: string) =>
+      Array.from(document.querySelectorAll<HTMLElement>(".tasks__list-item .tasks__group")).find((h) =>
+        h.querySelector(".tasks__group-label")?.textContent === label,
+      )!;
+    const row = () => document.querySelector<HTMLElement>(".tasks__row-open")!;
 
-    // Press, travel past the threshold: a drag, with a ghost and targets.
-    act(() => {
-      pointer("pointerdown", cards()[0], 10, 10);
-    });
+    act(() => void pointer("pointerdown", row(), 10, 10));
     await flush();
-    act(() => {
-      pointer("pointermove", window, 40, 40);
-    });
+    act(() => void pointer("pointermove", window, 40, 40));
     await flush();
-    // The ghost is the card: same title line, same meta line.
-    expect(document.querySelector(".tasks__ghost .tasks__card-title")?.textContent).toBe("Draft the skill");
-    expect(document.querySelector(".tasks__ghost .tasks__card-meta")?.textContent).toContain("task-1 · impl-1");
-    expect(column("Done").className).toContain("tasks__column--drop-ok");
-    act(() => {
-      pointer("pointerover", column("Done"), 300, 40);
-    });
+    // The ghost is the list's own row: the same line, the same parts.
+    expect(document.querySelector(".tasks__ghost .tasks__row .tasks__row-title")?.textContent).toBe("Draft the skill");
+    expect(document.querySelector(".tasks__ghost .tasks__row .tasks__row-who")?.textContent).toBe("impl-1");
+    expect(document.querySelector(".tasks__list .tasks__row")!.className).toContain("tasks__row--dragging");
+    act(() => void pointer("pointerover", heading("Done"), 40, 300));
     await flush();
-    expect(column("Done").className).toContain("tasks__column--drop-over");
-
-    // Release over Done: the move lands, the flight ends, the click that
-    // follows the release opens nothing.
-    act(() => {
-      pointer("pointerup", column("Done"), 300, 40);
-    });
-    await flush();
-    act(() => cards()[0].click());
+    expect(heading("Done").className).toContain("tasks__drop--over");
+    // Every group's fold as it stood before the drop.
+    const folds = () =>
+      Array.from(document.querySelectorAll<HTMLElement>(".tasks__list-item .tasks__group"), (h) => [
+        h.querySelector(".tasks__group-label")?.textContent,
+        h.getAttribute("aria-expanded"),
+      ]);
+    const before = folds();
+    // Done is folded — its heading still takes the drop.
+    act(() => void pointer("pointerup", heading("Done"), 40, 300));
     await flush();
     const state = service.peek("ws-1");
     expect(state?.kind === "ready" && state.board.tasks[0].status).toBe("done");
     expect(document.querySelector(".tasks__ghost")).toBeNull();
+    // The group it went into stays folded — a fold is the person's own
+    // act — and counts the task in its heading.
+    expect(heading("Done").getAttribute("aria-expanded")).toBe("false");
+    // …and no other group's fold moves either: a drop writes no fold.
+    expect(folds()).toEqual(before);
+    expect(heading("Done").querySelector(".tasks__group-count")?.textContent).toBe("1");
+    const titles = Array.from(document.querySelectorAll(".tasks__list .tasks__row .tasks__row-title"), (t) => t.textContent);
+    expect(titles).not.toContain("Draft the skill");
+  });
+
+  it("an epic stands with its tasks under it: its chevron folds them, and one dragged to a group changes status, staying under it", async () => {
+    const { service } = await seeded();
+    await service.create("ws-1", { teamId: "team-1", title: "The epic", kind: "epic" }, USER_ACTOR);
+    await service.apply("ws-1", "task-2", [{ kind: "parent", to: "task-3" }], USER_ACTOR);
+    mount(service)();
+    await flush();
+    // To do holds the epic (its own status) and the task under it; the task is in no other group.
+    expect(rowTitles()).toEqual(["Draft the skill", "The epic", "Pooled work"]);
+    expect(groupHeading("To do").querySelector(".tasks__group-count")?.textContent).toBe("3");
+    const fold = () => document.querySelector<HTMLButtonElement>(".tasks__list .tasks__row-fold")!;
+    act(() => fold().click());
+    await flush();
+    expect(rowTitles()).toEqual(["Draft the skill", "The epic"]);
+    act(() => fold().click());
+    await flush();
+    const pooled = () => rowOpens().find((c) => c.querySelector(".tasks__row-title")?.textContent === "Pooled work")!;
+    act(() => void pointerAt("pointerdown", pooled(), 10, 10));
+    await flush();
+    act(() => void pointerAt("pointermove", window, 40, 40));
+    await flush();
+    act(() => void pointerAt("pointerover", groupHeading("In progress"), 40, 300));
+    act(() => void pointerAt("pointerup", groupHeading("In progress"), 40, 300));
+    await flush();
+    const state = service.peek("ws-1");
+    expect(state?.kind === "ready" && state.board.tasks[1].status).toBe("in-progress");
+    // Still under its epic, in the epic's group — its ring says where it stands.
+    expect(rowTitles()).toEqual(["Draft the skill", "The epic", "Pooled work"]);
+    expect(pooled().closest(".tasks__row")?.className).toContain("tasks__row--under-epic");
+  });
+
+  it("a release after a drag opens nothing; a press that does not travel is a click that opens the row", async () => {
+    const { service } = await seeded();
+    const render = mount(service);
+    render();
+    await flush();
+    act(() => void pointerAt("pointerdown", rowOpens()[0], 10, 10));
+    await flush();
+    act(() => void pointerAt("pointermove", window, 40, 40));
+    await flush();
+    act(() => void pointerAt("pointerover", groupHeading("In progress"), 40, 300));
+    await flush();
+    // Release over In progress: the move lands, the flight ends, the click
+    // that follows the release opens nothing.
+    act(() => void pointerAt("pointerup", groupHeading("In progress"), 40, 300));
+    await flush();
+    act(() => rowOpens()[0].click());
+    await flush();
+    const state = service.peek("ws-1");
+    expect(state?.kind === "ready" && state.board.tasks[0].status).toBe("in-progress");
+    expect(document.querySelector(".tasks__ghost")).toBeNull();
     expect(focus).toBeNull();
 
-    // A press that does not travel is a click: the card opens.
+    // A press that does not travel is a click: the row opens.
+    await new Promise((resolve) => setTimeout(resolve, 260));
+    const pooled = () => rowOpens().find((c) => c.querySelector(".tasks__row-title")?.textContent === "Pooled work")!;
     act(() => {
-      pointer("pointerdown", cards()[0], 10, 10);
-      pointer("pointerup", cards()[0], 10, 10);
+      pointerAt("pointerdown", pooled(), 10, 10);
+      pointerAt("pointerup", pooled(), 10, 10);
     });
     await flush();
-    await new Promise((resolve) => setTimeout(resolve, 260));
-    act(() => cards()[0].click());
+    act(() => pooled().click());
     await flush();
     expect(focus).toBe("task-2");
   });
@@ -830,7 +848,7 @@ describe("TasksDialog", () => {
     await flush();
     const pointer = (type: string, target: EventTarget, x: number, y: number) =>
       target.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0 }));
-    act(() => void pointer("pointerdown", cards()[0], 10, 10));
+    act(() => void pointer("pointerdown", rowOpens()[0], 10, 10));
     await flush();
     act(() => void pointer("pointermove", window, 40, 40));
     await flush();
@@ -839,8 +857,8 @@ describe("TasksDialog", () => {
     await flush();
     expect(document.querySelector(".tasks__ghost")).toBeNull();
     act(() => {
-      pointer("pointerup", cards()[0], 40, 40);
-      cards()[0].click();
+      pointer("pointerup", rowOpens()[0], 40, 40);
+      rowOpens()[0].click();
     });
     await flush();
     expect(focus).toBeNull();
@@ -854,11 +872,10 @@ describe("TasksDialog", () => {
     const render = mount(service, teamedWorkspaces()[0], true);
     render();
     await flush();
-    const column = document.querySelector<HTMLElement>('section[aria-label="Done"]')!;
-    const pointer = (type: string, target: EventTarget, x: number, y: number) =>
-      target.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0 }));
+    const column = groupHeading("Done");
+    const pointer = pointerAt;
     act(() => {
-      pointer("pointerdown", cards()[0], 10, 10);
+      pointer("pointerdown", rowOpens()[0], 10, 10);
     });
     await flush();
     act(() => {
@@ -883,7 +900,7 @@ describe("TasksDialog", () => {
     const render = mount(service);
     render();
     await flush();
-    act(() => cards()[0].click());
+    act(() => rowOpens()[0].click());
     await flush();
     await flush();
     const picker = document.querySelector<HTMLButtonElement>('button[aria-label="Attach an artifact"]')!;
@@ -916,7 +933,7 @@ describe("TasksDialog", () => {
     const render = mount(service);
     render();
     await flush();
-    act(() => cards()[0].click());
+    act(() => rowOpens()[0].click());
     await flush();
     await flush();
     const picker = document.querySelector<HTMLButtonElement>('button[aria-label="Add a blocker"]')!;
@@ -948,7 +965,7 @@ describe("TasksDialog", () => {
     const render = mount(service);
     render();
     await flush();
-    act(() => cards()[0].click());
+    act(() => rowOpens()[0].click());
     await flush();
     await flush();
     const menu = () => document.querySelector<HTMLButtonElement>('button[aria-label="More for task-1"]')!;
@@ -973,17 +990,6 @@ describe("TasksDialog", () => {
     expect(state?.kind === "ready" && blockerIdsOf(state.board.tasks[1], state.board)).toEqual(["task-1"]);
   });
 
-  it("closed columns show their cards and offer no Hide or Show", async () => {
-    const { service } = await seeded();
-    await service.apply("ws-1", "task-1", [{ kind: "status", to: "done" }], USER_ACTOR);
-    const render = mount(service);
-    render();
-    await flush();
-    const done = document.querySelector<HTMLElement>('section[aria-label="Done"]')!;
-    expect(done.querySelectorAll(".tasks__card")).toHaveLength(1);
-    expect(buttons().some((b) => ["Hide", "Show"].includes(b.textContent?.trim() ?? ""))).toBe(false);
-  });
-
   it("opens on a task of another team when a link names it — the board switches to that team", async () => {
     const { service } = await seeded();
     await service.create("ws-1", { teamId: "team-2", title: "Web's own" }, agentActor("lead", "team-2"));
@@ -993,7 +999,7 @@ describe("TasksDialog", () => {
     await flush();
     expect(document.querySelector('aside[aria-label="Task task-3"]')).not.toBeNull();
     expect(text()).toContain("Web's own");
-    expect(cards().map((c) => c.querySelector(".tasks__card-title")?.textContent)).toEqual(["Web's own"]);
+    expect(rowTitles()).toEqual(["Web's own"]);
   });
 
   it("opens on the team the stage has open, and falls back to the first at the cards level", async () => {
@@ -1002,13 +1008,13 @@ describe("TasksDialog", () => {
     stageTeam = "team-2";
     mount(service)();
     await flush();
-    expect(cards().map((c) => c.querySelector(".tasks__card-title")?.textContent)).toEqual(["Web's own"]);
+    expect(rowTitles()).toEqual(["Web's own"]);
     act(() => root.unmount());
     root = createRoot(host);
     stageTeam = null;
     mount(service)();
     await flush();
-    expect(cards().map((c) => c.querySelector(".tasks__card-title")?.textContent)).toEqual(["Draft the skill", "Pooled work"]);
+    expect(rowTitles()).toEqual(["Draft the skill", "Pooled work"]);
   });
 
   it("the stage moving under the open dialog does not move the board", async () => {
@@ -1021,7 +1027,7 @@ describe("TasksDialog", () => {
     stageTeam = "team-1";
     render();
     await flush();
-    expect(cards().map((c) => c.querySelector(".tasks__card-title")?.textContent)).toEqual(["Web's own"]);
+    expect(rowTitles()).toEqual(["Web's own"]);
   });
 
   it("another workspace under the open dialog opens its board from ITS stage, not the old choice", async () => {
@@ -1051,7 +1057,7 @@ describe("TasksDialog", () => {
     act(() => button("Close").click());
     await flush();
     expect(focus).toBeNull();
-    expect(cards().map((c) => c.querySelector(".tasks__card-title")?.textContent)).toEqual(["Web's own"]);
+    expect(rowTitles()).toEqual(["Web's own"]);
   });
 
   it("a second link while the dialog is up moves the board to ITS task's team, pinned choice or not", async () => {
@@ -1100,7 +1106,7 @@ describe("TasksDialog", () => {
     const render = mount(service);
     render();
     await flush();
-    act(() => cards()[0].click());
+    act(() => rowOpens()[0].click());
     await flush();
     const composer = () => document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Comment"]')!;
     const type = (value: string) =>
@@ -1129,7 +1135,7 @@ describe("TasksDialog", () => {
     expect(composer().value).toBe("a note the owner refuses");
 
     type("a note for task-1");
-    act(() => cards()[1].click());
+    act(() => rowOpens()[1].click());
     await flush();
     expect(composer().value).toBe("");
     type("for task-2");
@@ -1147,7 +1153,7 @@ describe("TasksDialog", () => {
     const render = mount(service);
     render();
     await flush();
-    act(() => cards()[0].click());
+    act(() => rowOpens()[0].click());
     await flush();
     const composer = () => document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Comment"]')!;
     const type = (value: string) =>
@@ -1180,23 +1186,16 @@ describe("TasksDialog", () => {
     expect(button("Comment").disabled).toBe(false);
   });
 
-  it("always shows the Cancelled column with its cards — there is no filter to turn it on", async () => {
-    const { service } = await seeded();
-    await service.apply("ws-1", "task-2", [{ kind: "status", to: "cancelled" }], USER_ACTOR);
-    mount(service)();
-    await flush();
-    const cancelled = document.querySelector<HTMLElement>('section[aria-label="Cancelled"]');
-    expect(cancelled?.querySelectorAll(".tasks__card")).toHaveLength(1);
-    expect(buttons().some((b) => /cancelled/i.test(b.textContent ?? ""))).toBe(false);
-  });
-
-  it("keeps a card's title to one line; the panel's title stands whole; a blocker is a chip saying where it stands", async () => {
+  it("a row's title and the panel's title stand whole; a blocker is a chip saying where it stands", async () => {
     const { service } = await seeded();
     await service.apply("ws-1", "task-1", [{ kind: "blockedBy", to: ["task-2"] }], USER_ACTOR);
     focus = "task-1";
     mount(service)();
     await flush();
-    expect(cards().every((c) => c.querySelector(".tasks__card-title")?.classList.contains("kd-one-line"))).toBe(true);
+    // A row grows a line for each line its title wraps to: never clamped.
+    const titles = Array.from(document.querySelectorAll(".tasks__list .tasks__row-title"));
+    expect(titles.length).toBeGreaterThan(0);
+    expect(titles.some((t) => t.classList.contains("kd-one-line") || t.classList.contains("kd-two-lines"))).toBe(false);
     // The panel is where the whole title is read: never clamped.
     expect(document.querySelector('aside[aria-label="Task task-1"] .tasks__detail-title')?.classList.contains("kd-two-lines")).toBe(false);
     // Its words open the blocker; the cross beside them lets it go.
@@ -1210,15 +1209,6 @@ describe("TasksDialog", () => {
     mount(service, { ...ws, teams: [ws.teams![0]] })();
     await flush();
     expect(document.querySelector(".tasks__team-name")?.classList.contains("kd-one-line")).toBe(true);
-  });
-
-  it("has no Queues view and no lanes — the board's columns are the board view", async () => {
-    const { service } = await seeded();
-    mount(service)();
-    await flush();
-    expect(document.querySelector('[role="group"][aria-label="View"]')).toBeNull();
-    expect(buttons().some((b) => b.textContent?.trim() === "Queues")).toBe(false);
-    expect(document.querySelector(".tasks__columns")).not.toBeNull();
   });
 
   it("walks the ladder: no workspace, owner down, empty board", async () => {

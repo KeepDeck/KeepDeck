@@ -144,6 +144,7 @@ fn write_boards(conn: &mut SqliteConnection, boards_in: &[StoredBoard]) -> Resul
                     rev: task.rev,
                     // Moved in, not made by a change: every mark is after.
                     created_rev: 0,
+                    kind: task.kind.clone(),
                 })
                 .execute(conn)
                 .map_err(|e| named(e, what(format!("uid {}", task.uid))))?;

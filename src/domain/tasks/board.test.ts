@@ -3,12 +3,15 @@ import {
   awaitingDecision,
   compareQueue,
   countByStatus,
+  epicProgress,
+  openWorkUnder,
+  admitsOpenWork,
   issuable,
   keepTeams,
   labelsOf,
 } from "./board";
 import { openBlockersOf, unblocks } from "./relations";
-import { board, task } from "./testSupport";
+import { board, relation, task } from "./testSupport";
 
 describe("issuable", () => {
   it("is a todo task with every blocker resolved", () => {
@@ -111,6 +114,57 @@ describe("keepTeams", () => {
   it("hands the same board back when every task's team is kept — a change is told by reference", () => {
     expect(keepTeams(b, new Set(["team-1", "team-2"]))).toBe(b);
     expect(keepTeams(board([]), new Set())).toEqual(board([]));
+  });
+});
+
+describe("epicProgress", () => {
+  it("counts an epic's tasks done, open and cancelled — read from the board, its own status no part of it", () => {
+    const b = board(
+      [
+        task({ id: "task-1", kind: "epic", status: "in-progress" }),
+        task({ id: "task-2", status: "done" }),
+        task({ id: "task-3", status: "review" }),
+        task({ id: "task-4", status: "backlog" }),
+        task({ id: "task-5", status: "cancelled" }),
+        task({ id: "task-6", status: "done" }),
+        task({ id: "task-7", kind: "epic" }),
+        task({ id: "task-8", status: "done" }),
+      ],
+      9,
+      ["task-2", "task-3", "task-4", "task-5", "task-6"].map((id) => relation("child-of", id, "task-1")),
+    );
+    expect(epicProgress(b.tasks[0], b)).toEqual({ done: 2, open: 2, cancelled: 1 });
+    // An epic with no tasks has come nowhere; work beside it is not its.
+    expect(epicProgress(b.tasks[6], b)).toEqual({ done: 0, open: 0, cancelled: 0 });
+  });
+});
+
+describe("openWorkUnder / admitsOpenWork — a closed epic holds no open work", () => {
+  it("names an epic's open tasks only, in board order — closed ones and other epics' are not its open work", () => {
+    const b = board(
+      [
+        task({ id: "task-1", kind: "epic" }),
+        task({ id: "task-2", status: "done" }),
+        task({ id: "task-3", status: "blocked" }),
+        task({ id: "task-4", status: "cancelled" }),
+        task({ id: "task-5", status: "backlog" }),
+        task({ id: "task-6" }),
+      ],
+      7,
+      ["task-2", "task-3", "task-4", "task-5"].map((id) => relation("child-of", id, "task-1")),
+    );
+    expect(openWorkUnder(b.tasks[0], b).map((t) => t.id)).toEqual(["task-3", "task-5"]);
+    expect(openWorkUnder(b.tasks[5], b)).toEqual([]);
+  });
+
+  it("lets open work stand under an open epic only", () => {
+    expect(["todo", "in-progress", "review", "done", "cancelled"].map((status) => admitsOpenWork(task({ id: "task-1", kind: "epic", status: status as never })))).toEqual([
+      true,
+      true,
+      true,
+      false,
+      false,
+    ]);
   });
 });
 

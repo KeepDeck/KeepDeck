@@ -17,6 +17,7 @@ export const task = ({ blockedBy, ...over }: Partial<Task> & Pick<Task, "id"> & 
 const build = (over: Partial<Task> & Pick<Task, "id">): Task => ({
   uid: `uid-${over.id}`,
   teamId: "team-1",
+  kind: "task",
   title: `Task ${over.id}`,
   body: "",
   status: "todo",

@@ -34,13 +34,6 @@ export type DockMode = "docked" | "floating";
 /** Every dock mode, in picker order; also the allow-list for a stored value. */
 export const DOCK_MODES: readonly DockMode[] = ["docked", "floating"];
 
-/** How the Tasks dialog lays a board out: its columns, or one list grouped
- * by status — two views of the same tasks. */
-export type TasksView = "board" | "list";
-
-/** Every tasks view, in the switch's order; also the stored allow-list. */
-export const TASKS_VIEWS: readonly TasksView[] = ["list", "board"];
-
 /** Which delivery channels notifications use:
  * - `system-and-app` — OS banners plus the in-app bell/center;
  * - `system` — OS banners only, no bell in the chrome;
@@ -137,18 +130,13 @@ export interface Settings {
    * Default off. */
   tasks: boolean;
   /** The Tasks dialog's reading posture, kept across openings and
-   * launches (user): the view it opens in, and each view's own
-   * arrangement. One object, because it is one posture — what the person
-   * last arranged the board to show. */
+   * launches (user): how its list is arranged. One object, because it is
+   * one posture — what the person last arranged the board to show. */
   tasksBoard: TasksBoardSettings;
 }
 
 export interface TasksBoardSettings {
-  /** The view the dialog opens in — the last one picked. */
-  view: TasksView;
-  /** The list view's arrangement. Each view keeps its own, so what one
-   * view grows (a sort, a filter) never has to be told apart from the
-   * other's by name. */
+  /** The list's arrangement. */
   list: TasksListSettings;
 }
 

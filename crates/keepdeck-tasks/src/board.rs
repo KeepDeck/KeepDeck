@@ -71,6 +71,7 @@ fn read_board(conn: &mut SqliteConnection, board: &str) -> Result<StoredBoard> {
             title: row.title,
             body: row.body,
             body_v: row.body_v,
+            kind: row.kind,
             status: row.status,
             priority: row.priority,
             assignee: row.assignee,
@@ -364,6 +365,7 @@ fn write_task(conn: &mut SqliteConnection, board: &str, rev: i64, task: &TaskWri
         rev,
         // Made by this change, or kept from the one that made it.
         created_rev: stored.map_or(rev, |(_, created)| created),
+        kind: task.kind.clone(),
     };
     diesel::insert_into(tasks::table).values(&row).on_conflict(tasks::uid).do_update().set(&row).execute(conn)?;
 

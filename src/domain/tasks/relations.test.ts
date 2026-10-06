@@ -4,13 +4,18 @@ import { RELATION_KINDS } from "./model";
 import {
   blockerIdsOf,
   copiedFromOf,
+  canHaveEpic,
   copiesOf,
+  epicOf,
   openBlockersOf,
   outlives,
   setBlockers,
+  setEpic,
   statusOf,
+  tasksOfEpic,
   unblocks,
   unlinked,
+  withoutGates,
   transitiveBlockers,
   transitiveWaiters,
   withRelations,
@@ -121,6 +126,76 @@ describe("relations — writing them", () => {
       ["blocks", "uid-task-2", "uid-task-1"],
       ["copied-from", "uid-task-1", "uid-task-2"],
     ]);
+  });
+});
+
+describe("relations — an epic and its tasks", () => {
+  const b = board(
+    [
+      task({ id: "task-1", kind: "epic" }),
+      task({ id: "task-2" }),
+      task({ id: "task-3" }),
+      task({ id: "task-4" }),
+    ],
+    5,
+    [relation("child-of", "task-3", "task-1"), relation("child-of", "task-2", "task-1"), relation("child-of", "task-4", "task-9")],
+  );
+
+  it("reads a task's epic and an epic's tasks from one link, the tasks in board order", () => {
+    expect(epicOf(b.tasks[1], b)?.id).toBe("task-1");
+    expect(tasksOfEpic(b.tasks[0], b).map((t) => t.id)).toEqual(["task-2", "task-3"]);
+    expect(epicOf(b.tasks[0], b)).toBeNull();
+  });
+
+  it("puts a task under one epic as a diff — the same epic keeps who and when, the SAME board; another replaces it", () => {
+    const work = b.tasks[1];
+    expect(setEpic(b, work, "uid-task-1", 9_000, "impl-1")).toBe(b);
+    const moved = setEpic(b, work, "uid-task-9", 9_000, "impl-1");
+    expect(moved.relations.filter((r) => r.kind === "child-of" && r.from === work.uid)).toEqual([
+      { kind: "child-of", from: work.uid, to: "uid-task-9", at: 9_000, by: "impl-1" },
+    ]);
+    expect(setEpic(moved, work, null, 9_500, null).relations.some((r) => r.kind === "child-of" && r.from === work.uid)).toBe(false);
+    expect(setEpic(b, b.tasks[0], null, 1, null)).toBe(b);
+  });
+
+  it("walks an epic's tasks before its close in the loop order, both ways — and blockers through it", () => {
+    // task-5 waits on the epic task-1; task-2 is under it.
+    const walked = board([...b.tasks, task({ id: "task-5", blockedBy: ["task-1"] })], 6, b.relations);
+    expect([...transitiveWaiters(walked, "uid-task-2")].sort()).toEqual(["uid-task-1", "uid-task-2", "uid-task-5"]);
+    expect([...transitiveBlockers(walked, "uid-task-5")].sort()).toEqual(["uid-task-1", "uid-task-2", "uid-task-3", "uid-task-5"]);
+  });
+
+  it("lets work stand under an epic, and no epic — what the link's from end must be", () => {
+    expect([canHaveEpic("task"), canHaveEpic("epic")]).toEqual([true, false]);
+  });
+
+  it("says a task under an epic not on the board is under none", () => {
+    expect(epicOf(b.tasks[3], b)).toBeNull();
+  });
+
+  it("takes the link with either end — an epic that left holds no task, a task that left is none of its", () => {
+    const link = relation("child-of", "task-2", "task-1");
+    expect(outlives(link, new Set(["uid-task-1"]))).toBe(false);
+    expect(outlives(link, new Set(["uid-task-2"]))).toBe(false);
+    expect(RELATION_KINDS["child-of"]).toEqual({ gatesStart: false, onePerFrom: true, outlivesItsTo: false, ends: { from: "task", to: "epic" }, ordersEnds: true });
+  });
+});
+
+describe("withoutGates — what tasks leaving their team take off", () => {
+  it("drops the blocker links between what moves and what stays, keeps the ones among what moves, and a link to no task here", () => {
+    const b = board(
+      [task({ id: "task-1" }), task({ id: "task-2", blockedBy: ["task-1"] }), task({ id: "task-3", blockedBy: ["task-2"] })],
+      4,
+      [relation("blocks", "task-9", "task-2"), relation("copied-from", "task-3", "task-2")],
+    );
+    const after = withoutGates(b, new Set(["uid-task-1", "uid-task-2"]));
+    expect(after.relations).toEqual([
+      relation("blocks", "task-1", "task-2"),
+      relation("blocks", "task-9", "task-2"),
+      relation("copied-from", "task-3", "task-2"),
+    ]);
+    // Nothing between what moves and what stays: the same board.
+    expect(withoutGates(b, new Set(["uid-task-1", "uid-task-2", "uid-task-3"]))).toBe(b);
   });
 });
 

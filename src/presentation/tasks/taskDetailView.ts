@@ -10,24 +10,39 @@ import {
   blockersOf,
   copiedFromOf,
   copiesOf,
+  canHaveEpic,
+  admitsOpenWork,
+  epicCandidates,
+  epicMoveProblem,
+  epicOf,
+  epicProgress,
   issuable,
+  isTaskPriority,
   labelsOf,
+  parentProblem,
   reachableStatuses,
+  tasksOfEpic,
   tasksOfTeam,
   transferProblem,
   unblocks,
   type Task,
   type TaskBoard,
   type TaskPriority,
+  type TaskRefusal,
   type TaskStatus,
 } from "../../domain/tasks";
 import type { StatusRingProps } from "@keepdeck/ui-kit/StatusRing";
-import { blockerChip, statusMark, type BlockerChip } from "./taskCardView";
+import { blockerChip, epicMark, statusMark, type BlockerChip, type EpicMarkView } from "./taskRowView";
 import {
   BOARD_ORDER,
   POOL_CHOICE,
+  POOL_LABEL,
   STATUS_LABEL,
+  EPIC_CHIP,
+  NO_EPIC_CHOICE,
   blockerLinkWords,
+  epicChoice,
+  openWorkWords,
   priorityChoices,
   type ChoiceView,
   personName,
@@ -42,6 +57,23 @@ export interface StatusChoiceView extends ChoiceView {
   tone: StatusTone;
   /** The status's ring beside the label. */
   ring: StatusRingProps;
+  /** Shown and refused: an epic's close while its work is open, or a
+   * reopening under a closed epic — the picker's note says why. */
+  disabled: boolean;
+}
+
+/** An epic's tasks on its card: how far it has come, each task, and the
+ * two ways to add one. */
+export interface EpicSectionView {
+  heading: string;
+  /** `2 of 5 done`, and the bar's fill (`epicMark`, the one owner). */
+  progress: EpicMarkView;
+  tasks: { id: string; title: string; ring: StatusRingProps; assignee: string; className: string }[];
+  empty: string | null;
+  /** Null while it is closed: a closed epic takes no open work. */
+  addNew: string | null;
+  /** Null when no task of the team could go under it now. */
+  addExisting: string | null;
 }
 
 export interface TaskDetailView {
@@ -65,6 +97,16 @@ export interface TaskDetailView {
    * PERSON may move it — the transition table's answer, in ladder order,
    * never a list spelled in markup. */
   statusOptions: StatusChoiceView[];
+  /** Why an option is refused, said in the picker; null when none is. */
+  statusNote: string | null;
+  /** `EPIC` on an epic's head; null for work. */
+  kindChip: string | null;
+  /** Work's epic: the picker's value (`""` for none) and its options —
+   * none, the epic it is under, and every epic it could go under. Null on
+   * an epic, which goes under none. */
+  parent: { value: string; options: ChoiceView[] } | null;
+  /** An epic's tasks, or null for work. */
+  epic: EpicSectionView | null;
   /** Each blocker with where it stands; a resolved one (done, cancelled,
    * gone) holds nothing and is struck through. */
   blockers: (BlockerChip & { removeLabel: string })[];
@@ -154,7 +196,7 @@ export interface TaskAction {
 
 /** What a task's pickers pick: a task it waits on, a task that waits on
  * it, an artifact to attach. */
-export type PaletteKind = BlockerSide | "artifact";
+export type PaletteKind = BlockerSide | "artifact" | "epic-task";
 
 /** One palette, as the component maps it: its name, the prompt that says
  * what is picked, its sections of rows, and what it says when none match. */
@@ -239,12 +281,30 @@ export const TASK_DETAIL_WORDS = {
   addArtifact: "Attach an artifact",
   commentPlaceholder: "Add a comment — it stays with the task",
   comment: "Comment",
+  epicTasks: "Tasks of the epic",
+  epicEmpty: "No tasks under it yet",
+  epicAddNew: "New task in the epic",
+  epicAddExisting: "Add an existing task",
+  epicTaskTitle: "Add to the epic",
+  epicTaskPrompt: (id: string) => `Find a task to put under ${id}…`,
+  noEpicTaskMatches: "No task matches — only the team's work under no epic, open while the epic is",
+  epicWaits: (open: string) => `Done and Cancelled wait for the epic's tasks: ${open}`,
+  epicClosed: (id: string) => `The epic ${id} is closed — reopen it first`,
+  putUnder: (id: string) => `put under the epic ${id}`,
+  movedUnder: (was: string, now: string) => `moved from the epic ${was} to ${now}`,
+  takenOut: (id: string) => `taken out of the epic ${id}`,
 } as const;
 
 /** What a pick in the status picker asks for: a move, or nothing when the
  * person picked where the task already stands. */
 export function pickedStatus(current: TaskStatus, picked: string): TaskStatus | null {
   return picked === current ? null : (picked as TaskStatus);
+}
+
+/** What a pick in the priority picker asks for: a priority, or nothing
+ * when it is the one the task has — or no priority at all. */
+export function pickedPriority(current: TaskPriority, picked: string): TaskPriority | null {
+  return picked === current || !isTaskPriority(picked) ? null : picked;
 }
 
 /** The panel's classes: wide while the task fills the stage. */
@@ -274,12 +334,17 @@ export function taskDetailView(
   const ctx = { board, roster, at: now };
   const others = teams.filter((team) => team.id !== task.teamId);
   const reachable = new Set(reachableStatuses(task, USER_ACTOR, ctx));
-  const statusOptions = BOARD_ORDER.filter((to) => to === task.status || reachable.has(to)).map((to) => ({
+  // A move the family rule refuses is shown, greyed, with why — the only
+  // rule that binds the person, so the only one the picker explains.
+  const family = new Map(BOARD_ORDER.map((to) => [to, to === task.status ? null : epicMoveProblem(task, to, board)] as const));
+  const statusOptions = BOARD_ORDER.filter((to) => to === task.status || reachable.has(to) || family.get(to) !== null).map((to) => ({
     value: to,
     label: STATUS_LABEL[to],
     tone: statusTone(to),
     ring: statusMark(to),
+    disabled: family.get(to) !== null,
   }));
+  const refused = [...family.values()].find((problem) => problem !== null) ?? null;
   const assigneeValues = [...new Set([...roster, ...(task.assignee ? [task.assignee] : [])])];
   const blockedBy = blockerIdsOf(task, board);
   const canAddBlocker = hasBlockerCandidate(task, board, "blocked-by");
@@ -303,6 +368,10 @@ export function taskDetailView(
     ],
     priorityOptions: priorityChoices(),
     statusOptions,
+    statusNote: refused === null ? null : familyNote(refused),
+    kindChip: task.kind === "epic" ? EPIC_CHIP : null,
+    parent: canHaveEpic(task.kind) ? parentPicker(task, board) : null,
+    epic: task.kind === "epic" ? epicSection(task, board) : null,
     blockers: blockersOf(task, board).map((blocker) => ({
       ...blockerChip(blocker),
       removeLabel: TASK_DETAIL_WORDS.removeBlocker(blocker.id),
@@ -312,7 +381,11 @@ export function taskDetailView(
     unblocks: unblocks(task, board).map((other) => ({ id: other.id, title: other.title })),
     copies: copyRows(task, board),
     palette: (kind) =>
-      kind === "artifact" ? artifactPalette(attachable) : taskPalette(task, blockerCandidates(task, board, kind), kind),
+      kind === "artifact"
+        ? artifactPalette(attachable)
+        : kind === "epic-task"
+          ? epicTaskPalette(task, epicTaskCandidates(task, board))
+          : taskPalette(task, blockerCandidates(task, board, kind), kind),
     canAddBlocker,
     canAddDependant,
     unblocksShown: unblocks(task, board).length > 0 || canAddDependant,
@@ -404,6 +477,69 @@ function taskPalette(task: Task, candidates: readonly Task[], side: BlockerSide)
     label: blockedBy ? TASK_DETAIL_WORDS.blockedByTitle : TASK_DETAIL_WORDS.blocksTitle,
     placeholder: blockedBy ? TASK_DETAIL_WORDS.blockedByPrompt(task.id) : TASK_DETAIL_WORDS.blocksPrompt(task.id),
     empty: TASK_DETAIL_WORDS.noTaskMatches,
+    sections: [
+      {
+        title: TASK_DETAIL_WORDS.tasksSection,
+        items: candidates.map((other) => ({
+          value: other.id,
+          label: `${other.id}  ${other.title}`,
+          hint: STATUS_LABEL[other.status],
+          ring: statusMark(other.status),
+        })),
+      },
+    ],
+  };
+}
+
+/** The words for a move the family rule refused. */
+function familyNote(problem: TaskRefusal): string | null {
+  if (problem.kind === "epic-has-open-work") return TASK_DETAIL_WORDS.epicWaits(openWorkWords(problem.open));
+  if (problem.kind === "closed-epic") return TASK_DETAIL_WORDS.epicClosed(problem.id);
+  return null;
+}
+
+/** Work's epic picker: none, the epic it is under, then each it could go
+ * under — the rule's own list (`epicCandidates`). */
+function parentPicker(task: Task, board: TaskBoard): { value: string; options: ChoiceView[] } {
+  const current = epicOf(task, board);
+  return {
+    value: current?.id ?? NO_EPIC_CHOICE.value,
+    options: [NO_EPIC_CHOICE, ...(current ? [epicChoice(current)] : []), ...epicCandidates(task, board).map(epicChoice)],
+  };
+}
+
+/** The tasks of `epic`'s team that could be put under it now: work under
+ * no epic that the family rule lets in. */
+function epicTaskCandidates(epic: Task, board: TaskBoard): Task[] {
+  return tasksOfTeam(board, epic.teamId).filter((task) => epicOf(task, board) === null && parentProblem(task, epic.id, board) === null);
+}
+
+function epicSection(epic: Task, board: TaskBoard): EpicSectionView {
+  const tasks = tasksOfEpic(epic, board);
+  const progress = epicProgress(epic, board);
+  return {
+    heading: TASK_DETAIL_WORDS.epicTasks,
+    progress: epicMark(progress),
+    tasks: tasks.map((task) => ({
+      id: task.id,
+      title: task.title,
+      ring: statusMark(task.status),
+      assignee: personName(task.assignee ?? POOL_LABEL),
+      className: `tasks__epic-task tasks__epic-task--${task.status}`,
+    })),
+    empty: tasks.length === 0 ? TASK_DETAIL_WORDS.epicEmpty : null,
+    addNew: admitsOpenWork(epic) ? TASK_DETAIL_WORDS.epicAddNew : null,
+    addExisting: epicTaskCandidates(epic, board).length > 0 ? TASK_DETAIL_WORDS.epicAddExisting : null,
+  };
+}
+
+/** The palette of tasks to put under an epic: each by its key and title,
+ * its status ring before it and its status after. */
+function epicTaskPalette(epic: Task, candidates: readonly Task[]): PaletteView {
+  return {
+    label: TASK_DETAIL_WORDS.epicTaskTitle,
+    placeholder: TASK_DETAIL_WORDS.epicTaskPrompt(epic.id),
+    empty: TASK_DETAIL_WORDS.noEpicTaskMatches,
     sections: [
       {
         title: TASK_DETAIL_WORDS.tasksSection,
@@ -531,6 +667,11 @@ function changeItems(entry: Task["log"][number], key: string, now: number): Feed
   if (entry.field === "copiedFrom") return [line(TASK_DETAIL_WORDS.copiedFrom(entry.now ?? "—"))];
   if (entry.field === "copiedTo") return [line(TASK_DETAIL_WORDS.copiedTo(entry.now ?? "—"))];
   if (entry.field === "transferred") return [line(TASK_DETAIL_WORDS.transferred(entry.was ?? "—", entry.now ?? "—"))];
+  if (entry.field === "parent") {
+    if (entry.was === null) return [line(TASK_DETAIL_WORDS.putUnder(entry.now ?? "—"))];
+    if (entry.now === null) return [line(TASK_DETAIL_WORDS.takenOut(entry.was))];
+    return [line(TASK_DETAIL_WORDS.movedUnder(entry.was, entry.now))];
+  }
   if (isUnkeptBriefEdit(entry)) return [line(TASK_DETAIL_WORDS.briefEditedUnkept)];
   if (entry.field === "body") return [line(TASK_DETAIL_WORDS.briefEdited(entry.was ?? "—", entry.now ?? "—"))];
   return [line(`${entry.field}: ${entry.was ?? "—"} → ${entry.now ?? "—"}`)];

@@ -48,6 +48,8 @@ pub struct StoredTask {
     /// The number of the brief's current version.
     #[ts(type = "number")]
     pub body_v: i64,
+    /// What it is — work, or an epic — in the domain's words.
+    pub kind: String,
     pub status: String,
     pub priority: String,
     pub assignee: Option<String>,
@@ -194,6 +196,9 @@ pub struct TaskWrite {
     pub body: String,
     #[ts(type = "number")]
     pub body_v: i64,
+    /// Written with every write of the task: a write that left it out
+    /// would not keep it, it would reset it.
+    pub kind: String,
     pub status: String,
     pub priority: String,
     pub assignee: Option<String>,

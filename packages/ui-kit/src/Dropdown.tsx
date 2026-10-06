@@ -2,14 +2,9 @@ import { useId, useRef, useState, type ReactNode } from "react";
 import { FloatingListbox } from "./FloatingListbox";
 import { ChevronDownIcon } from "./icons";
 import { useAwayClose } from "./useAwayClose";
+import { closesMenu, dropdownView, type DropdownOption } from "./dropdownView";
 
-export interface DropdownOption {
-  value: string;
-  /** What the option (and the closed control, when picked) renders — plain
-   * text for most call sites, or a small composition (a name plus a status
-   * icon) when text alone can't carry it. */
-  label: ReactNode;
-}
+export type { DropdownOption } from "./dropdownView";
 
 interface DropdownProps {
   options: DropdownOption[];
@@ -29,6 +24,9 @@ interface DropdownProps {
   /** An offer rather than a value ("Attach an artifact…"): quieter ink,
    *  small type — it says what can be done, not what is. */
   quiet?: boolean;
+  /** Words under the options, inside the menu — why an option is
+   *  disabled, said where the person meets it. */
+  note?: ReactNode;
 }
 
 /**
@@ -48,6 +46,7 @@ export function Dropdown({
   variant = "field",
   size = "md",
   quiet = false,
+  note,
 }: DropdownProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -55,32 +54,18 @@ export function Dropdown({
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const listId = useId();
 
-  // An empty option set has no menu to show: a `role="listbox"` with no
-  // options is a dead layer to a pointer and a lie to a screen reader. This
-  // is also what the aria pair below reports, so `aria-expanded` never claims
-  // a listbox that isn't rendered and `aria-controls` never dangles.
-  const menuOpen = open && options.length > 0;
-
   useAwayClose(open, () => setOpen(false), rootRef, menuRef);
-
-  const current = options.find((o) => o.value === value);
+  const view = dropdownView({ options, value, open, variant, size, quiet, className });
+  const { menuOpen } = view;
 
   return (
     <div
       ref={rootRef}
-      className={[
-        "dropdown",
-        variant === "inline" && "dropdown--inline",
-        size === "sm" && "dropdown--sm",
-        quiet && "dropdown--quiet",
-        className,
-      ]
-        .filter(Boolean)
-        .join(" ")}
+      className={view.className}
       onKeyDown={(e) => {
         // Local, not a window listener: the dropdown owns Escape only while
         // focus is inside it, so modal layers keep their own Esc semantics.
-        if (e.key === "Escape" && open) {
+        if (closesMenu(e.key, open)) {
           e.stopPropagation();
           // Same reason as after a pick, and it was missing here: the option
           // holding focus is unmounted with the list, and focus falls to
@@ -100,7 +85,7 @@ export function Dropdown({
         aria-label={ariaLabel}
         onClick={() => setOpen((o) => !o)}
       >
-        <span className="dropdown__label">{current?.label ?? value}</span>
+        <span className="dropdown__label">{view.current}</span>
         <ChevronDownIcon />
       </button>
       {menuOpen && (
@@ -109,17 +94,23 @@ export function Dropdown({
           listRef={menuRef}
           id={listId}
           aria-label={ariaLabel}
-          widthFrom={variant === "inline" ? "content" : "anchor"}
+          widthFrom={view.widthFrom}
           onAnchorHidden={() => setOpen(false)}
         >
-          {options.map((o) => (
+          {view.items.map((o) => (
             <li key={o.value}>
               <button
                 type="button"
                 role="option"
-                aria-selected={o.value === value}
-                className={`dropdown__option${o.value === value ? " dropdown__option--active" : ""}`}
+                aria-selected={o.selected}
+                // Refused, yet reachable: a keyboard or a reader still meets
+                // it, and hears why (the note) — `disabled` would drop it from
+                // both. A press picks nothing.
+                aria-disabled={o.disabled || undefined}
+                aria-describedby={o.disabled && note ? `${listId}-note` : undefined}
+                className={o.className}
                 onClick={() => {
+                  if (o.disabled) return;
                   onChange(o.value);
                   setOpen(false);
                   // The picked option is being unmounted with the menu; without
@@ -132,6 +123,11 @@ export function Dropdown({
               </button>
             </li>
           ))}
+          {note && (
+            <li role="none" id={`${listId}-note`} className="dropdown__note">
+              {note}
+            </li>
+          )}
         </FloatingListbox>
       )}
     </div>

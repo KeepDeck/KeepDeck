@@ -134,6 +134,28 @@ describe("board codec — links", () => {
     });
   });
 
+  it("reads a task under an epic; refuses a second epic, an epic under one, or a link to work as if it were one", () => {
+    const family = [task({ id: "task-1", kind: "epic" }), task({ id: "task-2" }), task({ id: "task-3", kind: "epic" })];
+    const read = (relations: unknown) => decodeBoard(JSON.stringify({ nextId: 4, tasks: family, relations }), mint());
+    expect(read([relation("child-of", "task-2", "task-1")]).ok).toBe(true);
+    expect(read([relation("child-of", "task-2", "task-1"), relation("child-of", "task-2", "task-3")])).toMatchObject({
+      ok: false,
+      fault: { kind: "bad-relation", index: 1, field: "a second link where one is the most" },
+    });
+    expect(read([relation("child-of", "task-3", "task-1")])).toMatchObject({
+      ok: false,
+      fault: { kind: "bad-relation", field: "from (must be: task)", from: "task-3", to: "task-1" },
+    });
+    expect(read([relation("child-of", "task-1", "task-2")])).toMatchObject({ ok: false, fault: { field: "from (must be: task)" } });
+    const twoTasks = [task({ id: "task-1" }), task({ id: "task-2" })];
+    expect(decodeBoard(JSON.stringify({ nextId: 3, tasks: twoTasks, relations: [relation("child-of", "task-2", "task-1")] }), mint())).toMatchObject({
+      ok: false,
+      fault: { field: "to (must be: epic)" },
+    });
+    // The shape alone: an end not on the board is no fault, whatever it was.
+    expect(read([relation("child-of", "task-2", "task-9")]).ok).toBe(true);
+  });
+
   it("refuses a copy with two sources, and an end not on the board is named as such", () => {
     const sources = [relation("copied-from", "task-1", "task-2"), relation("copied-from", "task-1", "task-9")];
     expect(decodeBoard(withLinks(sources), mint())).toEqual({
@@ -356,6 +378,38 @@ describe("board codec — brief versions", () => {
     const log = [{ at: 1, from: "lead", field: "body", was: null, now: "later" }];
     const read = decodeBoard(JSON.stringify({ nextId: 2, relations: [], tasks: [{ ...encodedTask("task-1"), log }] }), mint());
     expect(!read.ok && read.fault).toMatchObject({ kind: "bad-task", id: "task-1" });
+  });
+});
+
+describe("board codec — what a task is", () => {
+  const stored = (kind?: unknown) =>
+    JSON.stringify({
+      nextId: 2,
+      tasks: [
+        {
+          id: "task-1", teamId: "team-1", title: "t", body: "", status: "todo", priority: "normal",
+          assignee: null, author: "lead", blockedBy: [], artifacts: [], comments: [], log: [], created: 1, updated: 1,
+          ...(kind === undefined ? {} : { kind }),
+        },
+      ],
+    });
+
+  it("reads a board written before epics as work — absence is no fault", () => {
+    const read = decodeBoard(stored(), mint());
+    expect(read.ok && read.board.tasks[0].kind).toBe("task");
+  });
+
+  it("keeps an epic through a round trip, and refuses a kind it does not know", () => {
+    const epic = board([task({ id: "task-1", kind: "epic" })]);
+    const read = decodeBoard(encodeBoard(epic), mint());
+    expect(read.ok && read.board.tasks[0].kind).toBe("epic");
+    expect(decodeBoard(stored("story"), mint())).toMatchObject({ ok: false, fault: { kind: "bad-task", field: "kind" } });
+    expect(decodeBoard(stored(1), mint())).toMatchObject({ ok: false, fault: { kind: "bad-task", field: "kind" } });
+  });
+
+  it("accepts a log entry about a task's epic", () => {
+    const json = stored().replace('"log":[]', '"log":[{"at":1,"from":"lead","field":"parent","was":null,"now":"task-9"}]');
+    expect(decodeBoard(json, mint()).ok).toBe(true);
   });
 });
 

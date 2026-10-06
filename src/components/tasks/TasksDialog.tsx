@@ -9,13 +9,10 @@ import { ConfirmDialog } from "../../ui/ConfirmDialog";
 import { ModalOverlay } from "../../ui/ModalOverlay";
 import { useEscape } from "../../ui/useEscape";
 import { useWallClock } from "../../ui/useWallClock";
-import { BoardColumns } from "./BoardColumns";
 import { NewTaskForm } from "./NewTaskForm";
-import { TaskCard } from "./TaskCard";
 import { TaskDetail } from "./TaskDetail";
 import { TaskList, TaskRowLine } from "./TaskList";
 import { useTasksBoard, type TasksAccess } from "./useTasksBoard";
-import { Segmented } from "@keepdeck/ui-kit/Segmented";
 
 interface TasksDialogProps {
   /** The board's owner as the runtime hands it out. */
@@ -37,9 +34,6 @@ interface TasksDialogProps {
   artifactReads: ArtifactsRegistryReadPort;
 }
 
-/** The ghost is a picture; a click on it goes nowhere. */
-const noSelect = () => {};
-
 /**
  * The Tasks dialog. Another workspace is another board: when the active
  * workspace changes under it (an agent can switch it while the dialog is
@@ -52,8 +46,8 @@ export function TasksDialog(props: TasksDialogProps) {
 }
 
 /**
- * One workspace's boards — the ladder as columns, with one task open on
- * the right. The shell renders and
+ * One workspace's boards — the team's list, with one task open on the
+ * right. The shell renders and
  * emits; every transition is the hook's and every word the presentation's.
  */
 function WorkspaceBoard({
@@ -83,12 +77,17 @@ function WorkspaceBoard({
     composing: board.composing,
     detailOpen: board.detail !== null,
     wide: board.wide,
-    view: board.view,
     nothingFound: board.nothingFound,
   });
   const panel =
     view.panel === "form" ? (
-    <NewTaskForm view={board.form} onCreate={(input) => void board.create(input)} onCancel={board.cancelCompose} />
+    <NewTaskForm
+      // Opened in another epic, the form starts over in it.
+      key={board.form.draft.parent}
+      view={board.form}
+      onCreate={(input) => void board.create(input)}
+      onCancel={board.cancelCompose}
+    />
   ) : view.panel === "detail" && board.detail ? (
     <TaskDetail
       // Keyed by the task: the panel's own state — a draft comment — must
@@ -115,25 +114,23 @@ function WorkspaceBoard({
       onOpenArtifact={board.openArtifact}
       onLabel={board.addLabel}
       onUnlabel={board.removeLabel}
+      onParent={board.setParent}
+      onNewInEpic={board.composeIn}
     />
   ) : null;
 
   return (
     <ModalOverlay>
       <div ref={surface} className={view.className} role="dialog" aria-modal="true" aria-label={DIALOG_WORDS.title}>
-        {/* The card in flight: the SAME card, drawn by the same component
+        {/* The task in flight: the SAME row, drawn by the same component
             from the same view at the same width, under the point where it
-            was gripped — the board's own copy stays put, dimmed, until the
+            was gripped — the list's own copy stays put, dimmed, until the
             drop moves it. */}
         {view.ghost && (
-          <div className={view.ghost.className} style={view.ghost.box}>
-            {view.ghost.shape === "card" ? (
-              <TaskCard card={view.ghost.card} selected={false} onSelect={noSelect} />
-            ) : (
-              <div className="tasks__row tasks__row--ghost">
-                <TaskRowLine card={view.ghost.card} />
-              </div>
-            )}
+          <div className="tasks__ghost" style={view.ghost.box}>
+            <div className="tasks__row tasks__row--ghost">
+              <TaskRowLine line={view.ghost.line} />
+            </div>
           </div>
         )}
         <div className="tasks__head" inert={view.headInert}>
@@ -150,26 +147,12 @@ function WorkspaceBoard({
                 />
               )}
               {view.team.kind === "word" && <span className="tasks__team-name kd-one-line">{view.team.name}</span>}
-              <Segmented
-                size="sm"
-                ariaLabel={view.viewChoice.ariaLabel}
-                options={view.viewChoice.options}
-                value={view.viewChoice.value}
-                onChange={board.setView}
-              />
-              <Button
-                size="sm"
-                className="tasks__filter"
-                pressed={board.filters.blocked.pressed}
-                onClick={board.toggleBlocked}
-              >
-                {board.filters.blocked.label}
-              </Button>
               {board.filters.label && (
                 <Button size="sm" pressed label={board.filters.label.clear} onClick={() => board.pickLabel(null)}>
-                  {board.filters.label.text} ✕
+                  {board.filters.label.text}
                 </Button>
-              )}              <Button
+              )}
+              <Button
                 size="sm"
                 variant="primary"
                 className="tasks__new"
@@ -228,20 +211,6 @@ function WorkspaceBoard({
                 </div>
               </div>
             )}
-            {view.body.main?.kind === "columns" && (
-              <div className="tasks__main">
-                <BoardColumns
-                  columns={board.columns}
-                  selectedId={board.detail?.id ?? null}
-                  drag={board.drag}
-                  hover={board.hover}
-                  onSelect={board.select}
-                  onArm={board.armDrag}
-                  onHover={board.hoverColumn}
-                  onDrop={board.dropOn}
-                />
-              </div>
-            )}
             {view.body.main?.kind === "list" && (
               <div className="tasks__main tasks__main--list">
                 <TaskList
@@ -249,12 +218,13 @@ function WorkspaceBoard({
                   openId={board.detail?.id ?? null}
                   drag={board.drag}
                   hover={board.hover}
-                  folded={board.folded}
+                  folds={board.folds}
                   onSelect={board.select}
                   onFold={board.fold}
+                  onFoldEpic={board.foldEpic}
                   onLabel={board.pickLabel}
                   onArm={board.armDrag}
-                  onHover={board.hoverColumn}
+                  onHover={board.hoverGroup}
                   onDrop={board.dropOn}
                 />
               </div>

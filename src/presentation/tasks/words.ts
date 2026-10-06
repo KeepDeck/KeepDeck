@@ -1,9 +1,8 @@
 /**
  * The words the task surfaces share: what a status is called, how a
- * person is named, which hue a status wears. One home, so the board, the
- * detail and the card footer cannot disagree.
+ * person is named, which hue a status wears. One home, so the list, the
+ * detail and the team card cannot disagree.
  */
-import type { TasksView } from "../../domain/settings";
 import { formatAge } from "../../domain/usage";
 import type { Recovery, RestoreChoice } from "../../app/tasks/tasksService";
 import {
@@ -12,15 +11,11 @@ import {
   capOf,
   keptLength,
   type CappedField,
+  type Task,
+  type TaskKind,
   type TaskPriority,
   type TaskStatus,
 } from "../../domain/tasks";
-
-/** The tracker's two views, as the toolbar's choice row names them. */
-export const VIEW_WORDS = {
-  choice: "View",
-  label: { list: "List", board: "Board" } as Record<TasksView, string>,
-} as const;
 
 export const STATUS_LABEL: Record<TaskStatus, string> = {
   backlog: "Backlog",
@@ -128,15 +123,34 @@ export const FIELD_WORDS = {
   status: "Status",
   priority: "Priority",
   assignee: "Assignee",
+  kind: "Type",
+  epic: "Epic",
 } as const;
+
+/** What a task is, as a choice names it. */
+export const KIND_LABEL: Record<TaskKind, string> = { task: "Task", epic: "Epic" };
+
+/** The chip that says a task is an epic — on its row and its card. */
+export const EPIC_CHIP = "EPIC";
+
+/** An epic's fold, by what a press does. */
+export const EPIC_FOLD_WORDS = { fold: "Hide the epic's tasks", unfold: "Show the epic's tasks" } as const;
+
+/** The Epic pickers' "none" — the form's and the card's alike. */
+export const NO_EPIC_CHOICE: ChoiceView = { value: "", label: "No epic" };
+
+/** An epic as an Epic picker offers it. */
+export function epicChoice(epic: Pick<Task, "id" | "title">): ChoiceView {
+  return { value: epic.id, label: `${epic.id} · ${epic.title}` };
+}
 
 /** The new-task button's label — and how a hint that points at it names it. */
 export const NEW_TASK_LABEL = "+ Task";
 
-/** The order the board reads in, left to right — and the order every
- * status list follows. Blocked stands first: it is what waits on a
- * person, and a board is read from the left. Then the ladder in order:
- * parked work, then what may be started, and on. */
+/** The order the list's status groups read in, top to bottom — and the
+ * order every status list follows. Blocked stands first: it is what waits
+ * on a person. Then the ladder in order: parked work, then what may be
+ * started, and on. */
 export const BOARD_ORDER: readonly TaskStatus[] = [
   "blocked",
   "backlog",
@@ -152,6 +166,19 @@ export const BOARD_ORDER: readonly TaskStatus[] = [
  * detail's menu and the agents' refusal. */
 export function blockerLinkWords(links: { blockers: readonly string[]; dependants: readonly string[] }): string[] {
   return [...links.blockers.map((id) => `it waits on ${id}`), ...links.dependants.map((id) => `${id} waits on it`)];
+}
+
+/** How many of an epic's open tasks a sentence names before it counts
+ * the rest. */
+export const OPEN_WORK_NAMED = 5;
+
+/** An epic's open work as one phrase — `task-3 (to do), task-5 (in
+ * progress) and 12 more` — for the agents' refusal and the person's
+ * status menu alike. */
+export function openWorkWords(open: readonly { id: string; status: TaskStatus }[]): string {
+  const named = open.slice(0, OPEN_WORK_NAMED).map((task) => `${task.id} (${STATUS_LABEL[task.status].toLowerCase()})`);
+  const rest = open.length - named.length;
+  return rest > 0 ? `${named.join(", ")} and ${rest} more` : named.join(", ");
 }
 
 /** The way out an unusable task database offers: its newest backup that

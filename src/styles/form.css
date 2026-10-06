@@ -690,3 +690,25 @@
   background-color: var(--kd-selected);
   color: var(--kd-text);
 }
+
+/* An option shown but refused now: there, quiet, not a target — the
+   menu's note says why. */
+.dropdown__option[aria-disabled="true"] {
+  color: var(--kd-text-4);
+  cursor: default;
+}
+
+.dropdown__option[aria-disabled="true"]:hover {
+  background-color: transparent;
+}
+
+/* Why, under the options: the menu's own small print. */
+.dropdown__note {
+  margin: 4px 0 0;
+  padding: 6px 8px 4px;
+  border-top: 1px solid var(--kd-seam);
+  color: var(--kd-text-3);
+  font-size: var(--kd-font-small);
+  line-height: 1.4;
+  white-space: normal;
+}

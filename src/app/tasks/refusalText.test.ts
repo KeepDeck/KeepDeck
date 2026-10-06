@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decodeFaultText, migrationRefusalText, storeErrorText } from "./refusalText";
+import { decodeFaultText, migrationRefusalText, notCarriedText, refusalText, storeErrorText } from "./refusalText";
 
 describe("decodeFaultText", () => {
   it("names a field the build does not know, quoted, so it can be found", () => {
@@ -28,6 +28,9 @@ describe("the task database's refusals", () => {
   it("word every code — the retryable ones as what to wait for", () => {
     expect(storeErrorText({ code: "busy" })).toContain("another program");
     expect(storeErrorText({ code: "corrupt", detail: "page 3" })).toBe("the task database is damaged: page 3");
+    expect(storeErrorText({ code: "migrationFailed", migration: "20261007000002", detail: "duplicate column name: kind" })).toContain(
+      "step 20261007000002): duplicate column name: kind — it is as it was",
+    );
     expect(storeErrorText({ code: "inconsistent", board: "b1", detail: "task u1 has no current address" })).toBe(
       "board b1 does not hold together in the task database: task u1 has no current address",
     );
@@ -37,6 +40,28 @@ describe("the task database's refusals", () => {
     expect(storeErrorText({ code: "conflict", board: "b", rev: 3 })).toContain("read again");
     expect(storeErrorText({ code: "schemaTooNew", migration: "2099" })).toBe(
       "a newer KeepDeck wrote the task database (2099) — this one neither reads nor writes it",
+    );
+  });
+});
+
+describe("an epic's refusals", () => {
+  it("say what the family rule refused and the one next step", () => {
+    expect(refusalText({ kind: "epic-under-epic" })).toContain("one level");
+    expect(refusalText({ kind: "unknown-epic", id: "task-9" })).toBe(
+      "no task task-9 on this team's board — a task's epic is an epic of its own team (task.list kind=epic lists them)",
+    );
+    expect(refusalText({ kind: "not-an-epic", id: "task-2" })).toBe("task-2 is a task, not an epic — a task goes under an epic");
+    expect(refusalText({ kind: "closed-epic", id: "task-1" })).toContain("reopen task-1 first");
+    expect(refusalText({ kind: "cross-team-epic", id: "task-5" })).toContain("another team's board");
+    expect(refusalText({ kind: "cyclic-epic", id: "task-1", ids: ["task-3"] })).toBe(
+      "task-3 would wait on the epic task-1 — which closes only after its tasks; that would be a cycle",
+    );
+    expect(refusalText({ kind: "bad-create-kind", value: "story", allowed: ["task", "epic"] })).toBe('a task is made as task or epic, not "story"');
+    expect(notCarriedText([{ field: "parent", was: "task-1" }])).toBe(
+      "not carried over: the epic task-1 — it is closed, and open work enters no closed epic",
+    );
+    expect(refusalText({ kind: "epic-has-open-work", open: [{ id: "task-2", status: "todo" }] })).toBe(
+      "this epic still has open work — task-2 (to do); close or move them first (task.list parent=<epic> lists them all)",
     );
   });
 });

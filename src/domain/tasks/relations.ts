@@ -17,6 +17,7 @@ import {
   type RelationKind,
   type Task,
   type TaskBoard,
+  type TaskKind,
   type TaskRelation,
   type TaskStatus,
 } from "./model";
@@ -152,6 +153,24 @@ export function copiesOf(task: Task, board: TaskBoard): Task[] {
   return present(board, into(board, "copied-from", task.uid).map((relation) => relation.from));
 }
 
+/** The epic `task` is under, when it is on the board; null for a task
+ * under none — or under one that is not here, which holds nothing. */
+export function epicOf(task: Pick<Task, "uid">, board: TaskBoard): Task | null {
+  const link = outOf(board, "child-of", task.uid)[0];
+  return link ? (taskByUid(board, link.to) ?? null) : null;
+}
+
+/** Whether a task of `kind` may stand under an epic — what the link's
+ * `from` end must be (`RelationRule.ends`): work does, an epic does not. */
+export function canHaveEpic(kind: TaskKind): boolean {
+  return RELATION_KINDS["child-of"].ends?.from === kind;
+}
+
+/** The tasks under `epic` that are on the board, in board order. */
+export function tasksOfEpic(epic: Task, board: TaskBoard): Task[] {
+  return present(board, into(board, "child-of", epic.uid).map((relation) => relation.from));
+}
+
 /** The tasks of `uids` this board holds, in board order. */
 function present(board: TaskBoard, uids: readonly string[]): Task[] {
   const { place } = indexOf(board);
@@ -164,16 +183,23 @@ function inBoardOrder(board: TaskBoard, uids: readonly string[]): string[] {
   return [...uids].sort((a, b) => place.get(a)! - place.get(b)!);
 }
 
+/** The kinds that order their ends, read from the table. */
+const ORDERING_KINDS: readonly RelationKind[] = (Object.keys(RELATION_KINDS) as RelationKind[]).filter(
+  (kind) => RELATION_KINDS[kind].ordersEnds,
+);
+
 /** Every task `uid` waits on, however far down — what it waits on, what
- * that waits on, and so on, by every gating kind; `uid` itself included.
- * One walk answers every "would this close a loop?" about it. */
+ * that waits on, and so on, by every kind that orders its ends (a blocker,
+ * an epic's tasks before its close); `uid` itself included. One walk
+ * answers every "would this close a loop?" about it. */
 export function transitiveBlockers(board: TaskBoard, uid: string): ReadonlySet<string> {
-  return walk(uid, (at) => GATING_KINDS.flatMap((kind) => into(board, kind, at)).map((relation) => relation.from));
+  return walk(uid, (at) => ORDERING_KINDS.flatMap((kind) => into(board, kind, at)).map((relation) => relation.from));
 }
 
-/** Every task that waits on `uid`, however far up; `uid` itself included. */
+/** Every task that waits on `uid`, however far up — by the same order;
+ * `uid` itself included. */
 export function transitiveWaiters(board: TaskBoard, uid: string): ReadonlySet<string> {
-  return walk(uid, (at) => GATING_KINDS.flatMap((kind) => outOf(board, kind, at)).map((relation) => relation.to));
+  return walk(uid, (at) => ORDERING_KINDS.flatMap((kind) => outOf(board, kind, at)).map((relation) => relation.to));
 }
 
 function walk(start: string, next: (uid: string) => string[]): Set<string> {
@@ -242,18 +268,31 @@ export function setBlockers(
   return withRelations(board, [...others, ...kept, ...added]);
 }
 
-/** The board with `uid` taken out of every link that gates a start
- * between it and another task ON this board — what a task leaving its
- * team takes with it (`transferTask`). A link whose other end is not here
- * is not this board's to judge (task-224), and a fact (a copy's source)
- * is no gate: both stay. */
-export function withoutGates(board: TaskBoard, uid: string): TaskBoard {
-  const here = (other: string) => taskByUid(board, other) !== undefined;
+/** The board with `task` under the epic `epic` (a uid), or under none
+ * (null) — as a DIFF: the same epic again keeps who put it there and
+ * when; the SAME board when nothing changes. One epic per task: the link
+ * to any other goes. */
+export function setEpic(board: TaskBoard, task: Task, epic: string | null, at: number, by: string | null): TaskBoard {
+  const current = outOf(board, "child-of", task.uid);
+  if (current.length === (epic === null ? 0 : 1) && (epic === null || current[0].to === epic)) return board;
+  const others = board.relations.filter((relation) => !(relation.kind === "child-of" && relation.from === task.uid));
+  const added: TaskRelation[] = epic === null ? [] : [{ kind: "child-of", from: task.uid, to: epic, at, by }];
+  return withRelations(board, [...others, ...added]);
+}
+
+/** The board with the tasks `moving` (uids) taken out of every link that
+ * gates a start between one of them and a task ON this board that stays —
+ * what tasks leaving their team take with them (`transferTask`): a link
+ * among them goes with them, whole. A link whose other end is not here is
+ * not this board's to judge (task-224), and a fact (a copy's source) is no
+ * gate: both stay. */
+export function withoutGates(board: TaskBoard, moving: ReadonlySet<string>): TaskBoard {
+  const stays = (other: string) => !moving.has(other) && taskByUid(board, other) !== undefined;
   return unlinked(
     board,
     (relation) =>
       gatesStart(relation.kind) &&
-      ((relation.from === uid && here(relation.to)) || (relation.to === uid && here(relation.from))),
+      ((moving.has(relation.from) && stays(relation.to)) || (moving.has(relation.to) && stays(relation.from))),
   );
 }
 

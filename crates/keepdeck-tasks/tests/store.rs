@@ -16,6 +16,7 @@ fn task(uid: &str, key: &str) -> StoredTask {
         title: format!("Task {key}"),
         body: format!("Brief of {key}"),
         body_v: 1,
+        kind: "task".into(),
         status: "todo".into(),
         priority: "normal".into(),
         assignee: None,
@@ -46,6 +47,7 @@ fn write_of(t: &StoredTask, pos: i64) -> TaskWrite {
         title: t.title.clone(),
         body: t.body.clone(),
         body_v: t.body_v,
+        kind: t.kind.clone(),
         status: t.status.clone(),
         priority: t.priority.clone(),
         assignee: t.assignee.clone(),
@@ -110,6 +112,8 @@ fn opens_durable_wal_with_foreign_keys() {
     assert_eq!(conn, "wal");
     // Reopening runs no migration twice.
     Store::open(dir.path()).unwrap();
+    // A database just made, then reopened current, owes no backup on open.
+    assert!(backup::list(&dir.path().join(backup::BACKUP_DIR)).unwrap().is_empty());
 }
 
 /// The journal mode, read the way any other program would read it.
@@ -125,6 +129,189 @@ fn rusqlite_free_check(root: &Path) -> String {
     mode[0].journal_mode.clone()
 }
 
+/// A database as the first schema left it — one board, one task — before
+/// any later step: what a person's database is when this build arrives.
+fn at_first_schema(root: &Path) {
+    use diesel::connection::SimpleConnection;
+    use diesel::prelude::*;
+    use diesel_migrations::MigrationHarness;
+    let mut conn = diesel::SqliteConnection::establish(&root.join("tasks.db").to_string_lossy()).unwrap();
+    conn.run_next_migration(db::MIGRATIONS).unwrap();
+    conn.batch_execute(
+        "INSERT INTO boards VALUES ('b1', 'ws-1', 2, 3);
+         INSERT INTO tasks VALUES ('u1', 'b1', 0, 'team-1', 'Old work', 'Brief', 1, 'todo', 'normal', NULL, 'lead', 1000, 1000, 3, 0);
+         INSERT INTO task_keys VALUES ('b1', 'task-1', 'u1', 1);",
+    )
+    .unwrap();
+}
+
+/// The copy taken before the epics step, where the store keeps it.
+fn copy_before_epics(root: &Path) -> std::path::PathBuf {
+    root.join(backup::BACKUP_DIR).join("tasks-pre-20261007000002.db")
+}
+
+#[test]
+fn a_database_with_data_is_copied_then_moved_forward_its_tasks_work() {
+    let dir = tempfile::tempdir().unwrap();
+    at_first_schema(dir.path());
+    let mut store = Store::open(dir.path()).unwrap();
+    // Every task the first schema held was work.
+    let b1 = store.load("b1").unwrap();
+    assert_eq!(b1.tasks.iter().map(|t| (t.key.as_str(), t.kind.as_str())).collect::<Vec<_>>(), [("task-1", "task")]);
+    // The copy is the first schema's, verified — and outside the hourly
+    // set: no rotation takes it, no restore offers it as one of the three.
+    drop(store);
+    use diesel::prelude::*;
+    use diesel_migrations::MigrationHarness;
+    let mut copy = diesel::SqliteConnection::establish(&copy_before_epics(dir.path()).to_string_lossy()).unwrap();
+    assert_eq!(copy.applied_migrations().unwrap().len(), 1);
+    assert!(backup::list(&dir.path().join(backup::BACKUP_DIR)).unwrap().is_empty());
+}
+
+#[test]
+fn a_database_gone_with_only_its_copy_before_a_step_left_is_missing_not_new() {
+    let dir = tempfile::tempdir().unwrap();
+    at_first_schema(dir.path());
+    drop(Store::open(dir.path()).unwrap());
+    for suffix in ["", "-wal", "-shm"] {
+        let _ = std::fs::remove_file(dir.path().join(format!("tasks.db{suffix}")));
+    }
+    let mut store = Store::open(dir.path()).unwrap();
+    assert!(matches!(store.status().unwrap(), StoreStatus::Missing { .. }), "nothing is created over it in silence");
+}
+
+#[test]
+fn the_copy_before_a_step_is_taken_once_and_kept_as_it_was() {
+    use diesel::connection::SimpleConnection;
+    use diesel::prelude::*;
+    let dir = tempfile::tempdir().unwrap();
+    at_first_schema(dir.path());
+    let db = dir.path().join("tasks.db");
+    let backups = dir.path().join(backup::BACKUP_DIR);
+    let copy = backup::take_before(&db, &backups, "20261007000002").unwrap();
+    let first = std::fs::read(&copy).unwrap();
+    // The database changes; the same step asks again: the copy is the one
+    // taken first, byte for byte.
+    let mut conn = diesel::SqliteConnection::establish(&db.to_string_lossy()).unwrap();
+    conn.batch_execute("UPDATE tasks SET title = 'Changed since'").unwrap();
+    drop(conn);
+    assert_eq!(backup::take_before(&db, &backups, "20261007000002").unwrap(), copy);
+    assert_eq!(std::fs::read(&copy).unwrap(), first);
+}
+
+#[test]
+fn a_copy_before_a_step_that_fails_its_check_is_taken_again() {
+    use diesel::prelude::*;
+    use diesel_migrations::MigrationHarness;
+    let dir = tempfile::tempdir().unwrap();
+    at_first_schema(dir.path());
+    std::fs::create_dir_all(dir.path().join(backup::BACKUP_DIR)).unwrap();
+    std::fs::write(copy_before_epics(dir.path()), b"not a database").unwrap();
+    drop(Store::open(dir.path()).unwrap());
+    // The way back is a real one: the first schema, checked.
+    let mut copy = diesel::SqliteConnection::establish(&copy_before_epics(dir.path()).to_string_lossy()).unwrap();
+    assert_eq!(copy.applied_migrations().unwrap().len(), 1);
+}
+
+#[test]
+fn a_copy_before_a_step_that_cannot_be_checked_now_is_kept_and_the_open_waits() {
+    use diesel::connection::SimpleConnection;
+    use diesel::prelude::*;
+    let dir = tempfile::tempdir().unwrap();
+    at_first_schema(dir.path());
+    let db = dir.path().join("tasks.db");
+    let backups = dir.path().join(backup::BACKUP_DIR);
+    let copy = backup::take_before(&db, &backups, "20261007000002").unwrap();
+    let first = std::fs::read(&copy).unwrap();
+    // Another opener holds the copy: its check cannot run now.
+    let mut holder = diesel::SqliteConnection::establish(&copy.to_string_lossy()).unwrap();
+    holder.batch_execute("BEGIN EXCLUSIVE").unwrap();
+    assert!(Store::open(dir.path()).is_err(), "the open waits rather than moving on without a copy it can vouch for");
+    holder.batch_execute("ROLLBACK").unwrap();
+    drop(holder);
+    assert_eq!(std::fs::read(&copy).unwrap(), first, "the first copy is kept as it was");
+}
+
+#[test]
+fn an_epic_moved_in_from_the_files_stays_an_epic() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(dir.path()).unwrap();
+    let mut epic = task("u1", "task-1");
+    epic.kind = "epic".into();
+    store.import(&[board("b1", Some("ws-1"), vec![epic, task("u2", "task-2")])], &[]).unwrap();
+    store.activate_migration().unwrap();
+    let kinds: Vec<String> = store.load("b1").unwrap().tasks.into_iter().map(|t| t.kind).collect();
+    assert_eq!(kinds, ["epic", "task"]);
+}
+
+#[test]
+fn a_step_that_fails_is_named_not_retried_as_the_disk_and_copied_once() {
+    use diesel::connection::SimpleConnection;
+    use diesel::prelude::*;
+    let dir = tempfile::tempdir().unwrap();
+    at_first_schema(dir.path());
+    // A column in the step's way: the step fails, whatever the disk does.
+    let mut conn = diesel::SqliteConnection::establish(&dir.path().join("tasks.db").to_string_lossy()).unwrap();
+    conn.batch_execute("ALTER TABLE tasks ADD COLUMN kind TEXT").unwrap();
+    drop(conn);
+    for _ in 0..3 {
+        match Store::open(dir.path()) {
+            Err(StoreError::MigrationFailed { migration, .. }) => assert_eq!(migration, "20261007000002"),
+            other => panic!("expected the step's failure, got {:?}", other.map(|_| ())),
+        }
+    }
+    let copies: Vec<_> = std::fs::read_dir(dir.path().join(backup::BACKUP_DIR)).unwrap().filter_map(|e| e.ok()).collect();
+    assert_eq!(copies.len(), 1, "one copy per step, however often it fails");
+    assert!(copy_before_epics(dir.path()).exists());
+}
+
+#[test]
+fn a_copy_that_cannot_be_taken_leaves_the_schema_as_it_was() {
+    let dir = tempfile::tempdir().unwrap();
+    at_first_schema(dir.path());
+    // The backups' place is taken by a file: no copy can go there.
+    std::fs::write(dir.path().join(backup::BACKUP_DIR), b"not a folder").unwrap();
+    match Store::open(dir.path()) {
+        // The disk's refusal, never damage to the database it copies.
+        Err(StoreError::Io { detail }) => assert!(detail.contains("the copy before schema step 20261007000002"), "{detail}"),
+        other => panic!("expected Io, got {:?}", other.map(|_| ())),
+    }
+    use diesel::prelude::*;
+    use diesel_migrations::MigrationHarness;
+    let mut conn = diesel::SqliteConnection::establish(&dir.path().join("tasks.db").to_string_lossy()).unwrap();
+    assert_eq!(conn.applied_migrations().unwrap().len(), 1);
+}
+
+#[test]
+fn a_task_keeps_what_it_is_and_has_one_epic_at_most() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = active_store(dir.path());
+    let mut epic = write_of(&task("u3", "task-3"), 2);
+    epic.kind = "epic".into();
+    epic.key = Some("task-3".into());
+    store.apply(&change("r1", vec![board_change("b1", 0, 4, vec![epic.clone()])])).unwrap();
+    assert_eq!(store.load("b1").unwrap().tasks[2].kind, "epic");
+    // A second epic, and a link under it from the same task.
+    let mut other = write_of(&task("u4", "task-4"), 3);
+    other.kind = "epic".into();
+    other.key = Some("task-4".into());
+    let under = |to: &str| StoredRelation { kind: "child-of".into(), from: "u1".into(), to: to.into(), at: 5, by: None };
+    let mut c = board_change("b1", 1, 5, vec![other]);
+    c.relations_put = vec![under("u3")];
+    store.apply(&change("r2", vec![c])).unwrap();
+    let mut c = board_change("b1", 2, 5, vec![]);
+    c.relations_put = vec![under("u4")];
+    let second = store.apply(&change("r3", vec![c]));
+    assert!(matches!(second, Err(StoreError::Constraint { .. })), "{second:?}");
+    assert_eq!(store.load("b1").unwrap().relations, vec![under("u3")]);
+    // Moved under the other epic in one change: the old link goes, the new lands.
+    let mut c = board_change("b1", 2, 5, vec![]);
+    c.relations_removed = vec![RelationKey { kind: "child-of".into(), from: "u1".into(), to: "u3".into() }];
+    c.relations_put = vec![under("u4")];
+    store.apply(&change("r4", vec![c])).unwrap();
+    assert_eq!(store.load("b1").unwrap().relations, vec![under("u4")]);
+}
+
 #[test]
 fn refuses_a_database_a_newer_build_migrated() {
     use diesel::prelude::*;
@@ -138,6 +325,8 @@ fn refuses_a_database_a_newer_build_migrated() {
     let mut store = Store::open(dir.path()).unwrap();
     assert!(matches!(store.status().unwrap(), StoreStatus::TooNew { .. }));
     assert!(matches!(store.load_workspace("ws-1"), Err(StoreError::SchemaTooNew { .. })));
+    // Not this build's to move forward: nothing is copied for it.
+    assert!(backup::list(&dir.path().join(backup::BACKUP_DIR)).unwrap().is_empty());
 }
 
 #[test]

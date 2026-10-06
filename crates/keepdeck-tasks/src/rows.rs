@@ -34,6 +34,7 @@ pub struct TaskRow {
     pub updated: i64,
     pub rev: i64,
     pub created_rev: i64,
+    pub kind: String,
 }
 
 #[derive(Queryable, Selectable, Insertable, Debug, Clone, PartialEq)]

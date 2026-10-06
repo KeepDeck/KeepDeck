@@ -31,6 +31,10 @@ describe("boardChange — what to write, against the confirmed board", () => {
     expect(change.tasks[0].log).toEqual([{ seq: 0, at, author: "lead", field: "priority", was: "normal", now: "high" }]);
     // Unchanged sets are not rewritten.
     expect(change.tasks[0]).toMatchObject({ labels: null, artifacts: null, key: null, comments: [], briefs: [] });
+    // What the task is goes with every write — the store keeps what it is told.
+    expect(change.tasks[0].kind).toBe("task");
+    const epic = { ...confirmed, tasks: confirmed.tasks.map((t, i) => (i === 0 ? { ...t, kind: "epic" as const } : t)) };
+    expect(boardChange(confirmed, epic, PLACE)!.tasks[0].kind).toBe("epic");
   });
 
   it("numbers an appended log entry by its place in the WHOLE log", () => {
@@ -147,7 +151,7 @@ describe("boardChange — what to write, against the confirmed board", () => {
 
 describe("the wire — a board into the store's shape and back", () => {
   const full: Task = {
-    ...task({ id: "task-1", assignee: "impl-1", labels: ["a", "b"], artifacts: ["z", "y"] }),
+    ...task({ id: "task-1", kind: "epic", assignee: "impl-1", labels: ["a", "b"], artifacts: ["z", "y"] }),
     body: "now",
     bodyV: 2,
     briefs: [{ v: 1, body: "then" }],

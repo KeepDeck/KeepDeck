@@ -1,30 +1,28 @@
 /**
  * The dialog's screen as a state machine with no React in it: which
  * team, whether the form or the wide view is up,
- * which column a drag hovers — and every transition between them,
+ * which status group a drag hovers — and every transition between them,
  * with the effects a transition owes the outside (the open task to set,
  * the dialog to close). The hook holds one state and applies what this
  * answers; it decides nothing.
  */
-import type { TasksView } from "../../domain/settings";
 import type { TaskStatus } from "../../domain/tasks";
 import { escapeTarget, selectionAfterClick } from "./dialogState";
 import { NO_QUERY, withLabel, type TaskQuery } from "./queryView";
 import type { RestoreView } from "./words";
-
-/** The two views of the one set of tasks (`queryView`) — a setting, kept
- * across openings (`Settings.tasksBoard.view`, `boardSettings`). */
-export type TrackerView = TasksView;
 
 export interface ScreenState {
   /** The team they picked; the team on screen is `teamOnScreen`'s call. */
   chosenTeam: string | null;
   /** The new-task form is up. */
   composing: boolean;
+  /** The epic the form was opened in (an epic card's "new task in the
+   * epic"), picked for it; null for a form opened on its own. */
+  composeEpic: string | null;
   /** The open task fills the stage. Meaningful only with a task open —
    * read it through [`wideView`]. */
   wide: boolean;
-  /** The column a card in flight is over. */
+  /** The status group a task in flight is over. */
   hover: TaskStatus | null;
   /** The open task's activity (its changes) opened under its heading —
    * a reading posture for the dialog's life, kept from task to task. */
@@ -38,17 +36,22 @@ export interface ScreenState {
   /** The restore's confirm is up: a stray click never replaces the
    * database — only a confirmed one does. */
   restoring: boolean;
+  /** The epics whose tasks the person folded away, by id — a reading
+   * posture for the dialog's life (`epicsFolded`). */
+  foldedEpics: ReadonlySet<string>;
 }
 
 export const INITIAL_SCREEN: ScreenState = {
   chosenTeam: null,
   composing: false,
+  composeEpic: null,
   wide: false,
   hover: null,
   query: NO_QUERY,
   queryTeam: null,
   activityOpen: false,
   restoring: false,
+  foldedEpics: new Set(),
 };
 
 /** The screen a dialog opens on: the team the stage has open is the
@@ -59,11 +62,12 @@ export function initialScreen(stageTeam: string | null): ScreenState {
 }
 
 export type ScreenAction =
-  /** A card was clicked; `open` is the task open now, if any. */
-  | { type: "card"; id: string; open: string | null }
+  /** A row was clicked; `open` is the task open now, if any. */
+  | { type: "row"; id: string; open: string | null }
   /** Put the open task away. */
   | { type: "close" }
-  | { type: "compose" }
+  /** The form, opened on its own or in an epic. */
+  | { type: "compose"; epic?: string }
   | { type: "cancelCompose" }
   /** The + Task button: opens the form, or closes it when it is up. */
   | { type: "toggleCompose" }
@@ -74,8 +78,8 @@ export type ScreenAction =
   | { type: "hover"; status: TaskStatus | null; dragging: boolean }
   /** The activity's heading: shut ⇄ open. */
   | { type: "toggleActivity" }
-  /** The toolbar's Blocked toggle. */
-  | { type: "blockedOnly" }
+  /** An epic's chevron: its tasks shown ⇄ folded away. */
+  | { type: "foldEpic"; id: string }
   /** A label to narrow to; null, or the one already narrowing, widens. */
   | { type: "label"; label: string | null }
   /** A task was created from the form: it opens, the form goes. */
@@ -111,14 +115,14 @@ export function screenReducer(state: ScreenState, action: ScreenAction, onScreen
 
 function step(state: ScreenState, action: ScreenAction): ScreenOutcome {
   switch (action.type) {
-    case "card": {
+    case "row": {
       const focus = selectionAfterClick(action.open, action.id);
       return { state: { ...state, composing: false, wide: focus === null ? false : state.wide }, focus };
     }
     case "close":
       return { state: { ...state, wide: false }, focus: null };
     case "compose":
-      return { state: { ...state, composing: true, wide: false }, focus: null };
+      return { state: { ...state, composing: true, composeEpic: action.epic ?? null, wide: false }, focus: null };
     case "cancelCompose":
       return { state: { ...state, composing: false } };
     case "toggleCompose":
@@ -144,15 +148,16 @@ function step(state: ScreenState, action: ScreenAction): ScreenOutcome {
       // Another team's board: whatever was open belongs to the old one.
       return { state: { ...state, chosenTeam: action.id, wide: false }, focus: null };
     case "hover":
-      // Only a card in flight has a column under it.
+      // Only a task in flight has a group under it.
       return { state: { ...state, hover: action.dragging ? action.status : null } };
     case "created":
       return { state: { ...state, composing: false, wide: false }, focus: action.id };
     case "toggleActivity":
       return { state: { ...state, activityOpen: !state.activityOpen } };
-    case "blockedOnly": {
-      const query = queryOn(state, state.chosenTeam);
-      return { state: { ...state, query: { ...query, blockedOnly: !query.blockedOnly }, queryTeam: state.chosenTeam } };
+    case "foldEpic": {
+      const foldedEpics = new Set(state.foldedEpics);
+      if (!foldedEpics.delete(action.id)) foldedEpics.add(action.id);
+      return { state: { ...state, foldedEpics } };
     }
     case "label":
       return { state: { ...state, query: withLabel(queryOn(state, state.chosenTeam), action.label), queryTeam: state.chosenTeam } };
@@ -179,10 +184,10 @@ export function restoreConfirm(state: Pick<ScreenState, "restoring">, offer: Res
   return state.restoring ? offer : null;
 }
 
-/** Whether J / K walk the list: only over the list, and never while the
- * new-task form is up — its controls have the keys, a field or not. */
-export function walksRows(state: Pick<ScreenState, "composing">, view: TrackerView): boolean {
-  return view === "list" && !state.composing;
+/** Whether J / K walk the list: never while the new-task form is up —
+ * its controls have the keys, a field or not. */
+export function walksRows(state: Pick<ScreenState, "composing">): boolean {
+  return !state.composing;
 }
 
 /** Whether the stage shows the open task wide: the flag, and a task. */

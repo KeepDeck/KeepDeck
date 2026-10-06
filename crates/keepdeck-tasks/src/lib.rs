@@ -89,6 +89,10 @@ pub struct Store {
 impl Store {
     /// Open the store under `root`. A damaged, missing or too-new database
     /// is no failure to open: the store opens in the state that says so.
+    /// A schema this build moves forward is copied first, once per step
+    /// (`backup::take_before`), verified like every backup; a copy that
+    /// cannot be taken fails the open — said as the disk's refusal, never
+    /// as damage to the database it copies — the schema as it was.
     pub fn open(root: &Path) -> Result<Store> {
         std::fs::create_dir_all(root)
             .map_err(|e| StoreError::Io { detail: format!("creating {}: {e}", root.display()) })?;
@@ -100,7 +104,13 @@ impl Store {
                 return Ok(Store { root: root.to_path_buf(), state: State::Unusable(error) });
             }
         }
-        let state = match db::open(&path) {
+        let backups = root.join(backup::BACKUP_DIR);
+        let opened = db::open_guarded(&path, |next| {
+            backup::take_before(&path, &backups, next)
+                .map(|_| ())
+                .map_err(|error| StoreError::Io { detail: format!("the copy before schema step {next} could not be taken: {error}") })
+        });
+        let state = match opened {
             // Changed since the newest backup in an earlier session — the
             // data a crash before the next hourly copy would lose.
             Ok(conn) => State::Open { conn, writes: u64::from(newer_than_backups(&path, root)), backed_up: 0 },
@@ -339,6 +349,9 @@ fn earlier_data(root: &Path) -> Result<Option<String>> {
     let backups = backup::list(&root.join(backup::BACKUP_DIR))?;
     if !backups.is_empty() {
         return Ok(Some(format!("{} of its backups are still there", backups.len())));
+    }
+    if !backup::copies_before(&root.join(backup::BACKUP_DIR))?.is_empty() {
+        return Ok(Some("a copy taken before a schema step is still there".to_string()));
     }
     let entries = std::fs::read_dir(root).map_err(|e| StoreError::Io { detail: format!("reading {}: {e}", root.display()) })?;
     let aside = entries

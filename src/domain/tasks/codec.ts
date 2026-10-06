@@ -28,6 +28,7 @@ import {
   LOG_FIELDS,
   isRelationKind,
   isTaskId,
+  isTaskKind,
   isTaskUid,
   isTaskPriority,
   isTaskStatus,
@@ -46,7 +47,7 @@ const FIELDS = new Set<string>(LOG_FIELDS);
 /** The keys each stored object may carry — and nothing else. */
 const BOARD_KEYS = ["nextId", "tasks", "relations"];
 const TASK_KEYS = [
-  "uid", "id", "teamId", "title", "body", "bodyV", "briefs", "status", "priority", "assignee",
+  "uid", "id", "teamId", "kind", "title", "body", "bodyV", "briefs", "status", "priority", "assignee",
   "author", "artifacts", "labels", "comments", "log", "created", "updated",
 ];
 const COMMENT_KEYS = ["n", "at", "from", "body"];
@@ -219,6 +220,7 @@ function decodeRelations(
   tasks: readonly Task[],
 ): { ok: true; relations: TaskRelation[] } | { ok: false; fault: DecodeFault } {
   const keyOf = new Map(tasks.map((task) => [task.uid, task.id]));
+  const kindOf = new Map(tasks.map((task) => [task.uid, task.kind]));
   const relations: TaskRelation[] = [];
   const seen = new Set<string>();
   const sourced = new Set<string>();
@@ -252,6 +254,12 @@ function decodeRelations(
       if (sourced.has(one)) return fail("a second link where one is the most");
       sourced.add(one);
     }
+    // The shape of the link, never the state of its ends: what each end
+    // must be, where it is on the board (an end not here is no fault).
+    const ends = isRelationKind(kind) ? RELATION_KINDS[kind].ends : null;
+    const unfit = (uid: string, must: string) => kindOf.has(uid) && kindOf.get(uid) !== must;
+    if (ends && unfit(from, ends.from)) return fail(`from (must be: ${ends.from})`);
+    if (ends && unfit(to, ends.to)) return fail(`to (must be: ${ends.to})`);
     relations.push({ kind, from, to, at, by });
   }
   return { ok: true, relations };
@@ -279,6 +287,8 @@ function decodeTask(raw: unknown, legacy: boolean, mintUid: () => string): TaskR
   if (!legacy && !valid) return fail(raw.uid === undefined ? "uid (a board with relations gives every task one)" : "uid");
   const uid = valid ? (raw.uid as string) : mintUid();
   if (typeof raw.teamId !== "string" || raw.teamId === "") return fail("teamId");
+  // Absent on boards written before epics: every task then was work.
+  if (raw.kind !== undefined && (typeof raw.kind !== "string" || !isTaskKind(raw.kind))) return fail("kind");
   if (typeof raw.title !== "string") return fail("title");
   if (typeof raw.body !== "string") return fail("body");
   if (typeof raw.status !== "string" || !isTaskStatus(raw.status)) return fail("status");
@@ -327,6 +337,7 @@ function decodeTask(raw: unknown, legacy: boolean, mintUid: () => string): TaskR
       uid,
       id,
       teamId: raw.teamId,
+      kind: (raw.kind as Task["kind"] | undefined) ?? "task",
       title: raw.title,
       body: raw.body,
       bodyV: briefs.bodyV,

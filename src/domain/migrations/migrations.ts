@@ -477,6 +477,10 @@ const DECK_MIGRATIONS: Record<number, Migration> = {
  *       graduated into tasksBoard.view (a stored choice carries across,
  *       like experimentRunPresets at v5), then consumed. Additive: an
  *       older reader keeps its own tasksView default — no raised floor.
+ * 25 — − tasksBoard.view: the list became the Tasks dialog's only view
+ *       (the columns are gone). A stored view is consumed like mcpServer;
+ *       a stored tasksView has nothing left to graduate into and is
+ *       consumed too. An older reader keeps its own default view.
  *
  * No ladder: the document is per-key tolerant (independent facts,
  * hand-editable), which IS its migration mechanism while changes stay
@@ -484,7 +488,7 @@ const DECK_MIGRATIONS: Record<number, Migration> = {
  * step that changes a field's meaning gets a `migrateSettingsFromV*toV*`
  * here, a ladder like the deck's, and a raised floor.
  */
-export const SETTINGS_VERSION = 24;
+export const SETTINGS_VERSION = 25;
 export const SETTINGS_MIN_READER = 1;
 
 /** The file's effective compatibility floor: what it declares, else its own

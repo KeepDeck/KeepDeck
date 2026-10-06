@@ -12,6 +12,7 @@ import {
   labelDraftAfter,
   labelSendable,
   finishSend,
+  pickedPriority,
   pickedStatus,
   taskDetailClassName,
   renamedTitle,
@@ -30,6 +31,7 @@ import { Button } from "../../ui/Button";
 import { TipButton } from "../../ui/TipButton";
 import { CloseIcon, MaximizeIcon, RestoreIcon } from "@keepdeck/ui-kit/icons";
 import { VirtualList } from "@keepdeck/ui-kit/VirtualList";
+import { EpicBar, EpicChip } from "./EpicMarks";
 import { RemoveButton } from "../../ui/RemoveButton";
 import { CommandPalette } from "../../ui/CommandPalette";
 import { ConfirmDialog } from "../../ui/ConfirmDialog";
@@ -69,6 +71,11 @@ interface TaskDetailProps {
   /** Resolves to whether the label landed — the field keeps a refused one. */
   onLabel(taskId: string, label: string): Promise<boolean>;
   onUnlabel(taskId: string, label: string): void;
+  /** Put a task under the epic a pick names — its id, or the empty pick
+   * for none. */
+  onParent(taskId: string, picked: string): void;
+  /** Open the new-task form with this epic picked. */
+  onNewInEpic(epicId: string): void;
 }
 
 /** The right panel: one task whole. Every word comes from the view; every
@@ -95,6 +102,8 @@ export function TaskDetail({
   onOpenArtifact,
   onLabel,
   onUnlabel,
+  onParent,
+  onNewInEpic,
 }: TaskDetailProps) {
   const [composer, setComposer] = useState(EMPTY_COMPOSER);
   // The transfer's inline confirm: the team picked, or null while closed.
@@ -104,8 +113,13 @@ export function TaskDetail({
   /** The picker open over the task, if any. */
   const [palette, setPalette] = useState<PaletteKind | null>(null);
   const current = palette ? view.palette(palette) : null;
-  const pick = (kind: PaletteKind, value: string) =>
-    kind === "artifact" ? onAttach(view.id, value) : onLink(view.id, value, kind);
+  // What a pick in each picker asks for.
+  const pickOf: Record<PaletteKind, (value: string) => void> = {
+    artifact: (value) => onAttach(view.id, value),
+    "blocked-by": (value) => onLink(view.id, value, "blocked-by"),
+    blocks: (value) => onLink(view.id, value, "blocks"),
+    "epic-task": (value) => onParent(value, view.id),
+  };
   // The title edits in place — a double click on it, or Rename in the menu —
   // by the house's one inline-rename behaviour.
   const rename = useInlineRename((taskId, typed, from) => {
@@ -164,6 +178,7 @@ export function TaskDetail({
                   ariaLabel={FIELD_WORDS.status}
                   options={view.statusOptions.map((option) => ({
                     value: option.value,
+                    disabled: option.disabled,
                     label: (
                       <span className="tasks__status-choice">
                         <StatusRing {...option.ring} />
@@ -171,6 +186,7 @@ export function TaskDetail({
                       </span>
                     ),
                   }))}
+                  note={view.statusNote}
                   value={view.status}
                   onChange={(value) => {
                     const to = pickedStatus(view.status, value);
@@ -195,10 +211,28 @@ export function TaskDetail({
                   ariaLabel={FIELD_WORDS.priority}
                   options={view.priorityOptions}
                   value={view.priority}
-                  onChange={(value) => onPriority(view.id, value as TaskPriority)}
+                  onChange={(value) => {
+                    const to = pickedPriority(view.priority, value);
+                    if (to !== null) onPriority(view.id, to);
+                  }}
                   variant="inline"
                 />
               </dd>
+
+              {view.parent && (
+                <>
+                  <dt className="tasks__prop-label">{FIELD_WORDS.epic}</dt>
+                  <dd>
+                    <Dropdown
+                      ariaLabel={FIELD_WORDS.epic}
+                      options={view.parent.options}
+                      value={view.parent.value}
+                      onChange={(value) => onParent(view.id, value)}
+                      variant="inline"
+                    />
+                  </dd>
+                </>
+              )}
 
               <dt className="tasks__prop-label">{TASK_DETAIL_WORDS.labels}</dt>
               <dd className="tasks__chips">
@@ -307,6 +341,40 @@ export function TaskDetail({
                 )}
               </dd>
             </dl>
+            {view.epic && (
+              <section className="tasks__epic" aria-label={view.epic.heading}>
+                <h4 className="tasks__section tasks__epic-head">
+                  {view.epic.heading}
+                  <span className="tasks__epic-summary">{view.epic.progress.summary}</span>
+                </h4>
+                <EpicBar fill={view.epic.progress.fill} className="tasks__epic-bar--wide" />
+                <div className="tasks__epic-tasks">
+                  {view.epic.empty && <p className="tasks__muted">{view.epic.empty}</p>}
+                  {view.epic.tasks.map((task) => (
+                    <button key={task.id} type="button" className={task.className} onClick={() => onSelect(task.id)}>
+                      <StatusRing {...task.ring} />
+                      <code className="tasks__row-id">{task.id}</code>
+                      <span className="tasks__row-title" dir="auto">
+                        {task.title}
+                      </span>
+                      <span className="tasks__row-who">{task.assignee}</span>
+                    </button>
+                  ))}
+                  <div className="tasks__epic-add">
+                    {view.epic.addNew && (
+                      <Button size="sm" onClick={() => onNewInEpic(view.id)}>
+                        <PlusIcon /> {view.epic.addNew}
+                      </Button>
+                    )}
+                    {view.epic.addExisting && (
+                      <Button size="sm" onClick={() => setPalette("epic-task")}>
+                        <PlusIcon /> {view.epic.addExisting}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </section>
+            )}
             <div className="tasks__detail-main">
               {view.bodyEmpty ? (
                 <p className="tasks__muted">{view.bodyEmpty}</p>
@@ -362,6 +430,7 @@ export function TaskDetail({
       <header className="tasks__detail-head">
         <div className="tasks__detail-line">
           <StatusRing {...view.statusRing} />
+          {view.kindChip && <EpicChip text={view.kindChip} />}
           <span className="tasks__detail-meta kd-one-line">{view.meta}</span>
           {/* The task's own menu stands with what names the task — its id
               and state, as Linear's beside the issue key — apart from the
@@ -423,7 +492,7 @@ export function TaskDetail({
                 leading: item.ring && <StatusRing {...item.ring} />,
               })),
             }))}
-            onPick={(value) => pick(palette, value)}
+            onPick={(value) => pickOf[palette](value)}
             onClose={() => setPalette(null)}
           />
         )}

@@ -64,6 +64,12 @@
   --kd-working-tint: #1e242f;
   --kd-working-line: #475b7d;
 
+  /* An epic's violet — a kind, not a state: it marks what a task IS, and
+     the achievements' epic rarity wears the same. Its line is blended as
+     the status lines are (40 % over the seam). */
+  --kd-epic: #9085e9;
+  --kd-epic-line: #534e79;
+
   /* Keyboard focus — the working blue, so a focused control reads as
      "here" and never as a state. */
   --kd-focus: var(--kd-working);

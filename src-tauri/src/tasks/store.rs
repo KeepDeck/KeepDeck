@@ -77,6 +77,8 @@ impl TasksStore {
         let claimed = claim(root, "task board")?;
         // Damage or a newer schema is no failure to enable: the store opens
         // in the state that says so, and the UI offers the way out.
+        // A schema this build moves forward is copied first; a copy that
+        // cannot be taken fails the enable, the database as it was.
         let store = Store::open(root).map_err(|e| e.to_string())?;
         let db = Arc::new(Database { store: Mutex::new(store), claim: claimed });
         spawn_backup_ticker(Arc::downgrade(&db));
@@ -223,14 +225,19 @@ fn spawn_backup_ticker(db: Weak<Database>) {
     }
 }
 
+/// The wall clock in ms since the epoch — what a backup and a set-aside
+/// copy are named after.
+pub(crate) fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
 /// One tick: decided under the store's lock, copied without it — no
 /// command waits on a backup being taken.
 fn backup_once(db: &Database) {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0);
-    let job = match lock(&db.store).backup_due(now) {
+    let job = match lock(&db.store).backup_due(now_ms()) {
         Ok(Some(job)) => job,
         Ok(None) => return,
         Err(error) => return log::warn!("tasks: backup not taken: {error}"),

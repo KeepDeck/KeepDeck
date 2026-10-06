@@ -4,7 +4,6 @@ import { inLadderOrder, isTaskStatus } from "../tasks";
 import {
   DOCK_MODES,
   TASKS_FOLDED_DEFAULT,
-  TASKS_VIEWS,
   NOTIFICATION_MODES,
   SCROLLBACK_MAX,
   SCROLLBACK_MIN,
@@ -12,7 +11,6 @@ import {
   USAGE_DISPLAYS,
   type NotificationsMode,
   type Settings,
-  type TasksView,
   type SettingsKey,
 } from "./types";
 
@@ -50,7 +48,6 @@ const DEFAULT_NOTIFICATIONS = freezeBag<Settings["notifications"]>({
 });
 
 const DEFAULT_TASKS_BOARD: Settings["tasksBoard"] = Object.freeze({
-  view: "board",
   list: Object.freeze({ folded: Object.freeze([...TASKS_FOLDED_DEFAULT]) }),
 });
 
@@ -181,20 +178,18 @@ function readNotifications(
 }
 
 /**
- * The tasks board's posture. Each field read on its own: a view this build
- * does not know keeps the default view, a status it does not know is
- * dropped from the folds (and said), and the folds come back in ladder
- * order, each once — a hand edit's order or repeat is no posture.
+ * The tasks board's posture. A status this build does not know is dropped
+ * from the folds (and said), and the folds come back in ladder order, each
+ * once — a hand edit's order or repeat is no posture. A stored `view` (the
+ * columns were a view until v25) is consumed: read for nothing, never
+ * written back.
  */
 function readTasksBoard(value: unknown, discard: Discard): Settings["tasksBoard"] | undefined {
   if (!isRecord(value)) return undefined;
-  let view = DEFAULT_TASKS_BOARD.view;
-  if (TASKS_VIEWS.includes(value.view as TasksView)) view = value.view as TasksView;
-  else if (value.view !== undefined) discard("tasksBoard.view");
   let list = DEFAULT_TASKS_BOARD.list;
   if (isRecord(value.list)) list = readTasksList(value.list, discard);
   else if (value.list !== undefined) discard("tasksBoard.list");
-  return { view, list };
+  return { list };
 }
 
 function readTasksList(value: Record<string, unknown>, discard: Discard): Settings["tasksBoard"]["list"] {
