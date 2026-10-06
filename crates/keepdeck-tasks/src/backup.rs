@@ -94,13 +94,21 @@ pub fn take(db_path: &Path, dir: &Path, now_ms: i64) -> Result<Backup> {
 /// (`tasks-pre-<step>.db`), outside the set of three — never rotated
 /// away, never offered as an hourly backup — and taken once per step: a
 /// step that fails again finds its copy there and takes no second. A copy
-/// found there is checked first; one that fails the check is no way back,
-/// and goes — the step has not run, so the database is still as it found
-/// it, and a fresh copy is the same copy.
+/// found there is checked first. One found damaged is no way back, and
+/// goes — the step has not run, so the database is still as it found it,
+/// and a fresh copy is the same copy; one that cannot be checked now (held
+/// by another opener, the disk refusing) is kept as it is, and the open
+/// waits for it, answering why.
 pub fn take_before(db_path: &Path, dir: &Path, migration: &str) -> Result<PathBuf> {
     let path = dir.join(format!("{PRE_STEP}{migration}{SUFFIX}"));
-    if path.exists() && verify(&path).is_ok() {
-        return Ok(path);
+    if path.exists() {
+        match check(&path) {
+            Ok(()) => return Ok(path),
+            Err(StoreError::Corrupt { .. }) => {
+                let _ = std::fs::remove_file(&path);
+            }
+            Err(other) => return Err(other),
+        }
     }
     let tmp = snapshot(db_path, dir, &format!("{PRE_STEP}{migration}{SUFFIX}"))?;
     verify(&tmp)?;
@@ -122,10 +130,17 @@ fn snapshot(db_path: &Path, dir: &Path, name: &str) -> Result<PathBuf> {
     Ok(tmp)
 }
 
-/// Whether a candidate copy passes the check — and, when it does not, it
-/// is removed: a bad copy is never kept as one.
+/// Whether a copy passes the check — damaged (Corrupt), or not checkable
+/// now (Busy, Io) said apart.
+fn check(copy: &Path) -> Result<()> {
+    db::open_read_only(copy).and_then(|mut conn| db::quick_check(&mut conn))
+}
+
+/// Whether a candidate copy just written passes the check — and, when it
+/// does not, it is removed: a copy this store wrote and cannot vouch for is
+/// never kept as one.
 fn verify(candidate: &Path) -> Result<()> {
-    let verified = db::open_read_only(candidate).and_then(|mut copy| db::quick_check(&mut copy));
+    let verified = check(candidate);
     if verified.is_err() {
         let _ = std::fs::remove_file(candidate);
     }

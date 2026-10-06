@@ -214,6 +214,25 @@ fn a_copy_before_a_step_that_fails_its_check_is_taken_again() {
 }
 
 #[test]
+fn a_copy_before_a_step_that_cannot_be_checked_now_is_kept_and_the_open_waits() {
+    use diesel::connection::SimpleConnection;
+    use diesel::prelude::*;
+    let dir = tempfile::tempdir().unwrap();
+    at_first_schema(dir.path());
+    let db = dir.path().join("tasks.db");
+    let backups = dir.path().join(backup::BACKUP_DIR);
+    let copy = backup::take_before(&db, &backups, "20261007000002").unwrap();
+    let first = std::fs::read(&copy).unwrap();
+    // Another opener holds the copy: its check cannot run now.
+    let mut holder = diesel::SqliteConnection::establish(&copy.to_string_lossy()).unwrap();
+    holder.batch_execute("BEGIN EXCLUSIVE").unwrap();
+    assert!(Store::open(dir.path()).is_err(), "the open waits rather than moving on without a copy it can vouch for");
+    holder.batch_execute("ROLLBACK").unwrap();
+    drop(holder);
+    assert_eq!(std::fs::read(&copy).unwrap(), first, "the first copy is kept as it was");
+}
+
+#[test]
 fn an_epic_moved_in_from_the_files_stays_an_epic() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = Store::open(dir.path()).unwrap();
