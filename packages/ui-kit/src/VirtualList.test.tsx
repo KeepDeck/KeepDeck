@@ -169,7 +169,7 @@ describe("VirtualList", () => {
 
   describe("a list that grows at its foot (followEnd)", () => {
     const thread = Array.from({ length: 30 }, (_, i) => `row ${i}`);
-    const renderThread = (list: readonly string[], easeKey?: unknown) =>
+    const renderThread = (list: readonly string[], easeKey?: unknown, followEnd = true) =>
       act(() =>
         root.render(
           createElement(VirtualList<string>, {
@@ -178,7 +178,7 @@ describe("VirtualList", () => {
             estimate: () => ROW,
             render: (item) => createElement("span", { className: "row" }, item),
             className: "list",
-            followEnd: true,
+            followEnd,
             easeKey,
           }),
         ),
@@ -234,6 +234,72 @@ describe("VirtualList", () => {
       expect(list().scrollHeight).toBe(40 * ROW);
       renderThread([...grown], opened);
       expect(list().scrollTop).toBe(held);
+    });
+
+    it("follows nothing once the list stops following", () => {
+      restore = pinListViewport("list", 200, 300, ROW);
+      renderThread(thread);
+      scrollTo(30 * ROW - 200);
+      renderThread([...thread, "row 30"], undefined, false);
+      expect(list().scrollTop).toBe(30 * ROW - 200);
+    });
+
+    it("lets go of the foot when the person scrolls up after a follow", () => {
+      restore = pinListViewport("list", 200, 300, ROW);
+      renderThread(thread);
+      scrollTo(30 * ROW - 200);
+      renderThread([...thread, "row 30"]);
+      scrollTo(10 * ROW);
+      renderThread([...thread, "row 30", "row 31"]);
+      expect(list().scrollTop).toBe(10 * ROW);
+    });
+
+    it("lets go of the foot when the person opens a fold there: they read what it opened", async () => {
+      restore = pinListViewport("list", 200, 300, ROW);
+      const shut = {};
+      renderThread(thread, shut);
+      scrollTo(30 * ROW - 200);
+      const once = [...thread, "row 30"];
+      renderThread(once, shut);
+      // The person opens a fold at the foot; it plays out.
+      const open = {};
+      const opened = [...once, ...Array.from({ length: 10 }, (_, i) => `row ${31 + i}`)];
+      renderThread(opened, open);
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 700));
+      });
+      const reading = list().scrollTop;
+      // A row arrives from someone else: the view stays on what they read.
+      renderThread([...opened, "row 41"], open);
+      expect(list().scrollTop).toBe(reading);
+    });
+
+    it("follows a second row arriving while the first is still measured toward the foot", () => {
+      // Guessed 20 tall, measured 100: the first follow lands short of the real foot.
+      restore = pinListViewport("list", 200, 300, 100);
+      const few = thread.slice(0, 3);
+      renderThread(few);
+      scrollTo(list().scrollHeight - 200);
+      renderThread([...few, "row 3"]);
+      const first = list().scrollTop;
+      renderThread([...few, "row 3", "row 4"]);
+      expect(list().scrollTop).toBeGreaterThan(first);
+    });
+
+    it("never moves the view while the person's own fold plays out", async () => {
+      restore = pinListViewport("list", 200, 300, ROW);
+      renderThread(thread, {});
+      scrollTo(30 * ROW - 200);
+      const grown = [...thread, ...Array.from({ length: 10 }, (_, i) => `row ${30 + i}`)];
+      renderThread(grown, {});
+      const seen = [list().scrollTop];
+      for (const wait of [80, 160, 400]) {
+        await act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, wait));
+        });
+        seen.push(list().scrollTop);
+      }
+      expect(new Set(seen).size).toBe(1);
     });
 
     it("leaves the person's own change where the fold holds it", () => {

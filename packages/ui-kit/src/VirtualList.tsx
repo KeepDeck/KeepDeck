@@ -1,6 +1,7 @@
 import { memo, useEffect, useLayoutEffect, useRef, type ReactNode, type RefObject } from "react";
 import { marksOf, type ChangeMarks } from "./listMotion";
 import { foldSpacer } from "./foldMotion";
+import { END_SLACK_PX, atListFoot, followsChange, footAfter, pinAfterCommit, pinAfterScroll } from "./followEnd";
 import { useFoldMotion } from "./useFoldMotion";
 import { useFocusHandoff } from "./useFocusHandoff";
 import { usePinnedHeading } from "./usePinnedHeading";
@@ -164,7 +165,7 @@ export function VirtualList<T>({
   useFocusHandoff(scrollRef);
 
   const { atEnd, reveal, revealEnd } = rowWindow;
-  useFollowEnd(scrollRef, followEnd, items, revealEnd);
+  useFollowEnd(scrollRef, followEnd, items, marks.eased, revealEnd);
   useEffect(() => {
     if (atEnd) onReachEnd?.();
   }, [atEnd, items.length, onReachEnd]);
@@ -281,47 +282,49 @@ export function VirtualList<T>({
   );
 }
 
-/** How near the foot the view counts as "at the end" — a pixel's
- * rounding, not a band the person must aim for. */
-const END_SLACK_PX = 2;
-
 /**
- * `followEnd`'s rule: when the view stood at the end before a change of
- * the items, the foot is shown again — in the layout phase, so the frame
- * painted is already there. Where the view stands is read from what is
- * on screen NOW, after every commit as well as on every scroll: rows
- * measured taller than their guess and a fold opened by the person grow
- * the list with no scroll event at all, and a flag kept from before them
- * would throw the view to the foot on the next render (reviewer-2,
- * task-295).
+ * `followEnd` applied (its rules: `followEnd.ts`): after every commit, in
+ * the layout phase so the frame painted is already there, a change is
+ * followed or not, and where the view stands is noted for the next. Read
+ * after every commit as well as on every scroll: rows measured taller
+ * than their guess and a fold grow the list with no scroll event at all,
+ * and a flag kept from before them would throw the view to the foot on
+ * the next render (reviewer-2, task-295).
  */
 function useFollowEnd<T>(
   scrollRef: RefObject<HTMLElement | null>,
   on: boolean,
   items: readonly T[],
+  eased: boolean,
   revealEnd: () => void,
 ) {
   const atFoot = useRef(false);
+  const pinned = useRef(false);
+  const lastTop = useRef(0);
   const seen = useRef(items);
-  const read = (box: HTMLElement) => {
-    atFoot.current = box.scrollTop + box.clientHeight >= box.scrollHeight - END_SLACK_PX;
-  };
   useEffect(() => {
     const box = scrollRef.current;
     if (!on || !box) return;
-    const onScroll = () => read(box);
+    const onScroll = () => {
+      pinned.current = pinAfterScroll({ pinned: pinned.current, movedUp: box.scrollTop < lastTop.current - END_SLACK_PX });
+      lastTop.current = box.scrollTop;
+      atFoot.current = footAfter({ pinned: pinned.current, readAtFoot: atListFoot(box) });
+    };
     box.addEventListener("scroll", onScroll, { passive: true });
     return () => box.removeEventListener("scroll", onScroll);
   }, [on, scrollRef]);
-  // Every commit: follow a change of the items if the view stood at the
-  // foot, then read where it stands for the next one.
   useLayoutEffect(() => {
     const box = scrollRef.current;
     if (!on || !box) return;
     const changed = seen.current !== items;
     seen.current = items;
-    if (changed && atFoot.current) revealEnd();
-    read(box);
+    const followed = followsChange({ on, changed, wasAtFoot: atFoot.current, eased });
+    if (followed) revealEnd();
+    pinned.current = pinAfterCommit({ pinned: pinned.current, followed, eased: changed && eased });
+    // `lastTop` is the scroll events' alone: the list commits inside a
+    // scroll event, before the handler hears it, and a commit writing it
+    // would hide the very move up the handler is there to see.
+    atFoot.current = footAfter({ pinned: pinned.current, readAtFoot: atListFoot(box) });
   });
 }
 
