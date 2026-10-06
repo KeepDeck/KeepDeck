@@ -120,6 +120,24 @@ describe("createDbBoardStore — the board reaches the database", () => {
     expect(made.tasks[0].key).toBe("task-1");
   });
 
+  it("a read that set out before a restore never becomes the base the next write is computed from", async () => {
+    const { db, store } = await open();
+    const b = await readBoard(store);
+    db.takeBackup(100);
+    await store.write({ workspaceId: "ws-1", board: comment(b, "late") });
+    // A read of the old database, answering only after the restore.
+    const release = db.holdNextLoad();
+    const stale = store.read({ workspaceId: "ws-1" });
+    db.setStatus({ kind: "damaged", detail: "page 3", backups: [100] });
+    await store.restore({ kind: "backup", at: 100 });
+    const fresh = await readBoard(store);
+    release();
+    await expect(stale).rejects.toThrow("the task database was replaced while the board was read — read it again");
+    // Computed against what the restored database holds, not the old read.
+    await store.write({ workspaceId: "ws-1", board: comment(fresh, "after") });
+    expect(db.boards()[0].tasks[0].comments.map((c) => c.body)).toEqual(["after"]);
+  });
+
   it("writes nothing once the database is found damaged, and says why", async () => {
     const { db, store } = await open();
     const b = await readBoard(store);

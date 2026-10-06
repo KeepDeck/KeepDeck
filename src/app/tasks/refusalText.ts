@@ -49,6 +49,9 @@ export function decodeFaultText(fault: DecodeFault, source = "board.json"): stri
 /** Why nothing can be written before the store is open. */
 export const BOARD_NOT_OPEN = "the task board is not open";
 
+/** A read that set out under a database since replaced (a restore). */
+export const BOARD_READ_STALE = "the task database was replaced while the board was read — read it again";
+
 /** Why nothing can be written after a move that did not make the database
  * the source. */
 export function migrationRefusalText(outcome: Exclude<MigrationOutcome, { kind: "active" }>): string {

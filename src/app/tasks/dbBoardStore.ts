@@ -24,7 +24,7 @@ import type { StoreError } from "../../ipc/generated/tasks/StoreError";
 import type { StoreStatus } from "../../ipc/generated/tasks/StoreStatus";
 import type { StoredBoard } from "../../ipc/generated/tasks/StoredBoard";
 import { migrateBoards, type MigrationOutcome, type MigrationPort } from "./migration";
-import { BOARD_NOT_OPEN, decodeFaultText, migrationRefusalText, storeErrorText } from "./refusalText";
+import { BOARD_NOT_OPEN, BOARD_READ_STALE, decodeFaultText, migrationRefusalText, storeErrorText } from "./refusalText";
 import { boardChange } from "./storeDiff";
 import { boardFromStored } from "./storeWire";
 import type { BoardRead, Recovery, TasksStorePort } from "./tasksService";
@@ -72,6 +72,10 @@ export function createDbBoardStore(deps: DbBoardStoreDeps): DbBoardStore {
   let fallback: Map<string, BoardRead> | null = null;
   /** The database cannot be used and is the person's to recover. */
   let recovery: Recovery | null = null;
+  /** Which database this is: bumped whenever another may stand in its
+   * place (a settle, a disable). A read that set out under an earlier one
+   * answers nothing confirmed — what it read is gone. */
+  let generation = 0;
 
   /** Ask the database how it stands, after a refusal said it is unusable. */
   const learnRecovery = async () => {
@@ -119,8 +123,18 @@ export function createDbBoardStore(deps: DbBoardStoreDeps): DbBoardStore {
   };
 
   /** Read a board's confirmed state from the database again. */
-  const reread = async (workspace: string, place: Confirmed) => {
+  /** A board as the database holds it NOW — every read goes through here:
+   * one that set out under a database since replaced is refused, so what
+   * it read never becomes the base a write is computed from. */
+  const loadCurrent = async (workspace: string): Promise<StoredBoard | null> => {
+    const asked = generation;
     const stored = await call(() => deps.db.load(workspace));
+    if (asked !== generation) throw new Error(BOARD_READ_STALE);
+    return stored;
+  };
+
+  const reread = async (workspace: string, place: Confirmed) => {
+    const stored = await loadCurrent(workspace);
     if (stored === null) return;
     const read = boardFromStored(stored, deps.mintUid);
     if (!read.ok) throw new Error(decodeFaultText(read.fault, "the database"));
@@ -170,6 +184,7 @@ export function createDbBoardStore(deps: DbBoardStoreDeps): DbBoardStore {
    * moved earlier), or the reason nothing can be written. Every board is
    * read from it afresh after. */
   const settle = async () => {
+    generation += 1;
     confirmed.clear();
     fallback = null;
     const outcome = await migrateBoards(deps.db, { workspaces: deps.workspaces(), mintUid: deps.mintUid });
@@ -199,6 +214,7 @@ export function createDbBoardStore(deps: DbBoardStoreDeps): DbBoardStore {
       await settle();
     },
     async disable() {
+      generation += 1;
       confirmed.clear();
       fallback = null;
       readOnly = BOARD_NOT_OPEN;
@@ -207,7 +223,7 @@ export function createDbBoardStore(deps: DbBoardStoreDeps): DbBoardStore {
     async read({ workspaceId }) {
       if (fallback !== null) return fallback.get(workspaceId) ?? { kind: "none" };
       if (readOnly !== null) return { kind: "unreadable", error: readOnly };
-      const stored = await call(() => deps.db.load(workspaceId));
+      const stored = await loadCurrent(workspaceId);
       if (stored === null) {
         confirmed.delete(workspaceId);
         return { kind: "none" };
@@ -223,7 +239,7 @@ export function createDbBoardStore(deps: DbBoardStoreDeps): DbBoardStore {
       if (!place) {
         // Not read since the database last changed under us (a restore):
         // what it holds now is the base. None there: a board of its own.
-        const stored = await call(() => deps.db.load(workspaceId));
+        const stored = await loadCurrent(workspaceId);
         const read = stored === null ? null : boardFromStored(stored, deps.mintUid);
         if (read && !read.ok) throw new Error(decodeFaultText(read.fault, "the database"));
         place =

@@ -41,6 +41,8 @@ export function testDatabase(files: LegacyBoard[] = []) {
   let activateFault: StoreError | null = null;
   /** What the next load refuses with. */
   let loadFault: StoreError | null = null;
+  /** The next load reads now and answers on release. */
+  let loadHeld: Promise<void> | null = null;
   const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
   const applyBoard = (change: ChangeSet["boards"][number]) => {
@@ -121,7 +123,11 @@ export function testDatabase(files: LegacyBoard[] = []) {
       const fault = loadFault;
       loadFault = null;
       if (fault !== null) throw fault;
-      return clone(boards.find((b) => b.workspace === workspace) ?? null);
+      const answer = clone(boards.find((b) => b.workspace === workspace) ?? null);
+      const held = loadHeld;
+      loadHeld = null;
+      if (held !== null) await held;
+      return answer;
     },
     apply: async (change) => {
       requests.push(clone(change));
@@ -200,6 +206,14 @@ export function testDatabase(files: LegacyBoard[] = []) {
     },
     refuseNextLoad(error: StoreError) {
       loadFault = error;
+    },
+    /** The next load reads the board now, and answers once released. */
+    holdNextLoad(): () => void {
+      let release!: () => void;
+      loadHeld = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return release;
     },
     refuseNextActivate(error: StoreError) {
       activateFault = error;
