@@ -39,9 +39,16 @@ describe("the hold at the foot", () => {
   });
 
   it("is let go when the person scrolls up, never by the list's own corrections down", () => {
-    expect(pinAfterScroll({ pinned: true, movedUp: true })).toBe(false);
-    expect(pinAfterScroll({ pinned: true, movedUp: false })).toBe(true);
-    expect(pinAfterScroll({ pinned: false, movedUp: false })).toBe(false);
+    expect(pinAfterScroll({ pinned: true, scrollTop: 300, peak: 400 })).toEqual({ pinned: false, peak: 400 });
+    expect(pinAfterScroll({ pinned: true, scrollTop: 420, peak: 400 })).toEqual({ pinned: true, peak: 420 });
+    expect(pinAfterScroll({ pinned: true, scrollTop: 400 - END_SLACK_PX, peak: 400 })).toEqual({ pinned: true, peak: 400 });
+    expect(pinAfterScroll({ pinned: false, scrollTop: 300, peak: 400 })).toEqual({ pinned: false, peak: 300 });
+  });
+
+  it("counts a slow scroll up from the lowest point held, not step by step", () => {
+    let state = { pinned: true, peak: 400 };
+    for (let top = 399; top >= 390; top -= 1) state = pinAfterScroll({ ...state, scrollTop: top });
+    expect(state.pinned).toBe(false);
   });
 
   it("counts the view at the foot while held, whatever the geometry says; otherwise as read", () => {

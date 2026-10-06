@@ -35,10 +35,17 @@ export function pinAfterCommit(input: { pinned: boolean; followed: boolean; ease
   return input.eased ? false : input.pinned;
 }
 
-/** After a scroll: the person scrolling up lets go of the foot; the
- * list's own corrections toward it never move up. */
-export function pinAfterScroll(input: { pinned: boolean; movedUp: boolean }): boolean {
-  return input.movedUp ? false : input.pinned;
+/**
+ * After a scroll: the person scrolling up lets go of the foot; the list's
+ * own corrections toward it never move up. Up is counted from the lowest
+ * the view has stood since it was held (`peak`), never from the last
+ * event: a slow scroll moves a pixel an event, and no one step of it is
+ * past the slack (reviewer-2, task-295).
+ */
+export function pinAfterScroll(input: { pinned: boolean; scrollTop: number; peak: number }): { pinned: boolean; peak: number } {
+  if (!input.pinned) return { pinned: false, peak: input.scrollTop };
+  const peak = Math.max(input.peak, input.scrollTop);
+  return { pinned: input.scrollTop >= peak - END_SLACK_PX, peak };
 }
 
 /** Where the view counts as standing for the next change: held at the

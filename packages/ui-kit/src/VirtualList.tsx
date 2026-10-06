@@ -1,7 +1,7 @@
 import { memo, useEffect, useLayoutEffect, useRef, type ReactNode, type RefObject } from "react";
 import { marksOf, type ChangeMarks } from "./listMotion";
 import { foldSpacer } from "./foldMotion";
-import { END_SLACK_PX, atListFoot, followsChange, footAfter, pinAfterCommit, pinAfterScroll } from "./followEnd";
+import { atListFoot, followsChange, footAfter, pinAfterCommit, pinAfterScroll } from "./followEnd";
 import { useFoldMotion } from "./useFoldMotion";
 import { useFocusHandoff } from "./useFocusHandoff";
 import { usePinnedHeading } from "./usePinnedHeading";
@@ -300,14 +300,16 @@ function useFollowEnd<T>(
 ) {
   const atFoot = useRef(false);
   const pinned = useRef(false);
-  const lastTop = useRef(0);
+  /** The lowest the view has stood since it was held at the foot. */
+  const peak = useRef(0);
   const seen = useRef(items);
   useEffect(() => {
     const box = scrollRef.current;
     if (!on || !box) return;
     const onScroll = () => {
-      pinned.current = pinAfterScroll({ pinned: pinned.current, movedUp: box.scrollTop < lastTop.current - END_SLACK_PX });
-      lastTop.current = box.scrollTop;
+      const after = pinAfterScroll({ pinned: pinned.current, scrollTop: box.scrollTop, peak: peak.current });
+      pinned.current = after.pinned;
+      peak.current = after.peak;
       atFoot.current = footAfter({ pinned: pinned.current, readAtFoot: atListFoot(box) });
     };
     box.addEventListener("scroll", onScroll, { passive: true });
@@ -321,9 +323,9 @@ function useFollowEnd<T>(
     const followed = followsChange({ on, changed, wasAtFoot: atFoot.current, eased });
     if (followed) revealEnd();
     pinned.current = pinAfterCommit({ pinned: pinned.current, followed, eased: changed && eased });
-    // `lastTop` is the scroll events' alone: the list commits inside a
-    // scroll event, before the handler hears it, and a commit writing it
-    // would hide the very move up the handler is there to see.
+    // `peak` is the scroll events' alone: the list commits inside a scroll
+    // event, before the handler hears it, and a commit writing it would
+    // hide the very move up the handler is there to see.
     atFoot.current = footAfter({ pinned: pinned.current, readAtFoot: atListFoot(box) });
   });
 }

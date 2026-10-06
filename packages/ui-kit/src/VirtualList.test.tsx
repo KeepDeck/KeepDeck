@@ -274,6 +274,17 @@ describe("VirtualList", () => {
       expect(list().scrollTop).toBe(reading);
     });
 
+    it("lets go of the foot on a slow scroll up, a pixel at a time", () => {
+      restore = pinListViewport("list", 200, 300, ROW);
+      renderThread(thread);
+      scrollTo(30 * ROW - 200);
+      renderThread([...thread, "row 30"]);
+      const foot = list().scrollTop;
+      for (let step = 1; step <= 30; step++) scrollTo(foot - step);
+      renderThread([...thread, "row 30", "row 31"]);
+      expect(list().scrollTop).toBe(foot - 30);
+    });
+
     it("follows a second row arriving while the first is still measured toward the foot", () => {
       // Guessed 20 tall, measured 100: the first follow lands short of the real foot.
       restore = pinListViewport("list", 200, 300, 100);
