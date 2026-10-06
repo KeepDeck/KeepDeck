@@ -182,9 +182,20 @@ impl TasksStore {
         Ok(())
     }
 
-    /// Drop a workspace's board — called from workspace deletion, the one
-    /// place that knows the live workspace set. Idempotent on absence.
+    /// Drop a workspace's board — its rows in the database and its files
+    /// (the old JSON and every copy) — called from workspace deletion, the
+    /// one place that knows the live workspace set. The files go whatever
+    /// the database answers (damaged, a newer build's): a deleted
+    /// workspace's briefs and comments do not stay on disk because the
+    /// database could not drop its rows — which is still said. Idempotent.
     pub fn drop_workspace(&self, workspace_id: &str) -> Result<(), String> {
+        let rows = self.with_db(|db| db.drop_workspace(workspace_id).map(|_| ()));
+        let files = self.drop_files(workspace_id);
+        files?;
+        rows.map_err(|e| format!("the task database kept the board of {workspace_id}: {e}"))
+    }
+
+    fn drop_files(&self, workspace_id: &str) -> Result<(), String> {
         self.with_enabled(|root, data| {
             require_safe(workspace_id)?;
             let _guard = lock(data);
@@ -341,6 +352,20 @@ mod tests {
         std::fs::create_dir_all(dir.path().join("tasks/ws/.hidden")).unwrap();
         std::fs::write(dir.path().join("tasks/ws/.hidden/board.json"), "x").unwrap();
         assert!(store.legacy_boards().unwrap().iter().all(|b| b.workspace != ".hidden"));
+    }
+
+    #[test]
+    fn a_workspace_dropped_while_the_database_is_damaged_loses_its_files_all_the_same() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("tasks");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("tasks.db"), b"garbage that is not sqlite at all, for sure").unwrap();
+        put(&dir, "ws-1", "{}");
+        let store = TasksStore::default();
+        store.enable(&root).unwrap();
+        let said = store.drop_workspace("ws-1").unwrap_err();
+        assert!(said.contains("kept the board of ws-1"), "{said}");
+        assert!(!dir.path().join("tasks/ws/ws-1").exists());
     }
 
     #[test]

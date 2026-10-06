@@ -60,7 +60,6 @@ pub fn tasks_disable(state: State<TasksState>) {
 /// files (the board's old JSON and every copy of it). Idempotent.
 #[tauri::command(async)]
 pub fn tasks_drop_workspace(state: State<TasksState>, ws_id: String) -> Result<(), String> {
-    state.store.with_db(|db| db.drop_workspace(&ws_id)).map_err(|e| e.to_string())?;
     state.store.drop_workspace(&ws_id)
 }
 
