@@ -10,6 +10,14 @@ diesel::table! {
 }
 
 diesel::table! {
+    fts_docs (doc) {
+        doc -> BigInt,
+        uid -> Text,
+        n -> Nullable<BigInt>,
+    }
+}
+
+diesel::table! {
     meta (key) {
         key -> Text,
         value -> Text,
@@ -118,6 +126,7 @@ diesel::joinable!(tasks -> boards (board));
 
 diesel::allow_tables_to_appear_in_same_query!(
     boards,
+    fts_docs,
     meta,
     relations,
     requests,

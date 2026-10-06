@@ -10,34 +10,71 @@ use diesel::sql_types::{BigInt, Nullable, Text};
 
 use crate::error::Result;
 use crate::model::SearchHit;
+use crate::schema::{fts_docs, tasks};
 
 /// The task's own document — its title and brief as they are now.
 pub fn index_task(conn: &mut SqliteConnection, uid: &str, title: &str, body: &str) -> Result<()> {
-    diesel::sql_query("DELETE FROM search WHERE uid = ? AND n IS NULL").bind::<Text, _>(uid).execute(conn)?;
-    diesel::sql_query("INSERT INTO search(uid, n, text) VALUES (?, NULL, ?)")
-        .bind::<Text, _>(uid)
-        .bind::<Text, _>(format!("{title}\n{body}"))
-        .execute(conn)?;
+    let text = format!("{title}\n{body}");
+    let doc: Option<i64> = fts_docs::table
+        .filter(fts_docs::uid.eq(uid))
+        .filter(fts_docs::n.is_null())
+        .select(fts_docs::doc)
+        .first(conn)
+        .optional()?;
+    match doc {
+        Some(doc) => {
+            diesel::sql_query("UPDATE search SET text = ? WHERE rowid = ?")
+                .bind::<Text, _>(text)
+                .bind::<BigInt, _>(doc)
+                .execute(conn)?;
+        }
+        None => add(conn, uid, None, &text)?,
+    }
     Ok(())
 }
 
 /// A comment, once — comments are never edited.
 pub fn index_comment(conn: &mut SqliteConnection, uid: &str, n: i64, body: &str) -> Result<()> {
-    diesel::sql_query("INSERT INTO search(uid, n, text) VALUES (?, ?, ?)")
-        .bind::<Text, _>(uid)
-        .bind::<BigInt, _>(n)
-        .bind::<Text, _>(body)
+    add(conn, uid, Some(n), body)
+}
+
+fn add(conn: &mut SqliteConnection, uid: &str, n: Option<i64>, text: &str) -> Result<()> {
+    let doc: i64 = diesel::insert_into(fts_docs::table)
+        .values((fts_docs::uid.eq(uid), fts_docs::n.eq(n)))
+        .returning(fts_docs::doc)
+        .get_result(conn)?;
+    diesel::sql_query("INSERT INTO search(rowid, text) VALUES (?, ?)")
+        .bind::<BigInt, _>(doc)
+        .bind::<Text, _>(text)
         .execute(conn)?;
     Ok(())
 }
 
+/// Every document of a task, by key.
 pub fn forget_task(conn: &mut SqliteConnection, uid: &str) -> Result<()> {
-    diesel::sql_query("DELETE FROM search WHERE uid = ?").bind::<Text, _>(uid).execute(conn)?;
+    diesel::sql_query("DELETE FROM search WHERE rowid IN (SELECT doc FROM fts_docs WHERE uid = ?)")
+        .bind::<Text, _>(uid)
+        .execute(conn)?;
+    diesel::delete(fts_docs::table.filter(fts_docs::uid.eq(uid))).execute(conn)?;
+    Ok(())
+}
+
+/// Every document of a board's tasks — in two statements, whatever its size.
+pub fn forget_board(conn: &mut SqliteConnection, board: &str) -> Result<()> {
+    diesel::sql_query(
+        "DELETE FROM search WHERE rowid IN
+           (SELECT doc FROM fts_docs WHERE uid IN (SELECT uid FROM tasks WHERE board = ?))",
+    )
+    .bind::<Text, _>(board)
+    .execute(conn)?;
+    let on_board = tasks::table.filter(tasks::board.eq(board)).select(tasks::uid);
+    diesel::delete(fts_docs::table.filter(fts_docs::uid.eq_any(on_board))).execute(conn)?;
     Ok(())
 }
 
 pub fn forget_all(conn: &mut SqliteConnection) -> Result<()> {
     diesel::sql_query("DELETE FROM search").execute(conn)?;
+    diesel::delete(fts_docs::table).execute(conn)?;
     Ok(())
 }
 
@@ -65,8 +102,8 @@ pub fn search(conn: &mut SqliteConnection, query: &str, boards: &[String], limit
     let placeholders = vec!["?"; boards.len()].join(", ");
     let narrow = if boards.is_empty() { String::new() } else { format!("AND t.board IN ({placeholders})") };
     let sql = format!(
-        "SELECT s.uid AS uid, t.board AS board, s.n AS n, snippet(search, 2, '[', ']', '…', 12) AS snippet
-         FROM search s JOIN tasks t ON t.uid = s.uid
+        "SELECT d.uid AS uid, t.board AS board, d.n AS n, snippet(search, 0, '[', ']', '…', 12) AS snippet
+         FROM search s JOIN fts_docs d ON d.doc = s.rowid JOIN tasks t ON t.uid = d.uid
          WHERE search MATCH ? {narrow}
          ORDER BY rank LIMIT ?"
     );

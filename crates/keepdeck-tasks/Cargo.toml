@@ -5,7 +5,7 @@ edition = "2021"
 description = "The task board's store: one SQLite database for every board, the sole truth of the tracker."
 
 [dependencies]
-diesel = { version = "2.3", default-features = false, features = ["sqlite", "with-deprecated"] }
+diesel = { version = "2.3", default-features = false, features = ["sqlite", "with-deprecated", "returning_clauses_for_sqlite_3_35"] }
 diesel_migrations = { version = "2.3", features = ["sqlite"] }
 # The same SQLite the rest of the app links (rusqlite's), compiled in.
 libsqlite3-sys = { version = "0.38", features = ["bundled"] }

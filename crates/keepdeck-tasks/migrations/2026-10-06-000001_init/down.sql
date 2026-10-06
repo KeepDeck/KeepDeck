@@ -1,4 +1,5 @@
 DROP TABLE search;
+DROP TABLE fts_docs;
 DROP TABLE requests;
 DROP TABLE relations;
 DROP TABLE task_log;

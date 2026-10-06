@@ -4,6 +4,8 @@
 [print_schema]
 file = "src/schema.rs"
 filter = { except_tables = ["^search$", "^search_"] }
+# fts_docs.doc is the index's rowid: an i64 like every number here.
+sqlite_integer_primary_key_is_bigint = true
 
 [migrations_directory]
 dir = "migrations"

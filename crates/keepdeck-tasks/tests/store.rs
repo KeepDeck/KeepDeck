@@ -428,6 +428,48 @@ fn search_finds_tasks_and_comments_ranked_and_scoped() {
 }
 
 #[test]
+fn a_task_renamed_is_found_by_its_new_words_only_and_its_comments_stay_found() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = active_store(dir.path());
+    let t = store.load("b1").unwrap().tasks[0].clone();
+    let mut w = write_of(&t, 0);
+    w.title = "Quartz migration".into();
+    w.comments = vec![StoredComment { n: 1, at: 2, author: "lead".into(), body: "granite notes".into() }];
+    store.apply(&change("r1", vec![board_change("b1", 0, 3, vec![w.clone()])])).unwrap();
+    w.title = "Basalt migration".into();
+    w.comments = vec![];
+    store.apply(&change("r2", vec![board_change("b1", 1, 3, vec![w])])).unwrap();
+    assert!(store.search("quartz", &[], 10).unwrap().is_empty());
+    assert_eq!(store.search("basalt", &[], 10).unwrap().len(), 1);
+    assert_eq!(store.search("granite", &[], 10).unwrap()[0].comment, Some(1));
+}
+
+#[test]
+fn a_board_of_any_size_is_dropped_whole() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(dir.path()).unwrap();
+    // More tasks than SQLite takes variables in one statement.
+    let tasks: Vec<StoredTask> = (1..=33_000).map(|i| task(&format!("u{i}"), &format!("task-{i}"))).collect();
+    let started = std::time::Instant::now();
+    store.import(&[board("b1", Some("ws-1"), tasks), board("b2", Some("ws-2"), vec![task("v1", "task-1")])], &[]).unwrap();
+    store.activate_migration().unwrap();
+    assert!(store.drop_workspace("ws-1").unwrap());
+    // Linear, not one index scan per task: seconds, not minutes.
+    assert!(started.elapsed() < std::time::Duration::from_secs(60), "{:?}", started.elapsed());
+    assert_eq!(store.search("brief", &[], 10).unwrap().iter().map(|h| h.uid.as_str()).collect::<Vec<_>>(), vec!["v1"]);
+    // Nothing of the dropped board is left in the index's own rows.
+    use diesel::prelude::*;
+    #[derive(QueryableByName)]
+    struct Count {
+        #[diesel(sql_type = diesel::sql_types::BigInt)]
+        n: i64,
+    }
+    let mut conn = diesel::SqliteConnection::establish(&dir.path().join("tasks.db").to_string_lossy()).unwrap();
+    let left: Count = diesel::sql_query("SELECT count(*) AS n FROM fts_docs").get_result(&mut conn).unwrap();
+    assert_eq!(left.n, 1);
+}
+
+#[test]
 fn dropping_a_workspace_takes_its_board() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = active_store(dir.path());

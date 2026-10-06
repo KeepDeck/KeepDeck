@@ -117,5 +117,14 @@ CREATE TABLE requests (
 CREATE INDEX requests_by_seq ON requests(seq);
 
 -- Full-text search over a task (title and brief, n = null) and over each
--- of its comments (n = the comment's number).
-CREATE VIRTUAL TABLE search USING fts5(uid UNINDEXED, n UNINDEXED, text);
+-- of its comments (n = the comment's number). Which document is which
+-- lives here, keyed by the index's rowid (an INTEGER PRIMARY KEY, kept
+-- through VACUUM): a task's documents are found and removed by key, never
+-- by scanning the index.
+CREATE TABLE fts_docs (
+    doc INTEGER NOT NULL PRIMARY KEY,
+    uid TEXT NOT NULL,
+    n   BIGINT
+);
+CREATE INDEX fts_docs_by_uid ON fts_docs(uid, n);
+CREATE VIRTUAL TABLE search USING fts5(text);

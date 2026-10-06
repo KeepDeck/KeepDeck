@@ -465,11 +465,11 @@ pub fn drop_workspace(conn: &mut SqliteConnection, workspace: &str) -> Result<bo
         let board: Option<String> =
             boards::table.filter(boards::workspace.eq(workspace)).select(boards::board).first(conn).optional()?;
         let Some(board) = board else { return Ok(false) };
-        let on_board: Vec<String> = tasks::table.filter(tasks::board.eq(&board)).select(tasks::uid).load(conn)?;
-        diesel::delete(relations::table.filter(relations::from_uid.eq_any(&on_board))).execute(conn)?;
-        for uid in &on_board {
-            search::forget_task(conn, uid)?;
-        }
+        // By subquery, whatever the board's size: a list of its tasks would
+        // be one SQL variable each.
+        let on_board = tasks::table.filter(tasks::board.eq(&board)).select(tasks::uid);
+        diesel::delete(relations::table.filter(relations::from_uid.eq_any(on_board))).execute(conn)?;
+        search::forget_board(conn, &board)?;
         diesel::delete(boards::table.find(&board)).execute(conn)?;
         Ok(true)
     })
