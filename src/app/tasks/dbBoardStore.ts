@@ -11,9 +11,10 @@
  * applying it twice (review task-262/263).
  *
  * At enable the boards move from their files into the database, all at
- * once (`migrateBoards`). If that cannot happen, or the database cannot be
- * used, the boards are read but nothing is written: the reason is the
- * port's `writeRefusal`, and the service refuses every change with it.
+ * once (`migrateBoards`). If that cannot happen, the boards are read from their
+ * files and nothing is written; if the database cannot be used at all,
+ * nothing is read or written. The reason is the port's `writeRefusal`,
+ * and the service refuses every change with it.
  */
 import { EMPTY_BOARD, decodeBoard, type TaskBoard } from "../../domain/tasks";
 import type { Applied } from "../../ipc/generated/tasks/Applied";

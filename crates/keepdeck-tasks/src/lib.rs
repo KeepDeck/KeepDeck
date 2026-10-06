@@ -8,9 +8,11 @@
 //! takes a number back, never deletes history, and what was answered
 //! "saved" is on the disk. Nothing here knows what a status means.
 //!
-//! A damaged database (or one a newer build wrote) puts the store in a
-//! state that writes nothing and takes no backups; the way out is a
-//! restore the person confirms.
+//! A damaged or missing database (or one a newer build wrote) puts the
+//! store in a state that neither reads nor writes — reading a database in
+//! doubt, or in a shape this build does not know, is no safer than
+//! writing it — and takes no backups. The way out of damage is a restore
+//! the person confirms; out of a newer build's, that build.
 
 pub mod backup;
 pub mod board;
@@ -37,7 +39,7 @@ pub use model::*;
 #[ts(export, export_to = "tasks/")]
 pub enum StoreStatus {
     Ready { migration: MigrationState },
-    /// Damaged: nothing is written. The backups that pass the check now,
+    /// Damaged: nothing is read or written. The backups that pass the check now,
     /// newest first, ms since the epoch.
     Damaged {
         detail: String,
@@ -51,7 +53,7 @@ pub enum StoreStatus {
         #[ts(type = "number[]")]
         backups: Vec<i64>,
     },
-    /// Written by a newer KeepDeck: nothing is written.
+    /// Written by a newer KeepDeck: nothing is read or written.
     TooNew { migration: String },
 }
 

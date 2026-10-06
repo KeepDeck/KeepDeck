@@ -1,25 +1,15 @@
-//! The task board store: one `board.json` per workspace under the claimed
-//! root (`<keepdeck home>/tasks/ws/<workspaceId>/board.json`).
+//! The task board store's root: the claimed `<keepdeck home>/tasks`, the
+//! ONE task database in it (`keepdeck-tasks`, task-221), and the board
+//! files the database replaced (`ws/<workspaceId>/board.json`).
 //!
-//! The FORMAT — what a board is, what a task may hold, every cap on a
-//! field — is the TS domain's (`src/domain/tasks`), and it is enforced
-//! there and nowhere else: this store keeps the bytes the domain accepted,
-//! writes them atomically, and hands them back verbatim. A second copy of
-//! the field rules here would be the two-language drift the design rules
-//! forbid. What the store does own are the two guards only the disk can
-//! ask for: a workspace id is a PATH SEGMENT (the one shared `fs_names`
-//! wall), and a write is bounded in size against a runaway payload.
-//!
-//! Concurrency: one process owns the root (`fs_claim`, taken at enable),
-//! and inside it every read and write of one workspace's file serializes
-//! on the data mutex — the same shape as the artifacts store. The TS owner
-//! keeps the live board in memory and writes whole boards, so the store
-//! never has to merge.
-//!
-//! The boards are moving into ONE database under the same root
-//! (`keepdeck-tasks`, task-221): opened at enable beside the files, it is
-//! the boards' source once the migration is active. The files are then
-//! read only by the migration and kept as `board.pre-db.json` copies.
+//! What a board is — every rule about it — is the TS domain's; the
+//! database's guarantees are the crate's. What this owns: the claim (one
+//! process owns the root, taken at enable, let go only once the database
+//! is closed), the backup ticker, and the old files — read once by the
+//! move into the database, then kept as `board.pre-db.json` copies, and
+//! removed with their workspace. A workspace id is a PATH SEGMENT, judged
+//! by the one shared `fs_names` wall; every file operation serializes on
+//! the data mutex.
 
 use std::fs;
 use std::io::ErrorKind;

@@ -5,7 +5,8 @@
 #   - src/ipc/generated/tasks/*.ts, the TS side of the store's wire types
 #     (ts-rs, run by the crate's export tests).
 # Both are committed. CI runs this and fails when the tree changes.
-# Needs diesel_cli: cargo install diesel_cli --no-default-features --features sqlite-bundled
+# Needs diesel_cli 2.3.13 (CI pins it):
+#   cargo install diesel_cli --version '=2.3.13' --no-default-features --features sqlite-bundled --locked
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 db="$(mktemp -d)/schema.db"

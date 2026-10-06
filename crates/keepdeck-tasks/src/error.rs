@@ -39,7 +39,7 @@ pub enum StoreError {
     /// the person restores a backup or starts empty.
     Missing { detail: String },
     /// A newer build wrote this database (a migration this build does not
-    /// know); this one writes nothing.
+    /// know); this one neither reads nor writes it.
     SchemaTooNew { migration: String },
     /// The request breaks the store's own rules (an unsafe name, a board
     /// that does not exist).

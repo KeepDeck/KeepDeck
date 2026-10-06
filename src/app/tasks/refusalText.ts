@@ -86,7 +86,7 @@ export function storeErrorText(error: StoreError): string {
     case "missing":
       return `the task database is missing, though ${error.detail}`;
     case "schemaTooNew":
-      return `a newer KeepDeck wrote the task database (${error.migration}) — this one only reads it`;
+      return `a newer KeepDeck wrote the task database (${error.migration}) — this one neither reads nor writes it`;
     case "invalid":
       return error.detail;
   }

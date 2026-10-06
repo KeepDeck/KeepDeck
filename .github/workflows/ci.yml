@@ -79,8 +79,18 @@ jobs:
       # The task store's generated code is committed: Diesel's schema.rs
       # (from the migrations) and the TS side of its wire types (ts-rs).
       # Regenerated here; a difference means one side drifted.
+      # Pinned to one release: another print-schema would differ for no
+      # change of ours. Built once per version, then restored.
+      - name: Cache diesel_cli
+        id: diesel-cli
+        uses: actions/cache@v6
+        with:
+          path: ~/.cargo/bin/diesel
+          key: diesel-cli-2.3.13-sqlite-bundled-${{ runner.os }}
+
       - name: Install diesel_cli
-        run: cargo install diesel_cli --version '^2.3' --no-default-features --features sqlite-bundled --locked
+        if: steps.diesel-cli.outputs.cache-hit != 'true'
+        run: cargo install diesel_cli --version '=2.3.13' --no-default-features --features sqlite-bundled --locked
 
       - name: Generated code is current
         run: |

@@ -35,5 +35,8 @@ describe("the task database's refusals", () => {
       "the task database is missing, though a copy of it set aside is still there",
     );
     expect(storeErrorText({ code: "conflict", board: "b", rev: 3 })).toContain("read again");
+    expect(storeErrorText({ code: "schemaTooNew", migration: "2099" })).toBe(
+      "a newer KeepDeck wrote the task database (2099) — this one neither reads nor writes it",
+    );
   });
 });
