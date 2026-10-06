@@ -69,6 +69,7 @@ export type TaskField =
   | "title"
   | "body"
   | "blockedBy"
+  | "parent"
   | "artifacts"
   | "labels";
 
@@ -81,6 +82,7 @@ export const TASK_FIELDS: readonly TaskField[] = [
   "title",
   "body",
   "blockedBy",
+  "parent",
   "artifacts",
   "labels",
 ];
@@ -185,7 +187,8 @@ export const EMPTY_BOARD: TaskBoard = { nextId: 1, tasks: [], relations: [] };
  * research). Its ends are task UIDS, so it does not care where either
  * task is shown or what it is called. Stored in one direction per kind
  * (`RelationRule`): `blocks` from the blocker to the task it holds,
- * `copied-from` from the copy to its source.
+ * `copied-from` from the copy to its source, `child-of` from a task to
+ * its epic.
  */
 export interface TaskRelation {
   /** A [`RelationKind`] this build knows — or a newer build's, kept as
@@ -200,7 +203,7 @@ export interface TaskRelation {
 }
 
 /** The kinds of link this build knows. */
-export type RelationKind = "blocks" | "copied-from";
+export type RelationKind = "blocks" | "copied-from" | "child-of";
 
 /** What a kind of link IS — the one place each rule about it lives: the
  * gate, the transfer, the board's housekeeping and the codec read these
@@ -210,7 +213,8 @@ export type RelationKind = "blocks" | "copied-from";
  * create one waiting on its team's tasks), a duplicate's carried-over
  * open blockers, and the `blockedBy` change, which only whoever hands out
  * work may make; `copied-from` by the duplicate alone — no change takes
- * one away. */
+ * one away; `child-of` by the epic a task is created in, and the `parent`
+ * change, which only whoever hands out work may make. */
 export interface RelationRule {
   /** Whether its `from` end, while open, holds its `to` end off the
    * ladder's start (`issuable`, the start edges). */
@@ -222,11 +226,18 @@ export interface RelationRule {
    * gone; a blocker that held something holds nothing now. Its `from`
    * leaving takes any link with it — the copy itself is gone. */
   outlivesItsTo: boolean;
+  /** What each end must be, or null when any task may stand at either:
+   * a task's epic is an epic, and the task under it is work — so an epic
+   * has no epic, and the family is one level deep by construction. */
+  ends: { from: TaskKind; to: TaskKind } | null;
 }
 
 export const RELATION_KINDS: Readonly<Record<RelationKind, RelationRule>> = {
-  blocks: { gatesStart: true, onePerFrom: false, outlivesItsTo: false },
-  "copied-from": { gatesStart: false, onePerFrom: true, outlivesItsTo: true },
+  blocks: { gatesStart: true, onePerFrom: false, outlivesItsTo: false, ends: null },
+  "copied-from": { gatesStart: false, onePerFrom: true, outlivesItsTo: true, ends: null },
+  // A task has one epic; a task under an epic that left the board is
+  // under none.
+  "child-of": { gatesStart: false, onePerFrom: true, outlivesItsTo: false, ends: { from: "task", to: "epic" } },
 };
 
 /** Whether this build knows `kind` — the rest are carried, not read. */

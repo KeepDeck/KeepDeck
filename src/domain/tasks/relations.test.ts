@@ -5,10 +5,12 @@ import {
   blockerIdsOf,
   copiedFromOf,
   copiesOf,
+  epicOf,
   openBlockersOf,
   outlives,
   setBlockers,
   statusOf,
+  tasksOfEpic,
   unblocks,
   unlinked,
   transitiveBlockers,
@@ -121,6 +123,36 @@ describe("relations — writing them", () => {
       ["blocks", "uid-task-2", "uid-task-1"],
       ["copied-from", "uid-task-1", "uid-task-2"],
     ]);
+  });
+});
+
+describe("relations — an epic and its tasks", () => {
+  const b = board(
+    [
+      task({ id: "task-1", kind: "epic" }),
+      task({ id: "task-2" }),
+      task({ id: "task-3" }),
+      task({ id: "task-4" }),
+    ],
+    5,
+    [relation("child-of", "task-3", "task-1"), relation("child-of", "task-2", "task-1"), relation("child-of", "task-4", "task-9")],
+  );
+
+  it("reads a task's epic and an epic's tasks from one link, the tasks in board order", () => {
+    expect(epicOf(b.tasks[1], b)?.id).toBe("task-1");
+    expect(tasksOfEpic(b.tasks[0], b).map((t) => t.id)).toEqual(["task-2", "task-3"]);
+    expect(epicOf(b.tasks[0], b)).toBeNull();
+  });
+
+  it("says a task under an epic not on the board is under none", () => {
+    expect(epicOf(b.tasks[3], b)).toBeNull();
+  });
+
+  it("takes the link with either end — an epic that left holds no task, a task that left is none of its", () => {
+    const link = relation("child-of", "task-2", "task-1");
+    expect(outlives(link, new Set(["uid-task-1"]))).toBe(false);
+    expect(outlives(link, new Set(["uid-task-2"]))).toBe(false);
+    expect(RELATION_KINDS["child-of"]).toEqual({ gatesStart: false, onePerFrom: true, outlivesItsTo: false, ends: { from: "task", to: "epic" } });
   });
 });
 

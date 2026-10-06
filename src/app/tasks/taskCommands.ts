@@ -43,6 +43,7 @@ import {
   isOpen,
   agentActor,
   blockerIdsOf,
+  epicOf,
   copiedFromOf,
   copiesOf,
   findTask,
@@ -200,9 +201,12 @@ function full(task: Task, board: TaskBoard) {
   };
 }
 
-/** A field as a change reads it — `blockedBy` from the board's links. */
+/** A field as a change reads it — `blockedBy` and `parent` from the
+ * board's links. */
 function fieldOf(task: Task, board: TaskBoard, field: TaskField): unknown {
-  return field === "blockedBy" ? blockerIdsOf(task, board) : task[field];
+  if (field === "blockedBy") return blockerIdsOf(task, board);
+  if (field === "parent") return epicOf(task, board)?.id ?? null;
+  return task[field];
 }
 
 /** The one sentence a caller hears when its change is held but not yet

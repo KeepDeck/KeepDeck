@@ -220,6 +220,7 @@ function decodeRelations(
   tasks: readonly Task[],
 ): { ok: true; relations: TaskRelation[] } | { ok: false; fault: DecodeFault } {
   const keyOf = new Map(tasks.map((task) => [task.uid, task.id]));
+  const kindOf = new Map(tasks.map((task) => [task.uid, task.kind]));
   const relations: TaskRelation[] = [];
   const seen = new Set<string>();
   const sourced = new Set<string>();
@@ -253,6 +254,12 @@ function decodeRelations(
       if (sourced.has(one)) return fail("a second link where one is the most");
       sourced.add(one);
     }
+    // The shape of the link, never the state of its ends: what each end
+    // must be, where it is on the board (an end not here is no fault).
+    const ends = isRelationKind(kind) ? RELATION_KINDS[kind].ends : null;
+    const unfit = (uid: string, must: string) => kindOf.has(uid) && kindOf.get(uid) !== must;
+    if (ends && unfit(from, ends.from)) return fail(`from (must be: ${ends.from})`);
+    if (ends && unfit(to, ends.to)) return fail(`to (must be: ${ends.to})`);
     relations.push({ kind, from, to, at, by });
   }
   return { ok: true, relations };

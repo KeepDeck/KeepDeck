@@ -10,7 +10,7 @@ import {
   type TaskPriority,
   type TaskStatus,
 } from "./model";
-import { openBlockersOf, outlives, withRelations, withTasks } from "./relations";
+import { openBlockersOf, outlives, tasksOfEpic, withRelations, withTasks } from "./relations";
 
 const PRIORITY_RANK: Record<TaskPriority, number> = { high: 0, normal: 1, low: 2 };
 
@@ -74,6 +74,25 @@ export function countByStatus(tasks: readonly Task[]): StatusCounts {
   const counts = Object.fromEntries(TASK_STATUSES.map((status) => [status, 0])) as StatusCounts;
   for (const task of tasks) counts[task.status] += 1;
   return counts;
+}
+
+/** How far an epic has come: its tasks done, still open, and cancelled.
+ * Read from the board each time, never stored; the work an epic counts is
+ * its done and its open — a cancelled task was taken off, not finished. */
+export interface EpicProgress {
+  done: number;
+  open: number;
+  cancelled: number;
+}
+
+export function epicProgress(epic: Task, board: TaskBoard): EpicProgress {
+  const progress = { done: 0, open: 0, cancelled: 0 };
+  for (const task of tasksOfEpic(epic, board)) {
+    if (task.status === "done") progress.done += 1;
+    else if (task.status === "cancelled") progress.cancelled += 1;
+    else progress.open += 1;
+  }
+  return progress;
 }
 
 /** The labels a board's tasks carry, most used first (then by name) — the

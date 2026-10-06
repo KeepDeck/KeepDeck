@@ -152,6 +152,18 @@ export function copiesOf(task: Task, board: TaskBoard): Task[] {
   return present(board, into(board, "copied-from", task.uid).map((relation) => relation.from));
 }
 
+/** The epic `task` is under, when it is on the board; null for a task
+ * under none — or under one that is not here, which holds nothing. */
+export function epicOf(task: Task, board: TaskBoard): Task | null {
+  const link = outOf(board, "child-of", task.uid)[0];
+  return link ? (taskByUid(board, link.to) ?? null) : null;
+}
+
+/** The tasks under `epic` that are on the board, in board order. */
+export function tasksOfEpic(epic: Task, board: TaskBoard): Task[] {
+  return present(board, into(board, "child-of", epic.uid).map((relation) => relation.from));
+}
+
 /** The tasks of `uids` this board holds, in board order. */
 function present(board: TaskBoard, uids: readonly string[]): Task[] {
   const { place } = indexOf(board);
