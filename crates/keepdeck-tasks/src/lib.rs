@@ -88,6 +88,7 @@ impl Store {
     pub fn status(&mut self) -> Result<StoreStatus> {
         match &mut self.state {
             State::Open { conn, .. } => Ok(StoreStatus::Ready { migration: import::migration_state(conn)? }),
+            State::Unusable(StoreError::Off) => Err(StoreError::Off),
             State::Unusable(StoreError::SchemaTooNew { migration }) => {
                 Ok(StoreStatus::TooNew { migration: migration.clone() })
             }
@@ -209,25 +210,43 @@ impl Store {
         Ok(Some(taken))
     }
 
-    /// Restore from the backup taken at `at`: the damaged files go aside,
-    /// the backup takes their place, and the store reopens on it.
+    /// Restore from the backup taken at `at`: copied beside the database
+    /// and checked there, and only then put in its place, the damaged files
+    /// aside. A failure on the way leaves the store as it was.
     pub fn restore_backup(&mut self, at: i64, now_ms: i64) -> Result<()> {
+        self.require_restorable()?;
         let chosen = backup::verified(&self.backup_dir())?
             .into_iter()
             .find(|backup| backup.at == at)
             .ok_or_else(|| StoreError::Invalid { detail: format!("no verified backup taken at {at}") })?;
-        let path = self.db_path();
-        self.close();
-        db::set_aside(&path, now_ms)?;
-        std::fs::copy(&chosen.path, &path)
-            .map_err(|e| StoreError::Io { detail: format!("placing the backup: {e}") })?;
-        self.reopen()
+        let staged = db::staged_path(&self.db_path());
+        db::stage(&staged, |to| db::copy_durably(&chosen.path, to))?;
+        self.replace_with(&staged, now_ms)
     }
 
-    fn reopen(&mut self) -> Result<()> {
-        let conn = db::open(&self.db_path())?;
-        self.state = State::Open { conn, changed_since_backup: true };
-        Ok(())
+    /// Only a database that cannot be used is replaced: a healthy one is
+    /// never put aside, and a newer build's is that build's.
+    fn require_restorable(&self) -> Result<()> {
+        match &self.state {
+            State::Unusable(StoreError::Corrupt { .. }) => Ok(()),
+            State::Unusable(error @ StoreError::Off) => Err(error.clone()),
+            _ => Err(StoreError::Invalid { detail: "only a damaged task database is replaced".into() }),
+        }
+    }
+
+    fn replace_with(&mut self, staged: &Path, now_ms: i64) -> Result<()> {
+        db::replace(&self.db_path(), staged, now_ms)?;
+        match db::open(&self.db_path()) {
+            Ok(conn) => {
+                self.state = State::Open { conn, changed_since_backup: true };
+                Ok(())
+            }
+            Err(error) => {
+                log_unusable(&error);
+                self.state = State::Unusable(error.clone());
+                Err(error)
+            }
+        }
     }
 
     /// Close the database, its log folded into the main file.

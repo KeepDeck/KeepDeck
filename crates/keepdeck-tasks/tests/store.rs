@@ -449,6 +449,53 @@ fn a_damaged_database_writes_nothing_and_is_restored_from_a_verified_backup() {
     assert!(dir.path().join("tasks.db.damaged-99").exists());
 }
 
+#[test]
+fn a_restore_that_fails_on_the_way_leaves_the_damaged_store_as_it_was() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = active_store(dir.path());
+    let taken = store.backup_if_due(1).unwrap().unwrap();
+    drop(store);
+    let garbage = b"garbage that is not sqlite at all, for sure";
+    std::fs::write(dir.path().join("tasks.db"), garbage).unwrap();
+    let _ = std::fs::remove_file(dir.path().join("tasks.db-wal"));
+    let mut store = Store::open(dir.path()).unwrap();
+    // The copy cannot be written where the candidate is built.
+    std::fs::create_dir(dir.path().join("tasks.db.restoring")).unwrap();
+    assert!(matches!(store.restore_backup(taken.at, 99), Err(StoreError::Io { .. })));
+    // Still damaged — not off — and the damaged file where it was.
+    assert!(matches!(store.status().unwrap(), StoreStatus::Damaged { .. }));
+    assert!(matches!(store.load("b1"), Err(StoreError::Corrupt { .. })));
+    assert_eq!(std::fs::read(dir.path().join("tasks.db")).unwrap(), garbage);
+    assert!(!dir.path().join("tasks.db.damaged-99").exists());
+    // Once the way is clear, the same restore goes through.
+    std::fs::remove_dir(dir.path().join("tasks.db.restoring")).unwrap();
+    store.restore_backup(taken.at, 99).unwrap();
+    assert_eq!(store.load("b1").unwrap().tasks.len(), 2);
+    assert!(!dir.path().join("tasks.db.restoring").exists());
+}
+
+#[test]
+fn a_restore_candidate_that_fails_its_check_is_removed_before_anything_moves() {
+    let dir = tempfile::tempdir().unwrap();
+    let staged = dir.path().join("tasks.db.restoring");
+    let built = db::stage(&staged, |path| {
+        std::fs::write(path, b"half a copy").unwrap();
+        Ok(())
+    });
+    assert!(built.is_err());
+    assert!(!staged.exists());
+}
+
+#[test]
+fn a_healthy_database_is_never_replaced() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = active_store(dir.path());
+    let taken = store.backup_if_due(1).unwrap().unwrap();
+    assert!(matches!(store.restore_backup(taken.at, 99), Err(StoreError::Invalid { .. })));
+    assert!(!dir.path().join("tasks.db.damaged-99").exists());
+    assert_eq!(store.load("b1").unwrap().tasks.len(), 2);
+}
+
 fn store_backup_named(root: &Path, at: i64) -> std::path::PathBuf {
     root.join("backups").join(format!("tasks-{at}.db"))
 }
