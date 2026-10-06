@@ -17,6 +17,7 @@ import {
   renamedTitle,
   typeDraft,
   cardRowEstimate,
+  menuActionDisabled,
   cardRowKey,
   cardRows,
   type CardRow,
@@ -121,7 +122,7 @@ export function TaskDetail({
     "blocked-by": () => setPalette("blocked-by"),
     blocks: () => setPalette("blocks"),
     duplicate: () => setDuplicating(true),
-    transfer: () => setTransferTo(view.transfer.options[0]?.value ?? null),
+    transfer: () => setTransferTo(view.transfer.initial),
   };
   const transferTeam = view.transfer.options.find((option) => option.value === transferTo);
   const commentField = useRef<HTMLTextAreaElement>(null);
@@ -251,7 +252,7 @@ export function TaskDetail({
                 <>
                   <dt className="tasks__prop-label">{TASK_DETAIL_WORDS.unblocks}</dt>
                   <dd className="tasks__chips">
-                    {view.unblocks.length === 0 && <span className="tasks__muted">{TASK_DETAIL_WORDS.none}</span>}
+                    {view.unblocksEmpty && <span className="tasks__muted">{view.unblocksEmpty}</span>}
                     {view.unblocks.map((other) => (
                       <button key={other.id} type="button" className="kd-tag kd-tag--outline" title={other.title} onClick={() => onSelect(other.id)}>
                         {other.id}
@@ -321,7 +322,7 @@ export function TaskDetail({
             {/* A real heading: the comments are rows of the card's one
                 list, not a list of their own, so a reader reaches them by it. */}
             <h4 className="tasks__section">{TASK_DETAIL_WORDS.comments}</h4>
-            {view.commentsEmpty && <p className="tasks__muted">{view.commentsEmpty}</p>}
+            {row.empty && <p className="tasks__muted">{row.empty}</p>}
           </div>
         );
       case "comment":
@@ -349,7 +350,7 @@ export function TaskDetail({
                 <DisclosureChevron open={view.activity.open} />
               </button>
             </h4>
-            {view.activity.open && view.changesEmpty && <p className="tasks__muted">{view.changesEmpty}</p>}
+            {row.empty && <p className="tasks__muted">{row.empty}</p>}
           </div>
         );
       case "change":
@@ -374,8 +375,7 @@ export function TaskDetail({
             actions={view.menu.actions.map((action) => ({
               id: action.id,
               label: action.label,
-              // A copy on its way holds back a second copy, and only that.
-              disabled: (action.id === "duplicate" && copying) || action.refusal !== null,
+              disabled: menuActionDisabled(action, copying),
               refusal: action.refusal ?? undefined,
               onSelect: actionOf[action.id],
             }))}

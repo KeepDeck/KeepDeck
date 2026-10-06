@@ -12,20 +12,23 @@ export type CardRow =
   /** The brief and the task's properties — one block, side by side when
    * the card is wide. */
   | { kind: "story" }
-  /** The comments' heading, and the word for none. */
-  | { kind: "comments" }
+  /** The comments' heading, and the word for none (null: some). */
+  | { kind: "comments"; empty: string | null }
   | { kind: "comment"; comment: CommentItem }
-  /** The activity's toggle, and — opened with nothing in it — the word for none. */
-  | { kind: "activity" }
+  /** The activity's toggle, and — opened with nothing in it — the word
+   * for none (null otherwise). */
+  | { kind: "activity"; empty: string | null }
   | { kind: "change"; change: FeedChange };
 
 /** The card's rows, in reading order: the activity's changes only while it is open. */
-export function cardRows(view: Pick<TaskDetailView, "comments" | "changes" | "activity">): CardRow[] {
+export function cardRows(
+  view: Pick<TaskDetailView, "comments" | "commentsEmpty" | "changes" | "changesEmpty" | "activity">,
+): CardRow[] {
   return [
     { kind: "story" },
-    { kind: "comments" },
+    { kind: "comments", empty: view.commentsEmpty },
     ...view.comments.map((comment): CardRow => ({ kind: "comment", comment })),
-    { kind: "activity" },
+    { kind: "activity", empty: view.activity.open ? view.changesEmpty : null },
     ...(view.activity.open ? view.changes.map((change): CardRow => ({ kind: "change", change })) : []),
   ];
 }

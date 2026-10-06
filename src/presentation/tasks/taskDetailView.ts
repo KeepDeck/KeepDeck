@@ -81,6 +81,8 @@ export interface TaskDetailView {
   /** Whether the Unblocks row is drawn: when something waits on it, or
    * something could be made to (its + is the way to add the first). */
   unblocksShown: boolean;
+  /** The word for no task waiting on it, or null when some do. */
+  unblocksEmpty: string | null;
   /** Where it was copied from, and the copies made of it — one row each,
    * only when there is something to say. A source no longer on the board
    * is said to be gone. */
@@ -111,6 +113,8 @@ export interface TaskDetailView {
     title: string;
     prompt: string;
     options: ChoiceView[];
+    /** The team the picker opens on: the first it may go to, or none. */
+    initial: string | null;
     confirm: (team: string) => string;
     move: string;
     cancel: string;
@@ -136,6 +140,12 @@ export interface FeedChange {
 
 /** An action the task's menu offers — the component binds each to its
  * intent. A refused one is shown, greyed, with why. */
+/** Whether the menu's action is out of reach now: refused by the board, or
+ * — a copy on its way — a second copy. */
+export function menuActionDisabled(action: TaskAction, copying: boolean): boolean {
+  return action.refusal !== null || (action.id === "duplicate" && copying);
+}
+
 export interface TaskAction {
   id: "rename" | "blocked-by" | "blocks" | "duplicate" | "transfer";
   label: string;
@@ -306,6 +316,7 @@ export function taskDetailView(
     canAddBlocker,
     canAddDependant,
     unblocksShown: unblocks(task, board).length > 0 || canAddDependant,
+    unblocksEmpty: unblocks(task, board).length === 0 ? TASK_DETAIL_WORDS.none : null,
     labels: task.labels.map((label) => ({ label, removeLabel: `Remove ${label}` })),
     labelOptions: labelsOf({ tasks: tasksOfTeam(board, task.teamId) }).filter((label) => !task.labels.includes(label)),
     labelsFull: task.labels.length >= TASK_CAPS.labelsMax ? TASK_DETAIL_WORDS.labelsFull(TASK_CAPS.labelsMax) : null,
@@ -354,6 +365,7 @@ export function taskDetailView(
       title: TASK_DETAIL_WORDS.transferTitle(task.id),
       prompt: TASK_DETAIL_WORDS.transferPrompt,
       options: others.map((team) => ({ value: team.id, label: team.name })),
+      initial: others[0]?.id ?? null,
       confirm: (team: string) => TASK_DETAIL_WORDS.transferConfirm(team, transferStops(task)),
       move: TASK_DETAIL_WORDS.transferMove,
       cancel: TASK_DETAIL_WORDS.cancel,
