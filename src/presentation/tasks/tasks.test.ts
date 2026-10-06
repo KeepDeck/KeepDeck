@@ -200,6 +200,14 @@ describe("taskDetailView — an epic and its tasks", () => {
     expect(view.palette("epic-task").sections[0].items.map((item) => item.value)).toEqual(["task-4"]);
   });
 
+  it("offers to add no task the epic already waits on — the family rule whole, its loop check included", () => {
+    const b = board([task({ id: "task-1", kind: "epic" }), task({ id: "task-2", blockedBy: ["task-1"] }), task({ id: "task-3" })], 4);
+    const view = taskDetailView(b.tasks[0], b, ROSTER, NOW);
+    expect(view.palette("epic-task").sections[0].items.map((item) => item.value)).toEqual(["task-3"]);
+    const waiting = board([b.tasks[0], b.tasks[1]], 3, b.relations);
+    expect(taskDetailView(waiting.tasks[0], waiting, ROSTER, NOW).epic?.addExisting).toBeNull();
+  });
+
   it("an epic with no tasks says so; with no task left to add, it offers no Add an existing task", () => {
     const lone = board([task({ id: "task-1", kind: "epic" })], 2);
     const view = taskDetailView(lone.tasks[0], lone, ROSTER, NOW).epic!;

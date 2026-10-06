@@ -460,16 +460,17 @@ function validateBlockers(
  * the epic is on the board and is an epic, of the task's team; the task
  * is work (an epic has no epic: what each end of the link must be is the
  * table's, `RelationRule.ends`); open work enters no closed epic; and no
- * loop forms — the epic waits on none of `follows` (uids the task comes
- * after: itself, or a task being made's blockers), since an epic closes
- * only after its tasks.
+ * loop forms — the epic waits on nothing the task comes after (the task
+ * itself, when it is on the board, and the blockers of a task being made,
+ * `blockers`), since an epic closes only after its tasks.
  */
 export function parentProblem(
-  task: Pick<Task, "kind" | "teamId" | "status">,
+  task: Pick<Task, "kind" | "teamId" | "status"> & { uid?: string },
   id: string,
   board: TaskBoard,
-  follows: readonly string[] = [],
+  blockers: readonly string[] = [],
 ): TaskRefusal | null {
+  const follows = task.uid === undefined ? blockers : [task.uid, ...blockers];
   const ends = RELATION_KINDS["child-of"].ends!;
   if (task.kind !== ends.from) return { kind: "epic-under-epic" };
   const epic = findTask(board, id);
@@ -491,8 +492,7 @@ export function epicCandidates(
   board: TaskBoard,
 ): Task[] {
   const current = task.uid === undefined ? null : epicOf(task as Task, board);
-  const follows = task.uid === undefined ? [] : [task.uid];
-  return tasksOfTeam(board, task.teamId).filter((epic) => epic !== current && parentProblem(task, epic.id, board, follows) === null);
+  return tasksOfTeam(board, task.teamId).filter((epic) => epic !== current && parentProblem(task, epic.id, board) === null);
 }
 
 /**
@@ -718,7 +718,7 @@ function changeTask(
       const was = epicOf(task, ctx.board)?.id ?? null;
       if (id === was) return { ok: true, task };
       if (id !== null) {
-        const bad = parentProblem(task, id, ctx.board, [task.uid]);
+        const bad = parentProblem(task, id, ctx.board);
         if (bad) return refuse(bad);
       }
       const epic = id === null ? null : findTask(ctx.board, id)!.uid;
