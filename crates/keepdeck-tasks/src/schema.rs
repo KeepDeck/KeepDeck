@@ -117,6 +117,7 @@ diesel::table! {
         updated -> BigInt,
         rev -> BigInt,
         created_rev -> BigInt,
+        kind -> Text,
     }
 }
 

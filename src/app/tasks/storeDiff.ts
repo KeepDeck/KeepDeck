@@ -80,6 +80,8 @@ function taskWrite(was: Task | null, task: Task, pos: number): TaskWrite {
     title: task.title,
     body: task.body,
     bodyV: task.bodyV,
+    // With every write: the store sets what it is told.
+    kind: task.kind,
     status: task.status,
     priority: task.priority,
     assignee: task.assignee,

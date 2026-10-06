@@ -359,6 +359,33 @@ describe("board codec — brief versions", () => {
   });
 });
 
+describe("board codec — what a task is", () => {
+  const stored = (kind?: unknown) =>
+    JSON.stringify({
+      nextId: 2,
+      tasks: [
+        {
+          id: "task-1", teamId: "team-1", title: "t", body: "", status: "todo", priority: "normal",
+          assignee: null, author: "lead", blockedBy: [], artifacts: [], comments: [], log: [], created: 1, updated: 1,
+          ...(kind === undefined ? {} : { kind }),
+        },
+      ],
+    });
+
+  it("reads a board written before epics as work — absence is no fault", () => {
+    const read = decodeBoard(stored(), mint());
+    expect(read.ok && read.board.tasks[0].kind).toBe("task");
+  });
+
+  it("keeps an epic through a round trip, and refuses a kind it does not know", () => {
+    const epic = board([task({ id: "task-1", kind: "epic" })]);
+    const read = decodeBoard(encodeBoard(epic), mint());
+    expect(read.ok && read.board.tasks[0].kind).toBe("epic");
+    expect(decodeBoard(stored("story"), mint())).toMatchObject({ ok: false, fault: { kind: "bad-task", field: "kind" } });
+    expect(decodeBoard(stored(1), mint())).toMatchObject({ ok: false, fault: { kind: "bad-task", field: "kind" } });
+  });
+});
+
 describe("board codec — labels", () => {
   const stored = (labels?: unknown) =>
     JSON.stringify({

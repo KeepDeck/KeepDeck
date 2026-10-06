@@ -19,6 +19,7 @@ fn task(uid: &str, key: &str) -> StoredTask {
         title: format!("Task {key}"),
         body: format!("Brief of {key}"),
         body_v: 1,
+        kind: "task".into(),
         status: "todo".into(),
         priority: "normal".into(),
         assignee: None,
@@ -49,6 +50,7 @@ fn write_of(t: &StoredTask, pos: i64) -> TaskWrite {
         title: t.title.clone(),
         body: t.body.clone(),
         body_v: t.body_v,
+        kind: t.kind.clone(),
         status: t.status.clone(),
         priority: t.priority.clone(),
         assignee: t.assignee.clone(),
@@ -128,6 +130,83 @@ fn rusqlite_free_check(root: &Path) -> String {
     let mut conn = diesel::SqliteConnection::establish(&root.join("tasks.db").to_string_lossy()).unwrap();
     let mode: Vec<Mode> = diesel::sql_query("PRAGMA journal_mode").load(&mut conn).unwrap();
     mode[0].journal_mode.clone()
+}
+
+/// A database as the first schema left it — one board, one task — before
+/// any later step: what a person's database is when this build arrives.
+fn at_first_schema(root: &Path) {
+    use diesel::connection::SimpleConnection;
+    use diesel::prelude::*;
+    use diesel_migrations::MigrationHarness;
+    let mut conn = diesel::SqliteConnection::establish(&root.join("tasks.db").to_string_lossy()).unwrap();
+    conn.run_next_migration(db::MIGRATIONS).unwrap();
+    conn.batch_execute(
+        "INSERT INTO boards VALUES ('b1', 'ws-1', 2, 3);
+         INSERT INTO tasks VALUES ('u1', 'b1', 0, 'team-1', 'Old work', 'Brief', 1, 'todo', 'normal', NULL, 'lead', 1000, 1000, 3, 0);
+         INSERT INTO task_keys VALUES ('b1', 'task-1', 'u1', 1);",
+    )
+    .unwrap();
+}
+
+#[test]
+fn a_database_with_data_is_backed_up_then_moved_forward_its_tasks_work() {
+    let dir = tempfile::tempdir().unwrap();
+    at_first_schema(dir.path());
+    let mut store = Store::open(dir.path(), NOW).unwrap();
+    // Every task the first schema held was work.
+    let b1 = store.load("b1").unwrap();
+    assert_eq!(b1.tasks.iter().map(|t| (t.key.as_str(), t.kind.as_str())).collect::<Vec<_>>(), [("task-1", "task")]);
+    // The copy taken before the step is the first schema's, and verified.
+    let taken = backup::list(&dir.path().join(backup::BACKUP_DIR)).unwrap();
+    assert_eq!(taken.iter().map(|b| b.at).collect::<Vec<_>>(), [NOW]);
+    drop(store);
+    use diesel::prelude::*;
+    use diesel_migrations::MigrationHarness;
+    let mut copy = diesel::SqliteConnection::establish(&taken[0].path.to_string_lossy()).unwrap();
+    assert_eq!(copy.applied_migrations().unwrap().len(), 1);
+}
+
+#[test]
+fn a_copy_that_cannot_be_taken_leaves_the_schema_as_it_was() {
+    let dir = tempfile::tempdir().unwrap();
+    at_first_schema(dir.path());
+    // The backups' place is taken by a file: no copy can go there.
+    std::fs::write(dir.path().join(backup::BACKUP_DIR), b"not a folder").unwrap();
+    assert!(matches!(Store::open(dir.path(), NOW), Err(StoreError::Io { .. })));
+    use diesel::prelude::*;
+    use diesel_migrations::MigrationHarness;
+    let mut conn = diesel::SqliteConnection::establish(&dir.path().join("tasks.db").to_string_lossy()).unwrap();
+    assert_eq!(conn.applied_migrations().unwrap().len(), 1);
+}
+
+#[test]
+fn a_task_keeps_what_it_is_and_has_one_epic_at_most() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = active_store(dir.path());
+    let mut epic = write_of(&task("u3", "task-3"), 2);
+    epic.kind = "epic".into();
+    epic.key = Some("task-3".into());
+    store.apply(&change("r1", vec![board_change("b1", 0, 4, vec![epic.clone()])])).unwrap();
+    assert_eq!(store.load("b1").unwrap().tasks[2].kind, "epic");
+    // A second epic, and a link under it from the same task.
+    let mut other = write_of(&task("u4", "task-4"), 3);
+    other.kind = "epic".into();
+    other.key = Some("task-4".into());
+    let under = |to: &str| StoredRelation { kind: "child-of".into(), from: "u1".into(), to: to.into(), at: 5, by: None };
+    let mut c = board_change("b1", 1, 5, vec![other]);
+    c.relations_put = vec![under("u3")];
+    store.apply(&change("r2", vec![c])).unwrap();
+    let mut c = board_change("b1", 2, 5, vec![]);
+    c.relations_put = vec![under("u4")];
+    let second = store.apply(&change("r3", vec![c]));
+    assert!(matches!(second, Err(StoreError::Constraint { .. })), "{second:?}");
+    assert_eq!(store.load("b1").unwrap().relations, vec![under("u3")]);
+    // Moved under the other epic in one change: the old link goes, the new lands.
+    let mut c = board_change("b1", 2, 5, vec![]);
+    c.relations_removed = vec![RelationKey { kind: "child-of".into(), from: "u1".into(), to: "u3".into() }];
+    c.relations_put = vec![under("u4")];
+    store.apply(&change("r4", vec![c])).unwrap();
+    assert_eq!(store.load("b1").unwrap().relations, vec![under("u4")]);
 }
 
 #[test]

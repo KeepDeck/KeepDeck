@@ -53,6 +53,14 @@ export const TASK_PRIORITIES: readonly TaskPriority[] = ["high", "normal", "low"
 
 export const DEFAULT_PRIORITY: TaskPriority = "normal";
 
+/** What a task is: work, or an epic — a task that groups others under it,
+ * one level deep (task-297). Fixed when the task is made; every other
+ * fact of an epic — its statuses, its assignee, its blockers — is a
+ * task's. */
+export type TaskKind = "task" | "epic";
+
+export const TASK_KINDS: readonly TaskKind[] = ["task", "epic"];
+
 /** The fields a change can touch, as the log names them. */
 export type TaskField =
   | "status"
@@ -128,6 +136,8 @@ export interface Task {
   /** The team whose board this is on. It changes only by a transfer
    * (`transferTask`) — to another team of the same workspace. */
   teamId: string;
+  /** Work or an epic; never changes. */
+  kind: TaskKind;
   title: string;
   /** Markdown. Long briefs belong in an artifact named under `artifacts`. */
   body: string;
@@ -311,6 +321,10 @@ export function isTaskUid(value: string): boolean {
 
 export function isTaskStatus(value: string): value is TaskStatus {
   return (TASK_STATUSES as readonly string[]).includes(value);
+}
+
+export function isTaskKind(value: string): value is TaskKind {
+  return (TASK_KINDS as readonly string[]).includes(value);
 }
 
 export function isTaskPriority(value: string): value is TaskPriority {

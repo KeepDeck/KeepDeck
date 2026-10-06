@@ -28,6 +28,7 @@ import {
   LOG_FIELDS,
   isRelationKind,
   isTaskId,
+  isTaskKind,
   isTaskUid,
   isTaskPriority,
   isTaskStatus,
@@ -46,7 +47,7 @@ const FIELDS = new Set<string>(LOG_FIELDS);
 /** The keys each stored object may carry — and nothing else. */
 const BOARD_KEYS = ["nextId", "tasks", "relations"];
 const TASK_KEYS = [
-  "uid", "id", "teamId", "title", "body", "bodyV", "briefs", "status", "priority", "assignee",
+  "uid", "id", "teamId", "kind", "title", "body", "bodyV", "briefs", "status", "priority", "assignee",
   "author", "artifacts", "labels", "comments", "log", "created", "updated",
 ];
 const COMMENT_KEYS = ["n", "at", "from", "body"];
@@ -279,6 +280,8 @@ function decodeTask(raw: unknown, legacy: boolean, mintUid: () => string): TaskR
   if (!legacy && !valid) return fail(raw.uid === undefined ? "uid (a board with relations gives every task one)" : "uid");
   const uid = valid ? (raw.uid as string) : mintUid();
   if (typeof raw.teamId !== "string" || raw.teamId === "") return fail("teamId");
+  // Absent on boards written before epics: every task then was work.
+  if (raw.kind !== undefined && (typeof raw.kind !== "string" || !isTaskKind(raw.kind))) return fail("kind");
   if (typeof raw.title !== "string") return fail("title");
   if (typeof raw.body !== "string") return fail("body");
   if (typeof raw.status !== "string" || !isTaskStatus(raw.status)) return fail("status");
@@ -327,6 +330,7 @@ function decodeTask(raw: unknown, legacy: boolean, mintUid: () => string): TaskR
       uid,
       id,
       teamId: raw.teamId,
+      kind: (raw.kind as Task["kind"] | undefined) ?? "task",
       title: raw.title,
       body: raw.body,
       bodyV: briefs.bodyV,

@@ -823,6 +823,7 @@ export function createTask(
     uid: ctx.mintUid(),
     id: `task-${ctx.board.nextId}`,
     teamId: input.teamId,
+    kind: "task",
     title: keptTitle(input.title),
     body,
     bodyV: 1,

@@ -17,7 +17,11 @@ oldKeys: Array<StoredKey>, teamId: string | null, title: string, body: string,
 /**
  * The number of the brief's current version.
  */
-bodyV: number, status: string, priority: string, assignee: string | null, author: string, created: number, updated: number,
+bodyV: number,
+/**
+ * What it is — work, or an epic — in the domain's words.
+ */
+kind: string, status: string, priority: string, assignee: string | null, author: string, created: number, updated: number,
 /**
  * The board change that last touched this task.
  */
