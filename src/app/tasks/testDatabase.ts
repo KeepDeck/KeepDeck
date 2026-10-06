@@ -148,6 +148,11 @@ export function testDatabase(files: LegacyBoard[] = []) {
       boards = clone(backup);
       status = null;
     },
+    startEmpty: async () => {
+      boards = [];
+      migration = "active";
+      status = null;
+    },
   };
 
   return {

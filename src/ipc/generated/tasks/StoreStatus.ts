@@ -4,4 +4,4 @@ import type { MigrationState } from "./MigrationState";
 /**
  * Where the store stands, for the UI and the agents' refusals.
  */
-export type StoreStatus = { "kind": "ready", migration: MigrationState, } | { "kind": "damaged", detail: string, backups: number[], } | { "kind": "tooNew", migration: string, };
+export type StoreStatus = { "kind": "ready", migration: MigrationState, } | { "kind": "damaged", detail: string, backups: number[], } | { "kind": "missing", detail: string, backups: number[], } | { "kind": "tooNew", migration: string, };

@@ -53,9 +53,14 @@ export const BOARD_NOT_OPEN = "the task board is not open";
  * the source. */
 export function migrationRefusalText(outcome: Exclude<MigrationOutcome, { kind: "active" }>): string {
   if (outcome.kind === "failed") return `the boards could not move into the task database — ${outcome.reason}`;
-  return outcome.status.kind === "damaged"
-    ? `the task database is damaged: ${outcome.status.detail}`
-    : `a newer KeepDeck wrote the task database (${outcome.status.migration})`;
+  switch (outcome.status.kind) {
+    case "damaged":
+      return `the task database is damaged: ${outcome.status.detail}`;
+    case "missing":
+      return `the task database is missing, though ${outcome.status.detail}`;
+    case "tooNew":
+      return `a newer KeepDeck wrote the task database (${outcome.status.migration})`;
+  }
 }
 
 /** A coded refusal from the task database, in words for the person —
@@ -76,6 +81,8 @@ export function storeErrorText(error: StoreError): string {
       return "the board changed in the database meanwhile — it was read again";
     case "corrupt":
       return `the task database is damaged: ${error.detail}`;
+    case "missing":
+      return `the task database is missing, though ${error.detail}`;
     case "schemaTooNew":
       return `a newer KeepDeck wrote the task database (${error.migration}) — this one only reads it`;
     case "invalid":

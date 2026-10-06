@@ -44,6 +44,13 @@ pub enum StoreStatus {
         #[ts(type = "number[]")]
         backups: Vec<i64>,
     },
+    /// The database is gone though earlier data is beside it: nothing is
+    /// created until the person restores a backup or starts empty.
+    Missing {
+        detail: String,
+        #[ts(type = "number[]")]
+        backups: Vec<i64>,
+    },
     /// Written by a newer KeepDeck: nothing is written.
     TooNew { migration: String },
 }
@@ -60,12 +67,19 @@ pub struct Store {
 }
 
 impl Store {
-    /// Open the store under `root`. A damaged or too-new database is no
-    /// failure to open: the store opens in the state that says so.
+    /// Open the store under `root`. A damaged, missing or too-new database
+    /// is no failure to open: the store opens in the state that says so.
     pub fn open(root: &Path) -> Result<Store> {
         std::fs::create_dir_all(root)
             .map_err(|e| StoreError::Io { detail: format!("creating {}: {e}", root.display()) })?;
         let path = root.join(db::DB_FILE);
+        if !path.exists() {
+            if let Some(detail) = earlier_data(root)? {
+                let error = StoreError::Missing { detail };
+                log_unusable(&error);
+                return Ok(Store { root: root.to_path_buf(), state: State::Unusable(error) });
+            }
+        }
         let state = match db::open(&path) {
             Ok(conn) => State::Open { conn, changed_since_backup: false },
             Err(error @ (StoreError::Corrupt { .. } | StoreError::SchemaTooNew { .. })) => {
@@ -92,6 +106,10 @@ impl Store {
             State::Unusable(StoreError::SchemaTooNew { migration }) => {
                 Ok(StoreStatus::TooNew { migration: migration.clone() })
             }
+            State::Unusable(StoreError::Missing { detail }) => Ok(StoreStatus::Missing {
+                detail: detail.clone(),
+                backups: backup::verified(&self.backup_dir())?.iter().map(|b| b.at).collect(),
+            }),
             State::Unusable(error) => Ok(StoreStatus::Damaged {
                 detail: error.to_string(),
                 backups: backup::verified(&self.backup_dir())?.iter().map(|b| b.at).collect(),
@@ -224,13 +242,27 @@ impl Store {
         self.replace_with(&staged, now_ms)
     }
 
+    /// Start over with an empty database — the person's choice when there
+    /// is no backup to restore. What was there goes aside, never deleted;
+    /// the boards held in the session are written into it after.
+    pub fn start_empty(&mut self, now_ms: i64) -> Result<()> {
+        self.require_restorable()?;
+        let staged = db::staged_path(&self.db_path());
+        db::stage(&staged, |path| {
+            let mut conn = db::open(path)?;
+            import::mark_active(&mut conn)?;
+            db::checkpoint(&mut conn)
+        })?;
+        self.replace_with(&staged, now_ms)
+    }
+
     /// Only a database that cannot be used is replaced: a healthy one is
     /// never put aside, and a newer build's is that build's.
     fn require_restorable(&self) -> Result<()> {
         match &self.state {
-            State::Unusable(StoreError::Corrupt { .. }) => Ok(()),
+            State::Unusable(StoreError::Corrupt { .. } | StoreError::Missing { .. }) => Ok(()),
             State::Unusable(error @ StoreError::Off) => Err(error.clone()),
-            _ => Err(StoreError::Invalid { detail: "only a damaged task database is replaced".into() }),
+            _ => Err(StoreError::Invalid { detail: "only a damaged or missing task database is replaced".into() }),
         }
     }
 
@@ -264,6 +296,20 @@ impl Drop for Store {
     fn drop(&mut self) {
         self.close();
     }
+}
+
+/// What says this root held a database before — so a missing file is a
+/// loss to resolve, not a first launch: a backup, or a copy set aside.
+fn earlier_data(root: &Path) -> Result<Option<String>> {
+    let backups = backup::list(&root.join(backup::BACKUP_DIR))?;
+    if !backups.is_empty() {
+        return Ok(Some(format!("{} of its backups are still there", backups.len())));
+    }
+    let entries = std::fs::read_dir(root).map_err(|e| StoreError::Io { detail: format!("reading {}: {e}", root.display()) })?;
+    let aside = entries
+        .filter_map(|entry| entry.ok())
+        .any(|entry| entry.file_name().to_string_lossy().starts_with(db::ASIDE_PREFIX));
+    Ok(aside.then(|| "a copy of it set aside is still there".to_string()))
 }
 
 fn log_unusable(error: &StoreError) {

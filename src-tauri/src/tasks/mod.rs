@@ -140,6 +140,13 @@ pub fn tasks_restore_backup(state: State<TasksState>, at: i64) -> Result<(), Sto
     state.store.with_db(|db| db.restore_backup(at, now_ms()))
 }
 
+/// No backup to restore: the person starts an empty database, what was
+/// there set aside.
+#[tauri::command(async)]
+pub fn tasks_start_empty(state: State<TasksState>) -> Result<(), StoreError> {
+    state.store.with_db(|db| db.start_empty(now_ms()))
+}
+
 fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

@@ -14,6 +14,9 @@ use crate::error::{Result, StoreError};
 
 pub const DB_FILE: &str = "tasks.db";
 
+/// The name a database set aside takes, its time after it.
+pub const ASIDE_PREFIX: &str = "tasks.db.damaged-";
+
 /// The schema's steps, compiled into the binary.
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
 
@@ -120,7 +123,7 @@ fn files_of(path: &Path) -> [PathBuf; 3] {
 /// evidence, and what a manual `.recover` works from. Nothing there,
 /// nothing moved.
 pub fn set_aside(path: &Path, now_ms: i64) -> Result<PathBuf> {
-    let aside = path.with_file_name(format!("{DB_FILE}.damaged-{now_ms}"));
+    let aside = path.with_file_name(format!("{ASIDE_PREFIX}{now_ms}"));
     move_files(path, &aside).map_err(|e| StoreError::Io { detail: format!("moving the database aside: {e}") })?;
     Ok(aside)
 }

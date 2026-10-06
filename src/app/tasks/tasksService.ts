@@ -64,12 +64,24 @@ export interface TasksStorePort {
   /** The number of the board's latest confirmed change, and of each task's;
    * null before the board was read or written. */
   revisions(workspaceId: string): BoardRevisions | null;
-  /** The database is damaged: the backups that pass the check, newest
-   * first (ms since the epoch) — or null when it is not. */
-  damage(): { backups: readonly number[] } | null;
-  /** Put the backup taken at `at` in the damaged database's place. */
-  restore(at: number): Promise<void>;
+  /** The database cannot be used and is the person's to recover — or
+   * null when it can be used. */
+  recovery(): Recovery | null;
+  /** Put what the person chose in the unusable database's place. */
+  restore(choice: RestoreChoice): Promise<void>;
 }
+
+/** A database the person recovers: damaged, or gone though earlier data
+ * of it is still there — with the backups that pass the check, newest
+ * first (ms since the epoch). */
+export interface Recovery {
+  kind: "damaged" | "missing";
+  backups: readonly number[];
+}
+
+/** What takes an unusable database's place: a backup, or — with none to
+ * restore — an empty database. */
+export type RestoreChoice = { kind: "backup"; at: number } | { kind: "empty" };
 
 /** One search hit: the task, where it matched (null: its title or brief;
  * a number: that comment), and the match in context. */
@@ -214,13 +226,13 @@ export interface TasksService {
   search(workspaceId: string, query: string, limit: number): Promise<readonly BoardHit[]>;
   /** The board's latest change number and each task's — what `since` reads. */
   revisions(workspaceId: string): BoardRevisions | null;
-  /** The database is damaged, and the backups it can be restored from. */
-  damage(): { backups: readonly number[] } | null;
-  /** The person's restore of a damaged database: the backup taken at `at`
-   * takes its place, then every board held here — newer than any backup —
-   * is written over it the usual way. Boards nobody opened this session
-   * are the backup's. */
-  restore(at: number): Promise<UnsavedBoard[]>;
+  /** The database cannot be used, and what it can be recovered from. */
+  recovery(): Recovery | null;
+  /** The person's restore of an unusable database: what they chose takes
+   * its place, then every board held here — newer than any backup — is
+   * written over it the usual way. Boards nobody opened this session are
+   * the backup's. */
+  restore(choice: RestoreChoice): Promise<UnsavedBoard[]>;
   /** The workspace is gone: forget its board here, let the write already
    * on the wire land, annul the ones behind it, and only then drop the
    * file — a drop between a write and the next queued one let the next
@@ -602,10 +614,10 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
       return deps.store.search({ workspaceId, query, limit });
     },
     revisions: (workspaceId) => deps.store.revisions(workspaceId),
-    damage: () => deps.store.damage(),
-    async restore(at) {
+    recovery: () => deps.store.recovery(),
+    async restore(choice) {
       await drain();
-      await deps.store.restore(at);
+      await deps.store.restore(choice);
       // What is held here is newer than the backup: it is written over it.
       await Promise.all(
         [...states.entries()]

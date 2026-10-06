@@ -109,14 +109,39 @@ describe("createDbBoardStore — the board reaches the database", () => {
     db.setStatus({ kind: "damaged", detail: "page 3", backups: [100] });
     db.refuseNextApply({ code: "corrupt", detail: "page 3" });
     await expect(store.write({ workspaceId: "ws-1", board: two })).rejects.toThrow("damaged");
-    expect(store.damage()).toEqual({ backups: [100] });
-    await store.restore(100);
+    expect(store.recovery()).toEqual({ kind: "damaged", backups: [100] });
+    await store.restore({ kind: "backup", at: 100 });
     expect(store.writeRefusal()).toBeNull();
-    expect(store.damage()).toBeNull();
+    expect(store.recovery()).toBeNull();
     // The memory's board, newer than the backup, is written over it as a change.
     await store.write({ workspaceId: "ws-1", board: two });
     // Read afresh from the restored database, so nothing the backup lacks is skipped.
     expect(db.boards()[0].tasks[0].comments.map((c) => c.body)).toEqual(["in the backup", "saved after the backup", "only in memory"]);
+  });
+
+  it("a missing database is the person's to recover: nothing written until they start it empty", async () => {
+    const db = testDatabase();
+    db.setStatus({ kind: "missing", detail: "a copy of it set aside is still there", backups: [] });
+    const store = createDbBoardStore({ db: db.port, workspaces: () => ["ws-1"], mintUid: mintSequence("uid-s-"), isStoreError: isTestStoreError });
+    await store.enable();
+    expect(store.writeRefusal()).toBe("the task database is missing, though a copy of it set aside is still there");
+    expect(store.recovery()).toEqual({ kind: "missing", backups: [] });
+    // Nothing moved in its place: no import, no activation.
+    expect(db.migration()).toBe("none");
+    await store.restore({ kind: "empty" });
+    expect(store.recovery()).toBeNull();
+    await store.write({ workspaceId: "ws-1", board: board([task({ id: "task-1" })], 2) });
+    expect(db.boards().map((b) => b.workspace)).toEqual(["ws-1"]);
+  });
+
+  it("learns a database gone missing from a refusal, as it learns damage", async () => {
+    const { db, store } = await open();
+    const b = await readBoard(store);
+    db.setStatus({ kind: "missing", detail: "2 of its backups are still there", backups: [7, 3] });
+    db.refuseNextApply({ code: "missing", detail: "2 of its backups are still there" });
+    await expect(store.write({ workspaceId: "ws-1", board: comment(b, "x") })).rejects.toThrow("missing");
+    expect(store.recovery()).toEqual({ kind: "missing", backups: [7, 3] });
+    expect(store.writeRefusal()).toContain("missing");
   });
 
   it("keeps the boards readable from their files, and refuses writes, when they could not move", async () => {

@@ -79,7 +79,7 @@ export function fakeStore(initial: Record<string, string> = {}) {
         .slice(0, limit);
     },
     revisions: (workspaceId) => revs.get(workspaceId) ?? null,
-    damage: () => null,
+    recovery: () => null,
     restore: async () => {},
   };
   return {

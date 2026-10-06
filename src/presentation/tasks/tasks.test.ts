@@ -468,19 +468,34 @@ describe("taskDetailView — a task's copy links", () => {
   });
 });
 
-describe("restoreView — the way out of a damaged database", () => {
+describe("restoreView — the way out of an unusable database", () => {
   const HOUR = 3_600_000;
   it("offers the newest verified backup, says how old it is and what a restore loses", () => {
-    const view = restoreView({ backups: [10 * HOUR, 9 * HOUR] }, 12 * HOUR)!;
-    expect(view.at).toBe(10 * HOUR);
+    const view = restoreView({ kind: "damaged", backups: [10 * HOUR, 9 * HOUR] }, 12 * HOUR)!;
+    expect(view.choice).toEqual({ kind: "backup", at: 10 * HOUR });
     expect(view.label).toBe("Restore the backup from 2h ago");
     expect(view.message).toContain("set aside, not deleted");
     expect(view.message).toContain("every board open in this session is written over it");
   });
 
-  it("offers nothing when the database is fine, or has no backup to restore from", () => {
+  it("says a missing database is missing — nothing of it is set aside", () => {
+    const view = restoreView({ kind: "missing", backups: [10 * HOUR] }, 12 * HOUR)!;
+    expect(view.choice).toEqual({ kind: "backup", at: 10 * HOUR });
+    expect(view.message).toMatch(/^The task database is missing\./);
+    expect(view.message).not.toContain("set aside");
+  });
+
+  it("with no backup to restore, offers an empty database — never with a backup there", () => {
+    const view = restoreView({ kind: "damaged", backups: [] }, 0)!;
+    expect(view.choice).toEqual({ kind: "empty" });
+    expect(view.label).toBe("Start an empty task database");
+    expect(view.confirm).toBe("Start empty");
+    expect(view.message).toContain("Boards not open now are not in it");
+    expect(restoreView({ kind: "missing", backups: [] }, 0)!.message).toMatch(/^The task database is missing\. There is no backup/);
+  });
+
+  it("offers nothing when the database is usable", () => {
     expect(restoreView(null, 0)).toBeNull();
-    expect(restoreView({ backups: [] }, 0)).toBeNull();
   });
 });
 

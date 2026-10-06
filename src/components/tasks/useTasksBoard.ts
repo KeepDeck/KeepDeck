@@ -6,7 +6,7 @@ import { openArtifactByRef } from "../../app/artifacts/entryPoints";
 import type { ArtifactsRegistryReadPort } from "../../app/artifacts/registryRead";
 import { describeError } from "../../ipc/log";
 import { refusalOf, tasksEnableStatus } from "../../app/tasks/enableStatus";
-import { readyBoard } from "../../app/tasks/tasksService";
+import { readyBoard, type RestoreChoice } from "../../app/tasks/tasksService";
 import { getSettings, updateSettings } from "../../app/settingsManager";
 import { useSettings } from "../../app/useSettings";
 import { DEFAULT_SETTINGS, type TasksBoardSettings } from "../../domain/settings";
@@ -378,12 +378,12 @@ export function useTasksBoard(
     form,
     error,
     unsaved,
-    /** The restore a damaged database offers, or null. */
-    restore: restoreView(service?.damage() ?? null, now),
-    /** The person confirmed it: the backup takes the damaged database's place. */
-    restoreFrom: (at: number) => {
+    /** The way out an unusable database offers, or null. */
+    restore: restoreView(service?.recovery() ?? null, now),
+    /** The person confirmed it: their choice takes the database's place. */
+    restoreFrom: (choice: RestoreChoice) => {
       if (!service) return;
-      void service.restore(at).then(() => setError(null), (e: unknown) => setError(describeError(e)));
+      void service.restore(choice).then(() => setError(null), (e: unknown) => setError(describeError(e)));
     },
     move: (taskId: string, to: TaskStatus) => void apply(taskId, [{ kind: "status", to }]),
     assign: (taskId: string, assignee: string) => void apply(taskId, [{ kind: "assign", assignee: assigneeOf(assignee) }]),

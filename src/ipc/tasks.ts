@@ -87,3 +87,8 @@ export async function tasksDiscardMigration(): Promise<void> {
 export async function tasksRestoreBackup(at: number): Promise<void> {
   await invoke("tasks_restore_backup", { at });
 }
+
+/** No backup to restore: an empty database takes the place of the one lost. */
+export async function tasksStartEmpty(): Promise<void> {
+  await invoke("tasks_start_empty");
+}

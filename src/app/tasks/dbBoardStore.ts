@@ -20,12 +20,13 @@ import type { Applied } from "../../ipc/generated/tasks/Applied";
 import type { ChangeSet } from "../../ipc/generated/tasks/ChangeSet";
 import type { SearchHit } from "../../ipc/generated/tasks/SearchHit";
 import type { StoreError } from "../../ipc/generated/tasks/StoreError";
+import type { StoreStatus } from "../../ipc/generated/tasks/StoreStatus";
 import type { StoredBoard } from "../../ipc/generated/tasks/StoredBoard";
 import { migrateBoards, type MigrationOutcome, type MigrationPort } from "./migration";
 import { BOARD_NOT_OPEN, decodeFaultText, migrationRefusalText, storeErrorText } from "./refusalText";
 import { boardChange } from "./storeDiff";
 import { boardFromStored } from "./storeWire";
-import type { BoardRead, TasksStorePort } from "./tasksService";
+import type { BoardRead, Recovery, TasksStorePort } from "./tasksService";
 
 /** What this owner needs from the Rust store. */
 export interface TaskDatabasePort extends MigrationPort {
@@ -36,6 +37,7 @@ export interface TaskDatabasePort extends MigrationPort {
   drop(workspace: string): Promise<void>;
   search(query: string, boards: string[], limit: number): Promise<SearchHit[]>;
   restoreBackup(at: number): Promise<void>;
+  startEmpty(): Promise<void>;
 }
 
 export interface DbBoardStoreDeps {
@@ -67,13 +69,12 @@ export function createDbBoardStore(deps: DbBoardStoreDeps): DbBoardStore {
   let readOnly: string | null = BOARD_NOT_OPEN;
   /** The boards read from their files, when they could not move. */
   let fallback: Map<string, BoardRead> | null = null;
-  /** The database is damaged: the verified backups, newest first. */
-  let damaged: { backups: readonly number[] } | null = null;
+  /** The database cannot be used and is the person's to recover. */
+  let recovery: Recovery | null = null;
 
-  /** Ask the database how it stands, after a refusal said it is damaged. */
-  const learnDamage = async () => {
-    const status = await deps.db.status();
-    if (status.kind === "damaged") damaged = { backups: status.backups };
+  /** Ask the database how it stands, after a refusal said it is unusable. */
+  const learnRecovery = async () => {
+    recovery = recoveryOf(await deps.db.status());
   };
 
   /** The database answered: the change is what it holds now. */
@@ -111,8 +112,8 @@ export function createDbBoardStore(deps: DbBoardStoreDeps): DbBoardStore {
     } catch (e: unknown) {
       if (!deps.isStoreError(e)) throw e;
       place.pending = null;
-      if (e.code === "corrupt" || e.code === "schemaTooNew") readOnly = storeErrorText(e);
-      if (e.code === "corrupt") await learnDamage();
+      if (e.code === "corrupt" || e.code === "missing" || e.code === "schemaTooNew") readOnly = storeErrorText(e);
+      if (e.code === "corrupt" || e.code === "missing") await learnRecovery();
       // Computed against a state the database no longer holds: read it
       // again, and the next write is computed against what is there.
       if (e.code === "conflict" || e.code === "constraint") await reread(workspace, place);
@@ -128,7 +129,7 @@ export function createDbBoardStore(deps: DbBoardStoreDeps): DbBoardStore {
       fallback = null;
       const outcome = await migrateBoards(deps.db, { workspaces: deps.workspaces(), mintUid: deps.mintUid });
       deps.onMigration?.(outcome);
-      damaged = outcome.kind === "unusable" && outcome.status.kind === "damaged" ? { backups: outcome.status.backups } : null;
+      recovery = outcome.kind === "unusable" ? recoveryOf(outcome.status) : null;
       if (outcome.kind === "active") {
         readOnly = null;
         return;
@@ -197,13 +198,14 @@ export function createDbBoardStore(deps: DbBoardStoreDeps): DbBoardStore {
       const hits = await deps.db.search(query, [place.board], limit);
       return hits.map((hit) => ({ uid: hit.uid, comment: hit.comment, snippet: hit.snippet }));
     },
-    damage: () => damaged,
-    async restore(at) {
-      await deps.db.restoreBackup(at);
-      // The database is whole again, and holds the backup's boards: every
-      // board is read from it afresh before the next write.
+    recovery: () => recovery,
+    async restore(choice) {
+      if (choice.kind === "backup") await deps.db.restoreBackup(choice.at);
+      else await deps.db.startEmpty();
+      // The database is whole again, and holds the backup's boards (or
+      // none): every board is read from it afresh before the next write.
       confirmed.clear();
-      damaged = null;
+      recovery = null;
       readOnly = null;
     },
     revisions(workspaceId) {
@@ -211,6 +213,12 @@ export function createDbBoardStore(deps: DbBoardStoreDeps): DbBoardStore {
       return place ? { board: place.rev, tasks: place.taskRevs } : null;
     },
   };
+}
+
+/** What the person can recover an unusable database from, or null when
+ * it is usable — or a newer build's, which is not this one's to replace. */
+function recoveryOf(status: StoreStatus): Recovery | null {
+  return status.kind === "damaged" || status.kind === "missing" ? { kind: status.kind, backups: status.backups } : null;
 }
 
 /** Each task's change number, as the database last said. */

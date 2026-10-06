@@ -210,7 +210,7 @@ function WorkspaceBoard({
             cancelLabel={board.restore.cancel}
             onConfirm={() => {
               setRestoring(false);
-              board.restoreFrom(board.restore!.at);
+              board.restoreFrom(board.restore!.choice);
             }}
             onCancel={() => setRestoring(false)}
           />

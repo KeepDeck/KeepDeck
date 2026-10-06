@@ -486,6 +486,53 @@ fn a_restore_candidate_that_fails_its_check_is_removed_before_anything_moves() {
     assert!(!staged.exists());
 }
 
+fn remove_database(root: &Path) {
+    for name in ["tasks.db", "tasks.db-wal", "tasks.db-shm"] {
+        let _ = std::fs::remove_file(root.join(name));
+    }
+}
+
+#[test]
+fn a_missing_database_beside_its_backups_is_never_created_empty_in_silence() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = active_store(dir.path());
+    let taken = store.backup_if_due(1).unwrap().unwrap();
+    drop(store);
+    remove_database(dir.path());
+    let mut store = Store::open(dir.path()).unwrap();
+    let StoreStatus::Missing { backups, .. } = store.status().unwrap() else { panic!("not missing") };
+    assert_eq!(backups, vec![taken.at]);
+    assert!(matches!(store.load_all(), Err(StoreError::Missing { .. })));
+    assert!(!dir.path().join("tasks.db").exists());
+    // The person restores the backup: every board is back.
+    store.restore_backup(taken.at, 99).unwrap();
+    assert_eq!(store.load("b1").unwrap().tasks.len(), 2);
+}
+
+#[test]
+fn a_missing_or_damaged_database_with_no_backup_is_started_empty_by_the_person_only() {
+    let dir = tempfile::tempdir().unwrap();
+    drop(active_store(dir.path()));
+    let garbage = b"garbage that is not sqlite at all, for sure";
+    std::fs::write(dir.path().join("tasks.db"), garbage).unwrap();
+    let _ = std::fs::remove_file(dir.path().join("tasks.db-wal"));
+    let mut store = Store::open(dir.path()).unwrap();
+    assert_eq!(store.status().unwrap(), StoreStatus::Damaged { detail: store.load("b1").unwrap_err().to_string(), backups: vec![] });
+    store.start_empty(5).unwrap();
+    assert_eq!(store.status().unwrap(), StoreStatus::Ready { migration: MigrationState::Active });
+    assert_eq!(store.load_all().unwrap(), vec![]);
+    assert_eq!(std::fs::read(dir.path().join("tasks.db.damaged-5")).unwrap(), garbage);
+    drop(store);
+    // Gone again: the copy set aside says there was a database here.
+    remove_database(dir.path());
+    let mut store = Store::open(dir.path()).unwrap();
+    assert!(matches!(store.status().unwrap(), StoreStatus::Missing { backups, .. } if backups.is_empty()));
+    store.start_empty(6).unwrap();
+    assert_eq!(store.status().unwrap(), StoreStatus::Ready { migration: MigrationState::Active });
+    // A healthy one is not started over.
+    assert!(matches!(store.start_empty(7), Err(StoreError::Invalid { .. })));
+}
+
 #[test]
 fn a_healthy_database_is_never_replaced() {
     let dir = tempfile::tempdir().unwrap();

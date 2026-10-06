@@ -5,6 +5,7 @@
  */
 import type { TasksView } from "../../domain/settings";
 import { formatAge } from "../../domain/usage";
+import type { Recovery, RestoreChoice } from "../../app/tasks/tasksService";
 import {
   TASK_PRIORITIES,
   USER_NAME,
@@ -153,10 +154,11 @@ export function blockerLinkWords(links: { blockers: readonly string[]; dependant
   return [...links.blockers.map((id) => `it waits on ${id}`), ...links.dependants.map((id) => `${id} waits on it`)];
 }
 
-/** The restore a damaged task database offers — from its newest backup
- * that passes the check — or null when there is none to offer. */
+/** The way out an unusable task database offers: its newest backup that
+ * passes the check, or — with none — an empty database. Null when the
+ * database is usable. */
 export interface RestoreView {
-  at: number;
+  choice: RestoreChoice;
   label: string;
   title: string;
   message: string;
@@ -164,15 +166,26 @@ export interface RestoreView {
   cancel: string;
 }
 
-export function restoreView(damage: { backups: readonly number[] } | null, now: number): RestoreView | null {
-  const at = damage?.backups[0];
-  if (at === undefined) return null;
+export function restoreView(recovery: Recovery | null, now: number): RestoreView | null {
+  if (recovery === null) return null;
+  const lost = recovery.kind === "damaged" ? "The damaged database is set aside, not deleted." : "The task database is missing.";
+  const at = recovery.backups[0];
+  if (at === undefined) {
+    return {
+      choice: { kind: "empty" },
+      label: "Start an empty task database",
+      title: "Start an empty task database?",
+      message: `${lost} There is no backup to restore: an empty database takes its place, and every board open in this session is written into it. Boards not open now are not in it.`,
+      confirm: "Start empty",
+      cancel: "Cancel",
+    };
+  }
   const age = formatAge(at, now);
   return {
-    at,
+    choice: { kind: "backup", at },
     label: `Restore the backup from ${age}`,
     title: "Restore the task database?",
-    message: `The damaged database is set aside, not deleted. The backup from ${age} takes its place, and every board open in this session is written over it. Changes made since then to boards not open now are lost.`,
+    message: `${lost} The backup from ${age} takes its place, and every board open in this session is written over it. Changes made since then to boards not open now are lost.`,
     confirm: "Restore",
     cancel: "Cancel",
   };

@@ -30,6 +30,10 @@ pub enum StoreError {
     /// The database is damaged. Nothing is written until the person
     /// restores it.
     Corrupt { detail: String },
+    /// The database file is gone though earlier data is still beside it
+    /// (backups, a copy set aside): nothing is created over it in silence —
+    /// the person restores a backup or starts empty.
+    Missing { detail: String },
     /// A newer build wrote this database (a migration this build does not
     /// know); this one writes nothing.
     SchemaTooNew { migration: String },
@@ -56,6 +60,7 @@ impl std::fmt::Display for StoreError {
             StoreError::Constraint { detail } => write!(f, "the change does not fit the stored board: {detail}"),
             StoreError::Conflict { board, rev } => write!(f, "board {board} changed meanwhile (now at {rev})"),
             StoreError::Corrupt { detail } => write!(f, "the task database is damaged: {detail}"),
+            StoreError::Missing { detail } => write!(f, "the task database is missing, though {detail}"),
             StoreError::SchemaTooNew { migration } => {
                 write!(f, "the task database was written by a newer KeepDeck (migration {migration})")
             }

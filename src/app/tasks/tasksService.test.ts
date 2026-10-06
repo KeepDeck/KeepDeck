@@ -106,7 +106,7 @@ describe("createTasksService", () => {
     const before = store.writes.length;
     // The backup knows nothing of the new task: the store's restore puts it back.
     store.files.set("ws-1", encodeBoard(board([task({ id: "task-1" })])));
-    const left = await service.restore(5);
+    const left = await service.restore({ kind: "backup", at: 5 });
     expect(left).toEqual([]);
     expect(store.writes.length).toBe(before + 1);
     expect((JSON.parse(store.files.get("ws-1")!) as TaskBoard).tasks.map((t) => t.title)).toEqual(["Task task-1", "newer than any backup"]);

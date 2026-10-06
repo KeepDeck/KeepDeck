@@ -73,8 +73,8 @@ function setup() {
       writeRefusal: () => store.port.writeRefusal(),
       search: (args) => store.port.search(args),
       revisions: (workspaceId) => store.port.revisions(workspaceId),
-      damage: () => store.port.damage(),
-      restore: (at) => store.port.restore(at),
+      recovery: () => store.port.recovery(),
+      restore: (choice) => store.port.restore(choice),
       enable: () => {
         const g = gate();
         calls.push({ kind: "enable", gate: g, settled: false });
