@@ -13,16 +13,21 @@ import {
 // Where the OS says the pointer is — in the window unless a test moves it.
 // `answer`, when set, is the one the next ask gets — a test holds it to
 // answer late.
+// `point` is where it says the pointer rests on the window — off it unless
+// a test puts it somewhere.
 const os = vi.hoisted(() => ({
   inWindow: true as boolean | null,
   asks: 0,
   answer: null as Promise<boolean | null> | null,
+  point: null as { x: number; y: number } | null,
+  pointAnswer: null as Promise<{ x: number; y: number } | null> | null,
 }));
 vi.mock("../../ipc/window", () => ({
   pointerInWindow: () => {
     os.asks += 1;
     return os.answer ?? Promise.resolve(os.inWindow);
   },
+  pointerOnWindow: () => os.pointAnswer ?? Promise.resolve(os.point),
 }));
 
 (
@@ -647,7 +652,7 @@ describe("WorkspaceStrip as the team switcher", () => {
     });
     try {
       render();
-      const ours = new Set(["pointerover", "pointermove", "pointerout", "pointerdown", "pointerup", "pointercancel", "mouseleave", "blur", "visibilitychange"]);
+      const ours = new Set(["pointerover", "pointermove", "pointerout", "pointerdown", "pointerup", "pointercancel", "mouseleave", "blur", "focus", "visibilitychange"]);
       const set = added.filter(([, type]) => ours.has(type));
       expect(new Set(set.map(([, type]) => type))).toEqual(ours);
       act(() => root.unmount());
@@ -749,6 +754,54 @@ describe("WorkspaceStrip as the team switcher", () => {
     openStrip();
     await act(async () => void vi.advanceTimersByTime(STRIP_POINTER_CHECK_MS * 5));
     expect(revealed()).toBe(true);
+  });
+
+  describe("a window coming to the front under a pointer that has not moved", () => {
+    // happy-dom lays nothing out: what is "under" the OS's point is said here.
+    let under: Element | null;
+    beforeEach(() => {
+      under = null;
+      vi.spyOn(document, "elementFromPoint").mockImplementation(() => under);
+    });
+    afterEach(() => {
+      os.point = null;
+      os.pointAnswer = null;
+      vi.restoreAllMocks();
+    });
+    const focus = () => act(async () => void window.dispatchEvent(new Event("focus")));
+
+    it("opens after the rest when the OS finds the pointer on the strip — no move needed", async () => {
+      render();
+      os.point = { x: 10, y: 40 };
+      under = col().querySelector(".strip__mark") ?? col();
+      await focus();
+      expect(document.elementFromPoint).toHaveBeenCalledWith(10, 40);
+      act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS));
+      expect(revealed()).toBe(true);
+    });
+
+    it("stays shut when the pointer rests elsewhere on the window, or off it", async () => {
+      render();
+      os.point = { x: 600, y: 40 };
+      under = document.body;
+      await focus();
+      os.point = null;
+      await focus();
+      act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS * 2));
+      expect(revealed()).toBe(false);
+    });
+
+    it("drops an answer the page has outrun — the pointer moved off the strip while the OS was asked", async () => {
+      render();
+      let answer!: (point: { x: number; y: number }) => void;
+      os.pointAnswer = new Promise((resolve) => (answer = resolve));
+      under = col();
+      await focus();
+      pointer("pointermove");
+      await act(async () => answer({ x: 10, y: 40 }));
+      act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS * 2));
+      expect(revealed()).toBe(false);
+    });
   });
 
   it("shuts when the pointer leaves the window, the window loses focus, or the page hides", () => {

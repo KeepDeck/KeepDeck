@@ -91,6 +91,11 @@ describe("revealEventsOf — what a pointer event tells", () => {
     expect(revealEventsOf({ type: "cancel", inColumn: true, buttons: 0 })[1]).toEqual({ kind: "release" });
   });
 
+  it("tells a pointer the OS found resting as the window came to the front: where it is, no button held", () => {
+    expect(revealEventsOf({ type: "focus", inColumn: true, buttons: 0 })).toEqual([{ kind: "enter" }, { kind: "release" }]);
+    expect(revealEventsOf({ type: "focus", inColumn: false, buttons: 1 })).toEqual([{ kind: "leave" }, { kind: "release" }]);
+  });
+
   it("tells the buttons as they are on any other event — a let-go the page never heard is caught by the next move", () => {
     expect(revealEventsOf({ type: "move", inColumn: true, buttons: 0 })[1]).toEqual({ kind: "release" });
     expect(revealEventsOf({ type: "over", inColumn: true, buttons: 1 })[1]).toEqual({ kind: "press" });

@@ -118,7 +118,11 @@ export function stripReveal(state: RevealState, event: RevealEvent): RevealState
 
 /** What one pointer event says, read off the DOM by the wiring. */
 export interface PointerEvidence {
-  type: "over" | "move" | "out" | "down" | "up" | "cancel";
+  /** A pointer event's type — or `focus`: the window came to the front and
+   * the OS said where the pointer rests, a fact the page heard no event
+   * for (an inactive window is sent none, and the click that activates it
+   * does not reach the page). */
+  type: "over" | "move" | "out" | "down" | "up" | "cancel" | "focus";
   /** Whether the element now under the pointer is part of the column: the
    * event's target — for an out, the element it went to (none: it left
    * the window). */
@@ -139,6 +143,10 @@ export function revealEventsOf(e: PointerEvidence): RevealEvent[] {
       return [where, { kind: "press" }];
     case "up":
     case "cancel":
+      return [where, { kind: "release" }];
+    case "focus":
+      // A pointer resting where the OS found it, its click spent on
+      // bringing the window forward: on the column, the rest starts.
       return [where, { kind: "release" }];
     default:
       return [where, { kind: e.buttons === 0 ? "release" : "press" }];

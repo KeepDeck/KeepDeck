@@ -8,7 +8,7 @@ import {
   stripReveal,
   type PointerEvidence,
 } from "../../presentation/stripReveal";
-import { pointerInWindow } from "../../ipc/window";
+import { pointerInWindow, pointerOnWindow } from "../../ipc/window";
 
 /**
  * The strip's slide-out, wired: the rules are `stripReveal`'s; this keeps
@@ -27,7 +27,12 @@ import { pointerInWindow } from "../../ipc/window";
  * doubt the strip shuts rather than sticks. And a pointer that leaves the
  * window fast through its edge sends the page NOTHING (WKWebView, seen
  * live) — so while the strip is open the OS is asked where the pointer
- * is (`pointerInWindow`), and outside the window is a leave.
+ * is (`pointerInWindow`), and outside the window is a leave. Nor does the
+ * page hear a pointer that rests on the strip of an inactive window: the
+ * OS sends it no move, and the click that brings the window forward does
+ * not reach it — so when the window comes to the front, the OS is asked
+ * where the pointer rests (`pointerOnWindow`), and the strip opens after
+ * the rest as if the pointer had just come.
  */
 export function useStripReveal(column: RefObject<HTMLElement | null>, suspended: boolean) {
   const [state, dispatch] = useReducer(stripReveal, REVEAL_AT_REST);
@@ -101,6 +106,20 @@ export function useStripReveal(column: RefObject<HTMLElement | null>, suspended:
     // resting pointer and opens again on the next move and rest — a
     // flicker, never a stuck strip.
     const gone = () => dispatch({ kind: "leave" });
+    const onFocus = () => {
+      const asked = seen.current;
+      pointerOnWindow().then(
+        (point) => {
+          // Off the window, or the page has heard the pointer since: nothing to add.
+          if (point === null || seen.current !== asked) return;
+          for (const event of revealEventsOf({ type: "focus", inColumn: inColumn(document.elementFromPoint(point.x, point.y)), buttons: 0 })) {
+            dispatch(event);
+          }
+        },
+        // Unanswered (no OS behind the page): the next pointer event tells.
+        () => {},
+      );
+    };
     const onHidden = () => {
       if (document.visibilityState === "hidden") gone();
     };
@@ -116,11 +135,13 @@ export function useStripReveal(column: RefObject<HTMLElement | null>, suspended:
     for (const [type, fn] of pointer) document.addEventListener(type, fn as EventListener, opts);
     document.documentElement.addEventListener("mouseleave", gone);
     window.addEventListener("blur", gone);
+    window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onHidden);
     return () => {
       for (const [type, fn] of pointer) document.removeEventListener(type, fn as EventListener, opts);
       document.documentElement.removeEventListener("mouseleave", gone);
       window.removeEventListener("blur", gone);
+      window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onHidden);
     };
     // The column is the strip's own element, mounted with it.
