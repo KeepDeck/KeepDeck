@@ -51,8 +51,9 @@ export interface ListRow {
   open: boolean;
   className: string;
   edge: GroupEdge;
-  /** An epic's own fold, or null for a row that is no epic. */
-  fold: { folded: boolean; label: string } | null;
+  /** An epic's own fold — the uid it is kept by — or null for a row that
+   * is no epic. */
+  fold: { folded: boolean; label: string; uid: string } | null;
   /** What the row's gutter holds: an epic its fold, a task under an epic
    * the guide down from it (`guide-end` the last, where the guide stops),
    * any other row nothing. */
@@ -68,7 +69,7 @@ export type ListItem = ListHeading | ListRow;
 /** The list's items: every status's heading, always — an empty group
  * with its 0 — and the rows of each open group: its tasks in the tracker's
  * one order, each epic with its tasks under it unless the epic is folded
- * (`foldedEpics`, by id). The query keeps a task under its epic, the epic
+ * (`foldedEpics`, by uid). The query keeps a task under its epic, the epic
  * shown over it whether or not it matches itself; a heading counts every
  * row its group holds, an epic's tasks included, folded or not. */
 export function listView(
@@ -110,8 +111,9 @@ export function listView(
     };
     if (isFolded) return [heading];
     const placed = tops.flatMap(({ task, kids }) => {
-      const epicFolded = foldedEpics.has(task.id);
-      const fold = task.kind === "epic" ? { folded: epicFolded, label: epicFolded ? EPIC_FOLD_WORDS.unfold : EPIC_FOLD_WORDS.fold } : null;
+      const epicFolded = foldedEpics.has(task.uid);
+      const fold =
+        task.kind === "epic" ? { folded: epicFolded, label: epicFolded ? EPIC_FOLD_WORDS.unfold : EPIC_FOLD_WORDS.fold, uid: task.uid } : null;
       return [
         { task, lead: fold === null ? ("none" as const) : ("fold" as const), fold },
         ...(epicFolded ? [] : kids.map((kid, at) => ({ task: kid, lead: at === kids.length - 1 ? ("guide-end" as const) : ("guide" as const), fold: null }))),

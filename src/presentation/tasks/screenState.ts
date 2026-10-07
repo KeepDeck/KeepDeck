@@ -36,9 +36,6 @@ export interface ScreenState {
   /** The restore's confirm is up: a stray click never replaces the
    * database — only a confirmed one does. */
   restoring: boolean;
-  /** The epics whose tasks the person folded away, by id — a reading
-   * posture for the dialog's life (`epicsFolded`). */
-  foldedEpics: ReadonlySet<string>;
 }
 
 export const INITIAL_SCREEN: ScreenState = {
@@ -51,7 +48,6 @@ export const INITIAL_SCREEN: ScreenState = {
   queryTeam: null,
   activityOpen: false,
   restoring: false,
-  foldedEpics: new Set(),
 };
 
 /** The screen a dialog opens on: the team the stage has open is the
@@ -78,8 +74,6 @@ export type ScreenAction =
   | { type: "hover"; status: TaskStatus | null; dragging: boolean }
   /** The activity's heading: shut ⇄ open. */
   | { type: "toggleActivity" }
-  /** An epic's chevron: its tasks shown ⇄ folded away. */
-  | { type: "foldEpic"; id: string }
   /** A label to narrow to; null, or the one already narrowing, widens. */
   | { type: "label"; label: string | null }
   /** A task was created from the form: it opens, the form goes. */
@@ -154,11 +148,6 @@ function step(state: ScreenState, action: ScreenAction): ScreenOutcome {
       return { state: { ...state, composing: false, wide: false }, focus: action.id };
     case "toggleActivity":
       return { state: { ...state, activityOpen: !state.activityOpen } };
-    case "foldEpic": {
-      const foldedEpics = new Set(state.foldedEpics);
-      if (!foldedEpics.delete(action.id)) foldedEpics.add(action.id);
-      return { state: { ...state, foldedEpics } };
-    }
     case "label":
       return { state: { ...state, query: withLabel(queryOn(state, state.chosenTeam), action.label), queryTeam: state.chosenTeam } };
     case "askRestore":

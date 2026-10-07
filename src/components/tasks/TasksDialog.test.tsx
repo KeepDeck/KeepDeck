@@ -790,6 +790,19 @@ describe("TasksDialog", () => {
     act(() => fold().click());
     await flush();
     expect(rowTitles()).toEqual(["Draft the skill", "The epic"]);
+    // The fold is a setting, kept by the epic's uid: closed and opened again, the epic stays folded.
+    const epic = service.peek("ws-1");
+    const epicUid = epic?.kind === "ready" ? epic.board.tasks.find((t) => t.id === "task-3")?.uid : undefined;
+    expect(settingsStore.current?.tasksBoard.list.foldedEpics).toEqual([epicUid]);
+    act(() => root.unmount());
+    root = createRoot(host);
+    mount(service)();
+    await flush();
+    expect(rowTitles()).toEqual(["Draft the skill", "The epic"]);
+    act(() => fold().click());
+    await flush();
+    expect(settingsStore.current?.tasksBoard.list.foldedEpics).toEqual([]);
+    act(() => fold().click());
     act(() => fold().click());
     await flush();
     const pooled = () => rowOpens().find((c) => c.querySelector(".tasks__row-title")?.textContent === "Pooled work")!;

@@ -256,7 +256,8 @@ describe("listView — an epic with its tasks under it (B1)", () => {
     expect(row("task-4").className).toContain("tasks__row--under-epic");
     expect(row("task-2").className).toContain("tasks__row--under-epic");
     expect(row("task-1").className).not.toContain("tasks__row--under-epic");
-    expect(row("task-1").fold).toEqual({ folded: false, label: EPIC_FOLD_WORDS.fold });
+    // Its fold is kept by its uid: a task's id is per workspace, the folds are the app's.
+    expect(row("task-1").fold).toEqual({ folded: false, label: EPIC_FOLD_WORDS.fold, uid: "uid-task-1" });
     expect(row("task-4").fold).toBeNull();
     expect(row("task-2").edge).toBe("bottom");
     // A heading counts every row it holds: the epic and its four.
@@ -265,9 +266,11 @@ describe("listView — an epic with its tasks under it (B1)", () => {
   });
 
   it("folds an epic to its row — the heading still counting its tasks — and J / K walk what is shown", () => {
-    const items = listView(family, fb, 0, NO_QUERY, OPEN, null, new Set(["task-1"]));
+    const items = listView(family, fb, 0, NO_QUERY, OPEN, null, new Set(["uid-task-1"]));
     expect(keys(items).slice(4, 7)).toEqual(["head:in-progress", "task-1", "head:review"]);
     expect(items.find((i) => i.key === "task-1")).toMatchObject({ fold: { folded: true, label: EPIC_FOLD_WORDS.unfold } });
+    // An id is no uid: a fold kept by "task-1" folds nothing.
+    expect(keys(listView(family, fb, 0, NO_QUERY, OPEN, null, new Set(["task-1"])))).toContain("task-5");
     expect(items.find((i) => i.key === "head:in-progress")).toMatchObject({ count: 5 });
     expect(stepRow(listView(family, fb, 0, NO_QUERY, OPEN, null), "task-1", 1)).toBe("task-5");
   });

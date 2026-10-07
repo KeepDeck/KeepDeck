@@ -481,6 +481,10 @@ const DECK_MIGRATIONS: Record<number, Migration> = {
  *       (the columns are gone). A stored view is consumed like mcpServer;
  *       a stored tasksView has nothing left to graduate into and is
  *       consumed too. An older reader keeps its own default view.
+ * 26 — + tasksBoard.list.foldedEpics: the epics whose tasks the list
+ *       folds away, by uid, kept across openings and launches (they
+ *       lived for the dialog's life). Additive: an absent key is none
+ *       folded, and an older reader keeps the key it does not know.
  *
  * No ladder: the document is per-key tolerant (independent facts,
  * hand-editable), which IS its migration mechanism while changes stay
@@ -488,7 +492,7 @@ const DECK_MIGRATIONS: Record<number, Migration> = {
  * step that changes a field's meaning gets a `migrateSettingsFromV*toV*`
  * here, a ladder like the deck's, and a raised floor.
  */
-export const SETTINGS_VERSION = 25;
+export const SETTINGS_VERSION = 26;
 export const SETTINGS_MIN_READER = 1;
 
 /** The file's effective compatibility floor: what it declares, else its own

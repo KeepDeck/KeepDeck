@@ -36,6 +36,8 @@ import {
   assigneeOf,
   pickedOrNone,
   boardFolded,
+  boardFoldedEpics,
+  boardWithEpicFold,
   boardWithFold,
   rowInFlight,
   dragOutlived,
@@ -168,14 +170,15 @@ export function useTasksBoard(
   // shows the Duplicate control as busy.
   const duplicating = useRef(false);
   const [copying, setCopying] = useState(false);
-  // The board's posture — the list's folds — is a setting, kept across
+  // The board's posture — the list's folds, of groups and of epics — is a setting, kept across
   // openings and launches (user); every change reads the latest stored
   // posture, so a change that lands later never writes back a stale one.
   const posture = (useSettings() ?? DEFAULT_SETTINGS).tasksBoard;
   const folded = useMemo(() => boardFolded(posture), [posture]);
+  const foldedEpics = useMemo(() => boardFoldedEpics(posture), [posture]);
   // The person's folds, of groups and of epics, as ONE token: the list
   // eases a change of it, and only that (VirtualList easeKey).
-  const folds = useMemo(() => ({ groups: folded, epics: screen.foldedEpics }), [folded, screen.foldedEpics]);
+  const folds = useMemo(() => ({ groups: folded, epics: foldedEpics }), [folded, foldedEpics]);
   const keepPosture = (change: (stored: TasksBoardSettings) => TasksBoardSettings | null) => {
     const next = change((getSettings() ?? DEFAULT_SETTINGS).tasksBoard);
     if (next !== null) updateSettings({ tasksBoard: next });
@@ -244,8 +247,8 @@ export function useTasksBoard(
   // a fresh array per pointer move re-ran that on every one.
   const openId = detail?.id ?? null;
   const listItems = useMemo(
-    () => (board ? listView(teamTasks, board, now, query, folded, openId, screen.foldedEpics) : []),
-    [board, teamTasks, now, query, folded, openId, screen.foldedEpics],
+    () => (board ? listView(teamTasks, board, now, query, folded, openId, foldedEpics) : []),
+    [board, teamTasks, now, query, folded, openId, foldedEpics],
   );
   const filters = queryToolbarView(query);
   const nothingFound = findsNothing(teamTasks, query);
@@ -353,7 +356,7 @@ export function useTasksBoard(
     dropOn: release,
     listItems,
     fold: (status: TaskStatus) => keepPosture((stored) => boardWithFold(stored, status)),
-    foldEpic: (id: string) => run({ type: "foldEpic", id }),
+    foldEpic: (uid: string) => keepPosture((stored) => boardWithEpicFold(stored, uid)),
     folds,
     filters,
     nothingFound,

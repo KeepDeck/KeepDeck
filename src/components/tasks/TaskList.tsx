@@ -18,6 +18,7 @@ import {
   type DragState,
   type ListHeading,
   type ListItem,
+  type ListRow,
   type TaskRowView,
 } from "../../presentation/tasks";
 
@@ -35,8 +36,8 @@ interface TaskListProps {
   openId: string | null;
   onSelect(id: string): void;
   onFold(status: TaskStatus): void;
-  /** An epic's chevron: its tasks folded away, or shown. */
-  onFoldEpic(id: string): void;
+  /** An epic's chevron, with the epic's uid: its tasks folded away, or shown. */
+  onFoldEpic(uid: string): void;
   /** A label clicked on a row: narrow the view to it. */
   onLabel(label: string): void;
   /** The person's folds, of groups and of epics, as one token: a change of
@@ -110,16 +111,7 @@ export function TaskList({ items, openId, drag, hover, folds, onSelect, onFold, 
                 of its own there, beside the row's — never a button inside a
                 button; any other row's gutter is a picture. */}
             {item.fold ? (
-              <button
-                type="button"
-                className="tasks__row-lead tasks__row-fold tasks__row-control"
-                aria-expanded={!item.fold.folded}
-                aria-label={item.fold.label}
-                title={item.fold.label}
-                onClick={() => onFoldEpic(item.line.id)}
-              >
-                <DisclosureChevron open={!item.fold.folded} />
-              </button>
+              <EpicFold fold={item.fold} onFold={onFoldEpic} />
             ) : (
               <span className={item.leadClassName} aria-hidden />
             )}
@@ -175,6 +167,22 @@ function GroupHeading({
       <StatusRing {...heading.ring} />
       <span className="tasks__group-label">{heading.label}</span>
       <span className="tasks__group-count">{heading.count}</span>
+    </button>
+  );
+}
+
+/** An epic's fold, in its row's gutter: emits the uid the fold is kept by. */
+function EpicFold({ fold, onFold }: { fold: NonNullable<ListRow["fold"]>; onFold(uid: string): void }) {
+  return (
+    <button
+      type="button"
+      className="tasks__row-lead tasks__row-fold tasks__row-control"
+      aria-expanded={!fold.folded}
+      aria-label={fold.label}
+      title={fold.label}
+      onClick={() => onFold(fold.uid)}
+    >
+      <DisclosureChevron open={!fold.folded} />
     </button>
   );
 }

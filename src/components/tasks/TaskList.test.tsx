@@ -87,7 +87,7 @@ describe("TaskList", () => {
     expect(pinned.hasAttribute("aria-expanded")).toBe(false);
   });
 
-  it("draws an epic's chip, progress and fold, its tasks under the guide down from it — and emits the epic's id on a fold", () => {
+  it("draws an epic's chip, progress and fold, its tasks under the guide down from it — and emits the epic's uid on a fold", () => {
     const family = [task({ id: "task-1", title: "Plan", kind: "epic" }), task({ id: "task-2", title: "Step", status: "done" })];
     const b = board(family, 3, [relation("child-of", "task-2", "task-1")]);
     const onFoldEpic = vi.fn();
@@ -108,6 +108,6 @@ describe("TaskList", () => {
     // The fold is a control of its own, never inside the row's.
     expect(fold.closest(".tasks__row-open")).toBeNull();
     act(() => fold.click());
-    expect(onFoldEpic).toHaveBeenCalledWith("task-1");
+    expect(onFoldEpic).toHaveBeenCalledWith("uid-task-1");
   });
 });
