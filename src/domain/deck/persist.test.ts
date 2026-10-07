@@ -949,22 +949,6 @@ describe("a workspace's view, inside it (v12)", () => {
     expect(deck.docExtras).toEqual({});
   });
 
-  it("a v12 file that a v11 build saved again: its maps are that session's whole answer, the view's other fields kept", () => {
-    const deck = okDeck(
-      JSON.stringify({
-        version: 11,
-        minVersion: 11,
-        activeId: "ws-1",
-        // That session selected another pane and closed the team: no teamOpen entry.
-        focusByWs: {},
-        selectByWs: { "ws-1": "pane-ws-1-b" },
-        teamOpenByWs: {},
-        workspaces: [ws("ws-1", { select: "pane-ws-1-a", teamOpen: "team-ws-1", foldedEpics: ["u-1"] })],
-      }),
-    );
-    expect(deck.state.viewByWs).toEqual({ "ws-1": { select: "pane-ws-1-b", foldedEpics: ["u-1"] } });
-  });
-
   it("drops a top-level view map beside a v12 document — never carried as an extra, never written back", () => {
     const deck = okDeck(doc([ws("ws-1", { select: "pane-ws-1-a" })], { focusByWs: { "ws-1": "pane-ws-1-b" }, selectByWs: {}, teamOpenByWs: {} }));
     expect(deck.docExtras).toEqual({});

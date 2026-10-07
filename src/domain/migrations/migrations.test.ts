@@ -40,10 +40,8 @@ describe("migrateDeck — revision ladder + compatibility floor", () => {
       teamOpenByWs: { "ws-2": "team-2" },
       workspaces: [
         { id: "ws-1", panes: [] },
-        // A view a v11 build carried along: the maps' entries win, the rest is kept.
-        { id: "ws-2", view: { teamOpen: "team-old", future: 1 }, panes: [] },
-        // A field that build cleared (no entry in its map) stays cleared — not brought back.
-        { id: "ws-3", view: { focus: "pane-old", select: "pane-old" }, panes: [] },
+        { id: "ws-2", panes: [] },
+        { id: "ws-3", panes: [] },
         "not a workspace",
       ],
     });
@@ -54,7 +52,7 @@ describe("migrateDeck — revision ladder + compatibility floor", () => {
         minVersion: 11,
         workspaces: [
           { id: "ws-1", view: { focus: "pane-1", select: "pane-2" }, panes: [] },
-          { id: "ws-2", view: { teamOpen: "team-2", future: 1 }, panes: [] },
+          { id: "ws-2", view: { teamOpen: "team-2" }, panes: [] },
           { id: "ws-3", panes: [] },
           "not a workspace",
         ],
@@ -62,12 +60,7 @@ describe("migrateDeck — revision ladder + compatibility floor", () => {
     });
   });
 
-  it("v11 → v12 leaves a document no v11 build wrote — none of the maps — as it is", () => {
-    const doc = { version: 11, minVersion: 11, workspaces: [{ id: "ws-1", view: { focus: "pane-1", future: 1 }, panes: [] }] };
-    expect(migrateDeck(doc)).toEqual({ kind: "ok", doc: { ...doc, version: 12 } });
-  });
-
-  it("keeps the deck floor at 11: a v11 reader of a v12 file loses only where it was, and reads it", () => {
+  it("keeps the deck floor at 11: an older build misreads nothing in a v12 file", () => {
     expect(DECK_MIN_READER).toBe(11);
   });
 

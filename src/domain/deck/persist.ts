@@ -302,7 +302,7 @@ const DOC_KNOWN_KEYS: ReadonlySet<string> = new Set([
   "minVersion",
   "activeId",
   // Retired at v12, when a workspace's view moved inside it: known so a
-  // copy a v11 build wrote beside a v12 document is dropped, not carried.
+  // stray copy beside a v12 document is dropped, not carried.
   "focusByWs",
   "selectByWs",
   "teamOpenByWs",

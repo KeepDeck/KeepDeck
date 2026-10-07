@@ -67,13 +67,10 @@ export type MigrationOutcome =
  *  12 — a workspace's view lives INSIDE it: + `Workspace.view` { focus,
  *       select, teamOpen }, − the top-level `focusByWs`, `selectByWs` and
  *       `teamOpenByWs` maps — what a workspace is and how it was left
- *       open go to disk together, and leave with it. The floor stays at
- *       11: a v11 reader finds no top-level maps and opens every workspace
- *       at its defaults — it loses where the person was, misreads nothing
- *       — and carries `view` along as an extra. Its save writes v11 again,
- *       with all three maps, so the hop runs again on the next v12 read:
- *       the maps it wrote are that session's whole answer for the three
- *       fields, and the rest of the view it carried is kept.
+ *       open go to disk together, and leave with it. Only the forward hop
+ *       is kept (user): an older build opening a v12 file is not a path
+ *       this ledger supports. The floor stays at 11 — such a build misreads
+ *       nothing, it opens every workspace at its defaults.
  */
 export const DECK_STATE_VERSION = 12;
 /** The oldest reader that can still make sense of a current document. It was
@@ -416,33 +413,23 @@ const V11_VIEW_MAPS = { focusByWs: "focus", selectByWs: "select", teamOpenByWs: 
  * `selectByWs` and `teamOpenByWs` maps move into that workspace's `view`,
  * and the maps are deleted. An entry is moved as stored — what still holds
  * is the reader's call, as it was; an entry for no workspace goes with its
- * map. A `view` already on a workspace is one a v11 build carried along as
- * an extra, and that build wrote the maps after it — every v11 save writes
- * all three — so the maps are its whole answer for the three fields: a
- * field it cleared (no entry) is cleared, not brought back from the carried
- * view; the carried view's other fields (a later revision's) are kept. A
- * document with none of the maps was not written by a v11 build, and its
- * views are left as they are.
+ * map, and a workspace with no entry gets no view.
  */
 function migrateDeckFromV11toV12(doc: RawDoc): RawDoc {
   const { focusByWs, selectByWs, teamOpenByWs, ...rest } = doc;
   const maps = { focusByWs, selectByWs, teamOpenByWs };
   const workspaces = doc.workspaces;
-  const v11Wrote = Object.values(maps).some((map) => map !== undefined);
-  if (!Array.isArray(workspaces) || !v11Wrote) return rest;
+  if (!Array.isArray(workspaces)) return rest;
   return {
     ...rest,
     workspaces: workspaces.map((ws) => {
       if (!isRecord(ws) || typeof ws.id !== "string") return ws;
-      // The carried view without the three fields the maps answer for.
-      const view: RawDoc = isRecord(ws.view) ? { ...ws.view } : {};
+      const view: RawDoc = {};
       for (const [map, field] of Object.entries(V11_VIEW_MAPS)) {
-        delete view[field];
         const entries = maps[map as keyof typeof maps];
         if (isRecord(entries) && entries[ws.id] !== undefined) view[field] = entries[ws.id];
       }
-      const { view: _carried, ...bare } = ws;
-      return Object.keys(view).length > 0 ? { ...bare, view } : bare;
+      return Object.keys(view).length > 0 ? { ...ws, view } : ws;
     }),
   };
 }
