@@ -2,7 +2,6 @@ import { formatAge } from "../../domain/usage";
 import { blockerResolved, blockersOf, epicProgress, type EpicProgress, type Task, type TaskBoard, type TaskStatus } from "../../domain/tasks";
 import type { StatusRingProps } from "@keepdeck/ui-kit/StatusRing";
 import { EPIC_CHIP, POOL_LABEL, STATUS_LABEL, priorityMark, statusTone, type StatusTone } from "./words";
-import { taskOnScreen, type DragState } from "./rowDrag";
 
 /** One task as a list row says it, in columns: priority, status, id,
  * title, labels, what holds it, who has it, how long since it moved. */
@@ -102,21 +101,6 @@ export function statusRing(status: TaskStatus): StatusRingProps {
  * the open task's meta line: the word names it, the ring only pictures. */
 export function statusMark(status: TaskStatus): StatusRingProps {
   return { ...statusRing(status), decorative: true };
-}
-
-/** The row of the task in flight, read from the board — not from what the
- * list shows, which a move by someone else (into a folded group, out of
- * the filter) may take it out of mid-drag. Null while nothing flies. */
-export function rowInFlight(
-  drag: DragState,
-  board: TaskBoard | null,
-  teamId: string | null,
-  now: number,
-): TaskRowView | null {
-  if (drag.kind !== "dragging") return null;
-  // A task on screen is on a board: none, and there is no task.
-  const task = taskOnScreen(board, drag.id, teamId);
-  return task ? taskRowView(task, board!, now) : null;
 }
 
 export function taskRowView(task: Task, board: TaskBoard, now: number): TaskRowView {

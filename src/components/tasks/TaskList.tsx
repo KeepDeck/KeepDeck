@@ -19,6 +19,7 @@ import {
   type ListHeading,
   type ListItem,
   type ListRow,
+  type RowLeadView,
   type TaskRowView,
 } from "../../presentation/tasks";
 
@@ -107,14 +108,7 @@ export function TaskList({ items, openId, drag, hover, folds, onSelect, onFold, 
             className={listRowClassName(item, drag, hover)}
             {...dropTarget(item.status)}
           >
-            {/* Every row leads with its gutter: an epic's fold is a control
-                of its own there, beside the row's — never a button inside a
-                button; any other row's gutter is a picture. */}
-            {item.fold ? (
-              <EpicFold fold={item.fold} onFold={onFoldEpic} />
-            ) : (
-              <span className={item.leadClassName} aria-hidden />
-            )}
+            <RowLead lead={item} onFoldEpic={onFoldEpic} />
             <TaskRowLine
               line={item.line}
               open={{
@@ -168,6 +162,19 @@ function GroupHeading({
       <span className="tasks__group-label">{heading.label}</span>
       <span className="tasks__group-count">{heading.count}</span>
     </button>
+  );
+}
+
+/** A row's gutter — the list's rows' and the row in flight's alike, so
+ * the ghost's columns stand where the row's did. An epic's fold is a
+ * control of its own there, beside the row's — never a button inside a
+ * button; on the ghost (no `onFoldEpic`), a picture of it. */
+export function RowLead({ lead, onFoldEpic }: { lead: RowLeadView; onFoldEpic?(uid: string): void }) {
+  if (lead.fold && onFoldEpic) return <EpicFold fold={lead.fold} onFold={onFoldEpic} />;
+  return (
+    <span className={lead.leadClassName} aria-hidden>
+      {lead.fold && <DisclosureChevron open={!lead.fold.folded} />}
+    </span>
   );
 }
 

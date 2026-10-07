@@ -20,7 +20,7 @@
  */
 import type { StatusRingProps } from "@keepdeck/ui-kit/StatusRing";
 import { epicOf, tasksOfEpic, type Task, type TaskBoard, type TaskStatus } from "../../domain/tasks";
-import { dropStateOf, type DragState } from "./rowDrag";
+import { dropStateOf, taskOnScreen, type DragState } from "./rowDrag";
 import { compareInStatus, matchesQuery, type TaskQuery } from "./queryView";
 import { statusMark, taskRowView, type TaskRowView } from "./taskRowView";
 import { BOARD_ORDER, EPIC_FOLD_WORDS, STATUS_LABEL } from "./words";
@@ -63,6 +63,14 @@ export interface ListRow {
 }
 
 export type RowLead = "fold" | "guide" | "guide-end" | "none";
+
+/** What a row's gutter draws — the list's rows and the row in flight alike. */
+export type RowLeadView = Pick<ListRow, "fold" | "lead" | "leadClassName">;
+
+/** The task in flight, drawn as its row: its line and its gutter. */
+export interface RowInFlight extends RowLeadView {
+  line: TaskRowView;
+}
 
 export type ListItem = ListHeading | ListRow;
 
@@ -111,12 +119,10 @@ export function listView(
     };
     if (isFolded) return [heading];
     const placed = tops.flatMap(({ task, kids }) => {
-      const epicFolded = foldedEpics.has(task.uid);
-      const fold =
-        task.kind === "epic" ? { folded: epicFolded, label: epicFolded ? EPIC_FOLD_WORDS.unfold : EPIC_FOLD_WORDS.fold, uid: task.uid } : null;
+      const fold = epicFold(task, foldedEpics);
       return [
         { task, lead: fold === null ? ("none" as const) : ("fold" as const), fold },
-        ...(epicFolded ? [] : kids.map((kid, at) => ({ task: kid, lead: at === kids.length - 1 ? ("guide-end" as const) : ("guide" as const), fold: null }))),
+        ...(fold?.folded ? [] : kids.map((kid, at) => ({ task: kid, lead: at === kids.length - 1 ? ("guide-end" as const) : ("guide" as const), fold: null }))),
       ];
     });
     return [
@@ -129,6 +135,46 @@ export function listView(
 }
 
 const NO_EPICS: ReadonlySet<string> = new Set();
+
+/** An epic's fold — kept by its uid — or null for a task that is no epic. */
+function epicFold(task: Task, foldedEpics: ReadonlySet<string>): ListRow["fold"] {
+  if (task.kind !== "epic") return null;
+  const folded = foldedEpics.has(task.uid);
+  return { folded, label: folded ? EPIC_FOLD_WORDS.unfold : EPIC_FOLD_WORDS.fold, uid: task.uid };
+}
+
+/** A gutter's classes: the gutter, and the guide — ending at the last. */
+function leadClassName(lead: RowLead): string {
+  return [
+    "tasks__row-lead",
+    (lead === "guide" || lead === "guide-end") && "tasks__row-lead--guide",
+    lead === "guide-end" && "tasks__row-lead--end",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+/** The task in flight, drawn as its row: read from the board — not from
+ * what the list shows, which a move by someone else (into a folded group,
+ * out of the filter) may take it out of mid-drag. Its gutter is a row's,
+ * so its columns stand where the row's did: an epic's fold, any other
+ * row's empty — a guide in flight would join nothing. Null while nothing
+ * flies. */
+export function rowInFlight(
+  drag: DragState,
+  board: TaskBoard | null,
+  teamId: string | null,
+  now: number,
+  foldedEpics: ReadonlySet<string> = NO_EPICS,
+): RowInFlight | null {
+  if (drag.kind !== "dragging") return null;
+  // A task on screen is on a board: none, and there is no task.
+  const task = taskOnScreen(board, drag.id, teamId);
+  if (!task) return null;
+  const fold = epicFold(task, foldedEpics);
+  const lead: RowLead = fold === null ? "none" : "fold";
+  return { line: taskRowView(task, board!, now), fold, lead, leadClassName: leadClassName(lead) };
+}
 
 /** An item's identity in the windowed list — a task's id, a heading's
  * status; never an index. */
@@ -190,9 +236,7 @@ function listRow(
     edge,
     fold,
     lead,
-    leadClassName: ["tasks__row-lead", underEpic && "tasks__row-lead--guide", lead === "guide-end" && "tasks__row-lead--end"]
-      .filter(Boolean)
-      .join(" "),
+    leadClassName: leadClassName(lead),
     // Its status's tone, cancelled, and the open one.
     className: [
       "tasks__row",

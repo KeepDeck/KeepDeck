@@ -9,6 +9,7 @@ import {
   listItemEstimate,
   listItemKey,
   listView,
+  rowInFlight,
   groupDropClassName,
   listHeadingDropClassName,
   listRowClassName,
@@ -18,7 +19,8 @@ import {
   type ListItem,
 } from "./listView";
 import { NO_QUERY } from "./queryView";
-import { IDLE, rowGrip, type DragState } from "./rowDrag";
+import { taskRowView } from "./taskRowView";
+import { IDLE, armRow, moveRow, rowGrip, type DragState } from "./rowDrag";
 import { BOARD_ORDER, EPIC_FOLD_WORDS } from "./words";
 import type { TaskStatus } from "../../domain/tasks";
 
@@ -291,6 +293,23 @@ describe("listView — an epic with its tasks under it (B1)", () => {
     const withCancelled = [...family, task({ id: "task-7", status: "cancelled" })];
     const all = listView(withCancelled, board(withCancelled, 8, fb.relations), 0, NO_QUERY, OPEN, null);
     expect(all.filter((i) => i.kind === "row" && i.className.includes("tasks__row--cancelled")).map((i) => i.key)).toEqual(["task-7"]);
+  });
+
+  it("draws the row in flight with a row's gutter, so its columns stand where the row's did: an epic's fold, any other empty", () => {
+    const flying = (id: string, folded: ReadonlySet<string> = new Set()) =>
+      rowInFlight(moveRow(armRow(id, 0, 0, { width: 200, offsetX: 0, offsetY: 0 }), 50, 50, () => new Set()), fb, "team-1", 0, folded);
+    expect(flying("task-1")).toEqual({
+      line: taskRowView(family[0], fb, 0),
+      fold: { folded: false, label: EPIC_FOLD_WORDS.fold, uid: "uid-task-1" },
+      lead: "fold",
+      leadClassName: "tasks__row-lead",
+    });
+    expect(flying("task-1", new Set(["uid-task-1"]))?.fold).toMatchObject({ folded: true, label: EPIC_FOLD_WORDS.unfold });
+    // A task under an epic: the gutter, empty — a guide in flight would join nothing.
+    expect(flying("task-4")).toMatchObject({ fold: null, lead: "none", leadClassName: "tasks__row-lead" });
+    // Nothing in flight, or a task on no board on screen: no row.
+    expect(rowInFlight(armRow("task-1", 0, 0, { width: 200, offsetX: 0, offsetY: 0 }), fb, "team-1", 0)).toBeNull();
+    expect(flying("task-99")).toBeNull();
   });
 
   it("puts a task whose epic is not shown here at the top of its own group", () => {

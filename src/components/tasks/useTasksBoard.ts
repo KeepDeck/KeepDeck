@@ -252,7 +252,7 @@ export function useTasksBoard(
   );
   const filters = queryToolbarView(query);
   const nothingFound = findsNothing(teamTasks, query);
-  const inFlight = rowInFlight(drag, board, teamId, now);
+  const inFlight = rowInFlight(drag, board, teamId, now, foldedEpics);
   // The task in flight left the board on screen: the drag has nothing to drop.
   useEffect(() => {
     const ended = dragOutlived(dragRef.current, inFlight);

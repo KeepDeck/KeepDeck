@@ -810,6 +810,8 @@ describe("TasksDialog", () => {
     await flush();
     act(() => void pointerAt("pointermove", window, 40, 40));
     await flush();
+    // The ghost is the row, gutter and all: its columns stand where the row's did.
+    expect(document.querySelector(".tasks__row--ghost")?.firstElementChild?.className).toBe("tasks__row-lead");
     act(() => void pointerAt("pointerover", groupHeading("In progress"), 40, 300));
     act(() => void pointerAt("pointerup", groupHeading("In progress"), 40, 300));
     await flush();

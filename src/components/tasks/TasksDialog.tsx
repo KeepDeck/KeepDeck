@@ -11,7 +11,7 @@ import { useEscape } from "../../ui/useEscape";
 import { useWallClock } from "../../ui/useWallClock";
 import { NewTaskForm } from "./NewTaskForm";
 import { TaskDetail } from "./TaskDetail";
-import { TaskList, TaskRowLine } from "./TaskList";
+import { RowLead, TaskList, TaskRowLine } from "./TaskList";
 import { useTasksBoard, type TasksAccess } from "./useTasksBoard";
 
 interface TasksDialogProps {
@@ -129,7 +129,8 @@ function WorkspaceBoard({
         {view.ghost && (
           <div className="tasks__ghost" style={view.ghost.box}>
             <div className="tasks__row tasks__row--ghost">
-              <TaskRowLine line={view.ghost.line} />
+              <RowLead lead={view.ghost.row} />
+              <TaskRowLine line={view.ghost.row.line} />
             </div>
           </div>
         )}
