@@ -17,6 +17,9 @@ export interface WorkspaceView {
    * the open team's members, or nothing — every writer that repairs it
    * repairs it within the slice. */
   teamOpen?: string;
+  /** The stored view's fields this build does not know (a newer
+   * revision's) — kept so a save writes them back, never read. */
+  extras?: Record<string, unknown>;
 }
 
 export type WorkspaceViewMap = Record<string, WorkspaceView>;
@@ -30,7 +33,8 @@ function isEmptyView(view: WorkspaceView): boolean {
     view.dockTab === undefined &&
     view.minimized === undefined &&
     view.suspendedTray === undefined &&
-    view.teamOpen === undefined
+    view.teamOpen === undefined &&
+    view.extras === undefined
   );
 }
 

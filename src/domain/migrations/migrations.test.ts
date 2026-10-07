@@ -11,7 +11,7 @@ describe("migrateDeck — revision ladder + compatibility floor", () => {
   it("the deck + settings revisions are the expected values", () => {
     // Pin the bumps so a forgotten version bump (the r3 SETTINGS miss) fails
     // loudly rather than silently shrinking the ladder-loop's coverage.
-    expect(DECK_STATE_VERSION).toBe(11);
+    expect(DECK_STATE_VERSION).toBe(12);
     expect(SETTINGS_VERSION).toBe(26);
   });
 
@@ -29,6 +29,40 @@ describe("migrateDeck — revision ladder + compatibility floor", () => {
       expect(out.kind).toBe("ok");
       if (out.kind === "ok") expect(out.doc.version).toBe(DECK_STATE_VERSION);
     }
+  });
+
+  it("v11 → v12 moves each workspace's entries of the top-level view maps into its view, and deletes the maps", () => {
+    const out = migrateDeck({
+      version: 11,
+      minVersion: 11,
+      focusByWs: { "ws-1": "pane-1" },
+      selectByWs: { "ws-1": "pane-2", "ws-gone": "pane-9" },
+      teamOpenByWs: { "ws-2": "team-2" },
+      workspaces: [
+        { id: "ws-1", panes: [] },
+        // A view a v11 build carried along: the maps' entries win, the rest is kept.
+        { id: "ws-2", view: { teamOpen: "team-old", future: 1 }, panes: [] },
+        { id: "ws-3", panes: [] },
+        "not a workspace",
+      ],
+    });
+    expect(out).toEqual({
+      kind: "ok",
+      doc: {
+        version: 12,
+        minVersion: 11,
+        workspaces: [
+          { id: "ws-1", view: { focus: "pane-1", select: "pane-2" }, panes: [] },
+          { id: "ws-2", view: { teamOpen: "team-2", future: 1 }, panes: [] },
+          { id: "ws-3", panes: [] },
+          "not a workspace",
+        ],
+      },
+    });
+  });
+
+  it("keeps the deck floor at 11: a v11 reader of a v12 file loses only where it was, and reads it", () => {
+    expect(DECK_MIN_READER).toBe(11);
   });
 
   it("reads a NEWER revision as-is when its floor admits this build", () => {

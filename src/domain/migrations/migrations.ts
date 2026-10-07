@@ -64,8 +64,17 @@ export type MigrationOutcome =
  *       `{name, role}`. The floor rises to 11 with it: a v10 reader takes
  *       `{teamId, role}` for a half-written `{name, role}` and reads every
  *       membership as none, then SAVES — silently dismissing every team.
+ *  12 — a workspace's view lives INSIDE it: + `Workspace.view` { focus,
+ *       select, teamOpen }, − the top-level `focusByWs`, `selectByWs` and
+ *       `teamOpenByWs` maps — what a workspace is and how it was left
+ *       open go to disk together, and leave with it. The floor stays at
+ *       11: a v11 reader finds no top-level maps and opens every workspace
+ *       at its defaults — it loses where the person was, misreads nothing
+ *       — and carries `view` along as an extra. Its save writes v11 again,
+ *       so the hop runs again on the next v12 read, the maps it wrote (the
+ *       later answer) laid over the view it carried.
  */
-export const DECK_STATE_VERSION = 11;
+export const DECK_STATE_VERSION = 12;
 /** The oldest reader that can still make sense of a current document. It was
  * held at 1 while every change was additive (v1→v4, v6→v10) or moved data an
  * old reader would merely lose rather than misread (v5's `run` retirement).
@@ -397,6 +406,39 @@ function migrateWorkspaceTeamsToV11(
   return { ...value, panes: migratedPanes, ...(teams.length > 0 && { teams }) };
 }
 
+/** The top-level per-workspace maps v12 moves inside each workspace, by
+ * the field each becomes in `view`. */
+const V11_VIEW_MAPS = { focusByWs: "focus", selectByWs: "select", teamOpenByWs: "teamOpen" } as const;
+
+/**
+ * v11 → v12: each workspace's entries in the top-level `focusByWs`,
+ * `selectByWs` and `teamOpenByWs` maps move into that workspace's `view`,
+ * and the maps are deleted. An entry is moved as stored — what still holds
+ * is the reader's call, as it was; an entry for no workspace goes with its
+ * map. A `view` already on a workspace (one a v11 build carried along as an
+ * extra) is kept, the maps' entries laid over it: that build's answer is
+ * the later one.
+ */
+function migrateDeckFromV11toV12(doc: RawDoc): RawDoc {
+  const { focusByWs, selectByWs, teamOpenByWs, ...rest } = doc;
+  const maps = { focusByWs, selectByWs, teamOpenByWs };
+  const workspaces = doc.workspaces;
+  if (!Array.isArray(workspaces)) return rest;
+  return {
+    ...rest,
+    workspaces: workspaces.map((ws) => {
+      if (!isRecord(ws) || typeof ws.id !== "string") return ws;
+      const moved: RawDoc = {};
+      for (const [map, field] of Object.entries(V11_VIEW_MAPS)) {
+        const entries = maps[map as keyof typeof maps];
+        if (isRecord(entries) && entries[ws.id] !== undefined) moved[field] = entries[ws.id];
+      }
+      if (Object.keys(moved).length === 0) return ws;
+      return { ...ws, view: { ...(isRecord(ws.view) ? ws.view : {}), ...moved } };
+    }),
+  };
+}
+
 const DECK_MIGRATIONS: Record<number, Migration> = {
   1: migrateDeckFromV1toV2,
   2: migrateDeckFromV2toV3,
@@ -408,6 +450,7 @@ const DECK_MIGRATIONS: Record<number, Migration> = {
   8: migrateDeckFromV8toV9,
   9: migrateDeckFromV9toV10,
   10: migrateDeckFromV10toV11,
+  11: migrateDeckFromV11toV12,
 };
 
 /**

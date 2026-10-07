@@ -617,7 +617,7 @@ describe("team membership across a restart", () => {
     expect(paneExecutionCwd(restored, restored.panes[3])).toBe("/r/.wt/kd-4");
     expect(deck.notices).toEqual([]);
     const saved = JSON.parse(serializeDeck(deck.state));
-    expect(saved.version).toBe(11);
+    expect(saved.version).toBe(DECK_STATE_VERSION);
     expect(saved.minVersion).toBe(11);
   });
 
@@ -868,6 +868,90 @@ describe("hydrateDeck — tolerated degradations", () => {
       }),
     );
     expect(custom.nextAgentSeq).toBe(1);
+  });
+});
+
+describe("a workspace's view, inside it (v12)", () => {
+  const ws = (id: string, view?: unknown) => ({
+    id,
+    name: id,
+    cwd: `/${id}`,
+    worktreeBaseDir: null,
+    teams: [{ id: `team-${id}`, name: "t", cwd: `/${id}` }],
+    panes: [
+      { id: `pane-${id}-a`, team: { teamId: `team-${id}`, role: "lead" } },
+      { id: `pane-${id}-b`, team: { teamId: `team-${id}`, role: "impl-1" } },
+    ],
+    ...(view !== undefined && { view }),
+  });
+  const doc = (workspaces: unknown[], top: Record<string, unknown> = {}) =>
+    JSON.stringify({ version: DECK_STATE_VERSION, minVersion: 11, activeId: "ws-1", ...top, workspaces });
+
+  it("writes each workspace's durable view inside it, sparse — and no top-level map", () => {
+    const deck = okDeck(doc([ws("ws-1", { focus: "pane-ws-1-a", select: "pane-ws-1-b", teamOpen: "team-ws-1" }), ws("ws-2")]));
+    const saved = JSON.parse(
+      serializeDeck({ ...deck.state, viewByWs: { ...deck.state.viewByWs, "ws-2": { dock: true, dockTab: "git", minimized: ["pane-ws-2-a"] } } }),
+    );
+    expect(saved.workspaces[0].view).toEqual({ focus: "pane-ws-1-a", select: "pane-ws-1-b", teamOpen: "team-ws-1" });
+    // Only session state: no view written at all.
+    expect(saved.workspaces[1]).not.toHaveProperty("view");
+    for (const map of ["focusByWs", "selectByWs", "teamOpenByWs"]) expect(saved).not.toHaveProperty(map);
+  });
+
+  it("reads each workspace's view against what it holds — a pane or team it lacks is dropped, a focus that no longer resolves too", () => {
+    const deck = okDeck(
+      doc([
+        ws("ws-1", { focus: "pane-ws-2-a", select: "pane-ws-1-a", teamOpen: "team-gone" }),
+        ws("ws-2", { teamOpen: "team-ws-2", focus: "pane-ws-2-b", select: "pane-ws-1-a" }),
+        ws("ws-3", "not a view"),
+      ]),
+    );
+    expect(deck.state.viewByWs).toEqual({
+      "ws-1": { select: "pane-ws-1-a" },
+      "ws-2": { teamOpen: "team-ws-2", focus: "pane-ws-2-b" },
+    });
+    const solo = okDeck(doc([{ ...ws("ws-1", { focus: "pane-ws-1-a" }), panes: [{ id: "pane-ws-1-a" }], teams: undefined }]));
+    expect(solo.state.viewByWs).toEqual({});
+  });
+
+  it("carries a newer revision's view fields through a save, and drops session-only ones a hand edit wrote", () => {
+    const deck = okDeck(doc([ws("ws-1", { select: "pane-ws-1-a", future: { x: 1 }, dock: true, dockTab: "git" })]));
+    expect(deck.state.viewByWs["ws-1"]).toEqual({ select: "pane-ws-1-a", extras: { future: { x: 1 } } });
+    expect(JSON.parse(serializeDeck(deck.state)).workspaces[0].view).toEqual({ future: { x: 1 }, select: "pane-ws-1-a" });
+    // A view that holds only a newer field stands on its own.
+    expect(okDeck(doc([ws("ws-1", { future: 2 })])).state.viewByWs).toEqual({ "ws-1": { extras: { future: 2 } } });
+  });
+
+  it("takes a v11 file's top-level maps into the workspaces they name", () => {
+    const deck = okDeck(
+      JSON.stringify({
+        version: 11,
+        minVersion: 11,
+        activeId: "ws-1",
+        focusByWs: { "ws-1": "pane-ws-1-a" },
+        selectByWs: { "ws-1": "pane-ws-1-b", "ws-2": "pane-ws-2-a", "ws-gone": "pane-x" },
+        teamOpenByWs: { "ws-2": "team-ws-2" },
+        workspaces: [ws("ws-1"), ws("ws-2")],
+      }),
+    );
+    expect(deck.state.viewByWs).toEqual({
+      "ws-1": { focus: "pane-ws-1-a", select: "pane-ws-1-b" },
+      "ws-2": { select: "pane-ws-2-a", teamOpen: "team-ws-2" },
+    });
+    expect(deck.docExtras).toEqual({});
+  });
+
+  it("a v12 file that a v11 build saved again: its maps — the later answer — over the view it carried along", () => {
+    const deck = okDeck(
+      JSON.stringify({
+        version: 11,
+        minVersion: 11,
+        activeId: "ws-1",
+        selectByWs: { "ws-1": "pane-ws-1-b" },
+        workspaces: [ws("ws-1", { select: "pane-ws-1-a", teamOpen: "team-ws-1" })],
+      }),
+    );
+    expect(deck.state.viewByWs).toEqual({ "ws-1": { select: "pane-ws-1-b", teamOpen: "team-ws-1" } });
   });
 });
 

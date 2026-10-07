@@ -75,26 +75,18 @@ export type HydrateDeckResult =
 /** Serialize the deck for storage. Runtime-only pane state is stripped — of
  * the idle reasons only `suspended` is written, since it alone records a user
  * decision rather than this launch's circumstances; the session binding is
- * kept — it's the resume key. The unified
- * `viewByWs` persists only its durable half — the `focusByWs`/`selectByWs`
- * maps the on-disk schema has always had and `teamOpenByWs`, the team the
- * stage had open — so a launch returns the person where they were;
- * `dock`/`dockTab` are session-only and never written, so every launch
- * starts with the dock closed. The line between the halves is whose answer
- * it is: what the person chose to have open survives, what a run's
- * circumstances produced starts over. */
+ * kept — it's the resume key. A workspace's view is written INSIDE it
+ * (`view`, since v12), and only its durable half — the pane in focus, the
+ * pane selected, the team the stage had open — so a launch returns the
+ * person where they were; `dock`/`dockTab` and the hidden placements are
+ * session-only and never written, so every launch starts with the dock
+ * closed. The line between the halves is whose answer it is: what the
+ * person chose to have open survives, what a run's circumstances produced
+ * starts over. */
 export function serializeDeck(
   state: DeckState,
   docExtras: Record<string, unknown> = {},
 ): string {
-  const focusByWs: Record<string, string> = {};
-  const selectByWs: Record<string, string> = {};
-  const teamOpenByWs: Record<string, string> = {};
-  for (const [wsId, view] of Object.entries(state.viewByWs)) {
-    if (view.focus !== undefined) focusByWs[wsId] = view.focus;
-    if (view.select !== undefined) selectByWs[wsId] = view.select;
-    if (view.teamOpen !== undefined) teamOpenByWs[wsId] = view.teamOpen;
-  }
   // Extras spread FIRST at every level, so the keys this build owns always
   // win — a newer revision's fields ride along, never override.
   const persisted: Record<string, unknown> = {
@@ -102,9 +94,6 @@ export function serializeDeck(
     minVersion: DECK_MIN_READER,
     ...docExtras,
     activeId: state.activeId,
-    focusByWs,
-    selectByWs,
-    teamOpenByWs,
     workspaces: state.workspaces.map((ws) => {
       // A fork's card is dropped while still in flight — the team AND its
       // members: its store surgery is an in-memory post-provision step that
@@ -116,12 +105,15 @@ export function serializeDeck(
           .filter((team) => team.location?.kind === "provisioning" && team.location.fork)
           .map((team) => team.id),
       );
+      const view = storedView(state.viewByWs[ws.id]);
       return {
       ...ws.extras,
       id: ws.id,
       name: ws.name,
       cwd: ws.cwd,
       worktreeBaseDir: ws.worktreeBaseDir,
+      // Sparse: a workspace the person left at its defaults writes no view.
+      ...(view !== undefined && { view }),
       // Sparse: an empty bag (the last slot just got deleted) never hits disk.
       ...(ws.plugins !== undefined &&
         Object.keys(ws.plugins).length > 0 && { plugins: ws.plugins }),
@@ -183,6 +175,41 @@ export function serializeDeck(
   return JSON.stringify(persisted);
 }
 
+/** A workspace's view as it goes to disk: its durable fields over the ones
+ * a newer revision wrote, or nothing when none is left. */
+function storedView(view: WorkspaceView | undefined): Record<string, unknown> | undefined {
+  if (view === undefined) return undefined;
+  const stored: Record<string, unknown> = {
+    ...view.extras,
+    ...(view.focus !== undefined && { focus: view.focus }),
+    ...(view.select !== undefined && { select: view.select }),
+    ...(view.teamOpen !== undefined && { teamOpen: view.teamOpen }),
+  };
+  return Object.keys(stored).length > 0 ? stored : undefined;
+}
+
+/** A workspace's stored view, read against what the workspace holds: the
+ * selection must name one of its panes, the focus (maximize) must also
+ * still RESOLVE — a solo workspace is never maximized, and a stale key would
+ * otherwise maximize the wrong pane as soon as a second pane is added — and
+ * the open team must be one of its teams; anything else is dropped, and the
+ * stage shows its defaults. Undefined when nothing of it stands. */
+function readView(value: unknown, ws: Workspace): WorkspaceView | undefined {
+  if (!isRecord(value)) return undefined;
+  const paneIds = new Set(ws.panes.map((pane) => pane.id));
+  const view: WorkspaceView = {};
+  if (typeof value.select === "string" && paneIds.has(value.select)) view.select = value.select;
+  if (typeof value.focus === "string" && paneIds.has(value.focus) && resolveFocus(ws.panes, value.focus) === value.focus) {
+    view.focus = value.focus;
+  }
+  if (typeof value.teamOpen === "string" && teamsOf(ws).some((team) => team.id === value.teamOpen)) {
+    view.teamOpen = value.teamOpen;
+  }
+  const extras = collectExtras(value, VIEW_KNOWN_KEYS);
+  if (Object.keys(extras).length > 0) view.extras = extras;
+  return Object.keys(view).length > 0 ? view : undefined;
+}
+
 /**
  * Restore a deck from stored JSON. Returns `null` for anything unusable —
  * unparsable JSON, an unknown version, a malformed shape — so the caller can
@@ -229,66 +256,19 @@ export function hydrateDeck(json: string): HydrateDeckResult {
   );
   if (nextAgentSeq === null) return corrupt;
 
-  const paneIdsByWs = new Map(
-    workspaces.map((w) => [w.id, new Set(w.panes.map((p) => p.id))]),
-  );
-  const readSelection = (value: unknown): Record<string, string> => {
-    if (!isRecord(value)) return {};
-    const out: Record<string, string> = {};
-    for (const [wsId, paneId] of Object.entries(value)) {
-      if (typeof paneId === "string" && paneIdsByWs.get(wsId)?.has(paneId)) {
-        out[wsId] = paneId;
-      }
-    }
-    return out;
-  };
-
-  // A focus (maximize) entry must also still RESOLVE — a solo workspace is
-  // never maximized, and a stale key persisted by an older version would
-  // otherwise maximize the wrong pane as soon as a second pane is added.
-  const readFocus = (value: unknown): Record<string, string> => {
-    const out: Record<string, string> = {};
-    for (const [wsId, paneId] of Object.entries(readSelection(value))) {
-      const ws = workspaces.find((w) => w.id === wsId);
-      if (ws && resolveFocus(ws.panes, paneId) === paneId) out[wsId] = paneId;
-    }
-    return out;
-  };
-
   const activeId = resolveActiveId(
     workspaces,
     typeof raw.activeId === "string" ? raw.activeId : "",
   );
 
-  // The team the stage had open must still be one the workspace has; a
-  // stale id is dropped, and the stage shows the team cards.
-  const teamIdsByWs = new Map(
-    workspaces.map((w) => [w.id, new Set(teamsOf(w).map((team) => team.id))]),
-  );
-  const readTeamOpen = (value: unknown): Record<string, string> => {
-    if (!isRecord(value)) return {};
-    const out: Record<string, string> = {};
-    for (const [wsId, teamId] of Object.entries(value)) {
-      if (typeof teamId === "string" && teamIdsByWs.get(wsId)?.has(teamId)) {
-        out[wsId] = teamId;
-      }
-    }
-    return out;
-  };
-
-  // Reassemble the unified per-workspace view from the flat on-disk maps.
-  // `dock`/`dockTab` are session-only by decision — never stored, so every
-  // launch starts with the dock closed on its default tab.
+  // Each workspace's view, from inside it (v12); the reader above already
+  // turned away any document whose workspaces it could not read, so the
+  // two lists stand index for index.
   const viewByWs: Record<string, WorkspaceView> = {};
-  for (const [wsId, paneId] of Object.entries(readSelection(raw.selectByWs))) {
-    viewByWs[wsId] = { ...viewByWs[wsId], select: paneId };
-  }
-  for (const [wsId, paneId] of Object.entries(readFocus(raw.focusByWs))) {
-    viewByWs[wsId] = { ...viewByWs[wsId], focus: paneId };
-  }
-  for (const [wsId, teamId] of Object.entries(readTeamOpen(raw.teamOpenByWs))) {
-    viewByWs[wsId] = { ...viewByWs[wsId], teamOpen: teamId };
-  }
+  raw.workspaces.forEach((value, at) => {
+    const view = readView(isRecord(value) ? value.view : undefined, workspaces[at]);
+    if (view !== undefined) viewByWs[workspaces[at].id] = view;
+  });
 
   return {
     kind: "ok",
@@ -315,6 +295,8 @@ const DOC_KNOWN_KEYS: ReadonlySet<string> = new Set([
   "version",
   "minVersion",
   "activeId",
+  // Retired at v12, when a workspace's view moved inside it: known so a
+  // copy a v11 build wrote beside a v12 document is dropped, not carried.
   "focusByWs",
   "selectByWs",
   "teamOpenByWs",
@@ -342,6 +324,19 @@ const WS_KNOWN_KEYS: ReadonlySet<string> = new Set([
   "plugins",
   "teams",
   "panes",
+  "view",
+]);
+
+/** A stored view's keys this build owns: the durable ones, and the
+ * session-only ones a hand edit might write — dropped, never carried. */
+const VIEW_KNOWN_KEYS: ReadonlySet<string> = new Set([
+  "focus",
+  "select",
+  "teamOpen",
+  "dock",
+  "dockTab",
+  "minimized",
+  "suspendedTray",
 ]);
 
 const TEAM_KNOWN_KEYS: ReadonlySet<string> = new Set([
