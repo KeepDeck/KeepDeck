@@ -35,8 +35,9 @@ describe("TaskList", () => {
     act(() => root.render(createElement(TaskList, { items, openId: null, drag: IDLE, hover: null, folds: null, onFoldEpic: vi.fn(), onArm: vi.fn(), onHover: vi.fn(), onDrop: vi.fn(), onSelect: vi.fn(), onFold: vi.fn(), onLabel: vi.fn() })));
     const rows = [...host.querySelectorAll<HTMLElement>(".tasks__row")];
     expect(rows.map((r) => r.querySelector(".tasks__row-title")?.textContent)).toEqual(["Wire", "Draft"]);
-    // With no epic about them, the rows lead with nothing: no fold, no step in.
-    expect(rows.some((r) => r.querySelector(".tasks__row-fold, .tasks__row-indent"))).toBe(false);
+    // With no epic about them, every row leads with its gutter, empty: no fold, no guide.
+    expect(rows.map((r) => r.firstElementChild?.className)).toEqual(["tasks__row-lead", "tasks__row-lead"]);
+    expect(rows.some((r) => r.querySelector(".tasks__row-fold, .tasks__row-lead--guide"))).toBe(false);
     expect(rows[1].querySelector(".kd-tag")?.textContent).toBe("copy");
     expect(rows[0].querySelector(".tasks__tag--blocking")?.textContent).toBe("task-1");
     expect(rows[0].querySelector(".tasks__row-who")?.textContent).toBe("unassigned");
@@ -86,7 +87,7 @@ describe("TaskList", () => {
     expect(pinned.hasAttribute("aria-expanded")).toBe(false);
   });
 
-  it("draws an epic's chip, progress and fold, its tasks one step in — and emits the epic's id on a fold", () => {
+  it("draws an epic's chip, progress and fold, its tasks under the guide down from it — and emits the epic's id on a fold", () => {
     const family = [task({ id: "task-1", title: "Plan", kind: "epic" }), task({ id: "task-2", title: "Step", status: "done" })];
     const b = board(family, 3, [relation("child-of", "task-2", "task-1")]);
     const onFoldEpic = vi.fn();
@@ -97,8 +98,10 @@ describe("TaskList", () => {
     expect(epic.querySelector(".tasks__epic-progress")?.textContent).toBe("1/1");
     expect(epic.querySelector<HTMLElement>(".tasks__epic-fill")?.style.width).toBe("100%");
     expect(step.className).toContain("tasks__row--under-epic");
-    expect(step.querySelector(".tasks__row-indent")).not.toBeNull();
-    expect(epic.querySelector(".tasks__row-indent")).toBeNull();
+    // One gutter leads every row: the epic's holds its fold, its task's the guide (ending at the last).
+    expect(step.firstElementChild?.className).toBe("tasks__row-lead tasks__row-lead--guide tasks__row-lead--end");
+    expect(epic.firstElementChild?.className).toBe("tasks__row-lead tasks__row-fold tasks__row-control");
+    expect(epic.querySelector(".tasks__row-lead--guide")).toBeNull();
     expect(step.querySelector(".tasks__epic-chip")).toBeNull();
     const fold = epic.querySelector<HTMLButtonElement>(".tasks__row-fold")!;
     expect(fold.getAttribute("aria-expanded")).toBe("true");

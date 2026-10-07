@@ -9,10 +9,14 @@
  * that place to a neighbour.
  *
  * An epic stands in the group of its own status, and every task under it
- * stands under it, one step in — closed ones too, in the order of the
+ * stands under it — closed ones too, in the order of the
  * groups and then the tracker's one order — not in the groups of their own
  * statuses (task-297, layout B1). Its own fold, like a group's, hides its
  * tasks and keeps its row.
+ *
+ * Every row leads with the same gutter, so every row's columns stand on
+ * one line whatever it is (task-320): an epic's fold sits in it, a task
+ * under an epic the guide down from that fold, any other row nothing.
  */
 import type { StatusRingProps } from "@keepdeck/ui-kit/StatusRing";
 import { epicOf, tasksOfEpic, type Task, type TaskBoard, type TaskStatus } from "../../domain/tasks";
@@ -47,14 +51,17 @@ export interface ListRow {
   open: boolean;
   className: string;
   edge: GroupEdge;
-  /** 1 for a task under an epic, drawn one step in; 0 for the rest. */
-  depth: 0 | 1;
   /** An epic's own fold, or null for a row that is no epic. */
   fold: { folded: boolean; label: string } | null;
-  /** What the row leads with, its own: an epic its fold, a task under an
-   * epic the step in, any other row nothing. */
-  lead: "fold" | "indent" | "none";
+  /** What the row's gutter holds: an epic its fold, a task under an epic
+   * the guide down from it (`guide-end` the last, where the guide stops),
+   * any other row nothing. */
+  lead: RowLead;
+  /** The gutter's classes, for a lead that is no fold. */
+  leadClassName: string;
 }
+
+export type RowLead = "fold" | "guide" | "guide-end" | "none";
 
 export type ListItem = ListHeading | ListRow;
 
@@ -106,14 +113,14 @@ export function listView(
       const epicFolded = foldedEpics.has(task.id);
       const fold = task.kind === "epic" ? { folded: epicFolded, label: epicFolded ? EPIC_FOLD_WORDS.unfold : EPIC_FOLD_WORDS.fold } : null;
       return [
-        { task, depth: 0 as const, fold },
-        ...(epicFolded ? [] : kids.map((kid) => ({ task: kid, depth: 1 as const, fold: null }))),
+        { task, lead: fold === null ? ("none" as const) : ("fold" as const), fold },
+        ...(epicFolded ? [] : kids.map((kid, at) => ({ task: kid, lead: at === kids.length - 1 ? ("guide-end" as const) : ("guide" as const), fold: null }))),
       ];
     });
     return [
       heading,
-      ...placed.map(({ task, depth, fold }, at) =>
-        listRow(taskRowView(task, board, now), status, task.id === openId, at === placed.length - 1 ? "bottom" : "middle", depth, fold),
+      ...placed.map(({ task, lead, fold }, at) =>
+        listRow(taskRowView(task, board, now), status, task.id === openId, at === placed.length - 1 ? "bottom" : "middle", lead, fold),
       ),
     ];
   });
@@ -168,9 +175,10 @@ function listRow(
   status: TaskStatus,
   open: boolean,
   edge: GroupEdge,
-  depth: 0 | 1,
+  lead: RowLead,
   fold: ListRow["fold"],
 ): ListRow {
+  const underEpic = lead === "guide" || lead === "guide-end";
   return {
     kind: "row",
     key: line.id,
@@ -178,16 +186,18 @@ function listRow(
     line,
     open,
     edge,
-    depth,
     fold,
-    lead: fold !== null ? "fold" : depth === 1 ? "indent" : "none",
+    lead,
+    leadClassName: ["tasks__row-lead", underEpic && "tasks__row-lead--guide", lead === "guide-end" && "tasks__row-lead--end"]
+      .filter(Boolean)
+      .join(" "),
     // Its status's tone, cancelled, and the open one.
     className: [
       "tasks__row",
       `tasks__row--${line.tone}`,
       line.cancelled && "tasks__row--cancelled",
       open && "tasks__row--open",
-      depth === 1 && "tasks__row--under-epic",
+      underEpic && "tasks__row--under-epic",
     ]
       .filter(Boolean)
       .join(" "),

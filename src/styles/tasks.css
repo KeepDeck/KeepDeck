@@ -296,8 +296,11 @@
   color: var(--kd-text);
 }
 
-/* The fold's chevron: the house's (DisclosureChevron), quiet. */
+/* The fold's chevron: the house's (DisclosureChevron), quiet, centred in the
+   rows' 16px gutter — on the vertical of an epic's fold. */
 .tasks__group .kd-chevron {
+  justify-content: center;
+  width: 16px;
   color: var(--kd-text-3);
 }
 
@@ -426,10 +429,13 @@
   text-align: right;
 }
 
-/* A row's lead is its own: an epic leads with its fold, a task under an
-   epic with a step in past the fold — any other row with nothing. */
-.tasks__row-fold,
-.tasks__row-indent {
+/* Every row leads with one gutter (task-320), so every row's columns —
+   priority, status, id, title — stand on one line whatever the row is: an
+   epic's fold sits in it, a task under an epic the guide down from that
+   fold, any other row nothing. The headings' chevrons stand in the same
+   16px, on the same vertical. */
+.tasks__row-lead {
+  position: relative;
   display: inline-flex;
   flex: none;
   align-items: center;
@@ -438,8 +444,39 @@
   height: 18px;
 }
 
-.tasks__row-indent {
-  width: 32px;
+/* The guide: down the whole row (its padding and seam too, so the rows'
+   guides join), a tick to the row's first line; the last task's stops at
+   the tick. */
+.tasks__row-lead--guide {
+  align-self: stretch;
+  height: auto;
+}
+
+.tasks__row-lead--guide::before,
+.tasks__row-lead--guide::after {
+  position: absolute;
+  left: 7.5px;
+  content: "";
+  border-color: var(--kd-seam-strong);
+  border-style: solid;
+  border-width: 0;
+}
+
+.tasks__row-lead--guide::before {
+  top: -7px;
+  bottom: -8px;
+  border-left-width: 1px;
+}
+
+.tasks__row-lead--end::before {
+  bottom: auto;
+  height: 16px;
+}
+
+.tasks__row-lead--guide::after {
+  top: 9px;
+  width: 7px;
+  border-top-width: 1px;
 }
 
 /* Its chevron is the house's (DisclosureChevron), quiet; a control of its

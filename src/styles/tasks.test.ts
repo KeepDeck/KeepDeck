@@ -83,6 +83,19 @@ describe("Tasks text never widens its box", () => {
     expect(ruleBody(row, ".tasks__row-open")["align-items"]).toBe("flex-start");
   });
 
+  it("every row leads with one gutter, the headings' chevrons standing in its width — so every row's columns share one line", () => {
+    const css = readStyles("tasks.css");
+    const lead = ruleBody(css, ".tasks__row-lead");
+    expect(lead.width).toBe("16px");
+    expect(lead.flex).toBe("none");
+    expect(ruleBody(css, ".tasks__group .kd-chevron").width).toBe(lead.width);
+    // Nothing a row leads with may take a width of its own: the old fold and step in are gone.
+    expect(css).not.toMatch(/tasks__row-indent/);
+    expect(css).not.toMatch(/\.tasks__row-(fold|lead--guide|lead--end)\s*\{[^}]*\bwidth:/);
+    // The guide reaches the whole row, however many lines its title wraps to.
+    expect(ruleBody(css, ".tasks__row-lead--guide")["align-self"]).toBe("stretch");
+  });
+
   it("a row's age stays on one line", () => {
     expect(getComputedStyle(mount("tasks__row-age")).whiteSpace).toBe("nowrap");
   });

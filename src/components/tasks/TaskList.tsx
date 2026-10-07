@@ -106,13 +106,13 @@ export function TaskList({ items, openId, drag, hover, folds, onSelect, onFold, 
             className={listRowClassName(item, drag, hover)}
             {...dropTarget(item.status)}
           >
-            {/* An epic's fold is a control of its own, beside the row's —
-                never a button inside a button; a task under an epic stands
-                one step in. */}
-            {item.fold && (
+            {/* Every row leads with its gutter: an epic's fold is a control
+                of its own there, beside the row's — never a button inside a
+                button; any other row's gutter is a picture. */}
+            {item.fold ? (
               <button
                 type="button"
-                className="tasks__row-fold tasks__row-control"
+                className="tasks__row-lead tasks__row-fold tasks__row-control"
                 aria-expanded={!item.fold.folded}
                 aria-label={item.fold.label}
                 title={item.fold.label}
@@ -120,8 +120,9 @@ export function TaskList({ items, openId, drag, hover, folds, onSelect, onFold, 
               >
                 <DisclosureChevron open={!item.fold.folded} />
               </button>
+            ) : (
+              <span className={item.leadClassName} aria-hidden />
             )}
-            {item.lead === "indent" && <span className="tasks__row-indent" aria-hidden />}
             <TaskRowLine
               line={item.line}
               open={{

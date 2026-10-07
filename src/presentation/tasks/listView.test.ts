@@ -243,12 +243,19 @@ describe("listView — an epic with its tasks under it (B1)", () => {
       "head:cancelled",
     ]);
     const row = (key: string) => items.find((i) => i.key === key) as Extract<ListItem, { kind: "row" }>;
-    expect([row("task-1").depth, row("task-4").depth, row("task-6").depth]).toEqual([0, 1, 0]);
-    // The lead is the row's own: the epic's fold, its task's step in, nothing for the rest.
-    expect([row("task-1").lead, row("task-4").lead, row("task-6").lead]).toEqual(["fold", "indent", "none"]);
+    // The gutter is the row's own: the epic's fold, its tasks' guide — stopping at the last — nothing for the rest.
+    expect(["task-1", "task-5", "task-4", "task-2", "task-6"].map((k) => row(k).lead)).toEqual(["fold", "guide", "guide", "guide-end", "none"]);
+    expect(["task-1", "task-4", "task-2", "task-6"].map((k) => row(k).leadClassName)).toEqual([
+      "tasks__row-lead",
+      "tasks__row-lead tasks__row-lead--guide",
+      "tasks__row-lead tasks__row-lead--guide tasks__row-lead--end",
+      "tasks__row-lead",
+    ]);
     // Every row of the group sits in it for a drop: the epic's status.
     expect(row("task-4").status).toBe("in-progress");
     expect(row("task-4").className).toContain("tasks__row--under-epic");
+    expect(row("task-2").className).toContain("tasks__row--under-epic");
+    expect(row("task-1").className).not.toContain("tasks__row--under-epic");
     expect(row("task-1").fold).toEqual({ folded: false, label: EPIC_FOLD_WORDS.fold });
     expect(row("task-4").fold).toBeNull();
     expect(row("task-2").edge).toBe("bottom");
