@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   REVEAL_AT_REST,
   revealEventsOf,
+  afterFocus,
   stripReveal,
   type RevealEvent,
   type RevealState,
@@ -91,8 +92,33 @@ describe("revealEventsOf — what a pointer event tells", () => {
     expect(revealEventsOf({ type: "cancel", inColumn: true, buttons: 0 })[1]).toEqual({ kind: "release" });
   });
 
+  it("tells a pointer the OS found resting as the window came to the front: where it is, no button held", () => {
+    expect(revealEventsOf({ type: "focus", inColumn: true, buttons: 0 })).toEqual([{ kind: "enter" }, { kind: "release" }]);
+    expect(revealEventsOf({ type: "focus", inColumn: false, buttons: 1 })).toEqual([{ kind: "leave" }, { kind: "release" }]);
+  });
+
   it("tells the buttons as they are on any other event — a let-go the page never heard is caught by the next move", () => {
     expect(revealEventsOf({ type: "move", inColumn: true, buttons: 0 })[1]).toEqual({ kind: "release" });
     expect(revealEventsOf({ type: "over", inColumn: true, buttons: 1 })[1]).toEqual({ kind: "press" });
+  });
+});
+
+describe("afterFocus — the OS's answer after the window came to the front", () => {
+  const on = (inColumn: boolean, pressed = false) => ({ inColumn, pressed });
+
+  it("tells a pointer resting with no button held: where it is, nothing pressed", () => {
+    expect(afterFocus({ point: on(true), heardFree: false, asksLeft: 3 })).toEqual({ tell: { type: "focus", inColumn: true, buttons: 0 } });
+    expect(afterFocus({ point: on(false), heardFree: false, asksLeft: 3 })).toEqual({ tell: { type: "focus", inColumn: false, buttons: 0 } });
+  });
+
+  it("asks again while the button that brought the window forward is still held — and gives up when the asks run out", () => {
+    expect(afterFocus({ point: on(true, true), heardFree: false, asksLeft: 1 })).toBe("ask-again");
+    expect(afterFocus({ point: on(true, true), heardFree: false, asksLeft: 0 })).toBe("done");
+  });
+
+  it("is done off the window, or once the page has heard the pointer with no button held — it knows better", () => {
+    expect(afterFocus({ point: null, heardFree: false, asksLeft: 3 })).toBe("done");
+    expect(afterFocus({ point: on(true), heardFree: true, asksLeft: 3 })).toBe("done");
+    expect(afterFocus({ point: on(true, true), heardFree: true, asksLeft: 3 })).toBe("done");
   });
 });

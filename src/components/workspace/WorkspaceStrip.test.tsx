@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { StripTeam, StripView, WorkspaceMark } from "../../presentation/stripView";
 import { WorkspaceStrip } from "./WorkspaceStrip";
 import {
+  STRIP_FOCUS_ASK_MS,
   STRIP_POINTER_CHECK_MS,
   STRIP_REVEAL_DWELL_MS,
   STRIP_REVEAL_GRACE_MS,
@@ -13,16 +14,21 @@ import {
 // Where the OS says the pointer is — in the window unless a test moves it.
 // `answer`, when set, is the one the next ask gets — a test holds it to
 // answer late.
+// `point` is where it says the pointer rests on the window — off it unless
+// a test puts it somewhere.
 const os = vi.hoisted(() => ({
   inWindow: true as boolean | null,
   asks: 0,
   answer: null as Promise<boolean | null> | null,
+  point: null as { x: number; y: number; pressed: boolean } | null,
+  pointAnswer: null as Promise<{ x: number; y: number; pressed: boolean } | null> | null,
 }));
 vi.mock("../../ipc/window", () => ({
   pointerInWindow: () => {
     os.asks += 1;
     return os.answer ?? Promise.resolve(os.inWindow);
   },
+  pointerOnWindow: () => os.pointAnswer ?? Promise.resolve(os.point),
 }));
 
 (
@@ -647,7 +653,7 @@ describe("WorkspaceStrip as the team switcher", () => {
     });
     try {
       render();
-      const ours = new Set(["pointerover", "pointermove", "pointerout", "pointerdown", "pointerup", "pointercancel", "mouseleave", "blur", "visibilitychange"]);
+      const ours = new Set(["pointerover", "pointermove", "pointerout", "pointerdown", "pointerup", "pointercancel", "mouseleave", "blur", "focus", "visibilitychange"]);
       const set = added.filter(([, type]) => ours.has(type));
       expect(new Set(set.map(([, type]) => type))).toEqual(ours);
       act(() => root.unmount());
@@ -749,6 +755,93 @@ describe("WorkspaceStrip as the team switcher", () => {
     openStrip();
     await act(async () => void vi.advanceTimersByTime(STRIP_POINTER_CHECK_MS * 5));
     expect(revealed()).toBe(true);
+  });
+
+  describe("a window coming to the front under a pointer that has not moved", () => {
+    // happy-dom lays nothing out: what is "under" the OS's point is said here.
+    let under: Element | null;
+    beforeEach(() => {
+      under = null;
+      vi.spyOn(document, "elementFromPoint").mockImplementation(() => under);
+    });
+    afterEach(() => {
+      os.point = null;
+      os.pointAnswer = null;
+      vi.restoreAllMocks();
+    });
+    const focus = () => act(async () => void window.dispatchEvent(new Event("focus")));
+
+    it("opens after the rest when the OS finds the pointer on the strip — no move needed", async () => {
+      render();
+      os.point = { x: 10, y: 40, pressed: false };
+      under = col().querySelector(".strip__mark") ?? col();
+      await focus();
+      expect(document.elementFromPoint).toHaveBeenCalledWith(10, 40);
+      act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS));
+      expect(revealed()).toBe(true);
+    });
+
+    it("stays shut when the pointer rests elsewhere on the window, or off it", async () => {
+      render();
+      os.point = { x: 600, y: 40, pressed: false };
+      under = document.body;
+      await focus();
+      os.point = null;
+      await focus();
+      act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS * 2));
+      expect(revealed()).toBe(false);
+    });
+
+    it("opens once the click that brought the window forward is let go — heard by the page only as a pointerover with the button held", async () => {
+      render();
+      os.point = { x: 10, y: 40, pressed: true };
+      under = col();
+      await focus();
+      // The activating click, as WKWebView delivers it: an over, button held — no down, never an up.
+      act(() => void col().dispatchEvent(new PointerEvent("pointerover", { bubbles: true, buttons: 1 })));
+      await act(async () => void vi.advanceTimersByTime(STRIP_FOCUS_ASK_MS * 3));
+      expect(revealed()).toBe(false);
+      os.point = { x: 10, y: 40, pressed: false };
+      await act(async () => void vi.advanceTimersByTime(STRIP_FOCUS_ASK_MS));
+      act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS));
+      expect(revealed()).toBe(true);
+    });
+
+    it("stops asking once the window loses focus", async () => {
+      render();
+      os.point = { x: 10, y: 40, pressed: true };
+      under = col();
+      await focus();
+      act(() => void window.dispatchEvent(new Event("blur")));
+      os.point = { x: 10, y: 40, pressed: false };
+      await act(async () => void vi.advanceTimersByTime(STRIP_FOCUS_ASK_MS * 5));
+      act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS * 2));
+      expect(revealed()).toBe(false);
+    });
+
+    it("drops an answer that lands after the window lost focus again", async () => {
+      render();
+      let answer!: (point: { x: number; y: number; pressed: boolean }) => void;
+      os.pointAnswer = new Promise((resolve) => (answer = resolve));
+      under = col();
+      await focus();
+      act(() => void window.dispatchEvent(new Event("blur")));
+      await act(async () => answer({ x: 10, y: 40, pressed: false }));
+      act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS * 2));
+      expect(revealed()).toBe(false);
+    });
+
+    it("drops an answer the page has outrun — the pointer moved off the strip while the OS was asked", async () => {
+      render();
+      let answer!: (point: { x: number; y: number; pressed: boolean }) => void;
+      os.pointAnswer = new Promise((resolve) => (answer = resolve));
+      under = col();
+      await focus();
+      pointer("pointermove");
+      await act(async () => answer({ x: 10, y: 40, pressed: false }));
+      act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS * 2));
+      expect(revealed()).toBe(false);
+    });
   });
 
   it("shuts when the pointer leaves the window, the window loses focus, or the page hides", () => {

@@ -177,6 +177,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             app_info,
             pointer::pointer_in_window,
+            pointer::pointer_on_window,
             app_updater::app_update_check,
             app_updater::app_update_install,
             app_updater::app_update_discard,

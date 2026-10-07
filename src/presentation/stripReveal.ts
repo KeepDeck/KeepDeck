@@ -19,6 +19,12 @@ export const STRIP_REVEAL_DWELL_MS = 250;
  * way to one must not lose the column; coming back inside keeps it open. */
 export const STRIP_REVEAL_GRACE_MS = 200;
 
+/** After the window comes to the front, how often the OS is asked again
+ * while a button is still held — the click that brought it forward, whose
+ * let-go the page never hears — and for how many asks at most. */
+export const STRIP_FOCUS_ASK_MS = 50;
+export const STRIP_FOCUS_ASKS = 40;
+
 /** How often an open strip asks the OS whether the pointer is still in the
  * window: a pointer leaving fast through the window's edge sends the page
  * nothing, and only this notices it went. */
@@ -118,7 +124,11 @@ export function stripReveal(state: RevealState, event: RevealEvent): RevealState
 
 /** What one pointer event says, read off the DOM by the wiring. */
 export interface PointerEvidence {
-  type: "over" | "move" | "out" | "down" | "up" | "cancel";
+  /** A pointer event's type — or `focus`: the window came to the front and
+   * the OS said where the pointer rests, a fact the page heard no event
+   * for (an inactive window is sent none, and the click that activates it
+   * does not reach the page). */
+  type: "over" | "move" | "out" | "down" | "up" | "cancel" | "focus";
   /** Whether the element now under the pointer is part of the column: the
    * event's target — for an out, the element it went to (none: it left
    * the window). */
@@ -140,7 +150,30 @@ export function revealEventsOf(e: PointerEvidence): RevealEvent[] {
     case "up":
     case "cancel":
       return [where, { kind: "release" }];
+    case "focus":
+      // A pointer resting where the OS found it, its click spent on
+      // bringing the window forward: on the column, the rest starts.
+      return [where, { kind: "release" }];
     default:
       return [where, { kind: e.buttons === 0 ? "release" : "press" }];
   }
+}
+
+/**
+ * What to do with the OS's answer after the window came to the front: the
+ * pointer it found, and whether the page has since heard the pointer with
+ * no button held (then the page knows where it is, and the answer is
+ * stale). A button still held is the click that brought the window
+ * forward: the page hears neither its down nor its up — a pointerover with
+ * the button held, at most — so the OS is asked again until it is let go,
+ * and only then is the pointer told, resting, no button held.
+ */
+export function afterFocus(answer: {
+  point: { inColumn: boolean; pressed: boolean } | null;
+  heardFree: boolean;
+  asksLeft: number;
+}): { tell: PointerEvidence } | "ask-again" | "done" {
+  if (answer.point === null || answer.heardFree) return "done";
+  if (answer.point.pressed) return answer.asksLeft > 0 ? "ask-again" : "done";
+  return { tell: { type: "focus", inColumn: answer.point.inColumn, buttons: 0 } };
 }
