@@ -18,6 +18,7 @@ import { nextIdSequence } from "../idSequence";
 import { collectExtras, isRecord } from "../json";
 import { createWorkspaceInstance } from "../workspaceInstance";
 import { MAX_PANES } from "./layout";
+import { isTaskUid } from "../tasks";
 
 /**
  * Deck persistence — schema, serialization and hydration ([F7]).
@@ -332,11 +333,11 @@ const WS_KNOWN_KEYS: ReadonlySet<string> = new Set([
   "view",
 ]);
 
-/** The folded epics as a hand edit may have left them: uids, each once
- * (its latest place). */
+/** The folded epics as a hand edit may have left them: what has the shape
+ * of a task uid (`isTaskUid`), each once (its latest place). */
 function readFoldedEpics(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
-  const uids = value.filter((uid): uid is string => typeof uid === "string" && uid !== "");
+  const uids = value.filter((uid): uid is string => typeof uid === "string" && isTaskUid(uid));
   return uids.filter((uid, at) => uids.indexOf(uid, at + 1) < 0);
 }
 

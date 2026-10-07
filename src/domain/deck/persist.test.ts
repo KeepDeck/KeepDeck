@@ -923,7 +923,7 @@ describe("a workspace's view, inside it (v12)", () => {
   });
 
   it("keeps the folded epics in the view — uids, each once at its latest place — and writes none when none is folded", () => {
-    const deck = okDeck(doc([ws("ws-1", { foldedEpics: ["u-1", 7, "", "u-2", "u-1"] }), ws("ws-2", { foldedEpics: "u-1" })]));
+    const deck = okDeck(doc([ws("ws-1", { foldedEpics: ["u-1", 7, "", "no uid!", "u-2", "u-1"] }), ws("ws-2", { foldedEpics: "u-1" })]));
     expect(deck.state.viewByWs).toEqual({ "ws-1": { foldedEpics: ["u-2", "u-1"] } });
     const saved = JSON.parse(serializeDeck(deck.state));
     expect(saved.workspaces[0].view).toEqual({ foldedEpics: ["u-2", "u-1"] });

@@ -59,10 +59,10 @@ import { stripView } from "../presentation/stripView";
 import { needsYouRows, type NeedsYouRow } from "../presentation/needsYouView";
 import { teamBranchOf, teamHead } from "../presentation/teamCardView";
 
-/** Shell/application wiring kept separate from the rendered app tree. */
 /** No epic folded: one list, so the dialog's set is not rebuilt each render. */
 const NO_FOLDED_EPICS: readonly string[] = [];
 
+/** Shell/application wiring kept separate from the rendered app tree. */
 export function useAppController() {
   const runtime = useAppRuntime();
   const { pluginRegistries, pluginHost } =
