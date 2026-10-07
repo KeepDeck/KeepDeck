@@ -9,6 +9,7 @@ import {
   listItemEstimate,
   listItemKey,
   listView,
+  epicFoldsAfter,
   rowInFlight,
   groupDropClassName,
   listHeadingDropClassName,
@@ -310,6 +311,16 @@ describe("listView — an epic with its tasks under it (B1)", () => {
     // Nothing in flight, or a task on no board on screen: no row.
     expect(rowInFlight(armRow("task-1", 0, 0, { width: 200, offsetX: 0, offsetY: 0 }), fb, "team-1", 0)).toBeNull();
     expect(flying("task-99")).toBeNull();
+  });
+
+  it("folds an epic at its chevron as the latest fold, unfolds it, and drops a fold of an epic the board no longer has", () => {
+    expect(epicFoldsAfter([], "uid-task-1", fb)).toEqual(["uid-task-1"]);
+    expect(epicFoldsAfter(["uid-task-1"], "uid-task-1", fb)).toEqual([]);
+    // A deleted epic, one gone to another workspace, a task that is no epic: they leave with the write.
+    const other = [...family, task({ id: "task-8", kind: "epic" })];
+    const ob = board(other, 9, fb.relations);
+    expect(epicFoldsAfter(["uid-gone", "uid-task-8", "uid-task-3"], "uid-task-1", ob)).toEqual(["uid-task-8", "uid-task-1"]);
+    expect(epicFoldsAfter(["uid-gone", "uid-task-1", "uid-task-8"], "uid-task-1", ob)).toEqual(["uid-task-8"]);
   });
 
   it("puts a task whose epic is not shown here at the top of its own group", () => {

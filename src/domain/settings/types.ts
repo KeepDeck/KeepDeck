@@ -143,21 +143,11 @@ export interface TasksBoardSettings {
 export interface TasksListSettings {
   /** The folded status groups, in ladder order, each once. */
   folded: readonly TaskStatus[];
-  /** The epics whose tasks are folded away, by uid — a task's id is per
-   * workspace, these settings are the app's — the least recently folded
-   * first, each once, at most `TASKS_FOLDED_EPICS_MAX`. An epic not in it
-   * shows its tasks. */
-  foldedEpics: readonly string[];
 }
 
 /** The groups a list folds until the person says otherwise: the parked
  * work and the closed — the ones that only grow and are not read first. */
 export const TASKS_FOLDED_DEFAULT: readonly TaskStatus[] = ["backlog", "done", "cancelled"];
-
-/** How many folded epics the list remembers. The settings outlive every
- * board they have seen and cannot tell a gone epic from one on a board
- * not open, so they forget the least recently folded instead. */
-export const TASKS_FOLDED_EPICS_MAX = 200;
 
 /** Every settings key. `keyof Settings` here, and the codec table is checked
  * against it, so the key set has exactly one home. */

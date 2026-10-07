@@ -23,6 +23,8 @@ export type DeckAction =
   | { type: "closeTeam"; wsId: string }
   | { type: "toggleDock"; wsId: string }
   | { type: "setDockTab"; wsId: string; tabId: string }
+  /** The Tasks list's folded epics on a workspace's board, whole. */
+  | { type: "setFoldedEpics"; wsId: string; uids: readonly string[] }
   | { type: "renamePane"; wsId: string; paneId: string; name: string }
   | { type: "setPaneAutoTitle"; wsId: string; paneId: string; title: string }
   /** Settle a team's roster — its name and every member's role — as ONE

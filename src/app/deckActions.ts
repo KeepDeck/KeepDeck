@@ -103,6 +103,8 @@ function buildDeckActions(store: DeckStore) {
     toggleDock: (wsId: string) => dispatch({ type: "toggleDock", wsId }),
     setDockTab: (wsId: string, tabId: string) =>
       dispatch({ type: "setDockTab", wsId, tabId }),
+    setFoldedEpics: (wsId: string, uids: readonly string[]) =>
+      dispatch({ type: "setFoldedEpics", wsId, uids }),
     renamePane: (wsId: string, paneId: string, name: string) =>
       dispatch({ type: "renamePane", wsId, paneId, name }),
     setPaneAutoTitle: (wsId: string, paneId: string, title: string) =>

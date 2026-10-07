@@ -17,6 +17,14 @@ export interface WorkspaceView {
    * the open team's members, or nothing — every writer that repairs it
    * repairs it within the slice. */
   teamOpen?: string;
+  /** The epics whose tasks the Tasks list folds away on this workspace's
+   * board, by uid — absent, every epic shows its tasks. Written whole by
+   * the dialog (`epicFoldsAfter`, which drops the epics the board no
+   * longer has); it leaves with the workspace. */
+  foldedEpics?: readonly string[];
+  /** The stored view's fields this build does not know (a newer
+   * revision's) — kept so a save writes them back, never read. */
+  extras?: Record<string, unknown>;
 }
 
 export type WorkspaceViewMap = Record<string, WorkspaceView>;
@@ -30,7 +38,9 @@ function isEmptyView(view: WorkspaceView): boolean {
     view.dockTab === undefined &&
     view.minimized === undefined &&
     view.suspendedTray === undefined &&
-    view.teamOpen === undefined
+    view.teamOpen === undefined &&
+    view.foldedEpics === undefined &&
+    view.extras === undefined
   );
 }
 
