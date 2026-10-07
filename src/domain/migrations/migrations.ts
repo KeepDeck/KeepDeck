@@ -71,8 +71,9 @@ export type MigrationOutcome =
  *       11: a v11 reader finds no top-level maps and opens every workspace
  *       at its defaults — it loses where the person was, misreads nothing
  *       — and carries `view` along as an extra. Its save writes v11 again,
- *       so the hop runs again on the next v12 read, the maps it wrote (the
- *       later answer) laid over the view it carried.
+ *       with all three maps, so the hop runs again on the next v12 read:
+ *       the maps it wrote are that session's whole answer for the three
+ *       fields, and the rest of the view it carried is kept.
  */
 export const DECK_STATE_VERSION = 12;
 /** The oldest reader that can still make sense of a current document. It was
@@ -415,26 +416,33 @@ const V11_VIEW_MAPS = { focusByWs: "focus", selectByWs: "select", teamOpenByWs: 
  * `selectByWs` and `teamOpenByWs` maps move into that workspace's `view`,
  * and the maps are deleted. An entry is moved as stored — what still holds
  * is the reader's call, as it was; an entry for no workspace goes with its
- * map. A `view` already on a workspace (one a v11 build carried along as an
- * extra) is kept, the maps' entries laid over it: that build's answer is
- * the later one.
+ * map. A `view` already on a workspace is one a v11 build carried along as
+ * an extra, and that build wrote the maps after it — every v11 save writes
+ * all three — so the maps are its whole answer for the three fields: a
+ * field it cleared (no entry) is cleared, not brought back from the carried
+ * view; the carried view's other fields (a later revision's) are kept. A
+ * document with none of the maps was not written by a v11 build, and its
+ * views are left as they are.
  */
 function migrateDeckFromV11toV12(doc: RawDoc): RawDoc {
   const { focusByWs, selectByWs, teamOpenByWs, ...rest } = doc;
   const maps = { focusByWs, selectByWs, teamOpenByWs };
   const workspaces = doc.workspaces;
-  if (!Array.isArray(workspaces)) return rest;
+  const v11Wrote = Object.values(maps).some((map) => map !== undefined);
+  if (!Array.isArray(workspaces) || !v11Wrote) return rest;
   return {
     ...rest,
     workspaces: workspaces.map((ws) => {
       if (!isRecord(ws) || typeof ws.id !== "string") return ws;
-      const moved: RawDoc = {};
+      // The carried view without the three fields the maps answer for.
+      const view: RawDoc = isRecord(ws.view) ? { ...ws.view } : {};
       for (const [map, field] of Object.entries(V11_VIEW_MAPS)) {
+        delete view[field];
         const entries = maps[map as keyof typeof maps];
-        if (isRecord(entries) && entries[ws.id] !== undefined) moved[field] = entries[ws.id];
+        if (isRecord(entries) && entries[ws.id] !== undefined) view[field] = entries[ws.id];
       }
-      if (Object.keys(moved).length === 0) return ws;
-      return { ...ws, view: { ...(isRecord(ws.view) ? ws.view : {}), ...moved } };
+      const { view: _carried, ...bare } = ws;
+      return Object.keys(view).length > 0 ? { ...bare, view } : bare;
     }),
   };
 }
