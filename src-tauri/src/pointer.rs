@@ -84,15 +84,46 @@ pub fn pointer_in_window(window: tauri::WebviewWindow) -> Option<bool> {
     pointer_on_content(&window).map(|on| on.is_some())
 }
 
+/// The pointer on the window's content, as `pointer_on_window` answers it.
+#[derive(serde::Serialize)]
+pub struct PointerOnWindow {
+    /// CSS pixels from the content's top-left corner.
+    x: f64,
+    y: f64,
+    /// A mouse button is held: the click that brought the window forward
+    /// may not be over yet, and the page hears neither its down nor its up.
+    pressed: bool,
+}
+
+/// Whether any mouse button is held, asked of the OS.
+#[cfg(target_os = "macos")]
+fn buttons_held() -> bool {
+    use objc2::{class, msg_send};
+    use objc2_foundation::NSUInteger;
+    let held: NSUInteger = unsafe { msg_send![class!(NSEvent), pressedMouseButtons] };
+    held != 0
+}
+
+#[cfg(not(target_os = "macos"))]
+fn buttons_held() -> bool {
+    false
+}
+
 /// Where the pointer is on the window's content, in CSS pixels from its
-/// top-left corner — for a window coming to the front under a pointer
-/// that has not moved, which the web view does not hear. `None` off the
-/// content, or where the OS cannot say: either way, nothing to tell.
+/// top-left corner, and whether a button is held — for a window coming to
+/// the front under a pointer that has not moved, which the web view does
+/// not hear. `None` off the content, or where the OS cannot say: either
+/// way, nothing to tell.
 ///
 /// SYNC ON PURPOSE, as `pointer_in_window`.
 #[tauri::command]
-pub fn pointer_on_window(window: tauri::WebviewWindow) -> Option<(f64, f64)> {
-    pointer_on_content(&window).flatten()
+pub fn pointer_on_window(window: tauri::WebviewWindow) -> Option<PointerOnWindow> {
+    let (x, y) = pointer_on_content(&window).flatten()?;
+    Some(PointerOnWindow {
+        x,
+        y,
+        pressed: buttons_held(),
+    })
 }
 
 #[cfg(test)]

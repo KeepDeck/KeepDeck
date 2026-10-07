@@ -4,11 +4,15 @@ import {
   STRIP_REVEAL_DWELL_MS,
   STRIP_POINTER_CHECK_MS,
   STRIP_REVEAL_GRACE_MS,
+  STRIP_FOCUS_ASK_MS,
+  STRIP_FOCUS_ASKS,
+  afterFocus,
   revealEventsOf,
   stripReveal,
   type PointerEvidence,
 } from "../../presentation/stripReveal";
 import { pointerInWindow, pointerOnWindow } from "../../ipc/window";
+
 
 /**
  * The strip's slide-out, wired: the rules are `stripReveal`'s; this keeps
@@ -30,15 +34,22 @@ import { pointerInWindow, pointerOnWindow } from "../../ipc/window";
  * is (`pointerInWindow`), and outside the window is a leave. Nor does the
  * page hear a pointer that rests on the strip of an inactive window: the
  * OS sends it no move, and the click that brings the window forward does
- * not reach it — so when the window comes to the front, the OS is asked
- * where the pointer rests (`pointerOnWindow`), and the strip opens after
- * the rest as if the pointer had just come.
+ * not reach it, or only as a pointerover with the button held, its let-go
+ * never — so when the window comes to the front, the OS is asked where
+ * the pointer rests and whether the button is held (`pointerOnWindow`),
+ * again until it is let go (`afterFocus`), and the strip opens after the
+ * rest as if the pointer had just come.
  */
 export function useStripReveal(column: RefObject<HTMLElement | null>, suspended: boolean) {
   const [state, dispatch] = useReducer(stripReveal, REVEAL_AT_REST);
   // Pointer events seen so far: an OS answer asked before the latest one
   // is stale — the page has heard the pointer since.
   const seen = useRef(0);
+  // Of them, the ones with no button held: after the window comes to the
+  // front, only such an event tells the page where the pointer rests — the
+  // click that brought it forward arrives as one with the button held, and
+  // its let-go never does.
+  const seenFree = useRef(0);
 
   useEffect(() => {
     if (!state.dwelling) return;
@@ -91,6 +102,7 @@ export function useStripReveal(column: RefObject<HTMLElement | null>, suspended:
     // changes nothing on a fact it already holds.
     const tell = (type: PointerEvidence["type"], e: PointerEvent, under: EventTarget | null) => {
       seen.current += 1;
+      if (e.buttons === 0 && type !== "down") seenFree.current += 1;
       for (const event of revealEventsOf({ type, inColumn: inColumn(under), buttons: e.buttons })) {
         dispatch(event);
       }
@@ -105,20 +117,39 @@ export function useStripReveal(column: RefObject<HTMLElement | null>, suspended:
     // this window (a plugin taking it by script): the strip shuts under a
     // resting pointer and opens again on the next move and rest — a
     // flicker, never a stuck strip.
-    const gone = () => dispatch({ kind: "leave" });
+    // The asks after the window came to the front: one run at a time — a
+    // new focus, a blur or the strip going away ends the one in flight.
+    let focusRun = 0;
+    let focusTimer: number | undefined;
+    const endFocusRun = () => {
+      focusRun += 1;
+      window.clearTimeout(focusTimer);
+    };
+    const gone = () => {
+      endFocusRun();
+      dispatch({ kind: "leave" });
+    };
     const onFocus = () => {
-      const asked = seen.current;
-      pointerOnWindow().then(
-        (point) => {
-          // Off the window, or the page has heard the pointer since: nothing to add.
-          if (point === null || seen.current !== asked) return;
-          for (const event of revealEventsOf({ type: "focus", inColumn: inColumn(document.elementFromPoint(point.x, point.y)), buttons: 0 })) {
-            dispatch(event);
-          }
-        },
-        // Unanswered (no OS behind the page): the next pointer event tells.
-        () => {},
-      );
+      endFocusRun();
+      const run = focusRun;
+      const free = seenFree.current;
+      const ask = (asksLeft: number) =>
+        pointerOnWindow().then(
+          (point) => {
+            if (run !== focusRun) return;
+            const under = point && inColumn(document.elementFromPoint(point.x, point.y));
+            const next = afterFocus({
+              point: point && { inColumn: under === true, pressed: point.pressed },
+              heardFree: seenFree.current !== free,
+              asksLeft,
+            });
+            if (next === "ask-again") focusTimer = window.setTimeout(() => void ask(asksLeft - 1), STRIP_FOCUS_ASK_MS);
+            else if (next !== "done") for (const event of revealEventsOf(next.tell)) dispatch(event);
+          },
+          // Unanswered (no OS behind the page): the next pointer event tells.
+          () => {},
+        );
+      void ask(STRIP_FOCUS_ASKS);
     };
     const onHidden = () => {
       if (document.visibilityState === "hidden") gone();
@@ -142,6 +173,7 @@ export function useStripReveal(column: RefObject<HTMLElement | null>, suspended:
       document.documentElement.removeEventListener("mouseleave", gone);
       window.removeEventListener("blur", gone);
       window.removeEventListener("focus", onFocus);
+      endFocusRun();
       document.removeEventListener("visibilitychange", onHidden);
     };
     // The column is the strip's own element, mounted with it.
