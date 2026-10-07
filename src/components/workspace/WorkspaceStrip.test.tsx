@@ -819,6 +819,18 @@ describe("WorkspaceStrip as the team switcher", () => {
       expect(revealed()).toBe(false);
     });
 
+    it("drops an answer that lands after the window lost focus again", async () => {
+      render();
+      let answer!: (point: { x: number; y: number; pressed: boolean }) => void;
+      os.pointAnswer = new Promise((resolve) => (answer = resolve));
+      under = col();
+      await focus();
+      act(() => void window.dispatchEvent(new Event("blur")));
+      await act(async () => answer({ x: 10, y: 40, pressed: false }));
+      act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS * 2));
+      expect(revealed()).toBe(false);
+    });
+
     it("drops an answer the page has outrun — the pointer moved off the strip while the OS was asked", async () => {
       render();
       let answer!: (point: { x: number; y: number; pressed: boolean }) => void;
