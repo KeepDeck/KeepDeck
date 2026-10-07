@@ -105,6 +105,7 @@ function App() {
     tasksOpen,
     tasksFocus,
     stageTeamId,
+    epicFolds,
     focusTask,
     openStats,
     closeStats,
@@ -378,6 +379,7 @@ function App() {
           {tasksOpen && (
             <TasksDialog
               stageTeam={stageTeamId}
+              epicFolds={epicFolds}
               tasks={tasks}
               artifactReads={registryReads}
               workspace={active}

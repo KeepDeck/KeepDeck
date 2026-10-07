@@ -1,10 +1,9 @@
 import type { AgentType } from "../agents";
 import { isRecord } from "../json";
-import { inLadderOrder, isTaskStatus, isTaskUid } from "../tasks";
+import { inLadderOrder, isTaskStatus } from "../tasks";
 import {
   DOCK_MODES,
   TASKS_FOLDED_DEFAULT,
-  TASKS_FOLDED_EPICS_MAX,
   NOTIFICATION_MODES,
   SCROLLBACK_MAX,
   SCROLLBACK_MIN,
@@ -49,7 +48,7 @@ const DEFAULT_NOTIFICATIONS = freezeBag<Settings["notifications"]>({
 });
 
 const DEFAULT_TASKS_BOARD: Settings["tasksBoard"] = Object.freeze({
-  list: Object.freeze({ folded: Object.freeze([...TASKS_FOLDED_DEFAULT]), foldedEpics: Object.freeze([]) }),
+  list: Object.freeze({ folded: Object.freeze([...TASKS_FOLDED_DEFAULT]) }),
 });
 
 /** Where a discarded stored value is reported, so a load can say what it
@@ -193,8 +192,11 @@ function readTasksBoard(value: unknown, discard: Discard): Settings["tasksBoard"
   return { list };
 }
 
+/** The list's arrangement. A stored `foldedEpics` (the folded epics lived
+ * here at v26) is consumed: read for nothing, never written back — they
+ * are a workspace's view now (deck.json). */
 function readTasksList(value: Record<string, unknown>, discard: Discard): Settings["tasksBoard"]["list"] {
-  return { folded: readFoldedGroups(value.folded, discard), foldedEpics: readFoldedEpics(value.foldedEpics, discard) };
+  return { folded: readFoldedGroups(value.folded, discard) };
 }
 
 function readFoldedGroups(stored: unknown, discard: Discard): Settings["tasksBoard"]["list"]["folded"] {
@@ -204,20 +206,6 @@ function readFoldedGroups(stored: unknown, discard: Discard): Settings["tasksBoa
   }
   if (stored.some((status) => !isTaskStatus(status))) discard("tasksBoard.list.folded");
   return inLadderOrder(stored);
-}
-
-/** The folded epics: what is no uid is dropped (and said); a repeat keeps
- * its latest place, and only the most recent `TASKS_FOLDED_EPICS_MAX` stay
- * — a hand edit's extra is no posture. Absent (a file from before v26):
- * none folded. */
-function readFoldedEpics(stored: unknown, discard: Discard): Settings["tasksBoard"]["list"]["foldedEpics"] {
-  if (!Array.isArray(stored)) {
-    if (stored !== undefined) discard("tasksBoard.list.foldedEpics");
-    return [];
-  }
-  const uids = stored.filter((uid): uid is string => typeof uid === "string" && isTaskUid(uid));
-  if (uids.length !== stored.length) discard("tasksBoard.list.foldedEpics");
-  return uids.filter((uid, at) => uids.indexOf(uid, at + 1) < 0).slice(-TASKS_FOLDED_EPICS_MAX);
 }
 
 /**

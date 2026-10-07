@@ -60,6 +60,9 @@ import { needsYouRows, type NeedsYouRow } from "../presentation/needsYouView";
 import { teamBranchOf, teamHead } from "../presentation/teamCardView";
 
 /** Shell/application wiring kept separate from the rendered app tree. */
+/** No epic folded: one list, so the dialog's set is not rebuilt each render. */
+const NO_FOLDED_EPICS: readonly string[] = [];
+
 export function useAppController() {
   const runtime = useAppRuntime();
   const { pluginRegistries, pluginHost } =
@@ -486,6 +489,12 @@ export function useAppController() {
     /** The open team, or null at the team cards — the board the Tasks
      * dialog opens on. */
     stageTeamId: openTeam?.id ?? null,
+    /** The epics folded on the active workspace's board — its view's —
+     * and their write; the Tasks dialog folds through it. */
+    epicFolds: {
+      folded: activeView.foldedEpics ?? NO_FOLDED_EPICS,
+      onChange: (uids: readonly string[]) => active && deck.setFoldedEpics(active.id, uids),
+    },
     focusTask: modal.focusTask,
     openStats: modal.openStats,
     closeStats: modal.closeStats,

@@ -184,6 +184,7 @@ function storedView(view: WorkspaceView | undefined): Record<string, unknown> | 
     ...(view.focus !== undefined && { focus: view.focus }),
     ...(view.select !== undefined && { select: view.select }),
     ...(view.teamOpen !== undefined && { teamOpen: view.teamOpen }),
+    ...(view.foldedEpics !== undefined && { foldedEpics: view.foldedEpics }),
   };
   return Object.keys(stored).length > 0 ? stored : undefined;
 }
@@ -193,7 +194,9 @@ function storedView(view: WorkspaceView | undefined): Record<string, unknown> | 
  * still RESOLVE — a solo workspace is never maximized, and a stale key would
  * otherwise maximize the wrong pane as soon as a second pane is added — and
  * the open team must be one of its teams; anything else is dropped, and the
- * stage shows its defaults. Undefined when nothing of it stands. */
+ * stage shows its defaults. The folded epics are kept as written — the
+ * board they name is not read yet; the list asks it. Undefined when
+ * nothing of it stands. */
 function readView(value: unknown, ws: Workspace): WorkspaceView | undefined {
   if (!isRecord(value)) return undefined;
   const paneIds = new Set(ws.panes.map((pane) => pane.id));
@@ -205,6 +208,8 @@ function readView(value: unknown, ws: Workspace): WorkspaceView | undefined {
   if (typeof value.teamOpen === "string" && teamsOf(ws).some((team) => team.id === value.teamOpen)) {
     view.teamOpen = value.teamOpen;
   }
+  const foldedEpics = readFoldedEpics(value.foldedEpics);
+  if (foldedEpics.length > 0) view.foldedEpics = foldedEpics;
   const extras = collectExtras(value, VIEW_KNOWN_KEYS);
   if (Object.keys(extras).length > 0) view.extras = extras;
   return Object.keys(view).length > 0 ? view : undefined;
@@ -327,12 +332,21 @@ const WS_KNOWN_KEYS: ReadonlySet<string> = new Set([
   "view",
 ]);
 
+/** The folded epics as a hand edit may have left them: uids, each once
+ * (its latest place). */
+function readFoldedEpics(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const uids = value.filter((uid): uid is string => typeof uid === "string" && uid !== "");
+  return uids.filter((uid, at) => uids.indexOf(uid, at + 1) < 0);
+}
+
 /** A stored view's keys this build owns: the durable ones, and the
  * session-only ones a hand edit might write — dropped, never carried. */
 const VIEW_KNOWN_KEYS: ReadonlySet<string> = new Set([
   "focus",
   "select",
   "teamOpen",
+  "foldedEpics",
   "dock",
   "dockTab",
   "minimized",

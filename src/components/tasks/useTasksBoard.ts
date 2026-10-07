@@ -36,9 +36,8 @@ import {
   assigneeOf,
   pickedOrNone,
   boardFolded,
-  boardFoldedEpics,
-  boardWithEpicFold,
   boardWithFold,
+  epicFoldsAfter,
   rowInFlight,
   dragOutlived,
   taskOnScreen,
@@ -83,6 +82,13 @@ export type { RowGrip } from "../../presentation/tasks";
  * `focus`/`onFocus` are the modal router's: a notification opens the
  * dialog on a task through the same seam a click selects one.
  */
+/** The epics folded on the workspace's board — the workspace's view, kept
+ * by the deck — and the write of a new list (`epicFoldsAfter`'s). */
+export interface EpicFolds {
+  folded: readonly string[];
+  onChange(uids: readonly string[]): void;
+}
+
 export function useTasksBoard(
   access: TasksAccess,
   workspace: Workspace | null,
@@ -97,6 +103,7 @@ export function useTasksBoard(
   /** The artifacts registry as this surface may read it — for the open
    * task's attachments. Bound once at the composition root. */
   artifactReads: ArtifactsRegistryReadPort,
+  epicFolds: EpicFolds,
 ) {
   const workspaceId = workspace?.id ?? null;
   const { service, revision, state } = useTasksBoardFeed(access, workspaceId);
@@ -170,12 +177,14 @@ export function useTasksBoard(
   // shows the Duplicate control as busy.
   const duplicating = useRef(false);
   const [copying, setCopying] = useState(false);
-  // The board's posture — the list's folds, of groups and of epics — is a setting, kept across
+  // The board's posture — the list's folded groups — is a setting, kept across
   // openings and launches (user); every change reads the latest stored
   // posture, so a change that lands later never writes back a stale one.
   const posture = (useSettings() ?? DEFAULT_SETTINGS).tasksBoard;
   const folded = useMemo(() => boardFolded(posture), [posture]);
-  const foldedEpics = useMemo(() => boardFoldedEpics(posture), [posture]);
+  // The folded epics are the workspace's view — they come and go with its
+  // board, which app-wide settings cannot follow.
+  const foldedEpics = useMemo(() => new Set(epicFolds.folded), [epicFolds.folded]);
   // The person's folds, of groups and of epics, as ONE token: the list
   // eases a change of it, and only that (VirtualList easeKey).
   const folds = useMemo(() => ({ groups: folded, epics: foldedEpics }), [folded, foldedEpics]);
@@ -356,7 +365,9 @@ export function useTasksBoard(
     dropOn: release,
     listItems,
     fold: (status: TaskStatus) => keepPosture((stored) => boardWithFold(stored, status)),
-    foldEpic: (uid: string) => keepPosture((stored) => boardWithEpicFold(stored, uid)),
+    foldEpic: (uid: string) => {
+      if (board) epicFolds.onChange(epicFoldsAfter(epicFolds.folded, uid, board));
+    },
     folds,
     filters,
     nothingFound,

@@ -12,7 +12,7 @@ import { useWallClock } from "../../ui/useWallClock";
 import { NewTaskForm } from "./NewTaskForm";
 import { TaskDetail } from "./TaskDetail";
 import { RowLead, TaskList, TaskRowLine } from "./TaskList";
-import { useTasksBoard, type TasksAccess } from "./useTasksBoard";
+import { useTasksBoard, type EpicFolds, type TasksAccess } from "./useTasksBoard";
 
 interface TasksDialogProps {
   /** The board's owner as the runtime hands it out. */
@@ -32,6 +32,9 @@ interface TasksDialogProps {
   canClose?: boolean;
   /** The artifacts registry's reads, bound once at the composition root. */
   artifactReads: ArtifactsRegistryReadPort;
+  /** The epics folded on this workspace's board — its view's, kept by the
+   * deck — and the write of a new list. */
+  epicFolds: EpicFolds;
 }
 
 /**
@@ -59,9 +62,10 @@ function WorkspaceBoard({
   onClose,
   canClose = true,
   artifactReads,
+  epicFolds,
 }: TasksDialogProps) {
   const now = useWallClock(0, true);
-  const board = useTasksBoard(tasks, workspace, stageTeam, focus, onFocus, onClose, now, artifactReads);
+  const board = useTasksBoard(tasks, workspace, stageTeam, focus, onFocus, onClose, now, artifactReads, epicFolds);
   // Escape peels one layer; which one, and whether that is the dialog
   // itself, is the screen machine's call.
   // Scoped to the dialog's own surface: a confirm stacked over it (Duplicate,

@@ -45,6 +45,17 @@ vi.mock("../../app/settingsManager", () => ({
   },
 }));
 
+/** The workspace's folded epics as the deck keeps them — its view's —
+ * here a plain value the dialog's writes replace. */
+const deckView = { foldedEpics: [] as readonly string[] };
+const epicFolds = (rerender: () => void) => ({
+  folded: deckView.foldedEpics,
+  onChange: (uids: readonly string[]) => {
+    deckView.foldedEpics = uids;
+    rerender();
+  },
+});
+
 /** The owner as the runtime hands it out — here a fixed service, or none. */
 function access(service: TasksService | null): TasksAccess {
   return { current: () => service, subscribe: () => () => {} };
@@ -69,6 +80,7 @@ let restoreCard: () => void;
 
 beforeEach(() => {
   settingsStore.current = DEFAULT_SETTINGS;
+  deckView.foldedEpics = [];
   installResizeObserver();
   restoreViewport = pinListViewport("tasks__list", 600, 900, 34);
   restoreCard = pinListViewport("tasks__detail-body", 4000, 440, 40);
@@ -112,6 +124,7 @@ function mount(service: TasksService | null, initial = teamedWorkspaces()[0], st
         render();
       },
       onClose: vi.fn(),
+      epicFolds: epicFolds(() => void render()),
     });
     return act(() => root.render(strict ? createElement(StrictMode, null, dialog) : dialog));
   };
@@ -540,6 +553,7 @@ describe("TasksDialog", () => {
             focus,
             onFocus,
             onClose,
+            epicFolds: epicFolds(() => {}),
           }),
         ),
       );
@@ -587,6 +601,7 @@ describe("TasksDialog", () => {
               render();
             },
             onClose,
+            epicFolds: epicFolds(() => {}),
           }),
         ),
       );
@@ -790,10 +805,12 @@ describe("TasksDialog", () => {
     act(() => fold().click());
     await flush();
     expect(rowTitles()).toEqual(["Draft the skill", "The epic"]);
-    // The fold is a setting, kept by the epic's uid: closed and opened again, the epic stays folded.
+    // The fold is the workspace's view, kept by the deck by the epic's uid — never a setting:
+    // closed and opened again, the epic stays folded.
     const epic = service.peek("ws-1");
     const epicUid = epic?.kind === "ready" ? epic.board.tasks.find((t) => t.id === "task-3")?.uid : undefined;
-    expect(settingsStore.current?.tasksBoard.list.foldedEpics).toEqual([epicUid]);
+    expect(deckView.foldedEpics).toEqual([epicUid]);
+    expect(settingsStore.current?.tasksBoard).toEqual(DEFAULT_SETTINGS.tasksBoard);
     act(() => root.unmount());
     root = createRoot(host);
     mount(service)();
@@ -801,7 +818,7 @@ describe("TasksDialog", () => {
     expect(rowTitles()).toEqual(["Draft the skill", "The epic"]);
     act(() => fold().click());
     await flush();
-    expect(settingsStore.current?.tasksBoard.list.foldedEpics).toEqual([]);
+    expect(deckView.foldedEpics).toEqual([]);
     act(() => fold().click());
     act(() => fold().click());
     await flush();

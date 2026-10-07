@@ -423,6 +423,14 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         state,
         setViewField(state.viewByWs, action.wsId, "dockTab", action.tabId),
       );
+    case "setFoldedEpics":
+      // A workspace's view only while it is open on the deck; none folded
+      // is no entry at all.
+      if (!state.workspaces.some((ws) => ws.id === action.wsId)) return state;
+      return withView(
+        state,
+        setViewField(state.viewByWs, action.wsId, "foldedEpics", action.uids.length > 0 ? action.uids : undefined),
+      );
     case "renamePane":
       return {
         ...state,

@@ -370,6 +370,26 @@ describe("deckReducer setDockTab (remembered per workspace)", () => {
   });
 });
 
+describe("deckReducer setFoldedEpics (the Tasks list's folded epics, a workspace's view)", () => {
+  it("keeps each workspace's folded epics on its own view; none folded is no entry", () => {
+    let next = deckReducer(state({ workspaces: [ws("a", ["a-1"]), ws("b", ["b-1"])], activeId: "a" }), {
+      type: "setFoldedEpics",
+      wsId: "a",
+      uids: ["u-1", "u-2"],
+    });
+    next = deckReducer(next, { type: "setFoldedEpics", wsId: "b", uids: ["u-9"] });
+    expect(next.viewByWs).toEqual({ a: { foldedEpics: ["u-1", "u-2"] }, b: { foldedEpics: ["u-9"] } });
+    expect(deckReducer(next, { type: "setFoldedEpics", wsId: "a", uids: [] }).viewByWs).toEqual({ b: { foldedEpics: ["u-9"] } });
+  });
+
+  it("writes nothing for a workspace the deck does not have, and they leave with their workspace", () => {
+    const start = state({ workspaces: [ws("a", ["a-1"]), ws("b", ["b-1"])], activeId: "a" });
+    expect(deckReducer(start, { type: "setFoldedEpics", wsId: "gone", uids: ["u-1"] })).toBe(start);
+    const folded = deckReducer(start, { type: "setFoldedEpics", wsId: "b", uids: ["u-1"] });
+    expect(deckReducer(folded, { type: "closeWorkspace", id: "b", at: "2026-10-07T00:00:00Z" }).viewByWs).not.toHaveProperty("b");
+  });
+});
+
 describe("deckReducer moveWorkspace", () => {
   it("reorders the workspaces, leaving active/selection untouched", () => {
     const next = deckReducer(

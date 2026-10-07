@@ -143,6 +143,16 @@ function epicFold(task: Task, foldedEpics: ReadonlySet<string>): ListRow["fold"]
   return { folded, label: folded ? EPIC_FOLD_WORDS.unfold : EPIC_FOLD_WORDS.fold, uid: task.uid };
 }
 
+/** A workspace's folded epics after an epic's chevron: it folds (the
+ * latest fold last) or unfolds — and a uid of no epic on the board any
+ * more (deleted, gone to another workspace) leaves with the write, so the
+ * list never outgrows the board's epics. */
+export function epicFoldsAfter(folded: readonly string[], uid: string, board: TaskBoard): readonly string[] {
+  const epics = new Set(board.tasks.filter((task) => task.kind === "epic").map((task) => task.uid));
+  const kept = folded.filter((other) => other !== uid && epics.has(other));
+  return folded.includes(uid) ? kept : [...kept, uid];
+}
+
 /** A gutter's classes: the gutter, and the guide — ending at the last. */
 function leadClassName(lead: RowLead): string {
   return [

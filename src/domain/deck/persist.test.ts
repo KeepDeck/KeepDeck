@@ -922,6 +922,14 @@ describe("a workspace's view, inside it (v12)", () => {
     expect(okDeck(doc([ws("ws-1", { future: 2 })])).state.viewByWs).toEqual({ "ws-1": { extras: { future: 2 } } });
   });
 
+  it("keeps the folded epics in the view — uids, each once at its latest place — and writes none when none is folded", () => {
+    const deck = okDeck(doc([ws("ws-1", { foldedEpics: ["u-1", 7, "", "u-2", "u-1"] }), ws("ws-2", { foldedEpics: "u-1" })]));
+    expect(deck.state.viewByWs).toEqual({ "ws-1": { foldedEpics: ["u-2", "u-1"] } });
+    const saved = JSON.parse(serializeDeck(deck.state));
+    expect(saved.workspaces[0].view).toEqual({ foldedEpics: ["u-2", "u-1"] });
+    expect(saved.workspaces[1]).not.toHaveProperty("view");
+  });
+
   it("takes a v11 file's top-level maps into the workspaces they name", () => {
     const deck = okDeck(
       JSON.stringify({

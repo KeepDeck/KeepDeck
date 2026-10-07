@@ -528,6 +528,11 @@ const DECK_MIGRATIONS: Record<number, Migration> = {
  *       folds away, by uid, kept across openings and launches (they
  *       lived for the dialog's life). Additive: an absent key is none
  *       folded, and an older reader keeps the key it does not know.
+ * 27 — − tasksBoard.list.foldedEpics: the folded epics are a workspace's
+ *       view (deck.json v12, `Workspace.view.foldedEpics`) — they come
+ *       and go with a board, which app-wide settings cannot follow. A
+ *       stored list is consumed like mcpServer; it is not carried over,
+ *       naming no workspace. An older reader keeps its own default.
  *
  * No ladder: the document is per-key tolerant (independent facts,
  * hand-editable), which IS its migration mechanism while changes stay
@@ -535,7 +540,7 @@ const DECK_MIGRATIONS: Record<number, Migration> = {
  * step that changes a field's meaning gets a `migrateSettingsFromV*toV*`
  * here, a ladder like the deck's, and a raised floor.
  */
-export const SETTINGS_VERSION = 26;
+export const SETTINGS_VERSION = 27;
 export const SETTINGS_MIN_READER = 1;
 
 /** The file's effective compatibility floor: what it declares, else its own

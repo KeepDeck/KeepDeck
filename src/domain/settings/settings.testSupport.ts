@@ -52,7 +52,7 @@ export const NON_DEFAULT: { [K in SettingsKey]: Settings[K] } = {
   artifacts: true,
   artifactAutoOpen: false,
   tasks: true,
-  tasksBoard: { list: { folded: ["done"], foldedEpics: ["5b0c2f3e-epic"] } },
+  tasksBoard: { list: { folded: ["done"] } },
 };
 
 export const SETTINGS_KEYS = Object.keys(DEFAULT_SETTINGS) as SettingsKey[];
