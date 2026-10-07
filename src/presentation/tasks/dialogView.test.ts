@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { board, task } from "../../domain/tasks/testSupport";
 import { QUERY_WORDS } from "./queryView";
-import { rowInFlight, taskRowView, type TaskRowView } from "./taskRowView";
+import { taskRowView } from "./taskRowView";
+import { rowInFlight, type RowInFlight } from "./listView";
 import { IDLE, armRow, moveRow } from "./rowDrag";
 import { tasksDialogView } from "./dialogView";
 import { LADDER_WORDS, type TasksLadder } from "./ladderView";
@@ -14,7 +15,7 @@ const TEAMS = [
 const base = {
   ladder: { kind: "board" } as TasksLadder,
   drag: IDLE,
-  inFlight: null as TaskRowView | null,
+  inFlight: null as RowInFlight | null,
   teams: TEAMS,
   teamId: "team-1" as string | null,
   composing: false,
@@ -80,7 +81,10 @@ describe("tasksDialogView", () => {
     const dragging = moveRow(armed, 50, 50, () => new Set(["done" as const]));
     const flying = view({ drag: dragging, inFlight: rowInFlight(dragging, b, "team-1", 0) });
     expect(flying.className).toBe("form tasks tasks--dragging");
-    expect(flying.ghost).toEqual({ box: { left: 30, top: 40, width: 200 }, line: taskRowView(b.tasks[0], b, 0) });
+    expect(flying.ghost).toEqual({
+      box: { left: 30, top: 40, width: 200 },
+      row: { line: taskRowView(b.tasks[0], b, 0), fold: null, lead: "none", leadClassName: "tasks__row-lead" },
+    });
     // A ghost needs both its place and its row: the row gone mid-drag, or no drag, draws none.
     expect(view({ drag: dragging, inFlight: null }).ghost).toBeNull();
     expect(view({ drag: armed, inFlight: rowInFlight(dragging, b, "team-1", 0) }).ghost).toBeNull();

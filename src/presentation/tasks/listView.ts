@@ -9,14 +9,18 @@
  * that place to a neighbour.
  *
  * An epic stands in the group of its own status, and every task under it
- * stands under it, one step in — closed ones too, in the order of the
+ * stands under it — closed ones too, in the order of the
  * groups and then the tracker's one order — not in the groups of their own
  * statuses (task-297, layout B1). Its own fold, like a group's, hides its
  * tasks and keeps its row.
+ *
+ * Every row leads with the same gutter, so every row's columns stand on
+ * one line whatever it is (task-320): an epic's fold sits in it, a task
+ * under an epic the guide down from that fold, any other row nothing.
  */
 import type { StatusRingProps } from "@keepdeck/ui-kit/StatusRing";
 import { epicOf, tasksOfEpic, type Task, type TaskBoard, type TaskStatus } from "../../domain/tasks";
-import { dropStateOf, type DragState } from "./rowDrag";
+import { dropStateOf, taskOnScreen, type DragState } from "./rowDrag";
 import { compareInStatus, matchesQuery, type TaskQuery } from "./queryView";
 import { statusMark, taskRowView, type TaskRowView } from "./taskRowView";
 import { BOARD_ORDER, EPIC_FOLD_WORDS, STATUS_LABEL } from "./words";
@@ -47,13 +51,25 @@ export interface ListRow {
   open: boolean;
   className: string;
   edge: GroupEdge;
-  /** 1 for a task under an epic, drawn one step in; 0 for the rest. */
-  depth: 0 | 1;
-  /** An epic's own fold, or null for a row that is no epic. */
-  fold: { folded: boolean; label: string } | null;
-  /** What the row leads with, its own: an epic its fold, a task under an
-   * epic the step in, any other row nothing. */
-  lead: "fold" | "indent" | "none";
+  /** An epic's own fold — the uid it is kept by — or null for a row that
+   * is no epic. */
+  fold: { folded: boolean; label: string; uid: string } | null;
+  /** What the row's gutter holds: an epic its fold, a task under an epic
+   * the guide down from it (`guide-end` the last, where the guide stops),
+   * any other row nothing. */
+  lead: RowLead;
+  /** The gutter's classes, for a lead that is no fold. */
+  leadClassName: string;
+}
+
+export type RowLead = "fold" | "guide" | "guide-end" | "none";
+
+/** What a row's gutter draws — the list's rows and the row in flight alike. */
+export type RowLeadView = Pick<ListRow, "fold" | "lead" | "leadClassName">;
+
+/** The task in flight, drawn as its row: its line and its gutter. */
+export interface RowInFlight extends RowLeadView {
+  line: TaskRowView;
 }
 
 export type ListItem = ListHeading | ListRow;
@@ -61,7 +77,7 @@ export type ListItem = ListHeading | ListRow;
 /** The list's items: every status's heading, always — an empty group
  * with its 0 — and the rows of each open group: its tasks in the tracker's
  * one order, each epic with its tasks under it unless the epic is folded
- * (`foldedEpics`, by id). The query keeps a task under its epic, the epic
+ * (`foldedEpics`, by uid). The query keeps a task under its epic, the epic
  * shown over it whether or not it matches itself; a heading counts every
  * row its group holds, an epic's tasks included, folded or not. */
 export function listView(
@@ -103,23 +119,62 @@ export function listView(
     };
     if (isFolded) return [heading];
     const placed = tops.flatMap(({ task, kids }) => {
-      const epicFolded = foldedEpics.has(task.id);
-      const fold = task.kind === "epic" ? { folded: epicFolded, label: epicFolded ? EPIC_FOLD_WORDS.unfold : EPIC_FOLD_WORDS.fold } : null;
+      const fold = epicFold(task, foldedEpics);
       return [
-        { task, depth: 0 as const, fold },
-        ...(epicFolded ? [] : kids.map((kid) => ({ task: kid, depth: 1 as const, fold: null }))),
+        { task, lead: fold === null ? ("none" as const) : ("fold" as const), fold },
+        ...(fold?.folded ? [] : kids.map((kid, at) => ({ task: kid, lead: at === kids.length - 1 ? ("guide-end" as const) : ("guide" as const), fold: null }))),
       ];
     });
     return [
       heading,
-      ...placed.map(({ task, depth, fold }, at) =>
-        listRow(taskRowView(task, board, now), status, task.id === openId, at === placed.length - 1 ? "bottom" : "middle", depth, fold),
+      ...placed.map(({ task, lead, fold }, at) =>
+        listRow(taskRowView(task, board, now), status, task.id === openId, at === placed.length - 1 ? "bottom" : "middle", lead, fold),
       ),
     ];
   });
 }
 
 const NO_EPICS: ReadonlySet<string> = new Set();
+
+/** An epic's fold — kept by its uid — or null for a task that is no epic. */
+function epicFold(task: Task, foldedEpics: ReadonlySet<string>): ListRow["fold"] {
+  if (task.kind !== "epic") return null;
+  const folded = foldedEpics.has(task.uid);
+  return { folded, label: folded ? EPIC_FOLD_WORDS.unfold : EPIC_FOLD_WORDS.fold, uid: task.uid };
+}
+
+/** A gutter's classes: the gutter, and the guide — ending at the last. */
+function leadClassName(lead: RowLead): string {
+  return [
+    "tasks__row-lead",
+    (lead === "guide" || lead === "guide-end") && "tasks__row-lead--guide",
+    lead === "guide-end" && "tasks__row-lead--end",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+/** The task in flight, drawn as its row: read from the board — not from
+ * what the list shows, which a move by someone else (into a folded group,
+ * out of the filter) may take it out of mid-drag. Its gutter is a row's,
+ * so its columns stand where the row's did: an epic's fold, any other
+ * row's empty — a guide in flight would join nothing. Null while nothing
+ * flies. */
+export function rowInFlight(
+  drag: DragState,
+  board: TaskBoard | null,
+  teamId: string | null,
+  now: number,
+  foldedEpics: ReadonlySet<string> = NO_EPICS,
+): RowInFlight | null {
+  if (drag.kind !== "dragging") return null;
+  // A task on screen is on a board: none, and there is no task.
+  const task = taskOnScreen(board, drag.id, teamId);
+  if (!task) return null;
+  const fold = epicFold(task, foldedEpics);
+  const lead: RowLead = fold === null ? "none" : "fold";
+  return { line: taskRowView(task, board!, now), fold, lead, leadClassName: leadClassName(lead) };
+}
 
 /** An item's identity in the windowed list — a task's id, a heading's
  * status; never an index. */
@@ -168,9 +223,10 @@ function listRow(
   status: TaskStatus,
   open: boolean,
   edge: GroupEdge,
-  depth: 0 | 1,
+  lead: RowLead,
   fold: ListRow["fold"],
 ): ListRow {
+  const underEpic = lead === "guide" || lead === "guide-end";
   return {
     kind: "row",
     key: line.id,
@@ -178,16 +234,16 @@ function listRow(
     line,
     open,
     edge,
-    depth,
     fold,
-    lead: fold !== null ? "fold" : depth === 1 ? "indent" : "none",
+    lead,
+    leadClassName: leadClassName(lead),
     // Its status's tone, cancelled, and the open one.
     className: [
       "tasks__row",
       `tasks__row--${line.tone}`,
       line.cancelled && "tasks__row--cancelled",
       open && "tasks__row--open",
-      depth === 1 && "tasks__row--under-epic",
+      underEpic && "tasks__row--under-epic",
     ]
       .filter(Boolean)
       .join(" "),

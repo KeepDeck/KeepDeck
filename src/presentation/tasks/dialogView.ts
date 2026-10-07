@@ -7,7 +7,7 @@
 import { ghostBox, type DragState } from "./rowDrag";
 import { teamControlView } from "./dialogState";
 import { LADDER_WORDS, type TasksLadder } from "./ladderView";
-import type { TaskRowView } from "./taskRowView";
+import type { RowInFlight } from "./listView";
 import { QUERY_WORDS } from "./queryView";
 
 /** What the body shows under the head. */
@@ -42,7 +42,7 @@ export interface TasksDialogView {
    * nothing is. */
   ghost: {
     box: { left: number; top: number; width: number };
-    line: TaskRowView;
+    row: RowInFlight;
   } | null;
 }
 
@@ -50,7 +50,7 @@ export function tasksDialogView(input: {
   ladder: TasksLadder;
   drag: DragState;
   /** The task in flight's row (`rowInFlight`). */
-  inFlight: TaskRowView | null;
+  inFlight: RowInFlight | null;
   teams: readonly { id: string; name: string }[];
   teamId: string | null;
   composing: boolean;
@@ -62,7 +62,7 @@ export function tasksDialogView(input: {
   const { ladder, drag } = input;
   const staged = ladder.kind === "board" || ladder.kind === "empty";
   const box = ghostBox(drag);
-  const line = input.inFlight;
+  const row = input.inFlight;
   const panel = input.composing ? "form" : input.detailOpen ? "detail" : null;
   return {
     className: drag.kind === "dragging" ? "form tasks tasks--dragging" : "form tasks",
@@ -72,7 +72,7 @@ export function tasksDialogView(input: {
     body: staged ? { kind: "stage", main: stageMain(ladder, input.wide, input.nothingFound) } : placeholder(ladder),
     panel,
     headInert: staged && panel !== null,
-    ghost: box && line ? { box, line } : null,
+    ghost: box && row ? { box, row } : null,
   };
 }
 

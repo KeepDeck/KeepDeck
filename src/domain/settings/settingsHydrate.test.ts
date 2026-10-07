@@ -3,6 +3,7 @@ import {
   DEFAULT_SETTINGS,
   SCROLLBACK_MAX,
   SCROLLBACK_MIN,
+  TASKS_FOLDED_EPICS_MAX,
   hydrateSettings,
   serializeSettings,
 } from ".";
@@ -47,7 +48,7 @@ describe("hydrateSettings", () => {
       usageDisplay: "left",
       parkAgentsOnLaunch: true,
       artifacts: true,
-      tasksBoard: { list: { folded: ["done"] } },
+      tasksBoard: { list: { folded: ["done"], foldedEpics: ["u-1"] } },
     };
     const doc = restore(JSON.stringify(stored));
     expect(doc.settings).toEqual({
@@ -64,7 +65,7 @@ describe("hydrateSettings", () => {
       artifacts: true,
       artifactAutoOpen: true,
       tasks: false,
-      tasksBoard: { list: { folded: ["done"] } },
+      tasksBoard: { list: { folded: ["done"], foldedEpics: ["u-1"] } },
     });
     // Everything the file said is a decision; `remoteAgents`,
     // `artifactAutoOpen` and `tasks`, which it did not mention, are not.
@@ -220,23 +221,41 @@ describe("hydrateSettings — the plugins bag", () => {
 
   it("reads the tasks board's posture — a bad status degrades only itself, folds in ladder order", () => {
     const stored = JSON.stringify({ tasksBoard: { list: { folded: ["done", "nope", "backlog", "done"] } } });
-    expect(restore(stored).settings.tasksBoard).toEqual({ list: { folded: ["backlog", "done"] } });
+    expect(restore(stored).settings.tasksBoard).toEqual({ list: { folded: ["backlog", "done"], foldedEpics: [] } });
     expect(report(stored).degraded).toEqual(["tasksBoard.list.folded"]);
     // A posture that says nothing of the list keeps the list's defaults.
     expect(restore(JSON.stringify({ tasksBoard: {} })).settings.tasksBoard).toEqual({
-      list: { folded: ["backlog", "done", "cancelled"] },
+      list: { folded: ["backlog", "done", "cancelled"], foldedEpics: [] },
     });
     // An empty fold list is a choice: every group open.
     expect(restore(JSON.stringify({ tasksBoard: { list: { folded: [] } } })).settings.tasksBoard.list.folded).toEqual([]);
   });
 
+  it("v26: reads the folded epics — by uid, a repeat at its latest place, what is no uid degrading only itself, the most recent kept", () => {
+    const stored = JSON.stringify({ tasksBoard: { list: { folded: ["done"], foldedEpics: ["u-1", 7, "u-2", "no uid!", "u-1"] } } });
+    expect(restore(stored).settings.tasksBoard.list).toEqual({ folded: ["done"], foldedEpics: ["u-2", "u-1"] });
+    expect(report(stored).degraded).toEqual(["tasksBoard.list.foldedEpics"]);
+    // Not a list: none folded, and said; the groups' folds untouched.
+    const bad = JSON.stringify({ tasksBoard: { list: { folded: ["done"], foldedEpics: "u-1" } } });
+    expect(restore(bad).settings.tasksBoard.list).toEqual({ folded: ["done"], foldedEpics: [] });
+    expect(report(bad).degraded).toEqual(["tasksBoard.list.foldedEpics"]);
+    // A file from before v26: none folded, nothing degraded.
+    expect(report(JSON.stringify({ version: 25, tasksBoard: { list: { folded: [] } } })).degraded).toEqual([]);
+    // A hand edit past the limit keeps the most recent.
+    const many = Array.from({ length: TASKS_FOLDED_EPICS_MAX + 5 }, (_, i) => `u-${i}`);
+    const kept = restore(JSON.stringify({ tasksBoard: { list: { folded: [], foldedEpics: many } } })).settings.tasksBoard.list.foldedEpics;
+    expect(kept).toEqual(many.slice(5));
+    // Written back as read.
+    expect(JSON.parse(serializeSettings(restore(stored))).tasksBoard.list.foldedEpics).toEqual(["u-2", "u-1"]);
+  });
+
   it("v25: a stored view — the board's, or the older tasksView — is consumed, never degraded or written back", () => {
     const doc = restore(JSON.stringify({ version: 24, tasksView: "list", tasksBoard: { view: "board", list: { folded: [] } } }));
-    expect(doc.settings.tasksBoard).toEqual({ list: { folded: [] } });
+    expect(doc.settings.tasksBoard).toEqual({ list: { folded: [], foldedEpics: [] } });
     expect(report(JSON.stringify({ tasksBoard: { view: "board" } })).degraded).toEqual([]);
     const written = JSON.parse(serializeSettings(doc));
     expect(written).not.toHaveProperty("tasksView");
-    expect(written.tasksBoard).toEqual({ list: { folded: [] } });
+    expect(written.tasksBoard).toEqual({ list: { folded: [], foldedEpics: [] } });
     // A lone tasksView chooses nothing now.
     expect(restore(JSON.stringify({ version: 23, tasksView: "list" })).chosen).not.toHaveProperty("tasksBoard");
   });

@@ -83,6 +83,39 @@ describe("Tasks text never widens its box", () => {
     expect(ruleBody(row, ".tasks__row-open")["align-items"]).toBe("flex-start");
   });
 
+  it("every row leads with one gutter, the headings' chevrons standing in its width — so every row's columns share one line", () => {
+    const css = readStyles("tasks.css");
+    const measures = ruleBody(css, ".tasks");
+    expect([measures["--tasks-row-pad"], measures["--tasks-row-line"], measures["--tasks-row-lead"]]).toEqual(["7px", "18px", "16px"]);
+    const row = ruleBody(css, ".tasks__row");
+    expect([row.padding, row["line-height"]]).toEqual(["var(--tasks-row-pad) 12px", "var(--tasks-row-line)"]);
+    const lead = ruleBody(css, ".tasks__row-lead");
+    expect([lead.width, lead.height, lead.flex, lead.position]).toEqual(["var(--tasks-row-lead)", "var(--tasks-row-line)", "none", "relative"]);
+    expect(ruleBody(css, ".tasks__group .kd-chevron").width).toBe(lead.width);
+    // Nothing a row leads with may take a width of its own: the old fold and step in are gone.
+    expect(css).not.toMatch(/tasks__row-indent/);
+    expect(css).not.toMatch(/\.tasks__row-fold\s*\{[^}]*\bwidth:/);
+  });
+
+  it("draws the guide from the row's own measures: down its centre, through its padding and seam, a tick to its first line", () => {
+    const css = readStyles("tasks.css");
+    // The whole row, however many lines its title wraps to.
+    expect(ruleBody(css, ".tasks__row-lead--guide")["align-self"]).toBe("stretch");
+    expect(ruleBody(css, ".tasks__row-lead--guide::before,\n.tasks__row-lead--guide::after").left).toBe("calc((var(--tasks-row-lead) - 1px) / 2)");
+    const line = ruleBody(css, ".tasks__row-lead--guide::before");
+    // Up through the row's top padding, down through its bottom padding and its 1px seam: the rows' guides join.
+    expect([line.top, line.bottom]).toEqual(["calc(-1 * var(--tasks-row-pad))", "calc(-1 * var(--tasks-row-pad) - 1px)"]);
+    // The last task's stops at the tick, on the middle of its first line.
+    expect(ruleBody(css, ".tasks__row-lead--end::before").height).toBe("calc(var(--tasks-row-pad) + var(--tasks-row-line) / 2)");
+    // The tick's own rule — the last for the selector, after the pieces' shared ones.
+    const tick = ruleBody(css, ".tasks__row-lead--guide::after", css.lastIndexOf("\n.tasks__row-lead--guide::after {"));
+    expect([tick.top, tick.width]).toEqual(["calc(var(--tasks-row-line) / 2)", "calc(var(--tasks-row-lead) / 2 - 1px)"]);
+  });
+
+  it("a tag in a row is the line's height with its border, so a row with one is no taller than one without", () => {
+    expect(ruleBody(readStyles("tasks.css"), ".tasks__row .kd-tag")["line-height"]).toBe("calc(var(--tasks-row-line) - 2px)");
+  });
+
   it("a row's age stays on one line", () => {
     expect(getComputedStyle(mount("tasks__row-age")).whiteSpace).toBe("nowrap");
   });

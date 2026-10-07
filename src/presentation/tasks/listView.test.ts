@@ -9,6 +9,7 @@ import {
   listItemEstimate,
   listItemKey,
   listView,
+  rowInFlight,
   groupDropClassName,
   listHeadingDropClassName,
   listRowClassName,
@@ -18,7 +19,8 @@ import {
   type ListItem,
 } from "./listView";
 import { NO_QUERY } from "./queryView";
-import { IDLE, rowGrip, type DragState } from "./rowDrag";
+import { taskRowView } from "./taskRowView";
+import { IDLE, armRow, moveRow, rowGrip, type DragState } from "./rowDrag";
 import { BOARD_ORDER, EPIC_FOLD_WORDS } from "./words";
 import type { TaskStatus } from "../../domain/tasks";
 
@@ -243,13 +245,21 @@ describe("listView — an epic with its tasks under it (B1)", () => {
       "head:cancelled",
     ]);
     const row = (key: string) => items.find((i) => i.key === key) as Extract<ListItem, { kind: "row" }>;
-    expect([row("task-1").depth, row("task-4").depth, row("task-6").depth]).toEqual([0, 1, 0]);
-    // The lead is the row's own: the epic's fold, its task's step in, nothing for the rest.
-    expect([row("task-1").lead, row("task-4").lead, row("task-6").lead]).toEqual(["fold", "indent", "none"]);
+    // The gutter is the row's own: the epic's fold, its tasks' guide — stopping at the last — nothing for the rest.
+    expect(["task-1", "task-5", "task-4", "task-2", "task-6"].map((k) => row(k).lead)).toEqual(["fold", "guide", "guide", "guide-end", "none"]);
+    expect(["task-1", "task-4", "task-2", "task-6"].map((k) => row(k).leadClassName)).toEqual([
+      "tasks__row-lead",
+      "tasks__row-lead tasks__row-lead--guide",
+      "tasks__row-lead tasks__row-lead--guide tasks__row-lead--end",
+      "tasks__row-lead",
+    ]);
     // Every row of the group sits in it for a drop: the epic's status.
     expect(row("task-4").status).toBe("in-progress");
     expect(row("task-4").className).toContain("tasks__row--under-epic");
-    expect(row("task-1").fold).toEqual({ folded: false, label: EPIC_FOLD_WORDS.fold });
+    expect(row("task-2").className).toContain("tasks__row--under-epic");
+    expect(row("task-1").className).not.toContain("tasks__row--under-epic");
+    // Its fold is kept by its uid: a task's id is per workspace, the folds are the app's.
+    expect(row("task-1").fold).toEqual({ folded: false, label: EPIC_FOLD_WORDS.fold, uid: "uid-task-1" });
     expect(row("task-4").fold).toBeNull();
     expect(row("task-2").edge).toBe("bottom");
     // A heading counts every row it holds: the epic and its four.
@@ -258,9 +268,11 @@ describe("listView — an epic with its tasks under it (B1)", () => {
   });
 
   it("folds an epic to its row — the heading still counting its tasks — and J / K walk what is shown", () => {
-    const items = listView(family, fb, 0, NO_QUERY, OPEN, null, new Set(["task-1"]));
+    const items = listView(family, fb, 0, NO_QUERY, OPEN, null, new Set(["uid-task-1"]));
     expect(keys(items).slice(4, 7)).toEqual(["head:in-progress", "task-1", "head:review"]);
     expect(items.find((i) => i.key === "task-1")).toMatchObject({ fold: { folded: true, label: EPIC_FOLD_WORDS.unfold } });
+    // An id is no uid: a fold kept by "task-1" folds nothing.
+    expect(keys(listView(family, fb, 0, NO_QUERY, OPEN, null, new Set(["task-1"])))).toContain("task-5");
     expect(items.find((i) => i.key === "head:in-progress")).toMatchObject({ count: 5 });
     expect(stepRow(listView(family, fb, 0, NO_QUERY, OPEN, null), "task-1", 1)).toBe("task-5");
   });
@@ -281,6 +293,23 @@ describe("listView — an epic with its tasks under it (B1)", () => {
     const withCancelled = [...family, task({ id: "task-7", status: "cancelled" })];
     const all = listView(withCancelled, board(withCancelled, 8, fb.relations), 0, NO_QUERY, OPEN, null);
     expect(all.filter((i) => i.kind === "row" && i.className.includes("tasks__row--cancelled")).map((i) => i.key)).toEqual(["task-7"]);
+  });
+
+  it("draws the row in flight with a row's gutter, so its columns stand where the row's did: an epic's fold, any other empty", () => {
+    const flying = (id: string, folded: ReadonlySet<string> = new Set()) =>
+      rowInFlight(moveRow(armRow(id, 0, 0, { width: 200, offsetX: 0, offsetY: 0 }), 50, 50, () => new Set()), fb, "team-1", 0, folded);
+    expect(flying("task-1")).toEqual({
+      line: taskRowView(family[0], fb, 0),
+      fold: { folded: false, label: EPIC_FOLD_WORDS.fold, uid: "uid-task-1" },
+      lead: "fold",
+      leadClassName: "tasks__row-lead",
+    });
+    expect(flying("task-1", new Set(["uid-task-1"]))?.fold).toMatchObject({ folded: true, label: EPIC_FOLD_WORDS.unfold });
+    // A task under an epic: the gutter, empty — a guide in flight would join nothing.
+    expect(flying("task-4")).toMatchObject({ fold: null, lead: "none", leadClassName: "tasks__row-lead" });
+    // Nothing in flight, or a task on no board on screen: no row.
+    expect(rowInFlight(armRow("task-1", 0, 0, { width: 200, offsetX: 0, offsetY: 0 }), fb, "team-1", 0)).toBeNull();
+    expect(flying("task-99")).toBeNull();
   });
 
   it("puts a task whose epic is not shown here at the top of its own group", () => {

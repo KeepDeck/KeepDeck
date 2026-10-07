@@ -4,6 +4,11 @@
    ladder's own (status.css): a task in review wears the waiting hue a
    pane waiting for the user wears. */
 .tasks {
+  /* A list row's measures, said once: what the row is drawn with and what
+     its gutter's guide is drawn from — a change to one moves the other. */
+  --tasks-row-pad: 7px;
+  --tasks-row-line: 18px;
+  --tasks-row-lead: 16px;
   /* The open task floats over the dialog (.tasks__detail). */
   position: relative;
   width: min(1180px, 94vw);
@@ -296,8 +301,11 @@
   color: var(--kd-text);
 }
 
-/* The fold's chevron: the house's (DisclosureChevron), quiet. */
+/* The fold's chevron: the house's (DisclosureChevron), quiet, centred in the
+   rows' 16px gutter — on the vertical of an epic's fold. */
 .tasks__group .kd-chevron {
+  justify-content: center;
+  width: var(--tasks-row-lead);
   color: var(--kd-text-3);
 }
 
@@ -332,12 +340,12 @@
   position: relative;
   display: flex;
   align-items: flex-start;
-  line-height: 18px;
+  line-height: var(--tasks-row-line);
   gap: 10px;
   min-height: 34px;
   box-sizing: border-box;
   min-width: 0;
-  padding: 7px 12px;
+  padding: var(--tasks-row-pad) 12px;
   border-bottom: 1px solid var(--kd-hover);
   color: var(--kd-text);
   font-size: var(--kd-font-normal);
@@ -426,20 +434,60 @@
   text-align: right;
 }
 
-/* A row's lead is its own: an epic leads with its fold, a task under an
-   epic with a step in past the fold — any other row with nothing. */
-.tasks__row-fold,
-.tasks__row-indent {
+/* Every row leads with one gutter (task-320), so every row's columns —
+   priority, status, id, title — stand on one line whatever the row is: an
+   epic's fold sits in it, a task under an epic the guide down from that
+   fold, any other row nothing. The headings' chevrons stand in the same
+   16px, on the same vertical. */
+.tasks__row-lead {
+  position: relative;
   display: inline-flex;
   flex: none;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 18px;
+  width: var(--tasks-row-lead);
+  height: var(--tasks-row-line);
 }
 
-.tasks__row-indent {
-  width: 32px;
+/* The guide: down the whole row (its padding and seam too, so the rows'
+   guides join), a tick to the row's first line; the last task's stops at
+   the tick. */
+.tasks__row-lead--guide {
+  align-self: stretch;
+  height: auto;
+}
+
+.tasks__row-lead--guide::before,
+.tasks__row-lead--guide::after {
+  position: absolute;
+  left: calc((var(--tasks-row-lead) - 1px) / 2);
+  border-color: var(--kd-seam-strong);
+  border-style: solid;
+  border-width: 0;
+}
+
+/* The pieces' content, apart: a quoted value in the rule above would hide
+   its measures from the style tests' reader. */
+.tasks__row-lead--guide::before,
+.tasks__row-lead--guide::after {
+  content: "";
+}
+
+.tasks__row-lead--guide::before {
+  top: calc(-1 * var(--tasks-row-pad));
+  bottom: calc(-1 * var(--tasks-row-pad) - 1px);
+  border-left-width: 1px;
+}
+
+.tasks__row-lead--end::before {
+  bottom: auto;
+  height: calc(var(--tasks-row-pad) + var(--tasks-row-line) / 2);
+}
+
+.tasks__row-lead--guide::after {
+  top: calc(var(--tasks-row-line) / 2);
+  width: calc(var(--tasks-row-lead) / 2 - 1px);
+  border-top-width: 1px;
 }
 
 /* Its chevron is the house's (DisclosureChevron), quiet; a control of its
@@ -459,6 +507,12 @@
 .tasks__row-fold:focus-visible {
   outline: 1px solid var(--kd-focus);
   outline-offset: -1px;
+}
+
+/* A tag in a row — a label, a blocker, the epic's chip — is the line's
+   height with its border, so a row with one stands as tall as one without. */
+.tasks__row .kd-tag {
+  line-height: calc(var(--tasks-row-line) - 2px);
 }
 
 /* What says a row is an epic: its chip — the tag, in the epic's violet. */

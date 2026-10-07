@@ -19,7 +19,8 @@ interface DropdownProps {
    *  value that opened it. */
   variant?: "field" | "inline";
   /** `md` (default): a dialog's field. `sm`: a toolbar's or a compact
-   *  form's — a button's height. */
+   *  form's — a button's height, as wide as its value, its menu as wide as
+   *  its options (never narrower than the field). */
   size?: "md" | "sm";
   /** An offer rather than a value ("Attach an artifact…"): quieter ink,
    *  small type — it says what can be done, not what is. */
