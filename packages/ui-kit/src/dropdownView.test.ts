@@ -29,6 +29,9 @@ describe("dropdownView — the Dropdown's decisions", () => {
       "dropdown dropdown--inline dropdown--sm dropdown--quiet x",
     );
     expect([dropdownView(base).widthFrom, dropdownView({ ...base, variant: "inline" }).widthFrom]).toEqual(["anchor", "content"]);
+    // A small field is as wide as its picked value (a toolbar's team picker): its menu takes
+    // the options' width, or a longer option is cut to the value's few letters.
+    expect(dropdownView({ ...base, size: "sm" }).widthFrom).toBe("content");
   });
 
   it("closes on Escape while open, and on nothing else", () => {
