@@ -56,6 +56,17 @@ pub struct SearchHit {
     pub snippet: Option<String>,
 }
 
+/// How much agent work one directory holds: its sessions, and the newest
+/// of them — a project list's raw material, before any folder is known to
+/// be part of a repository.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FolderActivity {
+    pub cwd: String,
+    pub sessions: i64,
+    /// The newest session's last activity — the store's stamp, as `mtime`.
+    pub last_mtime: i64,
+}
+
 /// Directory-based membership, carried IN the query itself: the sessions
 /// browser's top block asks for the workspace's folders (`Only`), the
 /// bottom block asks for everything but them (`Except`). Exact paths both
@@ -276,6 +287,25 @@ impl SessionIndex {
         let rows = stmt
             .query_map(params![agent], |r| {
                 Ok(IndexedRef { reference: r.get(0)?, mtime: r.get(1)?, size: r.get(2)? })
+            })
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<_, _>>().map_err(|e| e.to_string())
+    }
+
+    /// Every directory sessions ran in, newest first, with how many ran
+    /// there. A full pass over `sessions`: no index on `cwd` — the schema is
+    /// the index's version, and one screen's list is not worth a rebuild.
+    pub fn folder_activity(&self) -> Result<Vec<FolderActivity>, String> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT cwd, COUNT(*), MAX(mtime) FROM sessions
+                 GROUP BY cwd ORDER BY MAX(mtime) DESC, cwd",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok(FolderActivity { cwd: r.get(0)?, sessions: r.get(1)?, last_mtime: r.get(2)? })
             })
             .map_err(|e| e.to_string())?;
         rows.collect::<Result<_, _>>().map_err(|e| e.to_string())
@@ -963,6 +993,36 @@ mod tests {
             size: 10,
             content: content.into(),
         }
+    }
+
+    #[test]
+    fn folder_activity_counts_each_directory_newest_first() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut index = SessionIndex::open(&dir.path().join("i.sqlite")).unwrap();
+        let at = |agent: &str, id: &str, cwd: &str, mtime: i64| {
+            let mut r = row(agent, id, mtime, "x");
+            r.cwd = cwd.into();
+            r
+        };
+        index
+            .upsert(&[
+                at("claude", "a", "/old", 5),
+                at("codex", "b", "/new", 30),
+                at("claude", "c", "/new", 10),
+                at("kimi", "d", "/mid", 20),
+            ])
+            .unwrap();
+        let folders = index.folder_activity().unwrap();
+        assert_eq!(
+            folders,
+            vec![
+                FolderActivity { cwd: "/new".into(), sessions: 2, last_mtime: 30 },
+                FolderActivity { cwd: "/mid".into(), sessions: 1, last_mtime: 20 },
+                FolderActivity { cwd: "/old".into(), sessions: 1, last_mtime: 5 },
+            ]
+        );
+        let empty = SessionIndex::open(&dir.path().join("e.sqlite")).unwrap();
+        assert!(empty.folder_activity().unwrap().is_empty());
     }
 
     #[test]

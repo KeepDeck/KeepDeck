@@ -31,6 +31,8 @@
 @import "./overlay.css";
 @import "./tooltip.css";
 @import "./form.css";
+/* After form.css: the welcome screen reuses the form's create button. */
+@import "./welcome.css";
 @import "./confirm.css";
 @import "./palette.css";
 @import "./settings.css";

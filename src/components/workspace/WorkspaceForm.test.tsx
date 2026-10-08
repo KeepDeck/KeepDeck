@@ -123,6 +123,43 @@ describe("WorkspaceForm", () => {
     expect(escape().defaultPrevented).toBe(false);
   });
 
+  describe("as the welcome screen's confirm step", () => {
+    const nameInput = () => document.querySelector<HTMLInputElement>('input[aria-label="Workspace name"]')!;
+    const back = () => Array.from(document.querySelectorAll("button")).find((b) => b.textContent === "Back");
+
+    it("starts with the folder chosen and named after it, and creates it as it stands", async () => {
+      await render({ confirm: { dir: "/Users/me/Projects/kernel", onBack: vi.fn() } }, true);
+      expect(nameInput().value).toBe("kernel");
+      expect(document.querySelector(".form__dir-path")?.textContent).toBe("/Users/me/Projects/kernel");
+      expect(document.querySelector(".form__git")?.textContent).toContain("Git repository detected");
+      submit();
+      expect(created).toEqual([{ name: "kernel", cwd: "/Users/me/Projects/kernel", worktreeBaseDir: null }]);
+    });
+
+    it("shows where worktrees go, as the «+» form does", async () => {
+      await render({ confirm: { dir: "/repo", onBack: vi.fn() } });
+      type(worktreeInput(), "/base/wt");
+      submit();
+      expect(created[0].worktreeBaseDir).toBe("/base/wt");
+    });
+
+    it("goes Back — by its button, and by Escape — instead of cancelling", async () => {
+      const onBack = vi.fn();
+      await render({ confirm: { dir: "/repo", onBack } });
+      act(() => back()!.click());
+      expect(escape().defaultPrevented).toBe(true);
+      expect(onBack).toHaveBeenCalledTimes(2);
+      expect(Array.from(document.querySelectorAll("button")).some((b) => b.textContent === "Cancel")).toBe(false);
+    });
+
+    it("leaves the «+» form as it was: empty, the folder picked in it", async () => {
+      await render({ onCancel: vi.fn() });
+      expect(chooseBtn()).not.toBeUndefined();
+      expect(worktreeInput()).not.toBeNull();
+      expect(nameInput().value).toBe("");
+    });
+  });
+
   it("submits worktreeBaseDir: null while the field is empty", async () => {
     await mount(false);
     submit();

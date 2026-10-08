@@ -1,0 +1,246 @@
+/* The welcome screen (components/welcome): the stage while there is no
+   workspace — the greeting and the one way in on the left, the projects
+   agents have worked in on the right. */
+/* Anchored to the top, not centred: a list that grows (Show all…) must
+   not move the way in under the pointer. The app's own type scale. */
+.welcome {
+  display: grid;
+  grid-template-columns: minmax(0, 380px);
+  gap: 40px;
+  align-self: flex-start;
+  width: min(960px, 100%);
+  margin-top: clamp(24px, 12vh, 120px);
+  padding: 32px;
+  align-items: start;
+  justify-content: center;
+  color: var(--kd-text-2);
+  font-size: var(--kd-font-normal);
+}
+
+.welcome--with-recent {
+  grid-template-columns: minmax(0, 380px) minmax(0, 1fr);
+}
+
+/* A narrow stage: the projects go under the way in, at full width,
+   rather than squeezed beside it. */
+@container welcome-stage (max-width: 860px) {
+  .welcome--with-recent {
+    grid-template-columns: minmax(0, 560px);
+  }
+}
+
+.welcome__title {
+  margin: 0 0 8px;
+  color: var(--kd-text);
+  font-size: var(--kd-font-title);
+  font-weight: 600;
+}
+
+.welcome__pitch {
+  margin: 0 0 20px;
+  color: var(--kd-text-2);
+  line-height: 1.5;
+}
+
+.welcome__hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 0;
+  color: var(--kd-text-3);
+  font-size: var(--kd-font-small);
+}
+
+.welcome__kbd {
+  padding: 0 4px;
+  border: 1px solid var(--kd-seam);
+  border-radius: var(--kd-radius-mark);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* The steps, each with its number in a ring. */
+.welcome__steps {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 22px 0 0;
+  padding: 16px 0 0;
+  border-top: 1px solid var(--kd-seam);
+  list-style: none;
+  counter-reset: welcome-step;
+}
+
+.welcome__steps li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  counter-increment: welcome-step;
+}
+
+.welcome__steps li::before {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--kd-seam-strong);
+  border-radius: 50%;
+  color: var(--kd-text-3);
+  font-size: var(--kd-font-small);
+  content: counter(welcome-step);
+}
+
+.welcome__steps b {
+  color: var(--kd-text);
+  font-weight: 600;
+}
+
+.welcome__agents {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 18px 0 0;
+  color: var(--kd-text-3);
+  font-size: var(--kd-font-small);
+}
+
+/* An agent by its own mark; one not found on this machine is quiet. */
+.welcome__agent {
+  gap: 5px;
+}
+
+.welcome__agent-mark {
+  flex: none;
+}
+
+.welcome__agent--missing {
+  color: var(--kd-text-3);
+}
+
+.welcome__agent--missing .welcome__agent-mark {
+  opacity: 0.4;
+  filter: grayscale(1);
+}
+
+.welcome__recent {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.welcome__recent-heading {
+  margin: 4px 0 8px;
+  color: var(--kd-text-3);
+  font-size: var(--kd-font-small);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.welcome__recent-heading span {
+  margin-left: 6px;
+  color: var(--kd-text-3);
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* The list's frame, its Show all… inside it; the list scrolls inside
+   itself, the screen does not. */
+.welcome__list {
+  overflow: hidden;
+  border: 1px solid var(--kd-seam);
+  border-radius: var(--kd-radius-tile);
+  background-color: var(--kd-tile);
+}
+
+.welcome__projects {
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.welcome__project {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 12px;
+  width: 100%;
+  padding: 8px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--kd-hover);
+  background: transparent;
+  color: var(--kd-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.welcome__project:hover {
+  background-color: var(--kd-hover);
+}
+
+.welcome__project:focus-visible {
+  outline: 1px solid var(--kd-focus);
+  outline-offset: -1px;
+}
+
+.welcome__project-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.welcome__project-meta {
+  color: var(--kd-text-3);
+  font-size: var(--kd-font-small);
+  white-space: nowrap;
+}
+
+/* A path is cut at its START: the folder's own name, its end, is what
+   tells two apart. */
+.welcome__project-path {
+  grid-column: 1 / -1;
+  direction: rtl;
+  text-align: left;
+  overflow: hidden;
+  color: var(--kd-text-3);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--kd-font-small);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.welcome__project-path > span {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+.welcome__more {
+  display: block;
+  width: 100%;
+  padding: 7px 12px;
+  border: 0;
+  border-top: 1px solid var(--kd-hover);
+  background: none;
+  text-align: left;
+  color: var(--kd-text-3);
+  font: inherit;
+  font-size: var(--kd-font-normal);
+  cursor: pointer;
+}
+
+.welcome__more:hover {
+  color: var(--kd-text);
+}
+
+.welcome__open:focus-visible {
+  outline: 1px solid var(--kd-focus);
+  outline-offset: 1px;
+}
+
+/* Inside the list's frame, which clips: the ring goes in, as the rows'. */
+.welcome__more:focus-visible {
+  outline: 1px solid var(--kd-focus);
+  outline-offset: -1px;
+}

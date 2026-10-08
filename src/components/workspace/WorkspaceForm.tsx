@@ -3,6 +3,7 @@ import type { SpawnConfig } from "../../domain/deck";
 import { useEscape } from "../../ui/useEscape";
 import { noAutoCorrect } from "../../ui/inputProps";
 import { SuggestedInput } from "../../ui/SuggestedInput";
+import { workspaceFormStart } from "../../presentation/workspaceFormStart";
 
 export type { SpawnConfig } from "../../domain/deck";
 
@@ -17,6 +18,10 @@ interface WorkspaceFormProps {
   pickFolder(title: string): Promise<string | null>;
   /** Probe a chosen working directory for the git hint (injected likewise). */
   inspectDir(path: string): Promise<{ isRepo: boolean; branch: string | null }>;
+  /** The welcome screen's confirm step: the folder already chosen, the
+   * name its folder's, and Back
+   * to the choice instead of Cancel. */
+  confirm?: { dir: string; onBack(): void };
 }
 
 /**
@@ -37,9 +42,11 @@ export function WorkspaceForm({
   onCancel,
   pickFolder,
   inspectDir,
+  confirm,
 }: WorkspaceFormProps) {
-  const [name, setName] = useState("");
-  const [cwd, setCwd] = useState<string | null>(null);
+  const [start] = useState(() => workspaceFormStart(confirm?.dir ?? null));
+  const [name, setName] = useState(start.name);
+  const [cwd, setCwd] = useState<string | null>(start.cwd);
   // Empty string = no worktree isolation; maps to null in SpawnConfig.
   const [worktreeDir, setWorktreeDir] = useState("");
   const [git, setGit] = useState<{ isRepo: boolean; branch: string | null } | null>(
@@ -66,8 +73,10 @@ export function WorkspaceForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cwd]);
 
-  // Esc closes the form when there's a workspace to return to.
-  useEscape(() => onCancel?.(), Boolean(onCancel));
+  // Esc closes the form when there's a workspace to return to, and goes
+  // Back from the welcome screen's confirm step.
+  const leave = confirm?.onBack ?? onCancel;
+  useEscape(() => leave?.(), Boolean(leave));
 
   const chooseDirectory = async () => {
     const selected = await pickFolder("Choose working directory");
@@ -92,7 +101,7 @@ export function WorkspaceForm({
 
   return (
     <form
-      className="form"
+      className={start.className}
       onSubmit={(e) => {
         e.preventDefault();
         submit();
@@ -116,15 +125,17 @@ export function WorkspaceForm({
           className={`form__dir-path${cwd ? "" : " form__dir-path--empty"}`}
           title={cwd ?? undefined}
         >
-          {cwd ?? "No folder chosen"}
+          <span>{cwd ?? "No folder chosen"}</span>
         </span>
-        <button
-          type="button"
-          className="form__dir-btn"
-          onClick={chooseDirectory}
-        >
-          Choose…
-        </button>
+        {!start.folderFixed && (
+          <button
+            type="button"
+            className="form__dir-btn"
+            onClick={chooseDirectory}
+          >
+            Choose…
+          </button>
+        )}
       </div>
       {git?.isRepo && (
         <span className="form__git">
@@ -153,9 +164,9 @@ export function WorkspaceForm({
       </div>
 
       <div className="form__actions">
-        {onCancel && (
-          <button type="button" className="form__cancel" onClick={onCancel}>
-            Cancel
+        {leave && (
+          <button type="button" className="form__cancel" onClick={leave}>
+            {start.leave}
           </button>
         )}
         <button

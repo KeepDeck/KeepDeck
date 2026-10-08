@@ -8,6 +8,9 @@
   justify-content: center;
   overflow: auto;
   background-color: var(--kd-canvas);
+  /* The welcome screen lays itself out by the stage's width, not the
+     window's: the strip takes its share. */
+  container: welcome-stage / inline-size;
 }
 
 /* Translucent backdrop for true dialogs (confirm/error, "+ Agent", and the

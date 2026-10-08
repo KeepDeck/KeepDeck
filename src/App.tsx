@@ -18,6 +18,7 @@ import { StatsDialog } from "./components/stats/StatsDialog";
 import { AgentDialog } from "./components/workspace/AgentDialog";
 import { WorkspaceStrip } from "./components/workspace/WorkspaceStrip";
 import { WorkspaceForm } from "./components/workspace/WorkspaceForm";
+import { WelcomeStage } from "./components/welcome/WelcomeStage";
 import {
   DECK_STATE_VERSION,
   findWorkspace,
@@ -115,6 +116,10 @@ function App() {
     showBell,
     needsYou,
     showForm,
+    noWorkspace,
+    welcome,
+    newWorkspace,
+    createFromWelcome,
     skillsOpen,
     mcpOpen,
     artifactsOpen,
@@ -137,7 +142,7 @@ function App() {
         view={strip}
         onSelect={handleSelectWorkspace}
         onEnterTeam={handleEnterTeam}
-        onAdd={() => setCreating(true)}
+        onAdd={newWorkspace}
         onReorder={deck.moveWorkspace}
         version={info?.version ?? null}
       />
@@ -261,15 +266,18 @@ function App() {
                   inspectDir={inspectRepo}
                 />
               </ModalOverlay>
-            ) : (
-              <div className="deck__overlay">
-                <WorkspaceForm
-                  onCreate={handleCreateWorkspace}
-                  pickFolder={pickFolder}
-                  inspectDir={inspectRepo}
-                />
-              </div>
-            ))}
+            ) : null)}
+          {noWorkspace && (
+            <div className="deck__overlay">
+              <WelcomeStage
+                flow={welcome}
+                agents={agents}
+                onCreate={createFromWelcome}
+                pickFolder={pickFolder}
+                inspectDir={inspectRepo}
+              />
+            </div>
+          )}
           {agentFlow.dialog && (
             <AgentDialog
               target={agentFlow.dialog.target}
