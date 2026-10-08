@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { VirtualList } from "@keepdeck/ui-kit/VirtualList";
+import { AgentGlyph } from "@keepdeck/ui-kit/AgentGlyph";
 import type { WelcomeProjectRow, WelcomeView } from "../../presentation/welcomeView";
 
 /**
@@ -52,6 +53,7 @@ export function WelcomeScreen({
           {view.agents.label}
           {view.agents.items.map((agent) => (
             <span key={agent.name} className={agent.className}>
+              <AgentGlyph icon={agent.icon} className="welcome__agent-mark" />
               {agent.name}
             </span>
           ))}

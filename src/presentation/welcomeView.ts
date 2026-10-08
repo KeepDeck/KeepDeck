@@ -8,6 +8,7 @@
 import { formatAge } from "../domain/usage";
 import { baseName, homeRelative } from "../domain/deck";
 import type { RecentProject } from "../domain/recentProject";
+import type { AgentIcon } from "../domain/agents";
 
 /** How many recent projects show before "Show all…". */
 export const WELCOME_RECENT_FIRST = 5;
@@ -57,7 +58,7 @@ export interface WelcomeView {
   shortcut: string;
   steps: readonly { title: string; text: string }[];
   /** Every agent KeepDeck knows, found on this machine or not. */
-  agents: { label: string; items: { name: string; className: string }[] };
+  agents: { label: string; items: { name: string; icon: AgentIcon | null; className: string }[] };
   recent: {
     heading: string;
     caption: string;
@@ -73,7 +74,7 @@ export function welcomeView(input: {
   /** The home folder: a path under it is shown under `~`. */
   home: string | null;
   showAll: boolean;
-  agents: readonly { label: string; installed: boolean }[];
+  agents: readonly { label: string; installed: boolean; icon?: AgentIcon }[];
   now: number;
 }): WelcomeView {
   const { projects } = input;
@@ -92,6 +93,7 @@ export function welcomeView(input: {
       label: anyFound ? WELCOME_WORDS.agentsFound : WELCOME_WORDS.noAgents,
       items: input.agents.map((agent) => ({
         name: agent.label,
+        icon: agent.icon ?? null,
         className: agent.installed ? "kd-tag kd-tag--outline welcome__agent" : "kd-tag kd-tag--outline welcome__agent welcome__agent--missing",
       })),
     },

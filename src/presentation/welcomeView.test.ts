@@ -5,8 +5,9 @@ const DAY = 86_400_000;
 const NOW = 100 * DAY;
 const HOME = "/Users/me";
 const project = (root: string, sessions: number, lastAt: number) => ({ root, sessions, lastAt });
+const MARK = { viewBox: "0 0 24 24", paths: [{ d: "M0 0h24v24H0z" }] };
 const agents = [
-  { label: "claude", installed: true },
+  { label: "claude", installed: true, icon: MARK },
   { label: "codex", installed: false },
   { label: "kimi", installed: true },
 ];
@@ -49,13 +50,13 @@ describe("what the welcome screen says", () => {
     expect(all.recent?.more).toBeNull();
   });
 
-  it("names every agent, the ones not found quiet — and says when none is found", () => {
+  it("names every agent with its mark, the ones not found quiet — and says when none is found", () => {
     expect(view().agents).toEqual({
       label: WELCOME_WORDS.agentsFound,
       items: [
-        { name: "claude", className: "kd-tag kd-tag--outline welcome__agent" },
-        { name: "codex", className: "kd-tag kd-tag--outline welcome__agent welcome__agent--missing" },
-        { name: "kimi", className: "kd-tag kd-tag--outline welcome__agent" },
+        { name: "claude", icon: MARK, className: "kd-tag kd-tag--outline welcome__agent" },
+        { name: "codex", icon: null, className: "kd-tag kd-tag--outline welcome__agent welcome__agent--missing" },
+        { name: "kimi", icon: null, className: "kd-tag kd-tag--outline welcome__agent" },
       ],
     });
     expect(view({ agents: [{ label: "kimi", installed: true }] }).agents.label).toBe(WELCOME_WORDS.agentsFound);

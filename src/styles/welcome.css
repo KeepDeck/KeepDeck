@@ -105,22 +105,22 @@
   font-size: var(--kd-font-small);
 }
 
-/* An agent on this machine: a dot says found; one not found is quiet. */
-.welcome__agent::before {
-  width: 6px;
-  height: 6px;
-  margin-right: 4px;
-  border-radius: 50%;
-  background-color: var(--kd-ok);
-  content: "";
+/* An agent by its own mark; one not found on this machine is quiet. */
+.welcome__agent {
+  gap: 5px;
+}
+
+.welcome__agent-mark {
+  flex: none;
 }
 
 .welcome__agent--missing {
   color: var(--kd-text-3);
 }
 
-.welcome__agent--missing::before {
-  background-color: var(--kd-seam-strong);
+.welcome__agent--missing .welcome__agent-mark {
+  opacity: 0.4;
+  filter: grayscale(1);
 }
 
 .welcome__recent {
