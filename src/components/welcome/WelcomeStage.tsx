@@ -26,7 +26,7 @@ export function WelcomeStage({
   pickFolder(title: string): Promise<string | null>;
   inspectDir(path: string): Promise<{ isRepo: boolean; branch: string | null }>;
 }) {
-  const projects = useRecentProjects();
+  const { home, projects } = useRecentProjects();
   const now = useWallClock(0, true);
   const { step, showAll } = flow.state;
   if (step.kind === "confirm") {
@@ -46,7 +46,7 @@ export function WelcomeStage({
   }
   return (
     <WelcomeScreen
-      view={welcomeView({ projects, showAll, agents, now })}
+      view={welcomeView({ projects, home, showAll, agents, now })}
       onOpenFolder={flow.openFolder}
       onChoose={flow.choose}
       onShowAll={flow.showAll}

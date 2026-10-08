@@ -34,7 +34,7 @@ describe("WelcomeScreen", () => {
   };
 
   it("greets, offers the one way in, names the steps and the agents found — and no list on a first run", () => {
-    const handlers = render(welcomeView({ projects: [], showAll: false, agents, now: NOW }));
+    const handlers = render(welcomeView({ projects: [], home: null, showAll: false, agents, now: NOW }));
     expect(host.querySelector(".welcome__title")?.textContent).toBe("Welcome to KeepDeck");
     expect(host.querySelectorAll(".welcome__steps li")).toHaveLength(3);
     expect(host.querySelector(".welcome__agents")?.textContent).toContain("claude");
@@ -44,7 +44,7 @@ describe("WelcomeScreen", () => {
   });
 
   it("lists the recent projects, a click handing on the project's folder, and asks for the rest", () => {
-    const handlers = render(welcomeView({ projects, showAll: false, agents, now: NOW }));
+    const handlers = render(welcomeView({ projects, home: null, showAll: false, agents, now: NOW }));
     expect(host.querySelector(".welcome__title")?.textContent).toBe("Welcome back");
     const rows = [...host.querySelectorAll<HTMLButtonElement>(".welcome__project")];
     expect(rows.map((row) => row.querySelector(".welcome__project-name")?.textContent)).toEqual(["p0", "p1", "p2", "p3", "p4"]);
@@ -52,5 +52,20 @@ describe("WelcomeScreen", () => {
     expect(handlers.onChoose).toHaveBeenCalledWith("/Users/me/p2");
     act(() => host.querySelector<HTMLButtonElement>(".welcome__more")!.click());
     expect(handlers.onShowAll).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the keyboard in the list when Show all… leaves: on the first project it brought", async () => {
+    vi.useFakeTimers({ toFake: ["requestAnimationFrame"] });
+    try {
+      let showAll = false;
+      const handlers = { onOpenFolder: vi.fn(), onChoose: vi.fn(), onShowAll: vi.fn(() => void (showAll = true)) };
+      render(welcomeView({ projects, home: null, showAll: false, agents, now: NOW }), handlers);
+      act(() => host.querySelector<HTMLButtonElement>(".welcome__more")!.click());
+      render(welcomeView({ projects, home: null, showAll, agents, now: NOW }), handlers);
+      act(() => void vi.advanceTimersToNextFrame());
+      expect(document.activeElement?.querySelector(".welcome__project-name")?.textContent).toBe("p5");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

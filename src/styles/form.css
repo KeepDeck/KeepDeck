@@ -45,9 +45,12 @@
   margin-bottom: 20px;
 }
 
+/* A path is cut at its start: its end, the folder's name, tells it. */
 .form__dir-path {
   flex: 1;
   min-width: 0;
+  direction: rtl;
+  text-align: left;
   padding: 8px 10px;
   border: 1px solid var(--kd-seam);
   border-radius: var(--kd-radius-pop);
@@ -57,6 +60,11 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.form__dir-path > span {
+  direction: ltr;
+  unicode-bidi: isolate;
 }
 
 .form__dir-path--empty {
@@ -482,6 +490,21 @@
 
 .form__advanced:hover {
   color: var(--kd-text);
+}
+
+/* The form's own buttons take the app's focus ring, not the browser's. */
+.form__create:focus-visible,
+.form__cancel:focus-visible,
+.form__dir-btn:focus-visible,
+.form__advanced:focus-visible {
+  outline: 1px solid var(--kd-focus);
+  outline-offset: 1px;
+}
+
+/* The welcome screen's confirm step: the folder is chosen, the form is
+   short. */
+.form--confirm {
+  max-width: 440px;
 }
 
 .form__create {

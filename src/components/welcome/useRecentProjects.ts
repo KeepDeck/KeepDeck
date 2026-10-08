@@ -1,6 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { useAppRuntime } from "../../app/runtimeContext";
-import type { RecentProject } from "../../domain/recentProject";
+import type { RecentProjects } from "../../domain/recentProject";
 import { recentProjects } from "../../ipc/history";
 import { describeError, log } from "../../ipc/log";
 
@@ -10,11 +10,13 @@ import { describeError, log } from "../../ipc/log";
  * as the sessions browser does) and asks again on each revision it
  * publishes — a first-ever scan fills the list batch by batch.
  */
-export function useRecentProjects(): readonly RecentProject[] {
+const NONE: RecentProjects = { home: null, projects: [] };
+
+export function useRecentProjects(): RecentProjects {
   const { sessionIndex } = useAppRuntime();
   useEffect(() => sessionIndex.ensureFresh(), [sessionIndex]);
   const { revision } = useSyncExternalStore(sessionIndex.subscribe, sessionIndex.snapshot);
-  const [projects, setProjects] = useState<readonly RecentProject[]>([]);
+  const [projects, setProjects] = useState<RecentProjects>(NONE);
   useEffect(() => {
     let live = true;
     recentProjects().then(

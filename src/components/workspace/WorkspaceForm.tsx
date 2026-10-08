@@ -103,7 +103,7 @@ export function WorkspaceForm({
 
   return (
     <form
-      className="form"
+      className={start.className}
       onSubmit={(e) => {
         e.preventDefault();
         submit();
@@ -127,15 +127,17 @@ export function WorkspaceForm({
           className={`form__dir-path${cwd ? "" : " form__dir-path--empty"}`}
           title={cwd ?? undefined}
         >
-          {cwd ?? "No folder chosen"}
+          <span>{cwd ?? "No folder chosen"}</span>
         </span>
-        <button
-          type="button"
-          className="form__dir-btn"
-          onClick={chooseDirectory}
-        >
-          Choose…
-        </button>
+        {!start.folderFixed && (
+          <button
+            type="button"
+            className="form__dir-btn"
+            onClick={chooseDirectory}
+          >
+            Choose…
+          </button>
+        )}
       </div>
       {git?.isRepo && (
         <span className="form__git">

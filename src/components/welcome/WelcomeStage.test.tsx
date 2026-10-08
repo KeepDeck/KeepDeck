@@ -32,7 +32,7 @@ const index = vi.hoisted(() => {
 });
 vi.mock("../../app/runtimeContext", () => ({ useAppRuntime: () => ({ sessionIndex: index.manager }) }));
 const projects = vi.hoisted(() => ({ current: [] as { root: string; sessions: number; lastAt: number }[] }));
-vi.mock("../../ipc/history", () => ({ recentProjects: () => Promise.resolve(projects.current) }));
+vi.mock("../../ipc/history", () => ({ recentProjects: () => Promise.resolve({ home: "/Users/me", projects: projects.current }) }));
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

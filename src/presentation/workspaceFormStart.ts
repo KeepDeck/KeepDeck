@@ -14,10 +14,21 @@ export interface WorkspaceFormStart {
   advanced: { foldable: boolean; open: boolean };
   /** The word on the way out, when there is one. */
   leave: "Back" | "Cancel";
+  /** The folder is the one already chosen: shown, not picked again (Back
+   * goes to choosing another). */
+  folderFixed: boolean;
+  className: string;
 }
 
 export function workspaceFormStart(chosenDir: string | null): WorkspaceFormStart {
   return chosenDir === null
-    ? { name: "", cwd: null, advanced: { foldable: false, open: true }, leave: "Cancel" }
-    : { name: baseName(chosenDir), cwd: chosenDir, advanced: { foldable: true, open: false }, leave: "Back" };
+    ? { name: "", cwd: null, advanced: { foldable: false, open: true }, leave: "Cancel", folderFixed: false, className: "form" }
+    : {
+        name: baseName(chosenDir),
+        cwd: chosenDir,
+        advanced: { foldable: true, open: false },
+        leave: "Back",
+        folderFixed: true,
+        className: "form form--confirm",
+      };
 }

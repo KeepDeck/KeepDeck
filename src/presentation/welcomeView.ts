@@ -6,11 +6,15 @@
  * in, newest first — the first few, or all of them once asked.
  */
 import { formatAge } from "../domain/usage";
-import { baseName } from "../domain/deck";
+import { baseName, homeRelative } from "../domain/deck";
 import type { RecentProject } from "../domain/recentProject";
 
 /** How many recent projects show before "Show all…". */
 export const WELCOME_RECENT_FIRST = 5;
+
+/** First-paint height of a project row (two lines and their padding) —
+ * the windowed list corrects it once the row is measured. */
+export const WELCOME_ROW_ESTIMATE_PX = 52;
 
 export const WELCOME_WORDS = {
   firstTitle: "Welcome to KeepDeck",
@@ -18,6 +22,8 @@ export const WELCOME_WORDS = {
   pitch: "Run teams of coding agents on your projects — side by side, with a shared board of tasks.",
   open: "Open a project folder…",
   hint: "A workspace is one project folder.",
+  /** The New Workspace command's key, beside the way in it opens. */
+  shortcut: "⌘N",
   agentsFound: "Agents found:",
   noAgents: "No coding agents found on this machine yet.",
   recentHeading: "Recent projects",
@@ -42,16 +48,21 @@ export interface WelcomeProjectRow {
 }
 
 export interface WelcomeView {
+  /** The screen's classes: one column, or two with the projects beside. */
+  className: string;
   title: string;
   pitch: string;
   open: string;
   hint: string;
+  shortcut: string;
   steps: readonly { title: string; text: string }[];
-  agents: { label: string; names: string[] } | { label: string; names: null };
+  /** Every agent KeepDeck knows, found on this machine or not. */
+  agents: { label: string; items: { name: string; className: string }[] };
   recent: {
     heading: string;
     caption: string;
     rows: WelcomeProjectRow[];
+    rowEstimate: number;
     /** The "Show all…" offer, while some are not shown. */
     more: string | null;
   } | null;
@@ -59,21 +70,31 @@ export interface WelcomeView {
 
 export function welcomeView(input: {
   projects: readonly RecentProject[];
+  /** The home folder: a path under it is shown under `~`. */
+  home: string | null;
   showAll: boolean;
   agents: readonly { label: string; installed: boolean }[];
   now: number;
 }): WelcomeView {
   const { projects } = input;
   const shown = input.showAll ? projects : projects.slice(0, WELCOME_RECENT_FIRST);
-  const found = input.agents.filter((agent) => agent.installed).map((agent) => agent.label);
+  const anyFound = input.agents.some((agent) => agent.installed);
   return {
+    className: projects.length > 0 ? "welcome welcome--with-recent" : "welcome",
     // Back to work there is to come back to: the same fact the list shows.
     title: projects.length > 0 ? WELCOME_WORDS.backTitle : WELCOME_WORDS.firstTitle,
     pitch: WELCOME_WORDS.pitch,
     open: WELCOME_WORDS.open,
     hint: WELCOME_WORDS.hint,
+    shortcut: WELCOME_WORDS.shortcut,
     steps: WELCOME_STEPS,
-    agents: found.length > 0 ? { label: WELCOME_WORDS.agentsFound, names: found } : { label: WELCOME_WORDS.noAgents, names: null },
+    agents: {
+      label: anyFound ? WELCOME_WORDS.agentsFound : WELCOME_WORDS.noAgents,
+      items: input.agents.map((agent) => ({
+        name: agent.label,
+        className: agent.installed ? "kd-tag kd-tag--outline welcome__agent" : "kd-tag kd-tag--outline welcome__agent welcome__agent--missing",
+      })),
+    },
     recent:
       projects.length === 0
         ? null
@@ -84,10 +105,11 @@ export function welcomeView(input: {
               key: project.root,
               dir: project.root,
               name: baseName(project.root) || project.root,
-              path: project.root,
+              path: homeRelative(project.root, input.home),
               sessions: project.sessions === 1 ? "1 session" : `${project.sessions} sessions`,
               age: formatAge(project.lastAt, input.now),
             })),
+            rowEstimate: WELCOME_ROW_ESTIMATE_PX,
             more: shown.length < projects.length ? WELCOME_WORDS.showAll : null,
           },
   };
