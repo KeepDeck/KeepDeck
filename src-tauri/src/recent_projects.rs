@@ -84,14 +84,31 @@ pub fn recent_projects(state: State<'_, HistoryIndex>) -> Result<RecentProjects,
     })
 }
 
-/// A folder's project, or `None` when it is no longer a folder on disk.
+/// A folder's project, or `None` when it is no longer a folder on disk —
+/// `project_root` cannot resolve what is not there, nor look for a
+/// repository below a file.
 fn project_of(cwd: &str) -> Option<String> {
-    let path = Path::new(cwd);
-    if !path.is_dir() {
-        return None;
-    }
-    let root = keepdeck_git::project::project_root(path).ok()?;
+    let root = keepdeck_git::project::project_root(Path::new(cwd)).ok()?;
     Some(root.to_string_lossy().into_owned())
+}
+
+#[cfg(test)]
+mod project_of_tests {
+    use super::project_of;
+
+    #[test]
+    fn a_folder_on_disk_is_its_project_and_one_gone_is_none() {
+        let dir = tempfile::tempdir().unwrap();
+        let here = std::fs::canonicalize(dir.path()).unwrap();
+        assert_eq!(
+            project_of(&here.to_string_lossy()),
+            Some(here.to_string_lossy().into_owned())
+        );
+        let file = here.join("a-file");
+        std::fs::write(&file, "x").unwrap();
+        assert_eq!(project_of(&file.to_string_lossy()), None);
+        assert_eq!(project_of(&here.join("gone").to_string_lossy()), None);
+    }
 }
 
 #[cfg(test)]

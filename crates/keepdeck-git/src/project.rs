@@ -14,10 +14,14 @@ use crate::exclude::owning_repo;
 /// The project `path` is part of: the main checkout of the repository that
 /// owns it, or `path` itself outside any repository — always RESOLVED
 /// (symlinks followed), so a folder reached by two spellings (`/tmp` and
-/// `/private/tmp`) is one project. A bare repository has no main
-/// checkout: its worktrees stay projects of their own.
+/// `/private/tmp`) is one project. The folder is resolved BEFORE its
+/// repository is looked for: a symlink is the folder it points at, and the
+/// repository is that folder's, not the one the link happens to sit in. A
+/// bare repository has no main checkout: its worktrees stay projects of
+/// their own.
 pub fn project_root(path: &Path) -> io::Result<PathBuf> {
-    let root = unresolved_root(path)?;
+    let path = fs::canonicalize(path)?;
+    let root = unresolved_root(&path)?;
     Ok(fs::canonicalize(&root).unwrap_or(root))
 }
 
@@ -35,10 +39,27 @@ fn unresolved_root(path: &Path) -> io::Result<PathBuf> {
         return Ok(checkout.to_path_buf());
     }
     let common = fs::canonicalize(&repo.common_dir).unwrap_or(repo.common_dir);
+    if is_bare(&common) {
+        return Ok(checkout.to_path_buf());
+    }
     match (common.file_name(), common.parent()) {
         (Some(name), Some(main)) if name == ".git" => Ok(main.to_path_buf()),
         _ => Ok(checkout.to_path_buf()),
     }
+}
+
+/// Whether the repository at `common_dir` says it is bare (`core.bare` in
+/// its config) — whatever its folder is called, `<holder>/.git` included.
+fn is_bare(common_dir: &Path) -> bool {
+    let Ok(config) = fs::read_to_string(common_dir.join("config")) else {
+        return false;
+    };
+    config.lines().any(|line| {
+        let line = line.trim().to_ascii_lowercase();
+        line.strip_prefix("bare")
+            .map(|rest| rest.trim_start().strip_prefix('=').map(str::trim) == Some("true"))
+            .unwrap_or(false)
+    })
 }
 
 #[cfg(test)]
@@ -102,6 +123,43 @@ mod tests {
         fs::create_dir_all(&wt).unwrap();
         fs::write(wt.join(".git"), format!("gitdir: {}\n", gitdir.display())).unwrap();
         assert_eq!(project_root(&wt).unwrap(), fs::canonicalize(wt).unwrap());
+    }
+
+    #[test]
+    fn a_bare_repository_named_dot_git_keeps_its_worktrees_their_own() {
+        let dir = tempfile::tempdir().unwrap();
+        let (main, wt) = repo_with_worktree(dir.path());
+        fs::write(main.join(".git").join("config"), "[core]\n\tbare = true\n").unwrap();
+        assert_eq!(project_root(&wt).unwrap(), fs::canonicalize(wt).unwrap());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_is_the_folder_it_points_at_not_the_repository_it_sits_in() {
+        let dir = tempfile::tempdir().unwrap();
+        let (main, _) = repo_with_worktree(dir.path());
+        let other = dir.path().join("other");
+        fs::create_dir_all(other.join(".git")).unwrap();
+        fs::create_dir_all(other.join("src")).unwrap();
+        let link = main.join("foreign");
+        std::os::unix::fs::symlink(other.join("src"), &link).unwrap();
+        assert_eq!(
+            project_root(&link).unwrap(),
+            fs::canonicalize(&other).unwrap()
+        );
+        let outside = dir.path().join("into-main");
+        fs::create_dir_all(main.join("src")).unwrap();
+        std::os::unix::fs::symlink(main.join("src"), &outside).unwrap();
+        assert_eq!(
+            project_root(&outside).unwrap(),
+            fs::canonicalize(&main).unwrap()
+        );
+    }
+
+    #[test]
+    fn a_folder_gone_from_disk_is_an_error_not_a_project() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(project_root(&dir.path().join("gone")).is_err());
     }
 
     #[cfg(unix)]
