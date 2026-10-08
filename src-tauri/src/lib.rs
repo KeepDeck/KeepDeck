@@ -38,6 +38,7 @@ mod skills;
 mod tasks;
 mod voice;
 mod history;
+mod recent_projects;
 mod journal;
 mod exec_once;
 mod keyed_locks;
@@ -264,6 +265,7 @@ pub fn run() {
             history::index_prune,
             history::index_search,
             history::index_lookup,
+            recent_projects::recent_projects,
             plugins_sqlite::plugins_sqlite_query,
             plugins_fs_write::plugins_fs_write_mkdir,
             plugins_fs_write::plugins_fs_write_copy,

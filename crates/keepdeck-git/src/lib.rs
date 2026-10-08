@@ -15,7 +15,8 @@
 //! reads `.git` layout (`gitdir:`/`commondir`) and edits `info/exclude` with
 //! direct std::fs — git ships no plumbing command for editing that file, and
 //! the byte-fidelity contract (the user's file is theirs) demands we own the
-//! write.
+//! write. `project` reads the same layout through it, to tell which project
+//! a folder is part of without running git once per folder.
 
 mod cmd;
 mod error;
@@ -26,6 +27,7 @@ pub mod exclude;
 pub mod fork;
 pub mod head;
 pub mod log;
+pub mod project;
 pub mod provenance;
 pub mod repo;
 pub mod status;

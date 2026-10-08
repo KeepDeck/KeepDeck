@@ -16,7 +16,7 @@ use tauri::State;
 #[derive(Default)]
 pub struct HistoryIndex(Mutex<Option<SessionIndex>>);
 
-fn with_index<T>(
+pub(crate) fn with_index<T>(
     state: &State<'_, HistoryIndex>,
     f: impl FnOnce(&mut SessionIndex) -> Result<T, String>,
 ) -> Result<T, String> {
