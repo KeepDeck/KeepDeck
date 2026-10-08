@@ -51,15 +51,45 @@ fn unresolved_root(path: &Path) -> io::Result<PathBuf> {
 /// Whether the repository at `common_dir` says it is bare (`core.bare` in
 /// its config) — whatever its folder is called, `<holder>/.git` included.
 fn is_bare(common_dir: &Path) -> bool {
-    let Ok(config) = fs::read_to_string(common_dir.join("config")) else {
-        return false;
-    };
-    config.lines().any(|line| {
-        let line = line.trim().to_ascii_lowercase();
-        line.strip_prefix("bare")
-            .map(|rest| rest.trim_start().strip_prefix('=').map(str::trim) == Some("true"))
-            .unwrap_or(false)
-    })
+    fs::read_to_string(common_dir.join("config"))
+        .map(|config| core_bare(&config))
+        .unwrap_or(false)
+}
+
+/// `core.bare` as git reads it from a config file: only in the `[core]`
+/// section (not another, not a `[core "…"]` subsection), the last one
+/// set winning, a comment (`#`, `;`) ending the value, and git's
+/// booleans — true/yes/on/1, a bare key as true; anything else false.
+fn core_bare(config: &str) -> bool {
+    let mut in_core = false;
+    let mut bare = false;
+    for raw in config.lines() {
+        let line = raw.trim();
+        if let Some(header) = line.strip_prefix('[') {
+            let name = header.split(']').next().unwrap_or("").trim();
+            in_core = name.eq_ignore_ascii_case("core");
+            continue;
+        }
+        if !in_core {
+            continue;
+        }
+        let line = line.split(['#', ';']).next().unwrap_or("").trim();
+        let (key, value) = match line.split_once('=') {
+            Some((key, value)) => (key.trim(), Some(value.trim())),
+            None => (line, None),
+        };
+        if !key.eq_ignore_ascii_case("bare") {
+            continue;
+        }
+        bare = match value {
+            None => true,
+            Some(value) => matches!(
+                value.to_ascii_lowercase().as_str(),
+                "true" | "yes" | "on" | "1"
+            ),
+        };
+    }
+    bare
 }
 
 #[cfg(test)]
@@ -123,6 +153,21 @@ mod tests {
         fs::create_dir_all(&wt).unwrap();
         fs::write(wt.join(".git"), format!("gitdir: {}\n", gitdir.display())).unwrap();
         assert_eq!(project_root(&wt).unwrap(), fs::canonicalize(wt).unwrap());
+    }
+
+    #[test]
+    fn reads_core_bare_as_git_does() {
+        // Only [core]; the last set wins; a comment ends the value; git's booleans.
+        assert!(!core_bare(
+            "[core]\n\tbare = false\n[review]\n\tbare = true\n"
+        ));
+        assert!(core_bare("[core]\n\tbare = true # a comment\n"));
+        assert!(core_bare("[core]\n\tbare = yes\n"));
+        assert!(core_bare("[core]\n\tbare = 1\n"));
+        assert!(!core_bare("[core]\n\tbare = true\n\tbare = false\n"));
+        assert!(core_bare("[CORE]\n\tBare\n"));
+        assert!(!core_bare("[core \"sub\"]\n\tbare = true\n"));
+        assert!(!core_bare("[core]\n\trepositoryformatversion = 0\n"));
     }
 
     #[test]
