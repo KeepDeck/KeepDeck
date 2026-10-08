@@ -1,0 +1,154 @@
+/* The welcome screen (components/welcome): the stage while there is no
+   workspace — the greeting and the one way in on the left, the projects
+   agents have worked in on the right. */
+.welcome {
+  display: grid;
+  grid-template-columns: minmax(0, 380px);
+  gap: 40px;
+  width: min(960px, 100%);
+  padding: 32px;
+  align-items: start;
+  justify-content: center;
+}
+
+.welcome--with-recent {
+  grid-template-columns: minmax(0, 380px) minmax(0, 1fr);
+}
+
+.welcome__title {
+  margin: 0 0 8px;
+  font-size: var(--kd-font-title);
+  font-weight: 600;
+}
+
+.welcome__pitch {
+  margin: 0 0 20px;
+  color: var(--kd-text-2);
+  line-height: 1.5;
+}
+
+.welcome__hint {
+  margin: 8px 0 0;
+  color: var(--kd-text-3);
+  font-size: var(--kd-font-small);
+}
+
+.welcome__steps {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 22px 0 0;
+  padding: 16px 0 0 18px;
+  border-top: 1px solid var(--kd-seam);
+  color: var(--kd-text-2);
+}
+
+.welcome__steps b {
+  color: var(--kd-text);
+  font-weight: 600;
+}
+
+.welcome__agents {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 18px 0 0;
+  color: var(--kd-text-3);
+  font-size: var(--kd-font-small);
+}
+
+.welcome__recent {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.welcome__recent-heading {
+  margin: 4px 0 8px;
+  color: var(--kd-text-3);
+  font-size: var(--kd-font-small);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.welcome__recent-heading span {
+  margin-left: 6px;
+  color: var(--kd-text-3);
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* The project list scrolls inside itself, the screen does not. */
+.welcome__projects {
+  max-height: 420px;
+  overflow-y: auto;
+  border: 1px solid var(--kd-seam);
+  border-radius: var(--kd-radius-tile);
+  background-color: var(--kd-tile);
+}
+
+.welcome__project {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 12px;
+  width: 100%;
+  padding: 8px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--kd-hover);
+  background: transparent;
+  color: var(--kd-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.welcome__project:hover {
+  background-color: var(--kd-hover);
+}
+
+.welcome__project:focus-visible {
+  outline: 1px solid var(--kd-focus);
+  outline-offset: -1px;
+}
+
+.welcome__project-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.welcome__project-meta {
+  color: var(--kd-text-3);
+  font-size: var(--kd-font-small);
+  white-space: nowrap;
+}
+
+.welcome__project-path {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  color: var(--kd-text-3);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--kd-font-small);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.welcome__more {
+  align-self: flex-start;
+  margin-top: 6px;
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  color: var(--kd-text-3);
+  font: inherit;
+  font-size: var(--kd-font-normal);
+  cursor: pointer;
+}
+
+.welcome__more:hover {
+  color: var(--kd-text);
+}

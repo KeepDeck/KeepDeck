@@ -44,6 +44,7 @@ import {
   paneInFront,
   resolveSelectedPaneId,
   stagePanes,
+  type SpawnConfig,
   type Workspace,
 } from "../domain/deck";
 import type { AppInfo } from "../ipc/app";
@@ -58,6 +59,9 @@ import type { WorkspaceCrumbView } from "../presentation/workspaceCrumbView";
 import { stripView } from "../presentation/stripView";
 import { needsYouRows, type NeedsYouRow } from "../presentation/needsYouView";
 import { teamBranchOf, teamHead } from "../presentation/teamCardView";
+import { pickFolder } from "../ipc/dialogs";
+import { useWelcomeFlow } from "./useWelcomeFlow";
+import { newWorkspaceTarget } from "../presentation/welcomeFlow";
 
 /** No epic folded: one list, so the dialog's set is not rebuilt each render. */
 const NO_FOLDED_EPICS: readonly string[] = [];
@@ -107,6 +111,14 @@ export function useAppController() {
   }, [deck.workspaces]);
   const gitHeads = useGitHead(deck);
   const [creating, setCreating] = useState(false);
+  // No workspace: the welcome screen, whose folder picker the New
+  // Workspace command opens too.
+  const welcome = useWelcomeFlow(pickFolder);
+  const noWorkspace = deck.workspaces.length === 0;
+  /** New Workspace (⌘N, the strip's «+»): the form over the deck, or — with
+   * no workspace yet — the welcome screen's folder picker. */
+  const newWorkspace = () =>
+    newWorkspaceTarget(deck.workspaces.length) === "welcome" ? welcome.openFolder() : setCreating(true);
   const [alerts, setAlerts] = useState<{ title: string; message: string }[]>([]);
   const error = alerts[0] ?? null;
   const [alertSeq, setAlertSeq] = useState(0);
@@ -199,7 +211,7 @@ export function useAppController() {
   const active = findWorkspace(deck.workspaces, deck.activeId) ?? null;
   const activeView = deck.viewOf(deck.activeId);
   const dockOpen = activeView.dock ?? false;
-  const showForm = creating || deck.workspaces.length === 0;
+  const showForm = creating && !noWorkspace;
   // Resolved over the stage's slice: a highlight is only ever on a pane of
   // the open team.
   const selectedPaneId =
@@ -305,7 +317,7 @@ export function useAppController() {
   useMenuHotkeys({
     newWorkspace: () => {
       if (windows.modal) return;
-      setCreating(true);
+      newWorkspace();
     },
     newAgent: () => {
       // What "new" means: a member on the open team, or a new team at the
@@ -504,6 +516,15 @@ export function useAppController() {
     settingsSection: modal.settingsSection,
     showBell,
     showForm,
+    noWorkspace,
+    welcome,
+    newWorkspace,
+    /** The welcome screen's workspace: a form left open over a deck that
+     * lost its last workspace meanwhile must not come back over this one. */
+    createFromWelcome: (config: SpawnConfig) => {
+      setCreating(false);
+      handleCreateWorkspace(config);
+    },
     skillsOpen: modal.skillsOpen,
     mcpOpen: modal.mcpOpen,
     artifactsOpen: modal.artifactsOpen,
