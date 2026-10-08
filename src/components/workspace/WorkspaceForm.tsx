@@ -3,6 +3,8 @@ import type { SpawnConfig } from "../../domain/deck";
 import { useEscape } from "../../ui/useEscape";
 import { noAutoCorrect } from "../../ui/inputProps";
 import { SuggestedInput } from "../../ui/SuggestedInput";
+import { DisclosureChevron } from "@keepdeck/ui-kit/DisclosureChevron";
+import { workspaceFormStart } from "../../presentation/workspaceFormStart";
 
 export type { SpawnConfig } from "../../domain/deck";
 
@@ -17,6 +19,10 @@ interface WorkspaceFormProps {
   pickFolder(title: string): Promise<string | null>;
   /** Probe a chosen working directory for the git hint (injected likewise). */
   inspectDir(path: string): Promise<{ isRepo: boolean; branch: string | null }>;
+  /** The welcome screen's confirm step: the folder already chosen, the
+   * name its folder's, where worktrees go folded under Advanced, and Back
+   * to the choice instead of Cancel. */
+  confirm?: { dir: string; onBack(): void };
 }
 
 /**
@@ -37,9 +43,12 @@ export function WorkspaceForm({
   onCancel,
   pickFolder,
   inspectDir,
+  confirm,
 }: WorkspaceFormProps) {
-  const [name, setName] = useState("");
-  const [cwd, setCwd] = useState<string | null>(null);
+  const [start] = useState(() => workspaceFormStart(confirm?.dir ?? null));
+  const [name, setName] = useState(start.name);
+  const [cwd, setCwd] = useState<string | null>(start.cwd);
+  const [advanced, setAdvanced] = useState(start.advanced.open);
   // Empty string = no worktree isolation; maps to null in SpawnConfig.
   const [worktreeDir, setWorktreeDir] = useState("");
   const [git, setGit] = useState<{ isRepo: boolean; branch: string | null } | null>(
@@ -66,8 +75,10 @@ export function WorkspaceForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cwd]);
 
-  // Esc closes the form when there's a workspace to return to.
-  useEscape(() => onCancel?.(), Boolean(onCancel));
+  // Esc closes the form when there's a workspace to return to, and goes
+  // Back from the welcome screen's confirm step.
+  const leave = confirm?.onBack ?? onCancel;
+  useEscape(() => leave?.(), Boolean(leave));
 
   const chooseDirectory = async () => {
     const selected = await pickFolder("Choose working directory");
@@ -132,30 +143,45 @@ export function WorkspaceForm({
         </span>
       )}
 
-      <span className="form__label">Worktree directory (optional)</span>
-      <div className="form__path">
-        <SuggestedInput
-          value={worktreeDir}
-          suggestion=""
-          onChange={setWorktreeDir}
-          className="form__path-field"
-          placeholder="Agents run in the working directory"
-          ariaLabel="Worktree directory"
-          clearTitle="Clear — agents run in the working directory"
-        />
+      {start.advanced.foldable && (
         <button
           type="button"
-          className="form__dir-btn"
-          onClick={chooseWorktreeDir}
+          className="form__advanced"
+          aria-expanded={advanced}
+          onClick={() => setAdvanced(!advanced)}
         >
-          Choose…
+          <DisclosureChevron open={advanced} />
+          Advanced
         </button>
-      </div>
+      )}
+      {advanced && (
+        <>
+          <span className="form__label">Worktree directory (optional)</span>
+          <div className="form__path">
+            <SuggestedInput
+              value={worktreeDir}
+              suggestion=""
+              onChange={setWorktreeDir}
+              className="form__path-field"
+              placeholder="Agents run in the working directory"
+              ariaLabel="Worktree directory"
+              clearTitle="Clear — agents run in the working directory"
+            />
+            <button
+              type="button"
+              className="form__dir-btn"
+              onClick={chooseWorktreeDir}
+            >
+              Choose…
+            </button>
+          </div>
+        </>
+      )}
 
       <div className="form__actions">
-        {onCancel && (
-          <button type="button" className="form__cancel" onClick={onCancel}>
-            Cancel
+        {leave && (
+          <button type="button" className="form__cancel" onClick={leave}>
+            {start.leave}
           </button>
         )}
         <button

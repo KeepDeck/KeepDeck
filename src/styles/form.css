@@ -464,6 +464,26 @@
   margin-top: 24px;
 }
 
+/* The confirm step's fold for where worktrees go. */
+.form__advanced {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  margin: 0 0 16px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--kd-text-3);
+  font: inherit;
+  font-size: var(--kd-font-small);
+  cursor: pointer;
+}
+
+.form__advanced:hover {
+  color: var(--kd-text);
+}
+
 .form__create {
   padding: 9px 18px;
   border: 0;
