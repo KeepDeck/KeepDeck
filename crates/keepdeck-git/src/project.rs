@@ -58,8 +58,9 @@ fn is_bare(common_dir: &Path) -> bool {
 
 /// `core.bare` as git reads it from a config file: only in the `[core]`
 /// section (not another, not a `[core "…"]` subsection), the last one
-/// set winning, a comment (`#`, `;`) ending the value, and git's
-/// booleans — true/yes/on/1, a bare key as true; anything else false.
+/// set winning, a comment (`#`, `;`) outside quotes ending the value,
+/// quotes dropped, and git's booleans — true/yes/on, a nonzero integer
+/// (`k`/`m`/`g` suffixes allowed), a bare key as true; anything else false.
 fn core_bare(config: &str) -> bool {
     let mut in_core = false;
     let mut bare = false;
@@ -73,23 +74,47 @@ fn core_bare(config: &str) -> bool {
         if !in_core {
             continue;
         }
-        let line = line.split(['#', ';']).next().unwrap_or("").trim();
         let (key, value) = match line.split_once('=') {
-            Some((key, value)) => (key.trim(), Some(value.trim())),
-            None => (line, None),
+            Some((key, value)) => (key.trim(), Some(config_value(value))),
+            None => (uncommented(line).trim(), None),
         };
         if !key.eq_ignore_ascii_case("bare") {
             continue;
         }
-        bare = match value {
-            None => true,
-            Some(value) => matches!(
-                value.to_ascii_lowercase().as_str(),
-                "true" | "yes" | "on" | "1"
-            ),
-        };
+        bare = value.is_none_or(|value| git_bool(&value));
     }
     bare
+}
+
+/// The text before a comment that starts outside quotes.
+fn uncommented(text: &str) -> &str {
+    let mut quoted = false;
+    for (at, c) in text.char_indices() {
+        match c {
+            '"' => quoted = !quoted,
+            '#' | ';' if !quoted => return &text[..at],
+            _ => {}
+        }
+    }
+    text
+}
+
+/// A config value as git hands it on: the comment cut, the quotes dropped,
+/// the ends trimmed.
+fn config_value(raw: &str) -> String {
+    uncommented(raw).trim().replace('"', "")
+}
+
+/// A config value read as git's boolean.
+fn git_bool(value: &str) -> bool {
+    let value = value.trim().to_ascii_lowercase();
+    match value.as_str() {
+        "true" | "yes" | "on" => return true,
+        "false" | "no" | "off" | "" => return false,
+        _ => {}
+    }
+    let digits = value.trim_end_matches(['k', 'm', 'g']);
+    digits.parse::<i64>().map(|n| n != 0).unwrap_or(false)
 }
 
 #[cfg(test)]
@@ -168,6 +193,13 @@ mod tests {
         assert!(core_bare("[CORE]\n\tBare\n"));
         assert!(!core_bare("[core \"sub\"]\n\tbare = true\n"));
         assert!(!core_bare("[core]\n\trepositoryformatversion = 0\n"));
+        // Quotes dropped, a comment sign inside them kept, any nonzero integer true.
+        assert!(core_bare("[core]\n\tbare = \"true\"\n"));
+        assert!(core_bare("[core]\n\tbare = 2\n"));
+        assert!(core_bare("[core]\n\tbare = 1k\n"));
+        assert!(!core_bare("[core]\n\tbare = 0\n"));
+        assert!(!core_bare("[core]\n\tbare = \"no;\"\n"));
+        assert!(!core_bare("[core]\n\tbare = maybe\n"));
     }
 
     #[test]
