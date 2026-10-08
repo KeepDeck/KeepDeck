@@ -10,8 +10,9 @@ describe("history ipc", () => {
   beforeEach(() => invoke.mockReset());
 
   it("recentProjects invokes recent_projects and passes its projects through", async () => {
-    invoke.mockResolvedValueOnce([{ root: "/repo", sessions: 3, lastAt: 90 }]);
-    await expect(recentProjects()).resolves.toEqual([{ root: "/repo", sessions: 3, lastAt: 90 }]);
+    const answer = { home: "/Users/me", projects: [{ root: "/repo", sessions: 3, lastAt: 90 }] };
+    invoke.mockResolvedValueOnce(answer);
+    await expect(recentProjects()).resolves.toEqual(answer);
     expect(invoke).toHaveBeenCalledWith("recent_projects");
   });
 });

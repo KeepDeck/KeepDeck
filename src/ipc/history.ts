@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { SqlAnswer } from "@keepdeck/plugin-api";
-import type { RecentProject } from "../domain/recentProject";
+import type { RecentProjects } from "../domain/recentProject";
 
 /**
  * The session-search index ([F8] global browser) — a disposable SQLite+FTS5
@@ -128,6 +128,6 @@ export function pluginsSqliteQuery(
 /** Every project agents have worked in, newest first — the welcome
  * screen's list. As fresh as the index: declare a need through the
  * session index's owner, and ask again on its next revision. */
-export function recentProjects(): Promise<RecentProject[]> {
-  return invoke<RecentProject[]>("recent_projects");
+export function recentProjects(): Promise<RecentProjects> {
+  return invoke<RecentProjects>("recent_projects");
 }

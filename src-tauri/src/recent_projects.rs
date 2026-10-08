@@ -58,17 +58,30 @@ pub fn fold_projects(
     projects
 }
 
+/// The list, and the home folder its paths may be shown under.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecentProjects {
+    pub home: Option<String>,
+    pub projects: Vec<RecentProject>,
+}
+
 /// Every project agents have worked in, newest first ([`fold_projects`]).
 /// `(async)`: it reads the index and a `.git` per folder — off the main
 /// thread.
 #[tauri::command(async)]
-pub fn recent_projects(state: State<'_, HistoryIndex>) -> Result<Vec<RecentProject>, String> {
+pub fn recent_projects(state: State<'_, HistoryIndex>) -> Result<RecentProjects, String> {
     let folders = with_index(&state, |index| index.folder_activity())?;
+    // Resolved like every project's folder, so the two compare.
+    let home = std::env::var_os("HOME")
+        .map(|home| std::fs::canonicalize(&home).unwrap_or_else(|_| home.into()))
+        .map(|home| home.to_string_lossy().trim_end_matches('/').to_string());
     let mut not_projects = vec!["/".to_string()];
-    if let Some(home) = std::env::var_os("HOME") {
-        not_projects.push(home.to_string_lossy().trim_end_matches('/').to_string());
-    }
-    Ok(fold_projects(&folders, project_of, &not_projects))
+    not_projects.extend(home.clone());
+    Ok(RecentProjects {
+        projects: fold_projects(&folders, project_of, &not_projects),
+        home,
+    })
 }
 
 /// A folder's project, or `None` when it is no longer a folder on disk.

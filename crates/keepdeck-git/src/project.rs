@@ -12,12 +12,16 @@ use std::path::{Path, PathBuf};
 use crate::exclude::owning_repo;
 
 /// The project `path` is part of: the main checkout of the repository that
-/// owns it, or `path` itself outside any repository. A main checkout keeps
-/// the spelling of the path it was reached by; a linked worktree's is the
-/// resolved path of its repository's shared `.git` directory's parent. A
-/// bare repository has no main checkout: its worktrees stay projects of
-/// their own.
+/// owns it, or `path` itself outside any repository — always RESOLVED
+/// (symlinks followed), so a folder reached by two spellings (`/tmp` and
+/// `/private/tmp`) is one project. A bare repository has no main
+/// checkout: its worktrees stay projects of their own.
 pub fn project_root(path: &Path) -> io::Result<PathBuf> {
+    let root = unresolved_root(path)?;
+    Ok(fs::canonicalize(&root).unwrap_or(root))
+}
+
+fn unresolved_root(path: &Path) -> io::Result<PathBuf> {
     let Some(repo) = owning_repo(path)? else {
         return Ok(path.to_path_buf());
     };
@@ -58,6 +62,7 @@ mod tests {
     fn a_main_checkout_and_a_folder_below_it_are_the_checkout() {
         let dir = tempfile::tempdir().unwrap();
         let (main, _) = repo_with_worktree(dir.path());
+        let main = fs::canonicalize(main).unwrap();
         fs::create_dir_all(main.join("packages").join("app")).unwrap();
         assert_eq!(project_root(&main).unwrap(), main);
         assert_eq!(
@@ -80,7 +85,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let plain = dir.path().join("notes");
         fs::create_dir_all(&plain).unwrap();
-        assert_eq!(project_root(&plain).unwrap(), plain);
+        assert_eq!(
+            project_root(&plain).unwrap(),
+            fs::canonicalize(plain).unwrap()
+        );
     }
 
     #[test]
@@ -93,6 +101,16 @@ mod tests {
         let wt = dir.path().join("wt");
         fs::create_dir_all(&wt).unwrap();
         fs::write(wt.join(".git"), format!("gitdir: {}\n", gitdir.display())).unwrap();
-        assert_eq!(project_root(&wt).unwrap(), wt);
+        assert_eq!(project_root(&wt).unwrap(), fs::canonicalize(wt).unwrap());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_checkout_reached_through_a_symlink_is_the_same_project() {
+        let dir = tempfile::tempdir().unwrap();
+        let (main, wt) = repo_with_worktree(dir.path());
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(&main, &link).unwrap();
+        assert_eq!(project_root(&link).unwrap(), project_root(&wt).unwrap());
     }
 }

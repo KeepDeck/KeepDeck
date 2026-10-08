@@ -352,6 +352,16 @@ export function baseName(path: string): string {
   return norm.slice(norm.lastIndexOf("/") + 1);
 }
 
+/** `path` spelled under the home folder as `~` — `~/Projects/x` — the
+ * home folder itself as `~`; any other path as it is. String-only. */
+export function homeRelative(path: string, home: string | null): string {
+  if (!home) return path;
+  const norm = normalizePath(path);
+  const base = normalizePath(home);
+  if (norm === base) return "~";
+  return norm.startsWith(`${base}/`) ? `~${norm.slice(base.length)}` : path;
+}
+
 // The pane→directory projections live in [`./roots`]: everything KeepDeck
 // plants in a working directory keys off them, and they change for entirely
 // different reasons than workspace membership or pane state do.

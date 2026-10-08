@@ -7,3 +7,10 @@ export interface RecentProject {
   sessions: number;
   lastAt: number;
 }
+
+/** The list as the native side answers it: the projects, and the home
+ * folder their paths may be shown under (`~`). */
+export interface RecentProjects {
+  home: string | null;
+  projects: RecentProject[];
+}

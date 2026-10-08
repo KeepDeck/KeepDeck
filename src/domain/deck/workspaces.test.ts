@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MAX_PANES } from "./layout";
 import {
+  homeRelative,
   addAgentPane,
   autoWorkspaceName,
   closeAgent,
@@ -835,5 +836,15 @@ describe("failPaneWake", () => {
     expect(failPaneWake(live, "a", "nope")).toBe(live);
     const suspended = withPane({ id: "a-p1", idle: { reason: "suspended", at: AT } });
     expect(failPaneWake(suspended, "a", "a-p1")).toBe(suspended);
+  });
+});
+
+describe("homeRelative", () => {
+  it("spells a path under the home folder with ~, the home folder itself as ~, any other as it is", () => {
+    expect(homeRelative("/Users/me/Projects/x", "/Users/me")).toBe("~/Projects/x");
+    expect(homeRelative("/Users/me/", "/Users/me")).toBe("~");
+    expect(homeRelative("/Users/meow/x", "/Users/me")).toBe("/Users/meow/x");
+    expect(homeRelative("/opt/x", "/Users/me")).toBe("/opt/x");
+    expect(homeRelative("/Users/me/x", null)).toBe("/Users/me/x");
   });
 });
