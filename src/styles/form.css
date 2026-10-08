@@ -483,6 +483,7 @@
 /* The welcome screen's confirm step: the folder is chosen, the form is
    short. */
 .form--confirm {
+  box-sizing: border-box;
   max-width: 440px;
 }
 
