@@ -472,31 +472,10 @@
   margin-top: 24px;
 }
 
-/* The confirm step's fold for where worktrees go. */
-.form__advanced {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  align-self: flex-start;
-  margin: 0 0 16px;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--kd-text-3);
-  font: inherit;
-  font-size: var(--kd-font-small);
-  cursor: pointer;
-}
-
-.form__advanced:hover {
-  color: var(--kd-text);
-}
-
 /* The form's own buttons take the app's focus ring, not the browser's. */
 .form__create:focus-visible,
 .form__cancel:focus-visible,
-.form__dir-btn:focus-visible,
-.form__advanced:focus-visible {
+.form__dir-btn:focus-visible {
   outline: 1px solid var(--kd-focus);
   outline-offset: 1px;
 }

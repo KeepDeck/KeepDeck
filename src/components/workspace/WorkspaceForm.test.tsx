@@ -125,7 +125,6 @@ describe("WorkspaceForm", () => {
 
   describe("as the welcome screen's confirm step", () => {
     const nameInput = () => document.querySelector<HTMLInputElement>('input[aria-label="Workspace name"]')!;
-    const advanced = () => document.querySelector<HTMLButtonElement>(".form__advanced")!;
     const back = () => Array.from(document.querySelectorAll("button")).find((b) => b.textContent === "Back");
 
     it("starts with the folder chosen and named after it, and creates it as it stands", async () => {
@@ -137,11 +136,8 @@ describe("WorkspaceForm", () => {
       expect(created).toEqual([{ name: "kernel", cwd: "/Users/me/Projects/kernel", worktreeBaseDir: null }]);
     });
 
-    it("keeps where worktrees go folded under Advanced until asked", async () => {
+    it("shows where worktrees go, as the «+» form does", async () => {
       await render({ confirm: { dir: "/repo", onBack: vi.fn() } });
-      expect(document.querySelector('input[aria-label="Worktree directory"]')).toBeNull();
-      expect(advanced().getAttribute("aria-expanded")).toBe("false");
-      act(() => advanced().click());
       type(worktreeInput(), "/base/wt");
       submit();
       expect(created[0].worktreeBaseDir).toBe("/base/wt");
@@ -156,9 +152,9 @@ describe("WorkspaceForm", () => {
       expect(Array.from(document.querySelectorAll("button")).some((b) => b.textContent === "Cancel")).toBe(false);
     });
 
-    it("leaves the «+» form as it was: every field in view, no Advanced", async () => {
+    it("leaves the «+» form as it was: empty, the folder picked in it", async () => {
       await render({ onCancel: vi.fn() });
-      expect(document.querySelector(".form__advanced")).toBeNull();
+      expect(chooseBtn()).not.toBeUndefined();
       expect(worktreeInput()).not.toBeNull();
       expect(nameInput().value).toBe("");
     });

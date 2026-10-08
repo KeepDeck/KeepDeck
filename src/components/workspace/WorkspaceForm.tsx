@@ -3,7 +3,6 @@ import type { SpawnConfig } from "../../domain/deck";
 import { useEscape } from "../../ui/useEscape";
 import { noAutoCorrect } from "../../ui/inputProps";
 import { SuggestedInput } from "../../ui/SuggestedInput";
-import { DisclosureChevron } from "@keepdeck/ui-kit/DisclosureChevron";
 import { workspaceFormStart } from "../../presentation/workspaceFormStart";
 
 export type { SpawnConfig } from "../../domain/deck";
@@ -20,7 +19,7 @@ interface WorkspaceFormProps {
   /** Probe a chosen working directory for the git hint (injected likewise). */
   inspectDir(path: string): Promise<{ isRepo: boolean; branch: string | null }>;
   /** The welcome screen's confirm step: the folder already chosen, the
-   * name its folder's, where worktrees go folded under Advanced, and Back
+   * name its folder's, and Back
    * to the choice instead of Cancel. */
   confirm?: { dir: string; onBack(): void };
 }
@@ -48,7 +47,6 @@ export function WorkspaceForm({
   const [start] = useState(() => workspaceFormStart(confirm?.dir ?? null));
   const [name, setName] = useState(start.name);
   const [cwd, setCwd] = useState<string | null>(start.cwd);
-  const [advanced, setAdvanced] = useState(start.advanced.open);
   // Empty string = no worktree isolation; maps to null in SpawnConfig.
   const [worktreeDir, setWorktreeDir] = useState("");
   const [git, setGit] = useState<{ isRepo: boolean; branch: string | null } | null>(
@@ -145,40 +143,25 @@ export function WorkspaceForm({
         </span>
       )}
 
-      {start.advanced.foldable && (
+      <span className="form__label">Worktree directory (optional)</span>
+      <div className="form__path">
+        <SuggestedInput
+          value={worktreeDir}
+          suggestion=""
+          onChange={setWorktreeDir}
+          className="form__path-field"
+          placeholder="Agents run in the working directory"
+          ariaLabel="Worktree directory"
+          clearTitle="Clear — agents run in the working directory"
+        />
         <button
           type="button"
-          className="form__advanced"
-          aria-expanded={advanced}
-          onClick={() => setAdvanced(!advanced)}
+          className="form__dir-btn"
+          onClick={chooseWorktreeDir}
         >
-          <DisclosureChevron open={advanced} />
-          Advanced
+          Choose…
         </button>
-      )}
-      {advanced && (
-        <>
-          <span className="form__label">Worktree directory (optional)</span>
-          <div className="form__path">
-            <SuggestedInput
-              value={worktreeDir}
-              suggestion=""
-              onChange={setWorktreeDir}
-              className="form__path-field"
-              placeholder="Agents run in the working directory"
-              ariaLabel="Worktree directory"
-              clearTitle="Clear — agents run in the working directory"
-            />
-            <button
-              type="button"
-              className="form__dir-btn"
-              onClick={chooseWorktreeDir}
-            >
-              Choose…
-            </button>
-          </div>
-        </>
-      )}
+      </div>
 
       <div className="form__actions">
         {leave && (
