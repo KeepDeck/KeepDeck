@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useState } from "react";
 import { VirtualList } from "@keepdeck/ui-kit/VirtualList";
 import type { WelcomeProjectRow, WelcomeView } from "../../presentation/welcomeView";
 
@@ -19,16 +19,15 @@ export function WelcomeScreen({
   onChoose(dir: string): void;
   onShowAll(): void;
 }) {
-  const list = useRef<HTMLDivElement>(null);
-  // Show all… leaves with the press; the keyboard stays in the list, on
-  // the first project it brought, rather than falling to the page.
+  // Show all… leaves with the press; the keyboard goes to the first
+  // project it brought — that row takes it the moment the windowed list
+  // mounts it (kept in view by its key), never by a frame's timing.
+  const [handOff, setHandOff] = useState<number | null>(null);
   const showAll = () => {
-    const shown = list.current?.querySelectorAll(".welcome__project").length ?? 0;
+    setHandOff(view.recent?.rows.length ?? null);
     onShowAll();
-    requestAnimationFrame(() =>
-      list.current?.querySelectorAll<HTMLButtonElement>(".welcome__project")[shown]?.focus(),
-    );
   };
+  const focusKey = handOff === null ? null : (view.recent?.rows[handOff]?.key ?? null);
   return (
     <div className={view.className}>
       <section className="welcome__start">
@@ -63,14 +62,22 @@ export function WelcomeScreen({
           <h2 className="welcome__recent-heading">
             {view.recent.heading} <span>{view.recent.caption}</span>
           </h2>
-          <div className="welcome__list" ref={list}>
+          <div className="welcome__list">
             <VirtualList
               items={view.recent.rows}
               itemKey={(row) => row.key}
               estimate={view.recent.rowEstimate}
               className="welcome__projects"
               ariaLabel={view.recent.heading}
-              render={(row) => <ProjectRow row={row} onChoose={onChoose} />}
+              revealKey={focusKey}
+              render={(row) => (
+                <ProjectRow
+                  row={row}
+                  onChoose={onChoose}
+                  takeFocus={row.key === focusKey}
+                  onFocused={() => setHandOff(null)}
+                />
+              )}
             />
             {view.recent.more && (
               <button type="button" className="welcome__more" onClick={showAll}>
@@ -84,9 +91,31 @@ export function WelcomeScreen({
   );
 }
 
-function ProjectRow({ row, onChoose }: { row: WelcomeProjectRow; onChoose(dir: string): void }) {
+function ProjectRow({
+  row,
+  onChoose,
+  takeFocus,
+  onFocused,
+}: {
+  row: WelcomeProjectRow;
+  onChoose(dir: string): void;
+  /** The keyboard is handed to this row: it takes it once mounted. */
+  takeFocus: boolean;
+  onFocused(): void;
+}) {
   return (
-    <button type="button" className="welcome__project" title={row.dir} onClick={() => onChoose(row.dir)}>
+    <button
+      type="button"
+      className="welcome__project"
+      title={row.dir}
+      onClick={() => onChoose(row.dir)}
+      ref={(button) => {
+        if (button && takeFocus) {
+          button.focus();
+          onFocused();
+        }
+      }}
+    >
       <span className="welcome__project-name">{row.name}</span>
       <span className="welcome__project-meta">
         {row.sessions} · {row.age}

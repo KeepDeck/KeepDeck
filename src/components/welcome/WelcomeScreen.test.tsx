@@ -55,17 +55,15 @@ describe("WelcomeScreen", () => {
   });
 
   it("keeps the keyboard in the list when Show all… leaves: on the first project it brought", async () => {
-    vi.useFakeTimers({ toFake: ["requestAnimationFrame"] });
-    try {
-      let showAll = false;
-      const handlers = { onOpenFolder: vi.fn(), onChoose: vi.fn(), onShowAll: vi.fn(() => void (showAll = true)) };
-      render(welcomeView({ projects, home: null, showAll: false, agents, now: NOW }), handlers);
-      act(() => host.querySelector<HTMLButtonElement>(".welcome__more")!.click());
-      render(welcomeView({ projects, home: null, showAll, agents, now: NOW }), handlers);
-      act(() => void vi.advanceTimersToNextFrame());
-      expect(document.activeElement?.querySelector(".welcome__project-name")?.textContent).toBe("p5");
-    } finally {
-      vi.useRealTimers();
-    }
+    let showAll = false;
+    const handlers = { onOpenFolder: vi.fn(), onChoose: vi.fn(), onShowAll: vi.fn(() => void (showAll = true)) };
+    render(welcomeView({ projects, home: null, showAll: false, agents, now: NOW }), handlers);
+    act(() => host.querySelector<HTMLButtonElement>(".welcome__more")!.click());
+    render(welcomeView({ projects, home: null, showAll, agents, now: NOW }), handlers);
+    expect(document.activeElement?.querySelector(".welcome__project-name")?.textContent).toBe("p5");
+    // Handed once: a later render leaves the keyboard where the person takes it.
+    act(() => host.querySelector<HTMLButtonElement>(".welcome__project")!.focus());
+    render(welcomeView({ projects, home: null, showAll, agents, now: NOW }), handlers);
+    expect(document.activeElement?.querySelector(".welcome__project-name")?.textContent).toBe("p0");
   });
 });

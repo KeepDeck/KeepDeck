@@ -234,8 +234,13 @@
   color: var(--kd-text);
 }
 
-.welcome__more:focus-visible,
 .welcome__open:focus-visible {
   outline: 1px solid var(--kd-focus);
   outline-offset: 1px;
+}
+
+/* Inside the list's frame, which clips: the ring goes in, as the rows'. */
+.welcome__more:focus-visible {
+  outline: 1px solid var(--kd-focus);
+  outline-offset: -1px;
 }
