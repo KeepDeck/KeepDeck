@@ -5,6 +5,7 @@ import { runtime } from "../runtime";
 import { Button } from "@keepdeck/ui-kit/Button";
 import { HelpPopover, InfoIcon } from "./HelpPopover";
 import { modelName } from "../modelsView";
+import { entryView, listenControl, modelsNotice, statusLine, tabScreen } from "../tabView";
 import { MicBlock } from "./MicBlock";
 import { useMicStatus } from "./useMicStatus";
 
@@ -27,7 +28,8 @@ export function VoiceTab() {
   // Install state from the shared store — a delete in settings or a finished
   // download refreshes it, so this prompt appears/clears without reopening.
   const models = useSyncExternalStore(store.subscribe, store.snapshot);
-  const hasModel = models === null ? null : models.some((m) => m.installed);
+  const modelsError = useSyncExternalStore(store.subscribe, store.error);
+  const modelsState = { models, error: modelsError, downloading: downloads.anyActive() };
   const [helpAnchor, setHelpAnchor] = useState<HTMLElement | null>(null);
   const helpBtnRef = useRef<HTMLButtonElement | null>(null);
   // Hover intent: open after a short dwell, close after a grace period so
@@ -81,7 +83,7 @@ export function VoiceTab() {
   // No model installed (and none arriving): the whole surface is a prompt to
   // get one — voice can't do anything without a model. A download in flight
   // shows the strip instead, so the user sees progress here too.
-  if (hasModel === false && !downloads.anyActive()) {
+  if (tabScreen(snap.phase, modelsState) === "setup") {
     return (
       <div className="voice voice__setup">
         <div className="voice__setup-title">No speech model yet</div>
@@ -101,19 +103,20 @@ export function VoiceTab() {
   }
 
   const listening = snap.phase === "listening";
+  const listen = listenControl(snap.phase, formatChord(bindings.command), modelsState);
+  const status = statusLine(snap.phase, snap.mode);
+  const notice = modelsNotice(modelsState);
   return (
     <div className="voice">
       <div className="voice__bar">
         <button
           type="button"
-          className={`voice__mic${listening ? " voice__mic--on" : ""}`}
-          onClick={() =>
-            listening ? void controller.stop() : void controller.start("command")
-          }
-          disabled={snap.phase === "transcribing"}
-          title={`Toggle command listening (or hold ${formatChord(bindings.command)})`}
+          className={`voice__mic${listen.on ? " voice__mic--on" : ""}`}
+          onClick={() => (listen.on ? void controller.stop() : void controller.start("command"))}
+          disabled={listen.disabled}
+          title={listen.title}
         >
-          {listening ? "◼ Stop" : "🎙 Listen"}
+          {listen.label}
         </button>
         <span className="voice__spacer" />
         <button
@@ -143,11 +146,13 @@ export function VoiceTab() {
           </Button>
         )}
       </div>
-      {snap.phase !== "idle" && (
-        <div className="voice__status">
-          {snap.phase === "listening"
-            ? `listening — release to ${snap.mode === "dictation" ? "send" : "run"}, Esc cancels`
-            : "transcribing — Esc discards"}
+      {status && <div className="voice__status">{status}</div>}
+      {notice && (
+        <div className="voice__notice kd-selectable">
+          {notice.text}
+          <Button size="sm" onClick={() => void store.refresh()}>
+            Retry
+          </Button>
         </div>
       )}
       <MicBlock status={mic} listening={listening} />
@@ -172,29 +177,16 @@ export function VoiceTab() {
         )}
         {snap.history.map((entry) => {
           const key = `${entry.at}-${entry.text}`;
-          const rowFeedback = feedback?.key === key ? feedback : null;
-          // One derivation of the flash variant + its label drives the class,
-          // the title, and the row text (kept in sync by construction).
-          const variant = rowFeedback
-            ? rowFeedback.ok
-              ? "copied"
-              : "failed"
-            : null;
-          const label =
-            variant === "copied"
-              ? "Copied"
-              : variant === "failed"
-                ? "Copy failed"
-                : null;
+          const row = entryView(entry, feedback?.key === key ? feedback : null);
           return (
             <div
               key={key}
               className={`voice__entry voice__entry--${entry.tone}${
-                variant ? ` voice__entry--${variant}` : ""
+                row.variant ? ` voice__entry--${row.variant}` : ""
               }`}
               role="button"
               tabIndex={0}
-              title={label ?? "Click to copy"}
+              title={row.title}
               onClick={(event) => {
                 // Bail only for a selection inside THIS row (a drag-select in
                 // progress); a selection elsewhere is unrelated and must not
@@ -217,8 +209,8 @@ export function VoiceTab() {
                 }
               }}
             >
-              <span className="voice__tone">{TONE_GLYPH[entry.tone]}</span>
-              <span className="voice__text">{label ?? entry.text}</span>
+              <span className="voice__tone">{row.glyph}</span>
+              <span className="voice__text">{row.text}</span>
             </div>
           );
         })}
@@ -227,13 +219,6 @@ export function VoiceTab() {
     </div>
   );
 }
-
-const TONE_GLYPH = {
-  heard: "🗣",
-  done: "✓",
-  error: "✕",
-  info: "…",
-} as const;
 
 /** A model download is running somewhere — surface it in the dock, since the
  * transfer started in settings outlives that dialog. Cancel lives here too,

@@ -626,3 +626,14 @@
   color: var(--kd-warn-strong);
   overflow-wrap: anywhere;
 }
+
+/* ── Models notice (Voice tab) ────────────────────────────────────── */
+.voice__notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  color: var(--kd-err-strong);
+  font-size: var(--kd-font-small);
+  overflow-wrap: anywhere;
+}

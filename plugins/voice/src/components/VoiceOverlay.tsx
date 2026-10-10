@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { runtime } from "../runtime";
+import { pillLabel } from "../tabView";
 import { MicMeter } from "./MicBlock";
 import { useMicStatus } from "./useMicStatus";
 
@@ -22,13 +23,7 @@ export function VoiceOverlay() {
           snap.phase === "listening" ? " voice-pill__dot--live" : ""
         }`}
       />
-      <span className="voice-pill__label">
-        {snap.phase === "listening"
-          ? snap.mode === "dictation"
-            ? "Dictating — release to send"
-            : "Listening — release to run"
-          : "Transcribing…"}
-      </span>
+      <span className="voice-pill__label">{pillLabel(snap.phase, snap.mode)}</span>
       {snap.phase === "listening" && (
         <MicMeter status={mic} className="voice-pill__meter" />
       )}
