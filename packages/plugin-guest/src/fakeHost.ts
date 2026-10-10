@@ -11,6 +11,7 @@ import type {
   PluginContext,
   PluginFs,
   PluginManifest,
+  PluginNotifyInput,
   PluginSessionEvent,
   PluginSessionHandle,
   SettingsSectionContribution,
@@ -48,6 +49,8 @@ export interface FakeHost {
   /** Prime a result per command id before the plugin executes it; an
    * unprimed id resolves `{ ok: true, value: null }`. */
   commandResults: Map<string, CommandResult>;
+  /** Recorded `ctx.notify` calls, in order. */
+  notifications: PluginNotifyInput[];
   /** Recorded `ui.revealDockTab` calls, in order. */
   revealedTabs: string[];
   /** Recorded `ui.setOverlayVisible` calls, in order. */
@@ -136,6 +139,7 @@ export function createFakeHost(
   const agents: AgentContribution[] = [];
   const commands: PluginCommandSpec[] = [];
   const executedCommands: { id: string; args: CommandArgs }[] = [];
+  const notifications: PluginNotifyInput[] = [];
   const commandResults = new Map<string, CommandResult>();
   const revealedTabs: string[] = [];
   const overlayVisibility: [string, boolean][] = [];
@@ -368,7 +372,7 @@ export function createFakeHost(
       warn: (m) => void logs.warn.push(m),
       error: (m) => void logs.error.push(m),
     },
-    notify: () => {},
+    notify: (input) => void notifications.push(input),
   };
 
   return {
@@ -382,6 +386,7 @@ export function createFakeHost(
     agents,
     commands,
     executedCommands,
+    notifications,
     commandResults,
     revealedTabs,
     overlayVisibility,

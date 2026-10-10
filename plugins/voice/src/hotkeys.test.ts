@@ -10,7 +10,7 @@ import type { VoiceController, VoicePhase } from "./controller";
  * "listening set before the first await" behavior the handler relies on. */
 function fakeController(state: { phase: VoicePhase }): VoiceController {
   return {
-    snapshot: () => ({ phase: state.phase, mode: null, level: 0, history: [] }),
+    snapshot: () => ({ phase: state.phase, mode: null, level: 0, device: null, history: [] }),
     subscribe: () => () => {},
     start: vi.fn(async () => {
       state.phase = "listening";

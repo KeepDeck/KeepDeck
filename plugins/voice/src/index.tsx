@@ -17,6 +17,8 @@ import { createRecordingLatch } from "./recordingLatch";
 import { installPttHotkeys } from "./hotkeys";
 import { clearRuntime, runtime, setRuntime, type VoiceRuntime } from "./runtime";
 import { HotkeysSection } from "./components/HotkeysSection";
+import { MicrophoneSection } from "./components/MicrophoneSection";
+import { MIC_KEY } from "./microphone";
 import { ModelsSection } from "./components/ModelsSection";
 import { VoiceOverlay } from "./components/VoiceOverlay";
 import { VoiceTab } from "./components/VoiceTab";
@@ -35,15 +37,16 @@ const plugin: KeepDeckPlugin = {
 
     // Declared FIRST, because the host serves a plugin only the values its own
     // section declares — anything reading settings above this line gets an
-    // empty bag. Two custom fields: the push-to-talk hotkey editor and the
-    // model manager (whisper auto-detects the language, so there is nothing
-    // else to set). The keys come from the constants those two surfaces READ
+    // empty bag. Three custom fields: the push-to-talk hotkey editor, the
+    // microphone picker and the model manager (whisper auto-detects the
+    // language, so there is nothing else to set). The keys come from the constants those two surfaces READ
     // and WRITE, never from literals: a key that drifts from its constant is a
     // value that never comes back.
     ctx.settings.registerSection({
       label: "Voice",
       fields: [
         { kind: "custom", key: HOTKEYS_KEY, Component: HotkeysSection },
+        { kind: "custom", key: MIC_KEY, Component: MicrophoneSection },
         { kind: "custom", key: MODEL_KEY, Component: ModelsSection },
       ],
     });

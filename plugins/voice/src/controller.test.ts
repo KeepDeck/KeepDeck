@@ -6,6 +6,7 @@ import {
   type FakeHost,
 } from "../../../packages/plugin-guest/src/fakeHost";
 import { createVoiceController, MODEL_KEY } from "./controller";
+import { MIC_KEY } from "./microphone";
 import { MODEL_CATALOG, type VoiceModelInfo } from "./modelCatalog";
 import { speechTranscript, speechCapture } from "@keepdeck/plugin-api/testing";
 
@@ -23,7 +24,10 @@ function hostWithSettings(settingsValues: Record<string, unknown>): FakeHost {
   });
   host.ctx.settings.registerSection({
     label: "Voice",
-    fields: [{ kind: "custom", key: MODEL_KEY, Component: () => null }],
+    fields: [
+      { kind: "custom", key: MODEL_KEY, Component: () => null },
+      { kind: "custom", key: MIC_KEY, Component: () => null },
+    ],
   });
   return host;
 }
@@ -350,7 +354,7 @@ describe("createVoiceController", () => {
     await controller.start("command");
     await controller.stop();
     expect(texts(controller).slice(-2)).toEqual([
-      ["error", "the microphone stopped partway (BY-PM700) — only the first 1.1s were heard"],
+      ["error", "The microphone stopped partway (BY-PM700) — Only the first 1.1s were heard."],
       ["heard", "close the"],
     ]);
   });
@@ -360,6 +364,84 @@ describe("createVoiceController", () => {
     await controller.start("command");
     await controller.stop();
     expect(texts(controller)[0][1]).toContain("stopped partway");
+  });
+
+  it("opens the picked microphone, and says once that it is not connected — not on every press", async () => {
+    const host = hostWithSettings({
+      [MIC_KEY]: { id: "coreaudio:usb-pm700", name: "BY-PM700" },
+    });
+    const startCapture = vi.fn(async () =>
+      speechCapture({
+        device: "MacBook Pro Microphone",
+        deviceMissing: true,
+        stop: async () => speechTranscript({ text: "" }),
+      }),
+    );
+    const controller = createVoiceController(
+      { ...host.ctx, services: { ...host.ctx.services, speech: { ...host.ctx.services.speech, startCapture } } },
+      () => 42,
+      installedModels,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0)); // the pick loads at construction
+    await controller.start("command");
+    expect(startCapture).toHaveBeenLastCalledWith(expect.any(Function), { deviceId: "coreaudio:usb-pm700" });
+    await controller.cancel();
+
+    for (let i = 0; i < 3; i++) {
+      await controller.start("command");
+      await controller.cancel();
+    }
+    expect(host.notifications).toEqual([
+      { title: "Microphone not connected", body: undefined, severity: "warning", tag: "mic-missing", dockTab: "voice" },
+    ]);
+    expect(controller.snapshot().history.filter((e) => e.text === "Microphone not connected").length).toBeGreaterThan(0);
+  });
+
+  it("warns once about a distorting input and once about a cut-off hold", async () => {
+    const { host, controller } = setup(
+      speechTranscript({ text: "close", clippedRatio: 0.02, cutShort: true, seconds: 1, device: "BY-PM700" }),
+    );
+    for (let i = 0; i < 2; i++) {
+      await controller.start("command");
+      await controller.stop();
+    }
+    expect(host.notifications.map((n) => n.tag)).toEqual(["cut-short", "clipping"]);
+  });
+
+  it("a clean hold clears a hold problem, so its return is announced again", async () => {
+    const { host, controller, stopCapture } = setup(speechTranscript({ text: "close", clippedRatio: 0.02 }));
+    stopCapture
+      .mockResolvedValueOnce(speechTranscript({ text: "close", clippedRatio: 0.02 }))
+      .mockResolvedValueOnce(speechTranscript({ text: "close" }));
+    for (let i = 0; i < 3; i++) {
+      await controller.start("command");
+      await controller.stop();
+    }
+    expect(host.notifications.map((n) => n.tag)).toEqual(["clipping", "clipping"]);
+  });
+
+  it("a refused microphone permission is announced and logged", async () => {
+    const host = createFakeHost({ manifest: fakeManifest("keepdeck.voice") });
+    const controller = createVoiceController(
+      {
+        ...host.ctx,
+        services: {
+          ...host.ctx.services,
+          speech: {
+            ...host.ctx.services.speech,
+            startCapture: vi.fn(async () => {
+              throw Object.assign(new Error("microphone permission is not granted"), { code: "permission" });
+            }),
+          },
+        },
+      },
+      () => 42,
+      installedModels,
+    );
+    await controller.start("command");
+    expect(host.notifications.map((n) => n.tag)).toEqual(["permission"]);
+    expect(texts(controller)[0]).toEqual(["error", "microphone permission is not granted"]);
+    expect(controller.snapshot().phase).toBe("idle");
   });
 
   it("spawns in the active workspace when none was spoken — a peer as the new team's first", async () => {

@@ -12,6 +12,7 @@ import plugin from "./index";
 import { runtime } from "./runtime";
 import { MODEL_KEY } from "./controller";
 import { DEFAULT_BINDINGS, HOTKEYS_KEY, parseBindings } from "./binding";
+import { MIC_KEY, readMicPick } from "./microphone";
 
 let host: FakeHost | null = null;
 
@@ -41,7 +42,7 @@ describe("voice plugin activation", () => {
     // constant the plugin persists under must appear here — a key that drifts
     // from its constant is a value that silently never comes back.
     expect(section.fields.map((f) => f.key).sort()).toEqual(
-      [HOTKEYS_KEY, MODEL_KEY].sort(),
+      [HOTKEYS_KEY, MIC_KEY, MODEL_KEY].sort(),
     );
     expect(section.fields.every((f) => f.kind === "custom")).toBe(true);
     // The dock tab and pill are wired too.
@@ -56,6 +57,13 @@ describe("voice plugin activation", () => {
     // controller reads back out of ctx.settings.read() at capture time.
     const merged = mergeSectionValues(section, { [MODEL_KEY]: "whisper-small" });
     expect(merged[MODEL_KEY]).toBe("whisper-small");
+  });
+
+  it("a saved microphone pick survives the real host merge and reads back", () => {
+    const h = activate();
+    const pick = { id: "coreaudio:BuiltInMicrophoneDevice", name: "MacBook Pro Microphone" };
+    const merged = mergeSectionValues(h.settingsSections[0], { [MIC_KEY]: pick });
+    expect(readMicPick(merged)).toEqual(pick);
   });
 
   it("a saved chord survives the real host merge and loads via parseBindings", () => {

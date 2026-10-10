@@ -25,6 +25,7 @@ function snapshotWithHistory(): VoiceSnapshot {
     phase: "idle",
     mode: null,
     level: 0,
+    device: null,
     history: [
       { at: 1, tone: "heard", text: "привет" },
       { at: 2, tone: "done", text: "готово" },

@@ -2,10 +2,20 @@ import type {
   CommandArgs,
   PluginContext,
   SpeechCapture,
+  SpeechTranscript,
 } from "@keepdeck/plugin-api";
 import { bestMatch } from "./fuzzy";
 import { normalize, parseCommand, type Intent } from "./grammar";
-import { describeCutShort, describeSilence } from "./holdWords";
+import { createVoiceAlerts } from "./alerts";
+import { readMicPick, startOptionsFor, type MicPick } from "./microphone";
+import {
+  HOLD_PROBLEMS,
+  holdProblems,
+  problemOfError,
+  START_PROBLEMS,
+  type VoiceProblem,
+} from "./problems";
+import { didNotCatchLine, problemLine, problemWords, type ProblemWords } from "./problemWords";
 import type { VoiceModelInfo } from "./modelCatalog";
 
 /**
@@ -33,6 +43,8 @@ export interface VoiceSnapshot {
   mode: VoiceMode | null;
   /** Coarse mic RMS while listening, for the meter. */
   level: number;
+  /** The device the current (or last) capture recorded from. */
+  device: string | null;
   history: readonly HistoryEntry[];
 }
 
@@ -76,6 +88,7 @@ export function createVoiceController(
   let phase: VoicePhase = "idle";
   let mode: VoiceMode | null = null;
   let level = 0;
+  let device: string | null = null;
   let capture: SpeechCapture | null = null;
   let starting: Promise<SpeechCapture> | null = null;
   // Starts whose capture someone has already undertaken to cancel. Whoever
@@ -93,10 +106,19 @@ export function createVoiceController(
   const listeners = new Set<() => void>();
   // The snapshot is rebuilt only on change — useSyncExternalStore needs a
   // stable reference between notifications.
-  let snap: VoiceSnapshot = { phase, mode, level, history };
+  let snap: VoiceSnapshot = { phase, mode, level, device, history };
+  const alerts = createVoiceAlerts(ctx.notify);
+  // The microphone pick, kept current from the settings so a press opens the
+  // device at once instead of reading settings first.
+  let micPick: MicPick | null = null;
+  void ctx.settings
+    .read()
+    .then((values) => (micPick = readMicPick(values)))
+    .catch(() => {});
+  ctx.settings.onChange((values) => (micPick = readMicPick(values)));
 
   function notify(): void {
-    snap = { phase, mode, level, history };
+    snap = { phase, mode, level, device, history };
     for (const cb of [...listeners]) cb();
   }
 
@@ -104,6 +126,36 @@ export function createVoiceController(
     // Newest first (see the module note) — so the cap keeps the HEAD and the
     // oldest entries fall off the tail.
     history = [{ at: now(), tone, text }, ...history].slice(0, HISTORY_CAP);
+  }
+
+  /** One step's problems: announced (once) and written to the history. */
+  function report(
+    scope: readonly VoiceProblem[],
+    problems: readonly VoiceProblem[],
+    facts: Parameters<typeof problemWords>[1] = {},
+  ): void {
+    const present = new Map<VoiceProblem, ProblemWords>(
+      problems.map((p) => [p, problemWords(p, facts)]),
+    );
+    alerts.update(scope, present);
+    for (const words of present.values()) {
+      push(words.severity === "error" ? "error" : "info", problemLine(words));
+    }
+  }
+
+  /** What a finished hold amounts to, beyond its text. */
+  function reportHold(t: SpeechTranscript): void {
+    report(HOLD_PROBLEMS, holdProblems(t), { device: t.device, seconds: t.seconds });
+  }
+
+  /** A failed speech call: the history line, and the alert when it is one
+   * the user can act on. */
+  function reportFailure(e: unknown): void {
+    push("error", e instanceof Error ? e.message : String(e));
+    const problem = problemOfError(e);
+    if (!problem) return;
+    const message = e instanceof Error ? e.message : undefined;
+    alerts.update([problem], new Map([[problem, problemWords(problem, { message })]]));
   }
 
   async function workspaces(): Promise<WorkspaceRow[]> {
@@ -238,7 +290,7 @@ export function createVoiceController(
         if (operation !== operationVersion || phase !== "listening") return;
         level = rms;
         notify();
-      });
+      }, startOptionsFor(micPick));
       starting = pending;
       try {
         const started = await pending;
@@ -250,11 +302,15 @@ export function createVoiceController(
           return;
         }
         capture = started;
+        device = started.device;
+        // The pick is kept either way; the user hears once that it is gone.
+        report(START_PROBLEMS, started.deviceMissing ? ["mic-missing"] : []);
+        notify();
       } catch (e) {
         if (starting !== pending || phase !== "listening") return;
         phase = "idle";
         mode = null;
-        push("error", e instanceof Error ? e.message : String(e));
+        reportFailure(e);
         notify();
       } finally {
         if (starting === pending) starting = null;
@@ -297,7 +353,9 @@ export function createVoiceController(
           models.find((model) => model.installed && !model.retired) ??
           models.find((model) => model.installed) ??
           null;
-        if (!selected) throw new Error("no speech model is installed");
+        if (!selected) {
+          throw Object.assign(new Error("no speech model is installed"), { code: "model-missing" });
+        }
 
         // No language pin: whisper's auto-detect handles per-utterance
         // language switching better than any setting the user must remember.
@@ -308,15 +366,15 @@ export function createVoiceController(
         });
         if (operation !== operationVersion) return;
 
-        const cutShort = describeCutShort(transcript);
-        if (transcript.silence || !transcript.text) {
-          // Audio that stopped arriving explains an empty hold better than
-          // "didn't catch that".
-          const line = cutShort ?? describeSilence(transcript);
-          push(line.tone, line.text);
+        const spoken = !transcript.silence && transcript.text !== "";
+        if (spoken) push("heard", transcript.text);
+        reportHold(transcript);
+        if (!spoken) {
+          // A device-side reason was already reported; otherwise nobody spoke.
+          if (holdProblems(transcript).length === 0) {
+            push("info", didNotCatchLine(transcript.seconds));
+          }
         } else if (finished === "dictation") {
-          push("heard", transcript.text);
-          if (cutShort) push(cutShort.tone, cutShort.text);
           if (!target) {
             push("error", "no agent was selected when dictation stopped");
             return;
@@ -334,8 +392,6 @@ export function createVoiceController(
             focusInput: true,
           });
         } else {
-          push("heard", transcript.text);
-          if (cutShort) push(cutShort.tone, cutShort.text);
           const parsed = parseCommand(transcript.text);
           if (!parsed) {
             push("info", "not a known command — try “create agent in <workspace>”");
@@ -346,7 +402,7 @@ export function createVoiceController(
       } catch (e) {
         await activeCapture.cancel().catch(() => {});
         if (operation !== operationVersion) return;
-        push("error", e instanceof Error ? e.message : String(e));
+        reportFailure(e);
       } finally {
         if (transcribingCapture === activeCapture) transcribingCapture = null;
         if (operation === operationVersion) {
