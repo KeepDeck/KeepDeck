@@ -25,7 +25,7 @@ use crate::downloads;
 mod capture_slot;
 mod error;
 
-use capture_slot::{ActiveCapture, CaptureCmd, CaptureSlot};
+use capture_slot::{ActiveCapture, CaptureCmd, CaptureSlot, MAX_CAPTURE};
 pub use error::VoiceError;
 use error::VoiceErrorKind;
 
@@ -119,6 +119,7 @@ fn ensure_reaper(state: &VoiceState) {
 pub async fn voice_capture_start(
     capture_id: String,
     plugin_id: String,
+    session: String,
     on_level: Channel<f32>,
     state: tauri::State<'_, VoiceState>,
 ) -> Result<(), VoiceError> {
@@ -137,16 +138,19 @@ pub async fn voice_capture_start(
         ));
     }
 
-    if capture_id.trim().is_empty() {
-        return Err(VoiceError::internal("capture id must not be empty"));
+    if capture_id.trim().is_empty() || session.trim().is_empty() {
+        return Err(VoiceError::internal(
+            "capture id and session must not be empty",
+        ));
     }
     // The fast path only: a start that is obviously doomed fails before it
     // opens a device. The slot is not RESERVED here — `claim` below is the
     // authority, because the lock is deliberately not held across the wait.
-    if state.capture.is_busy() {
+    if state.capture.is_busy(&session, Instant::now()) {
         return Err(VoiceError::busy());
     }
 
+    let started = Instant::now();
     let (cmd_tx, cmd_rx) = channel::<CaptureCmd>();
     let (out_tx, out_rx) = channel::<Option<(Vec<f32>, u32)>>();
     let (ready_tx, ready_rx) = channel::<Result<(), CaptureError>>();
@@ -165,11 +169,12 @@ pub async fn voice_capture_start(
                 return;
             }
         };
-        match cmd_rx.recv() {
+        match cmd_rx.recv_timeout(MAX_CAPTURE) {
             Ok(CaptureCmd::Stop) => {
                 let _ = out_tx.send(Some(recorder.stop()));
             }
-            // Cancel or a dropped controller: discard the audio.
+            // Cancel, a dropped controller, or a hold past MAX_CAPTURE that
+            // nobody ended: discard the audio and release the microphone.
             _ => {
                 let _ = out_tx.send(None);
             }
@@ -193,19 +198,26 @@ pub async fn voice_capture_start(
         }
     });
 
-    // Opening the device takes as long as CoreAudio takes. This wait runs
-    // under NO lock: holding the capture slot across it would park a tokio
-    // worker and serialize every other capture operation behind a wait that
-    // has nothing to do with them.
-    ready_rx
-        .recv()
+    // Opening the device takes as long as CoreAudio takes. The wait runs on
+    // the blocking pool, never on an async worker (a parked worker stalls
+    // every other command queued on it), and under NO lock: holding the
+    // capture slot across it would serialize every other capture operation
+    // behind a wait that has nothing to do with them.
+    tauri::async_runtime::spawn_blocking(move || ready_rx.recv())
+        .await
+        .map_err(|e| VoiceError::internal(e.to_string()))?
         .map_err(|_| VoiceError::internal("capture thread died"))??;
-    if let Err(orphan) = state.capture.claim(ActiveCapture {
-        id: capture_id,
-        plugin_id,
-        cmd_tx,
-        out_rx,
-    }) {
+    if let Err(orphan) = state.capture.claim(
+        ActiveCapture {
+            id: capture_id,
+            plugin_id,
+            session,
+            started,
+            cmd_tx,
+            out_rx,
+        },
+        Instant::now(),
+    ) {
         // Another start claimed the slot while this one was opening its
         // device. Discard OUR recorder — an unclaimed capture still holds the
         // microphone, and nothing else knows about it to release it later.

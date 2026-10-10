@@ -37,6 +37,19 @@ describe("speechError", () => {
 });
 
 describe("voice commands", () => {
+  it("every start from this page names the same session, so native can tell a reloaded page apart", async () => {
+    tauri.invoke.mockResolvedValue(undefined);
+    await voiceCaptureStart("keepdeck.voice", () => {});
+    await voiceCaptureStart("keepdeck.voice", () => {});
+    const starts = tauri.invoke.mock.calls.filter(([command]) => command === "voice_capture_start");
+    const sessions = starts.map(([, args]) => (args as { session: unknown }).session);
+    expect(typeof sessions[0]).toBe("string");
+    expect(sessions[0]).not.toBe("");
+    expect(sessions[1]).toBe(sessions[0]);
+    const ids = starts.map(([, args]) => (args as { captureId: unknown }).captureId);
+    expect(ids[1]).not.toBe(ids[0]);
+  });
+
   it("a refused start rejects with the native kind", async () => {
     tauri.invoke.mockRejectedValueOnce({ kind: "busy", message: "a capture is already running" });
     const rejected = await voiceCaptureStart("keepdeck.voice", () => {}).catch((e: unknown) => e);

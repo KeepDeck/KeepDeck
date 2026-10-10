@@ -7,6 +7,10 @@ import type {
 
 /** Native speech delivery only. Model lifecycle belongs to the caller. */
 
+/** This page load. Native evicts a capture started by another one — after a
+ * reload its handle is gone and nothing could ever stop it. */
+const SESSION = crypto.randomUUID();
+
 /** A voice command's rejection as an `Error` whose `code` is the native
  * `{ kind, message }` kind — what `speechErrorKind` reads on the plugin side.
  * Anything else (a bare string, junk) still becomes a plain `Error`. */
@@ -39,7 +43,12 @@ export async function voiceCaptureStart(
   const captureId = crypto.randomUUID();
   const channel = new Channel<number>();
   channel.onmessage = onLevel;
-  await invokeVoice("voice_capture_start", { captureId, pluginId, onLevel: channel });
+  await invokeVoice("voice_capture_start", {
+    captureId,
+    pluginId,
+    session: SESSION,
+    onLevel: channel,
+  });
   let active = true;
   return {
     async stop(opts) {
