@@ -12,6 +12,8 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+use keepdeck_voice::Utterance;
+
 use super::error::{VoiceError, VoiceErrorKind};
 
 pub(super) enum CaptureCmd {
@@ -31,7 +33,7 @@ pub(super) struct ActiveCapture {
     pub(super) session: String,
     pub(super) started: Instant,
     pub(super) cmd_tx: Sender<CaptureCmd>,
-    pub(super) out_rx: Receiver<Option<(Vec<f32>, u32)>>,
+    pub(super) out_rx: Receiver<Option<Utterance>>,
 }
 
 #[derive(Default)]

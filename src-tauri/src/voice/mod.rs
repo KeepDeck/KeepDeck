@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use keepdeck_voice::{
-    is_silence, resample, rms, CaptureError, ParakeetEngine, Recorder, WhisperEngine,
+    has_speech, resample, rms, CaptureError, ParakeetEngine, Recorder, Utterance, WhisperEngine,
     WHISPER_SAMPLE_RATE,
 };
 use serde::{Deserialize, Serialize};
@@ -152,7 +152,7 @@ pub async fn voice_capture_start(
 
     let started = Instant::now();
     let (cmd_tx, cmd_rx) = channel::<CaptureCmd>();
-    let (out_tx, out_rx) = channel::<Option<(Vec<f32>, u32)>>();
+    let (out_tx, out_rx) = channel::<Option<Utterance>>();
     let (ready_tx, ready_rx) = channel::<Result<(), CaptureError>>();
     let (level_tx, level_rx) = keepdeck_voice::level_channel();
 
@@ -194,7 +194,7 @@ pub async fn voice_capture_start(
             }
         }
         if let Some(v) = last {
-            let _ = on_level.send(v);
+            let _ = on_level.send(v.rms);
         }
     });
 
@@ -276,7 +276,7 @@ pub async fn voice_capture_stop(
                 .cmd_tx
                 .send(CaptureCmd::Stop)
                 .map_err(|_| VoiceError::internal("capture thread died"))?;
-            let Some((samples, rate)) = capture
+            let Some(utterance) = capture
                 .out_rx
                 .recv()
                 .map_err(|_| VoiceError::internal("capture thread died"))?
@@ -289,10 +289,14 @@ pub async fn voice_capture_stop(
                 });
             };
 
-            let samples = resample(&samples, rate, WHISPER_SAMPLE_RATE);
+            let samples = resample(
+                &utterance.samples,
+                utterance.sample_rate,
+                WHISPER_SAMPLE_RATE,
+            );
             let seconds = samples.len() as f32 / WHISPER_SAMPLE_RATE as f32;
             let level = rms(&samples);
-            if is_silence(&samples) {
+            if !has_speech(&samples, WHISPER_SAMPLE_RATE) {
                 return Ok(TranscriptDto {
                     text: String::new(),
                     silence: true,

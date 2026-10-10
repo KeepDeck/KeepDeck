@@ -66,7 +66,9 @@ impl WhisperEngine {
         let segments = state.full_n_segments();
         let mut text = String::new();
         for i in 0..segments {
-            let Some(segment) = state.get_segment(i) else { continue };
+            let Some(segment) = state.get_segment(i) else {
+                continue;
+            };
             text.push_str(
                 &segment
                     .to_str_lossy()
