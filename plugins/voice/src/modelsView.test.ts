@@ -6,7 +6,7 @@ const model = (id: string, installed: boolean): VoiceModelInfo => ({
   ...MODEL_CATALOG.find((m) => m.id === id)!,
   installed,
 });
-const NO_DL = { active: {}, errors: {} };
+const NO_DL = { active: {}, errors: {}, interrupted: {} };
 
 describe("modelName", () => {
   it("is the catalog label without its tail — one name everywhere", () => {
@@ -41,7 +41,7 @@ describe("modelCards", () => {
   it("an absent model offers Download, then Retry after a failure", () => {
     const absent = [model("parakeet-tdt-0.6b-v3", false)];
     expect(modelCards(absent, null, NO_DL, {})[0].action).toEqual({ kind: "download", label: "Download" });
-    const failed = { active: {}, errors: { "parakeet-tdt-0.6b-v3": "network down" } };
+    const failed = { active: {}, errors: { "parakeet-tdt-0.6b-v3": "network down" }, interrupted: {} };
     const card = modelCards(absent, null, failed, {})[0];
     expect(card.action).toEqual({ kind: "download", label: "Retry" });
     expect(card.error).toBe("network down");
@@ -66,5 +66,17 @@ describe("modelCards", () => {
 
   it("an installed model cannot be marked active unless it is the active id", () => {
     expect(modelCards([model("whisper-small", false)], "whisper-small", NO_DL, {})[0].active).toBe(false);
+  });
+
+  it("a stopped download can be discarded, a clean absent model cannot", () => {
+    const absent = [model("parakeet-tdt-0.6b-v3", false)];
+    expect(modelCards(absent, null, NO_DL, {})[0].discardable).toBe(false);
+    const stopped = { ...NO_DL, interrupted: { "parakeet-tdt-0.6b-v3": true as const } };
+    expect(modelCards(absent, null, stopped, {})[0].discardable).toBe(true);
+  });
+
+  it("sizes come from the integrity bytes, in decimal MB", () => {
+    // 478,517,071 bytes — the catalog's hand-kept 456 was MiB.
+    expect(modelCards([model("parakeet-tdt-0.6b-v3", false)], null, NO_DL, {})[0].size).toBe("479 MB");
   });
 });

@@ -71,7 +71,7 @@ describe("VoiceTab history click-to-copy", () => {
       subscribe: () => () => {},
       error: () => null,
     } as unknown as ModelsStore;
-    const dlSnap = { active: {} };
+    const dlSnap = { active: {}, errors: {}, interrupted: {} };
     const downloads = {
       snapshot: () => dlSnap,
       subscribe: () => () => {},

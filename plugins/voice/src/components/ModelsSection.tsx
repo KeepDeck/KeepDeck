@@ -29,6 +29,11 @@ export function ModelsSection({ values, write }: CustomSettingsFieldProps) {
     e.preventDefault();
     choose(card);
   };
+  const discard = (card: ModelCard) => {
+    const model = models?.find((m) => m.id === card.id);
+    if (!model) return;
+    void store.remove(model).then(() => downloads.forget(card.id));
+  };
   const runAction = (card: ModelCard) => {
     switch (card.action.kind) {
       case "delete": {
@@ -89,6 +94,11 @@ export function ModelsSection({ values, write }: CustomSettingsFieldProps) {
                 onKeyDown={(e) => e.stopPropagation()}
               >
                 <CardActionView card={card} run={() => runAction(card)} />
+                {card.discardable && (
+                  <Button size="sm" onClick={() => discard(card)} title="Delete the partly downloaded file">
+                    Discard
+                  </Button>
+                )}
               </span>
             </span>
           </div>

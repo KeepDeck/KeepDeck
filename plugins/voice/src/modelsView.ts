@@ -79,6 +79,8 @@ export interface ModelCard {
   bar: { percent: number | null } | null;
   /** The last download or removal failure for this model. */
   error: string | null;
+  /** A stopped download left partial bytes that can be thrown away. */
+  discardable: boolean;
 }
 
 /** One card per model worth showing: a retired model with nothing installed
@@ -111,13 +113,21 @@ export function modelCards(
         langs: meta?.langs ?? "",
         accuracy: meta?.accuracy ?? 0.5,
         speed: meta?.speed ?? 0.5,
-        size: `${m.sizeMb} MB`,
+        size: sizeLabel(m),
         active: m.installed && m.id === activeId,
         selectable: m.installed,
         legacy: m.retired,
         action,
         bar: state ? { percent } : null,
         error: removeErrors[m.id] ?? downloadError,
+        discardable: !m.installed && !state && dl.interrupted[m.id] === true,
       };
     });
+}
+
+/** A model's size in decimal megabytes, from the bytes its integrity names
+ * (the hand-kept sizeMb mixed MB and MiB). */
+function sizeLabel(m: VoiceModelInfo): string {
+  const bytes = m.integrity?.bytes;
+  return `${bytes ? Math.round(bytes / 1_000_000) : m.sizeMb} MB`;
 }

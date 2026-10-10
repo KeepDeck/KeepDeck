@@ -22,7 +22,7 @@ describe("ModelsSection", () => {
   const remove = vi.fn((_model: unknown) => Promise.resolve());
 
   // Stable snapshots: useSyncExternalStore re-renders on every new object.
-  const noDownloads = { active: {}, errors: {} };
+  const noDownloads = { active: {}, errors: {}, interrupted: {} };
   const noRemoveErrors = {};
 
   beforeEach(() => {

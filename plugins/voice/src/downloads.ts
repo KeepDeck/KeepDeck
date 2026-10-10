@@ -4,6 +4,9 @@ import { modelById } from "./modelCatalog";
 export interface DownloadsSnapshot {
   active: Readonly<Record<string, DownloadState>>;
   errors: Readonly<Record<string, string>>;
+  /** Models whose download stopped short (cancelled or failed) — partial
+   * bytes may be on disk, to resume or to discard. */
+  interrupted: Readonly<Record<string, true>>;
 }
 
 /** Voice-specific projection over the host's one shared download manager. */
@@ -12,10 +15,12 @@ export interface ModelDownloads {
   subscribe(cb: () => void): () => void;
   start(modelId: string): Promise<boolean>;
   cancel(modelId: string): void;
+  /** Forget an interrupted download once its partial bytes are discarded. */
+  forget(modelId: string): void;
   anyActive(): boolean;
 }
 
-const EMPTY: DownloadsSnapshot = { active: {}, errors: {} };
+const EMPTY: DownloadsSnapshot = { active: {}, errors: {}, interrupted: {} };
 
 export function createModelDownloads(
   ctx: PluginContext,
@@ -23,12 +28,13 @@ export function createModelDownloads(
 ): ModelDownloads {
   let active: Record<string, DownloadState> = {};
   let errors: Record<string, string> = {};
+  let interrupted: Record<string, true> = {};
   let snap: DownloadsSnapshot = EMPTY;
   const jobs = new Map<string, string>();
   const listeners = new Set<() => void>();
 
   function notify(): void {
-    snap = { active, errors };
+    snap = { active, errors, interrupted };
     for (const cb of [...listeners]) cb();
   }
 
@@ -63,6 +69,7 @@ export function createModelDownloads(
         const { [modelId]: _gone, ...rest } = errors;
         errors = rest;
       }
+      interrupted = without(interrupted, modelId);
       notify();
       let installed = false;
       try {
@@ -79,6 +86,9 @@ export function createModelDownloads(
             };
           }
           installed = state.phase === "completed";
+          if (state.phase === "cancelled" || state.phase === "failed") {
+            interrupted = { ...interrupted, [modelId]: true };
+          }
           if (
             state.phase !== "completed" &&
             state.phase !== "cancelled" &&
@@ -98,6 +108,12 @@ export function createModelDownloads(
       }
     },
 
+    forget(modelId) {
+      interrupted = without(interrupted, modelId);
+      errors = without(errors, modelId);
+      notify();
+    },
+
     cancel(modelId) {
       const id = jobs.get(modelId);
       if (id) {
@@ -109,4 +125,9 @@ export function createModelDownloads(
       }
     },
   };
+}
+
+function without<T>(record: Readonly<Record<string, T>>, key: string): Record<string, T> {
+  const { [key]: _gone, ...rest } = record;
+  return rest;
 }

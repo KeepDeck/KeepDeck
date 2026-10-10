@@ -77,4 +77,22 @@ describe("voice model downloads", () => {
     await done;
     expect(first.manager.snapshot().errors["whisper-small"]).toBe("HTTP 403");
   });
+
+  it("remembers a cancelled download as interrupted until it is forgotten or restarted", async () => {
+    const { manager, emit } = setup();
+    const done = manager.start("whisper-small");
+    emit({ phase: "cancelled", received: 40, total: 100 });
+    await done;
+    expect(manager.snapshot().interrupted).toEqual({ "whisper-small": true });
+    manager.forget("whisper-small");
+    expect(manager.snapshot().interrupted).toEqual({});
+  });
+
+  it("a completed download is not interrupted", async () => {
+    const { manager, emit } = setup();
+    const done = manager.start("whisper-small");
+    emit({ phase: "completed", received: 100, total: 100 });
+    await done;
+    expect(manager.snapshot().interrupted).toEqual({});
+  });
 });
