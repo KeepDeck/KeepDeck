@@ -93,6 +93,7 @@ impl From<CaptureError> for VoiceError {
     fn from(e: CaptureError) -> Self {
         let kind = match e {
             CaptureError::NoInputDevice => VoiceErrorKind::NoDevice,
+            CaptureError::PermissionDenied => VoiceErrorKind::Permission,
             CaptureError::UnsupportedFormat(_) => VoiceErrorKind::UnsupportedFormat,
             CaptureError::Device(_) => VoiceErrorKind::Device,
         };
@@ -124,6 +125,10 @@ mod tests {
     fn capture_failures_keep_their_kind() {
         let kind = |e: CaptureError| VoiceError::from(e).kind;
         assert_eq!(kind(CaptureError::NoInputDevice), VoiceErrorKind::NoDevice);
+        assert_eq!(
+            kind(CaptureError::PermissionDenied),
+            VoiceErrorKind::Permission
+        );
         assert_eq!(
             kind(CaptureError::UnsupportedFormat("U8".into())),
             VoiceErrorKind::UnsupportedFormat

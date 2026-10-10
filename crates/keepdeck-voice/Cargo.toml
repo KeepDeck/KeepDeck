@@ -5,7 +5,7 @@ edition = "2021"
 description = "Local voice capture and speech-to-text for KeepDeck: cpal microphone capture, resampling, and whisper.cpp inference."
 
 [dependencies]
-cpal = "0.16"
+cpal = "0.18"
 # Parakeet TDT via ONNX Runtime (prebuilt ort ships for aarch64 macOS, the
 # app's only supported target).
 parakeet-rs = "0.3.6"

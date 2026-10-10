@@ -3,12 +3,19 @@
 //! (offset removed, loudest channel kept, facts measured) and accumulates
 //! until `stop()`, which hands back the whole utterance — push-to-talk bounds
 //! the recording, so batch-on-release needs no ring buffer or VAD chunking.
+//!
+//! The stream's error callback is how the device talks back mid-hold: it went
+//! away (unplugged), its format changed under the stream, or — for a stream
+//! on the default device — the default moved to another device and the
+//! stream followed. Those land in `StreamHealth` and come back with the
+//! recording; glitches (xruns) do not count.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::sync::{Arc, Mutex};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::{Device, FromSample, SampleFormat, SizedSample, Stream, StreamConfig};
+use cpal::{Device, ErrorKind, FromSample, SampleFormat, SizedSample, Stream, StreamConfig};
 
 use crate::signal::{Conditioner, LevelReading, Utterance};
 
@@ -27,6 +34,29 @@ pub struct Recording {
     /// The device's name as the OS shows it ("MacBook Pro Microphone").
     pub device: String,
     pub utterance: Utterance,
+    /// The device went away or the stream died before the hold ended — the
+    /// utterance stops where it did.
+    pub lost: bool,
+}
+
+/// What the stream's error callback has reported so far.
+#[derive(Default)]
+struct StreamHealth {
+    lost: AtomicBool,
+    rerouted: AtomicBool,
+}
+
+impl StreamHealth {
+    fn record(&self, kind: ErrorKind) {
+        match kind {
+            ErrorKind::DeviceNotAvailable | ErrorKind::StreamInvalidated => {
+                self.lost.store(true, Ordering::SeqCst)
+            }
+            ErrorKind::DeviceChanged => self.rerouted.store(true, Ordering::SeqCst),
+            // A glitch, a refused realtime promotion, … — audio still flows.
+            _ => {}
+        }
+    }
 }
 
 pub struct Recorder {
@@ -35,26 +65,50 @@ pub struct Recorder {
     stream: Stream,
     /// Taken by `stop()`; a callback racing the teardown finds it gone.
     conditioner: Arc<Mutex<Option<Conditioner>>>,
+    health: Arc<StreamHealth>,
     device: String,
 }
 
 #[derive(Debug)]
 pub enum CaptureError {
     NoInputDevice,
+    /// The OS refused the microphone (privacy permission).
+    PermissionDenied,
     UnsupportedFormat(String),
     Device(String),
+}
+
+impl CaptureError {
+    fn from_cpal(e: cpal::Error) -> Self {
+        match e.kind() {
+            ErrorKind::PermissionDenied => CaptureError::PermissionDenied,
+            ErrorKind::DeviceNotAvailable => CaptureError::NoInputDevice,
+            _ => CaptureError::Device(e.to_string()),
+        }
+    }
 }
 
 impl std::fmt::Display for CaptureError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             CaptureError::NoInputDevice => write!(f, "no microphone input device"),
+            CaptureError::PermissionDenied => {
+                write!(f, "the system denied access to the microphone")
+            }
             CaptureError::UnsupportedFormat(s) => {
                 write!(f, "unsupported input sample format: {s}")
             }
             CaptureError::Device(s) => write!(f, "microphone error: {s}"),
         }
     }
+}
+
+/// The name the OS shows for a device; empty when it will not say.
+fn device_name(device: &Device) -> String {
+    device
+        .description()
+        .map(|d| d.name().to_owned())
+        .unwrap_or_default()
 }
 
 impl std::error::Error for CaptureError {}
@@ -67,40 +121,45 @@ impl Recorder {
         let device = host
             .default_input_device()
             .ok_or(CaptureError::NoInputDevice)?;
-        let device_name = device.name().unwrap_or_default();
+        let name = device_name(&device);
         let config = device
             .default_input_config()
-            .map_err(|e| CaptureError::Device(e.to_string()))?;
-        let sample_rate = config.sample_rate().0;
+            .map_err(CaptureError::from_cpal)?;
+        let sample_rate = config.sample_rate();
         let channels = config.channels() as usize;
 
         let conditioner = Arc::new(Mutex::new(Some(Conditioner::new(sample_rate, channels))));
         let sink = conditioner.clone();
+        let health = Arc::new(StreamHealth::default());
+        let io = Io {
+            sink,
+            levels,
+            health: health.clone(),
+        };
 
         let format = config.sample_format();
         let config: StreamConfig = config.into();
         let stream = match format {
-            SampleFormat::F32 => build::<f32>(&device, &config, sink, levels),
-            SampleFormat::F64 => build::<f64>(&device, &config, sink, levels),
-            SampleFormat::I8 => build::<i8>(&device, &config, sink, levels),
-            SampleFormat::I16 => build::<i16>(&device, &config, sink, levels),
-            SampleFormat::I32 => build::<i32>(&device, &config, sink, levels),
-            SampleFormat::I64 => build::<i64>(&device, &config, sink, levels),
-            SampleFormat::U8 => build::<u8>(&device, &config, sink, levels),
-            SampleFormat::U16 => build::<u16>(&device, &config, sink, levels),
-            SampleFormat::U32 => build::<u32>(&device, &config, sink, levels),
-            SampleFormat::U64 => build::<u64>(&device, &config, sink, levels),
+            SampleFormat::F32 => build::<f32>(&device, config, io),
+            SampleFormat::F64 => build::<f64>(&device, config, io),
+            SampleFormat::I8 => build::<i8>(&device, config, io),
+            SampleFormat::I16 => build::<i16>(&device, config, io),
+            SampleFormat::I32 => build::<i32>(&device, config, io),
+            SampleFormat::I64 => build::<i64>(&device, config, io),
+            SampleFormat::U8 => build::<u8>(&device, config, io),
+            SampleFormat::U16 => build::<u16>(&device, config, io),
+            SampleFormat::U32 => build::<u32>(&device, config, io),
+            SampleFormat::U64 => build::<u64>(&device, config, io),
             other => return Err(CaptureError::UnsupportedFormat(format!("{other:?}"))),
         }?;
 
-        stream
-            .play()
-            .map_err(|e| CaptureError::Device(e.to_string()))?;
+        stream.play().map_err(CaptureError::from_cpal)?;
 
         Ok(Recorder {
             stream,
             conditioner,
-            device: device_name,
+            health,
+            device: name,
         })
     }
 
@@ -109,9 +168,20 @@ impl Recorder {
     pub fn stop(self) -> Recording {
         drop(self.stream);
         let taken = self.conditioner.lock().expect("poisoned").take();
+        // A default-device stream that followed the default elsewhere was
+        // recording from whatever the default is now.
+        let device = if self.health.rerouted.load(Ordering::SeqCst) {
+            cpal::default_host()
+                .default_input_device()
+                .map(|d| device_name(&d))
+                .unwrap_or(self.device)
+        } else {
+            self.device
+        };
         Recording {
-            device: self.device,
+            device,
             utterance: taken.map(Conditioner::finish).unwrap_or_default(),
+            lost: self.health.lost.load(Ordering::SeqCst),
         }
     }
 }
@@ -119,16 +189,23 @@ impl Recorder {
 /// Open the input stream for one sample type: every format is converted to
 /// f32 in -1..1 the same way (cpal's own sample conversion), so no format is
 /// refused for being other than f32/i16.
-fn build<T>(
-    device: &Device,
-    config: &StreamConfig,
+/// Where a stream's callbacks deliver: the conditioner, the meter, the health.
+struct Io {
     sink: Arc<Mutex<Option<Conditioner>>>,
     levels: Option<LevelSender>,
-) -> Result<Stream, CaptureError>
+    health: Arc<StreamHealth>,
+}
+
+fn build<T>(device: &Device, config: StreamConfig, io: Io) -> Result<Stream, CaptureError>
 where
     T: SizedSample,
     f32: FromSample<T>,
 {
+    let Io {
+        sink,
+        levels,
+        health,
+    } = io;
     device
         .build_input_stream(
             config,
@@ -136,12 +213,12 @@ where
                 push_chunk(&sink, &unit_floats(data), levels.as_ref());
             },
             // A dying stream just stops delivering; stop() returns what was
-            // captured so far and the hold is judged cut short — better a
-            // short transcript than a panic on the audio thread.
-            |e: cpal::StreamError| eprintln!("keepdeck-voice capture stream error: {e}"),
+            // captured so far, marked lost — better a short transcript than
+            // a panic on the audio thread.
+            move |e: cpal::Error| health.record(e.kind()),
             None,
         )
-        .map_err(|e| CaptureError::Device(e.to_string()))
+        .map_err(CaptureError::from_cpal)
 }
 
 /// Any sample type as f32 in -1..1, silence at 0 (unsigned formats are
@@ -189,6 +266,29 @@ mod tests {
         assert_eq!(unit_floats(&[128u8, 0u8]), vec![0.0, -1.0]);
         assert_eq!(unit_floats(&[32_768u16]), vec![0.0]);
         assert_eq!(unit_floats(&[0.5f64]), vec![0.5]);
+    }
+
+    #[test]
+    fn only_a_vanished_or_invalidated_stream_counts_as_lost() {
+        let health = StreamHealth::default();
+        health.record(ErrorKind::Xrun);
+        health.record(ErrorKind::RealtimeDenied);
+        assert!(
+            !health.lost.load(Ordering::SeqCst),
+            "glitches are not a lost device"
+        );
+        health.record(ErrorKind::DeviceChanged);
+        assert!(health.rerouted.load(Ordering::SeqCst));
+        assert!(
+            !health.lost.load(Ordering::SeqCst),
+            "a followed default is still recording"
+        );
+        health.record(ErrorKind::DeviceNotAvailable);
+        assert!(health.lost.load(Ordering::SeqCst));
+
+        let invalidated = StreamHealth::default();
+        invalidated.record(ErrorKind::StreamInvalidated);
+        assert!(invalidated.lost.load(Ordering::SeqCst));
     }
 
     #[test]

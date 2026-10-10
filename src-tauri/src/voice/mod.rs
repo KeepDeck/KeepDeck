@@ -329,7 +329,10 @@ fn measure_hold(
         clipped_ratio: utterance.clipped_ratio,
         dc_offset: utterance.dc_offset,
         device: recording.device,
-        cut_short: judgment.cut_short,
+        // The device saying it went away is the surest sign; a hold whose
+        // audio fell short of its length is the fallback for one that does
+        // not say.
+        cut_short: judgment.cut_short || recording.lost,
     };
     (samples, facts, judgment.silence)
 }
@@ -533,6 +536,7 @@ mod tests {
     fn recording(samples: Vec<f32>, peak: f32) -> Option<Recording> {
         Some(Recording {
             device: "BY-PM700".into(),
+            lost: false,
             utterance: keepdeck_voice::Utterance {
                 samples,
                 sample_rate: WHISPER_SAMPLE_RATE,
@@ -571,6 +575,24 @@ mod tests {
             .collect();
         let (_, facts, silence) = measure_hold(recording(tone, 0.1), 4.0);
         assert_eq!(silence, None);
+        assert!(facts.cut_short);
+    }
+
+    #[test]
+    fn a_device_that_reported_itself_gone_cuts_the_hold_short() {
+        // The audio covers the hold, but the device said it went away.
+        let tone: Vec<f32> = (0..32_000)
+            .map(|i| {
+                if i < 16_000 {
+                    0.1 * (i as f32 * 0.12).sin()
+                } else {
+                    0.0005
+                }
+            })
+            .collect();
+        let mut lost = recording(tone, 0.1).unwrap();
+        lost.lost = true;
+        let (_, facts, _) = measure_hold(Some(lost), 2.0);
         assert!(facts.cut_short);
     }
 
