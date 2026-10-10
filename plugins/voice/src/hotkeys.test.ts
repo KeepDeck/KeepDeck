@@ -34,10 +34,10 @@ function fakeController(state: { phase: VoicePhase }): VoiceController {
   };
 }
 
-function press(type: "keydown" | "keyup", init: KeyboardEventInit): void {
-  window.dispatchEvent(
-    new KeyboardEvent(type, { bubbles: true, cancelable: true, ...init }),
-  );
+function press(type: "keydown" | "keyup", init: KeyboardEventInit): KeyboardEvent {
+  const event = new KeyboardEvent(type, { bubbles: true, cancelable: true, ...init });
+  window.dispatchEvent(event);
+  return event;
 }
 
 let uninstall: (() => void) | null = null;
@@ -94,6 +94,26 @@ describe("installPttHotkeys", () => {
 
     press("keydown", { code: "Escape", key: "Escape" });
     expect(c.cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("Escape while transcribing discards the result", () => {
+    const state = { phase: "transcribing" as VoicePhase };
+    const c = fakeController(state);
+    uninstall = installPttHotkeys(c, () => DEFAULT_BINDINGS);
+
+    const event = press("keydown", { code: "Escape", key: "Escape" });
+    expect(c.cancel).toHaveBeenCalledTimes(1);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("Escape with nothing in flight is left alone", () => {
+    const state = { phase: "idle" as VoicePhase };
+    const c = fakeController(state);
+    uninstall = installPttHotkeys(c, () => DEFAULT_BINDINGS);
+
+    const event = press("keydown", { code: "Escape", key: "Escape" });
+    expect(c.cancel).not.toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(false);
   });
 
   it("ends the hold from the held chord's own keys, not fixed ones", () => {

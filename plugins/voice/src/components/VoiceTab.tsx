@@ -146,7 +146,7 @@ export function VoiceTab() {
         <div className="voice__status">
           {snap.phase === "listening"
             ? `listening — release to ${snap.mode === "dictation" ? "send" : "run"}, Esc cancels`
-            : "transcribing…"}
+            : "transcribing — Esc discards"}
         </div>
       )}
       <MicBlock status={mic} listening={listening} />
