@@ -8,7 +8,8 @@
  */
 import "./styles.css";
 import type { KeepDeckPlugin, PluginContext } from "@keepdeck/plugin-api";
-import { createVoiceController, MODEL_KEY } from "./controller";
+import { createVoiceController } from "./controller";
+import { MODEL_KEY } from "./modelChoice";
 import { HOTKEYS_KEY } from "./binding";
 import { createModelDownloads } from "./downloads";
 import { createModelsStore } from "./models";

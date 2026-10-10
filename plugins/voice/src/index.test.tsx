@@ -10,7 +10,7 @@ import {
 import { mergeSectionValues } from "@keepdeck/plugin-api";
 import plugin from "./index";
 import { runtime } from "./runtime";
-import { MODEL_KEY } from "./controller";
+import { MODEL_KEY } from "./modelChoice";
 import { DEFAULT_BINDINGS, HOTKEYS_KEY, parseBindings } from "./binding";
 import { MIC_KEY, readMicPick } from "./microphone";
 

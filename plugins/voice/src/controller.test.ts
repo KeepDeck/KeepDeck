@@ -5,7 +5,8 @@ import {
   fakeManifest,
   type FakeHost,
 } from "../../../packages/plugin-guest/src/fakeHost";
-import { createVoiceController, MODEL_KEY } from "./controller";
+import { createVoiceController } from "./controller";
+import { MODEL_KEY } from "./modelChoice";
 import { MIC_KEY } from "./microphone";
 import { MODEL_CATALOG, type VoiceModelInfo } from "./modelCatalog";
 import { speechTranscript, speechCapture } from "@keepdeck/plugin-api/testing";

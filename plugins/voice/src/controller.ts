@@ -8,6 +8,7 @@ import type {
 import { bestMatch } from "./fuzzy";
 import { normalize, parseCommand, type Intent } from "./grammar";
 import { createVoiceAlerts } from "./alerts";
+import { activeModel, readModelPick } from "./modelChoice";
 import { readMicPick, startOptionsFor, type MicPick } from "./microphone";
 import {
   HOLD_PROBLEMS,
@@ -54,10 +55,6 @@ export interface VoiceSnapshot {
   history: readonly HistoryEntry[];
 }
 
-/** The stored model choice. With no pick persisted, the controller prefers
- * whatever is actually installed before falling back to this id. */
-export const MODEL_KEY = "model";
-export const DEFAULT_MODEL = "whisper-small";
 
 const HISTORY_CAP = 100;
 
@@ -364,18 +361,7 @@ export function createVoiceController(
           currentModels(),
         ]);
         if (operation !== operationVersion) return;
-        // The pick persists in the plugin's settings values (settings.json)
-        // — the global KV is still a stub, and a choice that silently
-        // evaporates on restart is worse than none.
-        const persisted =
-          typeof values[MODEL_KEY] === "string"
-            ? (values[MODEL_KEY] as string)
-            : null;
-        const selected =
-          models.find((model) => model.id === persisted && model.installed) ??
-          models.find((model) => model.installed && !model.retired) ??
-          models.find((model) => model.installed) ??
-          null;
+        const selected = activeModel(models, readModelPick(values));
         if (!selected) {
           throw Object.assign(new Error("no speech model is installed"), { code: "model-missing" });
         }

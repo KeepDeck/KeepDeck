@@ -4,7 +4,7 @@ import {
   type CustomSettingsFieldProps,
 } from "@keepdeck/plugin-api";
 import { Button } from "@keepdeck/ui-kit/Button";
-import { DEFAULT_MODEL, MODEL_KEY } from "../controller";
+import { activeModel, MODEL_KEY, readModelPick } from "../modelChoice";
 import { runtime } from "../runtime";
 
 /**
@@ -63,8 +63,7 @@ export function ModelsSection({ values, write }: CustomSettingsFieldProps) {
   const dl = useSyncExternalStore(downloads.subscribe, downloads.snapshot);
   // The pick lives in the plugin's persisted settings values — the same
   // on-disk bag as declarative fields, so it survives restarts.
-  const active =
-    typeof values[MODEL_KEY] === "string" ? (values[MODEL_KEY] as string) : DEFAULT_MODEL;
+  const active = models ? activeModel(models, readModelPick(values))?.id ?? null : null;
 
   const download = (id: string) => void downloads.start(id);
   const cancel = (id: string) => downloads.cancel(id);

@@ -2,7 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { MODEL_KEY } from "../controller";
+import { MODEL_KEY } from "../modelChoice";
 import { MODEL_CATALOG, type VoiceModelInfo } from "../modelCatalog";
 import { clearRuntime, setRuntime, type VoiceRuntime } from "../runtime";
 import { ModelsSection } from "./ModelsSection";
