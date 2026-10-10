@@ -56,19 +56,66 @@ const ABOVE_FLOOR: f32 = 3.0;
 /// Voiced time that makes a hold speech — about one short syllable.
 const MIN_SPEECH_SECONDS: f32 = 0.12;
 
-pub fn has_speech(samples: &[f32], sample_rate: u32) -> bool {
+/// The RMS of each voiced frame — frames that stand above both the absolute
+/// floor and this hold's own noise floor. The speech check and the loudness
+/// normalisation read speech the same way, through this one function.
+fn voiced_frames(samples: &[f32], sample_rate: u32) -> Vec<f32> {
     let frame = ((sample_rate as f32 * FRAME_SECONDS) as usize).max(1);
     let mut levels: Vec<f32> = samples.chunks(frame).map(rms).collect();
     if levels.is_empty() {
-        return false;
+        return levels;
     }
-    let voiced_needed = (MIN_SPEECH_SECONDS / FRAME_SECONDS).ceil() as usize;
     let mut sorted = levels.clone();
     sorted.sort_by(f32::total_cmp);
     let floor = sorted[sorted.len() / 5];
     let threshold = VOICED_FRAME_RMS.max(ABOVE_FLOOR * floor);
     levels.retain(|&level| level >= threshold);
-    levels.len() >= voiced_needed
+    levels
+}
+
+pub fn has_speech(samples: &[f32], sample_rate: u32) -> bool {
+    let voiced_needed = (MIN_SPEECH_SECONDS / FRAME_SECONDS).ceil() as usize;
+    voiced_frames(samples, sample_rate).len() >= voiced_needed
+}
+
+/// The loudness every utterance is brought to before the model: the RMS of
+/// its voiced frames at about −20 dBFS, where speech models are trained.
+const TARGET_VOICED_RMS: f32 = 0.1;
+/// The most a quiet utterance is raised (+20 dB): enough for a low input
+/// gain, not so much that a near-silent hold becomes loud noise.
+const MAX_GAIN: f32 = 10.0;
+/// The most a loud utterance is lowered (−20 dB).
+const MIN_GAIN: f32 = 0.1;
+/// Above this magnitude the limiter starts bending peaks down.
+const LIMIT_KNEE: f32 = 0.9;
+/// What the limiter's curve approaches and never passes — just under full
+/// scale, so even a saturated curve (f32 tanh reaches 1.0) cannot clip.
+const LIMIT_CEILING: f32 = 0.98;
+
+/// Bring one whole utterance to the model's loudness — quiet speech up, loud
+/// speech down — then soft-limit what still overshoots, so the result never
+/// reaches the ceiling. One gain for the whole utterance (no pumping inside
+/// a phrase); measured on voiced frames only, so pauses and room noise do not
+/// drag the gain up. An utterance with no voiced frame is returned as is.
+pub fn normalize_loudness(samples: &[f32], sample_rate: u32) -> Vec<f32> {
+    let voiced = voiced_frames(samples, sample_rate);
+    if voiced.is_empty() {
+        return samples.to_vec();
+    }
+    let mean_square = voiced.iter().map(|l| l * l).sum::<f32>() / voiced.len() as f32;
+    let gain = (TARGET_VOICED_RMS / mean_square.sqrt()).clamp(MIN_GAIN, MAX_GAIN);
+    samples.iter().map(|&s| soft_limit(s * gain)).collect()
+}
+
+/// Identity below the knee; above it, a tanh curve towards the ceiling —
+/// peaks bend instead of clipping.
+fn soft_limit(x: f32) -> f32 {
+    let magnitude = x.abs();
+    if magnitude <= LIMIT_KNEE {
+        return x;
+    }
+    let room = LIMIT_CEILING - LIMIT_KNEE;
+    x.signum() * (LIMIT_KNEE + room * ((magnitude - LIMIT_KNEE) / room).tanh())
 }
 
 #[cfg(test)]
@@ -152,6 +199,62 @@ mod tests {
     fn speech_over_a_noisy_room_is_speech() {
         let hold = with_burst(noise(2 * RATE as usize, 0.0025, 4), 0.5, 0.5, 0.03);
         assert!(has_speech(&hold, RATE));
+    }
+
+    fn voiced_rms(samples: &[f32]) -> f32 {
+        let v = voiced_frames(samples, RATE);
+        (v.iter().map(|l| l * l).sum::<f32>() / v.len() as f32).sqrt()
+    }
+
+    #[test]
+    fn quiet_speech_is_raised_to_the_target() {
+        // The measured low-gain case: a phrase at ~0.01 over a quiet room.
+        let hold = with_burst(noise(2 * RATE as usize, 0.0003, 8), 0.5, 0.6, 0.01);
+        let out = normalize_loudness(&hold, RATE);
+        assert!(
+            (voiced_rms(&out) - TARGET_VOICED_RMS).abs() < 0.01,
+            "{}",
+            voiced_rms(&out)
+        );
+    }
+
+    #[test]
+    fn loud_speech_is_lowered_to_the_target() {
+        let hold = with_burst(noise(2 * RATE as usize, 0.0003, 9), 0.5, 0.6, 0.5);
+        let out = normalize_loudness(&hold, RATE);
+        assert!(
+            (voiced_rms(&out) - TARGET_VOICED_RMS).abs() < 0.01,
+            "{}",
+            voiced_rms(&out)
+        );
+    }
+
+    #[test]
+    fn a_near_silent_phrase_is_raised_no_more_than_the_gain_cap() {
+        let hold = with_burst(noise(2 * RATE as usize, 0.0003, 10), 0.5, 0.6, 0.005);
+        let out = normalize_loudness(&hold, RATE);
+        let gain = rms(&out) / rms(&hold);
+        assert!(gain <= MAX_GAIN + 1e-3, "gain {gain}");
+    }
+
+    #[test]
+    fn the_result_never_reaches_the_ceiling() {
+        // A loud phrase with one far louder spike: the gain is set by the
+        // phrase, the spike is bent under 1.0, not clipped at it.
+        let mut hold = with_burst(noise(2 * RATE as usize, 0.0003, 11), 0.5, 0.6, 0.02);
+        hold[RATE as usize] = 0.9;
+        let out = normalize_loudness(&hold, RATE);
+        assert!(out.iter().all(|s| s.abs() <= LIMIT_CEILING));
+        assert!(
+            out[RATE as usize] > LIMIT_KNEE,
+            "the spike stays a peak, only bent"
+        );
+    }
+
+    #[test]
+    fn a_hold_without_speech_is_left_alone() {
+        let room = noise(RATE as usize, 0.0003, 12);
+        assert_eq!(normalize_loudness(&room, RATE), room);
     }
 
     #[test]

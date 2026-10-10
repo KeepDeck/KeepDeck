@@ -14,8 +14,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use keepdeck_voice::{
-    has_speech, judge_hold, resample, rms, CaptureError, LevelReading, ParakeetEngine, Recorder,
-    Recording, SilenceReason, WhisperEngine, WHISPER_SAMPLE_RATE,
+    has_speech, judge_hold, normalize_loudness, resample, rms, CaptureError, LevelReading,
+    ParakeetEngine, Recorder, Recording, SilenceReason, WhisperEngine, WHISPER_SAMPLE_RATE,
 };
 use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
@@ -394,6 +394,9 @@ pub async fn voice_capture_stop(
             if let Some(reason) = silence {
                 return Ok(TranscriptDto::silent(reason, facts));
             }
+            // The model hears every utterance at one loudness, whatever the
+            // input gain was; the facts above stay the raw measurements.
+            let samples = normalize_loudness(&samples, WHISPER_SAMPLE_RATE);
 
             // The processing gate: one transcription at a time. A burst of
             // requests queues here instead of loading a second engine or
