@@ -40,7 +40,6 @@ export type {
 } from "./status.ts";
 export {
   frameTeammateMail,
-  statusSourceInstant,
   turnFailedEvent,
 } from "./status.ts";
 export { updateQuestionCalls, reduceQuestionStatus, type QuestionCalls, type QuestionState } from "./questionCalls.ts";
@@ -80,7 +79,6 @@ export type {
 } from "./commands.ts";
 export {
   firstMeaningfulUserTurn,
-  shortfallOfRead,
   textFromParts,
 } from "./historyText.ts";
 export type { PluginContext } from "./context.ts";
@@ -149,12 +147,6 @@ export {
   type SessionFormat,
   type SessionReader,
 } from "./sessionRead.ts";
-export {
-  addPass,
-  driftedAway,
-  followOnce,
-  type FollowStep,
-} from "./sessionFollow.ts";
 export {
   CARRIED_RECORD,
   tailPass,
