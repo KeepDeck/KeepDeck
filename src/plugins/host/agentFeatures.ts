@@ -3,7 +3,7 @@ import type {
   AgentContributionSummary,
   AgentFeatureDeclaration,
 } from "@keepdeck/plugin-api";
-import { AGENT_FEATURE } from "../../domain/agents";
+import { AGENT_FEATURE, isRemoteScheme } from "../../domain/agents";
 import {
   contributionSupportsFork,
   contributionSupportsHistory,
@@ -133,13 +133,7 @@ function validateRemoteFeature(
   if (
     !Array.isArray(schemes) ||
     schemes.length === 0 ||
-    schemes.some(
-      (scheme) =>
-        scheme !== "ws" &&
-        scheme !== "wss" &&
-        scheme !== "http" &&
-        scheme !== "https",
-    )
+    !schemes.every(isRemoteScheme)
   ) {
     throw new Error(
       `agent "${agentId}": manifest feature "${AGENT_FEATURE.remoteTarget}" requires non-empty supported "schemes"`,

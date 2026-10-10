@@ -12,9 +12,15 @@ import {
  *  pane must surface "agent unavailable", never silently run a default. */
 export type AgentType = string;
 
-/** A URI scheme an agent's remote client speaks — what a manifest's
- *  `target.remote` feature lists in its `schemes` parameter. */
-export type AgentRemoteScheme = "ws" | "wss" | "http" | "https";
+/** The URI schemes an agent's remote client may speak — what a manifest's
+ *  `target.remote` feature may list in its `schemes` parameter. */
+export const AGENT_REMOTE_SCHEMES = ["ws", "wss", "http", "https"] as const;
+
+export type AgentRemoteScheme = (typeof AGENT_REMOTE_SCHEMES)[number];
+
+export function isRemoteScheme(value: unknown): value is AgentRemoteScheme {
+  return (AGENT_REMOTE_SCHEMES as readonly unknown[]).includes(value);
+}
 
 /** A brand mark as bare SVG path data — the domain's structural twin of the
  *  plugin contract's icon (no plugin-api import; data, never markup).
@@ -144,15 +150,6 @@ export function agentRemoteSchemes(
   if (!Array.isArray(schemes)) return null;
   const allowed = schemes.filter(isRemoteScheme);
   return allowed.length > 0 ? allowed : null;
-}
-
-function isRemoteScheme(value: unknown): value is AgentRemoteScheme {
-  return (
-    value === "ws" ||
-    value === "wss" ||
-    value === "http" ||
-    value === "https"
-  );
 }
 
 /** Whether `raw` is a usable remote-server endpoint for an agent that speaks
