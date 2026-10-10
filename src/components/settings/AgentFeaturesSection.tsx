@@ -60,12 +60,7 @@ function AgentFeatureCard({
       {showAgentName && (
         <div className="settings__feature-agent-name">{agent.label}</div>
       )}
-      {agent.features === undefined ? (
-        <p className="settings__hint settings__features-legacy">
-          This plugin uses a legacy API; static feature declarations are
-          unavailable.
-        </p>
-      ) : featureCatalog.length === 0 ? (
+      {featureCatalog.length === 0 ? (
         <p className="settings__hint settings__features-empty">
           No CLI features declared.
         </p>

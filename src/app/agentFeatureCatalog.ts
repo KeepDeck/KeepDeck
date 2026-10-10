@@ -19,7 +19,7 @@ export function buildAgentFeatureCatalog(
 ): AgentFeature[] {
   const declarations = installed.flatMap((plugin) =>
     (plugin.manifest.contributes.agents ?? []).flatMap((agent) =>
-      (agent.features ?? []).map((feature) => ({
+      agent.features.map((feature) => ({
         pluginId: plugin.manifest.id,
         agentId: agent.id,
         feature,

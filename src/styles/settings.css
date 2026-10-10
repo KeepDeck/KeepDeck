@@ -469,11 +469,6 @@
   color: var(--kd-ok-strong);
 }
 
-.settings__features-legacy {
-  margin: 0;
-  padding: 10px;
-}
-
 .settings__plugin-name {
   display: inline-flex;
   align-items: center;

@@ -22,8 +22,9 @@ export type StatusWaitReason = "permission" | "question";
 /** One turn-lifecycle edge, as a normalizer reports it. `at` is unix
  * milliseconds — the host's receipt time for hook edges (reporters are
  * shell scripts with no clock discipline), OVERRIDDEN with the marker's
- * own source time for tail-recovered markers: a marker trails its turn by up to a poll interval, and only its honest
- * age lets the reducer drop one that predates the turn it would end. */
+ * own source time for tail-recovered markers: a marker trails its turn by
+ * up to a poll interval, and only its honest age lets the reducer drop one
+ * that predates the turn it would end. */
 export type AgentStatusEvent =
   /** The user submitted a prompt — the turn is running. */
   | { kind: "turn-start"; at: number }
