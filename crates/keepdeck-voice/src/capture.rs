@@ -1,5 +1,5 @@
 //! Microphone capture. One `Recorder` owns one cpal input stream on the
-//! default device; every callback goes through the `signal::Conditioner`
+//! chosen device (or the system default); every callback goes through the `signal::Conditioner`
 //! (offset removed, loudest channel kept, facts measured) and accumulates
 //! until `stop()`, which hands back the whole utterance — push-to-talk bounds
 //! the recording, so batch-on-release needs no ring buffer or VAD chunking.
@@ -15,7 +15,9 @@ use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::sync::{Arc, Mutex};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::{Device, ErrorKind, FromSample, SampleFormat, SizedSample, Stream, StreamConfig};
+use cpal::{
+    Device, ErrorKind, FromSample, SampleFormat, SizedSample, Stream, StreamConfig, I24, U24,
+};
 
 use crate::signal::{Conditioner, LevelReading, Utterance};
 
@@ -197,6 +199,8 @@ impl Recorder {
             SampleFormat::F64 => build::<f64>(&device, config, io),
             SampleFormat::I8 => build::<i8>(&device, config, io),
             SampleFormat::I16 => build::<i16>(&device, config, io),
+            SampleFormat::I24 => build::<I24>(&device, config, io),
+            SampleFormat::U24 => build::<U24>(&device, config, io),
             SampleFormat::I32 => build::<i32>(&device, config, io),
             SampleFormat::I64 => build::<i64>(&device, config, io),
             SampleFormat::U8 => build::<u8>(&device, config, io),
@@ -331,6 +335,12 @@ mod tests {
         assert_eq!(unit_floats(&[128u8, 0u8]), vec![0.0, -1.0]);
         assert_eq!(unit_floats(&[32_768u16]), vec![0.0]);
         assert_eq!(unit_floats(&[0.5f64]), vec![0.5]);
+        // 24-bit, in either signedness.
+        assert_eq!(
+            unit_floats(&[I24::new(0).unwrap(), I24::new(-8_388_608).unwrap()]),
+            vec![0.0, -1.0]
+        );
+        assert_eq!(unit_floats(&[U24::new(8_388_608).unwrap()]), vec![0.0]);
     }
 
     #[test]
