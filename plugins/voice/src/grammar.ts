@@ -26,6 +26,10 @@ interface Rule {
 export interface LocalePack {
   locale: string;
   rules: Rule[];
+  /** The words this pack's commands are made of — what the model is told to
+   * expect so it spells them right. Kept beside the rules (a test holds every
+   * rule's leading verbs to this list), never copied elsewhere. */
+  vocabulary: string[];
 }
 
 /** STT decorates utterances with capitalization and trailing punctuation;
@@ -60,6 +64,10 @@ const spawn = (g: Record<string, string | undefined>): Intent => {
 
 export const EN: LocalePack = {
   locale: "en",
+  vocabulary: [
+    "create", "spawn", "start", "launch", "add", "lead", "peer", "agent", "task",
+    "switch", "go", "jump", "open workspace", "focus", "select", "close", "latest",
+  ],
   rules: [
     {
       pattern:
@@ -87,10 +95,16 @@ export const EN: LocalePack = {
 
 export const RU: LocalePack = {
   locale: "ru",
+  vocabulary: [
+    "создай", "создать", "запусти", "запустить", "добавь", "добавить", "подними",
+    "агента", "лида", "пира", "с задачей", "перейди", "перейти", "переключись",
+    "переключиться", "открой", "открыть", "воркспейс", "фокус", "выбери", "выдели",
+    "сфокусируйся", "закрой", "закрыть", "последнего",
+  ],
   rules: [
     {
       pattern:
-        /^(?:создай|создать|запусти|запустить|добавь|добавить|подними)(?: нового| новых)? (?:агента(?:-(?<role>лида|пира))?|(?<role2>лида|пира))(?: (?:в|на) (?<ws>.+?))?(?: (?:с задачей|и скажи (?:ему|ей)|и попроси (?:его|её)|и пусть) (?<task>.+))?$/u,
+        /^(?:создай|создать|запусти|запустить|добавь|добавить|подними)(?: нового| новых)? (?:агента(?:[- ](?<role>лида|пира))?|(?<role2>лида|пира))(?: (?:в|на) (?<ws>.+?))?(?: (?:с задачей|и скажи (?:ему|ей)|и попроси (?:его|её)|и пусть) (?<task>.+))?$/u,
       map: spawn,
     },
     {
@@ -111,6 +125,11 @@ export const RU: LocalePack = {
 };
 
 export const DEFAULT_PACKS: LocalePack[] = [EN, RU];
+
+/** Every pack's command words, once each — the model's vocabulary hint. */
+export function commandVocabulary(packs: LocalePack[] = DEFAULT_PACKS): string[] {
+  return [...new Set(packs.flatMap((pack) => pack.vocabulary))];
+}
 
 export interface Parsed {
   intent: Intent;

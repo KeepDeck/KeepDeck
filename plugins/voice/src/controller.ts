@@ -6,7 +6,7 @@ import type {
   SpeechTranscript,
 } from "@keepdeck/plugin-api";
 import { bestMatch } from "./fuzzy";
-import { normalize, parseCommand, type Intent } from "./grammar";
+import { commandVocabulary, normalize, parseCommand, type Intent } from "./grammar";
 import { createVoiceAlerts } from "./alerts";
 import { activeModel, readModelPick } from "./modelChoice";
 import { readMicPick, startOptionsFor, type MicPick } from "./microphone";
@@ -194,14 +194,11 @@ export function createVoiceController(
   }
 
   /** Vocabulary bias for whisper: the names it should spell correctly plus
-   * the command words of both shipped locales. */
+   * the command words of every grammar pack (read from the packs, never
+   * copied). */
   function buildPrompt(rows: WorkspaceRow[]): string {
     const names = rows.flatMap((w) => [w.name, ...w.panes.map((p) => p.title)]);
-    return [
-      ...new Set(names),
-      "create agent in, switch to, focus, close",
-      "создай агента в, перейди на, закрой",
-    ].join(", ");
+    return [...new Set([...names, ...commandVocabulary()])].join(", ");
   }
 
   async function execute(id: string, args: CommandArgs): Promise<void> {

@@ -6,6 +6,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import { createPortal } from "react-dom";
+import { calculateFloatingListboxPlacement } from "@keepdeck/ui-kit/FloatingListbox";
 import { COMMAND_DOCS } from "../commandList";
 import { formatChord } from "../binding";
 import { runtime } from "../runtime";
@@ -46,8 +47,6 @@ export function InfoIcon() {
   );
 }
 
-const GAP = 4;
-const MARGIN = 8;
 const WIDTH = 280;
 
 /**
@@ -78,18 +77,25 @@ export function HelpPopover({
 
   useLayoutEffect(() => {
     const rect = anchor.getBoundingClientRect();
-    const height = cardRef.current?.offsetHeight ?? 0;
-    const left = Math.max(
-      MARGIN,
-      Math.min(rect.right - WIDTH, window.innerWidth - WIDTH - MARGIN),
-    );
-    // Prefer below the trigger; flip above when the viewport runs out.
-    const below = rect.bottom + GAP;
-    const top =
-      below + height + MARGIN <= window.innerHeight
-        ? below
-        : Math.max(MARGIN, rect.top - GAP - height);
-    setPos({ top, left });
+    // The app's one floating geometry (ui-kit): below the trigger, flipped
+    // above when the viewport runs out, kept inside its margins. The card is
+    // right-aligned to the trigger, so its box starts WIDTH left of the
+    // trigger's right edge; it is never clipped to a list's max height.
+    const place = calculateFloatingListboxPlacement({
+      anchorRect: {
+        top: rect.top,
+        bottom: rect.bottom,
+        right: rect.right,
+        left: rect.right - WIDTH,
+        width: WIDTH,
+      },
+      listHeight: cardRef.current?.offsetHeight ?? 0,
+      contentWidth: WIDTH,
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+      maxHeight: Number.POSITIVE_INFINITY,
+    });
+    setPos({ top: place.top, left: place.left });
   }, [anchor]);
 
   useEffect(() => {
@@ -143,8 +149,8 @@ export function HelpPopover({
         <kbd>Esc</kbd> while holding — cancel
       </div>
       <div className="voice__help-note">
-        Understands many languages — speak whichever you like; examples are in
-        English.
+        Commands are understood in English and Russian (examples are in
+        English); dictation types whatever language the model hears.
       </div>
     </div>,
     document.body,
