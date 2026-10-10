@@ -98,7 +98,7 @@ function fakeDeps() {
     onPaneSelected: vi.fn(spyDisposable),
     onDeckChanged: vi.fn(spyDisposable),
   };
-  const ui = { revealDockTab: vi.fn(), setOverlayVisible: vi.fn(), setOverlayCovers: vi.fn() };
+  const ui = { setOverlayVisible: vi.fn(), setOverlayCovers: vi.fn() };
   const commandsPort = {
     register: vi.fn(spyDisposable),
     execute: vi.fn(async () => ({ ok: true, value: null }) as const),
@@ -192,13 +192,11 @@ describe("buildPluginContext", () => {
     });
   });
 
-  it("forwards revealDockTab and setOverlayVisible to the host UI port with the plugin's identity", () => {
+  it("forwards setOverlayVisible to the host UI port with the plugin's identity", () => {
     const registries = createContributionRegistries();
     const { deps, ui } = fakeDeps();
     const { ctx } = buildPluginContext(declaring("p"), "builtin", registries, deps);
 
-    ctx.ui.revealDockTab("t");
-    expect(ui.revealDockTab).toHaveBeenCalledWith("p", "t");
     ctx.ui.setOverlayVisible("viewer", false);
     expect(ui.setOverlayVisible).toHaveBeenCalledWith("p", "viewer", false);
   });

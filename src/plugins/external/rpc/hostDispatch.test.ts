@@ -461,10 +461,9 @@ describe("agent history over the RPC seam", () => {
 });
 
 /** Harness over the file-open surface: `openers.register` proxies the realm's
- * handler; `ui.revealDockTab` forwards straight through. */
+ * handler. */
 function openersHarness() {
   let registered: FileOpenHandler | undefined;
-  const revealed: string[] = [];
   const pushes: { channel: string; payload: unknown }[] = [];
   const ctx = {
     openers: {
@@ -473,7 +472,6 @@ function openersHarness() {
         return { dispose() {} };
       }),
     },
-    ui: { revealDockTab: (id: string) => revealed.push(id) },
   } as unknown as PluginContext;
   const dispatch = createHostDispatch(ctx, (channel, payload) =>
     pushes.push({ channel, payload }),
@@ -481,7 +479,6 @@ function openersHarness() {
   return {
     dispatch,
     pushes,
-    revealed,
     handler: () => {
       if (!registered) throw new Error("nothing registered");
       return registered;
@@ -564,12 +561,6 @@ describe("file-open handlers over the RPC seam", () => {
     const id = Number(h.pushes[0].channel.slice("open:".length));
     // Settled already — the straggler must be a no-op, not a crash.
     await h.dispatch.call("openers.openResult", [id, { ok: true, handled: true }]);
-  });
-
-  it("ui.revealDockTab forwards the id verbatim", async () => {
-    const h = openersHarness();
-    await h.dispatch.call("ui.revealDockTab", ["files"]);
-    expect(h.revealed).toEqual(["files"]);
   });
 
   it("notify passes the wire value through to ctx.notify untouched", async () => {

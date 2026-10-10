@@ -69,8 +69,6 @@ export interface PluginHostDeps {
   /** Host UI actions a context forwards verbatim (identity threaded so the
    * host can namespace — a dock tab's full id is `pluginId:entryId`). */
   ui: {
-    /** Open the dock on the active workspace with this plugin's tab selected. */
-    revealDockTab(pluginId: string, entryId: string): void;
     /** Show/hide one of this plugin's overlays (see `PluginUi`). */
     setOverlayVisible(pluginId: string, entryId: string, visible: boolean): void;
     /** One of this plugin's overlays covers the window, or no longer does. */

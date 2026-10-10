@@ -17,7 +17,6 @@ import {
 function makeCtx(values: Record<string, unknown> = {}) {
   const registered: FileOpenHandler[] = [];
   let onChange: ((values: Record<string, unknown>) => void) | undefined;
-  const revealDockTab = vi.fn();
   const registerOverlay = vi.fn((_overlay: OverlayContribution) => ({
     dispose: vi.fn(),
   }));
@@ -27,7 +26,6 @@ function makeCtx(values: Record<string, unknown> = {}) {
     ui: {
       registerDockTab: vi.fn(disposable),
       registerOverlay,
-      revealDockTab,
     },
     openers: {
       register: vi.fn((handler: FileOpenHandler) => {
@@ -54,7 +52,6 @@ function makeCtx(values: Record<string, unknown> = {}) {
   return {
     ctx,
     registered,
-    revealDockTab,
     registerOverlay,
     readDir,
     fireSettings: (v: Record<string, unknown>) => onChange?.(v),
@@ -119,24 +116,22 @@ describe("the peek opener", () => {
     return { open: made.registered[0].open, ...made };
   }
 
-  it("opens an in-scope file: parks the request and accepts — the dock is NOT touched", async () => {
-    const { open, revealDockTab } = await handler(async () => [
+  it("opens an in-scope file: parks the request and accepts", async () => {
+    const { open } = await handler(async () => [
       entry("readme.md", "file"),
     ]);
     expect(await open({ path: "/repo/readme.md" })).toBe(true);
     // The resident overlay consumes this; a terminal link must never
     // rearrange the user's layout.
     expect(takeOpenRequest()).toEqual({ path: "/repo/readme.md" });
-    expect(revealDockTab).not.toHaveBeenCalled();
   });
 
   it("declines outside the fs scope — the probe's rejection is an answer", async () => {
-    const { open, revealDockTab } = await handler(async () => {
+    const { open } = await handler(async () => {
       throw new Error("outside the allowed roots");
     });
     expect(await open({ path: "/etc/hosts" })).toBe(false);
     expect(takeOpenRequest()).toBeNull();
-    expect(revealDockTab).not.toHaveBeenCalled();
   });
 
   it("declines a missing entry, a directory AND a symlink — the peek previews plain files", async () => {

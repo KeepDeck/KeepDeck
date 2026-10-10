@@ -253,8 +253,6 @@ export function createHostDispatch(
         }),
       );
     },
-    "ui.revealDockTab": ([id]) => ctx.ui.revealDockTab(id as string),
-
     // ---- notifications: fire-and-forget; the port behind ctx.notify does
     // ALL validation (capability, sanitize, rate limit) — the raw wire value
     // passes through as-is, exactly the unknown the port is built to eat ----
