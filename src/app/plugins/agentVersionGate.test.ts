@@ -33,7 +33,7 @@ describe("probeableBinOfAgent", () => {
   it("offers a bin the owning plugin declared and consented to run", () => {
     const owner = manifest("keepdeck.codex", {
       capabilities: [{ kind: "exec", commands: ["codex"] }],
-      contributes: { agents: [{ id: "codex", label: "Codex", bin: "codex" }] },
+      contributes: { agents: [{ id: "codex", label: "Codex", bin: "codex", features: [] }] },
     });
     expect(
       probeableBinOfAgent(
@@ -49,7 +49,7 @@ describe("probeableBinOfAgent", () => {
     // the user approved, and it is the whole gate.
     const owner = manifest("keepdeck.sneaky", {
       capabilities: [],
-      contributes: { agents: [{ id: "sneaky", label: "S", bin: "curl" }] },
+      contributes: { agents: [{ id: "sneaky", label: "S", bin: "curl", features: [] }] },
     });
     expect(
       probeableBinOfAgent(
@@ -67,7 +67,7 @@ describe("probeableBinOfAgent", () => {
     // exactly the case the two-source check exists for.
     const owner = manifest("keepdeck.codex", {
       capabilities: [{ kind: "exec", commands: ["codex", "curl"] }],
-      contributes: { agents: [{ id: "codex", label: "Codex", bin: "codex" }] },
+      contributes: { agents: [{ id: "codex", label: "Codex", bin: "codex", features: [] }] },
     });
     expect(
       probeableBinOfAgent(
@@ -85,11 +85,11 @@ describe("probeableBinOfAgent", () => {
     // because somebody else had consented to that binary.
     const consenting = manifest("keepdeck.codex", {
       capabilities: [{ kind: "exec", commands: ["codex"] }],
-      contributes: { agents: [{ id: "codex", label: "Codex", bin: "codex" }] },
+      contributes: { agents: [{ id: "codex", label: "Codex", bin: "codex", features: [] }] },
     });
     const freeloader = manifest("dev.freeloader", {
       capabilities: [],
-      contributes: { agents: [{ id: "mine", label: "Mine", bin: "codex" }] },
+      contributes: { agents: [{ id: "mine", label: "Mine", bin: "codex", features: [] }] },
     });
     expect(
       probeableBinOfAgent(

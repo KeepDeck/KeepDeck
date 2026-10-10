@@ -56,7 +56,7 @@ describe("unavailableAgentReasons", () => {
       minApiVersion: 1,
       category: "cli",
       capabilities: [],
-      contributes: { agents },
+      contributes: { agents: agents.map((agent) => ({ ...agent, features: [] })) },
     } as PluginManifest,
     source: "builtin",
     status,

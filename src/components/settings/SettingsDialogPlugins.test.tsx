@@ -3,6 +3,7 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  agentsPlugin,
   button,
   dialogHost,
   DIALOG_LOAD_TIMEOUT_MS,
@@ -349,13 +350,13 @@ describe("SettingsDialog — plugin sections", () => {
   });
 
   it("falls back to the first section when the open plugin section vanishes", async () => {
-    pluginStore.set([FILES_PLUGIN]);
+    pluginStore.set([agentsPlugin, FILES_PLUGIN]);
     await mount();
     act(() => button("Files").click());
     expect(button("Files").className).toContain("settings__nav-item--active");
 
     // A rescan/uninstall removes the plugin while its page is open.
-    act(() => pluginStore.set([]));
+    act(() => pluginStore.set([agentsPlugin]));
     expect(button("General").className).toContain("settings__nav-item--active");
     expect(panelOf(button("Claude Code")).hasAttribute("hidden")).toBe(false);
   });

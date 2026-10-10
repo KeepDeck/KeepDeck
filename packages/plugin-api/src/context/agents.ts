@@ -30,9 +30,6 @@ export interface AgentContribution {
    * exactly — the host's availability gate reads the declaration before any
    * plugin code runs and rejects a drift at registration. */
   detect: { bin: string };
-  /** @deprecated API 30+ plugins declare `execution.yolo` once in the
-   * manifest. Retained only so the host can execute legacy plugins. */
-  supportsYolo?: boolean;
   hooks: AgentHooks;
   /** How to read this agent's usage (limits, tokens, context) — see
    * `context/usage.ts`. Absent = the agent reports no usage. */
@@ -54,9 +51,6 @@ export interface AgentContribution {
    * history method. Absent = the agent cannot say, and a refused resume
    * keeps its old meaning. */
   liveSessions?: AgentLiveSessions;
-  /** @deprecated API 30+ plugins declare `target.remote` and its schemes once
-   * in the manifest. Retained only for legacy plugin execution. */
-  remote?: AgentRemote;
 }
 
 /** Where a pane's agent should run. Absent = the pane's own machine (local),
@@ -70,23 +64,6 @@ export type SpawnTarget = {
    *  the host owns). */
   endpoint: string;
 };
-
-/** A URI scheme an agent's remote client speaks — constrains what endpoint a
- *  user may pair with which agent (codex speaks ws/wss, opencode http/https). */
-export type RemoteScheme = "ws" | "wss" | "http" | "https";
-
-/** How an agent runs against a remote target. MVP: `nativeServer` — the agent
- *  has its own client/server split; the host runs the LOCAL thin-client TUI
- *  (a normal PTY pane) pointing at a remote server endpoint. The host owns
- *  provisioning the server on the box and the tunnel; the plugin only fills
- *  the client argv via `spawn.plan`. */
-export interface AgentRemote {
-  mode: "nativeServer";
-  /** URI schemes the agent's remote client speaks — the host validates a
-   *  pasted endpoint against these so a user can't pair the agent with a
-   *  scheme it can't use (and won't see a silent start→crash). */
-  schemes: readonly RemoteScheme[];
-}
 
 /** A brand mark as bare SVG path data — data, never markup, so a plugin
  * cannot inject live SVG/HTML into the host chrome, and the icon crosses the

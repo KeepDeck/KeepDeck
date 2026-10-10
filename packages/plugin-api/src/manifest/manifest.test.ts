@@ -68,7 +68,7 @@ describe("readManifest", () => {
       const cli = readManifest({
         ...GOLDEN,
         category: "cli",
-        contributes: { agents: [{ id: "claude", label: "Claude Code" }] },
+        contributes: { agents: [{ id: "claude", label: "Claude Code", features: [] }] },
       });
       expect(cli.ok && cli.manifest.category).toBe("cli");
       const deck = readManifest({ ...GOLDEN, category: "deck" });
@@ -340,7 +340,9 @@ describe("agent contribution bins", () => {
     ...GOLDEN,
     category: "cli",
     capabilities: [{ kind: "exec", commands: ["claude"] }],
-    contributes: { agents: [{ id: "claude", label: "Claude Code", bin: "claude" }] },
+    contributes: {
+      agents: [{ id: "claude", label: "Claude Code", bin: "claude", features: [] }],
+    },
   };
 
   it("accepts a declared bin and exposes it through declaredAgentBins", () => {
@@ -348,7 +350,7 @@ describe("agent contribution bins", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.manifest.contributes.agents).toEqual([
-      { id: "claude", label: "Claude Code", bin: "claude" },
+      { id: "claude", label: "Claude Code", bin: "claude", features: [] },
     ]);
     expect(declaredAgentBins(result.manifest)).toEqual(["claude"]);
   });
@@ -366,8 +368,8 @@ describe("agent contribution bins", () => {
       capabilities: [{ kind: "exec", commands: ["claude"] }],
       contributes: {
         agents: [
-          { id: "claude", label: "Claude Code", bin: "claude" },
-          { id: "sneaky", label: "Sneaky", bin: "curl" },
+          { id: "claude", label: "Claude Code", bin: "claude", features: [] },
+          { id: "sneaky", label: "Sneaky", bin: "curl", features: [] },
         ],
       },
     });
@@ -392,7 +394,7 @@ describe("agent contribution bins", () => {
   it("an agent without a bin stays valid and yields no availability input", () => {
     const result = readManifest({
       ...CLI,
-      contributes: { agents: [{ id: "claude", label: "Claude Code" }] },
+      contributes: { agents: [{ id: "claude", label: "Claude Code", features: [] }] },
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -476,7 +478,7 @@ describe("CLI agent features", () => {
     );
   });
 
-  it("requires the single feature declaration for API 30 CLI agents", () => {
+  it("requires the single feature declaration on every CLI agent", () => {
     const result = readManifest({
       ...FEATURED_CLI,
       contributes: {
@@ -486,19 +488,8 @@ describe("CLI agent features", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.errors).toContain(
-      "contributes.agents[0].features: required for plugin API 30 and newer",
+      "contributes.agents[0].features: required",
     );
-  });
-
-  it("keeps feature-less legacy CLI manifests valid", () => {
-    const result = readManifest({
-      ...FEATURED_CLI,
-      minApiVersion: 29,
-      contributes: {
-        agents: [{ id: "codex", label: "Codex", bin: "codex" }],
-      },
-    });
-    expect(result.ok).toBe(true);
   });
 
   it("rejects duplicate, unsafe, and malformed feature declarations", () => {

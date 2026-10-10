@@ -12,8 +12,8 @@ import {
  *  pane must surface "agent unavailable", never silently run a default. */
 export type AgentType = string;
 
-/** The host-side structural twin of the plugin-api `RemoteScheme`. Kept local
- *  (no plugin-api import): data, not a contract reference. */
+/** A URI scheme an agent's remote client speaks — what a manifest's
+ *  `target.remote` feature lists in its `schemes` parameter. */
 export type AgentRemoteScheme = "ws" | "wss" | "http" | "https";
 
 /** A brand mark as bare SVG path data — the domain's structural twin of the

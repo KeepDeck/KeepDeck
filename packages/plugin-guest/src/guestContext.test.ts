@@ -127,8 +127,6 @@ describe("agent registration payload", () => {
     expect(payload.icon).toEqual(icon);
     expect(payload.hookNames).toEqual(["spawn.plan"]);
     expect(payload).not.toHaveProperty("hooks");
-    // Not declared → not on the wire (sparse, like the host's strict read).
-    expect(payload).not.toHaveProperty("supportsYolo");
   });
 
   it("warns loudly when an agent declares usage — the tier cannot carry it", async () => {
@@ -140,7 +138,7 @@ describe("agent registration payload", () => {
       label: "Codex",
       detect: { bin: "codex" },
       hooks: {},
-      usage: { capabilities: ["paneTelemetry"], normalize: () => null },
+      usage: { normalize: () => null },
     });
     await bundle.registrationsSettled();
     const warn = call.mock.calls.find(([path]) => path === "log.warn");
@@ -171,25 +169,6 @@ describe("agent registration payload", () => {
     const register = call.mock.calls.find(([path]) => path === "agents.register");
     const [, payload] = register![1] as [number, Record<string, unknown>];
     expect(payload).not.toHaveProperty("status");
-  });
-
-  it("carries a declared supportsYolo onto the wire", async () => {
-    const call = vi.fn((..._args: unknown[]) => Promise.resolve(undefined));
-    const rpc = { call } as unknown as GuestRpc;
-    const bundle = buildGuestContext(rpc, fakeManifest());
-    bundle.ctx.agents.register({
-      id: "codex",
-      label: "Codex",
-      detect: { bin: "codex" },
-      supportsYolo: true,
-      hooks: { "spawn.plan": () => {} },
-    });
-    await bundle.registrationsSettled();
-    const register = call.mock.calls.find(
-      ([path]) => path === "agents.register",
-    );
-    const [, payload] = register![1] as [number, Record<string, unknown>];
-    expect(payload.supportsYolo).toBe(true);
   });
 
   it("keeps history callbacks local and serves host history requests", async () => {

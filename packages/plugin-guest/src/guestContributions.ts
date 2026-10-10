@@ -172,8 +172,6 @@ export function createGuestContributions({
             label: agent.label,
             icon: agent.icon,
             detect: agent.detect,
-            // Sparse like the host's read: only a true declaration crosses.
-            ...(agent.supportsYolo === true && { supportsYolo: true }),
             hookNames: Object.keys(agent.hooks),
             ...(agent.history !== undefined && { hasHistory: true }),
             // Declared IFF the method really sits on the object — the

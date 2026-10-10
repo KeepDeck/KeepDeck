@@ -57,6 +57,6 @@ describe("satisfiesApiFloor", () => {
     // Pinning API_VERSION itself belongs to no test: it moves on every
     // additive change, and the floor below is what this one is about.
     expect(satisfiesApiFloor(20)).toBe(false);
-    expect(MIN_COMPATIBLE_API_VERSION).toBe(21);
+    expect(MIN_COMPATIBLE_API_VERSION).toBe(30);
   });
 });

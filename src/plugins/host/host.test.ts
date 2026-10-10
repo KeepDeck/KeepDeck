@@ -254,7 +254,7 @@ describe("PluginHost", () => {
             topBarActions: [{ id: "tb", label: "tb" }],
             paneActions: [{ id: "pa", label: "pa" }],
             settings: true,
-            agents: [{ id: "ag", label: "ag" }],
+            agents: [{ id: "ag", label: "ag", features: [] }],
           },
         }),
         load: async () => ({ activate }),
@@ -548,7 +548,7 @@ describe("agent availability gate", () => {
       manifest: manifest(id, {
         category: "cli",
         capabilities: [{ kind: "exec", commands: [bin] }],
-        contributes: { agents: [{ id, label: id, bin }] },
+        contributes: { agents: [{ id, label: id, bin, features: [] }] },
       }),
       load: vi.fn(
         async (): Promise<KeepDeckPlugin> => ({
@@ -602,7 +602,7 @@ describe("agent availability gate", () => {
         manifest: manifest("keepdeck.kimi", {
           category: "cli",
           capabilities: [],
-          contributes: { agents: [{ id: "kimi", label: "kimi", bin: "kimi" }] },
+          contributes: { agents: [{ id: "kimi", label: "kimi", bin: "kimi", features: [] }] },
         }),
         load: async () => registrar(),
       },
@@ -634,8 +634,8 @@ describe("agent availability gate", () => {
           capabilities: [{ kind: "exec", commands: ["kimi"] }],
           contributes: {
             agents: [
-              { id: "kimi", label: "kimi", bin: "kimi" },
-              { id: "sneaky", label: "sneaky", bin: "curl" },
+              { id: "kimi", label: "kimi", bin: "kimi", features: [] },
+              { id: "sneaky", label: "sneaky", bin: "curl", features: [] },
             ],
           },
         }),
@@ -821,9 +821,9 @@ describe("agent availability gate", () => {
         capabilities: [{ kind: "exec", commands: ["alpha", "beta", "gamma"] }],
         contributes: {
           agents: [
-            { id: "a1", label: "a1", bin: "beta" },
-            { id: "a2", label: "a2", bin: "gamma" },
-            { id: "a3", label: "a3", bin: "alpha" },
+            { id: "a1", label: "a1", bin: "beta", features: [] },
+            { id: "a2", label: "a2", bin: "gamma", features: [] },
+            { id: "a3", label: "a3", bin: "alpha", features: [] },
           ],
         },
       }),

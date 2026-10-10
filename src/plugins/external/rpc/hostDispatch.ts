@@ -300,7 +300,6 @@ export function createHostDispatch(
         label,
         icon,
         detect,
-        supportsYolo,
         hookNames,
         hasHistory,
         hasListing,
@@ -410,9 +409,6 @@ export function createHostDispatch(
           label,
           icon: sanitizeAgentIcon(icon),
           detect,
-          // Strictly `true`, like every boolean off the wire — anything else
-          // from a hostile realm degrades to "no YOLO support".
-          ...(supportsYolo === true && { supportsYolo: true }),
           hooks,
           ...(history && { history }),
           ...(liveSessions && { liveSessions }),

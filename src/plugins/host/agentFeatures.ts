@@ -19,9 +19,6 @@ export function validateAgentFeatureImplementations(
   implementation: AgentContribution,
   options: { external?: boolean } = {},
 ): void {
-  if (summary.features === undefined) return; // legacy contract
-
-  rejectLegacyDeclarations(implementation);
   const declared = new Set(summary.features.map((feature) => feature.id));
   const contracts: readonly FeatureContract[] = [
     {
@@ -148,22 +145,4 @@ function validateRemoteFeature(
       `agent "${agentId}": manifest feature "${AGENT_FEATURE.remoteTarget}" requires non-empty supported "schemes"`,
     );
   }
-}
-
-function rejectLegacyDeclarations(implementation: AgentContribution): void {
-  if (implementation.supportsYolo !== undefined) {
-    throw duplicateDeclaration(implementation.id, "supportsYolo");
-  }
-  if (implementation.remote !== undefined) {
-    throw duplicateDeclaration(implementation.id, "remote");
-  }
-  if (implementation.usage?.capabilities !== undefined) {
-    throw duplicateDeclaration(implementation.id, "usage.capabilities");
-  }
-}
-
-function duplicateDeclaration(agentId: string, field: string): Error {
-  return new Error(
-    `agent "${agentId}": runtime ${field} duplicates the manifest feature declaration`,
-  );
 }
