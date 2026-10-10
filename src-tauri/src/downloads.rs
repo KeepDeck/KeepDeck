@@ -1013,6 +1013,10 @@ fn unpack_tar_gz(
     } else {
         return Err("archive does not contain the expected files".into());
     };
+    // The manifest goes in with the files, before the publish: a failure to
+    // write it fails the unpack instead of reporting "failed" over files
+    // that are already installed.
+    write_unpacked_manifest(&publish, expected_files)?;
     check_cancelled(cancelled)?;
     // The stale artifact this download replaces survives all the way to
     // HERE: the verified replacement is fully staged, so the exposure is
@@ -1024,7 +1028,7 @@ fn unpack_tar_gz(
     if publish != staging {
         let _ = fs::remove_dir_all(staging);
     }
-    write_unpacked_manifest(target, expected_files)
+    Ok(())
 }
 
 /// Remove exactly `path` — file or directory — leaving its sidecars alone.

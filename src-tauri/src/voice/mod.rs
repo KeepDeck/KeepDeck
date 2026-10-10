@@ -461,9 +461,9 @@ pub async fn voice_capture_stop(
             // running two inferences on the one instance.
             let _turn = processing.lock().expect("poisoned");
 
-            // Reuse the single cached engine, or load it (and cache it) —
-            // holding the engine lock only around the swap, never across
-            // inference, so `delete` and the reaper aren't blocked by a long
+            // Reuse the single cached engine, or load it (and cache it). The
+            // engine lock is held through a load (seconds, rare) but never
+            // across inference, so the reaper isn't blocked by a long
             // transcription.
             let engine = cached_or_load(
                 &mut engine_slot.lock().expect("poisoned"),
@@ -575,6 +575,47 @@ mod tests {
         let mut ts = ts_interface_keys("SpeechDevice");
         ts.sort();
         assert_eq!(json_keys(wire), ts);
+    }
+
+    /// The string members of one exported union type in `speech.ts`.
+    fn ts_union_members(name: &str) -> Vec<String> {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../packages/plugin-api/src/context/speech.ts");
+        let source = std::fs::read_to_string(&path).expect("speech.ts is readable");
+        let start = source
+            .find(&format!("export type {name} ="))
+            .unwrap_or_else(|| panic!("speech.ts declares {name}"));
+        let body = &source[start..start + source[start..].find(';').unwrap()];
+        let mut members: Vec<String> = body
+            .lines()
+            .map(str::trim)
+            .filter(|l| {
+                l.starts_with('|') || l.contains('"') && !l.starts_with("/*") && !l.starts_with('*')
+            })
+            .filter_map(|l| l.split('"').nth(1).map(str::to_owned))
+            .collect();
+        members.sort();
+        members
+    }
+
+    #[test]
+    fn silence_reasons_match_the_contract_values() {
+        let mut rust: Vec<String> = [
+            SilenceReasonDto::NoAudio,
+            SilenceReasonDto::DeadSignal,
+            SilenceReasonDto::NoSpeech,
+        ]
+        .iter()
+        .map(|r| {
+            serde_json::to_value(r)
+                .unwrap()
+                .as_str()
+                .unwrap()
+                .to_owned()
+        })
+        .collect();
+        rust.sort();
+        assert_eq!(rust, ts_union_members("SpeechSilenceReason"));
     }
 
     #[test]
