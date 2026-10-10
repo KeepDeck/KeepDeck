@@ -545,26 +545,10 @@
   flex: none;
 }
 
+/* The chord is a ui-kit Button; only its width is the editor's own — the
+   recording state is the Button's primary variant, not a restyle. */
 .voice-hotkeys__chord {
-  font-family: inherit;
   min-width: 96px;
-  background: var(--kd-tile);
-  border: 1px solid var(--kd-seam-strong);
-  border-radius: var(--kd-radius-mark);
-  padding: 4px 10px;
-  color: var(--kd-text-2);
-  font-size: var(--kd-font-small);
-  cursor: pointer;
-}
-
-.voice-hotkeys__chord:hover {
-  background-color: var(--kd-hover);
-}
-
-.voice-hotkeys__chord--recording {
-  border-style: dashed;
-  border-color: var(--kd-ok-line);
-  color: var(--kd-ok-strong);
 }
 
 .voice-hotkeys__error {
