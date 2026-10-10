@@ -4,6 +4,7 @@ import { formatChord } from "../binding";
 import { runtime } from "../runtime";
 import { Button } from "@keepdeck/ui-kit/Button";
 import { HelpPopover, InfoIcon } from "./HelpPopover";
+import { modelName } from "../modelsView";
 import { MicBlock } from "./MicBlock";
 import { useMicStatus } from "./useMicStatus";
 
@@ -277,12 +278,4 @@ function DownloadStrip({
       })}
     </div>
   );
-}
-
-/** A readable model name from its id, without threading the registry here. */
-function modelName(id: string): string {
-  if (id.startsWith("parakeet")) return "Parakeet v3";
-  if (id.includes("turbo")) return "Whisper Turbo";
-  if (id.includes("small")) return "Whisper Small";
-  return id;
 }

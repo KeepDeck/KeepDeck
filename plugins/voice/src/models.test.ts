@@ -77,3 +77,42 @@ describe("voice model store", () => {
     expect(store.snapshot()?.every((model) => model.engine === "whisper")).toBe(true);
   });
 });
+
+describe("voice model store — removal", () => {
+  it("deletes the model's files and re-reads the list", async () => {
+    let installed = true;
+    const { ctx, exists } = setup(() => installed);
+    const remove = vi.fn(async () => {
+      installed = false;
+    });
+    ctx.services.downloads.remove = remove;
+    const store = createModelsStore(ctx);
+    await tick();
+    const model = store.snapshot()![0];
+    exists.mockClear();
+    await store.remove(model);
+    expect(remove).toHaveBeenCalledWith(model.target);
+    expect(exists).toHaveBeenCalled();
+    expect(store.snapshot()?.every((m) => !m.installed)).toBe(true);
+    expect(store.removeErrors()).toEqual({});
+  });
+
+  it("keeps a failed deletion visible for that model, and clears it on the next try", async () => {
+    const { ctx } = setup(() => true);
+    ctx.services.downloads.remove = vi.fn(async () => {
+      throw new Error("file is busy");
+    });
+    const store = createModelsStore(ctx);
+    await tick();
+    const model = store.snapshot()![0];
+    const listener = vi.fn();
+    store.subscribe(listener);
+    await store.remove(model);
+    expect(store.removeErrors()).toEqual({ [model.id]: "Could not delete: file is busy" });
+    expect(listener).toHaveBeenCalled();
+
+    ctx.services.downloads.remove = vi.fn(async () => {});
+    await store.remove(model);
+    expect(store.removeErrors()).toEqual({});
+  });
+});
