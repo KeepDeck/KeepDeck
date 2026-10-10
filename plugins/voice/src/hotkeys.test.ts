@@ -18,9 +18,11 @@ function fakeController(state: { phase: VoicePhase }): VoiceController {
       reading: null,
       readingAt: 0,
       lastHold: null,
+      micPick: null,
       history: [],
     }),
     subscribe: () => () => {},
+    chooseMicrophone: vi.fn(async () => {}),
     start: vi.fn(async () => {
       state.phase = "listening";
     }),

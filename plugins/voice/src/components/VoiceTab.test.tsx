@@ -30,6 +30,7 @@ function snapshotWithHistory(): VoiceSnapshot {
     reading: null,
     readingAt: 0,
     lastHold: null,
+    micPick: null,
     history: [
       { at: 1, tone: "heard", text: "привет" },
       { at: 2, tone: "done", text: "готово" },
@@ -42,6 +43,7 @@ describe("VoiceTab history click-to-copy", () => {
   let root: Root;
   let writeText: ReturnType<typeof vi.fn>;
   let snap: VoiceSnapshot;
+  let chooseMicrophone: ReturnType<typeof vi.fn>;
 
   beforeEach(async () => {
     document.body.innerHTML = "";
@@ -63,6 +65,7 @@ describe("VoiceTab history click-to-copy", () => {
       start: vi.fn(async () => {}),
       stop: vi.fn(async () => {}),
       clearHistory: vi.fn(),
+      chooseMicrophone: (chooseMicrophone = vi.fn(async () => {})),
       cancel: vi.fn(async () => {}),
     } as unknown as VoiceController;
     const modelsSnap = [{ installed: true }] as never;
@@ -98,21 +101,38 @@ describe("VoiceTab history click-to-copy", () => {
   const entries = () =>
     [...stage.querySelectorAll(".voice__entry")] as HTMLElement[];
 
-  it("shows the microphone the last hold used, and asks to replug one adding an offset", () => {
+  it("asks to replug a microphone adding an offset", () => {
     snap = {
       ...snap,
       device: "BY-PM700",
       lastHold: speechTranscript({ text: "привет", dcOffset: 0.3 }),
     };
     render();
-    const block = stage.querySelector(".voice-micblock")!;
-    expect(block.textContent).toContain("BY-PM700");
-    expect(block.querySelector(".voice-micblock__warning--offset")?.textContent).toContain("replug");
+    const warning = stage.querySelector(".voice-micblock__warning--offset");
+    expect(warning?.textContent).toContain("replug");
   });
 
-  it("shows no microphone block before anything was recorded", () => {
+  it("offers the connected microphones in the tab, and a choice goes to the controller", async () => {
+    await act(async () => {
+      render();
+      await flush();
+    });
+    const trigger = stage.querySelector(".voice-micblock button") as HTMLElement;
+    expect(trigger.textContent).toContain("System default (Test Microphone)");
+    await act(async () => trigger.click());
+    const option = [...document.querySelectorAll('[role="option"]')].find(
+      (o) => o.textContent === "Test Microphone",
+    ) as HTMLElement;
+    await act(async () => option.click());
+    expect(chooseMicrophone).toHaveBeenCalledWith({ id: "fake:mic", name: "Test Microphone" });
+  });
+
+  it("says which device stood in when the pick was not connected", () => {
+    snap = { ...snap, device: "MacBook Pro Microphone", micPick: { id: "usb", name: "BY-PM700" } };
     render();
-    expect(stage.querySelector(".voice-micblock")).toBeNull();
+    expect(stage.querySelector(".voice-micblock__standin")?.textContent).toBe(
+      "Recording from MacBook Pro Microphone — BY-PM700 is not connected",
+    );
   });
 
   it("opts the transcript back into selection — it exists to be copied out", () => {

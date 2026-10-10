@@ -84,3 +84,11 @@ export function micPicker(devices: readonly SpeechDevice[], pick: MicPick | null
     pickOf: (value) => rows.find((row) => keyOf(row) === value)?.pick ?? null,
   };
 }
+
+/** "Recording from X" when the device the last capture used is not the one
+ * picked — the pick was not connected and the default stood in. Nothing to
+ * say when the pick is what recorded, or no pick was made. */
+export function standInLine(pick: MicPick | null, device: string | null): string | null {
+  if (!pick || !device || device === pick.name) return null;
+  return `Recording from ${device} — ${pick.name} is not connected`;
+}

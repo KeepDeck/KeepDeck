@@ -2,7 +2,6 @@ import type { PluginContext } from "@keepdeck/plugin-api";
 import { HOTKEYS_KEY } from "./binding";
 import { createBindingsStore } from "./bindingsStore";
 import { HotkeysSection } from "./components/HotkeysSection";
-import { MicrophoneSection } from "./components/MicrophoneSection";
 import { ModelsSection } from "./components/ModelsSection";
 import { VoiceOverlay } from "./components/VoiceOverlay";
 import { VoiceTab } from "./components/VoiceTab";
@@ -37,17 +36,18 @@ export function startVoiceFeature(ctx: PluginContext): VoiceFeature {
 
   // Declared FIRST, because the host serves a plugin only the values its own
   // section declares — anything reading settings above this line gets an
-  // empty bag. Three custom fields: the push-to-talk hotkey editor, the
-  // microphone picker and the model manager. The keys come from the
-  // constants those surfaces READ and WRITE, never from literals: a key that
-  // drifts from its constant is a value that never comes back.
+  // empty bag. Two custom fields — the push-to-talk hotkey editor and the
+  // model manager — and the microphone pick, chosen in the Voice tab, kept
+  // as a `stored` value. The keys come from the constants those surfaces
+  // READ and WRITE, never from literals: a key that drifts from its
+  // constant is a value that never comes back.
   ctx.settings.registerSection({
     label: "Voice",
     fields: [
       { kind: "custom", key: HOTKEYS_KEY, Component: HotkeysSection },
-      { kind: "custom", key: MIC_KEY, Component: MicrophoneSection },
       { kind: "custom", key: MODEL_KEY, Component: ModelsSection },
     ],
+    stored: [MIC_KEY],
   });
   // The live push-to-talk chords, read at construction now that the fields
   // exist. Registering the section above hands the host a Component that

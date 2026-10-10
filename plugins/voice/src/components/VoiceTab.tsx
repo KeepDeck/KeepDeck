@@ -8,6 +8,8 @@ import { modelName } from "../modelsView";
 import { entryView, listenControl, modelsNotice, statusLine, tabScreen } from "../tabView";
 import { MicBlock } from "./MicBlock";
 import { useMicStatus } from "./useMicStatus";
+import { useMicDevices } from "./useMicDevices";
+import { micPicker, standInLine } from "../microphone";
 
 /**
  * The Voice dock tab: the log of what was heard and what was done — newest
@@ -20,6 +22,10 @@ export function VoiceTab() {
     runtime();
   const snap = useSyncExternalStore(controller.subscribe, controller.snapshot);
   const mic = useMicStatus(controller);
+  // The connected microphones, read when the tab mounts and on Refresh
+  // (decision №1: on request, nothing watches in the background).
+  const micList = useMicDevices(ctx);
+  const picker = micPicker(micList.devices, snap.micPick);
   const bindings = useSyncExternalStore(
     bindingsStore.subscribe,
     bindingsStore.snapshot,
@@ -155,7 +161,15 @@ export function VoiceTab() {
           </Button>
         </div>
       )}
-      <MicBlock status={mic} listening={listening} />
+      <MicBlock
+        status={mic}
+        picker={picker}
+        listening={listening}
+        listError={micList.error}
+        standIn={standInLine(snap.micPick, mic.device)}
+        onChoose={(value) => void controller.chooseMicrophone(picker.pickOf(value))}
+        onRefresh={micList.refresh}
+      />
       {helpAnchor && (
         <HelpPopover
           anchor={helpAnchor}

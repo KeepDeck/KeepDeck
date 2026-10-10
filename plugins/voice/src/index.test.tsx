@@ -7,7 +7,7 @@ import {
 } from "../../../packages/plugin-guest/src/fakeHost";
 // The contract's own merge — the exact seam a custom field's value has to
 // survive to reach the plugin.
-import { mergeSectionValues } from "@keepdeck/plugin-api";
+import { declaredKeys, mergeSectionValues } from "@keepdeck/plugin-api";
 import plugin from "./index";
 import { runtime } from "./runtime";
 import { MODEL_KEY } from "./modelChoice";
@@ -41,10 +41,11 @@ describe("voice plugin activation", () => {
     // The host serves a plugin only the keys its section declares, so every
     // constant the plugin persists under must appear here — a key that drifts
     // from its constant is a value that silently never comes back.
-    expect(section.fields.map((f) => f.key).sort()).toEqual(
-      [HOTKEYS_KEY, MIC_KEY, MODEL_KEY].sort(),
-    );
+    expect(declaredKeys(section).sort()).toEqual([HOTKEYS_KEY, MIC_KEY, MODEL_KEY].sort());
     expect(section.fields.every((f) => f.kind === "custom")).toBe(true);
+    // The microphone is picked in the Voice tab, not on the settings page.
+    expect(section.fields.map((f) => f.key)).not.toContain(MIC_KEY);
+    expect(section.stored).toEqual([MIC_KEY]);
     // The dock tab and pill are wired too.
     expect(h.dockTabs.map((t) => t.id)).toContain("voice");
     expect(h.overlays.map((o) => o.id)).toContain("pill");

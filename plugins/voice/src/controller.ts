@@ -9,7 +9,7 @@ import { bestMatch } from "./fuzzy";
 import { commandVocabulary, normalize, parseCommand, type Intent } from "./grammar";
 import { createVoiceAlerts } from "./alerts";
 import { activeModel, readModelPick } from "./modelChoice";
-import { readMicPick, startOptionsFor, type MicPick } from "./microphone";
+import { MIC_KEY, readMicPick, startOptionsFor, type MicPick } from "./microphone";
 import {
   HOLD_PROBLEMS,
   holdProblems,
@@ -58,6 +58,8 @@ export interface VoiceSnapshot {
   readingAt: number;
   /** What the last finished hold measured — the mic block's evidence. */
   lastHold: SpeechTranscript | null;
+  /** The microphone the user picked; null = the system default. */
+  micPick: MicPick | null;
   history: readonly HistoryEntry[];
 }
 
@@ -84,6 +86,9 @@ export interface VoiceController {
   cancel(): Promise<void>;
   /** Empty the heard/done log. */
   clearHistory(): void;
+  /** Record from this microphone from now on (null: the system default) —
+   * kept in the plugin's settings, so it survives restarts. */
+  chooseMicrophone(pick: MicPick | null): Promise<void>;
 }
 
 const SPAWN_NEEDS_ROLE =
@@ -101,6 +106,7 @@ export function createVoiceController(
   let reading: SpeechLevel | null = null;
   let readingAt = 0;
   let lastHold: SpeechTranscript | null = null;
+  let micPick: MicPick | null = null;
   let capture: SpeechCapture | null = null;
   let starting: Promise<SpeechCapture> | null = null;
   // Starts whose capture someone has already undertaken to cancel. Whoever
@@ -126,18 +132,31 @@ export function createVoiceController(
     reading,
     readingAt,
     lastHold,
+    micPick,
     history,
   });
   let snap: VoiceSnapshot = build();
   const alerts = createVoiceAlerts(ctx.notify);
-  // The microphone pick, kept current from the settings so a press opens the
-  // device at once instead of reading settings first.
-  let micPick: MicPick | null = null;
+  // The microphone pick (declared with the state above) is kept current
+  // from the settings, so a press opens the device at once instead of
+  // reading settings first.
+  const takePick = (values: Record<string, unknown>) => {
+    micPick = readMicPick(values);
+    notify();
+  };
+  // The first read answers late; a change that arrived meanwhile is newer
+  // and must not be overwritten by it.
+  let changed = false;
   void ctx.settings
     .read()
-    .then((values) => (micPick = readMicPick(values)))
+    .then((values) => {
+      if (!changed) takePick(values);
+    })
     .catch(() => {});
-  ctx.settings.onChange((values) => (micPick = readMicPick(values)));
+  ctx.settings.onChange((values) => {
+    changed = true;
+    takePick(values);
+  });
 
   function notify(): void {
     snap = build();
@@ -432,6 +451,15 @@ export function createVoiceController(
     clearHistory() {
       history = [];
       notify();
+    },
+
+    async chooseMicrophone(pick) {
+      try {
+        await ctx.settings.write(MIC_KEY, pick);
+      } catch (e) {
+        push("error", `couldn't save the microphone: ${e instanceof Error ? e.message : String(e)}`);
+        notify();
+      }
     },
 
     async cancel() {

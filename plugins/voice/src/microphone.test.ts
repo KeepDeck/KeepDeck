@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_CHOICE, micChoices, micPicker, MIC_KEY, readMicPick, startOptionsFor } from "./microphone";
+import {
+  DEFAULT_CHOICE,
+  micChoices,
+  micPicker,
+  MIC_KEY,
+  readMicPick,
+  standInLine,
+  startOptionsFor,
+} from "./microphone";
 
 const PM700 = { id: "coreaudio:usb-pm700", name: "BY-PM700", isDefault: true };
 const BUILTIN = { id: "coreaudio:BuiltInMicrophoneDevice", name: "MacBook Pro Microphone", isDefault: false };
@@ -70,5 +78,19 @@ describe("micPicker", () => {
     const picker = micPicker([BUILTIN], { id: PM700.id, name: "BY-PM700" });
     expect(picker.value).toBe(PM700.id);
     expect(picker.pickOf(PM700.id)).toEqual({ id: PM700.id, name: "BY-PM700" });
+  });
+});
+
+describe("standInLine", () => {
+  it("names the stand-in when the pick did not record", () => {
+    expect(standInLine({ id: PM700.id, name: "BY-PM700" }, "MacBook Pro Microphone")).toBe(
+      "Recording from MacBook Pro Microphone — BY-PM700 is not connected",
+    );
+  });
+
+  it("says nothing when the pick recorded, or nothing was picked", () => {
+    expect(standInLine({ id: PM700.id, name: "BY-PM700" }, "BY-PM700")).toBeNull();
+    expect(standInLine(null, "BY-PM700")).toBeNull();
+    expect(standInLine({ id: PM700.id, name: "BY-PM700" }, null)).toBeNull();
   });
 });

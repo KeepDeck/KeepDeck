@@ -25,10 +25,8 @@ function hostWithSettings(settingsValues: Record<string, unknown>): FakeHost {
   });
   host.ctx.settings.registerSection({
     label: "Voice",
-    fields: [
-      { kind: "custom", key: MODEL_KEY, Component: () => null },
-      { kind: "custom", key: MIC_KEY, Component: () => null },
-    ],
+    fields: [{ kind: "custom", key: MODEL_KEY, Component: () => null }],
+    stored: [MIC_KEY],
   });
   return host;
 }
@@ -396,6 +394,26 @@ describe("createVoiceController", () => {
       { title: "Microphone not connected", body: undefined, severity: "warning", tag: "mic-missing", dockTab: "voice" },
     ]);
     expect(controller.snapshot().history.filter((e) => e.text === "Microphone not connected").length).toBeGreaterThan(0);
+  });
+
+  it("a microphone chosen in the tab is saved, read back, and opened by the next press", async () => {
+    const host = hostWithSettings({});
+    const startCapture = vi.fn(async () => speechCapture());
+    const controller = createVoiceController(
+      { ...host.ctx, services: { ...host.ctx.services, speech: { ...host.ctx.services.speech, startCapture } } },
+      () => 42,
+      installedModels,
+    );
+    const pick = { id: "coreaudio:BuiltInMicrophoneDevice", name: "MacBook Pro Microphone" };
+    await controller.chooseMicrophone(pick);
+    expect(controller.snapshot().micPick).toEqual(pick);
+    expect(await host.ctx.settings.read()).toMatchObject({ [MIC_KEY]: pick });
+    await controller.start("command");
+    expect(startCapture).toHaveBeenLastCalledWith(expect.any(Function), { deviceId: pick.id });
+
+    await controller.cancel();
+    await controller.chooseMicrophone(null);
+    expect(controller.snapshot().micPick).toBeNull();
   });
 
   it("warns once about a distorting input and once about a cut-off hold", async () => {

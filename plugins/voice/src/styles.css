@@ -566,33 +566,13 @@
   overflow-wrap: anywhere;
 }
 
-/* ── Microphone picker (settings) ─────────────────────────────────── */
-.voice-mic {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.voice-mic__row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.voice-mic__picker {
-  flex: 1;
-  min-width: 0;
-}
-.voice-mic__error {
-  color: var(--kd-err-strong);
-  font-size: var(--kd-font-small);
-  overflow-wrap: anywhere;
-}
-
 /* ── Microphone block (Voice tab) ─────────────────────────────────── */
 .voice-micblock {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 4px 10px 6px;
+  /* The tab's one horizontal inset (the bar, the status line, the log): */
+  padding: 0 8px 8px;
   font-size: var(--kd-font-small);
 }
 .voice-micblock__row {
@@ -605,6 +585,17 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.voice-micblock__picker {
+  flex: 1;
+  min-width: 0;
+}
+.voice-micblock__standin {
+  color: var(--kd-text-2);
+}
+.voice-micblock__error {
+  color: var(--kd-err-strong);
+  overflow-wrap: anywhere;
 }
 .voice-micblock__warning {
   color: var(--kd-warn-strong);
