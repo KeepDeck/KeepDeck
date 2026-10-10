@@ -1,4 +1,4 @@
-import { downloadPercent } from "@keepdeck/plugin-api";
+import { downloadPercent, type DownloadState } from "@keepdeck/plugin-api";
 import type { DownloadsSnapshot } from "./downloads";
 import { MODEL_CATALOG, type VoiceModelInfo } from "./modelCatalog";
 
@@ -126,8 +126,54 @@ export function modelCards(
 }
 
 /** A model's size in decimal megabytes, from the bytes its integrity names
- * (the hand-kept sizeMb mixed MB and MiB). */
+ * (the hand-kept sizeMb mixed MB and MiB). The retired catalog entries name
+ * no byte count, so their installs fall back to sizeMb. */
 function sizeLabel(m: VoiceModelInfo): string {
   const bytes = m.integrity?.bytes;
   return `${bytes ? Math.round(bytes / 1_000_000) : m.sizeMb} MB`;
+}
+
+/** The fixed words of the model surfaces. */
+export const MODELS_TEXT = {
+  experimental:
+    "Extremely experimental — recognition and commands are rough, and this may change or break between versions.",
+  group: "Speech model",
+  delete: "Delete",
+  active: "✓ Active",
+  legacy: "Legacy",
+  accuracy: "accuracy",
+  speed: "speed",
+  discard: "Discard",
+  discardTitle: "Delete the partly downloaded file",
+  /** Cancelling a download — the same words on a card and in the tab. */
+  cancelTitle: "Stop — the next Download resumes from here",
+} as const;
+
+/** A download bar's fill: the known percent, or a dimmed full bar while the
+ * size is unknown. */
+export function barFill(percent: number | null): { width: string; opacity?: number } {
+  return percent === null ? { width: "100%", opacity: 0.4 } : { width: `${percent}%` };
+}
+
+/** One running download as the Voice tab lists it. */
+export interface DownloadRow {
+  id: string;
+  text: string;
+  fill: { width: string; opacity?: number };
+}
+
+export function downloadRows(active: Readonly<Record<string, DownloadState>>): DownloadRow[] {
+  return Object.keys(active).map((id) => {
+    const percent = downloadPercent(active[id]);
+    return {
+      id,
+      text: `Downloading ${modelName(id)}…${percent !== null ? ` ${percent}%` : ""}`,
+      fill: barFill(percent),
+    };
+  });
+}
+
+/** A 0..1 rating as its bar's fill. */
+export function ratingFill(value: number): { width: string } {
+  return { width: `${Math.round(value * 100)}%` };
 }

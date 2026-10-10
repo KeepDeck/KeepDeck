@@ -51,10 +51,20 @@ export function resetSlot(bindings: VoiceBindings, slot: Slot): VoiceBindings {
   return withSlot(bindings, slot, DEFAULT_BINDINGS[slot]);
 }
 
+/** The fixed words of the hotkey editor. */
+export const HOTKEYS_TEXT = {
+  intro:
+    "Hold a chord to talk, release to run a command or fill in dictation. Click a shortcut and press a new combination to rebind it; Escape cancels recording.",
+  reset: "Reset",
+  resetTitle: "Reset to default",
+} as const;
+
 export interface HotkeyRow {
   slot: Slot;
   label: string;
   hint: string;
+  /** The chord control's accessible name. */
+  ariaLabel: string;
   /** The chord, or the prompt while recording. */
   chordText: string;
   recording: boolean;
@@ -73,6 +83,7 @@ export function hotkeyRows(
     return {
       slot,
       ...ROW_COPY[slot],
+      ariaLabel: `${ROW_COPY[slot].label} shortcut`,
       chordText: isRecording ? "Press keys…" : formatChord(bindings[slot]),
       recording: isRecording,
       message:

@@ -2,7 +2,7 @@ import { useSyncExternalStore, type KeyboardEvent } from "react";
 import type { CustomSettingsFieldProps } from "@keepdeck/plugin-api";
 import { Button } from "@keepdeck/ui-kit/Button";
 import { activeModel, MODEL_KEY, readModelPick } from "../modelChoice";
-import { modelCards, type ModelCard } from "../modelsView";
+import { barFill, modelCards, MODELS_TEXT, ratingFill, type ModelCard } from "../modelsView";
 import { runtime } from "../runtime";
 
 /**
@@ -49,11 +49,8 @@ export function ModelsSection({ values, write }: CustomSettingsFieldProps) {
   };
 
   return (
-    <div className="voice-models" role="radiogroup" aria-label="Speech model">
-      <div className="voice-models__warn">
-        Extremely experimental — recognition and commands are rough, and this
-        may change or break between versions.
-      </div>
+    <div className="voice-models" role="radiogroup" aria-label={MODELS_TEXT.group}>
+      <div className="voice-models__warn">{MODELS_TEXT.experimental}</div>
       {listError && <div className="voice-models__error kd-selectable">{listError}</div>}
       {cards.map((card) => (
         <div
@@ -69,16 +66,16 @@ export function ModelsSection({ values, write }: CustomSettingsFieldProps) {
           <div className="voice-models__head">
             <span className="voice-models__name">
               {card.name}
-              {card.active && <span className="voice-models__badge">✓ Active</span>}
+              {card.active && <span className="voice-models__badge">{MODELS_TEXT.active}</span>}
               {card.legacy && (
-                <span className="voice-models__badge voice-models__badge--legacy">Legacy</span>
+                <span className="voice-models__badge voice-models__badge--legacy">{MODELS_TEXT.legacy}</span>
               )}
             </span>
-            <Rating label="accuracy" value={card.accuracy} />
+            <Rating label={MODELS_TEXT.accuracy} value={card.accuracy} />
           </div>
           <div className="voice-models__row">
             <span className="voice-models__blurb">{card.blurb}</span>
-            <Rating label="speed" value={card.speed} />
+            <Rating label={MODELS_TEXT.speed} value={card.speed} />
           </div>
           <div className="voice-models__foot">
             <span>{card.langs}</span>
@@ -95,8 +92,8 @@ export function ModelsSection({ values, write }: CustomSettingsFieldProps) {
               >
                 <CardActionView card={card} run={() => runAction(card)} />
                 {card.discardable && (
-                  <Button size="sm" onClick={() => discard(card)} title="Delete the partly downloaded file">
-                    Discard
+                  <Button size="sm" onClick={() => discard(card)} title={MODELS_TEXT.discardTitle}>
+                    {MODELS_TEXT.discard}
                   </Button>
                 )}
               </span>
@@ -104,14 +101,7 @@ export function ModelsSection({ values, write }: CustomSettingsFieldProps) {
           </div>
           {card.bar && (
             <span className="voice-models__bar">
-              <span
-                className="voice-models__bar-fill"
-                style={
-                  card.bar.percent === null
-                    ? { width: "100%", opacity: 0.4 }
-                    : { width: `${card.bar.percent}%` }
-                }
-              />
+              <span className="voice-models__bar-fill" style={barFill(card.bar.percent)} />
             </span>
           )}
           {card.error && <div className="voice-models__card-error kd-selectable">{card.error}</div>}
@@ -126,14 +116,14 @@ function CardActionView({ card, run }: { card: ModelCard; run: () => void }) {
     case "delete":
       return (
         <Button size="sm" onClick={run}>
-          Delete
+          {MODELS_TEXT.delete}
         </Button>
       );
     case "cancel":
       return (
         <>
           <span className="voice-models__progress">{card.action.progress}</span>
-          <Button size="sm" onClick={run} title="Stop — the next Download resumes from here">
+          <Button size="sm" onClick={run} title={MODELS_TEXT.cancelTitle}>
             ✕
           </Button>
         </>
@@ -154,7 +144,7 @@ function Rating({ label, value }: { label: string; value: number }) {
     <span className="voice-models__rating">
       <span className="voice-models__rating-label">{label}</span>
       <span className="voice-models__rating-track">
-        <span className="voice-models__rating-fill" style={{ width: `${Math.round(value * 100)}%` }} />
+        <span className="voice-models__rating-fill" style={ratingFill(value)} />
       </span>
     </span>
   );

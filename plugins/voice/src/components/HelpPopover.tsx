@@ -7,26 +7,12 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { calculateFloatingListboxPlacement } from "@keepdeck/ui-kit/FloatingListbox";
-import { COMMAND_DOCS } from "../commandList";
+import { helpView } from "../helpView";
 import { formatChord } from "../binding";
 import { runtime } from "../runtime";
 
-/** A command template with its `<placeholder>` fragments dimmed as fill-in
- * slots — shared shape for the help list. */
-function renderTemplate(template: string) {
-  return template.split(/(<[^>]+>)/).map((part, i) =>
-    part.startsWith("<") ? (
-      <span key={i} className="voice__help-slot">
-        {part}
-      </span>
-    ) : (
-      part
-    ),
-  );
-}
-
-/** The app's stroke-icon grammar (ui-kit iconProps), drawn locally: a plugin
- * bundles no ui-kit just for one glyph. */
+/** The app's stroke-icon grammar (ui-kit iconProps): the info glyph, which
+ * ui-kit's icon set does not carry. */
 export function InfoIcon() {
   return (
     <svg
@@ -74,6 +60,7 @@ export function HelpPopover({
     bindingsStore.subscribe,
     bindingsStore.snapshot,
   );
+  const help = helpView(formatChord(bindings.command), formatChord(bindings.dictation));
 
   useLayoutEffect(() => {
     const rect = anchor.getBoundingClientRect();
@@ -122,7 +109,7 @@ export function HelpPopover({
       ref={cardRef}
       className="voice__help kd-float"
       role="dialog"
-      aria-label="How to use voice"
+      aria-label={help.label}
       onMouseEnter={onPointerStay}
       onMouseLeave={onPointerLeave}
       style={{
@@ -133,25 +120,33 @@ export function HelpPopover({
       }}
     >
       <div className="voice__help-row">
-        <kbd>{formatChord(bindings.command)}</kbd> hold — speak a command,
-        released = executed
+        <kbd>{help.command.keys}</kbd>
+        {help.command.text}
       </div>
       <ul className="voice__help-list">
-        {COMMAND_DOCS.map((doc) => (
-          <li key={doc.template}>{renderTemplate(doc.template)}</li>
+        {help.commands.map((cmd) => (
+          <li key={cmd.template}>
+            {cmd.parts.map((part, i) =>
+              part.slot ? (
+                <span key={i} className="voice__help-slot">
+                  {part.text}
+                </span>
+              ) : (
+                part.text
+              ),
+            )}
+          </li>
         ))}
       </ul>
       <div className="voice__help-row">
-        <kbd>{formatChord(bindings.dictation)}</kbd> hold — dictate into the
-        focused agent, released = typed in
+        <kbd>{help.dictation.keys}</kbd>
+        {help.dictation.text}
       </div>
       <div className="voice__help-row">
-        <kbd>Esc</kbd> while holding — cancel; while transcribing — discard
+        <kbd>{help.escape.keys}</kbd>
+        {help.escape.text}
       </div>
-      <div className="voice__help-note">
-        Commands are understood in English and Russian (examples are in
-        English); dictation types whatever language the model hears.
-      </div>
+      <div className="voice__help-note">{help.note}</div>
     </div>,
     document.body,
   );

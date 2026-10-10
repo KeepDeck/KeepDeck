@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MODEL_CATALOG, type VoiceModelInfo } from "./modelCatalog";
-import { modelCards, modelName } from "./modelsView";
+import { barFill, downloadRows, modelCards, modelName, ratingFill } from "./modelsView";
 
 const model = (id: string, installed: boolean): VoiceModelInfo => ({
   ...MODEL_CATALOG.find((m) => m.id === id)!,
@@ -78,5 +78,22 @@ describe("modelCards", () => {
   it("sizes come from the integrity bytes, in decimal MB", () => {
     // 478,517,071 bytes — the catalog's hand-kept 456 was MiB.
     expect(modelCards([model("parakeet-tdt-0.6b-v3", false)], null, NO_DL, {})[0].size).toBe("479 MB");
+  });
+});
+
+describe("model bars and rows", () => {
+  it("a bar fills to its percent, or dims full while the size is unknown", () => {
+    expect(barFill(40)).toEqual({ width: "40%" });
+    expect(barFill(null)).toEqual({ width: "100%", opacity: 0.4 });
+    expect(ratingFill(0.95)).toEqual({ width: "95%" });
+  });
+
+  it("the tab lists a running download by the model's one name", () => {
+    const rows = downloadRows({
+      "parakeet-tdt-0.6b-v3": { id: "x", phase: "downloading", received: 25, total: 100 },
+    } as never);
+    expect(rows).toEqual([
+      { id: "parakeet-tdt-0.6b-v3", text: "Downloading Parakeet TDT 0.6B v3… 25%", fill: { width: "25%" } },
+    ]);
   });
 });

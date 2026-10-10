@@ -2,7 +2,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import type { CustomSettingsFieldProps } from "@keepdeck/plugin-api";
 import { Button } from "@keepdeck/ui-kit/Button";
 import { HOTKEYS_KEY, type VoiceBindings } from "../binding";
-import { hotkeyRows, recorderStep, resetSlot } from "../hotkeysView";
+import { HOTKEYS_TEXT, hotkeyRows, recorderStep, resetSlot } from "../hotkeysView";
 import { runtime } from "../runtime";
 
 /**
@@ -69,11 +69,7 @@ export function HotkeysSection({ write }: CustomSettingsFieldProps) {
 
   return (
     <div className="voice-hotkeys">
-      <div className="voice-hotkeys__intro">
-        Hold a chord to talk, release to run a command or fill in dictation.
-        Click a shortcut and press a new combination to rebind it; Escape
-        cancels recording.
-      </div>
+      <div className="voice-hotkeys__intro">{HOTKEYS_TEXT.intro}</div>
       {hotkeyRows(bindings, recording, rejection).map((row) => (
         <div key={row.slot} className="voice-hotkeys__row">
           <div className="voice-hotkeys__labels">
@@ -85,7 +81,7 @@ export function HotkeysSection({ write }: CustomSettingsFieldProps) {
               size="sm"
               variant={row.recording ? "primary" : "secondary"}
               className="voice-hotkeys__chord"
-              label={`${row.label} shortcut`}
+              label={row.ariaLabel}
               onClick={() => {
                 setRejection(null);
                 setRecording(row.recording ? null : row.slot);
@@ -101,9 +97,9 @@ export function HotkeysSection({ write }: CustomSettingsFieldProps) {
                 setRecording(null);
                 write(HOTKEYS_KEY, resetSlot(bindings, row.slot));
               }}
-              title="Reset to default"
+              title={HOTKEYS_TEXT.resetTitle}
             >
-              Reset
+              {HOTKEYS_TEXT.reset}
             </Button>
           </div>
           {row.message && (

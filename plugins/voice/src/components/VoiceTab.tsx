@@ -1,11 +1,20 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { downloadPercent, type DownloadState } from "@keepdeck/plugin-api";
+import type { DownloadState } from "@keepdeck/plugin-api";
 import { formatChord } from "../binding";
 import { runtime } from "../runtime";
 import { Button } from "@keepdeck/ui-kit/Button";
 import { HelpPopover, InfoIcon } from "./HelpPopover";
-import { modelName } from "../modelsView";
-import { entryView, listenControl, modelsNotice, statusLine, tabScreen } from "../tabView";
+import { downloadRows, MODELS_TEXT } from "../modelsView";
+import {
+  canClear,
+  emptyHint,
+  entryView,
+  listenControl,
+  modelsNotice,
+  statusLine,
+  TAB_TEXT,
+  tabScreen,
+} from "../tabView";
 import { MicBlock } from "./MicBlock";
 import { useMicStatus } from "./useMicStatus";
 import { useMicDevices } from "./useMicDevices";
@@ -92,17 +101,14 @@ export function VoiceTab() {
   if (tabScreen(snap.phase, modelsState) === "setup") {
     return (
       <div className="voice voice__setup">
-        <div className="voice__setup-title">No speech model yet</div>
-        <div className="voice__setup-text">
-          Voice commands and dictation need a local speech-to-text model.
-          Download one to get started — it stays on your machine.
-        </div>
+        <div className="voice__setup-title">{TAB_TEXT.setupTitle}</div>
+        <div className="voice__setup-text">{TAB_TEXT.setupText}</div>
         <Button
           variant="primary"
           size="sm"
           onClick={() => void ctx.commands.execute("settings.open", {})}
         >
-          Choose a model…
+          {TAB_TEXT.setupAction}
         </Button>
       </div>
     );
@@ -137,18 +143,18 @@ export function VoiceTab() {
             helpHold();
             setHelpAnchor(helpAnchor ? null : helpBtnRef.current);
           }}
-          aria-label="How to use voice"
+          aria-label={TAB_TEXT.helpLabel}
         >
           <InfoIcon />
         </button>
-        {snap.history.length > 0 && snap.phase === "idle" && (
+        {canClear(snap.phase, snap.history.length) && (
           <Button
             size="sm"
             className="voice__model-btn"
             onClick={() => controller.clearHistory()}
-            title="Clear the history"
+            title={TAB_TEXT.clearTitle}
           >
-            Clear
+            {TAB_TEXT.clear}
           </Button>
         )}
       </div>
@@ -157,7 +163,7 @@ export function VoiceTab() {
         <div className="voice__notice kd-selectable">
           {notice.text}
           <Button size="sm" onClick={() => void store.refresh()}>
-            Retry
+            {TAB_TEXT.retry}
           </Button>
         </div>
       )}
@@ -184,9 +190,17 @@ export function VoiceTab() {
       <div className="voice__log kd-selectable" ref={logRef}>
         {snap.history.length === 0 && (
           <div className="voice__empty">
-            Hold <kbd>{formatChord(bindings.command)}</kbd> and say a command, or{" "}
-            <kbd>{formatChord(bindings.dictation)}</kbd> to dictate. Hover{" "}
-            <span className="voice__empty-i">ⓘ</span> for the list.
+            {emptyHint(formatChord(bindings.command), formatChord(bindings.dictation)).map((part, i) =>
+              "chord" in part ? (
+                <kbd key={i}>{part.chord}</kbd>
+              ) : "info" in part ? (
+                <span key={i} className="voice__empty-i">
+                  ⓘ
+                </span>
+              ) : (
+                part.text
+              ),
+            )}
           </div>
         )}
         {snap.history.map((entry) => {
@@ -243,38 +257,26 @@ function DownloadStrip({
   active: Readonly<Record<string, DownloadState>>;
 }) {
   const { downloads } = runtime();
-  const ids = Object.keys(active);
-  if (ids.length === 0) return null;
+  const rows = downloadRows(active);
+  if (rows.length === 0) return null;
   return (
     <div className="voice__downloads">
-      {ids.map((id) => {
-        const percent = downloadPercent(active[id]);
-        return (
-          <div key={id} className="voice__download">
-            <span className="voice__download-name">
-              Downloading {modelName(id)}…{percent !== null && ` ${percent}%`}
-            </span>
-            <Button
-              size="sm"
-              className="voice__model-btn"
-              onClick={() => downloads.cancel(id)}
-              title="Stop — the next Download resumes from here"
-            >
-              ✕
-            </Button>
-            <span className="voice-models__bar">
-              <span
-                className="voice-models__bar-fill"
-                style={
-                  percent === null
-                    ? { width: "100%", opacity: 0.4 }
-                    : { width: `${percent}%` }
-                }
-              />
-            </span>
-          </div>
-        );
-      })}
+      {rows.map((row) => (
+        <div key={row.id} className="voice__download">
+          <span className="voice__download-name">{row.text}</span>
+          <Button
+            size="sm"
+            className="voice__model-btn"
+            onClick={() => downloads.cancel(row.id)}
+            title={MODELS_TEXT.cancelTitle}
+          >
+            ✕
+          </Button>
+          <span className="voice-models__bar">
+            <span className="voice-models__bar-fill" style={row.fill} />
+          </span>
+        </div>
+      ))}
     </div>
   );
 }

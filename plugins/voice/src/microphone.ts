@@ -92,3 +92,10 @@ export function standInLine(pick: MicPick | null, device: string | null): string
   if (!pick || !device || device === pick.name) return null;
   return `Recording from ${device} — ${pick.name} is not connected`;
 }
+
+/** The fixed words of the microphone picker. */
+export const MIC_TEXT = {
+  picker: "Microphone",
+  refresh: "Refresh",
+  refreshTitle: "Read the connected microphones again",
+} as const;

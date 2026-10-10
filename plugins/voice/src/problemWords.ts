@@ -77,6 +77,16 @@ export function problemLine(words: ProblemWords): string {
   return words.body ? `${words.title} — ${words.body}` : words.title;
 }
 
+/** The mic block's line for a device adding a constant offset. */
+export function offsetWarning(offset: number): string {
+  return `The microphone adds a constant offset (${offset >= 0 ? "+" : ""}${offset.toFixed(2)}) — replug it to reset it.`;
+}
+
+/** The mic block's line for a spoken hold that never got loud. */
+export function quietWarning(): string {
+  return "Input is very quiet — raise the gain on the microphone.";
+}
+
 /** The history line for a press released before the microphone opened —
  * nothing was recorded. */
 export function tooShortLine(): string {

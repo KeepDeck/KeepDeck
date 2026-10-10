@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { MODEL_CATALOG, type VoiceModelInfo } from "./modelCatalog";
-import { entryView, listenControl, modelsNotice, pillLabel, statusLine, tabScreen } from "./tabView";
+import {
+  canClear,
+  emptyHint,
+  entryView,
+  listenControl,
+  modelsNotice,
+  pillLabel,
+  pillView,
+  statusLine,
+  tabScreen,
+} from "./tabView";
 
 const installed = (yes: boolean): VoiceModelInfo[] => [{ ...MODEL_CATALOG[3], installed: yes }];
 const state = (over: Partial<Parameters<typeof tabScreen>[1]> = {}) => ({
@@ -68,5 +78,25 @@ describe("entryView", () => {
     expect(entryView(entry, null)).toEqual({ variant: null, text: "привет", title: "Click to copy", glyph: "🗣" });
     expect(entryView(entry, { ok: true })).toMatchObject({ variant: "copied", text: "Copied" });
     expect(entryView(entry, { ok: false })).toMatchObject({ variant: "failed", text: "Copy failed" });
+  });
+});
+
+describe("tab chrome decisions", () => {
+  it("Clear is offered only for an existing history while idle", () => {
+    expect(canClear("idle", 2)).toBe(true);
+    expect(canClear("idle", 0)).toBe(false);
+    expect(canClear("listening", 2)).toBe(false);
+  });
+
+  it("the empty hint names both live chords", () => {
+    const parts = emptyHint("⌥Space", "⌥⇧Space");
+    expect(parts.filter((p) => "chord" in p)).toEqual([{ chord: "⌥Space" }, { chord: "⌥⇧Space" }]);
+    expect(parts.some((p) => "info" in p)).toBe(true);
+  });
+
+  it("the pill hides when idle; its live dot and meter only while listening", () => {
+    expect(pillView("idle", null).visible).toBe(false);
+    expect(pillView("listening", "command")).toMatchObject({ visible: true, live: true, meter: true });
+    expect(pillView("transcribing", "command")).toMatchObject({ visible: true, live: false, meter: false });
   });
 });

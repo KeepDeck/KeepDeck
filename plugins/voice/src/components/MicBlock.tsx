@@ -1,6 +1,6 @@
 import { Button } from "@keepdeck/ui-kit/Button";
 import { Dropdown } from "@keepdeck/ui-kit/Dropdown";
-import type { MicPicker } from "../microphone";
+import { MIC_TEXT, type MicPicker } from "../microphone";
 import type { MicStatus } from "../micStatus";
 
 /** The meter bar: a fill the status computed. */
@@ -41,10 +41,10 @@ export function MicBlock({
           options={picker.options}
           value={picker.value}
           onChange={onChoose}
-          ariaLabel="Microphone"
+          ariaLabel={MIC_TEXT.picker}
         />
-        <Button size="sm" onClick={onRefresh} title="Read the connected microphones again">
-          Refresh
+        <Button size="sm" onClick={onRefresh} title={MIC_TEXT.refreshTitle}>
+          {MIC_TEXT.refresh}
         </Button>
         {listening && <MicMeter status={status} className="voice__meter" />}
       </div>

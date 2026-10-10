@@ -1,6 +1,6 @@
 import type { SpeechLevel, SpeechTranscript } from "@keepdeck/plugin-api";
 import { CLIPPING_RATIO } from "./problems";
-import { problemWords } from "./problemWords";
+import { offsetWarning, problemWords, quietWarning } from "./problemWords";
 
 /**
  * The microphone's health as the Voice tab and the listening pill show it —
@@ -70,10 +70,7 @@ function warnings({ reading, lastHold, device }: MicFacts): MicWarning[] {
   const out: MicWarning[] = [];
   const offset = reading?.dcOffset ?? lastHold?.dcOffset ?? 0;
   if (Math.abs(offset) >= OFFSET_WARN) {
-    out.push({
-      kind: "offset",
-      text: `The microphone adds a constant offset (${offset >= 0 ? "+" : ""}${offset.toFixed(2)}) — replug it to reset it.`,
-    });
+    out.push({ kind: "offset", text: offsetWarning(offset) });
   }
   const clipping = reading?.clipped || (lastHold?.clippedRatio ?? 0) >= CLIPPING_RATIO;
   if (clipping) {
@@ -83,7 +80,7 @@ function warnings({ reading, lastHold, device }: MicFacts): MicWarning[] {
   if (lastHold?.silenceReason === "no-audio" || lastHold?.silenceReason === "dead-signal") {
     out.push({ kind: "silent", text: problemWords(lastHold.silenceReason, { device: device ?? undefined }).title });
   } else if (lastHold && !lastHold.silence && lastHold.peak < QUIET_PEAK) {
-    out.push({ kind: "quiet", text: "Input is very quiet — raise the gain on the microphone." });
+    out.push({ kind: "quiet", text: quietWarning() });
   }
   return out;
 }

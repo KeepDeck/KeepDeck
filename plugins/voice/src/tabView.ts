@@ -93,3 +93,51 @@ export function entryView(
   const label = variant === "copied" ? "Copied" : variant === "failed" ? "Copy failed" : null;
   return { variant, text: label ?? entry.text, title: label ?? "Click to copy", glyph: TONE_GLYPH[entry.tone] };
 }
+
+/** The fixed words of the Voice tab. */
+export const TAB_TEXT = {
+  setupTitle: "No speech model yet",
+  setupText:
+    "Voice commands and dictation need a local speech-to-text model. Download one to get started — it stays on your machine.",
+  setupAction: "Choose a model…",
+  helpLabel: "How to use voice",
+  clear: "Clear",
+  clearTitle: "Clear the history",
+  retry: "Retry",
+} as const;
+
+/** The empty log's hint, as parts the component lays out: text, a chord in
+ * a key cap, and the info glyph. */
+export type HintPart = { text: string } | { chord: string } | { info: true };
+
+export function emptyHint(commandChord: string, dictationChord: string): HintPart[] {
+  return [
+    { text: "Hold " },
+    { chord: commandChord },
+    { text: " and say a command, or " },
+    { chord: dictationChord },
+    { text: " to dictate. Hover " },
+    { info: true },
+    { text: " for the list." },
+  ];
+}
+
+/** Clear is offered for a history that exists, and only when nothing is in
+ * flight (a hold's own lines are still arriving). */
+export function canClear(phase: VoicePhase, historyLength: number): boolean {
+  return phase === "idle" && historyLength > 0;
+}
+
+/** The listening pill: hidden when idle; the live dot and the meter only
+ * while the mic is open. */
+export function pillView(
+  phase: VoicePhase,
+  mode: VoiceMode | null,
+): { visible: boolean; live: boolean; label: string | null; meter: boolean } {
+  return {
+    visible: phase !== "idle",
+    live: phase === "listening",
+    label: pillLabel(phase, mode),
+    meter: phase === "listening",
+  };
+}
