@@ -14,7 +14,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use keepdeck_voice::{
-    is_silence, resample, rms, ParakeetEngine, Recorder, WhisperEngine, WHISPER_SAMPLE_RATE,
+    is_silence, resample, rms, CaptureError, ParakeetEngine, Recorder, WhisperEngine,
+    WHISPER_SAMPLE_RATE,
 };
 use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
@@ -33,8 +34,106 @@ pub fn voice_engines() -> Vec<&'static str> {
     vec!["whisper", "parakeet"]
 }
 
-fn resolve_model_path(plugin_id: &str, relative: &str) -> Result<PathBuf, String> {
+fn resolve_model_path(plugin_id: &str, relative: &str) -> Result<PathBuf, VoiceError> {
     downloads::target_path(&format!("plugins/{plugin_id}/{relative}"))
+        .map_err(VoiceError::internal)
+}
+
+// ----------------------------------------------------------------- errors --
+
+/// What went wrong, as a kind the caller can act on — the message alone is
+/// prose for a human. Serialized kebab-case; the same list is the
+/// `SpeechErrorKind` union in `@keepdeck/plugin-api` (a test below holds the
+/// two together).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum VoiceErrorKind {
+    /// macOS has not granted the microphone.
+    Permission,
+    /// No input device to record from.
+    NoDevice,
+    /// The device failed to open or the stream failed.
+    Device,
+    /// The device delivers a sample format capture cannot read.
+    UnsupportedFormat,
+    /// Another capture holds the single capture slot.
+    Busy,
+    /// The handle names no running capture (closed, or someone else's).
+    NoCapture,
+    /// The model the caller asked for is not on disk.
+    ModelMissing,
+    /// The speech engine failed to load the model or to transcribe.
+    Engine,
+    /// A capture thread or task died — a bug, not a user condition.
+    Internal,
+}
+
+impl VoiceErrorKind {
+    /// Every kind — a new variant fails the match below until it is listed.
+    #[cfg(test)]
+    const ALL: [VoiceErrorKind; 9] = [
+        VoiceErrorKind::Permission,
+        VoiceErrorKind::NoDevice,
+        VoiceErrorKind::Device,
+        VoiceErrorKind::UnsupportedFormat,
+        VoiceErrorKind::Busy,
+        VoiceErrorKind::NoCapture,
+        VoiceErrorKind::ModelMissing,
+        VoiceErrorKind::Engine,
+        VoiceErrorKind::Internal,
+    ];
+
+    #[cfg(test)]
+    #[allow(dead_code)]
+    fn listed_in_all(self) {
+        match self {
+            VoiceErrorKind::Permission
+            | VoiceErrorKind::NoDevice
+            | VoiceErrorKind::Device
+            | VoiceErrorKind::UnsupportedFormat
+            | VoiceErrorKind::Busy
+            | VoiceErrorKind::NoCapture
+            | VoiceErrorKind::ModelMissing
+            | VoiceErrorKind::Engine
+            | VoiceErrorKind::Internal => {}
+        }
+    }
+}
+
+/// The error every voice command rejects with: `{ kind, message }` on the
+/// wire.
+#[derive(Debug, Serialize)]
+pub struct VoiceError {
+    kind: VoiceErrorKind,
+    message: String,
+}
+
+impl VoiceError {
+    fn new(kind: VoiceErrorKind, message: impl Into<String>) -> Self {
+        VoiceError {
+            kind,
+            message: message.into(),
+        }
+    }
+
+    fn internal(message: impl Into<String>) -> Self {
+        VoiceError::new(VoiceErrorKind::Internal, message)
+    }
+
+    fn busy() -> Self {
+        VoiceError::new(VoiceErrorKind::Busy, CAPTURE_BUSY)
+    }
+}
+
+impl From<CaptureError> for VoiceError {
+    fn from(e: CaptureError) -> Self {
+        let kind = match e {
+            CaptureError::NoInputDevice => VoiceErrorKind::NoDevice,
+            CaptureError::UnsupportedFormat(_) => VoiceErrorKind::UnsupportedFormat,
+            CaptureError::Device(_) => VoiceErrorKind::Device,
+        };
+        VoiceError::new(kind, e.to_string())
+    }
 }
 
 // ---------------------------------------------------------------- capture --
@@ -149,35 +248,35 @@ pub async fn voice_capture_start(
     plugin_id: String,
     on_level: Channel<f32>,
     state: tauri::State<'_, VoiceState>,
-) -> Result<(), String> {
+) -> Result<(), VoiceError> {
     #[cfg(target_os = "macos")]
     if !tauri_plugin_macos_permissions::check_microphone_permission().await {
         request_microphone_access();
-        return Err(
+        return Err(VoiceError::new(
+            VoiceErrorKind::Permission,
             "microphone permission is not granted. macOS attributes the request \
              to the app that LAUNCHED this process — if you started dev from \
              inside another app (including KeepDeck itself), that app must carry \
              NSMicrophoneUsageDescription or macOS denies silently. Launch dev \
              from a terminal once (the prompt will name the terminal), or allow \
              it in System Settings → Privacy & Security → Microphone, then hold \
-             the key again"
-                .into(),
-        );
+             the key again",
+        ));
     }
 
     if capture_id.trim().is_empty() {
-        return Err("capture id must not be empty".into());
+        return Err(VoiceError::internal("capture id must not be empty"));
     }
     // The fast path only: a start that is obviously doomed fails before it
     // opens a device. The slot is not RESERVED here — `claim` below is the
     // authority, because the lock is deliberately not held across the wait.
     if state.is_capturing() {
-        return Err(CAPTURE_BUSY.into());
+        return Err(VoiceError::busy());
     }
 
     let (cmd_tx, cmd_rx) = channel::<CaptureCmd>();
     let (out_tx, out_rx) = channel::<Option<(Vec<f32>, u32)>>();
-    let (ready_tx, ready_rx) = channel::<Result<(), String>>();
+    let (ready_tx, ready_rx) = channel::<Result<(), CaptureError>>();
     let (level_tx, level_rx) = keepdeck_voice::level_channel();
 
     // The recorder lives on this thread — cpal's stream is !Send. The OS mic
@@ -189,7 +288,7 @@ pub async fn voice_capture_start(
                 r
             }
             Err(e) => {
-                let _ = ready_tx.send(Err(e.to_string()));
+                let _ = ready_tx.send(Err(e));
                 return;
             }
         };
@@ -227,7 +326,7 @@ pub async fn voice_capture_start(
     // has nothing to do with them.
     ready_rx
         .recv()
-        .map_err(|_| "capture thread died".to_string())??;
+        .map_err(|_| VoiceError::internal("capture thread died"))??;
     if let Err(orphan) = state.claim(ActiveCapture {
         id: capture_id,
         plugin_id,
@@ -238,7 +337,7 @@ pub async fn voice_capture_start(
         // device. Discard OUR recorder — an unclaimed capture still holds the
         // microphone, and nothing else knows about it to release it later.
         let _ = orphan.cmd_tx.send(CaptureCmd::Cancel);
-        return Err(CAPTURE_BUSY.into());
+        return Err(VoiceError::busy());
     }
     Ok(())
 }
@@ -269,14 +368,17 @@ pub async fn voice_capture_stop(
     language: Option<String>,
     prompt: Option<String>,
     state: tauri::State<'_, VoiceState>,
-) -> Result<TranscriptDto, String> {
+) -> Result<TranscriptDto, VoiceError> {
     let capture = take_capture(&state, &capture_id)?;
     let load_path = resolve_model_path(&capture.plugin_id, &model_path)?;
     if !load_path.exists() {
         // Still tear the capture down — the mic must not stay hot behind an
         // uninstalled-model error.
         let _ = capture.cmd_tx.send(CaptureCmd::Cancel);
-        return Err("speech model is not downloaded".into());
+        return Err(VoiceError::new(
+            VoiceErrorKind::ModelMissing,
+            "speech model is not downloaded",
+        ));
     }
     let cache_key = format!("{engine:?}:{}", load_path.display());
     ensure_reaper(&state);
@@ -284,15 +386,15 @@ pub async fn voice_capture_stop(
     let processing = state.processing.clone();
 
     let transcript =
-        tauri::async_runtime::spawn_blocking(move || -> Result<TranscriptDto, String> {
+        tauri::async_runtime::spawn_blocking(move || -> Result<TranscriptDto, VoiceError> {
             capture
                 .cmd_tx
                 .send(CaptureCmd::Stop)
-                .map_err(|_| "capture thread died".to_string())?;
+                .map_err(|_| VoiceError::internal("capture thread died"))?;
             let Some((samples, rate)) = capture
                 .out_rx
                 .recv()
-                .map_err(|_| "capture thread died".to_string())?
+                .map_err(|_| VoiceError::internal("capture thread died"))?
             else {
                 return Ok(TranscriptDto {
                     text: String::new(),
@@ -334,10 +436,10 @@ pub async fn voice_capture_stop(
                     None => {
                         let e = match engine {
                             EngineType::Whisper => CachedEngine::Whisper(Arc::new(
-                                WhisperEngine::load(&load_path).map_err(|e| e.to_string())?,
+                                WhisperEngine::load(&load_path).map_err(engine_error)?,
                             )),
                             EngineType::Parakeet => CachedEngine::Parakeet(Arc::new(Mutex::new(
-                                ParakeetEngine::load(&load_path).map_err(|e| e.to_string())?,
+                                ParakeetEngine::load(&load_path).map_err(engine_error)?,
                             ))),
                         };
                         *slot = Some(CachedModel {
@@ -353,12 +455,12 @@ pub async fn voice_capture_stop(
             let text = match &engine {
                 CachedEngine::Whisper(whisper) => whisper
                     .transcribe(&samples, language.as_deref(), prompt.as_deref())
-                    .map_err(|e| e.to_string())?,
+                    .map_err(engine_error)?,
                 CachedEngine::Parakeet(parakeet) => parakeet
                     .lock()
                     .expect("poisoned")
                     .transcribe(&samples)
-                    .map_err(|e| e.to_string())?,
+                    .map_err(engine_error)?,
             };
 
             // Mark it fresh so the reaper measures idle from the LAST use, not
@@ -380,9 +482,13 @@ pub async fn voice_capture_stop(
             })
         })
         .await
-        .map_err(|e| e.to_string())??;
+        .map_err(|e| VoiceError::internal(e.to_string()))??;
 
     Ok(transcript)
+}
+
+fn engine_error(e: impl std::fmt::Display) -> VoiceError {
+    VoiceError::new(VoiceErrorKind::Engine, e.to_string())
 }
 
 /// Abandon the capture without transcribing (Escape during the hold).
@@ -390,7 +496,7 @@ pub async fn voice_capture_stop(
 pub fn voice_capture_cancel(
     capture_id: String,
     state: tauri::State<'_, VoiceState>,
-) -> Result<(), String> {
+) -> Result<(), VoiceError> {
     let capture = take_capture(&state, &capture_id)?;
     let _ = capture.cmd_tx.send(CaptureCmd::Cancel);
     Ok(())
@@ -424,14 +530,20 @@ fn request_microphone_access() {
     }
 }
 
-fn take_capture(state: &VoiceState, capture_id: &str) -> Result<ActiveCapture, String> {
+fn take_capture(state: &VoiceState, capture_id: &str) -> Result<ActiveCapture, VoiceError> {
     let mut slot = state.capture.lock().expect("poisoned");
     match slot.as_ref() {
         Some(capture) if capture.id == capture_id => {
             Ok(slot.take().expect("capture checked above"))
         }
-        Some(_) => Err("speech capture does not belong to this handle".into()),
-        None => Err("no capture is running".into()),
+        Some(_) => Err(VoiceError::new(
+            VoiceErrorKind::NoCapture,
+            "speech capture does not belong to this handle",
+        )),
+        None => Err(VoiceError::new(
+            VoiceErrorKind::NoCapture,
+            "no capture is running",
+        )),
     }
 }
 
@@ -487,6 +599,63 @@ mod tests {
     }
 
     #[test]
+    fn a_voice_error_crosses_the_wire_as_kind_and_message() {
+        let wire = serde_json::to_value(VoiceError::new(
+            VoiceErrorKind::ModelMissing,
+            "speech model is not downloaded",
+        ))
+        .unwrap();
+        assert_eq!(
+            wire,
+            serde_json::json!({
+                "kind": "model-missing",
+                "message": "speech model is not downloaded",
+            })
+        );
+    }
+
+    #[test]
+    fn capture_failures_keep_their_kind() {
+        let kind = |e: CaptureError| VoiceError::from(e).kind;
+        assert_eq!(kind(CaptureError::NoInputDevice), VoiceErrorKind::NoDevice);
+        assert_eq!(
+            kind(CaptureError::UnsupportedFormat("U8".into())),
+            VoiceErrorKind::UnsupportedFormat
+        );
+        assert_eq!(
+            kind(CaptureError::Device("gone".into())),
+            VoiceErrorKind::Device
+        );
+    }
+
+    /// The kinds are a contract with `@keepdeck/plugin-api`: a kind added or
+    /// renamed on one side and not the other breaks a plugin's `switch`
+    /// silently, so the two lists are held equal here.
+    #[test]
+    fn error_kinds_match_the_plugin_api_contract() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../packages/plugin-api/src/context/speech.ts");
+        let source = std::fs::read_to_string(&path).expect("speech.ts is readable");
+        let start = source
+            .find("export const SPEECH_ERROR_KINDS = [")
+            .expect("speech.ts declares SPEECH_ERROR_KINDS");
+        let list = &source[start..start + source[start..].find("]").unwrap()];
+        let mut ts: Vec<String> = list
+            .split('"')
+            .skip(1)
+            .step_by(2)
+            .map(str::to_owned)
+            .collect();
+        let mut rust: Vec<String> = VoiceErrorKind::ALL
+            .iter()
+            .map(|k| serde_json::to_value(k).unwrap().as_str().unwrap().to_owned())
+            .collect();
+        ts.sort();
+        rust.sort();
+        assert_eq!(rust, ts);
+    }
+
+    #[test]
     fn capture_handle_cannot_take_another_capture() {
         let state = VoiceState::default();
         let (cmd_tx, _cmd_rx) = channel();
@@ -498,7 +667,10 @@ mod tests {
             out_rx,
         });
 
-        assert!(take_capture(&state, "capture-b").is_err());
+        assert!(matches!(
+            take_capture(&state, "capture-b"),
+            Err(VoiceError { kind: VoiceErrorKind::NoCapture, .. })
+        ));
         assert!(state.capture.lock().unwrap().is_some());
         assert_eq!(
             take_capture(&state, "capture-a").unwrap().plugin_id,

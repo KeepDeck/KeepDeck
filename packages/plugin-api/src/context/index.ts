@@ -179,8 +179,10 @@ export type {
   SpeechCapture,
   SpeechCaptureOptions,
   SpeechEngine,
+  SpeechErrorKind,
   SpeechTranscript,
 } from "./speech.ts";
+export { SPEECH_ERROR_KINDS, speechErrorKind } from "./speech.ts";
 export type {
   CustomSettingsFieldProps,
   PluginSettings,
