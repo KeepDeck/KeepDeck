@@ -294,7 +294,15 @@ export function createFakeHost(
       speech: {
         engines: async () => ["whisper"],
         startCapture: async () => ({
-          stop: async () => ({ text: "", silence: true, seconds: 0, level: 0 }),
+          stop: async () => ({
+            text: "",
+            silence: true,
+            seconds: 0,
+            level: 0,
+            peak: 0,
+            clippedRatio: 0,
+            dcOffset: 0,
+          }),
           cancel: async () => {},
         }),
       },

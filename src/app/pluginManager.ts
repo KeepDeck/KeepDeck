@@ -420,7 +420,7 @@ export function createPluginManager(appDownloads: DownloadManager) {
     speech: {
       engines: () => voiceEngines(),
       startCapture: (pluginId, onLevel) =>
-        voiceCaptureStart(pluginId, (rms) => onLevel?.(rms)),
+        voiceCaptureStart(pluginId, (rms, level) => onLevel?.(rms, level)),
     },
     clipboard: {
       writeText: (text) => clipboardWriteText(text),

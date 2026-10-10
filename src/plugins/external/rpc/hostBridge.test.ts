@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { PluginContext, PluginManifest } from "@keepdeck/plugin-api";
+import type { PluginContext, PluginManifest, SpeechLevel } from "@keepdeck/plugin-api";
 import { createHostBridge } from "./hostBridge";
 import type {
   GuestToHostMessage,
@@ -81,7 +81,7 @@ function makeStub(): { ctx: PluginContext; infos: string[] } {
       speech: {
         engines: async () => ["whisper"],
         startCapture: async () => ({
-          stop: async () => ({ text: "", silence: true, seconds: 0, level: 0 }),
+          stop: async () => ({ text: "", silence: true, seconds: 0, level: 0, peak: 0, clippedRatio: 0, dcOffset: 0 }),
           cancel: async () => {},
         }),
       },
@@ -277,9 +277,12 @@ describe("createHostBridge", () => {
       silence: false,
       seconds: 1,
       level: 0.1,
+      peak: 0,
+      clippedRatio: 0,
+      dcOffset: 0,
     }));
     const cancel = vi.fn(async () => {});
-    let emitLevel: ((level: number) => void) | undefined;
+    let emitLevel: ((rms: number, level: SpeechLevel) => void) | undefined;
     ctx.services.speech.startCapture = vi.fn(async (onLevel) => {
       emitLevel = onLevel;
       return { stop, cancel };
@@ -289,9 +292,11 @@ describe("createHostBridge", () => {
     send({ kind: "call", id: 1, path: "services.speech.start", args: [7] });
     await flush();
     expect(results()).toContainEqual({ kind: "result", id: 1, ok: true });
-    emitLevel?.(0.4);
+    // The whole reading crosses to the realm, not just the RMS.
+    const reading = { rms: 0.4, peak: 1, clipped: true, dcOffset: 0.3 };
+    emitLevel?.(0.4, reading);
     await flush();
-    expect(inbox).toContainEqual({ kind: "event", channel: "speech:7", payload: 0.4 });
+    expect(inbox).toContainEqual({ kind: "event", channel: "speech:7", payload: reading });
 
     send({
       kind: "call",
@@ -305,7 +310,7 @@ describe("createHostBridge", () => {
       kind: "result",
       id: 2,
       ok: true,
-      value: { text: "hello", silence: false, seconds: 1, level: 0.1 },
+      value: { text: "hello", silence: false, seconds: 1, level: 0.1, peak: 0, clippedRatio: 0, dcOffset: 0 },
     });
 
     send({ kind: "call", id: 3, path: "services.speech.start", args: [8] });

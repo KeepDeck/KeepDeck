@@ -4,8 +4,10 @@ import type {
   KeepDeckPlugin,
   PluginContext,
   PluginSessionEvent,
+  SpeechLevel,
   WorkspaceRef,
 } from "@keepdeck/plugin-api";
+import { speechErrorKind } from "@keepdeck/plugin-api";
 // The host bridge lives in the app (`src/`), the guest in this package; a
 // round-trip test is the one place both ends meet, so it reaches across the
 // boundary by relative path rather than adding a workspace dependency edge.
@@ -422,6 +424,34 @@ describe("external plugin bridge", () => {
     await flush();
 
     expect(received).toEqual({ workspace: W1, paneId: "pane-1" });
+  });
+
+  it("a realm plugin's capture gets the full meter reading and the error kind, as an in-process one does", async () => {
+    const host = createFakeHost();
+    let emit: ((rms: number, level: SpeechLevel) => void) | undefined;
+    host.ctx.services.speech.startCapture = async (onLevel) => {
+      emit = onLevel;
+      return {
+        stop: async () => {
+          throw Object.assign(new Error("speech model is not downloaded"), { code: "model-missing" });
+        },
+        cancel: async () => {},
+      };
+    };
+    const { ctxReady } = wireCapturingCtx(host);
+    const ctx = await ctxReady;
+
+    const heard: [number, SpeechLevel][] = [];
+    const capture = await ctx.services.speech.startCapture((rms, level) => heard.push([rms, level]));
+    const reading = { rms: 0.2, peak: 1, clipped: true, dcOffset: 0.25 };
+    emit?.(0.2, reading);
+    await flush();
+    expect(heard).toEqual([[0.2, reading]]);
+
+    const rejected = await capture
+      .stop({ engine: "parakeet", modelPath: "models/x" })
+      .catch((e: unknown) => e);
+    expect(speechErrorKind(rejected)).toBe("model-missing");
   });
 
   it("rejects the guest promise with the message of a throwing host member", async () => {

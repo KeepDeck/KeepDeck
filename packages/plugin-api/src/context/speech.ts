@@ -3,9 +3,32 @@ export type SpeechEngine = "whisper" | "parakeet";
 
 export interface SpeechTranscript {
   text: string;
+  /** No speech was found in the hold — nothing was sent to the model. */
   silence: boolean;
   seconds: number;
+  /** RMS of the whole hold, after the device's constant offset is removed. */
   level: number;
+  /** Largest raw magnitude in the hold, 0..1. */
+  peak: number;
+  /** Share of raw samples that hit the converter's ceiling, 0..1 — the
+   * sound distorted (input gain too high). */
+  clippedRatio: number;
+  /** The constant offset the device added (signed). Normal microphones sit
+   * at ~0; a large one means a faulty device or driver. */
+  dcOffset: number;
+}
+
+/** What the microphone measured in one moment of a capture (~30 per
+ * second while listening). */
+export interface SpeechLevel {
+  /** Loudness after the device's constant offset is removed, as RMS 0..1. */
+  rms: number;
+  /** Largest raw magnitude, 0..1. */
+  peak: number;
+  /** Whether the sound hit the converter's ceiling (distorted). */
+  clipped: boolean;
+  /** The constant offset the device is adding right now (signed). */
+  dcOffset: number;
 }
 
 export interface SpeechCaptureOptions {
@@ -55,5 +78,5 @@ export interface PluginSpeech {
   /** Engines compiled into this host build; carries no model catalog. */
   engines(): Promise<SpeechEngine[]>;
   /** The returned handle is the sole authority over this capture. */
-  startCapture(onLevel?: (rms: number) => void): Promise<SpeechCapture>;
+  startCapture(onLevel?: (rms: number, level: SpeechLevel) => void): Promise<SpeechCapture>;
 }

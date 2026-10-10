@@ -183,7 +183,9 @@ export function createServiceHandlers({
       if (activeSpeechCaptures.has(key)) {
         throw new Error(`speech capture id already active: ${key}`);
       }
-      const capture = await ctx.services.speech.startCapture((level) =>
+      // The whole reading crosses, not just the RMS: a realm plugin gets
+      // the same peak/clipping/offset an in-process one does.
+      const capture = await ctx.services.speech.startCapture((_rms, level) =>
         push(speechLevelChannel(key), level),
       );
       // The realm may have been disposed while the device was opening — its

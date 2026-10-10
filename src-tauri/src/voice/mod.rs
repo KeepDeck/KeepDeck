@@ -14,8 +14,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use keepdeck_voice::{
-    has_speech, resample, rms, CaptureError, ParakeetEngine, Recorder, Utterance, WhisperEngine,
-    WHISPER_SAMPLE_RATE,
+    has_speech, resample, rms, CaptureError, LevelReading, ParakeetEngine, Recorder, Utterance,
+    WhisperEngine, WHISPER_SAMPLE_RATE,
 };
 use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
@@ -120,7 +120,7 @@ pub async fn voice_capture_start(
     capture_id: String,
     plugin_id: String,
     session: String,
-    on_level: Channel<f32>,
+    on_level: Channel<LevelDto>,
     state: tauri::State<'_, VoiceState>,
 ) -> Result<(), VoiceError> {
     #[cfg(target_os = "macos")]
@@ -194,7 +194,7 @@ pub async fn voice_capture_start(
             }
         }
         if let Some(v) = last {
-            let _ = on_level.send(v.rms);
+            let _ = on_level.send(LevelDto::from(v));
         }
     });
 
@@ -227,18 +227,62 @@ pub async fn voice_capture_start(
     Ok(())
 }
 
-#[derive(Serialize, Clone)]
+/// One meter reading on the wire — `SpeechLevel` in the plugin contract.
+#[derive(Serialize, Clone, Copy, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct LevelDto {
+    rms: f32,
+    peak: f32,
+    clipped: bool,
+    dc_offset: f32,
+}
+
+impl From<LevelReading> for LevelDto {
+    fn from(r: LevelReading) -> Self {
+        LevelDto {
+            rms: r.rms,
+            peak: r.peak,
+            clipped: r.clipped,
+            dc_offset: r.dc_offset,
+        }
+    }
+}
+
+/// What was measured over the whole hold — every transcript carries it,
+/// spoken or not, so the caller can tell a dead mic from a distorted one.
+#[derive(Serialize, Clone, Copy, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct HoldFacts {
+    /// Captured length in seconds — 0.0 means the mic delivered nothing.
+    seconds: f32,
+    /// RMS of the whole utterance after the offset is removed. Persistently
+    /// ~0 with a nonzero duration = the OS is delivering silence (mic
+    /// permission).
+    level: f32,
+    peak: f32,
+    clipped_ratio: f32,
+    dc_offset: f32,
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct TranscriptDto {
     text: String,
-    /// True when the utterance was dropped as silence (whisper would have
-    /// hallucinated on it) — the UI can say "didn't catch that".
+    /// True when the hold had no speech (whisper would have hallucinated on
+    /// it) — the UI can say "didn't catch that".
     silence: bool,
-    /// Captured length in seconds — 0.0 means the mic delivered nothing.
-    seconds: f32,
-    /// RMS level of the whole utterance. Persistently ~0 with a nonzero
-    /// duration = the OS is delivering silence (mic permission).
-    level: f32,
+    #[serde(flatten)]
+    facts: HoldFacts,
+}
+
+impl TranscriptDto {
+    fn silent(facts: HoldFacts) -> Self {
+        TranscriptDto {
+            text: String::new(),
+            silence: true,
+            facts,
+        }
+    }
 }
 
 /// Stop the capture and transcribe it with the caller's engine + model path. `language` pins a
@@ -281,12 +325,7 @@ pub async fn voice_capture_stop(
                 .recv()
                 .map_err(|_| VoiceError::internal("capture thread died"))?
             else {
-                return Ok(TranscriptDto {
-                    text: String::new(),
-                    silence: true,
-                    seconds: 0.0,
-                    level: 0.0,
-                });
+                return Ok(TranscriptDto::silent(HoldFacts::default()));
             };
 
             let samples = resample(
@@ -294,15 +333,15 @@ pub async fn voice_capture_stop(
                 utterance.sample_rate,
                 WHISPER_SAMPLE_RATE,
             );
-            let seconds = samples.len() as f32 / WHISPER_SAMPLE_RATE as f32;
-            let level = rms(&samples);
+            let facts = HoldFacts {
+                seconds: samples.len() as f32 / WHISPER_SAMPLE_RATE as f32,
+                level: rms(&samples),
+                peak: utterance.peak,
+                clipped_ratio: utterance.clipped_ratio,
+                dc_offset: utterance.dc_offset,
+            };
             if !has_speech(&samples, WHISPER_SAMPLE_RATE) {
-                return Ok(TranscriptDto {
-                    text: String::new(),
-                    silence: true,
-                    seconds,
-                    level,
-                });
+                return Ok(TranscriptDto::silent(facts));
             }
 
             // The processing gate: one transcription at a time. A burst of
@@ -366,8 +405,7 @@ pub async fn voice_capture_stop(
             Ok(TranscriptDto {
                 silence: text.is_empty(),
                 text,
-                seconds,
-                level,
+                facts,
             })
         })
         .await
@@ -416,5 +454,64 @@ fn request_microphone_access() {
             requestAccessForMediaType: &*media_type,
             completionHandler: &*handler
         ];
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The keys of one exported interface in `speech.ts`, in source order.
+    fn ts_interface_keys(name: &str) -> Vec<String> {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../packages/plugin-api/src/context/speech.ts");
+        let source = std::fs::read_to_string(&path).expect("speech.ts is readable");
+        let start = source
+            .find(&format!("export interface {name} {{"))
+            .unwrap_or_else(|| panic!("speech.ts declares {name}"));
+        let body = &source[start..start + source[start..].find("\n}").unwrap()];
+        body.lines()
+            .skip(1)
+            .map(str::trim)
+            .filter(|l| !l.starts_with("/*") && !l.starts_with('*'))
+            .filter_map(|l| l.split_once(':').map(|(k, _)| k.trim().to_owned()))
+            .collect()
+    }
+
+    fn json_keys(value: serde_json::Value) -> Vec<String> {
+        let mut keys: Vec<String> = value.as_object().unwrap().keys().cloned().collect();
+        keys.sort();
+        keys
+    }
+
+    #[test]
+    fn a_transcript_carries_exactly_the_contract_fields() {
+        let wire = serde_json::to_value(TranscriptDto::silent(HoldFacts::default())).unwrap();
+        let mut ts = ts_interface_keys("SpeechTranscript");
+        ts.sort();
+        assert_eq!(json_keys(wire), ts);
+    }
+
+    #[test]
+    fn a_level_reading_carries_exactly_the_contract_fields() {
+        let wire = serde_json::to_value(LevelDto::from(LevelReading::default())).unwrap();
+        let mut ts = ts_interface_keys("SpeechLevel");
+        ts.sort();
+        assert_eq!(json_keys(wire), ts);
+    }
+
+    #[test]
+    fn a_silent_transcript_still_reports_what_was_measured() {
+        let facts = HoldFacts {
+            seconds: 1.5,
+            level: 0.0004,
+            peak: 1.0,
+            clipped_ratio: 0.02,
+            dc_offset: 0.3,
+        };
+        let wire = serde_json::to_value(TranscriptDto::silent(facts)).unwrap();
+        assert_eq!(wire["silence"], true);
+        assert_eq!(wire["clippedRatio"].as_f64().unwrap() as f32, 0.02);
+        assert_eq!(wire["dcOffset"].as_f64().unwrap() as f32, 0.3);
     }
 }

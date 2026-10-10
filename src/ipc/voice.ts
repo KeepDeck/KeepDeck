@@ -2,6 +2,7 @@ import { invoke, Channel } from "@tauri-apps/api/core";
 import type {
   SpeechCapture,
   SpeechEngine,
+  SpeechLevel,
   SpeechTranscript,
 } from "@keepdeck/plugin-api";
 
@@ -38,11 +39,11 @@ export function voiceEngines(): Promise<SpeechEngine[]> {
 
 export async function voiceCaptureStart(
   pluginId: string,
-  onLevel: (rms: number) => void,
+  onLevel: (rms: number, level: SpeechLevel) => void,
 ): Promise<SpeechCapture> {
   const captureId = crypto.randomUUID();
-  const channel = new Channel<number>();
-  channel.onmessage = onLevel;
+  const channel = new Channel<SpeechLevel>();
+  channel.onmessage = (level) => onLevel(level.rms, level);
   await invokeVoice("voice_capture_start", {
     captureId,
     pluginId,

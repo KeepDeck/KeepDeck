@@ -17,6 +17,12 @@ vi.mock("@tauri-apps/api/core", () => ({
   },
 }));
 
+/** The level channel a start handed to native — what Rust sends on. */
+function levelChannel(): { onmessage: (value: unknown) => void } {
+  const start = tauri.invoke.mock.calls.find(([command]) => command === "voice_capture_start");
+  return (start?.[1] as { onLevel: { onmessage: (value: unknown) => void } }).onLevel;
+}
+
 const { speechError, voiceCaptureStart } = await import("./voice");
 
 beforeEach(() => tauri.invoke.mockReset());
@@ -48,6 +54,15 @@ describe("voice commands", () => {
     expect(sessions[1]).toBe(sessions[0]);
     const ids = starts.map(([, args]) => (args as { captureId: unknown }).captureId);
     expect(ids[1]).not.toBe(ids[0]);
+  });
+
+  it("hands each native meter reading to the caller whole, RMS first", async () => {
+    tauri.invoke.mockResolvedValue(undefined);
+    const heard: unknown[][] = [];
+    await voiceCaptureStart("keepdeck.voice", (...args) => heard.push(args));
+    const reading = { rms: 0.1, peak: 0.9, clipped: false, dcOffset: 0.02 };
+    levelChannel().onmessage(reading);
+    expect(heard).toEqual([[0.1, reading]]);
   });
 
   it("a refused start rejects with the native kind", async () => {

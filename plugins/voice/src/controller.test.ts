@@ -33,7 +33,14 @@ function setup(
   partial: Partial<SpeechTranscript> & Pick<SpeechTranscript, "text" | "silence">,
   now: () => number = () => 42,
 ) {
-  const transcript: SpeechTranscript = { seconds: 1.2, level: 0.05, ...partial };
+  const transcript: SpeechTranscript = {
+    seconds: 1.2,
+    level: 0.05,
+    peak: 0.4,
+    clippedRatio: 0,
+    dcOffset: 0,
+    ...partial,
+  };
   const host = createFakeHost({ manifest: fakeManifest("keepdeck.voice") });
   const cancelCapture = vi.fn(async () => {});
   const stopCapture = vi.fn(async () => transcript);
@@ -118,6 +125,9 @@ describe("createVoiceController", () => {
       silence: false,
       seconds: 1,
       level: 0.1,
+      peak: 0,
+      clippedRatio: 0,
+      dcOffset: 0,
     }));
     const host = hostWithSettings({ model: "whisper-small-q5_1" });
     const ctx: PluginContext = {
@@ -198,6 +208,9 @@ describe("createVoiceController", () => {
       silence: false,
       seconds: 1,
       level: 0.1,
+      peak: 0,
+      clippedRatio: 0,
+      dcOffset: 0,
     });
     await stopping;
 
@@ -224,6 +237,9 @@ describe("createVoiceController", () => {
       silence: true,
       seconds: 0,
       level: 0,
+      peak: 0,
+      clippedRatio: 0,
+      dcOffset: 0,
     }));
     const waiting = createVoiceController(
       {
@@ -260,6 +276,9 @@ describe("createVoiceController", () => {
       silence: true,
       seconds: 0,
       level: 0,
+      peak: 0,
+      clippedRatio: 0,
+      dcOffset: 0,
     }));
     // Two installed models, one of them retired. A pick that resolves to
     // nothing must land on the current one — the retired model is only ever a
@@ -303,6 +322,9 @@ describe("createVoiceController", () => {
       silence: true,
       seconds: 0,
       level: 0,
+      peak: 0,
+      clippedRatio: 0,
+      dcOffset: 0,
     }));
     const models = (await installedModels()).map((model) => ({
       ...model,
@@ -365,7 +387,7 @@ describe("createVoiceController", () => {
   });
 
   it("says 'didn't catch that' on silence and never executes", async () => {
-    const { host, controller } = setup({ text: "", silence: true, seconds: 0, level: 0 });
+    const { host, controller } = setup({ text: "", silence: true, seconds: 0, level: 0, peak: 0, clippedRatio: 0, dcOffset: 0 });
     await controller.start("dictation");
     await controller.stop();
     expect(host.executedCommands.map((e) => e.id)).toEqual([
@@ -383,6 +405,9 @@ describe("createVoiceController", () => {
       silence: true,
       seconds: 2.4,
       level: 0.0001,
+      peak: 0,
+      clippedRatio: 0,
+      dcOffset: 0,
     });
     await controller.start("command");
     await controller.stop();
@@ -432,7 +457,7 @@ describe("createVoiceController", () => {
     // direction is invisible until the log actually overruns, so overrun it.
     let tick = 0;
     const { controller } = setup(
-      { text: "", silence: true, seconds: 0, level: 0 },
+      { text: "", silence: true, seconds: 0, level: 0, peak: 0, clippedRatio: 0, dcOffset: 0 },
       () => ++tick,
     );
     // Silence yields exactly one "didn't catch that" entry per cycle.
@@ -501,6 +526,9 @@ describe("createVoiceController", () => {
       silence: false,
       seconds: 1,
       level: 0.1,
+      peak: 0,
+      clippedRatio: 0,
+      dcOffset: 0,
     });
     await Promise.all([stopping, cancelling]);
 

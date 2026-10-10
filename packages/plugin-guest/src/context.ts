@@ -11,6 +11,7 @@ import type {
   PluginContext,
   PluginManifest,
   PluginSessionEvent,
+  SpeechLevel,
   WorkspaceRef,
 } from "@keepdeck/plugin-api";
 import { describeError } from "./errors";
@@ -98,7 +99,7 @@ export function buildGuestContext(
   // One `fswatch:<id>` change callback per open directory watch.
   const watchCallbacks = new Map<string, () => void>();
   const downloadStreams = new Map<string, RemoteDownloadStream>();
-  const speechLevels = new Map<string, (level: number) => void>();
+  const speechLevels = new Map<string, (level: SpeechLevel) => void>();
   let nextRegId = 1;
 
   /** Attach a broadcast-channel listener with a ref-counted host subscription:
@@ -521,7 +522,7 @@ export function buildGuestContext(
       return;
     }
     if (channel.startsWith("speech:")) {
-      speechLevels.get(channel)?.(payload as number);
+      speechLevels.get(channel)?.(payload as SpeechLevel);
       return;
     }
     // Deck events and the settings-change feed alike land in `channelListeners`.

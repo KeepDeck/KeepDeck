@@ -180,6 +180,7 @@ export type {
   SpeechCaptureOptions,
   SpeechEngine,
   SpeechErrorKind,
+  SpeechLevel,
   SpeechTranscript,
 } from "./speech.ts";
 export { SPEECH_ERROR_KINDS, speechErrorKind } from "./speech.ts";

@@ -14,6 +14,7 @@ import type {
   PluginSessionEvent,
   SpeechCapture,
   SpeechCaptureOptions,
+  SpeechLevel,
   SqlAnswer,
 } from "@keepdeck/plugin-api";
 import { createSessionStore } from "@keepdeck/plugin-api";
@@ -48,7 +49,7 @@ export interface GuestServiceDeps {
     onChange: () => void,
   ) => WatchHandle;
   downloadStreams: Map<string, RemoteDownloadStream>;
-  speechLevels: Map<string, (level: number) => void>;
+  speechLevels: Map<string, (level: SpeechLevel) => void>;
   /** The same counter that mints registration ids — one id space for
    * everything the host retains on our behalf. */
   mintId: () => number;
@@ -200,7 +201,7 @@ export function createGuestServices({
       async startCapture(onLevel) {
         const id = mintId();
         const channel = speechLevelChannel(id);
-        if (onLevel) speechLevels.set(channel, onLevel);
+        if (onLevel) speechLevels.set(channel, (level) => onLevel(level.rms, level));
         try {
           await rpc.call("services.speech.start", [id]);
         } catch (error) {
