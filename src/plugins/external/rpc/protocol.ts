@@ -63,10 +63,12 @@ export type GuestToHostMessage = RpcCall | RpcReady | RpcActivated | RpcFailed;
 /** The reply to one `RpcCall`, keyed by the same `id`. Success carries the
  * awaited return value; failure carries a one-line message (an unknown `path`,
  * a throwing member, or the bridge being disposed mid-flight) — the host never
- * lets a plugin call crash it, it answers with `ok:false`. */
+ * lets a plugin call crash it, it answers with `ok:false`. A failure whose
+ * error carried a string `code` (a speech error's kind) carries it too, so the
+ * guest's rejection has the same `code` an in-process plugin would see. */
 export type RpcResult =
   | { kind: "result"; id: number; ok: true; value: unknown }
-  | { kind: "result"; id: number; ok: false; error: string };
+  | { kind: "result"; id: number; ok: false; error: string; code?: string };
 
 /** A host-initiated push on a named channel — the wire form of every callback
  * the guest registered. `payload` is the serialized event body (see the channel

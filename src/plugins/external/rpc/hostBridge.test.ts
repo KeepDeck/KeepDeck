@@ -233,6 +233,25 @@ describe("createHostBridge", () => {
     });
   });
 
+  it("carries a thrown error's string code — a speech error's kind — to the guest", async () => {
+    const { ctx } = makeStub();
+    ctx.storage.global.get = () => {
+      throw Object.assign(new Error("no microphone input device"), { code: "no-device" });
+    };
+    const { send, results } = driver(ctx);
+
+    send({ kind: "call", id: 1, path: "storage.global.get", args: ["k"] });
+    await flush();
+
+    expect(results()[0]).toEqual({
+      kind: "result",
+      id: 1,
+      ok: false,
+      error: "no microphone input device",
+      code: "no-device",
+    });
+  });
+
   it("fails every in-flight call when disposed", async () => {
     const { ctx } = makeStub();
     // A member that never settles — the only way its call ends is disposal.

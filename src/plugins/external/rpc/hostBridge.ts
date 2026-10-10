@@ -62,7 +62,7 @@ export function createHostBridge(
       port.postMessage({ kind: "result", id, ok: true, value });
     } catch (error) {
       if (disposed || !inFlight.delete(id)) return;
-      port.postMessage({ kind: "result", id, ok: false, error: describeError(error) });
+      port.postMessage({ kind: "result", id, ok: false, error: describeError(error), ...errorCode(error) });
     }
   }
 
@@ -105,4 +105,11 @@ export function createHostBridge(
     },
     activated,
   };
+}
+
+/** An error's string `code`, as the wire field — absent when it has none. */
+function errorCode(error: unknown): { code?: string } {
+  if (typeof error !== "object" || error === null) return {};
+  const code = (error as { code?: unknown }).code;
+  return typeof code === "string" ? { code } : {};
 }
