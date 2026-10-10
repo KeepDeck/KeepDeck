@@ -108,10 +108,35 @@ impl Clone for CachedEngine {
 }
 
 /// The ONE loaded engine, with the model it holds and when it was last used.
-struct CachedModel {
+struct Cached<E> {
     id: String,
-    engine: CachedEngine,
+    engine: E,
     last_used: Instant,
+}
+
+type CachedModel = Cached<CachedEngine>;
+
+/// The engine for `id`: the cached one when it is that model, otherwise a
+/// fresh load — with the OLD model dropped BEFORE the new one loads
+/// (decision №9). Holding both for the length of a load doubled the memory
+/// (0.5–2 GB each) for nothing: the old one is never used again once
+/// another is picked. A failed load leaves no model cached.
+fn cached_or_load<E: Clone, Err>(
+    slot: &mut Option<Cached<E>>,
+    id: &str,
+    load: impl FnOnce() -> Result<E, Err>,
+) -> Result<E, Err> {
+    if let Some(cached) = slot.as_ref().filter(|cached| cached.id == id) {
+        return Ok(cached.engine.clone());
+    }
+    *slot = None;
+    let engine = load()?;
+    *slot = Some(Cached {
+        id: id.to_owned(),
+        engine: engine.clone(),
+        last_used: Instant::now(),
+    });
+    Ok(engine)
 }
 
 /// Drop the loaded engine after this long unused. A large model (turbo,
@@ -440,32 +465,20 @@ pub async fn voice_capture_stop(
             // holding the engine lock only around the swap, never across
             // inference, so `delete` and the reaper aren't blocked by a long
             // transcription.
-            let engine = {
-                let mut slot = engine_slot.lock().expect("poisoned");
-                let reusable = slot
-                    .as_ref()
-                    .filter(|cached| cached.id == cache_key)
-                    .map(|cached| cached.engine.clone());
-                match reusable {
-                    Some(e) => e,
-                    None => {
-                        let e = match engine {
-                            EngineType::Whisper => CachedEngine::Whisper(Arc::new(
-                                WhisperEngine::load(&load_path).map_err(engine_error)?,
-                            )),
-                            EngineType::Parakeet => CachedEngine::Parakeet(Arc::new(Mutex::new(
-                                ParakeetEngine::load(&load_path).map_err(engine_error)?,
-                            ))),
-                        };
-                        *slot = Some(CachedModel {
-                            id: cache_key.clone(),
-                            engine: e.clone(),
-                            last_used: Instant::now(),
-                        });
-                        e
-                    }
-                }
-            };
+            let engine = cached_or_load(
+                &mut engine_slot.lock().expect("poisoned"),
+                &cache_key,
+                || -> Result<CachedEngine, VoiceError> {
+                    Ok(match engine {
+                        EngineType::Whisper => CachedEngine::Whisper(Arc::new(
+                            WhisperEngine::load(&load_path).map_err(engine_error)?,
+                        )),
+                        EngineType::Parakeet => CachedEngine::Parakeet(Arc::new(Mutex::new(
+                            ParakeetEngine::load(&load_path).map_err(engine_error)?,
+                        ))),
+                    })
+                },
+            )?;
 
             let text = match &engine {
                 CachedEngine::Whisper(whisper) => whisper
@@ -653,6 +666,52 @@ mod tests {
         lost.lost = true;
         let (_, facts, _) = measure_hold(Some(lost), 2.0);
         assert!(facts.cut_short);
+    }
+
+    #[test]
+    fn switching_models_drops_the_old_one_before_loading_the_new() {
+        let old = Arc::new("whisper");
+        let watch = Arc::downgrade(&old);
+        let mut slot = Some(Cached {
+            id: "whisper".to_owned(),
+            engine: old,
+            last_used: Instant::now(),
+        });
+        let loaded = cached_or_load(&mut slot, "parakeet", || -> Result<_, ()> {
+            assert!(
+                watch.upgrade().is_none(),
+                "the old model is still in memory while the new one loads"
+            );
+            Ok(Arc::new("parakeet"))
+        })
+        .unwrap();
+        assert_eq!(*loaded, "parakeet");
+        assert_eq!(slot.as_ref().unwrap().id, "parakeet");
+    }
+
+    #[test]
+    fn the_same_model_is_reused_without_a_load() {
+        let mut slot = Some(Cached {
+            id: "parakeet".to_owned(),
+            engine: Arc::new("parakeet"),
+            last_used: Instant::now(),
+        });
+        let reused = cached_or_load(&mut slot, "parakeet", || -> Result<Arc<&str>, ()> {
+            panic!("no load for the cached model")
+        });
+        assert_eq!(*reused.unwrap(), "parakeet");
+    }
+
+    #[test]
+    fn a_failed_load_leaves_no_model_cached() {
+        let mut slot = Some(Cached {
+            id: "whisper".to_owned(),
+            engine: Arc::new("whisper"),
+            last_used: Instant::now(),
+        });
+        let failed = cached_or_load(&mut slot, "parakeet", || Err::<Arc<&str>, _>("bad model"));
+        assert_eq!(failed.unwrap_err(), "bad model");
+        assert!(slot.is_none());
     }
 
     #[test]
