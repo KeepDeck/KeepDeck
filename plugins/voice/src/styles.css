@@ -602,3 +602,27 @@
   font-size: var(--kd-font-small);
   overflow-wrap: anywhere;
 }
+
+/* ── Microphone block (Voice tab) ─────────────────────────────────── */
+.voice-micblock {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 10px 6px;
+  font-size: var(--kd-font-small);
+}
+.voice-micblock__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.voice-micblock__device {
+  color: var(--kd-text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.voice-micblock__warning {
+  color: var(--kd-warn-strong);
+  overflow-wrap: anywhere;
+}

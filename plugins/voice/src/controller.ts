@@ -2,6 +2,7 @@ import type {
   CommandArgs,
   PluginContext,
   SpeechCapture,
+  SpeechLevel,
   SpeechTranscript,
 } from "@keepdeck/plugin-api";
 import { bestMatch } from "./fuzzy";
@@ -45,6 +46,11 @@ export interface VoiceSnapshot {
   level: number;
   /** The device the current (or last) capture recorded from. */
   device: string | null;
+  /** The latest meter reading of this capture, and when it arrived (ms). */
+  reading: SpeechLevel | null;
+  readingAt: number;
+  /** What the last finished hold measured — the mic block's evidence. */
+  lastHold: SpeechTranscript | null;
   history: readonly HistoryEntry[];
 }
 
@@ -89,6 +95,9 @@ export function createVoiceController(
   let mode: VoiceMode | null = null;
   let level = 0;
   let device: string | null = null;
+  let reading: SpeechLevel | null = null;
+  let readingAt = 0;
+  let lastHold: SpeechTranscript | null = null;
   let capture: SpeechCapture | null = null;
   let starting: Promise<SpeechCapture> | null = null;
   // Starts whose capture someone has already undertaken to cancel. Whoever
@@ -106,7 +115,17 @@ export function createVoiceController(
   const listeners = new Set<() => void>();
   // The snapshot is rebuilt only on change — useSyncExternalStore needs a
   // stable reference between notifications.
-  let snap: VoiceSnapshot = { phase, mode, level, device, history };
+  const build = (): VoiceSnapshot => ({
+    phase,
+    mode,
+    level,
+    device,
+    reading,
+    readingAt,
+    lastHold,
+    history,
+  });
+  let snap: VoiceSnapshot = build();
   const alerts = createVoiceAlerts(ctx.notify);
   // The microphone pick, kept current from the settings so a press opens the
   // device at once instead of reading settings first.
@@ -118,7 +137,7 @@ export function createVoiceController(
   ctx.settings.onChange((values) => (micPick = readMicPick(values)));
 
   function notify(): void {
-    snap = { phase, mode, level, device, history };
+    snap = build();
     for (const cb of [...listeners]) cb();
   }
 
@@ -145,6 +164,7 @@ export function createVoiceController(
 
   /** What a finished hold amounts to, beyond its text. */
   function reportHold(t: SpeechTranscript): void {
+    lastHold = t;
     report(HOLD_PROBLEMS, holdProblems(t), { device: t.device, seconds: t.seconds });
   }
 
@@ -284,11 +304,14 @@ export function createVoiceController(
       phase = "listening";
       mode = m;
       level = 0;
+      reading = null;
       notify();
-      const pending = ctx.services.speech.startCapture((rms) => {
+      const pending = ctx.services.speech.startCapture((rms, next) => {
         // A late level from an earlier capture must not paint this one.
         if (operation !== operationVersion || phase !== "listening") return;
         level = rms;
+        reading = next ?? null;
+        readingAt = now();
         notify();
       }, startOptionsFor(micPick));
       starting = pending;

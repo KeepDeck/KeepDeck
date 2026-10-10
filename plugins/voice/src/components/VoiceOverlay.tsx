@@ -1,5 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { runtime } from "../runtime";
+import { MicMeter } from "./MicBlock";
+import { useMicStatus } from "./useMicStatus";
 
 /**
  * The listening pill — a resident overlay the host keeps mounted; renders
@@ -10,9 +12,9 @@ import { runtime } from "../runtime";
 export function VoiceOverlay() {
   const { controller } = runtime();
   const snap = useSyncExternalStore(controller.subscribe, controller.snapshot);
+  const mic = useMicStatus(controller);
   if (snap.phase === "idle") return null;
 
-  const width = Math.min(100, Math.round(snap.level * 400));
   return (
     <div className="voice-pill kd-float" role="status">
       <span
@@ -28,9 +30,7 @@ export function VoiceOverlay() {
           : "Transcribing…"}
       </span>
       {snap.phase === "listening" && (
-        <span className="voice-pill__meter">
-          <span className="voice-pill__meter-fill" style={{ width: `${width}%` }} />
-        </span>
+        <MicMeter status={mic} className="voice-pill__meter" />
       )}
     </div>
   );

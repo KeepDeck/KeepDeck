@@ -708,6 +708,18 @@ describe("createVoiceController", () => {
     expect(controller.snapshot().level).toBe(0);
   });
 
+  it("keeps the whole meter reading and the last hold for the mic block", async () => {
+    const { controller, level } = setup(speechTranscript({ text: "close", dcOffset: 0.3 }));
+    await controller.start("command");
+    const reading = { rms: 0.2, peak: 0.6, clipped: false, dcOffset: 0.3 };
+    (level() as (rms: number, r: typeof reading) => void)(0.2, reading);
+    expect(controller.snapshot().reading).toEqual(reading);
+    expect(controller.snapshot().readingAt).toBe(42);
+    expect(controller.snapshot().device).toBe("Test Microphone");
+    await controller.stop();
+    expect(controller.snapshot().lastHold?.dcOffset).toBe(0.3);
+  });
+
   it("feeds mic levels into the snapshot while listening", async () => {
     const { controller, level } = setup(speechTranscript({ text: "close" }));
     await controller.start("command");

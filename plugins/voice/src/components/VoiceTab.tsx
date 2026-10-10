@@ -4,6 +4,8 @@ import { formatChord } from "../binding";
 import { runtime } from "../runtime";
 import { Button } from "@keepdeck/ui-kit/Button";
 import { HelpPopover, InfoIcon } from "./HelpPopover";
+import { MicBlock } from "./MicBlock";
+import { useMicStatus } from "./useMicStatus";
 
 /**
  * The Voice dock tab: the log of what was heard and what was done — newest
@@ -15,6 +17,7 @@ export function VoiceTab() {
   const { ctx, controller, downloads, models: store, bindings: bindingsStore } =
     runtime();
   const snap = useSyncExternalStore(controller.subscribe, controller.snapshot);
+  const mic = useMicStatus(controller);
   const bindings = useSyncExternalStore(
     bindingsStore.subscribe,
     bindingsStore.snapshot,
@@ -111,7 +114,6 @@ export function VoiceTab() {
         >
           {listening ? "◼ Stop" : "🎙 Listen"}
         </button>
-        {listening && <Meter level={snap.level} />}
         <span className="voice__spacer" />
         <button
           type="button"
@@ -147,6 +149,7 @@ export function VoiceTab() {
             : "transcribing…"}
         </div>
       )}
+      <MicBlock status={mic} listening={listening} />
       {helpAnchor && (
         <HelpPopover
           anchor={helpAnchor}
@@ -282,15 +285,4 @@ function modelName(id: string): string {
   if (id.includes("turbo")) return "Whisper Turbo";
   if (id.includes("small")) return "Whisper Small";
   return id;
-}
-
-function Meter({ level }: { level: number }) {
-  // RMS of speech tops out well under 1.0 — scale so a normal voice fills
-  // most of the bar.
-  const width = Math.min(100, Math.round(level * 400));
-  return (
-    <span className="voice__meter">
-      <span className="voice__meter-fill" style={{ width: `${width}%` }} />
-    </span>
-  );
 }

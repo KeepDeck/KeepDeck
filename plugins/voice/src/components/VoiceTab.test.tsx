@@ -12,6 +12,7 @@ import type { VoiceController, VoiceSnapshot } from "../controller";
 import type { ModelDownloads } from "../downloads";
 import type { ModelsStore } from "../models";
 import { VoiceTab } from "./VoiceTab";
+import { speechTranscript } from "@keepdeck/plugin-api/testing";
 
 // React 19 requires this flag for act() outside a test-framework integration.
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
@@ -26,6 +27,9 @@ function snapshotWithHistory(): VoiceSnapshot {
     mode: null,
     level: 0,
     device: null,
+    reading: null,
+    readingAt: 0,
+    lastHold: null,
     history: [
       { at: 1, tone: "heard", text: "привет" },
       { at: 2, tone: "done", text: "готово" },
@@ -37,6 +41,7 @@ describe("VoiceTab history click-to-copy", () => {
   let stage: HTMLElement;
   let root: Root;
   let writeText: ReturnType<typeof vi.fn>;
+  let snap: VoiceSnapshot;
 
   beforeEach(async () => {
     document.body.innerHTML = "";
@@ -51,7 +56,7 @@ describe("VoiceTab history click-to-copy", () => {
     writeText = vi.fn(async (_text: string) => {});
     host.ctx.services.clipboard.writeText = writeText;
 
-    const snap = snapshotWithHistory();
+    snap = snapshotWithHistory();
     const controller = {
       snapshot: () => snap,
       subscribe: () => () => {},
@@ -90,6 +95,23 @@ describe("VoiceTab history click-to-copy", () => {
   const render = () => act(() => root.render(createElement(VoiceTab)));
   const entries = () =>
     [...stage.querySelectorAll(".voice__entry")] as HTMLElement[];
+
+  it("shows the microphone the last hold used, and asks to replug one adding an offset", () => {
+    snap = {
+      ...snap,
+      device: "BY-PM700",
+      lastHold: speechTranscript({ text: "привет", dcOffset: 0.3 }),
+    };
+    render();
+    const block = stage.querySelector(".voice-micblock")!;
+    expect(block.textContent).toContain("BY-PM700");
+    expect(block.querySelector(".voice-micblock__warning--offset")?.textContent).toContain("replug");
+  });
+
+  it("shows no microphone block before anything was recorded", () => {
+    render();
+    expect(stage.querySelector(".voice-micblock")).toBeNull();
+  });
 
   it("opts the transcript back into selection — it exists to be copied out", () => {
     render();
