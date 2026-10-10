@@ -10,12 +10,33 @@ pub struct WhisperEngine {
     ctx: WhisperContext,
 }
 
+/// A speech engine failed to load a model or to transcribe — named by the
+/// engine it came from, so a Parakeet failure never reads as whisper's.
 #[derive(Debug)]
-pub struct EngineError(pub String);
+pub struct EngineError {
+    engine: &'static str,
+    message: String,
+}
+
+impl EngineError {
+    pub fn whisper(message: impl std::fmt::Display) -> Self {
+        EngineError {
+            engine: "whisper",
+            message: message.to_string(),
+        }
+    }
+
+    pub fn parakeet(message: impl std::fmt::Display) -> Self {
+        EngineError {
+            engine: "parakeet",
+            message: message.to_string(),
+        }
+    }
+}
 
 impl std::fmt::Display for EngineError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "whisper: {}", self.0)
+        write!(f, "{}: {}", self.engine, self.message)
     }
 }
 
@@ -25,9 +46,9 @@ impl WhisperEngine {
     pub fn load(model_path: &Path) -> Result<Self, EngineError> {
         let path = model_path
             .to_str()
-            .ok_or_else(|| EngineError("model path is not valid UTF-8".into()))?;
+            .ok_or_else(|| EngineError::whisper("model path is not valid UTF-8"))?;
         let ctx = WhisperContext::new_with_params(path, WhisperContextParameters::default())
-            .map_err(|e| EngineError(e.to_string()))?;
+            .map_err(EngineError::whisper)?;
         Ok(WhisperEngine { ctx })
     }
 
@@ -41,10 +62,7 @@ impl WhisperEngine {
         language: Option<&str>,
         prompt: Option<&str>,
     ) -> Result<String, EngineError> {
-        let mut state = self
-            .ctx
-            .create_state()
-            .map_err(|e| EngineError(e.to_string()))?;
+        let mut state = self.ctx.create_state().map_err(EngineError::whisper)?;
 
         let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
         params.set_translate(false);
@@ -61,7 +79,7 @@ impl WhisperEngine {
 
         state
             .full(params, samples_16k)
-            .map_err(|e| EngineError(e.to_string()))?;
+            .map_err(EngineError::whisper)?;
 
         let segments = state.full_n_segments();
         let mut text = String::new();
@@ -69,12 +87,25 @@ impl WhisperEngine {
             let Some(segment) = state.get_segment(i) else {
                 continue;
             };
-            text.push_str(
-                &segment
-                    .to_str_lossy()
-                    .map_err(|e| EngineError(e.to_string()))?,
-            );
+            text.push_str(&segment.to_str_lossy().map_err(EngineError::whisper)?);
         }
         Ok(text.trim().to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_engine_failure_names_its_own_engine() {
+        assert_eq!(
+            EngineError::whisper("bad file").to_string(),
+            "whisper: bad file"
+        );
+        assert_eq!(
+            EngineError::parakeet("bad file").to_string(),
+            "parakeet: bad file"
+        );
     }
 }

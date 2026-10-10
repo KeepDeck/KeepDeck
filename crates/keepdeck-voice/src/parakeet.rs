@@ -18,8 +18,7 @@ impl ParakeetEngine {
     /// (`vocab.txt`, `nemo128.onnx`, `encoder-model.int8.onnx`,
     /// `decoder_joint-model.int8.onnx`).
     pub fn load(model_dir: &Path) -> Result<Self, EngineError> {
-        let model = ParakeetTDT::from_pretrained(model_dir, None)
-            .map_err(|e| EngineError(e.to_string()))?;
+        let model = ParakeetTDT::from_pretrained(model_dir, None).map_err(EngineError::parakeet)?;
         Ok(ParakeetEngine { model })
     }
 
@@ -35,7 +34,7 @@ impl ParakeetEngine {
                 // TDT predicts punctuation — sentence mode keeps it natural.
                 Some(TimestampMode::Sentences),
             )
-            .map_err(|e| EngineError(e.to_string()))?;
+            .map_err(EngineError::parakeet)?;
         Ok(result.text.trim().to_string())
     }
 }
