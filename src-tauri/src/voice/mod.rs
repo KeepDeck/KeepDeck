@@ -9,7 +9,7 @@
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -21,6 +21,13 @@ use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
 
 use crate::downloads;
+
+mod capture_slot;
+mod error;
+
+use capture_slot::{ActiveCapture, CaptureCmd, CaptureSlot};
+pub use error::VoiceError;
+use error::VoiceErrorKind;
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -35,120 +42,10 @@ pub fn voice_engines() -> Vec<&'static str> {
 }
 
 fn resolve_model_path(plugin_id: &str, relative: &str) -> Result<PathBuf, VoiceError> {
-    downloads::target_path(&format!("plugins/{plugin_id}/{relative}"))
-        .map_err(VoiceError::internal)
-}
-
-// ----------------------------------------------------------------- errors --
-
-/// What went wrong, as a kind the caller can act on — the message alone is
-/// prose for a human. Serialized kebab-case; the same list is the
-/// `SpeechErrorKind` union in `@keepdeck/plugin-api` (a test below holds the
-/// two together).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum VoiceErrorKind {
-    /// macOS has not granted the microphone.
-    Permission,
-    /// No input device to record from.
-    NoDevice,
-    /// The device failed to open or the stream failed.
-    Device,
-    /// The device delivers a sample format capture cannot read.
-    UnsupportedFormat,
-    /// Another capture holds the single capture slot.
-    Busy,
-    /// The handle names no running capture (closed, or someone else's).
-    NoCapture,
-    /// The model the caller asked for is not on disk.
-    ModelMissing,
-    /// The speech engine failed to load the model or to transcribe.
-    Engine,
-    /// A capture thread or task died — a bug, not a user condition.
-    Internal,
-}
-
-impl VoiceErrorKind {
-    /// Every kind — a new variant fails the match below until it is listed.
-    #[cfg(test)]
-    const ALL: [VoiceErrorKind; 9] = [
-        VoiceErrorKind::Permission,
-        VoiceErrorKind::NoDevice,
-        VoiceErrorKind::Device,
-        VoiceErrorKind::UnsupportedFormat,
-        VoiceErrorKind::Busy,
-        VoiceErrorKind::NoCapture,
-        VoiceErrorKind::ModelMissing,
-        VoiceErrorKind::Engine,
-        VoiceErrorKind::Internal,
-    ];
-
-    #[cfg(test)]
-    #[allow(dead_code)]
-    fn listed_in_all(self) {
-        match self {
-            VoiceErrorKind::Permission
-            | VoiceErrorKind::NoDevice
-            | VoiceErrorKind::Device
-            | VoiceErrorKind::UnsupportedFormat
-            | VoiceErrorKind::Busy
-            | VoiceErrorKind::NoCapture
-            | VoiceErrorKind::ModelMissing
-            | VoiceErrorKind::Engine
-            | VoiceErrorKind::Internal => {}
-        }
-    }
-}
-
-/// The error every voice command rejects with: `{ kind, message }` on the
-/// wire.
-#[derive(Debug, Serialize)]
-pub struct VoiceError {
-    kind: VoiceErrorKind,
-    message: String,
-}
-
-impl VoiceError {
-    fn new(kind: VoiceErrorKind, message: impl Into<String>) -> Self {
-        VoiceError {
-            kind,
-            message: message.into(),
-        }
-    }
-
-    fn internal(message: impl Into<String>) -> Self {
-        VoiceError::new(VoiceErrorKind::Internal, message)
-    }
-
-    fn busy() -> Self {
-        VoiceError::new(VoiceErrorKind::Busy, CAPTURE_BUSY)
-    }
-}
-
-impl From<CaptureError> for VoiceError {
-    fn from(e: CaptureError) -> Self {
-        let kind = match e {
-            CaptureError::NoInputDevice => VoiceErrorKind::NoDevice,
-            CaptureError::UnsupportedFormat(_) => VoiceErrorKind::UnsupportedFormat,
-            CaptureError::Device(_) => VoiceErrorKind::Device,
-        };
-        VoiceError::new(kind, e.to_string())
-    }
+    downloads::target_path(&format!("plugins/{plugin_id}/{relative}")).map_err(VoiceError::internal)
 }
 
 // ---------------------------------------------------------------- capture --
-
-enum CaptureCmd {
-    Stop,
-    Cancel,
-}
-
-struct ActiveCapture {
-    id: String,
-    plugin_id: String,
-    cmd_tx: Sender<CaptureCmd>,
-    out_rx: Receiver<Option<(Vec<f32>, u32)>>,
-}
 
 /// The loaded engine, cached by model id — loading takes seconds and must
 /// not happen per utterance. Parakeet's decoder is stateful (`&mut`), so its
@@ -181,7 +78,7 @@ const ENGINE_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
 
 #[derive(Default)]
 pub struct VoiceState {
-    capture: Mutex<Option<ActiveCapture>>,
+    capture: CaptureSlot,
     /// At most ONE engine instance, shared with the idle-reaper thread.
     engine: Arc<Mutex<Option<CachedModel>>>,
     /// Serializes transcription: one utterance is processed at a time and the
@@ -190,30 +87,6 @@ pub struct VoiceState {
     processing: Arc<Mutex<()>>,
     /// Whether the idle-reaper thread is running (spawned once, on first load).
     reaper: Arc<AtomicBool>,
-}
-
-/// How a taken capture slot is reported — one wording for the fast-path check
-/// and the claim, so the two can never drift apart.
-const CAPTURE_BUSY: &str = "a capture is already running";
-
-impl VoiceState {
-    /// Whether a capture holds the slot right now.
-    fn is_capturing(&self) -> bool {
-        self.capture.lock().expect("poisoned").is_some()
-    }
-
-    /// Claim the single capture slot. A taken slot hands the capture BACK
-    /// instead of dropping it: it owns a live recorder holding the
-    /// microphone, and the caller that built it is the only one that can
-    /// still tear it down.
-    fn claim(&self, capture: ActiveCapture) -> Result<(), ActiveCapture> {
-        let mut slot = self.capture.lock().expect("poisoned");
-        if slot.is_some() {
-            return Err(capture);
-        }
-        *slot = Some(capture);
-        Ok(())
-    }
 }
 
 /// Start the idle reaper once: every 30s it drops the cached engine if it has
@@ -270,7 +143,7 @@ pub async fn voice_capture_start(
     // The fast path only: a start that is obviously doomed fails before it
     // opens a device. The slot is not RESERVED here — `claim` below is the
     // authority, because the lock is deliberately not held across the wait.
-    if state.is_capturing() {
+    if state.capture.is_busy() {
         return Err(VoiceError::busy());
     }
 
@@ -327,7 +200,7 @@ pub async fn voice_capture_start(
     ready_rx
         .recv()
         .map_err(|_| VoiceError::internal("capture thread died"))??;
-    if let Err(orphan) = state.claim(ActiveCapture {
+    if let Err(orphan) = state.capture.claim(ActiveCapture {
         id: capture_id,
         plugin_id,
         cmd_tx,
@@ -369,7 +242,7 @@ pub async fn voice_capture_stop(
     prompt: Option<String>,
     state: tauri::State<'_, VoiceState>,
 ) -> Result<TranscriptDto, VoiceError> {
-    let capture = take_capture(&state, &capture_id)?;
+    let capture = state.capture.take(&capture_id)?;
     let load_path = resolve_model_path(&capture.plugin_id, &model_path)?;
     if !load_path.exists() {
         // Still tear the capture down — the mic must not stay hot behind an
@@ -497,7 +370,7 @@ pub fn voice_capture_cancel(
     capture_id: String,
     state: tauri::State<'_, VoiceState>,
 ) -> Result<(), VoiceError> {
-    let capture = take_capture(&state, &capture_id)?;
+    let capture = state.capture.take(&capture_id)?;
     let _ = capture.cmd_tx.send(CaptureCmd::Cancel);
     Ok(())
 }
@@ -527,155 +400,5 @@ fn request_microphone_access() {
             requestAccessForMediaType: &*media_type,
             completionHandler: &*handler
         ];
-    }
-}
-
-fn take_capture(state: &VoiceState, capture_id: &str) -> Result<ActiveCapture, VoiceError> {
-    let mut slot = state.capture.lock().expect("poisoned");
-    match slot.as_ref() {
-        Some(capture) if capture.id == capture_id => {
-            Ok(slot.take().expect("capture checked above"))
-        }
-        Some(_) => Err(VoiceError::new(
-            VoiceErrorKind::NoCapture,
-            "speech capture does not belong to this handle",
-        )),
-        None => Err(VoiceError::new(
-            VoiceErrorKind::NoCapture,
-            "no capture is running",
-        )),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// A capture plus the command receiver its recorder thread would hold, so
-    /// a send on the capture proves the recorder is still reachable.
-    fn capture(id: &str) -> (ActiveCapture, Receiver<CaptureCmd>) {
-        let (cmd_tx, cmd_rx) = channel();
-        let (_out_tx, out_rx) = channel();
-        (
-            ActiveCapture {
-                id: id.into(),
-                plugin_id: "plugin-a".into(),
-                cmd_tx,
-                out_rx,
-            },
-            cmd_rx,
-        )
-    }
-
-    #[test]
-    fn a_losing_claim_hands_its_capture_back_so_the_device_can_be_released() {
-        let state = VoiceState::default();
-        let (first, _first_cmds) = capture("capture-a");
-        let (second, second_cmds) = capture("capture-b");
-
-        assert!(!state.is_capturing());
-        assert!(state.claim(first).is_ok(), "the slot was free");
-        assert!(state.is_capturing());
-
-        // The slot was taken while this capture's device was opening. It must
-        // come back to its builder — dropping it here would strand a live
-        // recorder on the microphone with nothing left to cancel it.
-        let orphan = match state.claim(second) {
-            Ok(()) => panic!("the slot was already taken"),
-            Err(orphan) => orphan,
-        };
-        assert_eq!(orphan.id, "capture-b");
-        orphan
-            .cmd_tx
-            .send(CaptureCmd::Cancel)
-            .expect("the returned capture can still be torn down");
-        assert!(matches!(second_cmds.recv(), Ok(CaptureCmd::Cancel)));
-
-        // The winner keeps the slot.
-        assert_eq!(
-            state.capture.lock().unwrap().as_ref().unwrap().id,
-            "capture-a"
-        );
-    }
-
-    #[test]
-    fn a_voice_error_crosses_the_wire_as_kind_and_message() {
-        let wire = serde_json::to_value(VoiceError::new(
-            VoiceErrorKind::ModelMissing,
-            "speech model is not downloaded",
-        ))
-        .unwrap();
-        assert_eq!(
-            wire,
-            serde_json::json!({
-                "kind": "model-missing",
-                "message": "speech model is not downloaded",
-            })
-        );
-    }
-
-    #[test]
-    fn capture_failures_keep_their_kind() {
-        let kind = |e: CaptureError| VoiceError::from(e).kind;
-        assert_eq!(kind(CaptureError::NoInputDevice), VoiceErrorKind::NoDevice);
-        assert_eq!(
-            kind(CaptureError::UnsupportedFormat("U8".into())),
-            VoiceErrorKind::UnsupportedFormat
-        );
-        assert_eq!(
-            kind(CaptureError::Device("gone".into())),
-            VoiceErrorKind::Device
-        );
-    }
-
-    /// The kinds are a contract with `@keepdeck/plugin-api`: a kind added or
-    /// renamed on one side and not the other breaks a plugin's `switch`
-    /// silently, so the two lists are held equal here.
-    #[test]
-    fn error_kinds_match_the_plugin_api_contract() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../packages/plugin-api/src/context/speech.ts");
-        let source = std::fs::read_to_string(&path).expect("speech.ts is readable");
-        let start = source
-            .find("export const SPEECH_ERROR_KINDS = [")
-            .expect("speech.ts declares SPEECH_ERROR_KINDS");
-        let list = &source[start..start + source[start..].find("]").unwrap()];
-        let mut ts: Vec<String> = list
-            .split('"')
-            .skip(1)
-            .step_by(2)
-            .map(str::to_owned)
-            .collect();
-        let mut rust: Vec<String> = VoiceErrorKind::ALL
-            .iter()
-            .map(|k| serde_json::to_value(k).unwrap().as_str().unwrap().to_owned())
-            .collect();
-        ts.sort();
-        rust.sort();
-        assert_eq!(rust, ts);
-    }
-
-    #[test]
-    fn capture_handle_cannot_take_another_capture() {
-        let state = VoiceState::default();
-        let (cmd_tx, _cmd_rx) = channel();
-        let (_out_tx, out_rx) = channel();
-        *state.capture.lock().unwrap() = Some(ActiveCapture {
-            id: "capture-a".into(),
-            plugin_id: "plugin-a".into(),
-            cmd_tx,
-            out_rx,
-        });
-
-        assert!(matches!(
-            take_capture(&state, "capture-b"),
-            Err(VoiceError { kind: VoiceErrorKind::NoCapture, .. })
-        ));
-        assert!(state.capture.lock().unwrap().is_some());
-        assert_eq!(
-            take_capture(&state, "capture-a").unwrap().plugin_id,
-            "plugin-a"
-        );
-        assert!(state.capture.lock().unwrap().is_none());
     }
 }
