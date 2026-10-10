@@ -8,6 +8,10 @@ export interface ModelsStore {
   subscribe(cb: () => void): () => void;
   refresh(): Promise<void>;
   error(): string | null;
+  /** Delete an installed model's files and re-read the list. A failure is
+   * kept per model (`removeErrors`) so the card can say it, and logged. */
+  remove(model: VoiceModelInfo): Promise<void>;
+  removeErrors(): Readonly<Record<string, string>>;
 }
 
 export function createModelsStore(ctx: PluginContext): ModelsStore {
@@ -15,6 +19,7 @@ export function createModelsStore(ctx: PluginContext): ModelsStore {
   let err: string | null = null;
   let revision = 0;
   let pending: Promise<void> | null = null;
+  let removeErrors: Readonly<Record<string, string>> = {};
   const listeners = new Set<() => void>();
 
   function notify(): void {
@@ -67,6 +72,21 @@ export function createModelsStore(ctx: PluginContext): ModelsStore {
       throw new Error(err ?? "speech models are not ready");
     },
     error: () => err,
+    removeErrors: () => removeErrors,
+    async remove(model) {
+      const { [model.id]: _cleared, ...rest } = removeErrors;
+      removeErrors = rest;
+      try {
+        await ctx.services.downloads.remove(model.target);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        removeErrors = { ...removeErrors, [model.id]: `Could not delete: ${message}` };
+        ctx.log.warn(`model removal failed: ${message}`);
+        notify();
+        return;
+      }
+      await refresh();
+    },
     subscribe(cb) {
       listeners.add(cb);
       return () => listeners.delete(cb);

@@ -14,6 +14,7 @@ import type {
   PluginSessionEvent,
   SpeechCapture,
   SpeechCaptureOptions,
+  SpeechLevel,
   SqlAnswer,
 } from "@keepdeck/plugin-api";
 import { createSessionStore } from "@keepdeck/plugin-api";
@@ -48,7 +49,7 @@ export interface GuestServiceDeps {
     onChange: () => void,
   ) => WatchHandle;
   downloadStreams: Map<string, RemoteDownloadStream>;
-  speechLevels: Map<string, (level: number) => void>;
+  speechLevels: Map<string, (level: SpeechLevel) => void>;
   /** The same counter that mints registration ids — one id space for
    * everything the host retains on our behalf. */
   mintId: () => number;
@@ -197,12 +198,17 @@ export function createGuestServices({
         rpc.call("services.speech.engines", []) as ReturnType<
           PluginContext["services"]["speech"]["engines"]
         >,
-      async startCapture(onLevel) {
+      devices: () =>
+        rpc.call("services.speech.devices", []) as ReturnType<
+          PluginContext["services"]["speech"]["devices"]
+        >,
+      async startCapture(onLevel, options) {
         const id = mintId();
         const channel = speechLevelChannel(id);
-        if (onLevel) speechLevels.set(channel, onLevel);
+        if (onLevel) speechLevels.set(channel, (level) => onLevel(level.rms, level));
+        let opened: { device: string; deviceMissing: boolean };
         try {
-          await rpc.call("services.speech.start", [id]);
+          opened = (await rpc.call("services.speech.start", [id, options ?? {}])) as typeof opened;
         } catch (error) {
           speechLevels.delete(channel);
           throw error;
@@ -213,6 +219,8 @@ export function createGuestServices({
           speechLevels.delete(channel);
         };
         const capture: SpeechCapture = {
+          device: opened.device,
+          deviceMissing: opened.deviceMissing,
           async stop(opts: SpeechCaptureOptions) {
             if (!active) throw new Error("speech capture is already closed");
             close();

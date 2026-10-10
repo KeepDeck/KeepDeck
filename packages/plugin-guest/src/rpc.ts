@@ -22,7 +22,8 @@ export class GuestRpc {
   constructor(private readonly port: MessagePort) {}
 
   /** Invoke a host method; resolves with its return value, rejects with an
-   * `Error` carrying the host's message on `ok:false`. */
+   * `Error` carrying the host's message — and its `code`, when the host sent
+   * one — on `ok:false`. */
   call(path: string, args: unknown[]): Promise<unknown> {
     const id = this.nextId++;
     return new Promise<unknown>((resolve, reject) => {
@@ -38,6 +39,10 @@ export class GuestRpc {
     if (!entry) return;
     this.pending.delete(result.id);
     if (result.ok) entry.resolve(result.value);
-    else entry.reject(new Error(result.error));
+    else {
+      const error = new Error(result.error);
+      if (typeof result.code === "string") Object.assign(error, { code: result.code });
+      entry.reject(error);
+    }
   }
 }

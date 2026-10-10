@@ -4,8 +4,12 @@ import type {
   KeepDeckPlugin,
   PluginContext,
   PluginSessionEvent,
+  SpeechLevel,
+  SpeechStartOptions,
   WorkspaceRef,
 } from "@keepdeck/plugin-api";
+import { speechErrorKind } from "@keepdeck/plugin-api";
+import { speechCapture } from "@keepdeck/plugin-api/testing";
 // The host bridge lives in the app (`src/`), the guest in this package; a
 // round-trip test is the one place both ends meet, so it reaches across the
 // boundary by relative path rather than adding a workspace dependency edge.
@@ -422,6 +426,54 @@ describe("external plugin bridge", () => {
     await flush();
 
     expect(received).toEqual({ workspace: W1, paneId: "pane-1" });
+  });
+
+  it("a realm plugin's capture gets the device choice, the meter reading and the error kind, as an in-process one does", async () => {
+    const host = createFakeHost();
+    let emit: ((rms: number, level: SpeechLevel) => void) | undefined;
+    let asked: SpeechStartOptions | undefined;
+    host.ctx.services.speech.startCapture = async (onLevel, options) => {
+      emit = onLevel;
+      asked = options;
+      return speechCapture({
+        device: "MacBook Pro Microphone",
+        deviceMissing: true,
+        stop: async () => {
+          throw Object.assign(new Error("speech model is not downloaded"), { code: "model-missing" });
+        },
+      });
+    };
+    const { ctxReady } = wireCapturingCtx(host);
+    const ctx = await ctxReady;
+
+    const heard: [number, SpeechLevel][] = [];
+    const capture = await ctx.services.speech.startCapture((rms, level) => heard.push([rms, level]), {
+      deviceId: "coreaudio:usb-mic",
+    });
+    expect(asked).toEqual({ deviceId: "coreaudio:usb-mic" });
+    expect(capture.device).toBe("MacBook Pro Microphone");
+    expect(capture.deviceMissing).toBe(true);
+    expect(await ctx.services.speech.devices()).toEqual(await host.ctx.services.speech.devices());
+    const reading = { rms: 0.2, peak: 1, clipped: true, dcOffset: 0.25 };
+    emit?.(0.2, reading);
+    await flush();
+    expect(heard).toEqual([[0.2, reading]]);
+
+    const rejected = await capture
+      .stop({ engine: "parakeet", modelPath: "models/x" })
+      .catch((e: unknown) => e);
+    expect(speechErrorKind(rejected)).toBe("model-missing");
+  });
+
+  it("a realm plugin writes a declared settings value and reads it back; an undeclared one is refused", async () => {
+    const { ctxReady } = wireCapturingCtx();
+    const ctx = await ctxReady;
+    ctx.settings.registerSection({ label: "S", fields: [], stored: ["microphone"] });
+    await flush();
+
+    await ctx.settings.write("microphone", { id: "a", name: "A" });
+    expect(await ctx.settings.read()).toEqual({ microphone: { id: "a", name: "A" } });
+    await expect(ctx.settings.write("stray", 1)).rejects.toThrow(/not declared/);
   });
 
   it("rejects the guest promise with the message of a throwing host member", async () => {

@@ -10,6 +10,7 @@
     "./badges": "./src/badges.tsx",
     "./teamWords": "./src/teamWords.ts",
     "./Button": "./src/Button.tsx",
+    "./FloatingListbox": "./src/FloatingListbox.tsx",
     "./Chip": "./src/Chip.tsx",
     "./ProgressRing": "./src/ProgressRing.tsx",
     "./StatusRing": "./src/StatusRing.tsx",

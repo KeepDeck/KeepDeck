@@ -1,17 +1,8 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import type { CustomSettingsFieldProps } from "@keepdeck/plugin-api";
 import { Button } from "@keepdeck/ui-kit/Button";
-import {
-  blockingIssue,
-  chordFromEvent,
-  DEFAULT_BINDINGS,
-  formatChord,
-  HOTKEYS_KEY,
-  isModifierKey,
-  standingIssue,
-  withSlot,
-  type VoiceBindings,
-} from "../binding";
+import { HOTKEYS_KEY, type VoiceBindings } from "../binding";
+import { HOTKEYS_TEXT, hotkeyRows, recorderStep, resetSlot } from "../hotkeysView";
 import { runtime } from "../runtime";
 
 /**
@@ -28,26 +19,13 @@ import { runtime } from "../runtime";
  * pair for `withSlot` to write back. A pick still persists through the host
  * `write`, which round-trips back to the store, so the row updates on its own.
  */
-/** Copy per bindable slot. A Record, not a list: add a slot to VoiceBindings
- * and this stops compiling until the slot has a row, instead of quietly
- * shipping a binding the user cannot reach. */
-const ROW_COPY: Record<keyof VoiceBindings, { label: string; hint: string }> = {
-  command: { label: "Command", hint: "Hold to speak a deck command" },
-  dictation: { label: "Dictation", hint: "Hold to dictate into the focused agent" },
-};
-
-const ROWS = Object.entries(ROW_COPY).map(([slot, copy]) => ({
-  slot: slot as keyof VoiceBindings,
-  ...copy,
-}));
-
 export function HotkeysSection({ write }: CustomSettingsFieldProps) {
   const { bindings: store } = runtime();
   const bindings = useSyncExternalStore(store.subscribe, store.snapshot);
-  // Which row is capturing, if any — only one at a time; the error is the last
-  // rejected attempt for that row.
+  // Which row is capturing, if any — only one at a time; the rejection is the
+  // last refused attempt for that row.
   const [recording, setRecording] = useState<keyof VoiceBindings | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [rejection, setRejection] = useState<string | null>(null);
 
   useEffect(() => {
     if (!recording) return;
@@ -58,21 +36,19 @@ export function HotkeysSection({ write }: CustomSettingsFieldProps) {
     const onKey = (e: KeyboardEvent): void => {
       e.preventDefault();
       e.stopPropagation();
-      if (e.key === "Escape") {
-        setRecording(null);
-        return;
+      const step = recorderStep(recording, e, bindings);
+      switch (step.kind) {
+        case "cancel":
+          return setRecording(null);
+        case "wait":
+          return;
+        case "reject":
+          return setRejection(step.message);
+        case "accept":
+          write(HOTKEYS_KEY, step.bindings);
+          setRejection(null);
+          return setRecording(null);
       }
-      // Wait for the main key — a chord is modifiers PLUS one key.
-      if (isModifierKey(e.key)) return;
-      const next = chordFromEvent(e);
-      const blocking = blockingIssue(recording, next, bindings);
-      if (blocking) {
-        setError(blocking);
-        return; // stay recording; let the user try another chord
-      }
-      write(HOTKEYS_KEY, withSlot(bindings, recording, next));
-      setError(null);
-      setRecording(null);
     };
     // A pointer press outside the editor abandons the recording. The settings
     // dialog keeps every section mounted and merely hides inactive ones, so
@@ -91,66 +67,48 @@ export function HotkeysSection({ write }: CustomSettingsFieldProps) {
     };
   }, [recording, bindings, write]);
 
-  const reset = (slot: keyof VoiceBindings): void => {
-    setError(null);
-    setRecording(null);
-    write(HOTKEYS_KEY, withSlot(bindings, slot, DEFAULT_BINDINGS[slot]));
-  };
-
   return (
     <div className="voice-hotkeys">
-      <div className="voice-hotkeys__intro">
-        Hold a chord to talk, release to run a command or fill in dictation.
-        Click a shortcut and press a new combination to rebind it; Escape
-        cancels recording.
-      </div>
-      {ROWS.map((row) => {
-        const isRecording = recording === row.slot;
-        const issue = standingIssue(row.slot, bindings);
-        return (
-          <div key={row.slot} className="voice-hotkeys__row">
-            <div className="voice-hotkeys__labels">
-              <span className="voice-hotkeys__label">{row.label}</span>
-              <span className="voice-hotkeys__hint">{row.hint}</span>
-            </div>
-            <div className="voice-hotkeys__controls">
-              <button
-                type="button"
-                className={`voice-hotkeys__chord${isRecording ? " voice-hotkeys__chord--recording" : ""}`}
-                onClick={() => {
-                  setError(null);
-                  setRecording(isRecording ? null : row.slot);
-                }}
-                aria-label={`${row.label} shortcut`}
-              >
-                {isRecording ? "Press keys…" : formatChord(bindings[row.slot])}
-              </button>
-              <Button
-                size="sm"
-                className="voice-hotkeys__reset"
-                onClick={() => reset(row.slot)}
-                title="Reset to default"
-              >
-                Reset
-              </Button>
-            </div>
-            {isRecording && error && (
-              <div className="voice-hotkeys__error">{error}</div>
-            )}
-            {!isRecording && issue && (
-              <div
-                className={
-                  issue.severity === "error"
-                    ? "voice-hotkeys__error"
-                    : "voice-hotkeys__warn"
-                }
-              >
-                {issue.message}
-              </div>
-            )}
+      <div className="voice-hotkeys__intro">{HOTKEYS_TEXT.intro}</div>
+      {hotkeyRows(bindings, recording, rejection).map((row) => (
+        <div key={row.slot} className="voice-hotkeys__row">
+          <div className="voice-hotkeys__labels">
+            <span className="voice-hotkeys__label">{row.label}</span>
+            <span className="voice-hotkeys__hint">{row.hint}</span>
           </div>
-        );
-      })}
+          <div className="voice-hotkeys__controls">
+            <Button
+              size="sm"
+              variant={row.recording ? "primary" : "secondary"}
+              className="voice-hotkeys__chord"
+              label={row.ariaLabel}
+              onClick={() => {
+                setRejection(null);
+                setRecording(row.recording ? null : row.slot);
+              }}
+            >
+              {row.chordText}
+            </Button>
+            <Button
+              size="sm"
+              className="voice-hotkeys__reset"
+              onClick={() => {
+                setRejection(null);
+                setRecording(null);
+                write(HOTKEYS_KEY, resetSlot(bindings, row.slot));
+              }}
+              title={HOTKEYS_TEXT.resetTitle}
+            >
+              {HOTKEYS_TEXT.reset}
+            </Button>
+          </div>
+          {row.message && (
+            <div className={row.message.tone === "error" ? "voice-hotkeys__error" : "voice-hotkeys__warn"}>
+              {row.message.text}
+            </div>
+          )}
+        </div>
+      ))}
     </div>
   );
 }

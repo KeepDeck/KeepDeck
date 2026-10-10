@@ -7,9 +7,10 @@ import { endsHold, pttMode, type Chord, type VoiceBindings } from "./binding";
  * bindings through a getter, so an edit in settings takes effect at once with
  * no reinstall. Hold the command chord to speak a COMMAND, the dictation chord
  * to DICTATE into the focused pane; releasing a held key of that chord stops
- * and transcribes; Escape while holding cancels. Handlers run in the CAPTURE
- * phase with preventDefault so the terminal never sees the chord (the
- * Shift+Enter keymap precedent).
+ * and transcribes; Escape while holding cancels the hold, and while
+ * transcribing discards the result (decision №8) — nothing is typed or run.
+ * Handlers run in the CAPTURE phase with preventDefault so the terminal never
+ * sees the chord (the Shift+Enter keymap precedent).
  */
 export function installPttHotkeys(
   controller: VoiceController,
@@ -26,7 +27,7 @@ export function installPttHotkeys(
     // its keys. A keyup is NOT gated (see onKeyUp): a hold already in progress
     // must still be releasable, or its mic capture is stranded open.
     if (isSuspended()) return;
-    if (e.key === "Escape" && controller.snapshot().phase === "listening") {
+    if (e.key === "Escape" && controller.snapshot().phase !== "idle") {
       e.preventDefault();
       e.stopPropagation();
       heldChord = null;

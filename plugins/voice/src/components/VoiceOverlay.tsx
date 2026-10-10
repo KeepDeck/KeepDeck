@@ -1,5 +1,8 @@
 import { useSyncExternalStore } from "react";
 import { runtime } from "../runtime";
+import { pillView } from "../tabView";
+import { MicMeter } from "./MicBlock";
+import { useMicStatus } from "./useMicStatus";
 
 /**
  * The listening pill — a resident overlay the host keeps mounted; renders
@@ -10,28 +13,16 @@ import { runtime } from "../runtime";
 export function VoiceOverlay() {
   const { controller } = runtime();
   const snap = useSyncExternalStore(controller.subscribe, controller.snapshot);
-  if (snap.phase === "idle") return null;
+  const mic = useMicStatus(controller);
+  const pill = pillView(snap.phase, snap.mode, snap.device);
+  if (!pill.visible) return null;
 
-  const width = Math.min(100, Math.round(snap.level * 400));
   return (
     <div className="voice-pill kd-float" role="status">
-      <span
-        className={`voice-pill__dot${
-          snap.phase === "listening" ? " voice-pill__dot--live" : ""
-        }`}
-      />
-      <span className="voice-pill__label">
-        {snap.phase === "listening"
-          ? snap.mode === "dictation"
-            ? "Dictating — release to send"
-            : "Listening — release to run"
-          : "Transcribing…"}
-      </span>
-      {snap.phase === "listening" && (
-        <span className="voice-pill__meter">
-          <span className="voice-pill__meter-fill" style={{ width: `${width}%` }} />
-        </span>
-      )}
+      <span className={`voice-pill__dot${pill.live ? " voice-pill__dot--live" : ""}`} />
+      <span className="voice-pill__label">{pill.label}</span>
+      {pill.device && <span className="voice-pill__device">🎙 {pill.device}</span>}
+      {mic.showMeter && <MicMeter status={mic} className="voice-pill__meter" />}
     </div>
   );
 }

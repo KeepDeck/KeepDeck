@@ -11,13 +11,15 @@ import type {
   PluginContext,
   PluginFs,
   PluginManifest,
+  PluginNotifyInput,
   PluginSessionEvent,
   PluginSessionHandle,
   SettingsSectionContribution,
   TopBarActionContribution,
   WorkspaceRef,
 } from "@keepdeck/plugin-api";
-import { createSessionStore, mergeSectionValues } from "@keepdeck/plugin-api";
+import { createSessionStore, declaredKeys, mergeSectionValues } from "@keepdeck/plugin-api";
+import { speechTranscript } from "@keepdeck/plugin-api/testing";
 
 /**
  * A fake `PluginContext` for driving the RPC bridge in tests — the host-side
@@ -47,6 +49,8 @@ export interface FakeHost {
   /** Prime a result per command id before the plugin executes it; an
    * unprimed id resolves `{ ok: true, value: null }`. */
   commandResults: Map<string, CommandResult>;
+  /** Recorded `ctx.notify` calls, in order. */
+  notifications: PluginNotifyInput[];
   /** Recorded `ui.revealDockTab` calls, in order. */
   revealedTabs: string[];
   /** Recorded `ui.setOverlayVisible` calls, in order. */
@@ -135,6 +139,7 @@ export function createFakeHost(
   const agents: AgentContribution[] = [];
   const commands: PluginCommandSpec[] = [];
   const executedCommands: { id: string; args: CommandArgs }[] = [];
+  const notifications: PluginNotifyInput[] = [];
   const commandResults = new Map<string, CommandResult>();
   const revealedTabs: string[] = [];
   const overlayVisibility: [string, boolean][] = [];
@@ -199,6 +204,16 @@ export function createFakeHost(
       // — a read taken before registration, or a key the plugin never declared.
       // Both of those shipped as real bugs before the fake agreed with the host.
       read: async () => mergeSectionValues(currentSection(), storedValues),
+      // Refuses what the host refuses (an undeclared key), then lands in the
+      // same bag a read merges and fans out like a host-side change.
+      write: async (key, value) => {
+        if (!declaredKeys(currentSection()).includes(key)) {
+          throw new Error(`settings key is not declared: ${key}`);
+        }
+        storedValues = { ...storedValues, [key]: value };
+        const values = mergeSectionValues(currentSection(), storedValues);
+        for (const cb of [...settingsCbs]) cb(values);
+      },
       onChange: (cb) => {
         settingsCbs.add(cb);
         return {
@@ -293,8 +308,11 @@ export function createFakeHost(
       },
       speech: {
         engines: async () => ["whisper"],
+        devices: async () => [{ id: "fake:mic", name: "Test Microphone", isDefault: true }],
         startCapture: async () => ({
-          stop: async () => ({ text: "", silence: true, seconds: 0, level: 0 }),
+          device: "Test Microphone",
+          deviceMissing: false,
+          stop: async () => speechTranscript({ text: "", seconds: 0, level: 0 }),
           cancel: async () => {},
         }),
       },
@@ -364,7 +382,7 @@ export function createFakeHost(
       warn: (m) => void logs.warn.push(m),
       error: (m) => void logs.error.push(m),
     },
-    notify: () => {},
+    notify: (input) => void notifications.push(input),
   };
 
   return {
@@ -378,6 +396,7 @@ export function createFakeHost(
     agents,
     commands,
     executedCommands,
+    notifications,
     commandResults,
     revealedTabs,
     overlayVisibility,

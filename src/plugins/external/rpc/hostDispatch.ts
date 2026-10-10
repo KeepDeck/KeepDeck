@@ -200,6 +200,10 @@ export function createHostDispatch(
     "resources.path": ([relative]) =>
       ctx.resources.path(relative as string),
     "settings.read": () => ctx.settings.read(),
+    "settings.write": ([key, value]) => {
+      if (typeof key !== "string") throw new Error("settings.write needs a string key");
+      return ctx.settings.write(key, value);
+    },
     "settings.onChange": () => subscriptions.subscribe("settingsChanged"),
     "settings.offChange": () => subscriptions.unsubscribe("settingsChanged"),
     "settings.registerSection": ([regId, entry]) =>

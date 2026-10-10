@@ -29,4 +29,8 @@ describe("bestMatch", () => {
   it("refuses a tie instead of picking one", () => {
     expect(bestMatch(["web one", "web two"], "web")).toBeNull();
   });
+
+  it("matches a name with an apostrophe the grammar stripped from speech", () => {
+    expect(bestMatch(["O'Brien", "Website"], "obrien")).toBe("O'Brien");
+  });
 });

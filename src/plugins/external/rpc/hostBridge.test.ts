@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { PluginContext, PluginManifest } from "@keepdeck/plugin-api";
+import type { PluginContext, PluginManifest, SpeechLevel } from "@keepdeck/plugin-api";
 import { createHostBridge } from "./hostBridge";
 import type {
   GuestToHostMessage,
   HostToGuestMessage,
   RpcResult,
 } from "./protocol";
+import { speechTranscript, speechCapture } from "@keepdeck/plugin-api/testing";
 
 /**
  * Host-end tests driven with RAW protocol messages over a `MessageChannel` — no
@@ -50,6 +51,7 @@ function makeStub(): { ctx: PluginContext; infos: string[] } {
     settings: {
       registerSection: () => disposable,
       read: async () => ({}),
+      write: async () => {},
       onChange: () => disposable,
     },
     agents: { register: () => disposable },
@@ -80,8 +82,9 @@ function makeStub(): { ctx: PluginContext; infos: string[] } {
       },
       speech: {
         engines: async () => ["whisper"],
-        startCapture: async () => ({
-          stop: async () => ({ text: "", silence: true, seconds: 0, level: 0 }),
+        devices: async () => [],
+        startCapture: async () => speechCapture({
+          stop: async () => speechTranscript({ text: "", seconds: 0, level: 0 }),
           cancel: async () => {},
         }),
       },
@@ -233,6 +236,25 @@ describe("createHostBridge", () => {
     });
   });
 
+  it("carries a thrown error's string code — a speech error's kind — to the guest", async () => {
+    const { ctx } = makeStub();
+    ctx.storage.global.get = () => {
+      throw Object.assign(new Error("no microphone input device"), { code: "no-device" });
+    };
+    const { send, results } = driver(ctx);
+
+    send({ kind: "call", id: 1, path: "storage.global.get", args: ["k"] });
+    await flush();
+
+    expect(results()[0]).toEqual({
+      kind: "result",
+      id: 1,
+      ok: false,
+      error: "no microphone input device",
+      code: "no-device",
+    });
+  });
+
   it("fails every in-flight call when disposed", async () => {
     const { ctx } = makeStub();
     // A member that never settles — the only way its call ends is disposal.
@@ -253,26 +275,28 @@ describe("createHostBridge", () => {
 
   it("proxies speech as an owned handle and cancels it on disposal", async () => {
     const { ctx } = makeStub();
-    const stop = vi.fn(async () => ({
-      text: "hello",
-      silence: false,
-      seconds: 1,
-      level: 0.1,
-    }));
+    const stop = vi.fn(async () => speechTranscript({ text: "hello", seconds: 1, level: 0.1 }));
     const cancel = vi.fn(async () => {});
-    let emitLevel: ((level: number) => void) | undefined;
+    let emitLevel: ((rms: number, level: SpeechLevel) => void) | undefined;
     ctx.services.speech.startCapture = vi.fn(async (onLevel) => {
       emitLevel = onLevel;
-      return { stop, cancel };
+      return speechCapture({ stop, cancel });
     });
     const { bridge, inbox, send, results } = driver(ctx);
 
     send({ kind: "call", id: 1, path: "services.speech.start", args: [7] });
     await flush();
-    expect(results()).toContainEqual({ kind: "result", id: 1, ok: true });
-    emitLevel?.(0.4);
+    expect(results()).toContainEqual({
+      kind: "result",
+      id: 1,
+      ok: true,
+      value: { device: "Test Microphone", deviceMissing: false },
+    });
+    // The whole reading crosses to the realm, not just the RMS.
+    const reading = { rms: 0.4, peak: 1, clipped: true, dcOffset: 0.3 };
+    emitLevel?.(0.4, reading);
     await flush();
-    expect(inbox).toContainEqual({ kind: "event", channel: "speech:7", payload: 0.4 });
+    expect(inbox).toContainEqual({ kind: "event", channel: "speech:7", payload: reading });
 
     send({
       kind: "call",
@@ -286,7 +310,7 @@ describe("createHostBridge", () => {
       kind: "result",
       id: 2,
       ok: true,
-      value: { text: "hello", silence: false, seconds: 1, level: 0.1 },
+      value: speechTranscript({ text: "hello", seconds: 1, level: 0.1 }),
     });
 
     send({ kind: "call", id: 3, path: "services.speech.start", args: [8] });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalize, parseCommand } from "./grammar";
+import { commandVocabulary, DEFAULT_PACKS, normalize, parseCommand } from "./grammar";
 
 describe("normalize", () => {
   it("strips STT dressing — case, punctuation, extra spaces", () => {
@@ -134,5 +134,40 @@ describe("parseCommand — non-commands", () => {
     expect(parseCommand("пожалуйста сделай что-нибудь")).toBeNull();
     expect(parseCommand("")).toBeNull();
     expect(parseCommand("...")).toBeNull();
+  });
+});
+
+describe("grammar vocabulary", () => {
+  it("every rule's leading verbs are in its pack's vocabulary — the model hint cannot drift", () => {
+    for (const pack of DEFAULT_PACKS) {
+      for (const rule of pack.rules) {
+        const lead = rule.pattern.source.match(/^\^\(\?:([^)]+)\)/)?.[1] ?? rule.pattern.source.match(/^\^(\p{L}+)/u)?.[1];
+        expect(lead, `${pack.locale}: ${rule.pattern.source}`).toBeTruthy();
+        // Whole words: "open" is in the vocabulary only as a word of one of
+        // its entries, never as a substring of another word.
+        const words = new Set(pack.vocabulary.flatMap((entry) => entry.split(" ")));
+        for (const verb of lead!.split("|")) {
+          expect(words.has(verb), `${pack.locale} vocabulary lacks "${verb}"`).toBe(true);
+        }
+      }
+    }
+  });
+
+  it("the model hint carries both locales' words once", () => {
+    const words = commandVocabulary();
+    expect(words).toContain("open workspace");
+    expect(words).toContain("перейди");
+    expect(new Set(words).size).toBe(words.length);
+  });
+});
+
+describe("RU spawn with a spaced role", () => {
+  it("«создай агента лида в …» reads like the hyphenated form", () => {
+    expect(parseCommand("создай агента лида в кипдек")?.intent).toEqual({
+      kind: "spawn",
+      role: "lead",
+      workspace: "кипдек",
+    });
+    expect(parseCommand("создай агента-пира в кипдек")?.intent).toMatchObject({ role: "peer" });
   });
 });

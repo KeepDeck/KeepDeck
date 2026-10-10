@@ -62,7 +62,8 @@ import { notify } from "./notificationCenter";
 import { makeExternalPlugin } from "../plugins/external/realmPlugin";
 import { capabilityFingerprint } from "../plugins/external/consent";
 import { openPath, openPathWith, openUrl } from "../ipc/app";
-import { voiceEngines, voiceCaptureStart } from "../ipc/voice";
+import { voiceDevices, voiceEngines, voiceCaptureStart } from "../ipc/voice";
+import { writePluginValue } from "./pluginValues";
 import { describeError, log } from "../ipc/log";
 import { createAgentBins } from "./plugins/agentBins";
 import {
@@ -419,8 +420,9 @@ export function createPluginManager(appDownloads: DownloadManager) {
     },
     speech: {
       engines: () => voiceEngines(),
-      startCapture: (pluginId, onLevel) =>
-        voiceCaptureStart(pluginId, (rms) => onLevel?.(rms)),
+      devices: () => voiceDevices(),
+      startCapture: (pluginId, onLevel, options) =>
+        voiceCaptureStart(pluginId, (rms, level) => onLevel?.(rms, level), options),
     },
     clipboard: {
       writeText: (text) => clipboardWriteText(text),
@@ -500,6 +502,7 @@ export function createPluginManager(appDownloads: DownloadManager) {
       }),
       settings: (pluginId) => ({
         read: async () => readPluginValues(pluginId),
+        write: async (key, value) => writePluginValue(pluginId, key, value),
         onChange: (cb) => {
           // Fire only when this plugin's effective values actually changed —
           // the settings store notifies on every app-settings write.
@@ -743,11 +746,12 @@ export function createPluginManager(appDownloads: DownloadManager) {
     return entry ? { dev: entry.dev } : undefined;
   }
 
+  function pluginSection(pluginId: string) {
+    return pluginRegistries.settingsSections.list().find((c) => c.pluginId === pluginId)?.entry;
+  }
+
   function readPluginValues(pluginId: string): Record<string, unknown> {
-    const section = pluginRegistries.settingsSections
-      .list()
-      .find((c) => c.pluginId === pluginId)?.entry;
-    return mergeSectionValues(section, getSettings()?.plugins.values[pluginId]);
+    return mergeSectionValues(pluginSection(pluginId), getSettings()?.plugins.values[pluginId]);
   }
 
   /** Plugins whose declaration has already been checked — once per id per run.

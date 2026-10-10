@@ -1,9 +1,24 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { downloadPercent, type DownloadState } from "@keepdeck/plugin-api";
+import type { DownloadState } from "@keepdeck/plugin-api";
 import { formatChord } from "../binding";
 import { runtime } from "../runtime";
 import { Button } from "@keepdeck/ui-kit/Button";
 import { HelpPopover, InfoIcon } from "./HelpPopover";
+import { downloadRows, MODELS_TEXT } from "../modelsView";
+import {
+  canClear,
+  emptyHint,
+  entryView,
+  listenControl,
+  modelsNotice,
+  statusLine,
+  TAB_TEXT,
+  tabScreen,
+} from "../tabView";
+import { MicBlock } from "./MicBlock";
+import { useMicStatus } from "./useMicStatus";
+import { useMicDevices } from "./useMicDevices";
+import { micPicker, standInLine } from "../microphone";
 
 /**
  * The Voice dock tab: the log of what was heard and what was done — newest
@@ -15,6 +30,11 @@ export function VoiceTab() {
   const { ctx, controller, downloads, models: store, bindings: bindingsStore } =
     runtime();
   const snap = useSyncExternalStore(controller.subscribe, controller.snapshot);
+  const mic = useMicStatus(controller);
+  // The connected microphones, read when the tab mounts and on Refresh
+  // (decision №1: on request, nothing watches in the background).
+  const micList = useMicDevices(ctx);
+  const picker = micPicker(micList.devices, snap.micPick);
   const bindings = useSyncExternalStore(
     bindingsStore.subscribe,
     bindingsStore.snapshot,
@@ -23,7 +43,8 @@ export function VoiceTab() {
   // Install state from the shared store — a delete in settings or a finished
   // download refreshes it, so this prompt appears/clears without reopening.
   const models = useSyncExternalStore(store.subscribe, store.snapshot);
-  const hasModel = models === null ? null : models.some((m) => m.installed);
+  const modelsError = useSyncExternalStore(store.subscribe, store.error);
+  const modelsState = { models, error: modelsError, downloading: downloads.anyActive() };
   const [helpAnchor, setHelpAnchor] = useState<HTMLElement | null>(null);
   const helpBtnRef = useRef<HTMLButtonElement | null>(null);
   // Hover intent: open after a short dwell, close after a grace period so
@@ -77,41 +98,37 @@ export function VoiceTab() {
   // No model installed (and none arriving): the whole surface is a prompt to
   // get one — voice can't do anything without a model. A download in flight
   // shows the strip instead, so the user sees progress here too.
-  if (hasModel === false && !downloads.anyActive()) {
+  if (tabScreen(snap.phase, modelsState) === "setup") {
     return (
       <div className="voice voice__setup">
-        <div className="voice__setup-title">No speech model yet</div>
-        <div className="voice__setup-text">
-          Voice commands and dictation need a local speech-to-text model.
-          Download one to get started — it stays on your machine.
-        </div>
+        <div className="voice__setup-title">{TAB_TEXT.setupTitle}</div>
+        <div className="voice__setup-text">{TAB_TEXT.setupText}</div>
         <Button
           variant="primary"
           size="sm"
           onClick={() => void ctx.commands.execute("settings.open", {})}
         >
-          Choose a model…
+          {TAB_TEXT.setupAction}
         </Button>
       </div>
     );
   }
 
-  const listening = snap.phase === "listening";
+  const listen = listenControl(snap.phase, formatChord(bindings.command), modelsState);
+  const status = statusLine(snap.phase, snap.mode);
+  const notice = modelsNotice(modelsState);
   return (
     <div className="voice">
       <div className="voice__bar">
         <button
           type="button"
-          className={`voice__mic${listening ? " voice__mic--on" : ""}`}
-          onClick={() =>
-            listening ? void controller.stop() : void controller.start("command")
-          }
-          disabled={snap.phase === "transcribing"}
-          title={`Toggle command listening (or hold ${formatChord(bindings.command)})`}
+          className={`voice__mic${listen.on ? " voice__mic--on" : ""}`}
+          onClick={() => (listen.on ? void controller.stop() : void controller.start("command"))}
+          disabled={listen.disabled}
+          title={listen.title}
         >
-          {listening ? "◼ Stop" : "🎙 Listen"}
+          {listen.label}
         </button>
-        {listening && <Meter level={snap.level} />}
         <span className="voice__spacer" />
         <button
           type="button"
@@ -125,28 +142,38 @@ export function VoiceTab() {
             helpHold();
             setHelpAnchor(helpAnchor ? null : helpBtnRef.current);
           }}
-          aria-label="How to use voice"
+          aria-label={TAB_TEXT.helpLabel}
         >
           <InfoIcon />
         </button>
-        {snap.history.length > 0 && snap.phase === "idle" && (
+        {canClear(snap.phase, snap.history.length) && (
           <Button
             size="sm"
             className="voice__model-btn"
             onClick={() => controller.clearHistory()}
-            title="Clear the history"
+            title={TAB_TEXT.clearTitle}
           >
-            Clear
+            {TAB_TEXT.clear}
           </Button>
         )}
       </div>
-      {snap.phase !== "idle" && (
-        <div className="voice__status">
-          {snap.phase === "listening"
-            ? `listening — release to ${snap.mode === "dictation" ? "send" : "run"}, Esc cancels`
-            : "transcribing…"}
+      {status && <div className="voice__status">{status}</div>}
+      {notice && (
+        <div className="voice__notice kd-selectable">
+          {notice.text}
+          <Button size="sm" onClick={() => void store.refresh()}>
+            {MODELS_TEXT.retry}
+          </Button>
         </div>
       )}
+      <MicBlock
+        status={mic}
+        picker={picker}
+        listError={micList.error}
+        standIn={standInLine(snap.micPick, mic.device)}
+        onChoose={(value) => void controller.chooseMicrophone(picker.pickOf(value))}
+        onRefresh={micList.refresh}
+      />
       {helpAnchor && (
         <HelpPopover
           anchor={helpAnchor}
@@ -161,36 +188,31 @@ export function VoiceTab() {
       <div className="voice__log kd-selectable" ref={logRef}>
         {snap.history.length === 0 && (
           <div className="voice__empty">
-            Hold <kbd>{formatChord(bindings.command)}</kbd> and say a command, or{" "}
-            <kbd>{formatChord(bindings.dictation)}</kbd> to dictate. Hover{" "}
-            <span className="voice__empty-i">ⓘ</span> for the list.
+            {emptyHint(formatChord(bindings.command), formatChord(bindings.dictation)).map((part, i) =>
+              "chord" in part ? (
+                <kbd key={i}>{part.chord}</kbd>
+              ) : "info" in part ? (
+                <span key={i} className="voice__empty-i">
+                  ⓘ
+                </span>
+              ) : (
+                part.text
+              ),
+            )}
           </div>
         )}
         {snap.history.map((entry) => {
           const key = `${entry.at}-${entry.text}`;
-          const rowFeedback = feedback?.key === key ? feedback : null;
-          // One derivation of the flash variant + its label drives the class,
-          // the title, and the row text (kept in sync by construction).
-          const variant = rowFeedback
-            ? rowFeedback.ok
-              ? "copied"
-              : "failed"
-            : null;
-          const label =
-            variant === "copied"
-              ? "Copied"
-              : variant === "failed"
-                ? "Copy failed"
-                : null;
+          const row = entryView(entry, feedback?.key === key ? feedback : null);
           return (
             <div
               key={key}
               className={`voice__entry voice__entry--${entry.tone}${
-                variant ? ` voice__entry--${variant}` : ""
+                row.variant ? ` voice__entry--${row.variant}` : ""
               }`}
               role="button"
               tabIndex={0}
-              title={label ?? "Click to copy"}
+              title={row.title}
               onClick={(event) => {
                 // Bail only for a selection inside THIS row (a drag-select in
                 // progress); a selection elsewhere is unrelated and must not
@@ -213,8 +235,8 @@ export function VoiceTab() {
                 }
               }}
             >
-              <span className="voice__tone">{TONE_GLYPH[entry.tone]}</span>
-              <span className="voice__text">{label ?? entry.text}</span>
+              <span className="voice__tone">{row.glyph}</span>
+              <span className="voice__text">{row.text}</span>
             </div>
           );
         })}
@@ -223,13 +245,6 @@ export function VoiceTab() {
     </div>
   );
 }
-
-const TONE_GLYPH = {
-  heard: "🗣",
-  done: "✓",
-  error: "✕",
-  info: "…",
-} as const;
 
 /** A model download is running somewhere — surface it in the dock, since the
  * transfer started in settings outlives that dialog. Cancel lives here too,
@@ -240,57 +255,26 @@ function DownloadStrip({
   active: Readonly<Record<string, DownloadState>>;
 }) {
   const { downloads } = runtime();
-  const ids = Object.keys(active);
-  if (ids.length === 0) return null;
+  const rows = downloadRows(active);
+  if (rows.length === 0) return null;
   return (
     <div className="voice__downloads">
-      {ids.map((id) => {
-        const percent = downloadPercent(active[id]);
-        return (
-          <div key={id} className="voice__download">
-            <span className="voice__download-name">
-              Downloading {modelName(id)}…{percent !== null && ` ${percent}%`}
-            </span>
-            <Button
-              size="sm"
-              className="voice__model-btn"
-              onClick={() => downloads.cancel(id)}
-              title="Stop — the next Download resumes from here"
-            >
-              ✕
-            </Button>
-            <span className="voice-models__bar">
-              <span
-                className="voice-models__bar-fill"
-                style={
-                  percent === null
-                    ? { width: "100%", opacity: 0.4 }
-                    : { width: `${percent}%` }
-                }
-              />
-            </span>
-          </div>
-        );
-      })}
+      {rows.map((row) => (
+        <div key={row.id} className="voice__download">
+          <span className="voice__download-name">{row.text}</span>
+          <Button
+            size="sm"
+            className="voice__model-btn"
+            onClick={() => downloads.cancel(row.id)}
+            title={MODELS_TEXT.cancelTitle}
+          >
+            ✕
+          </Button>
+          <span className="voice-models__bar">
+            <span className="voice-models__bar-fill" style={row.fill} />
+          </span>
+        </div>
+      ))}
     </div>
-  );
-}
-
-/** A readable model name from its id, without threading the registry here. */
-function modelName(id: string): string {
-  if (id.startsWith("parakeet")) return "Parakeet v3";
-  if (id.includes("turbo")) return "Whisper Turbo";
-  if (id.includes("small")) return "Whisper Small";
-  return id;
-}
-
-function Meter({ level }: { level: number }) {
-  // RMS of speech tops out well under 1.0 — scale so a normal voice fills
-  // most of the bar.
-  const width = Math.min(100, Math.round(level * 400));
-  return (
-    <span className="voice__meter">
-      <span className="voice__meter-fill" style={{ width: `${width}%` }} />
-    </span>
   );
 }

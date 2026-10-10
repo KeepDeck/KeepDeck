@@ -178,13 +178,19 @@ export function createServiceHandlers({
     "services.downloads.remove": ([target]) =>
       ctx.services.downloads.remove(target as DownloadTarget),
     "services.speech.engines": () => ctx.services.speech.engines(),
-    "services.speech.start": async ([id]) => {
+    "services.speech.devices": () => ctx.services.speech.devices(),
+    "services.speech.start": async ([id, options]) => {
       const key = id as number;
       if (activeSpeechCaptures.has(key)) {
         throw new Error(`speech capture id already active: ${key}`);
       }
-      const capture = await ctx.services.speech.startCapture((level) =>
-        push(speechLevelChannel(key), level),
+      // The whole reading crosses, not just the RMS: a realm plugin gets
+      // the same peak/clipping/offset an in-process one does.
+      // Only a string id crosses from the realm; anything else is "default".
+      const deviceId = (options as { deviceId?: unknown } | undefined)?.deviceId;
+      const capture = await ctx.services.speech.startCapture(
+        (_rms, level) => push(speechLevelChannel(key), level),
+        typeof deviceId === "string" ? { deviceId } : {},
       );
       // The realm may have been disposed while the device was opening — its
       // sweep already ran over a map this capture wasn't in yet. Storing it
@@ -196,6 +202,7 @@ export function createServiceHandlers({
         throw new Error("plugin bridge disposed");
       }
       activeSpeechCaptures.set(key, capture);
+      return { device: capture.device, deviceMissing: capture.deviceMissing };
     },
     "services.speech.stop": ([id, opts]) => {
       const key = id as number;

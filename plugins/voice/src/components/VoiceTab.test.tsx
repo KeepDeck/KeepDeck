@@ -12,6 +12,7 @@ import type { VoiceController, VoiceSnapshot } from "../controller";
 import type { ModelDownloads } from "../downloads";
 import type { ModelsStore } from "../models";
 import { VoiceTab } from "./VoiceTab";
+import { speechTranscript } from "@keepdeck/plugin-api/testing";
 
 // React 19 requires this flag for act() outside a test-framework integration.
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
@@ -25,6 +26,11 @@ function snapshotWithHistory(): VoiceSnapshot {
     phase: "idle",
     mode: null,
     level: 0,
+    device: null,
+    reading: null,
+    readingAt: 0,
+    lastHold: null,
+    micPick: null,
     history: [
       { at: 1, tone: "heard", text: "привет" },
       { at: 2, tone: "done", text: "готово" },
@@ -36,6 +42,8 @@ describe("VoiceTab history click-to-copy", () => {
   let stage: HTMLElement;
   let root: Root;
   let writeText: ReturnType<typeof vi.fn>;
+  let snap: VoiceSnapshot;
+  let chooseMicrophone: ReturnType<typeof vi.fn>;
 
   beforeEach(async () => {
     document.body.innerHTML = "";
@@ -50,24 +58,27 @@ describe("VoiceTab history click-to-copy", () => {
     writeText = vi.fn(async (_text: string) => {});
     host.ctx.services.clipboard.writeText = writeText;
 
-    const snap = snapshotWithHistory();
+    snap = snapshotWithHistory();
     const controller = {
       snapshot: () => snap,
       subscribe: () => () => {},
       start: vi.fn(async () => {}),
       stop: vi.fn(async () => {}),
       clearHistory: vi.fn(),
+      chooseMicrophone: (chooseMicrophone = vi.fn(async () => {})),
       cancel: vi.fn(async () => {}),
     } as unknown as VoiceController;
     const modelsSnap = [{ installed: true }] as never;
     const models = {
       snapshot: () => modelsSnap,
       subscribe: () => () => {},
+      error: () => null,
     } as unknown as ModelsStore;
-    const dlSnap = { active: {} };
+    const dlSnap = { active: {}, errors: {}, interrupted: {} };
     const downloads = {
       snapshot: () => dlSnap,
       subscribe: () => () => {},
+      anyActive: () => false,
     } as unknown as ModelDownloads;
 
     setRuntime({
@@ -89,6 +100,40 @@ describe("VoiceTab history click-to-copy", () => {
   const render = () => act(() => root.render(createElement(VoiceTab)));
   const entries = () =>
     [...stage.querySelectorAll(".voice__entry")] as HTMLElement[];
+
+  it("asks to replug a microphone adding an offset", () => {
+    snap = {
+      ...snap,
+      device: "BY-PM700",
+      lastHold: speechTranscript({ text: "привет", dcOffset: 0.3 }),
+    };
+    render();
+    const warning = stage.querySelector(".voice-micblock__warning--offset");
+    expect(warning?.textContent).toContain("replug");
+  });
+
+  it("offers the connected microphones in the tab, and a choice goes to the controller", async () => {
+    await act(async () => {
+      render();
+      await flush();
+    });
+    const trigger = stage.querySelector(".voice-micblock button") as HTMLElement;
+    expect(trigger.textContent).toContain("System default (Test Microphone)");
+    await act(async () => trigger.click());
+    const option = [...document.querySelectorAll('[role="option"]')].find(
+      (o) => o.textContent === "Test Microphone",
+    ) as HTMLElement;
+    await act(async () => option.click());
+    expect(chooseMicrophone).toHaveBeenCalledWith({ id: "fake:mic", name: "Test Microphone" });
+  });
+
+  it("says which device stood in when the pick was not connected", () => {
+    snap = { ...snap, device: "MacBook Pro Microphone", micPick: { id: "usb", name: "BY-PM700" } };
+    render();
+    expect(stage.querySelector(".voice-micblock__standin")?.textContent).toBe(
+      "Recording from MacBook Pro Microphone — BY-PM700 is not connected",
+    );
+  });
 
   it("opts the transcript back into selection — it exists to be copied out", () => {
     render();

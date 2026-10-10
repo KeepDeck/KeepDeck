@@ -17,6 +17,7 @@
  */
 
 import type { FsEntry, FsFile, PluginFs } from "./context/services.ts";
+import type { SpeechCapture, SpeechTranscript } from "./context/speech.ts";
 
 /**
  * One `readFile` answer, as the fs service would give it.
@@ -151,4 +152,47 @@ function decodeText(window: Uint8Array): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * One transcript, as the speech service would give it. Pass `text` for a
+ * spoken hold, or `silenceReason` for a silent one — `silence` follows from
+ * which (they are one fact), and the measurements default to a clean, short
+ * hold on a well-behaved microphone. Override any measurement explicitly.
+ */
+export function speechTranscript(
+  partial: Partial<Omit<SpeechTranscript, "silence">> = {},
+): SpeechTranscript {
+  const silenceReason = partial.silenceReason ?? (partial.text ? null : "no-speech");
+  return {
+    text: "",
+    seconds: 1.2,
+    level: 0.05,
+    peak: 0.4,
+    clippedRatio: 0,
+    dcOffset: 0,
+    device: "Test Microphone",
+    cutShort: false,
+    ...partial,
+    silenceReason,
+    silence: silenceReason !== null,
+  };
+}
+
+/**
+ * One capture handle, as `startCapture` would resolve it: recording from a
+ * connected test microphone unless told otherwise. Pass the `stop` / `cancel`
+ * a test scripts; an unscripted `stop` rejects, so a test cannot pass by
+ * accident on a transcript it never set up.
+ */
+export function speechCapture(partial: Partial<SpeechCapture> = {}): SpeechCapture {
+  return {
+    device: "Test Microphone",
+    deviceMissing: false,
+    stop: async () => {
+      throw new Error("speechCapture: stop was not scripted");
+    },
+    cancel: async () => {},
+    ...partial,
+  };
 }

@@ -2,7 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { MODEL_KEY } from "../controller";
+import { MODEL_KEY } from "../modelChoice";
 import { MODEL_CATALOG, type VoiceModelInfo } from "../modelCatalog";
 import { clearRuntime, setRuntime, type VoiceRuntime } from "../runtime";
 import { ModelsSection } from "./ModelsSection";
@@ -19,10 +19,11 @@ describe("ModelsSection", () => {
   let stage: HTMLElement;
   let root: Root;
   const write = vi.fn();
-  const remove = vi.fn(() => Promise.resolve());
+  const remove = vi.fn((_model: unknown) => Promise.resolve());
 
   // Stable snapshots: useSyncExternalStore re-renders on every new object.
-  const noDownloads = { active: {}, errors: {} };
+  const noDownloads = { active: {}, errors: {}, interrupted: {} };
+  const noRemoveErrors = {};
 
   beforeEach(() => {
     write.mockClear();
@@ -41,6 +42,8 @@ describe("ModelsSection", () => {
         snapshot: () => models,
         subscribe: () => () => {},
         error: () => null,
+        removeErrors: () => noRemoveErrors,
+        remove,
         refresh: () => Promise.resolve(),
         current: () => Promise.resolve(models),
       },
@@ -91,6 +94,16 @@ describe("ModelsSection", () => {
     )!;
     click(deleteButton);
     expect(remove).toHaveBeenCalledTimes(1);
+    expect(remove.mock.calls[0][0]).toMatchObject({ id: "parakeet-tdt-0.6b-v3" });
     expect(write).not.toHaveBeenCalled();
+  });
+
+  it("an installed card can be chosen from the keyboard", () => {
+    const parakeet = card(/Parakeet/i);
+    expect(parakeet.tabIndex).toBe(0);
+    act(() => {
+      parakeet.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    });
+    expect(write).toHaveBeenCalledWith(MODEL_KEY, "parakeet-tdt-0.6b-v3");
   });
 });

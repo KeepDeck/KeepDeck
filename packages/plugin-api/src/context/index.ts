@@ -178,16 +178,22 @@ export type {
   PluginSpeech,
   SpeechCapture,
   SpeechCaptureOptions,
+  SpeechDevice,
   SpeechEngine,
+  SpeechErrorKind,
+  SpeechLevel,
+  SpeechSilenceReason,
+  SpeechStartOptions,
   SpeechTranscript,
 } from "./speech.ts";
+export { SPEECH_ERROR_KINDS, speechErrorKind } from "./speech.ts";
 export type {
   CustomSettingsFieldProps,
   PluginSettings,
   SettingsField,
   SettingsSectionContribution,
 } from "./settings.ts";
-export { mergeSectionValues } from "./settings.ts";
+export { declaredKeys, mergeSectionValues } from "./settings.ts";
 export type {
   PaneSnapshot,
   TeamSnapshot,

@@ -8,6 +8,7 @@ import type {
 } from "@keepdeck/plugin-api";
 import { createHostDispatch } from "./hostDispatch";
 import type { WireAgentHistoryCall, WireHookCall } from "./protocol";
+import { speechTranscript } from "@keepdeck/plugin-api/testing";
 
 /**
  * The agent-hook proxy across the RPC seam: `agents.register` turns the
@@ -617,7 +618,7 @@ describe("sessions over the RPC seam", () => {
 describe("speech captures over the RPC seam", () => {
   function speechHarness() {
     const cancel = vi.fn(async () => {});
-    const stop = vi.fn(async () => ({ text: "", silence: true, seconds: 0, level: 0 }));
+    const stop = vi.fn(async () => speechTranscript({ text: "", seconds: 0, level: 0 }));
     let releaseStart!: () => void;
     const startCapture = vi.fn(
       () =>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mergeSectionValues, type SettingsSectionContribution } from "./settings.ts";
+import { declaredKeys, mergeSectionValues, type SettingsSectionContribution } from "./settings.ts";
 
 // A no-op component stands in for a real custom field's body — mergeSectionValues
 // never renders it, it only reads the stored value at the field key.
@@ -101,5 +101,30 @@ describe("mergeSectionValues", () => {
 
   it("no registered section means no values", () => {
     expect(mergeSectionValues(undefined, { note: "x" })).toEqual({});
+  });
+});
+
+describe("stored keys", () => {
+  const withStored: SettingsSectionContribution = {
+    label: "Voice",
+    fields: [{ kind: "boolean", key: "on", label: "On", default: false }],
+    stored: ["microphone"],
+  };
+
+  it("pass a stored key through untouched, like a custom field's value", () => {
+    const pick = { id: "coreaudio:x", name: "X" };
+    expect(mergeSectionValues(withStored, { microphone: pick, stray: 1 })).toEqual({
+      on: false,
+      microphone: pick,
+    });
+  });
+
+  it("an unset stored key reads as absent", () => {
+    expect(mergeSectionValues(withStored, {}).microphone).toBeUndefined();
+  });
+
+  it("declaredKeys lists field keys and stored keys", () => {
+    expect(declaredKeys(withStored)).toEqual(["on", "microphone"]);
+    expect(declaredKeys(undefined)).toEqual([]);
   });
 });

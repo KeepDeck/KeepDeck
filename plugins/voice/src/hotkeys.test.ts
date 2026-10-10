@@ -10,8 +10,20 @@ import type { VoiceController, VoicePhase } from "./controller";
  * "listening set before the first await" behavior the handler relies on. */
 function fakeController(state: { phase: VoicePhase }): VoiceController {
   return {
-    snapshot: () => ({ phase: state.phase, mode: null, level: 0, history: [] }),
+    snapshot: () => ({
+      phase: state.phase,
+      mode: null,
+      level: 0,
+      device: null,
+      reading: null,
+      readingAt: 0,
+      lastHold: null,
+      micPick: null,
+      history: [],
+    }),
     subscribe: () => () => {},
+    chooseMicrophone: vi.fn(async () => {}),
+    dispose: vi.fn(async () => {}),
     start: vi.fn(async () => {
       state.phase = "listening";
     }),
@@ -25,10 +37,10 @@ function fakeController(state: { phase: VoicePhase }): VoiceController {
   };
 }
 
-function press(type: "keydown" | "keyup", init: KeyboardEventInit): void {
-  window.dispatchEvent(
-    new KeyboardEvent(type, { bubbles: true, cancelable: true, ...init }),
-  );
+function press(type: "keydown" | "keyup", init: KeyboardEventInit): KeyboardEvent {
+  const event = new KeyboardEvent(type, { bubbles: true, cancelable: true, ...init });
+  window.dispatchEvent(event);
+  return event;
 }
 
 let uninstall: (() => void) | null = null;
@@ -85,6 +97,26 @@ describe("installPttHotkeys", () => {
 
     press("keydown", { code: "Escape", key: "Escape" });
     expect(c.cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("Escape while transcribing discards the result", () => {
+    const state = { phase: "transcribing" as VoicePhase };
+    const c = fakeController(state);
+    uninstall = installPttHotkeys(c, () => DEFAULT_BINDINGS);
+
+    const event = press("keydown", { code: "Escape", key: "Escape" });
+    expect(c.cancel).toHaveBeenCalledTimes(1);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("Escape with nothing in flight is left alone", () => {
+    const state = { phase: "idle" as VoicePhase };
+    const c = fakeController(state);
+    uninstall = installPttHotkeys(c, () => DEFAULT_BINDINGS);
+
+    const event = press("keydown", { code: "Escape", key: "Escape" });
+    expect(c.cancel).not.toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(false);
   });
 
   it("ends the hold from the held chord's own keys, not fixed ones", () => {

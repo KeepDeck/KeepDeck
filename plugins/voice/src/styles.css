@@ -480,6 +480,14 @@
   pointer-events: none;
 }
 
+.voice-pill__device {
+  color: var(--kd-text-3);
+  white-space: nowrap;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .voice-pill__dot {
   width: 8px;
   height: 8px;
@@ -545,26 +553,10 @@
   flex: none;
 }
 
+/* The chord is a ui-kit Button; only its width is the editor's own — the
+   recording state is the Button's primary variant, not a restyle. */
 .voice-hotkeys__chord {
-  font-family: inherit;
   min-width: 96px;
-  background: var(--kd-tile);
-  border: 1px solid var(--kd-seam-strong);
-  border-radius: var(--kd-radius-mark);
-  padding: 4px 10px;
-  color: var(--kd-text-2);
-  font-size: var(--kd-font-small);
-  cursor: pointer;
-}
-
-.voice-hotkeys__chord:hover {
-  background-color: var(--kd-hover);
-}
-
-.voice-hotkeys__chord--recording {
-  border-style: dashed;
-  border-color: var(--kd-ok-line);
-  color: var(--kd-ok-strong);
 }
 
 .voice-hotkeys__error {
@@ -578,6 +570,53 @@
 .voice-hotkeys__warn {
   flex-basis: 100%;
   color: var(--kd-warn-strong);
+  font-size: var(--kd-font-small);
+  overflow-wrap: anywhere;
+}
+
+/* ── Microphone block (Voice tab) ─────────────────────────────────── */
+.voice-micblock {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  /* The tab's one horizontal inset (the bar, the status line, the log): */
+  padding: 0 8px 8px;
+  font-size: var(--kd-font-small);
+}
+.voice-micblock__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.voice-micblock__device {
+  color: var(--kd-text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.voice-micblock__picker {
+  flex: 1;
+  min-width: 0;
+}
+.voice-micblock__standin {
+  color: var(--kd-text-2);
+}
+.voice-micblock__error {
+  color: var(--kd-err-strong);
+  overflow-wrap: anywhere;
+}
+.voice-micblock__warning {
+  color: var(--kd-warn-strong);
+  overflow-wrap: anywhere;
+}
+
+/* ── Models notice (Voice tab) ────────────────────────────────────── */
+.voice__notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  color: var(--kd-err-strong);
   font-size: var(--kd-font-small);
   overflow-wrap: anywhere;
 }

@@ -4,6 +4,7 @@ import type {
   PluginContext,
   PluginManifest,
 } from "@keepdeck/plugin-api";
+import { declaredKeys } from "@keepdeck/plugin-api";
 import { execCovers } from "../capabilities/execCovers";
 import type { ContributionRegistries } from "../registries/contributions";
 import type { PluginSource } from "../model/installed";
@@ -217,6 +218,15 @@ export function buildPluginContext(
         return track(registries.settingsSections.add(pluginId, section));
       },
       read: () => settingsPort.read(),
+      // Only a key this plugin's section declares: anything else would be
+      // stored and never handed back by `read`.
+      write: async (key, value) => {
+        const section = registries.settingsSections.list().find((c) => c.pluginId === pluginId)?.entry;
+        if (!declaredKeys(section).includes(key)) {
+          throw new Error(`settings key is not declared: ${key}`);
+        }
+        return settingsPort.write(key, value);
+      },
       onChange: (cb) => track(settingsPort.onChange(cb)),
     },
     commands: (() => {

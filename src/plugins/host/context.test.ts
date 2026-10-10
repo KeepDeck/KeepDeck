@@ -7,6 +7,7 @@ import type {
 import { createContributionRegistries } from "../registries/contributions";
 import { buildPluginContext } from "./context";
 import type { PluginHostDeps } from "./deps";
+import { speechTranscript, speechCapture } from "@keepdeck/plugin-api/testing";
 
 const manifest = (
   id: string,
@@ -46,6 +47,7 @@ function fakeDeps() {
   };
   const settingsView = {
     read: vi.fn(async () => ({})),
+    write: vi.fn(async () => {}),
     onChange: vi.fn(spyDisposable),
   };
   const services: PluginServices = {
@@ -57,8 +59,9 @@ function fakeDeps() {
     },
     speech: {
       engines: vi.fn(async () => ["whisper" as const]),
-      startCapture: vi.fn(async () => ({
-        stop: vi.fn(async () => ({ text: "", silence: true, seconds: 0, level: 0 })),
+      devices: vi.fn(async () => []),
+      startCapture: vi.fn(async () => speechCapture({
+        stop: vi.fn(async () => speechTranscript({ text: "", seconds: 0, level: 0 })),
         cancel: vi.fn(async () => {}),
       })),
     },
@@ -376,6 +379,25 @@ describe("buildPluginContext", () => {
     // by a plugin that no longer owns anything.
     first.disposeAll();
     expect(() => second.ctx.agents.register({ ...agent })).not.toThrow();
+  });
+
+  it("writes a declared settings key — a field's or a stored one — and refuses any other", async () => {
+    const registries = createContributionRegistries();
+    const { deps, settingsView } = fakeDeps();
+    const { ctx } = buildPluginContext(declaring("p"), "builtin", registries, deps);
+    ctx.settings.registerSection({
+      label: "S",
+      fields: [{ kind: "boolean", key: "on", label: "On", default: false }],
+      stored: ["microphone"],
+    });
+
+    await ctx.settings.write("on", true);
+    await ctx.settings.write("microphone", { id: "a", name: "A" });
+    expect(settingsView.write).toHaveBeenCalledWith("on", true);
+    expect(settingsView.write).toHaveBeenCalledWith("microphone", { id: "a", name: "A" });
+
+    await expect(ctx.settings.write("stray", 1)).rejects.toThrow(/not declared: stray/);
+    expect(settingsView.write).toHaveBeenCalledTimes(2);
   });
 
   it("threads storage/services/settings through the ports, namespaced by id", async () => {
