@@ -4,18 +4,22 @@
 //! until `stop()`, which hands back the whole utterance — push-to-talk bounds
 //! the recording, so batch-on-release needs no ring buffer or VAD chunking.
 
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::sync::{Arc, Mutex};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::{SampleFormat, Stream};
+use cpal::{Device, FromSample, SampleFormat, SizedSample, Stream, StreamConfig};
 
 use crate::signal::{Conditioner, LevelReading, Utterance};
 
-/// What each callback measured, for a live indicator. Sent best-effort —
-/// a full channel drops the newest reading rather than blocking the
-/// REALTIME audio thread.
-pub type LevelSender = Sender<LevelReading>;
+/// What each callback measured, for a live indicator. Bounded and sent
+/// best-effort — a full channel drops the newest reading rather than blocking
+/// the REALTIME audio thread or growing without limit when nobody drains it.
+pub type LevelSender = SyncSender<LevelReading>;
+
+/// Readings the channel holds before it drops new ones — about half a second
+/// of callbacks; the meter is drained ~30 times a second.
+const LEVEL_BUFFER: usize = 64;
 
 /// A finished capture: the conditioned utterance and the device it came from.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -72,38 +76,22 @@ impl Recorder {
 
         let conditioner = Arc::new(Mutex::new(Some(Conditioner::new(sample_rate, channels))));
         let sink = conditioner.clone();
-        let on_error = |e: cpal::StreamError| {
-            // A dying stream just stops accumulating; stop() returns what
-            // was captured so far — better a short transcript than a panic
-            // on the audio thread.
-            eprintln!("keepdeck-voice capture stream error: {e}");
-        };
 
-        let stream = match config.sample_format() {
-            SampleFormat::F32 => device
-                .build_input_stream(
-                    &config.into(),
-                    move |data: &[f32], _| {
-                        push_chunk(&sink, data, levels.as_ref());
-                    },
-                    on_error,
-                    None,
-                )
-                .map_err(|e| CaptureError::Device(e.to_string()))?,
-            SampleFormat::I16 => device
-                .build_input_stream(
-                    &config.into(),
-                    move |data: &[i16], _| {
-                        let floats: Vec<f32> =
-                            data.iter().map(|s| f32::from(*s) / 32_768.0).collect();
-                        push_chunk(&sink, &floats, levels.as_ref());
-                    },
-                    on_error,
-                    None,
-                )
-                .map_err(|e| CaptureError::Device(e.to_string()))?,
+        let format = config.sample_format();
+        let config: StreamConfig = config.into();
+        let stream = match format {
+            SampleFormat::F32 => build::<f32>(&device, &config, sink, levels),
+            SampleFormat::F64 => build::<f64>(&device, &config, sink, levels),
+            SampleFormat::I8 => build::<i8>(&device, &config, sink, levels),
+            SampleFormat::I16 => build::<i16>(&device, &config, sink, levels),
+            SampleFormat::I32 => build::<i32>(&device, &config, sink, levels),
+            SampleFormat::I64 => build::<i64>(&device, &config, sink, levels),
+            SampleFormat::U8 => build::<u8>(&device, &config, sink, levels),
+            SampleFormat::U16 => build::<u16>(&device, &config, sink, levels),
+            SampleFormat::U32 => build::<u32>(&device, &config, sink, levels),
+            SampleFormat::U64 => build::<u64>(&device, &config, sink, levels),
             other => return Err(CaptureError::UnsupportedFormat(format!("{other:?}"))),
-        };
+        }?;
 
         stream
             .play()
@@ -128,6 +116,44 @@ impl Recorder {
     }
 }
 
+/// Open the input stream for one sample type: every format is converted to
+/// f32 in -1..1 the same way (cpal's own sample conversion), so no format is
+/// refused for being other than f32/i16.
+fn build<T>(
+    device: &Device,
+    config: &StreamConfig,
+    sink: Arc<Mutex<Option<Conditioner>>>,
+    levels: Option<LevelSender>,
+) -> Result<Stream, CaptureError>
+where
+    T: SizedSample,
+    f32: FromSample<T>,
+{
+    device
+        .build_input_stream(
+            config,
+            move |data: &[T], _| {
+                push_chunk(&sink, &unit_floats(data), levels.as_ref());
+            },
+            // A dying stream just stops delivering; stop() returns what was
+            // captured so far and the hold is judged cut short — better a
+            // short transcript than a panic on the audio thread.
+            |e: cpal::StreamError| eprintln!("keepdeck-voice capture stream error: {e}"),
+            None,
+        )
+        .map_err(|e| CaptureError::Device(e.to_string()))
+}
+
+/// Any sample type as f32 in -1..1, silence at 0 (unsigned formats are
+/// centred) — cpal's own conversion, so every format means the same level.
+fn unit_floats<T>(data: &[T]) -> Vec<f32>
+where
+    T: SizedSample,
+    f32: FromSample<T>,
+{
+    data.iter().map(|&s| s.to_sample::<f32>()).collect()
+}
+
 fn push_chunk(
     sink: &Arc<Mutex<Option<Conditioner>>>,
     interleaved: &[f32],
@@ -141,11 +167,37 @@ fn push_chunk(
         Err(_) => return,
     };
     if let Some(tx) = levels {
-        let _ = tx.send(reading);
+        // Never block the realtime thread: a full channel drops this reading.
+        let _ = tx.try_send(reading);
     }
 }
 
 /// A paired level channel for callers that want the meter.
 pub fn level_channel() -> (LevelSender, Receiver<LevelReading>) {
-    channel()
+    sync_channel(LEVEL_BUFFER)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_format_maps_to_the_same_unit_range() {
+        assert_eq!(unit_floats(&[0i16, i16::MIN]), vec![0.0, -1.0]);
+        assert_eq!(unit_floats(&[0i32, i32::MIN]), vec![0.0, -1.0]);
+        // Unsigned formats are centred: their midpoint is silence.
+        assert_eq!(unit_floats(&[128u8, 0u8]), vec![0.0, -1.0]);
+        assert_eq!(unit_floats(&[32_768u16]), vec![0.0]);
+        assert_eq!(unit_floats(&[0.5f64]), vec![0.5]);
+    }
+
+    #[test]
+    fn a_full_level_channel_drops_readings_instead_of_blocking() {
+        let (tx, rx) = level_channel();
+        for _ in 0..LEVEL_BUFFER + 10 {
+            // try_send never blocks; past the bound it reports Full.
+            let _ = tx.try_send(LevelReading::default());
+        }
+        assert_eq!(rx.try_iter().count(), LEVEL_BUFFER);
+    }
 }
