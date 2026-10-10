@@ -77,9 +77,15 @@ export function createVoiceController(
   let level = 0;
   let capture: SpeechCapture | null = null;
   let starting: Promise<SpeechCapture> | null = null;
-  // Starts whose capture `cancel()` has already undertaken to cancel — the
-  // start itself must not cancel it a second time when it resolves.
+  // Starts whose capture someone has already undertaken to cancel. Whoever
+  // marks a start first — the start itself or `cancel()` — owns its single
+  // cancel; the other sees the mark and leaves it alone.
   const cancelledStarts = new WeakSet<Promise<SpeechCapture>>();
+  function claimCancel(pending: Promise<SpeechCapture>): boolean {
+    if (cancelledStarts.has(pending)) return false;
+    cancelledStarts.add(pending);
+    return true;
+  }
   let transcribingCapture: SpeechCapture | null = null;
   let operationVersion = 0;
   let history: HistoryEntry[] = [];
@@ -235,19 +241,14 @@ export function createVoiceController(
       starting = pending;
       try {
         const started = await pending;
-        if (starting !== pending) {
-          // Superseded while opening (released, then pressed again): nobody
-          // else holds this capture, so it is closed here or the mic leaks.
-          if (!cancelledStarts.has(pending)) {
-            await started.cancel().catch(() => {});
-          }
+        // Superseded while opening (released, then pressed again), or
+        // released before the mic opened: nobody else holds this capture, so
+        // it is closed here or the mic leaks.
+        if (starting !== pending || phase !== "listening") {
+          if (claimCancel(pending)) await started.cancel().catch(() => {});
           return;
         }
-        if (phase !== "listening") {
-          await started.cancel().catch(() => {});
-        } else {
-          capture = started;
-        }
+        capture = started;
       } catch (e) {
         if (starting !== pending || phase !== "listening") return;
         phase = "idle";
@@ -384,8 +385,7 @@ export function createVoiceController(
         await activeTranscription.cancel().catch(() => {});
       } else if (activeCapture) {
         await activeCapture.cancel().catch(() => {});
-      } else if (pending) {
-        cancelledStarts.add(pending);
+      } else if (pending && claimCancel(pending)) {
         await pending.then((started) => started.cancel()).catch(() => {});
       }
     },

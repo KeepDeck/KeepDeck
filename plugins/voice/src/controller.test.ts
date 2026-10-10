@@ -628,6 +628,38 @@ describe("createVoiceController", () => {
     expect(first.cancel).toHaveBeenCalledOnce();
   });
 
+  it("never cancels twice when cancel() lands while the start is still closing its capture", async () => {
+    type Capture = Awaited<ReturnType<PluginContext["services"]["speech"]["startCapture"]>>;
+    const host = createFakeHost({ manifest: fakeManifest("keepdeck.voice") });
+    let release!: (c: Capture) => void;
+    const controller = createVoiceController({
+      ...host.ctx,
+      services: {
+        ...host.ctx.services,
+        speech: {
+          ...host.ctx.services.speech,
+          startCapture: vi.fn(() => new Promise<Capture>((resolve) => (release = resolve))),
+        },
+      },
+    });
+    let finishCancel!: () => void;
+    const first = {
+      stop: vi.fn(),
+      cancel: vi.fn(() => new Promise<void>((resolve) => (finishCancel = resolve))),
+    };
+
+    const starting = controller.start("command");
+    await controller.stop(); // released before the mic opened
+    release(first);
+    await vi.waitFor(() => expect(first.cancel).toHaveBeenCalledOnce());
+    // The start's own cancel is still in flight — cancel() must not add one.
+    const closing = controller.cancel();
+    finishCancel();
+    await Promise.all([starting, closing]);
+
+    expect(first.cancel).toHaveBeenCalledOnce();
+  });
+
   it("ignores mic levels once the capture is no longer listening", async () => {
     const { controller, level } = setup({ text: "close", silence: false });
     await controller.start("command");
