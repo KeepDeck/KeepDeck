@@ -416,6 +416,27 @@ describe("createVoiceController", () => {
     expect(controller.snapshot().micPick).toBeNull();
   });
 
+  it("Escape while the deck is being read for a command stops the command from running", async () => {
+    const { host, controller } = setup(speechTranscript({ text: "create a lead in keep deck" }));
+    let releaseList!: (value: unknown) => void;
+    const realExecute = host.ctx.commands.execute;
+    let lists = 0;
+    host.ctx.commands.execute = vi.fn(async (id: string, args) => {
+      // The prompt's own read passes; the command's read is held mid-flight.
+      if (id === "workspace.list" && ++lists === 2) {
+        await new Promise((resolve) => (releaseList = resolve));
+      }
+      return realExecute(id, args);
+    }) as typeof host.ctx.commands.execute;
+    await controller.start("command");
+    const stopping = controller.stop();
+    await vi.waitFor(() => expect(lists).toBe(2));
+    await controller.cancel();
+    releaseList(undefined);
+    await stopping;
+    expect(host.executedCommands.map((e) => e.id)).not.toContain("agent.spawn");
+  });
+
   it("warns once about a distorting input and once about a cut-off hold", async () => {
     const { host, controller } = setup(
       speechTranscript({ text: "close", clippedRatio: 0.02, cutShort: true, seconds: 1, device: "BY-PM700" }),

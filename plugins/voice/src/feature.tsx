@@ -20,8 +20,9 @@ import { clearRuntime, setRuntime } from "./runtime";
  * activate/deactivate only start and stop it.
  */
 export interface VoiceFeature {
-  /** Release everything: hotkeys off, subscriptions closed, a capture in
-   * flight cancelled, the runtime cleared. Safe to call more than once. */
+  /** Release everything: hotkeys off, the bindings' and the controller's
+   * subscriptions closed, a capture in flight cancelled, the runtime
+   * cleared. Safe to call more than once. */
   dispose(): Promise<void>;
 }
 
@@ -72,7 +73,7 @@ export function startVoiceFeature(ctx: PluginContext): VoiceFeature {
       disposed = true;
       uninstallHotkeys();
       bindings.dispose();
-      await controller.cancel();
+      await controller.dispose();
       clearRuntime();
     },
   };

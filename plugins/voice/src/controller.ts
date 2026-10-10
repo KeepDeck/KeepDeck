@@ -89,6 +89,9 @@ export interface VoiceController {
   /** Record from this microphone from now on (null: the system default) —
    * kept in the plugin's settings, so it survives restarts. */
   chooseMicrophone(pick: MicPick | null): Promise<void>;
+  /** Cancel what is in flight and drop the controller's subscriptions — it
+   * is not used again. */
+  dispose(): Promise<void>;
 }
 
 const SPAWN_NEEDS_ROLE =
@@ -153,7 +156,7 @@ export function createVoiceController(
       if (!changed) takePick(values);
     })
     .catch(() => {});
-  ctx.settings.onChange((values) => {
+  const settingsFeed = ctx.settings.onChange((values) => {
     changed = true;
     takePick(values);
   });
@@ -255,8 +258,11 @@ export function createVoiceController(
 
   /** Turn a parsed intent into a deck command, resolving spoken names
    * against the live deck — refusing, never guessing, on unknowns. */
-  async function runIntent(intent: Intent): Promise<void> {
+  /** `stillWanted` is re-asked after every await: a hold cancelled (Escape)
+   * while the deck is being read must not go on to run its command. */
+  async function runIntent(intent: Intent, stillWanted: () => boolean): Promise<void> {
     const rows = await workspaces();
+    if (!stillWanted()) return;
     const wsNames = rows.map((w) => w.name);
     const resolveWs = (spoken: string): WorkspaceRow | null => {
       const name = bestMatch(wsNames, spoken);
@@ -418,6 +424,9 @@ export function createVoiceController(
           // a non-editable [Pasted …] placeholder in most agent TUIs. The user
           // reviews and sends it themselves; no `submit`, or the transcript
           // fires off to the agent the instant push-to-talk is released.
+          // No await since the transcript's own check, so an Escape that
+          // landed before now has already returned above; once sent, the
+          // keystrokes are the host's.
           await execute("pane.write", {
             workspace: target.workspaceId,
             agent: target.paneId,
@@ -430,7 +439,7 @@ export function createVoiceController(
           if (!parsed) {
             push("info", "not a known command — try “create agent in <workspace>”");
           } else {
-            await runIntent(parsed.intent);
+            await runIntent(parsed.intent, () => operation === operationVersion);
           }
         }
       } catch (e) {
@@ -460,6 +469,11 @@ export function createVoiceController(
         push("error", `couldn't save the microphone: ${e instanceof Error ? e.message : String(e)}`);
         notify();
       }
+    },
+
+    async dispose() {
+      settingsFeed.dispose();
+      await this.cancel();
     },
 
     async cancel() {

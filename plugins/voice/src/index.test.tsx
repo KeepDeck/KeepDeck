@@ -122,10 +122,10 @@ describe("voice plugin activation", () => {
     expect(runtime().bindings.get()).toEqual(saved[HOTKEYS_KEY]);
   });
 
-  it("disposes the bindings subscription on deactivate", async () => {
+  it("disposes both settings subscriptions — the bindings' and the controller's — on deactivate", async () => {
     const h = activate();
     await plugin.deactivate?.();
     host = null; // already torn down; keep afterEach idempotent
-    expect(h.unsubscribes.settingsChanged).toBe(1);
+    expect(h.unsubscribes.settingsChanged).toBe(2);
   });
 });
