@@ -58,7 +58,7 @@ export function modelName(id: string): string {
 export type CardAction =
   | { kind: "delete" }
   | { kind: "cancel"; progress: string }
-  | { kind: "download"; label: "Download" | "Retry" }
+  | { kind: "download"; label: string }
   | { kind: "none" };
 
 export interface ModelCard {
@@ -105,7 +105,7 @@ export function modelCards(
           ? { kind: "cancel", progress: percent === null ? "…" : `${percent}%` }
           : m.retired
             ? { kind: "none" }
-            : { kind: "download", label: downloadError ? "Retry" : "Download" };
+            : { kind: "download", label: downloadError ? MODELS_TEXT.retry : MODELS_TEXT.download };
       return {
         id: m.id,
         name: modelName(m.id),
@@ -139,6 +139,8 @@ export const MODELS_TEXT = {
     "Extremely experimental — recognition and commands are rough, and this may change or break between versions.",
   group: "Speech model",
   delete: "Delete",
+  download: "Download",
+  retry: "Retry",
   active: "✓ Active",
   legacy: "Legacy",
   accuracy: "accuracy",

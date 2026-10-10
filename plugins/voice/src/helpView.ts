@@ -1,4 +1,5 @@
 import { COMMAND_DOCS } from "./commandList";
+import { TAB_TEXT } from "./tabView";
 
 /**
  * The help card's content — its words and the pieces of each command
@@ -25,7 +26,7 @@ export interface HelpView {
 
 export function helpView(commandChord: string, dictationChord: string): HelpView {
   return {
-    label: "How to use voice",
+    label: TAB_TEXT.helpLabel,
     command: { keys: commandChord, text: " hold — speak a command, released = executed" },
     commands: COMMAND_DOCS.map((doc) => ({ template: doc.template, parts: templateParts(doc.template) })),
     dictation: { keys: dictationChord, text: " hold — dictate into the focused agent, released = typed in" },

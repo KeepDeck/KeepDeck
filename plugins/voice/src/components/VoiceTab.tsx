@@ -114,7 +114,6 @@ export function VoiceTab() {
     );
   }
 
-  const listening = snap.phase === "listening";
   const listen = listenControl(snap.phase, formatChord(bindings.command), modelsState);
   const status = statusLine(snap.phase, snap.mode);
   const notice = modelsNotice(modelsState);
@@ -163,14 +162,13 @@ export function VoiceTab() {
         <div className="voice__notice kd-selectable">
           {notice.text}
           <Button size="sm" onClick={() => void store.refresh()}>
-            {TAB_TEXT.retry}
+            {MODELS_TEXT.retry}
           </Button>
         </div>
       )}
       <MicBlock
         status={mic}
         picker={picker}
-        listening={listening}
         listError={micList.error}
         standIn={standInLine(snap.micPick, mic.device)}
         onChoose={(value) => void controller.chooseMicrophone(picker.pickOf(value))}

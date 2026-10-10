@@ -18,7 +18,6 @@ export function MicMeter({ status, className }: { status: MicStatus; className: 
 export function MicBlock({
   status,
   picker,
-  listening,
   listError,
   standIn,
   onChoose,
@@ -26,7 +25,6 @@ export function MicBlock({
 }: {
   status: MicStatus;
   picker: MicPicker;
-  listening: boolean;
   listError: string | null;
   standIn: string | null;
   onChoose(value: string): void;
@@ -46,7 +44,7 @@ export function MicBlock({
         <Button size="sm" onClick={onRefresh} title={MIC_TEXT.refreshTitle}>
           {MIC_TEXT.refresh}
         </Button>
-        {listening && <MicMeter status={status} className="voice__meter" />}
+        {status.showMeter && <MicMeter status={status} className="voice__meter" />}
       </div>
       {standIn && <div className="voice-micblock__standin">{standIn}</div>}
       {listError && <div className="voice-micblock__error kd-selectable">{listError}</div>}

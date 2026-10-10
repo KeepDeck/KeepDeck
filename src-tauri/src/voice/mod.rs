@@ -330,6 +330,27 @@ enum SilenceReasonDto {
     NoSpeech,
 }
 
+impl SilenceReasonDto {
+    /// Every reason — a new variant fails the match below until it is listed,
+    /// so the contract test cannot miss it.
+    #[cfg(test)]
+    const ALL: [SilenceReasonDto; 3] = [
+        SilenceReasonDto::NoAudio,
+        SilenceReasonDto::DeadSignal,
+        SilenceReasonDto::NoSpeech,
+    ];
+
+    #[cfg(test)]
+    #[allow(dead_code)]
+    fn listed_in_all(self) {
+        match self {
+            SilenceReasonDto::NoAudio
+            | SilenceReasonDto::DeadSignal
+            | SilenceReasonDto::NoSpeech => {}
+        }
+    }
+}
+
 impl From<SilenceReason> for SilenceReasonDto {
     fn from(r: SilenceReason) -> Self {
         match r {
@@ -600,20 +621,16 @@ mod tests {
 
     #[test]
     fn silence_reasons_match_the_contract_values() {
-        let mut rust: Vec<String> = [
-            SilenceReasonDto::NoAudio,
-            SilenceReasonDto::DeadSignal,
-            SilenceReasonDto::NoSpeech,
-        ]
-        .iter()
-        .map(|r| {
-            serde_json::to_value(r)
-                .unwrap()
-                .as_str()
-                .unwrap()
-                .to_owned()
-        })
-        .collect();
+        let mut rust: Vec<String> = SilenceReasonDto::ALL
+            .iter()
+            .map(|r| {
+                serde_json::to_value(r)
+                    .unwrap()
+                    .as_str()
+                    .unwrap()
+                    .to_owned()
+            })
+            .collect();
         rust.sort();
         assert_eq!(rust, ts_union_members("SpeechSilenceReason"));
     }

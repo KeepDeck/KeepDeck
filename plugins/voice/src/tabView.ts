@@ -103,7 +103,6 @@ export const TAB_TEXT = {
   helpLabel: "How to use voice",
   clear: "Clear",
   clearTitle: "Clear the history",
-  retry: "Retry",
 } as const;
 
 /** The empty log's hint, as parts the component lays out: text, a chord in
@@ -128,16 +127,16 @@ export function canClear(phase: VoicePhase, historyLength: number): boolean {
   return phase === "idle" && historyLength > 0;
 }
 
-/** The listening pill: hidden when idle; the live dot and the meter only
- * while the mic is open. */
+/** The listening pill: hidden when idle; the live dot while the mic is
+ * open. Whether its meter shows is the mic status's call (`showMeter`), the
+ * same one the tab reads. */
 export function pillView(
   phase: VoicePhase,
   mode: VoiceMode | null,
-): { visible: boolean; live: boolean; label: string | null; meter: boolean } {
+): { visible: boolean; live: boolean; label: string | null } {
   return {
     visible: phase !== "idle",
     live: phase === "listening",
     label: pillLabel(phase, mode),
-    meter: phase === "listening",
   };
 }

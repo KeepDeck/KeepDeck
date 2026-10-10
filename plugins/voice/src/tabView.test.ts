@@ -94,9 +94,9 @@ describe("tab chrome decisions", () => {
     expect(parts.some((p) => "info" in p)).toBe(true);
   });
 
-  it("the pill hides when idle; its live dot and meter only while listening", () => {
+  it("the pill hides when idle; its live dot only while listening", () => {
     expect(pillView("idle", null).visible).toBe(false);
-    expect(pillView("listening", "command")).toMatchObject({ visible: true, live: true, meter: true });
-    expect(pillView("transcribing", "command")).toMatchObject({ visible: true, live: false, meter: false });
+    expect(pillView("listening", "command")).toMatchObject({ visible: true, live: true });
+    expect(pillView("transcribing", "command")).toMatchObject({ visible: true, live: false });
   });
 });

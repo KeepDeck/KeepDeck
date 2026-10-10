@@ -21,7 +21,7 @@ export function VoiceOverlay() {
     <div className="voice-pill kd-float" role="status">
       <span className={`voice-pill__dot${pill.live ? " voice-pill__dot--live" : ""}`} />
       <span className="voice-pill__label">{pill.label}</span>
-      {pill.meter && <MicMeter status={mic} className="voice-pill__meter" />}
+      {mic.showMeter && <MicMeter status={mic} className="voice-pill__meter" />}
     </div>
   );
 }

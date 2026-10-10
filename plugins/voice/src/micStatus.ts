@@ -33,6 +33,8 @@ export interface MicStatus {
   meter: number;
   /** A reading arrived within FRESH_MS. */
   live: boolean;
+  /** The meter is shown — while the mic is open, live or draining. */
+  showMeter: boolean;
   /** The device the current or last capture used. */
   device: string | null;
   warnings: MicWarning[];
@@ -61,6 +63,7 @@ export function micStatus(facts: MicFacts, now: number): MicStatus {
   return {
     meter: facts.reading ? Math.round(meterPercent(facts.reading.rms) * fade) : 0,
     live,
+    showMeter: facts.listening,
     device: facts.device,
     warnings: warnings(facts),
   };

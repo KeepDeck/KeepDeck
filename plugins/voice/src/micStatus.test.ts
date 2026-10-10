@@ -50,8 +50,11 @@ describe("micStatus meter", () => {
     expect(micStatus(listening(), 1_000 + 5_000).meter).toBe(0);
   });
 
-  it("is empty when not listening", () => {
-    expect(micStatus(listening({ listening: false }), 1_000).meter).toBe(0);
+  it("is empty and hidden when not listening", () => {
+    const idle = micStatus(listening({ listening: false }), 1_000);
+    expect(idle.meter).toBe(0);
+    expect(idle.showMeter).toBe(false);
+    expect(micStatus(listening(), 1_000).showMeter).toBe(true);
   });
 });
 
