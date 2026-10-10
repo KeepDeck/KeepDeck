@@ -18,7 +18,7 @@ import type {
   TopBarActionContribution,
   WorkspaceRef,
 } from "@keepdeck/plugin-api";
-import { createSessionStore, mergeSectionValues } from "@keepdeck/plugin-api";
+import { createSessionStore, declaredKeys, mergeSectionValues } from "@keepdeck/plugin-api";
 import { speechTranscript } from "@keepdeck/plugin-api/testing";
 
 /**
@@ -204,6 +204,16 @@ export function createFakeHost(
       // — a read taken before registration, or a key the plugin never declared.
       // Both of those shipped as real bugs before the fake agreed with the host.
       read: async () => mergeSectionValues(currentSection(), storedValues),
+      // Refuses what the host refuses (an undeclared key), then lands in the
+      // same bag a read merges and fans out like a host-side change.
+      write: async (key, value) => {
+        if (!declaredKeys(currentSection()).includes(key)) {
+          throw new Error(`settings key is not declared: ${key}`);
+        }
+        storedValues = { ...storedValues, [key]: value };
+        const values = mergeSectionValues(currentSection(), storedValues);
+        for (const cb of [...settingsCbs]) cb(values);
+      },
       onChange: (cb) => {
         settingsCbs.add(cb);
         return {

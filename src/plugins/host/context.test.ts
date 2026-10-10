@@ -47,6 +47,7 @@ function fakeDeps() {
   };
   const settingsView = {
     read: vi.fn(async () => ({})),
+    write: vi.fn(async () => {}),
     onChange: vi.fn(spyDisposable),
   };
   const services: PluginServices = {
@@ -378,6 +379,25 @@ describe("buildPluginContext", () => {
     // by a plugin that no longer owns anything.
     first.disposeAll();
     expect(() => second.ctx.agents.register({ ...agent })).not.toThrow();
+  });
+
+  it("writes a declared settings key — a field's or a stored one — and refuses any other", async () => {
+    const registries = createContributionRegistries();
+    const { deps, settingsView } = fakeDeps();
+    const { ctx } = buildPluginContext(declaring("p"), "builtin", registries, deps);
+    ctx.settings.registerSection({
+      label: "S",
+      fields: [{ kind: "boolean", key: "on", label: "On", default: false }],
+      stored: ["microphone"],
+    });
+
+    await ctx.settings.write("on", true);
+    await ctx.settings.write("microphone", { id: "a", name: "A" });
+    expect(settingsView.write).toHaveBeenCalledWith("on", true);
+    expect(settingsView.write).toHaveBeenCalledWith("microphone", { id: "a", name: "A" });
+
+    await expect(ctx.settings.write("stray", 1)).rejects.toThrow(/not declared: stray/);
+    expect(settingsView.write).toHaveBeenCalledTimes(2);
   });
 
   it("threads storage/services/settings through the ports, namespaced by id", async () => {

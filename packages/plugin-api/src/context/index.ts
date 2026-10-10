@@ -193,7 +193,7 @@ export type {
   SettingsField,
   SettingsSectionContribution,
 } from "./settings.ts";
-export { mergeSectionValues } from "./settings.ts";
+export { declaredKeys, mergeSectionValues } from "./settings.ts";
 export type {
   PaneSnapshot,
   TeamSnapshot,

@@ -244,6 +244,7 @@ export function buildGuestContext(
       },
       read: () =>
         rpc.call("settings.read", []) as Promise<Record<string, unknown>>,
+      write: (key, value) => rpc.call("settings.write", [key, value]).then(noop),
       // The settings-change feed is just another broadcast channel — ref-counted
       // and fanned out exactly like a deck event, over its own subscribe path.
       onChange: (cb) =>

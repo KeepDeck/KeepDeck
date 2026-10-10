@@ -48,7 +48,7 @@ export interface PluginHostDeps {
    * (it lands in the contributions registry), so the dep supplies just the
    * read side and the change feed.
    */
-  settings(pluginId: string): Pick<PluginSettings, "read" | "onChange">;
+  settings(pluginId: string): Pick<PluginSettings, "read" | "onChange" | "write">;
   /** The single global deck-event source. The context wraps it per plugin so
    * each subscription is tracked and torn down on deactivation — the dep need
    * not know about any plugin. */

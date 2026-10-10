@@ -51,6 +51,7 @@ function makeStub(): { ctx: PluginContext; infos: string[] } {
     settings: {
       registerSection: () => disposable,
       read: async () => ({}),
+      write: async () => {},
       onChange: () => disposable,
     },
     agents: { register: () => disposable },

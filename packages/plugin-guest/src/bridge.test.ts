@@ -465,6 +465,17 @@ describe("external plugin bridge", () => {
     expect(speechErrorKind(rejected)).toBe("model-missing");
   });
 
+  it("a realm plugin writes a declared settings value and reads it back; an undeclared one is refused", async () => {
+    const { ctxReady } = wireCapturingCtx();
+    const ctx = await ctxReady;
+    ctx.settings.registerSection({ label: "S", fields: [], stored: ["microphone"] });
+    await flush();
+
+    await ctx.settings.write("microphone", { id: "a", name: "A" });
+    expect(await ctx.settings.read()).toEqual({ microphone: { id: "a", name: "A" } });
+    await expect(ctx.settings.write("stray", 1)).rejects.toThrow(/not declared/);
+  });
+
   it("rejects the guest promise with the message of a throwing host member", async () => {
     const host = createFakeHost();
     host.ctx.storage.global.get = () => {

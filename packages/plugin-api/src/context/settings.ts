@@ -11,6 +11,11 @@ export interface PluginSettings {
   registerSection(section: SettingsSectionContribution): Disposable;
   /** Current values for this plugin's fields (defaults applied). */
   read(): Promise<Record<string, unknown>>;
+  /** Persist one of this plugin's DECLARED values — a field's key or one of
+   * the section's `stored` keys — so a choice made outside the settings page
+   * (a dock tab's picker) lives in the same store and reaches `onChange`. An
+   * undeclared key is refused: it would be written and never read back. */
+  write(key: string, value: unknown): Promise<void>;
   /** Fires after any of this plugin's values change. */
   onChange(cb: (values: Record<string, unknown>) => void): Disposable;
 }
@@ -18,6 +23,16 @@ export interface PluginSettings {
 export interface SettingsSectionContribution {
   label: string;
   fields: SettingsField[];
+  /** Keys this plugin keeps among its values WITHOUT a field on the settings
+   * page — set from its own UI with `settings.write`. Passed through
+   * untouched, like a custom field's value; absent means unset. */
+  stored?: string[];
+}
+
+/** Every key a section declares: its fields' and its `stored` ones. */
+export function declaredKeys(section: SettingsSectionContribution | undefined): string[] {
+  if (!section) return [];
+  return [...section.fields.map((field) => field.key), ...(section.stored ?? [])];
 }
 
 /** One host-rendered settings control. The vocabulary grows as real plugins
@@ -113,6 +128,9 @@ export function mergeSectionValues(
   const values: Record<string, unknown> = {};
   for (const field of section.fields) {
     values[field.key] = pick(field, stored?.[field.key]);
+  }
+  for (const key of section.stored ?? []) {
+    values[key] = stored?.[key];
   }
   return values;
 }

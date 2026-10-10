@@ -94,6 +94,7 @@ function fakeDeps() {
     storage: vi.fn(() => storage),
     settings: vi.fn(() => ({
       read: vi.fn(async () => ({})),
+      write: vi.fn(async () => {}),
       onChange: vi.fn(spyDisposable),
     })),
     events,

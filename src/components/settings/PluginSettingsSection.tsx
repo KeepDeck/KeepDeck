@@ -5,8 +5,7 @@ import type {
 } from "@keepdeck/plugin-api";
 import { mergeSectionValues } from "@keepdeck/plugin-api";
 import { listApplications } from "../../ipc/app";
-import { DEFAULT_SETTINGS } from "../../domain/settings";
-import { getSettings, updateSettings } from "../../app/settingsManager";
+import { writePluginValue } from "../../app/pluginValues";
 import { useSettings } from "../../app/useSettings";
 import { Combobox } from "../../ui/Combobox";
 import { Dropdown } from "../../ui/Dropdown";
@@ -35,20 +34,7 @@ export function PluginSettingsSection({
   // and only this surface papered over it.
   const values = mergeSectionValues(section, stored);
 
-  // The write path re-reads the live bag imperatively (not via the hook):
-  // two quick edits in one render frame must not clobber each other.
-  const write = (key: string, value: unknown) => {
-    const plugins = getSettings()?.plugins ?? DEFAULT_SETTINGS.plugins;
-    updateSettings({
-      plugins: {
-        ...plugins,
-        values: {
-          ...plugins.values,
-          [pluginId]: { ...plugins.values[pluginId], [key]: value },
-        },
-      },
-    });
-  };
+  const write = (key: string, value: unknown) => writePluginValue(pluginId, key, value);
 
   return (
     <>
