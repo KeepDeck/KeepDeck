@@ -18,6 +18,7 @@ import type {
   WorkspaceRef,
 } from "@keepdeck/plugin-api";
 import { createSessionStore, mergeSectionValues } from "@keepdeck/plugin-api";
+import { speechTranscript } from "@keepdeck/plugin-api/testing";
 
 /**
  * A fake `PluginContext` for driving the RPC bridge in tests — the host-side
@@ -294,15 +295,7 @@ export function createFakeHost(
       speech: {
         engines: async () => ["whisper"],
         startCapture: async () => ({
-          stop: async () => ({
-            text: "",
-            silence: true,
-            seconds: 0,
-            level: 0,
-            peak: 0,
-            clippedRatio: 0,
-            dcOffset: 0,
-          }),
+          stop: async () => speechTranscript({ text: "", seconds: 0, level: 0 }),
           cancel: async () => {},
         }),
       },

@@ -7,6 +7,7 @@ import type {
 import { createContributionRegistries } from "../registries/contributions";
 import { buildPluginContext } from "./context";
 import type { PluginHostDeps } from "./deps";
+import { speechTranscript } from "@keepdeck/plugin-api/testing";
 
 const manifest = (
   id: string,
@@ -58,7 +59,7 @@ function fakeDeps() {
     speech: {
       engines: vi.fn(async () => ["whisper" as const]),
       startCapture: vi.fn(async () => ({
-        stop: vi.fn(async () => ({ text: "", silence: true, seconds: 0, level: 0, peak: 0, clippedRatio: 0, dcOffset: 0 })),
+        stop: vi.fn(async () => speechTranscript({ text: "", seconds: 0, level: 0 })),
         cancel: vi.fn(async () => {}),
       })),
     },

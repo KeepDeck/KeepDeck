@@ -6,6 +6,7 @@ import type {
   HostToGuestMessage,
   RpcResult,
 } from "./protocol";
+import { speechTranscript } from "@keepdeck/plugin-api/testing";
 
 /**
  * Host-end tests driven with RAW protocol messages over a `MessageChannel` — no
@@ -81,7 +82,7 @@ function makeStub(): { ctx: PluginContext; infos: string[] } {
       speech: {
         engines: async () => ["whisper"],
         startCapture: async () => ({
-          stop: async () => ({ text: "", silence: true, seconds: 0, level: 0, peak: 0, clippedRatio: 0, dcOffset: 0 }),
+          stop: async () => speechTranscript({ text: "", seconds: 0, level: 0 }),
           cancel: async () => {},
         }),
       },
@@ -272,15 +273,7 @@ describe("createHostBridge", () => {
 
   it("proxies speech as an owned handle and cancels it on disposal", async () => {
     const { ctx } = makeStub();
-    const stop = vi.fn(async () => ({
-      text: "hello",
-      silence: false,
-      seconds: 1,
-      level: 0.1,
-      peak: 0,
-      clippedRatio: 0,
-      dcOffset: 0,
-    }));
+    const stop = vi.fn(async () => speechTranscript({ text: "hello", seconds: 1, level: 0.1 }));
     const cancel = vi.fn(async () => {});
     let emitLevel: ((rms: number, level: SpeechLevel) => void) | undefined;
     ctx.services.speech.startCapture = vi.fn(async (onLevel) => {
@@ -310,7 +303,7 @@ describe("createHostBridge", () => {
       kind: "result",
       id: 2,
       ok: true,
-      value: { text: "hello", silence: false, seconds: 1, level: 0.1, peak: 0, clippedRatio: 0, dcOffset: 0 },
+      value: speechTranscript({ text: "hello", seconds: 1, level: 0.1 }),
     });
 
     send({ kind: "call", id: 3, path: "services.speech.start", args: [8] });

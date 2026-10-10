@@ -12,11 +12,13 @@
 pub mod audio;
 pub mod capture;
 pub mod engine;
+pub mod hold;
 pub mod parakeet;
 pub mod signal;
 
 pub use audio::{has_speech, resample, rms, WHISPER_SAMPLE_RATE};
-pub use capture::{level_channel, CaptureError, LevelSender, Recorder};
+pub use capture::{level_channel, CaptureError, LevelSender, Recorder, Recording};
 pub use engine::{EngineError, WhisperEngine};
+pub use hold::{judge_hold, HoldJudgment, SilenceReason};
 pub use parakeet::ParakeetEngine;
 pub use signal::{LevelReading, Utterance};

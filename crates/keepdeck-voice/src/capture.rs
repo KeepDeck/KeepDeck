@@ -17,12 +17,21 @@ use crate::signal::{Conditioner, LevelReading, Utterance};
 /// REALTIME audio thread.
 pub type LevelSender = Sender<LevelReading>;
 
+/// A finished capture: the conditioned utterance and the device it came from.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Recording {
+    /// The device's name as the OS shows it ("MacBook Pro Microphone").
+    pub device: String,
+    pub utterance: Utterance,
+}
+
 pub struct Recorder {
     // cpal's Stream is deliberately !Send; keeping it alive keeps capture
     // running, dropping it stops the device.
     stream: Stream,
     /// Taken by `stop()`; a callback racing the teardown finds it gone.
     conditioner: Arc<Mutex<Option<Conditioner>>>,
+    device: String,
 }
 
 #[derive(Debug)]
@@ -54,6 +63,7 @@ impl Recorder {
         let device = host
             .default_input_device()
             .ok_or(CaptureError::NoInputDevice)?;
+        let device_name = device.name().unwrap_or_default();
         let config = device
             .default_input_config()
             .map_err(|e| CaptureError::Device(e.to_string()))?;
@@ -102,15 +112,19 @@ impl Recorder {
         Ok(Recorder {
             stream,
             conditioner,
+            device: device_name,
         })
     }
 
     /// Stop capturing and return the whole utterance (clean, loudest
     /// channel, native rate) with what was measured over it.
-    pub fn stop(self) -> Utterance {
+    pub fn stop(self) -> Recording {
         drop(self.stream);
         let taken = self.conditioner.lock().expect("poisoned").take();
-        taken.map(Conditioner::finish).unwrap_or_default()
+        Recording {
+            device: self.device,
+            utterance: taken.map(Conditioner::finish).unwrap_or_default(),
+        }
     }
 }
 

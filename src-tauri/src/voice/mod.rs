@@ -14,8 +14,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use keepdeck_voice::{
-    has_speech, resample, rms, CaptureError, LevelReading, ParakeetEngine, Recorder, Utterance,
-    WhisperEngine, WHISPER_SAMPLE_RATE,
+    has_speech, judge_hold, resample, rms, CaptureError, LevelReading, ParakeetEngine, Recorder,
+    Recording, SilenceReason, WhisperEngine, WHISPER_SAMPLE_RATE,
 };
 use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
@@ -152,7 +152,7 @@ pub async fn voice_capture_start(
 
     let started = Instant::now();
     let (cmd_tx, cmd_rx) = channel::<CaptureCmd>();
-    let (out_tx, out_rx) = channel::<Option<Utterance>>();
+    let (out_tx, out_rx) = channel::<Option<Recording>>();
     let (ready_tx, ready_rx) = channel::<Result<(), CaptureError>>();
     let (level_tx, level_rx) = keepdeck_voice::level_channel();
 
@@ -250,39 +250,104 @@ impl From<LevelReading> for LevelDto {
 
 /// What was measured over the whole hold — every transcript carries it,
 /// spoken or not, so the caller can tell a dead mic from a distorted one.
-#[derive(Serialize, Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Serialize, Clone, Debug, Default, PartialEq)]
 #[serde(rename_all = "camelCase")]
 struct HoldFacts {
     /// Captured length in seconds — 0.0 means the mic delivered nothing.
     seconds: f32,
-    /// RMS of the whole utterance after the offset is removed. Persistently
-    /// ~0 with a nonzero duration = the OS is delivering silence (mic
-    /// permission).
+    /// RMS of the whole utterance after the offset is removed.
     level: f32,
     peak: f32,
     clipped_ratio: f32,
     dc_offset: f32,
+    /// The device the audio came from, as the OS names it.
+    device: String,
+    /// The audio stopped arriving before the key was released.
+    cut_short: bool,
+}
+
+/// `SilenceReason` on the wire — `SpeechSilenceReason` in the contract.
+#[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+enum SilenceReasonDto {
+    NoAudio,
+    DeadSignal,
+    NoSpeech,
+}
+
+impl From<SilenceReason> for SilenceReasonDto {
+    fn from(r: SilenceReason) -> Self {
+        match r {
+            SilenceReason::NoAudio => SilenceReasonDto::NoAudio,
+            SilenceReason::DeadSignal => SilenceReasonDto::DeadSignal,
+            SilenceReason::NoSpeech => SilenceReasonDto::NoSpeech,
+        }
+    }
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct TranscriptDto {
     text: String,
-    /// True when the hold had no speech (whisper would have hallucinated on
-    /// it) — the UI can say "didn't catch that".
+    /// True when nothing was transcribed — the UI can say why from
+    /// `silence_reason`.
     silence: bool,
+    silence_reason: Option<SilenceReasonDto>,
     #[serde(flatten)]
     facts: HoldFacts,
 }
 
 impl TranscriptDto {
-    fn silent(facts: HoldFacts) -> Self {
+    fn silent(reason: SilenceReason, facts: HoldFacts) -> Self {
         TranscriptDto {
             text: String::new(),
             silence: true,
+            silence_reason: Some(reason.into()),
             facts,
         }
     }
+
+    /// The model's answer. Empty text over a hold with speech is still a
+    /// silence — the model heard nothing it could write down.
+    fn heard(text: String, facts: HoldFacts) -> Self {
+        if text.is_empty() {
+            return TranscriptDto::silent(SilenceReason::NoSpeech, facts);
+        }
+        TranscriptDto {
+            text,
+            silence: false,
+            silence_reason: None,
+            facts,
+        }
+    }
+}
+
+/// A finished hold, measured and judged: the 16 kHz samples for the model,
+/// the facts every transcript carries, and why it is silent (if it is).
+fn measure_hold(
+    recording: Option<Recording>,
+    held_seconds: f32,
+) -> (Vec<f32>, HoldFacts, Option<SilenceReason>) {
+    let recording = recording.unwrap_or_default();
+    let utterance = recording.utterance;
+    let samples = resample(
+        &utterance.samples,
+        utterance.sample_rate,
+        WHISPER_SAMPLE_RATE,
+    );
+    let seconds = samples.len() as f32 / WHISPER_SAMPLE_RATE as f32;
+    let speech = has_speech(&samples, WHISPER_SAMPLE_RATE);
+    let judgment = judge_hold(held_seconds, seconds, utterance.peak, speech);
+    let facts = HoldFacts {
+        seconds,
+        level: rms(&samples),
+        peak: utterance.peak,
+        clipped_ratio: utterance.clipped_ratio,
+        dc_offset: utterance.dc_offset,
+        device: recording.device,
+        cut_short: judgment.cut_short,
+    };
+    (samples, facts, judgment.silence)
 }
 
 /// Stop the capture and transcribe it with the caller's engine + model path. `language` pins a
@@ -316,32 +381,18 @@ pub async fn voice_capture_stop(
 
     let transcript =
         tauri::async_runtime::spawn_blocking(move || -> Result<TranscriptDto, VoiceError> {
+            let held_seconds = capture.started.elapsed().as_secs_f32();
             capture
                 .cmd_tx
                 .send(CaptureCmd::Stop)
                 .map_err(|_| VoiceError::internal("capture thread died"))?;
-            let Some(utterance) = capture
+            let recording = capture
                 .out_rx
                 .recv()
-                .map_err(|_| VoiceError::internal("capture thread died"))?
-            else {
-                return Ok(TranscriptDto::silent(HoldFacts::default()));
-            };
-
-            let samples = resample(
-                &utterance.samples,
-                utterance.sample_rate,
-                WHISPER_SAMPLE_RATE,
-            );
-            let facts = HoldFacts {
-                seconds: samples.len() as f32 / WHISPER_SAMPLE_RATE as f32,
-                level: rms(&samples),
-                peak: utterance.peak,
-                clipped_ratio: utterance.clipped_ratio,
-                dc_offset: utterance.dc_offset,
-            };
-            if !has_speech(&samples, WHISPER_SAMPLE_RATE) {
-                return Ok(TranscriptDto::silent(facts));
+                .map_err(|_| VoiceError::internal("capture thread died"))?;
+            let (samples, facts, silence) = measure_hold(recording, held_seconds);
+            if let Some(reason) = silence {
+                return Ok(TranscriptDto::silent(reason, facts));
             }
 
             // The processing gate: one transcription at a time. A burst of
@@ -402,11 +453,7 @@ pub async fn voice_capture_stop(
                 cached.last_used = Instant::now();
             }
 
-            Ok(TranscriptDto {
-                silence: text.is_empty(),
-                text,
-                facts,
-            })
+            Ok(TranscriptDto::heard(text, facts))
         })
         .await
         .map_err(|e| VoiceError::internal(e.to_string()))??;
@@ -486,7 +533,11 @@ mod tests {
 
     #[test]
     fn a_transcript_carries_exactly_the_contract_fields() {
-        let wire = serde_json::to_value(TranscriptDto::silent(HoldFacts::default())).unwrap();
+        let wire = serde_json::to_value(TranscriptDto::silent(
+            SilenceReason::NoSpeech,
+            HoldFacts::default(),
+        ))
+        .unwrap();
         let mut ts = ts_interface_keys("SpeechTranscript");
         ts.sort();
         assert_eq!(json_keys(wire), ts);
@@ -508,10 +559,69 @@ mod tests {
             peak: 1.0,
             clipped_ratio: 0.02,
             dc_offset: 0.3,
+            device: "BY-PM700".into(),
+            cut_short: false,
         };
-        let wire = serde_json::to_value(TranscriptDto::silent(facts)).unwrap();
+        let wire =
+            serde_json::to_value(TranscriptDto::silent(SilenceReason::NoSpeech, facts)).unwrap();
         assert_eq!(wire["silence"], true);
+        assert_eq!(wire["silenceReason"], "no-speech");
+        assert_eq!(wire["device"], "BY-PM700");
         assert_eq!(wire["clippedRatio"].as_f64().unwrap() as f32, 0.02);
         assert_eq!(wire["dcOffset"].as_f64().unwrap() as f32, 0.3);
+    }
+
+    fn recording(samples: Vec<f32>, peak: f32) -> Option<Recording> {
+        Some(Recording {
+            device: "BY-PM700".into(),
+            utterance: keepdeck_voice::Utterance {
+                samples,
+                sample_rate: WHISPER_SAMPLE_RATE,
+                peak,
+                clipped_ratio: 0.0,
+                dc_offset: 0.0,
+            },
+        })
+    }
+
+    #[test]
+    fn a_hold_that_never_delivered_audio_is_no_audio() {
+        let (_, facts, silence) = measure_hold(None, 2.0);
+        assert_eq!(silence, Some(SilenceReason::NoAudio));
+        assert_eq!(facts.seconds, 0.0);
+    }
+
+    #[test]
+    fn digital_zero_from_the_os_is_a_dead_signal_and_names_the_device() {
+        let (_, facts, silence) = measure_hold(recording(vec![0.0; 24_000], 0.0), 1.5);
+        assert_eq!(silence, Some(SilenceReason::DeadSignal));
+        assert_eq!(facts.device, "BY-PM700");
+    }
+
+    #[test]
+    fn audio_that_stopped_partway_through_the_hold_is_cut_short() {
+        // 1 s of audio (a phrase, then a pause), but the key was held 4 s.
+        let tone: Vec<f32> = (0..16_000)
+            .map(|i| {
+                if i < 8_000 {
+                    0.1 * (i as f32 * 0.12).sin()
+                } else {
+                    0.0005
+                }
+            })
+            .collect();
+        let (_, facts, silence) = measure_hold(recording(tone, 0.1), 4.0);
+        assert_eq!(silence, None);
+        assert!(facts.cut_short);
+    }
+
+    #[test]
+    fn the_model_hearing_nothing_is_a_no_speech_silence() {
+        let t = TranscriptDto::heard(String::new(), HoldFacts::default());
+        assert!(t.silence);
+        assert_eq!(t.silence_reason, Some(SilenceReasonDto::NoSpeech));
+        let t = TranscriptDto::heard("hello".into(), HoldFacts::default());
+        assert!(!t.silence);
+        assert_eq!(t.silence_reason, None);
     }
 }

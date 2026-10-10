@@ -181,6 +181,7 @@ export type {
   SpeechEngine,
   SpeechErrorKind,
   SpeechLevel,
+  SpeechSilenceReason,
   SpeechTranscript,
 } from "./speech.ts";
 export { SPEECH_ERROR_KINDS, speechErrorKind } from "./speech.ts";

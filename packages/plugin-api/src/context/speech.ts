@@ -1,10 +1,22 @@
 /** Native local speech-to-text mechanism. Model catalog and lifecycle stay in plugins. */
 export type SpeechEngine = "whisper" | "parakeet";
 
+/** Why a hold produced no text. */
+export type SpeechSilenceReason =
+  /** The device delivered no audio at all. */
+  | "no-audio"
+  /** Audio arrived as digital zero — the OS withholds the microphone
+   * (on macOS: the privacy permission). */
+  | "dead-signal"
+  /** Real audio, nobody spoke (or the model heard nothing to write). */
+  | "no-speech";
+
 export interface SpeechTranscript {
   text: string;
-  /** No speech was found in the hold — nothing was sent to the model. */
+  /** Nothing was transcribed; `silenceReason` says why. */
   silence: boolean;
+  /** Set exactly when `silence` is. */
+  silenceReason: SpeechSilenceReason | null;
   seconds: number;
   /** RMS of the whole hold, after the device's constant offset is removed. */
   level: number;
@@ -16,6 +28,12 @@ export interface SpeechTranscript {
   /** The constant offset the device added (signed). Normal microphones sit
    * at ~0; a large one means a faulty device or driver. */
   dcOffset: number;
+  /** The device the audio came from, as the OS names it. */
+  device: string;
+  /** The audio stopped arriving before the key was released — the device
+   * was unplugged or its stream died mid-hold; the text covers only the
+   * part that arrived. */
+  cutShort: boolean;
 }
 
 /** What the microphone measured in one moment of a capture (~30 per

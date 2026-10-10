@@ -5,6 +5,7 @@ import type {
 } from "@keepdeck/plugin-api";
 import { bestMatch } from "./fuzzy";
 import { normalize, parseCommand, type Intent } from "./grammar";
+import { describeCutShort, describeSilence } from "./holdWords";
 import type { VoiceModelInfo } from "./modelCatalog";
 
 /**
@@ -307,22 +308,15 @@ export function createVoiceController(
         });
         if (operation !== operationVersion) return;
 
+        const cutShort = describeCutShort(transcript);
         if (transcript.silence || !transcript.text) {
-          if (transcript.seconds > 0.3 && transcript.level < 0.0005) {
-            // A real duration at a dead-zero level is not a quiet user — the
-            // OS is delivering silence. Name the actual fix.
-            push(
-              "error",
-              `the microphone delivered silence (${transcript.seconds.toFixed(1)}s at level 0) — check System Settings → Privacy & Security → Microphone; in dev the permission belongs to the terminal that launched the app`,
-            );
-          } else {
-            push(
-              "info",
-              `didn't catch that (${transcript.seconds.toFixed(1)}s, level ${transcript.level.toFixed(3)})`,
-            );
-          }
+          // Audio that stopped arriving explains an empty hold better than
+          // "didn't catch that".
+          const line = cutShort ?? describeSilence(transcript);
+          push(line.tone, line.text);
         } else if (finished === "dictation") {
           push("heard", transcript.text);
+          if (cutShort) push(cutShort.tone, cutShort.text);
           if (!target) {
             push("error", "no agent was selected when dictation stopped");
             return;
@@ -341,6 +335,7 @@ export function createVoiceController(
           });
         } else {
           push("heard", transcript.text);
+          if (cutShort) push(cutShort.tone, cutShort.text);
           const parsed = parseCommand(transcript.text);
           if (!parsed) {
             push("info", "not a known command — try “create agent in <workspace>”");

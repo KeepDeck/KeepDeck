@@ -12,7 +12,7 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use keepdeck_voice::Utterance;
+use keepdeck_voice::Recording;
 
 use super::error::{VoiceError, VoiceErrorKind};
 
@@ -33,7 +33,7 @@ pub(super) struct ActiveCapture {
     pub(super) session: String,
     pub(super) started: Instant,
     pub(super) cmd_tx: Sender<CaptureCmd>,
-    pub(super) out_rx: Receiver<Option<Utterance>>,
+    pub(super) out_rx: Receiver<Option<Recording>>,
 }
 
 #[derive(Default)]
