@@ -497,10 +497,7 @@ fn run_download(
 
     if let Some(integrity) = request.integrity.as_ref() {
         emit(channel, &request.id, "verifying", *progress, None);
-        if let Err(error) = verify_integrity(&part, integrity, cancelled) {
-            let _ = remove_partial(&part, &part_metadata);
-            return Err(error);
-        }
+        verify_part(&part, &part_metadata, integrity, cancelled)?;
     }
     check_cancelled(cancelled)?;
 
@@ -771,6 +768,26 @@ fn write_partial_metadata(path: &Path, metadata: &PartialMetadata) -> Result<(),
     fs::write(path, bytes).map_err(|e| e.to_string())
 }
 
+/// Check a fully transferred part. A part that FAILS is corrupt and goes; a
+/// check that was CANCELLED says nothing about the bytes — the whole file
+/// stays, so the next Download resumes at "verifying" instead of
+/// re-transferring it (U-A3-01).
+fn verify_part(
+    part: &Path,
+    metadata: &Path,
+    integrity: &DownloadIntegrity,
+    cancelled: &AtomicBool,
+) -> Result<(), String> {
+    match verify_integrity(part, integrity, cancelled) {
+        Ok(()) => Ok(()),
+        Err(error) if error == CANCELLED => Err(error),
+        Err(error) => {
+            let _ = remove_partial(part, metadata);
+            Err(error)
+        }
+    }
+}
+
 fn remove_partial(part: &Path, metadata: &Path) -> Result<(), String> {
     match fs::remove_file(part) {
         Ok(()) => {}
@@ -1007,7 +1024,7 @@ fn unpack_tar_gz(
     if publish != staging {
         let _ = fs::remove_dir_all(staging);
     }
-    Ok(())
+    write_unpacked_manifest(target, expected_files)
 }
 
 /// Remove exactly `path` — file or directory — leaving its sidecars alone.
@@ -1136,14 +1153,56 @@ fn flatten_legacy_single_roots(models: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// Written into an unpacked archive's directory: each expected file's size
+/// as it was unpacked, one `size\tpath` per line. Without it an archive
+/// install was "every expected NAME exists" — an emptied or truncated model
+/// file still counted as installed (U-A3-06).
+const UNPACKED_MANIFEST: &str = ".keepdeck-unpacked";
+
+/// Whether `root` holds every expected file, whole: each exists and is not
+/// empty, and — when the unpack manifest is there — has the size it was
+/// unpacked with. (An install from before the manifest is held to the
+/// non-empty rule only.)
 fn holds_expected(root: &Path, expected_files: &[String]) -> Result<bool, String> {
+    let manifest = read_unpacked_manifest(root);
     for relative in expected_files {
-        let relative = safe_relative(relative)?;
-        if !root.join(relative).is_file() {
+        let path = root.join(safe_relative(relative)?);
+        let Ok(metadata) = fs::metadata(&path) else {
             return Ok(false);
+        };
+        if !metadata.is_file() || metadata.len() == 0 {
+            return Ok(false);
+        }
+        if let Some(sizes) = &manifest {
+            if sizes.get(relative.as_str()) != Some(&metadata.len()) {
+                return Ok(false);
+            }
         }
     }
     Ok(true)
+}
+
+fn read_unpacked_manifest(root: &Path) -> Option<std::collections::HashMap<String, u64>> {
+    let text = fs::read_to_string(root.join(UNPACKED_MANIFEST)).ok()?;
+    Some(
+        text.lines()
+            .filter_map(|line| {
+                let (size, path) = line.split_once('\t')?;
+                Some((path.to_owned(), size.parse().ok()?))
+            })
+            .collect(),
+    )
+}
+
+fn write_unpacked_manifest(root: &Path, expected_files: &[String]) -> Result<(), String> {
+    let mut text = String::new();
+    for relative in expected_files {
+        let len = fs::metadata(root.join(safe_relative(relative)?))
+            .map_err(|e| e.to_string())?
+            .len();
+        text.push_str(&format!("{len}\t{relative}\n"));
+    }
+    fs::write(root.join(UNPACKED_MANIFEST), text).map_err(|e| e.to_string())
 }
 
 pub(crate) fn target_path(relative: &str) -> Result<PathBuf, String> {
@@ -1776,5 +1835,67 @@ mod tests {
             .is_symlink());
         assert_eq!(fs::read(target.join("models.legacy-1")).unwrap(), b"legacy");
         assert!(fs::read_dir(outside).unwrap().next().is_none());
+    }
+
+    fn sha256(bytes: &[u8]) -> String {
+        format!("{:x}", Sha256::digest(bytes))
+    }
+
+    #[test]
+    fn a_cancelled_verification_keeps_the_whole_download() {
+        let temp = tempfile::tempdir().unwrap();
+        let part = temp.path().join("model.bin.part");
+        let meta = temp.path().join("model.bin.part.meta");
+        fs::write(&part, b"all the bytes").unwrap();
+        let integrity = DownloadIntegrity::Sha256 {
+            digest: sha256(b"all the bytes"),
+            bytes: None,
+        };
+        let cancelled = AtomicBool::new(true);
+        assert_eq!(
+            verify_part(&part, &meta, &integrity, &cancelled).unwrap_err(),
+            CANCELLED
+        );
+        assert!(part.is_file(), "a cancelled check must not cost the transfer");
+    }
+
+    #[test]
+    fn a_corrupt_download_is_removed() {
+        let temp = tempfile::tempdir().unwrap();
+        let part = temp.path().join("model.bin.part");
+        let meta = temp.path().join("model.bin.part.meta");
+        fs::write(&part, b"wrong bytes").unwrap();
+        let integrity = DownloadIntegrity::Sha256 {
+            digest: sha256(b"right bytes"),
+            bytes: None,
+        };
+        assert!(verify_part(&part, &meta, &integrity, &AtomicBool::new(false)).is_err());
+        assert!(!part.exists());
+    }
+
+    #[test]
+    fn an_archive_install_with_an_emptied_file_is_not_installed() {
+        let temp = tempfile::tempdir().unwrap();
+        let expected = vec!["vocab.txt".to_owned(), "model.onnx".to_owned()];
+        fs::write(temp.path().join("vocab.txt"), b"a b c").unwrap();
+        fs::write(temp.path().join("model.onnx"), b"").unwrap();
+        assert!(!holds_expected(temp.path(), &expected).unwrap());
+        fs::write(temp.path().join("model.onnx"), b"weights").unwrap();
+        assert!(
+            holds_expected(temp.path(), &expected).unwrap(),
+            "an install from before the manifest is held to non-empty"
+        );
+    }
+
+    #[test]
+    fn an_archive_install_whose_file_changed_size_is_not_installed() {
+        let temp = tempfile::tempdir().unwrap();
+        let expected = vec!["model.onnx".to_owned()];
+        fs::write(temp.path().join("model.onnx"), b"full weights").unwrap();
+        write_unpacked_manifest(temp.path(), &expected).unwrap();
+        assert!(holds_expected(temp.path(), &expected).unwrap());
+        // Truncated after the unpack.
+        fs::write(temp.path().join("model.onnx"), b"full").unwrap();
+        assert!(!holds_expected(temp.path(), &expected).unwrap());
     }
 }
