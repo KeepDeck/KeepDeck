@@ -128,15 +128,17 @@ export function canClear(phase: VoicePhase, historyLength: number): boolean {
 }
 
 /** The listening pill: hidden when idle; the live dot while the mic is
- * open. Whether its meter shows is the mic status's call (`showMeter`), the
- * same one the tab reads. */
+ * open, and the microphone recording once it is known. Whether its meter
+ * shows is the mic status's call (`showMeter`), the same one the tab reads. */
 export function pillView(
   phase: VoicePhase,
   mode: VoiceMode | null,
-): { visible: boolean; live: boolean; label: string | null } {
+  device: string | null,
+): { visible: boolean; live: boolean; label: string | null; device: string | null } {
   return {
     visible: phase !== "idle",
     live: phase === "listening",
     label: pillLabel(phase, mode),
+    device: phase === "listening" ? device : null,
   };
 }

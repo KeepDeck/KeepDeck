@@ -480,6 +480,14 @@
   pointer-events: none;
 }
 
+.voice-pill__device {
+  color: var(--kd-text-3);
+  white-space: nowrap;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .voice-pill__dot {
   width: 8px;
   height: 8px;

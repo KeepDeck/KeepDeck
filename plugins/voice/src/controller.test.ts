@@ -779,6 +779,31 @@ describe("createVoiceController", () => {
     expect(texts(controller)[0]).toEqual(["info", "too short — hold the key while you speak"]);
   });
 
+  it("a new press forgets the last device until its own capture opens", async () => {
+    type Capture = Awaited<ReturnType<PluginContext["services"]["speech"]["startCapture"]>>;
+    const host = createFakeHost({ manifest: fakeManifest("keepdeck.voice") });
+    const releases: ((c: Capture) => void)[] = [];
+    const controller = createVoiceController({
+      ...host.ctx,
+      services: {
+        ...host.ctx.services,
+        speech: {
+          ...host.ctx.services.speech,
+          startCapture: vi.fn(() => new Promise<Capture>((resolve) => releases.push(resolve))),
+        },
+      },
+    });
+    const first = controller.start("command");
+    releases[0](speechCapture({ device: "BY-PM700" }));
+    await first;
+    await controller.cancel();
+    const second = controller.start("command");
+    expect(controller.snapshot().device).toBeNull();
+    releases[1](speechCapture({ device: "MacBook Pro Microphone" }));
+    await second;
+    expect(controller.snapshot().device).toBe("MacBook Pro Microphone");
+  });
+
   it("a new press starts with no reading — the last hold's is not shown as live", async () => {
     const { controller, level } = setup(speechTranscript({ text: "close" }));
     await controller.start("command");

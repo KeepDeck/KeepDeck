@@ -95,8 +95,14 @@ describe("tab chrome decisions", () => {
   });
 
   it("the pill hides when idle; its live dot only while listening", () => {
-    expect(pillView("idle", null).visible).toBe(false);
-    expect(pillView("listening", "command")).toMatchObject({ visible: true, live: true });
-    expect(pillView("transcribing", "command")).toMatchObject({ visible: true, live: false });
+    expect(pillView("idle", null, null).visible).toBe(false);
+    expect(pillView("listening", "command", null)).toMatchObject({ visible: true, live: true });
+    expect(pillView("transcribing", "command", null)).toMatchObject({ visible: true, live: false });
+  });
+
+  it("the pill names the microphone recording, while it records", () => {
+    expect(pillView("listening", "dictation", "BY-PM700").device).toBe("BY-PM700");
+    expect(pillView("listening", "dictation", null).device).toBeNull(); // still opening
+    expect(pillView("transcribing", "dictation", "BY-PM700").device).toBeNull();
   });
 });

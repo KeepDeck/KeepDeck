@@ -330,6 +330,9 @@ export function createVoiceController(
       mode = m;
       level = 0;
       reading = null;
+      // Until this capture opens, the device it records from is unknown —
+      // the last capture's must not be shown as this one's.
+      device = null;
       readingAt = 0;
       notify();
       const pending = ctx.services.speech.startCapture((rms, next) => {
