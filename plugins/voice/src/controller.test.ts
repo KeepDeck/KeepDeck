@@ -565,6 +565,78 @@ describe("createVoiceController", () => {
     expect(controller.snapshot().phase).toBe("idle");
   });
 
+  it("closes a capture superseded while opening — release then press again", async () => {
+    type Capture = Awaited<ReturnType<PluginContext["services"]["speech"]["startCapture"]>>;
+    const host = createFakeHost({ manifest: fakeManifest("keepdeck.voice") });
+    const opens: { release: (c: Capture) => void; onLevel: (rms: number) => void }[] = [];
+    const controller = createVoiceController({
+      ...host.ctx,
+      services: {
+        ...host.ctx.services,
+        speech: {
+          ...host.ctx.services.speech,
+          startCapture: vi.fn(
+            (onLevel: (rms: number) => void) =>
+              new Promise<Capture>((resolve) => opens.push({ release: resolve, onLevel })),
+          ),
+        },
+      },
+    });
+    const first = { stop: vi.fn(), cancel: vi.fn(async () => {}) };
+    const second = { stop: vi.fn(), cancel: vi.fn(async () => {}) };
+
+    const firstStart = controller.start("command");
+    await controller.stop(); // released before the mic finished opening
+    const secondStart = controller.start("command");
+    opens[0].release(first);
+    opens[1].release(second);
+    await Promise.all([firstStart, secondStart]);
+
+    expect(first.cancel).toHaveBeenCalledOnce();
+    expect(second.cancel).not.toHaveBeenCalled();
+    expect(controller.snapshot().phase).toBe("listening");
+
+    // A late level from the superseded capture must not paint the live one.
+    opens[1].onLevel(0.2);
+    opens[0].onLevel(0.9);
+    expect(controller.snapshot().level).toBe(0.2);
+  });
+
+  it("cancels a pending start exactly once when cancel() and a new press race it", async () => {
+    type Capture = Awaited<ReturnType<PluginContext["services"]["speech"]["startCapture"]>>;
+    const host = createFakeHost({ manifest: fakeManifest("keepdeck.voice") });
+    const releases: ((c: Capture) => void)[] = [];
+    const controller = createVoiceController({
+      ...host.ctx,
+      services: {
+        ...host.ctx.services,
+        speech: {
+          ...host.ctx.services.speech,
+          startCapture: vi.fn(() => new Promise<Capture>((resolve) => releases.push(resolve))),
+        },
+      },
+    });
+    const first = { stop: vi.fn(), cancel: vi.fn(async () => {}) };
+
+    const firstStart = controller.start("command");
+    const closing = controller.cancel();
+    const secondStart = controller.start("command");
+    releases[0](first);
+    releases[1]({ stop: vi.fn(), cancel: vi.fn(async () => {}) });
+    await Promise.all([firstStart, closing, secondStart]);
+
+    expect(first.cancel).toHaveBeenCalledOnce();
+  });
+
+  it("ignores mic levels once the capture is no longer listening", async () => {
+    const { controller, level } = setup({ text: "close", silence: false });
+    await controller.start("command");
+    level()?.(0.3);
+    await controller.stop();
+    level()?.(0.9);
+    expect(controller.snapshot().level).toBe(0);
+  });
+
   it("feeds mic levels into the snapshot while listening", async () => {
     const { controller, level } = setup({ text: "close", silence: false });
     await controller.start("command");

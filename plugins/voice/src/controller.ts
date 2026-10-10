@@ -77,6 +77,9 @@ export function createVoiceController(
   let level = 0;
   let capture: SpeechCapture | null = null;
   let starting: Promise<SpeechCapture> | null = null;
+  // Starts whose capture `cancel()` has already undertaken to cancel — the
+  // start itself must not cancel it a second time when it resolves.
+  const cancelledStarts = new WeakSet<Promise<SpeechCapture>>();
   let transcribingCapture: SpeechCapture | null = null;
   let operationVersion = 0;
   let history: HistoryEntry[] = [];
@@ -218,11 +221,14 @@ export function createVoiceController(
     async start(m) {
       if (phase !== "idle") return;
       operationVersion += 1;
+      const operation = operationVersion;
       phase = "listening";
       mode = m;
       level = 0;
       notify();
       const pending = ctx.services.speech.startCapture((rms) => {
+        // A late level from an earlier capture must not paint this one.
+        if (operation !== operationVersion || phase !== "listening") return;
         level = rms;
         notify();
       });
@@ -230,6 +236,11 @@ export function createVoiceController(
       try {
         const started = await pending;
         if (starting !== pending) {
+          // Superseded while opening (released, then pressed again): nobody
+          // else holds this capture, so it is closed here or the mic leaks.
+          if (!cancelledStarts.has(pending)) {
+            await started.cancel().catch(() => {});
+          }
           return;
         }
         if (phase !== "listening") {
@@ -374,6 +385,7 @@ export function createVoiceController(
       } else if (activeCapture) {
         await activeCapture.cancel().catch(() => {});
       } else if (pending) {
+        cancelledStarts.add(pending);
         await pending.then((started) => started.cancel()).catch(() => {});
       }
     },
