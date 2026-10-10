@@ -1,8 +1,10 @@
 import { invoke, Channel } from "@tauri-apps/api/core";
 import type {
   SpeechCapture,
+  SpeechDevice,
   SpeechEngine,
   SpeechLevel,
+  SpeechStartOptions,
   SpeechTranscript,
 } from "@keepdeck/plugin-api";
 
@@ -37,21 +39,32 @@ export function voiceEngines(): Promise<SpeechEngine[]> {
   return invoke<SpeechEngine[]>("voice_engines");
 }
 
+export function voiceDevices(): Promise<SpeechDevice[]> {
+  return invokeVoice<SpeechDevice[]>("voice_devices");
+}
+
 export async function voiceCaptureStart(
   pluginId: string,
   onLevel: (rms: number, level: SpeechLevel) => void,
+  options: SpeechStartOptions = {},
 ): Promise<SpeechCapture> {
   const captureId = crypto.randomUUID();
   const channel = new Channel<SpeechLevel>();
   channel.onmessage = (level) => onLevel(level.rms, level);
-  await invokeVoice("voice_capture_start", {
-    captureId,
-    pluginId,
-    session: SESSION,
-    onLevel: channel,
-  });
+  const opened = await invokeVoice<{ device: string; deviceMissing: boolean }>(
+    "voice_capture_start",
+    {
+      captureId,
+      pluginId,
+      session: SESSION,
+      deviceId: options.deviceId ?? null,
+      onLevel: channel,
+    },
+  );
   let active = true;
   return {
+    device: opened.device,
+    deviceMissing: opened.deviceMissing,
     async stop(opts) {
       if (!active) throw new Error("speech capture is already closed");
       active = false;

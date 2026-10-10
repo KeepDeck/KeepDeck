@@ -294,7 +294,10 @@ export function createFakeHost(
       },
       speech: {
         engines: async () => ["whisper"],
+        devices: async () => [{ id: "fake:mic", name: "Test Microphone", isDefault: true }],
         startCapture: async () => ({
+          device: "Test Microphone",
+          deviceMissing: false,
           stop: async () => speechTranscript({ text: "", seconds: 0, level: 0 }),
           cancel: async () => {},
         }),

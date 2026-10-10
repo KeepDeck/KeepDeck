@@ -25,6 +25,9 @@ function levelChannel(): { onmessage: (value: unknown) => void } {
 
 const { speechError, voiceCaptureStart } = await import("./voice");
 
+/** What native answers a start with. */
+const OPENED = { device: "BY-PM700", deviceMissing: false };
+
 beforeEach(() => tauri.invoke.mockReset());
 
 describe("speechError", () => {
@@ -44,7 +47,7 @@ describe("speechError", () => {
 
 describe("voice commands", () => {
   it("every start from this page names the same session, so native can tell a reloaded page apart", async () => {
-    tauri.invoke.mockResolvedValue(undefined);
+    tauri.invoke.mockResolvedValue(OPENED);
     await voiceCaptureStart("keepdeck.voice", () => {});
     await voiceCaptureStart("keepdeck.voice", () => {});
     const starts = tauri.invoke.mock.calls.filter(([command]) => command === "voice_capture_start");
@@ -57,12 +60,32 @@ describe("voice commands", () => {
   });
 
   it("hands each native meter reading to the caller whole, RMS first", async () => {
-    tauri.invoke.mockResolvedValue(undefined);
+    tauri.invoke.mockResolvedValue(OPENED);
     const heard: unknown[][] = [];
     await voiceCaptureStart("keepdeck.voice", (...args) => heard.push(args));
     const reading = { rms: 0.1, peak: 0.9, clipped: false, dcOffset: 0.02 };
     levelChannel().onmessage(reading);
     expect(heard).toEqual([[0.1, reading]]);
+  });
+
+  it("asks native for the chosen device and reports what it opened", async () => {
+    tauri.invoke.mockResolvedValueOnce({ device: "MacBook Pro Microphone", deviceMissing: true });
+    const capture = await voiceCaptureStart("keepdeck.voice", () => {}, { deviceId: "coreaudio:usb" });
+    expect(tauri.invoke).toHaveBeenCalledWith(
+      "voice_capture_start",
+      expect.objectContaining({ deviceId: "coreaudio:usb" }),
+    );
+    expect(capture.device).toBe("MacBook Pro Microphone");
+    expect(capture.deviceMissing).toBe(true);
+  });
+
+  it("no choice asks native for the default", async () => {
+    tauri.invoke.mockResolvedValueOnce(OPENED);
+    await voiceCaptureStart("keepdeck.voice", () => {});
+    expect(tauri.invoke).toHaveBeenCalledWith(
+      "voice_capture_start",
+      expect.objectContaining({ deviceId: null }),
+    );
   });
 
   it("a refused start rejects with the native kind", async () => {
@@ -73,7 +96,7 @@ describe("voice commands", () => {
   });
 
   it("a failed stop rejects with the native kind", async () => {
-    tauri.invoke.mockResolvedValueOnce(undefined);
+    tauri.invoke.mockResolvedValueOnce(OPENED);
     const capture = await voiceCaptureStart("keepdeck.voice", () => {});
     tauri.invoke.mockRejectedValueOnce({ kind: "model-missing", message: "speech model is not downloaded" });
     const rejected = await capture

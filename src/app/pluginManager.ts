@@ -62,7 +62,7 @@ import { notify } from "./notificationCenter";
 import { makeExternalPlugin } from "../plugins/external/realmPlugin";
 import { capabilityFingerprint } from "../plugins/external/consent";
 import { openPath, openPathWith, openUrl } from "../ipc/app";
-import { voiceEngines, voiceCaptureStart } from "../ipc/voice";
+import { voiceDevices, voiceEngines, voiceCaptureStart } from "../ipc/voice";
 import { describeError, log } from "../ipc/log";
 import { createAgentBins } from "./plugins/agentBins";
 import {
@@ -419,8 +419,9 @@ export function createPluginManager(appDownloads: DownloadManager) {
     },
     speech: {
       engines: () => voiceEngines(),
-      startCapture: (pluginId, onLevel) =>
-        voiceCaptureStart(pluginId, (rms, level) => onLevel?.(rms, level)),
+      devices: () => voiceDevices(),
+      startCapture: (pluginId, onLevel, options) =>
+        voiceCaptureStart(pluginId, (rms, level) => onLevel?.(rms, level), options),
     },
     clipboard: {
       writeText: (text) => clipboardWriteText(text),

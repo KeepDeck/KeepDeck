@@ -87,7 +87,29 @@ export function speechErrorKind(error: unknown): SpeechErrorKind | null {
     : null;
 }
 
+/** One microphone the OS offers. */
+export interface SpeechDevice {
+  /** Stable across restarts and replugs — what a saved choice is kept as. */
+  id: string;
+  /** The name the OS shows ("MacBook Pro Microphone"). */
+  name: string;
+  /** The system's current default input. */
+  isDefault: boolean;
+}
+
+export interface SpeechStartOptions {
+  /** Record from this device (a `SpeechDevice.id`). Absent: the system
+   * default. A device that is not connected does NOT fail the start — the
+   * capture records from the default and says so in `deviceMissing`. */
+  deviceId?: string;
+}
+
 export interface SpeechCapture {
+  /** The name of the device this capture records from. */
+  readonly device: string;
+  /** A device was asked for but is not connected; this capture records
+   * from the system default instead. */
+  readonly deviceMissing: boolean;
   stop(opts: SpeechCaptureOptions): Promise<SpeechTranscript>;
   cancel(): Promise<void>;
 }
@@ -95,6 +117,12 @@ export interface SpeechCapture {
 export interface PluginSpeech {
   /** Engines compiled into this host build; carries no model catalog. */
   engines(): Promise<SpeechEngine[]>;
+  /** The microphones connected right now, default first — read on request,
+   * nothing is watched in the background. */
+  devices(): Promise<SpeechDevice[]>;
   /** The returned handle is the sole authority over this capture. */
-  startCapture(onLevel?: (rms: number, level: SpeechLevel) => void): Promise<SpeechCapture>;
+  startCapture(
+    onLevel?: (rms: number, level: SpeechLevel) => void,
+    options?: SpeechStartOptions,
+  ): Promise<SpeechCapture>;
 }

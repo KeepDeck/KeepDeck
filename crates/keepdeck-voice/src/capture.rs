@@ -59,6 +59,54 @@ impl StreamHealth {
     }
 }
 
+/// One microphone the OS offers.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InputDevice {
+    /// Stable across restarts and replugs (CoreAudio's DeviceUID) — what a
+    /// saved choice is kept as.
+    pub id: String,
+    /// The name the OS shows.
+    pub name: String,
+    pub is_default: bool,
+}
+
+/// Every input device the OS offers right now, default first.
+pub fn input_devices() -> Result<Vec<InputDevice>, CaptureError> {
+    let host = cpal::default_host();
+    let default_id = host.default_input_device().and_then(|d| d.id().ok());
+    let mut devices: Vec<InputDevice> = host
+        .input_devices()
+        .map_err(CaptureError::from_cpal)?
+        .filter_map(|device| {
+            let id = device.id().ok()?;
+            Some(InputDevice {
+                is_default: Some(&id) == default_id.as_ref(),
+                id: id.to_string(),
+                name: device_name(&device),
+            })
+        })
+        .collect();
+    devices.sort_by_key(|d| !d.is_default);
+    Ok(devices)
+}
+
+/// The device a capture opens: the one asked for when it is present,
+/// otherwise the system default — with `missing` saying the asked-for one was
+/// not there, so the caller can tell the user without refusing to record.
+fn choose<D>(
+    wanted: Option<&str>,
+    find: impl FnOnce(&str) -> Option<D>,
+    default: impl FnOnce() -> Option<D>,
+) -> Result<(D, bool), CaptureError> {
+    if let Some(id) = wanted {
+        if let Some(device) = find(id) {
+            return Ok((device, false));
+        }
+    }
+    let device = default().ok_or(CaptureError::NoInputDevice)?;
+    Ok((device, wanted.is_some()))
+}
+
 pub struct Recorder {
     // cpal's Stream is deliberately !Send; keeping it alive keeps capture
     // running, dropping it stops the device.
@@ -67,6 +115,7 @@ pub struct Recorder {
     conditioner: Arc<Mutex<Option<Conditioner>>>,
     health: Arc<StreamHealth>,
     device: String,
+    picked_missing: bool,
 }
 
 #[derive(Debug)]
@@ -114,13 +163,17 @@ fn device_name(device: &Device) -> String {
 impl std::error::Error for CaptureError {}
 
 impl Recorder {
-    /// Open the default input device and start capturing. The OS microphone
-    /// consent prompt (macOS TCC) fires on the first stream start.
-    pub fn start(levels: Option<LevelSender>) -> Result<Self, CaptureError> {
+    /// Open the device `wanted` names (an `InputDevice::id`), or the system
+    /// default when none is named or it is not connected, and start
+    /// capturing. The OS microphone consent prompt (macOS TCC) fires on the
+    /// first stream start.
+    pub fn start(wanted: Option<&str>, levels: Option<LevelSender>) -> Result<Self, CaptureError> {
         let host = cpal::default_host();
-        let device = host
-            .default_input_device()
-            .ok_or(CaptureError::NoInputDevice)?;
+        let (device, picked_missing) = choose(
+            wanted,
+            |id| host.device_by_id(&id.parse().ok()?),
+            || host.default_input_device(),
+        )?;
         let name = device_name(&device);
         let config = device
             .default_input_config()
@@ -160,7 +213,19 @@ impl Recorder {
             conditioner,
             health,
             device: name,
+            picked_missing,
         })
+    }
+
+    /// The name of the device being recorded from.
+    pub fn device(&self) -> &str {
+        &self.device
+    }
+
+    /// A device was asked for but was not connected — this capture is on the
+    /// system default instead.
+    pub fn picked_missing(&self) -> bool {
+        self.picked_missing
     }
 
     /// Stop capturing and return the whole utterance (clean, loudest
@@ -266,6 +331,43 @@ mod tests {
         assert_eq!(unit_floats(&[128u8, 0u8]), vec![0.0, -1.0]);
         assert_eq!(unit_floats(&[32_768u16]), vec![0.0]);
         assert_eq!(unit_floats(&[0.5f64]), vec![0.5]);
+    }
+
+    #[test]
+    fn the_chosen_device_is_opened_when_present() {
+        let (device, missing) = choose(
+            Some("usb"),
+            |id| Some(id.to_owned()),
+            || Some("builtin".into()),
+        )
+        .unwrap();
+        assert_eq!((device.as_str(), missing), ("usb", false));
+    }
+
+    #[test]
+    fn a_missing_choice_falls_back_to_the_default_and_says_so() {
+        let (device, missing) =
+            choose(Some("usb"), |_| None::<String>, || Some("builtin".into())).unwrap();
+        assert_eq!((device.as_str(), missing), ("builtin", true));
+    }
+
+    #[test]
+    fn no_choice_is_the_default_and_nothing_is_missing() {
+        let (device, missing) = choose(
+            None,
+            |_| -> Option<String> { panic!("no lookup without a choice") },
+            || Some("builtin".into()),
+        )
+        .unwrap();
+        assert_eq!((device.as_str(), missing), ("builtin", false));
+    }
+
+    #[test]
+    fn no_device_at_all_is_an_error() {
+        assert!(matches!(
+            choose(Some("usb"), |_| None::<String>, || None),
+            Err(CaptureError::NoInputDevice)
+        ));
     }
 
     #[test]

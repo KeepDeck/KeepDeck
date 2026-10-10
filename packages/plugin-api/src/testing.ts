@@ -17,7 +17,7 @@
  */
 
 import type { FsEntry, FsFile, PluginFs } from "./context/services.ts";
-import type { SpeechTranscript } from "./context/speech.ts";
+import type { SpeechCapture, SpeechTranscript } from "./context/speech.ts";
 
 /**
  * One `readFile` answer, as the fs service would give it.
@@ -176,5 +176,23 @@ export function speechTranscript(
     ...partial,
     silenceReason,
     silence: silenceReason !== null,
+  };
+}
+
+/**
+ * One capture handle, as `startCapture` would resolve it: recording from a
+ * connected test microphone unless told otherwise. Pass the `stop` / `cancel`
+ * a test scripts; an unscripted `stop` rejects, so a test cannot pass by
+ * accident on a transcript it never set up.
+ */
+export function speechCapture(partial: Partial<SpeechCapture> = {}): SpeechCapture {
+  return {
+    device: "Test Microphone",
+    deviceMissing: false,
+    stop: async () => {
+      throw new Error("speechCapture: stop was not scripted");
+    },
+    cancel: async () => {},
+    ...partial,
   };
 }

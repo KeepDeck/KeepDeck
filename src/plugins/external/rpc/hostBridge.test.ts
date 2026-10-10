@@ -6,7 +6,7 @@ import type {
   HostToGuestMessage,
   RpcResult,
 } from "./protocol";
-import { speechTranscript } from "@keepdeck/plugin-api/testing";
+import { speechTranscript, speechCapture } from "@keepdeck/plugin-api/testing";
 
 /**
  * Host-end tests driven with RAW protocol messages over a `MessageChannel` — no
@@ -81,7 +81,8 @@ function makeStub(): { ctx: PluginContext; infos: string[] } {
       },
       speech: {
         engines: async () => ["whisper"],
-        startCapture: async () => ({
+        devices: async () => [],
+        startCapture: async () => speechCapture({
           stop: async () => speechTranscript({ text: "", seconds: 0, level: 0 }),
           cancel: async () => {},
         }),
@@ -278,13 +279,18 @@ describe("createHostBridge", () => {
     let emitLevel: ((rms: number, level: SpeechLevel) => void) | undefined;
     ctx.services.speech.startCapture = vi.fn(async (onLevel) => {
       emitLevel = onLevel;
-      return { stop, cancel };
+      return speechCapture({ stop, cancel });
     });
     const { bridge, inbox, send, results } = driver(ctx);
 
     send({ kind: "call", id: 1, path: "services.speech.start", args: [7] });
     await flush();
-    expect(results()).toContainEqual({ kind: "result", id: 1, ok: true });
+    expect(results()).toContainEqual({
+      kind: "result",
+      id: 1,
+      ok: true,
+      value: { device: "Test Microphone", deviceMissing: false },
+    });
     // The whole reading crosses to the realm, not just the RMS.
     const reading = { rms: 0.4, peak: 1, clipped: true, dcOffset: 0.3 };
     emitLevel?.(0.4, reading);

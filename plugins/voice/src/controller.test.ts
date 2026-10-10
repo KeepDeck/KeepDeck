@@ -7,7 +7,7 @@ import {
 } from "../../../packages/plugin-guest/src/fakeHost";
 import { createVoiceController, MODEL_KEY } from "./controller";
 import { MODEL_CATALOG, type VoiceModelInfo } from "./modelCatalog";
-import { speechTranscript } from "@keepdeck/plugin-api/testing";
+import { speechTranscript, speechCapture } from "@keepdeck/plugin-api/testing";
 
 const installedModels = async (): Promise<VoiceModelInfo[]> =>
   MODEL_CATALOG.map((model) => ({ ...model, installed: true }));
@@ -43,7 +43,7 @@ function setup(transcript: SpeechTranscript, now: () => number = () => 42) {
         ...host.ctx.services.speech,
         startCapture: vi.fn(async (cb) => {
           onLevel = cb;
-          return { stop: stopCapture, cancel: cancelCapture };
+          return speechCapture({ stop: stopCapture, cancel: cancelCapture });
         }),
       },
     },
@@ -115,7 +115,7 @@ describe("createVoiceController", () => {
         ...host.ctx.services,
         speech: {
           ...host.ctx.services.speech,
-          startCapture: vi.fn(async () => ({
+          startCapture: vi.fn(async () => speechCapture({
             stop,
             cancel: vi.fn(async () => {}),
           })),
@@ -205,7 +205,7 @@ describe("createVoiceController", () => {
           ...host.ctx.services,
           speech: {
             ...host.ctx.services.speech,
-            startCapture: vi.fn(async () => ({
+            startCapture: vi.fn(async () => speechCapture({
               stop: stopCapture,
               cancel: vi.fn(async () => {}),
             })),
@@ -243,7 +243,7 @@ describe("createVoiceController", () => {
           ...host.ctx.services,
           speech: {
             ...host.ctx.services.speech,
-            startCapture: vi.fn(async () => ({
+            startCapture: vi.fn(async () => speechCapture({
               stop: stopCapture,
               cancel: vi.fn(async () => {}),
             })),
@@ -278,7 +278,7 @@ describe("createVoiceController", () => {
           ...host.ctx.services,
           speech: {
             ...host.ctx.services.speech,
-            startCapture: vi.fn(async () => ({
+            startCapture: vi.fn(async () => speechCapture({
               stop: stopCapture,
               cancel: vi.fn(async () => {}),
             })),
@@ -477,7 +477,7 @@ describe("createVoiceController", () => {
           ...host.ctx.services,
           speech: {
             ...host.ctx.services.speech,
-            startCapture: vi.fn(async () => ({
+            startCapture: vi.fn(async () => speechCapture({
               stop: vi.fn(),
               cancel,
             })),
@@ -515,7 +515,7 @@ describe("createVoiceController", () => {
 
     const start = controller.start("command");
     const closing = controller.cancel();
-    release({ stop: vi.fn(), cancel });
+    release(speechCapture({ stop: vi.fn(), cancel }));
     await Promise.all([start, closing]);
 
     expect(cancel).toHaveBeenCalledOnce();
@@ -539,8 +539,8 @@ describe("createVoiceController", () => {
         },
       },
     });
-    const first = { stop: vi.fn(), cancel: vi.fn(async () => {}) };
-    const second = { stop: vi.fn(), cancel: vi.fn(async () => {}) };
+    const first = speechCapture({ stop: vi.fn(), cancel: vi.fn(async () => {}) });
+    const second = speechCapture({ stop: vi.fn(), cancel: vi.fn(async () => {}) });
 
     const firstStart = controller.start("command");
     await controller.stop(); // released before the mic finished opening
@@ -573,13 +573,13 @@ describe("createVoiceController", () => {
         },
       },
     });
-    const first = { stop: vi.fn(), cancel: vi.fn(async () => {}) };
+    const first = speechCapture({ stop: vi.fn(), cancel: vi.fn(async () => {}) });
 
     const firstStart = controller.start("command");
     const closing = controller.cancel();
     const secondStart = controller.start("command");
     releases[0](first);
-    releases[1]({ stop: vi.fn(), cancel: vi.fn(async () => {}) });
+    releases[1](speechCapture({ stop: vi.fn(), cancel: vi.fn(async () => {}) }));
     await Promise.all([firstStart, closing, secondStart]);
 
     expect(first.cancel).toHaveBeenCalledOnce();
@@ -600,10 +600,10 @@ describe("createVoiceController", () => {
       },
     });
     let finishCancel!: () => void;
-    const first = {
+    const first = speechCapture({
       stop: vi.fn(),
       cancel: vi.fn(() => new Promise<void>((resolve) => (finishCancel = resolve))),
-    };
+    });
 
     const starting = controller.start("command");
     await controller.stop(); // released before the mic opened

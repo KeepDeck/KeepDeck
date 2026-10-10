@@ -17,7 +17,9 @@ pub mod parakeet;
 pub mod signal;
 
 pub use audio::{has_speech, normalize_loudness, resample, rms, WHISPER_SAMPLE_RATE};
-pub use capture::{level_channel, CaptureError, LevelSender, Recorder, Recording};
+pub use capture::{
+    input_devices, level_channel, CaptureError, InputDevice, LevelSender, Recorder, Recording,
+};
 pub use engine::{EngineError, WhisperEngine};
 pub use hold::{judge_hold, HoldJudgment, SilenceReason};
 pub use parakeet::ParakeetEngine;

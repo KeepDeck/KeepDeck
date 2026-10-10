@@ -14,8 +14,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use keepdeck_voice::{
-    has_speech, judge_hold, normalize_loudness, resample, rms, CaptureError, LevelReading,
-    ParakeetEngine, Recorder, Recording, SilenceReason, WhisperEngine, WHISPER_SAMPLE_RATE,
+    has_speech, input_devices, judge_hold, normalize_loudness, resample, rms, CaptureError,
+    InputDevice, LevelReading, ParakeetEngine, Recorder, Recording, SilenceReason, WhisperEngine,
+    WHISPER_SAMPLE_RATE,
 };
 use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
@@ -40,6 +41,47 @@ pub enum EngineType {
 #[tauri::command]
 pub fn voice_engines() -> Vec<&'static str> {
     vec!["whisper", "parakeet"]
+}
+
+/// One microphone on the wire — `SpeechDevice` in the plugin contract.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceDto {
+    id: String,
+    name: String,
+    is_default: bool,
+}
+
+impl From<InputDevice> for DeviceDto {
+    fn from(d: InputDevice) -> Self {
+        DeviceDto {
+            id: d.id,
+            name: d.name,
+            is_default: d.is_default,
+        }
+    }
+}
+
+/// The microphones the OS offers right now, default first. Read on request
+/// — nothing watches for changes in the background.
+#[tauri::command]
+pub async fn voice_devices() -> Result<Vec<DeviceDto>, VoiceError> {
+    tauri::async_runtime::spawn_blocking(input_devices)
+        .await
+        .map_err(|e| VoiceError::internal(e.to_string()))?
+        .map(|devices| devices.into_iter().map(DeviceDto::from).collect())
+        .map_err(VoiceError::from)
+}
+
+/// What a started capture is recording from — `SpeechCapture.device` /
+/// `deviceMissing` in the contract.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct StartedDto {
+    device: String,
+    /// The caller asked for a device that is not connected; this capture is
+    /// on the system default.
+    device_missing: bool,
 }
 
 fn resolve_model_path(plugin_id: &str, relative: &str) -> Result<PathBuf, VoiceError> {
@@ -117,9 +159,10 @@ pub async fn voice_capture_start(
     capture_id: String,
     plugin_id: String,
     session: String,
+    device_id: Option<String>,
     on_level: Channel<LevelDto>,
     state: tauri::State<'_, VoiceState>,
-) -> Result<(), VoiceError> {
+) -> Result<StartedDto, VoiceError> {
     permission::ensure_microphone().await?;
 
     if capture_id.trim().is_empty() || session.trim().is_empty() {
@@ -137,15 +180,18 @@ pub async fn voice_capture_start(
     let started = Instant::now();
     let (cmd_tx, cmd_rx) = channel::<CaptureCmd>();
     let (out_tx, out_rx) = channel::<Option<Recording>>();
-    let (ready_tx, ready_rx) = channel::<Result<(), CaptureError>>();
+    let (ready_tx, ready_rx) = channel::<Result<StartedDto, CaptureError>>();
     let (level_tx, level_rx) = keepdeck_voice::level_channel();
 
     // The recorder lives on this thread — cpal's stream is !Send. The OS mic
     // consent prompt fires on the first start.
     std::thread::spawn(move || {
-        let recorder = match Recorder::start(Some(level_tx)) {
+        let recorder = match Recorder::start(device_id.as_deref(), Some(level_tx)) {
             Ok(r) => {
-                let _ = ready_tx.send(Ok(()));
+                let _ = ready_tx.send(Ok(StartedDto {
+                    device: r.device().to_owned(),
+                    device_missing: r.picked_missing(),
+                }));
                 r
             }
             Err(e) => {
@@ -187,7 +233,7 @@ pub async fn voice_capture_start(
     // every other command queued on it), and under NO lock: holding the
     // capture slot across it would serialize every other capture operation
     // behind a wait that has nothing to do with them.
-    tauri::async_runtime::spawn_blocking(move || ready_rx.recv())
+    let opened = tauri::async_runtime::spawn_blocking(move || ready_rx.recv())
         .await
         .map_err(|e| VoiceError::internal(e.to_string()))?
         .map_err(|_| VoiceError::internal("capture thread died"))??;
@@ -208,7 +254,7 @@ pub async fn voice_capture_start(
         let _ = orphan.cmd_tx.send(CaptureCmd::Cancel);
         return Err(VoiceError::busy());
     }
-    Ok(())
+    Ok(opened)
 }
 
 /// One meter reading on the wire — `SpeechLevel` in the plugin contract.
@@ -501,6 +547,19 @@ mod tests {
         ))
         .unwrap();
         let mut ts = ts_interface_keys("SpeechTranscript");
+        ts.sort();
+        assert_eq!(json_keys(wire), ts);
+    }
+
+    #[test]
+    fn a_device_carries_exactly_the_contract_fields() {
+        let wire = serde_json::to_value(DeviceDto::from(InputDevice {
+            id: "coreaudio:BuiltInMicrophoneDevice".into(),
+            name: "MacBook Pro Microphone".into(),
+            is_default: false,
+        }))
+        .unwrap();
+        let mut ts = ts_interface_keys("SpeechDevice");
         ts.sort();
         assert_eq!(json_keys(wire), ts);
     }

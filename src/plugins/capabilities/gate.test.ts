@@ -7,7 +7,7 @@ import type {
   PluginSpawnOptions,
 } from "@keepdeck/plugin-api";
 import { createCapabilityGate, type ServiceBackends } from "./gate";
-import { speechTranscript } from "@keepdeck/plugin-api/testing";
+import { speechTranscript, speechCapture } from "@keepdeck/plugin-api/testing";
 
 const manifest = (capabilities: Capability[]): PluginManifest => ({
   id: "p",
@@ -41,7 +41,8 @@ function fakeBackend() {
     },
     speech: {
       engines: vi.fn(async () => ["whisper" as const]),
-      startCapture: vi.fn(async () => ({
+      devices: vi.fn(async () => []),
+      startCapture: vi.fn(async () => speechCapture({
         stop: vi.fn(async () => speechTranscript({ text: "", seconds: 0, level: 0 })),
         cancel: vi.fn(async () => {}),
       })),
@@ -964,5 +965,29 @@ describe("createCapabilityGate — exec.runOnce", () => {
 
     expect(() => gate.exec.runOnce(request)).toThrow(/exec/);
     expect(backend.exec.runOnce).not.toHaveBeenCalled();
+  });
+});
+
+describe("createCapabilityGate — speech", () => {
+  it("refuses the microphone list and a capture to a plugin without the mic capability", () => {
+    const { backend } = fakeBackend();
+    const gate = createCapabilityGate(manifest([]), backend, { diagnostics: "silent", log: fakeLog() });
+    expect(() => gate.speech.devices()).toThrow(/"mic" capability/);
+    expect(() => gate.speech.startCapture()).toThrow(/"mic" capability/);
+    expect(backend.speech.devices).not.toHaveBeenCalled();
+    expect(backend.speech.startCapture).not.toHaveBeenCalled();
+  });
+
+  it("passes the device choice through, under the plugin's own id", async () => {
+    const { backend } = fakeBackend();
+    const gate = createCapabilityGate(manifest([{ kind: "mic" }]), backend, {
+      diagnostics: "silent",
+      log: fakeLog(),
+    });
+    const onLevel = vi.fn();
+    await gate.speech.startCapture(onLevel, { deviceId: "coreaudio:usb" });
+    expect(backend.speech.startCapture).toHaveBeenCalledWith("p", onLevel, { deviceId: "coreaudio:usb" });
+    await gate.speech.devices();
+    expect(backend.speech.devices).toHaveBeenCalledOnce();
   });
 });

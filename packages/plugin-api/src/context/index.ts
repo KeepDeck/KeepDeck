@@ -178,10 +178,12 @@ export type {
   PluginSpeech,
   SpeechCapture,
   SpeechCaptureOptions,
+  SpeechDevice,
   SpeechEngine,
   SpeechErrorKind,
   SpeechLevel,
   SpeechSilenceReason,
+  SpeechStartOptions,
   SpeechTranscript,
 } from "./speech.ts";
 export { SPEECH_ERROR_KINDS, speechErrorKind } from "./speech.ts";

@@ -125,9 +125,11 @@ export interface ServiceBackends {
   };
   speech: {
     engines: PluginSpeech["engines"];
+    devices: PluginSpeech["devices"];
     startCapture(
       pluginId: string,
       onLevel?: Parameters<PluginSpeech["startCapture"]>[0],
+      options?: Parameters<PluginSpeech["startCapture"]>[1],
     ): ReturnType<PluginSpeech["startCapture"]>;
   };
   /** Text clipboard backend. No scope of its own — the gate admits each
@@ -438,12 +440,19 @@ export function createCapabilityGate(
         );
         return backend.speech.engines();
       },
-      startCapture(onLevel) {
+      devices() {
+        admit(
+          hasMicCapability(manifest.capabilities),
+          `speech.devices requires a "mic" capability, which the manifest does not declare`,
+        );
+        return backend.speech.devices();
+      },
+      startCapture(onLevel, options) {
         admit(
           hasMicCapability(manifest.capabilities),
           `speech.startCapture requires a "mic" capability, which the manifest does not declare`,
         );
-        return backend.speech.startCapture(manifest.id, onLevel);
+        return backend.speech.startCapture(manifest.id, onLevel, options);
       },
     },
     clipboard: {

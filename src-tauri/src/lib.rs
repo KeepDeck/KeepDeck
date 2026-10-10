@@ -301,6 +301,7 @@ pub fn run() {
             project_git::project_git_unwatch,
             sessions::session_spawn_context,
             voice::voice_engines,
+            voice::voice_devices,
             voice::voice_capture_start,
             voice::voice_capture_stop,
             voice::voice_capture_cancel,

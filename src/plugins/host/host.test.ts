@@ -15,7 +15,7 @@ import {
 import type { InstalledPlugin, PluginStatus } from "../model/installed";
 import type { PluginHostDeps } from "./deps";
 import { PluginHost } from "./host";
-import { speechTranscript } from "@keepdeck/plugin-api/testing";
+import { speechTranscript, speechCapture } from "@keepdeck/plugin-api/testing";
 
 const manifest = (
   id: string,
@@ -49,7 +49,8 @@ function fakeDeps() {
     },
     speech: {
       engines: vi.fn(async () => ["whisper" as const]),
-      startCapture: vi.fn(async () => ({
+      devices: vi.fn(async () => []),
+      startCapture: vi.fn(async () => speechCapture({
         stop: vi.fn(async () => speechTranscript({ text: "", seconds: 0, level: 0 })),
         cancel: vi.fn(async () => {}),
       })),
