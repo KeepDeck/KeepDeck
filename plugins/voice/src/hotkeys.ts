@@ -9,9 +9,8 @@ import { endsHold, pttMode, type Chord, type VoiceBindings } from "./binding";
  * to DICTATE into the focused pane; releasing a held key of that chord stops
  * and transcribes; Escape while holding cancels the hold, and while
  * transcribing discards the result (decision №8) — nothing is typed or run.
- * Handlers run in the CAPTURE
- * phase with preventDefault so the terminal never sees the chord (the
- * Shift+Enter keymap precedent).
+ * Handlers run in the CAPTURE phase with preventDefault so the terminal never
+ * sees the chord (the Shift+Enter keymap precedent).
  */
 export function installPttHotkeys(
   controller: VoiceController,

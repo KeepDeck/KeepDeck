@@ -143,8 +143,11 @@ describe("grammar vocabulary", () => {
       for (const rule of pack.rules) {
         const lead = rule.pattern.source.match(/^\^\(\?:([^)]+)\)/)?.[1] ?? rule.pattern.source.match(/^\^(\p{L}+)/u)?.[1];
         expect(lead, `${pack.locale}: ${rule.pattern.source}`).toBeTruthy();
+        // Whole words: "open" is in the vocabulary only as a word of one of
+        // its entries, never as a substring of another word.
+        const words = new Set(pack.vocabulary.flatMap((entry) => entry.split(" ")));
         for (const verb of lead!.split("|")) {
-          expect(pack.vocabulary.join(" "), `${pack.locale} vocabulary lacks "${verb}"`).toContain(verb);
+          expect(words.has(verb), `${pack.locale} vocabulary lacks "${verb}"`).toBe(true);
         }
       }
     }

@@ -8,6 +8,7 @@ import {
 import { createVoiceController } from "./controller";
 import { MODEL_KEY } from "./modelChoice";
 import { MIC_KEY } from "./microphone";
+import { commandVocabulary } from "./grammar";
 import { MODEL_CATALOG, type VoiceModelInfo } from "./modelCatalog";
 import { speechTranscript, speechCapture } from "@keepdeck/plugin-api/testing";
 
@@ -437,6 +438,15 @@ describe("createVoiceController", () => {
     expect(host.executedCommands.map((e) => e.id)).not.toContain("agent.spawn");
   });
 
+  it("tells the model every grammar pack's command words", async () => {
+    const { controller, stopCapture } = setup(speechTranscript({ text: "close" }));
+    await controller.start("command");
+    await controller.stop();
+    const prompt = (stopCapture.mock.calls[0] as unknown as [{ prompt: string }])[0].prompt;
+    for (const word of commandVocabulary()) expect(prompt).toContain(word);
+    expect(prompt).toContain("KeepDeck"); // and the deck's own names
+  });
+
   it("warns once about a distorting input and once about a cut-off hold", async () => {
     const { host, controller } = setup(
       speechTranscript({ text: "close", clippedRatio: 0.02, cutShort: true, seconds: 1, device: "BY-PM700" }),
@@ -767,6 +777,16 @@ describe("createVoiceController", () => {
     release(speechCapture());
     await starting;
     expect(texts(controller)[0]).toEqual(["info", "too short — hold the key while you speak"]);
+  });
+
+  it("a new press starts with no reading — the last hold's is not shown as live", async () => {
+    const { controller, level } = setup(speechTranscript({ text: "close" }));
+    await controller.start("command");
+    (level() as (rms: number, r: object) => void)(0.2, { rms: 0.2, peak: 0.5, clipped: false, dcOffset: 0 });
+    await controller.stop();
+    await controller.start("command");
+    expect(controller.snapshot().reading).toBeNull();
+    expect(controller.snapshot().readingAt).toBe(0);
   });
 
   it("keeps the whole meter reading and the last hold for the mic block", async () => {

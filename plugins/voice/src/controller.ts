@@ -330,6 +330,7 @@ export function createVoiceController(
       mode = m;
       level = 0;
       reading = null;
+      readingAt = 0;
       notify();
       const pending = ctx.services.speech.startCapture((rms, next) => {
         // A late level from an earlier capture must not paint this one.

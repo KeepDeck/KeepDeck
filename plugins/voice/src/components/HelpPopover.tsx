@@ -146,7 +146,7 @@ export function HelpPopover({
         focused agent, released = typed in
       </div>
       <div className="voice__help-row">
-        <kbd>Esc</kbd> while holding — cancel
+        <kbd>Esc</kbd> while holding — cancel; while transcribing — discard
       </div>
       <div className="voice__help-note">
         Commands are understood in English and Russian (examples are in
