@@ -569,12 +569,6 @@ export function createPluginManager(appDownloads: DownloadManager) {
         },
       }),
       ui: {
-        // Dock tab ids are namespaced `pluginId:entryId` — the same shape App
-        // builds when rendering the tab strip. The contract says "a no-op when
-        // the tab isn't registered": honored HERE, against the registry —
-        // otherwise the dock would open onto DockPanel's first-tab fallback
-        // (or onto nothing at all, leaving a phantom open flag).
-        revealDockTab: revealPluginDockTab,
         setOverlayVisible: (pluginId, entryId, visible) =>
           setOverlayVisibility(`${pluginId}:${entryId}`, visible),
         setOverlayCovers: (pluginId, entryId, covers) =>

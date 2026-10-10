@@ -10,7 +10,6 @@ import {
   useContributions,
   useInstalledPlugins,
 } from "../plugins/react";
-import { projectAgentFeatures } from "./agentCapabilities";
 import { useAppRuntime } from "./runtimeContext";
 
 // Last known per-bin install status. A remount seeds from it so consumers
@@ -92,7 +91,7 @@ function toAgentInfo(
     label: entry.label,
     icon: entry.icon,
     command: entry.detect.bin,
-    features: projectAgentFeatures(summary, entry),
+    features: summary.features,
     usageAvailable: entry.usage !== undefined,
     installed: status?.installed ?? true,
     path: status?.path ?? null,
@@ -113,6 +112,7 @@ function agentSummary(
       id: implementation.id,
       label: implementation.label,
       bin: implementation.detect.bin,
+      features: [],
     }
   );
 }

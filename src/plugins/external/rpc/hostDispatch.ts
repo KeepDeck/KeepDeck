@@ -253,8 +253,6 @@ export function createHostDispatch(
         }),
       );
     },
-    "ui.revealDockTab": ([id]) => ctx.ui.revealDockTab(id as string),
-
     // ---- notifications: fire-and-forget; the port behind ctx.notify does
     // ALL validation (capability, sanitize, rate limit) — the raw wire value
     // passes through as-is, exactly the unknown the port is built to eat ----
@@ -302,7 +300,6 @@ export function createHostDispatch(
         label,
         icon,
         detect,
-        supportsYolo,
         hookNames,
         hasHistory,
         hasListing,
@@ -412,9 +409,6 @@ export function createHostDispatch(
           label,
           icon: sanitizeAgentIcon(icon),
           detect,
-          // Strictly `true`, like every boolean off the wire — anything else
-          // from a hostile realm degrades to "no YOLO support".
-          ...(supportsYolo === true && { supportsYolo: true }),
           hooks,
           ...(history && { history }),
           ...(liveSessions && { liveSessions }),

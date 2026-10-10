@@ -117,9 +117,6 @@ export function createGuestContributions({
         void rpc.call("ui.setOverlayVisible", [id, visible]).catch(noop),
       setOverlayCovers: (id, covers) =>
         void rpc.call("ui.setOverlayCovers", [id, covers]).catch(noop),
-      // Fire-and-forget by contract (returns void) — a rejection has nowhere
-      // to land, and the host treats an unregistered tab as a no-op anyway.
-      revealDockTab: (id) => void rpc.call("ui.revealDockTab", [id]).catch(noop),
     },
 
     openers: {
@@ -175,8 +172,6 @@ export function createGuestContributions({
             label: agent.label,
             icon: agent.icon,
             detect: agent.detect,
-            // Sparse like the host's read: only a true declaration crosses.
-            ...(agent.supportsYolo === true && { supportsYolo: true }),
             hookNames: Object.keys(agent.hooks),
             ...(agent.history !== undefined && { hasHistory: true }),
             // Declared IFF the method really sits on the object — the

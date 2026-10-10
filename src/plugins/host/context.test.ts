@@ -98,7 +98,7 @@ function fakeDeps() {
     onPaneSelected: vi.fn(spyDisposable),
     onDeckChanged: vi.fn(spyDisposable),
   };
-  const ui = { revealDockTab: vi.fn(), setOverlayVisible: vi.fn(), setOverlayCovers: vi.fn() };
+  const ui = { setOverlayVisible: vi.fn(), setOverlayCovers: vi.fn() };
   const commandsPort = {
     register: vi.fn(spyDisposable),
     execute: vi.fn(async () => ({ ok: true, value: null }) as const),
@@ -192,13 +192,11 @@ describe("buildPluginContext", () => {
     });
   });
 
-  it("forwards revealDockTab and setOverlayVisible to the host UI port with the plugin's identity", () => {
+  it("forwards setOverlayVisible to the host UI port with the plugin's identity", () => {
     const registries = createContributionRegistries();
     const { deps, ui } = fakeDeps();
     const { ctx } = buildPluginContext(declaring("p"), "builtin", registries, deps);
 
-    ctx.ui.revealDockTab("t");
-    expect(ui.revealDockTab).toHaveBeenCalledWith("p", "t");
     ctx.ui.setOverlayVisible("viewer", false);
     expect(ui.setOverlayVisible).toHaveBeenCalledWith("p", "viewer", false);
   });
@@ -325,7 +323,7 @@ describe("buildPluginContext", () => {
       manifest("cli", {
         category: "cli",
         capabilities: [{ kind: "exec", commands: ["claude", "codex"] }],
-        contributes: { agents: [{ id: "claude", label: "Claude Code" }] },
+        contributes: { agents: [{ id: "claude", label: "Claude Code", features: [] }] },
       }),
       "builtin",
       registries,
@@ -354,7 +352,7 @@ describe("buildPluginContext", () => {
       manifest(id, {
         category: "cli",
         capabilities: [{ kind: "exec", commands: ["claude"] }],
-        contributes: { agents: [{ id: "claude", label: "Claude Code" }] },
+        contributes: { agents: [{ id: "claude", label: "Claude Code", features: [] }] },
       });
     const agent = {
       id: "claude",
@@ -514,7 +512,7 @@ describe("the agent-binary exec gate", () => {
     const { ctx } = buildPluginContext(
       manifest("cli", {
         category: "cli",
-        contributes: { agents: [{ id: "gemini", label: "Gemini" }] },
+        contributes: { agents: [{ id: "gemini", label: "Gemini", features: [] }] },
       }),
       "builtin",
       registries,
@@ -539,7 +537,7 @@ describe("the agent-binary exec gate", () => {
         category: "cli",
         capabilities: [{ kind: "exec", commands: ["gemini", "gemini-next"] }],
         contributes: {
-          agents: [{ id: "gemini", label: "Gemini", bin: "gemini" }],
+          agents: [{ id: "gemini", label: "Gemini", bin: "gemini", features: [] }],
         },
       }),
       "builtin",
@@ -568,8 +566,8 @@ describe("the agent-binary exec gate", () => {
         capabilities: [{ kind: "exec", commands: ["alpha", "beta", "gamma"] }],
         contributes: {
           agents: [
-            { id: "alpha", label: "Alpha", bin: "alpha" },
-            { id: "beta", label: "Beta", bin: "beta" },
+            { id: "alpha", label: "Alpha", bin: "alpha", features: [] },
+            { id: "beta", label: "Beta", bin: "beta", features: [] },
           ],
         },
       }),

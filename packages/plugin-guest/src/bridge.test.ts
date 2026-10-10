@@ -550,16 +550,6 @@ describe("external plugin bridge", () => {
     );
   });
 
-  it("revealDockTab crosses as fire-and-forget", async () => {
-    const { host, bridge, ctxReady } = wireCapturingCtx();
-    await bridge.activated;
-    const ctx = await ctxReady;
-
-    ctx.ui.revealDockTab("files");
-    await flush();
-    expect(host.revealedTabs).toEqual(["files"]);
-  });
-
   it("an external overlay crosses as an iframe document; visibility follows", async () => {
     const plugin: KeepDeckPlugin = {
       activate(ctx) {

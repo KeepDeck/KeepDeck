@@ -183,7 +183,6 @@ export function buildPluginContext(
         claim("overlays", overlay.id, () =>
           registries.overlays.add(pluginId, overlay),
         ),
-      revealDockTab: (id) => deps.ui.revealDockTab(pluginId, id),
       setOverlayVisible: (id, visible) => {
         // Same fail-closed gate as every contribution surface — and the one
         // route that could otherwise SEED a visibility key for an id the

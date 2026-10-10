@@ -51,8 +51,6 @@ export interface FakeHost {
   commandResults: Map<string, CommandResult>;
   /** Recorded `ctx.notify` calls, in order. */
   notifications: PluginNotifyInput[];
-  /** Recorded `ui.revealDockTab` calls, in order. */
-  revealedTabs: string[];
   /** Recorded `ui.setOverlayVisible` calls, in order. */
   overlayVisibility: [string, boolean][];
   /** Storage backing, so a test can inspect what a plugin persisted. */
@@ -141,7 +139,6 @@ export function createFakeHost(
   const executedCommands: { id: string; args: CommandArgs }[] = [];
   const notifications: PluginNotifyInput[] = [];
   const commandResults = new Map<string, CommandResult>();
-  const revealedTabs: string[] = [];
   const overlayVisibility: [string, boolean][] = [];
   const globalStore = new Map<string, unknown>();
   const workspaceStore = new Map<string, unknown>();
@@ -183,9 +180,6 @@ export function createFakeHost(
       registerTopBarAction: (action) => record(topBarActions, action),
       registerPaneAction: (action) => record(paneActions, action),
       registerOverlay: (overlay) => record(overlays, overlay),
-      revealDockTab: (id) => {
-        revealedTabs.push(id);
-      },
       setOverlayVisible: (id, visible) => {
         overlayVisibility.push([id, visible]);
       },
@@ -398,7 +392,6 @@ export function createFakeHost(
     executedCommands,
     notifications,
     commandResults,
-    revealedTabs,
     overlayVisibility,
     globalStore,
     workspaceStore,

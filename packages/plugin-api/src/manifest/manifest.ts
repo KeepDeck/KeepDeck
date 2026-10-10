@@ -73,8 +73,8 @@ export interface AgentContributionSummary extends ContributionSummary {
   bin?: string;
   /** Functional features this CLI integration provides. This is the ONE
    * support declaration: runtime contributions provide implementations, not
-   * another capability list. Absent is accepted only for legacy API floors. */
-  features?: AgentFeatureDeclaration[];
+   * another capability list. */
+  features: AgentFeatureDeclaration[];
 }
 
 /** One functional feature exposed by a CLI integration. Presence means
@@ -293,15 +293,6 @@ export function readManifest(value: unknown): ManifestResult {
     for (const kind of DECK_ONLY_KINDS) {
       if (contributes[kind])
         errors.push(`contributes.${kind}: a "cli" plugin contributes agents, not deck chrome`);
-    }
-    if (minApiVersion !== null && minApiVersion >= 30) {
-      for (const [index, agent] of (contributes.agents ?? []).entries()) {
-        if (agent.features === undefined) {
-          errors.push(
-            `contributes.agents[${index}].features: required for plugin API 30 and newer`,
-          );
-        }
-      }
     }
   } else if (contributes.agents) {
     errors.push(`contributes.agents: requires category "cli"`);
@@ -624,7 +615,7 @@ function readAgentSummaries(
     read.push({
       ...summary,
       ...(typeof bin === "string" ? { bin } : {}),
-      ...(features !== undefined ? { features } : {}),
+      features: features ?? [],
     });
   });
   return read.length > 0 ? read : undefined;
@@ -641,8 +632,11 @@ function readAgentFeatures(
   agentIndex: number,
   errors: string[],
 ): AgentFeatureDeclaration[] | undefined {
-  if (value === undefined) return undefined;
   const at = `contributes.agents[${agentIndex}].features`;
+  if (value === undefined) {
+    errors.push(`${at}: required`);
+    return undefined;
+  }
   if (!Array.isArray(value)) {
     errors.push(`${at}: must be an array`);
     return undefined;

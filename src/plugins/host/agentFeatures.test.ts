@@ -16,12 +16,12 @@ const feature = (
 });
 
 const summary = (
-  features?: AgentFeatureDeclaration[],
+  features: AgentFeatureDeclaration[],
 ): AgentContributionSummary => ({
   id: "example",
   label: "Example",
   bin: "example",
-  ...(features !== undefined ? { features } : {}),
+  features,
 });
 
 const implementation = (
@@ -87,26 +87,6 @@ describe("validateAgentFeatureImplementations", () => {
     ).toThrow(
       'fork.plan implementation requires manifest feature "session.fork"',
     );
-  });
-
-  it("rejects duplicate legacy declaration fields for featured manifests", () => {
-    expect(() =>
-      validateAgentFeatureImplementations(
-        summary([feature("execution.yolo")]),
-        implementation({ supportsYolo: true }),
-      ),
-    ).toThrow(
-      "runtime supportsYolo duplicates the manifest feature declaration",
-    );
-  });
-
-  it("retains the legacy contract only when no feature list exists", () => {
-    expect(() =>
-      validateAgentFeatureImplementations(
-        summary(),
-        implementation({ supportsYolo: true }),
-      ),
-    ).not.toThrow();
   });
 
   it("validates remote schemes before the host can use them", () => {

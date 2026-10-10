@@ -73,6 +73,39 @@ const plugins = vi.hoisted(() => {
   };
 });
 
+// The three built-in cli agents the dialog lists, and the installed plugin
+// that declares them: an agent's features come from its manifest, so the
+// registered agents need one to be startable.
+const { TEST_AGENTS, AGENTS_PLUGIN } = vi.hoisted(() => {
+  const TEST_AGENTS = [
+    { id: "claude", label: "Claude Code" },
+    { id: "codex", label: "Codex" },
+    { id: "opencode", label: "OpenCode" },
+  ];
+  return {
+    TEST_AGENTS,
+    AGENTS_PLUGIN: {
+      manifest: {
+        id: "test-plugin",
+        name: "Test agents",
+        version: "1.0.0",
+        minApiVersion: 30,
+        category: "cli",
+        capabilities: [],
+        contributes: {
+          agents: TEST_AGENTS.map(({ id, label }) => ({
+            id,
+            label,
+            bin: id,
+            features: [{ id: "session.new", label: "New sessions" }],
+          })),
+        },
+      },
+      status: { kind: "active" },
+    },
+  };
+});
+
 const runtime = vi.hoisted(() => ({
   registries: null as unknown as ReturnType<
     typeof import("../../plugins/registries/contributions").createContributionRegistries
@@ -85,12 +118,8 @@ vi.mock("../../app/runtimeContext", async () => {
   );
   const registries = createContributionRegistries();
   runtime.registries = registries;
-  for (const [id, label] of [
-    ["claude", "Claude Code"],
-    ["codex", "Codex"],
-    ["opencode", "OpenCode"],
-  ]) {
-    registries.agents.add("test-plugin", {
+  for (const { id, label } of TEST_AGENTS) {
+    registries.agents.add(AGENTS_PLUGIN.manifest.id, {
       id,
       label,
       detect: { bin: id },
@@ -134,6 +163,7 @@ export type { Settings } from "../../domain/settings";
 export const ipc = settingsIpc;
 export const agentsIpc = agents;
 export const pluginStore = plugins;
+export const agentsPlugin = AGENTS_PLUGIN;
 
 /** The contribution registries the mocked runtime hands the dialog — where a
  * test adds the section a plugin contributes.
@@ -179,12 +209,13 @@ export const blur = (el: HTMLElement) =>
   });
 
 /** A clean host for one test: the doubles' call history dropped, the settings
- * store and plugin list emptied, and a fresh React root to render into. */
+ * store reset, the plugin list down to the one declaring the test agents, and
+ * a fresh React root to render into. */
 export function dialogHost(): Root {
   settingsIpc.saveSettings.mockClear();
   agents.detectBins.mockClear();
   resetSettingsManager();
-  plugins.set([]);
+  plugins.set([AGENTS_PLUGIN]);
   document.body.innerHTML = "<div id='host'></div>";
   return createRoot(document.getElementById("host")!);
 }

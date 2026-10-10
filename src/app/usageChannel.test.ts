@@ -178,7 +178,6 @@ describe("createUsageChannel", () => {
         entry: {
           id: "claude",
           usage: {
-            capabilities: ["paneTelemetry", "accountLimits"],
             normalize: (_p, at) => reported(at),
           },
         },
@@ -188,7 +187,6 @@ describe("createUsageChannel", () => {
         entry: {
           id: "codex",
           usage: {
-            capabilities: ["paneTelemetry", "accountLimits"],
             normalize: (_p, at) => reported(at),
             tail: {
               watches: [],
@@ -549,7 +547,6 @@ describe("createUsageChannel", () => {
         entry: {
           id: "kimi",
           usage: {
-            capabilities: ["paneTelemetry", "accountLimits"],
             normalize: (_p, at) => reported(at),
             tail: { watches: [] },
             limits: {

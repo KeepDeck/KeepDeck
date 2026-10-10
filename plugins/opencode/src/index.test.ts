@@ -403,7 +403,6 @@ describe("opencode plugin hooks", () => {
 
   it("YOLO adds the skip-permissions flag on spawn and resume alike", async () => {
     const agent = activate("/App/resources/session-reporter.js");
-    expect(agent.supportsYolo).toBeUndefined();
 
     const spawn = output();
     await agent.hooks["spawn.plan"]!({ ...input, yolo: true }, spawn);
@@ -421,10 +420,6 @@ describe("opencode plugin hooks", () => {
       "-s",
       "ses_x",
     ]);
-  });
-
-  it("does not duplicate manifest remote support at runtime", () => {
-    expect(activate(null).remote).toBeUndefined();
   });
 
   it("on a nativeServer target, spawn/resume/fork become `attach <ep>` (drop -s/--fork)", async () => {
