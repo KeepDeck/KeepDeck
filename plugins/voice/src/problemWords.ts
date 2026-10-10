@@ -77,6 +77,12 @@ export function problemLine(words: ProblemWords): string {
   return words.body ? `${words.title} — ${words.body}` : words.title;
 }
 
+/** The history line for a press released before the microphone opened —
+ * nothing was recorded. */
+export function tooShortLine(): string {
+  return "too short — hold the key while you speak";
+}
+
 /** The history line for a hold where nobody spoke — not a problem, so no
  * alert; just what happened. */
 export function didNotCatchLine(seconds: number): string {

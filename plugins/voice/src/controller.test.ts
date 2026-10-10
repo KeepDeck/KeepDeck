@@ -709,6 +709,27 @@ describe("createVoiceController", () => {
     expect(controller.snapshot().level).toBe(0);
   });
 
+  it("a press released before the mic opened says it was too short", async () => {
+    type Capture = Awaited<ReturnType<PluginContext["services"]["speech"]["startCapture"]>>;
+    const host = createFakeHost({ manifest: fakeManifest("keepdeck.voice") });
+    let release!: (c: Capture) => void;
+    const controller = createVoiceController({
+      ...host.ctx,
+      services: {
+        ...host.ctx.services,
+        speech: {
+          ...host.ctx.services.speech,
+          startCapture: vi.fn(() => new Promise<Capture>((resolve) => (release = resolve))),
+        },
+      },
+    });
+    const starting = controller.start("command");
+    await controller.stop();
+    release(speechCapture());
+    await starting;
+    expect(texts(controller)[0]).toEqual(["info", "too short — hold the key while you speak"]);
+  });
+
   it("keeps the whole meter reading and the last hold for the mic block", async () => {
     const { controller, level } = setup(speechTranscript({ text: "close", dcOffset: 0.3 }));
     await controller.start("command");

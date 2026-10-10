@@ -4,9 +4,11 @@
  * match or nothing; a tie or a weak match returns null and the command is
  * refused with the transcript shown, never executed against a guess.
  */
-function canon(text: string): string {
-  return text.toLowerCase().replace(/\s+/g, " ").trim();
-}
+import { normalize } from "./grammar";
+/** The grammar's own normalisation: the spoken fragment arrives through it,
+ * so a candidate name must go through the same one or "O'Brien" never meets
+ * the "obrien" the grammar hands over. */
+const canon = normalize;
 
 /** Spaces dropped entirely — "web site" and "Website" are the same thing. */
 function packed(text: string): string {

@@ -17,7 +17,13 @@ import {
   START_PROBLEMS,
   type VoiceProblem,
 } from "./problems";
-import { didNotCatchLine, problemLine, problemWords, type ProblemWords } from "./problemWords";
+import {
+  didNotCatchLine,
+  problemLine,
+  problemWords,
+  tooShortLine,
+  type ProblemWords,
+} from "./problemWords";
 import type { VoiceModelInfo } from "./modelCatalog";
 
 /**
@@ -341,6 +347,9 @@ export function createVoiceController(
       const activeCapture = capture;
       capture = null;
       if (!activeCapture) {
+        // Released before the mic opened: nothing was recorded — say so
+        // rather than drop the press without a word.
+        push("info", tooShortLine());
         phase = "idle";
         mode = null;
         level = 0;
