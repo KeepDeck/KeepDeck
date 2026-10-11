@@ -826,7 +826,7 @@ describe("DeckStage — a maximized pane minimizes the rest", () => {
     );
 
   it("lists the panes a maximize hides in the tray, and empties when un-maximized", () => {
-    render({ viewByWs: { "ws-1": { focus: "pane-1" } } });
+    render({ viewByWs: { "ws-1": { focus: ["pane-1"] } } });
     expect(
       document
         .querySelector<HTMLElement>("[data-pane-id='pane-2']")!
@@ -841,7 +841,7 @@ describe("DeckStage — a maximized pane minimizes the rest", () => {
   });
 
   it("switches the spotlight when a maximize-hidden entry is restored (tray)", () => {
-    render({ viewByWs: { "ws-1": { focus: "pane-1" } } });
+    render({ viewByWs: { "ws-1": { focus: ["pane-1"] } } });
     openOverflow();
     expect(overflowItems()).toHaveLength(1);
     expect(overflowItems()[0].textContent).toContain("Codex 2");
@@ -869,7 +869,7 @@ describe("DeckStage — a maximized pane minimizes the rest", () => {
         "pane-2": { command: "codex", args: [], env: [] },
         "pane-3": { command: "codex", args: [], env: [] },
       },
-      viewByWs: { "ws-1": { focus: "pane-1", minimized: ["pane-2"] } },
+      viewByWs: { "ws-1": { focus: ["pane-1"], minimized: ["pane-2"] } },
     });
     expect(document.querySelector(".deck__tray-label")!.textContent).toBe(
       "Minimized · 2",
@@ -926,7 +926,7 @@ describe("DeckStage — status frames across layouts", () => {
 
   it("keeps a stage-filling grid pane's rim for attention alone", () => {
     // Maximized by hand.
-    render({ viewByWs: { "ws-1": { focus: "pane-1" } } });
+    render({ viewByWs: { "ws-1": { focus: ["pane-1"] } } });
     reportEdge("pane-1", { kind: "turn-start", at: 1 });
     expect(paneEl("pane-1").classList.contains("pane--frame-working")).toBe(
       false,

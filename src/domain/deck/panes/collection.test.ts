@@ -40,16 +40,16 @@ describe("removePane", () => {
 
 describe("resolveFocus", () => {
   it("returns the focused pane id when it's one of several panes", () => {
-    expect(resolveFocus(seed(3), "pane-2")).toBe("pane-2");
+    expect(resolveFocus(seed(3), ["pane-2"])).toBe("pane-2");
   });
 
   it("returns null for a solo pane — maximize is a no-op ([U1])", () => {
-    expect(resolveFocus(seed(1), "pane-1")).toBeNull();
+    expect(resolveFocus(seed(1), ["pane-1"])).toBeNull();
   });
 
   it("returns null when the focused id no longer matches any pane", () => {
     // The maximized pane was closed, leaving others behind.
-    expect(resolveFocus(seed(3), "pane-9")).toBeNull();
+    expect(resolveFocus(seed(3), ["pane-9"])).toBeNull();
   });
 
   it("returns null when nothing is focused", () => {
@@ -57,7 +57,7 @@ describe("resolveFocus", () => {
   });
 
   it("returns null for an empty workspace", () => {
-    expect(resolveFocus([], "pane-1")).toBeNull();
+    expect(resolveFocus([], ["pane-1"])).toBeNull();
   });
 });
 

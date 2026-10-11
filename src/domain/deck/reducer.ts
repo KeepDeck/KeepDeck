@@ -1,7 +1,6 @@
 import {
   paneAgentType,
   paneFrozenTitle,
-  resolveFocus,
   type Pane,
   type PaneSession,
 } from "./panes";
@@ -54,13 +53,17 @@ import type { DeckAction } from "./reducerActions";
 import {
   backToCards,
   hidePaneView,
+  liveSpotlights,
   setViewField,
+  toggledSpotlight,
   withDefaultSelection,
+  withSpotlight,
   type WorkspaceView,
 } from "./workspaceView";
 
 export type { DeckAction } from "./reducerActions";
 export type { WorkspaceView, WorkspaceViewMap } from "./workspaceView";
+export { spotlightOn } from "./workspaceView";
 
 /**
  * The deck's interdependent state: the workspaces, which one is active, and the
@@ -154,6 +157,19 @@ function withView(
   return viewByWs === state.viewByWs ? state : { ...state, viewByWs };
 }
 
+/** `viewByWs` with the maximize of `paneId`'s grid exited; every other
+ * team's spotlight stays. */
+function dropSpotlightOf(
+  state: DeckState,
+  viewByWs: Record<string, WorkspaceView>,
+  wsId: string,
+  paneId: string,
+): Record<string, WorkspaceView> {
+  const ws = findWorkspace(state.workspaces, wsId);
+  if (!ws) return viewByWs;
+  return setViewField(viewByWs, wsId, "focus", withSpotlight(ws, viewByWs[wsId]?.focus, paneId));
+}
+
 export function deckReducer(state: DeckState, action: DeckAction): DeckState {
   switch (action.type) {
     case "selectWorkspace": {
@@ -204,7 +220,12 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         stagePanes(ws, state.viewByWs[action.id]).some((pane) => pane.id === action.pane.id);
       if (onStage) {
         viewByWs = setViewField(viewByWs, action.id, "select", action.pane.id);
-        viewByWs = setViewField(viewByWs, action.id, "focus", undefined);
+        viewByWs = setViewField(
+          viewByWs,
+          action.id,
+          "focus",
+          withSpotlight(ws, viewByWs[action.id]?.focus, action.pane.id),
+        );
       }
       // A pane arriving WITH a session (journal resume) claims its record:
       // the reporter's later same-id re-report is a binding no-op, so this
@@ -233,7 +254,6 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
       const { wsId, paneId } = action;
       const panes = state.workspaces.find((w) => w.id === wsId)?.panes;
       const closing = panes?.find((p) => p.id === paneId);
-      const remaining = panes?.filter((p) => p.id !== paneId) ?? [];
       const workspaces = closeAgent(state.workspaces, wsId, paneId);
       // Seal the pane's journal record in the SAME transition that removes
       // the pane — the row's title freezes to what the header showed.
@@ -249,12 +269,13 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         : state.journal;
       const view = state.viewByWs[wsId];
       let viewByWs = state.viewByWs;
-      // Drop the maximize unless it still RESOLVES over the survivors — not
-      // only when the maximized pane itself was closed. A key left on a
-      // now-solo workspace is masked (solo never maximizes) but springs back
-      // on the NEXT added pane, rendering it hidden and invisible.
-      if (view?.focus !== undefined && resolveFocus(remaining, view.focus) === null) {
-        viewByWs = setViewField(viewByWs, wsId, "focus", undefined);
+      // Drop every maximize that no longer RESOLVES over the survivors — not
+      // only the closed pane's. A key left on a now-solo team is masked
+      // (solo never maximizes) but springs back on the NEXT added pane,
+      // rendering it hidden and invisible.
+      const survivorsWs = findWorkspace(workspaces, wsId);
+      if (view?.focus !== undefined && survivorsWs) {
+        viewByWs = setViewField(viewByWs, wsId, "focus", liveSpotlights(survivorsWs, view.focus));
       }
       // Move the highlight off the closed pane — to the first VISIBLE
       // survivor of the open team when one exists (a minimized survivor
@@ -267,8 +288,7 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
           ...(view?.minimized ?? []),
           ...(view?.suspendedTray ?? []),
         ]);
-        const after = findWorkspace(workspaces, wsId);
-        const survivors = after ? stagePanes(after, view) : [];
+        const survivors = survivorsWs ? stagePanes(survivorsWs, view) : [];
         const firstLive = survivors.find((p) => !hidden.has(p.id));
         viewByWs = setViewField(viewByWs, wsId, "select", (firstLive ?? survivors[0])?.id);
       }
@@ -323,10 +343,11 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
     }
     case "toggleFocus": {
       const { wsId, paneId } = action;
-      const current = state.viewByWs[wsId]?.focus;
+      const ws = findWorkspace(state.workspaces, wsId);
+      if (!ws) return state;
       return withView(
         state,
-        setViewField(state.viewByWs, wsId, "focus", current === paneId ? undefined : paneId),
+        setViewField(state.viewByWs, wsId, "focus", toggledSpotlight(ws, state.viewByWs[wsId]?.focus, paneId)),
       );
     }
     case "toggleMinimize": {
@@ -353,11 +374,11 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         "minimized",
         next.length > 0 ? next : undefined,
       );
-      // Restoring: highlight it where it reappears on the grid, and exit any
-      // maximize — a maximized OTHER pane would keep the restored one hidden
-      // the moment its chip disappears (the addAgentPane guard's reason).
+      // Restoring: highlight it where it reappears on the grid, and exit its
+      // grid's maximize — a maximized OTHER pane would keep the restored one
+      // hidden the moment its chip disappears (the addAgentPane guard's reason).
       viewByWs = setViewField(viewByWs, wsId, "select", paneId);
-      viewByWs = setViewField(viewByWs, wsId, "focus", undefined);
+      viewByWs = dropSpotlightOf(state, viewByWs, wsId, paneId);
       return withView(state, viewByWs);
     }
     case "restoreSuspendedPane": {
@@ -377,7 +398,7 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
       // hidden when Grid applies that marker.
       if (!view?.minimized?.includes(paneId)) {
         viewByWs = setViewField(viewByWs, wsId, "select", paneId);
-        viewByWs = setViewField(viewByWs, wsId, "focus", undefined);
+        viewByWs = dropSpotlightOf(state, viewByWs, wsId, paneId);
       }
       return withView(state, viewByWs);
     }
@@ -402,11 +423,8 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
       if (!onGrid.some((pane) => pane.id === view?.select)) {
         viewByWs = setViewField(viewByWs, wsId, "select", onGrid[0]?.id);
       }
-      // A spotlight on another team's pane would cover this team with a
-      // pane that is not laid out; one on this team's stays.
-      if (view?.focus !== undefined && !roster.some((pane) => pane.id === view.focus)) {
-        viewByWs = setViewField(viewByWs, wsId, "focus", undefined);
-      }
+      // Every team keeps its own spotlight (`WorkspaceView.focus`): the one
+      // this team was left with comes back, and the one just left waits.
       return withView(state, viewByWs);
     }
     case "closeTeam":

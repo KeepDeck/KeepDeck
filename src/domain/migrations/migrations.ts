@@ -71,8 +71,13 @@ export type MigrationOutcome =
  *       is kept (user): an older build opening a v12 file is not a path
  *       this ledger supports. The floor stays at 11 — such a build misreads
  *       nothing, it opens every workspace at its defaults.
+ *  13 — `view.focus` is a LIST: each team keeps its own maximize spotlight
+ *       (at most one per team) instead of one per workspace, so going to
+ *       another team and back finds it as it was left. The floor stays at
+ *       11: an older build reads no string there and opens the workspace
+ *       with nothing maximized — it loses the spotlight, misreads nothing.
  */
-export const DECK_STATE_VERSION = 12;
+export const DECK_STATE_VERSION = 13;
 /** The oldest reader that can still make sense of a current document. It was
  * held at 1 while every change was additive (v1→v4, v6→v10) or moved data an
  * old reader would merely lose rather than misread (v5's `run` retirement).
@@ -434,6 +439,24 @@ function migrateDeckFromV11toV12(doc: RawDoc): RawDoc {
   };
 }
 
+/**
+ * v12 → v13: a workspace's one `view.focus` pane id becomes the list of
+ * spotlights, holding that pane. Moved as stored — whether it still
+ * resolves is the reader's call; a view without a string focus passes
+ * through untouched.
+ */
+function migrateDeckFromV12toV13(doc: RawDoc): RawDoc {
+  const workspaces = doc.workspaces;
+  if (!Array.isArray(workspaces)) return doc;
+  return {
+    ...doc,
+    workspaces: workspaces.map((ws) => {
+      if (!isRecord(ws) || !isRecord(ws.view) || typeof ws.view.focus !== "string") return ws;
+      return { ...ws, view: { ...ws.view, focus: [ws.view.focus] } };
+    }),
+  };
+}
+
 const DECK_MIGRATIONS: Record<number, Migration> = {
   1: migrateDeckFromV1toV2,
   2: migrateDeckFromV2toV3,
@@ -446,6 +469,7 @@ const DECK_MIGRATIONS: Record<number, Migration> = {
   9: migrateDeckFromV9toV10,
   10: migrateDeckFromV10toV11,
   11: migrateDeckFromV11toV12,
+  12: migrateDeckFromV12toV13,
 };
 
 /**

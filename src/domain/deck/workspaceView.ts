@@ -1,9 +1,14 @@
+import { resolveFocus, type Pane } from "./panes";
 import { stagePanes } from "./stage";
 import type { Workspace } from "./workspaces";
 
 /** One workspace's sparse persisted and session-only UI state. */
 export interface WorkspaceView {
-  focus?: string;
+  /** The maximize spotlight of each team, by pane id — at most one per
+   * team, so going to another team and back finds the first one as it was
+   * left. Written only through `withSpotlight` / `toggledSpotlight`, which
+   * keep that one-per-team shape; read through `resolveFocus` over a grid. */
+  focus?: readonly string[];
   select?: string;
   dock?: boolean;
   dockTab?: string;
@@ -45,9 +50,8 @@ function isEmptyView(view: WorkspaceView): boolean {
 }
 
 /** The view back at a workspace's team cards: no team open, and nothing
- * highlighted — the cards level has no pane to highlight. The spotlight
- * is kept: it names a member of the team just left, and reopening that
- * team restores it, while opening another drops it. */
+ * highlighted — the cards level has no pane to highlight. The spotlights
+ * are kept: each team's comes back when that team is opened again. */
 export function backToCards(viewByWs: WorkspaceViewMap, wsId: string): WorkspaceViewMap {
   return setViewField(setViewField(viewByWs, wsId, "teamOpen", undefined), wsId, "select", undefined);
 }
@@ -84,8 +88,9 @@ export function hidePaneView(
   const next = current.includes(paneId) ? current : [...current, paneId];
   let result =
     next === current ? viewByWs : setViewField(viewByWs, wsId, field, next);
-  if (view?.focus === paneId) {
-    result = setViewField(result, wsId, "focus", undefined);
+  if (view?.focus?.includes(paneId)) {
+    const rest = view.focus.filter((id) => id !== paneId);
+    result = setViewField(result, wsId, "focus", rest.length > 0 ? rest : undefined);
   }
   const selected = view?.select;
   // Both placements hide a pane from the grid, so selection is repaired
@@ -118,4 +123,66 @@ export function withDefaultSelection(
   const first = workspace ? stagePanes(workspace, viewByWs[wsId])[0]?.id : undefined;
   if (viewByWs[wsId]?.select || !first) return viewByWs;
   return setViewField(viewByWs, wsId, "select", first);
+}
+
+/** The panes laid out on one grid with `paneId` — its team's members, the
+ * panes on no team being one group of their own. Null for no such pane. */
+function gridOf(ws: Pick<Workspace, "panes">, paneId: string): Pane[] | null {
+  const pane = ws.panes.find((candidate) => candidate.id === paneId);
+  if (!pane) return null;
+  const teamId = pane.team?.teamId;
+  return ws.panes.filter((candidate) => candidate.team?.teamId === teamId);
+}
+
+type Spotlights = readonly string[] | undefined;
+
+/** Undefined for no spotlight, and `focus` itself when `next` holds the
+ * same ids — so `setViewField` sees a no-op as one. */
+function settled(focus: Spotlights, next: readonly string[]): Spotlights {
+  if (focus !== undefined && next.length === focus.length && next.every((id, at) => focus[at] === id)) {
+    return focus;
+  }
+  return next.length > 0 ? next : undefined;
+}
+
+/** The pane maximized on `paneId`'s grid, or null. */
+export function spotlightOn(ws: Pick<Workspace, "panes">, focus: Spotlights, paneId: string): string | null {
+  const grid = gridOf(ws, paneId);
+  return grid ? resolveFocus(grid, focus) : null;
+}
+
+/** `focus` with the spotlight of `paneId`'s grid set to `next`, or dropped
+ * when `next` is absent; every other team's is kept. */
+export function withSpotlight(
+  ws: Pick<Workspace, "panes">,
+  focus: Spotlights,
+  paneId: string,
+  next?: string,
+): Spotlights {
+  const grid = gridOf(ws, paneId);
+  if (!grid) return focus;
+  const onGrid = new Set(grid.map((pane) => pane.id));
+  const others = (focus ?? []).filter((id) => !onGrid.has(id));
+  return settled(focus, next === undefined ? others : [...others, next]);
+}
+
+/** The maximize button: `paneId` takes its grid's spotlight, or gives it
+ * back when it already holds it. */
+export function toggledSpotlight(ws: Pick<Workspace, "panes">, focus: Spotlights, paneId: string): Spotlights {
+  const held = focus?.includes(paneId) ?? false;
+  return withSpotlight(ws, focus, paneId, held ? undefined : paneId);
+}
+
+/** The spotlights that still resolve over `ws`: each names a pane on a grid
+ * of more than one, once per grid — a key left on a now-solo team is masked
+ * on render but would spring back on the next pane added to it. */
+export function liveSpotlights(ws: Pick<Workspace, "panes">, focus: Spotlights): Spotlights {
+  if (focus === undefined) return undefined;
+  return settled(
+    focus,
+    focus.filter((id) => {
+      const grid = gridOf(ws, id);
+      return grid !== null && resolveFocus(grid, focus) === id;
+    }),
+  );
 }

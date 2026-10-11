@@ -107,7 +107,7 @@ describe("application controller", () => {
       ...initialDeckState,
       workspaces: [target],
       activeId: "ws-1",
-      viewByWs: { "ws-1": { select: "pane-1", focus: "pane-1" } },
+      viewByWs: { "ws-1": { select: "pane-1", focus: ["pane-1"] } },
     });
     const registry = createCommandRegistry();
     const { plugins, orchestrator } = dependencies();
@@ -138,7 +138,7 @@ describe("application controller", () => {
     });
     expect(deck.getSnapshot().viewByWs["ws-1"]).toEqual({
       select: "pane-2",
-      focus: "pane-2",
+      focus: ["pane-2"],
     });
     expect(focus.requestFocus).toHaveBeenCalledWith("pane-2");
   });

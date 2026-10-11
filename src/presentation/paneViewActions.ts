@@ -2,7 +2,7 @@ import type { PaneInputFocusPort } from "../app/paneInputFocusPort";
 import { createDeckActions } from "../app/deckActions";
 import type { DeckStore } from "../app/deckStore";
 import type { PaneViewPort } from "../app/paneViewPort";
-import { findPane, hiddenBy } from "../domain/deck";
+import { findPane, findWorkspace, hiddenBy, spotlightOn } from "../domain/deck";
 
 export interface PaneViewActions extends PaneViewPort {
   toggleMaximize(workspaceId: string, paneId: string): void;
@@ -46,7 +46,9 @@ export function createPaneViewActions(
       // Read again: restoring from either placement drops the maximize in the
       // reducer, and a spotlight decided from the earlier snapshot would bring
       // back a focus that was meant to go.
-      const maximized = deck.getSnapshot().viewByWs[workspaceId]?.focus;
+      const now = deck.getSnapshot();
+      const ws = findWorkspace(now.workspaces, workspaceId);
+      const maximized = ws ? spotlightOn(ws, now.viewByWs[workspaceId]?.focus, paneId) : null;
       if (maximized && maximized !== paneId) {
         // Preserve fullscreen semantics by switching its spotlight to the
         // addressed pane instead of silently dropping back to the grid.

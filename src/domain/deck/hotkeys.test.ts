@@ -271,13 +271,13 @@ describe("maximizeHotkeyTarget", () => {
 
   it("restores the maximized pane even when the selection points elsewhere", () => {
     expect(
-      maximizeHotkeyTarget(multi, "ws-1", v({ focus: "pane-1", select: "pane-2" })),
+      maximizeHotkeyTarget(multi, "ws-1", v({ focus: ["pane-1"], select: "pane-2" })),
     ).toEqual({ wsId: "ws-1", paneId: "pane-1" });
   });
 
   it("falls back to the selection when the focus entry is stale", () => {
     expect(
-      maximizeHotkeyTarget(multi, "ws-1", v({ focus: "pane-9", select: "pane-2" })),
+      maximizeHotkeyTarget(multi, "ws-1", v({ focus: ["pane-9"], select: "pane-2" })),
     ).toEqual({ wsId: "ws-1", paneId: "pane-2" });
   });
 
