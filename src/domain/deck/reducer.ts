@@ -53,17 +53,14 @@ import type { DeckAction } from "./reducerActions";
 import {
   backToCards,
   hidePaneView,
-  liveSpotlights,
   setViewField,
-  toggledSpotlight,
   withDefaultSelection,
-  withSpotlight,
   type WorkspaceView,
 } from "./workspaceView";
+import { liveSpotlights, toggledSpotlight, withSpotlight } from "./spotlights";
 
 export type { DeckAction } from "./reducerActions";
 export type { WorkspaceView, WorkspaceViewMap } from "./workspaceView";
-export { spotlightOn } from "./workspaceView";
 
 /**
  * The deck's interdependent state: the workspaces, which one is active, and the
@@ -157,17 +154,15 @@ function withView(
   return viewByWs === state.viewByWs ? state : { ...state, viewByWs };
 }
 
-/** `viewByWs` with the maximize of `paneId`'s grid exited; every other
- * team's spotlight stays. */
+/** `viewByWs` with the maximize of `paneId`'s grid in `ws` exited; every
+ * other team's spotlight stays. */
 function dropSpotlightOf(
-  state: DeckState,
   viewByWs: Record<string, WorkspaceView>,
-  wsId: string,
+  ws: Workspace | undefined,
   paneId: string,
 ): Record<string, WorkspaceView> {
-  const ws = findWorkspace(state.workspaces, wsId);
   if (!ws) return viewByWs;
-  return setViewField(viewByWs, wsId, "focus", withSpotlight(ws, viewByWs[wsId]?.focus, paneId));
+  return setViewField(viewByWs, ws.id, "focus", withSpotlight(ws, viewByWs[ws.id]?.focus, paneId));
 }
 
 export function deckReducer(state: DeckState, action: DeckAction): DeckState {
@@ -220,12 +215,7 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         stagePanes(ws, state.viewByWs[action.id]).some((pane) => pane.id === action.pane.id);
       if (onStage) {
         viewByWs = setViewField(viewByWs, action.id, "select", action.pane.id);
-        viewByWs = setViewField(
-          viewByWs,
-          action.id,
-          "focus",
-          withSpotlight(ws, viewByWs[action.id]?.focus, action.pane.id),
-        );
+        viewByWs = dropSpotlightOf(viewByWs, ws, action.pane.id);
       }
       // A pane arriving WITH a session (journal resume) claims its record:
       // the reporter's later same-id re-report is a binding no-op, so this
@@ -378,7 +368,7 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
       // grid's maximize — a maximized OTHER pane would keep the restored one
       // hidden the moment its chip disappears (the addAgentPane guard's reason).
       viewByWs = setViewField(viewByWs, wsId, "select", paneId);
-      viewByWs = dropSpotlightOf(state, viewByWs, wsId, paneId);
+      viewByWs = dropSpotlightOf(viewByWs, findWorkspace(state.workspaces, wsId), paneId);
       return withView(state, viewByWs);
     }
     case "restoreSuspendedPane": {
@@ -398,7 +388,7 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
       // hidden when Grid applies that marker.
       if (!view?.minimized?.includes(paneId)) {
         viewByWs = setViewField(viewByWs, wsId, "select", paneId);
-        viewByWs = dropSpotlightOf(state, viewByWs, wsId, paneId);
+        viewByWs = dropSpotlightOf(viewByWs, findWorkspace(state.workspaces, wsId), paneId);
       }
       return withView(state, viewByWs);
     }

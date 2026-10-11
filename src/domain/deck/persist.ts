@@ -2,7 +2,7 @@ import { emptyJournal } from "../journal";
 import type { DeckState, WorkspaceView } from "./reducer";
 import type { Pane, PaneIdle, WorktreeIntent } from "./panes";
 import { paneIdleIsDurable } from "./panes";
-import { liveSpotlights } from "./workspaceView";
+import { liveSpotlights } from "./spotlights";
 import type { Workspace } from "./workspaces";
 import { resolveActiveId, workspaceIdsAreUnique } from "./workspaces";
 import {

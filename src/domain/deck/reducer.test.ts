@@ -672,7 +672,7 @@ describe("deckReducer toggleMinimize", () => {
     // just vanishes.
     const next = deckReducer(
       state({
-        workspaces: [ws("a", ["a-1", "a-2", "a-3"])],
+        workspaces: [tws("a", ["a-1", "a-2", "a-3"])],
         activeId: "a",
         viewByWs: { a: { focus: ["a-1"], select: "a-1", minimized: ["a-3"] } },
       }),

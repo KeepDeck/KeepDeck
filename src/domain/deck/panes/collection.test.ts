@@ -43,6 +43,11 @@ describe("resolveFocus", () => {
     expect(resolveFocus(seed(3), ["pane-2"])).toBe("pane-2");
   });
 
+  it("answers the spotlight on this grid among other grids' ones", () => {
+    expect(resolveFocus(seed(3), ["other-1", "pane-3", "other-2"])).toBe("pane-3");
+    expect(resolveFocus(seed(3), ["other-1"])).toBeNull();
+  });
+
   it("returns null for a solo pane — maximize is a no-op ([U1])", () => {
     expect(resolveFocus(seed(1), ["pane-1"])).toBeNull();
   });
