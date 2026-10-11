@@ -254,9 +254,42 @@
   border: 1px dashed currentColor;
 }
 
+/* A whole split by status: each part exactly its share, never stretched,
+   so the bare track is what has not started; the hues are the rings'. */
+.status-bar {
+  display: inline-flex;
+  overflow: hidden;
+  border-radius: 999px;
+  background-color: var(--kd-seam);
+}
+
+.status-bar__part {
+  flex-grow: 0;
+  flex-shrink: 0;
+  height: 100%;
+  transition: flex-basis 300ms ease-out;
+}
+
+.status-bar__part--working {
+  background-color: var(--status-working);
+}
+
+.status-bar__part--waiting {
+  background-color: var(--status-waiting);
+}
+
+.status-bar__part--failed {
+  background-color: var(--status-failed);
+}
+
+.status-bar__part--done {
+  background-color: var(--status-done);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .progress-ring.status-ring,
-  .status-ring__bar {
+  .status-ring__bar,
+  .status-bar__part {
     transition: none;
   }
 }
