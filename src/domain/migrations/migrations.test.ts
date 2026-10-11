@@ -11,7 +11,7 @@ describe("migrateDeck — revision ladder + compatibility floor", () => {
   it("the deck + settings revisions are the expected values", () => {
     // Pin the bumps so a forgotten version bump (the r3 SETTINGS miss) fails
     // loudly rather than silently shrinking the ladder-loop's coverage.
-    expect(DECK_STATE_VERSION).toBe(12);
+    expect(DECK_STATE_VERSION).toBe(13);
     expect(SETTINGS_VERSION).toBe(27);
   });
 
@@ -48,10 +48,10 @@ describe("migrateDeck — revision ladder + compatibility floor", () => {
     expect(out).toEqual({
       kind: "ok",
       doc: {
-        version: 12,
+        version: 13,
         minVersion: 11,
         workspaces: [
-          { id: "ws-1", view: { focus: "pane-1", select: "pane-2" }, panes: [] },
+          { id: "ws-1", view: { focus: ["pane-1"], select: "pane-2" }, panes: [] },
           { id: "ws-2", view: { teamOpen: "team-2" }, panes: [] },
           { id: "ws-3", panes: [] },
           "not a workspace",
@@ -60,7 +60,35 @@ describe("migrateDeck — revision ladder + compatibility floor", () => {
     });
   });
 
-  it("keeps the deck floor at 11: an older build misreads nothing in a v12 file", () => {
+  it("v12 → v13 turns a workspace's one focus into the list of spotlights, and leaves every other view alone", () => {
+    const out = migrateDeck({
+      version: 12,
+      minVersion: 11,
+      workspaces: [
+        { id: "ws-1", view: { focus: "pane-1", select: "pane-2" } },
+        { id: "ws-2", view: { select: "pane-3" } },
+        { id: "ws-3", view: { focus: 7 } },
+        { id: "ws-4" },
+        "not a workspace",
+      ],
+    });
+    expect(out).toEqual({
+      kind: "ok",
+      doc: {
+        version: 13,
+        minVersion: 11,
+        workspaces: [
+          { id: "ws-1", view: { focus: ["pane-1"], select: "pane-2" } },
+          { id: "ws-2", view: { select: "pane-3" } },
+          { id: "ws-3", view: { focus: 7 } },
+          { id: "ws-4" },
+          "not a workspace",
+        ],
+      },
+    });
+  });
+
+  it("keeps the deck floor at 11: an older build misreads nothing in a v13 file", () => {
     expect(DECK_MIN_READER).toBe(11);
   });
 

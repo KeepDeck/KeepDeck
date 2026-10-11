@@ -102,12 +102,20 @@ describe("application controller", () => {
   });
 
   it("reveals a command-addressed pane before requesting its input focus", async () => {
-    const target = workspace();
+    // A maximize lives on a team's grid, so both panes are on one team.
+    const target: Workspace = {
+      ...workspace(),
+      teams: [{ id: "team-1", name: "team-1", location: { kind: "attached", cwd: "/repo" } }],
+      panes: [
+        { id: "pane-1", team: { teamId: "team-1", role: "lead" } },
+        { id: "pane-2", team: { teamId: "team-1", role: "impl-1" } },
+      ],
+    };
     const deck = createDeckStore({
       ...initialDeckState,
       workspaces: [target],
       activeId: "ws-1",
-      viewByWs: { "ws-1": { select: "pane-1", focus: "pane-1" } },
+      viewByWs: { "ws-1": { select: "pane-1", focus: ["pane-1"] } },
     });
     const registry = createCommandRegistry();
     const { plugins, orchestrator } = dependencies();
@@ -137,8 +145,9 @@ describe("application controller", () => {
       value: { workspaceId: "ws-1", paneId: "pane-2" },
     });
     expect(deck.getSnapshot().viewByWs["ws-1"]).toEqual({
+      teamOpen: "team-1",
       select: "pane-2",
-      focus: "pane-2",
+      focus: ["pane-2"],
     });
     expect(focus.requestFocus).toHaveBeenCalledWith("pane-2");
   });

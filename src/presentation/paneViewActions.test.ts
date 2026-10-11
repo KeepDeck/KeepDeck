@@ -56,7 +56,7 @@ describe("PaneViewActions", () => {
 
   it("requests terminal focus after every maximize transition", () => {
     const deck = deckWith({ select: "pane-1" });
-    const observedLayouts: Array<string | undefined> = [];
+    const observedLayouts: Array<readonly string[] | undefined> = [];
     const requestFocus = vi.fn(() =>
       observedLayouts.push(deck.getSnapshot().viewByWs["ws-1"]?.focus),
     );
@@ -67,11 +67,11 @@ describe("PaneViewActions", () => {
 
     expect(requestFocus).toHaveBeenCalledTimes(2);
     expect(requestFocus).toHaveBeenLastCalledWith("pane-1");
-    expect(observedLayouts).toEqual(["pane-1", undefined]);
+    expect(observedLayouts).toEqual([["pane-1"], undefined]);
   });
 
   it("switches maximize spotlight to an addressed hidden pane", () => {
-    const deck = deckWith({ select: "pane-1", focus: "pane-1" });
+    const deck = deckWith({ select: "pane-1", focus: ["pane-1"] });
     const actions = createPaneViewActions(deck, { requestFocus: vi.fn() });
 
     actions.revealPane("ws-1", "pane-2");
@@ -79,7 +79,22 @@ describe("PaneViewActions", () => {
     expect(deck.getSnapshot().viewByWs["ws-1"]).toEqual({
       teamOpen: "team-1",
       select: "pane-1",
-      focus: "pane-2",
+      focus: ["pane-2"],
+    });
+  });
+
+  it("a reveal into another team neither takes nor drops the spotlight the open team left", () => {
+    // pane-1 is team-1's spotlight, which says nothing about team-2's grid:
+    // pane-2 is revealed plain, and team-1 is still maximized to come back to.
+    const deck = deckWith({ select: "pane-1", focus: ["pane-1"] }, true);
+    const actions = createPaneViewActions(deck, { requestFocus: vi.fn() });
+
+    actions.revealPane("ws-1", "pane-2");
+
+    expect(deck.getSnapshot().viewByWs["ws-1"]).toEqual({
+      teamOpen: "team-2",
+      select: "pane-2",
+      focus: ["pane-1"],
     });
   });
 
@@ -118,7 +133,7 @@ describe("PaneViewActions", () => {
   it("removes every placement marker from an addressed pane", () => {
     const deck = deckWith({
       select: "pane-1",
-      focus: "pane-1",
+      focus: ["pane-1"],
       minimized: ["pane-2"],
       suspendedTray: ["pane-2"],
     });

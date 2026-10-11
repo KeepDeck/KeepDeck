@@ -88,7 +88,7 @@ describe("deckReducer closeAgent", () => {
       state({
         workspaces: [tws("a", ["a-1", "a-2"])],
         activeId: "a",
-        viewByWs: { a: open({ focus: "a-1", select: "a-1" }) },
+        viewByWs: { a: open({ focus: ["a-1"], select: "a-1" }) },
       }),
       { type: "closeAgent", wsId: "a", paneId: "a-1", at: "2026-01-01T00:00:00.000Z" },
     );
@@ -134,7 +134,7 @@ describe("deckReducer closeAgent", () => {
       state({
         workspaces: [tws("a", ["a-1", "a-2"])],
         activeId: "a",
-        viewByWs: { a: open({ focus: "a-2", select: "a-2" }) },
+        viewByWs: { a: open({ focus: ["a-2"], select: "a-2" }) },
       }),
       { type: "closeAgent", wsId: "a", paneId: "a-1", at: "2026-01-01T00:00:00.000Z" },
     );
@@ -147,11 +147,11 @@ describe("deckReducer closeAgent", () => {
       state({
         workspaces: [tws("a", ["a-1", "a-2", "a-3"])],
         activeId: "a",
-        viewByWs: { a: open({ focus: "a-2", select: "a-2" }) },
+        viewByWs: { a: open({ focus: ["a-2"], select: "a-2" }) },
       }),
       { type: "closeAgent", wsId: "a", paneId: "a-3", at: "2026-01-01T00:00:00.000Z" },
     );
-    expect(next.viewByWs).toEqual({ a: open({ focus: "a-2", select: "a-2" }) });
+    expect(next.viewByWs).toEqual({ a: open({ focus: ["a-2"], select: "a-2" }) });
   });
 });
 
@@ -194,18 +194,60 @@ describe("deckReducer openTeam / closeTeam", () => {
     expect(skipped.viewByWs).toEqual({ a: { teamOpen: "team-2", minimized: ["a-2"], select: "a-3" } });
   });
 
-  it("drops a spotlight on another team's pane and keeps one on this team's", () => {
-    const foreign = deckReducer(
-      state({ workspaces: [twoTeams()], activeId: "a", viewByWs: { a: { focus: "a-1", select: "a-1" } } }),
-      { type: "openTeam", wsId: "a", teamId: "team-2" },
-    );
-    expect(foreign.viewByWs).toEqual({ a: { teamOpen: "team-2", select: "a-2" } });
+  it("keeps each team's spotlight: going to another team and back finds it as it was left", () => {
+    // The bug: team-1's maximized lead came back as a plain grid.
+    const start = state({ workspaces: [twoTeams()], activeId: "a", viewByWs: { a: { teamOpen: "team-1", focus: ["a-1"], select: "a-1" } } });
+    const away = deckReducer(start, { type: "openTeam", wsId: "a", teamId: "team-2" });
+    expect(away.viewByWs).toEqual({ a: { teamOpen: "team-2", focus: ["a-1"], select: "a-2" } });
+    // Maximizing on team-2 is team-2's own: team-1's spotlight is not touched.
+    const both = deckReducer(away, { type: "toggleFocus", wsId: "a", paneId: "a-3" });
+    expect(both.viewByWs.a.focus).toEqual(["a-1", "a-3"]);
+    const back = deckReducer(both, { type: "openTeam", wsId: "a", teamId: "team-1" });
+    expect(back.viewByWs).toEqual({ a: { teamOpen: "team-1", focus: ["a-1", "a-3"], select: "a-1" } });
+    // And by way of the cards.
+    const cards = deckReducer(start, { type: "closeTeam", wsId: "a" });
+    expect(deckReducer(cards, { type: "openTeam", wsId: "a", teamId: "team-1" }).viewByWs.a.focus).toEqual(["a-1"]);
+  });
 
-    const own = deckReducer(
-      state({ workspaces: [twoTeams()], activeId: "a", viewByWs: { a: { focus: "a-3", select: "a-3" } } }),
-      { type: "openTeam", wsId: "a", teamId: "team-2" },
+  it("toggleFocus moves a team's spotlight between its own members and gives it back", () => {
+    const start = state({ workspaces: [twoTeams()], activeId: "a", viewByWs: { a: { teamOpen: "team-2", focus: ["a-1", "a-2"] } } });
+    const moved = deckReducer(start, { type: "toggleFocus", wsId: "a", paneId: "a-3" });
+    expect(moved.viewByWs.a.focus).toEqual(["a-1", "a-3"]);
+    const off = deckReducer(moved, { type: "toggleFocus", wsId: "a", paneId: "a-3" });
+    expect(off.viewByWs.a.focus).toEqual(["a-1"]);
+    // A pane the workspace does not have changes nothing.
+    expect(deckReducer(start, { type: "toggleFocus", wsId: "a", paneId: "a-9" })).toBe(start);
+  });
+
+  it("restoring a minimized pane exits its own team's maximize only", () => {
+    const next = deckReducer(
+      state({
+        workspaces: [twoTeams()],
+        activeId: "a",
+        viewByWs: { a: { teamOpen: "team-2", focus: ["a-1", "a-2"], minimized: ["a-3"] } },
+      }),
+      { type: "toggleMinimize", wsId: "a", paneId: "a-3" },
     );
-    expect(own.viewByWs).toEqual({ a: { teamOpen: "team-2", focus: "a-3", select: "a-3" } });
+    expect(next.viewByWs).toEqual({ a: { teamOpen: "team-2", focus: ["a-1"], select: "a-3" } });
+  });
+
+  it("closing a member drops the spotlight of a team left with one pane, and keeps another team's", () => {
+    // a-1 alone on team-1 is a stale key a hand edit could leave; a-2 is
+    // team-2's spotlight until a-3 goes and leaves it solo.
+    const next = deckReducer(
+      state({ workspaces: [twoTeams()], activeId: "a", viewByWs: { a: { teamOpen: "team-2", focus: ["a-2"] } } }),
+      { type: "closeAgent", wsId: "a", paneId: "a-3", at },
+    );
+    expect(next.viewByWs.a?.focus).toBeUndefined();
+    const kept = deckReducer(
+      state({
+        workspaces: [{ ...twoTeams(), panes: [...twoTeams().panes, { id: "a-4", team: { teamId: "team-1", role: "impl-1" } }] }],
+        activeId: "a",
+        viewByWs: { a: { teamOpen: "team-2", focus: ["a-1", "a-2"] } },
+      }),
+      { type: "closeAgent", wsId: "a", paneId: "a-3", at },
+    );
+    expect(kept.viewByWs.a?.focus).toEqual(["a-1"]);
   });
 
   it("refuses a team the workspace does not have, with the same state", () => {
@@ -260,7 +302,7 @@ describe("deckReducer closeWorkspace", () => {
       state({
         workspaces: [ws("a", ["a-1"]), ws("b", ["b-1", "b-2"])],
         activeId: "a",
-        viewByWs: { a: { focus: "a-1", select: "a-1" } },
+        viewByWs: { a: { focus: ["a-1"], select: "a-1" } },
       }),
       { type: "closeWorkspace", id: "a", at: "2026-01-01T00:00:00.000Z" },
     );
@@ -461,7 +503,7 @@ describe("deckReducer selection", () => {
       state({
         workspaces: [twoTeams()],
         activeId: "a",
-        viewByWs: { a: { teamOpen: "team-2", focus: "a-2", select: "a-2" } },
+        viewByWs: { a: { teamOpen: "team-2", focus: ["a-2"], select: "a-2" } },
       }),
       {
         type: "addAgentPane",
@@ -470,7 +512,7 @@ describe("deckReducer selection", () => {
       },
     );
     expect(next.workspaces[0].panes.map((p) => p.id)).toEqual(["a-1", "a-2", "a-3", "a-4"]);
-    expect(next.viewByWs).toEqual({ a: { teamOpen: "team-2", focus: "a-2", select: "a-2" } });
+    expect(next.viewByWs).toEqual({ a: { teamOpen: "team-2", focus: ["a-2"], select: "a-2" } });
   });
 
   it("addAgentPane exits a pre-existing maximize so the new pane is visible", () => {
@@ -478,7 +520,7 @@ describe("deckReducer selection", () => {
       state({
         workspaces: [tws("a", ["a-1"])],
         activeId: "a",
-        viewByWs: { a: open({ focus: "a-1" }) },
+        viewByWs: { a: open({ focus: ["a-1"] }) },
       }),
       {
         type: "addAgentPane",
@@ -586,7 +628,7 @@ describe("deckReducer toggleMinimize", () => {
       state({
         workspaces: [tws("a", ["a-1", "a-2"])],
         activeId: "a",
-        viewByWs: { a: open({ focus: "a-1", select: "a-1" }) },
+        viewByWs: { a: open({ focus: ["a-1"], select: "a-1" }) },
       }),
       { type: "toggleMinimize", wsId: "a", paneId: "a-1" },
     );
@@ -600,12 +642,12 @@ describe("deckReducer toggleMinimize", () => {
       state({
         workspaces: [ws("a", ["a-1", "a-2", "a-3"])],
         activeId: "a",
-        viewByWs: { a: { focus: "a-1", select: "a-1" } },
+        viewByWs: { a: { focus: ["a-1"], select: "a-1" } },
       }),
       { type: "toggleMinimize", wsId: "a", paneId: "a-2" },
     );
     expect(next.viewByWs).toEqual({
-      a: { focus: "a-1", select: "a-1", minimized: ["a-2"] },
+      a: { focus: ["a-1"], select: "a-1", minimized: ["a-2"] },
     });
   });
 
@@ -630,9 +672,9 @@ describe("deckReducer toggleMinimize", () => {
     // just vanishes.
     const next = deckReducer(
       state({
-        workspaces: [ws("a", ["a-1", "a-2", "a-3"])],
+        workspaces: [tws("a", ["a-1", "a-2", "a-3"])],
         activeId: "a",
-        viewByWs: { a: { focus: "a-1", select: "a-1", minimized: ["a-3"] } },
+        viewByWs: { a: { focus: ["a-1"], select: "a-1", minimized: ["a-3"] } },
       }),
       { type: "toggleMinimize", wsId: "a", paneId: "a-3" },
     );

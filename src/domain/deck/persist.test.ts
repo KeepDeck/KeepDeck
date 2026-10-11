@@ -63,7 +63,7 @@ const state: DeckState = {
   // Dock open on purpose: the round-trip must NOT carry it (session-only).
   journal: emptyJournal,
   viewByWs: {
-    "ws-2": { focus: "pane-3", select: "pane-3", dock: true, teamOpen: "team-1" },
+    "ws-2": { focus: ["pane-3"], select: "pane-3", dock: true, teamOpen: "team-1" },
   },
 };
 
@@ -126,9 +126,10 @@ describe("serializeDeck → hydrateDeck round-trip", () => {
   it("restores workspaces, view state and the active id", () => {
     expect(restored.state.activeId).toBe("ws-5");
     // Only the durable half (focus/select, and the team the stage had
-    // open) comes back; dock is session-only.
+    // open) comes back; dock is session-only. The spotlight is on a team of
+    // one, which never maximizes, so it is read as none.
     expect(restored.state.viewByWs).toEqual({
-      "ws-2": { focus: "pane-3", select: "pane-3", teamOpen: "team-1" },
+      "ws-2": { select: "pane-3", teamOpen: "team-1" },
     });
     expect(restored.state.workspaces.map((w) => w.id)).toEqual(["ws-2", "ws-5"]);
     const [pane, remote] = restored.state.workspaces[0].panes;
@@ -888,11 +889,11 @@ describe("a workspace's view, inside it (v12)", () => {
     JSON.stringify({ version: DECK_STATE_VERSION, minVersion: 11, activeId: "ws-1", ...top, workspaces });
 
   it("writes each workspace's durable view inside it, sparse — and no top-level map", () => {
-    const deck = okDeck(doc([ws("ws-1", { focus: "pane-ws-1-a", select: "pane-ws-1-b", teamOpen: "team-ws-1" }), ws("ws-2")]));
+    const deck = okDeck(doc([ws("ws-1", { focus: ["pane-ws-1-a"], select: "pane-ws-1-b", teamOpen: "team-ws-1" }), ws("ws-2")]));
     const saved = JSON.parse(
       serializeDeck({ ...deck.state, viewByWs: { ...deck.state.viewByWs, "ws-2": { dock: true, dockTab: "git", minimized: ["pane-ws-2-a"] } } }),
     );
-    expect(saved.workspaces[0].view).toEqual({ focus: "pane-ws-1-a", select: "pane-ws-1-b", teamOpen: "team-ws-1" });
+    expect(saved.workspaces[0].view).toEqual({ focus: ["pane-ws-1-a"], select: "pane-ws-1-b", teamOpen: "team-ws-1" });
     // Only session state: no view written at all.
     expect(saved.workspaces[1]).not.toHaveProperty("view");
     for (const map of ["focusByWs", "selectByWs", "teamOpenByWs"]) expect(saved).not.toHaveProperty(map);
@@ -901,17 +902,46 @@ describe("a workspace's view, inside it (v12)", () => {
   it("reads each workspace's view against what it holds — a pane or team it lacks is dropped, a focus that no longer resolves too", () => {
     const deck = okDeck(
       doc([
-        ws("ws-1", { focus: "pane-ws-2-a", select: "pane-ws-1-a", teamOpen: "team-gone" }),
-        ws("ws-2", { teamOpen: "team-ws-2", focus: "pane-ws-2-b", select: "pane-ws-1-a" }),
+        ws("ws-1", { focus: ["pane-ws-2-a"], select: "pane-ws-1-a", teamOpen: "team-gone" }),
+        ws("ws-2", { teamOpen: "team-ws-2", focus: ["pane-ws-2-b"], select: "pane-ws-1-a" }),
         ws("ws-3", "not a view"),
       ]),
     );
     expect(deck.state.viewByWs).toEqual({
       "ws-1": { select: "pane-ws-1-a" },
-      "ws-2": { teamOpen: "team-ws-2", focus: "pane-ws-2-b" },
+      "ws-2": { teamOpen: "team-ws-2", focus: ["pane-ws-2-b"] },
     });
-    const solo = okDeck(doc([{ ...ws("ws-1", { focus: "pane-ws-1-a" }), panes: [{ id: "pane-ws-1-a" }], teams: undefined }]));
+    const solo = okDeck(doc([{ ...ws("ws-1", { focus: ["pane-ws-1-a"] }), panes: [{ id: "pane-ws-1-a" }], teams: undefined }]));
     expect(solo.state.viewByWs).toEqual({});
+  });
+
+  it("keeps each team's spotlight across a restart, one per team, and drops one on a team of one", () => {
+    const twoTeams = {
+      ...ws("ws-1"),
+      teams: [
+        { id: "team-a", name: "a", cwd: "/a" },
+        { id: "team-b", name: "b", cwd: "/b" },
+        { id: "team-c", name: "c", cwd: "/c" },
+      ],
+      panes: [
+        { id: "a-1", team: { teamId: "team-a", role: "lead" } },
+        { id: "a-2", team: { teamId: "team-a", role: "impl-1" } },
+        { id: "b-1", team: { teamId: "team-b", role: "lead" } },
+        { id: "b-2", team: { teamId: "team-b", role: "impl-1" } },
+        { id: "c-1", team: { teamId: "team-c", role: "lead" } },
+      ],
+    };
+    // b-2 is a second spotlight on team-b, written by hand: the first stands.
+    const deck = okDeck(doc([{ ...twoTeams, view: { focus: ["a-2", "b-1", "b-2", "c-1", 7], teamOpen: "team-b" } }]));
+    expect(deck.state.viewByWs).toEqual({ "ws-1": { focus: ["a-2", "b-1"], teamOpen: "team-b" } });
+    expect(JSON.parse(serializeDeck(deck.state)).workspaces[0].view).toEqual({ focus: ["a-2", "b-1"], teamOpen: "team-b" });
+  });
+
+  it("takes a v12 file's one focus as that team's spotlight", () => {
+    const deck = okDeck(
+      JSON.stringify({ version: 12, minVersion: 11, activeId: "ws-1", workspaces: [ws("ws-1", { focus: "pane-ws-1-b" })] }),
+    );
+    expect(deck.state.viewByWs).toEqual({ "ws-1": { focus: ["pane-ws-1-b"] } });
   });
 
   it("carries a newer revision's view fields through a save, and drops session-only ones a hand edit wrote", () => {
@@ -943,7 +973,7 @@ describe("a workspace's view, inside it (v12)", () => {
       }),
     );
     expect(deck.state.viewByWs).toEqual({
-      "ws-1": { focus: "pane-ws-1-a", select: "pane-ws-1-b" },
+      "ws-1": { focus: ["pane-ws-1-a"], select: "pane-ws-1-b" },
       "ws-2": { select: "pane-ws-2-a", teamOpen: "team-ws-2" },
     });
     expect(deck.docExtras).toEqual({});

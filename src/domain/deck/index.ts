@@ -15,6 +15,7 @@ export * from "./persist";
 export * from "./stripDnd";
 export * from "./reducer";
 export * from "./runIntent";
+export * from "./spotlights";
 export * from "./stage";
 export * from "./teams";
 export * from "./workspaces";

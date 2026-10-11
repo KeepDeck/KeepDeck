@@ -26,7 +26,7 @@ describe("hiddenBy", () => {
   });
 
   it("does not count the maximize spotlight — a covered pane is still on the grid", () => {
-    const view: PaneVisibilityView = { focus: "pane-1" };
+    const view: PaneVisibilityView = { focus: ["pane-1"] };
     expect(hiddenBy(view, "pane-2")).toEqual([]);
   });
 });
@@ -42,7 +42,7 @@ describe("visiblePanes", () => {
     const panes = seed(4);
     expect(visiblePanes(panes, undefined)).toBe(panes);
     expect(visiblePanes(panes, { minimized: [] })).toBe(panes);
-    expect(visiblePanes(panes, { focus: "pane-1" })).toBe(panes);
+    expect(visiblePanes(panes, { focus: ["pane-1"] })).toBe(panes);
     // Ids that match nothing hide nothing, so the same array comes back;
     // and an empty deck is its own empty answer.
     expect(visiblePanes(panes, { minimized: ["pane-99"] })).toBe(panes);
@@ -82,17 +82,17 @@ describe("paneOnScreen", () => {
   });
 
   it("shows only the maximized pane", () => {
-    const view = { focus: "pane-1" };
+    const view = { focus: ["pane-1"] };
     expect(paneOnScreen(panes, view, "pane-1")).toBe(true);
     expect(paneOnScreen(panes, view, "pane-2")).toBe(false);
   });
 
   it("treats a stale maximize as no maximize", () => {
-    expect(paneOnScreen(panes, { focus: "pane-gone" }, "pane-2")).toBe(true);
+    expect(paneOnScreen(panes, { focus: ["pane-gone"] }, "pane-2")).toBe(true);
   });
 
   it("treats maximize on a solo pane as a no-op", () => {
-    expect(paneOnScreen(seed(1), { focus: "pane-1" }, "pane-1")).toBe(true);
+    expect(paneOnScreen(seed(1), { focus: ["pane-1"] }, "pane-1")).toBe(true);
   });
 
   it("applies suspended tray placement", () => {

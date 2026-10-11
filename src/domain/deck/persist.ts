@@ -1,7 +1,8 @@
 import { emptyJournal } from "../journal";
 import type { DeckState, WorkspaceView } from "./reducer";
 import type { Pane, PaneIdle, WorktreeIntent } from "./panes";
-import { paneIdleIsDurable, resolveFocus } from "./panes";
+import { paneIdleIsDurable } from "./panes";
+import { liveSpotlights } from "./spotlights";
 import type { Workspace } from "./workspaces";
 import { resolveActiveId, workspaceIdsAreUnique } from "./workspaces";
 import {
@@ -191,9 +192,9 @@ function storedView(view: WorkspaceView | undefined): Record<string, unknown> | 
 }
 
 /** A workspace's stored view, read against what the workspace holds: the
- * selection must name one of its panes, the focus (maximize) must also
- * still RESOLVE — a solo workspace is never maximized, and a stale key would
- * otherwise maximize the wrong pane as soon as a second pane is added — and
+ * selection must name one of its panes, each team's spotlight (maximize)
+ * must also still RESOLVE — a solo team is never maximized, and a stale key
+ * would otherwise maximize the wrong pane as soon as a second pane joins — and
  * the open team must be one of its teams; anything else is dropped, and the
  * stage shows its defaults. The folded epics are kept as written — the
  * board they name is not read yet; the list asks it. Undefined when
@@ -203,9 +204,10 @@ function readView(value: unknown, ws: Workspace): WorkspaceView | undefined {
   const paneIds = new Set(ws.panes.map((pane) => pane.id));
   const view: WorkspaceView = {};
   if (typeof value.select === "string" && paneIds.has(value.select)) view.select = value.select;
-  if (typeof value.focus === "string" && paneIds.has(value.focus) && resolveFocus(ws.panes, value.focus) === value.focus) {
-    view.focus = value.focus;
-  }
+  const focus = Array.isArray(value.focus)
+    ? liveSpotlights(ws, value.focus.filter((id): id is string => typeof id === "string"))
+    : undefined;
+  if (focus !== undefined) view.focus = focus;
   if (typeof value.teamOpen === "string" && teamsOf(ws).some((team) => team.id === value.teamOpen)) {
     view.teamOpen = value.teamOpen;
   }

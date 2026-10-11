@@ -42,7 +42,7 @@ describe("paneInFront", () => {
     expect(paneInFront(ws, { teamOpen: "team-2" }, "a-1")).toBe(false);
     expect(paneInFront(ws, { teamOpen: "team-2", minimized: ["a-2"] }, "a-2")).toBe(false);
     // A spotlight on a teammate covers it.
-    expect(paneInFront(ws, { teamOpen: "team-2", focus: "a-3" }, "a-2")).toBe(false);
+    expect(paneInFront(ws, { teamOpen: "team-2", focus: ["a-3"] }, "a-2")).toBe(false);
     // At the cards level nobody is in front.
     expect(paneInFront(ws, {}, "a-2")).toBe(false);
     expect(paneInFront(ws, undefined, "a-1")).toBe(false);

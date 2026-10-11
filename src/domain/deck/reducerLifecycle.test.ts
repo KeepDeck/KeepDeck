@@ -99,7 +99,7 @@ describe("deckReducer restore actions ([F7])", () => {
         workspaces: [idleWs],
         activeId: "ws-1",
         viewByWs: {
-          "ws-1": open({ focus: "pane-2", select: "pane-2" }),
+          "ws-1": open({ focus: ["pane-2"], select: "pane-2" }),
         },
       }),
       {

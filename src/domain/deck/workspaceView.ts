@@ -1,9 +1,12 @@
+import { withoutSpotlight } from "./spotlights";
 import { stagePanes } from "./stage";
 import type { Workspace } from "./workspaces";
 
 /** One workspace's sparse persisted and session-only UI state. */
 export interface WorkspaceView {
-  focus?: string;
+  /** The maximize spotlight of each team, by pane id — at most one per
+   * team (`spotlights.ts`, every writer's one home). */
+  focus?: readonly string[];
   select?: string;
   dock?: boolean;
   dockTab?: string;
@@ -45,9 +48,8 @@ function isEmptyView(view: WorkspaceView): boolean {
 }
 
 /** The view back at a workspace's team cards: no team open, and nothing
- * highlighted — the cards level has no pane to highlight. The spotlight
- * is kept: it names a member of the team just left, and reopening that
- * team restores it, while opening another drops it. */
+ * highlighted — the cards level has no pane to highlight. The spotlights
+ * are kept: each team's comes back when that team is opened again. */
 export function backToCards(viewByWs: WorkspaceViewMap, wsId: string): WorkspaceViewMap {
   return setViewField(setViewField(viewByWs, wsId, "teamOpen", undefined), wsId, "select", undefined);
 }
@@ -84,9 +86,7 @@ export function hidePaneView(
   const next = current.includes(paneId) ? current : [...current, paneId];
   let result =
     next === current ? viewByWs : setViewField(viewByWs, wsId, field, next);
-  if (view?.focus === paneId) {
-    result = setViewField(result, wsId, "focus", undefined);
-  }
+  result = setViewField(result, wsId, "focus", withoutSpotlight(view?.focus, paneId));
   const selected = view?.select;
   // Both placements hide a pane from the grid, so selection is repaired
   // against their union — the set this pane just joined, and the other one.
