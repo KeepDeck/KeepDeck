@@ -15,6 +15,7 @@
     "./ProgressRing": "./src/ProgressRing.tsx",
     "./StatusRing": "./src/StatusRing.tsx",
     "./StatusBar": "./src/StatusBar.tsx",
+    "./pictureProps": "./src/pictureProps.ts",
     "./Segmented": "./src/Segmented.tsx",
     "./DisclosureChevron": "./src/DisclosureChevron.tsx",
     "./icons": "./src/icons.tsx",

@@ -1,4 +1,5 @@
 import { ProgressRing } from "./ProgressRing";
+import { pictureProps } from "./pictureProps";
 
 /** A status's hue — the app's status vocabulary (status.css), plus none. */
 export type StatusRingTone = "working" | "waiting" | "failed" | "done" | "none";
@@ -26,9 +27,8 @@ export interface StatusRingProps {
  * decision 2026-10-04); a move along it eases — fill and hue glide.
  */
 export function StatusRing({ fill, tone, barred = false, dashed = false, label, decorative = false }: StatusRingProps) {
-  const named = decorative ? { "aria-hidden": true } : { role: "img", "aria-label": label, title: label };
   return (
-    <span className="status-ring-box" {...named}>
+    <span className="status-ring-box" {...pictureProps(label, decorative)}>
       <ProgressRing
         shape="pie"
         value={fill}

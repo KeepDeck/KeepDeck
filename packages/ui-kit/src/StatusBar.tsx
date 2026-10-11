@@ -1,4 +1,5 @@
 import type { StatusRingTone } from "./StatusRing";
+import { pictureProps } from "./pictureProps";
 
 /** One painted stretch of a bar: a status hue, and its share of the whole
  * track, 0–100. */
@@ -26,9 +27,8 @@ export interface StatusBarProps {
  * not yet started. A part keeps its node while its share moves, so it eases.
  */
 export function StatusBar({ parts, label, decorative = false, className }: StatusBarProps) {
-  const named = decorative ? { "aria-hidden": true } : { role: "img", "aria-label": label, title: label };
   return (
-    <span className={["status-bar", className].filter(Boolean).join(" ")} {...named}>
+    <span className={["status-bar", className].filter(Boolean).join(" ")} {...pictureProps(label, decorative)}>
       {parts.map((part) => (
         <span key={part.tone} className={`status-bar__part status-bar__part--${part.tone}`} style={{ flexBasis: `${part.share}%` }} />
       ))}
