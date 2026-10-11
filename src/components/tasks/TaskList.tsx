@@ -1,5 +1,6 @@
 import type { PointerEvent } from "react";
 import { DisclosureChevron } from "@keepdeck/ui-kit/DisclosureChevron";
+import { pictureProps } from "@keepdeck/ui-kit/pictureProps";
 import { StatusBar } from "@keepdeck/ui-kit/StatusBar";
 import { StatusRing } from "@keepdeck/ui-kit/StatusRing";
 import { VirtualList } from "@keepdeck/ui-kit/VirtualList";
@@ -272,9 +273,9 @@ export function TaskRowLine({
         ),
       )}
       {line.epic && (
-        <span className="tasks__epic-progress" title={line.epic.label}>
+        <span className="tasks__epic-progress" {...pictureProps(line.epic.label)}>
           <StatusBar parts={line.epic.parts} label={line.epic.label} decorative className="tasks__epic-bar" />
-          <span aria-label={line.epic.label}>{line.epic.count}</span>
+          {line.epic.count}
         </span>
       )}
       <span className="tasks__row-who">{line.assignee}</span>
