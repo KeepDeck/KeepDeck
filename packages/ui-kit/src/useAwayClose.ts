@@ -24,6 +24,25 @@ import { useEffect, useRef, type RefObject } from "react";
  * would have landed in one of them, and a menu and a select would have started
  * closing differently for no reason anyone chose.
  */
+/** How the user went somewhere: a press, or focus moving. */
+export type AwayKind = "pointer" | "focus";
+
+/**
+ * Whether an event at `target` has left the layer: it lands outside the
+ * anchor (`root`) and outside the portaled layer.
+ *
+ * One exception, for focus only: focus landing on a SHELL that holds the
+ * anchor — a modal overlay, say — has not left. WebKit on macOS gives a
+ * pressed button no focus, so pressing an option hands focus up to the
+ * nearest focusable ancestor, the overlay; judged away, the menu was gone
+ * before the click, and the pick was lost. A press on that same shell is
+ * still away: pressing the overlay's empty space closes the layer.
+ */
+export function isAway(kind: AwayKind, target: Node, root: Node | null, layer: Node | null): boolean {
+  if (root?.contains(target) || layer?.contains(target)) return false;
+  return !(kind === "focus" && root !== null && target.contains(root));
+}
+
 export function useAwayClose(
   open: boolean,
   close: () => void,
@@ -39,20 +58,16 @@ export function useAwayClose(
 
   useEffect(() => {
     if (!open) return;
-    const away = (event: Event) => {
-      const target = event.target as Node;
-      if (
-        !rootRef.current?.contains(target) &&
-        !layerRef.current?.contains(target)
-      ) {
-        closeRef.current();
-      }
+    const awayBy = (kind: AwayKind) => (event: Event) => {
+      if (isAway(kind, event.target as Node, rootRef.current, layerRef.current)) closeRef.current();
     };
-    window.addEventListener("pointerdown", away, true);
-    window.addEventListener("focusin", away, true);
+    const pressed = awayBy("pointer");
+    const focused = awayBy("focus");
+    window.addEventListener("pointerdown", pressed, true);
+    window.addEventListener("focusin", focused, true);
     return () => {
-      window.removeEventListener("pointerdown", away, true);
-      window.removeEventListener("focusin", away, true);
+      window.removeEventListener("pointerdown", pressed, true);
+      window.removeEventListener("focusin", focused, true);
     };
   }, [open, rootRef, layerRef]);
 }

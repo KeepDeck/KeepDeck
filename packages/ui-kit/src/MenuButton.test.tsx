@@ -191,6 +191,31 @@ describe("MenuButton", () => {
     expect(menu()).toBeNull();
   });
 
+  it("in a modal shell, runs what is pressed even when the press hands focus up to the shell", () => {
+    // As Dropdown's: WebKit hands a pressed item's focus to the overlay.
+    act(() => root.unmount());
+    const shell = document.body.appendChild(document.createElement("div"));
+    shell.className = "modal-overlay";
+    shell.tabIndex = -1;
+    host = shell.appendChild(document.createElement("div"));
+    root = createRoot(host);
+    const calls: string[] = [];
+    render({ actions: ACTIONS(calls) });
+    act(() => trigger().click());
+    const team = items()[1];
+    act(() => {
+      team.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+      shell.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+    });
+    expect(menu()).not.toBeNull();
+    act(() => team.click());
+    expect(calls).toEqual(["team"]);
+    expect(menu()).toBeNull();
+    act(() => trigger().click());
+    act(() => void shell.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true })));
+    expect(menu()).toBeNull();
+  });
+
   it("lets go when the keyboard leaves it", () => {
     render({ actions: ACTIONS([]) });
     act(() => trigger().click());
