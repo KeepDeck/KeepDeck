@@ -10,6 +10,7 @@
  * but for the one rule of an epic's family (`epicMoveProblem`).
  * A prohibition binds the act, never the channel.
  */
+import { sameIds } from "../idList";
 import {
   DEFAULT_PRIORITY,
   TASK_CAPS,
@@ -570,11 +571,6 @@ export function blockerLink(task: Task, other: Task, side: BlockerSide): { taskI
 /** The uids of the tasks named by `ids` — every one known (validated). */
 function uidsOf(board: TaskBoard, ids: readonly string[]): string[] {
   return ids.map((id) => findTask(board, id)!.uid);
-}
-
-/** Whether two key lists name the same tasks, in any order. */
-function sameIds(a: readonly string[], b: readonly string[]): boolean {
-  return a.length === b.length && a.every((id) => b.includes(id));
 }
 
 function logged(
