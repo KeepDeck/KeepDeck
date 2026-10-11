@@ -15,7 +15,7 @@ import {
   epicCandidates,
   epicMoveProblem,
   epicOf,
-  epicProgress,
+  epicCounts,
   issuable,
   isTaskPriority,
   labelsOf,
@@ -66,7 +66,7 @@ export interface StatusChoiceView extends ChoiceView {
  * two ways to add one. */
 export interface EpicSectionView {
   heading: string;
-  /** `2 of 5 done`, and the bar's fill (`epicMark`, the one owner). */
+  /** `2 of 5 done`, and the bar's parts (`epicMark`, the one owner). */
   progress: EpicMarkView;
   tasks: { id: string; title: string; ring: StatusRingProps; assignee: string; className: string }[];
   empty: string | null;
@@ -516,10 +516,9 @@ function epicTaskCandidates(epic: Task, board: TaskBoard): Task[] {
 
 function epicSection(epic: Task, board: TaskBoard): EpicSectionView {
   const tasks = tasksOfEpic(epic, board);
-  const progress = epicProgress(epic, board);
   return {
     heading: TASK_DETAIL_WORDS.epicTasks,
-    progress: epicMark(progress),
+    progress: epicMark(epicCounts(epic, board)),
     tasks: tasks.map((task) => ({
       id: task.id,
       title: task.title,
