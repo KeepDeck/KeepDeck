@@ -100,14 +100,21 @@ export function openWorkUnder(epic: Task, board: TaskBoard): Task[] {
   return tasksOfEpic(epic, board).filter((task) => isOpen(task.status));
 }
 
+/** How many of an epic's tasks stand in each status — its own status no
+ * part of it. Read from the board each time, never stored. */
+export function epicCounts(epic: Task, board: TaskBoard): StatusCounts {
+  return countByStatus(tasksOfEpic(epic, board));
+}
+
+/** An epic's progress from its tasks' counts: every open status is open
+ * work (`isOpen`), so the two can never classify a status apart. */
+export function progressOf(counts: StatusCounts): EpicProgress {
+  const open = TASK_STATUSES.filter(isOpen).reduce((sum, status) => sum + counts[status], 0);
+  return { done: counts.done, open, cancelled: counts.cancelled };
+}
+
 export function epicProgress(epic: Task, board: TaskBoard): EpicProgress {
-  const progress = { done: 0, open: 0, cancelled: 0 };
-  for (const task of tasksOfEpic(epic, board)) {
-    if (task.status === "done") progress.done += 1;
-    else if (task.status === "cancelled") progress.cancelled += 1;
-    else progress.open += 1;
-  }
-  return progress;
+  return progressOf(epicCounts(epic, board));
 }
 
 /** The labels a board's tasks carry, most used first (then by name) — the

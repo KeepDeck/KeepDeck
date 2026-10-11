@@ -3,12 +3,14 @@ import {
   awaitingDecision,
   compareQueue,
   countByStatus,
+  epicCounts,
   epicProgress,
   openWorkUnder,
   admitsOpenWork,
   issuable,
   keepTeams,
   labelsOf,
+  progressOf,
 } from "./board";
 import { openBlockersOf, unblocks } from "./relations";
 import { board, relation, task } from "./testSupport";
@@ -136,6 +138,30 @@ describe("epicProgress", () => {
     expect(epicProgress(b.tasks[0], b)).toEqual({ done: 2, open: 2, cancelled: 1 });
     // An epic with no tasks has come nowhere; work beside it is not its.
     expect(epicProgress(b.tasks[6], b)).toEqual({ done: 0, open: 0, cancelled: 0 });
+  });
+});
+
+describe("epicCounts / progressOf — an epic's tasks by status, and the progress they make", () => {
+  it("counts the epic's own tasks in each status — not its own, not work beside it", () => {
+    const b = board(
+      [
+        task({ id: "task-1", kind: "epic", status: "in-progress" }),
+        task({ id: "task-2", status: "done" }),
+        task({ id: "task-3", status: "blocked" }),
+        task({ id: "task-4", status: "blocked" }),
+        task({ id: "task-5", status: "cancelled" }),
+        task({ id: "task-6", status: "review" }),
+      ],
+      7,
+      ["task-2", "task-3", "task-4", "task-5"].map((id) => relation("child-of", id, "task-1")),
+    );
+    expect(epicCounts(b.tasks[0], b)).toEqual({ backlog: 0, todo: 0, "in-progress": 0, blocked: 2, review: 0, done: 1, cancelled: 1 });
+  });
+
+  it("makes every open status open work — parked and blocked too — done done, cancelled cancelled", () => {
+    const one = { backlog: 1, todo: 1, "in-progress": 1, blocked: 1, review: 1, done: 1, cancelled: 1 };
+    expect(progressOf(one)).toEqual({ done: 1, open: 5, cancelled: 1 });
+    expect(progressOf({ backlog: 2, todo: 3, "in-progress": 5, blocked: 7, review: 11, done: 13, cancelled: 17 })).toEqual({ done: 13, open: 28, cancelled: 17 });
   });
 });
 
