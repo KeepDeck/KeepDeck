@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { board, relation, task } from "../../domain/tasks/testSupport";
 import { newTaskFormView, NEW_TASK_WORDS } from "./newTaskFormView";
-import { statusMark, statusRing } from "./taskRowView";
+import { listView } from "./listView";
+import { NO_QUERY } from "./queryView";
+import { statusMark, statusRing, taskRowView } from "./taskRowView";
 import { TASK_DETAIL_WORDS, changesOf, pickedPriority, commentsOf, menuActionDisabled, renamedTitle, pickedStatus, taskDetailClassName, taskDetailView } from "./taskDetailView";
 import { FIELD_WORDS, POOL_CHOICE } from "./words";
 
@@ -124,6 +126,31 @@ describe("taskDetailView — an epic and its tasks", () => {
       [relation("child-of", "task-2", "task-1"), relation("child-of", "task-3", "task-1")],
     );
 
+  it("an epic's card and its row say the same progress — after a move, and with the list filtered or the epic folded", () => {
+    const tasks = [
+      task({ id: "task-1", kind: "epic" }),
+      task({ id: "task-2", status: "done" }),
+      task({ id: "task-3", status: "review" }),
+      task({ id: "task-4", status: "blocked" }),
+    ];
+    const links = ["task-2", "task-3", "task-4"].map((id) => relation("child-of", id, "task-1"));
+    const before = board(tasks, 5, links);
+    const after = board(tasks.map((t) => (t.id === "task-3" ? { ...t, status: "done" as const } : t)), 5, links);
+    for (const b of [before, after]) {
+      const card = taskDetailView(b.tasks[0], b, ROSTER, NOW).epic?.progress;
+      expect(taskRowView(b.tasks[0], b, NOW).epic).toEqual(card);
+      // The list shows the epic over only some of its tasks, or folded: it still counts all of them.
+      const shown = listView([b.tasks[0], b.tasks[1]], b, NOW, NO_QUERY, new Set(), null, new Set(["uid-task-1"]));
+      const row = shown.find((item) => item.kind === "row" && item.line.id === "task-1");
+      expect(row?.kind === "row" && row.line.epic).toEqual(card);
+    }
+    expect(taskDetailView(after.tasks[0], after, ROSTER, NOW).epic?.progress).toMatchObject({
+      count: "2/3",
+      parts: [{ tone: "done", share: 200 / 3 }, { tone: "failed", share: 100 / 3 }],
+      label: "2 of 3 tasks done — 1 blocked",
+    });
+  });
+
   it("an epic's card: its chip, its tasks and progress, the adds — and no epic of its own", () => {
     const b = family();
     const view = taskDetailView(b.tasks[0], b, ROSTER, NOW);
@@ -131,7 +158,7 @@ describe("taskDetailView — an epic and its tasks", () => {
     expect(view.parent).toBeNull();
     expect(view.epic).toMatchObject({
       heading: "Tasks of the epic",
-      progress: { count: "0/1", fill: 0, summary: "0 of 1 done" },
+      progress: { count: "0/1", parts: [], label: "0 of 1 tasks done — 1 to do", summary: "0 of 1 done" },
       empty: null,
       addNew: "New task in the epic",
       addExisting: "Add an existing task",

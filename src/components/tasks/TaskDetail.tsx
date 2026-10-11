@@ -1,5 +1,5 @@
 import { Fragment, useId, useMemo, useRef, useState } from "react";
-import { Combobox, DisclosureChevron, Dropdown, MenuButton, PlusIcon, StatusRing } from "@keepdeck/ui-kit";
+import { Combobox, DisclosureChevron, Dropdown, MenuButton, PlusIcon, StatusBar, StatusRing } from "@keepdeck/ui-kit";
 import type { BlockerSide, TaskPriority, TaskStatus } from "../../domain/tasks";
 import {
   DIALOG_WORDS,
@@ -31,7 +31,7 @@ import { Button } from "../../ui/Button";
 import { TipButton } from "../../ui/TipButton";
 import { CloseIcon, MaximizeIcon, RestoreIcon } from "@keepdeck/ui-kit/icons";
 import { VirtualList } from "@keepdeck/ui-kit/VirtualList";
-import { EpicBar, EpicChip } from "./EpicMarks";
+import { EpicChip } from "./EpicMarks";
 import { RemoveButton } from "../../ui/RemoveButton";
 import { CommandPalette } from "../../ui/CommandPalette";
 import { ConfirmDialog } from "../../ui/ConfirmDialog";
@@ -347,7 +347,7 @@ export function TaskDetail({
                   {view.epic.heading}
                   <span className="tasks__epic-summary">{view.epic.progress.summary}</span>
                 </h4>
-                <EpicBar fill={view.epic.progress.fill} className="tasks__epic-bar--wide" />
+                <StatusBar parts={view.epic.progress.parts} label={view.epic.progress.label} className="tasks__epic-bar tasks__epic-bar--wide" />
                 <div className="tasks__epic-tasks">
                   {view.epic.empty && <p className="tasks__muted">{view.epic.empty}</p>}
                   {view.epic.tasks.map((task) => (

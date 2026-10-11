@@ -132,6 +132,31 @@ describe("Dropdown", () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
+  it("in a modal shell, picks what is pressed even when the press hands focus up to the shell", () => {
+    // WebKit on macOS focuses no pressed button: pressing an option moves
+    // focus to the nearest focusable ancestor, the dialog's overlay.
+    act(() => root.unmount());
+    const shell = document.body.appendChild(document.createElement("div"));
+    shell.className = "modal-overlay";
+    shell.tabIndex = -1;
+    root = createRoot(shell.appendChild(document.createElement("div")));
+    mount();
+    act(() => button().click());
+    const option = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="option"]')).find((o) => o.textContent === "Workspace folder")!;
+    act(() => {
+      option.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+      shell.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+    });
+    expect(menu()).not.toBeNull();
+    act(() => option.click());
+    expect(onChange.mock.calls).toEqual([["/repo"]]);
+    expect(menu()).toBeNull();
+    // A press on the shell's empty space is still away.
+    act(() => button().click());
+    act(() => void shell.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true })));
+    expect(menu()).toBeNull();
+  });
+
   it("keeps focus on the trigger after a pick", () => {
     mount();
     act(() => button().click());

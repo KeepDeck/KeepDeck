@@ -436,6 +436,22 @@ describe("task commands — epics", () => {
     expect(work).not.toHaveProperty("progress");
   });
 
+  it("list and get count an epic's tasks in every status: done done, every other open status open, cancelled aside", async () => {
+    const { run } = setup();
+    await run("task.create", { title: "Epic", kind: "epic" }, LEAD);
+    const walk = { done: ["in-progress", "review", "done"], "in-progress": ["in-progress"], review: ["in-progress", "review"], blocked: ["blocked"], cancelled: ["cancelled"] };
+    for (const steps of Object.values(walk)) {
+      const made = await run("task.create", { title: "Step", parent: "task-1", assignee: "lead" }, LEAD);
+      for (const status of steps) await run("task.update", { id: made.id as string, status }, LEAD);
+    }
+    const expected = { done: 1, open: 3, cancelled: 1 };
+    const rows = (await run("task.list", { status: "todo,in-progress,review,blocked,done,cancelled" }, LEAD)).tasks as Record<string, unknown>[];
+    expect(rows.find((row) => row.id === "task-1")?.progress).toStrictEqual(expected);
+    // Work carries no progress, whatever its status.
+    expect(rows.filter((row) => row.id !== "task-1").every((row) => !("progress" in row))).toBe(true);
+    expect(((await run("task.get", { id: "task-1" }, LEAD)).task as Record<string, unknown>).progress).toStrictEqual(expected);
+  });
+
   it("update moves a task between epics for whoever hands out work, names it changed, and refuses a working role", async () => {
     const { run, refused } = await family();
     await run("task.create", { title: "Other", kind: "epic" }, LEAD);

@@ -118,7 +118,19 @@ describe("the status ring", () => {
     for (const tone of ["working", "waiting", "failed", "done"]) {
       expect(ruleBody(status, `.progress-ring.status-ring--${tone}`)["--progress-ring-hue"]).toBe(`var(--status-${tone})`);
     }
-    expect(status).toMatch(/prefers-reduced-motion: reduce\)\s*\{\s*\.progress-ring\.status-ring,\s*\.status-ring__bar\s*\{\s*transition: none/);
+    expect(status).toMatch(/prefers-reduced-motion: reduce\)\s*\{\s*\.progress-ring\.status-ring,\s*\.status-ring__bar,\s*\.status-bar__part\s*\{\s*transition: none/);
+  });
+});
+
+describe("the status bar", () => {
+  it("paints each part exactly its share — never grown or shrunk over the bare track — in the rings' hues, easing", () => {
+    const status = readStyles("status.css");
+    const part = ruleBody(status, ".status-bar__part");
+    expect([part["flex-grow"], part["flex-shrink"]]).toEqual(["0", "0"]);
+    expect(part.transition).toMatch(/^flex-basis \d+ms ease-out$/);
+    for (const tone of ["working", "waiting", "failed", "done"]) {
+      expect(ruleBody(status, `.status-bar__part--${tone}`)["background-color"]).toBe(`var(--status-${tone})`);
+    }
   });
 });
 
