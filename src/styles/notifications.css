@@ -53,6 +53,14 @@
   min-height: 0;
 }
 
+/* When the panel runs out of height, only the feed gives way (its list
+   scrolls). The needs section must not shrink: with min-height 0 it would
+   squeeze below its own rows, and the feed's head would land on top of them.
+   Its list caps itself and scrolls instead. */
+.bell__section--needs {
+  flex-shrink: 0;
+}
+
 .bell__section--feed {
   flex: 1;
 }
@@ -62,7 +70,6 @@
 }
 
 .bell__list--needs {
-  flex-shrink: 0;
   max-height: 200px;
 }
 
