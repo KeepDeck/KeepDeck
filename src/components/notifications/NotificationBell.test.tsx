@@ -277,6 +277,11 @@ describe("NotificationBell", () => {
         el.getAttribute("aria-label"),
       );
       expect(sections).toEqual(["Needs you", "Notifications"]);
+      // The class that keeps this section from shrinking under a long feed
+      // (notifications.css) — without it the feed's head covers these rows.
+      expect(
+        document.querySelector(".bell__section--needs")?.getAttribute("aria-label"),
+      ).toBe("Needs you");
       const item = document.querySelector<HTMLButtonElement>(
         ".bell__list--needs .bell__item",
       )!;

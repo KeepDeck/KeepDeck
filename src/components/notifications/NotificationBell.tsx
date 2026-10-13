@@ -121,7 +121,10 @@ export function NotificationBell({
         // promise interactions that aren't there.
         <div className="bell__panel" role="group" aria-label={trigger.label}>
           {rows.length > 0 && (
-            <section className="bell__section" aria-label={ATTENTION_WORDS.needsYou}>
+            <section
+              className="bell__section bell__section--needs"
+              aria-label={ATTENTION_WORDS.needsYou}
+            >
               <div className="bell__head">
                 <span className="bell__title">{ATTENTION_WORDS.needsYou}</span>
               </div>

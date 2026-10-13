@@ -1,5 +1,6 @@
+// @vitest-environment happy-dom
 import { describe, expect, it } from "vitest";
-import { px, readStyles, ruleBody } from "./testSupport";
+import { appCss, px, readStyles, ruleBody } from "./testSupport";
 
 const notifications = readStyles("notifications.css");
 
@@ -20,5 +21,31 @@ describe("notification center rows", () => {
 
     expect(px(ruleBody(notifications, ".bell__item-title")["line-height"]))
       .toBe(16);
+  });
+});
+
+describe("notification panel sections", () => {
+  it("lets only the feed give way when the panel runs out of height", () => {
+    // The panel caps its height and both sections may shrink to zero
+    // (min-height 0). A long feed then squeezed the needs section below its
+    // own rows, and the feed's head was painted over them. Through the real
+    // cascade: the needs section must hold, the feed must stay the one that
+    // shrinks.
+    const sheet = document.createElement("style");
+    sheet.textContent = appCss;
+    document.head.append(sheet);
+    document.body.innerHTML =
+      "<div class='bell__panel'>" +
+      "<section class='bell__section bell__section--needs'></section>" +
+      "<section class='bell__section bell__section--feed'></section>" +
+      "</div>";
+
+    const shrink = (selector: string) =>
+      getComputedStyle(document.querySelector(selector)!).flexShrink;
+    expect(shrink(".bell__section--needs")).toBe("0");
+    expect(shrink(".bell__section--feed")).toBe("1");
+
+    sheet.remove();
+    document.body.innerHTML = "";
   });
 });
