@@ -712,14 +712,8 @@
   font-size: var(--kd-font-normal);
   text-align: left;
   cursor: pointer;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* An option of a list as wide as its options: past the list's limit it
-   wraps rather than being cut. */
-.dropdown__option--wrap {
+  /* An option longer than its list — the field's width, or the limit a
+     content-sized list stops at — wraps, never cut. */
   white-space: normal;
   overflow-wrap: break-word;
 }

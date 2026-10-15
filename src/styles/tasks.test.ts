@@ -169,6 +169,9 @@ describe("Tasks text never widens its box", () => {
     // A status with its ring is one line high like any other value: on the baseline it grew its line by 4px.
     const status = ruleBody(readStyles("tasks.css"), ".tasks__status-choice");
     expect([status.height, status["vertical-align"]]).toEqual(["22px", "top"]);
+    // And in the menu: an option longer than its list wraps, never cut — a field's list or a content-sized one at its limit.
+    const option = ruleBody(readStyles("form.css"), ".dropdown__option");
+    expect([option["white-space"], option["overflow-wrap"], option["text-overflow"]]).toEqual(["normal", "break-word", undefined]);
   });
 });
 

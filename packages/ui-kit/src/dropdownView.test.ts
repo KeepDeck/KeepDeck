@@ -34,12 +34,6 @@ describe("dropdownView — the Dropdown's decisions", () => {
     expect(dropdownView({ ...base, size: "sm" }).widthFrom).toBe("content");
   });
 
-  it("lets an option wrap only in a list as wide as its options", () => {
-    expect(dropdownView({ ...base, variant: "inline" }).items[1].className).toBe("dropdown__option dropdown__option--wrap");
-    expect(dropdownView({ ...base, size: "sm" }).items[0].className).toBe("dropdown__option dropdown__option--active dropdown__option--wrap");
-    expect(dropdownView(base).items[1].className).toBe("dropdown__option");
-  });
-
   it("closes on Escape while open, and on nothing else", () => {
     expect([closesMenu("Escape", true), closesMenu("Escape", false), closesMenu("Enter", true)]).toEqual([true, false, false]);
   });

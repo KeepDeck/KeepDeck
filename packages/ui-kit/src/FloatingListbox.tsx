@@ -13,7 +13,7 @@ export const FLOATING_LISTBOX_GAP = 4;
 export const FLOATING_LISTBOX_VIEWPORT_MARGIN = 8;
 export const FLOATING_LISTBOX_MAX_HEIGHT = 240;
 /** The widest a list sized by its content grows: past it a long option
- * wraps (`dropdown__option--wrap`) instead of drawing a slab across the
+ * wraps (a Dropdown's options always do) instead of drawing a slab across the
  * window. An anchor wider than this still sets the width. */
 export const FLOATING_LISTBOX_CONTENT_MAX = 360;
 

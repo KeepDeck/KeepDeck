@@ -42,7 +42,6 @@ export function dropdownView(input: {
   className?: string;
 }): DropdownView {
   const { options, value } = input;
-  const widthFrom = input.variant === "inline" || input.size === "sm" ? "content" : "anchor";
   const items = options.map((option) => {
     const selected = option.value === value;
     return {
@@ -50,15 +49,7 @@ export function dropdownView(input: {
       label: option.label,
       disabled: option.disabled === true,
       selected,
-      className: [
-        "dropdown__option",
-        selected && "dropdown__option--active",
-        // A list as wide as its options stops growing at its limit
-        // (FLOATING_LISTBOX_CONTENT_MAX): a longer option wraps there.
-        widthFrom === "content" && "dropdown__option--wrap",
-      ]
-        .filter(Boolean)
-        .join(" "),
+      className: selected ? "dropdown__option dropdown__option--active" : "dropdown__option",
     };
   });
   return {
@@ -73,7 +64,7 @@ export function dropdownView(input: {
       .join(" "),
     menuOpen: input.open && options.length > 0,
     current: items.find((item) => item.selected)?.label ?? value,
-    widthFrom,
+    widthFrom: input.variant === "inline" || input.size === "sm" ? "content" : "anchor",
     items,
   };
 }
