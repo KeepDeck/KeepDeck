@@ -6,6 +6,7 @@ import {
   FloatingListbox,
   anchorOutOfView,
   calculateFloatingListboxPlacement,
+  FLOATING_LISTBOX_CONTENT_MAX,
   type FloatingListboxAnchorRect,
 } from "./FloatingListbox";
 
@@ -91,10 +92,23 @@ describe("calculateFloatingListboxPlacement", () => {
         anchorRect: rect({ width: 28 }),
         listHeight: 60,
         contentWidth: 5000,
-        viewportWidth: 600,
+        viewportWidth: 300,
         viewportHeight: 500,
       }).width,
-    ).toBe(584);
+    ).toBe(284);
+  });
+
+  it("grows with its content only so far — a long option wraps past it — while a wider anchor still sets the width", () => {
+    const width = (anchor: number, content: number) =>
+      calculateFloatingListboxPlacement({
+        anchorRect: rect({ width: anchor }),
+        listHeight: 60,
+        contentWidth: content,
+        viewportWidth: 1600,
+        viewportHeight: 500,
+      }).width;
+    expect(width(28, 900)).toBe(FLOATING_LISTBOX_CONTENT_MAX);
+    expect(width(500, 900)).toBe(500);
   });
 
   it("keeps the list inside the horizontal viewport margin", () => {

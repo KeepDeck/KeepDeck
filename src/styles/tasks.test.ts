@@ -166,6 +166,9 @@ describe("Tasks text never widens its box", () => {
     // Hung left by an offset: a negative margin took its width off the line and wrapped "Low".
     const button = ruleBody(readStyles("form.css"), ".dropdown--inline .dropdown__button");
     expect([button.left, button["margin-left"]]).toEqual(["-6px", undefined]);
+    // A status with its ring is one line high like any other value: on the baseline it grew its line by 4px.
+    const status = ruleBody(readStyles("tasks.css"), ".tasks__status-choice");
+    expect([status.height, status["vertical-align"]]).toEqual(["22px", "top"]);
   });
 });
 

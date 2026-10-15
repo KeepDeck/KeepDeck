@@ -12,6 +12,10 @@ import { createPortal } from "react-dom";
 export const FLOATING_LISTBOX_GAP = 4;
 export const FLOATING_LISTBOX_VIEWPORT_MARGIN = 8;
 export const FLOATING_LISTBOX_MAX_HEIGHT = 240;
+/** The widest a list sized by its content grows: past it a long option
+ * wraps (`dropdown__option--wrap`) instead of drawing a slab across the
+ * window. An anchor wider than this still sets the width. */
+export const FLOATING_LISTBOX_CONTENT_MAX = 360;
 
 export interface FloatingListboxAnchorRect {
   top: number;
@@ -67,7 +71,7 @@ export function floatingListboxWidth({
   viewportMargin?: number;
 }): number {
   return Math.min(
-    Math.max(0, anchorWidth, contentWidth),
+    Math.max(0, anchorWidth, Math.min(contentWidth, FLOATING_LISTBOX_CONTENT_MAX)),
     Math.max(0, viewportWidth - viewportMargin * 2),
   );
 }

@@ -967,10 +967,15 @@
   font-size: var(--kd-font-small);
 }
 
+/* A status with its ring, one 22px line high like any other value: set
+   on the baseline it grew its line by the ring's box and lifted the
+   picker's chevron off its text. */
 .tasks__status-choice {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  height: 22px;
+  vertical-align: top;
 }
 
 .tasks__link {

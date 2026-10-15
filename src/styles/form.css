@@ -717,6 +717,13 @@
   white-space: nowrap;
 }
 
+/* An option of a list as wide as its options: past the list's limit it
+   wraps rather than being cut. */
+.dropdown__option--wrap {
+  white-space: normal;
+  overflow-wrap: break-word;
+}
+
 .dropdown__option:hover {
   background-color: var(--kd-hover);
 }
