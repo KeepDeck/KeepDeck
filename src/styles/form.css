@@ -614,9 +614,12 @@
 }
 
 .dropdown--inline .dropdown__button {
+  position: relative;
   width: auto;
   max-width: 100%;
-  margin-left: -6px;
+  /* Hung left by an offset, not a negative margin: a margin would take
+     its 6px off the wrapper's width and squeeze a short value to wrap. */
+  left: -6px;
   padding: 0 6px;
   border: 1px solid transparent;
   background-color: transparent;
@@ -628,13 +631,21 @@
   background-color: var(--kd-hover);
 }
 
+/* As wide as its words while they fit; a value longer than the line
+   (an epic's title) wraps inside it rather than running past its edge. */
 .dropdown--inline .dropdown__label {
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: break-word;
 }
 
 .dropdown--inline .dropdown__button svg {
   width: 10px;
   height: 10px;
+  /* On the value's first line, when it wraps: the 22px line's middle. */
+  align-self: flex-start;
+  margin-top: 6px;
 }
 
 /* An offer, not a value ("Attach an artifact"): quieter ink, small type —

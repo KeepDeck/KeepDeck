@@ -157,6 +157,16 @@ describe("Tasks text never widens its box", () => {
     expect(button("dropdown dropdown--inline dropdown--quiet")).toBe(button("dropdown dropdown--quiet"));
     expect(button("dropdown dropdown--inline dropdown--quiet")).not.toBe(button("dropdown dropdown--inline"));
   });
+
+  it("an inline value too long for its line wraps inside it — an epic's title never runs past the card", () => {
+    const label = ruleBody(readStyles("form.css"), ".dropdown--inline .dropdown__label");
+    // Shrinks to the line, and only then: as wide as its words while they fit.
+    expect([label.flex, label["min-width"]]).toEqual(["0 1 auto", "0"]);
+    expect([label["white-space"], label["overflow-wrap"]]).toEqual(["normal", "break-word"]);
+    // Hung left by an offset: a negative margin took its width off the line and wrapped "Low".
+    const button = ruleBody(readStyles("form.css"), ".dropdown--inline .dropdown__button");
+    expect([button.left, button["margin-left"]]).toEqual(["-6px", undefined]);
+  });
 });
 
 describe("the list group a dragged task will land in", () => {
