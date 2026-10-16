@@ -160,9 +160,9 @@ export function TaskDetail({
       setComposer((current) => finishSend(current, accepted));
     });
   };
+  const detach = view.parent?.detach ?? null;
   // Built once per view: a keystroke in the comment field re-renders the
   // card, and must not hand the list a new set of rows each time.
-  const detach = view.parent?.detach ?? null;
   const rows = useMemo(() => cardRows(view), [view]);
   const renderRow = (row: CardRow) => {
     switch (row.kind) {

@@ -159,6 +159,8 @@ describe("Tasks text never widens its box", () => {
   });
 
   it("an inline value too long for its line wraps inside it — an epic's title never runs past the card", () => {
+    // As a flex item it shrinks too: an unbroken word held it wide and pushed the epic's × off the card.
+    expect(ruleBody(readStyles("form.css"), ".dropdown--inline")["min-width"]).toBe("0");
     const label = ruleBody(readStyles("form.css"), ".dropdown--inline .dropdown__label");
     // Shrinks to the line, and only then: as wide as its words while they fit.
     expect([label.flex, label["min-width"]]).toEqual(["0 1 auto", "0"]);

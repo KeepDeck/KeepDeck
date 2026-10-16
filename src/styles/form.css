@@ -607,9 +607,13 @@
 /* The inline variant: a value in a line of text, not a field — as wide as
    its words, framed only under the pointer. Its own inset hangs left of
    the line, so a picked value starts where plain text beside it does. Its
-   menu takes the options' width (FloatingListbox widthFrom="content"). */
+   menu takes the options' width (FloatingListbox widthFrom="content"). As
+   a flex item it may shrink below its words: one long unbroken word would
+   otherwise hold it wide and push what stands beside it (an epic's ×)
+   past the line. */
 .dropdown--inline {
   display: inline-flex;
+  min-width: 0;
   max-width: 100%;
 }
 
