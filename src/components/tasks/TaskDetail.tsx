@@ -224,13 +224,17 @@ export function TaskDetail({
                 <>
                   <dt className="tasks__prop-label">{FIELD_WORDS.epic}</dt>
                   <dd className="tasks__epic-pick">
-                    <Dropdown
-                      ariaLabel={FIELD_WORDS.epic}
-                      options={view.parent.options}
-                      value={view.parent.value}
-                      onChange={(value) => onParent(view.id, value)}
-                      variant="inline"
-                    />
+                    {view.parent.fixed !== null ? (
+                      <span className="tasks__epic-fixed">{view.parent.fixed}</span>
+                    ) : (
+                      <Dropdown
+                        ariaLabel={FIELD_WORDS.epic}
+                        options={view.parent.options}
+                        value={view.parent.value}
+                        onChange={(value) => onParent(view.id, value)}
+                        variant="inline"
+                      />
+                    )}
                     {detach && <RemoveButton label={detach.label} onClick={() => onParent(view.id, detach.to)} />}
                   </dd>
                 </>

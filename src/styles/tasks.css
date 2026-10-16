@@ -974,6 +974,16 @@
   margin-top: 1px;
 }
 
+/* With nowhere else to go the epic is words, not a picker: the picker's
+   22px line, size and colour, wrapping as its value does. */
+.tasks__epic-fixed {
+  min-width: 0;
+  color: var(--kd-text);
+  font-size: var(--kd-font-normal);
+  line-height: 22px;
+  overflow-wrap: break-word;
+}
+
 .tasks__prop-label {
   color: var(--kd-text-3);
   font-size: var(--kd-font-small);
