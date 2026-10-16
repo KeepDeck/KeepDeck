@@ -962,6 +962,18 @@
   text-decoration: inherit;
 }
 
+/* Work's epic: the picker, then its × on the first line of a value that
+   wraps — the picker's line is 22px, the × 20px. */
+.tasks__epic-pick {
+  display: flex;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.tasks__epic-pick > .ui-remove {
+  margin-top: 1px;
+}
+
 .tasks__prop-label {
   color: var(--kd-text-3);
   font-size: var(--kd-font-small);

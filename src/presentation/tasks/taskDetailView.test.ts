@@ -227,8 +227,10 @@ describe("taskDetailView — an epic and its tasks", () => {
         { value: "task-1", label: "task-1 · Plan" },
         { value: "task-5", label: "task-5 · Other" },
       ],
+      detach: { label: "Take out of the epic task-1", to: "" },
     });
     expect(taskDetailView(b.tasks[3], b, ROSTER, NOW).parent?.value).toBe("");
+    expect(taskDetailView(b.tasks[3], b, ROSTER, NOW).parent?.detach).toBeNull();
     expect(taskDetailView(b.tasks[3], b, ROSTER, NOW).kindChip).toBeNull();
     expect(taskDetailView(b.tasks[3], b, ROSTER, NOW).epic).toBeNull();
   });

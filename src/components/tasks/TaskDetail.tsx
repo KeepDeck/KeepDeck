@@ -162,6 +162,7 @@ export function TaskDetail({
   };
   // Built once per view: a keystroke in the comment field re-renders the
   // card, and must not hand the list a new set of rows each time.
+  const detach = view.parent?.detach ?? null;
   const rows = useMemo(() => cardRows(view), [view]);
   const renderRow = (row: CardRow) => {
     switch (row.kind) {
@@ -222,7 +223,7 @@ export function TaskDetail({
               {view.parent && (
                 <>
                   <dt className="tasks__prop-label">{FIELD_WORDS.epic}</dt>
-                  <dd>
+                  <dd className="tasks__epic-pick">
                     <Dropdown
                       ariaLabel={FIELD_WORDS.epic}
                       options={view.parent.options}
@@ -230,6 +231,7 @@ export function TaskDetail({
                       onChange={(value) => onParent(view.id, value)}
                       variant="inline"
                     />
+                    {detach && <RemoveButton label={detach.label} onClick={() => onParent(view.id, detach.to)} />}
                   </dd>
                 </>
               )}

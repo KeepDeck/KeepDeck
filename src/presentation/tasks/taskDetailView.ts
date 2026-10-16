@@ -62,6 +62,15 @@ export interface StatusChoiceView extends ChoiceView {
   disabled: boolean;
 }
 
+/** Work's epic picker, and its × while the task is under one: the name
+ * of the × and the pick it makes — none. Taking a task out is never
+ * refused, so the × stands whenever there is an epic to leave. */
+export interface ParentPickerView {
+  value: string;
+  options: ChoiceView[];
+  detach: { label: string; to: string } | null;
+}
+
 /** An epic's tasks on its card: how far it has come, each task, and the
  * two ways to add one. */
 export interface EpicSectionView {
@@ -104,7 +113,7 @@ export interface TaskDetailView {
   /** Work's epic: the picker's value (`""` for none) and its options —
    * none, the epic it is under, and every epic it could go under. Null on
    * an epic, which goes under none. */
-  parent: { value: string; options: ChoiceView[] } | null;
+  parent: ParentPickerView | null;
   /** An epic's tasks, or null for work. */
   epic: EpicSectionView | null;
   /** Each blocker with where it stands; a resolved one (done, cancelled,
@@ -276,6 +285,7 @@ export const TASK_DETAIL_WORDS = {
   nothingToWaitOn: "No task on its team it could wait on",
   nothingWaitsOn: "No task on its team could wait on it",
   removeBlocker: (id: string) => `Stop waiting on ${id}`,
+  detachEpic: (id: string) => `Take out of the epic ${id}`,
   attach: "Attach artifact",
   attachPrompt: "Find an artifact…",
   addArtifact: "Attach an artifact",
@@ -500,11 +510,12 @@ function familyNote(problem: TaskRefusal): string | null {
 
 /** Work's epic picker: none, the epic it is under, then each it could go
  * under — the rule's own list (`epicCandidates`). */
-function parentPicker(task: Task, board: TaskBoard): { value: string; options: ChoiceView[] } {
+function parentPicker(task: Task, board: TaskBoard): ParentPickerView {
   const current = epicOf(task, board);
   return {
     value: current?.id ?? NO_EPIC_CHOICE.value,
     options: [NO_EPIC_CHOICE, ...(current ? [epicChoice(current)] : []), ...epicCandidates(task, board).map(epicChoice)],
+    detach: current ? { label: TASK_DETAIL_WORDS.detachEpic(current.id), to: NO_EPIC_CHOICE.value } : null,
   };
 }
 
