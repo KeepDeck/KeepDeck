@@ -962,15 +962,39 @@
   text-decoration: inherit;
 }
 
+/* Work's epic: the picker, then its × on the first line of a value that
+   wraps — the picker's line is 22px, the × 20px. */
+.tasks__epic-pick {
+  display: flex;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.tasks__epic-pick > .ui-remove {
+  margin-top: 1px;
+}
+
+/* With nowhere else to go the epic is words, not a picker — the picker's
+   box (.dropdown-text) — wrapping as its value does. */
+.tasks__epic-fixed {
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
 .tasks__prop-label {
   color: var(--kd-text-3);
   font-size: var(--kd-font-small);
 }
 
+/* A status with its ring, one 22px line high like any other value: set
+   on the baseline it grew its line by the ring's box and lifted the
+   picker's chevron off its text. */
 .tasks__status-choice {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  height: 22px;
+  vertical-align: top;
 }
 
 .tasks__link {

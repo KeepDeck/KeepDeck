@@ -607,20 +607,36 @@
 /* The inline variant: a value in a line of text, not a field — as wide as
    its words, framed only under the pointer. Its own inset hangs left of
    the line, so a picked value starts where plain text beside it does. Its
-   menu takes the options' width (FloatingListbox widthFrom="content"). */
+   menu takes the options' width (FloatingListbox widthFrom="content"). As
+   a flex item it may shrink below its words: one long unbroken word would
+   otherwise hold it wide and push what stands beside it (an epic's ×)
+   past the line. */
 .dropdown--inline {
   display: inline-flex;
+  min-width: 0;
   max-width: 100%;
 }
 
 .dropdown--inline .dropdown__button {
+  position: relative;
   width: auto;
   max-width: 100%;
-  margin-left: -6px;
+  /* Hung left by an offset, not a negative margin: a margin would take
+     its 6px off the wrapper's width and squeeze a short value to wrap. */
+  left: -6px;
   padding: 0 6px;
-  border: 1px solid transparent;
   background-color: transparent;
+}
+
+/* An inline value's box, the picker's and the same value with nothing to
+   pick (.dropdown-text) alike: one rule, so a field that turns from one
+   into the other moves neither its words nor its line. The transparent
+   border is the frame the picker shows under the pointer. */
+.dropdown--inline .dropdown__button,
+.dropdown-text {
+  border: 1px solid transparent;
   color: var(--kd-text);
+  font-size: var(--kd-font-normal);
   line-height: 22px;
 }
 
@@ -628,13 +644,21 @@
   background-color: var(--kd-hover);
 }
 
+/* As wide as its words while they fit; a value longer than the line
+   (an epic's title) wraps inside it rather than running past its edge. */
 .dropdown--inline .dropdown__label {
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: break-word;
 }
 
 .dropdown--inline .dropdown__button svg {
   width: 10px;
   height: 10px;
+  /* On the value's first line, when it wraps: the 22px line's middle. */
+  align-self: flex-start;
+  margin-top: 6px;
 }
 
 /* An offer, not a value ("Attach an artifact"): quieter ink, small type —
@@ -701,9 +725,10 @@
   font-size: var(--kd-font-normal);
   text-align: left;
   cursor: pointer;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  /* An option longer than its list — the field's width, or the limit a
+     content-sized list stops at — wraps, never cut. */
+  white-space: normal;
+  overflow-wrap: break-word;
 }
 
 .dropdown__option:hover {

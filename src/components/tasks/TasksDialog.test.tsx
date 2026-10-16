@@ -516,7 +516,7 @@ describe("TasksDialog", () => {
     expect(state.board.relations).toContainEqual(expect.objectContaining({ kind: "child-of", from: made.uid, to: state.board.tasks[2].uid }));
   });
 
-  it("puts a task under an epic from its Epic picker, and out again", async () => {
+  it("puts a task under an epic from its Epic picker, and out again by its ×", async () => {
     const { service } = await seeded();
     await service.create("ws-1", { teamId: "team-1", title: "The epic", kind: "epic" }, USER_ACTOR);
     focus = "task-1";
@@ -534,9 +534,16 @@ describe("TasksDialog", () => {
       return state?.kind === "ready" ? state.board.relations.filter((r) => r.kind === "child-of").length : -1;
     };
     expect(parentOf()).toBe(1);
-    pick("No epic");
+    // Under the only epic there is nowhere else to go: words, not a menu.
+    const picker = () => document.querySelector('aside[aria-label="Task task-1"] button[aria-label="Epic"]');
+    expect(picker()).toBeNull();
+    expect(document.querySelector('aside[aria-label="Task task-1"] .tasks__epic-fixed')?.textContent).toBe("task-3 · The epic");
+    const detach = () => document.querySelector<HTMLButtonElement>('aside[aria-label="Task task-1"] button[aria-label="Take out of the epic task-3"]');
+    act(() => detach()!.click());
     await flush();
     expect(parentOf()).toBe(0);
+    expect(detach()).toBeNull();
+    expect(picker()).not.toBeNull();
   });
 
   it("the form can be put away three ways — Cancel, + Task again, Escape — and Escape does not take the dialog with it", async () => {

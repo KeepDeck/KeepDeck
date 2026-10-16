@@ -62,6 +62,18 @@ export interface StatusChoiceView extends ChoiceView {
   disabled: boolean;
 }
 
+/** Work's epic: where it stands and where it could go. The menu holds the
+ * epic it is under (or No epic) and every epic it could go under; with
+ * nowhere to go there is no menu, and `fixed` is the words shown instead.
+ * Taking a task out is the × — `detach`, its name and its pick (none) —
+ * never refused, so it stands whenever there is an epic to leave. */
+export interface ParentPickerView {
+  value: string;
+  options: ChoiceView[];
+  fixed: string | null;
+  detach: { label: string; to: string } | null;
+}
+
 /** An epic's tasks on its card: how far it has come, each task, and the
  * two ways to add one. */
 export interface EpicSectionView {
@@ -104,7 +116,7 @@ export interface TaskDetailView {
   /** Work's epic: the picker's value (`""` for none) and its options —
    * none, the epic it is under, and every epic it could go under. Null on
    * an epic, which goes under none. */
-  parent: { value: string; options: ChoiceView[] } | null;
+  parent: ParentPickerView | null;
   /** An epic's tasks, or null for work. */
   epic: EpicSectionView | null;
   /** Each blocker with where it stands; a resolved one (done, cancelled,
@@ -276,6 +288,7 @@ export const TASK_DETAIL_WORDS = {
   nothingToWaitOn: "No task on its team it could wait on",
   nothingWaitsOn: "No task on its team could wait on it",
   removeBlocker: (id: string) => `Stop waiting on ${id}`,
+  detachEpic: (id: string) => `Take out of the epic ${id}`,
   attach: "Attach artifact",
   attachPrompt: "Find an artifact…",
   addArtifact: "Attach an artifact",
@@ -498,13 +511,17 @@ function familyNote(problem: TaskRefusal): string | null {
   return null;
 }
 
-/** Work's epic picker: none, the epic it is under, then each it could go
- * under — the rule's own list (`epicCandidates`). */
-function parentPicker(task: Task, board: TaskBoard): { value: string; options: ChoiceView[] } {
+/** Work's epic picker: where it stands, then each epic it could go under
+ * — the rule's own list (`epicCandidates`); leaving is the ×, not a pick. */
+function parentPicker(task: Task, board: TaskBoard): ParentPickerView {
   const current = epicOf(task, board);
+  const here = current ? epicChoice(current) : NO_EPIC_CHOICE;
+  const elsewhere = epicCandidates(task, board).map(epicChoice);
   return {
-    value: current?.id ?? NO_EPIC_CHOICE.value,
-    options: [NO_EPIC_CHOICE, ...(current ? [epicChoice(current)] : []), ...epicCandidates(task, board).map(epicChoice)],
+    value: here.value,
+    options: [here, ...elsewhere],
+    fixed: elsewhere.length === 0 ? here.label : null,
+    detach: current ? { label: TASK_DETAIL_WORDS.detachEpic(current.id), to: NO_EPIC_CHOICE.value } : null,
   };
 }
 

@@ -157,6 +157,29 @@ describe("Tasks text never widens its box", () => {
     expect(button("dropdown dropdown--inline dropdown--quiet")).toBe(button("dropdown dropdown--quiet"));
     expect(button("dropdown dropdown--inline dropdown--quiet")).not.toBe(button("dropdown dropdown--inline"));
   });
+
+  it("an inline value too long for its line wraps inside it — an epic's title never runs past the card", () => {
+    // As a flex item it shrinks too: an unbroken word held it wide and pushed the epic's × off the card.
+    expect(ruleBody(readStyles("form.css"), ".dropdown--inline")["min-width"]).toBe("0");
+    const label = ruleBody(readStyles("form.css"), ".dropdown--inline .dropdown__label");
+    // Shrinks to the line, and only then: as wide as its words while they fit.
+    expect([label.flex, label["min-width"]]).toEqual(["0 1 auto", "0"]);
+    expect([label["white-space"], label["overflow-wrap"]]).toEqual(["normal", "break-word"]);
+    // Hung left by an offset: a negative margin took its width off the line and wrapped "Low".
+    const button = ruleBody(readStyles("form.css"), ".dropdown--inline .dropdown__button");
+    expect([button.left, button["margin-left"]]).toEqual(["-6px", undefined]);
+    // The same value with nothing to pick is the picker's box, one rule for both: the Epic field
+    // that turns from one into the other moves neither its words (the border's 1px) nor its line.
+    const box = ruleBody(readStyles("form.css"), ".dropdown--inline .dropdown__button,\n.dropdown-text");
+    expect([box.border, box["line-height"], box["font-size"], box.color]).toEqual(["1px solid transparent", "22px", "var(--kd-font-normal)", "var(--kd-text)"]);
+    expect([button.border, button["line-height"], ruleBody(readStyles("tasks.css"), ".tasks__epic-fixed")["line-height"]]).toEqual([undefined, undefined, undefined]);
+    // A status with its ring is one line high like any other value: on the baseline it grew its line by 4px.
+    const status = ruleBody(readStyles("tasks.css"), ".tasks__status-choice");
+    expect([status.height, status["vertical-align"]]).toEqual(["22px", "top"]);
+    // And in the menu: an option longer than its list wraps, never cut — a field's list or a content-sized one at its limit.
+    const option = ruleBody(readStyles("form.css"), ".dropdown__option");
+    expect([option["white-space"], option["overflow-wrap"], option["text-overflow"]]).toEqual(["normal", "break-word", undefined]);
+  });
 });
 
 describe("the list group a dragged task will land in", () => {

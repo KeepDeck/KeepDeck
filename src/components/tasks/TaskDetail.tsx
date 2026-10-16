@@ -160,6 +160,7 @@ export function TaskDetail({
       setComposer((current) => finishSend(current, accepted));
     });
   };
+  const detach = view.parent?.detach ?? null;
   // Built once per view: a keystroke in the comment field re-renders the
   // card, and must not hand the list a new set of rows each time.
   const rows = useMemo(() => cardRows(view), [view]);
@@ -222,14 +223,19 @@ export function TaskDetail({
               {view.parent && (
                 <>
                   <dt className="tasks__prop-label">{FIELD_WORDS.epic}</dt>
-                  <dd>
-                    <Dropdown
-                      ariaLabel={FIELD_WORDS.epic}
-                      options={view.parent.options}
-                      value={view.parent.value}
-                      onChange={(value) => onParent(view.id, value)}
-                      variant="inline"
-                    />
+                  <dd className="tasks__epic-pick">
+                    {view.parent.fixed !== null ? (
+                      <span className="dropdown-text tasks__epic-fixed">{view.parent.fixed}</span>
+                    ) : (
+                      <Dropdown
+                        ariaLabel={FIELD_WORDS.epic}
+                        options={view.parent.options}
+                        value={view.parent.value}
+                        onChange={(value) => onParent(view.id, value)}
+                        variant="inline"
+                      />
+                    )}
+                    {detach && <RemoveButton label={detach.label} onClick={() => onParent(view.id, detach.to)} />}
                   </dd>
                 </>
               )}

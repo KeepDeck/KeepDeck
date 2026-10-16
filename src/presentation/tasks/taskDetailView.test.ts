@@ -218,19 +218,37 @@ describe("taskDetailView — an epic and its tasks", () => {
     expect(view.statusNote).toBe("The epic task-1 is closed — reopen it first");
   });
 
-  it("work's Epic picker: none, the epic it is under, and the ones it could go under", () => {
+  it("work's Epic picker: where it stands and the epics it could go under — leaving is the ×, not a pick", () => {
     const b = family();
     expect(taskDetailView(b.tasks[1], b, ROSTER, NOW).parent).toEqual({
       value: "task-1",
+      options: [
+        { value: "task-1", label: "task-1 · Plan" },
+        { value: "task-5", label: "task-5 · Other" },
+      ],
+      fixed: null,
+      detach: { label: "Take out of the epic task-1", to: "" },
+    });
+    expect(taskDetailView(b.tasks[3], b, ROSTER, NOW).parent).toEqual({
+      value: "",
       options: [
         { value: "", label: "No epic" },
         { value: "task-1", label: "task-1 · Plan" },
         { value: "task-5", label: "task-5 · Other" },
       ],
+      fixed: null,
+      detach: null,
     });
-    expect(taskDetailView(b.tasks[3], b, ROSTER, NOW).parent?.value).toBe("");
     expect(taskDetailView(b.tasks[3], b, ROSTER, NOW).kindChip).toBeNull();
     expect(taskDetailView(b.tasks[3], b, ROSTER, NOW).epic).toBeNull();
+  });
+
+  it("with nowhere else to go the Epic is words, not a menu — under its only epic, or under none with none open", () => {
+    const only = board([task({ id: "task-1", kind: "epic", title: "Plan" }), task({ id: "task-2" })], 3, [relation("child-of", "task-2", "task-1")]);
+    const under = taskDetailView(only.tasks[1], only, ROSTER, NOW).parent;
+    expect([under?.fixed, under?.detach?.label]).toEqual(["task-1 · Plan", "Take out of the epic task-1"]);
+    const none = board([task({ id: "task-1", kind: "epic", status: "done" }), task({ id: "task-2" })], 3);
+    expect(taskDetailView(none.tasks[1], none, ROSTER, NOW).parent).toMatchObject({ fixed: "No epic", detach: null });
   });
 
   it("says in the activity where a task went among epics", () => {
