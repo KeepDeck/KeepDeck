@@ -225,7 +225,7 @@ export function TaskDetail({
                   <dt className="tasks__prop-label">{FIELD_WORDS.epic}</dt>
                   <dd className="tasks__epic-pick">
                     {view.parent.fixed !== null ? (
-                      <span className="tasks__epic-fixed">{view.parent.fixed}</span>
+                      <span className="dropdown-text tasks__epic-fixed">{view.parent.fixed}</span>
                     ) : (
                       <Dropdown
                         ariaLabel={FIELD_WORDS.epic}

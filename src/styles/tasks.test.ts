@@ -168,6 +168,11 @@ describe("Tasks text never widens its box", () => {
     // Hung left by an offset: a negative margin took its width off the line and wrapped "Low".
     const button = ruleBody(readStyles("form.css"), ".dropdown--inline .dropdown__button");
     expect([button.left, button["margin-left"]]).toEqual(["-6px", undefined]);
+    // The same value with nothing to pick is the picker's box, one rule for both: the Epic field
+    // that turns from one into the other moves neither its words (the border's 1px) nor its line.
+    const box = ruleBody(readStyles("form.css"), ".dropdown--inline .dropdown__button,\n.dropdown-text");
+    expect([box.border, box["line-height"], box["font-size"], box.color]).toEqual(["1px solid transparent", "22px", "var(--kd-font-normal)", "var(--kd-text)"]);
+    expect([button.border, button["line-height"], ruleBody(readStyles("tasks.css"), ".tasks__epic-fixed")["line-height"]]).toEqual([undefined, undefined, undefined]);
     // A status with its ring is one line high like any other value: on the baseline it grew its line by 4px.
     const status = ruleBody(readStyles("tasks.css"), ".tasks__status-choice");
     expect([status.height, status["vertical-align"]]).toEqual(["22px", "top"]);

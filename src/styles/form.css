@@ -625,9 +625,18 @@
      its 6px off the wrapper's width and squeeze a short value to wrap. */
   left: -6px;
   padding: 0 6px;
-  border: 1px solid transparent;
   background-color: transparent;
+}
+
+/* An inline value's box, the picker's and the same value with nothing to
+   pick (.dropdown-text) alike: one rule, so a field that turns from one
+   into the other moves neither its words nor its line. The transparent
+   border is the frame the picker shows under the pointer. */
+.dropdown--inline .dropdown__button,
+.dropdown-text {
+  border: 1px solid transparent;
   color: var(--kd-text);
+  font-size: var(--kd-font-normal);
   line-height: 22px;
 }
 
