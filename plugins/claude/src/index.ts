@@ -16,6 +16,7 @@
  * theory that a rebind already clears the pane — no rebind happens.
  */
 import {
+  launchPlans,
   mailAskArgs,
   shellQuote,
   type KeepDeckPlugin,
@@ -275,19 +276,16 @@ const plugin: KeepDeckPlugin = {
       },
       history: claudeHistory(ctx),
       liveSessions: claudeLiveSessions(ctx),
-      hooks: {
-        "spawn.plan": (input, output) => stageLaunch(ctx, input, output),
-        "resume.plan": async (input, output) => {
-          await stageLaunch(ctx, input, output);
-          output.args.push("--resume", input.sessionId);
-        },
+      hooks: launchPlans({
+        stage: (input, output) => stageLaunch(ctx, input, output),
+        resume: (input) => ["--resume", input.sessionId],
         /** Cross-directory fork: copy the recorded transcript into the
          * target cwd's slug dir, then spawn `--resume <id> --fork-session`
          * THERE — claude finds the copy, and --fork-session mints a fresh
          * session id for the continuation, leaving the original resumable
          * where it was (no duplicate-id ambiguity). The copy lands inside
          * `~/.claude/projects` only — exactly the manifest's fsWrite scope. */
-        "fork.plan": async (input, output) => {
+        fork: async (input) => {
           // The transcript path arrives recorded (the reporter delivered
           // it) or is DERIVED from the session's own recorded cwd — the
           // store layout is deterministic (`projects/<slug(cwd)>/<id>.jsonl`)
@@ -325,10 +323,9 @@ const plugin: KeepDeckPlugin = {
           if (target !== source) {
             await ctx.services.fsWrite.copyFile(source, target);
           }
-          await stageLaunch(ctx, input, output);
-          output.args.push("--resume", input.sessionId, "--fork-session");
+          return ["--resume", input.sessionId, "--fork-session"];
         },
-      },
+      }),
     });
     // The switch for claude's OWN artifacts ([`ARTIFACTS_FIELD`]). The label
     // never reaches the screen — the plugin's page is titled by the manifest
