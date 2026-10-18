@@ -261,7 +261,14 @@ export type MailReplyRenderer = (input: MailReplyInput) => string | null;
  * payload (verbatim under `event`). */
 export type StatusPayload =
   | { readonly source: "record"; readonly record: Record<string, unknown> }
-  | { readonly source: "hook"; readonly event: Record<string, unknown> };
+  | {
+      readonly source: "hook";
+      readonly event: Record<string, unknown>;
+      /** The reporter cut an oversized payload down to its event name and
+       * said so (`reduced: true` beside the event). Whoever raised it can no
+       * longer be told. */
+      readonly reduced: boolean;
+    };
 
 /** The status envelope → what it carries, or null when it carries neither.
  * A carried envelope without a record is null, never read as a hook. */
@@ -273,7 +280,7 @@ export function decodeStatusPayload(payload: unknown): StatusPayload | null {
       : null;
   }
   return isJsonRecord(payload.event)
-    ? { source: "hook", event: payload.event }
+    ? { source: "hook", event: payload.event, reduced: payload.reduced === true }
     : null;
 }
 

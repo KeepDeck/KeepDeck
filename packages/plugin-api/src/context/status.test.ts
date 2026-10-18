@@ -280,7 +280,14 @@ describe("decodeStatusPayload", () => {
 
   it("reads a hook reporter's event", () => {
     expect(decodeStatusPayload({ agent: "codex", event: { hook_event_name: "Stop" } }))
-      .toEqual({ source: "hook", event: { hook_event_name: "Stop" } });
+      .toEqual({ source: "hook", event: { hook_event_name: "Stop" }, reduced: false });
+  });
+
+  it("reports a reporter's reduced mark, and only a literal true", () => {
+    expect(decodeStatusPayload({ event: { hook_event_name: "Stop" }, reduced: true }))
+      .toMatchObject({ source: "hook", reduced: true });
+    expect(decodeStatusPayload({ event: { hook_event_name: "Stop" }, reduced: "yes" }))
+      .toMatchObject({ source: "hook", reduced: false });
   });
 
   it("never reads a carried envelope without a record as a hook", () => {

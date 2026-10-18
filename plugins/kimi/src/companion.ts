@@ -35,7 +35,7 @@ export interface CompanionScript {
 
 const REPORTER_SCRIPTS: readonly CompanionScript[] = [
   { file: "kd-session-hook.sh", sha256: "f4393bea5b2fcac84fb34a98c4605c4546b131c95077f8ce9e5de14f78f331b0" },
-  { file: "kd-status-hook.sh", sha256: "7acf2681a1d563112f3ea46721767b8d4f8d0fd19305fb541ae381146714d017" },
+  { file: "kd-status-hook.sh", sha256: "d141e7433cc042feb4a23c791340064da96812cf471a2ed1a07eb02e28f3cf14" },
   { file: "kimi.plugin.json", sha256: "4fb1950023aedcaaf709af91f6439a8d42076f59b127724be66f9ad8194f7c14" },
 ];
 

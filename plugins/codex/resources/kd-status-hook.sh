@@ -50,6 +50,7 @@ agent="$1"
 # one while the other was still deciding to keep it running.
 ask=""
 [ "$2" = "--ask" ] && ask="yes"
+reduced=""
 
 # How long this hook waits for the deck is no longer decided here: the answer
 # comes back on the connection the envelope went out on, so it is the round
@@ -203,6 +204,11 @@ if [ "$bytes" -gt 261120 ]; then
   # the next prompt corrects it. That is the recoverable direction, and the
   # same one this file chooses everywhere else.
   payload=$(printf '{"hook_event_name":"%s"}' "$name")
+  # Said out loud, beside the event: whoever raised this can no longer be
+  # told, and the deck hands mail only to the main agent. Nor is it asked
+  # for — an answer to a payload nobody can attribute would be refused.
+  reduced="yes"
+  ask=""
 fi
 
 # The correlation the deck answers on: 64 random bits, minted WITHOUT
@@ -235,7 +241,9 @@ fi
 # one process, and a report from another is somebody else's numbers no matter
 # how correct its secret and agent are.
 # `reply` — the correlation the deck answers on, present only when asking.
+# `reduced` — the payload was cut down to its event name above.
 extra=""
+[ -n "$reduced" ] && extra="$extra\"reduced\":true,"
 [ -n "$reporter" ] && extra="$extra\"reporter\":\"$reporter\","
 [ -n "$correlation" ] && extra="$extra\"reply\":\"$correlation\","
 envelope=$(printf '{"v":2,"type":"agent.status","paneId":"%s","token":"%s","payload":{"agent":"%s",%s"event":%s}}' \
