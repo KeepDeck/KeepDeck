@@ -75,6 +75,7 @@ export type {
   PluginCommandSpec,
   PluginCommands,
 } from "./commands.ts";
+export { errorMessage, parseInstant, sha256Hex, shellQuote } from "./authoring.ts";
 export {
   firstMeaningfulUserTurn,
   textFromParts,
