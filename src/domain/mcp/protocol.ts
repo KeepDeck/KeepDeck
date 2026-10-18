@@ -8,6 +8,7 @@ import {
   errorReply,
   resultReply,
 } from "./jsonrpc";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 /**
  * The MCP projection: the command registry, spoken as an MCP server. One
@@ -173,7 +174,7 @@ export async function handleMcpLine(
         return errorReply(
           line,
           INTERNAL_ERROR,
-          e instanceof Error ? e.message : String(e),
+          errorMessage(e),
         );
       }
       if (outcome.ok) {

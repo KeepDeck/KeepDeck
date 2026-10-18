@@ -13,6 +13,7 @@ import type {
 } from "@keepdeck/plugin-api";
 import { downloadChannel, fswatchChannel, speechLevelChannel } from "./protocol";
 import type { HostSessions } from "./hostSessions";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 /**
  * The `services.*` half of the dispatch table: thin adaptors from a positional
@@ -160,7 +161,7 @@ export function createServiceHandlers({
             phase: "failed",
             received: 0,
             total: request.integrity?.bytes ?? null,
-            error: error instanceof Error ? error.message : String(error),
+            error: errorMessage(error),
           };
           push(downloadChannel(request.id), failed);
         } finally {

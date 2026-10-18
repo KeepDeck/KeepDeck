@@ -1,5 +1,6 @@
 import type { PluginContext } from "@keepdeck/plugin-api";
 import { MODEL_CATALOG, type VoiceModelInfo } from "./modelCatalog";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 export interface ModelsStore {
   snapshot(): VoiceModelInfo[] | null;
@@ -49,7 +50,7 @@ export function createModelsStore(ctx: PluginContext): ModelsStore {
         notify();
       } catch (error) {
         if (mine !== revision) return;
-        err = error instanceof Error ? error.message : String(error);
+        err = errorMessage(error);
         notify();
       }
     })();
@@ -79,7 +80,7 @@ export function createModelsStore(ctx: PluginContext): ModelsStore {
       try {
         await ctx.services.downloads.remove(model.target);
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = errorMessage(error);
         removeErrors = { ...removeErrors, [model.id]: `Could not delete: ${message}` };
         ctx.log.warn(`model removal failed: ${message}`);
         notify();

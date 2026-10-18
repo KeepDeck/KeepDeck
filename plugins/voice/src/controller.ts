@@ -25,6 +25,7 @@ import {
   type ProblemWords,
 } from "./problemWords";
 import type { VoiceModelInfo } from "./modelCatalog";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 /**
  * The voice controller — one push-to-talk state machine shared by the hotkey
@@ -196,7 +197,7 @@ export function createVoiceController(
   /** A failed speech call: the history line, and the alert when it is one
    * the user can act on. */
   function reportFailure(e: unknown): void {
-    push("error", e instanceof Error ? e.message : String(e));
+    push("error", errorMessage(e));
     const problem = problemOfError(e);
     if (!problem) return;
     const message = e instanceof Error ? e.message : undefined;
@@ -470,7 +471,7 @@ export function createVoiceController(
       try {
         await ctx.settings.write(MIC_KEY, pick);
       } catch (e) {
-        push("error", `couldn't save the microphone: ${e instanceof Error ? e.message : String(e)}`);
+        push("error", `couldn't save the microphone: ${errorMessage(e)}`);
         notify();
       }
     },

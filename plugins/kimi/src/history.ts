@@ -1,4 +1,5 @@
 import {
+  errorMessage,
   jsonl,
   textFromParts,
   walkSession,
@@ -116,11 +117,6 @@ const dialect: SessionDialect<KimiState, KimiRecord> = {
 };
 
 const WIRE_SUFFIX = "/agents/main/wire.jsonl";
-
-/** The log line needs a string; whatever the fs layer threw becomes one. */
-function errOf(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
-}
 
 export function kimiHistory(ctx: PluginContext): AgentHistory {
   const readSession = (
@@ -279,7 +275,7 @@ export function kimiHistory(ctx: PluginContext): AgentHistory {
         // would read as "every session deleted" and the host's prune
         // would wipe this agent's whole index. Nothing read, incomplete.
         ctx.log.warn(
-          `kimi: store root unreadable (${errOf(e)}) — nothing enumerated`,
+          `kimi: store root unreadable (${errorMessage(e)}) — nothing enumerated`,
         );
         return { stubs, complete: false };
       }
@@ -295,7 +291,7 @@ export function kimiHistory(ctx: PluginContext): AgentHistory {
           // degradation is the one mode this contract forbids.
           complete = false;
           ctx.log.warn(
-            `kimi: partial listing — ${wd.path} unreadable (${errOf(e)})`,
+            `kimi: partial listing — ${wd.path} unreadable (${errorMessage(e)})`,
           );
           continue;
         }

@@ -14,6 +14,7 @@ import { rowAtViewportTop } from "../domain/anchor";
 import { previewKey } from "../domain/identity";
 import { CodeIcon, OpenExternalIcon, WrapIcon } from "../icons";
 import { MarkdownView } from "./MarkdownView";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 /**
  * The file preview, inside the shared `Peek` overlay (ui-kit) — the shell
@@ -58,7 +59,7 @@ export function FileViewer({
         setLoading(false);
       })
       .catch((cause: unknown) => {
-        const message = cause instanceof Error ? cause.message : String(cause);
+        const message = errorMessage(cause);
         log.warn(`readFile failed for ${path}: ${message}`);
         if (cancelled) return;
         setError(message);

@@ -8,6 +8,7 @@ import { changeSetKey } from "../domain/identity";
 import { navigate, type ArrowKey } from "../domain/navigate";
 import { FileRow, FileSection } from "./FileRows";
 import { Trouble } from "./Trouble";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 /** Arrow keys the rail consumes, mapped to the pure navigator's vocabulary. */
 const ARROW_KEYS: Record<string, ArrowKey | undefined> = {
@@ -126,7 +127,7 @@ export function PeekSiblings({
         setFetched({ key, files: next });
       })
       .catch((cause: unknown) => {
-        const message = cause instanceof Error ? cause.message : String(cause);
+        const message = errorMessage(cause);
         log.warn(`changed files failed for ${repo}: ${message}`);
         if (cancelled) return;
         // Supersedes the list this key had: a rail that shows an error must

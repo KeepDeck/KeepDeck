@@ -1,4 +1,5 @@
 import {
+  errorMessage,
   firstMeaningfulUserTurn,
   jsonl,
   textFromParts,
@@ -21,11 +22,6 @@ import {
  * line MEANS. No sizes, no line splitting, no JSON, no accumulation.
  */
 const ROOT = "~/.claude/projects";
-
-/** The log line needs a string; whatever the fs layer threw becomes one. */
-function errOf(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
-}
 
 /** A store file whose NAME is not a session id: the CLI moves a colliding
  * task file aside as `<id>.orphaned-<epoch>-<hex>.jsonl`. The enumeration
@@ -187,7 +183,7 @@ export function claudeHistory(ctx: PluginContext): AgentHistory {
         // deleted store stops being pruned until the fs contract grows
         // a way to tell the two apart.)
         ctx.log.warn(
-          `claude: store root unreadable (${errOf(e)}) — nothing enumerated`,
+          `claude: store root unreadable (${errorMessage(e)}) — nothing enumerated`,
         );
         return { stubs, complete: false };
       }
@@ -203,7 +199,7 @@ export function claudeHistory(ctx: PluginContext): AgentHistory {
           // degradation is the one mode this contract forbids.
           complete = false;
           ctx.log.warn(
-            `claude: partial listing — ${slug.path} unreadable (${errOf(e)})`,
+            `claude: partial listing — ${slug.path} unreadable (${errorMessage(e)})`,
           );
           continue;
         }

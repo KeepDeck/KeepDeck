@@ -1,4 +1,5 @@
 import {
+  errorMessage,
   firstMeaningfulUserTurn,
   jsonl,
   textFromParts,
@@ -19,11 +20,6 @@ import { FILE_UUID, ROOT } from "./store";
  */
 // The store's shape lives in ./store, so the browser, the live tail and
 // anything else that has to find a rollout read one description of it.
-
-/** The log line needs a string; whatever the fs layer threw becomes one. */
-function errOf(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
-}
 
 /** One line of a rollout, as this plugin reads it. An assertion about the
  * format made in ONE place: the host parses the JSON and validates nothing,
@@ -148,7 +144,7 @@ export function codexHistory(ctx: PluginContext): AgentHistory {
       // invisible to the index until it reads again, and silent
       // degradation is the one mode this contract forbids.
       ctx.log.warn(
-        `codex: partial listing — ${path} unreadable (${errOf(e)})`,
+        `codex: partial listing — ${path} unreadable (${errorMessage(e)})`,
       );
       return false;
     }
@@ -190,7 +186,7 @@ export function codexHistory(ctx: PluginContext): AgentHistory {
         await ctx.services.fs.readDir(ROOT);
       } catch (e) {
         ctx.log.warn(
-          `codex: store root unreadable (${errOf(e)}) — nothing enumerated`,
+          `codex: store root unreadable (${errorMessage(e)}) — nothing enumerated`,
         );
         return { stubs: [], complete: false };
       }

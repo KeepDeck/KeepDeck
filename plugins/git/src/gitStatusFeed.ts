@@ -1,5 +1,6 @@
 import type { Disposable, GitStatus } from "@keepdeck/plugin-api";
 import { getRuntime } from "./runtime";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 /**
  * One live status feed per repo, shared by every surface that watches it.
@@ -77,7 +78,7 @@ async function load(repo: string, feed: Feed): Promise<void> {
       version: feed.snapshot.version + 1,
     });
   } catch (cause) {
-    const message = cause instanceof Error ? cause.message : String(cause);
+    const message = errorMessage(cause);
     warn(`git status failed for ${repo}: ${message}`);
     publish(repo, feed, {
       status: null,
@@ -124,11 +125,11 @@ function startWatch(repo: string, feed: Feed): void {
     handle.ready.catch((cause) => {
       if (feed.watcher !== handle) return;
       feed.watcher = null;
-      const message = cause instanceof Error ? cause.message : String(cause);
+      const message = errorMessage(cause);
       warn(`git watch refused for ${repo}: ${message}`);
     });
   } catch (cause) {
-    const message = cause instanceof Error ? cause.message : String(cause);
+    const message = errorMessage(cause);
     warn(`git watch failed for ${repo}: ${message}`);
   }
 }

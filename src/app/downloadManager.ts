@@ -9,6 +9,7 @@ import {
   removeDownload,
   startDownload,
 } from "../ipc/downloads";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 const TERMINAL = new Set<DownloadState["phase"]>([
   "completed",
@@ -123,7 +124,7 @@ export class DownloadManager {
       this.accept(job, {
         ...job.state,
         phase: "failed",
-        error: error instanceof Error ? error.message : String(error),
+        error: errorMessage(error),
       });
       return stream;
     }
@@ -142,7 +143,7 @@ export class DownloadManager {
           this.accept(job, {
             ...job.state,
             phase: "failed",
-            error: error instanceof Error ? error.message : String(error),
+            error: errorMessage(error),
           });
         }
       });

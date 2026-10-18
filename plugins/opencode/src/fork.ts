@@ -23,7 +23,11 @@
  * `exec` capability), and the one temp file `import` needs is written via
  * `ctx.services.fsWrite` into an OS-temp scratch dir the system reaps.
  */
-import type { ForkPlanInput, PluginContext } from "@keepdeck/plugin-api";
+import {
+  errorMessage,
+  type ForkPlanInput,
+  type PluginContext,
+} from "@keepdeck/plugin-api";
 import { extractJson, runOpencode, tail } from "./exec";
 import { rekeyExport, type OpencodeExport } from "./rekey";
 
@@ -85,9 +89,7 @@ export async function opencodeForkPlan(
       .writeFile(file, "{}")
       .catch((cause: unknown) =>
         ctx.log.warn(
-          `could not clear the fork scratch ${file}: ${
-            cause instanceof Error ? cause.message : String(cause)
-          }`,
+          `could not clear the fork scratch ${file}: ${errorMessage(cause)}`,
         ),
       );
   }
@@ -131,9 +133,7 @@ export async function relocatingForkId(
     // the user asked to relocate and it didn't. Still fall back (a fork happens)
     // rather than hard-failing the whole fork.
     ctx.log.warn(
-      `opencode fork relocation of ${input.sessionId} failed — native --fork fallback: ${
-        e instanceof Error ? e.message : String(e)
-      }`,
+      `opencode fork relocation of ${input.sessionId} failed — native --fork fallback: ${errorMessage(e)}`,
     );
     try {
       ctx.notify({

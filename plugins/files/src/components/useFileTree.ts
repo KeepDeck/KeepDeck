@@ -10,6 +10,7 @@ import {
   toggleExpanded,
   type TreeState,
 } from "../domain/tree";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 /**
  * The Files tab's tree state and the async orchestration over `services.fs`.
@@ -72,13 +73,13 @@ export function useFileTree(rootPath: string) {
         // swallowed, and forgotten, so the next load of this directory —
         // the Refresh button, a collapse and expand — asks for it again.
         handle.ready.catch((cause: unknown) => {
-          const message = cause instanceof Error ? cause.message : String(cause);
+          const message = errorMessage(cause);
           log.warn(`watch refused for ${path}: ${message}`);
           if (watches.get(path) === handle) watches.delete(path);
         });
       }
     } catch (cause) {
-      const message = cause instanceof Error ? cause.message : String(cause);
+      const message = errorMessage(cause);
       log.warn(`readDir failed for ${path}: ${message}`);
       setState((current) => setError(current, path, message));
     }

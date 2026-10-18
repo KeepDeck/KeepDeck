@@ -1,5 +1,6 @@
 import type { PluginLogger, PluginManifest } from "@keepdeck/plugin-api";
 import { adoptPluginDownloads } from "../ipc/downloads";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 export function hasBuiltinOnlyDownloadMigrations(
   manifest: PluginManifest,
@@ -21,7 +22,7 @@ export async function applyBuiltinDownloadMigrations(
         await adoptPluginDownloads(manifest.id, migration);
       } catch (error) {
         log.warn(
-          `legacy download migration failed: ${error instanceof Error ? error.message : String(error)}`,
+          `legacy download migration failed: ${errorMessage(error)}`,
         );
       }
     }

@@ -4,6 +4,7 @@ import type {
   KimiCompanionInstallation,
   KimiCompanionManager,
 } from "./manager";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 export type SetupState =
   | { kind: "checking"; operation: null }
@@ -94,7 +95,7 @@ export function createKimiSetupController(
       publish(next);
       return next;
     } catch (caught) {
-      const message = describe(caught);
+      const message = errorMessage(caught);
       log.warn(`Kimi setup check failed: ${message}`);
       const next: StableSetupState = {
         kind: "error",
@@ -134,7 +135,7 @@ export function createKimiSetupController(
         publish({ ...checked, runningSessionsNeedReload: true });
       }
     } catch (caught) {
-      const message = describe(caught);
+      const message = errorMessage(caught);
       log.warn(`Kimi ${operation} failed: ${message}`);
       publish({
         kind: "error",
@@ -205,6 +206,3 @@ export function stateFromInstallation(
   };
 }
 
-function describe(value: unknown): string {
-  return value instanceof Error ? value.message : String(value);
-}

@@ -5,7 +5,7 @@ import type {
   PluginContext,
   SqlAnswer,
 } from "@keepdeck/plugin-api";
-import { CONTENT_CAP } from "@keepdeck/plugin-api";
+import { CONTENT_CAP, errorMessage } from "@keepdeck/plugin-api";
 
 /**
  * Discovery over opencode's store ([F8] browser): everything lives in one
@@ -107,7 +107,6 @@ const stubsOf = (rows: readonly (string | null)[][]): AgentSessionStub[] =>
       : [],
   );
 
-const errOf = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 export function opencodeHistory(ctx: PluginContext): AgentHistory {
   const query = (sql: string, params: string[] = []) =>
@@ -247,7 +246,7 @@ export function opencodeHistory(ctx: PluginContext): AgentHistory {
         answer = await query(SESSION_ROWS);
       } catch (e) {
         ctx.log.warn(
-          `opencode: store unreadable (${errOf(e)}) — nothing enumerated`,
+          `opencode: store unreadable (${errorMessage(e)}) — nothing enumerated`,
         );
         return { stubs: [], complete: false };
       }
