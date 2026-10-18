@@ -22,6 +22,15 @@ Every mechanism has the same two layers:
   dialect: its flags and env, its hook payload shapes, where it stores
   sessions, how it forks.
 
+Shared cores in `packages/plugin-api` so far:
+
+- `agentEvents`: whose report an event is, what it may move, and who gets
+  mail (see [mail-delivery.md](mail-delivery.md)).
+- `sessionHistory`: the history contract. It decides what an unreadable or
+  partly readable store means to the strict `list` and the partial
+  `listing`, and how transcript pages are read. A plugin supplies only a
+  `SessionStore`: how to enumerate, describe and read its own sessions.
+
 The rule is that the high level works the same for all four CLIs. A new
 mechanism gets one core and four adapters, never a helper for "the similar
 three" with the odd one on its own path. Work on pulling the remaining
