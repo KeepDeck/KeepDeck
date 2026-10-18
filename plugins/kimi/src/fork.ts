@@ -178,8 +178,10 @@ async function readWholeText(ctx: PluginContext, path: string): Promise<string> 
   let text = "";
   let offset = 0;
   for (;;) {
+    // As large a window as the host will give: `maxBytes` is a request the
+    // host clamps to its own ceiling, and `readBytes` says what it gave.
     const window = await ctx.services.fs.readFile(path, {
-      maxBytes: WIRE_WINDOW_BYTES,
+      maxBytes: Number.MAX_SAFE_INTEGER,
       offset,
     });
     if (window.text === null || (window.truncated && window.readBytes === 0)) {
@@ -190,9 +192,6 @@ async function readWholeText(ctx: PluginContext, path: string): Promise<string> 
     offset += window.readBytes;
   }
 }
-
-/** The host's own read ceiling — the fewest round trips a wire can take. */
-const WIRE_WINDOW_BYTES = 8 * 1024 * 1024;
 
 /** `wd_<slug-of-basename>_<sha256(absolute-cwd)[:12]>` — the store folder
  * kimi files a directory's sessions under.
