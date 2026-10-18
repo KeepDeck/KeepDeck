@@ -4,7 +4,6 @@ const tauri = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => tauri);
 vi.mock("./log", () => ({
   log: { warn: vi.fn() },
-  describeError: (e: unknown) => (e instanceof Error ? e.message : String(e)),
 }));
 
 import { mcpArm, mcpDisarm, mcpPrune } from "./mcpArming";

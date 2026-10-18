@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("../../ipc/log", () => ({
   log: { warn: vi.fn() },
-  describeError: (e: unknown) => (e instanceof Error ? e.message : String(e)),
 }));
 
 import { log } from "../../ipc/log";

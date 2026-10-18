@@ -21,6 +21,7 @@ import {
   type PluginCategory,
   type PluginManifest,
   type WorkspaceRef as PluginWorkspaceRef,
+  errorMessage,
 } from "@keepdeck/plugin-api";
 import {
   createContributionRegistries,
@@ -64,7 +65,7 @@ import { capabilityFingerprint } from "../plugins/external/consent";
 import { openPath, openPathWith, openUrl } from "../ipc/app";
 import { voiceDevices, voiceEngines, voiceCaptureStart } from "../ipc/voice";
 import { writePluginValue } from "./pluginValues";
-import { describeError, log } from "../ipc/log";
+import { log } from "../ipc/log";
 import { createAgentBins } from "./plugins/agentBins";
 import {
   binOfAgent,
@@ -145,7 +146,7 @@ export function makeWatchFanout(
       .catch((e) =>
         log.warn(
           "web:plugins",
-          `${backend.label} ${what} ${path} failed: ${describeError(e)}`,
+          `${backend.label} ${what} ${path} failed: ${errorMessage(e)}`,
         ),
       )
       .finally(() => {
@@ -172,7 +173,7 @@ export function makeWatchFanout(
           } catch (error) {
             log.warn(
               "web:plugins",
-              `${backend.label} subscriber for ${changed} threw: ${describeError(error)}`,
+              `${backend.label} subscriber for ${changed} threw: ${errorMessage(error)}`,
             );
           }
         }
@@ -180,7 +181,7 @@ export function makeWatchFanout(
       .catch((error) => {
         log.warn(
           "web:plugins",
-          `${backend.label} change listener failed: ${describeError(error)}`,
+          `${backend.label} change listener failed: ${errorMessage(error)}`,
         );
         return () => {};
       });
@@ -826,7 +827,7 @@ export function createPluginManager(appDownloads: DownloadManager) {
         `bootstrap: ${states.join(", ") || "no plugins"}`,
       );
     })().catch((e) => {
-      log.error("web:plugins", `bootstrap failed: ${describeError(e)}`);
+      log.error("web:plugins", `bootstrap failed: ${errorMessage(e)}`);
     });
     return boot;
   }
@@ -877,7 +878,7 @@ export function createPluginManager(appDownloads: DownloadManager) {
     try {
       records = await scanPlugins();
     } catch (e) {
-      log.warn("web:plugins", `plugin scan failed: ${describeError(e)}`);
+      log.warn("web:plugins", `plugin scan failed: ${errorMessage(e)}`);
       return;
     }
 
@@ -1005,7 +1006,7 @@ export function createPluginManager(appDownloads: DownloadManager) {
           },
         });
       } catch (e) {
-        log.error("web:plugins", `${dir}: unreadable — ${describeError(e)}`);
+        log.error("web:plugins", `${dir}: unreadable — ${errorMessage(e)}`);
       }
     }
     return installs;

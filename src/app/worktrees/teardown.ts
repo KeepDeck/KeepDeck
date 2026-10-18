@@ -7,10 +7,11 @@
  * an arming land inside a `git worktree remove`.
  */
 import type { WorktreeTarget } from "../../domain/deck";
-import { describeError, log } from "../../ipc/log";
+import { log } from "../../ipc/log";
 import { removeWorktree } from "../../ipc/worktree";
 import type { WorktreeProvisioner } from "./index";
 import type { InOrder } from "./queue";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 export type WorktreeTeardown = Pick<WorktreeProvisioner, "remove"> & {
   /** Best-effort teardown of a half-prepared worktree (a failed create's
@@ -56,7 +57,7 @@ export function createWorktreeTeardown(
       } catch (e) {
         log.warn(
           "web:worktrees",
-          `worktree removal failed for ${target.path}: ${describeError(e)}`,
+          `worktree removal failed for ${target.path}: ${errorMessage(e)}`,
         );
         return `${target.branch ?? target.path}: ${e}`;
       }

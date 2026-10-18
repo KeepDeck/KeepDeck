@@ -14,9 +14,10 @@ import {
   type StoredRole,
   type TeamRole,
 } from "../../domain/mail";
-import { describeError } from "../../ipc/log";
+
 import { noAutoCorrect } from "../../ui/inputProps";
 import { Segmented } from "@keepdeck/ui-kit/Segmented";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 /** What the form holds while the person types. The charter travels as ONE
  * text here — a paragraph per line — because that is what a textarea is;
@@ -144,7 +145,7 @@ export function TeamRolesSection() {
       await saveStoredRole(id, record);
       close();
     } catch (e) {
-      setProblem(describeError(e));
+      setProblem(errorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -162,7 +163,7 @@ export function TeamRolesSection() {
       if (selected?.kind === "edit" && selected.id === id) close();
       else setProblem(null);
     } catch (e) {
-      setProblem(describeError(e));
+      setProblem(errorMessage(e));
     } finally {
       setBusy(false);
     }

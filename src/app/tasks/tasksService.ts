@@ -38,8 +38,9 @@ import {
   type TaskStatus,
   type TaskLanding,
 } from "../../domain/tasks";
-import { describeError, log } from "../../ipc/log";
+import { log } from "../../ipc/log";
 import { mintTaskUid } from "../ids";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 /** A board as the store hands it over: read and validated, absent, or
  * not readable — with the words saying why. */
@@ -340,7 +341,7 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
         return { kind: "unreadable", error: read.error };
       })
       .catch((e: unknown): BoardState => {
-        const error = describeError(e);
+        const error = errorMessage(e);
         log.warn("web:tasks", `${workspaceId}: reading the board failed: ${error}`);
         return { kind: "unreadable", error };
       })
@@ -382,7 +383,7 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
       try {
         await deps.store.write({ workspaceId, board });
       } catch (e: unknown) {
-        const error = describeError(e);
+        const error = errorMessage(e);
         log.warn("web:tasks", `${workspaceId}: writing the board failed: ${error}`);
         // A board forgotten while this was on the wire has nothing to
         // mark and nothing to retry.

@@ -8,7 +8,7 @@ import {
   sessionClaimant,
   type Pane,
 } from "../../domain/deck";
-import { describeError, log } from "../../ipc/log";
+import { log } from "../../ipc/log";
 import type {
   McpAccessAsk,
   AgentOrchestrator,
@@ -26,6 +26,7 @@ import {
   type SpawnPluginAccess,
 } from "../spawnSpecs";
 import type { WorktreeProvisioner } from "../worktrees";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 interface ContinuationDeps {
   deck: DeckStore;
@@ -151,7 +152,7 @@ export function createAgentOrchestratorContinuations({
     } catch (error) {
       log.warn(
         "web:orchestrator",
-        `resume of ${record.sessionId} failed: ${describeError(error)}`,
+        `resume of ${record.sessionId} failed: ${errorMessage(error)}`,
       );
       throw error;
     } finally {
@@ -266,7 +267,7 @@ export function createAgentOrchestratorContinuations({
     } catch (error) {
       log.warn(
         "web:orchestrator",
-        `fork of ${record.sessionId} failed: ${describeError(error)}`,
+        `fork of ${record.sessionId} failed: ${errorMessage(error)}`,
       );
       throw error;
     } finally {

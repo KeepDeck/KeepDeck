@@ -5,7 +5,7 @@ import {
   serializeDeck,
 } from "../domain/deck";
 import { emptyJournal } from "../domain/journal";
-import { describeError, log } from "../ipc/log";
+import { log } from "../ipc/log";
 import {
   loadDeckState,
   quarantineDeckState,
@@ -15,6 +15,7 @@ import { createDeckActions } from "./deckActions";
 import type { DeckStore } from "./deckStore";
 import { seedAgentSeq } from "./ids";
 import { initSettings } from "./settingsManager";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 const SAVE_DEBOUNCE_MS = 500;
 const SAVE_MAX_WAIT_MS = 2_000;
@@ -133,7 +134,7 @@ export function createDeckPersistence(
         if (disposed) return;
         log.warn(
           "web:persist",
-          `deck state save failed: ${describeError(error)}`,
+          `deck state save failed: ${errorMessage(error)}`,
         );
         saving = false;
         retryLater();
@@ -199,7 +200,7 @@ export function createDeckPersistence(
         void quarantineDeckState().catch((error) =>
           log.error(
             "web:persist",
-            `quarantine itself failed: ${describeError(error)}`,
+            `quarantine itself failed: ${errorMessage(error)}`,
           ),
         );
         return;
@@ -219,7 +220,7 @@ export function createDeckPersistence(
       if (disposed) return;
       log.error(
         "web:persist",
-        `deck state load failed → session parked, saving disabled: ${describeError(error)}`,
+        `deck state load failed → session parked, saving disabled: ${errorMessage(error)}`,
       );
       frozen = true;
       emit({ restoring: true, frozen: { kind: "unreadable" } });

@@ -16,7 +16,7 @@ import {
   paneBranch,
   paneExecutionCwd,
 } from "../../domain/deck";
-import { describeError, log } from "../../ipc/log";
+import { log } from "../../ipc/log";
 import {
   contributionSupportsFork,
   contributionSupportsResume,
@@ -29,6 +29,7 @@ import {
   peekPanePlanError,
 } from "./cache";
 import { buildPlan, findAgent, type PaneSpawnFacts } from "./plan";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 export * from "./plans";
 // Named, not a star: `resetPaneSpawnSpecs` is a test-only API (the cache is
@@ -186,7 +187,7 @@ export async function buildLivePaneSpec(
   } catch (error) {
     log.error(
       "web:agents",
-      `${pane.id} plan build failed: ${describeError(error)}`,
+      `${pane.id} plan build failed: ${errorMessage(error)}`,
     );
     // `buildAndCache` recorded the pane in `failed`; the cache DID change.
     return true;

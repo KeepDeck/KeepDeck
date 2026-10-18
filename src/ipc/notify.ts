@@ -3,7 +3,8 @@ import {
   requestPermission,
   sendNotification,
 } from "@tauri-apps/plugin-notification";
-import { describeError, log } from "./log";
+import { log } from "./log";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 /**
  * System (OS) notifications — the thin wrapper over
@@ -21,7 +22,7 @@ let prompted: Promise<void> | null = null;
  * pure read, NEVER prompts. The honest-status probe for settings UI. */
 export function notificationPermissionGranted(): Promise<boolean> {
   return isPermissionGranted().catch((e) => {
-    log.warn("web:notify", `permission probe failed: ${describeError(e)}`);
+    log.warn("web:notify", `permission probe failed: ${errorMessage(e)}`);
     return false;
   });
 }
@@ -34,7 +35,7 @@ export async function ensureNotificationPermission(): Promise<boolean> {
   prompted ??= requestPermission()
     .then(() => undefined)
     .catch((e) => {
-      log.warn("web:notify", `permission request failed: ${describeError(e)}`);
+      log.warn("web:notify", `permission request failed: ${errorMessage(e)}`);
     });
   await prompted;
   return notificationPermissionGranted();
@@ -48,7 +49,7 @@ export function sendSystemNotification(title: string, body?: string): void {
     try {
       sendNotification(body === undefined ? { title } : { title, body });
     } catch (e) {
-      log.warn("web:notify", `send failed: ${describeError(e)}`);
+      log.warn("web:notify", `send failed: ${errorMessage(e)}`);
     }
   });
 }

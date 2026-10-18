@@ -1,10 +1,10 @@
 import { toWorkspaceSnapshot } from "../../app/pluginSnapshots";
 import { reportPluginCrash, type PluginCrash } from "../../app/pluginHealth";
 import type { Workspace } from "../../domain/deck";
-import { describeError, log } from "../../ipc/log";
+import { log } from "../../ipc/log";
 import { externalPluginUrl } from "../../plugins/external/url";
 import type { Contribution } from "../../plugins/registries/contributions";
-import type { DockTabContribution } from "@keepdeck/plugin-api";
+import { errorMessage, type DockTabContribution } from "@keepdeck/plugin-api";
 import { ErrorBoundary } from "../../ui/ErrorBoundary";
 import { PluginFailurePanel } from "./PluginFailurePanel";
 import type { DockTabItem } from "./DockPanel";
@@ -70,7 +70,7 @@ export function buildDockTabs({
             onError={(e) => {
               log.error(
                 `web:plugin:${c.pluginId}`,
-                `dock tab "${c.entry.id}" crashed: ${describeError(e)}`,
+                `dock tab "${c.entry.id}" crashed: ${errorMessage(e)}`,
               );
               reportPluginCrash(c.pluginId, "tab", c.entry.id, e);
             }}

@@ -6,10 +6,11 @@ import {
 import { dropBlocker } from "@keepdeck/ui-kit/dropBlocker";
 import { reportPluginCrash } from "../app/pluginHealth";
 import { useAppRuntime } from "../app/runtimeContext";
-import { describeError, log } from "../ipc/log";
+import { log } from "../ipc/log";
 import { useContributions } from "../plugins";
 import { externalPluginUrl } from "../plugins/external/url";
 import { ErrorBoundary } from "../ui/ErrorBoundary";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 /**
  * The resident slot for plugin overlays — the host side of
@@ -45,7 +46,7 @@ export function PluginOverlays() {
             onError={(e) => {
               log.error(
                 `web:plugin:${c.pluginId}`,
-                `overlay "${c.entry.id}" crashed: ${describeError(e)}`,
+                `overlay "${c.entry.id}" crashed: ${errorMessage(e)}`,
               );
               // An overlay is invisible — without this report the crash
               // would be too. It lights the plugin's dock tab badge and

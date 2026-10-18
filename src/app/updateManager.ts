@@ -1,5 +1,5 @@
 import { readAppInfo, resetAppInfo } from "./appInfo";
-import { describeError, log } from "../ipc/log";
+import { log } from "../ipc/log";
 import {
   checkForUpdate,
   discardUpdate,
@@ -10,6 +10,7 @@ import {
 import { snapshotSettingsForUpdate } from "./settingsManager";
 import { sliceChangelog, type ChangelogEntry } from "../domain/changelog";
 import type { DownloadManager } from "./downloadManager";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 type UpdateDownloads = Pick<DownloadManager, "start" | "cancel">;
 
@@ -110,7 +111,7 @@ export function initUpdates(
     })
     .catch((e) => {
       // No app_info means no bridge at all — treat as a build without updates.
-      log.warn("web:update", `updater probe failed: ${describeError(e)}`);
+      log.warn("web:update", `updater probe failed: ${errorMessage(e)}`);
       apply({ phase: "disabled" });
     });
   return boot;
@@ -152,8 +153,8 @@ async function runCheck(): Promise<void> {
     // Transient by assumption (offline, mid-publish window…): surface in
     // settings, retry on the next tick.
     update = null;
-    log.warn("web:update", `update check failed: ${describeError(e)}`);
-    apply({ phase: "idle", error: describeError(e), checkedAt: Date.now() });
+    log.warn("web:update", `update check failed: ${errorMessage(e)}`);
+    apply({ phase: "idle", error: errorMessage(e), checkedAt: Date.now() });
   }
 }
 
@@ -179,8 +180,8 @@ export async function downloadUpdate(): Promise<void> {
     }
   } catch (e) {
     // The update is still known-available; the Download button retries.
-    log.warn("web:update", `update download failed: ${describeError(e)}`);
-    apply({ phase: "available", error: describeError(e) });
+    log.warn("web:update", `update download failed: ${errorMessage(e)}`);
+    apply({ phase: "available", error: errorMessage(e) });
   } finally {
     downloadJobId = null;
   }
@@ -189,7 +190,7 @@ export async function downloadUpdate(): Promise<void> {
 export function cancelUpdateDownload(): void {
   if (state.phase !== "downloading" || !downloads || !downloadJobId) return;
   void downloads.cancel(downloadJobId).catch((error) => {
-    log.warn("web:update", `update cancel failed: ${describeError(error)}`);
+    log.warn("web:update", `update cancel failed: ${errorMessage(error)}`);
   });
 }
 
@@ -206,7 +207,7 @@ export async function dismissUpdate(): Promise<void> {
     if (update === dismissed) update = null;
     apply({ phase: "idle", version: null, received: 0, total: null, changelog: [] });
   } catch (error) {
-    const message = describeError(error);
+    const message = errorMessage(error);
     log.warn("web:update", `update discard failed: ${message}`);
     apply({ phase: previous, error: message });
   }
@@ -229,26 +230,26 @@ export async function restartToUpdate(): Promise<void> {
     await snapshotSettingsForUpdate().catch((e) =>
       log.warn(
         "web:update",
-        `settings snapshot before the update failed: ${describeError(e)}`,
+        `settings snapshot before the update failed: ${errorMessage(e)}`,
       ),
     );
     await installUpdate(pending.id);
     installed = true;
     await relaunchApp();
   } catch (e) {
-    log.error("web:update", `update restart flow failed: ${describeError(e)}`);
+    log.error("web:update", `update restart flow failed: ${errorMessage(e)}`);
     if (installed) {
       // The bundle has already been swapped and its staging artifact cleaned.
       // Retrying install would target missing metadata; the user only needs to
       // restart the process manually.
       apply({
         phase: "installing",
-        error: `update installed, but automatic restart failed: ${describeError(e)}; quit and reopen KeepDeck`,
+        error: `update installed, but automatic restart failed: ${errorMessage(e)}; quit and reopen KeepDeck`,
       });
     } else {
       // Verification/installation failed before the swap; the artifact is
       // still intact and the action can be retried.
-      apply({ phase: "ready", error: describeError(e) });
+      apply({ phase: "ready", error: errorMessage(e) });
     }
   }
 }

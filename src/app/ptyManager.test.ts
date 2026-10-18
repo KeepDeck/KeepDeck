@@ -34,7 +34,6 @@ const harness = vi.hoisted(() => {
 vi.mock("../ipc/session", () => ({ spawnSession: harness.spawnSession }));
 vi.mock("../ipc/log", () => ({
   log: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() },
-  describeError: (e: unknown) => String(e),
 }));
 
 import { log } from "../ipc/log";
@@ -228,14 +227,14 @@ describe("attachPane", () => {
     harness.spawns[0].reject(new Error("no such command"));
     await settle();
     expect(sink.onSpawnError).toHaveBeenCalledWith(
-      "Error: no such command",
+      "no such command",
       false,
     );
 
     const late = makeSink();
     attachPane("pane-1", late);
     expect(late.onSpawnError).toHaveBeenCalledWith(
-      "Error: no such command",
+      "no such command",
       true,
     );
   });
@@ -247,11 +246,11 @@ describe("attachPane", () => {
 
     const first = makeSink();
     attachPane("pane-1", first);
-    expect(first.onSpawnError).toHaveBeenCalledWith("Error: boom", false);
+    expect(first.onSpawnError).toHaveBeenCalledWith("boom", false);
 
     const second = makeSink();
     attachPane("pane-1", second);
-    expect(second.onSpawnError).toHaveBeenCalledWith("Error: boom", true);
+    expect(second.onSpawnError).toHaveBeenCalledWith("boom", true);
   });
 
   it("a stale detach does not disconnect the newer sink (StrictMode order)", () => {

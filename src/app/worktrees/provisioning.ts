@@ -16,11 +16,12 @@
  * owner, and leave the directory the create then made as an orphan.
  */
 import type { WorktreeIntent } from "../../domain/deck";
-import { describeError, log } from "../../ipc/log";
+import { log } from "../../ipc/log";
 import { createWorktree, inspectRepo } from "../../ipc/worktree";
 import type { ProvisionCallbacks } from "../provisioning";
 import type { CreatedWorktree, WorktreeProvisioner } from "./index";
 import type { InOrder } from "./queue";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 export type WorktreeProvisioning = Pick<
   WorktreeProvisioner,
@@ -94,7 +95,7 @@ export function createWorktreeProvisioning(
       postProvisionSteps.delete(ownerId);
       return null;
     } catch (e) {
-      return describeError(e);
+      return errorMessage(e);
     }
   }
 
@@ -155,12 +156,12 @@ export function createWorktreeProvisioning(
     } catch (e) {
       log.error(
         "web:worktrees",
-        `worktree create failed for ${ownerId}: ${describeError(e)}`,
+        `worktree create failed for ${ownerId}: ${errorMessage(e)}`,
       );
       // Nothing landed, so a close has nothing to remove.
       publish(null);
       created.delete(ownerId);
-      cb.onFailed(ownerId, describeError(e));
+      cb.onFailed(ownerId, errorMessage(e));
       return;
     }
     // The directory exists: say so before anything else can delay it. A close

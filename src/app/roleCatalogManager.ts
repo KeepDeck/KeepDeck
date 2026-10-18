@@ -36,7 +36,8 @@ import {
   saveRoleFile,
   type StoredRoleFile,
 } from "../ipc/roles";
-import { describeError, log } from "../ipc/log";
+import { log } from "../ipc/log";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 export interface RoleCatalogPorts {
   fetchRoleFiles(): Promise<StoredRoleFile[]>;
@@ -195,7 +196,7 @@ export function createRoleCatalogManager(ports: RoleCatalogPorts): RoleCatalogMa
           // settings section renders it, not only in a log.
           log.warn(
             "web:roles",
-            `role catalog load failed — running on the built-ins: ${describeError(e)}`,
+            `role catalog load failed — running on the built-ins: ${errorMessage(e)}`,
           );
           // Deliberately NOT `apply()`: `installed` must stay null, or a
           // retry that ever gets built would adopt this invented state as
@@ -204,7 +205,7 @@ export function createRoleCatalogManager(ports: RoleCatalogPorts): RoleCatalogMa
             storedIds: new Set(),
             records: new Map(),
             problems: [
-              `the stored role files could not be read (${describeError(e)}) — running on the built-in roles, and NOT saving role edits this session: a save could overwrite records that were never seen. Restart to try again.`,
+              `the stored role files could not be read (${errorMessage(e)}) — running on the built-in roles, and NOT saving role edits this session: a save could overwrite records that were never seen. Restart to try again.`,
             ],
             writable: false,
           };
@@ -254,7 +255,7 @@ export function createRoleCatalogManager(ports: RoleCatalogPorts): RoleCatalogMa
         // from texts the disk no longer holds.
         log.warn(
           "web:roles",
-          `role catalog re-read after a save failed — applying the write locally: ${describeError(e)}`,
+          `role catalog re-read after a save failed — applying the write locally: ${errorMessage(e)}`,
         );
         for (const key of [...held.records.keys()]) {
           if (key.trim().toLowerCase() === trimmed) held.records.delete(key);
@@ -288,7 +289,7 @@ export function createRoleCatalogManager(ports: RoleCatalogPorts): RoleCatalogMa
       } catch (e) {
         log.warn(
           "web:roles",
-          `role catalog re-read after a delete failed — applying the delete locally: ${describeError(e)}`,
+          `role catalog re-read after a delete failed — applying the delete locally: ${errorMessage(e)}`,
         );
         for (const key of [...held.records.keys()]) {
           if (key.trim().toLowerCase() === trimmed) held.records.delete(key);

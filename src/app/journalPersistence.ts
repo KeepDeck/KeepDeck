@@ -9,10 +9,11 @@ import {
   shouldCompactJournal,
 } from "../domain/journal/persist";
 import { appendJournal, compactJournal, loadJournal } from "../ipc/journal";
-import { describeError, log } from "../ipc/log";
+import { log } from "../ipc/log";
 import { createDeckActions } from "./deckActions";
 import type { DeckPersistence } from "./deckPersistence";
 import type { DeckStore } from "./deckStore";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 interface LoadedJournal {
   records: JournalRecords;
@@ -62,7 +63,7 @@ export function createJournalPersistence(
         appending = false;
         log.warn(
           "web:journal",
-          `journal append failed: ${describeError(error)}`,
+          `journal append failed: ${errorMessage(error)}`,
         );
         clearRetry();
         retryTimer = globalThis.setTimeout(() => {
@@ -92,7 +93,7 @@ export function createJournalPersistence(
       } catch (error) {
         log.warn(
           "web:journal",
-          `journal compact failed: ${describeError(error)}`,
+          `journal compact failed: ${errorMessage(error)}`,
         );
       }
     }
@@ -130,7 +131,7 @@ export function createJournalPersistence(
       if (disposed) return;
       log.warn(
         "web:journal",
-        `journal load failed: ${describeError(error)}`,
+        `journal load failed: ${errorMessage(error)}`,
       );
       loaded = { records: {}, compact: false };
       drain();

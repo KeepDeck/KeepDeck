@@ -13,7 +13,7 @@ import {
   paneProvisioning,
   remoteEndpointOf,
 } from "../../domain/deck";
-import { describeError, log } from "../../ipc/log";
+import { log } from "../../ipc/log";
 import { createDeckActions, type DeckActions } from "../deckActions";
 import { createRefusalMessage } from "./refusals";
 import {
@@ -35,6 +35,7 @@ import { createAgentOrchestratorClosing } from "./closing";
 import { createAgentOrchestratorContinuations } from "./continuations";
 import { createAgentOrchestratorCreation } from "./creation";
 import { createAgentOrchestratorRestart } from "./restart";
+import { errorMessage } from "@keepdeck/plugin-api";
 const SPAWN_PLACEHOLDER_SIZE = { cols: 80, rows: 24 };
 
 /** How one attempt to bring a pane up ended. */
@@ -308,7 +309,7 @@ export function createAgentOrchestratorRuntime(
         // the silent substitution the `manual` origin prevents.
         if (!built) failure = "Its resume plan could not be prepared.";
       } catch (e) {
-        failure = describeError(e);
+        failure = errorMessage(e);
       }
       if (failure) {
         settle(ws.id, pane, { kind: "failed", why: failure });
@@ -461,7 +462,7 @@ export function createAgentOrchestratorRuntime(
           // to wake the pane fresh regardless of who asked, which is exactly
           // the silent substitution the manual origin exists to prevent.
           .catch((e) =>
-            settle(ws.id, pane, { kind: "failed", why: describeError(e) }),
+            settle(ws.id, pane, { kind: "failed", why: errorMessage(e) }),
           )
           .finally(() => inFlight.delete(pane.id));
       }

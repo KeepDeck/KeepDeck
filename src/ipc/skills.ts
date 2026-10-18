@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { SkillScope } from "../domain/skills";
-import { describeError, log } from "./log";
+import { log } from "./log";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 /** One stored library skill (mirrors the Rust `SkillDto`). A `bundled`
  * row is READ-ONLY: the tier ships with the app; mutations refuse
@@ -92,7 +93,7 @@ export async function stageSkills(
   try {
     return await invoke<SkillsStagingViews | null>("skills_stage", { wsId, roots });
   } catch (e) {
-    log.warn("web:skills", `skills_stage failed; spawning without skills: ${describeError(e)}`);
+    log.warn("web:skills", `skills_stage failed; spawning without skills: ${errorMessage(e)}`);
     return null;
   }
 }
@@ -122,7 +123,7 @@ export async function armSkills(
   try {
     return await invoke<SkillArmReport>("skills_arm", { wsId, roots });
   } catch (e) {
-    log.warn("web:skills", `skills_arm failed; spawning unarmed: ${describeError(e)}`);
+    log.warn("web:skills", `skills_arm failed; spawning unarmed: ${errorMessage(e)}`);
     return { armed: [], refused: [] };
   }
 }
@@ -137,7 +138,7 @@ export async function disarmSkills(roots: string[]): Promise<boolean> {
     await invoke("skills_disarm", { roots });
     return true;
   } catch (e) {
-    log.warn("web:skills", `skills_disarm failed: ${describeError(e)}`);
+    log.warn("web:skills", `skills_disarm failed: ${errorMessage(e)}`);
     return false;
   }
 }
@@ -150,7 +151,7 @@ export async function pruneSkills(liveWsIds: string[]): Promise<boolean> {
     await invoke("skills_prune", { liveWsIds });
     return true;
   } catch (e) {
-    log.warn("web:skills", `skills_prune failed: ${describeError(e)}`);
+    log.warn("web:skills", `skills_prune failed: ${errorMessage(e)}`);
     return false;
   }
 }

@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
-import { describeError, log } from "./log";
+import { log } from "./log";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 /** One pane cwd and the MCP config it should carry. */
 export interface McpArmEntry {
@@ -32,7 +33,7 @@ export async function mcpArm(
   try {
     return await invoke<McpArmReport>("mcp_arm", { wsId, entries });
   } catch (e) {
-    const reason = describeError(e);
+    const reason = errorMessage(e);
     log.warn("web:mcp", `arming failed: ${reason}`);
     return {
       armed: [],
@@ -49,7 +50,7 @@ export async function mcpDisarm(roots: string[]): Promise<boolean> {
     await invoke("mcp_disarm", { roots });
     return true;
   } catch (e) {
-    log.warn("web:mcp", `disarm failed: ${describeError(e)}`);
+    log.warn("web:mcp", `disarm failed: ${errorMessage(e)}`);
     return false;
   }
 }
@@ -60,7 +61,7 @@ export async function mcpPrune(liveWsIds: string[]): Promise<boolean> {
     await invoke("mcp_prune", { liveWsIds });
     return true;
   } catch (e) {
-    log.warn("web:mcp", `prune failed: ${describeError(e)}`);
+    log.warn("web:mcp", `prune failed: ${errorMessage(e)}`);
     return false;
   }
 }

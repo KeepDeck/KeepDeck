@@ -4,7 +4,7 @@ import { useTasksBoardFeed } from "./useBoardState";
 import { artifactChanges } from "../../app/artifacts/changes";
 import { openArtifactByRef } from "../../app/artifacts/entryPoints";
 import type { ArtifactsRegistryReadPort } from "../../app/artifacts/registryRead";
-import { describeError } from "../../ipc/log";
+
 import { isTypingTarget } from "../../ui/typingTarget";
 import { refusalOf, tasksEnableStatus } from "../../app/tasks/enableStatus";
 import { readyBoard } from "../../app/tasks/tasksService";
@@ -67,6 +67,7 @@ import {
   type DragState,
   type ScreenAction,
 } from "../../presentation/tasks";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 export type { TasksAccess } from "../../app/tasks/tasksFeature";
 
@@ -398,7 +399,7 @@ export function useTasksBoard(
     /** The person confirmed it: their choice takes the database's place. */
     confirmRestore: () => {
       if (!run({ type: "confirmRestore" }).restore || !service || !offer) return;
-      void service.restore(offer.choice).then(() => setError(null), (e: unknown) => setError(describeError(e)));
+      void service.restore(offer.choice).then(() => setError(null), (e: unknown) => setError(errorMessage(e)));
     },
     move: (taskId: string, to: TaskStatus) => void apply(taskId, [{ kind: "status", to }]),
     assign: (taskId: string, assignee: string) => void apply(taskId, [{ kind: "assign", assignee: assigneeOf(assignee) }]),
@@ -434,7 +435,7 @@ export function useTasksBoard(
       if (workspaceId === null) return;
       void openArtifactByRef(workspaceId, slug)
         .then(() => setError(null))
-        .catch((e: unknown) => setError(describeError(e)));
+        .catch((e: unknown) => setError(errorMessage(e)));
     },
     /** Copy a task as a fresh one and open the copy — in the panel as it
      * stands (wide stays wide). One copy per press: a second press while

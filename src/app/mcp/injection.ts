@@ -28,9 +28,9 @@
  * the server runs on the box. Serving remote panes means provisioning
  * server-side, which is the remote setup's business, not this module's.
  */
-import type { McpServerSpec } from "@keepdeck/plugin-api";
+import { errorMessage, type McpServerSpec } from "@keepdeck/plugin-api";
 import { acceptMcpServers } from "./servers";
-import { describeError, log } from "../../ipc/log";
+import { log } from "../../ipc/log";
 import type { McpArmReport } from "../../ipc/mcpArming";
 import type { BundledMcpContributor } from "./bundled";
 import { mcpFileRenderer } from "./kimi";
@@ -157,7 +157,7 @@ export function createMcpInjection({
         } catch (e) {
           log.warn(
             "web:mcp",
-            `bundled server "${contributor.name}" not injected: ${describeError(e)}`,
+            `bundled server "${contributor.name}" not injected: ${errorMessage(e)}`,
           );
           return null;
         }
@@ -173,7 +173,7 @@ export function createMcpInjection({
     try {
       return await library.serversFor(workspaceId);
     } catch (e) {
-      log.warn("web:mcp", `MCP library unreadable — pane spawns without it: ${describeError(e)}`);
+      log.warn("web:mcp", `MCP library unreadable — pane spawns without it: ${errorMessage(e)}`);
       return [];
     }
   }

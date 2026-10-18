@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { describeError, log } from "../ipc/log";
+import { log } from "../ipc/log";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 /** Lazy paging ([F8]): the first page fills the viewport, later pages load as
  * the user nears the list's end — no cap on how far they can walk. Shared by
@@ -132,7 +133,7 @@ export function usePagedSessionSearch<T>(
           apply(page.rows, page.total);
         })
         .catch((e) => {
-          log.warn("web:history", `search failed: ${describeError(e)}`);
+          log.warn("web:history", `search failed: ${errorMessage(e)}`);
           if (searchSeq.current !== seq) return;
           // The failure SETTLES this generation — the same landing a success
           // performs. Leaving it unsettled kept the previous query's rows on
@@ -149,7 +150,7 @@ export function usePagedSessionSearch<T>(
           // one). A failed page zero of a NEW search has no honest rows to
           // keep: clear them and say why.
           if (atLeast > 0 && rowsRef.current.length > 0) return;
-          setError(describeError(e));
+          setError(errorMessage(e));
           apply([], 0);
         });
     },
@@ -204,7 +205,7 @@ export function usePagedSessionSearch<T>(
         apply([...rowsRef.current, ...page.rows], page.total);
       })
       .catch((e) =>
-        log.warn("web:history", `load more failed: ${describeError(e)}`),
+        log.warn("web:history", `load more failed: ${errorMessage(e)}`),
       )
       .finally(() => {
         loadingMoreRef.current = false;

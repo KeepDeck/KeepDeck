@@ -3,10 +3,18 @@
  * to live as a private copy in several plugins (and the host), held in step
  * by nothing. */
 
-/** What was thrown, as text for a log line or an error message: the message
- * of an `Error`, anything else stringified. */
+/** What was thrown, as one line for a log or an error message: an `Error`'s
+ * message, a string as it is (IPC rejections are usually bare strings), and
+ * anything else as JSON — a plain object read as `[object Object]` says
+ * nothing. Plugin code and its teardown may throw ANYTHING. */
 export function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  try {
+    return JSON.stringify(error) ?? String(error);
+  } catch {
+    return String(error);
+  }
 }
 
 /** A string as ONE word of a POSIX shell command line: single-quoted, with an

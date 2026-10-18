@@ -4,12 +4,23 @@ import { describe, expect, it } from "vitest";
 import { errorMessage, parseInstant, sha256Hex, shellQuote } from "./authoring";
 
 describe("errorMessage", () => {
-  it("takes an Error's message and stringifies anything else", () => {
+  it("takes an Error's message and a string as it is", () => {
     expect(errorMessage(new TypeError("bad"))).toBe("bad");
     expect(errorMessage(new Error("base"))).toBe("base");
     expect(errorMessage("plain")).toBe("plain");
+  });
+
+  it("renders anything else as JSON, never [object Object]", () => {
+    expect(errorMessage({ code: 7, reason: "denied" })).toBe('{"code":7,"reason":"denied"}');
     expect(errorMessage(42)).toBe("42");
+    expect(errorMessage(null)).toBe("null");
+  });
+
+  it("falls back to String when JSON cannot say it", () => {
     expect(errorMessage(undefined)).toBe("undefined");
+    const cyclic: Record<string, unknown> = {};
+    cyclic.self = cyclic;
+    expect(errorMessage(cyclic)).toBe("[object Object]");
   });
 });
 

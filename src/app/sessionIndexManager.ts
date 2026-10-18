@@ -1,5 +1,5 @@
-import type { AgentHistory } from "@keepdeck/plugin-api";
-import { describeError, log } from "../ipc/log";
+import { errorMessage, type AgentHistory } from "@keepdeck/plugin-api";
+import { log } from "../ipc/log";
 import { rowKeyOf } from "../domain/journal/sessionRow";
 import {
   scanAgentHistories,
@@ -219,7 +219,7 @@ export function createSessionIndexManager(
         }
       })
       .catch((e: unknown) => {
-        log.warn("web:history", `scan failed: ${describeError(e)}`);
+        log.warn("web:history", `scan failed: ${errorMessage(e)}`);
       })
       .finally(() => {
         running = null;

@@ -17,10 +17,11 @@ import type {
   ArtifactMetaRow,
   ArtifactsRegistryReadPort,
 } from "../../app/artifacts/registryRead";
-import { describeError } from "../../ipc/log";
+
 import { fateOf, type RowRef } from "../../domain/artifacts/rowRef";
 import type { OpenHistory } from "../../presentation/artifacts/rowView";
 import { viewOf, type ArtifactsView } from "../../presentation/artifacts/view";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 /** A deletion the user has been asked about, and WHICH row it was asked
  * about ([`RowRef`]) — plus the title, because that is what the question
@@ -150,7 +151,7 @@ export function useArtifactsRegistry(
             ? current
             : { ws: workspaceId, rows: [] },
         );
-        setError(describeError(e));
+        setError(errorMessage(e));
       });
     return () => {
       live = false;
@@ -163,7 +164,7 @@ export function useArtifactsRegistry(
       setBusyId(id);
       void openArtifactByRef(workspaceId, id)
         .then(() => setError(null))
-        .catch((e: unknown) => setError(describeError(e)))
+        .catch((e: unknown) => setError(errorMessage(e)))
         .finally(() => setBusyId((current) => (current === id ? null : current)));
     },
     [workspaceId],
@@ -197,7 +198,7 @@ export function useArtifactsRegistry(
           // user moved on, it is a foreign error over someone else's row.
           if (ask !== historyAsk.current) return;
           setExpanded(null);
-          setError(describeError(e));
+          setError(errorMessage(e));
         });
     },
     [workspaceId, expanded, rows, reads],
@@ -265,7 +266,7 @@ export function useArtifactsRegistry(
       { changed: artifactChanges.changed },
     )
       .then(() => setError(null))
-      .catch((e: unknown) => setError(describeError(e)))
+      .catch((e: unknown) => setError(errorMessage(e)))
       .finally(() => setBusyId((current) => (current === id ? null : current)));
   }, [confirm, workspaceId]);
 

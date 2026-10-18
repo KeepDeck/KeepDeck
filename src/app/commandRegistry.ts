@@ -1,5 +1,6 @@
 import { createCommandRegistry } from "../domain/commands";
-import { describeError, log } from "../ipc/log";
+import { log } from "../ipc/log";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 /**
  * The process's one command registry. The runtime-owned application controller
@@ -11,6 +12,6 @@ export const commands = createCommandRegistry({
   onListenerError: (error) =>
     log.warn(
       "web:commands",
-      `onDidExecute listener failed: ${describeError(error)}`,
+      `onDidExecute listener failed: ${errorMessage(error)}`,
     ),
 });

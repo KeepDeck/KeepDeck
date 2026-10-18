@@ -75,7 +75,7 @@ export function ConfirmDialog({
     <ModalOverlay>
       <div ref={surface} className="confirm" role="dialog" aria-modal="true">
         <h2 className="confirm__title">{title}</h2>
-        {/* Alerts route describeError() here (App.tsx's pushAlert), and this
+        {/* Alerts route errorMessage() here (App.tsx's pushAlert), and this
             dialog has no Copy button — so the body stays selectable, as it was
             before the document baseline reached portaled surfaces. */}
         <p className="confirm__message kd-selectable">{message}</p>

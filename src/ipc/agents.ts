@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
-import { describeError, log } from "./log";
+import { log } from "./log";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 /** Install status of one binary name (mirrors the Rust `BinStatusDto`). */
 export interface BinStatus {
@@ -20,7 +21,7 @@ export async function detectBins(bins: string[]): Promise<BinStatus[]> {
   try {
     return await invoke<BinStatus[]>("agents_detect", { bins });
   } catch (e) {
-    log.warn("web:agents", `agents_detect failed; assuming installed: ${describeError(e)}`);
+    log.warn("web:agents", `agents_detect failed; assuming installed: ${errorMessage(e)}`);
     return bins.map((bin) => ({ bin, installed: true, path: null }));
   }
 }
@@ -40,7 +41,7 @@ export async function probeVersion(bin: string): Promise<string | null> {
   try {
     return (await invoke<string | null>("agents_probe_version", { bin })) ?? null;
   } catch (e) {
-    log.warn("web:agents", `probing ${bin} --version failed: ${describeError(e)}`);
+    log.warn("web:agents", `probing ${bin} --version failed: ${errorMessage(e)}`);
     return null;
   }
 }

@@ -1,6 +1,6 @@
-import type { TailWatch, UsageNormalizer } from "@keepdeck/plugin-api";
+import { errorMessage, type TailWatch, type UsageNormalizer } from "@keepdeck/plugin-api";
 import { paneAgentType, paneWorktree } from "../domain/deck";
-import { describeError, log } from "../ipc/log";
+import { log } from "../ipc/log";
 import { readStoreCold } from "../ipc/usage";
 import { paneMembership, paneMembershipKey } from "./paneMembership";
 import {
@@ -47,7 +47,7 @@ export function createUsageMaintenanceLane({
       void sweepAgent(agentId, declared, sweep).catch((error) =>
         log.debug(
           "web:usage",
-          `${agentId} boot sweep failed: ${describeError(error)}`,
+          `${agentId} boot sweep failed: ${errorMessage(error)}`,
         ),
       );
     }
@@ -149,7 +149,7 @@ export function createUsageMaintenanceLane({
       }).catch((error) =>
         log.warn(
           "web:usage",
-          `usage history append failed: ${describeError(error)}`,
+          `usage history append failed: ${errorMessage(error)}`,
         ),
       );
     }

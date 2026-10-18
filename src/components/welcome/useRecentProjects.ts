@@ -2,7 +2,8 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { useAppRuntime } from "../../app/runtimeContext";
 import type { RecentProjects } from "../../domain/recentProject";
 import { recentProjects } from "../../ipc/history";
-import { describeError, log } from "../../ipc/log";
+import { log } from "../../ipc/log";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 /**
  * The projects agents have worked in, as fresh as the session index: the
@@ -23,7 +24,7 @@ export function useRecentProjects(): RecentProjects {
       (next) => {
         if (live) setProjects(next);
       },
-      (e) => log.warn("web:welcome", `recent_projects failed: ${describeError(e)}`),
+      (e) => log.warn("web:welcome", `recent_projects failed: ${errorMessage(e)}`),
     );
     return () => {
       live = false;
