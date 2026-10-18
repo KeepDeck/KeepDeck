@@ -1,26 +1,21 @@
 import type { ForkPlanInput, PluginContext } from "@keepdeck/plugin-api";
+import { rebaseState, rebaseWire } from "./forkRebase";
 
 /**
- * Kimi's cross-directory fork ([F8], probe-verified on kimi 0.27):
+ * Kimi's cross-directory fork ([F8], probe-verified on kimi 0.27, re-verified
+ * on 2.2.0):
  *
- * A session lives at `<home>/sessions/wd_<key>/session_<id>/` as exactly
- * three files — `state.json`, `agents/main/wire.jsonl`, `logs/kimi-code.log`
- * — with the id and every path embedded ONLY in `state.json`. `kimi
- * --session <id>` resolves the id via the global `session_index.jsonl`.
+ * A session lives at `<home>/sessions/wd_<key>/session_<id>/` — `state.json`,
+ * `agents/<name>/wire.jsonl` per agent, blobs, logs. `kimi --session <id>`
+ * resolves the id via the global `session_index.jsonl`.
  *
- * The working directory lives under DIFFERENT KEYS in different eras of the
- * store: older sessions carry `workDir`, sessions written since kimi 0.38
- * carry `cwd` instead. Read either, and write back whichever the source
- * used — inventing the other key would put a field in the clone that the
- * era it belongs to never had.
+ * A non-destructive fork is a clone under a fresh id: copy the session dir
+ * into the TARGET cwd's `wd_` folder, rebase what names the old place
+ * (`forkRebase.ts` owns which records and why), and append the new id to the
+ * index. The original stays resumable where it was. The `wd_` key is
+ * `wd_<slug-of-basename>_<sha256(cwd)[:12]>`.
  *
- * A non-destructive fork is therefore a three-file clone under a fresh id:
- * copy the session dir into the TARGET cwd's `wd_` folder, patch `workDir`
- * (the gate) and `agents.main.homedir` (the one embedded absolute path),
- * and append the new id to the index. The original stays resumable where
- * it was. The `wd_` key is `wd_<lowercased-basename>_<sha256(cwd)[:12]>`.
- *
- * Its SHAPE is now upstream's own contract — kimi-code 0.38 validates
+ * Its SHAPE is upstream's own contract — kimi-code 0.38 validates
  * `^wd_[a-z0-9._-]+_[0-9a-f]{12}$` in `packages/protocol/src/workspace.ts`
  * ("workspace_id must be a wd_<slug>_<hash12> string"), and
  * `session_index.jsonl` is still the index it files ids in
@@ -54,7 +49,6 @@ export async function kimiForkPlan(
   const [, sessionsRoot, , sessionDirName] = match;
   const srcSessionDir = `${sessionsRoot}/${match[2]}/${sessionDirName}`;
 
-  // The state file is the only file embedding identity — read, verify, patch.
   const stateFile = await ctx.services.fs.readFile(`${srcSessionDir}/state.json`);
   if (stateFile.text === null || stateFile.truncated) {
     throw new Error(
@@ -67,26 +61,21 @@ export async function kimiForkPlan(
   } catch {
     throw new Error(`kimi fork of ${input.sessionId}: state.json is not JSON`);
   }
-  const agents = state.agents as
-    | { main?: { homedir?: unknown } }
-    | undefined;
-  // Which key this era of the store used. Requiring `workDir` alone made
-  // every session written since kimi 0.38 unforkable — the gate fired
-  // loudly, as designed, on a layout that had merely been renamed.
-  const workDirKey =
-    typeof state.workDir === "string"
-      ? "workDir"
-      : typeof state.cwd === "string"
-        ? "cwd"
-        : null;
-  if (workDirKey === null || typeof agents?.main?.homedir !== "string") {
+
+  const newId = `session_${crypto.randomUUID()}`;
+  const workspaceId = await wdKey(input.cwd);
+  const dstSessionDir = `${sessionsRoot}/${workspaceId}/${newId}`;
+  const rebased = rebaseState(state, {
+    cwd: input.cwd,
+    sessionId: newId,
+    sessionDir: dstSessionDir,
+  });
+  if (!rebased) {
     throw new Error(
       `kimi fork of ${input.sessionId}: state.json misses workDir/cwd or agents.main.homedir — layout changed?`,
     );
   }
-
-  const newId = `session_${crypto.randomUUID()}`;
-  const dstSessionDir = `${sessionsRoot}/${await wdKey(input.cwd)}/${newId}`;
+  const { workDirKey } = rebased;
 
   // Write order is the contract: the artifacts that ACTIVATE a session
   // (state.json — the resume gate — and the index line) land LAST, after the
@@ -96,24 +85,11 @@ export async function kimiForkPlan(
   // The clone is the WHOLE session dir, not a fixed file list: real sessions
   // carry blobs/ (pasted images the wire references by blobref:), tasks/,
   // plans/ and agents/agent-N/ subagent trees — a wire-only copy would
-  // dangle. state.json is skipped here (the patched version lands last).
-  await copyTree(ctx, srcSessionDir, dstSessionDir);
-  const patched = {
-    ...state,
-    // The key the source used, not both: a clone that carries a field its
-    // own era never wrote is a clone that lies about which era it is.
-    [workDirKey]: input.cwd,
-    agents: {
-      ...(state.agents as Record<string, unknown>),
-      main: {
-        ...(agents.main as Record<string, unknown>),
-        homedir: `${dstSessionDir}/agents/main`,
-      },
-    },
-  };
+  // dangle. state.json is skipped here (the rebased version lands last).
+  await copyTree(ctx, srcSessionDir, dstSessionDir, workspaceId);
   await ctx.services.fsWrite.writeFile(
     `${dstSessionDir}/state.json`,
-    JSON.stringify(patched, null, 2),
+    JSON.stringify(rebased.state, null, 2),
   );
 
   // Read the clone back before the index line makes it findable: a session
@@ -163,28 +139,60 @@ export async function kimiForkPlan(
 }
 
 /** Copy every file under `srcDir` into the mirrored path under `dstDir`,
- * EXCEPT the top-level `state.json` (its patched version is written last —
- * it is the activation artifact). Depth-first via the read `fs` capability;
- * symlinks are skipped (kimi's store has none, and following one out of the
- * store would be refused by write containment anyway). */
+ * EXCEPT the top-level `state.json` (its rebased version is written last —
+ * it is the activation artifact). Each agent's `wire.jsonl` is rewritten
+ * rather than copied: it names the workspace the agent runs in. Depth-first
+ * via the read `fs` capability; symlinks are skipped (kimi's store has none,
+ * and following one out of the store would be refused by write containment
+ * anyway). */
 async function copyTree(
   ctx: PluginContext,
   srcDir: string,
   dstDir: string,
-  root = true,
+  workspaceId: string,
+  relative = "",
 ): Promise<void> {
   const entries = await ctx.services.fs.readDir(srcDir);
   for (const entry of entries) {
     const dst = `${dstDir}/${entry.name}`;
+    const path = `${relative}${entry.name}`;
     if (entry.kind === "dir") {
-      await copyTree(ctx, entry.path, dst, false);
+      await copyTree(ctx, entry.path, dst, workspaceId, `${path}/`);
     } else if (entry.kind === "file") {
-      // Only the SESSION-ROOT state.json is deferred (patched, written last).
-      if (root && entry.name === "state.json") continue;
-      await ctx.services.fsWrite.copyFile(entry.path, dst);
+      if (path === "state.json") continue;
+      const agent = path.match(/^agents\/([^/]+)\/wire\.jsonl$/)?.[1];
+      if (agent === undefined) {
+        await ctx.services.fsWrite.copyFile(entry.path, dst);
+      } else {
+        const text = await readWholeText(ctx, entry.path);
+        await ctx.services.fsWrite.writeFile(dst, rebaseWire(text, agent, workspaceId));
+      }
     }
   }
 }
+
+/** A whole file as text, window by window — a wire outgrows any single read.
+ * The host ends each window on a character boundary and says where
+ * (`readBytes`), so the next window starts exactly there. */
+async function readWholeText(ctx: PluginContext, path: string): Promise<string> {
+  let text = "";
+  let offset = 0;
+  for (;;) {
+    const window = await ctx.services.fs.readFile(path, {
+      maxBytes: WIRE_WINDOW_BYTES,
+      offset,
+    });
+    if (window.text === null || (window.truncated && window.readBytes === 0)) {
+      throw new Error(`kimi fork: ${path} is unreadable`);
+    }
+    text += window.text;
+    if (!window.truncated) return text;
+    offset += window.readBytes;
+  }
+}
+
+/** The host's own read ceiling — the fewest round trips a wire can take. */
+const WIRE_WINDOW_BYTES = 8 * 1024 * 1024;
 
 /** `wd_<slug-of-basename>_<sha256(absolute-cwd)[:12]>` — the store folder
  * kimi files a directory's sessions under.
