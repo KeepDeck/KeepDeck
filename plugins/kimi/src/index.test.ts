@@ -7,7 +7,7 @@ import type {
   SpawnPlanOutput,
 } from "@keepdeck/plugin-api";
 import plugin, { setupNotification } from "./index";
-import { renderKimiMail } from "./status";
+import { KIMI_MAIL_CHANNELS, renderKimiMail } from "./status";
 
 // The fork's store surgery has its own suite (fork.test.ts); here only the
 // launch the fork plan hands back matters.
@@ -251,7 +251,8 @@ describe("Kimi CLI plugin", () => {
     // and forgets to contribute it has its messages typed into a terminal
     // instead — with every renderer test still green.
     const { agent } = await activate();
-    expect(agent?.status?.renderMail).toBe(renderKimiMail);
+    expect(agent?.status?.mail?.render).toBe(renderKimiMail);
+    expect(agent?.status?.mail?.channels).toBe(KIMI_MAIL_CHANNELS);
     expect(agent?.status?.tail?.watches).toEqual(expect.arrayContaining([
       expect.objectContaining({ lane: "status", match: [
         { key: "type", equals: "turn.ended" }, { key: "agentId", equals: "main" },

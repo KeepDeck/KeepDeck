@@ -22,7 +22,7 @@
  * collaborator built beside it kept running, and nothing in this directory
  * could enforce otherwise, because the collaborator was not its child.
  */
-import type { AgentStatus } from "@keepdeck/plugin-api";
+import { collectsAtTurnEnd, type AgentStatus } from "@keepdeck/plugin-api";
 import type { CommandRegistry } from "../../domain/commands";
 import { membersOf, teamOfPane, type Workspace } from "../../domain/deck";
 import type { PaneActivity } from "../../domain/status";
@@ -203,7 +203,7 @@ export function createMailService(deps: MailServiceDeps): MailService {
 
   const hookReplies: HookReplies = createHookReplies({
     mail: () => manager,
-    rendererFor: (agentId) => deps.agents.statusOf(agentId)?.renderMail,
+    statusFor: deps.agents.statusOf,
     versionOf: deps.agents.versionOf,
     reply: deps.bridge.reply,
     teamOf: (paneId) => locate(paneId)?.team?.id ?? null,
@@ -268,10 +268,11 @@ export function createMailService(deps: MailServiceDeps): MailService {
         answering.has(paneId) ? false : deps.terminal.wake(paneId),
       throughBridge: deps.bridge.nudge,
     }),
-    // A pane whose CLI plugin renders mail will come asking at its turn
-    // boundary, so a running turn is worth waiting out for the labelled
-    // channel.
-    asksAtTurnEnd: (paneId) => Boolean(statusOfPane(paneId)?.renderMail),
+    // A pane whose agent DECLARES a turn-end mail channel will come asking
+    // at that boundary, so a running turn is worth waiting out for the
+    // labelled channel. Having a renderer is not the same thing: kimi has
+    // one and asks only as a turn starts.
+    asksAtTurnEnd: (paneId) => collectsAtTurnEnd(statusOfPane(paneId)?.mail),
   });
   const unregister = registerMailCommands(deps.registry, {
     workspaces: deps.deck.workspaces,

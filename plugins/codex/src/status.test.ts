@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
-  ASKS_FOR_MAIL,
+  attributeCodexEvent,
+  CODEX_MAIL_CHANNELS,
   normalizeCodexStatus as normalize,
   renderCodexMail,
 } from "./status";
+
+const ASKS_FOR_MAIL = CODEX_MAIL_CHANNELS.map((channel) => channel.event);
 
 const wrap = (event: Record<string, unknown>) => ({ agent: "codex", event });
 // These single-fact cases assert edges; question sequences below the plugin
@@ -208,5 +211,46 @@ describe("the armed events and the renderer agree", () => {
         cliVersion: "0.146.0",
       }),
     ).toBeNull();
+  });
+});
+
+describe("attributeCodexEvent", () => {
+  // Verified live on 0.163.0: a subagent's hook carries agent_id and
+  // agent_type beside the root's own session id.
+  const root = { session_id: "019f-root", cwd: "/repo" };
+
+  it("reads a hook without agent_id as the main agent's, moving the pane", () => {
+    expect(attributeCodexEvent(wrap({ hook_event_name: "Stop", ...root }))).toEqual({
+      event: "Stop", actor: "main", status: true,
+    });
+  });
+
+  it("reads agent_id as a subagent's, which never moves the pane", () => {
+    for (const event of ["UserPromptSubmit", "PermissionRequest", "PostToolUse"]) {
+      expect(
+        attributeCodexEvent(wrap({ hook_event_name: event, ...root, agent_id: "019f-child", agent_type: "default" })),
+      ).toEqual({ event, actor: "child", status: false });
+    }
+  });
+
+  it("names nobody for a reduced payload, but keeps its status edge", () => {
+    // A stranded Stop is what the reduction exists to prevent.
+    expect(
+      attributeCodexEvent({ agent: "codex", reduced: true, event: { hook_event_name: "Stop" } }),
+    ).toEqual({ event: "Stop", actor: "unknown", status: true });
+  });
+
+  it("reads the main rollout as the main agent's", () => {
+    expect(attributeCodexEvent({ agent: "codex", kind: "store.record", record: {} })).toEqual({
+      event: null, actor: "main", status: true,
+    });
+  });
+
+  it("asks for mail on its turn boundaries and its tool boundary", () => {
+    expect(CODEX_MAIL_CHANNELS).toEqual([
+      { event: "UserPromptSubmit", atTurnEnd: false },
+      { event: "PostToolUse", atTurnEnd: false },
+      { event: "Stop", atTurnEnd: true },
+    ]);
   });
 });

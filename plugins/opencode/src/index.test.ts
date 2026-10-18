@@ -392,12 +392,12 @@ describe("opencode plugin hooks", () => {
   });
 
   it("takes mail through the courier and is never typed at", () => {
-    // Both halves of the same decision. `renderMail` is what puts this agent
-    // on the labelled channel at all; `wake: "bridge"` is what stops the deck
+    // Both halves of the same decision. `mail` is what puts this agent on
+    // the labelled channel at all; `wake: "bridge"` is what stops the deck
     // typing a nudge into the pane when nothing else would start a turn —
     // the courier is already inside the process and can start one properly.
     const agent = activate("/App/resources/session-reporter.js");
-    expect(agent.status?.renderMail).toBeDefined();
+    expect(agent.status?.mail?.channels).toEqual([{ event: "mail.ask", atTurnEnd: true }]);
     expect(agent.status?.wake).toBe("bridge");
   });
 

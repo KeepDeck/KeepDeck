@@ -5,7 +5,7 @@ import type {
   SpawnPlanOutput,
 } from "@keepdeck/plugin-api";
 import plugin from "./index";
-import { renderCodexMail } from "./status";
+import { renderCodexMail, CODEX_MAIL_CHANNELS } from "./status";
 import { codexUsageWatches } from "./usage";
 
 /** Activate against a minimal fake ctx; returns the registered agent.
@@ -331,6 +331,7 @@ describe("codex plugin identity", () => {
     // and forgets to contribute it has its messages typed into a terminal
     // instead — with every renderer test still green.
     const agent = activate("/App/resources/kd-session-hook.sh");
-    expect(agent.status?.renderMail).toBe(renderCodexMail);
+    expect(agent.status?.mail?.render).toBe(renderCodexMail);
+    expect(agent.status?.mail?.channels).toBe(CODEX_MAIL_CHANNELS);
   });
 });

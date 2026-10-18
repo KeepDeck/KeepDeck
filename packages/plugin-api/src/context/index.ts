@@ -38,6 +38,17 @@ export type {
   StatusWaitReason,
 } from "./status.ts";
 export {
+  admitMail,
+  admittedNormalizer,
+  collectsAtTurnEnd,
+  mailAskArgs,
+  type AgentMail,
+  type EventActor,
+  type EventAttribution,
+  type MailAdmission,
+  type MailChannel,
+} from "./agentEvents.ts";
+export {
   decodeStatusPayload,
   frameTeammateMail,
   turnFailedEvent,

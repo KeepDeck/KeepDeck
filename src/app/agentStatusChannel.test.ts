@@ -13,6 +13,10 @@ import {
 import type { DeckStore } from "./deckStore";
 import { createPaneAttribution } from "./paneAttribution";
 
+/** Every report is the main agent's and may move the pane: the channel
+ * under test is the wiring, not the admission rule, which has its own tests. */
+const mainAgent = () => ({ event: null, actor: "main" as const, status: true });
+
 const ipc = vi.hoisted(() => ({
   onAgentStatus: vi.fn(() => Promise.resolve(() => {})),
   peekPaneSpawnSpec: vi.fn(() => ({ token: "tok" })),
@@ -65,8 +69,8 @@ const deckWith = (...paneIds: string[]) => {
 /** A contribution registry whose agent list can change under the channel. */
 const agentsWith = () => {
   const listeners = new Set<() => void>();
-  let entries: { entry: { id: string; status: { normalize: StatusNormalizer } } }[] = [
-    { entry: { id: "claude", status: { normalize: edgeNormalizer } } },
+  let entries: { entry: { id: string; status: { normalize: StatusNormalizer; attribute: typeof mainAgent } } }[] = [
+    { entry: { id: "claude", status: { normalize: edgeNormalizer, attribute: mainAgent } } },
   ];
   return {
     registry: {
@@ -126,7 +130,7 @@ describe("createAgentStatusChannel", () => {
       if ((payload as { seed?: boolean }).seed) return { kind: "status-reduction", state: "old-mode", events: [] };
       return { kind: "turn-start", at: context?.state === "old-mode" ? 999 : at };
     };
-    agents.replace([{ entry: { id: "claude", status: { normalize } } }]);
+    agents.replace([{ entry: { id: "claude", status: { normalize, attribute: mainAgent } } }]);
     createAgentStatusChannel(deckWith("pane-1").store, agents.registry,
       tracker, sessions, attribution, keys.port);
     tracker.report("pane-1", { agent: "claude", seed: true }, 100);
@@ -223,7 +227,7 @@ describe("createAgentStatusChannel", () => {
       {
         entry: {
           id: "claude",
-          status: { normalize: () => ({ kind: "turn-end", at: 200 }) },
+          status: { normalize: () => ({ kind: "turn-end", at: 200 }), attribute: mainAgent },
         },
       },
     ] as never);

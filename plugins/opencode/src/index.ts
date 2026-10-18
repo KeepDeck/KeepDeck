@@ -16,9 +16,9 @@ import { icon } from "./icon";
 import { mcpConfigFragment } from "./mcp";
 import { opencodeHistory } from "./history";
 import { relocatingForkId } from "./fork";
-import { renderOpencodeMail } from "./mail";
+import { OPENCODE_MAIL_CHANNELS, renderOpencodeMail } from "./mail";
 import { warmConfigDir } from "./warm";
-import { normalizeOpencodeStatus } from "./status";
+import { attributeOpencodeEvent, normalizeOpencodeStatus } from "./status";
 import { normalizeOpencodeUsage } from "./usage";
 
 /**
@@ -185,7 +185,8 @@ const plugin: KeepDeckPlugin = {
       // terminal — a broken install should look broken, not different.
       status: {
         normalize: normalizeOpencodeStatus,
-        renderMail: renderOpencodeMail,
+        attribute: attributeOpencodeEvent,
+        mail: { channels: OPENCODE_MAIL_CHANNELS, render: renderOpencodeMail },
         wake: "bridge",
       },
       hooks: {

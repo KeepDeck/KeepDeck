@@ -15,6 +15,7 @@
 import { isJsonRecord } from "../json.ts";
 import { asNonEmptyString } from "./usage.ts";
 import { CARRIED_RECORD, type SessionTailDialect } from "./sessionTail.ts";
+import type { AgentMail, EventAttribution } from "./agentEvents.ts";
 
 /** Why an agent is waiting on the user. `permission` = a tool-approval
  * prompt is up; `question` = the agent itself asked for input. */
@@ -152,14 +153,19 @@ export interface AgentStatus {
   /** Normalize this agent's bridge status payloads (hook reporters, the
    * host tailer's interrupt markers — whatever its reporters emit). */
   normalize: StatusNormalizer;
-  /** Turn messages waiting for this pane into what the CLI's own hook must
-   * print so the agent READS them as another agent's words.
+  /** Who raised one status payload, and whether it may move the pane — the
+   * dialect half of [`admittedNormalizer`] and [`admitMail`], which hold the
+   * one rule for what follows. Pure: no state, no I/O. */
+  attribute: (payload: unknown) => EventAttribution | null;
+  /** How teammate mail reaches this agent: the hook events that ask for it,
+   * and how its CLI must hear the answer so it READS them as another agent's
+   * words.
    *
-   * Lives beside `normalize` because it answers the same event: the hook
+   * Lives beside `normalize` because it answers the same events: the hook
    * that reports a turn ending is the hook that asks whether anything is
    * waiting, and one round trip serves both. Absent = this agent has no
    * labelled channel, and its mail arrives through the terminal instead. */
-  renderMail?: MailReplyRenderer;
+  mail?: AgentMail;
   /** What one record of this agent's OWN session store means, for the edges
    * no hook carries.
    *

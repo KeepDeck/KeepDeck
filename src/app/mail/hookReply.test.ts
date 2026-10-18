@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { MailReplyRenderer } from "@keepdeck/plugin-api";
+import type { AgentStatus, EventAttribution, MailChannel, MailReplyRenderer } from "@keepdeck/plugin-api";
 import { log } from "../../ipc/log";
 import type { MailSender } from "../../domain/mail";
 import type { PaneActivity } from "../../domain/status";
@@ -32,6 +32,25 @@ const RENDER: MailReplyRenderer = ({ messages }) =>
       .join("|"),
   });
 
+/** The asks this fake agent declares — the events of the tests below. */
+const CHANNELS: MailChannel[] = [
+  { event: "UserPromptSubmit", atTurnEnd: false },
+  { event: "PostToolUse", atTurnEnd: false },
+  { event: "Stop", atTurnEnd: true },
+];
+
+/** A claude-shaped attribution: `agent_id` marks a subagent, its absence the
+ * main agent. The rule that follows from it is plugin-api's (admitMail). */
+const attribute = (payload: unknown): EventAttribution | null => {
+  const event = (payload as { event?: Record<string, unknown> }).event;
+  if (!event || typeof event.hook_event_name !== "string") return null;
+  return {
+    event: event.hook_event_name,
+    actor: typeof event.agent_id === "string" ? "child" : "main",
+    status: true,
+  };
+};
+
 function setup(
   options: {
     render?: MailReplyRenderer | undefined;
@@ -56,7 +75,14 @@ function setup(
   const replies: { paneId: string; id: string; body: string }[] = [];
   const deps = {
     mail: () => (options.off ? null : manager),
-    rendererFor: () => ("render" in options ? options.render : RENDER),
+    statusFor: (): AgentStatus => {
+      const render = "render" in options ? options.render : RENDER;
+      return {
+        normalize: () => null,
+        attribute,
+        ...(render ? { mail: { channels: CHANNELS, render } } : {}),
+      };
+    },
     versionOf: () => options.cliVersion ?? null,
     reply: (paneId: string, id: string, body: string) => {
       replies.push({ paneId, id, body });
@@ -283,6 +309,45 @@ describe("answerMailAsk", () => {
     expect(lines).toHaveLength(1);
     expect(lines[0]).not.toContain("\n");
     expect(lines[0]).toContain("an unreadable event");
+  });
+
+  it("never hands a subagent the pane's mail, and takes nothing from the queue", async () => {
+    // codex 0.163, verified live: a subagent's UserPromptSubmit and
+    // PostToolUse reach the pane's reporter, and the deck used to answer them
+    // — the message landed in the subagent and was booked delivered.
+    const h = setup();
+    h.manager.send({ from: A, toPaneId: "pane-2", kind: "task", body: "take the parser" });
+    const take = vi.spyOn(h.manager, "takeAtTurnEnd");
+    for (const event of ["UserPromptSubmit", "PostToolUse", "Stop"]) {
+      await h.channel.answer("pane-2", asking({ event: { hook_event_name: event, agent_id: "019f-child" } }));
+    }
+    expect(h.replies.map((reply) => reply.body)).toEqual(["", "", ""]);
+    expect(take).not.toHaveBeenCalled();
+    expect(h.manager.waiting("pane-2")).toBe(1);
+  });
+
+  it("refuses a payload the reporter reduced, whoever raised it", async () => {
+    const h = setup();
+    h.manager.send({ from: A, toPaneId: "pane-2", kind: "task", body: "take the parser" });
+    await h.channel.answer("pane-2", asking({ reduced: true }));
+    expect(h.replies[0].body).toBe("");
+    expect(h.manager.waiting("pane-2")).toBe(1);
+  });
+
+  it("refuses an event the agent did not declare as a mail channel", async () => {
+    const h = setup();
+    h.manager.send({ from: A, toPaneId: "pane-2", kind: "task", body: "take the parser" });
+    await h.channel.answer("pane-2", asking({ event: { hook_event_name: "PermissionRequest" } }));
+    expect(h.replies[0].body).toBe("");
+    expect(h.manager.waiting("pane-2")).toBe(1);
+  });
+
+  it("still hands the main agent its mail on a declared channel", async () => {
+    const h = setup();
+    h.manager.send({ from: A, toPaneId: "pane-2", kind: "task", body: "take the parser" });
+    await h.channel.answer("pane-2", asking());
+    expect(h.replies[0].body).toContain("take the parser");
+    expect(h.manager.waiting("pane-2")).toBe(0);
   });
 
   it("puts the messages back when the answer reached nobody", async () => {

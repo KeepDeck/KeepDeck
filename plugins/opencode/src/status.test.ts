@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeOpencodeStatus } from "./status";
+import { attributeOpencodeEvent, normalizeOpencodeStatus } from "./status";
 
 /** One bus event as the reporter forwards it: type and properties, verbatim. */
 const wrap = (type: string, properties: Record<string, unknown> = {}) => ({
@@ -201,5 +201,25 @@ describe("normalizeOpencodeStatus", () => {
     expect(normalizeOpencodeStatus(wrap("session.compacted"), 100)).toBeNull();
     expect(normalizeOpencodeStatus({ agent: "opencode" }, 100)).toBeNull();
     expect(normalizeOpencodeStatus(null, 100)).toBeNull();
+  });
+});
+
+describe("attributeOpencodeEvent", () => {
+  const ask = (target?: unknown) => ({ agent: "opencode", event: { type: "mail.ask", ...(target === undefined ? {} : { target }) } });
+
+  it("reads the courier's target as whose the answer will be", () => {
+    expect(attributeOpencodeEvent(ask("root"))).toEqual({ event: "mail.ask", actor: "main", status: false });
+    expect(attributeOpencodeEvent(ask("child"))).toMatchObject({ actor: "child" });
+  });
+
+  it("names nobody for an unclassified target or an older courier's ask", () => {
+    expect(attributeOpencodeEvent(ask("unknown"))).toMatchObject({ actor: "unknown" });
+    expect(attributeOpencodeEvent(ask())).toMatchObject({ actor: "unknown" });
+  });
+
+  it("reads the reporter's lifecycle as the main agent's, moving the pane", () => {
+    expect(attributeOpencodeEvent(wrap("session.idle", { sessionID: "ses_root" }))).toEqual({
+      event: "session.idle", actor: "main", status: true,
+    });
   });
 });

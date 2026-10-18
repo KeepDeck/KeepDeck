@@ -1,8 +1,11 @@
 import {
+  asNonEmptyString,
   decodeStatusPayload,
   frameTeammateMail,
   isJsonRecord,
   type AgentStatusEvent,
+  type EventAttribution,
+  type MailChannel,
   type MailReplyInput,
   type MailReplyRenderer,
   type StatusNormalizer,
@@ -144,11 +147,38 @@ function renderLegacyCodexMail(
  * messages out of the queue to put them straight back; rendered but not
  * armed leaves that event's mail to a paid terminal nudge. Both silent.
  */
-export const ASKS_FOR_MAIL: ReadonlySet<string> = new Set([
-  "UserPromptSubmit",
-  "Stop",
-  "PostToolUse",
-]);
+export const CODEX_MAIL_CHANNELS: readonly MailChannel[] = [
+  { event: "UserPromptSubmit", atTurnEnd: false },
+  { event: "PostToolUse", atTurnEnd: false },
+  { event: "Stop", atTurnEnd: true },
+];
+
+/**
+ * Whose report this is. A subagent's hook carries `agent_id` and
+ * `agent_type`; the main agent's carries neither — and `session_id` is the
+ * SHARED thread id, so it tells nothing apart (verified live on 0.163.0: a
+ * child's UserPromptSubmit and PostToolUse reach this reporter with the
+ * root's session id and process group).
+ *
+ * A subagent's report never moves the pane: its prompt is not the pane's
+ * turn, its tool use resolves no wait of the pane's, and it ends with
+ * `SubagentStop`, which is not armed. A report nobody can attribute — one the
+ * reporter cut down to its name — keeps moving the pane as before: a
+ * stranded Stop is the failure the reduction exists to prevent.
+ */
+export const attributeCodexEvent = (payload: unknown): EventAttribution | null => {
+  const decoded = decodeStatusPayload(payload);
+  if (!decoded) return null;
+  if (decoded.source === "record") return { event: null, actor: "main", status: true };
+  const event = asNonEmptyString(decoded.event.hook_event_name);
+  if (!event) return null;
+  const actor = asNonEmptyString(decoded.event.agent_id)
+    ? "child"
+    : asNonEmptyString(decoded.event.session_id) && !decoded.reduced
+      ? "main"
+      : "unknown";
+  return { event, actor, status: actor !== "child" };
+};
 
 export const renderCodexMail: MailReplyRenderer = (input) => {
   const text = teammateText(input);

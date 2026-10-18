@@ -3,7 +3,7 @@
  * anything is waiting for it.
  *
  * This is the labelled channel. What goes back is rendered by the agent's
- * OWN plugin (`AgentStatus.renderMail`), so the deck never learns a CLI's
+ * OWN plugin (`AgentStatus.mail`), so the deck never learns a CLI's
  * hook-output schema — the same division the status normalizers already
  * draw. The deck decides WHAT to say; the plugin decides how that CLI hears
  * it.
@@ -21,7 +21,7 @@
  * hook parked on an open connection is either still there or not, so the
  * send answers it, and the machinery that guessed is gone.
  */
-import { isJsonRecord, type DeliverableMail, type MailReplyRenderer } from "@keepdeck/plugin-api";
+import { admitMail, isJsonRecord, type AgentStatus, type DeliverableMail } from "@keepdeck/plugin-api";
 import { isStandingContext, senderName, type Mail } from "../../domain/mail";
 import { log } from "../../ipc/log";
 import type { MailManager } from "./mailManager";
@@ -31,8 +31,9 @@ export interface HookReplyDeps {
   /** The live mail owner, or null while the feature is off. Looked up per
    * call — the toggle can flip between two hook invocations. */
   mail(): MailManager | null;
-  /** This agent's mail renderer, when its plugin ships one. */
-  rendererFor(agentId: string): MailReplyRenderer | undefined;
+  /** This agent's status contribution — who raised a report, and how its
+   * CLI carries mail — when its plugin ships one. */
+  statusFor(agentId: string): AgentStatus | undefined;
   /** What this agent's own binary answers to `--version`, or null when that
    * could not be read. A hook-output schema belongs to a RELEASE — codex
    * changed its whole shape at 0.147 — so the renderer needs it to pick. */
@@ -161,11 +162,16 @@ function answerMailAsk(
   // the sake of the rare one with mail.
   if (!manager || !isJsonRecord(payload)) return answer("", "mail is off");
   const agent = typeof payload.agent === "string" ? payload.agent : "";
-  const render = deps.rendererFor(agent);
+  const status = deps.statusFor(agent);
+  if (!status) return answer("", `${agent} has no status contribution`);
+  // Whose ask this is decides BEFORE anything leaves the queue: a message
+  // taken for a subagent, or for a payload too cut down to say who asked,
+  // would be booked delivered to an agent that never reads it.
+  const admission = admitMail(status, payload);
+  if ("refused" in admission) return answer("", `refused: ${admission.refused}`);
+  const render = admission.render;
   const event = isJsonRecord(payload.event) ? payload.event : null;
-  if (!render || !event) {
-    return answer("", render ? "malformed payload" : `${agent} renders no mail`);
-  }
+  if (!event) return answer("", "malformed payload");
   const taken = manager.takeAtTurnEnd(paneId, activity);
   if (taken.length === 0) {
     // "Nothing waiting" is only honest when nothing IS waiting. A hand-over

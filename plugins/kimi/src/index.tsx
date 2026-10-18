@@ -22,7 +22,12 @@ import {
   type SetupState,
 } from "./setupController";
 import { createSetupSection } from "./SetupSection";
-import { normalizeKimiStatus, renderKimiMail } from "./status";
+import {
+  attributeKimiEvent,
+  KIMI_MAIL_CHANNELS,
+  normalizeKimiStatus,
+  renderKimiMail,
+} from "./status";
 import { kimiTail } from "./tail";
 import {
   kimiUsageWatches,
@@ -106,7 +111,12 @@ const plugin: KeepDeckPlugin = {
         tail: { watches: kimiUsageWatches },
         limits: { poll: "kimi-usages", normalize: normalizeKimiUsages },
       },
-      status: { normalize: normalizeKimiStatus, renderMail: renderKimiMail, tail: kimiTail(history) as never },
+      status: {
+        normalize: normalizeKimiStatus,
+        attribute: attributeKimiEvent,
+        mail: { channels: KIMI_MAIL_CHANNELS, render: renderKimiMail },
+        tail: kimiTail(history) as never,
+      },
       history,
       hooks: {
         "spawn.plan": (input, output) => planLaunch(input, output),

@@ -6,6 +6,7 @@
  * `resume` subcommand.
  */
 import {
+  mailAskArgs,
   shellQuote,
   type KeepDeckPlugin,
   type PluginResources,
@@ -16,7 +17,8 @@ import { icon } from "./icon";
 import { mcpArgs } from "./mcp";
 import { cliArgs } from "./trust";
 import {
-  ASKS_FOR_MAIL,
+  attributeCodexEvent,
+  CODEX_MAIL_CHANNELS,
   normalizeCodexStatus,
   renderCodexMail,
 } from "./status";
@@ -69,7 +71,7 @@ import {
  * not worth guessing.
  *
  * The set itself is declared beside the renderer that has to answer these
- * events ([`ASKS_FOR_MAIL`] in ./status): stated twice, the two drift in
+ * events ([`CODEX_MAIL_CHANNELS`] in ./status): stated twice, the two drift in
  * silence — armed-but-unrendered burns a two-second wait per fire, and
  * rendered-but-unarmed sends that event's mail to the terminal instead. */
 
@@ -98,9 +100,10 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
             // that is the price of the mid-turn channel — the deck answers
             // in milliseconds when nothing is waiting. PermissionRequest
             // genuinely reads nothing back.
-            command: `/bin/sh ${shellQuote(status)} codex${
-              ASKS_FOR_MAIL.has(event) ? " --ask" : ""
-            }`,
+            command: [
+              `/bin/sh ${shellQuote(status)} codex`,
+              ...mailAskArgs(CODEX_MAIL_CHANNELS, event),
+            ].join(" "),
           }),
         )
       : []),
@@ -170,7 +173,8 @@ const plugin: KeepDeckPlugin = {
       },
       status: {
         normalize: normalizeCodexStatus,
-        renderMail: renderCodexMail,
+        attribute: attributeCodexEvent,
+        mail: { channels: CODEX_MAIL_CHANNELS, render: renderCodexMail },
         // What a rollout record means, for the turn edge codex pushes no
         // hook for. The host reads the `watch` to know what to carry;
         // `normalize` applies the `read` to what arrives.

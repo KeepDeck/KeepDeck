@@ -1,10 +1,35 @@
 import {
+  asNonEmptyString,
   decodeStatusPayload,
   isJsonRecord,
   turnFailedEvent,
   type AgentStatusEvent,
+  type EventAttribution,
   type StatusNormalizer,
 } from "@keepdeck/plugin-api";
+import { MAIL_ASK_EVENT } from "./mail";
+
+/**
+ * Whose report this is. The reporter forwards only the pane's own lifecycle
+ * (its root's, and the dialogs that block the pane whoever raised them), so
+ * those are the main agent's and move the pane. The courier's `mail.ask`
+ * moves nothing and says where its answer will land: `target` is `root`
+ * when the session it will write into is the pane's root, `child` when it is
+ * a subagent's, and anything else — an ask from an older courier, or a root
+ * the client could not classify — names nobody.
+ */
+export const attributeOpencodeEvent = (payload: unknown): EventAttribution | null => {
+  const decoded = decodeStatusPayload(payload);
+  if (decoded?.source !== "hook") return null;
+  const event = asNonEmptyString(decoded.event.type);
+  if (!event) return null;
+  if (event !== MAIL_ASK_EVENT) return { event, actor: "main", status: true };
+  const target = decoded.event.target;
+  const actor = decoded.reduced
+    ? "unknown"
+    : target === "root" ? "main" : target === "child" ? "child" : "unknown";
+  return { event, actor, status: false };
+};
 
 /**
  * opencode's bus, read as turn-lifecycle edges.

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { ASKS_FOR_MAIL, renderClaudeMail } from "./status";
+import { CLAUDE_MAIL_CHANNELS, renderClaudeMail } from "./status";
+
+/** The events armed to ask, from the declaration both the arming and the
+ * deck read. */
+const ASKS_FOR_MAIL = new Set(CLAUDE_MAIL_CHANNELS.map((channel) => channel.event));
 
 const MESSAGES = [
   { id: "mail-1", kind: "question", body: "which port?", from: "Agent 1" },
