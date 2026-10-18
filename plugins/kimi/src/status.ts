@@ -1,11 +1,11 @@
 import {
+  decodeStatusPayload,
   frameTeammateMail,
-  isJsonRecord,
   reduceQuestionStatus,
   type AgentStatusEvent,
   type MailReplyRenderer,
-  type StatusNormalizer,
   type QuestionState,
+  type StatusNormalizer,
 } from "@keepdeck/plugin-api";
 import { kimiRecords } from "./tail";
 import { kimiQuestionCall } from "./questions";
@@ -72,12 +72,10 @@ const readKimiStatus = (
   payload: unknown,
   at: number,
 ): AgentStatusEvent | null => {
-  if (!isJsonRecord(payload)) return null;
-  if (payload.kind === "store.record") {
-    return isJsonRecord(payload.record) ? kimiRecords.read(payload.record) : null;
-  }
-  if (!isJsonRecord(payload.event)) return null;
-  const event = payload.event;
+  const decoded = decodeStatusPayload(payload);
+  if (!decoded) return null;
+  if (decoded.source === "record") return kimiRecords.read(decoded.record);
+  const event = decoded.event;
   switch (event.hook_event_name) {
     case "UserPromptSubmit":
       return { kind: "turn-start", at };
@@ -97,8 +95,8 @@ const readKimiStatus = (
 };
 
 export const normalizeKimiStatus: StatusNormalizer = (payload, at, context) => {
-  const record = isJsonRecord(payload) && payload.kind === "store.record" && isJsonRecord(payload.record)
-    ? payload.record : null;
+  const decoded = decodeStatusPayload(payload);
+  const record = decoded?.source === "record" ? decoded.record : null;
   const result = reduceQuestionStatus(context?.state as QuestionState | undefined,
     readKimiStatus(payload, at), record ? kimiQuestionCall(record) : undefined);
   return { kind: "status-reduction", ...result };

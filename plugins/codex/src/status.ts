@@ -1,4 +1,5 @@
 import {
+  decodeStatusPayload,
   frameTeammateMail,
   isJsonRecord,
   type AgentStatusEvent,
@@ -235,15 +236,15 @@ const readCodexStatus = (
   at: number,
   context?: { readonly reply?: string },
 ): AgentStatusEvent | null => {
-  if (!isJsonRecord(payload)) return null;
-  if (payload.kind === "store.record") {
+  const decoded = decodeStatusPayload(payload);
+  if (!decoded) return null;
+  if (decoded.source === "record") {
     // A rollout record the host carried because THIS plugin's watch named
     // it. The host did not read it: it compared two keys, one of them a
     // level down, and copied two fields. What it means is decided here.
-    return isJsonRecord(payload.record) ? codexRecords.read(payload.record) : null;
+    return codexRecords.read(decoded.record);
   }
-  if (!isJsonRecord(payload.event)) return null;
-  switch (payload.event.hook_event_name) {
+  switch (decoded.event.hook_event_name) {
     case "UserPromptSubmit":
       return { kind: "turn-start", at };
     case "Stop":
@@ -265,7 +266,7 @@ const readCodexStatus = (
 };
 
 export const normalizeCodexStatus: StatusNormalizer = (payload, at, context) => {
-  const record = isJsonRecord(payload) && payload.kind === "store.record" && isJsonRecord(payload.record)
-    ? payload.record : null;
+  const decoded = decodeStatusPayload(payload);
+  const record = decoded?.source === "record" ? decoded.record : null;
   return codexQuestionStatus(context?.state, record, readCodexStatus(payload, at, context));
 };

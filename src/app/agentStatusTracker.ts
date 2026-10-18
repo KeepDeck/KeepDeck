@@ -1,4 +1,4 @@
-import type { AgentStatusEvent, StatusNormalizer } from "@keepdeck/plugin-api";
+import { CARRIED_RECORD, type AgentStatusEvent, type StatusNormalizer } from "@keepdeck/plugin-api";
 import { isRecord } from "../domain/json";
 import { normalizeStatusBatch } from "./statusNormalization";
 import {
@@ -145,7 +145,7 @@ export function createAgentStatusTracker(): AgentStatusTracker {
     // records. In particular, no subscriber sees the abort between turns.
     const payloads = payload.kind === "store.batch"
       ? (Array.isArray(payload.records) ? payload.records : []).map((record) => ({
-          agent, kind: "store.record", record,
+          agent, kind: CARRIED_RECORD, record,
         }))
       : [payload];
     const stateNow = () => {

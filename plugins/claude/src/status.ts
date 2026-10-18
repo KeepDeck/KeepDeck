@@ -1,4 +1,5 @@
 import {
+  decodeStatusPayload,
   frameTeammateMail,
   isJsonRecord,
   turnFailedEvent,
@@ -219,8 +220,9 @@ export const normalizeClaudeStatus: StatusNormalizer = (
   at,
   context,
 ): AgentStatusEvent | null => {
-  if (!isJsonRecord(payload)) return null;
-  if (payload.kind === "store.record") {
+  const decoded = decodeStatusPayload(payload);
+  if (!decoded) return null;
+  if (decoded.source === "record") {
     // A record the host carried because THIS plugin's watch named it. The
     // host only matched and projected the declared metadata fields.
     // What it means is decided here, by the dialect that wrote the watch —
@@ -229,10 +231,9 @@ export const normalizeClaudeStatus: StatusNormalizer = (
     // The record's own instant, not receipt: the tail polls, so receipt runs
     // up to an interval late, and a marker stamped honestly is one the
     // tracker can drop when it predates the turn it would end.
-    return isJsonRecord(payload.record) ? claudeTail.read(payload.record) : null;
+    return claudeTail.read(decoded.record);
   }
-  if (!isJsonRecord(payload.event)) return null;
-  const event = payload.event;
+  const event = decoded.event;
   switch (event.hook_event_name) {
     case "UserPromptSubmit":
       return { kind: "turn-start", at };

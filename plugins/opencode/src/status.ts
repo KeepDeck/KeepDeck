@@ -1,4 +1,5 @@
 import {
+  decodeStatusPayload,
   isJsonRecord,
   turnFailedEvent,
   type AgentStatusEvent,
@@ -33,8 +34,9 @@ export const normalizeOpencodeStatus: StatusNormalizer = (
   payload,
   at,
 ): AgentStatusEvent | null => {
-  if (!isJsonRecord(payload) || !isJsonRecord(payload.event)) return null;
-  const event = payload.event;
+  const decoded = decodeStatusPayload(payload);
+  if (decoded?.source !== "hook") return null;
+  const event = decoded.event;
   const properties = isJsonRecord(event.properties) ? event.properties : {};
   switch (event.type) {
     case "session.status":

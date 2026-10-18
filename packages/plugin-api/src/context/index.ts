@@ -33,10 +33,12 @@ export type {
   MailReplyRenderer,
   StatusNormalizer,
   StatusNormalization,
+  StatusPayload,
   StatusReduction,
   StatusWaitReason,
 } from "./status.ts";
 export {
+  decodeStatusPayload,
   frameTeammateMail,
   turnFailedEvent,
 } from "./status.ts";

@@ -12,8 +12,8 @@
  * enum cannot.
  */
 
-import { asNonEmptyString } from "./usage.ts";
-import type { SessionTailDialect } from "./sessionTail.ts";
+import { asNonEmptyString, isJsonRecord } from "./usage.ts";
+import { CARRIED_RECORD, type SessionTailDialect } from "./sessionTail.ts";
 
 /** Why an agent is waiting on the user. `permission` = a tool-approval
  * prompt is up; `question` = the agent itself asked for input. */
@@ -253,6 +253,28 @@ export interface MailReplyInput {
 export type MailReplyRenderer = (input: MailReplyInput) => string | null;
 
 /* ---- Authoring helpers ----------------------------------------------- */
+
+/** What one status payload carries, decoded once for every normalizer: a
+ * record of the agent's own store that the host carried
+ * (`kind: CARRIED_RECORD`, the record under `record`), or a hook reporter's
+ * payload (verbatim under `event`). */
+export type StatusPayload =
+  | { readonly source: "record"; readonly record: Record<string, unknown> }
+  | { readonly source: "hook"; readonly event: Record<string, unknown> };
+
+/** The status envelope → what it carries, or null when it carries neither.
+ * A carried envelope without a record is null, never read as a hook. */
+export function decodeStatusPayload(payload: unknown): StatusPayload | null {
+  if (!isJsonRecord(payload)) return null;
+  if (payload.kind === CARRIED_RECORD) {
+    return isJsonRecord(payload.record)
+      ? { source: "record", record: payload.record }
+      : null;
+  }
+  return isJsonRecord(payload.event)
+    ? { source: "hook", event: payload.event }
+    : null;
+}
 
 /**
  * Waiting messages as the words a model will read.
