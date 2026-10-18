@@ -3,6 +3,15 @@
  * how a conversation gets a human title is not — and two private copies of
  * the title heuristic had already drifted apart. */
 
+/** A string field's text with surrounding whitespace removed, or undefined
+ * when it is not a string or holds nothing but whitespace — the read for a
+ * cwd or a summary a store may write blank. */
+export function trimmedText(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const text = value.trim();
+  return text === "" ? undefined : text;
+}
+
 /** The text of a content-parts array, whatever the CLI's part dialect:
  * every part carrying a string `text` contributes; tool calls/results and
  * other non-text parts are silently skipped. */

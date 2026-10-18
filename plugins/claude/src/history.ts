@@ -3,6 +3,7 @@ import {
   firstMeaningfulUserTurn,
   jsonl,
   textFromParts,
+  trimmedText,
   walkSession,
   type AgentHistory,
   type AgentSessionStub,
@@ -66,11 +67,6 @@ interface ClaudeState {
   summary?: string;
 }
 
-function nonEmpty(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const text = value.trim();
-  return text === "" ? undefined : text;
-}
 
 /** Slash-command envelopes (`<command-name>`/`<command-message>`/… and the
  * `<local-command-stdout>` echo) are stored as PLAIN user lines, not
@@ -81,9 +77,9 @@ const dialect: SessionDialect<ClaudeState, ClaudeRecord> = {
   begin: () => ({}),
 
   step(state, record) {
-    state.cwd ??= nonEmpty(record.cwd);
+    state.cwd ??= trimmedText(record.cwd);
     // The LAST summary wins: summaries get refreshed.
-    if (record.type === "summary") state.summary = nonEmpty(record.summary) ?? state.summary;
+    if (record.type === "summary") state.summary = trimmedText(record.summary) ?? state.summary;
 
     if (record.type !== "user" && record.type !== "assistant") return [];
     // Framework-injected lines ("Continue from where you left off.", tool

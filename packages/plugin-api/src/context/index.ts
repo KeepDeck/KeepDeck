@@ -84,6 +84,7 @@ export { isJsonRecord } from "../json.ts";
 export {
   firstMeaningfulUserTurn,
   textFromParts,
+  trimmedText,
 } from "./historyText.ts";
 export type { PluginContext } from "./context.ts";
 export type { Disposable, WatchHandle } from "./disposable.ts";

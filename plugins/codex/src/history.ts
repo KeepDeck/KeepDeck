@@ -3,6 +3,7 @@ import {
   firstMeaningfulUserTurn,
   jsonl,
   textFromParts,
+  trimmedText,
   walkSession,
   type AgentHistory,
   type AgentSessionStub,
@@ -39,11 +40,6 @@ interface CodexState {
   cwd?: string;
 }
 
-function nonEmpty(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const text = value.trim();
-  return text === "" ? undefined : text;
-}
 
 /** Rollout lines: `response_item` payloads of type `message` with a content
  * array of `input_text`/`output_text` parts. Developer/meta roles are
@@ -56,7 +52,7 @@ const dialect: SessionDialect<CodexState, CodexRecord> = {
     // noticing it here is what replaces the separate read of the head. A
     // rollout can carry several (subagent threads) — the FIRST wins, which
     // is what parsing the first line always did.
-    if (record.type === "session_meta") state.cwd ??= nonEmpty(record.payload?.cwd);
+    if (record.type === "session_meta") state.cwd ??= trimmedText(record.payload?.cwd);
 
     if (record.type !== "response_item") return [];
     const payload = record.payload;
