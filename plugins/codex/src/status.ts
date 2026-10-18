@@ -279,6 +279,10 @@ const readCodexStatus = (
       return { kind: "turn-end", at };
     case "PermissionRequest":
       return { kind: "waiting", at, reason: "permission" };
+    case "Interrupt":
+      // The user's Esc on the main thread (codex runs it for no subagent),
+      // the same edge the rollout's turn_aborted reports later.
+      return { kind: "interrupted", at };
     case "PostToolUse":
       // The backstop, not the resolution: an approved tool's completion is
       // the first post-approval hook codex sends, which is as late as the

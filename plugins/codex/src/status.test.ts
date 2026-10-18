@@ -214,6 +214,15 @@ describe("the armed events and the renderer agree", () => {
   });
 });
 
+describe("the Interrupt hook", () => {
+  it("is the user's Esc, pushed: the same edge the rollout reports later", () => {
+    expect(normalizeCodexStatus(wrap({ hook_event_name: "Interrupt", session_id: "s1" }), 300)).toEqual({
+      kind: "interrupted",
+      at: 300,
+    });
+  });
+});
+
 describe("attributeCodexEvent", () => {
   // Verified live on 0.163.0: a subagent's hook carries agent_id and
   // agent_type beside the root's own session id.

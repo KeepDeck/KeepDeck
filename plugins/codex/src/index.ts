@@ -88,9 +88,15 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
         ]
       : []),
     ...(status
-      ? ["UserPromptSubmit", "Stop", "PermissionRequest", "PostToolUse"].map(
+      ? ["UserPromptSubmit", "Stop", "PermissionRequest", "PostToolUse", "Interrupt"].map(
           (event) => ({
             event,
+            // Mail rides `additionalContext`, and past ~2500 tokens codex
+            // hands the model a head-and-tail preview with the rest in a
+            // file. 0 keeps a long message whole on every event that can
+            // carry context (trust.ts keeps the field only there); `Stop`
+            // ignores it, verified live.
+            additionalContextLimit: 0,
             // `--ask` makes the reporter WAIT for the deck and print its
             // answer. Stop blocks and continues; UserPromptSubmit spills
             // extra context into the turn just opened; PostToolUse does the
@@ -99,7 +105,10 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
             // into its terminal. It costs a round trip per TOOL CALL, and
             // that is the price of the mid-turn channel — the deck answers
             // in milliseconds when nothing is waiting. PermissionRequest
-            // genuinely reads nothing back.
+            // genuinely reads nothing back. Interrupt is the user's Esc,
+            // pushed the moment it happens (the rollout's turn_aborted stays
+            // the fallback for older codex and other abort reasons); codex
+            // gives it one second, which is why trust.ts hashes it so.
             command: [
               `/bin/sh ${shellQuote(status)} codex`,
               ...mailAskArgs(CODEX_MAIL_CHANNELS, event),

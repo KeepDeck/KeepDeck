@@ -20,10 +20,13 @@
 import { sha256Hex } from "@keepdeck/plugin-api";
 
 /** One hook to arm: the codex event name (CamelCase, as `hooks.<Event>`
- * keys it) and the shell line to run. */
+ * keys it), the shell line to run, and — where the event can emit
+ * `additionalContext` — the token threshold past which codex spills it to a
+ * file (`0` never spills). */
 export interface HookRule {
   event: string;
   command: string;
+  additionalContextLimit?: number;
 }
 
 /** The trust-state key for a hook defined via `-c` (the SessionFlags
@@ -40,9 +43,11 @@ export function sessionFlagsStateKey(event: string): string {
 export async function cliArgs(rules: readonly HookRule[]): Promise<string[]> {
   const args: string[] = [];
   for (const rule of rules) {
+    const declared = contextLimitOf(rule);
+    const limit = declared === undefined ? "" : `,additionalContextLimit=${declared}`;
     args.push(
       "-c",
-      `hooks.${rule.event}=[{hooks=[{type="command",command=${tomlBasicString(rule.command)}}]}]`,
+      `hooks.${rule.event}=[{hooks=[{type="command",command=${tomlBasicString(rule.command)}${limit}}]}]`,
     );
   }
   const entries = await Promise.all(
@@ -72,21 +77,56 @@ export async function cliArgs(rules: readonly HookRule[]): Promise<string[]> {
  */
 export const CODEX_HOOK_TIMEOUT_SECONDS = 600;
 
+/** The default for the two events codex runs while it is shutting a turn or
+ * a session down — `Interrupt` and `SessionEnd` — which it also clamps to
+ * 1..3 s (hooks/src/engine/discovery.rs, normalize_command_hook, 0.163.0).
+ * Hashing one of them with the general 600 makes codex skip it in silence:
+ * verified live. */
+const SHUTDOWN_HOOK_TIMEOUT_SECONDS = 1;
+
+/** The events codex lets emit `additionalContext` — the only ones whose
+ * `additionalContextLimit` it keeps. On any other it drops the field before
+ * hashing, so declaring it there would trust a hook codex never sees: `Stop`
+ * spills a long reason whatever the limit (verified live on 0.163.0). */
+const CONTEXT_EVENTS: ReadonlySet<string> = new Set([
+  "PreToolUse",
+  "PostToolUse",
+  "SessionStart",
+  "UserPromptSubmit",
+  "SubagentStart",
+]);
+
+/** A rule's context limit as codex normalizes it: kept only where the event
+ * can emit context. */
+function contextLimitOf(rule: HookRule): number | undefined {
+  return CONTEXT_EVENTS.has(rule.event) ? rule.additionalContextLimit : undefined;
+}
+
+/** The timeout codex normalizes a hook declaring none to, by event. */
+export function codexHookTimeout(event: string): number {
+  return event === "Interrupt" || event === "SessionEnd"
+    ? SHUTDOWN_HOOK_TIMEOUT_SECONDS
+    : CODEX_HOOK_TIMEOUT_SECONDS;
+}
+
 /** codex's fingerprint of the normalized hook identity:
  * `sha256:<hex>` over the compact, KEY-SORTED JSON of
- * `{event_name, hooks:[{async, command, timeout, type}]}` — defaults
- * applied ([`CODEX_HOOK_TIMEOUT_SECONDS`], `async` false), `None` fields
- * omitted, matcher absent. JSON.stringify preserves insertion order, so the
- * literals below are written in alphabetical key order to match
+ * `{event_name, hooks:[{additionalContextLimit?, async, command, timeout,
+ * type}]}` — defaults applied ([`codexHookTimeout`], `async` false), `None`
+ * fields omitted, matcher absent. JSON.stringify preserves insertion order,
+ * so the literals below are written in alphabetical key order to match
  * serde_json's sorted map. */
 export async function trustedHash(rule: HookRule): Promise<string> {
   const identity = {
     event_name: snakeCase(rule.event),
     hooks: [
       {
+        ...(contextLimitOf(rule) === undefined
+          ? {}
+          : { additionalContextLimit: contextLimitOf(rule) }),
         async: false,
         command: rule.command,
-        timeout: CODEX_HOOK_TIMEOUT_SECONDS,
+        timeout: codexHookTimeout(rule.event),
         type: "command",
       },
     ],

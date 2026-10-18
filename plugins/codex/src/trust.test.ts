@@ -1,10 +1,17 @@
 import { describe, expect, it } from "vitest";
+import { createHash } from "node:crypto";
 import {
   cliArgs,
+  codexHookTimeout,
   sessionFlagsStateKey,
   CODEX_HOOK_TIMEOUT_SECONDS,
   trustedHash,
 } from "./trust";
+
+/** codex's fingerprint, written out by hand as an oracle: sha256 over the
+ * key-sorted compact JSON of the normalized hook. */
+const fingerprint = (identity: unknown) =>
+  `sha256:${createHash("sha256").update(JSON.stringify(identity)).digest("hex")}`;
 
 const sessionStart = (command: string) => ({ event: "SessionStart", command });
 
@@ -117,5 +124,40 @@ describe("codex trust fingerprint (TS port of the host's Rust module)", () => {
   it("quoting survives awkward paths", async () => {
     const args = await cliArgs([sessionStart(`/bin/sh '/tmp/a "b"/hook'`)]);
     expect(args[1]).toContain(`command="/bin/sh '/tmp/a \\"b\\"/hook'"`);
+  });
+});
+
+describe("per-event normalization", () => {
+  it("hashes Interrupt and SessionEnd at codex's one-second default", async () => {
+    // Verified live on 0.163.0: hashed at 600, codex skips the hook in
+    // silence; at its normalized 1 it runs.
+    expect(codexHookTimeout("Interrupt")).toBe(1);
+    expect(codexHookTimeout("SessionEnd")).toBe(1);
+    expect(codexHookTimeout("Stop")).toBe(600);
+    const command = "/bin/sh '/kd/kd-status-hook.sh' codex";
+    expect(await trustedHash({ event: "Interrupt", command })).toBe(
+      fingerprint({ event_name: "interrupt", hooks: [{ async: false, command, timeout: 1, type: "command" }] }),
+    );
+  });
+
+  it("keeps a context limit only on events that can emit context", async () => {
+    const command = "/bin/sh '/kd/kd-status-hook.sh' codex --ask";
+    expect(await trustedHash({ event: "UserPromptSubmit", command, additionalContextLimit: 0 })).toBe(
+      fingerprint({
+        event_name: "user_prompt_submit",
+        hooks: [{ additionalContextLimit: 0, async: false, command, timeout: 600, type: "command" }],
+      }),
+    );
+    // codex drops the field on Stop before hashing — declaring it there
+    // would trust a hook codex never sees.
+    expect(await trustedHash({ event: "Stop", command, additionalContextLimit: 0 })).toBe(
+      await trustedHash({ event: "Stop", command }),
+    );
+    const args = await cliArgs([
+      { event: "UserPromptSubmit", command, additionalContextLimit: 0 },
+      { event: "Stop", command, additionalContextLimit: 0 },
+    ]);
+    expect(args[1]).toContain(",additionalContextLimit=0}");
+    expect(args[3]).not.toContain("additionalContextLimit");
   });
 });

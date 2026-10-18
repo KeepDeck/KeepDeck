@@ -88,9 +88,9 @@ describe("codex plugin hooks", () => {
     const out = output();
     await agent.hooks["spawn.plan"]!(input, out);
 
-    // 4 rules (SessionStart + 3 turn events) ×2 args, ONE combined state
+    // 6 rules (SessionStart + 5 turn events) ×2 args, ONE combined state
     // table ×2, + 2 paste-burst override args.
-    expect(out.args).toHaveLength(14);
+    expect(out.args).toHaveLength(16);
     expect(out.args[0]).toBe("-c");
     // The IDENTITY hook on SessionStart, by name. The two reporters answer
     // different questions and only one of them may sit here; a stub that
@@ -108,6 +108,7 @@ describe("codex plugin hooks", () => {
       "Stop",
       "PermissionRequest",
       "PostToolUse",
+      "Interrupt",
     ]) {
       expect(
         out.args.filter((a) => a.startsWith(`hooks.${event}=`)),
@@ -129,6 +130,7 @@ describe("codex plugin hooks", () => {
       ["UserPromptSubmit", true],
       ["PostToolUse", true],
       ["PermissionRequest", false],
+      ["Interrupt", false],
     ] as const) {
       const rule = out.args.find((a) => a.startsWith(`hooks.${event}=`))!;
       expect(rule.includes("codex --ask"), event).toBe(asks);
@@ -137,7 +139,18 @@ describe("codex plugin hooks", () => {
     // wholesale, so a second table would silently untrust the first.
     const state = out.args.filter((a) => a.startsWith("hooks.state="));
     expect(state).toHaveLength(1);
-    expect(state[0].match(/trusted_hash/g)).toHaveLength(5);
+    expect(state[0].match(/trusted_hash/g)).toHaveLength(6);
+    // Long mail is kept whole where codex can carry context, and declared
+    // nowhere else — codex drops the field there before hashing.
+    for (const [event, limited] of [
+      ["UserPromptSubmit", true],
+      ["PostToolUse", true],
+      ["Stop", false],
+      ["Interrupt", false],
+    ] as const) {
+      const rule = out.args.find((a) => a.startsWith(`hooks.${event}=`))!;
+      expect(rule.includes("additionalContextLimit=0"), event).toBe(limited);
+    }
     expect(out.args).toContain("disable_paste_burst=true");
   });
 
