@@ -41,6 +41,7 @@ subcommand.
 | `PostToolUse` | mid-turn mail, and the backstop for a resolved approval | yes |
 | `Stop` | turn end | yes |
 | `PermissionRequest` | approval wait | no |
+| `Interrupt` | the user's Esc, at once | no |
 
 Notes:
 
@@ -51,15 +52,19 @@ Notes:
   not tell them apart. A subagent ends with `SubagentStop`, not `Stop`, but
   its `UserPromptSubmit` and `PostToolUse` reach KeepDeck (verified live).
   They move nothing and take no mail.
-- **`Interrupt`** exists since 0.150 and fires on Esc. It is not armed yet:
-  interruptions come from the rollout's `turn_aborted`.
+- **`Interrupt`** exists since 0.150 and fires on the user's Esc on the main
+  thread. Hashed with its 1 s timeout, it reports the interruption at once.
+  The rollout's `turn_aborted` stays the fallback for older Codex and for
+  other abort reasons.
 - **SessionStart `source`** can be `startup`, `resume`, `clear`, `compact` or
   `fork`, and the deck's binding understands all of them. SessionStart runs
   at the first turn, not at process start.
 - **Long `additionalContext`** is cut to a head-and-tail preview with the
-  full text in a file. `additionalContextLimit=0` disables that for
-  `UserPromptSubmit`, `PostToolUse` and `SessionStart`, but not for `Stop`.
-  Verified live.
+  full text in a file. KeepDeck arms its mail hooks with
+  `additionalContextLimit=0`, which keeps the context whole on
+  `UserPromptSubmit` and `PostToolUse`. `Stop` ignores the limit and still
+  spills a long message; Codex drops the field there before hashing, so
+  `trust.ts` declares it only where Codex keeps it. Verified live.
 
 ## Steering
 
