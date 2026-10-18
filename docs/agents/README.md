@@ -30,6 +30,10 @@ Shared cores in `packages/plugin-api` so far:
   partly readable store means to the strict `list` and the partial
   `listing`, and how transcript pages are read. A plugin supplies only a
   `SessionStore`: how to enumerate, describe and read its own sessions.
+- `launchPlans`: the spawn, resume and fork hooks. A plugin supplies a
+  `LaunchAdapter`: what every launch carries (`stage`, which may settle the
+  launch whole, as a remote attach does), and how resume and fork name the
+  session.
 
 The rule is that the high level works the same for all four CLIs. A new
 mechanism gets one core and four adapters, never a helper for "the similar

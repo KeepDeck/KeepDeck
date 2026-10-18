@@ -24,7 +24,8 @@ nothing is installed on the user's side.
 - `KEEPDECK_OPENCODE_SKIPS_APPROVALS` is set for permission-skipping panes.
 - Remote panes use `opencode attach <endpoint>`.
 
-`stageLaunch` in `src/index.ts` is the single carrier.
+`stageLaunch` in `src/index.ts` is what every launch carries, through the
+shared `launchPlans`.
 
 ## Mail (1.x)
 

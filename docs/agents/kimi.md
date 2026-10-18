@@ -34,8 +34,9 @@ token from the server's banner and exists since Kimi 0.36.1. It replaced the
 
 ## Launch
 
-`planLaunch` in `index.tsx` is the single carrier for spawn, resume and
-fork:
+`stageLaunch` in `index.tsx` is what every launch carries, through the
+shared `launchPlans`. Resume adds `--session <id>`; fork clones the session
+and adds `--session <new id>`. The launch carries:
 
 - `--skills-dir <dir>` when KeepDeck has staged skills. It **replaces** Kimi's
   own skill discovery rather than adding to it, so it is passed only when

@@ -20,8 +20,8 @@ Nothing is written to `~/.claude`.
 - `--dangerously-skip-permissions` for permission-skipping panes.
 - `CLAUDE_CODE_DISABLE_ARTIFACT`, from a plugin setting, passed in env.
 
-`stageLaunch` in `src/index.ts` is the single carrier for spawn, resume and
-fork.
+`stageLaunch` in `src/index.ts` is what every launch carries, through the
+shared `launchPlans`.
 
 ## Hooks
 
