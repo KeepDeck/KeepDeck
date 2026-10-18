@@ -2,6 +2,7 @@ import "./styles.css";
 import { kimiForkPlan } from "./fork";
 import { kimiHistory } from "./history";
 import {
+  launchPlans,
   sha256Hex,
   type KeepDeckPlugin,
   type SpawnPlanInput,
@@ -58,16 +59,11 @@ const skillsArgs = (skills: SpawnSkillsInput | undefined): string[] =>
  * lets kimi start that project's own MCP servers (`.kimi-code/mcp.json`,
  * `.mcp.json`) — accepted: the panes run in the user's own projects. A
  * DEFAULT, so a user who set the variable themselves keeps their answer. */
-function planLaunch(
+function stageLaunch(
   input: Pick<SpawnPlanInput, "skills" | "yolo">,
   output: Pick<SpawnPlanOutput, "args" | "envDefaults">,
-  sessionId?: string,
 ): void {
-  output.args = [
-    ...skillsArgs(input.skills),
-    ...(input.yolo ? ["--yolo"] : []),
-    ...(sessionId ? ["--session", sessionId] : []),
-  ];
+  output.args.push(...skillsArgs(input.skills), ...(input.yolo ? ["--yolo"] : []));
   (output.envDefaults ??= []).push(["KIMI_CODE_TRUST_WORKSPACE", "1"]);
 }
 
@@ -118,13 +114,11 @@ const plugin: KeepDeckPlugin = {
         tail: kimiTail(history) as never,
       },
       history,
-      hooks: {
-        "spawn.plan": (input, output) => planLaunch(input, output),
-        "resume.plan": (input, output) =>
-          planLaunch(input, output, input.sessionId),
-        "fork.plan": async (input, output) =>
-          planLaunch(input, output, await kimiForkPlan(ctx, input)),
-      },
+      hooks: launchPlans({
+        stage: stageLaunch,
+        resume: (input) => ["--session", input.sessionId],
+        fork: async (input) => ["--session", await kimiForkPlan(ctx, input)],
+      }),
     });
 
     // The RESOURCES ROOT, not one companion's folder: the fleet installs
