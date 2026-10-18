@@ -44,7 +44,8 @@ Notes:
   KeepDeck tails (`src/tail.ts`).
 - **Subagent hooks carry `agent_id`.** A subagent's `PostToolUse` still
   clears the pane's approval wait on purpose: the wait is not tagged with who
-  raised it, because `Notification` carries no agent id.
+  raised it, because `Notification` carries no agent id. Subagent events
+  never collect mail.
 - **Mail continues the turn.** When a `Stop` reply hands over mail, Claude
   continues instead of stopping. The normalizer reads the delivered reply and
   reports the turn as still running.

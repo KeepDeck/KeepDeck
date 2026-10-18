@@ -34,8 +34,9 @@ a wake from the deck. There is no tool-boundary moment, so mail for a
 working OpenCode pane waits for the turn to end.
 
 When ancestry cannot be determined, a session is classified "unknown", and
-the courier adopts it as the root. That keeps a pane from being unreachable,
-but it is not proof that mail is going to the main agent.
+the courier adopts it as the root, so the pane is never unreachable. Each
+ask reports its delivery target (`root`, `child` or `unknown`), fixed before
+the ask. The deck hands mail only to `root`, so an unclassified root waits.
 
 ## Status (1.x)
 

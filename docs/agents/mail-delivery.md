@@ -26,7 +26,12 @@ An agent can collect mail at these moments:
 | Session start | the session begins | `SessionStart` | none | none | `session.created` |
 | Turn start | a prompt opens a turn | `UserPromptSubmit` | `UserPromptSubmit` | `UserPromptSubmit` | `chat.message` |
 | Tool boundary | between tool calls, inside a turn | `PostToolBatch` | `PostToolUse` | none | none |
-| Turn end | the agent is about to stop | `Stop` | `Stop` | `Stop` | `session.idle` |
+| Turn end | the agent is about to stop | `Stop` | `Stop` | none | `session.idle` |
+
+Each plugin declares these as its mail channels
+(`AgentStatus.mail.channels`), and the declaration is the one list: it
+decides where the reporter is armed with `--ask` and whether the deck can
+hold mail for a working pane.
 
 The tool-boundary window is what makes mail arrive in the middle of work.
 Claude and Codex have it, Kimi and OpenCode do not, so on those two a
@@ -43,9 +48,12 @@ message waits for the end of the turn.
 
 The policy lives in `src/domain/mail/policy.ts` (`decideDelivery`).
 
-- **The pane is working and its agent collects at boundaries:** the deck
-  holds the message. A boundary is coming, and the agent will collect the
-  message itself.
+- **The pane is working and its agent declares a turn-end channel:** the
+  deck holds the message. A boundary is coming, and the agent will collect
+  it itself.
+- **The pane is working and its agent has no turn-end channel** (Kimi):
+  the deck wakes it once. The nudge queues behind the running turn and opens
+  the next one, whose turn-start hook collects the message.
 - **The pane is idle:** the deck wakes it. It types a short nudge that
   makes the agent take a turn, and that turn's own hook collects the mail.
   The nudge carries no content.
@@ -80,18 +88,36 @@ must not restart the pane's "working since".
 
 A hook can fire for a subagent as well as for the pane's main agent. Mail
 handed to a subagent never reaches the main agent, and the deck's queue
-counts it as delivered. The rule is that mail is handed out only when the
-hook is positively known to come from the main agent.
+counts it as delivered.
+
+Each plugin attributes every report (`AgentStatus.attribute`): who raised
+it (main, child or unknown), and whether it may move the pane's status.
+plugin-api's `agentEvents` holds the one rule that follows:
+
+- `admitMail` hands mail out only on a declared channel, raised by the
+  main agent, in a payload that arrived whole. It is asked before anything
+  leaves the queue, and a refused ask gets an empty answer.
+- `admittedNormalizer` runs the plugin's normalizer only for reports that
+  may move the pane.
+
+Per CLI:
 
 - **Codex.** Subagent hooks carry `agent_id` and `agent_type`; the main
-  agent's carry neither. A subagent fires `SubagentStop`, not `Stop`, but
-  its `UserPromptSubmit` and `PostToolUse` do reach our reporter. Verified
-  live on 0.163.0. Filtering them out is open work.
+  agent's carry neither, and `session_id` is shared. A subagent fires
+  `SubagentStop`, not `Stop`, but its `UserPromptSubmit` and `PostToolUse`
+  reach the reporter (verified live on 0.163.0). They move nothing and
+  take no mail.
 - **Kimi.** `UserPromptSubmit` runs only for the user's prompts, so it is
-  always the main agent. `Stop` fires for subagents too and carries no
-  agent identity, so mail collected at `Stop` can reach a subagent.
-- **Claude Code.** Subagent hook events carry `agent_id`.
+  the main agent's, and it is Kimi's only channel. `Stop` fires for
+  subagents with no agent identity, so it does not ask.
+- **Claude Code.** Subagent hook events carry `agent_id`. They still move
+  the pane (a subagent's tool use clears an approval wait nobody can tag),
+  but they take no mail.
+- **OpenCode.** The courier fixes its delivery target before asking and
+  reports whether it is the pane's root. A root adopted while the client
+  could not classify it names nobody, so mail waits.
 
 Payloads larger than about 255 KB are cut down by the reporter to the event
-name alone, which also drops `agent_id`. Such a reduced event must not be
-treated as coming from the main agent.
+name alone, which also drops `agent_id`. The reporter marks them
+`reduced: true`, does not ask for mail on them, and the deck never hands
+mail out on one.

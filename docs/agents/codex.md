@@ -49,8 +49,8 @@ Notes:
 - **Subagents** carry `agent_id` and `agent_type` in their hook payloads,
   while the main agent's carry neither. `session_id` is shared, so it does
   not tell them apart. A subagent ends with `SubagentStop`, not `Stop`, but
-  its `UserPromptSubmit` and `PostToolUse` reach KeepDeck. Verified live.
-  Filtering them out is open work.
+  its `UserPromptSubmit` and `PostToolUse` reach KeepDeck (verified live).
+  They move nothing and take no mail.
 - **`Interrupt`** exists since 0.150 and fires on Esc. It is not armed yet:
   interruptions come from the rollout's `turn_aborted`.
 - **SessionStart `source`** can be `startup`, `resume`, `clear`, `compact` or

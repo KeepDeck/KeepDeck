@@ -17,7 +17,7 @@ outside a KeepDeck pane: the scripts do nothing without KeepDeck's env.
   |---|---|---|
   | `SessionStart` | session hook | no |
   | `UserPromptSubmit` | status hook | yes |
-  | `Stop` | status hook | yes |
+  | `Stop` | status hook | no |
   | `StopFailure` | status hook | no |
   | `Interrupt` | status hook | no |
   | `PermissionRequest` | status hook | no |
@@ -79,9 +79,11 @@ The renderer is `renderKimiMail` in `status.ts`.
 `Stop` fires at the end of a subagent's turn as well as the main agent's,
 and the payload carries no agent field. The fields are only
 `hook_event_name`, `session_id`, `cwd`, `client_type` and
-`stop_hook_active`. Verified live. Mail collected at `Stop` can therefore
-reach a subagent, and dropping mail from `Stop` is under consideration (see
-[mail-delivery.md](mail-delivery.md)). `UserPromptSubmit` is safe.
+`stop_hook_active`. Verified live. Mail handed out at `Stop` could reach a
+subagent, so `Stop` does not ask. Kimi's only mail channel is
+`UserPromptSubmit`, and a working Kimi pane is woken once its turn ends (see
+[mail-delivery.md](mail-delivery.md)). The channels are read from the
+companion manifest, so the manifest is the one list.
 
 ## Status
 
