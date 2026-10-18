@@ -1,4 +1,5 @@
 import {
+  agentIdActor,
   asNonEmptyString,
   decodeStatusPayload,
   frameTeammateMail,
@@ -421,11 +422,7 @@ export const attributeClaudeEvent = (payload: unknown): EventAttribution | null 
   if (decoded.source === "record") return { event: null, actor: "main", status: true };
   const event = asNonEmptyString(decoded.event.hook_event_name);
   if (!event) return null;
-  const actor = asNonEmptyString(decoded.event.agent_id)
-    ? "child"
-    : asNonEmptyString(decoded.event.session_id) && !decoded.reduced
-      ? "main"
-      : "unknown";
+  const actor = agentIdActor(decoded.event, decoded.reduced);
   return { event, actor, status: true };
 };
 

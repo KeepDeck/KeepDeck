@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   admitMail,
   admittedNormalizer,
+  agentIdActor,
   collectsAtTurnEnd,
   mailAskArgs,
   type EventActor,
@@ -96,5 +97,19 @@ describe("mailAskArgs", () => {
   it("asks exactly on declared channels", () => {
     expect(mailAskArgs(channels, "Stop")).toEqual(["--ask"]);
     expect(mailAskArgs(channels, "PermissionRequest")).toEqual([]);
+  });
+});
+
+describe("agentIdActor", () => {
+  it("names a subagent by agent_id, the main agent by a session id without one", () => {
+    expect(agentIdActor({ session_id: "s", agent_id: "a" }, false)).toBe("child");
+    expect(agentIdActor({ session_id: "s" }, false)).toBe("main");
+  });
+
+  it("names nobody without a session id, or once the payload was reduced", () => {
+    expect(agentIdActor({}, false)).toBe("unknown");
+    expect(agentIdActor({ session_id: "s" }, true)).toBe("unknown");
+    // A subagent stays a subagent whatever else is missing.
+    expect(agentIdActor({ agent_id: "a" }, true)).toBe("child");
   });
 });

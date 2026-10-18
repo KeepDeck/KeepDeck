@@ -17,11 +17,27 @@
  */
 import type { AgentStatus, MailReplyRenderer, StatusNormalizer } from "./status.ts";
 import { decodeStatusPayload } from "./status.ts";
+import { asNonEmptyString } from "./usage.ts";
 
 /** Who raised a report: the pane's main agent, a subagent, or nobody the
  * payload can name. An absent agent field proves nothing by itself — the
  * plugin says "main" only where its CLI's contract makes absence mean it. */
 export type EventActor = "main" | "child" | "unknown";
+
+/**
+ * The actor of a hook payload in the dialect claude and codex share: a
+ * subagent's hook carries `agent_id`; the main agent's carries none, so a
+ * hook with the session's own id and no agent id is the main agent's. A
+ * payload the reporter reduced names nobody — the field that would tell is
+ * the one the reduction dropped.
+ */
+export function agentIdActor(
+  event: Record<string, unknown>,
+  reduced: boolean,
+): EventActor {
+  if (asNonEmptyString(event.agent_id)) return "child";
+  return asNonEmptyString(event.session_id) && !reduced ? "main" : "unknown";
+}
 
 /** A plugin's reading of one status payload. */
 export interface EventAttribution {

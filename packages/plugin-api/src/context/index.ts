@@ -40,6 +40,7 @@ export type {
 export {
   admitMail,
   admittedNormalizer,
+  agentIdActor,
   collectsAtTurnEnd,
   mailAskArgs,
   type AgentMail,
