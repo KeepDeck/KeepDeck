@@ -1,7 +1,10 @@
 import {
-  errorMessage,
+  fileStub,
   firstMeaningfulUserTurn,
   jsonl,
+  pageOfWalk,
+  readStoreDir,
+  sessionHistory,
   textFromParts,
   trimmedText,
   walkSession,
@@ -114,107 +117,25 @@ export function claudeHistory(ctx: PluginContext): AgentHistory {
       ...extra,
     });
 
-  /** One page of turns WITH what the reading fell short by. */
-  const readPage = async (
-    ref: string,
-    page: { offset: number; limit: number },
-  ) => {
-    const walked = await walk(ref, { keep: page });
-    return {
-      entries: walked.turns,
-      ...(walked.shortfall ? { shortfall: walked.shortfall } : {}),
-    };
-  };
-
-  return {
-    async list(): Promise<AgentSessionStub[]> {
+  return sessionHistory("claude", ctx.log, {
+    async enumerate(unreadable) {
+      // The root throws: a store that is not there is the core's to read.
+      const slugs = await ctx.services.fs.readDir(ROOT);
       const stubs: AgentSessionStub[] = [];
-      let slugs;
-      try {
-        slugs = await ctx.services.fs.readDir(ROOT);
-      } catch {
-        return []; // no store yet — claude never ran on this machine
-      }
       for (const slug of slugs) {
         if (slug.kind !== "dir") continue;
-        // No catch: the store EXISTS, so a project dir that fails to read is
-        // a failure, not an absence. Degrading it to [] made a partial
-        // listing indistinguishable from "those sessions were deleted" — and
-        // the index prune deletes what the listing omits. A throw lands in
-        // the scanner's per-agent catch: logged, no upsert, no prune.
-        const files = await ctx.services.fs.readDir(slug.path);
-        for (const file of files) {
+        const files = await readStoreDir(ctx.services.fs, slug.path, unreadable);
+        for (const file of files ?? []) {
           if (
             file.kind !== "file" ||
             !fileIsTranscript(file.name) ||
             isOrphanedStoreFile(file.name)
           )
             continue;
-          stubs.push({
-            sessionId: file.name.slice(0, -".jsonl".length),
-            ref: file.path,
-            mtime: file.mtime ?? 0,
-            size: file.size ?? 0,
-          });
+          stubs.push(fileStub(file.name.slice(0, -".jsonl".length), file));
         }
       }
       return stubs;
-    },
-    /** The partial-tolerant twin of `list()` above: an unreadable project
-     * dir is skipped, NAMED in the log, and the answer says so with
-     * `complete: false` — the host then indexes what it got and prunes
-     * nothing. `list()` keeps its stricter contract untouched; the two
-     * differ exactly in what a read refusal means. */
-    async listing(): Promise<{ stubs: AgentSessionStub[]; complete: boolean }> {
-      const stubs: AgentSessionStub[] = [];
-      let slugs;
-      try {
-        slugs = await ctx.services.fs.readDir(ROOT);
-      } catch (e) {
-        // A root refusal is NOT an empty store: [] with complete:true
-        // would read as "every session deleted" and the host's prune
-        // would wipe this agent's whole index. Nothing read, incomplete.
-        // (Accepted cost, named in the contract: the fs layer reports
-        // "no store" and "unreadable root" identically, so a genuinely
-        // deleted store stops being pruned until the fs contract grows
-        // a way to tell the two apart.)
-        ctx.log.warn(
-          `claude: store root unreadable (${errorMessage(e)}) — nothing enumerated`,
-        );
-        return { stubs, complete: false };
-      }
-      let complete = true;
-      for (const slug of slugs) {
-        if (slug.kind !== "dir") continue;
-        let files;
-        try {
-          files = await ctx.services.fs.readDir(slug.path);
-        } catch (e) {
-          // A partial answer must be a NAMED one — this directory stays
-          // invisible to the index until it reads again, and silent
-          // degradation is the one mode this contract forbids.
-          complete = false;
-          ctx.log.warn(
-            `claude: partial listing — ${slug.path} unreadable (${errorMessage(e)})`,
-          );
-          continue;
-        }
-        for (const file of files) {
-          if (
-            file.kind !== "file" ||
-            !fileIsTranscript(file.name) ||
-            isOrphanedStoreFile(file.name)
-          )
-            continue;
-          stubs.push({
-            sessionId: file.name.slice(0, -".jsonl".length),
-            ref: file.path,
-            mtime: file.mtime ?? 0,
-            size: file.size ?? 0,
-          });
-        }
-      }
-      return { stubs, complete };
     },
     async describe(ref) {
       // Both facts a describe wants sit near the store's head — the working
@@ -243,12 +164,6 @@ export function claudeHistory(ctx: PluginContext): AgentHistory {
     async content(ref) {
       return (await walk(ref)).content;
     },
-    // ONE reading, two contracts: the legacy method unpacks the honest one,
-    // so the pair cannot drift — `transcript` is DERIVED, never a parallel
-    // implementation kept in step by hand.
-    transcriptPage: readPage,
-    async transcript(ref, page): Promise<AgentTranscriptEntry[]> {
-      return (await readPage(ref, page)).entries;
-    },
-  };
+    readPage: async (ref, page) => pageOfWalk(await walk(ref, { keep: page })),
+  });
 }
