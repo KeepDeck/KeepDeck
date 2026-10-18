@@ -8,6 +8,7 @@
  * Everything here is plain data in and plain data out, so a normalizer runs
  * identically in-process or across the external tier's RPC boundary.
  */
+import { isJsonRecord } from "../json.ts";
 import { CARRIED_RECORD, type TailWatch } from "./sessionTail.ts";
 
 /** One provider rate-limit window, normalized across CLIs. Labels derive
@@ -248,10 +249,6 @@ export function carriedUsageRecord(
   return isJsonRecord(event.record) ? event.record : null;
 }
 
-/** Whether `value` is a plain JSON object: not null, not an array. */
-export function isJsonRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 /** A finite number or undefined — never NaN/Infinity into the store. */
 export function asFiniteNumber(value: unknown): number | undefined {

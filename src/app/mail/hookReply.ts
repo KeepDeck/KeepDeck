@@ -21,8 +21,7 @@
  * hook parked on an open connection is either still there or not, so the
  * send answers it, and the machinery that guessed is gone.
  */
-import { isRecord } from "../../domain/json";
-import type { DeliverableMail, MailReplyRenderer } from "@keepdeck/plugin-api";
+import { isJsonRecord, type DeliverableMail, type MailReplyRenderer } from "@keepdeck/plugin-api";
 import { isStandingContext, senderName, type Mail } from "../../domain/mail";
 import { log } from "../../ipc/log";
 import type { MailManager } from "./mailManager";
@@ -76,7 +75,7 @@ export interface HookReplies {
  * from here.
  */
 export function correlationOf(payload: unknown): string | null {
-  if (!isRecord(payload)) return null;
+  if (!isJsonRecord(payload)) return null;
   const reply = payload.reply;
   return typeof reply === "string" && reply !== "" ? reply : null;
 }
@@ -131,7 +130,7 @@ function answerMailAsk(
   const named = (value: unknown) =>
     typeof value === "string" && /^[\w.-]{1,64}$/.test(value) ? value : null;
   const asking =
-    (isRecord(payload) && isRecord(payload.event)
+    (isJsonRecord(payload) && isJsonRecord(payload.event)
       ? (named(payload.event.hook_event_name) ?? named(payload.event.type))
       : null) ?? "an unreadable event";
   // EVERY ask is logged, answered or not. This is the only window onto the
@@ -160,10 +159,10 @@ function answerMailAsk(
   // Always answer, even with nothing: a hook that gets no reply waits out its
   // whole timeout, and doing that on every turn end would tax every pane for
   // the sake of the rare one with mail.
-  if (!manager || !isRecord(payload)) return answer("", "mail is off");
+  if (!manager || !isJsonRecord(payload)) return answer("", "mail is off");
   const agent = typeof payload.agent === "string" ? payload.agent : "";
   const render = deps.rendererFor(agent);
-  const event = isRecord(payload.event) ? payload.event : null;
+  const event = isJsonRecord(payload.event) ? payload.event : null;
   if (!render || !event) {
     return answer("", render ? "malformed payload" : `${agent} renders no mail`);
   }

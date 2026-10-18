@@ -12,7 +12,8 @@
  * enum cannot.
  */
 
-import { asNonEmptyString, isJsonRecord } from "./usage.ts";
+import { isJsonRecord } from "../json.ts";
+import { asNonEmptyString } from "./usage.ts";
 import { CARRIED_RECORD, type SessionTailDialect } from "./sessionTail.ts";
 
 /** Why an agent is waiting on the user. `permission` = a tool-approval

@@ -1,4 +1,3 @@
-import { isRecord } from "../domain/json";
 import {
   freshest,
   gateAccountClaim,
@@ -10,6 +9,7 @@ import {
   type UsageNormalizer,
 } from "../domain/usage";
 import { usageSourceTimestamp } from "./usageProvenance";
+import { isJsonRecord } from "@keepdeck/plugin-api";
 
 /**
  * The owner of live usage state. Verified bridge reports funnel through
@@ -118,7 +118,7 @@ export function createUsageManager(): UsageManager {
     },
 
     report(paneId, payload, at = Date.now()) {
-      if (!isRecord(payload) || typeof payload.agent !== "string") return;
+      if (!isJsonRecord(payload) || typeof payload.agent !== "string") return;
       const provider = payload.agent;
       const normalize = normalizers.get(provider);
       if (!normalize) return;

@@ -16,7 +16,7 @@ import {
   type TeamLocation,
 } from "./teams";
 import { nextIdSequence } from "../idSequence";
-import { collectExtras, isRecord } from "../json";
+import { collectExtras } from "../json";
 import { createWorkspaceInstance } from "../workspaceInstance";
 import { MAX_PANES } from "./layout";
 import { isTaskUid } from "../tasks";
@@ -42,6 +42,7 @@ import { isTaskUid } from "../tasks";
  */
 
 import { DECK_MIN_READER, DECK_STATE_VERSION, migrateDeck } from "../migrations";
+import { isJsonRecord } from "@keepdeck/plugin-api";
 
 export { DECK_STATE_VERSION } from "../migrations";
 
@@ -200,7 +201,7 @@ function storedView(view: WorkspaceView | undefined): Record<string, unknown> | 
  * board they name is not read yet; the list asks it. Undefined when
  * nothing of it stands. */
 function readView(value: unknown, ws: Workspace): WorkspaceView | undefined {
-  if (!isRecord(value)) return undefined;
+  if (!isJsonRecord(value)) return undefined;
   const paneIds = new Set(ws.panes.map((pane) => pane.id));
   const view: WorkspaceView = {};
   if (typeof value.select === "string" && paneIds.has(value.select)) view.select = value.select;
@@ -235,7 +236,7 @@ export function hydrateDeck(json: string): HydrateDeckResult {
   } catch {
     return corrupt;
   }
-  if (!isRecord(parsed)) return corrupt;
+  if (!isJsonRecord(parsed)) return corrupt;
   const outcome = migrateDeck(parsed);
   if (outcome.kind === "incompatible") return outcome;
   if (outcome.kind === "unusable") return corrupt;
@@ -274,7 +275,7 @@ export function hydrateDeck(json: string): HydrateDeckResult {
   // two lists stand index for index.
   const viewByWs: Record<string, WorkspaceView> = {};
   raw.workspaces.forEach((value, at) => {
-    const view = readView(isRecord(value) ? value.view : undefined, workspaces[at]);
+    const view = readView(isJsonRecord(value) ? value.view : undefined, workspaces[at]);
     if (view !== undefined) viewByWs[workspaces[at].id] = view;
   });
 
@@ -384,7 +385,7 @@ const PANE_KNOWN_KEYS: ReadonlySet<string> = new Set([
 /** The object's keys outside `known` — a newer revision's fields, preserved
  * verbatim across our save round-trips. */
 function readWorkspace(value: unknown): Workspace | null {
-  if (!isRecord(value)) return null;
+  if (!isJsonRecord(value)) return null;
   const { id, name, cwd, worktreeBaseDir } = value;
   if (typeof id !== "string" || typeof name !== "string" || typeof cwd !== "string")
     return null;
@@ -448,7 +449,7 @@ function readWorkspace(value: unknown): Workspace | null {
  * flight comes back as the failed card, like a pane's: the app quit mid-
  * create, and Retry is the honest offer. */
 function readTeam(value: unknown): Team | null {
-  if (!isRecord(value)) return null;
+  if (!isJsonRecord(value)) return null;
   if (typeof value.id !== "string" || !value.id) return null;
   if (typeof value.name !== "string") return null;
   const name = value.name.trim();
@@ -479,7 +480,7 @@ function readPane(
    * read as no membership, never as a member of nothing. */
   teamIds: ReadonlySet<string>,
 ): Pane | null {
-  if (!isRecord(value)) return null;
+  if (!isJsonRecord(value)) return null;
   if (typeof value.id !== "string") return null;
   const pane: Pane = { id: value.id, idle: readIdle(value.idle) };
   // Any non-empty string id is kept verbatim: the id set is OPEN (agents
@@ -510,13 +511,13 @@ function readPane(
   // on the way in, as planTeam trims on the way out, and a role that is only
   // space is no role.
   const team = value.team;
-  if (isRecord(team) && typeof team.teamId === "string" && typeof team.role === "string") {
+  if (isJsonRecord(team) && typeof team.teamId === "string" && typeof team.role === "string") {
     const role = team.role.trim();
     if (teamIds.has(team.teamId) && role) pane.team = { teamId: team.teamId, role };
   }
   const session = value.session;
   if (
-    isRecord(session) &&
+    isJsonRecord(session) &&
     typeof session.id === "string" &&
     typeof session.boundAt === "string"
   ) {
@@ -548,7 +549,7 @@ function readIdle(value: unknown): PaneIdle {
   // durable reason added to one and not the other is written on quit and
   // silently degraded to `parked` on the next launch.
   if (
-    isRecord(value) &&
+    isJsonRecord(value) &&
     value.reason === "suspended" &&
     typeof value.at === "string" &&
     // The stamp is rendered as an age ("2h ago"); an unparsable one would
@@ -582,7 +583,7 @@ function readIdle(value: unknown): PaneIdle {
  * unknown-agentType degradation above, one level up: only the bag shape is
  * ours). */
 function readWorkspacePlugins(value: unknown): Record<string, unknown> | null {
-  if (!isRecord(value)) return null;
+  if (!isJsonRecord(value)) return null;
   return { ...value };
 }
 
@@ -596,7 +597,7 @@ function readWorkspacePlugins(value: unknown): Record<string, unknown> | null {
  * file on the next save; it is not kept as an extra, since extras are
  * collected at the pane's top level and never inside a slot. */
 function readProvisioning(value: unknown): WorktreeIntent | null {
-  if (!isRecord(value)) return null;
+  if (!isJsonRecord(value)) return null;
   if (
     typeof value.repo !== "string" ||
     typeof value.index !== "number" ||

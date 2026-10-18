@@ -1,5 +1,4 @@
 import type { AgentType } from "../agents";
-import { isRecord } from "../json";
 import { inLadderOrder, isTaskStatus } from "../tasks";
 import {
   DOCK_MODES,
@@ -13,6 +12,7 @@ import {
   type Settings,
   type SettingsKey,
 } from "./types";
+import { isJsonRecord } from "@keepdeck/plugin-api";
 
 /**
  * How a STORED value becomes a setting, and what each setting falls back to.
@@ -122,25 +122,25 @@ function readPlugins(
   value: unknown,
   discard: Discard,
 ): Settings["plugins"] | undefined {
-  if (!isRecord(value)) return undefined;
+  if (!isJsonRecord(value)) return undefined;
   const enabled: Record<string, boolean> = {};
-  if (isRecord(value.enabled)) {
+  if (isJsonRecord(value.enabled)) {
     for (const [id, v] of Object.entries(value.enabled)) {
       if (typeof v === "boolean") enabled[id] = v;
       else discard(`plugins.enabled.${id}`);
     }
   } else if (value.enabled !== undefined) discard("plugins.enabled");
   const values: Record<string, Record<string, unknown>> = {};
-  if (isRecord(value.values)) {
+  if (isJsonRecord(value.values)) {
     for (const [id, v] of Object.entries(value.values)) {
       // The per-plugin values object is opaque past this point — kept
       // verbatim, like a workspace's plugin slot.
-      if (isRecord(v)) values[id] = v;
+      if (isJsonRecord(v)) values[id] = v;
       else discard(`plugins.values.${id}`);
     }
   } else if (value.values !== undefined) discard("plugins.values");
   const consented: Record<string, string> = {};
-  if (isRecord(value.consented)) {
+  if (isJsonRecord(value.consented)) {
     for (const [id, v] of Object.entries(value.consented)) {
       if (typeof v === "string") consented[id] = v;
       else discard(`plugins.consented.${id}`);
@@ -159,7 +159,7 @@ function readNotifications(
   value: unknown,
   discard: Discard,
 ): Settings["notifications"] | undefined {
-  if (!isRecord(value)) return undefined;
+  if (!isJsonRecord(value)) return undefined;
   let enabled = DEFAULT_NOTIFICATIONS.enabled;
   if (typeof value.enabled === "boolean") enabled = value.enabled;
   else if (value.enabled !== undefined) discard("notifications.enabled");
@@ -185,9 +185,9 @@ function readNotifications(
  * written back.
  */
 function readTasksBoard(value: unknown, discard: Discard): Settings["tasksBoard"] | undefined {
-  if (!isRecord(value)) return undefined;
+  if (!isJsonRecord(value)) return undefined;
   let list = DEFAULT_TASKS_BOARD.list;
-  if (isRecord(value.list)) list = readTasksList(value.list, discard);
+  if (isJsonRecord(value.list)) list = readTasksList(value.list, discard);
   else if (value.list !== undefined) discard("tasksBoard.list");
   return { list };
 }

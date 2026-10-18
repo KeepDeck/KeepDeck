@@ -4,11 +4,6 @@
  * field-by-field reads on.
  */
 
-/** Whether `value` is a plain JSON object: not null, not an array. */
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 /** Every entry of `value` whose key is NOT in `known` — the "extras" bag a codec
  * carries so a newer revision's unknown fields survive a load→save round-trip
  * untouched (the forward-compat guarantee the migration ladder relies on).

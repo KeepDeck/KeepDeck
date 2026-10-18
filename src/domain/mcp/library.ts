@@ -1,3 +1,4 @@
+import { isJsonRecord } from "@keepdeck/plugin-api";
 /**
  * The user's library of MCP servers ([mcp] — one definition, every CLI).
  *
@@ -157,8 +158,6 @@ export type McpServerVerdict =
 
 const malformed = (reason: string): McpServerVerdict => ({ kind: "malformed", reason });
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
 
 /** A required non-empty string field, or the reason it is not one. */
 function requiredText(
@@ -179,7 +178,7 @@ function stringMap(
 ): { value: Record<string, string> } | { reason: string } {
   const value = raw[field];
   if (value === undefined) return { value: {} };
-  if (!isRecord(value) || !Object.values(value).every((v) => typeof v === "string")) {
+  if (!isJsonRecord(value) || !Object.values(value).every((v) => typeof v === "string")) {
     return { reason: `"${field}" must be an object of strings` };
   }
   return { value: { ...value } as Record<string, string> };
@@ -218,7 +217,7 @@ export function parseMcpServerFile(content: string): McpServerVerdict {
     // reason travels into the log and out through a command.
     return malformed("not valid JSON");
   }
-  if (!isRecord(raw)) return malformed("the file must hold a JSON object");
+  if (!isJsonRecord(raw)) return malformed("the file must hold a JSON object");
   const transport = raw.transport;
   if (transport !== "stdio" && transport !== "http") {
     return malformed('"transport" must be "stdio" or "http"');

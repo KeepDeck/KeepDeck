@@ -8,7 +8,7 @@ import {
   errorReply,
   resultReply,
 } from "./jsonrpc";
-import { errorMessage } from "@keepdeck/plugin-api";
+import { errorMessage, isJsonRecord } from "@keepdeck/plugin-api";
 
 /**
  * The MCP projection: the command registry, spoken as an MCP server. One
@@ -88,9 +88,6 @@ function projectTools(list: CommandInfo[]): {
   return { tools, byName };
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 /**
  * Answer one MCP line. `null` means "no reply" — notifications never get
@@ -112,7 +109,7 @@ export async function handleMcpLine(
   } catch {
     return errorReply(line, PARSE_ERROR, "the request is not valid JSON");
   }
-  if (!isRecord(message)) {
+  if (!isJsonRecord(message)) {
     return errorReply(line, INVALID_REQUEST, "the request is not an object");
   }
   const hasId = "id" in message;
@@ -122,7 +119,7 @@ export async function handleMcpLine(
       ? errorReply(line, INVALID_REQUEST, "the request names no method")
       : null;
   }
-  const params = isRecord(message.params) ? message.params : {};
+  const params = isJsonRecord(message.params) ? message.params : {};
 
   // Notifications (no id) are consumed, never answered — replying would
   // violate JSON-RPC and confuse the client's framing.
@@ -159,7 +156,7 @@ export async function handleMcpLine(
         return errorReply(line, INVALID_PARAMS, `unknown tool "${name}"`);
       }
       const rawArgs = params.arguments;
-      if (rawArgs !== undefined && !isRecord(rawArgs)) {
+      if (rawArgs !== undefined && !isJsonRecord(rawArgs)) {
         return errorReply(line, INVALID_PARAMS, "arguments must be an object");
       }
       // Value types are the registry's own validation — it answers with the

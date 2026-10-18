@@ -1,5 +1,4 @@
-import { CARRIED_RECORD, type AgentStatusEvent, type StatusNormalizer } from "@keepdeck/plugin-api";
-import { isRecord } from "../domain/json";
+import { CARRIED_RECORD, type AgentStatusEvent, type StatusNormalizer, isJsonRecord } from "@keepdeck/plugin-api";
 import { normalizeStatusBatch } from "./statusNormalization";
 import {
   answerResolves,
@@ -137,7 +136,7 @@ export function createAgentStatusTracker(): AgentStatusTracker {
   function prepare(paneId: string, payload: unknown, at = Date.now()) {
     const previous = statuses.get(paneId) ?? null;
     const ignored = { activity: previous?.activity ?? null, finish() {} };
-    if (!isRecord(payload) || typeof payload.agent !== "string") return ignored;
+    if (!isJsonRecord(payload) || typeof payload.agent !== "string") return ignored;
     const agent = payload.agent;
     const normalize = normalizers.get(agent);
     if (!normalize) return ignored;

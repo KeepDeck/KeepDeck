@@ -1,3 +1,4 @@
+import { isJsonRecord } from "../json.ts";
 import { CAPABILITY_KINDS, type Capability } from "./capabilities.ts";
 import { hasUnsafeText } from "./text.ts";
 import { isApiVersion, parseVersion } from "./version.ts";
@@ -246,7 +247,7 @@ const COMMAND_PATTERN =
  */
 export function readManifest(value: unknown): ManifestResult {
   const errors: string[] = [];
-  if (!isRecord(value)) {
+  if (!isJsonRecord(value)) {
     return { ok: false, errors: ["manifest must be a JSON object"] };
   }
 
@@ -328,7 +329,7 @@ function readCapabilities(value: unknown, errors: string[]): Capability[] {
   const out: Capability[] = [];
   value.forEach((cap, i) => {
     const at = `capabilities[${i}]`;
-    if (!isRecord(cap) || typeof cap.kind !== "string") {
+    if (!isJsonRecord(cap) || typeof cap.kind !== "string") {
       errors.push(`${at}: must be an object with a "kind"`);
       return;
     }
@@ -410,7 +411,7 @@ function readCapabilities(value: unknown, errors: string[]): Capability[] {
         } else {
           const migrations = cap.migrations.flatMap((raw, index) => {
             const field = `${at}.migrations[${index}]`;
-            if (!isRecord(raw)) {
+            if (!isJsonRecord(raw)) {
               errors.push(`${field}: must be an object`);
               return [];
             }
@@ -491,7 +492,7 @@ function readContributes(
   errors: string[],
 ): PluginManifest["contributes"] {
   if (value === undefined) return {};
-  if (!isRecord(value)) {
+  if (!isJsonRecord(value)) {
     errors.push("contributes: must be an object");
     return {};
   }
@@ -555,7 +556,7 @@ function readSummaryEntry(
   errors: string[],
 ): ContributionSummary | null {
   if (
-    !isRecord(entry) ||
+    !isJsonRecord(entry) ||
     typeof entry.id !== "string" ||
     !entry.id.trim() ||
     typeof entry.label !== "string" ||
@@ -646,7 +647,7 @@ function readAgentFeatures(
   const ids = new Set<string>();
   value.forEach((raw, featureIndex) => {
     const field = `${at}[${featureIndex}]`;
-    if (!isRecord(raw)) {
+    if (!isJsonRecord(raw)) {
       errors.push(`${field}: must be an object`);
       return;
     }
@@ -716,7 +717,7 @@ function readFeatureParameters(
   errors: string[],
 ): Record<string, AgentFeatureParameter> | undefined | null {
   if (value === undefined) return undefined;
-  if (!isRecord(value)) {
+  if (!isJsonRecord(value)) {
     errors.push(`${featureField}.parameters: must be an object`);
     return null;
   }
@@ -755,9 +756,6 @@ function isFeatureParameter(value: unknown): value is AgentFeatureParameter {
   );
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((v) => typeof v === "string");

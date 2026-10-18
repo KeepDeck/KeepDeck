@@ -64,7 +64,6 @@ export {
   carriedUsageRecord,
   clampPercent,
   collectTokenCounts,
-  isJsonRecord,
   parseJsonRecord,
   percentWindow,
   reportedLimits,
@@ -81,6 +80,7 @@ export type {
   PluginCommands,
 } from "./commands.ts";
 export { errorMessage, parseInstant, sha256Hex, shellQuote } from "./authoring.ts";
+export { isJsonRecord } from "../json.ts";
 export {
   firstMeaningfulUserTurn,
   textFromParts,
