@@ -26,6 +26,7 @@ serde = { version = "1", features = ["derive"] }
 # than in the webview — the MCP transport mirrors id rules across the two
 # (src-tauri/src/mcp_bridge.rs), and that mirror is only exact with this on.
 serde_json = { version = "1", features = ["float_roundtrip"] }
+toml = "1"
 keepdeck-pty = { path = "../crates/keepdeck-pty" }
 keepdeck-git = { path = "../crates/keepdeck-git" }
 keepdeck-index = { path = "../crates/keepdeck-index" }
