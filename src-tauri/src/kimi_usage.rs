@@ -59,9 +59,14 @@ fn usage_source(
                 .as_table()
                 .cloned()
         });
-    let configured = |key: &str| provider.as_ref()?.get(key)?.as_str().map(str::to_owned);
     let base = env_base_url
-        .or_else(|| configured("base_url"))
+        .or_else(|| {
+            provider
+                .as_ref()?
+                .get("base_url")?
+                .as_str()
+                .map(str::to_owned)
+        })
         .unwrap_or_else(|| DEFAULT_BASE_URL.into());
     let token_key = provider
         .as_ref()
