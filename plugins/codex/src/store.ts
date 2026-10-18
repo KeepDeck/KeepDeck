@@ -8,7 +8,7 @@
  * shape is the agent's, and a host that knows it is a host that has to be
  * edited when the agent moves house.
  */
-import type { PluginContext } from "@keepdeck/plugin-api";
+import { readStoreDir, type FsEntry, type PluginContext } from "@keepdeck/plugin-api";
 
 /** codex's store root. Day-partitioned below this: `YYYY/MM/DD/`. */
 export const ROOT = "~/.codex/sessions";
@@ -18,17 +18,75 @@ export const ROOT = "~/.codex/sessions";
 export const FILE_UUID = /^rollout-.*-([0-9a-f-]{36})\.jsonl$/;
 
 /**
+ * Every rollout file in the store, NEWEST FIRST: a partition's files, then
+ * its sub-partitions in reverse — the day partitions sort lexically, so
+ * reverse reaches today before last month. The one walk over this tree, for
+ * the history browser, the live tail's lookup and the boot catch-up alike.
+ *
+ * The ROOT's refusal is thrown: the history contract reads that as "no store"
+ * or "unreadable store" itself. A partition that will not read is reported
+ * to `unreadable` (ignored when absent) and skipped. `stop` is asked before
+ * each sub-partition, so a search ends as soon as it has its answer.
+ */
+export async function walkRollouts(
+  ctx: PluginContext,
+  visit: {
+    file(entry: FsEntry, sessionId: string): void;
+    stop?(): boolean;
+    unreadable?(part: string, error?: unknown): void;
+  },
+): Promise<void> {
+  const walk = async (entries: FsEntry[]): Promise<void> => {
+    const dirs: FsEntry[] = [];
+    for (const entry of entries) {
+      if (entry.kind === "dir") dirs.push(entry);
+      else if (entry.kind === "file") {
+        const sessionId = FILE_UUID.exec(entry.name)?.[1];
+        if (sessionId) visit.file(entry, sessionId);
+      }
+    }
+    dirs.sort((a, b) => (a.name < b.name ? 1 : a.name > b.name ? -1 : 0));
+    for (const dir of dirs) {
+      if (visit.stop?.()) return;
+      const children = await readStoreDir(
+        ctx.services.fs,
+        dir.path,
+        visit.unreadable ?? (() => {}),
+      );
+      if (children) await walk(children);
+    }
+  };
+  await walk(await ctx.services.fs.readDir(ROOT));
+}
+
+/**
  * The rollout a session id names, or null while it is not there yet.
  *
  * NEWEST FIRST, because that is the direction the answer usually lies in and
- * because a resumed session can leave an older file with the same id behind:
- * the day partitions sort lexically, so walking them in reverse reaches
- * today before last month.
+ * because a resumed session can leave an older file with the same id behind.
  *
  * Absence is ordinary rather than an error. codex writes the rollout when
  * the session's first turn lands, so a pane that has reported its id but not
  * yet worked has no file — and the caller simply asks again later.
  */
+export async function findRollout(
+  ctx: PluginContext,
+  sessionId: string,
+): Promise<string | null> {
+  let found: string | null = null;
+  try {
+    await walkRollouts(ctx, {
+      file: (entry, id) => {
+        if (id === sessionId && found === null) found = entry.path;
+      },
+      stop: () => found !== null,
+    });
+  } catch {
+    return null;
+  }
+  return found;
+}
+
 /**
  * The newest rollouts on disk, newest first — the boot catch-up's candidates.
  *
@@ -37,76 +95,22 @@ export const FILE_UUID = /^rollout-.*-([0-9a-f-]{36})\.jsonl$/;
  * its rollout before any turn, though, so the newest file often carries no
  * limits at all and the real last word is one or two files back — hence a
  * LIST rather than an answer, read in order until one says something.
- *
- * Bounded twice over: the walk stops descending once it has enough, and the
- * day partitions are visited newest-first, so an account with years of
- * history costs the same as one with a week.
  */
 export async function newestRollouts(
   ctx: PluginContext,
   limit: number,
 ): Promise<string[]> {
   const found: { path: string; mtime: number }[] = [];
-  const walk = async (path: string): Promise<void> => {
-    let entries;
-    try {
-      entries = await ctx.services.fs.readDir(path);
-    } catch {
-      // One unreadable partition is not an answer about the account; the
-      // rest of the walk still is.
-      return;
-    }
-    const dirs: string[] = [];
-    for (const entry of entries) {
-      if (entry.kind === "dir") {
-        dirs.push(entry.path);
-        continue;
-      }
-      if (entry.kind !== "file") continue;
-      if (!FILE_UUID.test(entry.name)) continue;
-      found.push({ path: entry.path, mtime: entry.mtime ?? 0 });
-    }
-    for (const dir of dirs.sort().reverse()) {
-      if (found.length >= limit) return;
-      await walk(dir);
-    }
-  };
-  await walk(ROOT);
+  try {
+    await walkRollouts(ctx, {
+      file: (entry) => found.push({ path: entry.path, mtime: entry.mtime ?? 0 }),
+      stop: () => found.length >= limit,
+    });
+  } catch {
+    return [];
+  }
   return found
     .sort((a, b) => b.mtime - a.mtime)
     .slice(0, limit)
     .map((entry) => entry.path);
-}
-
-export async function findRollout(
-  ctx: PluginContext,
-  sessionId: string,
-): Promise<string | null> {
-  const search = async (path: string): Promise<string | null> => {
-    let entries;
-    try {
-      entries = await ctx.services.fs.readDir(path);
-    } catch {
-      // A partition that cannot be read is not an answer about the session.
-      // Skipping keeps the rest of the search alive, which matters because
-      // the store spans years of directories and one bad day must not hide
-      // today's file.
-      return null;
-    }
-    const dirs: string[] = [];
-    for (const entry of entries) {
-      if (entry.kind === "dir") {
-        dirs.push(entry.path);
-        continue;
-      }
-      if (entry.kind !== "file") continue;
-      if (FILE_UUID.exec(entry.name)?.[1] === sessionId) return entry.path;
-    }
-    for (const dir of dirs.sort().reverse()) {
-      const found = await search(dir);
-      if (found) return found;
-    }
-    return null;
-  };
-  return search(ROOT);
 }
