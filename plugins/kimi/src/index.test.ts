@@ -9,6 +9,10 @@ import type {
 import plugin, { setupNotification } from "./index";
 import { renderKimiMail } from "./status";
 
+// The fork's store surgery has its own suite (fork.test.ts); here only the
+// launch the fork plan hands back matters.
+vi.mock("./fork", () => ({ kimiForkPlan: vi.fn(async () => "session_forked") }));
+
 interface ActivationOptions {
   manifestPath?: string | null;
   installedPlugins?: unknown[];
@@ -110,7 +114,13 @@ describe("Kimi CLI plugin", () => {
     await agent.hooks["spawn.plan"]!(input, spawn);
     const resume = output();
     await agent.hooks["resume.plan"]!({ ...input, sessionId: "session_123" }, resume);
-    for (const out of [spawn, resume]) {
+    const fork = output();
+    await agent.hooks["fork.plan"]!(
+      { ...input, sessionId: "session_123", sourceCwd: "/old" } as never,
+      fork,
+    );
+    expect(fork.args).toEqual(["--session", "session_forked"]);
+    for (const out of [spawn, resume, fork]) {
       expect(out.envDefaults).toEqual([["KIMI_CODE_TRUST_WORKSPACE", "1"]]);
       expect(out.env).toEqual([]);
     }
