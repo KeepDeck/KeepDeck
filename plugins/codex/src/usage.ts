@@ -7,6 +7,9 @@ import {
   clampPercent,
   collectTokenCounts,
   isJsonRecord,
+  parseJsonRecord,
+  percentWindow,
+  reportedLimits,
   type AccountUsage,
   type LimitsNormalizer,
   type PaneUsage,
@@ -59,14 +62,11 @@ export const codexUsageWatches: readonly TailWatch[] = [
  * seconds}) → normalized, or null when the shape is off. */
 function window(value: unknown): UsageWindow | null {
   if (!isJsonRecord(value)) return null;
-  const usedPct = asFiniteNumber(value.used_percent);
-  if (usedPct === undefined) return null;
-  const resetsAt = asFiniteNumber(value.resets_at);
-  return {
-    usedPct: clampPercent(usedPct),
-    resetsAt: resetsAt !== undefined ? resetsAt * 1000 : null,
+  return percentWindow({
+    usedPct: value.used_percent,
+    resetsAtSeconds: value.resets_at,
     windowMinutes: asFiniteNumber(value.window_minutes) ?? null,
-  };
+  });
 }
 
 /** One app-server rate-limit window. Generated schemas call the duration
@@ -74,17 +74,14 @@ function window(value: unknown): UsageWindow | null {
  * tolerate both while keeping the official camelCase wire otherwise. */
 function appServerWindow(value: unknown): UsageWindow | null {
   if (!isJsonRecord(value)) return null;
-  const usedPct = asFiniteNumber(value.usedPercent);
-  if (usedPct === undefined) return null;
-  const resetsAt = asFiniteNumber(value.resetsAt);
-  return {
-    usedPct: clampPercent(usedPct),
-    resetsAt: resetsAt !== undefined ? resetsAt * 1000 : null,
+  return percentWindow({
+    usedPct: value.usedPercent,
+    resetsAtSeconds: value.resetsAt,
     windowMinutes:
       asFiniteNumber(value.windowDurationMins) ??
       asFiniteNumber(value.windowMinutes) ??
       null,
-  };
+  });
 }
 
 /** The backward-compatible snapshot is normally `rateLimits`. If a Codex
@@ -147,13 +144,8 @@ function planAllowanceWindow(value: unknown): UsageWindow | null {
  * per installed Codex version, so malformed/unsupported shapes are a quiet
  * null and the rollout/cache fallback keeps working. */
 export const normalizeCodexRateLimits: LimitsNormalizer = (body, at) => {
-  let response: unknown;
-  try {
-    response = JSON.parse(body);
-  } catch {
-    return null;
-  }
-  if (!isJsonRecord(response)) return null;
+  const response = parseJsonRecord(body);
+  if (!response) return null;
   const snapshot = appServerSnapshot(response);
   if (!isJsonRecord(snapshot)) return null;
   const windows = [snapshot.primary, snapshot.secondary]
@@ -165,14 +157,9 @@ export const normalizeCodexRateLimits: LimitsNormalizer = (body, at) => {
     // Plus/Pro chip (the duration-less window would sort last there).
     const plan = planAllowanceWindow(snapshot.individualLimit);
     if (!plan) return null;
-    return { kind: "reported", windows: [plan], reportedAt: at, sourcePaneId: "" };
+    return reportedLimits([plan], at);
   }
-  return {
-    kind: "reported",
-    windows,
-    reportedAt: at,
-    sourcePaneId: "",
-  };
+  return reportedLimits(windows, at);
 };
 
 /** Codex token bags share one field naming across total/last. */
@@ -241,7 +228,7 @@ export const normalizeCodexRollout: UsageNormalizer = (payload, at) => {
       .map(window)
       .filter((w): w is UsageWindow => w !== null);
     if (windows.length > 0) {
-      account = { kind: "reported", windows, reportedAt: at, sourcePaneId: "" };
+      account = reportedLimits(windows, at);
     }
   }
 

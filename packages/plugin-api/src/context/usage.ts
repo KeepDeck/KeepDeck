@@ -289,6 +289,52 @@ function toHundredths(pct: number): number {
 }
 
 /**
+ * A rolling window that arrives as a PERCENTAGE — 0–100 consumed, the reset
+ * as unix SECONDS — as one normalized window. The rolling-window sibling of
+ * [`allowanceWindow`]: claude's statusLine, codex's rollout and its
+ * app-server all report this shape under their own field names, so the
+ * caller reads its fields and this owns the conversion. `null` without a
+ * usable percentage.
+ */
+export function percentWindow(fields: {
+  usedPct: unknown;
+  resetsAtSeconds: unknown;
+  windowMinutes: number | null;
+  scope?: string;
+}): UsageWindow | null {
+  const usedPct = asFiniteNumber(fields.usedPct);
+  if (usedPct === undefined) return null;
+  const resetsAt = asFiniteNumber(fields.resetsAtSeconds);
+  return {
+    usedPct: clampPercent(usedPct),
+    resetsAt: resetsAt !== undefined ? resetsAt * 1000 : null,
+    windowMinutes: fields.windowMinutes,
+    ...(fields.scope ? { scope: fields.scope } : {}),
+  };
+}
+
+/** The account claim a normalizer makes: these windows, as of `at`. The
+ * reporting pane is the host's to fill. */
+export function reportedLimits(
+  windows: UsageWindow[],
+  at: number,
+): AccountUsage {
+  return { kind: "reported", windows, reportedAt: at, sourcePaneId: "" };
+}
+
+/** A response body as a JSON object, or null when it is not JSON or not an
+ * object — the first step of every polled limits document. */
+export function parseJsonRecord(text: string): Record<string, unknown> | null {
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  return isJsonRecord(value) ? value : null;
+}
+
+/**
  * An absolute allowance — `{limit, used?, remaining?}` counts — as one
  * normalized window. The shape plans that meter credits share (kimi's
  * quota document, codex's business/Enterprise `individualLimit`), distinct

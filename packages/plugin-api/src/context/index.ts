@@ -63,6 +63,9 @@ export {
   clampPercent,
   collectTokenCounts,
   isJsonRecord,
+  parseJsonRecord,
+  percentWindow,
+  reportedLimits,
   tailWatches,
 } from "./usage.ts";
 export type {

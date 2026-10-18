@@ -5,6 +5,8 @@ import {
   clampPercent,
   collectTokenCounts,
   isJsonRecord,
+  percentWindow,
+  reportedLimits,
   type AccountUsage,
   type ApiActivity,
   type PaneUsage,
@@ -85,15 +87,12 @@ function window(
   scope?: string,
 ): UsageWindow | null {
   if (!isJsonRecord(value)) return null;
-  const usedPct = asFiniteNumber(value.used_percentage);
-  if (usedPct === undefined) return null;
-  const resetsAt = asFiniteNumber(value.resets_at);
-  return {
-    usedPct: clampPercent(usedPct),
-    resetsAt: resetsAt !== undefined ? resetsAt * 1000 : null,
+  return percentWindow({
+    usedPct: value.used_percentage,
+    resetsAtSeconds: value.resets_at,
     windowMinutes,
-    ...(scope ? { scope } : {}),
-  };
+    scope,
+  });
 }
 
 /**
@@ -150,7 +149,7 @@ export const normalizeClaudeStatusline: UsageNormalizer = (payload, at) => {
       if (parsed) windows.push(parsed);
     }
     if (windows.length > 0) {
-      account = { kind: "reported", windows, reportedAt: at, sourcePaneId: "" };
+      account = reportedLimits(windows, at);
     }
   }
   const cost = isJsonRecord(line.cost)
