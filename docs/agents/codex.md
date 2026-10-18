@@ -42,6 +42,7 @@ subcommand.
 | `Stop` | turn end | yes |
 | `PermissionRequest` | approval wait | no |
 | `Interrupt` | the user's Esc, at once | no |
+| `PostCompact` | the context was rebuilt, which clears a recorded failure | no |
 
 Notes:
 
@@ -65,6 +66,19 @@ Notes:
   `UserPromptSubmit` and `PostToolUse`. `Stop` ignores the limit and still
   spills a long message; Codex drops the field there before hashing, so
   `trust.ts` declares it only where Codex keeps it. Verified live.
+
+- **Twelve hook events in 0.163.** The other three, `PreToolUse`,
+  `PreCompact` and `SessionEnd`, carry nothing the pane needs. There is no
+  hook for notifications, idle or a failed turn; failures come from the
+  rollout's `task_complete`.
+- **A manual compaction** after a failed turn runs no prompt or stop hook.
+  `PostCompact` is the only edge that reports it. Verified live.
+- **Known limitation: background subagent work is invisible.** The main
+  agent can finish its turn (`Stop`) while a subagent keeps working, and the
+  subagent survives the main agent's Esc, but the pane shows "done". Hooks
+  cannot bracket a subagent's work: a repeated message to it fires no new
+  `SubagentStart`, closing it fires no hook, and a blocked `SubagentStop`
+  keeps it running in the same turn. Verified live.
 
 ## Steering
 
