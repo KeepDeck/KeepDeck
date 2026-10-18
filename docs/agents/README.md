@@ -48,5 +48,8 @@ stays inert outside a KeepDeck pane.
 
 - [mail-delivery.md](mail-delivery.md): how a teammate's message reaches an
   agent, and when.
+- [claude-code.md](claude-code.md): Claude Code.
+- [codex.md](codex.md): Codex.
 - [kimi.md](kimi.md): Kimi Code.
-- Claude Code, Codex, OpenCode: not written yet.
+- [opencode.md](opencode.md): OpenCode, the 1.x integration and what 2.0
+  changes.
