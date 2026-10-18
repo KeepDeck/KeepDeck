@@ -1,6 +1,9 @@
 import {
-  errorMessage,
+  fileStub,
   jsonl,
+  pageOfWalk,
+  readStoreDir,
+  sessionHistory,
   textFromParts,
   walkSession,
   type AgentHistory,
@@ -131,32 +134,15 @@ export function kimiHistory(ctx: PluginContext): AgentHistory {
       ...extra,
     });
 
-  /** One page of turns WITH what the reading fell short by. */
-  const readPage = async (
-    ref: string,
-    page: { offset: number; limit: number },
-  ) => {
-    const walked = await readSession(ref, { keep: page });
-    return {
-      entries: walked.turns,
-      ...(walked.shortfall ? { shortfall: walked.shortfall } : {}),
-    };
-  };
-
-  /** One working dir's `session_*` folders, walked — shared by both
-   * enumeration contracts; they differ only in what they can SAY about the
-   * `unreadable` names, everything else is common. */
-  interface SessionWalk {
-    stubs: AgentSessionStub[];
-    /** Sessions whose `agents/main` exists but would not read — named, so
-     * each contract answers with the honesty it can express: `listing()`
-     * says "incomplete", `list()` refuses. */
-    unreadable: string[];
-  }
-
-  const stubsOfSessions = async (sessions: FsEntry[]): Promise<SessionWalk> => {
+  /** One working dir's `session_*` folders, walked. A session whose
+   * `agents/main` exists but would not read is reported to `unreadable` —
+   * each history contract answers that with the honesty it can express —
+   * and still gets a stub, so the index keeps sight of it. */
+  const stubsOfSessions = async (
+    sessions: FsEntry[],
+    unreadable: (part: string, error?: unknown) => void,
+  ): Promise<AgentSessionStub[]> => {
     const stubs: AgentSessionStub[] = [];
-    const unreadable: string[] = [];
     for (const session of sessions) {
       if (session.kind !== "dir" || !session.name.startsWith("session_"))
         continue;
@@ -198,7 +184,7 @@ export function kimiHistory(ctx: PluginContext): AgentHistory {
         // fall out as "gone" while the walk claims to be complete; the
         // name goes upstairs for the incompleteness each contract owes
         // its reader.
-        unreadable.push(session.name);
+        unreadable(`${session.name} (agents/main)`);
         stubs.push({
           sessionId: session.name,
           ref: `${session.path}/agents/main/wire.jsonl`,
@@ -214,101 +200,19 @@ export function kimiHistory(ctx: PluginContext): AgentHistory {
       }
       const wire = main.find((f) => f.name === "wire.jsonl");
       if (!wire) continue; // never messaged — nothing to index
-      stubs.push({
-        sessionId: session.name,
-        ref: wire.path,
-        mtime: wire.mtime ?? 0,
-        size: wire.size ?? 0,
-      });
+      stubs.push(fileStub(session.name, wire));
     }
-    return { stubs, unreadable };
+    return stubs;
   };
-  return {
-    async list(): Promise<AgentSessionStub[]> {
+  return sessionHistory("kimi", ctx.log, {
+    async enumerate(unreadable) {
       const stubs: AgentSessionStub[] = [];
-      const unreadable: string[] = [];
-      let wdDirs;
-      try {
-        wdDirs = await ctx.services.fs.readDir(ROOT);
-      } catch {
-        return [];
-      }
-      for (const wd of wdDirs) {
+      for (const wd of await ctx.services.fs.readDir(ROOT)) {
         if (wd.kind !== "dir" || !wd.name.startsWith("wd_")) continue;
-        // No catch: the store exists, so an unreadable working-dir folder is
-        // a failure — a partial listing reads as "those sessions were
-        // deleted" and the index prune acts on it. The scanner's per-agent
-        // catch logs it and prunes nothing.
-        const sessions = await ctx.services.fs.readDir(wd.path);
-        const walked = await stubsOfSessions(sessions);
-        stubs.push(...walked.stubs);
-        unreadable.push(...walked.unreadable);
-      }
-      // This contract has no way to say "partial" — that is what `listing`
-      // is for — so a session it could not read honestly is a refusal.
-      // Answering with the stubs that did arrive would be read as the whole
-      // store, and the unreadable session would be pruned as "gone".
-      //
-      // OUTSIDE the root catch above on purpose: inside, the "no store" arm
-      // would swallow it and answer `[]` — the same lie wearing a shorter
-      // list.
-      if (unreadable.length > 0) {
-        throw new Error(
-          `kimi: ${unreadable.length} session(s) unreadable (${unreadable.join(", ")}) — use listing()`,
-        );
+        const sessions = await readStoreDir(ctx.services.fs, wd.path, unreadable);
+        if (sessions) stubs.push(...(await stubsOfSessions(sessions, unreadable)));
       }
       return stubs;
-    },
-    /** The partial-tolerant twin of `list()` above: an unreadable
-     * working-dir folder — or a session whose `agents/main` exists but
-     * will not read — is kept out of nobody's sight, NAMED in the log,
-     * and the answer says so with `complete: false`; the host then
-     * indexes what it got and prunes nothing. */
-    async listing(): Promise<{ stubs: AgentSessionStub[]; complete: boolean }> {
-      const stubs: AgentSessionStub[] = [];
-      const unreadable: string[] = [];
-      let wdDirs;
-      try {
-        wdDirs = await ctx.services.fs.readDir(ROOT);
-      } catch (e) {
-        // A root refusal is NOT an empty store: [] with complete:true
-        // would read as "every session deleted" and the host's prune
-        // would wipe this agent's whole index. Nothing read, incomplete.
-        ctx.log.warn(
-          `kimi: store root unreadable (${errorMessage(e)}) — nothing enumerated`,
-        );
-        return { stubs, complete: false };
-      }
-      let complete = true;
-      for (const wd of wdDirs) {
-        if (wd.kind !== "dir" || !wd.name.startsWith("wd_")) continue;
-        let sessions;
-        try {
-          sessions = await ctx.services.fs.readDir(wd.path);
-        } catch (e) {
-          // A partial answer must be a NAMED one — this folder stays
-          // invisible to the index until it reads again, and silent
-          // degradation is the one mode this contract forbids.
-          complete = false;
-          ctx.log.warn(
-            `kimi: partial listing — ${wd.path} unreadable (${errorMessage(e)})`,
-          );
-          continue;
-        }
-        const walked = await stubsOfSessions(sessions);
-        stubs.push(...walked.stubs);
-        unreadable.push(...walked.unreadable);
-      }
-      if (unreadable.length > 0) {
-        // A session the listing NAMED exists but its transcript would not
-        // read: the stub above keeps its row in the index, and this says
-        // the walk is not the whole store — so the host prunes nothing.
-        complete = false;
-        ctx.log.warn(
-          `kimi: ${unreadable.length} session(s) with unreadable agents/main — listing incomplete: ${unreadable.join(", ")}`,
-        );
-      }
-      return { stubs, complete };
     },
     async describe(ref) {
       const sessionDir = ref.endsWith(WIRE_SUFFIX)
@@ -347,11 +251,6 @@ export function kimiHistory(ctx: PluginContext): AgentHistory {
       // dropping it would lose it with nothing to show for the loss.
       return (await readSession(ref)).content;
     },
-    // ONE reading, two contracts: the legacy method unpacks the honest one,
-    // so the pair cannot drift.
-    transcriptPage: readPage,
-    async transcript(ref, page): Promise<AgentTranscriptEntry[]> {
-      return (await readPage(ref, page)).entries;
-    },
-  };
+    readPage: async (ref, page) => pageOfWalk(await readSession(ref, { keep: page })),
+  });
 }
