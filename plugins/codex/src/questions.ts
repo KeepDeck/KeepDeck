@@ -1,5 +1,7 @@
 import { asNonEmptyString, reduceQuestionStatus, type AgentStatusEvent, type QuestionState,
-  type StatusReduction, type TailWatch } from "@keepdeck/plugin-api";
+  type StatusReduction, type TailWatch,
+  parseInstant,
+} from "@keepdeck/plugin-api";
 
 type Record = Readonly<{ [key: string]: unknown }>;
 interface DecoderState {
@@ -25,13 +27,13 @@ export const codexQuestionWatches: readonly TailWatch[] = [
 
 export function codexQuestionStatus(previous: unknown, record: Record | null, edge: AgentStatusEvent | null): StatusReduction {
   let state = previous as DecoderState | undefined;
-  const at = typeof record?.timestamp === "string" ? Date.parse(record.timestamp) : NaN;
-  if (record?.type === "turn_context" && Number.isFinite(at) && at >= (state?.contextAt ?? -Infinity)) {
+  const at = parseInstant(record?.timestamp);
+  if (record?.type === "turn_context" && at !== null && at >= (state?.contextAt ?? -Infinity)) {
     state = { ...state, contextAt: at, mode: asNonEmptyString(record["payload.collaboration_mode.mode"]) ?? undefined };
   }
   const id = asNonEmptyString(record?.["payload.call_id"]);
   let call;
-  if (record?.type === "response_item" && id && Number.isFinite(at)) {
+  if (record?.type === "response_item" && id && at !== null) {
     if (record["payload.type"] === "function_call_output") call = { id, at, opening: false };
     else if (record["payload.type"] === "function_call" && state?.mode === "plan" &&
       at >= (state.contextAt ?? -Infinity) &&

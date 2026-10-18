@@ -16,6 +16,7 @@
  */
 import {
   jsonl,
+  parseInstant,
   type JsonlRequest,
   type SessionTailDialect,
 } from "@keepdeck/plugin-api";
@@ -71,16 +72,6 @@ const ORDINARY = new Set([
   "summary",
 ]);
 
-/** The line's own instant. Claude stamps RFC 3339 with a `Z`; anything else
- * is treated as unstamped rather than guessed at, because a marker read up
- * to a poll interval late and stamped with receipt time would outrank the
- * turn it belongs behind. */
-function instantOf(value: unknown): number | null {
-  if (typeof value !== "string") return null;
-  const at = Date.parse(value);
-  return Number.isFinite(at) ? at : null;
-}
-
 export const claudeTail: SessionTailDialect<JsonlRequest, ClaudeRecord> = {
   format: jsonl<ClaudeRecord>(),
 
@@ -115,7 +106,7 @@ export const claudeTail: SessionTailDialect<JsonlRequest, ClaudeRecord> = {
 
   read: (record) => {
     if (record.type !== "user") return null;
-    const at = instantOf(record.timestamp);
+    const at = parseInstant(record.timestamp);
     if (at === null || record.isSidechain === true) return null;
     if (
       record["origin.kind"] === "human" && record.isMeta !== true &&

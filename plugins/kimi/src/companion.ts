@@ -39,17 +39,6 @@ const REPORTER_SCRIPTS: readonly CompanionScript[] = [
   { file: "kimi.plugin.json", sha256: "4fb1950023aedcaaf709af91f6439a8d42076f59b127724be66f9ad8194f7c14" },
 ];
 
-/** SHA-256 of a file's text, hex-lowercase. The same helper digests what
- * this build ships and what the managed copy installed, so the two sides
- * of the comparison can never disagree about the hashing itself. */
-export async function sha256Hex(text: string): Promise<string> {
-  const bytes = new TextEncoder().encode(text);
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return [...new Uint8Array(digest)]
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
-
 export const COMPANION_ID = reporterManifest.name;
 export const COMPANION_VERSION = reporterManifest.version;
 export const COMPANION_RESOURCE_DIRECTORY = REPORTER_DIRECTORY;

@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
+import { sha256Hex } from "@keepdeck/plugin-api";
 import {
   COMPANION_DESCRIPTOR,
   COMPANION_ID,
   COMPANION_VERSION,
-  sha256Hex,
 } from "./companion";
 import { createKimiCompanionManager } from "./manager";
 import type { KimiServerManager } from "./serverManager";

@@ -1,15 +1,15 @@
 import "./styles.css";
 import { kimiForkPlan } from "./fork";
 import { kimiHistory } from "./history";
-import type {
-  KeepDeckPlugin,
-  SpawnPlanInput,
-  SpawnPlanOutput,
-  SpawnSkillsInput,
+import {
+  sha256Hex,
+  type KeepDeckPlugin,
+  type SpawnPlanInput,
+  type SpawnPlanOutput,
+  type SpawnSkillsInput,
 } from "@keepdeck/plugin-api";
 import {
   COMPANION_DESCRIPTORS,
-  sha256Hex,
   COMPANION_MANIFEST_RESOURCE,
   parentDirectory,
 } from "./companion";

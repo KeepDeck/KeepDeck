@@ -5,15 +5,16 @@
  * through the bridge. The `-c` flags are GLOBAL and must precede the
  * `resume` subcommand.
  */
-import type {
-  KeepDeckPlugin,
-  PluginResources,
-  SpawnPlanInput,
+import {
+  shellQuote,
+  type KeepDeckPlugin,
+  type PluginResources,
+  type SpawnPlanInput,
 } from "@keepdeck/plugin-api";
 import { codexHistory } from "./history";
 import { icon } from "./icon";
 import { mcpArgs } from "./mcp";
-import { cliArgs, shellQuote } from "./trust";
+import { cliArgs } from "./trust";
 import {
   ASKS_FOR_MAIL,
   normalizeCodexStatus,

@@ -15,13 +15,14 @@
  * ([`normalizeClaudeStatus`]). Do not "simplify" that edge away on the
  * theory that a rebind already clears the pane — no rebind happens.
  */
-import type {
-  KeepDeckPlugin,
-  PluginContext,
-  PluginResources,
-  SpawnPlanInput,
-  SpawnPlanOutput,
-  SpawnSkillsInput,
+import {
+  shellQuote,
+  type KeepDeckPlugin,
+  type PluginContext,
+  type PluginResources,
+  type SpawnPlanInput,
+  type SpawnPlanOutput,
+  type SpawnSkillsInput,
 } from "@keepdeck/plugin-api";
 import { ARTIFACTS_FIELD, artifactsEnv } from "./artifacts";
 import { icon } from "./icon";
@@ -39,10 +40,6 @@ import {
 } from "./usage";
 import { claudeHistory } from "./history";
 import { claudeLiveSessions } from "./liveSessions";
-
-/** Quote a path for a shell command line (single quotes, `'\''` escaping) —
- * KeepDeck.app can live under a path with spaces. */
-const shellQuote = (path: string) => `'${path.split("'").join(`'\\''`)}'`;
 
 /**
  * How long claude may let one of our hooks run, in seconds.

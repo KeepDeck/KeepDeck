@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   cliArgs,
   sessionFlagsStateKey,
-  shellQuote,
   CODEX_HOOK_TIMEOUT_SECONDS,
   trustedHash,
 } from "./trust";
@@ -116,9 +115,6 @@ describe("codex trust fingerprint (TS port of the host's Rust module)", () => {
   });
 
   it("quoting survives awkward paths", async () => {
-    expect(shellQuote("/Apps/Keep Deck's Stuff/hook")).toBe(
-      `'/Apps/Keep Deck'\\''s Stuff/hook'`,
-    );
     const args = await cliArgs([sessionStart(`/bin/sh '/tmp/a "b"/hook'`)]);
     expect(args[1]).toContain(`command="/bin/sh '/tmp/a \\"b\\"/hook'"`);
   });

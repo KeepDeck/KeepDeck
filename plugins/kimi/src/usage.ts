@@ -6,6 +6,7 @@ import {
   carriedUsageRecord,
   collectTokenCounts,
   isJsonRecord,
+  parseInstant,
   type LimitsNormalizer,
   type TailWatch,
   type TokenCounts,
@@ -172,10 +173,8 @@ function quotaWindow(
   scope?: string,
 ): UsageWindow | null {
   if (!isJsonRecord(value)) return null;
-  const resetsAt =
-    typeof value.resetTime === "string" ? Date.parse(value.resetTime) : NaN;
   return allowanceWindow(value, {
-    resetsAt: Number.isFinite(resetsAt) ? resetsAt : null,
+    resetsAt: parseInstant(value.resetTime),
     windowMinutes,
     ...(scope ? { scope } : {}),
   });

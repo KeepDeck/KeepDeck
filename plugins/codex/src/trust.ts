@@ -17,6 +17,7 @@
  *   every armed event's trust must ride in that one table — which is why
  *   this module takes the whole rule list at once.
  */
+import { sha256Hex } from "@keepdeck/plugin-api";
 
 /** One hook to arm: the codex event name (CamelCase, as `hooks.<Event>`
  * keys it) and the shell line to run. */
@@ -90,23 +91,12 @@ export async function trustedHash(rule: HookRule): Promise<string> {
       },
     ],
   };
-  const bytes = new TextEncoder().encode(JSON.stringify(identity));
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  const hex = [...new Uint8Array(digest)]
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
-  return `sha256:${hex}`;
+  return `sha256:${await sha256Hex(JSON.stringify(identity))}`;
 }
 
 /** `SessionStart` → `session_start` — the state-key/fingerprint spelling. */
 function snakeCase(event: string): string {
   return event.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
-}
-
-/** Quote a path for use inside the hook's shell command line (single quotes,
- * `'\''` escaping) — KeepDeck.app can live under a path with spaces. */
-export function shellQuote(path: string): string {
-  return `'${path.split("'").join(`'\\''`)}'`;
 }
 
 /** A TOML basic string (double-quoted, `\` and `"` escaped). */

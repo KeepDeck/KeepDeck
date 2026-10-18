@@ -2,7 +2,7 @@ import type {
   KimiServerAccess,
   KimiServerManager,
 } from "./serverManager";
-import { sha256Hex } from "./companion";
+import { sha256Hex } from "@keepdeck/plugin-api";
 
 const REQUEST_TIMEOUT_MS = 15_000;
 

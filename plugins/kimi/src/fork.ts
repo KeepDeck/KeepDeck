@@ -1,4 +1,8 @@
-import type { ForkPlanInput, PluginContext } from "@keepdeck/plugin-api";
+import {
+  sha256Hex,
+  type ForkPlanInput,
+  type PluginContext,
+} from "@keepdeck/plugin-api";
 import { rebaseState, rebaseWire } from "./forkRebase";
 
 /**
@@ -216,12 +220,5 @@ function slugOfBasename(cwd: string): string {
 
 export async function wdKey(cwd: string): Promise<string> {
   const base = slugOfBasename(cwd);
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(cwd),
-  );
-  const hex = [...new Uint8Array(digest)]
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-  return `wd_${base}_${hex.slice(0, 12)}`;
+  return `wd_${base}_${(await sha256Hex(cwd)).slice(0, 12)}`;
 }
