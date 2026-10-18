@@ -100,14 +100,14 @@ function scriptsPort(state: {
 describe("Kimi companion manager", () => {
   it("configures and verifies the reporter in one server transaction", async () => {
     const { manager, run, fetcher } = harness([
-      { code: 0, msg: "", data: [] },
+      { code: 0, msg: "", data: { plugins: [] } },
       {
         code: 0,
         msg: "",
         data: pluginSummary({ enabled: false }),
       },
       { code: 0, msg: "", data: null },
-      { code: 0, msg: "", data: [pluginSummary()] },
+      { code: 0, msg: "", data: { plugins: [pluginSummary()] } },
     ]);
 
     await expect(manager.configure(SOURCE_DIRECTORY)).resolves.toEqual({
@@ -120,7 +120,11 @@ describe("Kimi companion manager", () => {
 
     expect(run).toHaveBeenCalledOnce();
     expect(fetcher).toHaveBeenCalledWith(
-      `${ACCESS.origin}/api/v1/debug/pluginService/installPlugin`,
+      `${ACCESS.origin}/api/v1/plugins`,
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(fetcher).toHaveBeenCalledWith(
+      `${ACCESS.origin}/api/v1/plugins`,
       expect.objectContaining({
         method: "POST",
         headers: expect.objectContaining({
@@ -131,10 +135,8 @@ describe("Kimi companion manager", () => {
       }),
     );
     expect(fetcher).toHaveBeenCalledWith(
-      `${ACCESS.origin}/api/v1/debug/pluginService/setPluginEnabled`,
-      expect.objectContaining({
-        body: JSON.stringify({ id: COMPANION_ID, enabled: true }),
-      }),
+      `${ACCESS.origin}/api/v1/plugins/${COMPANION_ID}:enable`,
+      expect.objectContaining({ method: "POST" }),
     );
     expect(fetcher).toHaveBeenCalledTimes(4);
   });
@@ -147,7 +149,7 @@ describe("Kimi companion manager", () => {
     );
     files.delete("kd-status-hook.sh");
     const { manager } = harness(
-      [{ code: 0, msg: "", data: [pluginSummary()] }],
+      [{ code: 0, msg: "", data: { plugins: [pluginSummary()] } }],
       { files },
     );
     await expect(manager.inspect()).resolves.toMatchObject({
@@ -162,7 +164,7 @@ describe("Kimi companion manager", () => {
     // the inside; "not current" points the refresh at it, and reinstalling
     // recreates the directory the same as it recreates a missing file.
     const { manager } = harness(
-      [{ code: 0, msg: "", data: [pluginSummary()] }],
+      [{ code: 0, msg: "", data: { plugins: [pluginSummary()] } }],
       { listed: null },
     );
     await expect(manager.inspect()).resolves.toMatchObject({
@@ -177,7 +179,7 @@ describe("Kimi companion manager", () => {
     // refresh forever. The check refuses, and the controller shows the
     // error instead of silently looping.
     const { manager } = harness(
-      [{ code: 0, msg: "", data: [pluginSummary()] }],
+      [{ code: 0, msg: "", data: { plugins: [pluginSummary()] } }],
       { brokenRead: "kd-status-hook.sh" },
     );
     await expect(manager.inspect()).rejects.toThrow("unreadable");
@@ -186,7 +188,7 @@ describe("Kimi companion manager", () => {
   it("reports drifted script bytes as not current even at the expected version", async () => {
     // The 1.6.0 lie itself: version matches, bytes do not.
     const { manager } = harness(
-      [{ code: 0, msg: "", data: [pluginSummary()] }],
+      [{ code: 0, msg: "", data: { plugins: [pluginSummary()] } }],
       { shippedOverrides: new Map([["kd-status-hook.sh", "deadbeef"]]) },
     );
     await expect(manager.inspect()).resolves.toMatchObject({
@@ -197,7 +199,7 @@ describe("Kimi companion manager", () => {
 
   it("inspects the actual Kimi installation state", async () => {
     const { manager } = harness([
-      { code: 0, msg: "", data: [pluginSummary()] },
+      { code: 0, msg: "", data: { plugins: [pluginSummary()] } },
     ]);
     await expect(manager.inspect()).resolves.toEqual({
       version: COMPANION_VERSION,
@@ -209,31 +211,46 @@ describe("Kimi companion manager", () => {
   });
 
   it("reports an absent companion from Kimi's empty plugin list", async () => {
-    const { manager } = harness([{ code: 0, msg: "", data: [] }]);
+    const { manager } = harness([{ code: 0, msg: "", data: { plugins: [] } }]);
     await expect(manager.inspect()).resolves.toBeNull();
   });
 
   it("removes and verifies absence in one server transaction", async () => {
     const { manager, run, fetcher } = harness([
-      { code: 0, msg: "", data: [pluginSummary()] },
+      { code: 0, msg: "", data: { plugins: [pluginSummary()] } },
       { code: 0, msg: "", data: null },
-      { code: 0, msg: "", data: [] },
+      { code: 0, msg: "", data: { plugins: [] } },
     ]);
 
     await expect(manager.remove()).resolves.toBeNull();
     expect(run).toHaveBeenCalledOnce();
     expect(fetcher).toHaveBeenCalledWith(
-      `${ACCESS.origin}/api/v1/debug/pluginService/removePlugin`,
-      expect.objectContaining({
-        body: JSON.stringify({ id: COMPANION_ID }),
-      }),
+      `${ACCESS.origin}/api/v1/plugins/${COMPANION_ID}:remove`,
+      expect.objectContaining({ method: "POST" }),
     );
     expect(fetcher).toHaveBeenCalledTimes(3);
   });
 
+  it("asks for a Kimi update when the server has no plugin API", async () => {
+    // A kimi older than 0.36.1 mounts no /api/v1/plugins: a 404 page, not
+    // an envelope.
+    const { manager, fetcher } = harness();
+    vi.mocked(fetcher).mockResolvedValueOnce({
+      ok: false,
+      status: 404,
+      url: `${ACCESS.origin}/api/v1/plugins`,
+      json: async () => {
+        throw new SyntaxError("Unexpected token <");
+      },
+    } as unknown as Response);
+    await expect(manager.inspect()).rejects.toThrow(
+      "Kimi setup API failed (404). Update Kimi Code and try again.",
+    );
+  });
+
   it("surfaces Kimi's API error", async () => {
     const { manager } = harness([
-      { code: 0, msg: "", data: [pluginSummary()] },
+      { code: 0, msg: "", data: { plugins: [pluginSummary()] } },
       { code: 40412, msg: "plugin not found", data: null },
     ]);
     await expect(manager.remove()).rejects.toThrow("plugin not found");
@@ -246,7 +263,7 @@ describe("Kimi companion manager", () => {
    * both refusing. An old version of ours is OURS: owned, then outdated. */
   it("owns an older install whose manifest shape has since changed", async () => {
     const oldInstall = pluginSummary({ version: "1.2.0" });
-    const { manager } = harness([{ code: 0, msg: "", data: [oldInstall] }]);
+    const { manager } = harness([{ code: 0, msg: "", data: { plugins: [oldInstall] } }]);
     await expect(manager.inspect()).resolves.toMatchObject({
       owned: true,
       version: "1.2.0",
@@ -256,14 +273,14 @@ describe("Kimi companion manager", () => {
   it("recognizes an id collision and refuses to overwrite or remove it", async () => {
     const collision = pluginSummary({ displayName: "Someone Else's Plugin" });
     const inspected = harness([
-      { code: 0, msg: "", data: [collision] },
+      { code: 0, msg: "", data: { plugins: [collision] } },
     ]);
     await expect(inspected.manager.inspect()).resolves.toMatchObject({
       owned: false,
     });
 
     const configured = harness([
-      { code: 0, msg: "", data: [collision] },
+      { code: 0, msg: "", data: { plugins: [collision] } },
     ]);
     await expect(
       configured.manager.configure(SOURCE_DIRECTORY),
@@ -271,7 +288,7 @@ describe("Kimi companion manager", () => {
     expect(configured.fetcher).toHaveBeenCalledOnce();
 
     const removed = harness([
-      { code: 0, msg: "", data: [collision] },
+      { code: 0, msg: "", data: { plugins: [collision] } },
     ]);
     await expect(removed.manager.remove()).rejects.toThrow(
       "A different Kimi plugin",
@@ -281,7 +298,7 @@ describe("Kimi companion manager", () => {
 
   it("does not enable an unexpected install response", async () => {
     const { manager, fetcher } = harness([
-      { code: 0, msg: "", data: [] },
+      { code: 0, msg: "", data: { plugins: [] } },
       {
         code: 0,
         msg: "",
@@ -296,7 +313,7 @@ describe("Kimi companion manager", () => {
 
   it("rejects configure when final verification does not match", async () => {
     const { manager } = harness([
-      { code: 0, msg: "", data: [] },
+      { code: 0, msg: "", data: { plugins: [] } },
       {
         code: 0,
         msg: "",
@@ -306,7 +323,7 @@ describe("Kimi companion manager", () => {
       {
         code: 0,
         msg: "",
-        data: [pluginSummary({ enabled: false })],
+        data: { plugins: [pluginSummary({ enabled: false })] },
       },
     ]);
     await expect(manager.configure(SOURCE_DIRECTORY)).rejects.toThrow(

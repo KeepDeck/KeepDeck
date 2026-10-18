@@ -37,15 +37,15 @@ const WATCHDOG_POLL_SECONDS = 5;
  *   graceful path needs no watchdog: closing the session signals the whole
  *   process group.
  *
- * `--debug-endpoints` is what exposes the `/api/v1/debug` surface the
- * companion installer talks to. It is a DEBUG flag of another program — the
- * least-contracted surface Kimi ships, and the reason a headless
- * `kimi plugin install/enable` is the first thing worth asking upstream for. */
+ * No `--debug-endpoints`: the companion installer talks to kimi's public
+ * plugin API (`/api/v1/plugins`, since 0.36.1), which every server mounts. A
+ * headless `kimi plugin install/enable` would still let it drop the server
+ * altogether — kimi 2.2 has none. */
 export function setupServerWrapperScript(): string {
   return `trap "" HUP
 parent=$PPID
 started=$(ps -o lstart= -p "$parent" 2>/dev/null)
-kimi web --no-open --host 127.0.0.1 --port 0 --log-level silent --debug-endpoints &
+kimi web --no-open --host 127.0.0.1 --port 0 --log-level silent &
 child=$!
 (
   slp=

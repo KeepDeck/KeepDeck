@@ -195,7 +195,7 @@ describe("Kimi CLI plugin", () => {
       vi.fn(async () => ({
         ok: true,
         status: 200,
-        json: async () => ({ code: 0, msg: "", data: [] }),
+        json: async () => ({ code: 0, msg: "", data: { plugins: [] } }),
       })),
     );
     const { notify } = await activate({ installedPlugins: [] });
