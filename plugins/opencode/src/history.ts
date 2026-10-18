@@ -1,11 +1,11 @@
-import type {
-  AgentHistory,
-  AgentSessionStub,
-  AgentTranscriptEntry,
-  PluginContext,
-  SqlAnswer,
+import {
+  CONTENT_CAP,
+  sessionHistory,
+  type AgentHistory,
+  type AgentSessionStub,
+  type AgentTranscriptEntry,
+  type PluginContext,
 } from "@keepdeck/plugin-api";
-import { CONTENT_CAP, errorMessage } from "@keepdeck/plugin-api";
 
 /**
  * Discovery over opencode's store ([F8] browser): everything lives in one
@@ -208,52 +208,16 @@ export function opencodeHistory(ctx: PluginContext): AgentHistory {
     return { entries, ...(shortfall.length > 0 ? { shortfall } : {}) };
   };
 
-  return {
-    async list(): Promise<AgentSessionStub[]> {
-      let answer: SqlAnswer;
-      try {
-        answer = await query(SESSION_ROWS);
-      } catch {
-        return []; // no store — opencode never ran here
-      }
-      // This contract has no way to say "partial" — that is what `listing`
-      // is for — so the only honest answer to a cut is to refuse. Returning
-      // the rows that did arrive would be read as the whole store, and
-      // every session past the cut would be pruned from the index.
-      //
-      // The refusal is OUTSIDE the catch above on purpose: inside, the
-      // "no store" arm would swallow it and answer `[]`, which is the same
-      // lie wearing a shorter list.
+  return sessionHistory("opencode", ctx.log, {
+    /** A store that will not open throws — no store, or an unreadable one.
+     * A listing the host CUT is a part not read: the sessions past the cut
+     * are unseen, not gone. */
+    async enumerate(unreadable) {
+      const answer = await query(SESSION_ROWS);
       if (answer.stopped === "budget") {
-        throw new Error("opencode: listing cut short — use listing()");
+        unreadable("the session list (cut short by the host's read budget)");
       }
       return stubsOf(answer.rows);
-    },
-    /** The same enumeration WITH the integrity signal — every other agent
-     * has offered this pair for some time and this one was still on the
-     * older road alone.
-     *
-     * Two ways to fall short, and they are the same news to the host. A
-     * store that will not open is not an empty store: `[]` with
-     * `complete: true` reads as "every session was deleted" and the prune
-     * would wipe this agent's whole index. (Accepted cost, the same one
-     * the file-backed agents name: a genuinely deleted store stops being
-     * pruned.) And a listing the host CUT is not a whole listing — the
-     * sessions past the cut are unseen, not gone. */
-    async listing(): Promise<{ stubs: AgentSessionStub[]; complete: boolean }> {
-      let answer: SqlAnswer;
-      try {
-        answer = await query(SESSION_ROWS);
-      } catch (e) {
-        ctx.log.warn(
-          `opencode: store unreadable (${errorMessage(e)}) — nothing enumerated`,
-        );
-        return { stubs: [], complete: false };
-      }
-      return {
-        stubs: stubsOf(answer.rows),
-        complete: answer.stopped !== "budget",
-      };
     },
     async describe(ref) {
       const rows = await query(
@@ -299,12 +263,6 @@ export function opencodeHistory(ctx: PluginContext): AgentHistory {
       }
       return texts.join("\n");
     },
-    // ONE reading, two contracts — the same pair every other agent offers.
-    // A store-backed plugin measures in its own units, not the file-backed
-    // ones: there are no bytes here to fall short of.
-    transcriptPage: readPage,
-    async transcript(ref, page): Promise<AgentTranscriptEntry[]> {
-      return (await readPage(ref, page)).entries;
-    },
-  };
+    readPage,
+  });
 }
