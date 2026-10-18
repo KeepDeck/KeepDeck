@@ -89,7 +89,7 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
         ]
       : []),
     ...(status
-      ? ["UserPromptSubmit", "Stop", "PermissionRequest", "PostToolUse", "Interrupt"].map(
+      ? ["UserPromptSubmit", "Stop", "PermissionRequest", "PostToolUse", "Interrupt", "PostCompact"].map(
           (event) => ({
             event,
             // Mail rides `additionalContext`, and past ~2500 tokens codex
@@ -110,6 +110,9 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
             // pushed the moment it happens (the rollout's turn_aborted stays
             // the fallback for older codex and other abort reasons); codex
             // gives it one second, which is why trust.ts hashes it so.
+            // PostCompact is the context rebuilt: a manual compaction after
+            // a failed turn runs no prompt or stop hook at all, and without
+            // it the pane keeps showing the failure (verified live, 0.163).
             command: [
               `/bin/sh ${shellQuote(status)} codex`,
               ...mailAskArgs(CODEX_MAIL_CHANNELS, event),

@@ -279,6 +279,10 @@ const readCodexStatus = (
       return { kind: "turn-end", at };
     case "PermissionRequest":
       return { kind: "waiting", at, reason: "permission" };
+    case "PostCompact":
+      // The context was rebuilt — what retires a recorded failure, as it
+      // does for claude's compaction.
+      return { kind: "context-compacted", at };
     case "Interrupt":
       // The user's Esc on the main thread (codex runs it for no subagent),
       // the same edge the rollout's turn_aborted reports later.

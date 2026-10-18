@@ -88,9 +88,9 @@ describe("codex plugin hooks", () => {
     const out = output();
     await agent.hooks["spawn.plan"]!(input, out);
 
-    // 6 rules (SessionStart + 5 turn events) ×2 args, ONE combined state
+    // 7 rules (SessionStart + 6 status events) ×2 args, ONE combined state
     // table ×2, + 2 paste-burst override args.
-    expect(out.args).toHaveLength(16);
+    expect(out.args).toHaveLength(18);
     expect(out.args[0]).toBe("-c");
     // The IDENTITY hook on SessionStart, by name. The two reporters answer
     // different questions and only one of them may sit here; a stub that
@@ -109,6 +109,7 @@ describe("codex plugin hooks", () => {
       "PermissionRequest",
       "PostToolUse",
       "Interrupt",
+      "PostCompact",
     ]) {
       expect(
         out.args.filter((a) => a.startsWith(`hooks.${event}=`)),
@@ -131,6 +132,7 @@ describe("codex plugin hooks", () => {
       ["PostToolUse", true],
       ["PermissionRequest", false],
       ["Interrupt", false],
+      ["PostCompact", false],
     ] as const) {
       const rule = out.args.find((a) => a.startsWith(`hooks.${event}=`))!;
       expect(rule.includes("codex --ask"), event).toBe(asks);
@@ -139,7 +141,7 @@ describe("codex plugin hooks", () => {
     // wholesale, so a second table would silently untrust the first.
     const state = out.args.filter((a) => a.startsWith("hooks.state="));
     expect(state).toHaveLength(1);
-    expect(state[0].match(/trusted_hash/g)).toHaveLength(6);
+    expect(state[0].match(/trusted_hash/g)).toHaveLength(7);
     // Long mail is kept whole where codex can carry context, and declared
     // nowhere else — codex drops the field there before hashing.
     for (const [event, limited] of [

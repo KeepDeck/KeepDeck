@@ -223,6 +223,17 @@ describe("the Interrupt hook", () => {
   });
 });
 
+describe("the PostCompact hook", () => {
+  it("reports the context rebuilt, which retires a recorded failure", () => {
+    // Verified live on 0.163.0: a manual compaction after a failed turn runs
+    // no prompt or stop hook, so this is the only edge that says so.
+    expect(normalizeCodexStatus(wrap({ hook_event_name: "PostCompact", session_id: "s1" }), 400)).toEqual({
+      kind: "context-compacted",
+      at: 400,
+    });
+  });
+});
+
 describe("attributeCodexEvent", () => {
   // Verified live on 0.163.0: a subagent's hook carries agent_id and
   // agent_type beside the root's own session id.
