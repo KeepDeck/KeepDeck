@@ -261,13 +261,18 @@ async function findCompanion(
   signal: AbortSignal,
   pluginId: string,
 ): Promise<PluginSummary | null> {
-  const { plugins } = await callApi<{ plugins: PluginSummary[] }>(
+  const list = await callApi<{ plugins?: unknown } | null>(
     fetcher,
     access,
     pluginApi.list,
     signal,
   );
-  return plugins.find((entry) => entry.id === pluginId) ?? null;
+  // An envelope that says success but carries no list is a server this
+  // installer does not understand — a setup error, not a crash.
+  if (!Array.isArray(list?.plugins)) {
+    throw new Error("Kimi returned no plugin list. Update Kimi Code and try again.");
+  }
+  return (list.plugins as PluginSummary[]).find((entry) => entry.id === pluginId) ?? null;
 }
 
 async function callApi<T>(

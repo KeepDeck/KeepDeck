@@ -248,6 +248,14 @@ describe("Kimi companion manager", () => {
     );
   });
 
+  it("refuses a success envelope that carries no plugin list", async () => {
+    // Shape drift on the server must read as a setup error, not a TypeError.
+    for (const data of [null, [], {}]) {
+      const { manager } = harness([{ code: 0, msg: "", data }]);
+      await expect(manager.inspect()).rejects.toThrow("Kimi returned no plugin list");
+    }
+  });
+
   it("surfaces Kimi's API error", async () => {
     const { manager } = harness([
       { code: 0, msg: "", data: { plugins: [pluginSummary()] } },
