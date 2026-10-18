@@ -5,12 +5,13 @@
  * user's config; nothing is installed on their side) reports it back
  * through the bridge, catching `/new` typed inside the TUI too.
  */
-import type {
-  PluginContext,
-  KeepDeckPlugin,
-  PluginResources,
-  SpawnPlanInput,
-  SpawnSkillsInput,
+import {
+  launchPlans,
+  type KeepDeckPlugin,
+  type PluginContext,
+  type PluginResources,
+  type SpawnPlanInput,
+  type SpawnSkillsInput,
 } from "@keepdeck/plugin-api";
 import { icon } from "./icon";
 import { mcpConfigFragment } from "./mcp";
@@ -138,12 +139,13 @@ async function stageLaunch(
     // on the server, this process is a thin client, and the config dir below
     // is one nothing will read. Warming it would be a minute spent on a
     // directory this pane never opens.
-    output.args = remote;
+    output.args.push(...remote);
     return true;
   }
   // Only now, with the pane known to be local: bootstrap the dir it is about
   // to boot against, so the install does not happen inside its own boot.
   if (input.skills) await warmConfigDir(ctx, input.skills.opencodeConfigDir);
+  output.args.push(...yoloArgs(input.yolo));
   return false;
 }
 
@@ -189,31 +191,22 @@ const plugin: KeepDeckPlugin = {
         mail: { channels: OPENCODE_MAIL_CHANNELS, render: renderOpencodeMail },
         wake: "bridge",
       },
-      hooks: {
-        "spawn.plan": async (input, output) => {
-          if (await stageLaunch(ctx, input, output)) return;
-          output.args = yoloArgs(input.yolo);
-        },
-        "resume.plan": async (input, output) => {
-          if (await stageLaunch(ctx, input, output)) return;
-          output.args = [...yoloArgs(input.yolo), "-s", input.sessionId];
-        },
+      hooks: launchPlans({
+        stage: (input, output) => stageLaunch(ctx, input, output),
+        resume: (input) => ["-s", input.sessionId],
         // Native `-s <id> --fork` re-homes the fork to the SOURCE session's
         // directory, ignoring the target (probe-verified, 1.18.4). So a
         // RELOCATING fork goes through export→rekey→import (see `fork.ts`),
         // binding the new session's directory to the target. `relocatingForkId`
         // returns the relocated session's id, or null (native `--fork`
         // fallback) for a not-yet-provisioned worktree OR any recipe failure.
-        // Remote short-circuits all of this: attach to the server, where the
+        // Remote never gets here: `stage` attached to the server, where the
         // fork runs server-side.
-        "fork.plan": async (input, output) => {
-          if (await stageLaunch(ctx, input, output)) return;
+        fork: async (input) => {
           const relocated = await relocatingForkId(ctx, input);
-          output.args = relocated
-            ? [...yoloArgs(input.yolo), "-s", relocated]
-            : [...yoloArgs(input.yolo), "-s", input.sessionId, "--fork"];
+          return relocated ? ["-s", relocated] : ["-s", input.sessionId, "--fork"];
         },
-      },
+      }),
     });
   },
 };
