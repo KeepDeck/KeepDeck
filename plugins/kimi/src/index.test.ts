@@ -98,7 +98,22 @@ describe("Kimi CLI plugin", () => {
       label: "Kimi Code",
       detect: { bin: "kimi" },
     });
-    expect(out).toEqual({ command: "kimi", args: [], env: [] });
+    expect(out).toMatchObject({ command: "kimi", args: [], env: [] });
+  });
+
+  it("every launch defaults kimi to trust the pane's directory", async () => {
+    // Kimi 2.2 stops an unseen directory — every new worktree — on a
+    // blocking trust prompt before any session exists. A DEFAULT, not env:
+    // a user who set the variable themselves keeps their answer.
+    const { agent } = await activate();
+    const spawn = output();
+    await agent.hooks["spawn.plan"]!(input, spawn);
+    const resume = output();
+    await agent.hooks["resume.plan"]!({ ...input, sessionId: "session_123" }, resume);
+    for (const out of [spawn, resume]) {
+      expect(out.envDefaults).toEqual([["KIMI_CODE_TRUST_WORKSPACE", "1"]]);
+      expect(out.env).toEqual([]);
+    }
   });
 
   it("uses Kimi's documented exact-session restore flag", async () => {
