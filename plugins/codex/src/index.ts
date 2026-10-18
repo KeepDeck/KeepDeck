@@ -6,6 +6,7 @@
  * `resume` subcommand.
  */
 import {
+  launchPlans,
   mailAskArgs,
   shellQuote,
   type KeepDeckPlugin,
@@ -190,43 +191,25 @@ const plugin: KeepDeckPlugin = {
         tail: codexTail(ctx) as never,
       },
       history: codexHistory(ctx),
-      hooks: {
-        "spawn.plan": async (input, output) => {
-          output.args = [
+      hooks: launchPlans({
+        // Every `-c` flag and the yolo switch are GLOBAL: they precede the
+        // `resume`/`fork` subcommand the tail adds.
+        stage: async (input, output) => {
+          output.args.push(
             ...remoteArgs(input.target),
             ...(await hookArgs(ctx.resources)),
             ...mcpArgs(input.mcp, ctx.log),
             ...disablePasteBurstArgs,
             ...yoloArgs(input.yolo),
-          ];
+          );
         },
-        "resume.plan": async (input, output) => {
-          output.args = [
-            ...remoteArgs(input.target),
-            ...(await hookArgs(ctx.resources)),
-            ...mcpArgs(input.mcp, ctx.log),
-            ...disablePasteBurstArgs,
-            ...yoloArgs(input.yolo),
-            "resume",
-            input.sessionId,
-          ];
-        },
+        resume: (input) => ["resume", input.sessionId],
         // codex forks natively: `codex fork <id>` resolves the session by
         // its GLOBAL id (no cwd filter), mints a NEW session id, copies the
         // history, and binds the fork to the invocation dir — no store
         // surgery at all (probe-verified, RESUME_ANY_HISTORY.md §2).
-        "fork.plan": async (input, output) => {
-          output.args = [
-            ...remoteArgs(input.target),
-            ...(await hookArgs(ctx.resources)),
-            ...mcpArgs(input.mcp, ctx.log),
-            ...disablePasteBurstArgs,
-            ...yoloArgs(input.yolo),
-            "fork",
-            input.sessionId,
-          ];
-        },
-      },
+        fork: (input) => ["fork", input.sessionId],
+      }),
     });
   },
 };
