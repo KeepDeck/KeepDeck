@@ -92,6 +92,14 @@ export type {
   PluginCommands,
 } from "./commands.ts";
 export { errorMessage, parseInstant, sha256Hex, shellQuote } from "./authoring.ts";
+export {
+  fileStub,
+  pageOfWalk,
+  readStoreDir,
+  sessionHistory,
+  type SessionStore,
+  type TranscriptPage,
+} from "./sessionHistory.ts";
 export { isJsonRecord } from "../json.ts";
 export {
   firstMeaningfulUserTurn,
