@@ -42,7 +42,7 @@ import { isTaskUid } from "../tasks";
  */
 
 import { DECK_MIN_READER, DECK_STATE_VERSION, migrateDeck } from "../migrations";
-import { isJsonRecord } from "@keepdeck/plugin-api";
+import { isJsonRecord, parseInstant } from "@keepdeck/plugin-api";
 
 export { DECK_STATE_VERSION } from "../migrations";
 
@@ -555,7 +555,7 @@ function readIdle(value: unknown): PaneIdle {
     // The stamp is rendered as an age ("2h ago"); an unparsable one would
     // print "NaNd ago". This file is hand-editable, so the shape check that
     // guards every other field guards this one too.
-    Number.isFinite(Date.parse(value.at))
+    parseInstant(value.at) !== null
   ) {
     return { reason: "suspended", at: value.at };
   }

@@ -1,10 +1,4 @@
-import type {
-  AccountUsage,
-  ApiActivity,
-  NormalizedUsage,
-  PaneUsage,
-  UsageWindow,
-} from "@keepdeck/plugin-api";
+import { reportedLimits, type AccountUsage, type ApiActivity, type NormalizedUsage, type PaneUsage, type UsageWindow } from "@keepdeck/plugin-api";
 
 /**
  * Usage domain — the host-side rules over the usage contract. The TYPES and
@@ -286,12 +280,7 @@ export function hydrateUsageCache(json: string): Map<string, AccountUsage> {
       .filter((w): w is { window: UsageWindow } => w !== null)
       .map((w) => w.window);
     if (windows.length === 0) continue;
-    out.set(provider, {
-      kind: "reported",
-      windows,
-      reportedAt: e.reportedAt,
-      sourcePaneId: "",
-    });
+    out.set(provider, reportedLimits(windows, e.reportedAt));
   }
   return out;
 }

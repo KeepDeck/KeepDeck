@@ -1,3 +1,4 @@
+import { shellQuote } from "@keepdeck/plugin-api";
 /**
  * Format a {command, args} invocation as ONE copy-pasteable POSIX shell
  * line. The whole point of the string is to be pasted into a terminal or a
@@ -13,7 +14,6 @@ export function shellLine(invocation: {
   command: string;
   args: string[];
 }): string {
-  const word = (w: string) =>
-    SAFE_WORD.test(w) ? w : `'${w.replace(/'/g, "'\\''")}'`;
+  const word = (w: string) => (SAFE_WORD.test(w) ? w : shellQuote(w));
   return [invocation.command, ...invocation.args].map(word).join(" ");
 }

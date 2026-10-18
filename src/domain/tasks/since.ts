@@ -5,6 +5,7 @@
  * number (exact) or a time (from that moment on, the moment included).
  */
 import type { LogField, Task } from "./model";
+import { parseInstant } from "@keepdeck/plugin-api";
 
 /** When a task's parts landed, by the board's change numbers: the change
  * that made it (0: before the database), the latest one to touch it, and
@@ -31,8 +32,8 @@ export interface TaskChangeSince {
  * ISO time. Null when it is neither. */
 export function sinceMark(text: string): SinceMark | null {
   if (/^\d+$/.test(text)) return { kind: "rev", rev: Number(text) };
-  const at = Date.parse(text);
-  return Number.isNaN(at) ? null : { kind: "time", at };
+  const at = parseInstant(text);
+  return at === null ? null : { kind: "time", at };
 }
 
 /** The last moment anything of the task changed: its making, its fields
