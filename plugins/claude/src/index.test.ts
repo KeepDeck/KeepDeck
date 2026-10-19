@@ -41,10 +41,20 @@ function activate(
       read: async () => mergeSectionValues(registered, stored),
     },
     services: {
+      // A store holding the forked session's transcript and nothing else.
+      fs: {
+        readDir: async (path: string) =>
+          path === "/Users/u/.claude/projects/-old-worktree"
+            ? [{ name: "uuid-1.jsonl", path: `${path}/uuid-1.jsonl`, kind: "file" }]
+            : path === "/Users/u/.claude"
+              ? [{ name: "projects", path: `${path}/projects`, kind: "dir" }]
+              : [],
+      },
       fsWrite: {
         copyFile: async (src: string, dst: string) => {
           copies.push([src, dst]);
         },
+        remove: async () => {},
       },
     },
   } as unknown as PluginContext);
@@ -379,24 +389,29 @@ describe("claude fork.plan", () => {
       "/Users/u/.claude/projects/-old-worktree/uuid-1.jsonl",
   };
 
-  it("copies the transcript into the target slug dir, then resumes with --fork-session", async () => {
+  it("forks through claude's own --fork-session, under an id chosen before it starts", async () => {
+    // The surgery itself is fork.ts's (fork.test.ts); this pins that the
+    // hook launches through it and hands the host its scaffolding.
     const copies: [string, string][] = [];
     const agent = activate(SESSION_HOOK, copies);
     const out = output();
-    await agent.hooks["fork.plan"]!(
-      { ...forkInput, cwd: "/repo/wt_2.x" },
-      out,
-    );
+    await agent.hooks["fork.plan"]!({ ...forkInput, cwd: "/repo/wt_2.x" }, out);
 
-    // Slug: `/`, `.` and `_` each become `-`; the projects root comes from
-    // the transcript path itself.
+    const [, forkId, , , scratchId] = out.args.slice(-5);
+    expect(out.args.slice(-5)).toEqual(["--session-id", forkId, "--fork-session", "--resume", scratchId]);
+    expect(forkId).not.toBe(scratchId);
+    const target = "/Users/u/.claude/projects/-repo-wt-2-x";
     expect(copies).toEqual([
-      [
-        "/Users/u/.claude/projects/-old-worktree/uuid-1.jsonl",
-        "/Users/u/.claude/projects/-repo-wt-2-x/uuid-1.jsonl",
-      ],
+      ["/Users/u/.claude/projects/-old-worktree/uuid-1.jsonl", `${target}/${scratchId}.jsonl`],
     ]);
-    expect(out.args.slice(-3)).toEqual(["--resume", "uuid-1", "--fork-session"]);
+    expect(out.discard).toEqual({
+      onceStarted: [`${target}/${scratchId}.jsonl`],
+      ifNeverStarted: [
+        `${target}/${scratchId}.jsonl`,
+        `${target}/${forkId}`,
+        `/Users/u/.claude/tasks/${forkId}`,
+      ],
+    });
   });
 
   it("carries the injected MCP servers too — a fork is a spawn like any other", async () => {
@@ -442,94 +457,6 @@ describe("claude fork.plan", () => {
     const out = output();
     await agent.hooks["fork.plan"]!({ ...forkInput, cwd: "/repo/wt_2.x" }, out);
     expect(out.env).toEqual([[DISABLE_ARTIFACTS_VAR, "1"]]);
-  });
-
-  it("derives the transcript path from the recorded cwd when none was delivered", async () => {
-    // The occupied-resume card's fork carries no transcript path — the
-    // plugin owns the store layout and derives it. For the card's
-    // same-directory fork the derived path merely proves target ===
-    // source: nothing is read, nothing is copied.
-    const copies: [string, string][] = [];
-    const agent = activate(null, copies);
-    const out = output();
-    await agent.hooks["fork.plan"]!(
-      { ...input, sessionId: "uuid-1", sourceCwd: "/old/worktree", cwd: "/old/worktree" },
-      out,
-    );
-    expect(copies).toEqual([]);
-    expect(out.args.slice(-3)).toEqual(["--resume", "uuid-1", "--fork-session"]);
-  });
-
-  it("rejects an unexpected store layout loudly instead of copying blind", async () => {
-    const agent = activate(null);
-    await expect(
-      agent.hooks["fork.plan"]!(
-        {
-          ...input,
-          sessionId: "u",
-          sourceCwd: "/x",
-          transcriptPath: "/somewhere/odd/u.jsonl",
-        },
-        output(),
-      ),
-    ).rejects.toThrow("unexpected store layout");
-    await expect(
-      agent.hooks["fork.plan"]!(
-        {
-          ...input,
-          sessionId: "u",
-          sourceCwd: "/x",
-          transcriptPath: "/Users/u/.claude/projects/-x/u.txt",
-        },
-        output(),
-      ),
-    ).rejects.toThrow("not a .jsonl");
-  });
-
-  it("slugs EVERY non-alphanumeric char like real claude, not just / . _", async () => {
-    const copies: [string, string][] = [];
-    const agent = activate(SESSION_HOOK, copies);
-    await agent.hooks["fork.plan"]!(
-      { ...forkInput, cwd: "/Users/John Doe/Projects/app (v2)" },
-      output(),
-    );
-    // Spaces and parens become dashes too — the store encoding claude's own
-    // sanitizePath applies (decompiled 2.1.215).
-    expect(copies[0][1]).toBe(
-      "/Users/u/.claude/projects/-Users-John-Doe-Projects-app--v2-/uuid-1.jsonl",
-    );
-  });
-
-  it("refuses a >200-char slug loudly — claude truncates with a private hash we can't reproduce", async () => {
-    const copies: [string, string][] = [];
-    const agent = activate(SESSION_HOOK, copies);
-    await expect(
-      agent.hooks["fork.plan"]!(
-        { ...forkInput, cwd: `/${"very-long-segment/".repeat(15)}end` },
-        output(),
-      ),
-    ).rejects.toThrow("shorter path");
-    expect(copies).toEqual([]); // zero writes on refusal
-  });
-
-  it("branching in place skips the copy SILENTLY — the file already sits where it would land", async () => {
-    // The fork card never chooses a directory, so source dir = target dir
-    // is the card's NORMAL shape, not an error. The copy would be a
-    // same-file copy (which the host refuses loudly for everyone else) —
-    // only the plugin knows this one is legitimate, so only it may skip.
-    const copies: [string, string][] = [];
-    const agent = activate(SESSION_HOOK, copies);
-    const out = output();
-    await agent.hooks["fork.plan"]!(
-      {
-        ...forkInput,
-        // Same slug as the transcript's own dir → target === source.
-        cwd: "/old/worktree",
-      },
-      out,
-    );
-    expect(copies).toEqual([]);
-    expect(out.args.slice(-3)).toEqual(["--resume", "uuid-1", "--fork-session"]);
   });
 
   it("spawn.plan never emits the CLI's agents screen — the connect path is gone", async () => {

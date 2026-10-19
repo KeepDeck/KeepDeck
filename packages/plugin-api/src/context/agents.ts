@@ -389,8 +389,10 @@ export interface ForkPlanInput extends SpawnPlanInput {
   /** The directory the session was recorded in. It may no longer exist —
    * recipes operate on the agent's store, never on the original dir. */
   sourceCwd: string;
-  /** The session's transcript/rollout file, when the reporter delivered it
-   * — the exact source file for copy-based recipes. */
+  /** The session's transcript/rollout file — the exact source file for
+   * copy-based recipes. The host answers it from the binding report, else
+   * from the session index (walking the agent's store again on a miss);
+   * absent only when neither knows it, which a recipe that copies refuses. */
   transcriptPath?: string;
 }
 

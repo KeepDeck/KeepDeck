@@ -41,6 +41,7 @@ import {
   claudeUsageWatches,
   normalizeClaudeStatusline,
 } from "./usage";
+import { forkClaudeSession } from "./fork";
 import { claudeHistory } from "./history";
 import { claudeLiveSessions } from "./liveSessions";
 
@@ -223,32 +224,6 @@ async function stageLaunch(
   output.env.push(...artifactsEnv(await ctx.settings.read()));
 }
 
-/** Claude encodes a session's project dir into the store path:
- * `~/.claude/projects/<slug>/<sessionId>.jsonl`. The REAL encoding
- * (decompiled from claude 2.1.215's own sanitizePath) replaces EVERY
- * non-alphanumeric character with `-` — not just path separators — and
- * truncates slugs over 200 chars with a private hash suffix we cannot
- * reproduce. `--resume` searches ONLY the current cwd's slug dir (the
- * `--cwd` flag request was closed not-planned), so a cross-directory fork
- * copies the transcript into the TARGET's slug dir first. A too-long slug
- * is refused loudly: copying to a guessed name would strand the transcript
- * where claude never looks — a silent fork failure. */
-const SLUG_MAX = 200;
-export function projectSlug(cwd: string): string {
-  const slug = cwd.replace(/[^a-zA-Z0-9]/g, "-");
-  if (slug.length > SLUG_MAX) {
-    throw new Error(
-      `claude fork: the target path encodes to a ${slug.length}-char store slug ` +
-        `(claude truncates past ${SLUG_MAX} with a private hash) — fork into a shorter path`,
-    );
-  }
-  return slug;
-}
-
-/** The store root this plugin reads (history.ts owns the same constant for
- * discovery); a fork's derived transcript path starts here. */
-const PROJECTS_ROOT = "~/.claude/projects";
-
 const plugin: KeepDeckPlugin = {
   activate(ctx) {
     ctx.agents.register({
@@ -279,52 +254,11 @@ const plugin: KeepDeckPlugin = {
       hooks: launchPlans({
         stage: (input, output) => stageLaunch(ctx, input, output),
         resume: (input) => ["--resume", input.sessionId],
-        /** Cross-directory fork: copy the recorded transcript into the
-         * target cwd's slug dir, then spawn `--resume <id> --fork-session`
-         * THERE — claude finds the copy, and --fork-session mints a fresh
-         * session id for the continuation, leaving the original resumable
-         * where it was (no duplicate-id ambiguity). The copy lands inside
-         * `~/.claude/projects` only — exactly the manifest's fsWrite scope. */
-        fork: async (input) => {
-          // The transcript path arrives recorded (the reporter delivered
-          // it) or is DERIVED from the session's own recorded cwd — the
-          // store layout is deterministic (`projects/<slug(cwd)>/<id>.jsonl`)
-          // and this plugin owns that layout knowledge. Derivation is not
-          // archaeology when the cwd is known; guessing WITHOUT one was.
-          // A derived path is used as-is for a cross-directory copy and,
-          // for the same-directory fork the resume card offers, merely
-          // proves target === source — nothing is read or written.
-          const source =
-            input.transcriptPath ??
-            `${PROJECTS_ROOT}/${projectSlug(input.sourceCwd)}/${input.sessionId}.jsonl`;
-          if (!/\.jsonl$/.test(source)) {
-            throw new Error(
-              `claude fork of ${input.sessionId}: transcript is not a .jsonl (${source})`,
-            );
-          }
-          // The projects root comes from the transcript itself when there
-          // is one — no home lookup; a layout change breaks LOUDLY here
-          // instead of copying into a wrong tree.
-          const marker = "/projects/";
-          const at = source.lastIndexOf(marker);
-          if (at < 0) {
-            throw new Error(
-              `claude fork of ${input.sessionId}: unexpected store layout (${source})`,
-            );
-          }
-          const projectsRoot = source.slice(0, at + marker.length - 1);
-          const target = `${projectsRoot}/${projectSlug(input.cwd)}/${input.sessionId}.jsonl`;
-          // Branching IN PLACE (target dir = source dir) skips the copy
-          // SILENTLY: it is a legitimate request — the fork card never
-          // chooses a directory — and the file already sits exactly where
-          // the copy would land. The HOST side refuses a same-file copy
-          // loudly (it cannot know the intent); only the plugin knows this
-          // one is not a mistake, so only the plugin may skip it.
-          if (target !== source) {
-            await ctx.services.fsWrite.copyFile(source, target);
-          }
-          return ["--resume", input.sessionId, "--fork-session"];
-        },
+        fork: (input) =>
+          forkClaudeSession(
+            { fs: ctx.services.fs, fsWrite: ctx.services.fsWrite, newId: () => crypto.randomUUID() },
+            input,
+          ),
       }),
     });
     // The switch for claude's OWN artifacts ([`ARTIFACTS_FIELD`]). The label

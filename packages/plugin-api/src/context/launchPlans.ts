@@ -11,6 +11,7 @@
  */
 import type {
   AgentHooks,
+  ForkDiscard,
   ForkPlanInput,
   ResumePlanInput,
   SpawnPlanInput,
@@ -31,9 +32,20 @@ export interface LaunchAdapter {
   ): boolean | void | Promise<boolean | void>;
   /** The arguments that open a recorded session. */
   resume(input: ResumePlanInput): readonly string[];
-  /** The store surgery a fork needs, then the arguments that open the fork.
+  /** The store surgery a fork needs, then the arguments that open the fork —
+   * with what of that surgery only the start needs, when there is any.
    * Throwing must leave the store untouched. */
-  fork(input: ForkPlanInput): readonly string[] | Promise<readonly string[]>;
+  fork(input: ForkPlanInput): ForkLaunch | Promise<ForkLaunch>;
+}
+
+/** How a fork opens: its arguments, or its arguments and the scaffolding
+ * the host removes around its start ([`ForkDiscard`]). */
+export type ForkLaunch =
+  | readonly string[]
+  | { args: readonly string[]; discard?: ForkDiscard };
+
+function isArgs(launch: ForkLaunch): launch is readonly string[] {
+  return Array.isArray(launch);
 }
 
 /** The three plan hooks over one adapter. */
@@ -50,7 +62,13 @@ export function launchPlans(
     },
     "fork.plan": async (input, output) => {
       if (await adapter.stage(input, output)) return;
-      output.args.push(...(await adapter.fork(input)));
+      const launch = await adapter.fork(input);
+      if (isArgs(launch)) {
+        output.args.push(...launch);
+        return;
+      }
+      output.args.push(...launch.args);
+      if (launch.discard) output.discard = launch.discard;
     },
   };
 }

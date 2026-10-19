@@ -47,6 +47,23 @@ describe("launchPlans", () => {
     expect(settled.fork).not.toHaveBeenCalled();
   });
 
+  it("hands the host what a fork's surgery needs only for its start", async () => {
+    const scaffolded = {
+      ...adapter(),
+      fork: vi.fn(async () => ({
+        args: ["--fork", "s1"],
+        discard: { onceStarted: ["/store/T.jsonl"], ifNeverStarted: ["/store/T.jsonl", "/store/F"] },
+      })),
+    };
+    const fork = output();
+    await launchPlans(scaffolded)["fork.plan"]({ ...input, sessionId: "s1" } as ForkPlanInput, fork);
+    expect(fork.args).toEqual(["--common", "--fork", "s1"]);
+    expect(fork.discard).toEqual({
+      onceStarted: ["/store/T.jsonl"],
+      ifNeverStarted: ["/store/T.jsonl", "/store/F"],
+    });
+  });
+
   it("lets a failed fork surgery reject the plan", async () => {
     const failing = { ...adapter(), fork: vi.fn(async () => { throw new Error("disk full"); }) };
     await expect(

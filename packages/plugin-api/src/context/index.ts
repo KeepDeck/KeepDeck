@@ -93,7 +93,7 @@ export type {
   PluginCommands,
 } from "./commands.ts";
 export { errorMessage, parseInstant, sha256Hex, shellQuote } from "./authoring.ts";
-export { launchPlans, type LaunchAdapter } from "./launchPlans.ts";
+export { launchPlans, type ForkLaunch, type LaunchAdapter } from "./launchPlans.ts";
 export {
   fileStub,
   pageOfWalk,
