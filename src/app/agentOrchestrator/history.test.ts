@@ -22,6 +22,7 @@ import {
   settle,
   skillsAsked,
   steps,
+  transcripts,
 } from "./testSupport";
 import type {
   SessionHandle,
@@ -495,6 +496,50 @@ describe("agent orchestrator —forking a recorded session", () => {
       sessionId: "s-1",
       sourceCwd: "/old/wt",
       transcriptPath: "/t/s-1.jsonl",
+    });
+  });
+
+  it("a journal path is the fork's file; the index is not asked", async () => {
+    transcripts.locateTranscript.mockClear();
+    transcripts.indexed.set("claude:s-1", "/index/s-1.jsonl");
+    await act(async () =>
+      agentRun.forkSession("ws-1", forked(), { kind: "dir", cwd: "/elsewhere" }, { role: "lead" }),
+    );
+    transcripts.indexed.clear();
+    expect(vi.mocked(buildForkSpec).mock.calls[0][4].transcriptPath).toBe("/t/s-1.jsonl");
+    expect(transcripts.locateTranscript).not.toHaveBeenCalled();
+  });
+
+  it("a record the journal never gave a path forks the file the index knows", async () => {
+    transcripts.indexed.set("claude:s-1", "/index/s-1.jsonl");
+    await act(async () =>
+      agentRun.forkSession(
+        "ws-1",
+        handle({ agent: "claude", cwd: "/old/wt", yolo: false, transcriptPath: undefined }),
+        { kind: "dir", cwd: "/elsewhere" },
+        { role: "lead" },
+      ),
+    );
+    transcripts.indexed.clear();
+    expect(vi.mocked(buildForkSpec).mock.calls[0][4]).toEqual({
+      sessionId: "s-1",
+      sourceCwd: "/old/wt",
+      transcriptPath: "/index/s-1.jsonl",
+    });
+  });
+
+  it("a path nobody knows is left out — the plugin decides whether it needs one", async () => {
+    await act(async () =>
+      agentRun.forkSession(
+        "ws-1",
+        handle({ agent: "codex", cwd: "/old/wt", yolo: false, transcriptPath: undefined }),
+        { kind: "dir", cwd: "/elsewhere" },
+        { role: "lead" },
+      ),
+    );
+    expect(vi.mocked(buildForkSpec).mock.calls[0][4]).toEqual({
+      sessionId: "s-1",
+      sourceCwd: "/old/wt",
     });
   });
 

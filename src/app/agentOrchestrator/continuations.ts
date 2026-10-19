@@ -13,6 +13,7 @@ import type {
   McpAccessAsk,
   AgentOrchestrator,
   StagedSkillsAsk,
+  TranscriptLocatorPort,
 } from ".";
 import type { AgentOrchestratorCreation } from "./creation";
 import type { DeckStore } from "../deckStore";
@@ -32,6 +33,7 @@ interface ContinuationDeps {
   deck: DeckStore;
   spawnContext: SpawnContextSource;
   plugins: SpawnPluginAccess;
+  transcripts: TranscriptLocatorPort;
   /** Whether a pane's directory is gone — a blocked pane cannot be the live
    * claimant of the session a resume is asking for. */
   isBlocked(paneId: string): boolean;
@@ -54,6 +56,7 @@ export function createAgentOrchestratorContinuations({
   deck,
   spawnContext,
   plugins,
+  transcripts,
   isBlocked,
   creation,
   skillsAsk,
@@ -174,6 +177,13 @@ export function createAgentOrchestratorContinuations({
     const workspaceRef = { id: workspace.id, instance: workspace.instance };
     forking.add(record.sessionId);
     try {
+      // The file a fork copies: what the binding reported, else what the
+      // plugin declared to the index. Still unknown is the plugin's to
+      // refuse — a fork that needs no file (codex) goes on without it.
+      const transcriptPath =
+        record.transcriptPath ??
+        (await transcripts.locateTranscript(record.agent, record.sessionId)) ??
+        undefined;
       const id = paneId(mintAgentSeq());
       const name = opts?.name?.trim();
       const surgery = (cwd: string) =>
@@ -192,9 +202,7 @@ export function createAgentOrchestratorContinuations({
           {
             sessionId: record.sessionId,
             sourceCwd: record.cwd,
-            ...(record.transcriptPath !== undefined && {
-              transcriptPath: record.transcriptPath,
-            }),
+            ...(transcriptPath !== undefined && { transcriptPath }),
           },
         );
 

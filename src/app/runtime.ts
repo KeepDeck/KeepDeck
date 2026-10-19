@@ -429,6 +429,7 @@ export function createAppRuntime(
     worktrees,
     mcpAccess: (target) => mcp.service.access(target),
     lifecycle,
+    transcripts: sessionIndex,
     // Workspace deletion forgets what the backend keeps per workspace — its
     // artifact store, its MCP library scope — the deck model being the only
     // knower of the live workspace set.

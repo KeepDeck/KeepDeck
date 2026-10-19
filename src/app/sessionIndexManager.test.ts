@@ -366,3 +366,94 @@ describe("sessionIndexManager freshness", () => {
     expect(scans.scanAgentHistories).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("sessionIndexManager locateTranscript", () => {
+  type Answer = { status: "hit"; transcriptPath: string | null } | { status: "absent" };
+  /** A lookup answering from a table the test rewrites — what a scan
+   * would have put into the index. */
+  function withIndex(initial: Record<string, Answer> = {}) {
+    const table: Record<string, Answer> = { ...initial };
+    const lookup = vi.fn(async (keys: Array<{ agent: string; sessionId: string }>) =>
+      keys.map((key) => ({
+        ...key,
+        ...(table[`${key.agent}:${key.sessionId}`] ?? { status: "absent" as const }),
+        reference: "ref",
+        title: null,
+        mtime: 0,
+      })),
+    );
+    const { registry } = fakeRegistry(CONTRIBUTIONS);
+    const manager = createSessionIndexManager(registry, {
+      lookup: lookup as never,
+    });
+    return { manager, table, lookup };
+  }
+
+  it("answers the path the index already knows, without walking a store", async () => {
+    const { manager } = withIndex({ "claude:s": { status: "hit", transcriptPath: "/p/s.jsonl" } });
+    await expect(manager.locateTranscript("claude", "s")).resolves.toBe("/p/s.jsonl");
+    expect(scans.scanAgentHistories).not.toHaveBeenCalled();
+  });
+
+  it("a miss walks that agent's store once more, then answers what it found", async () => {
+    const { manager, table } = withIndex();
+    scans.scanAgentHistories.mockImplementationOnce(async () => {
+      table["claude:s"] = { status: "hit", transcriptPath: "/p/s.jsonl" };
+      return { dropped: [] };
+    });
+    await expect(manager.locateTranscript("claude", "s")).resolves.toBe("/p/s.jsonl");
+    expect(scans.scanAgentHistories).toHaveBeenCalledTimes(1);
+    expect(sourcesOf(0).map((s) => s.agentId)).toEqual(["claude"]);
+  });
+
+  it("a hit that declared no path is a miss too, and stays null when the walk finds none", async () => {
+    const { manager } = withIndex({ "claude:s": { status: "hit", transcriptPath: null } });
+    await expect(manager.locateTranscript("claude", "s")).resolves.toBeNull();
+    expect(scans.scanAgentHistories).toHaveBeenCalledTimes(1);
+  });
+
+  it("walks again even inside the freshness window", async () => {
+    const { manager } = withIndex();
+    manager.ensureFresh("claude");
+    await flush();
+    expect(scans.scanAgentHistories).toHaveBeenCalledTimes(1);
+    await manager.locateTranscript("claude", "s");
+    expect(scans.scanAgentHistories).toHaveBeenCalledTimes(2);
+  });
+
+  it("the pass already walking does not answer: it may have passed the session before it was written", async () => {
+    const { manager, table } = withIndex();
+    const finishOld = hangingScan();
+    manager.ensureFresh("claude");
+    let found: string | null | undefined;
+    void manager.locateTranscript("claude", "s").then((path) => (found = path));
+    await flush();
+    const finishNew = hangingScan();
+    finishOld();
+    await flush();
+    await flush();
+    // The old pass settled: not an answer yet — the new one is walking.
+    expect(scans.scanAgentHistories).toHaveBeenCalledTimes(2);
+    expect(found).toBeUndefined();
+    table["claude:s"] = { status: "hit", transcriptPath: "/p/s.jsonl" };
+    finishNew();
+    await flush();
+    await flush();
+    expect(found).toBe("/p/s.jsonl");
+  });
+
+  it("an agent with no store answers null without a walk", async () => {
+    const { manager } = withIndex();
+    await expect(manager.locateTranscript("kimi", "s")).resolves.toBeNull();
+    expect(scans.scanAgentHistories).not.toHaveBeenCalled();
+  });
+
+  it("dispose releases a waiter with the index as it is", async () => {
+    const { manager } = withIndex();
+    hangingScan();
+    const pending = manager.locateTranscript("claude", "s");
+    await flush();
+    manager.dispose();
+    await expect(pending).resolves.toBeNull();
+  });
+});
