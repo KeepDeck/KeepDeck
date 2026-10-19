@@ -11,9 +11,15 @@ Claude takes everything KeepDeck needs on the command line of one process.
 Nothing is written to `~/.claude`.
 
 - `--settings <inline JSON>` arms the reporters. Hooks in it **merge per
-  event** with the user's own settings (verified on 2.1.198). The
-  `statusLine` key does not merge, so KeepDeck takes it, and its reporter
-  runs the user's own statusLine at runtime and passes its output through.
+  event** with the user's own settings (verified on 2.1.198). Each hook is
+  in exec form, `{command: "/bin/sh", args: [script, "claude", …]}`, so no
+  shell parses the script's path. `args` exists since 2.1.139; 2.1.138
+  ignores it and runs the bare `/bin/sh` on the hook's JSON (measured), so
+  KeepDeck needs claude 2.1.139 or newer. The reporter's identity is
+  unchanged: the script's parent is claude itself (verified on 2.1.303).
+  The `statusLine` key does not merge, so KeepDeck takes it, and its
+  reporter runs the user's own statusLine at runtime and passes its output
+  through. `statusLine` takes no `args`, so it stays a shell string.
 - `--plugin-dir <dir>` loads KeepDeck's staged skills as a local plugin. It
   is additive next to the user's installed plugins, and the skills appear as
   `keepdeck-skills:<name>`.
