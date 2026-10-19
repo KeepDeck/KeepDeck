@@ -73,7 +73,11 @@ const HOOK_TIMEOUT_SECONDS = 10;
  * fires on startup/resume/clear/compact; the statusLine command runs
  * event-driven on every status update (rate_limits, cost, context_window on
  * stdin). */
-async function hookArgs(resources: PluginResources): Promise<string[]> {
+async function hookArgs(
+  resources: PluginResources,
+  /** Whether this launch loads KeepDeck's Mod — the settings then keep it on. */
+  withMod: boolean,
+): Promise<string[]> {
   const session = await resources.path("kd-session-hook.sh");
   const status = await resources.path("kd-status-hook.sh");
   const usage = await resources.path("kd-usage-statusline.sh");
@@ -176,6 +180,14 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
       refreshInterval: 60,
     };
   }
+  if (withMod) {
+    // A user may have switched this inline plugin off; for a KeepDeck pane it
+    // is KeepDeck's to keep on. Only OUR plugin, under the exact key claude
+    // gives a `--plugin-dir` plugin (the bare name does not override it,
+    // verified on 2.1.303): the user's own hooks and modes stay theirs, and a
+    // managed policy still wins over any of this.
+    settings.enabledPlugins = { [`${MOD_PLUGIN_NAME}@inline`]: true };
+  }
   if (Object.keys(settings).length === 0) return [];
   return ["--settings", JSON.stringify(settings)];
 }
@@ -190,6 +202,10 @@ async function modArgs(resources: PluginResources): Promise<string[]> {
   if (!manifest) return [];
   return ["--plugin-dir", manifest.slice(0, -"/.claude-plugin/plugin.json".length)];
 }
+
+/** The Mod's plugin name — its `.claude-plugin/plugin.json` says the same,
+ * and index.test.ts holds the two in step. */
+const MOD_PLUGIN_NAME = "keepdeck-reporter";
 
 /** claude's YOLO switch. First use shows claude's own one-time in-TUI
  * acceptance prompt — expected, it runs interactively in the pane. */
@@ -226,9 +242,10 @@ async function stageLaunch(
   input: Pick<SpawnPlanInput, "skills" | "mcp" | "yolo">,
   output: SpawnPlanOutput,
 ): Promise<void> {
+  const mod = await modArgs(ctx.resources);
   output.args.push(
-    ...(await hookArgs(ctx.resources)),
-    ...(await modArgs(ctx.resources)),
+    ...(await hookArgs(ctx.resources, mod.length > 0)),
+    ...mod,
     ...skillsArgs(input.skills),
     ...mcpArgs(input.mcp),
     ...yoloArgs(input.yolo),

@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type {
   AgentContribution,
@@ -289,6 +290,7 @@ describe("claude plugin hooks", () => {
     const bare = output();
     await agent.hooks["spawn.plan"]!(input, bare);
     expect(bare.args).not.toContain("--plugin-dir");
+    expect(JSON.parse(bare.args[bare.args.indexOf("--settings") + 1]!).enabledPlugins).toBeUndefined();
   });
 
   it("resume reuses the recorded id and keeps the reporter armed", async () => {
@@ -390,10 +392,19 @@ describe("claude's Mod", () => {
     await agent.hooks["spawn.plan"]!(input, out);
     const at = out.args.indexOf("--plugin-dir");
     expect(out.args[at + 1]).toBe("/App/resources/keepdeck-mod");
+    // Kept on even where the user switched it off — under the inline key
+    // claude gives it, and the name its manifest declares.
+    const settings = JSON.parse(out.args[out.args.indexOf("--settings") + 1]!);
+    expect(settings.enabledPlugins).toEqual({ "keepdeck-reporter@inline": true });
+    const manifest = JSON.parse(
+      readFileSync("plugins/claude/resources/keepdeck-mod/.claude-plugin/plugin.json", "utf8"),
+    );
+    expect(manifest.name).toBe("keepdeck-reporter");
     // Missing from the bundle: the pane runs without it, nothing else moves.
     const bare = output();
     await activate(SESSION_HOOK).hooks["spawn.plan"]!(input, bare);
     expect(bare.args).not.toContain("--plugin-dir");
+    expect(JSON.parse(bare.args[bare.args.indexOf("--settings") + 1]!).enabledPlugins).toBeUndefined();
   });
 
   it("declares that its hello takes over the tail's status records and the wake", () => {
