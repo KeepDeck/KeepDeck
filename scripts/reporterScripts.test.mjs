@@ -24,7 +24,7 @@ describe("reporter shell scripts", () => {
   });
 
   it("keeps the shebang on line 1 and the generated banner under it", () => {
-    for (const { name } of REPORTERS) {
+    for (const { name } of REPORTERS.filter((r) => r.name.endsWith(".sh"))) {
       const lines = rendered(name).split("\n");
       // A shell script whose first line is a comment has no interpreter line;
       // the banner must never take that slot.
@@ -145,10 +145,7 @@ describe("reporter shell scripts", () => {
     const shellWaitMs = Number(shell.match(/^SEND_MAX=([\d.]+)/m)?.[1]) * 1000;
     expect(shellWaitMs, "no SEND_MAX in the shared sender").toBeGreaterThan(0);
 
-    const plugin = readFileSync(
-      "plugins/opencode/resources/keepdeck-bridge.js",
-      "utf8",
-    );
+    const plugin = readFileSync(join(CANONICAL_DIR, "keepdeck-wire.js"), "utf8");
     const pluginWaitMs = Number(
       plugin.match(/SEND_TIMEOUT_MS\s*=\s*(\d[\d_]*)/)?.[1]?.replace(/_/g, ""),
     );

@@ -266,6 +266,7 @@ describe("build pipeline (e2e against the real host and plugins)", () => {
       "resources",
     );
     for (const file of [
+      "keepdeck-wire.js",
       "keepdeck-bridge.js",
       "pane-session.js",
       "mail-courier.js",
@@ -278,6 +279,8 @@ describe("build pipeline (e2e against the real host and plugins)", () => {
       expect(body).toContain('from "./keepdeck-bridge.js"');
       expect(body).toContain('from "./pane-session.js"');
     }
+    expect(readFileSync(join(opencodeResources, "keepdeck-bridge.js"), "utf8"))
+      .toContain('from "./keepdeck-wire.js"');
   });
 
   it("is a no-op that still writes an empty index.json when plugins/ has none", () => {
