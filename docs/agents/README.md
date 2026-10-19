@@ -33,7 +33,14 @@ Shared cores in `packages/plugin-api` so far:
 - `launchPlans`: the spawn, resume and fork hooks. A plugin supplies a
   `LaunchAdapter`: what every launch carries (`stage`, which may settle the
   launch whole, as a remote attach does), and how resume and fork name the
-  session.
+  session. A fork may also return a `discard`: the scaffolding its surgery
+  made that only the start needs. The host removes it, through the
+  plugin's own `fsWrite` prefixes, once the forked session reports its id,
+  and removes everything listed in `ifNeverStarted` when the pane goes
+  first.
+- The fork's source transcript path is the host's to give: from the
+  binding report, else from the session index, which walks the agent's
+  store again on a miss. A plugin never derives it.
 
 The rule is that the high level works the same for all four CLIs. A new
 mechanism gets one core and four adapters, never a helper for "the similar

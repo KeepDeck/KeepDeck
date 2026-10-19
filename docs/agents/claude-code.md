@@ -1,6 +1,7 @@
 # Claude Code
 
-Checked 2026-10-19 against Claude Code 2.1.302. There is no source, so CLI
+Checked 2026-10-19 against Claude Code 2.1.302; the fork section against
+2.1.303. There is no source, so CLI
 facts come from probes and from the strings of the installed binary, and say
 which.
 
@@ -63,11 +64,44 @@ Transcripts live at `~/.claude/projects/<slug(cwd)>/<id>.jsonl`. When an id
 collides, Claude moves the other file aside as `<id>.orphaned-…`. History
 skips those files.
 
-Fork into another directory copies the transcript into the target
-directory's slug folder, then starts `--resume <id> --fork-session` there.
-Claude mints a new id and the original stays resumable. Claude 2.1.302 also
-accepts an absolute transcript path in `--resume`, which would remove the
-copy; that is open work.
+A project folder is named after its directory: every non-alphanumeric
+character becomes `-`, and past 200 characters the name is cut there and
+`-<base36 hash of the whole path>` is appended (read from the binary,
+checked against folders Claude made for 321-character paths).
+
+Fork (`src/fork.ts`), into any directory including the source's own:
+
+- `--resume <id>` looks only in the current directory's project folder, so
+  the source transcript is copied there under a throwaway id T, and Claude
+  forks it itself: `--session-id F --fork-session --resume T`. F is chosen
+  by KeepDeck; Claude accepts `--session-id` with `--resume` only beside
+  `--fork-session`, and its own background jobs launch this way. Verified
+  live.
+- Claude writes F's transcript and moves the file-history snapshots to F
+  itself. It does not carry the rest of the session folder: a subagent is
+  looked up when it is messaged, under the CURRENT session's folder, and
+  the task list (`tasks/<id>/`) is per session. So KeepDeck copies the
+  folder's `subagents/`, `tool-results/`, `workflows/` and
+  `custom-title.json`, and the task list, to F before the start. Verified
+  live: the fork messages an old subagent and reads a spilled output after
+  the source is gone.
+- Histories name those files by absolute path, so every copied transcript
+  has the source folder's path replaced by F's, JSON-escaped.
+- T is removed once the fork reports F; while it exists Claude's history
+  lists the conversation twice. Removing it at the fork's `SessionStart`
+  is safe for later turns, resume, the `/resume` picker and rewind.
+  Verified live. If the fork never starts, T, F's folder and F's task list
+  are removed.
+- Not carried: remote agents, async MCP tasks, remote-sync, auto-mode and
+  recording files. They belong to jobs the source still owns. The plan
+  file is keyed by its name, not the session, so the fork shares it, as
+  Claude's own fork does.
+- Not affected: `uploads/` is never written by local input (clipboard
+  images, dropped paths, `@` mentions, read PDFs; checked live). Images
+  live inside the transcript.
+
+Claude also accepts an absolute transcript path in `--resume`. KeepDeck
+does not use it.
 
 `claude agents --json` lists live sessions (`src/liveSessions.ts`).
 
