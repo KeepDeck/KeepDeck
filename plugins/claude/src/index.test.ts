@@ -396,8 +396,11 @@ describe("claude's Mod", () => {
     expect(bare.args).not.toContain("--plugin-dir");
   });
 
-  it("declares that its hello takes over the tail's status records", () => {
-    expect(activate(null).companion).toEqual({ covers: ["status-records"] });
+  it("declares that its hello takes over the tail's status records and the wake", () => {
+    const agent = activate(null);
+    expect(agent.companion).toEqual({ covers: ["status-records"] });
+    // Rung through the Mod while the pane's process has it, typed otherwise.
+    expect(agent.status?.wake).toBe("companion");
   });
 });
 

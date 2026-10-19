@@ -384,7 +384,11 @@ export function createAppRuntime(
         onChanged: tasks.access.subscribe,
       },
       terminal: { wake: wakePaneForMail },
-      bridge: { reply: replyToBridgeHook, nudge: nudgeBridgePane },
+      bridge: {
+        reply: replyToBridgeHook,
+        nudge: nudgeBridgePane,
+        hasCompanion: (paneId) => attribution.hasCompanion(paneId),
+      },
     },
   );
   // Where an arming pass's refusals land for the skills surface to read.

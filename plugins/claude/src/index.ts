@@ -260,6 +260,9 @@ const plugin: KeepDeckPlugin = {
         normalize: normalizeClaudeStatus,
         attribute: attributeClaudeEvent,
         mail: { channels: CLAUDE_MAIL_CHANNELS, render: renderClaudeMail },
+        // Woken through the Mod when this pane's process has it — it starts
+        // the turn from inside — and through the terminal when it does not.
+        wake: "companion",
         // What a transcript record means, for the one edge claude pushes no
         // hook for. The host reads the `watch` to know which records to
         // carry; `normalize` applies the `read` to what arrives.

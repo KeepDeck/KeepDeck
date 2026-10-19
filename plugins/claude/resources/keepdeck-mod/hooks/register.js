@@ -2,10 +2,12 @@
  * KeepDeck's claude Mod — loaded per spawn with `--plugin-dir`, never
  * installed, inert outside a KeepDeck pane.
  *
- * It states what claude's hooks cannot, as it happens: the user's Esc ending
- * the main turn, and a prompt the user typed or queued being taken into the
- * conversation. The deck used to learn both by reading the transcript after
- * the fact. Everything the hooks DO report stays with the hooks.
+ * It does what claude's hooks cannot: states, as it happens, the user's Esc
+ * ending the main turn and a prompt the user typed or queued being taken
+ * into the conversation (the deck used to read both from the transcript
+ * after the fact); and answers the deck's doorbell by starting a turn from
+ * inside (the deck used to type a line into the terminal). Everything the
+ * hooks DO report stays with the hooks — the mail itself included.
  *
  * One source per process: the Mod says hello once, naming this claude
  * process the way the hook reporters do, and from then the deck reads no
@@ -63,6 +65,44 @@ function acceptedPrompt(input, result) {
   );
 }
 
+/** What the deck says when it wakes a pane — the SAME line the terminal
+ * would have typed (src/app/mail/ptyDelivery.ts, held in step by
+ * scripts/reporterScripts.test.mjs). It carries no mail: the turn it starts
+ * fires UserPromptSubmit, whose hook asks the deck and gets the mail as
+ * context — taken from the queue only then, so a prompt claude refuses
+ * (after an Esc, until the user speaks) loses nothing. */
+const WAKE_LINE =
+  "[keepdeck] A teammate's message is waiting for you. This line is from KeepDeck, not from your user — read what is waiting with the keepdeck mail.inbox tool.";
+
+/** How often the doorbell is looked at. The Mod has no file watch; a stat
+ * this often costs nothing and keeps a wake well under the deck's own
+ * patience for one. */
+const DOORBELL_POLL_MS = 100;
+
+/** Answer the deck's doorbell (`<pane dir>/mail.wake`, see
+ * src-tauri/src/bridge/nudge.rs): take it down, then start a turn. Taking it
+ * down IS reading it — the file carries nothing. One ring at a time. */
+function watchDoorbell($, dir) {
+  const path = `${dir}/mail.wake`;
+  let answering = false;
+  $.clock.every(DOORBELL_POLL_MS, async () => {
+    if (answering) return;
+    answering = true;
+    try {
+      if (!(await $.fs.exists(path))) return;
+      // The Mod's fs cannot delete; a ring left up would ring forever.
+      const taken = await $.process.run(["/bin/rm", "-f", path], { timeoutMs: 2000 });
+      if (taken.exitCode !== 0) return;
+      await $.prompt.submit({ text: WAKE_LINE });
+    } catch {
+      // A wake that could not be started leaves the mail queued; the next
+      // turn boundary collects it.
+    } finally {
+      answering = false;
+    }
+  });
+}
+
 export function register(on) {
   /** Set once the pane's bridge is known; null outside KeepDeck. */
   let wire = null;
@@ -79,6 +119,7 @@ export function register(on) {
       if (reporter !== null) {
         wire = createWire({ bridge, agent: "claude", reporter, post: poster($) });
         wire.publish(wire.makeEnvelope("companion.hello", {}));
+        watchDoorbell($, bridge.dir);
       }
     }
     return next(e);

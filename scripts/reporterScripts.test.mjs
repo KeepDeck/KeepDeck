@@ -148,6 +148,12 @@ describe("reporter shell scripts", () => {
     const wire = readFileSync("src-tauri/src/bridge/wire.rs", "utf8");
     expect(wire).toContain('("companion.hello", COMPANION_HELLO_EVENT)');
     expect(mod).toContain('makeEnvelope("companion.hello"');
+    // The wake line it submits is the terminal's own, word for word: the
+    // model reads the same sentence whichever way the pane was woken.
+    const delivery = readFileSync("src/app/mail/ptyDelivery.ts", "utf8");
+    const terminalLine = delivery.match(/const WAKE_LINE =\s*"([^"]+)"/)?.[1];
+    expect(terminalLine, "no WAKE_LINE in ptyDelivery.ts").toBeTruthy();
+    expect(mod).toContain(`"${terminalLine}"`);
     const ipc = readFileSync("src/ipc/companions.ts", "utf8");
     const rustEvent = wire.match(/COMPANION_HELLO_EVENT: &str = "([^"]+)"/)?.[1];
     expect(rustEvent).toBeTruthy();

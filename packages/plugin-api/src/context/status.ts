@@ -188,8 +188,13 @@ export interface AgentStatus {
    * turn from the inside. Declare it only where the reporter really watches:
    * what the deck stops doing is typing, and nothing takes that over on its
    * own — mail would sit out its life in the queue and be reported back to
-   * its sender undelivered. */
-  wake?: "terminal" | "bridge";
+   * its sender undelivered.
+   *
+   * `"companion"` (API 61) rings the doorbell when the pane's process
+   * announced the agent's companion ([`AgentCompanion`]), and types into the
+   * terminal when it did not — for an agent whose in-process reporter may be
+   * absent (disabled, refused by policy) and whose hooks remain the floor. */
+  wake?: "terminal" | "bridge" | "companion";
 }
 
 /** One message, as the CLI's own dialect will have to phrase it. */

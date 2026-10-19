@@ -107,6 +107,7 @@ function setup(statusOf: (agentId: string) => AgentStatus | undefined = () => un
           return Promise.resolve(true);
         },
         nudge: () => {},
+        hasCompanion: () => false,
       },
     },
   );

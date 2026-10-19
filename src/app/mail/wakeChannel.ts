@@ -25,6 +25,9 @@ export interface WakeChannelDeps {
   throughTerminal(paneId: string): boolean;
   /** Ring the doorbell this agent's own reporter is watching. */
   throughBridge(paneId: string): void;
+  /** Whether this pane's process announced its agent's companion — what a
+   * `"companion"` wake asks before it rings rather than types. */
+  hasCompanion(paneId: string): boolean;
 }
 
 /**
@@ -42,7 +45,10 @@ export function createMailWake(
   deps: WakeChannelDeps,
 ): (paneId: string) => boolean {
   return (paneId: string) => {
-    if (deps.channelOf(paneId) !== "bridge") return deps.throughTerminal(paneId);
+    const channel = deps.channelOf(paneId);
+    const rings =
+      channel === "bridge" || (channel === "companion" && deps.hasCompanion(paneId));
+    if (!rings) return deps.throughTerminal(paneId);
     deps.throughBridge(paneId);
     return true;
   };

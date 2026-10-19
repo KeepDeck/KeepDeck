@@ -20,12 +20,37 @@ function loaded({ bridge = BRIDGE as string | null, pgid = "4021\n" } = {}) {
   const handlers = new Map<string, Handler>();
   register((name: string, handler: Handler) => handlers.set(name, handler));
   const posted: { url: string; envelope: { type: string; payload: Record<string, unknown> } }[] = [];
+  /** The doorbell as a file the test raises; the timer the Mod set. */
+  const doorbell = { up: false, removed: 0 };
+  const timers: { ms: number; tick: () => Promise<void> }[] = [];
+  const submitted: string[] = [];
+  let submitAnswer: unknown = { text: "ok" };
   const $ = {
+    clock: {
+      every: (ms: number, tick: () => Promise<void>) => {
+        timers.push({ ms, tick });
+        return { cancel() {} };
+      },
+    },
+    fs: { exists: async (path: string) => path === "/run/p-1/mail.wake" && doorbell.up },
+    prompt: {
+      submit: async ({ text }: { text: string }) => {
+        submitted.push(text);
+        if (submitAnswer instanceof Error) throw submitAnswer;
+        return submitAnswer;
+      },
+    },
     env: {
       get: async (name: string) => (name === "KEEPDECK_BRIDGE" ? (bridge ?? undefined) : undefined),
     },
     process: {
       run: async (argv: string[]) => {
+        if (argv[0] === "/bin/rm") {
+          expect(argv).toEqual(["/bin/rm", "-f", "/run/p-1/mail.wake"]);
+          doorbell.up = false;
+          doorbell.removed += 1;
+          return { exitCode: 0, stdout: "", stderr: "" };
+        }
         expect(argv).toEqual(["/bin/sh", "-c", "ps -o pgid= -p $PPID"]);
         if (pgid === "throw") throw new Error("no ps");
         return { exitCode: 0, stdout: pgid, stderr: "" };
@@ -50,7 +75,21 @@ function loaded({ bridge = BRIDGE as string | null, pgid = "4021\n" } = {}) {
     posted
       .filter(({ envelope }) => envelope.type === "agent.status")
       .map(({ envelope }) => (envelope.payload.event as { hook_event_name: string }).hook_event_name);
-  return { handlers, posted, fire, events };
+  const ring = async () => {
+    doorbell.up = true;
+    for (const timer of timers) await timer.tick();
+  };
+  return {
+    handlers,
+    posted,
+    fire,
+    events,
+    timers,
+    doorbell,
+    submitted,
+    ring,
+    answerSubmit: (answer: unknown) => (submitAnswer = answer),
+  };
 }
 
 const userAppend = (over: Record<string, unknown> = {}) => ({
@@ -121,5 +160,42 @@ describe("KeepDeck's claude Mod", () => {
     expect(await mod.fire("turn.complete", complete, "next-result")).toBe("next-result");
     const result = { message: userAppend().message, uuid: "u-1" };
     expect(await mod.fire("session.append", userAppend(), result)).toBe(result);
+  });
+
+  it("answers the doorbell by taking it down and starting a turn with the terminal's own line", async () => {
+    const mod = loaded();
+    await mod.fire("session.start", {});
+    expect(mod.timers.map((timer) => timer.ms)).toEqual([100]);
+    // Nothing rung: nothing submitted.
+    for (const timer of mod.timers) await timer.tick();
+    expect(mod.submitted).toEqual([]);
+    await mod.ring();
+    expect(mod.doorbell.removed).toBe(1);
+    expect(mod.submitted).toEqual([
+      "[keepdeck] A teammate's message is waiting for you. This line is from KeepDeck, not from your user — read what is waiting with the keepdeck mail.inbox tool.",
+    ]);
+    // Taken down: the next tick does not ring again.
+    for (const timer of mod.timers) await timer.tick();
+    expect(mod.submitted).toHaveLength(1);
+  });
+
+  it("survives a refused or failing submit — the mail stays the deck's", async () => {
+    const mod = loaded();
+    await mod.fire("session.start", {});
+    mod.answerSubmit({ drop: "the session was stopped and nobody has sent input since" });
+    await mod.ring();
+    mod.answerSubmit(new Error("engine gone"));
+    await mod.ring();
+    mod.answerSubmit({ text: "ok" });
+    await mod.ring();
+    expect(mod.submitted).toHaveLength(3);
+  });
+
+  it("watches no doorbell outside KeepDeck or without a name for its process", async () => {
+    for (const setup of [{ bridge: null }, { pgid: "" }]) {
+      const mod = loaded(setup);
+      await mod.fire("session.start", {});
+      expect(mod.timers).toEqual([]);
+    }
   });
 });
