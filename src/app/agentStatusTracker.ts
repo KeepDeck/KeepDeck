@@ -157,6 +157,12 @@ export function createAgentStatusTracker(): AgentStatusTracker {
     const initial = normalizeAll();
     const edges = initial.events;
     if (edges.length === 0 && initial.state === stateNow()) return ignored;
+    // Announced NOW, not at finish: the hook reporting a compaction may be a
+    // mail ask, answered between the two, and what a rebuild re-states has
+    // to be queued before that answer is taken.
+    if (edges.some((edge) => edge.kind === "context-compacted")) {
+      for (const listener of [...rebuilt]) listener(paneId);
+    }
     const preview = edges.reduce(reduceStatus, previous);
     if (!epochs.has(paneId) || (preview !== previous && edges.some((edge) =>
       edge.kind === "turn-start" || edge.kind === "turn-observed"))) {
@@ -181,11 +187,6 @@ export function createAgentStatusTracker(): AgentStatusTracker {
         const guarded = settled.events.map((edge): AgentStatusEvent =>
           current !== previous && edge.kind === "turn-start"
             ? { kind: "turn-observed", at: edge.at } : edge);
-        for (const edge of guarded) {
-          if (edge.kind === "context-compacted") {
-            for (const listener of [...rebuilt]) listener(paneId);
-          }
-        }
         apply(paneId, guarded);
       },
     };

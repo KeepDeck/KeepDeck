@@ -327,6 +327,44 @@ describe("createAgentStatusChannel", () => {
     });
   });
 
+  it("a compaction is announced before the ask it rides on is answered", async () => {
+    // claude's and codex's `SessionStart(compact)` both reports the rebuild
+    // and asks for mail. Whatever the rebuild re-states (the team briefing)
+    // has to be queued by the time that ask takes the queue.
+    let handler:
+      | ((report: { paneId: string; token: string; payload: unknown }) => void)
+      | null = null;
+    ipc.onAgentStatus.mockImplementationOnce(((h: never) => {
+      handler = h;
+      return Promise.resolve(() => {});
+    }) as never);
+    const deck = deckWith("pane-1");
+    const order: string[] = [];
+    tracker.onContextRebuilt(() => order.push("rebuilt"));
+    createAgentStatusChannel(
+      deck.store,
+      agentsWith().registry,
+      tracker,
+      sessions,
+      createPaneAttribution({
+        workspaces: () => deck.store.getSnapshot().workspaces,
+        secretOf: () => "tok",
+      }),
+      keys.port,
+      () => {
+        order.push("answered");
+      },
+    );
+    await Promise.resolve();
+
+    handler!({
+      paneId: "pane-1",
+      token: "tok",
+      payload: { agent: "claude", edge: { kind: "context-compacted", at: 100 } },
+    });
+    expect(order).toEqual(["rebuilt", "answered"]);
+  });
+
   it("stops sweeping after dispose", () => {
     const channel = createAgentStatusChannel(
       deckWith("pane-1").store,
