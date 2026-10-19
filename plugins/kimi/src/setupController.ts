@@ -205,4 +205,3 @@ export function stateFromInstallation(
     version: SETUP_VERSION,
   };
 }
-
