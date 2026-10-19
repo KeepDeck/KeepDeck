@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { McpScope } from "../domain/mcp";
-import { describeError, log } from "./log";
+import { log } from "./log";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 /** One stored library server (mirrors the Rust `McpServerDto`). */
 export interface StoredMcpServer {
@@ -62,7 +63,7 @@ export async function pruneMcpLibrary(liveWsIds: string[]): Promise<boolean> {
     await invoke("mcp_library_prune", { liveWsIds });
     return true;
   } catch (e) {
-    log.warn("web:mcp", `library prune failed: ${describeError(e)}`);
+    log.warn("web:mcp", `library prune failed: ${errorMessage(e)}`);
     return false;
   }
 }

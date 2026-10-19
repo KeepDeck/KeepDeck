@@ -4,14 +4,14 @@ import type {
   PluginContext,
   PluginManifest,
 } from "@keepdeck/plugin-api";
-import { declaredKeys } from "@keepdeck/plugin-api";
+import { declaredKeys, errorMessage } from "@keepdeck/plugin-api";
 import { execCovers } from "../capabilities/execCovers";
 import type { ContributionRegistries } from "../registries/contributions";
 import type { PluginSource } from "../model/installed";
 import type { PluginHostDeps } from "./deps";
 import { actionTitle } from "./actionTitle";
 import { validateAgentFeatureImplementations } from "./agentFeatures";
-import { describeError } from "./errors";
+
 
 /**
  * Build the `PluginContext` handed to one plugin's `activate`, wired for
@@ -73,7 +73,7 @@ export function buildPluginContext(
       try {
         run();
       } catch (error) {
-        log.error(`teardown failed: ${describeError(error)}`);
+        log.error(`teardown failed: ${errorMessage(error)}`);
       }
     }
   }

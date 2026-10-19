@@ -86,11 +86,14 @@ export default async (input = {}) => {
    * that anyone had collected it; the deck now learns that from the send
    * itself, and puts the messages back when nobody was there.
    */
-  const ask = async () => {
+  const ask = async (target) => {
     const correlation = randomUUID();
     const envelope = makeEnvelope(bridge, "agent.status", {
       reply: correlation,
-      event: { type: "mail.ask" },
+      // Where the answer will land, as this courier knows it: the deck hands
+      // mail only to the pane's MAIN agent, and only this side can say
+      // whether the session it is about to write into is the root.
+      event: { type: "mail.ask", target },
     });
     // Answered on the same call, so there is no file to poll for and no
     // window in which an answer exists that nobody has come for.
@@ -146,13 +149,13 @@ export default async (input = {}) => {
    *   in any sense that matters. It is NOT synthetic — the person watching
    *   this pane should see what arrived and why their agent just moved.
    */
-  const viaSession = async (answer) => {
+  const viaSession = async (answer, sessionID) => {
     let delivered = true;
     if (typeof answer.context === "string" && answer.context) {
       delivered =
         ok(
           await client.session.promptAsync({
-            path: { id: pane.root },
+            path: { id: sessionID },
             body: { noReply: true, parts: [textPart(answer.context, true)] },
           }),
         ) && delivered;
@@ -161,7 +164,7 @@ export default async (input = {}) => {
       delivered =
         ok(
           await client.session.promptAsync({
-            path: { id: pane.root },
+            path: { id: sessionID },
             body: { parts: [textPart(answer.prompt, false)] },
           }),
         ) && delivered;
@@ -202,10 +205,18 @@ export default async (input = {}) => {
    * the user can see is worth more than a tidy failure nobody hears about.
    */
   const collect = async () => {
-    const answer = await ask();
+    // The target is fixed BEFORE the ask: the pane may rebind while the
+    // answer is in flight, and what the deck was told is where it lands. An
+    // unbound pane is reached through the TUI's own prompt, which is the main
+    // agent's by construction. A bound one is the root this pane adopted —
+    // and an adoption made while the client could not classify it is
+    // "unknown", which the deck answers with nothing until it can.
+    const root = pane.bound ? pane.root : null;
+    const target = root ? await pane.classify(root) : "root";
+    const answer = await ask(target);
     if (!answer) return;
     try {
-      if (pane.bound && (await viaSession(answer))) return;
+      if (root && (await viaSession(answer, root))) return;
       await viaTui(answer);
     } catch {
       // Best-effort to the end: the user's session must survive anything

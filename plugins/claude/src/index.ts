@@ -15,19 +15,23 @@
  * ([`normalizeClaudeStatus`]). Do not "simplify" that edge away on the
  * theory that a rebind already clears the pane — no rebind happens.
  */
-import type {
-  KeepDeckPlugin,
-  PluginContext,
-  PluginResources,
-  SpawnPlanInput,
-  SpawnPlanOutput,
-  SpawnSkillsInput,
+import {
+  launchPlans,
+  mailAskArgs,
+  shellQuote,
+  type KeepDeckPlugin,
+  type PluginContext,
+  type PluginResources,
+  type SpawnPlanInput,
+  type SpawnPlanOutput,
+  type SpawnSkillsInput,
 } from "@keepdeck/plugin-api";
 import { ARTIFACTS_FIELD, artifactsEnv } from "./artifacts";
 import { icon } from "./icon";
 import { mcpArgs } from "./mcp";
 import {
-  ASKS_FOR_MAIL,
+  attributeClaudeEvent,
+  CLAUDE_MAIL_CHANNELS,
   normalizeClaudeStatus,
   renderClaudeMail,
 } from "./status";
@@ -39,10 +43,6 @@ import {
 } from "./usage";
 import { claudeHistory } from "./history";
 import { claudeLiveSessions } from "./liveSessions";
-
-/** Quote a path for a shell command line (single quotes, `'\''` escaping) —
- * KeepDeck.app can live under a path with spaces. */
-const shellQuote = (path: string) => `'${path.split("'").join(`'\\''`)}'`;
 
 /**
  * How long claude may let one of our hooks run, in seconds.
@@ -83,12 +83,12 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
    * same event for different facts — and an assignment would silently drop
    * whichever ran second, taking session binding or the status lane with
    * it. claude runs every entry an event has. */
-  const arm = (event: string, script: string, ask = false) => {
+  const arm = (event: string, script: string, ask: readonly string[] = []) => {
     (hooks[event] ??= []).push({
       hooks: [
         {
           type: "command",
-          command: `/bin/sh ${shellQuote(script)} claude${ask ? " --ask" : ""}`,
+          command: [`/bin/sh ${shellQuote(script)} claude`, ...ask].join(" "),
           timeout: HOOK_TIMEOUT_SECONDS,
         },
       ],
@@ -116,9 +116,9 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
    * reporter too, and that one answers a different question and takes no
    * reply — arming it to ask would make it wait for a file nobody writes.
    *
-   * The set itself is declared beside the renderer ([`ASKS_FOR_MAIL`]), which
-   * is the code that has to answer these events: stated twice, the two drift
-   * in silence. */
+   * The channels are declared beside the renderer ([`CLAUDE_MAIL_CHANNELS`]),
+   * which is the code that has to answer these events: stated twice, the two
+   * drift in silence. */
   if (session) {
     // The agent id is the argument, same as the status reporter's: the
     // payload does not name its CLI, and the deck refuses a binding whose
@@ -162,7 +162,7 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
       "SubagentStop",
       "SessionStart",
     ]) {
-      arm(event, status, ASKS_FOR_MAIL.has(event));
+      arm(event, status, mailAskArgs(CLAUDE_MAIL_CHANNELS, event));
     }
   }
   if (Object.keys(hooks).length > 0) settings.hooks = hooks;
@@ -267,7 +267,8 @@ const plugin: KeepDeckPlugin = {
       },
       status: {
         normalize: normalizeClaudeStatus,
-        renderMail: renderClaudeMail,
+        attribute: attributeClaudeEvent,
+        mail: { channels: CLAUDE_MAIL_CHANNELS, render: renderClaudeMail },
         // What a transcript record means, for the one edge claude pushes no
         // hook for. The host reads the `watch` to know which records to
         // carry; `normalize` applies the `read` to what arrives.
@@ -275,19 +276,16 @@ const plugin: KeepDeckPlugin = {
       },
       history: claudeHistory(ctx),
       liveSessions: claudeLiveSessions(ctx),
-      hooks: {
-        "spawn.plan": (input, output) => stageLaunch(ctx, input, output),
-        "resume.plan": async (input, output) => {
-          await stageLaunch(ctx, input, output);
-          output.args.push("--resume", input.sessionId);
-        },
+      hooks: launchPlans({
+        stage: (input, output) => stageLaunch(ctx, input, output),
+        resume: (input) => ["--resume", input.sessionId],
         /** Cross-directory fork: copy the recorded transcript into the
          * target cwd's slug dir, then spawn `--resume <id> --fork-session`
          * THERE — claude finds the copy, and --fork-session mints a fresh
          * session id for the continuation, leaving the original resumable
          * where it was (no duplicate-id ambiguity). The copy lands inside
          * `~/.claude/projects` only — exactly the manifest's fsWrite scope. */
-        "fork.plan": async (input, output) => {
+        fork: async (input) => {
           // The transcript path arrives recorded (the reporter delivered
           // it) or is DERIVED from the session's own recorded cwd — the
           // store layout is deterministic (`projects/<slug(cwd)>/<id>.jsonl`)
@@ -325,10 +323,9 @@ const plugin: KeepDeckPlugin = {
           if (target !== source) {
             await ctx.services.fsWrite.copyFile(source, target);
           }
-          await stageLaunch(ctx, input, output);
-          output.args.push("--resume", input.sessionId, "--fork-session");
+          return ["--resume", input.sessionId, "--fork-session"];
         },
-      },
+      }),
     });
     // The switch for claude's OWN artifacts ([`ARTIFACTS_FIELD`]). The label
     // never reaches the screen — the plugin's page is titled by the manifest

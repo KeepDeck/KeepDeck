@@ -8,7 +8,11 @@ import type {
 import { mergeSectionValues } from "@keepdeck/plugin-api";
 import plugin from "./index";
 import { ARTIFACTS_FIELD, DISABLE_ARTIFACTS_VAR } from "./artifacts";
-import { ASKS_FOR_MAIL, renderClaudeMail } from "./status";
+import { CLAUDE_MAIL_CHANNELS, renderClaudeMail } from "./status";
+
+/** The events armed to ask, from the declaration both the arming and the
+ * deck read. */
+const ASKS_FOR_MAIL = new Set(CLAUDE_MAIL_CHANNELS.map((channel) => channel.event));
 import { claudeUsageWatches } from "./usage";
 
 /** The section this plugin registered during the last [`activate`]. */
@@ -546,6 +550,7 @@ describe("claude fork.plan", () => {
     // contribute it falls back to having its messages typed into a terminal
     // — with every renderer test still green.
     const agent = activate({ ...SESSION_HOOK, ...STATUS_HOOK });
-    expect(agent.status?.renderMail).toBe(renderClaudeMail);
+    expect(agent.status?.mail?.render).toBe(renderClaudeMail);
+    expect(agent.status?.mail?.channels).toBe(CLAUDE_MAIL_CHANNELS);
   });
 });

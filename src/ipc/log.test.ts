@@ -10,7 +10,7 @@ const plugin = vi.hoisted(() => ({
 }));
 vi.mock("@tauri-apps/plugin-log", () => plugin);
 
-import { describeError, initLogging, log } from "./log";
+import { initLogging, log } from "./log";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -36,21 +36,6 @@ describe("log facade", () => {
       throw new Error("window.__TAURI__ missing");
     });
     expect(() => log.debug("web:probe", "x")).not.toThrow();
-  });
-});
-
-describe("describeError", () => {
-  it("unwraps Error, passes strings through, dumps objects", () => {
-    expect(describeError(new Error("nope"))).toBe("nope");
-    expect(describeError("plain rejection")).toBe("plain rejection");
-    expect(describeError({ code: 2 })).toBe('{"code":2}');
-  });
-
-  it("never throws on hostile values", () => {
-    const cyclic: Record<string, unknown> = {};
-    cyclic.self = cyclic;
-    expect(typeof describeError(cyclic)).toBe("string");
-    expect(describeError(undefined)).toBe("undefined");
   });
 });
 

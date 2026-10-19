@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { PluginContext, SpeechDevice } from "@keepdeck/plugin-api";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 /** The connected microphones, read when the picker mounts and on `refresh`
  * (decision №1: on request — nothing watches in the background). */
@@ -17,7 +18,7 @@ export function useMicDevices(ctx: PluginContext): {
         setDevices(list);
         setError(null);
       })
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
+      .catch((e: unknown) => setError(errorMessage(e)));
   }, [ctx]);
   useEffect(refresh, [refresh]);
   return { devices, error, refresh };

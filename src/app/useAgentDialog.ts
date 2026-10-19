@@ -25,7 +25,7 @@ import {
 } from "../domain/deck";
 import { handleFromHit } from "../domain/journal";
 import { rolesOnTeam } from "../domain/mail";
-import { describeError } from "../ipc/log";
+
 import { indexSearch } from "../ipc/history";
 import type { Page } from "./usePagedSessionSearch";
 import { inspectRepo, probeWorktree, suggestWorktree } from "../ipc/worktree";
@@ -42,6 +42,7 @@ import type { DirectoryHolder } from "./agentOrchestrator";
 import type { ContinueRequest, DoorName, DoorOutcome } from "./agentDoors";
 import { roleChoiceView, type RoleChoice } from "../presentation/roleChoiceView";
 import type { Deck } from "./useDeck";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 /** Where a door's refusal is heard. A door the person opened must fail
  * VISIBLY — a dialog that just closes reads as success — and `confirm`
@@ -321,7 +322,7 @@ export function useAgentDialog(
         // The owner answers refusals as outcomes; a throw is a defect on its
         // side. Heard rather than swallowed — the dialog is already closed,
         // and an unhandled rejection is silence to the person.
-        notice(dlg.target.kind === "new-team" ? "team" : "member", describeError(error)),
+        notice(dlg.target.kind === "new-team" ? "team" : "member", errorMessage(error)),
       );
   };
 
@@ -457,7 +458,7 @@ export function useAgentDialog(
   ) => {
     void agentDoors
       .continueSession({ workspace: { id: ws.id, instance: ws.instance }, teamId, session, role })
-      .then(show, (error: unknown) => notice(session.mode, describeError(error)));
+      .then(show, (error: unknown) => notice(session.mode, errorMessage(error)));
   };
 
   return {

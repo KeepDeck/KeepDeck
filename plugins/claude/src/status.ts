@@ -1,8 +1,13 @@
 import {
+  agentIdActor,
+  asNonEmptyString,
+  decodeStatusPayload,
   frameTeammateMail,
   isJsonRecord,
   turnFailedEvent,
   type AgentStatusEvent,
+  type EventAttribution,
+  type MailChannel,
   type MailReplyRenderer,
   type StatusNormalizer,
 } from "@keepdeck/plugin-api";
@@ -219,8 +224,9 @@ export const normalizeClaudeStatus: StatusNormalizer = (
   at,
   context,
 ): AgentStatusEvent | null => {
-  if (!isJsonRecord(payload)) return null;
-  if (payload.kind === "store.record") {
+  const decoded = decodeStatusPayload(payload);
+  if (!decoded) return null;
+  if (decoded.source === "record") {
     // A record the host carried because THIS plugin's watch named it. The
     // host only matched and projected the declared metadata fields.
     // What it means is decided here, by the dialect that wrote the watch —
@@ -229,10 +235,9 @@ export const normalizeClaudeStatus: StatusNormalizer = (
     // The record's own instant, not receipt: the tail polls, so receipt runs
     // up to an interval late, and a marker stamped honestly is one the
     // tracker can drop when it predates the turn it would end.
-    return isJsonRecord(payload.record) ? claudeTail.read(payload.record) : null;
+    return claudeTail.read(decoded.record);
   }
-  if (!isJsonRecord(payload.event)) return null;
-  const event = payload.event;
+  const event = decoded.event;
   switch (event.hook_event_name) {
     case "UserPromptSubmit":
       return { kind: "turn-start", at };
@@ -387,20 +392,39 @@ export const normalizeClaudeStatus: StatusNormalizer = (
  */
 /**
  * The events armed to ASK, declared beside the renderer that has to answer
- * them.
+ * them, and the one list both the arming and the deck read.
  *
  * The two must agree, and nothing else would notice them disagreeing. Armed
  * but not rendered: the hook waits out its whole window on every fire and
  * the messages are taken and put back for nothing. Rendered but not armed:
  * dead code, and that event's mail falls back to a paid terminal nudge.
- * Both are silent.
+ * Both are silent. `PostToolBatch` is what reaches a RUNNING turn: it fires
+ * between the tool results and the next model request.
  */
-export const ASKS_FOR_MAIL: ReadonlySet<string> = new Set([
-  "Stop",
-  "UserPromptSubmit",
-  "SessionStart",
-  "PostToolBatch",
-]);
+export const CLAUDE_MAIL_CHANNELS: readonly MailChannel[] = [
+  { event: "SessionStart", atTurnEnd: false },
+  { event: "UserPromptSubmit", atTurnEnd: false },
+  { event: "PostToolBatch", atTurnEnd: false },
+  { event: "Stop", atTurnEnd: true },
+];
+
+/**
+ * Whose report this is. A subagent's hook carries `agent_id`; the main
+ * agent's carries none, so a hook with the session's own fields and no
+ * agent id is the main agent's. Every claude report may move the pane: the
+ * normalizer already reads a subagent's events for what they are (agent-turn
+ * brackets, and a tool use that clears an approval wait nobody can tag with
+ * its raiser — `Notification` carries no agent id).
+ */
+export const attributeClaudeEvent = (payload: unknown): EventAttribution | null => {
+  const decoded = decodeStatusPayload(payload);
+  if (!decoded) return null;
+  if (decoded.source === "record") return { event: null, actor: "main", status: true };
+  const event = asNonEmptyString(decoded.event.hook_event_name);
+  if (!event) return null;
+  const actor = agentIdActor(decoded.event, decoded.reduced);
+  return { event, actor, status: true };
+};
 
 export const renderClaudeMail: MailReplyRenderer = ({ event, messages, waiting }) => {
   const text = frameTeammateMail(messages, waiting);

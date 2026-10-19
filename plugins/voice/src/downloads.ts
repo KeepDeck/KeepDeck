@@ -1,5 +1,6 @@
 import type { DownloadState, PluginContext } from "@keepdeck/plugin-api";
 import { modelById } from "./modelCatalog";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 export interface DownloadsSnapshot {
   active: Readonly<Record<string, DownloadState>>;
@@ -119,7 +120,7 @@ export function createModelDownloads(
       if (id) {
         void ctx.services.downloads.cancel(id).catch((error) => {
           ctx.log.warn(
-            `model download cancel failed: ${error instanceof Error ? error.message : String(error)}`,
+            `model download cancel failed: ${errorMessage(error)}`,
           );
         });
       }

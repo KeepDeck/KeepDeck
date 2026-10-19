@@ -6,6 +6,9 @@ import {
   carriedUsageRecord,
   collectTokenCounts,
   isJsonRecord,
+  parseInstant,
+  parseJsonRecord,
+  reportedLimits,
   type LimitsNormalizer,
   type TailWatch,
   type TokenCounts,
@@ -172,10 +175,8 @@ function quotaWindow(
   scope?: string,
 ): UsageWindow | null {
   if (!isJsonRecord(value)) return null;
-  const resetsAt =
-    typeof value.resetTime === "string" ? Date.parse(value.resetTime) : NaN;
   return allowanceWindow(value, {
-    resetsAt: Number.isFinite(resetsAt) ? resetsAt : null,
+    resetsAt: parseInstant(value.resetTime),
     windowMinutes,
     ...(scope ? { scope } : {}),
   });
@@ -209,13 +210,8 @@ function windowMinutesOf(window: unknown): number | null {
  */
 const PLAN_WINDOW_MINUTES = 7 * 1440;
 export const normalizeKimiUsages: LimitsNormalizer = (body, at) => {
-  let raw: unknown;
-  try {
-    raw = JSON.parse(body);
-  } catch {
-    return null;
-  }
-  if (!isJsonRecord(raw)) return null;
+  const raw = parseJsonRecord(body);
+  if (!raw) return null;
 
   const windows: UsageWindow[] = [];
   if (Array.isArray(raw.limits)) {
@@ -238,5 +234,5 @@ export const normalizeKimiUsages: LimitsNormalizer = (body, at) => {
   if (quota) windows.push(quota);
 
   if (windows.length === 0) return null;
-  return { kind: "reported", windows, reportedAt: at, sourcePaneId: "" };
+  return reportedLimits(windows, at);
 };

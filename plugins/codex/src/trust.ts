@@ -17,41 +17,62 @@
  *   every armed event's trust must ride in that one table — which is why
  *   this module takes the whole rule list at once.
  */
+import { sha256Hex } from "@keepdeck/plugin-api";
 
 /** One hook to arm: the codex event name (CamelCase, as `hooks.<Event>`
- * keys it) and the shell line to run. */
+ * keys it), the shell line to run, and — where the event can emit
+ * `additionalContext` — the token threshold past which codex spills it to a
+ * file (`0` never spills). */
 export interface HookRule {
   event: string;
   command: string;
+  additionalContextLimit?: number;
 }
 
 /** The trust-state key for a hook defined via `-c` (the SessionFlags
  * layer): `<layer path>:<event>:<matcher-group index>:<handler index>`,
  * with the event in snake_case — a codex quirk (the config key is
- * CamelCase, the state key is not). */
-export function sessionFlagsStateKey(event: string): string {
-  return `/<session-flags>/config.toml:${snakeCase(event)}:0:0`;
+ * CamelCase, the state key is not). Every rule of an event rides ONE
+ * matcher group, so the group is always 0 and the handler is the rule's
+ * place among its event's rules. */
+export function sessionFlagsStateKey(event: string, handler = 0): string {
+  return `/<session-flags>/config.toml:${snakeCase(event)}:0:${handler}`;
 }
 
 /** The `-c` override args that define and trust the given hooks: one
- * `hooks.<Event>` per rule, then ONE combined `hooks.state` table trusting
- * them all. Prepend to the spawn args (global flags precede subcommands). */
+ * `hooks.<Event>` per event, then ONE combined `hooks.state` table trusting
+ * every handler. Prepend to the spawn args (global flags precede
+ * subcommands).
+ *
+ * Two rules for one event become two handlers in that event's one group —
+ * a second `hooks.<Event>` would REPLACE the first. codex trusts each
+ * handler on its own: its key names the handler, and its hash is taken over
+ * the event as if that handler were alone in it (verified live on 0.163.0:
+ * corrupting only the second hash drops only the second handler). */
 export async function cliArgs(rules: readonly HookRule[]): Promise<string[]> {
+  const byEvent = new Map<string, HookRule[]>();
+  for (const rule of rules) byEvent.set(rule.event, [...(byEvent.get(rule.event) ?? []), rule]);
   const args: string[] = [];
-  for (const rule of rules) {
-    args.push(
-      "-c",
-      `hooks.${rule.event}=[{hooks=[{type="command",command=${tomlBasicString(rule.command)}}]}]`,
-    );
+  const entries: Promise<string>[] = [];
+  for (const [event, handlers] of byEvent) {
+    args.push("-c", `hooks.${event}=[{hooks=[${handlers.map(handlerTable).join(",")}]}]`);
+    handlers.forEach((rule, index) => {
+      entries.push(
+        trustedHash(rule).then(
+          (hash) => `"${sessionFlagsStateKey(event, index)}" = {trusted_hash = "${hash}"}`,
+        ),
+      );
+    });
   }
-  const entries = await Promise.all(
-    rules.map(
-      async (rule) =>
-        `"${sessionFlagsStateKey(rule.event)}" = {trusted_hash = "${await trustedHash(rule)}"}`,
-    ),
-  );
-  args.push("-c", `hooks.state={${entries.join(", ")}}`);
+  args.push("-c", `hooks.state={${(await Promise.all(entries)).join(", ")}}`);
   return args;
+}
+
+/** One handler as the inline table `hooks.<Event>` lists. */
+function handlerTable(rule: HookRule): string {
+  const declared = contextLimitOf(rule);
+  const limit = declared === undefined ? "" : `,additionalContextLimit=${declared}`;
+  return `{type="command",command=${tomlBasicString(rule.command)}${limit}}`;
 }
 
 /**
@@ -71,42 +92,66 @@ export async function cliArgs(rules: readonly HookRule[]): Promise<string[]> {
  */
 export const CODEX_HOOK_TIMEOUT_SECONDS = 600;
 
+/** The default for the two events codex runs while it is shutting a turn or
+ * a session down — `Interrupt` and `SessionEnd` — which it also clamps to
+ * 1..3 s (hooks/src/engine/discovery.rs, normalize_command_hook, 0.163.0).
+ * Hashing one of them with the general 600 makes codex skip it in silence:
+ * verified live. */
+const SHUTDOWN_HOOK_TIMEOUT_SECONDS = 1;
+
+/** The events codex lets emit `additionalContext` — the only ones whose
+ * `additionalContextLimit` it keeps. On any other it drops the field before
+ * hashing, so declaring it there would trust a hook codex never sees: `Stop`
+ * spills a long reason whatever the limit (verified live on 0.163.0). */
+const CONTEXT_EVENTS: ReadonlySet<string> = new Set([
+  "PreToolUse",
+  "PostToolUse",
+  "SessionStart",
+  "UserPromptSubmit",
+  "SubagentStart",
+]);
+
+/** A rule's context limit as codex normalizes it: kept only where the event
+ * can emit context. */
+function contextLimitOf(rule: HookRule): number | undefined {
+  return CONTEXT_EVENTS.has(rule.event) ? rule.additionalContextLimit : undefined;
+}
+
+/** The timeout codex normalizes a hook declaring none to, by event. */
+export function codexHookTimeout(event: string): number {
+  return event === "Interrupt" || event === "SessionEnd"
+    ? SHUTDOWN_HOOK_TIMEOUT_SECONDS
+    : CODEX_HOOK_TIMEOUT_SECONDS;
+}
+
 /** codex's fingerprint of the normalized hook identity:
  * `sha256:<hex>` over the compact, KEY-SORTED JSON of
- * `{event_name, hooks:[{async, command, timeout, type}]}` — defaults
- * applied ([`CODEX_HOOK_TIMEOUT_SECONDS`], `async` false), `None` fields
- * omitted, matcher absent. JSON.stringify preserves insertion order, so the
- * literals below are written in alphabetical key order to match
+ * `{event_name, hooks:[{additionalContextLimit?, async, command, timeout,
+ * type}]}` — defaults applied ([`codexHookTimeout`], `async` false), `None`
+ * fields omitted, matcher absent. JSON.stringify preserves insertion order,
+ * so the literals below are written in alphabetical key order to match
  * serde_json's sorted map. */
 export async function trustedHash(rule: HookRule): Promise<string> {
   const identity = {
     event_name: snakeCase(rule.event),
     hooks: [
       {
+        ...(contextLimitOf(rule) === undefined
+          ? {}
+          : { additionalContextLimit: contextLimitOf(rule) }),
         async: false,
         command: rule.command,
-        timeout: CODEX_HOOK_TIMEOUT_SECONDS,
+        timeout: codexHookTimeout(rule.event),
         type: "command",
       },
     ],
   };
-  const bytes = new TextEncoder().encode(JSON.stringify(identity));
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  const hex = [...new Uint8Array(digest)]
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
-  return `sha256:${hex}`;
+  return `sha256:${await sha256Hex(JSON.stringify(identity))}`;
 }
 
 /** `SessionStart` → `session_start` — the state-key/fingerprint spelling. */
 function snakeCase(event: string): string {
   return event.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
-}
-
-/** Quote a path for use inside the hook's shell command line (single quotes,
- * `'\''` escaping) — KeepDeck.app can live under a path with spaces. */
-export function shellQuote(path: string): string {
-  return `'${path.split("'").join(`'\\''`)}'`;
 }
 
 /** A TOML basic string (double-quoted, `\` and `"` escaped). */

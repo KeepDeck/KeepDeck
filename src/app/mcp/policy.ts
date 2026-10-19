@@ -1,4 +1,5 @@
-import { describeError, log } from "../../ipc/log";
+import { log } from "../../ipc/log";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 /** The backend calls the policy drives — injectable for tests. */
 export interface McpTransportPort {
@@ -59,7 +60,7 @@ export function createMcpServerPolicy(
         const value = await transport.enable();
         report({ ok: true, detail: typeof value === "string" ? value : null });
       } catch (e) {
-        const detail = describeError(e);
+        const detail = errorMessage(e);
         log.warn("web:mcp", `mcp enable failed: ${detail}`);
         report({ ok: false, detail });
         applied = false;
@@ -78,7 +79,7 @@ export function createMcpServerPolicy(
           try {
             await transport.disable();
           } catch (e) {
-            log.warn("web:mcp", `final disable failed: ${describeError(e)}`);
+            log.warn("web:mcp", `final disable failed: ${errorMessage(e)}`);
           }
         });
       }

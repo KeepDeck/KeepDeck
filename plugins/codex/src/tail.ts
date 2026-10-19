@@ -21,6 +21,7 @@
 import {
   isJsonRecord,
   jsonl,
+  parseInstant,
   turnFailedEvent,
   type JsonlRequest,
   type PluginContext,
@@ -40,12 +41,6 @@ interface CarriedRollout {
   timestamp?: unknown;
   "payload.type"?: unknown;
   "payload.error"?: unknown;
-}
-
-function instantOf(value: unknown): number | null {
-  if (typeof value !== "string") return null;
-  const at = Date.parse(value);
-  return Number.isFinite(at) ? at : null;
 }
 
 /**
@@ -78,7 +73,7 @@ export const codexRecords = {
   }, ...codexQuestionWatches],
 
   read: (record: CarriedRollout) => {
-    const at = instantOf(record.timestamp);
+    const at = parseInstant(record.timestamp);
     // Undatable is unreportable: the staleness guard places this instant
     // against the turn the edge would end, and an edge it cannot place would
     // end a turn that is running.

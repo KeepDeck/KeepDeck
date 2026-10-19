@@ -1,9 +1,9 @@
-import { isRecord } from "../domain/json";
 import { log } from "../ipc/log";
 import type { DeckStore } from "./deckStore";
 import type { PaneAttribution } from "./paneAttribution";
 import { paneMembership, paneMembershipKey } from "./paneMembership";
 import { paneSessionState } from "./ptyManager";
+import { isJsonRecord } from "@keepdeck/plugin-api";
 
 /** The wire shape both bridge report channels share (usage, status). */
 export interface PaneReportEvent {
@@ -74,14 +74,14 @@ export function createVerifiedPaneReports(
       // bridge refuses a report without one — so reading it here is not this
       // file learning a payload schema it has no business knowing.
       const reportedAgent =
-        isRecord(payload) && typeof payload.agent === "string"
+        isJsonRecord(payload) && typeof payload.agent === "string"
           ? payload.agent
           : undefined;
       // Correlation, like `agent` — not payload schema. A reporter that
       // cannot name its process omits it, and the pane's pin then decides
       // nothing rather than refusing everything.
       const reportedReporter =
-        isRecord(payload) && typeof payload.reporter === "string"
+        isJsonRecord(payload) && typeof payload.reporter === "string"
           ? payload.reporter
           : undefined;
       if (

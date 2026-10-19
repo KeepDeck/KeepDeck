@@ -1,3 +1,4 @@
+import { isJsonRecord } from "@keepdeck/plugin-api";
 /**
  * Schema revisions and migrations for every durable JSON document — the one
  * file to touch when a document's shape changes.
@@ -23,7 +24,6 @@
  * shape-changing step slots in beside them.
  */
 
-import { isRecord } from "../json";
 
 type RawDoc = Record<string, unknown>;
 type Migration = (doc: RawDoc) => RawDoc;
@@ -124,16 +124,16 @@ function migrateDeckFromV4toV5(doc: RawDoc): RawDoc {
 }
 
 function migrateWorkspaceRunToV5(value: unknown): unknown {
-  if (!isRecord(value)) return value;
+  if (!isJsonRecord(value)) return value;
   const { run, ...rest } = value;
-  if (!isRecord(run)) return value; // no run object: untouched
+  if (!isJsonRecord(run)) return value; // no run object: untouched
 
   const next: RawDoc = { ...rest };
   if (typeof run.setup === "string" && run.setup.trim() !== "") {
     next.setup = run.setup;
   }
   if (Array.isArray(run.presets) && run.presets.length > 0) {
-    const plugins = isRecord(rest.plugins) ? { ...rest.plugins } : {};
+    const plugins = isJsonRecord(rest.plugins) ? { ...rest.plugins } : {};
     next.plugins = { ...plugins, [RUN_PLUGIN_ID]: { presets: run.presets } };
   }
   return next;
@@ -233,7 +233,7 @@ function v10PanePlacement(
   if (typeof pane.remoteEndpoint === "string" && pane.remoteEndpoint) return { dir: root };
   if (typeof pane.cwd === "string") return { dir: pane.cwd, branch };
   const provisioning = pane.provisioning;
-  if (isRecord(provisioning) && typeof provisioning.path === "string") {
+  if (isJsonRecord(provisioning) && typeof provisioning.path === "string") {
     return { dir: provisioning.path, provisioning };
   }
   return { dir: root, branch };
@@ -255,19 +255,19 @@ function migrateWorkspaceTeamsToV11(
   mint: { next: number },
   notices: string[],
 ): unknown {
-  if (!isRecord(value) || !Array.isArray(value.panes)) return value;
+  if (!isJsonRecord(value) || !Array.isArray(value.panes)) return value;
   const root = typeof value.cwd === "string" ? value.cwd : "";
   const label = typeof value.name === "string" ? value.name : String(value.id ?? "?");
-  const panes = value.panes.filter(isRecord);
+  const panes = value.panes.filter(isJsonRecord);
 
   // Every pane's directory and named membership, in reading order.
   const placed = panes.map((pane) => {
     const placement = v10PanePlacement(pane, root);
     const raw = pane.team;
     const name =
-      isRecord(raw) && typeof raw.name === "string" ? raw.name.trim() : "";
+      isJsonRecord(raw) && typeof raw.name === "string" ? raw.name.trim() : "";
     const role =
-      isRecord(raw) && typeof raw.role === "string" ? raw.role.trim() : "";
+      isJsonRecord(raw) && typeof raw.role === "string" ? raw.role.trim() : "";
     return {
       pane,
       dirKey: directoryKey(placement.dir),
@@ -428,11 +428,11 @@ function migrateDeckFromV11toV12(doc: RawDoc): RawDoc {
   return {
     ...rest,
     workspaces: workspaces.map((ws) => {
-      if (!isRecord(ws) || typeof ws.id !== "string") return ws;
+      if (!isJsonRecord(ws) || typeof ws.id !== "string") return ws;
       const view: RawDoc = {};
       for (const [map, field] of Object.entries(V11_VIEW_MAPS)) {
         const entries = maps[map as keyof typeof maps];
-        if (isRecord(entries) && entries[ws.id] !== undefined) view[field] = entries[ws.id];
+        if (isJsonRecord(entries) && entries[ws.id] !== undefined) view[field] = entries[ws.id];
       }
       return Object.keys(view).length > 0 ? { ...ws, view } : ws;
     }),
@@ -451,7 +451,7 @@ function migrateDeckFromV12toV13(doc: RawDoc): RawDoc {
   return {
     ...doc,
     workspaces: workspaces.map((ws) => {
-      if (!isRecord(ws) || !isRecord(ws.view) || typeof ws.view.focus !== "string") return ws;
+      if (!isJsonRecord(ws) || !isJsonRecord(ws.view) || typeof ws.view.focus !== "string") return ws;
       return { ...ws, view: { ...ws.view, focus: [ws.view.focus] } };
     }),
   };

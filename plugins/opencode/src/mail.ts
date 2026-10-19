@@ -24,6 +24,7 @@
 import {
   frameTeammateMail,
   type DeliverableMail,
+  type MailChannel,
   type MailReplyRenderer,
 } from "@keepdeck/plugin-api";
 
@@ -37,6 +38,13 @@ export const MAIL_ASK_EVENT = "mail.ask";
  * update, still running) can tell an answer it cannot read from one that
  * happens to be empty. */
 export const MAIL_REPLY_VERSION = 1;
+
+/** opencode's one mail channel: the courier's own ask, made at a session's
+ * start, as the user sends, at idle (the turn's end) and on the deck's wake —
+ * several triggers, one delivery protocol. */
+export const OPENCODE_MAIL_CHANNELS: readonly MailChannel[] = [
+  { event: MAIL_ASK_EVENT, atTurnEnd: true },
+];
 
 export const renderOpencodeMail: MailReplyRenderer = ({ event, messages, waiting }) => {
   // Not our question. Nothing else asks today; refusing by name is what

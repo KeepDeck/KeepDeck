@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeClaudeStatus } from "./status";
+import { attributeClaudeEvent, normalizeClaudeStatus } from "./status";
 
 /** Hook payloads as the reporter wraps them (event verbatim from stdin). */
 const wrap = (event: Record<string, unknown>) => ({ agent: "claude", event });
@@ -474,5 +474,27 @@ describe("normalizeClaudeStatus", () => {
     expect(normalizeClaudeStatus({ agent: "claude" }, 100)).toBeNull();
     expect(normalizeClaudeStatus("garbage", 100)).toBeNull();
     expect(normalizeClaudeStatus(null, 100)).toBeNull();
+  });
+});
+
+describe("attributeClaudeEvent", () => {
+  it("reads a hook with the session's own fields and no agent_id as the main agent's", () => {
+    expect(attributeClaudeEvent(wrap({ hook_event_name: "Stop", session_id: "s1" }))).toEqual({
+      event: "Stop", actor: "main", status: true,
+    });
+  });
+
+  it("reads agent_id as a subagent's — whose events still move the pane", () => {
+    // A subagent's tool use clears an approval wait nobody can tag with its
+    // raiser, and SubagentStart/Stop bracket its turn: the normalizer reads
+    // those for what they are.
+    expect(attributeClaudeEvent(wrap({ hook_event_name: "PostToolBatch", session_id: "s1", agent_id: "a1" })))
+      .toEqual({ event: "PostToolBatch", actor: "child", status: true });
+  });
+
+  it("names nobody without a session id, or once the reporter reduced the payload", () => {
+    expect(attributeClaudeEvent(wrap({ hook_event_name: "Stop" }))).toMatchObject({ actor: "unknown" });
+    expect(attributeClaudeEvent({ agent: "claude", reduced: true, event: { hook_event_name: "Stop", session_id: "s1" } }))
+      .toMatchObject({ actor: "unknown", status: true });
   });
 });

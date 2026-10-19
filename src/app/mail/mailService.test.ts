@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { AgentStatus, MailChannel } from "@keepdeck/plugin-api";
 import { createCommandRegistry } from "../../domain/commands";
 import type { Pane, Workspace } from "../../domain/deck";
 import type { PaneActivity } from "../../domain/status";
@@ -6,6 +7,7 @@ import { createWorkspaceInstance } from "../../domain/workspaceInstance";
 import { createMailService } from "./mailService";
 
 const READY: PaneActivity = { state: "done", at: 1, interrupted: false };
+const WORKING: PaneActivity = { state: "working", since: 1 };
 const APPROVING: PaneActivity = { state: "waiting", since: 1, reason: "permission" };
 
 const SENDER = {
@@ -14,7 +16,7 @@ const SENDER = {
   pane: { id: "pane-1", workspaceId: "ws-1", label: "Agent 1" },
 };
 
-function setup() {
+function setup(statusOf: (agentId: string) => AgentStatus | undefined = () => undefined) {
   // pane-1 is on a team, so the standing-presence has something to re-state.
   let panes: Pane[] = [
     { id: "pane-1", team: { teamId: "team-1", role: "lead" } },
@@ -66,9 +68,9 @@ function setup() {
       },
       agents: {
         labels: () => [{ id: "claude", label: "Claude" }],
-        // No renderMail and no wake: this agent is a plain terminal CLI, so
-        // the manager's default path is the one under test here.
-        statusOf: () => undefined,
+        // No mail and no wake unless a test says so: a plain terminal CLI,
+        // so the manager's default path is the one under test here.
+        statusOf,
         versionOf: () => null,
         onAgentsChanged: (listener: () => void) => {
           agentListeners.add(listener);
@@ -359,6 +361,33 @@ describe("createMailService", () => {
  * observable contract: land → briefed, join → everyone re-briefed, leave →
  * the rest re-briefed, and an unrelated deck change briefs nobody.
  */
+describe("mail service — whether a working pane is held or woken", () => {
+  const agentAsking = (channels: MailChannel[]): AgentStatus => ({
+    normalize: () => null,
+    attribute: () => null,
+    mail: { channels, render: () => "rendered" },
+  });
+
+  it("holds mail for a working pane whose agent collects at turn end", () => {
+    const h = setup(() => agentAsking([{ event: "Stop", atTurnEnd: true }]));
+    h.reports("pane-2", WORKING);
+    void h.send("rides the turn's end");
+    expect(h.woken).toEqual([]);
+  });
+
+  it("wakes a working pane whose agent has a renderer but no turn-end channel", () => {
+    // kimi: it renders mail, but asks only as a turn starts. Holding for a
+    // boundary that never asks would strand the message; the deck's nudge
+    // queues behind the running turn and opens the next one, whose prompt
+    // hook collects it. Before, having a renderer at all read as "collects
+    // at turn end".
+    const h = setup(() => agentAsking([{ event: "UserPromptSubmit", atTurnEnd: false }]));
+    h.reports("pane-2", WORKING);
+    void h.send("opens the next turn");
+    expect(h.woken).toEqual(["pane-2"]);
+  });
+});
+
 describe("mail service — a briefing follows membership", () => {
   const lead = (): Pane =>
     ({ id: "pane-1", team: { teamId: "team-1", role: "lead" } }) as Pane;

@@ -1,5 +1,6 @@
 import { spawnSession, type Session } from "../ipc/session";
-import { describeError, log } from "../ipc/log";
+import { log } from "../ipc/log";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 /**
  * The owner of every live PTY session, keyed by pane id. A `TerminalPane` is
@@ -239,7 +240,7 @@ export function acquirePane(paneId: string, spec: PaneSpawnSpec): void {
         try {
           sinks.get(paneId)?.onOutput(bytes);
         } catch (err) {
-          log.error("web:pty", `${paneId}: onOutput threw: ${describeError(err)}`);
+          log.error("web:pty", `${paneId}: onOutput threw: ${errorMessage(err)}`);
         }
         if (firstOutput) {
           // Announced after the output, matching [`attachPane`]'s replay order:
@@ -247,7 +248,7 @@ export function acquirePane(paneId: string, spec: PaneSpawnSpec): void {
           try {
             sinks.get(paneId)?.onLaunched();
           } catch (err) {
-            log.error("web:pty", `${paneId}: onLaunched threw: ${describeError(err)}`);
+            log.error("web:pty", `${paneId}: onLaunched threw: ${errorMessage(err)}`);
           }
         }
         remember(entry, bytes);
@@ -280,7 +281,7 @@ export function acquirePane(paneId: string, spec: PaneSpawnSpec): void {
     })
     .catch((err: unknown) => {
       if (entry.closed) return;
-      entry.failed = describeError(err);
+      entry.failed = errorMessage(err);
       setSessionState(paneId, { kind: "failed", message: entry.failed });
       log.error("web:pty", `${paneId}: spawn failed: ${entry.failed}`);
       const sink = sinks.get(paneId);
@@ -410,7 +411,7 @@ export function closePane(paneId: string): Promise<void> {
   log.info("web:pty", `${paneId}: close`);
   return session.close().catch((e) => {
     // Usually "already gone" (the process exited and reaped itself).
-    log.debug("web:pty", `${paneId}: close failed: ${describeError(e)}`);
+    log.debug("web:pty", `${paneId}: close failed: ${errorMessage(e)}`);
   });
 }
 

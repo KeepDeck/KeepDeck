@@ -1,11 +1,16 @@
+import reporterManifest from "../resources/keepdeck-session-reporter/kimi.plugin.json";
 import {
+  asNonEmptyString,
+  decodeStatusPayload,
   frameTeammateMail,
-  isJsonRecord,
   reduceQuestionStatus,
   type AgentStatusEvent,
+  type EventActor,
+  type EventAttribution,
+  type MailChannel,
   type MailReplyRenderer,
-  type StatusNormalizer,
   type QuestionState,
+  type StatusNormalizer,
 } from "@keepdeck/plugin-api";
 import { kimiRecords } from "./tail";
 import { kimiQuestionCall } from "./questions";
@@ -26,13 +31,11 @@ import { kimiQuestionCall } from "./questions";
  * hook message to the turn the person just opened, wrapped in its own
  * `<hook_result>` element.
  *
- * `Stop` takes only a BLOCK, and kimi has one way to express one in stdout:
- * `permissionDecision: "deny"` with the text in `permissionDecisionReason`.
- * The wording is the permission vocabulary reused — for `Stop` it means "do
- * not stop", and kimi appends the reason and keeps the turn running, which
- * is the same trade the other two CLIs make. The alternative is exit 2 with
- * the text on stderr, rejected because the reporter is one script shared by
- * three CLIs and its exit code is not the deck's to vary.
+ * `Stop` is not a channel ([`KIMI_MAIL_CHANNELS`]). It could carry mail — a
+ * block (`permissionDecision: "deny"`) makes kimi continue the turn with the
+ * reason appended — but it fires for subagents with no agent identity, so a
+ * message handed out there could land in a subagent and never reach the
+ * agent it was written for.
  *
  * The framing is the point. `<teammate-message>` names whose words these
  * are and the sentence after it says how much authority they carry: another
@@ -42,20 +45,54 @@ import { kimiQuestionCall } from "./questions";
 export const renderKimiMail: MailReplyRenderer = ({ event, messages, waiting }) => {
   const text = frameTeammateMail(messages, waiting);
   switch (event.hook_event_name) {
-    case "Stop":
-      return JSON.stringify({
-        hookSpecificOutput: {
-          permissionDecision: "deny",
-          permissionDecisionReason: text,
-        },
-      });
     case "UserPromptSubmit":
       return JSON.stringify({ message: text });
     default:
-      // StopFailure, Interrupt and the permission pair report a fact and
-      // read nothing back.
+      // Not a channel: the deck never asks this renderer about any other
+      // event.
       return null;
   }
+};
+
+/**
+ * Where kimi's hooks ask for mail: exactly the events the companion
+ * manifest arms with `--ask`, so the manifest is the one list. That is
+ * `UserPromptSubmit` alone. `Stop` fires for subagents too, with no agent
+ * identity, so mail handed out there could land in a subagent — kimi takes
+ * mail as a turn starts, and a pane whose turn is running is woken once it
+ * ends. None of kimi's channels runs at turn end.
+ */
+export const KIMI_MAIL_CHANNELS: readonly MailChannel[] = reporterManifest.hooks
+  .filter((hook) => hook.command.split(" ").includes("--ask"))
+  .map((hook) => ({ event: hook.event, atTurnEnd: false }));
+
+/**
+ * Whose report this is, in kimi's terms.
+ *
+ * - `UserPromptSubmit` runs only for prompts of origin `user` — never a
+ *   subagent's — so it is the main agent's.
+ * - The permission pair carries `agent_id`, `"main"` for the main agent.
+ * - `Stop`, `Interrupt` and `StopFailure` carry no agent identity and fire for
+ *   subagents too: nobody can say whose they are, and the main wire reports
+ *   the real endings, so they move nothing.
+ * - A record of the main wire is the main agent's.
+ */
+export const attributeKimiEvent = (payload: unknown): EventAttribution | null => {
+  const decoded = decodeStatusPayload(payload);
+  if (!decoded) return null;
+  if (decoded.source === "record") return { event: null, actor: "main", status: true };
+  const event = asNonEmptyString(decoded.event.hook_event_name);
+  if (!event) return null;
+  let actor: EventActor = "unknown";
+  if (!decoded.reduced) {
+    if (event === "UserPromptSubmit") actor = "main";
+    else if (event === "PermissionRequest" || event === "PermissionResult") {
+      const agentId = asNonEmptyString(decoded.event.agent_id);
+      actor = agentId === "main" ? "main" : agentId ? "child" : "unknown";
+    }
+  }
+  const status = event === "UserPromptSubmit" ? actor !== "child" : actor === "main";
+  return { event, actor, status };
 };
 
 /**
@@ -72,12 +109,10 @@ const readKimiStatus = (
   payload: unknown,
   at: number,
 ): AgentStatusEvent | null => {
-  if (!isJsonRecord(payload)) return null;
-  if (payload.kind === "store.record") {
-    return isJsonRecord(payload.record) ? kimiRecords.read(payload.record) : null;
-  }
-  if (!isJsonRecord(payload.event)) return null;
-  const event = payload.event;
+  const decoded = decodeStatusPayload(payload);
+  if (!decoded) return null;
+  if (decoded.source === "record") return kimiRecords.read(decoded.record);
+  const event = decoded.event;
   switch (event.hook_event_name) {
     case "UserPromptSubmit":
       return { kind: "turn-start", at };
@@ -86,10 +121,8 @@ const readKimiStatus = (
     case "StopFailure":
       return null;
     case "PermissionRequest":
-      if (event.agent_id !== "main") return null;
       return { kind: "waiting", at, reason: "permission" };
     case "PermissionResult":
-      if (event.agent_id !== "main") return null;
       return { kind: "resumed", at, reason: "permission" };
     default:
       return null;
@@ -97,8 +130,8 @@ const readKimiStatus = (
 };
 
 export const normalizeKimiStatus: StatusNormalizer = (payload, at, context) => {
-  const record = isJsonRecord(payload) && payload.kind === "store.record" && isJsonRecord(payload.record)
-    ? payload.record : null;
+  const decoded = decodeStatusPayload(payload);
+  const record = decoded?.source === "record" ? decoded.record : null;
   const result = reduceQuestionStatus(context?.state as QuestionState | undefined,
     readKimiStatus(payload, at), record ? kimiQuestionCall(record) : undefined);
   return { kind: "status-reduction", ...result };

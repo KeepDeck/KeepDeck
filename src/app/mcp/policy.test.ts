@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("../../ipc/log", () => ({
   log: { warn: vi.fn() },
-  describeError: (e: unknown) => String(e),
 }));
 
 import { createMcpServerPolicy, type McpTransportPort } from "./policy";
@@ -76,8 +75,8 @@ describe("createMcpServerPolicy", () => {
     policy.ensure();
     await flush();
     expect(transitions).toEqual([
-      // detail carries this file's describeError mock rendering.
-      { ok: false, detail: "Error: taken" },
+      // detail carries the rendering errorMessage gives it.
+      { ok: false, detail: "taken" },
       { ok: true, detail: "/sock" },
     ]);
   });

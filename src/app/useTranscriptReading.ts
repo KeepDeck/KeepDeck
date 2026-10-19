@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 import type { AgentTranscriptEntry, Shortfall } from "@keepdeck/plugin-api";
 import type { SessionsBrowserApi } from "./useSessionsBrowser";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 /** The first page fills a viewport; later ones top it up. Both are reading
  * policy — how much to ask for — not layout. */
@@ -150,7 +151,7 @@ export function useTranscriptReading(input: {
           // The read fell on the LAST link — every handle refused. Exhausted
           // stops the caller from asking again for a link that just refused;
           // a retry comes from a fresh open.
-          setError(e instanceof Error ? e.message : String(e));
+          setError(errorMessage(e));
           setExhausted(true);
           markLinksRef.current(links, true);
         })

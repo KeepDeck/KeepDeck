@@ -1,4 +1,4 @@
-import type { TokenCounts } from "@keepdeck/plugin-api";
+import { isJsonRecord, type TokenCounts } from "@keepdeck/plugin-api";
 import { finiteNonNegative } from "./guards";
 
 /**
@@ -90,7 +90,7 @@ export function decodeUsageEventLine(line: string): DecodedUsageEvent | null {
   } catch {
     return null;
   }
-  if (!record(value)) {
+  if (!isJsonRecord(value)) {
     return null;
   }
   const migrated = value.schemaVersion === 1;
@@ -242,11 +242,11 @@ function readCommonEvent(
   ) {
     return null;
   }
-  if (!record(value.tokens) || !record(value.observation)) return null;
-  if (!record(value.observation.tokens)) return null;
+  if (!isJsonRecord(value.tokens) || !isJsonRecord(value.observation)) return null;
+  if (!isJsonRecord(value.observation.tokens)) return null;
   if (value.worktree !== undefined) {
     if (
-      !record(value.worktree) ||
+      !isJsonRecord(value.worktree) ||
       typeof value.worktree.path !== "string" ||
       typeof value.worktree.repo !== "string"
     ) {
@@ -325,10 +325,6 @@ function readTokens(value: Record<string, unknown>): TokenCounts | null {
     result[key] = item;
   }
   return result;
-}
-
-function record(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /** The event's provider-reported cost, or null when it carries none —

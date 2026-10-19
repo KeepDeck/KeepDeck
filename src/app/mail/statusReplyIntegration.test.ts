@@ -1,7 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentContribution, AgentStatus } from "@keepdeck/plugin-api";
-import { normalizeClaudeStatus, renderClaudeMail } from "../../../plugins/claude/src/status";
-import { normalizeCodexStatus, renderCodexMail } from "../../../plugins/codex/src/status";
+import {
+  attributeClaudeEvent,
+  CLAUDE_MAIL_CHANNELS,
+  normalizeClaudeStatus,
+  renderClaudeMail,
+} from "../../../plugins/claude/src/status";
+import {
+  attributeCodexEvent,
+  CODEX_MAIL_CHANNELS,
+  normalizeCodexStatus,
+  renderCodexMail,
+} from "../../../plugins/codex/src/status";
 import { createAgentStatusTracker } from "../agentStatusTracker";
 import { createAgentStatusChannel } from "../agentStatusChannel";
 import { createPaneAttribution } from "../paneAttribution";
@@ -24,10 +34,20 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+const CLAUDE: AgentStatus = {
+  normalize: normalizeClaudeStatus,
+  attribute: attributeClaudeEvent,
+  mail: { channels: CLAUDE_MAIL_CHANNELS, render: renderClaudeMail },
+};
+const CODEX: AgentStatus = {
+  normalize: normalizeCodexStatus,
+  attribute: attributeCodexEvent,
+  mail: { channels: CODEX_MAIL_CHANNELS, render: renderCodexMail },
+};
 const dialects: { agent: string; status: AgentStatus; version: string }[] = [
-  { agent: "claude", status: { normalize: normalizeClaudeStatus, renderMail: renderClaudeMail }, version: "2.1.266" },
-  { agent: "codex", status: { normalize: normalizeCodexStatus, renderMail: renderCodexMail }, version: "0.153.2" },
-  { agent: "codex", status: { normalize: normalizeCodexStatus, renderMail: renderCodexMail }, version: "0.146.0" },
+  { agent: "claude", status: CLAUDE, version: "2.1.266" },
+  { agent: "codex", status: CODEX, version: "0.153.2" },
+  { agent: "codex", status: CODEX, version: "0.146.0" },
 ];
 
 async function setup(dialect = dialects[0]) {
@@ -45,7 +65,7 @@ async function setup(dialect = dialects[0]) {
   const delivery = new Promise<boolean>((yes, no) => { resolve = yes; reject = no; });
   const reply = vi.fn(() => delivery);
   const replies = createHookReplies({ mail: () => manager,
-    rendererFor: () => dialect.status.renderMail, versionOf: () => dialect.version, reply,
+    statusFor: () => dialect.status, versionOf: () => dialect.version, reply,
     teamOf: () => null });
   const deck = { getSnapshot: () => ({ workspaces: [{ id: "ws", panes: [
     { id: "pane", agentType: dialect.agent },
@@ -60,11 +80,11 @@ async function setup(dialect = dialects[0]) {
     { subscribe: () => () => {} }, replies.answer, () => released);
   disposers.push(() => { channel.dispose(); manager.dispose(); });
   await Promise.resolve();
-  const emit = (name: string, at: number, ask = false) => {
+  const emit = (name: string, at: number, ask = false, extra: Record<string, unknown> = {}) => {
     now = at;
     ipc.handler!({ paneId: "pane", token: "tok", payload: {
       agent: dialect.agent, ...(ask ? { reply: "correlation" } : {}),
-      event: { hook_event_name: name, notification_type: "permission_prompt" },
+      event: { hook_event_name: name, session_id: "s1", notification_type: "permission_prompt", ...extra },
     } });
   };
   emit("UserPromptSubmit", 100);
@@ -93,6 +113,30 @@ describe("verified status → mail handover → delivered hook reply", () => {
     expect(h.released).toHaveBeenCalledOnce();
     h.emit("Stop", 300);
     expect(h.activity()).toEqual({ state: "done", at: 300, interrupted: false });
+  });
+
+  it("a codex subagent neither moves the pane nor takes its mail", async () => {
+    // Verified live on codex 0.163.0: a subagent's UserPromptSubmit,
+    // PermissionRequest and PostToolUse reach the pane's reporter with the
+    // root's session id; only agent_id tells them apart.
+    const h = await setup(dialects[1]);
+    h.emit("PermissionRequest", 150);
+    expect(h.activity()?.state).toBe("waiting");
+    h.send();
+    const child = { agent_id: "019f-child", agent_type: "default" };
+    h.emit("UserPromptSubmit", 200, true, child);
+    h.emit("PermissionRequest", 210, false, child);
+    h.emit("PostToolUse", 220, true, child);
+    expect(h.activity()).toMatchObject({ state: "waiting", since: 150 });
+    // Each ask is answered — with nothing, so its hook does not wait out a
+    // timeout — and the message stays queued.
+    const bodies = () => (h.reply.mock.calls as unknown as string[][]).map((call) => call[2]);
+    expect(bodies()).toEqual(["", ""]);
+    expect(h.manager.waiting("pane")).toBe(1);
+    // The main agent's own boundary still collects it.
+    h.emit("PostToolUse", 230, true);
+    expect(bodies()[2]).toContain("Check the parser");
+    expect(h.manager.waiting("pane")).toBe(0);
   });
 
   it("uses the ending preview, not a stale permission wait, for handover", async () => {

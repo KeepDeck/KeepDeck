@@ -146,10 +146,9 @@ export function createKimiServerManager(
           //
           // - `kimi web` replaced `kimi server run` (removed in Kimi Code 0.28).
           //   `--no-open` suppresses the browser it would otherwise launch;
-          //   `--host 127.0.0.1` keeps the bind loopback-only — required for
-          //   `--debug-endpoints`, which mounts the `/api/v1/debug/*` RPC
-          //   surface (the only plugin-management API left in 0.29; gated to
-          //   loopback binds by Kimi itself). `--log-level silent` gates only
+          //   `--host 127.0.0.1` keeps the bind loopback-only, so the public
+          //   plugin API (`/api/v1/plugins`, Bearer-token gated) is reachable
+          //   from this machine alone. `--log-level silent` gates only
           //   request logs — the startup banner and any failure notice still
           //   print, so both extractServerAccess and the "It reported:"
           //   diagnostic below keep seeing the server's own output.

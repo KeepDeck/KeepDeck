@@ -106,6 +106,22 @@ describe("agentStatusTracker — context rebuilds", () => {
     expect(tracker.getSnapshot()).toBe(before);
   });
 
+  it("announces a compaction before the ask riding on it is answered", () => {
+    // The hook that reports a compaction (claude's and codex's
+    // `SessionStart` with source `compact`) is also a mail ask, answered
+    // between prepare and finish. The briefing the rebuild re-states must
+    // already be queued when that answer is taken, or it waits a tool call.
+    const tracker = createAgentStatusTracker();
+    tracker.registerNormalizer("claude", rebuildNormalizer);
+    const rebuilt: string[] = [];
+    tracker.onContextRebuilt((paneId) => rebuilt.push(paneId));
+
+    const pending = tracker.prepare("pane-1", { agent: "claude", event: { kind: "compact" } }, 1);
+    expect(rebuilt).toEqual(["pane-1"]);
+    pending.finish();
+    expect(rebuilt).toEqual(["pane-1"]);
+  });
+
   it("says nothing for an ordinary edge", () => {
     const tracker = createAgentStatusTracker();
     tracker.registerNormalizer("claude", rebuildNormalizer);

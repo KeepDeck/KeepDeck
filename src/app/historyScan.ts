@@ -3,6 +3,7 @@ import {
   type AgentHistory,
   type AgentSessionFacts,
   type AgentSessionStub,
+  errorMessage,
 } from "@keepdeck/plugin-api";
 import {
   indexPrune,
@@ -11,7 +12,7 @@ import {
   type IndexRowInput,
   type PrunedKey,
 } from "../ipc/history";
-import { describeError, log } from "../ipc/log";
+import { log } from "../ipc/log";
 
 /** How many changed sessions are described/read per upsert batch — bounds
  * memory on a first-ever scan of a thousand-session store. */
@@ -111,7 +112,7 @@ async function enumerate(
     } catch (e) {
       log.warn(
         "web:history",
-        `${agentId}: listing() failed (${describeError(e)}) — falling back to list()`,
+        `${agentId}: listing() failed (${errorMessage(e)}) — falling back to list()`,
       );
     }
   }
@@ -173,7 +174,7 @@ export async function scanAgentHistories(
               refusedSessions += 1;
               log.warn(
                 "web:history",
-                `${agentId} ${stub.sessionId}: skipped — ${describeError(e)}`,
+                `${agentId} ${stub.sessionId}: skipped — ${errorMessage(e)}`,
               );
               return null;
             }
@@ -228,7 +229,7 @@ export async function scanAgentHistories(
     } catch (e) {
       log.warn(
         "web:history",
-        `${agentId} history scan failed: ${describeError(e)}`,
+        `${agentId} history scan failed: ${errorMessage(e)}`,
       );
     }
   }

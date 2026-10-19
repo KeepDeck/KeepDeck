@@ -1,5 +1,5 @@
-import { isRecord } from "../json";
 import type { JournalEvent, SessionRecord, SessionRecordBase } from "./sessionLog";
+import { isJsonRecord } from "@keepdeck/plugin-api";
 
 /**
  * The `journal.jsonl` line codec. One event per line; each line carries its
@@ -45,7 +45,7 @@ export function decodeJournalLines(lines: string[]): DecodedJournal {
 }
 
 function readJournalEvent(value: unknown): JournalEvent | "foreign" | null {
-  if (!isRecord(value)) return null;
+  if (!isJsonRecord(value)) return null;
   const { e, v, wsId } = value;
   if (typeof e !== "string" || typeof v !== "number") return null;
   if (typeof wsId !== "string" || wsId === "") return null;
@@ -89,7 +89,7 @@ function readJournalEvent(value: unknown): JournalEvent | "foreign" | null {
 }
 
 function readRecordBase(value: unknown): SessionRecordBase | null {
-  if (!isRecord(value)) return null;
+  if (!isJsonRecord(value)) return null;
   const { agent, sessionId, cwd, boundAt } = value;
   if (
     typeof agent !== "string" ||
@@ -117,7 +117,7 @@ function readRecordBase(value: unknown): SessionRecordBase | null {
 
 function readSessionRecord(value: unknown): SessionRecord | null {
   const base = readRecordBase(value);
-  if (!base || !isRecord(value)) return null;
+  if (!base || !isJsonRecord(value)) return null;
   if (value.state === "live" && typeof value.paneId === "string") {
     return { ...base, state: "live", paneId: value.paneId };
   }

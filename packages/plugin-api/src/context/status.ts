@@ -12,8 +12,10 @@
  * enum cannot.
  */
 
+import { isJsonRecord } from "../json.ts";
 import { asNonEmptyString } from "./usage.ts";
-import type { SessionTailDialect } from "./sessionTail.ts";
+import { CARRIED_RECORD, type SessionTailDialect } from "./sessionTail.ts";
+import type { AgentMail, EventAttribution } from "./agentEvents.ts";
 
 /** Why an agent is waiting on the user. `permission` = a tool-approval
  * prompt is up; `question` = the agent itself asked for input. */
@@ -151,14 +153,19 @@ export interface AgentStatus {
   /** Normalize this agent's bridge status payloads (hook reporters, the
    * host tailer's interrupt markers — whatever its reporters emit). */
   normalize: StatusNormalizer;
-  /** Turn messages waiting for this pane into what the CLI's own hook must
-   * print so the agent READS them as another agent's words.
+  /** Who raised one status payload, and whether it may move the pane — the
+   * dialect half of [`admittedNormalizer`] and [`admitMail`], which hold the
+   * one rule for what follows. Pure: no state, no I/O. */
+  attribute: (payload: unknown) => EventAttribution | null;
+  /** How teammate mail reaches this agent: the hook events that ask for it,
+   * and how its CLI must hear the answer so it READS them as another agent's
+   * words.
    *
-   * Lives beside `normalize` because it answers the same event: the hook
+   * Lives beside `normalize` because it answers the same events: the hook
    * that reports a turn ending is the hook that asks whether anything is
    * waiting, and one round trip serves both. Absent = this agent has no
    * labelled channel, and its mail arrives through the terminal instead. */
-  renderMail?: MailReplyRenderer;
+  mail?: AgentMail;
   /** What one record of this agent's OWN session store means, for the edges
    * no hook carries.
    *
@@ -253,6 +260,35 @@ export interface MailReplyInput {
 export type MailReplyRenderer = (input: MailReplyInput) => string | null;
 
 /* ---- Authoring helpers ----------------------------------------------- */
+
+/** What one status payload carries, decoded once for every normalizer: a
+ * record of the agent's own store that the host carried
+ * (`kind: CARRIED_RECORD`, the record under `record`), or a hook reporter's
+ * payload (verbatim under `event`). */
+export type StatusPayload =
+  | { readonly source: "record"; readonly record: Record<string, unknown> }
+  | {
+      readonly source: "hook";
+      readonly event: Record<string, unknown>;
+      /** The reporter cut an oversized payload down to its event name and
+       * said so (`reduced: true` beside the event). Whoever raised it can no
+       * longer be told. */
+      readonly reduced: boolean;
+    };
+
+/** The status envelope → what it carries, or null when it carries neither.
+ * A carried envelope without a record is null, never read as a hook. */
+export function decodeStatusPayload(payload: unknown): StatusPayload | null {
+  if (!isJsonRecord(payload)) return null;
+  if (payload.kind === CARRIED_RECORD) {
+    return isJsonRecord(payload.record)
+      ? { source: "record", record: payload.record }
+      : null;
+  }
+  return isJsonRecord(payload.event)
+    ? { source: "hook", event: payload.event, reduced: payload.reduced === true }
+    : null;
+}
 
 /**
  * Waiting messages as the words a model will read.

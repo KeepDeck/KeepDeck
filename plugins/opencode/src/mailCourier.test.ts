@@ -458,6 +458,35 @@ describe("opencode mail courier", () => {
     expect(last(prompts)?.sessionID).toBe("ses_mine");
   });
 
+  it("tells the deck where the answer will land: the pane's root", async () => {
+    // The deck hands mail only to the main agent, and only this side knows
+    // whether the session it is about to write into is the root.
+    const courier = await start();
+    await courier.event(created("ses_root"));
+    await courier.event(idle("ses_root"));
+    expect(asked.map((ask) => (ask.payload.event as unknown as { target: string }).target))
+      .toEqual(["root", "root"]);
+  });
+
+  it("names the TUI's own prompt the root when no session is bound yet", async () => {
+    const courier = await start();
+    await ringUntil(() => asked.length > 0);
+    expect((asked[0].payload.event as unknown as { target: string }).target).toBe("root");
+    void courier;
+  });
+
+  it("names nobody when the bound session could not be classified", async () => {
+    // A resumed pane adopts whatever the client could not classify — a pane
+    // bound to nothing is unreachable — but that adoption is not proof the
+    // session is the main agent's, so the ask says so and the deck holds.
+    (client as { session: { get: unknown } }).session.get = async () => ({ error: "unavailable" });
+    const courier = await start();
+    await courier.event(busy("ses_unknown"));
+    pending.push({ v: 1, prompt: "ship it" });
+    await courier.event(idle("ses_unknown"));
+    expect((last(asked)?.payload.event as unknown as { target: string }).target).toBe("unknown");
+  });
+
   it("stays inert outside KeepDeck", async () => {
     // A user's own opencode, or a KeepDeck too old to set the variable. It
     // must not ask, must not watch, and must not touch their session.

@@ -41,6 +41,7 @@ import {
 } from "./model";
 import { withRelations } from "./relations";
 import { normalizeLabels } from "./transition";
+import { isJsonRecord } from "@keepdeck/plugin-api";
 
 const FIELDS = new Set<string>(LOG_FIELDS);
 
@@ -128,7 +129,7 @@ export function decodeBoard(json: string, mintUid: () => string): DecodeResult {
  * drops silently, a writer erases on the next save.
  */
 export function decodeBoardValue(raw: unknown, mintUid: () => string): DecodeResult {
-  if (!isRecord(raw)) return { ok: false, fault: { kind: "not-object" } };
+  if (!isJsonRecord(raw)) return { ok: false, fault: { kind: "not-object" } };
   const stray = strayKey(raw, BOARD_KEYS);
   if (stray !== null) return { ok: false, fault: { kind: "unknown-field", field: stray } };
   if (!Array.isArray(raw.tasks)) return { ok: false, fault: { kind: "tasks-not-array" } };
@@ -232,11 +233,11 @@ function decodeRelations(
         kind: "bad-relation" as const,
         index,
         field,
-        from: isRecord(entry) ? end(entry.from) : null,
-        to: isRecord(entry) ? end(entry.to) : null,
+        from: isJsonRecord(entry) ? end(entry.from) : null,
+        to: isJsonRecord(entry) ? end(entry.to) : null,
       },
     });
-    if (!isRecord(entry)) return fail("shape");
+    if (!isJsonRecord(entry)) return fail("shape");
     const strayRelationKey = strayKey(entry, RELATION_KEYS);
     if (strayRelationKey !== null) return fail(`unknown field "${strayRelationKey}"`);
     const { kind, from, to, at, by } = entry;
@@ -272,7 +273,7 @@ type TaskRead =
   | { ok: false; id: string | null; field: string };
 
 function decodeTask(raw: unknown, legacy: boolean, mintUid: () => string): TaskRead {
-  if (!isRecord(raw)) return { ok: false, id: null, field: "shape" };
+  if (!isJsonRecord(raw)) return { ok: false, id: null, field: "shape" };
   const id = raw.id;
   if (typeof id !== "string" || !isTaskId(id)) return { ok: false, id: null, field: "id" };
   const fail = (field: string): TaskRead => ({ ok: false, id, field });
@@ -400,7 +401,7 @@ function readBriefs(bodyV: unknown, raw: unknown): BriefsRead {
   if (!Array.isArray(raw)) return { ok: false, field: "briefs" };
   const briefs: TaskBrief[] = [];
   for (const [i, brief] of raw.entries()) {
-    if (!isRecord(brief) || !onlyKeys(brief, ["v", "body"]) || brief.v !== i + 1 || typeof brief.body !== "string") {
+    if (!isJsonRecord(brief) || !onlyKeys(brief, ["v", "body"]) || brief.v !== i + 1 || typeof brief.body !== "string") {
       return { ok: false, field: `briefs (version ${i + 1})` };
     }
     briefs.push({ v: brief.v, body: brief.body });
@@ -416,15 +417,12 @@ function onlyKeys(value: Record<string, unknown>, keys: readonly string[]): bool
 /** The first entry of `list` carrying a key not among `keys`. */
 function nestedStray(list: readonly unknown[], keys: readonly string[]): { index: number; key: string } | null {
   for (const [index, entry] of list.entries()) {
-    const key = isRecord(entry) ? strayKey(entry, keys) : null;
+    const key = isJsonRecord(entry) ? strayKey(entry, keys) : null;
     if (key !== null) return { index, key };
   }
   return null;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function isCount(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
@@ -436,7 +434,7 @@ function isStringArray(value: unknown): value is string[] {
 
 function isComment(value: unknown): value is TaskComment {
   return (
-    isRecord(value) &&
+    isJsonRecord(value) &&
     isCount(value.n) &&
     isCount(value.at) &&
     typeof value.from === "string" &&
@@ -446,7 +444,7 @@ function isComment(value: unknown): value is TaskComment {
 
 function isLogEntry(value: unknown): value is TaskLogEntry {
   return (
-    isRecord(value) &&
+    isJsonRecord(value) &&
     isCount(value.at) &&
     typeof value.from === "string" &&
     typeof value.field === "string" &&

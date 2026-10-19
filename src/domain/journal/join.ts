@@ -1,4 +1,5 @@
 import type { SessionRecord } from "./sessionLog";
+import { parseInstant } from "@keepdeck/plugin-api";
 
 /**
  * The journal row's join with the session index — a PURE function: the
@@ -93,7 +94,7 @@ export function joinJournalRow(
       read: null,
       readLinks: [],
       status: "wrong-owner",
-      when: Date.parse(record.state === "closed" ? record.endedAt : record.boundAt) || null,
+      when: parseInstant(record.state === "closed" ? record.endedAt : record.boundAt),
     };
   }
   const title =
@@ -121,9 +122,7 @@ export function joinJournalRow(
   const when =
     entry?.kind === "hit"
       ? entry.mtime
-      : (Date.parse(
-          record.state === "closed" ? record.endedAt : record.boundAt,
-        ) || null);
+      : parseInstant(record.state === "closed" ? record.endedAt : record.boundAt);
   // A readable link carries no status, without exceptions: whether the
   // index knows the session or not, the link is tried at click time and
   // the attempt itself reports its own outcome.

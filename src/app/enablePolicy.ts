@@ -17,7 +17,8 @@
  * it. The report callback is ignored after `dispose()`, so a late
  * settlement cannot touch a torn-down runtime.
  */
-import { describeError, log, type LogTarget } from "../ipc/log";
+import { log, type LogTarget } from "../ipc/log";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 export interface EnableSettingsPort {
   /** The toggle's value, or `null` until the settings load settles. */
@@ -92,7 +93,7 @@ export function createEnablePolicy(
           detail: desired ? (options.successDetail?.(value) ?? null) : null,
         });
       } catch (e) {
-        const detail = describeError(e);
+        const detail = errorMessage(e);
         log.warn(
           options.target,
           `${options.feature} ${desired ? "enable" : "disable"} failed: ${detail}`,

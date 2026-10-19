@@ -133,9 +133,24 @@ describe("kd-status-hook.sh", () => {
       payload: {
         agent: "claude",
         reporter: expect.stringMatching(/^\d+$/),
+        reduced: true,
         event: { hook_event_name: "Stop" },
       },
     });
+  });
+
+  it("a reduced payload says so, and never asks for mail", async () => {
+    // Whoever raised it can no longer be told, and the deck hands mail only
+    // to the main agent: asking would be refused, so it is not asked.
+    await hook(["claude", "--ask"], oversized({ hook_event_name: "Stop" }));
+    const payload = envelopeEvent() as Record<string, unknown>;
+    expect(payload.reduced).toBe(true);
+    expect(payload).not.toHaveProperty("reply");
+    // And a payload that rides whole carries no mark.
+    await hook(["claude", "--ask"], JSON.stringify({ hook_event_name: "Stop" }));
+    const whole = envelopeEvent(1) as Record<string, unknown>;
+    expect(whole).not.toHaveProperty("reduced");
+    expect(whole).toHaveProperty("reply");
   });
 
   it("a reduced payload stays parseable whatever the values held", async () => {
@@ -249,6 +264,7 @@ describe("kd-status-hook.sh", () => {
       payload: {
         agent: "claude",
         reporter: expect.stringMatching(/^\d+$/),
+        reduced: true,
         event: { hook_event_name: "SubagentStop" },
       },
     });

@@ -1,6 +1,6 @@
-import type { KeepDeckPlugin, PluginManifest } from "@keepdeck/plugin-api";
+import { errorMessage, type KeepDeckPlugin, type PluginManifest } from "@keepdeck/plugin-api";
 import { buildGuestContext } from "./context";
-import { describeError } from "./errors";
+
 import type { HostToGuestMessage } from "./protocol";
 import { GuestRpc } from "./rpc";
 
@@ -36,7 +36,7 @@ export function connectPluginGuest(port: MessagePort, plugin: KeepDeckPlugin): v
       await built.registrationsSettled();
       port.postMessage({ kind: "activated" });
     } catch (error) {
-      port.postMessage({ kind: "failed", error: describeError(error) });
+      port.postMessage({ kind: "failed", error: errorMessage(error) });
     }
   }
 

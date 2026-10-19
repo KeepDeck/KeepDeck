@@ -9,7 +9,7 @@ import {
 } from "../../domain/deck";
 import type { WorkspaceRef } from "../../domain/workspaceInstance";
 import { decideRejectedResume } from "../../domain/agents";
-import { describeError, log } from "../../ipc/log";
+import { log } from "../../ipc/log";
 import type {
   McpAccessAsk,
   AgentOrchestrator,
@@ -32,6 +32,7 @@ import {
   resumeDiedSilently,
   type SpawnPluginAccess,
 } from "../spawnSpecs";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 interface RestartTarget {
   workspace: WorkspaceRef;
@@ -234,7 +235,7 @@ export function createAgentOrchestratorRestart({
     } catch (error) {
       log.warn(
         "web:orchestrator",
-        `${paneId}: restart failed: ${describeError(error)}`,
+        `${paneId}: restart failed: ${errorMessage(error)}`,
       );
       throw error;
     } finally {
@@ -339,7 +340,7 @@ export function createAgentOrchestratorRestart({
       } catch (error) {
         log.warn(
           "web:orchestrator",
-          `${paneId}: rejected-resume recovery failed: ${describeError(error)}`,
+          `${paneId}: rejected-resume recovery failed: ${errorMessage(error)}`,
         );
       } finally {
         restarting.delete(paneId);

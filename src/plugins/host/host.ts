@@ -5,6 +5,7 @@ import {
   satisfiesApiFloor,
   type KeepDeckPlugin,
   type PluginManifest,
+  errorMessage,
 } from "@keepdeck/plugin-api";
 import {
   orderBySource,
@@ -15,7 +16,7 @@ import {
 import type { ContributionRegistries } from "../registries/contributions";
 import { buildPluginContext } from "./context";
 import type { PluginHostDeps } from "./deps";
-import { describeError } from "./errors";
+
 
 /** What `install` takes: the pre-validated manifest plus a lazy loader for the
  * bundle. The host never inspects the code — the loader (another task) has
@@ -185,7 +186,7 @@ export class PluginHost {
           } catch (error) {
             this.deps
               .log(id)
-              .error(`deactivate hook failed: ${describeError(error)}`);
+              .error(`deactivate hook failed: ${errorMessage(error)}`);
           }
         }
         disposeAll();
@@ -197,7 +198,7 @@ export class PluginHost {
       }
     } catch (error) {
       disposeAll();
-      this.fail(entry, describeError(error));
+      this.fail(entry, errorMessage(error));
     } finally {
       entry.activating = false;
     }
@@ -321,7 +322,7 @@ export class PluginHost {
       } catch (error) {
         this.deps
           .log(entry.manifest.id)
-          .error(`deactivate hook failed: ${describeError(error)}`);
+          .error(`deactivate hook failed: ${errorMessage(error)}`);
       }
     }
     disposeAll?.();

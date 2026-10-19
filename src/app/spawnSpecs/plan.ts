@@ -11,6 +11,7 @@ import {
   type McpServerSpec,
   type SpawnPlanInput,
   type SpawnPlanOutput,
+  errorMessage,
 } from "@keepdeck/plugin-api";
 import type { ResumeOrigin } from "../../domain/agents";
 import type { InstalledPlugin } from "../../plugins/model/installed";
@@ -19,7 +20,7 @@ import {
   type SpawnPlan,
   type SpawnPlanContext,
 } from "./plans";
-import { describeError, log } from "../../ipc/log";
+import { log } from "../../ipc/log";
 import { execCovers } from "../../plugins/capabilities/execCovers";
 import { mintBridgeToken, mintMcpToken } from "../ids";
 import { postbackCount } from "../postbacks";
@@ -274,7 +275,7 @@ export async function buildPlan(
     if (variant.kind !== "spawn" || facts.target) throw e;
     log.warn(
       "web:agents",
-      `${entry.id} spawn.plan failed — bare spawn: ${describeError(e)}`,
+      `${entry.id} spawn.plan failed — bare spawn: ${errorMessage(e)}`,
     );
     // A bare spawn still RUNS the CLI, so the file-fed half is still owed:
     // kimi reads its cwd whatever argv it was given, and skipping the write

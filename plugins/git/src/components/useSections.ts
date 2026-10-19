@@ -8,6 +8,7 @@ import {
   type SectionId,
   type SectionsState,
 } from "../presentation/sections";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 const KEY = "sections";
 
@@ -62,7 +63,7 @@ export function useSections(
         // The screen keeps the toggle; the next mount will show the slot's
         // older word. Said in the log rather than swallowed — a UI and a
         // store that disagree should leave a trace somewhere.
-        const message = cause instanceof Error ? cause.message : String(cause);
+        const message = errorMessage(cause);
         runtime.log.warn(`git sections: could not remember the open sections: ${message}`);
       });
   };

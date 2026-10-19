@@ -6,8 +6,9 @@ import {
 } from "../domain/deck";
 import { DROP_BLOCKER_ATTR } from "@keepdeck/ui-kit/dropBlocker";
 import { formatDroppedPaths } from "../domain/terminal";
-import { describeError, log } from "../ipc/log";
+import { log } from "../ipc/log";
 import { writeRawToPane } from "./paneInput";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 /** Narrow a live element's box to the plain rect the hit-test works in. */
 function rectOf(el: Element): Rect {
@@ -106,7 +107,7 @@ export async function deliverPathsToPoint(
   // A sniff that fails is not a drop that fails — the paths still go in, as
   // text. Traced, because a silently degraded drop looks like a working one.
   const isImage = await isImageOf(dropped).catch((e: unknown) => {
-    log.debug("web:dnd", `image sniff failed, treating drop as text: ${describeError(e)}`);
+    log.debug("web:dnd", `image sniff failed, treating drop as text: ${errorMessage(e)}`);
     return dropped.map(() => false);
   });
   return deliverDrop(id, dropped, isImage) ? id : null;

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { indexLookup, type IndexLookupKey } from "../ipc/history";
-import { describeError, log } from "../ipc/log";
+import { log } from "../ipc/log";
 import { rowKeyOf } from "../domain/journal/sessionRow";
 import type { JoinEntry } from "../domain/journal";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 /** The join key of a journal row — same shape the index lookup takes.
  * The spelling itself lives in the domain (`sessionRow.ts`, beside the
@@ -307,7 +308,7 @@ export function useJournalEnrichment(
     void indexLookup(ask).then(
       (answers) => landed(answers, false),
       (e: unknown) => {
-        log.warn("web:history", `journal join lookup failed: ${describeError(e)}`);
+        log.warn("web:history", `journal join lookup failed: ${errorMessage(e)}`);
         landed(null, true);
       },
     );

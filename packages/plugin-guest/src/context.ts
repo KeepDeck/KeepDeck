@@ -1,20 +1,5 @@
-import type {
-  AgentHistory,
-  AgentLiveSession,
-  AgentHooks,
-  CommandInfo,
-  CommandResult,
-  Disposable,
-  WatchHandle,
-  DownloadState,
-  FileOpenRequest,
-  PluginContext,
-  PluginManifest,
-  PluginSessionEvent,
-  SpeechLevel,
-  WorkspaceRef,
-} from "@keepdeck/plugin-api";
-import { describeError } from "./errors";
+import { errorMessage, type AgentHistory, type AgentLiveSession, type AgentHooks, type CommandInfo, type CommandResult, type Disposable, type WatchHandle, type DownloadState, type FileOpenRequest, type PluginContext, type PluginManifest, type PluginSessionEvent, type SpeechLevel, type WorkspaceRef } from "@keepdeck/plugin-api";
+
 import { RemoteDownloadStream } from "./downloadStream";
 import { createGuestServices } from "./guestServices";
 import { createGuestContributions } from "./guestContributions";
@@ -148,7 +133,7 @@ export function buildGuestContext(
    * so say so through the host's log rather than swallowing it. */
   function warnRefused(path: string, cause: unknown): void {
     void rpc
-      .call("log.warn", [`${path} was refused: ${describeError(cause)}`])
+      .call("log.warn", [`${path} was refused: ${errorMessage(cause)}`])
       .catch(noop);
   }
 
@@ -375,7 +360,7 @@ export function buildGuestContext(
       void rpc.call(path, [callId, { ok: true, ...value }]).catch(noop);
     } catch (error) {
       void rpc
-        .call(path, [callId, { ok: false, error: describeError(error) }])
+        .call(path, [callId, { ok: false, error: errorMessage(error) }])
         .catch(noop);
     }
   }

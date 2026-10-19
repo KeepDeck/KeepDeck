@@ -1,8 +1,9 @@
 import { useEffect, useRef } from "react";
 import { pathsAreImages } from "../ipc/app";
-import { describeError, log } from "../ipc/log";
+import { log } from "../ipc/log";
 import { onFileDrop } from "../ipc/webview";
 import { deliverPathsToPoint } from "./dragDrop";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 /**
  * Deliver OS file drops to the pane under the cursor ([F4]): hit-test the drop
@@ -44,7 +45,7 @@ export function useDragDrop(onDropped: (paneId: string) => void) {
         else unlisten = fn;
       })
       .catch((e) =>
-        log.warn("web:dnd", `file-drop listener failed to attach: ${describeError(e)}`),
+        log.warn("web:dnd", `file-drop listener failed to attach: ${errorMessage(e)}`),
       );
 
     return () => {

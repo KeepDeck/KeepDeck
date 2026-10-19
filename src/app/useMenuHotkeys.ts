@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { describeError, log } from "../ipc/log";
+import { log } from "../ipc/log";
 import {
   CLOSE_AGENT_EVENT,
   NEW_AGENT_EVENT,
@@ -9,6 +9,7 @@ import {
   TOGGLE_MAXIMIZE_EVENT,
   onMenuEvent,
 } from "../ipc/menu";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 export interface MenuActions {
   /** File → New Workspace… (⌘N). */
@@ -44,7 +45,7 @@ export function useMenuHotkeys(actions: MenuActions) {
           else unlisteners.push(un);
         })
         .catch((e) =>
-          log.warn("web:menu", `subscribing ${event} failed: ${describeError(e)}`),
+          log.warn("web:menu", `subscribing ${event} failed: ${errorMessage(e)}`),
         );
     };
     subscribe(NEW_WORKSPACE_EVENT, "newWorkspace");

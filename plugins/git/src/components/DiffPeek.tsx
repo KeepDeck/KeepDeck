@@ -24,6 +24,7 @@ import {
 import { diffKey } from "../domain/identity";
 import { hasRail, type ChangeSet } from "../domain/changeSet";
 import { PeekSiblings } from "./PeekSiblings";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 /** What the peek shows. `file` is a chosen row's diff (worktree or history
  * range); `waiting` is a history scope that opened before the rail seeded its
@@ -134,7 +135,7 @@ export function DiffPeek({
         setFetched({ key, diff: next });
       })
       .catch((cause: unknown) => {
-        const message = cause instanceof Error ? cause.message : String(cause);
+        const message = errorMessage(cause);
         log.warn(`diff failed for ${row.path}: ${message}`);
         if (cancelled) return;
         setFetched({ key, error: message });

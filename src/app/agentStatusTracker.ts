@@ -1,5 +1,4 @@
-import type { AgentStatusEvent, StatusNormalizer } from "@keepdeck/plugin-api";
-import { isRecord } from "../domain/json";
+import { CARRIED_RECORD, type AgentStatusEvent, type StatusNormalizer, isJsonRecord } from "@keepdeck/plugin-api";
 import { normalizeStatusBatch } from "./statusNormalization";
 import {
   answerResolves,
@@ -137,7 +136,7 @@ export function createAgentStatusTracker(): AgentStatusTracker {
   function prepare(paneId: string, payload: unknown, at = Date.now()) {
     const previous = statuses.get(paneId) ?? null;
     const ignored = { activity: previous?.activity ?? null, finish() {} };
-    if (!isRecord(payload) || typeof payload.agent !== "string") return ignored;
+    if (!isJsonRecord(payload) || typeof payload.agent !== "string") return ignored;
     const agent = payload.agent;
     const normalize = normalizers.get(agent);
     if (!normalize) return ignored;
@@ -145,7 +144,7 @@ export function createAgentStatusTracker(): AgentStatusTracker {
     // records. In particular, no subscriber sees the abort between turns.
     const payloads = payload.kind === "store.batch"
       ? (Array.isArray(payload.records) ? payload.records : []).map((record) => ({
-          agent, kind: "store.record", record,
+          agent, kind: CARRIED_RECORD, record,
         }))
       : [payload];
     const stateNow = () => {
@@ -158,6 +157,12 @@ export function createAgentStatusTracker(): AgentStatusTracker {
     const initial = normalizeAll();
     const edges = initial.events;
     if (edges.length === 0 && initial.state === stateNow()) return ignored;
+    // Announced NOW, not at finish: the hook reporting a compaction may be a
+    // mail ask, answered between the two, and what a rebuild re-states has
+    // to be queued before that answer is taken.
+    if (edges.some((edge) => edge.kind === "context-compacted")) {
+      for (const listener of [...rebuilt]) listener(paneId);
+    }
     const preview = edges.reduce(reduceStatus, previous);
     if (!epochs.has(paneId) || (preview !== previous && edges.some((edge) =>
       edge.kind === "turn-start" || edge.kind === "turn-observed"))) {
@@ -182,11 +187,6 @@ export function createAgentStatusTracker(): AgentStatusTracker {
         const guarded = settled.events.map((edge): AgentStatusEvent =>
           current !== previous && edge.kind === "turn-start"
             ? { kind: "turn-observed", at: edge.at } : edge);
-        for (const edge of guarded) {
-          if (edge.kind === "context-compacted") {
-            for (const listener of [...rebuilt]) listener(paneId);
-          }
-        }
         apply(paneId, guarded);
       },
     };

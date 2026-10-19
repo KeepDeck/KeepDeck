@@ -18,6 +18,7 @@
  * feature down with it.
  */
 import { builtInRoles, type RoleStanding, type TeamRole } from "./roles";
+import { isJsonRecord } from "@keepdeck/plugin-api";
 
 /** One role as its file holds it — `roles/<id>.json`. The id lives in the
  * file's NAME, so a record cannot disagree with its own address. */
@@ -154,9 +155,9 @@ export function mergeRoleCatalog(stored: ReadonlyMap<string, unknown>): {
     // that faithfully copied `"standing": "leads"` beside its new texts
     // lost the texts it rode in with.
     const bare =
-      typeof record === "object" && record !== null && !Array.isArray(record)
+      isJsonRecord(record)
         ? (() => {
-            const { repeatable, standing, ...texts } = record as Record<string, unknown>;
+            const { repeatable, standing, ...texts } = record;
             return {
               texts: texts as unknown,
               hadSemantics: repeatable !== undefined || standing !== undefined,

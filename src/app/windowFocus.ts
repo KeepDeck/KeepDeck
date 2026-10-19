@@ -1,5 +1,6 @@
-import { describeError, log } from "../ipc/log";
+import { log } from "../ipc/log";
 import { onWindowFocusChanged, windowIsFocused } from "../ipc/window";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 /**
  * Tracks whether the app window has OS focus — the one fact the banner rule
@@ -28,13 +29,13 @@ export async function initWindowFocus(): Promise<void> {
     await onWindowFocusChanged(setFocused);
   } catch (e) {
     // Without the bridge (tests, plain browser) stay on the default.
-    log.warn("web:focus", `focus tracking unavailable: ${describeError(e)}`);
+    log.warn("web:focus", `focus tracking unavailable: ${errorMessage(e)}`);
     return;
   }
   try {
     setFocused(await windowIsFocused());
   } catch (e) {
-    log.warn("web:focus", `focus read failed: ${describeError(e)}`);
+    log.warn("web:focus", `focus read failed: ${errorMessage(e)}`);
   }
 }
 

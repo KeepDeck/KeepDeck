@@ -1,4 +1,4 @@
-import type { AgentContribution } from "@keepdeck/plugin-api";
+import { admittedNormalizer, type AgentContribution, type AgentStatus, type StatusNormalizer } from "@keepdeck/plugin-api";
 import { onAgentStatus } from "../ipc/status";
 import type { ContributionRegistry } from "../plugins/registries/contributions";
 import type { AgentStatusTracker } from "./agentStatusTracker";
@@ -75,6 +75,20 @@ export function createAgentStatusChannel(
   let normalizerDisposers: (() => void)[] = [];
   let declaring = new Set<string>();
 
+  // One admitted normalizer per contribution, kept for as long as the
+  // contribution lives: the tracker keys a pane's decoder checkpoint on the
+  // normalizer's identity, and a fresh wrapper on every re-registration
+  // would drop every checkpoint whenever ANY agent's plugin came or went.
+  const admittedFor = new WeakMap<AgentStatus, StatusNormalizer>();
+  const admitted = (status: AgentStatus): StatusNormalizer => {
+    let normalizer = admittedFor.get(status);
+    if (!normalizer) {
+      normalizer = admittedNormalizer(status);
+      admittedFor.set(status, normalizer);
+    }
+    return normalizer;
+  };
+
   const registerNormalizers = () => {
     const previous = declaring;
     for (const unregister of normalizerDisposers) unregister();
@@ -84,10 +98,7 @@ export function createAgentStatusChannel(
       if (!entry.status) continue;
       current.add(entry.id);
       normalizerDisposers.push(
-        tracker.registerNormalizer(
-          entry.id,
-          entry.status.normalize,
-        ),
+        tracker.registerNormalizer(entry.id, admitted(entry.status)),
       );
     }
     // An agent that LOST its status voice (plugin disabled) can never

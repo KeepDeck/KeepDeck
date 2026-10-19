@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { frameTeammateMail, type DeliverableMail } from "./status.ts";
+import { CARRIED_RECORD } from "./sessionTail.ts";
+import { decodeStatusPayload, frameTeammateMail, type DeliverableMail } from "./status.ts";
 
 const mail = (over: Partial<DeliverableMail> = {}): DeliverableMail => ({
   id: "mail-1",
@@ -268,5 +269,35 @@ describe("frameTeammateMail", () => {
     const close = text.indexOf("</teammate-message>");
     expect(text.indexOf("first")).toBeLessThan(text.indexOf("second"));
     expect(text.indexOf("second")).toBeLessThan(close);
+  });
+});
+
+describe("decodeStatusPayload", () => {
+  it("reads a carried store record", () => {
+    expect(decodeStatusPayload({ agent: "kimi", kind: CARRIED_RECORD, record: { type: "turn.ended" } }))
+      .toEqual({ source: "record", record: { type: "turn.ended" } });
+  });
+
+  it("reads a hook reporter's event", () => {
+    expect(decodeStatusPayload({ agent: "codex", event: { hook_event_name: "Stop" } }))
+      .toEqual({ source: "hook", event: { hook_event_name: "Stop" }, reduced: false });
+  });
+
+  it("reports a reporter's reduced mark, and only a literal true", () => {
+    expect(decodeStatusPayload({ event: { hook_event_name: "Stop" }, reduced: true }))
+      .toMatchObject({ source: "hook", reduced: true });
+    expect(decodeStatusPayload({ event: { hook_event_name: "Stop" }, reduced: "yes" }))
+      .toMatchObject({ source: "hook", reduced: false });
+  });
+
+  it("never reads a carried envelope without a record as a hook", () => {
+    expect(decodeStatusPayload({ kind: CARRIED_RECORD, record: "x", event: { hook_event_name: "Stop" } }))
+      .toBeNull();
+  });
+
+  it("is null for anything else", () => {
+    for (const payload of [null, "text", [], {}, { event: "Stop" }, { event: [] }]) {
+      expect(decodeStatusPayload(payload)).toBeNull();
+    }
   });
 });

@@ -1,9 +1,4 @@
-import type {
-  PluginLogger,
-  PluginServices,
-  PluginSessionHandle,
-  WorkspaceRef,
-} from "@keepdeck/plugin-api";
+import { errorMessage, type PluginLogger, type PluginServices, type PluginSessionHandle, type WorkspaceRef } from "@keepdeck/plugin-api";
 import {
   commandBanner,
   exitNote,
@@ -80,15 +75,6 @@ interface Entry {
   size: { cols: number; rows: number } | null;
 }
 
-function describeError(e: unknown): string {
-  if (e instanceof Error) return e.message;
-  if (typeof e === "string") return e;
-  try {
-    return JSON.stringify(e) ?? String(e);
-  } catch {
-    return String(e);
-  }
-}
 
 export function createRunManager(
   services: PluginServices,
@@ -170,7 +156,7 @@ export function createRunManager(
       })
       .catch((e: unknown) => {
         if (entry.removed) return;
-        const message = describeError(e);
+        const message = errorMessage(e);
         log.error(`${id}: spawn failed: ${message}`);
         const bytes = encode(spawnFailedNote(message));
         entry.sink?.onOutput(bytes);
@@ -258,7 +244,7 @@ export function createRunManager(
     entries.set(id, entry);
 
     const port = await services.ports.allocate(target.worktree).catch((e) => {
-      log.warn(`port allocation failed for ${target.worktree}: ${describeError(e)}`);
+      log.warn(`port allocation failed for ${target.worktree}: ${errorMessage(e)}`);
       return undefined;
     });
     if (port !== undefined) entry.session = { ...entry.session, port };

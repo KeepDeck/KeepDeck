@@ -27,12 +27,13 @@ import {
   type Workspace,
 } from "../domain/deck";
 import type { WorkspaceRef } from "../domain/workspaceInstance";
-import { describeError } from "../ipc/log";
+
 import {
   createRefusalMessage,
   type AgentOrchestrator,
   type DirectoryHolder,
 } from "./agentOrchestrator";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 /** A confirmed dialog: what it was opened for, and what the person chose. */
 export interface DoorRequest {
@@ -154,7 +155,7 @@ export function createAgentDoors(deps: AgentDoorsDeps): AgentDoors {
         await orchestrator.resumeSession(workspace.id, session.handle, landing);
         return DONE;
       } catch (error: unknown) {
-        return refused("resume", describeError(error));
+        return refused("resume", errorMessage(error));
       }
     }
     if (team.cwd === null) return refused("fork", "the team's directory is not there yet");
@@ -162,7 +163,7 @@ export function createAgentDoors(deps: AgentDoorsDeps): AgentDoors {
       await orchestrator.forkSession(workspace.id, session.handle, { kind: "dir", cwd: team.cwd }, landing);
       return DONE;
     } catch (error: unknown) {
-      return refused("fork", describeError(error));
+      return refused("fork", errorMessage(error));
     }
   }
 

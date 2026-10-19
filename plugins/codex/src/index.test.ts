@@ -5,7 +5,7 @@ import type {
   SpawnPlanOutput,
 } from "@keepdeck/plugin-api";
 import plugin from "./index";
-import { renderCodexMail } from "./status";
+import { renderCodexMail, CODEX_MAIL_CHANNELS } from "./status";
 import { codexUsageWatches } from "./usage";
 
 /** Activate against a minimal fake ctx; returns the registered agent.
@@ -88,9 +88,9 @@ describe("codex plugin hooks", () => {
     const out = output();
     await agent.hooks["spawn.plan"]!(input, out);
 
-    // 4 rules (SessionStart + 3 turn events) ×2 args, ONE combined state
+    // 7 rules (SessionStart + 6 status events) ×2 args, ONE combined state
     // table ×2, + 2 paste-burst override args.
-    expect(out.args).toHaveLength(14);
+    expect(out.args).toHaveLength(18);
     expect(out.args[0]).toBe("-c");
     // The IDENTITY hook on SessionStart, by name. The two reporters answer
     // different questions and only one of them may sit here; a stub that
@@ -108,6 +108,8 @@ describe("codex plugin hooks", () => {
       "Stop",
       "PermissionRequest",
       "PostToolUse",
+      "Interrupt",
+      "PostCompact",
     ]) {
       expect(
         out.args.filter((a) => a.startsWith(`hooks.${event}=`)),
@@ -120,15 +122,14 @@ describe("codex plugin hooks", () => {
     // opened; PostToolUse does the same while the turn is still RUNNING,
     // which is the only way to reach a working agent without typing into its
     // terminal — and it is the one that costs a round trip per tool call.
-    // PermissionRequest reads nothing back. SessionStart is NOT here: codex
-    // can inject there, but the identity reporter holds that event and `-c`
-    // REPLACES rather than merges, so a second arming would drop session
-    // binding.
+    // PermissionRequest reads nothing back.
     for (const [event, asks] of [
       ["Stop", true],
       ["UserPromptSubmit", true],
       ["PostToolUse", true],
       ["PermissionRequest", false],
+      ["Interrupt", false],
+      ["PostCompact", false],
     ] as const) {
       const rule = out.args.find((a) => a.startsWith(`hooks.${event}=`))!;
       expect(rule.includes("codex --ask"), event).toBe(asks);
@@ -137,7 +138,30 @@ describe("codex plugin hooks", () => {
     // wholesale, so a second table would silently untrust the first.
     const state = out.args.filter((a) => a.startsWith("hooks.state="));
     expect(state).toHaveLength(1);
-    expect(state[0].match(/trusted_hash/g)).toHaveLength(5);
+    expect(state[0].match(/trusted_hash/g)).toHaveLength(8);
+    // SessionStart carries BOTH reporters as two handlers of its one group:
+    // a second `hooks.SessionStart` would replace the first and drop session
+    // binding. Identity stays handler 0, the mail ask is handler 1, each with
+    // its own trust key.
+    const sessionStart = out.args.filter((a) => a.startsWith("hooks.SessionStart="));
+    expect(sessionStart).toHaveLength(1);
+    expect(sessionStart[0]).toMatch(
+      /^hooks\.SessionStart=\[\{hooks=\[\{[^}]*kd-session-hook\.sh' codex"\},\{[^}]*kd-status-hook\.sh' codex --ask"[^}]*\}\]\}\]$/,
+    );
+    expect(state[0]).toContain("session_start:0:0");
+    expect(state[0]).toContain("session_start:0:1");
+    // Long mail is kept whole where codex can carry context, and declared
+    // nowhere else — codex drops the field there before hashing.
+    for (const [event, limited] of [
+      ["UserPromptSubmit", true],
+      ["PostToolUse", true],
+      ["SessionStart", true],
+      ["Stop", false],
+      ["Interrupt", false],
+    ] as const) {
+      const rule = out.args.find((a) => a.startsWith(`hooks.${event}=`))!;
+      expect(rule.includes("additionalContextLimit=0"), event).toBe(limited);
+    }
     expect(out.args).toContain("disable_paste_burst=true");
   });
 
@@ -331,6 +355,7 @@ describe("codex plugin identity", () => {
     // and forgets to contribute it has its messages typed into a terminal
     // instead — with every renderer test still green.
     const agent = activate("/App/resources/kd-session-hook.sh");
-    expect(agent.status?.renderMail).toBe(renderCodexMail);
+    expect(agent.status?.mail?.render).toBe(renderCodexMail);
+    expect(agent.status?.mail?.channels).toBe(CODEX_MAIL_CHANNELS);
   });
 });

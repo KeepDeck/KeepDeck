@@ -49,11 +49,28 @@ const TREE: Record<string, { name: string; kind: "file" | "dir" }[]> = {
   [`${SRC_DIR}/logs`]: [{ name: "kimi-code.log", kind: "file" }],
 };
 
+/** Each agent's wire as the store holds it: a runtime binding to the OLD
+ * workspace, and on main the saved prompt of the old directory. */
+const OLD_WS = "wd_a_3c3646ae2a28";
+const WIRES: Record<string, string> = {
+  [`${SRC_DIR}/agents/main/wire.jsonl`]: [
+    { type: "metadata", protocol_version: "1.5" },
+    { type: "profile.bind", agentId: "main", systemPrompt: "dir is /old/place", time: 1 },
+    { type: "runtime.set_binding", workspaceId: OLD_WS, runtimeId: "local", agentId: "main", time: 2 },
+    { type: "turn.prompt", input: "hi", time: 3 },
+  ].map((r) => JSON.stringify(r)).join("\n") + "\n",
+  [`${SRC_DIR}/agents/agent-2/wire.jsonl`]:
+    JSON.stringify({ type: "runtime.set_binding", workspaceId: OLD_WS, runtimeId: "local", time: 4 }) + "\n",
+};
+
 function fixture(
   stateText: string | null = JSON.stringify(STATE),
   /** Makes a read of a written file disagree with what was written. Unset,
    * reads serve the written bytes — what the landing guard checks against. */
   landedOverride?: string,
+  /** The host's window size for a wire read — small, it makes the fork walk
+   * a wire window by window. */
+  windowBytes = Infinity,
 ): Fx {
   const writes = new Map<string, string>();
   const copies: [string, string][] = [];
@@ -61,7 +78,20 @@ function fixture(
   const ctx = {
     services: {
       fs: {
-        readFile: async (path: string) => {
+        readFile: async (path: string, opts?: { offset?: number }) => {
+          const wire = WIRES[path];
+          if (wire !== undefined) {
+            const offset = opts?.offset ?? 0;
+            const text = wire.slice(offset, offset + windowBytes);
+            return {
+              path,
+              text,
+              isBinary: false,
+              size: wire.length,
+              truncated: offset + text.length < wire.length,
+              readBytes: text.length,
+            };
+          }
           const written =
             landedOverride !== undefined && writes.has(path)
               ? landedOverride
@@ -145,10 +175,8 @@ describe("kimiForkPlan", () => {
     expect(state.agents.main.homedir).toBe(`${dstDir}/agents/main`);
     expect(state.title).toBe("auth investigation"); // everything else survives
 
-    expect(fx.copies).toContainEqual([
-      `${SRC_DIR}/agents/main/wire.jsonl`,
-      `${dstDir}/agents/main/wire.jsonl`,
-    ]);
+    // The wire is rewritten, not copied: it names the old workspace.
+    expect(fx.writes.has(`${dstDir}/agents/main/wire.jsonl`)).toBe(true);
 
     expect(fx.appends).toHaveLength(1);
     expect(fx.appends[0][0]).toBe(`${HOME}/session_index.jsonl`);
@@ -239,11 +267,39 @@ describe("kimiForkPlan", () => {
     const dstDir = `${HOME}/sessions/${await wdKey("/new/target")}/${newId}`;
     const dsts = fx.copies.map(([, dst]) => dst);
     expect(dsts).toContain(`${dstDir}/agents/main/blobs/img1`);
-    expect(dsts).toContain(`${dstDir}/agents/agent-2/wire.jsonl`);
     expect(dsts).toContain(`${dstDir}/logs/kimi-code.log`);
+    expect(fx.writes.has(`${dstDir}/agents/agent-2/wire.jsonl`)).toBe(true);
     // The source state.json is NOT copied — its patched version is written.
     expect(dsts).not.toContain(`${dstDir}/state.json`);
     expect(fx.writes.has(`${dstDir}/state.json`)).toBe(true);
+  });
+
+  it("rebases every agent's wire onto the clone, the main one's prompt dropped", async () => {
+    const fx = fixture(JSON.stringify(STATE), undefined, 7);
+    const newId = await kimiForkPlan(fx.ctx, forkInput("/new/target"));
+    const ws = await wdKey("/new/target");
+    const dstDir = `${HOME}/sessions/${ws}/${newId}`;
+    const records = (agent: string) =>
+      fx.writes.get(`${dstDir}/agents/${agent}/wire.jsonl`)!.trimEnd().split("\n").map((l) => JSON.parse(l));
+
+    // Read window by window (7 bytes here), written back whole and in order.
+    const main = records("main");
+    expect(main.map((r) => r.type)).toEqual(["metadata", "config.update", "runtime.set_binding", "turn.prompt"]);
+    expect(main[2].workspaceId).toBe(ws);
+    expect(JSON.stringify(main)).not.toContain("/old/place");
+    expect(records("agent-2")[0].workspaceId).toBe(ws);
+  });
+
+  it("refuses a wire it cannot read rather than cloning half of it", async () => {
+    const fx = fixture();
+    const fs = (fx.ctx as unknown as { services: { fs: { readFile: unknown } } }).services.fs;
+    const original = fs.readFile as (p: string, o?: unknown) => Promise<unknown>;
+    fs.readFile = async (path: string, opts?: unknown) =>
+      path.endsWith("wire.jsonl")
+        ? { path, text: null, isBinary: true, size: 9, truncated: false, readBytes: 0 }
+        : original(path, opts);
+    await expect(kimiForkPlan(fx.ctx, forkInput("/t"))).rejects.toThrow("is unreadable");
+    expect(fx.appends).toHaveLength(0);
   });
 
   it("a state-write failure leaves the index un-appended — activation lands last", async () => {
@@ -265,7 +321,7 @@ describe("kimiForkPlan", () => {
 
   it("a mid-sequence write failure leaves nothing resumable — state and index land last", async () => {
     const fx = fixture();
-    // The FIRST write (the wire copy) fails: nothing may exist afterwards.
+    // A conversation-file copy fails midway: the clone must stay inert.
     const services = (
       fx.ctx as unknown as {
         services: { fsWrite: { copyFile(s: string, d: string): Promise<void> } };
@@ -277,7 +333,7 @@ describe("kimiForkPlan", () => {
 
     await expect(kimiForkPlan(fx.ctx, forkInput("/t"))).rejects.toThrow("disk full");
     // The activation artifacts never landed: no state.json, no index line.
-    expect(fx.writes.size).toBe(0);
+    expect([...fx.writes.keys()].some((path) => path.endsWith("/state.json"))).toBe(false);
     expect(fx.appends).toHaveLength(0);
   });
 

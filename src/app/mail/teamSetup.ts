@@ -16,6 +16,7 @@
  * directory and its first agent.
  */
 import type { TeamPlan } from "../../domain/mail";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 /**
  * What applying a plan needs.
@@ -87,7 +88,7 @@ export async function applyTeamPlan(
       paneId = null;
       deps.report(
         `Could not start ${recruit.agentType} as “${recruit.role}”`,
-        error instanceof Error ? error.message : String(error),
+        errorMessage(error),
       );
       continue;
     }

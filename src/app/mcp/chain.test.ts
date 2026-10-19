@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("../../ipc/log", () => ({
   log: { warn: vi.fn() },
-  describeError: (e: unknown) => String(e),
 }));
 
 import { createCommandRegistry } from "../../domain/commands";

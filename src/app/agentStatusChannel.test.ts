@@ -13,6 +13,10 @@ import {
 import type { DeckStore } from "./deckStore";
 import { createPaneAttribution } from "./paneAttribution";
 
+/** Every report is the main agent's and may move the pane: the channel
+ * under test is the wiring, not the admission rule, which has its own tests. */
+const mainAgent = () => ({ event: null, actor: "main" as const, status: true });
+
 const ipc = vi.hoisted(() => ({
   onAgentStatus: vi.fn(() => Promise.resolve(() => {})),
   peekPaneSpawnSpec: vi.fn(() => ({ token: "tok" })),
@@ -65,8 +69,8 @@ const deckWith = (...paneIds: string[]) => {
 /** A contribution registry whose agent list can change under the channel. */
 const agentsWith = () => {
   const listeners = new Set<() => void>();
-  let entries: { entry: { id: string; status: { normalize: StatusNormalizer } } }[] = [
-    { entry: { id: "claude", status: { normalize: edgeNormalizer } } },
+  let entries: { entry: { id: string; status: { normalize: StatusNormalizer; attribute: typeof mainAgent } } }[] = [
+    { entry: { id: "claude", status: { normalize: edgeNormalizer, attribute: mainAgent } } },
   ];
   return {
     registry: {
@@ -126,7 +130,7 @@ describe("createAgentStatusChannel", () => {
       if ((payload as { seed?: boolean }).seed) return { kind: "status-reduction", state: "old-mode", events: [] };
       return { kind: "turn-start", at: context?.state === "old-mode" ? 999 : at };
     };
-    agents.replace([{ entry: { id: "claude", status: { normalize } } }]);
+    agents.replace([{ entry: { id: "claude", status: { normalize, attribute: mainAgent } } }]);
     createAgentStatusChannel(deckWith("pane-1").store, agents.registry,
       tracker, sessions, attribution, keys.port);
     tracker.report("pane-1", { agent: "claude", seed: true }, 100);
@@ -223,7 +227,7 @@ describe("createAgentStatusChannel", () => {
       {
         entry: {
           id: "claude",
-          status: { normalize: () => ({ kind: "turn-end", at: 200 }) },
+          status: { normalize: () => ({ kind: "turn-end", at: 200 }), attribute: mainAgent },
         },
       },
     ] as never);
@@ -321,6 +325,44 @@ describe("createAgentStatusChannel", () => {
     expect(tracker.getSnapshot().panes.get("pane-1")).toMatchObject({
       state: "working",
     });
+  });
+
+  it("a compaction is announced before the ask it rides on is answered", async () => {
+    // claude's and codex's `SessionStart(compact)` both reports the rebuild
+    // and asks for mail. Whatever the rebuild re-states (the team briefing)
+    // has to be queued by the time that ask takes the queue.
+    let handler:
+      | ((report: { paneId: string; token: string; payload: unknown }) => void)
+      | null = null;
+    ipc.onAgentStatus.mockImplementationOnce(((h: never) => {
+      handler = h;
+      return Promise.resolve(() => {});
+    }) as never);
+    const deck = deckWith("pane-1");
+    const order: string[] = [];
+    tracker.onContextRebuilt(() => order.push("rebuilt"));
+    createAgentStatusChannel(
+      deck.store,
+      agentsWith().registry,
+      tracker,
+      sessions,
+      createPaneAttribution({
+        workspaces: () => deck.store.getSnapshot().workspaces,
+        secretOf: () => "tok",
+      }),
+      keys.port,
+      () => {
+        order.push("answered");
+      },
+    );
+    await Promise.resolve();
+
+    handler!({
+      paneId: "pane-1",
+      token: "tok",
+      payload: { agent: "claude", edge: { kind: "context-compacted", at: 100 } },
+    });
+    expect(order).toEqual(["rebuilt", "answered"]);
   });
 
   it("stops sweeping after dispose", () => {

@@ -1,6 +1,6 @@
 {
   "name": "keepdeck-session-reporter",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "Reports Kimi Code session identity and turn lifecycle to the KeepDeck pane that launched it.",
   "author": "KeepDeck",
   "interface": {
@@ -22,7 +22,7 @@
     },
     {
       "event": "Stop",
-      "command": "/bin/sh ./kd-status-hook.sh kimi --ask",
+      "command": "/bin/sh ./kd-status-hook.sh kimi",
       "timeout": 5
     },
     {

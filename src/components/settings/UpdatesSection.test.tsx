@@ -17,7 +17,6 @@ vi.mock("../../ipc/updater", () => ({
   relaunchApp: vi.fn(async () => {}),
 }));
 vi.mock("../../ipc/log", () => ({
-  describeError: (e: unknown) => String(e instanceof Error ? e.message : e),
   log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 

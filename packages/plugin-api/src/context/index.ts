@@ -33,10 +33,24 @@ export type {
   MailReplyRenderer,
   StatusNormalizer,
   StatusNormalization,
+  StatusPayload,
   StatusReduction,
   StatusWaitReason,
 } from "./status.ts";
 export {
+  admitMail,
+  admittedNormalizer,
+  agentIdActor,
+  collectsAtTurnEnd,
+  mailAskArgs,
+  type AgentMail,
+  type EventActor,
+  type EventAttribution,
+  type MailAdmission,
+  type MailChannel,
+} from "./agentEvents.ts";
+export {
+  decodeStatusPayload,
   frameTeammateMail,
   turnFailedEvent,
 } from "./status.ts";
@@ -62,7 +76,9 @@ export {
   carriedUsageRecord,
   clampPercent,
   collectTokenCounts,
-  isJsonRecord,
+  parseJsonRecord,
+  percentWindow,
+  reportedLimits,
   tailWatches,
 } from "./usage.ts";
 export type {
@@ -75,9 +91,21 @@ export type {
   PluginCommandSpec,
   PluginCommands,
 } from "./commands.ts";
+export { errorMessage, parseInstant, sha256Hex, shellQuote } from "./authoring.ts";
+export { launchPlans, type LaunchAdapter } from "./launchPlans.ts";
+export {
+  fileStub,
+  pageOfWalk,
+  readStoreDir,
+  sessionHistory,
+  type SessionStore,
+  type TranscriptPage,
+} from "./sessionHistory.ts";
+export { isJsonRecord } from "../json.ts";
 export {
   firstMeaningfulUserTurn,
   textFromParts,
+  trimmedText,
 } from "./historyText.ts";
 export type { PluginContext } from "./context.ts";
 export type { Disposable, WatchHandle } from "./disposable.ts";

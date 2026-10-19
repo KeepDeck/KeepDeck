@@ -51,7 +51,7 @@ import type { AppInfo } from "../ipc/app";
 import { readAppInfo } from "./appInfo";
 import { layering, statsDeepLinkOnScreen, tasksBoardOnScreen } from "../presentation/layering";
 import { anyOverlayCovers, subscribeOverlayCover } from "./overlayCover";
-import { describeError, log } from "../ipc/log";
+import { log } from "../ipc/log";
 import { pluginCrashes, subscribePluginCrashes } from "./pluginHealth";
 import { addTeamDoorOpen, bellDoorOpen, dockDoorOpen, memberDoor } from "./doors";
 import { BAR_WORDS, type BarLevel } from "../presentation/barView";
@@ -62,6 +62,7 @@ import { teamBranchOf, teamHead } from "../presentation/teamCardView";
 import { pickFolder } from "../ipc/dialogs";
 import { useWelcomeFlow } from "./useWelcomeFlow";
 import { newWorkspaceTarget } from "../presentation/welcomeFlow";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 /** No epic folded: one list, so the dialog's set is not rebuilt each render. */
 const NO_FOLDED_EPICS: readonly string[] = [];
@@ -77,7 +78,7 @@ export function useAppController() {
     readAppInfo()
       .then(setInfo)
       .catch((e) => {
-        log.warn("web:app", `app_info failed: ${describeError(e)}`);
+        log.warn("web:app", `app_info failed: ${errorMessage(e)}`);
         setInfo(null);
       });
   }, []);

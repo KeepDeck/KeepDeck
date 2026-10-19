@@ -2,7 +2,7 @@ import type {
   KimiServerAccess,
   KimiServerManager,
 } from "./serverManager";
-import { sha256Hex } from "./companion";
+import { sha256Hex } from "@keepdeck/plugin-api";
 
 const REQUEST_TIMEOUT_MS = 15_000;
 
@@ -59,11 +59,37 @@ export interface InstalledScripts {
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
-interface RpcEnvelope<T> {
+interface ApiEnvelope<T> {
   code: number;
   msg: string;
   data: T;
 }
+
+/** One call on kimi's public plugin API (`/api/v1/plugins`, kap-server's
+ * `routes/plugins.ts`, since kimi 0.36.1). `name` is for the error a person
+ * reads, not the wire. */
+interface PluginCall {
+  name: string;
+  method: "GET" | "POST";
+  path: string;
+  body?: Record<string, string>;
+}
+
+const pluginApi = {
+  list: { name: "list plugins", method: "GET", path: "/plugins" },
+  install: (source: string): PluginCall => ({
+    name: "install plugin",
+    method: "POST",
+    path: "/plugins",
+    body: { source },
+  }),
+  /** `POST /plugins/<id>:<action>` — kimi's action route. */
+  act: (id: string, action: "enable" | "remove"): PluginCall => ({
+    name: `${action} plugin`,
+    method: "POST",
+    path: `/plugins/${encodeURIComponent(id)}:${action}`,
+  }),
+} satisfies Record<string, PluginCall | ((...args: never[]) => PluginCall)>;
 
 interface PluginSummary {
   id: string;
@@ -76,7 +102,7 @@ interface PluginSummary {
   originalSource?: string;
 }
 
-/** Performs reporter RPC transactions on the one server owned by
+/** Performs reporter transactions on the one server owned by
  * KimiServerManager. Configure and Remove verify their final state before the
  * transaction releases that server, so the controller never needs a second
  * setup-server launch. */
@@ -139,11 +165,10 @@ export function createKimiCompanionManager(
           throw ownershipError(companion.id);
         }
 
-        const installed = await callRpc<PluginSummary>(
+        const installed = await callApi<PluginSummary>(
           fetcher,
           access,
-          "installPlugin",
-          { source: sourceDirectory },
+          pluginApi.install(sourceDirectory),
           signal,
         );
         if (
@@ -157,11 +182,10 @@ export function createKimiCompanionManager(
         }
 
         throwIfCancelled(signal);
-        await callRpc(
+        await callApi(
           fetcher,
           access,
-          "setPluginEnabled",
-          { id: companion.id, enabled: true },
+          pluginApi.act(companion.id, "enable"),
           signal,
         );
 
@@ -208,11 +232,10 @@ export function createKimiCompanionManager(
           throw ownershipError(companion.id);
         }
 
-        await callRpc(
+        await callApi(
           fetcher,
           access,
-          "removePlugin",
-          { id: companion.id },
+          pluginApi.act(companion.id, "remove"),
           signal,
         );
         const remaining = await findCompanion(
@@ -238,25 +261,24 @@ async function findCompanion(
   signal: AbortSignal,
   pluginId: string,
 ): Promise<PluginSummary | null> {
-  const plugins = await callRpc<PluginSummary[]>(
+  const list = await callApi<{ plugins?: unknown } | null>(
     fetcher,
     access,
-    "listPlugins",
-    undefined,
+    pluginApi.list,
     signal,
   );
-  return plugins.find((entry) => entry.id === pluginId) ?? null;
+  // An envelope that says success but carries no list is a server this
+  // installer does not understand — a setup error, not a crash.
+  if (!Array.isArray(list?.plugins)) {
+    throw new Error("Kimi returned no plugin list. Update Kimi Code and try again.");
+  }
+  return (list.plugins as PluginSummary[]).find((entry) => entry.id === pluginId) ?? null;
 }
 
-async function callRpc<T>(
+async function callApi<T>(
   fetcher: FetchLike,
   access: KimiServerAccess,
-  method:
-    | "listPlugins"
-    | "installPlugin"
-    | "setPluginEnabled"
-    | "removePlugin",
-  body?: Record<string, string | boolean>,
+  call: PluginCall,
   signal?: AbortSignal,
 ): Promise<T> {
   if (signal) throwIfCancelled(signal);
@@ -269,27 +291,27 @@ async function callRpc<T>(
     request.abort();
   }, REQUEST_TIMEOUT_MS);
   const init: RequestInit = {
-    method: body ? "POST" : "GET",
+    method: call.method,
     headers: { Authorization: `Bearer ${access.token}` },
     redirect: "error",
     signal: request.signal,
   };
-  if (body) {
+  if (call.body) {
     init.headers = {
       ...init.headers,
       "Content-Type": "application/json",
     };
-    init.body = JSON.stringify(body);
+    init.body = JSON.stringify(call.body);
   }
 
   let response: Response;
   try {
     response = await fetcher(
-      `${access.origin}/api/v1/debug/pluginService/${method}`,
+      `${access.origin}/api/v1${call.path}`,
       init,
     );
   } catch (error) {
-    if (timedOut) throw new Error(`Kimi ${method} request timed out.`);
+    if (timedOut) throw new Error(`Kimi ${call.name} request timed out.`);
     if (signal?.aborted) throw disposedError();
     throw error;
   } finally {
@@ -300,12 +322,12 @@ async function callRpc<T>(
     throw new Error("Kimi setup API responded from an unexpected origin.");
   }
 
-  let envelope: RpcEnvelope<T> | null = null;
+  let envelope: ApiEnvelope<T> | null = null;
   try {
-    envelope = (await response.json()) as RpcEnvelope<T>;
+    envelope = (await response.json()) as ApiEnvelope<T>;
   } catch {
-    // The status below is still useful when the server has no debug surface
-    // (an older Kimi, or a non-loopback bind where Kimi refuses to mount it).
+    // The status below is still useful when the server has no plugin API
+    // (a Kimi older than 0.36.1).
   }
   if (!response.ok || envelope?.code !== 0) {
     const detail = envelope?.msg?.trim();
@@ -318,7 +340,7 @@ async function callRpc<T>(
 }
 
 /** Everything an installation is EXCEPT whether its scripts are current —
- * that answer needs the managed directory, which this reading of the RPC
+ * that answer needs the managed directory, which this reading of the API
  * summary never touches. Callers add it; the type says they must. */
 function installationFrom(
   plugin: PluginSummary,

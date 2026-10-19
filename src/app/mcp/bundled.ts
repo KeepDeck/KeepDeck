@@ -19,9 +19,9 @@
  * same-name library entry would replace it silently in some CLIs and not in
  * others.
  */
-import type { McpServerSpec } from "@keepdeck/plugin-api";
+import { errorMessage, type McpServerSpec } from "@keepdeck/plugin-api";
 import type { McpServerBody } from "../../domain/mcp";
-import { describeError, log } from "../../ipc/log";
+import { log } from "../../ipc/log";
 import { mcpConnectionCommand, type McpConnection } from "../../ipc/mcp";
 
 /** The pane a contribution is for. `client` is the secret this pane's
@@ -111,7 +111,7 @@ export function keepdeckServer({
       } catch (e) {
         log.warn(
           "web:mcp",
-          `no connect invocation for injection: ${describeError(e)}`,
+          `no connect invocation for injection: ${errorMessage(e)}`,
         );
         return null;
       }

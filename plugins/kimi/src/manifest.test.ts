@@ -24,15 +24,15 @@ const commandFor = (event: string) =>
 
 describe("kimi companion manifest", () => {
   it("asks the deck back only where an answer can be acted on", () => {
-    // Blocked Stop may append a message to let the model continue, and text
-    // returned from UserPromptSubmit is appended to the context. The rest
-    // report a fact and read nothing back, so asking there would cost a
-    // round trip per event for nothing.
-    expect(commandFor("Stop")).toBe("/bin/sh ./kd-status-hook.sh kimi --ask");
+    // Text returned from UserPromptSubmit is appended to the turn, and that
+    // hook runs only for the user's own prompts — the main agent's. Stop
+    // could carry mail too, but it fires for subagents with no agent
+    // identity, so mail handed out there could land in a subagent. The rest
+    // report a fact and read nothing back.
     expect(commandFor("UserPromptSubmit")).toBe(
       "/bin/sh ./kd-status-hook.sh kimi --ask",
     );
-    for (const event of ["StopFailure", "Interrupt", "PermissionRequest", "PermissionResult"]) {
+    for (const event of ["Stop", "StopFailure", "Interrupt", "PermissionRequest", "PermissionResult"]) {
       expect(commandFor(event), event).toBe("/bin/sh ./kd-status-hook.sh kimi");
     }
   });

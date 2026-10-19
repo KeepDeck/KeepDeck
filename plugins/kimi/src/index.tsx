@@ -1,10 +1,16 @@
 import "./styles.css";
 import { kimiForkPlan } from "./fork";
 import { kimiHistory } from "./history";
-import type { KeepDeckPlugin, SpawnSkillsInput } from "@keepdeck/plugin-api";
+import {
+  launchPlans,
+  sha256Hex,
+  type KeepDeckPlugin,
+  type SpawnPlanInput,
+  type SpawnPlanOutput,
+  type SpawnSkillsInput,
+} from "@keepdeck/plugin-api";
 import {
   COMPANION_DESCRIPTORS,
-  sha256Hex,
   COMPANION_MANIFEST_RESOURCE,
   parentDirectory,
 } from "./companion";
@@ -17,7 +23,12 @@ import {
   type SetupState,
 } from "./setupController";
 import { createSetupSection } from "./SetupSection";
-import { normalizeKimiStatus, renderKimiMail } from "./status";
+import {
+  attributeKimiEvent,
+  KIMI_MAIL_CHANNELS,
+  normalizeKimiStatus,
+  renderKimiMail,
+} from "./status";
 import { kimiTail } from "./tail";
 import {
   kimiUsageWatches,
@@ -35,6 +46,26 @@ let activeController: ReturnType<typeof createKimiSetupController> | null = null
  * grows an additive flag (its `extra_skill_dirs` is config-file-only). */
 const skillsArgs = (skills: SpawnSkillsInput | undefined): string[] =>
   skills ? ["--skills-dir", skills.skillsDir] : [];
+
+/** Everything a launch of kimi carries, whichever way the pane starts it —
+ * fresh, resumed, or forked into a session it names.
+ *
+ * One place, because a carrier added to one plan and forgotten in another is
+ * not a visible mistake: that pane would simply come up without it.
+ *
+ * `KIMI_CODE_TRUST_WORKSPACE=1`: since 2.2 kimi stops every directory it has
+ * not seen on a blocking "Trust this folder?" before any session exists, and
+ * a new worktree is always one it has not seen. Trusting the directory also
+ * lets kimi start that project's own MCP servers (`.kimi-code/mcp.json`,
+ * `.mcp.json`) — accepted: the panes run in the user's own projects. A
+ * DEFAULT, so a user who set the variable themselves keeps their answer. */
+function stageLaunch(
+  input: Pick<SpawnPlanInput, "skills" | "yolo">,
+  output: Pick<SpawnPlanOutput, "args" | "envDefaults">,
+): void {
+  output.args.push(...skillsArgs(input.skills), ...(input.yolo ? ["--yolo"] : []));
+  (output.envDefaults ??= []).push(["KIMI_CODE_TRUST_WORKSPACE", "1"]);
+}
 
 export function setupNotification(state: SetupState): {
   title: string;
@@ -76,33 +107,18 @@ const plugin: KeepDeckPlugin = {
         tail: { watches: kimiUsageWatches },
         limits: { poll: "kimi-usages", normalize: normalizeKimiUsages },
       },
-      status: { normalize: normalizeKimiStatus, renderMail: renderKimiMail, tail: kimiTail(history) as never },
-      history,
-      hooks: {
-        "spawn.plan": (input, output) => {
-          output.args = [
-            ...skillsArgs(input.skills),
-            ...(input.yolo ? ["--yolo"] : []),
-          ];
-        },
-        "resume.plan": (input, output) => {
-          output.args = [
-            ...skillsArgs(input.skills),
-            ...(input.yolo ? ["--yolo"] : []),
-            "--session",
-            input.sessionId,
-          ];
-        },
-        "fork.plan": async (input, output) => {
-          const newId = await kimiForkPlan(ctx, input);
-          output.args = [
-            ...skillsArgs(input.skills),
-            ...(input.yolo ? ["--yolo"] : []),
-            "--session",
-            newId,
-          ];
-        },
+      status: {
+        normalize: normalizeKimiStatus,
+        attribute: attributeKimiEvent,
+        mail: { channels: KIMI_MAIL_CHANNELS, render: renderKimiMail },
+        tail: kimiTail(history) as never,
       },
+      history,
+      hooks: launchPlans({
+        stage: stageLaunch,
+        resume: (input) => ["--session", input.sessionId],
+        fork: async (input) => ["--session", await kimiForkPlan(ctx, input)],
+      }),
     });
 
     // The RESOURCES ROOT, not one companion's folder: the fleet installs

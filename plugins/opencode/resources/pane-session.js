@@ -221,6 +221,9 @@ function create() {
       if (!sessionID || root === sessionID) return false;
       parents.clear();
       roots.clear();
+      // A session created with no parent IS a root — the evidence the
+      // classification would otherwise go back to the client for.
+      roots.add(sessionID);
       root = sessionID;
       return true;
     },

@@ -14,7 +14,8 @@
  * true), not at boot: a library is cold data until the user looks at it.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { describeError, log } from "../ipc/log";
+import { log } from "../ipc/log";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 /** What the hook needs from a library's owner — the writes, the read, and
  * the notify that a write happened through any door. */
@@ -129,14 +130,14 @@ export function useLibraryState<Scope, Row, Draft>(
         setError((prev) => (prev?.from === "read" ? null : prev));
         return true;
       } catch (e) {
-        log.warn(logTag, `${noun} list failed (${onFailure}): ${describeError(e)}`);
+        log.warn(logTag, `${noun} list failed (${onFailure}): ${errorMessage(e)}`);
         if (seq !== reads.current) return false;
         setReadFailed(true);
         // A stale list is kept rather than blanked — but never SILENTLY: the
         // list is stale either way, and the user is the one who has to know.
         const text = hasList.current
-          ? `The ${noun} list may be out of date: ${describeError(e)}`
-          : `Could not read the ${noun} library: ${describeError(e)}`;
+          ? `The ${noun} list may be out of date: ${errorMessage(e)}`
+          : `Could not read the ${noun} library: ${errorMessage(e)}`;
         if (!hasList.current) setRows([]);
         // YIELDING to an operation's notice, which is newer and more specific.
         // `readFailed` above still drives the affordances.
@@ -206,7 +207,7 @@ export function useLibraryState<Scope, Row, Draft>(
     (scope: Scope, draft: Draft, mode: "create" | "update") =>
       mutate(
         () => (mode === "create" ? library.create(scope, draft) : library.update(scope, draft)),
-        (e) => `Save failed: ${describeError(e)}`,
+        (e) => `Save failed: ${errorMessage(e)}`,
       ),
     [library, mutate],
   );
@@ -215,7 +216,7 @@ export function useLibraryState<Scope, Row, Draft>(
     (scope: Scope, from: string, to: string) =>
       mutate(
         () => library.rename(scope, from, to),
-        (e) => `Rename failed: ${describeError(e)}`,
+        (e) => `Rename failed: ${errorMessage(e)}`,
         { rereadOnSuccess: false },
       ),
     [library, mutate],
@@ -240,7 +241,7 @@ export function useLibraryState<Scope, Row, Draft>(
             current === null ? current : current.filter((row) => !sameRef(row, { scope, name })),
           );
         },
-        (e) => `Delete failed: ${describeError(e)}`,
+        (e) => `Delete failed: ${errorMessage(e)}`,
       ),
     [library, mutate, sameRef],
   );

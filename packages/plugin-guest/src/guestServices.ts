@@ -17,8 +17,8 @@ import type {
   SpeechLevel,
   SqlAnswer,
 } from "@keepdeck/plugin-api";
-import { createSessionStore } from "@keepdeck/plugin-api";
-import { describeError } from "./errors";
+import { createSessionStore, errorMessage } from "@keepdeck/plugin-api";
+
 import { RemoteDownloadStream } from "./downloadStream";
 import { speechLevelChannel } from "./protocol";
 import type { GuestRpc } from "./rpc";
@@ -171,7 +171,7 @@ export function createGuestServices({
             phase: "failed",
             received: 0,
             total: request.integrity?.bytes ?? null,
-            error: describeError(error),
+            error: errorMessage(error),
           };
           stream.push(failed);
         });

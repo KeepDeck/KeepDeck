@@ -1,6 +1,7 @@
 import { INTERNAL_ERROR, errorReply } from "../../domain/mcp";
-import { describeError, log } from "../../ipc/log";
+import { log } from "../../ipc/log";
 import { onMcpRequest, respondMcp, type McpRequest } from "../../ipc/mcpBridge";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 /** Answers one request line with at most one reply line — the projection
  * layer. `null` means "no reply": notifications must never be answered, and
@@ -49,7 +50,7 @@ export function createMcpRequestPump(
         try {
           reply = await handleLine(line, client ?? null);
         } catch (e) {
-          reply = errorReply(line, INTERNAL_ERROR, describeError(e));
+          reply = errorReply(line, INTERNAL_ERROR, errorMessage(e));
         }
         if (reply === null) {
           // Only the TRANSPORT knows whether a slot is parked for this
@@ -69,7 +70,7 @@ export function createMcpRequestPump(
         } catch (e) {
           log.warn(
             "web:mcp",
-            `reply ${id} failed to deliver: ${describeError(e)}`,
+            `reply ${id} failed to deliver: ${errorMessage(e)}`,
           );
         }
       })();
@@ -85,7 +86,7 @@ export function createMcpRequestPump(
       // No subscription means no inbound requests, EVER. Reported, not
       // thrown — and reported as `false`, because the caller's decision
       // (whether to serve at all) depends on it.
-      log.warn("web:mcp", `request subscription failed: ${describeError(e)}`);
+      log.warn("web:mcp", `request subscription failed: ${errorMessage(e)}`);
       return false;
     });
 

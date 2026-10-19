@@ -1,4 +1,4 @@
-import { collectExtras, isRecord } from "../json";
+import { collectExtras } from "../json";
 import {
   SETTINGS_MIN_READER,
   SETTINGS_VERSION,
@@ -7,6 +7,7 @@ import {
 import { settingsCodecs } from "./codecs";
 import { settingsDocument, type SettingsDocument } from "./document";
 import type { Settings } from "./types";
+import { isJsonRecord } from "@keepdeck/plugin-api";
 
 /**
  * The settings WIRE FORMAT: how a document becomes `settings.json` and back.
@@ -80,7 +81,7 @@ export function hydrateSettings(json: string): HydratedSettings | null {
   } catch {
     return null;
   }
-  if (!isRecord(raw)) return null;
+  if (!isJsonRecord(raw)) return null;
   const doc = raw;
   // Above our compatibility floor → quarantine (per-key tolerance covers
   // additive futures; a raised floor means a key CHANGED MEANING, and

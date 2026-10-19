@@ -2,12 +2,13 @@ import {
   EMPTY_SPAWN_CONTEXT,
   type SpawnPlanContext,
 } from "./spawnSpecs";
-import { describeError, log } from "../ipc/log";
+import { log } from "../ipc/log";
 import {
   paneBridgeDir,
   spawnContext,
   type SpawnContextDto,
 } from "../ipc/sessions";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 /**
  * The per-install spawn-plan context ([F7]/[F8] v2), loaded once at boot and
@@ -41,7 +42,7 @@ export function createSpawnContextSource(
       // hour once — make the degradation visible.
       log.warn(
         "web:spawn-context",
-        `load failed, identity off: ${describeError(e)}`,
+        `load failed, identity off: ${errorMessage(e)}`,
       );
       return EMPTY_SPAWN_CONTEXT;
     })

@@ -11,7 +11,6 @@ const ipc = vi.hoisted(() => ({
 vi.mock("../ipc/history", () => ({ indexLookup: ipc.indexLookup }));
 vi.mock("../ipc/log", () => ({
   log: { warn: (_tag: string, msg: string) => ipc.lookupWarns.push(msg) },
-  describeError: (e: unknown) => (e instanceof Error ? e.message : String(e)),
 }));
 
 import { useJournalEnrichment, type RowKey } from "./useJournalEnrichment";

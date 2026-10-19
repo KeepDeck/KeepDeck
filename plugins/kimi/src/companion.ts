@@ -35,20 +35,9 @@ export interface CompanionScript {
 
 const REPORTER_SCRIPTS: readonly CompanionScript[] = [
   { file: "kd-session-hook.sh", sha256: "f4393bea5b2fcac84fb34a98c4605c4546b131c95077f8ce9e5de14f78f331b0" },
-  { file: "kd-status-hook.sh", sha256: "7acf2681a1d563112f3ea46721767b8d4f8d0fd19305fb541ae381146714d017" },
-  { file: "kimi.plugin.json", sha256: "4fb1950023aedcaaf709af91f6439a8d42076f59b127724be66f9ad8194f7c14" },
+  { file: "kd-status-hook.sh", sha256: "d141e7433cc042feb4a23c791340064da96812cf471a2ed1a07eb02e28f3cf14" },
+  { file: "kimi.plugin.json", sha256: "27ae6a620878e88639b9a8ea7960aacb6d50e200f16c0b75297f97fc256c45a4" },
 ];
-
-/** SHA-256 of a file's text, hex-lowercase. The same helper digests what
- * this build ships and what the managed copy installed, so the two sides
- * of the comparison can never disagree about the hashing itself. */
-export async function sha256Hex(text: string): Promise<string> {
-  const bytes = new TextEncoder().encode(text);
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return [...new Uint8Array(digest)]
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
 
 export const COMPANION_ID = reporterManifest.name;
 export const COMPANION_VERSION = reporterManifest.version;

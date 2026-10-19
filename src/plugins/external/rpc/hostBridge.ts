@@ -1,5 +1,5 @@
-import type { PluginContext } from "@keepdeck/plugin-api";
-import { describeError } from "../../host/errors";
+import { errorMessage, type PluginContext } from "@keepdeck/plugin-api";
+
 import { createHostDispatch } from "./hostDispatch";
 import type { GuestToHostMessage } from "./protocol";
 
@@ -62,7 +62,7 @@ export function createHostBridge(
       port.postMessage({ kind: "result", id, ok: true, value });
     } catch (error) {
       if (disposed || !inFlight.delete(id)) return;
-      port.postMessage({ kind: "result", id, ok: false, error: describeError(error), ...errorCode(error) });
+      port.postMessage({ kind: "result", id, ok: false, error: errorMessage(error), ...errorCode(error) });
     }
   }
 

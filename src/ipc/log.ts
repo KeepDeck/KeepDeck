@@ -1,4 +1,5 @@
 import * as plugin from "@tauri-apps/plugin-log";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 /** The webview's door into the shared log pipeline: every call lands in the
  *  same per-run file the Rust side writes (console output is invisible in a
@@ -29,17 +30,6 @@ export const log = {
     ship(plugin.debug, target, message),
 };
 
-/** A one-line rendering of a caught unknown — IPC rejections are usually bare
- *  strings, everything else gets its message or a JSON dump. */
-export function describeError(e: unknown): string {
-  if (e instanceof Error) return e.message;
-  if (typeof e === "string") return e;
-  try {
-    return JSON.stringify(e) ?? String(e);
-  } catch {
-    return String(e);
-  }
-}
 
 /** The first frames of a thrown value's stack, newline-prefixed — they name
  *  the throwing callback, which the message alone never does. Both the frame
@@ -69,7 +59,7 @@ export function initLogging(): void {
   window.addEventListener("unhandledrejection", (event) => {
     log.error(
       "web:window",
-      `unhandled rejection: ${describeError(event.reason)}${stackSuffix(event.reason)}`,
+      `unhandled rejection: ${errorMessage(event.reason)}${stackSuffix(event.reason)}`,
     );
   });
   if (import.meta.env.DEV) {

@@ -28,7 +28,6 @@ vi.mock("../../ipc/history", () => ({
   indexLookup: ipc.indexLookup,
 }));
 vi.mock("../../ipc/log", () => ({
-  describeError: (e: unknown) => (e instanceof Error ? e.message : String(e)),
   log: { warn: vi.fn(), info: vi.fn(), debug: vi.fn(), error: vi.fn() },
 }));
 

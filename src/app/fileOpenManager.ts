@@ -1,6 +1,6 @@
-import type { FileOpenHandler, FileOpenRequest } from "@keepdeck/plugin-api";
+import { errorMessage, type FileOpenHandler, type FileOpenRequest } from "@keepdeck/plugin-api";
 import type { Contribution } from "../plugins/registries/contributions";
-import { describeError } from "../ipc/log";
+
 
 /**
  * The file-open chain — what a host surface calls when the user asks to open
@@ -37,7 +37,7 @@ export function createFileOpenManager(
           // A failing handler must not eat the click — logged, then treated
           // as a decline so the chain still lands the file somewhere.
           warn(
-            `file-open handler ${pluginId}:${entry.id} failed for ${request.path}: ${describeError(error)}`,
+            `file-open handler ${pluginId}:${entry.id} failed for ${request.path}: ${errorMessage(error)}`,
           );
         }
         declined = true;

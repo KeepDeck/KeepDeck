@@ -1,7 +1,12 @@
 import {
+  agentIdActor,
+  asNonEmptyString,
+  decodeStatusPayload,
   frameTeammateMail,
   isJsonRecord,
   type AgentStatusEvent,
+  type EventAttribution,
+  type MailChannel,
   type MailReplyInput,
   type MailReplyRenderer,
   type StatusNormalizer,
@@ -143,11 +148,35 @@ function renderLegacyCodexMail(
  * messages out of the queue to put them straight back; rendered but not
  * armed leaves that event's mail to a paid terminal nudge. Both silent.
  */
-export const ASKS_FOR_MAIL: ReadonlySet<string> = new Set([
-  "UserPromptSubmit",
-  "Stop",
-  "PostToolUse",
-]);
+export const CODEX_MAIL_CHANNELS: readonly MailChannel[] = [
+  { event: "SessionStart", atTurnEnd: false },
+  { event: "UserPromptSubmit", atTurnEnd: false },
+  { event: "PostToolUse", atTurnEnd: false },
+  { event: "Stop", atTurnEnd: true },
+];
+
+/**
+ * Whose report this is. A subagent's hook carries `agent_id` and
+ * `agent_type`; the main agent's carries neither — and `session_id` is the
+ * SHARED thread id, so it tells nothing apart (verified live on 0.163.0: a
+ * child's UserPromptSubmit and PostToolUse reach this reporter with the
+ * root's session id and process group).
+ *
+ * A subagent's report never moves the pane: its prompt is not the pane's
+ * turn, its tool use resolves no wait of the pane's, and it ends with
+ * `SubagentStop`, which is not armed. A report nobody can attribute — one the
+ * reporter cut down to its name — keeps moving the pane as before: a
+ * stranded Stop is the failure the reduction exists to prevent.
+ */
+export const attributeCodexEvent = (payload: unknown): EventAttribution | null => {
+  const decoded = decodeStatusPayload(payload);
+  if (!decoded) return null;
+  if (decoded.source === "record") return { event: null, actor: "main", status: true };
+  const event = asNonEmptyString(decoded.event.hook_event_name);
+  if (!event) return null;
+  const actor = agentIdActor(decoded.event, decoded.reduced);
+  return { event, actor, status: actor !== "child" };
+};
 
 export const renderCodexMail: MailReplyRenderer = (input) => {
   const text = teammateText(input);
@@ -165,14 +194,18 @@ export const renderCodexMail: MailReplyRenderer = (input) => {
           additionalContext: text,
         },
       });
+    case "SessionStart":
     case "PostToolUse":
-      // The mid-turn door: the turn keeps running and the words are context
-      // the model reads on its next request. The envelope is the same as
-      // `UserPromptSubmit`'s, under its own event name, because that is what
-      // codex's schema for this event allows.
+      // The same envelope under each event's own name, which is what
+      // codex's schema for each allows. PostToolUse is the mid-turn door:
+      // the turn keeps running and the words are context the model reads on
+      // its next request. SessionStart is the one after a compaction: an
+      // automatic one inside a turn drains it before the continuing request
+      // (verified live on 0.163.0), so the briefing the compaction re-states
+      // is in front of the model before it works on.
       return JSON.stringify({
         hookSpecificOutput: {
-          hookEventName: "PostToolUse",
+          hookEventName: event,
           additionalContext: text,
         },
       });
@@ -235,15 +268,15 @@ const readCodexStatus = (
   at: number,
   context?: { readonly reply?: string },
 ): AgentStatusEvent | null => {
-  if (!isJsonRecord(payload)) return null;
-  if (payload.kind === "store.record") {
+  const decoded = decodeStatusPayload(payload);
+  if (!decoded) return null;
+  if (decoded.source === "record") {
     // A rollout record the host carried because THIS plugin's watch named
     // it. The host did not read it: it compared two keys, one of them a
     // level down, and copied two fields. What it means is decided here.
-    return isJsonRecord(payload.record) ? codexRecords.read(payload.record) : null;
+    return codexRecords.read(decoded.record);
   }
-  if (!isJsonRecord(payload.event)) return null;
-  switch (payload.event.hook_event_name) {
+  switch (decoded.event.hook_event_name) {
     case "UserPromptSubmit":
       return { kind: "turn-start", at };
     case "Stop":
@@ -251,6 +284,24 @@ const readCodexStatus = (
       return { kind: "turn-end", at };
     case "PermissionRequest":
       return { kind: "waiting", at, reason: "permission" };
+    case "PostCompact":
+      // The context was rebuilt — what retires a recorded failure, as it
+      // does for claude's compaction. A manual `/compact` reports it at once.
+      return { kind: "context-compacted", at };
+    case "SessionStart":
+      // The same rebuild, from the hook that can carry its re-stated
+      // briefing: announced by this report, the briefing is queued before
+      // the report's own ask is answered. PostCompact has already said it
+      // for an automatic compaction; a second announcement re-states the
+      // same standing context, which supersedes itself in the queue. A
+      // manual `/compact` defers this hook to the next turn, where the
+      // announcement is no longer news but the delivery still is. The other
+      // sources are a session at its prompt and mint nothing.
+      return decoded.event.source === "compact" ? { kind: "context-compacted", at } : null;
+    case "Interrupt":
+      // The user's Esc on the main thread (codex runs it for no subagent),
+      // the same edge the rollout's turn_aborted reports later.
+      return { kind: "interrupted", at };
     case "PostToolUse":
       // The backstop, not the resolution: an approved tool's completion is
       // the first post-approval hook codex sends, which is as late as the
@@ -265,7 +316,7 @@ const readCodexStatus = (
 };
 
 export const normalizeCodexStatus: StatusNormalizer = (payload, at, context) => {
-  const record = isJsonRecord(payload) && payload.kind === "store.record" && isJsonRecord(payload.record)
-    ? payload.record : null;
+  const decoded = decodeStatusPayload(payload);
+  const record = decoded?.source === "record" ? decoded.record : null;
   return codexQuestionStatus(context?.state, record, readCodexStatus(payload, at, context));
 };

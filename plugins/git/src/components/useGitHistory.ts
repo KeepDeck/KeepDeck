@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { GitHistory } from "@keepdeck/plugin-api";
 import { activeRuntime } from "../runtime";
 import { firstWindow, widenWindow, windowFilled } from "../domain/historyWindow";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 /**
  * One repo's history feed with a lazily growing window (`historyWindow`
@@ -42,7 +43,7 @@ export function useGitHistory(repo: string, version: number, enabled: boolean) {
         setError(null);
       })
       .catch((cause: unknown) => {
-        const message = cause instanceof Error ? cause.message : String(cause);
+        const message = errorMessage(cause);
         log.warn(`git history failed for ${repo}: ${message}`);
         if (cancelled) return;
         setError(message);

@@ -7,7 +7,11 @@ import type {
   SpawnPlanOutput,
 } from "@keepdeck/plugin-api";
 import plugin, { setupNotification } from "./index";
-import { renderKimiMail } from "./status";
+import { KIMI_MAIL_CHANNELS, renderKimiMail } from "./status";
+
+// The fork's store surgery has its own suite (fork.test.ts); here only the
+// launch the fork plan hands back matters.
+vi.mock("./fork", () => ({ kimiForkPlan: vi.fn(async () => "session_forked") }));
 
 interface ActivationOptions {
   manifestPath?: string | null;
@@ -98,7 +102,28 @@ describe("Kimi CLI plugin", () => {
       label: "Kimi Code",
       detect: { bin: "kimi" },
     });
-    expect(out).toEqual({ command: "kimi", args: [], env: [] });
+    expect(out).toMatchObject({ command: "kimi", args: [], env: [] });
+  });
+
+  it("every launch defaults kimi to trust the pane's directory", async () => {
+    // Kimi 2.2 stops an unseen directory — every new worktree — on a
+    // blocking trust prompt before any session exists. A DEFAULT, not env:
+    // a user who set the variable themselves keeps their answer.
+    const { agent } = await activate();
+    const spawn = output();
+    await agent.hooks["spawn.plan"]!(input, spawn);
+    const resume = output();
+    await agent.hooks["resume.plan"]!({ ...input, sessionId: "session_123" }, resume);
+    const fork = output();
+    await agent.hooks["fork.plan"]!(
+      { ...input, sessionId: "session_123", sourceCwd: "/old" } as never,
+      fork,
+    );
+    expect(fork.args).toEqual(["--session", "session_forked"]);
+    for (const out of [spawn, resume, fork]) {
+      expect(out.envDefaults).toEqual([["KIMI_CODE_TRUST_WORKSPACE", "1"]]);
+      expect(out.env).toEqual([]);
+    }
   });
 
   it("uses Kimi's documented exact-session restore flag", async () => {
@@ -180,7 +205,7 @@ describe("Kimi CLI plugin", () => {
       vi.fn(async () => ({
         ok: true,
         status: 200,
-        json: async () => ({ code: 0, msg: "", data: [] }),
+        json: async () => ({ code: 0, msg: "", data: { plugins: [] } }),
       })),
     );
     const { notify } = await activate({ installedPlugins: [] });
@@ -226,7 +251,8 @@ describe("Kimi CLI plugin", () => {
     // and forgets to contribute it has its messages typed into a terminal
     // instead — with every renderer test still green.
     const { agent } = await activate();
-    expect(agent?.status?.renderMail).toBe(renderKimiMail);
+    expect(agent?.status?.mail?.render).toBe(renderKimiMail);
+    expect(agent?.status?.mail?.channels).toBe(KIMI_MAIL_CHANNELS);
     expect(agent?.status?.tail?.watches).toEqual(expect.arrayContaining([
       expect.objectContaining({ lane: "status", match: [
         { key: "type", equals: "turn.ended" }, { key: "agentId", equals: "main" },

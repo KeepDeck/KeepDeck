@@ -39,7 +39,6 @@ const ipc = vi.hoisted(() => ({
     (...args: unknown[]) => Promise<unknown[]>
   >(),
   log: { warn: vi.fn(), info: vi.fn(), error: vi.fn() },
-  describeError: (e: unknown) => String(e),
 }));
 
 vi.mock("./historyScan", () => ({
@@ -50,7 +49,6 @@ vi.mock("../ipc/history", () => ({
 }));
 vi.mock("../ipc/log", () => ({
   log: ipc.log,
-  describeError: ipc.describeError,
 }));
 
 /** The hook's answer side as the index's CURRENT truth — the lookup

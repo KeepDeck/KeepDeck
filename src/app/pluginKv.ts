@@ -1,7 +1,6 @@
-import type { PluginKV, WorkspaceRef } from "@keepdeck/plugin-api";
+import { isJsonRecord, type PluginKV, type WorkspaceRef } from "@keepdeck/plugin-api";
 import type { Workspace } from "../domain/deck";
 import type { WorkspaceInstance } from "../domain/workspaceInstance";
-import { isRecord } from "../domain/json";
 
 /**
  * The deck-backed workspace KV behind `ctx.storage.workspace(workspace)`. A
@@ -44,7 +43,7 @@ export function makeWorkspaceKv(
       );
   const slot = (): Record<string, unknown> => {
     const value = workspace()?.plugins?.[pluginId];
-    return isRecord(value) ? value : {};
+    return isJsonRecord(value) ? value : {};
   };
   return {
     async get<T>(key: string): Promise<T | undefined> {

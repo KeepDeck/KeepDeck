@@ -15,7 +15,6 @@ vi.mock("../ipc/history", () => ({
   pluginsSqliteQuery: vi.fn(),
 }));
 vi.mock("../ipc/log", () => ({
-  describeError: (e: unknown) => String(e),
   log: { warn: vi.fn(), info: vi.fn(), debug: vi.fn(), error: vi.fn() },
 }));
 

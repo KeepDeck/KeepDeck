@@ -7,13 +7,14 @@ import {
   type SettingsDocument,
   type SettingsProvenance,
 } from "../domain/settings";
-import { describeError, log } from "../ipc/log";
+import { log } from "../ipc/log";
 import {
   loadSettings,
   quarantineSettings,
   saveSettings,
   snapshotSettings,
 } from "../ipc/settings";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 /**
  * The owner of the global app settings ([F6]) — one per app, outside React,
@@ -95,7 +96,7 @@ export function createSettingsManager(ports: SettingsPorts): SettingsManager {
     } catch (first) {
       log.warn(
         "web:settings",
-        `settings load failed (${describeError(first)}) — retrying once`,
+        `settings load failed (${errorMessage(first)}) — retrying once`,
       );
       // One retry, because the causes that produce a rejected read are usually
       // momentary (a file briefly locked, a home not yet mounted, EMFILE under
@@ -103,7 +104,7 @@ export function createSettingsManager(ports: SettingsPorts): SettingsManager {
       try {
         json = await ports.loadSettings();
       } catch (again) {
-        return { kind: "unreadable", why: describeError(again) };
+        return { kind: "unreadable", why: errorMessage(again) };
       }
     }
     // `null` is `NotFound` and nothing else (see the Rust `load`), so it is a
@@ -120,7 +121,7 @@ export function createSettingsManager(ports: SettingsPorts): SettingsManager {
     } catch (e) {
       return {
         kind: "unreadable",
-        why: `unusable, and the quarantine failed: ${describeError(e)}`,
+        why: `unusable, and the quarantine failed: ${errorMessage(e)}`,
       };
     }
     return { kind: "empty", why: "settings were unusable → quarantined" };
@@ -200,7 +201,7 @@ export function createSettingsManager(ports: SettingsPorts): SettingsManager {
           // would make every later `chain.then(...)` skip its callback, and
           // settings would stop persisting for the rest of the session with
           // nothing to show for it.
-          log.warn("web:settings", `settings save failed: ${describeError(e)}`),
+          log.warn("web:settings", `settings save failed: ${errorMessage(e)}`),
         );
     },
 

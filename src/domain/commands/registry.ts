@@ -1,6 +1,7 @@
 import type { ArgSpec, CommandArgs } from "./args";
 import { validateArgs } from "./args";
 import { isValidCommandId } from "./ids";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 /**
  * The command registry — the deck's single point of command execution.
@@ -198,7 +199,7 @@ export function createCommandRegistry(
       } catch (e) {
         const error: CommandError = {
           code: "failed",
-          message: e instanceof Error ? e.message : String(e),
+          message: errorMessage(e),
         };
         record(source, id, args, error);
         return { ok: false, error };

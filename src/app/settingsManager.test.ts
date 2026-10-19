@@ -4,7 +4,6 @@ import { createSettingsManager, type SettingsPorts } from "./settingsManager";
 
 vi.mock("../ipc/log", () => ({
   log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-  describeError: (e: unknown) => String(e),
 }));
 
 /**

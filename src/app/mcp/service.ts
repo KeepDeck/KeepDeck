@@ -5,7 +5,7 @@ import {
   type McpServerIdentity,
 } from "../../domain/mcp";
 import { readAppInfo } from "../appInfo";
-import { describeError } from "../../ipc/log";
+
 import {
   mcpConnectionCommand,
   mcpDisable,
@@ -34,6 +34,7 @@ import {
   type McpTransition,
   type McpTransportPort,
 } from "./policy";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 /** The transport every external call is journaled under. */
 const MCP_TRANSPORT = "mcp";
@@ -313,7 +314,7 @@ export function createMcpService(deps: McpServiceDeps): McpService {
       })
       .catch((e: unknown) => {
         if (settled()) {
-          publish({ ...current, connect: null, connectError: describeError(e) });
+          publish({ ...current, connect: null, connectError: errorMessage(e) });
         }
       });
   }

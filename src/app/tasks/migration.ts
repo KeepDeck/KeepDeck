@@ -21,6 +21,7 @@ import type { StoreStatus } from "../../ipc/generated/tasks/StoreStatus";
 import type { StoredBoard } from "../../ipc/generated/tasks/StoredBoard";
 import { decodeFaultText } from "./refusalText";
 import { boardFromStored, storedFromBoard } from "./storeWire";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 /** What the move needs from the store. */
 export interface MigrationPort {
@@ -174,5 +175,5 @@ export function countsLost(json: string, board: TaskBoard, dropped: readonly Dro
 
 function describe(e: unknown): string {
   if (typeof e === "object" && e !== null && "code" in e) return JSON.stringify(e);
-  return e instanceof Error ? e.message : String(e);
+  return errorMessage(e);
 }

@@ -1,7 +1,11 @@
 import {
+  fileStub,
   firstMeaningfulUserTurn,
   jsonl,
+  pageOfWalk,
+  sessionHistory,
   textFromParts,
+  trimmedText,
   walkSession,
   type AgentHistory,
   type AgentSessionStub,
@@ -10,7 +14,7 @@ import {
   type ReadScope,
   type SessionDialect,
 } from "@keepdeck/plugin-api";
-import { FILE_UUID, ROOT } from "./store";
+import { walkRollouts } from "./store";
 
 /**
  * Discovery over codex's store ([F8] browser): date-partitioned rollouts at
@@ -19,11 +23,6 @@ import { FILE_UUID, ROOT } from "./store";
  */
 // The store's shape lives in ./store, so the browser, the live tail and
 // anything else that has to find a rollout read one description of it.
-
-/** The log line needs a string; whatever the fs layer threw becomes one. */
-function errOf(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
-}
 
 /** One line of a rollout, as this plugin reads it. An assertion about the
  * format made in ONE place: the host parses the JSON and validates nothing,
@@ -43,11 +42,6 @@ interface CodexState {
   cwd?: string;
 }
 
-function nonEmpty(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const text = value.trim();
-  return text === "" ? undefined : text;
-}
 
 /** Rollout lines: `response_item` payloads of type `message` with a content
  * array of `input_text`/`output_text` parts. Developer/meta roles are
@@ -60,7 +54,7 @@ const dialect: SessionDialect<CodexState, CodexRecord> = {
     // noticing it here is what replaces the separate read of the head. A
     // rollout can carry several (subagent threads) — the FIRST wins, which
     // is what parsing the first line always did.
-    if (record.type === "session_meta") state.cwd ??= nonEmpty(record.payload?.cwd);
+    if (record.type === "session_meta") state.cwd ??= trimmedText(record.payload?.cwd);
 
     if (record.type !== "response_item") return [];
     const payload = record.payload;
@@ -97,106 +91,14 @@ export function codexHistory(ctx: PluginContext): AgentHistory {
       ...extra,
     });
 
-  /** One page of turns WITH what the reading fell short by. */
-  const readPage = async (
-    ref: string,
-    page: { offset: number; limit: number },
-  ) => {
-    const walked = await readSession(ref, { keep: page });
-    return {
-      entries: walked.turns,
-      ...(walked.shortfall ? { shortfall: walked.shortfall } : {}),
-    };
-  };
-
-  const walk = async (path: string): Promise<AgentSessionStub[]> => {
-    const out: AgentSessionStub[] = [];
-    // No catch: the store's root already answered, so a date partition that
-    // fails to read is a failure, not an absence — a partial walk reads as
-    // "those sessions were deleted" and the index prune acts on it. The
-    // throw lands in the scanner's per-agent catch: logged, nothing pruned.
-    const entries = await ctx.services.fs.readDir(path);
-    for (const entry of entries) {
-      if (entry.kind === "dir") {
-        out.push(...(await walk(entry.path)));
-        continue;
-      }
-      const match = entry.kind === "file" ? FILE_UUID.exec(entry.name) : null;
-      if (!match) continue;
-      out.push({
-        sessionId: match[1],
-        ref: entry.path,
-        mtime: entry.mtime ?? 0,
-        size: entry.size ?? 0,
-      });
-    }
-    return out;
-  };
-  /** The partial-tolerant twin of `walk` above: a read refusal anywhere
-   * below the root skips that subtree, names it in the log, and keeps
-   * walking — the skip lives INSIDE the recursion, so every depth is
-   * covered by the same line. Returns whether the walk was complete. */
-  const walkPartial = async (
-    path: string,
-    stubs: AgentSessionStub[],
-  ): Promise<boolean> => {
-    let entries;
-    try {
-      entries = await ctx.services.fs.readDir(path);
-    } catch (e) {
-      // A partial answer must be a NAMED one — this subtree stays
-      // invisible to the index until it reads again, and silent
-      // degradation is the one mode this contract forbids.
-      ctx.log.warn(
-        `codex: partial listing — ${path} unreadable (${errOf(e)})`,
-      );
-      return false;
-    }
-    let complete = true;
-    for (const entry of entries) {
-      if (entry.kind === "dir") {
-        const seenAll = await walkPartial(entry.path, stubs);
-        complete = seenAll && complete;
-        continue;
-      }
-      const match = entry.kind === "file" ? FILE_UUID.exec(entry.name) : null;
-      if (!match) continue;
-      stubs.push({
-        sessionId: match[1],
-        ref: entry.path,
-        mtime: entry.mtime ?? 0,
-        size: entry.size ?? 0,
-      });
-    }
-    return complete;
-  };
-  return {
-    async list() {
-      try {
-        await ctx.services.fs.readDir(ROOT);
-      } catch {
-        return [];
-      }
-      return walk(ROOT);
-    },
-    /** See `walkPartial`; the root is probed apart so a root refusal can
-     * never look like an empty store — [] with complete:true reads as
-     * "every session deleted" and the host's prune would wipe this
-     * agent's whole index. (Accepted cost, named in the contract: the fs
-     * layer reports "no store" and "unreadable root" identically, so a
-     * genuinely deleted store stops being pruned.) */
-    async listing(): Promise<{ stubs: AgentSessionStub[]; complete: boolean }> {
-      try {
-        await ctx.services.fs.readDir(ROOT);
-      } catch (e) {
-        ctx.log.warn(
-          `codex: store root unreadable (${errOf(e)}) — nothing enumerated`,
-        );
-        return { stubs: [], complete: false };
-      }
+  return sessionHistory("codex", ctx.log, {
+    async enumerate(unreadable) {
       const stubs: AgentSessionStub[] = [];
-      const complete = await walkPartial(ROOT, stubs);
-      return { stubs, complete };
+      await walkRollouts(ctx, {
+        file: (entry, sessionId) => stubs.push(fileStub(sessionId, entry)),
+        unreadable,
+      });
+      return stubs;
     },
     async describe(ref) {
       // Both facts a describe wants sit at the rollout's start: the working
@@ -226,11 +128,6 @@ export function codexHistory(ctx: PluginContext): AgentHistory {
     async content(ref) {
       return (await readSession(ref)).content;
     },
-    // ONE reading, two contracts: the legacy method unpacks the honest one,
-    // so the pair cannot drift.
-    transcriptPage: readPage,
-    async transcript(ref, page): Promise<AgentTranscriptEntry[]> {
-      return (await readPage(ref, page)).entries;
-    },
-  };
+    readPage: async (ref, page) => pageOfWalk(await readSession(ref, { keep: page })),
+  });
 }

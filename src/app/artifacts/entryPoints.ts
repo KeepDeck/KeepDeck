@@ -10,7 +10,7 @@
  * server down) is a silent no-op + log line, never an error dialog off a
  * notification click.
  */
-import { describeError, log } from "../../ipc/log";
+import { log } from "../../ipc/log";
 import { openUrl } from "../../ipc/app";
 import { artifactResolveUrls } from "../../ipc/artifacts";
 import type {
@@ -18,6 +18,7 @@ import type {
   NotificationWorkspace,
 } from "../../domain/notifications";
 import type { WorkspaceInstance } from "../../domain/workspaceInstance";
+import { errorMessage } from "@keepdeck/plugin-api";
 
 /** The first-publish / delete notification inputs. */
 export interface ArtifactEvent {
@@ -99,7 +100,7 @@ export async function openArtifactFromNotification(
     // all three. Silent no-op + log; never an error dialog off a click.
     log.warn(
       "web:artifacts",
-      `notification click could not resolve: ${describeError(error)}`,
+      `notification click could not resolve: ${errorMessage(error)}`,
     );
     return { silent: "unresolved" };
   }

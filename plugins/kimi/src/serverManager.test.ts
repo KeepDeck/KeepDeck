@@ -101,12 +101,12 @@ describe("setupServerWrapperScript", () => {
 
   it("pins the behavioral contract: server flags and watchdog primitives", () => {
     const script = setupServerWrapperScript();
-    // `kimi web`, not the removed-in-0.28 `kimi server run`; the debug RPC
-    // surface replaced the removed-in-0.29 /api/v2 one; an ephemeral port
-    // cannot collide with a second KeepDeck instance.
+    // `kimi web`, not the removed-in-0.28 `kimi server run`; an ephemeral
+    // port cannot collide with a second KeepDeck instance. No debug flag:
+    // the installer uses the public plugin API every server mounts.
     expect(script).toContain("kimi web --no-open --host 127.0.0.1");
     expect(script).toContain("--port 0");
-    expect(script).toContain("--debug-endpoints");
+    expect(script).not.toContain("--debug-endpoints");
     // The parent-death watchdog: ignore the PTY's SIGHUP, poll the parent's
     // existence AND start-time identity (pid reuse), escalate TERM → KILL,
     // and reap the watcher's own sleeps so the PTY slave closes promptly.

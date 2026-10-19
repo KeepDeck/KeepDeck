@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { normalizeKimiStatus as normalize, renderKimiMail } from "./status";
+import { admittedNormalizer } from "@keepdeck/plugin-api";
+import {
+  attributeKimiEvent,
+  KIMI_MAIL_CHANNELS,
+  normalizeKimiStatus as normalize,
+  renderKimiMail,
+} from "./status";
 
 const normalizeKimiStatus = (...args: Parameters<typeof normalize>) => {
   const result = normalize(...args);
@@ -30,23 +36,12 @@ describe("renderKimiMail", () => {
     });
   });
 
-  it("blocks a turn end the only way kimi's stdout can", () => {
-    // A `Stop` result carries text only when it BLOCKS, and stdout can
-    // express a block one way: the permission vocabulary reused. For `Stop`
-    // it means "do not stop" — kimi appends the reason and keeps going.
-    expect(JSON.parse(render("Stop") ?? "null")).toEqual({
-      hookSpecificOutput: {
-        permissionDecision: "deny",
-        permissionDecisionReason: expect.stringContaining("take the parser"),
-      },
-    });
-  });
-
   it("carries nothing on the events that carry nothing", () => {
     // kimi discards a SessionStart hook's result outright — the trigger is
     // awaited and thrown away — so rendering for it would be writing into
     // a void the deck cannot see.
-    for (const name of ["SessionStart", "Interrupt", "PermissionRequest"]) {
+    // Stop among them: it is not a mail channel (see KIMI_MAIL_CHANNELS).
+    for (const name of ["SessionStart", "Stop", "Interrupt", "PermissionRequest"]) {
       expect(render(name), name).toBeNull();
     }
   });
@@ -71,9 +66,13 @@ describe("normalizeKimiStatus", () => {
   });
 
   it.each(["PermissionRequest", "PermissionResult"])("ignores child and unidentifiable %s", (hook_event_name) => {
+    // Through the admission the host runs: the attribution is what says the
+    // report is not the main agent's.
+    const admitted = admittedNormalizer({ normalize, attribute: attributeKimiEvent });
     for (const agent_id of [undefined, "agent-1"]) {
-      expect(normalizeKimiStatus(wrap({ hook_event_name, agent_id }), 500)).toBeNull();
+      expect(admitted(wrap({ hook_event_name, agent_id }), 500)).toBeNull();
     }
+    expect(admitted(wrap({ hook_event_name, agent_id: "main" }), 500)).not.toBeNull();
   });
 
   it("drops untracked events and garbage", () => {
@@ -85,5 +84,41 @@ describe("normalizeKimiStatus", () => {
     ).toBeNull();
     expect(normalizeKimiStatus({ agent: "kimi" }, 100)).toBeNull();
     expect(normalizeKimiStatus(undefined, 100)).toBeNull();
+  });
+});
+
+describe("attributeKimiEvent", () => {
+  it("reads UserPromptSubmit as the main agent's: it runs only for user prompts", () => {
+    expect(attributeKimiEvent(wrap({ hook_event_name: "UserPromptSubmit" }))).toEqual({
+      event: "UserPromptSubmit", actor: "main", status: true,
+    });
+  });
+
+  it("names nobody for the hooks that carry no agent identity", () => {
+    // Verified live on 2.2.0: Stop fires for a subagent's turn with no agent
+    // field at all.
+    for (const name of ["Stop", "Interrupt", "StopFailure"]) {
+      expect(attributeKimiEvent(wrap({ hook_event_name: name }))).toEqual({
+        event: name, actor: "unknown", status: false,
+      });
+    }
+  });
+
+  it("reads the permission pair by its agent_id", () => {
+    expect(attributeKimiEvent(wrap({ hook_event_name: "PermissionRequest", agent_id: "main" })))
+      .toMatchObject({ actor: "main", status: true });
+    expect(attributeKimiEvent(wrap({ hook_event_name: "PermissionRequest", agent_id: "agent-1" })))
+      .toMatchObject({ actor: "child", status: false });
+  });
+
+  it("names nobody once the reporter reduced the payload", () => {
+    expect(attributeKimiEvent({ agent: "kimi", reduced: true, event: { hook_event_name: "UserPromptSubmit" } }))
+      .toMatchObject({ actor: "unknown" });
+  });
+});
+
+describe("KIMI_MAIL_CHANNELS", () => {
+  it("is the manifest's own --ask events: UserPromptSubmit alone, none at turn end", () => {
+    expect(KIMI_MAIL_CHANNELS).toEqual([{ event: "UserPromptSubmit", atTurnEnd: false }]);
   });
 });
