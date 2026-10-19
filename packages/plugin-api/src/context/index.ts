@@ -11,6 +11,8 @@ export type {
   AgentSessionFacts,
   AgentSessionStub,
   AgentTranscriptEntry,
+  AgentCompanion,
+  CompanionCover,
   ForkDiscard,
   ForkPlanInput,
   PluginAgents,

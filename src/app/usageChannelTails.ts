@@ -16,8 +16,10 @@ export const TAIL_RETRY_MS = 20_000;
 export function createUsageTailsLane({
   deck,
   declarations,
+  attribution,
   bindings,
   tailOf,
+  companionOf,
 }: UsageLaneContext): UsageLane {
   let disposed = false;
   /** Panes a native watcher is armed for, or is being armed for. */
@@ -35,11 +37,49 @@ export function createUsageTailsLane({
    */
   const searching = new Set<string>();
 
-  /** Everything this agent asked to have carried out of its store. The
-   * merge — and the order it must happen in — belongs to the contract, not
-   * to this lane: see [`tailWatches`]. */
-  const watchesFor = (agentId: string): readonly TailWatch[] =>
-    tailWatches(declarations.current().get(agentId)?.tail, tailOf(agentId));
+  /** Whether this pane's process states its status facts itself: its
+   * companion said hello from the process the pane is pinned to, and the
+   * agent declares that the companion covers them. Then the store's status
+   * records are not read at all — one source per process, never two. */
+  const statusCovered = (paneId: string, agentId: string): boolean =>
+    (companionOf(agentId)?.covers.includes("status-records") ?? false) &&
+    attribution.hasCompanion(paneId);
+
+  /** Everything this pane's store has to be read for. The merge — and the
+   * order it must happen in — belongs to the contract, not to this lane: see
+   * [`tailWatches`]. */
+  const watchesFor = (paneId: string, agentId: string): readonly TailWatch[] =>
+    tailWatches(
+      declarations.current().get(agentId)?.tail,
+      statusCovered(paneId, agentId) ? undefined : tailOf(agentId),
+    );
+
+  /** What each armed pane was armed WITH — so a companion arriving after the
+   * arm can re-arm it without the status records, and only when that changes
+   * what is read. */
+  const armedWith = new Map<
+    string,
+    { path: string; token: string; agentId: string; covered: boolean }
+  >();
+
+  /** Arm one pane's follower; `false` when there is nothing left to read. */
+  const arm = (paneId: string, path: string, token: string, agentId: string) => {
+    const watches = watchesFor(paneId, agentId);
+    armedWith.set(paneId, {
+      path,
+      token,
+      agentId,
+      covered: statusCovered(paneId, agentId),
+    });
+    return watchSessionFile(
+      paneId,
+      path,
+      token,
+      agentId,
+      watches,
+      declarations.current().get(agentId)?.tail?.siblings?.(path) ?? null,
+    );
+  };
 
   const settleArm = (paneId: string) => {
     if (disposed || !tailed.has(paneId)) {
@@ -118,18 +158,10 @@ export function createUsageTailsLane({
             // REPORTED rather than one found by walking. Leave it alone.
             if (disposed || !stillWanted || tailed.has(paneId)) return;
             tailed.add(paneId);
-            return watchSessionFile(
-              paneId,
-              path,
-              token,
-              agentId,
-              // Read HERE rather than before the search: finding a store is
-              // a walk, and a plugin toggled during it would leave this
-              // arming a declaration that is no longer made.
-              watchesFor(agentId),
-              declarations.current().get(agentId)?.tail?.siblings?.(path) ??
-                null,
-            ).then(() => settleArm(paneId));
+            // The watches are read inside `arm`, after the search: finding
+            // a store is a walk, and a plugin toggled during it would leave
+            // this arming a declaration that is no longer made.
+            return arm(paneId, path, token, agentId).then(() => settleArm(paneId));
           })
           .catch((error) => {
             // Only the search is abandoned. A tail armed from a binding
@@ -151,6 +183,7 @@ export function createUsageTailsLane({
     for (const paneId of [...tailed]) {
       if (desired.has(paneId)) continue;
       tailed.delete(paneId);
+      armedWith.delete(paneId);
       void unwatchSessionFile(paneId);
     }
     // A pane that left the deck while its store was being looked for: the
@@ -193,21 +226,12 @@ export function createUsageTailsLane({
 
     // The agent's own declaration of which records to carry, handed through
     // verbatim: the backend applies it without reading it.
-    const watches = watchesFor(agentId);
-    const siblings = tail.siblings?.(transcriptPath) ?? null;
     log.debug(
       "web:usage",
-      `${paneId}: arming ${agentId} tail from binding, carrying ${watches.length} record shape(s) it declared${siblings ? ` plus whatever lands in ${siblings}` : ""}`,
+      `${paneId}: arming ${agentId} tail from binding${statusCovered(paneId, agentId) ? " — status stated by its companion, usage records only" : ""}`,
     );
     tailed.add(paneId);
-    void watchSessionFile(
-      paneId,
-      transcriptPath,
-      token,
-      agentId,
-      watches,
-      siblings,
-    )
+    void arm(paneId, transcriptPath, token, agentId)
       .then(() => settleArm(paneId))
       .catch((error) => {
         tailed.delete(paneId);
@@ -218,6 +242,23 @@ export function createUsageTailsLane({
       });
   });
 
+  // A companion that says hello after the pane armed — or a process that
+  // retired with one — changes what the store is read for. Re-armed only on
+  // an actual change: the follower re-reads the store from its start.
+  const unsubscribeCompanions = attribution.subscribeCompanions((paneId) => {
+    if (disposed || !tailed.has(paneId)) return;
+    const armed = armedWith.get(paneId);
+    if (!armed || armed.covered === statusCovered(paneId, armed.agentId)) return;
+    log.debug("web:usage", `${paneId}: companion changed what its tail reads — re-arming`);
+    void unwatchSessionFile(paneId)
+      .then(() => arm(paneId, armed.path, armed.token, armed.agentId))
+      .then(() => settleArm(paneId))
+      .catch((error) => {
+        tailed.delete(paneId);
+        armedWith.delete(paneId);
+        log.warn("web:usage", `session-file re-arm for ${paneId} failed: ${error}`);
+      });
+  });
   const unsubscribeDeck = deck.subscribe(reconcile);
   const unsubscribeDeclarations = declarations.subscribe(reconcile);
   const retryTimer = globalThis.setInterval(
@@ -230,6 +271,7 @@ export function createUsageTailsLane({
     dispose() {
       if (disposed) return;
       disposed = true;
+      unsubscribeCompanions();
       unsubscribeDeck();
       unsubscribeDeclarations();
       globalThis.clearInterval(retryTimer);

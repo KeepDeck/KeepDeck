@@ -47,6 +47,18 @@ export interface PaneAttribution {
    * is somebody else's. A continuation may move the pin, because the pane's
    * own agent may have moved. */
   recordBinding(paneId: string, reporter: string | undefined): void;
+  /** A companion — a reporter inside the agent process — said hello from
+   * `reporter`. Recorded per pane and retired with the pane's process, like
+   * the pin it is read against. */
+  recordCompanion(paneId: string, reporter: string): void;
+  /** Whether the process this pane is pinned to announced a companion. A
+   * hello from a process the pane is not pinned to — the conversation moved
+   * on, or never bound here — says nothing about the one that reports now. */
+  hasCompanion(paneId: string): boolean;
+  /** Told when a pane's `hasCompanion` answer may have changed by a hello or
+   * a retirement. A pin that moves is announced by its binding, which every
+   * reader of this already follows. */
+  subscribeCompanions(listener: (paneId: string) => void): () => void;
   /** The pane's process is retiring — the next fresh session it reports is
    * legitimately its own again. */
   retire(paneId: string): void;
@@ -104,6 +116,12 @@ export function createPaneAttribution(
   /** paneId → the process that bound this generation (undefined when that
    * reporter could not name itself). Presence IS "this generation bound". */
   const bound = new Map<string, string | undefined>();
+  /** paneId → the process whose companion said hello. */
+  const companions = new Map<string, string>();
+  const companionListeners = new Set<(paneId: string) => void>();
+  const companionChanged = (paneId: string) => {
+    for (const listener of [...companionListeners]) listener(paneId);
+  };
 
   // Through the catalog's accessor, never the raw field: a pane with no
   // recorded type RUNS the default agent and arms its reporter under that
@@ -182,12 +200,29 @@ export function createPaneAttribution(
         bound.set(paneId, reporter);
       }
     },
+    recordCompanion(paneId, reporter) {
+      if (companions.get(paneId) === reporter) return;
+      companions.set(paneId, reporter);
+      companionChanged(paneId);
+    },
+    hasCompanion(paneId) {
+      const reporter = companions.get(paneId);
+      return reporter !== undefined && reporter === bound.get(paneId);
+    },
+    subscribeCompanions(listener) {
+      companionListeners.add(listener);
+      return () => companionListeners.delete(listener);
+    },
     retire(paneId) {
       bound.delete(paneId);
+      if (companions.delete(paneId)) companionChanged(paneId);
     },
     forget(live) {
       for (const paneId of [...bound.keys()]) {
         if (!live.has(paneId)) bound.delete(paneId);
+      }
+      for (const paneId of [...companions.keys()]) {
+        if (!live.has(paneId)) companions.delete(paneId);
       }
     },
   };

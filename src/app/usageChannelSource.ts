@@ -1,4 +1,4 @@
-import type { AgentUsage, SessionTailDialect } from "@keepdeck/plugin-api";
+import type { AgentCompanion, AgentUsage, SessionTailDialect } from "@keepdeck/plugin-api";
 import type { DeckStore } from "./deckStore";
 import type { PaneAttribution } from "./paneAttribution";
 import type { SessionBinding } from "./sessionBinding";
@@ -31,4 +31,7 @@ export interface UsageLaneContext {
    * of it, which is handed to the follower verbatim and applied without
    * being read. Absent for an agent whose plugin has not declared one. */
   tailOf(agentId: string): SessionTailDialect<never, never> | undefined;
+  /** What the agent's in-process companion takes over once it says hello —
+   * read at arm time, like `tailOf`. */
+  companionOf(agentId: string): AgentCompanion | undefined;
 }

@@ -69,6 +69,8 @@ export function createUsageChannel(
    * arm a follower for a dialect that is no longer there. */
   const tailOf = (agentId: string) =>
     agents.list().find(({ entry }) => entry.id === agentId)?.entry.status?.tail;
+  const companionOf = (agentId: string) =>
+    agents.list().find(({ entry }) => entry.id === agentId)?.entry.companion;
   const context = {
     deck,
     declarations,
@@ -76,6 +78,7 @@ export function createUsageChannel(
     attribution,
     bindings,
     tailOf,
+    companionOf,
   };
   const lanes: UsageLane[] = [
     createUsageReportsLane(context),
