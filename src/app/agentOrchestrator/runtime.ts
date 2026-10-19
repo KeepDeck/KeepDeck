@@ -229,6 +229,7 @@ export function createAgentOrchestratorRuntime(
     deck,
     spawnContext,
     plugins,
+    transcripts: deps.transcripts,
     isBlocked: runView.isBlocked,
     creation,
     skillsAsk,

@@ -100,6 +100,17 @@ export function sanitizePlanOutput(value: unknown): WireSpawnPlanOutput | null {
         pair.every((x) => typeof x === "string"),
     );
   if (v.envDefaults !== undefined && !pairs(v.envDefaults)) return null;
+  const strings = (val: unknown): val is string[] =>
+    Array.isArray(val) && val.every((x) => typeof x === "string");
+  const discard = v.discard as Record<string, unknown> | undefined;
+  if (
+    discard !== undefined &&
+    (typeof discard !== "object" ||
+      discard === null ||
+      (discard.onceStarted !== undefined && !strings(discard.onceStarted)) ||
+      (discard.ifNeverStarted !== undefined && !strings(discard.ifNeverStarted)))
+  )
+    return null;
   return {
     command: v.command as string | null,
     args: v.args as string[],
@@ -107,6 +118,16 @@ export function sanitizePlanOutput(value: unknown): WireSpawnPlanOutput | null {
     ...(v.envDefaults !== undefined
       ? { envDefaults: v.envDefaults as [string, string][] }
       : {}),
+    ...(discard !== undefined && {
+      discard: {
+        ...(discard.onceStarted !== undefined && {
+          onceStarted: discard.onceStarted as string[],
+        }),
+        ...(discard.ifNeverStarted !== undefined && {
+          ifNeverStarted: discard.ifNeverStarted as string[],
+        }),
+      },
+    }),
   };
 }
 

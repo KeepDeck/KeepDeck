@@ -123,6 +123,7 @@ function makeStub(): { ctx: PluginContext; infos: string[] } {
       fsWrite: {
         mkdir: async () => {},
         copyFile: async () => {},
+        remove: async () => {},
         writeFile: async () => {},
         appendLine: async () => {},
       },

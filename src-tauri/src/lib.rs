@@ -271,6 +271,7 @@ pub fn run() {
             plugins_fs_write::plugins_fs_write_copy,
             plugins_fs_write::plugins_fs_write_file,
             plugins_fs_write::plugins_fs_write_append,
+            plugins_fs_write::plugins_fs_write_remove,
             skills::skills_list,
             skills::skills_save,
             skills::skills_delete,

@@ -7,7 +7,7 @@
  * its build is in flight must make that build land nowhere).
  */
 import type { ResumeOrigin } from "../../domain/agents";
-import type { BuiltPlan } from "./plan";
+import type { BuiltPlan, PlanDiscard } from "./plan";
 import type { SpawnPlan } from "./plans";
 
 /**
@@ -39,6 +39,19 @@ const pending = new Set<string>();
  * sweep skips them so a persistent error doesn't loop. Cleared by an explicit
  * retry (`clearPanePlanError`). */
 const failed = new Set<string>();
+
+/** Fork scaffolding still waiting for its end: removed once the fork's
+ * session binds, or once the pane's plan goes before it did. Kept beside the
+ * plans, not in them — a plan is data the spawn reads, this is a duty. */
+const discards = new Map<string, PlanDiscard>();
+
+/** Settle a pane's pending scaffolding one way or the other, once. */
+function settleDiscard(paneId: string, end: keyof PlanDiscard): void {
+  const discard = discards.get(paneId);
+  if (!discard) return;
+  discards.delete(paneId);
+  void discard[end]();
+}
 
 /** Per-pane build generations make invalidation real: dropping a spec while
  * an async hook is running prevents that stale promise from installing its
@@ -86,9 +99,16 @@ export async function buildAndCache(
   const generation = reserveBuild(paneId);
   try {
     const built = await build();
-    if (buildGenerations.get(paneId) !== generation) return false;
+    if (buildGenerations.get(paneId) !== generation) {
+      // The surgery ran for a plan nobody will spawn.
+      void built.discard?.ifNeverStarted();
+      return false;
+    }
     pending.delete(paneId);
+    // A plan replaced before its fork started: that fork never will.
+    settleDiscard(paneId, "ifNeverStarted");
     specs.set(paneId, built.plan);
+    if (built.discard) discards.set(paneId, built.discard);
     failed.delete(paneId);
     // The plan's on-disk half, and only now: the generation check above is
     // the OTHER half of "is this plan settled", and a build it discards must
@@ -120,6 +140,7 @@ export async function buildAndCache(
 /** Forget a pane's plan so the next build starts clean (the respawn-fresh
  * path after a dead resume). */
 export function dropPaneSpawnSpec(paneId: string): void {
+  settleDiscard(paneId, "ifNeverStarted");
   specs.delete(paneId);
   pending.delete(paneId);
   failed.delete(paneId);
@@ -145,6 +166,8 @@ export function bindPaneSpawnSpecSession(
 ): void {
   const spec = specs.get(paneId);
   if (!spec?.forkOf || spec.forkSessionId) return;
+  // The fork has its own session now; what only its start needed can go.
+  settleDiscard(paneId, "onceStarted");
   specs.set(paneId, { ...spec, forkSessionId: sessionId });
   notifySpecs();
 }
@@ -189,6 +212,7 @@ export function resetPaneSpawnSpecs(): void {
   pending.clear();
   failed.clear();
   buildGenerations.clear();
+  discards.clear();
   specListeners.clear();
 }
 

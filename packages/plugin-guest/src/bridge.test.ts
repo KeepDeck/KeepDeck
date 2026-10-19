@@ -314,8 +314,11 @@ describe("external plugin bridge", () => {
     host.ctx.services.fsWrite.mkdir = async (path) => {
       calls.push(["mkdir", [path]]);
     };
-    host.ctx.services.fsWrite.copyFile = async (src, dst) => {
-      calls.push(["copyFile", [src, dst]]);
+    host.ctx.services.fsWrite.copyFile = async (src, dst, options) => {
+      calls.push(["copyFile", [src, dst, options]]);
+    };
+    host.ctx.services.fsWrite.remove = async (path) => {
+      calls.push(["remove", [path]]);
     };
     host.ctx.services.fsWrite.writeFile = async (path, text) => {
       calls.push(["writeFile", [path, text]]);
@@ -332,6 +335,8 @@ describe("external plugin bridge", () => {
 
     await ctx.services.fsWrite.mkdir("/store/dir");
     await ctx.services.fsWrite.copyFile("/a", "/b");
+    await ctx.services.fsWrite.copyFile("/s", "/d", { replace: [["/S/", "/F/"]] });
+    await ctx.services.fsWrite.remove("/gone");
     await ctx.services.fsWrite.writeFile("/p", "text");
     await ctx.services.fsWrite.appendLine("/idx", "line");
     const answer = await ctx.services.sqlite.query("/db", "SELECT 1", ["x"]);
@@ -340,7 +345,9 @@ describe("external plugin bridge", () => {
     // hostDispatch would land here as swapped/missing args.
     expect(calls).toEqual([
       ["mkdir", ["/store/dir"]],
-      ["copyFile", ["/a", "/b"]],
+      ["copyFile", ["/a", "/b", undefined]],
+      ["copyFile", ["/s", "/d", { replace: [["/S/", "/F/"]] }]],
+      ["remove", ["/gone"]],
       ["writeFile", ["/p", "text"]],
       ["appendLine", ["/idx", "line"]],
       ["query", ["/db", "SELECT 1", ["x"]]],

@@ -1,5 +1,6 @@
 import { errorMessage, type AgentHistory } from "@keepdeck/plugin-api";
 import { log } from "../ipc/log";
+import { indexLookup, type IndexLookupKey, type IndexLookupAnswer } from "../ipc/history";
 import { rowKeyOf } from "../domain/journal/sessionRow";
 import {
   scanAgentHistories,
@@ -54,6 +55,12 @@ export interface SessionIndexManager {
    * session has come into being; without it the freshness window would
    * hide a just-spawned agent's session for as long as it lasts. */
   invalidate(agent?: string): void;
+  /** The transcript file the index knows for one session, or null when it
+   * knows none. A miss is not taken at its word: the session may be newer
+   * than the last pass, so the agent's store is walked once more — a pass
+   * that STARTS after the ask — before the answer is null. What a fork
+   * copies when the journal never learned the path. */
+  locateTranscript(agent: string, sessionId: string): Promise<string | null>;
   dispose(): void;
 }
 
@@ -77,6 +84,8 @@ const FRESH_MS = 60_000;
 export interface SessionIndexOptions {
   /** Injected so tests move time instead of waiting for it. */
   now?: () => number;
+  /** The index's keyed lookup; the IPC command unless a test hands one in. */
+  lookup?: (keys: IndexLookupKey[]) => Promise<IndexLookupAnswer[]>;
 }
 
 /** Merge two needs into the one pass that satisfies both: identical scopes
@@ -108,6 +117,7 @@ export function createSessionIndexManager(
   options: SessionIndexOptions = {},
 ): SessionIndexManager {
   const now = options.now ?? (() => Date.now());
+  const lookup = options.lookup ?? indexLookup;
   let snapshot: SessionIndexSnapshot = {
     scanning: false,
     revision: 0,
@@ -138,6 +148,12 @@ export function createSessionIndexManager(
    * Cleared by a full sweep — that sweep covers every agent, and one record
    * answering for all of them is cheaper than N copies of the same instant. */
   const agentSettledAt = new Map<string, number>();
+  /** Passes started so far — what tells a pass begun BEFORE an ask from one
+   * begun after it. */
+  let passes = 0;
+  /** Callers waiting for a pass over `agent` (every agent when undefined)
+   * that starts after pass number `after`. */
+  const waiters: Array<{ agent?: string; after: number; settle: () => void }> = [];
 
   /** Is this need already answered? Asymmetric on purpose: a full sweep
    * covers a narrow need, but a narrow pass says NOTHING about the agents it
@@ -195,6 +211,7 @@ export function createSessionIndexManager(
 
   function run(need: Need): void {
     running = need;
+    const pass = ++passes;
     const epochAtStart = epoch;
     const sources = sourcesOf(need.agent);
     publish({ scanning: true, revision: snapshot.revision });
@@ -243,6 +260,17 @@ export function createSessionIndexManager(
         } else {
           publish({ scanning: false, revision: snapshot.revision + 1 });
         }
+        // Released whether the pass succeeded or not: a waiter wants the
+        // walk to have happened, and a failed one is logged above.
+        for (const waiter of [...waiters]) {
+          if (
+            pass > waiter.after &&
+            (need.agent === undefined || need.agent === waiter.agent)
+          ) {
+            waiters.splice(waiters.indexOf(waiter), 1);
+            waiter.settle();
+          }
+        }
         const next = queued;
         queued = null;
         // Re-asked, not replayed: a need can wait a long time behind a slow
@@ -261,6 +289,44 @@ export function createSessionIndexManager(
     if (running === null) run(need);
     else queued = mergeNeeds(queued, need);
   });
+
+  function invalidate(agent?: string): void {
+    if (disposed) return;
+    // The bump lands even when nothing was recorded yet: a pass ALREADY
+    // RUNNING is the case this exists for, and it reads the epoch, not
+    // the records.
+    epoch += 1;
+    // A full record answered for this agent too, so a narrow change
+    // retires it as well — keeping it would let the next full-covered
+    // narrow need read a store we know has moved.
+    fullSettledAt = null;
+    if (agent === undefined) agentSettledAt.clear();
+    else agentSettledAt.delete(agent);
+  }
+
+  /** A pass over `agent`'s store that starts NOW — not the one already
+   * walking, which may have passed the session before it was written. */
+  function rescan(agent: string): Promise<void> {
+    if (disposed || sourcesOf(agent).length === 0) return Promise.resolve();
+    // A session the index missed is a store that moved under it: the
+    // window must not answer for it, or the queued pass would be dropped
+    // as already fresh and the waiter left hanging.
+    invalidate(agent);
+    return new Promise((settle) => {
+      waiters.push({ agent, after: passes, settle });
+      const need: Need = { agent };
+      if (running === null) run(need);
+      else queued = mergeNeeds(queued, need);
+    });
+  }
+
+  async function lookupTranscript(
+    agent: string,
+    sessionId: string,
+  ): Promise<string | null> {
+    const [answer] = await lookup([{ agent, sessionId }]);
+    return answer?.status === "hit" ? answer.transcriptPath : null;
+  }
 
   return {
     snapshot() {
@@ -297,23 +363,21 @@ export function createSessionIndexManager(
       run(need);
     },
 
-    invalidate(agent) {
-      if (disposed) return;
-      // The bump lands even when nothing was recorded yet: a pass ALREADY
-      // RUNNING is the case this exists for, and it reads the epoch, not
-      // the records.
-      epoch += 1;
-      // A full record answered for this agent too, so a narrow change
-      // retires it as well — keeping it would let the next full-covered
-      // narrow need read a store we know has moved.
-      fullSettledAt = null;
-      if (agent === undefined) agentSettledAt.clear();
-      else agentSettledAt.delete(agent);
+    invalidate,
+
+
+    async locateTranscript(agent, sessionId) {
+      const known = await lookupTranscript(agent, sessionId);
+      if (known !== null) return known;
+      await rescan(agent);
+      return lookupTranscript(agent, sessionId);
     },
 
     dispose() {
       if (disposed) return;
       disposed = true;
+      // Nobody will run the pass they wait for; they get the index as it is.
+      for (const waiter of waiters.splice(0)) waiter.settle();
       unsubscribeRegistry();
       listeners.clear();
       // A scan in flight is allowed to finish — its notifies find nobody,

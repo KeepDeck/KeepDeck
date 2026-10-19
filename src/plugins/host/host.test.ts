@@ -71,6 +71,7 @@ function fakeDeps() {
     fsWrite: {
       mkdir: vi.fn(() => Promise.resolve()),
       copyFile: vi.fn(() => Promise.resolve()),
+      remove: vi.fn(() => Promise.resolve()),
       writeFile: vi.fn(() => Promise.resolve()),
       appendLine: vi.fn(() => Promise.resolve()),
     },

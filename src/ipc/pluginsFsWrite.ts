@@ -18,8 +18,21 @@ export function pluginsFsWriteCopy(
   src: string,
   dst: string,
   roots: readonly string[],
+  replace?: readonly (readonly [string, string])[],
 ): Promise<void> {
-  return invoke("plugins_fs_write_copy", { src, dst, roots });
+  return invoke("plugins_fs_write_copy", {
+    src,
+    dst,
+    roots,
+    replace: replace && replace.length > 0 ? replace : null,
+  });
+}
+
+export function pluginsFsWriteRemove(
+  path: string,
+  roots: readonly string[],
+): Promise<void> {
+  return invoke("plugins_fs_write_remove", { path, roots });
 }
 
 export function pluginsFsWriteFile(

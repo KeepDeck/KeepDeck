@@ -103,7 +103,15 @@ export interface IndexLookupKey {
  * branch does not compile. `title` on a hit is present-and-nullable
  * (an honest "no title"), a different thing from absent. */
 export type IndexLookupAnswer = IndexLookupKey & (
-  | { status: "hit"; reference: string; title: string | null; mtime: number }
+  | {
+      status: "hit";
+      reference: string;
+      title: string | null;
+      mtime: number;
+      /** The transcript file the plugin declared for this session —
+       * separate from the opaque `reference`; null when it declared none. */
+      transcriptPath: string | null;
+    }
   | { status: "foreign"; agents: string[] }
   | { status: "absent" }
 );

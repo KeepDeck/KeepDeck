@@ -203,6 +203,15 @@ vi.mock("../liveSessions", () => ({
  *  fake handed in through the orchestrator's lifecycle port — not a module
  *  mock — so these tests never touch the app's live stores. */
 const lifecycle = { retire: vi.fn() };
+/** The session index's transcript answer, keyed "agent:sessionId" — what a
+ *  fork falls back to when the journal never learned the path. */
+const transcripts = {
+  indexed: new Map<string, string>(),
+  locateTranscript: vi.fn(
+    async (agent: string, sessionId: string) =>
+      transcripts.indexed.get(`${agent}:${sessionId}`) ?? null,
+  ),
+};
 /** What the backend keeps per workspace, one forgetter per keeper. */
 const forgetters = {
   artifacts: vi.fn(async (_wsId: string) => {}),
@@ -224,7 +233,9 @@ export const lifecycleHarness = lifecycle;
 export const forgettersHarness = forgetters;
 export const publishedHarness = published;
 export const skillsAskedHarness = skillsAsked;
+export const transcriptsHarness = transcripts;
 export {
+  transcriptsHarness as transcripts,
   gateHarness as gate,
   ipcHarness as ipc,
   plansHarness as plans,
@@ -426,6 +437,7 @@ export function Probe() {
         probe: ipc.probeWorktree,
         mcpAccess: async () => ({ entries: [], throughArgv: true, deliver: async () => {} }),
         lifecycle,
+        transcripts,
         workspaceForgetters: [forgetters.artifacts, forgetters.mcp],
         worktrees: {
           provision: (requests, workspaceName) => {

@@ -318,6 +318,13 @@ export interface PaneLifecyclePort {
   retire(paneId: string): void;
 }
 
+/** Where a recorded session's transcript file is, when the journal never
+ * learned it — the session index's answer, which walks the agent's store
+ * again before it says null. */
+export interface TranscriptLocatorPort {
+  locateTranscript(agent: string, sessionId: string): Promise<string | null>;
+}
+
 export interface AgentOrchestratorDeps {
   deck: DeckStore;
   spawnContext: SpawnContextSource;
@@ -333,6 +340,7 @@ export interface AgentOrchestratorDeps {
    * delivery for a CLI that takes none. Empty while the transport is down. */
   mcpAccess: McpAccessAsk;
   lifecycle: PaneLifecyclePort;
+  transcripts: TranscriptLocatorPort;
   /** Forget what the backend keeps per workspace when one closes — Rust
    * cannot derive the live workspace set. Optional: absent in non-app tests. */
   workspaceForgetters?: readonly ((wsId: string) => Promise<void>)[];

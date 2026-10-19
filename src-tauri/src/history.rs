@@ -160,6 +160,7 @@ pub enum KeyedAnswerDto {
         reference: String,
         title: Option<String>,
         mtime: i64,
+        transcript_path: Option<String>,
     },
     Foreign {
         agent: String,
@@ -181,8 +182,8 @@ impl From<KeyedAnswer> for KeyedAnswerDto {
     /// it).
     fn from(KeyedAnswer { agent, session_id, kind }: KeyedAnswer) -> Self {
         match kind {
-            LookupKind::Hit { reference, title, mtime } => {
-                KeyedAnswerDto::Hit { agent, session_id, reference, title, mtime }
+            LookupKind::Hit { reference, title, mtime, transcript_path } => {
+                KeyedAnswerDto::Hit { agent, session_id, reference, title, mtime, transcript_path }
             }
             LookupKind::Foreign { agents } => {
                 KeyedAnswerDto::Foreign { agent, session_id, agents }
@@ -233,11 +234,12 @@ mod tests {
                 reference: "/cl/p/-repo/a.jsonl".into(),
                 title: Some("named by the index".into()),
                 mtime: 1_787_090_317_140,
+                transcript_path: Some("/cl/p/-repo/a.jsonl".into()),
             },
         });
         assert_eq!(
             serde_json::to_string(&hit).unwrap(),
-            r#"{"status":"hit","agent":"claude","sessionId":"a","reference":"/cl/p/-repo/a.jsonl","title":"named by the index","mtime":1787090317140}"#,
+            r#"{"status":"hit","agent":"claude","sessionId":"a","reference":"/cl/p/-repo/a.jsonl","title":"named by the index","mtime":1787090317140,"transcriptPath":"/cl/p/-repo/a.jsonl"}"#,
         );
         // A hit with no title: present-and-none, not absent — the field
         // is on the wire as null while reference/mtime stay live.
@@ -248,11 +250,12 @@ mod tests {
                 reference: "/cl/p/-repo/u.jsonl".into(),
                 title: None,
                 mtime: 5,
+                transcript_path: None,
             },
         });
         assert_eq!(
             serde_json::to_string(&untitled).unwrap(),
-            r#"{"status":"hit","agent":"claude","sessionId":"untitled","reference":"/cl/p/-repo/u.jsonl","title":null,"mtime":5}"#,
+            r#"{"status":"hit","agent":"claude","sessionId":"untitled","reference":"/cl/p/-repo/u.jsonl","title":null,"mtime":5,"transcriptPath":null}"#,
         );
         // Foreign: the id exists — under a DIFFERENT agent than asked.
         // The key carries the asked pair; the found owner rides only in

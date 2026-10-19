@@ -389,8 +389,10 @@ export interface ForkPlanInput extends SpawnPlanInput {
   /** The directory the session was recorded in. It may no longer exist —
    * recipes operate on the agent's store, never on the original dir. */
   sourceCwd: string;
-  /** The session's transcript/rollout file, when the reporter delivered it
-   * — the exact source file for copy-based recipes. */
+  /** The session's transcript/rollout file — the exact source file for
+   * copy-based recipes. The host answers it from the binding report, else
+   * from the session index (walking the agent's store again on a miss);
+   * absent only when neither knows it, which a recipe that copies refuses. */
   transcriptPath?: string;
 }
 
@@ -407,4 +409,17 @@ export interface SpawnPlanOutput {
    * overrides. Prefilled `[]` on hosts of API 23+; push via
    * `(output.envDefaults ??= []).push(...)` to stay safe on older hosts. */
   envDefaults?: [string, string][];
+  /** What a `fork.plan`'s surgery made that only the start needs (API 60):
+   * paths the HOST removes through this plugin's `fsWrite` capability —
+   * `onceStarted` when the forked session reports its id, `ifNeverStarted`
+   * when the pane goes away before it does (closed, its plan dropped, the
+   * build discarded). A fork that leaves its scaffolding behind leaves the
+   * store wrong, and only the host sees the moment it stops being needed.
+   * Read only from a fork plan. */
+  discard?: ForkDiscard;
+}
+
+export interface ForkDiscard {
+  onceStarted?: string[];
+  ifNeverStarted?: string[];
 }
