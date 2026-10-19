@@ -3,6 +3,7 @@ import type {
   DownloadRequest,
   DownloadState,
   DownloadTarget,
+  FsCopyOptions,
   FsReadFileOptions,
   GitDiffOptions,
   GitHistoryOptions,
@@ -95,8 +96,14 @@ export function createServiceHandlers({
       ),
     "services.fsWrite.mkdir": ([path]) =>
       ctx.services.fsWrite.mkdir(path as string),
-    "services.fsWrite.copyFile": ([src, dst]) =>
-      ctx.services.fsWrite.copyFile(src as string, dst as string),
+    "services.fsWrite.copyFile": ([src, dst, options]) =>
+      ctx.services.fsWrite.copyFile(
+        src as string,
+        dst as string,
+        options as FsCopyOptions | undefined,
+      ),
+    "services.fsWrite.remove": ([path]) =>
+      ctx.services.fsWrite.remove(path as string),
     "services.fsWrite.writeFile": ([path, text]) =>
       ctx.services.fsWrite.writeFile(path as string, text as string),
     "services.fsWrite.appendLine": ([path, line]) =>

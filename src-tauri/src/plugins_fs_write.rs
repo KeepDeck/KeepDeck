@@ -25,12 +25,21 @@ pub fn plugins_fs_write_mkdir(path: String, roots: Vec<String>) -> Result<(), St
     create_dirs_owner_only(&target.path, &target.root)
 }
 
+/// Copy one file; with `replace`, the copy is the source's UTF-8 text with
+/// each `(from, to)` pair replaced everywhere, in order. A fork moves a
+/// session to a new place, and the text of its transcript names the old
+/// one: a copy that cannot say where it now lives is half a move.
 #[tauri::command(async)]
 pub fn plugins_fs_write_copy(
     src: String,
     dst: String,
     roots: Vec<String>,
+    replace: Option<Vec<(String, String)>>,
 ) -> Result<(), String> {
+    let replace = replace.unwrap_or_default();
+    if replace.iter().any(|(from, _)| from.is_empty()) {
+        return Err("fsWrite.copyFile: a replacement must name something to replace".into());
+    }
     // Both ends must be inside the declared prefixes: reading an arbitrary
     // file into the store would smuggle data past the read capability.
     let from = resolve_write(&src, &roots)?;
@@ -52,11 +61,55 @@ pub fn plugins_fs_write_copy(
     if let Some(dir) = to.path.parent() {
         create_dirs_owner_only(dir, &to.root)?;
     }
-    fs::copy(&from.path, &to.path).map_err(|e| e.to_string())?;
-    // The copy inherits the SOURCE's mode, which says nothing about where it
-    // is landing.
-    restrict_file(&to.path);
-    Ok(())
+    if replace.is_empty() {
+        fs::copy(&from.path, &to.path).map_err(|e| e.to_string())?;
+        // The copy inherits the SOURCE's mode, which says nothing about where
+        // it is landing.
+        restrict_file(&to.path);
+        return Ok(());
+    }
+    let bytes = fs::read(&from.path).map_err(|e| e.to_string())?;
+    let mut text = String::from_utf8(bytes).map_err(|_| {
+        format!(
+            "fsWrite.copyFile: {} is not UTF-8 text, so nothing in it can be replaced",
+            from.path.display()
+        )
+    })?;
+    for (from, to) in &replace {
+        text = text.replace(from.as_str(), to);
+    }
+    crate::state::write_atomic_mode(&to.path, text.as_bytes(), Some(FILE_MODE))
+        .map_err(|e| e.to_string())
+}
+
+/// Remove a file, or a directory with everything under it — what a plugin's
+/// own surgery left that nothing needs any more. A symlink is removed as a
+/// link, never followed; what is already gone is not an error (a cleanup
+/// may run twice); a declared root itself is never removed.
+#[tauri::command(async)]
+pub fn plugins_fs_write_remove(path: String, roots: Vec<String>) -> Result<(), String> {
+    let literal = PathBuf::from(expand_home(&path)?);
+    let (Some(parent), Some(name)) = (literal.parent(), literal.file_name()) else {
+        return Err(format!("fsWrite.remove: {path} names no file"));
+    };
+    // The PARENT is proven, then the name re-joined: realizing the path
+    // itself would resolve a symlink to its target and remove that instead.
+    let dir = resolve_write(&parent.to_string_lossy(), &roots)?;
+    let target = dir.path.join(name);
+    if target == dir.root || !target.starts_with(&dir.root) {
+        return Err(format!("fsWrite.remove: {path} is a declared root, not inside one"));
+    }
+    let kind = match fs::symlink_metadata(&target) {
+        Ok(meta) => meta.file_type(),
+        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e.to_string()),
+    };
+    if kind.is_dir() {
+        fs::remove_dir_all(&target)
+    } else {
+        fs::remove_file(&target)
+    }
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command(async)]
@@ -314,6 +367,7 @@ mod tests {
             file.to_string_lossy().into_owned(),
             copied.to_string_lossy().into_owned(),
             roots,
+            None,
         )
         .unwrap();
         assert_eq!(mode_of(&copied), FILE_MODE);
@@ -478,6 +532,7 @@ mod tests {
             src.to_string_lossy().into_owned(),
             dst.to_string_lossy().into_owned(),
             roots.clone(),
+            None,
         )
         .unwrap();
         assert_eq!(fs::read_to_string(&dst).unwrap(), "data");
@@ -490,6 +545,7 @@ mod tests {
             outside_src.to_string_lossy().into_owned(),
             dir.path().join("stolen.txt").to_string_lossy().into_owned(),
             roots,
+            None,
         )
         .is_err());
     }
@@ -504,7 +560,7 @@ mod tests {
         let file = dir.path().join("s.jsonl");
         fs::write(&file, "line1\nline2\n").unwrap();
         let p = file.to_string_lossy().into_owned();
-        let err = plugins_fs_write_copy(p.clone(), p, roots).unwrap_err();
+        let err = plugins_fs_write_copy(p.clone(), p, roots, None).unwrap_err();
         assert!(err.contains("same file"), "{err}");
         assert_eq!(fs::read_to_string(&file).unwrap(), "line1\nline2\n");
     }
@@ -518,5 +574,97 @@ mod tests {
         plugins_fs_write_append(p.clone(), "{\"b\":2}".into(), roots.clone()).unwrap();
         assert_eq!(fs::read_to_string(&file).unwrap(), "{\"a\":1}\n{\"b\":2}\n");
         assert!(plugins_fs_write_append(p, "a\nb".into(), roots).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn copy_with_replace_rewrites_every_occurrence_in_order() {
+        let (dir, roots) = root();
+        let src = dir.path().join("s.jsonl");
+        fs::write(&src, "{\"p\":\"/a/S/x\"}\n{\"q\":\"/a/S/y /a/S/z\"}\n").unwrap();
+        let dst = dir.path().join("t/F.jsonl");
+        plugins_fs_write_copy(
+            src.to_string_lossy().into_owned(),
+            dst.to_string_lossy().into_owned(),
+            roots,
+            Some(vec![("/a/S/".into(), "/b/F/".into()), ("/b/F/z".into(), "/b/F/zz".into())]),
+        )
+        .unwrap();
+        // Every occurrence, and pairs in order: the second sees the first's output.
+        assert_eq!(
+            fs::read_to_string(&dst).unwrap(),
+            "{\"p\":\"/b/F/x\"}\n{\"q\":\"/b/F/y /b/F/zz\"}\n"
+        );
+        // The source is never touched.
+        assert!(fs::read_to_string(&src).unwrap().contains("/a/S/x"));
+        assert_eq!(mode_of(&dst), FILE_MODE);
+    }
+
+    #[test]
+    fn copy_with_replace_refuses_what_it_cannot_rewrite() {
+        let (dir, roots) = root();
+        let src = dir.path().join("bin");
+        fs::write(&src, [0xff, 0xfe, 0x00]).unwrap();
+        let dst = dir.path().join("out");
+        let ask = |pairs: Vec<(String, String)>| {
+            plugins_fs_write_copy(
+                src.to_string_lossy().into_owned(),
+                dst.to_string_lossy().into_owned(),
+                roots.clone(),
+                Some(pairs),
+            )
+        };
+        let err = ask(vec![("a".into(), "b".into())]).unwrap_err();
+        assert!(err.contains("not UTF-8"), "{err}");
+        let err = ask(vec![(String::new(), "b".into())]).unwrap_err();
+        assert!(err.contains("name something"), "{err}");
+        assert!(!dst.exists());
+    }
+
+    #[test]
+    fn remove_takes_a_file_or_a_whole_directory_and_is_idempotent() {
+        let (dir, roots) = root();
+        let file = dir.path().join("p/S.jsonl");
+        let tree = dir.path().join("p/F");
+        fs::create_dir_all(tree.join("subagents")).unwrap();
+        fs::write(&file, "x").unwrap();
+        fs::write(tree.join("subagents/agent-1.jsonl"), "y").unwrap();
+        for target in [&file, &tree] {
+            let p = target.to_string_lossy().into_owned();
+            plugins_fs_write_remove(p.clone(), roots.clone()).unwrap();
+            assert!(fs::symlink_metadata(target).is_err());
+            // Already gone is not an error: a cleanup may run twice.
+            plugins_fs_write_remove(p, roots.clone()).unwrap();
+        }
+        assert!(dir.path().join("p").is_dir());
+    }
+
+    #[test]
+    fn remove_never_takes_a_root_or_anything_outside() {
+        let (dir, roots) = root();
+        let err = plugins_fs_write_remove(dir.path().to_string_lossy().into_owned(), roots.clone())
+            .unwrap_err();
+        assert!(err.contains("outside") || err.contains("root"), "{err}");
+        assert!(dir.path().is_dir());
+        let foreign = tempfile::tempdir().unwrap();
+        let victim = foreign.path().join("keep.txt");
+        fs::write(&victim, "keep").unwrap();
+        assert!(plugins_fs_write_remove(victim.to_string_lossy().into_owned(), roots).is_err());
+        assert!(victim.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn remove_takes_a_symlink_as_a_link_and_leaves_its_target() {
+        let (dir, roots) = root();
+        let foreign = tempfile::tempdir().unwrap();
+        let target = foreign.path().join("data");
+        fs::create_dir(&target).unwrap();
+        fs::write(target.join("keep.txt"), "keep").unwrap();
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        plugins_fs_write_remove(link.to_string_lossy().into_owned(), roots).unwrap();
+        assert!(fs::symlink_metadata(&link).is_err());
+        assert_eq!(fs::read_to_string(target.join("keep.txt")).unwrap(), "keep");
     }
 }

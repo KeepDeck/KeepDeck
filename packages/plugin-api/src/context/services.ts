@@ -178,12 +178,25 @@ export interface PluginFs {
  * prefixes — the surgery side of session portability (fork/relocate). Every
  * call is containment-checked host-side against those prefixes, on both ends
  * of a copy; nothing here deletes. */
+/** How a copy may differ from its source (API 60). */
+export interface FsCopyOptions {
+  /** `[from, to]` pairs replaced everywhere in the copy, in order — the
+   * source read as UTF-8 text, refused when it is not. What a moved store
+   * file needs when its text names the place it moved from. */
+  replace?: readonly (readonly [string, string])[];
+}
+
 export interface PluginFsWrite {
   /** Create a directory (and missing parents). */
   mkdir(path: string): Promise<void>;
   /** Copy one file; `dst` parents are created. BOTH ends must sit inside the
-   * declared prefixes. An existing `dst` is overwritten (surgery may retry). */
-  copyFile(src: string, dst: string): Promise<void>;
+   * declared prefixes. An existing `dst` is overwritten (surgery may retry).
+   * `options` arrived in API 60. */
+  copyFile(src: string, dst: string, options?: FsCopyOptions): Promise<void>;
+  /** Remove a file, or a directory with everything under it (API 60). A
+   * symlink goes as a link, never followed; a path already gone is not an
+   * error; a declared prefix itself is never removed. */
+  remove(path: string): Promise<void>;
   /** Write a whole UTF-8 file atomically (tmp + rename). */
   writeFile(path: string, text: string): Promise<void>;
   /** Append one newline-terminated line — a single O_APPEND write. The line

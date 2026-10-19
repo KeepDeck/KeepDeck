@@ -5,6 +5,7 @@ import { workspaceDirectories } from "../domain/deck";
 import {
   pluginsFsWriteAppend,
   pluginsFsWriteCopy,
+  pluginsFsWriteRemove,
   pluginsFsWriteFile,
   pluginsFsWriteMkdir,
 } from "../ipc/pluginsFsWrite";
@@ -440,7 +441,9 @@ export function createPluginManager(appDownloads: DownloadManager) {
     },
     fsWrite: {
       mkdir: (path, roots) => pluginsFsWriteMkdir(path, roots),
-      copyFile: (src, dst, roots) => pluginsFsWriteCopy(src, dst, roots),
+      copyFile: (src, dst, roots, options) =>
+        pluginsFsWriteCopy(src, dst, roots, options?.replace),
+      remove: (path, roots) => pluginsFsWriteRemove(path, roots),
       writeFile: (path, text, roots) => pluginsFsWriteFile(path, text, roots),
       appendLine: (path, line, roots) => pluginsFsWriteAppend(path, line, roots),
     },

@@ -79,6 +79,7 @@ function fakeBackend() {
     fsWrite: {
       mkdir: vi.fn(() => Promise.resolve()),
       copyFile: vi.fn(() => Promise.resolve()),
+      remove: vi.fn(() => Promise.resolve()),
       writeFile: vi.fn(() => Promise.resolve()),
       appendLine: vi.fn(() => Promise.resolve()),
     },
@@ -821,6 +822,8 @@ describe("createCapabilityGate — fsWrite", () => {
 
     await gate.fsWrite.mkdir("~/.claude/projects/-x");
     await gate.fsWrite.copyFile("/a", "/b");
+    await gate.fsWrite.copyFile("/s", "/d", { replace: [["/S/", "/F/"]] });
+    await gate.fsWrite.remove("/gone");
     await gate.fsWrite.writeFile("/p", "text");
     await gate.fsWrite.appendLine("/p", "line");
 
@@ -828,7 +831,20 @@ describe("createCapabilityGate — fsWrite", () => {
     expect(backend.fsWrite.mkdir).toHaveBeenCalledWith("~/.claude/projects/-x", [
       "~/.claude/projects",
     ]);
-    expect(backend.fsWrite.copyFile).toHaveBeenCalledWith("/a", "/b", [
+    expect(backend.fsWrite.copyFile).toHaveBeenCalledWith(
+      "/a",
+      "/b",
+      ["~/.claude/projects"],
+      undefined,
+    );
+    // The replacements ride through whole; the roots are still the gate's.
+    expect(backend.fsWrite.copyFile).toHaveBeenCalledWith(
+      "/s",
+      "/d",
+      ["~/.claude/projects"],
+      { replace: [["/S/", "/F/"]] },
+    );
+    expect(backend.fsWrite.remove).toHaveBeenCalledWith("/gone", [
       "~/.claude/projects",
     ]);
     expect(backend.fsWrite.writeFile).toHaveBeenCalledWith("/p", "text", [
@@ -850,9 +866,11 @@ describe("createCapabilityGate — fsWrite", () => {
     );
     expect(() => gate.fsWrite.mkdir("/x")).toThrow('"fsWrite" capability');
     expect(() => gate.fsWrite.copyFile("/a", "/b")).toThrow('"fsWrite" capability');
+    expect(() => gate.fsWrite.remove("/a")).toThrow('"fsWrite" capability');
     expect(() => gate.fsWrite.writeFile("/p", "t")).toThrow('"fsWrite" capability');
     expect(() => gate.fsWrite.appendLine("/p", "l")).toThrow('"fsWrite" capability');
     expect(backend.fsWrite.mkdir).not.toHaveBeenCalled();
+    expect(backend.fsWrite.remove).not.toHaveBeenCalled();
   });
 });
 

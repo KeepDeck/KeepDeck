@@ -6,6 +6,7 @@ import type {
   GitDiff,
   FsEntry,
   FsFile,
+  FsCopyOptions,
   FsReadFileOptions,
   GitBranches,
   GitChangedFile,
@@ -51,7 +52,13 @@ export interface FsBackend {
  * the prefixes — the manifest is the only source. */
 export interface FsWriteBackend {
   mkdir(path: string, roots: readonly string[]): Promise<void>;
-  copyFile(src: string, dst: string, roots: readonly string[]): Promise<void>;
+  copyFile(
+    src: string,
+    dst: string,
+    roots: readonly string[],
+    options?: FsCopyOptions,
+  ): Promise<void>;
+  remove(path: string, roots: readonly string[]): Promise<void>;
   writeFile(path: string, text: string, roots: readonly string[]): Promise<void>;
   appendLine(path: string, line: string, roots: readonly string[]): Promise<void>;
 }
@@ -286,12 +293,24 @@ export function createCapabilityGate(
         );
         return backend.fsWrite.mkdir(path, fsWritePaths(manifest.capabilities));
       },
-      copyFile(src, dst) {
+      copyFile(src, dst, options) {
         admit(
           fsWritePaths(manifest.capabilities).length > 0,
           `fsWrite.copyFile: "${dst}" requires an "fsWrite" capability, which the manifest does not declare`,
         );
-        return backend.fsWrite.copyFile(src, dst, fsWritePaths(manifest.capabilities));
+        return backend.fsWrite.copyFile(
+          src,
+          dst,
+          fsWritePaths(manifest.capabilities),
+          options,
+        );
+      },
+      remove(path) {
+        admit(
+          fsWritePaths(manifest.capabilities).length > 0,
+          `fsWrite.remove: "${path}" requires an "fsWrite" capability, which the manifest does not declare`,
+        );
+        return backend.fsWrite.remove(path, fsWritePaths(manifest.capabilities));
       },
       writeFile(path, text) {
         admit(
@@ -532,8 +551,9 @@ function hasGitCapability(capabilities: Capability[]): boolean {
 }
 
 /** The declared `fsWrite` prefixes — empty when the capability is absent
- * (which denies every call; there is no default prefix). */
-function fsWritePaths(capabilities: Capability[]): string[] {
+ * (which denies every call; there is no default prefix). Exported for the
+ * one host-run write a plugin only declares: a fork plan's discard. */
+export function fsWritePaths(capabilities: Capability[]): string[] {
   const cap = capabilities.find((capability) => capability.kind === "fsWrite");
   return cap?.kind === "fsWrite" ? cap.paths : [];
 }

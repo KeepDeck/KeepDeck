@@ -407,4 +407,17 @@ export interface SpawnPlanOutput {
    * overrides. Prefilled `[]` on hosts of API 23+; push via
    * `(output.envDefaults ??= []).push(...)` to stay safe on older hosts. */
   envDefaults?: [string, string][];
+  /** What a `fork.plan`'s surgery made that only the start needs (API 60):
+   * paths the HOST removes through this plugin's `fsWrite` capability —
+   * `onceStarted` when the forked session reports its id, `ifNeverStarted`
+   * when the pane goes away before it does (closed, its plan dropped, the
+   * build discarded). A fork that leaves its scaffolding behind leaves the
+   * store wrong, and only the host sees the moment it stops being needed.
+   * Read only from a fork plan. */
+  discard?: ForkDiscard;
+}
+
+export interface ForkDiscard {
+  onceStarted?: string[];
+  ifNeverStarted?: string[];
 }

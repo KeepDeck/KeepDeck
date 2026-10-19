@@ -122,8 +122,10 @@ export function createGuestServices({
     fsWrite: {
       mkdir: (path) =>
         rpc.call("services.fsWrite.mkdir", [path]) as Promise<void>,
-      copyFile: (src, dst) =>
-        rpc.call("services.fsWrite.copyFile", [src, dst]) as Promise<void>,
+      copyFile: (src, dst, options) =>
+        rpc.call("services.fsWrite.copyFile", [src, dst, options]) as Promise<void>,
+      remove: (path) =>
+        rpc.call("services.fsWrite.remove", [path]) as Promise<void>,
       writeFile: (path, text) =>
         rpc.call("services.fsWrite.writeFile", [path, text]) as Promise<void>,
       appendLine: (path, line) =>

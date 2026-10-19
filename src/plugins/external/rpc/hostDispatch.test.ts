@@ -195,6 +195,33 @@ describe("agent hooks over the RPC seam", () => {
     expect(out.env).toEqual([["A", "1"]]);
   });
 
+  it("a fork's discard crosses as plain path lists; anything else is malformed", async () => {
+    const h = harness();
+    await h.dispatch.call("agents.register", [1, { ...entry, hookNames: ["fork.plan"] }]);
+    const forkInput = {
+      paneId: "pane-1",
+      workspace: { id: "ws-1", instance: "workspace-instance-1" },
+      cwd: "/repo",
+      sessionId: "S",
+      sourceCwd: "/old",
+    };
+    const answer = async (discard: unknown) => {
+      const out = output();
+      const running = h.agent().hooks["fork.plan"]!(forkInput, out);
+      const id = Number(h.pushes[h.pushes.length - 1].channel.slice("hook:".length));
+      await h.dispatch.call("agents.hookResult", [
+        id,
+        { ok: true, output: { command: "gemini", args: [], env: [], discard } },
+      ]);
+      await running;
+      return out;
+    };
+    const out = await answer({ onceStarted: ["/s/S.jsonl"], extra: "stripped" });
+    expect(out.discard).toEqual({ onceStarted: ["/s/S.jsonl"] });
+    await expect(answer({ ifNeverStarted: [{ path: "/" }] })).rejects.toThrow("malformed");
+    await expect(answer("rm -rf /")).rejects.toThrow("malformed");
+  });
+
   it("a malformed realm output rejects instead of reaching the spawn", async () => {
     const h = harness();
     await h.dispatch.call("agents.register", [1, entry]);

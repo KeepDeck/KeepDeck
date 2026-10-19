@@ -36,6 +36,15 @@ import { resetPaneSpawnSpecs } from "./cache";
 
 const hostState = vi.hoisted(() => ({ installed: [] as unknown[] }));
 
+// A fork's discard is the host removing paths inside the plugin's write
+// prefixes — recorded here instead of touching a disk.
+const removed = vi.hoisted(() => [] as Array<[string, readonly string[]]>);
+vi.mock("../../ipc/pluginsFsWrite", () => ({
+  pluginsFsWriteRemove: async (path: string, roots: readonly string[]) => {
+    removed.push([path, roots]);
+  },
+}));
+
 // Staged skills are a host fact the plan build ASKS for — the worktree manager
 // resolves them (and owns which directories get armed), so here it is a thunk
 // and tests pick what it answers.
@@ -203,6 +212,98 @@ describe("the plan builders — live pane, resume, fork", () => {
     expect(peekPaneSpawnSpec("pane-9")?.resumeOf).toBe("old-id");
     expect(peekPaneSpawnSpec("pane-9")?.resumeOrigin).toBe("restore");
     expect(peekPaneSpawnSpec("pane-9")?.postbackMark).toBe(0);
+  });
+
+  describe("a fork's discard", () => {
+    const WRITES = { kind: "fsWrite", paths: ["~/.claude/projects"] };
+    const forking = (discard: unknown) =>
+      register({
+        ...adopting,
+        hooks: {
+          ...adopting.hooks,
+          "fork.plan": (_input, output) => {
+            output.args = ["--fork"];
+            Object.assign(output, { discard });
+          },
+        },
+      });
+    const installed = (capabilities: unknown[]) => {
+      hostState.installed = [
+        { manifest: { id: "test-plugin", capabilities }, source: "builtin" },
+      ];
+    };
+    const fork = (paneId: string) =>
+      buildForkSpec(
+        plugins,
+        "claude",
+        { paneId, workspace: W1, cwd: "/target" },
+        ctx,
+        { sessionId: "S", sourceCwd: "/source" },
+      );
+    const flushRemovals = async () => {
+      for (let i = 0; i < 4; i++) await Promise.resolve();
+    };
+
+    beforeEach(() => {
+      removed.length = 0;
+    });
+
+    it("removes what only the start needed once the fork binds, inside the plugin's prefixes", async () => {
+      installed([WRITES]);
+      forking({ onceStarted: ["/p/t/S.jsonl"], ifNeverStarted: ["/p/t/F"] });
+      await fork("pane-a");
+      expect(removed).toEqual([]);
+      bindPaneSpawnSpecSession("pane-a", "F");
+      await flushRemovals();
+      expect(removed).toEqual([["/p/t/S.jsonl", ["~/.claude/projects"]]]);
+      // Settled once: neither a second binding nor the pane going later
+      // removes anything more — the fork's own files are not scaffolding.
+      bindPaneSpawnSpecSession("pane-a", "later");
+      dropPaneSpawnSpec("pane-a");
+      await flushRemovals();
+      expect(removed).toHaveLength(1);
+    });
+
+    it("removes everything it made when the pane goes before the fork started", async () => {
+      installed([WRITES]);
+      forking({ onceStarted: ["/p/t/S.jsonl"], ifNeverStarted: ["/p/t/S.jsonl", "/p/t/F"] });
+      await fork("pane-b");
+      dropPaneSpawnSpec("pane-b");
+      await flushRemovals();
+      expect(removed.map(([path]) => path)).toEqual(["/p/t/S.jsonl", "/p/t/F"]);
+    });
+
+    it("a build discarded mid-flight removes what its surgery made", async () => {
+      installed([WRITES]);
+      let release!: () => void;
+      register({
+        ...adopting,
+        hooks: {
+          ...adopting.hooks,
+          "fork.plan": async (_input, output) => {
+            await new Promise<void>((resolve) => (release = resolve));
+            output.discard = { ifNeverStarted: ["/p/t/F"] };
+          },
+        },
+      });
+      const building = fork("pane-c");
+      await flushRemovals();
+      dropPaneSpawnSpec("pane-c");
+      release();
+      await expect(building).resolves.toBe(false);
+      await flushRemovals();
+      expect(removed.map(([path]) => path)).toEqual(["/p/t/F"]);
+    });
+
+    it("a plugin with no write prefixes gets nothing removed for it", async () => {
+      installed([{ kind: "fs", scope: "everywhere" }]);
+      forking({ onceStarted: ["/etc/passwd"], ifNeverStarted: ["/etc/passwd"] });
+      await fork("pane-d");
+      bindPaneSpawnSpecSession("pane-d", "F");
+      dropPaneSpawnSpec("pane-d");
+      await flushRemovals();
+      expect(removed).toEqual([]);
+    });
   });
 
   it("records a fork's source and binds only its first reported session", async () => {
