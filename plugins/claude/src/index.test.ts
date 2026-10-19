@@ -85,6 +85,13 @@ const input = {
   cwd: "/repo",
 };
 
+/** What one armed hook runs: the program, then its arguments — the exec
+ * form, with no shell between them. */
+const argv = (entry: { hooks: { command: string; args?: string[] }[] }) => [
+  entry.hooks[0].command,
+  ...(entry.hooks[0].args ?? []),
+];
+
 describe("claude plugin hooks", () => {
   it("arms the SessionStart reporter — identity is reporter-based", async () => {
     const agent = activate(SESSION_HOOK);
@@ -95,9 +102,11 @@ describe("claude plugin hooks", () => {
     const settings = JSON.parse(out.args[1]);
     // The agent id is an argument: the payload does not name its CLI, and a
     // binding the deck cannot attribute is one it refuses.
-    expect(settings.hooks.SessionStart[0].hooks[0].command).toBe(
-      "/bin/sh '/App/resources/kd-session-hook.sh' claude",
-    );
+    expect(argv(settings.hooks.SessionStart[0])).toEqual([
+      "/bin/sh",
+      "/App/resources/kd-session-hook.sh",
+      "claude",
+    ]);
     // No usage script resolved → no statusLine override rides along.
     expect(settings.statusLine).toBeUndefined();
     // No --session-id: claude mints its own id; the hook posts it back.
@@ -113,14 +122,14 @@ describe("claude plugin hooks", () => {
     // The agent id is the ONLY argument. The script takes no others, and a
     // stale extra would be read as one — the reporter is silent on failure,
     // so a broken command stops status with no error anywhere.
-    const command = "/bin/sh '/App/resources/kd-status-hook.sh' claude";
+    const command = ["/bin/sh", "/App/resources/kd-status-hook.sh", "claude"];
     // Some of them ask as well as report. `--ask` makes the reporter wait
     // for the deck's answer and print it — Stop hands mail over without a
     // fresh wake, UserPromptSubmit appends to the turn just opened, and
     // PostToolBatch injects context into the next model request, while the
     // turn is still running. Arming it on the rest would
     // buy a round trip per TOOL CALL for an answer that event cannot use.
-    const asking = `${command} --ask`;
+    const asking = [...command, "--ask"];
     // SessionStart asks too, on the STATUS reporter: a freshly spawned
     // agent has no turn and reports nothing, so this is the only moment its
     // briefing can reach it without a keystroke typed into a booting CLI.
@@ -158,7 +167,7 @@ describe("claude plugin hooks", () => {
       "SessionStart",
     ];
     for (const event of armed) {
-      expect(settings.hooks[event][0].hooks[0].command, event).toBe(
+      expect(argv(settings.hooks[event][0]), event).toEqual(
         asks.has(event) ? asking : command,
       );
     }
@@ -192,17 +201,15 @@ describe("claude plugin hooks", () => {
 
     const settings = JSON.parse(out.args[1]);
     expect(
-      settings.hooks.SessionStart.map(
-        (entry: { hooks: { command: string }[] }) => entry.hooks[0].command,
-      ),
+      settings.hooks.SessionStart.map(argv),
     ).toEqual([
       // Identity first, and it never asks: it answers a different question
       // and takes no reply, so arming it to ask would make it wait out its
       // whole window for a file nobody writes.
-      "/bin/sh '/App/resources/kd-session-hook.sh' claude",
+      ["/bin/sh", "/App/resources/kd-session-hook.sh", "claude"],
       // Status asks here, and this is the only event where a STARTING pane
       // can be told anything at all.
-      "/bin/sh '/App/resources/kd-status-hook.sh' claude --ask",
+      ["/bin/sh", "/App/resources/kd-status-hook.sh", "claude", "--ask"],
     ]);
     // The status reporter's other events are untouched by the sharing.
     expect(settings.hooks.Stop).toHaveLength(1);
@@ -219,9 +226,20 @@ describe("claude plugin hooks", () => {
       command: "/bin/sh '/App/resources/kd-usage-statusline.sh'",
       refreshInterval: 60,
     });
-    expect(settings.hooks.SessionStart[0].hooks[0].command).toContain(
-      "kd-session-hook.sh",
+    expect(argv(settings.hooks.SessionStart[0])).toContain(
+      "/App/resources/kd-session-hook.sh",
     );
+  });
+
+  it("hands a path to the hook as one argument, whatever it holds", async () => {
+    // The exec form's whole point: no shell parses the path, so a space or
+    // either quote is just part of it — nothing to escape, nothing to break.
+    const awkward = "/Users/Jo O'Neil/\"Apps\"/kd-status-hook.sh";
+    const agent = activate({ "kd-status-hook.sh": awkward });
+    const out = output();
+    await agent.hooks["spawn.plan"]!(input, out);
+    const settings = JSON.parse(out.args[1]);
+    expect(argv(settings.hooks.Stop[0])).toEqual(["/bin/sh", awkward, "claude", "--ask"]);
   });
 
   it("each reporter degrades independently when its script is missing", async () => {

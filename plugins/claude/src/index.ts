@@ -88,12 +88,22 @@ async function hookArgs(
    * same event for different facts — and an assignment would silently drop
    * whichever ran second, taking session binding or the status lane with
    * it. claude runs every entry an event has. */
+  /**
+   * Exec form — the program and its argument list, run without a shell —
+   * so nothing in a path (a space, a quote) is ever parsed. claude takes
+   * `args` since 2.1.139, older releases being outside what KeepDeck
+   * supports: one that ignores `args` runs the bare `/bin/sh`, which then
+   * reads the hook's JSON from stdin as a script (measured on 2.1.138).
+   * The process tree keeps the reporter's identity: the script's parent is
+   * still claude itself (verified on 2.1.303).
+   */
   const arm = (event: string, script: string, ask: readonly string[] = []) => {
     (hooks[event] ??= []).push({
       hooks: [
         {
           type: "command",
-          command: [`/bin/sh ${shellQuote(script)} claude`, ...ask].join(" "),
+          command: "/bin/sh",
+          args: [script, "claude", ...ask],
           timeout: HOOK_TIMEOUT_SECONDS,
         },
       ],
@@ -172,6 +182,7 @@ async function hookArgs(
   }
   if (Object.keys(hooks).length > 0) settings.hooks = hooks;
   if (usage) {
+    // A shell string still: claude's statusLine takes no `args` (2.1.303).
     settings.statusLine = {
       type: "command",
       command: `/bin/sh ${shellQuote(usage)}`,
