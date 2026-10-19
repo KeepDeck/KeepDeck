@@ -149,6 +149,7 @@ function renderLegacyCodexMail(
  * armed leaves that event's mail to a paid terminal nudge. Both silent.
  */
 export const CODEX_MAIL_CHANNELS: readonly MailChannel[] = [
+  { event: "SessionStart", atTurnEnd: false },
   { event: "UserPromptSubmit", atTurnEnd: false },
   { event: "PostToolUse", atTurnEnd: false },
   { event: "Stop", atTurnEnd: true },
@@ -193,14 +194,18 @@ export const renderCodexMail: MailReplyRenderer = (input) => {
           additionalContext: text,
         },
       });
+    case "SessionStart":
     case "PostToolUse":
-      // The mid-turn door: the turn keeps running and the words are context
-      // the model reads on its next request. The envelope is the same as
-      // `UserPromptSubmit`'s, under its own event name, because that is what
-      // codex's schema for this event allows.
+      // The same envelope under each event's own name, which is what
+      // codex's schema for each allows. PostToolUse is the mid-turn door:
+      // the turn keeps running and the words are context the model reads on
+      // its next request. SessionStart is the one after a compaction: an
+      // automatic one inside a turn drains it before the continuing request
+      // (verified live on 0.163.0), so the briefing the compaction re-states
+      // is in front of the model before it works on.
       return JSON.stringify({
         hookSpecificOutput: {
-          hookEventName: "PostToolUse",
+          hookEventName: event,
           additionalContext: text,
         },
       });
@@ -281,8 +286,18 @@ const readCodexStatus = (
       return { kind: "waiting", at, reason: "permission" };
     case "PostCompact":
       // The context was rebuilt — what retires a recorded failure, as it
-      // does for claude's compaction.
+      // does for claude's compaction. A manual `/compact` reports it at once.
       return { kind: "context-compacted", at };
+    case "SessionStart":
+      // The same rebuild, from the hook that can carry its re-stated
+      // briefing: announced by this report, the briefing is queued before
+      // the report's own ask is answered. PostCompact has already said it
+      // for an automatic compaction; a second announcement re-states the
+      // same standing context, which supersedes itself in the queue. A
+      // manual `/compact` defers this hook to the next turn, where the
+      // announcement is no longer news but the delivery still is. The other
+      // sources are a session at its prompt and mint nothing.
+      return decoded.event.source === "compact" ? { kind: "context-compacted", at } : null;
     case "Interrupt":
       // The user's Esc on the main thread (codex runs it for no subagent),
       // the same edge the rollout's turn_aborted reports later.

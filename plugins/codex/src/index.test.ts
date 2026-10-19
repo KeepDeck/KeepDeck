@@ -122,10 +122,7 @@ describe("codex plugin hooks", () => {
     // opened; PostToolUse does the same while the turn is still RUNNING,
     // which is the only way to reach a working agent without typing into its
     // terminal — and it is the one that costs a round trip per tool call.
-    // PermissionRequest reads nothing back. SessionStart is NOT here: codex
-    // can inject there, but the identity reporter holds that event and `-c`
-    // REPLACES rather than merges, so a second arming would drop session
-    // binding.
+    // PermissionRequest reads nothing back.
     for (const [event, asks] of [
       ["Stop", true],
       ["UserPromptSubmit", true],
@@ -141,12 +138,24 @@ describe("codex plugin hooks", () => {
     // wholesale, so a second table would silently untrust the first.
     const state = out.args.filter((a) => a.startsWith("hooks.state="));
     expect(state).toHaveLength(1);
-    expect(state[0].match(/trusted_hash/g)).toHaveLength(7);
+    expect(state[0].match(/trusted_hash/g)).toHaveLength(8);
+    // SessionStart carries BOTH reporters as two handlers of its one group:
+    // a second `hooks.SessionStart` would replace the first and drop session
+    // binding. Identity stays handler 0, the mail ask is handler 1, each with
+    // its own trust key.
+    const sessionStart = out.args.filter((a) => a.startsWith("hooks.SessionStart="));
+    expect(sessionStart).toHaveLength(1);
+    expect(sessionStart[0]).toMatch(
+      /^hooks\.SessionStart=\[\{hooks=\[\{[^}]*kd-session-hook\.sh' codex"\},\{[^}]*kd-status-hook\.sh' codex --ask"[^}]*\}\]\}\]$/,
+    );
+    expect(state[0]).toContain("session_start:0:0");
+    expect(state[0]).toContain("session_start:0:1");
     // Long mail is kept whole where codex can carry context, and declared
     // nowhere else — codex drops the field there before hashing.
     for (const [event, limited] of [
       ["UserPromptSubmit", true],
       ["PostToolUse", true],
+      ["SessionStart", true],
       ["Stop", false],
       ["Interrupt", false],
     ] as const) {

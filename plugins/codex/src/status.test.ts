@@ -83,6 +83,17 @@ describe("renderCodexMail", () => {
     });
   });
 
+  it("carries the briefing a compaction re-states as SessionStart context", () => {
+    // codex's generated session-start output schema allows exactly this
+    // pair under its own event name.
+    expect(JSON.parse(render("SessionStart") ?? "null")).toEqual({
+      hookSpecificOutput: {
+        hookEventName: "SessionStart",
+        additionalContext: expect.stringContaining("take the parser"),
+      },
+    });
+  });
+
   it("speaks the pre-0.147 schema to a pre-0.147 install", () => {
     // The schema belongs to the RELEASE. An install that has not updated
     // still wants the names the current binary no longer has.
@@ -234,6 +245,24 @@ describe("the PostCompact hook", () => {
   });
 });
 
+describe("the SessionStart hook", () => {
+  it("reads a compaction as the context rebuilt, so its own ask carries the re-stated briefing", () => {
+    // Verified live on 0.163.0: an automatic compaction runs SessionStart
+    // with source `compact` before the continuing model request, and its
+    // additionalContext reaches that request.
+    expect(normalizeCodexStatus(wrap({ hook_event_name: "SessionStart", source: "compact" }), 410)).toEqual({
+      kind: "context-compacted",
+      at: 410,
+    });
+  });
+
+  it("mints nothing for a session starting at its prompt", () => {
+    for (const source of ["startup", "resume", "clear", "fork"]) {
+      expect(normalizeCodexStatus(wrap({ hook_event_name: "SessionStart", source }), 410), source).toBeNull();
+    }
+  });
+});
+
 describe("attributeCodexEvent", () => {
   // Verified live on 0.163.0: a subagent's hook carries agent_id and
   // agent_type beside the root's own session id.
@@ -266,8 +295,9 @@ describe("attributeCodexEvent", () => {
     });
   });
 
-  it("asks for mail on its turn boundaries and its tool boundary", () => {
+  it("asks for mail on its session start, turn boundaries and tool boundary", () => {
     expect(CODEX_MAIL_CHANNELS).toEqual([
+      { event: "SessionStart", atTurnEnd: false },
       { event: "UserPromptSubmit", atTurnEnd: false },
       { event: "PostToolUse", atTurnEnd: false },
       { event: "Stop", atTurnEnd: true },

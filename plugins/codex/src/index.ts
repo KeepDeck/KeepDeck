@@ -62,14 +62,13 @@ import {
  * silent: a hook that asks where nothing is rendered waits out its window
  * every time, and one that renders where nothing asks is never called.
  *
- * `SessionStart` is deliberately ABSENT, though codex can inject there and
- * a starting agent has no other way to be told anything. The identity
- * reporter already holds that event, and codex's `-c hooks.<Event>=`
- * REPLACES rather than merges — a second arming would silently drop session
- * binding. Sharing it needs both commands inside one handler GROUP, which
- * moves the trust fingerprint to a two-handler shape this port has never
- * measured; getting that wrong refuses every hook in silence. Worth doing,
- * not worth guessing.
+ * `SessionStart` asks too, as a SECOND handler beside the identity
+ * reporter. codex's `-c hooks.<Event>=` replaces rather than merges, so the
+ * two share one handler group, each trusted on its own (see `trust.ts`).
+ * Identity stays handler 0. The ask matters after a compaction: codex runs
+ * `SessionStart` with source `compact` before the next model request, inside
+ * the running turn for an automatic one, so the re-stated briefing arrives
+ * one tool call sooner than `PostToolUse` would bring it.
  *
  * The set itself is declared beside the renderer that has to answer these
  * events ([`CODEX_MAIL_CHANNELS`] in ./status): stated twice, the two drift in
@@ -89,7 +88,7 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
         ]
       : []),
     ...(status
-      ? ["UserPromptSubmit", "Stop", "PermissionRequest", "PostToolUse", "Interrupt", "PostCompact"].map(
+      ? ["SessionStart", "UserPromptSubmit", "Stop", "PermissionRequest", "PostToolUse", "Interrupt", "PostCompact"].map(
           (event) => ({
             event,
             // Mail rides `additionalContext`, and past ~2500 tokens codex
@@ -113,6 +112,7 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
             // PostCompact is the context rebuilt: a manual compaction after
             // a failed turn runs no prompt or stop hook at all, and without
             // it the pane keeps showing the failure (verified live, 0.163).
+            // SessionStart asks beside the identity reporter (see above).
             command: [
               `/bin/sh ${shellQuote(status)} codex`,
               ...mailAskArgs(CODEX_MAIL_CHANNELS, event),
