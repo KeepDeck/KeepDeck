@@ -1,4 +1,6 @@
-// One editable copy of every reporter script a spawned CLI runs.
+// One editable copy of every reporter a spawned CLI runs — the shell hooks,
+// and the JS wire the in-process reporters (opencode's plugins, claude's Mod)
+// share.
 //
 // The reporters are shipped INSIDE each plugin (`ctx.resources.path` resolves
 // them under `plugins/<id>/resources/`, and kimi's companion directory is
@@ -46,16 +48,23 @@ export const REPORTERS = [
     name: "kd-usage-statusline.sh",
     destinations: ["plugins/claude/resources"],
   },
+  {
+    name: "keepdeck-wire.js",
+    destinations: [
+      "plugins/opencode/resources",
+      "plugins/claude/resources/keepdeck-mod/hooks",
+    ],
+  },
 ];
 
 /** The banner a copy carries and the canonical file does not — it is the only
  * difference between them, and it is what a reader who opens the wrong file
  * needs to see first. Sits under the shebang, which must stay line 1. */
-function banner(name) {
+function banner(name, comment) {
   return [
-    `# GENERATED from resources/reporters/${name} — do not edit this copy.`,
-    "# Edit the canonical file and run `node scripts/sync-reporters.mjs`;",
-    "# scripts/reporterScripts.test.mjs fails while a copy is stale.",
+    `${comment} GENERATED from resources/reporters/${name} — do not edit this copy.`,
+    `${comment} Edit the canonical file and run \`node scripts/sync-reporters.mjs\`;`,
+    `${comment} scripts/reporterScripts.test.mjs fails while a copy is stale.`,
   ].join("\n");
 }
 
@@ -81,12 +90,15 @@ function expandIncludes(text, name) {
 /** Exactly what each destination must contain. */
 export function rendered(name) {
   const source = readFileSync(join(CANONICAL_DIR, name), "utf8");
+  // A module has no interpreter line to protect and shares nothing by
+  // include: it is copied whole, under its banner.
+  if (name.endsWith(".js")) return `${banner(name, "//")}\n${source}`;
   const newline = source.indexOf("\n");
   if (!source.startsWith("#!") || newline === -1) {
     throw new Error(`${name}: a reporter must open with a shebang line`);
   }
   const body = expandIncludes(source.slice(newline + 1), name);
-  return `${source.slice(0, newline)}\n${banner(name)}\n${body}`;
+  return `${source.slice(0, newline)}\n${banner(name, "#")}\n${body}`;
 }
 
 /** Destinations whose contents differ from `rendered`, as repo-relative paths. */

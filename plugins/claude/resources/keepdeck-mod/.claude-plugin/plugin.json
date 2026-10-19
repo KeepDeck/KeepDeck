@@ -1,0 +1,5 @@
+{
+  "name": "keepdeck-reporter",
+  "version": "1.0.0",
+  "description": "KeepDeck's in-process reporter: states an interrupt and an accepted prompt to the deck as they happen. Inert outside a KeepDeck pane."
+}

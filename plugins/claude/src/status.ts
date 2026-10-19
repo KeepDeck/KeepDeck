@@ -219,6 +219,16 @@ function contextOverflowed(event: Record<string, unknown>): boolean {
  * (marker = the structured `interruptedMessageId` field on the transcript
  * record, so an assistant merely quoting the phrase can't trip it).
  */
+/**
+ * The two facts KeepDeck's own Mod states (resources/keepdeck-mod), named
+ * here once — the Mod is plain JS claude loads, so it spells them as
+ * literals and scripts/reporterScripts.test.mjs holds the two in step. They
+ * are the transcript tail's two edges, stated as they happen by the process
+ * itself; a process whose Mod said hello has no tail for them at all.
+ */
+export const MOD_INTERRUPT_EVENT = "KeepDeckInterrupt";
+export const MOD_PROMPT_ACCEPTED_EVENT = "KeepDeckPromptAccepted";
+
 export const normalizeClaudeStatus: StatusNormalizer = (
   payload,
   at,
@@ -239,6 +249,11 @@ export const normalizeClaudeStatus: StatusNormalizer = (
   }
   const event = decoded.event;
   switch (event.hook_event_name) {
+    // The Mod's two facts — the main agent's only, by the Mod's own filter.
+    case MOD_INTERRUPT_EVENT:
+      return { kind: "interrupted", at, scope: "main" };
+    case MOD_PROMPT_ACCEPTED_EVENT:
+      return { kind: "turn-observed", at };
     case "UserPromptSubmit":
       return { kind: "turn-start", at };
     case "Stop":
@@ -422,6 +437,12 @@ export const attributeClaudeEvent = (payload: unknown): EventAttribution | null 
   if (decoded.source === "record") return { event: null, actor: "main", status: true };
   const event = asNonEmptyString(decoded.event.hook_event_name);
   if (!event) return null;
+  // The Mod states only the main agent's facts — it filters on claude's own
+  // agent id before it speaks — and carries no session fields to read that
+  // from here.
+  if (event === MOD_INTERRUPT_EVENT || event === MOD_PROMPT_ACCEPTED_EVENT) {
+    return { event, actor: "main", status: true };
+  }
   const actor = agentIdActor(decoded.event, decoded.reduced);
   return { event, actor, status: true };
 };

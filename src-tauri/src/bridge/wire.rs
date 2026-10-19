@@ -32,6 +32,11 @@ pub const USAGE_REPORT_EVENT: &str = "deck://usage/report";
 /// (`src/ipc/status.ts`).
 pub const AGENT_STATUS_EVENT: &str = "deck://agent/status";
 
+/// Event delivering one companion hello to the webview
+/// (`src/ipc/companions.ts`): an in-process reporter announcing itself once,
+/// from inside the agent's own process.
+pub const COMPANION_HELLO_EVENT: &str = "deck://companion/hello";
+
 /// One message dropped into the inbox. Unknown fields are ignored so
 /// reporters may attach diagnostics.
 #[derive(Debug, Deserialize)]
@@ -123,6 +128,7 @@ impl Report {
 const OPAQUE_CHANNELS: &[(&str, &str)] = &[
     ("usage.report", USAGE_REPORT_EVENT),
     ("agent.status", AGENT_STATUS_EVENT),
+    ("companion.hello", COMPANION_HELLO_EVENT),
 ];
 
 /// One interpreted envelope — the dispatch result `deliver` emits from.
@@ -344,6 +350,31 @@ pub(super) mod tests {
         assert_eq!(report.token, "tok");
         assert_eq!(report.payload["agent"], "claude");
         assert_eq!(report.payload["event"]["hook_event_name"], "Stop");
+    }
+
+    // A companion's hello rides the same opaque lane: correlated and checked
+    // like any report, its meaning the webview's.
+    #[test]
+    fn interprets_a_companion_hello_like_any_opaque_report() {
+        let envelope = serde_json::json!({
+            "v": BRIDGE_PROTOCOL_VERSION,
+            "type": "companion.hello",
+            "paneId": "pane-7",
+            "token": "tok",
+            "payload": {"agent": "claude", "reporter": "4242"},
+        });
+        let result = interpret(&envelope.to_string());
+        let Ok(Inbound::Opaque {
+            event: COMPANION_HELLO_EVENT,
+            report,
+        }) = result
+        else {
+            panic!("expected a companion hello, got {result:?}");
+        };
+        assert_eq!(report.payload["reporter"], "4242");
+        let mut anonymous = envelope.clone();
+        anonymous["payload"]["agent"] = "".into();
+        assert!(interpret(&anonymous.to_string()).is_err());
     }
 
     #[test]

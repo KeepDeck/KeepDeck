@@ -24,7 +24,7 @@ describe("reporter shell scripts", () => {
   });
 
   it("keeps the shebang on line 1 and the generated banner under it", () => {
-    for (const { name } of REPORTERS) {
+    for (const { name } of REPORTERS.filter((r) => r.name.endsWith(".sh"))) {
       const lines = rendered(name).split("\n");
       // A shell script whose first line is a comment has no interpreter line;
       // the banner must never take that slot.
@@ -130,6 +130,36 @@ describe("reporter shell scripts", () => {
     expect(rendererVersion[1]).toBe(courierVersion[1]);
   });
 
+  it("has claude's Mod and its plugin agreeing on the facts it states and the hello it says", () => {
+    // Plain JS claude loads beside TypeScript compiled into the deck: the
+    // event names and the envelope type are literals on both sides, and a
+    // mismatch is silent — a fact nobody normalizes, a hello nobody admits,
+    // and with it a pane whose status records are never handed over.
+    const mod = readFileSync(
+      "plugins/claude/resources/keepdeck-mod/hooks/register.js",
+      "utf8",
+    );
+    const status = readFileSync("plugins/claude/src/status.ts", "utf8");
+    for (const constant of ["MOD_INTERRUPT_EVENT", "MOD_PROMPT_ACCEPTED_EVENT"]) {
+      const name = status.match(new RegExp(`${constant} = "([^"]+)"`))?.[1];
+      expect(name, `no ${constant} in status.ts`).toBeTruthy();
+      expect(mod).toContain(`state("${name}")`);
+    }
+    const wire = readFileSync("src-tauri/src/bridge/wire.rs", "utf8");
+    expect(wire).toContain('("companion.hello", COMPANION_HELLO_EVENT)');
+    expect(mod).toContain('makeEnvelope("companion.hello"');
+    // The wake line it submits is the terminal's own, word for word: the
+    // model reads the same sentence whichever way the pane was woken.
+    const delivery = readFileSync("src/app/mail/ptyDelivery.ts", "utf8");
+    const terminalLine = delivery.match(/const WAKE_LINE =\s*"([^"]+)"/)?.[1];
+    expect(terminalLine, "no WAKE_LINE in ptyDelivery.ts").toBeTruthy();
+    expect(mod).toContain(`"${terminalLine}"`);
+    const ipc = readFileSync("src/ipc/companions.ts", "utf8");
+    const rustEvent = wire.match(/COMPANION_HELLO_EVENT: &str = "([^"]+)"/)?.[1];
+    expect(rustEvent).toBeTruthy();
+    expect(ipc).toContain(`COMPANION_HELLO_EVENT = "${rustEvent}"`);
+  });
+
   it("keeps the deck's patience shorter than every asker's, in every language", () => {
     // One relationship with three homes: how long a reporter waits for the
     // deck's answer, against how long the deck holds the connection open.
@@ -145,10 +175,7 @@ describe("reporter shell scripts", () => {
     const shellWaitMs = Number(shell.match(/^SEND_MAX=([\d.]+)/m)?.[1]) * 1000;
     expect(shellWaitMs, "no SEND_MAX in the shared sender").toBeGreaterThan(0);
 
-    const plugin = readFileSync(
-      "plugins/opencode/resources/keepdeck-bridge.js",
-      "utf8",
-    );
+    const plugin = readFileSync(join(CANONICAL_DIR, "keepdeck-wire.js"), "utf8");
     const pluginWaitMs = Number(
       plugin.match(/SEND_TIMEOUT_MS\s*=\s*(\d[\d_]*)/)?.[1]?.replace(/_/g, ""),
     );

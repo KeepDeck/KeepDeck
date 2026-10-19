@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { attributeClaudeEvent, normalizeClaudeStatus } from "./status";
+import {
+  attributeClaudeEvent,
+  MOD_INTERRUPT_EVENT,
+  MOD_PROMPT_ACCEPTED_EVENT,
+  normalizeClaudeStatus,
+} from "./status";
 
 /** Hook payloads as the reporter wraps them (event verbatim from stdin). */
 const wrap = (event: Record<string, unknown>) => ({ agent: "claude", event });
@@ -474,6 +479,19 @@ describe("normalizeClaudeStatus", () => {
     expect(normalizeClaudeStatus({ agent: "claude" }, 100)).toBeNull();
     expect(normalizeClaudeStatus("garbage", 100)).toBeNull();
     expect(normalizeClaudeStatus(null, 100)).toBeNull();
+  });
+});
+
+describe("the Mod's two facts", () => {
+  it("are the transcript tail's two edges, as they happen, and the main agent's", () => {
+    expect(normalizeClaudeStatus(wrap({ hook_event_name: MOD_INTERRUPT_EVENT }), 300))
+      .toEqual({ kind: "interrupted", at: 300, scope: "main" });
+    expect(normalizeClaudeStatus(wrap({ hook_event_name: MOD_PROMPT_ACCEPTED_EVENT }), 310))
+      .toEqual({ kind: "turn-observed", at: 310 });
+    for (const name of [MOD_INTERRUPT_EVENT, MOD_PROMPT_ACCEPTED_EVENT]) {
+      expect(attributeClaudeEvent(wrap({ hook_event_name: name })))
+        .toEqual({ event: name, actor: "main", status: true });
+    }
   });
 });
 

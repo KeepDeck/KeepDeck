@@ -266,6 +266,7 @@ describe("build pipeline (e2e against the real host and plugins)", () => {
       "resources",
     );
     for (const file of [
+      "keepdeck-wire.js",
       "keepdeck-bridge.js",
       "pane-session.js",
       "mail-courier.js",
@@ -278,6 +279,23 @@ describe("build pipeline (e2e against the real host and plugins)", () => {
       expect(body).toContain('from "./keepdeck-bridge.js"');
       expect(body).toContain('from "./pane-session.js"');
     }
+    expect(readFileSync(join(opencodeResources, "keepdeck-bridge.js"), "utf8"))
+      .toContain('from "./keepdeck-wire.js"');
+
+    // claude's Mod is a plugin directory claude loads with `--plugin-dir`:
+    // its manifest, its module list, the module and the wire it imports must
+    // all arrive, or claude loads a plugin that never says hello.
+    const claudeMod = join(distRoot, "plugins", "keepdeck.claude", "resources", "keepdeck-mod");
+    for (const file of [
+      ".claude-plugin/plugin.json",
+      "hooks/hooks.json",
+      "hooks/register.js",
+      "hooks/keepdeck-wire.js",
+    ]) {
+      expect(existsSync(join(claudeMod, file)), file).toBe(true);
+    }
+    expect(readFileSync(join(claudeMod, "hooks/register.js"), "utf8"))
+      .toContain('from "./keepdeck-wire.js"');
   });
 
   it("is a no-op that still writes an empty index.json when plugins/ has none", () => {

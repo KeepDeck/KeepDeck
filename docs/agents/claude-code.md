@@ -1,7 +1,7 @@
 # Claude Code
 
-Checked 2026-10-19 against Claude Code 2.1.302; the fork section against
-2.1.303. There is no source, so CLI
+Checked 2026-10-19 against Claude Code 2.1.302; the fork and Mod sections
+against 2.1.303. There is no source, so CLI
 facts come from probes and from the strings of the installed binary, and say
 which.
 
@@ -17,6 +17,12 @@ Nothing is written to `~/.claude`.
 - `--plugin-dir <dir>` loads KeepDeck's staged skills as a local plugin. It
   is additive next to the user's installed plugins, and the skills appear as
   `keepdeck-skills:<name>`.
+- A second `--plugin-dir` loads KeepDeck's Mod (`resources/keepdeck-mod`,
+  plugin `keepdeck-reporter`), and the inline settings keep it on with
+  `enabledPlugins: {"keepdeck-reporter@inline": true}` even where the user
+  switched it off. The bare name does not override a user's `false`.
+  Verified live. The user's `disableAllHooks` and simple and safe modes are
+  left alone, and a managed policy wins.
 - `--mcp-config '<json>'` injects KeepDeck's MCP servers.
 - `--dangerously-skip-permissions` for permission-skipping panes.
 - `CLAUDE_CODE_DISABLE_ARTIFACT`, from a plugin setting, passed in env.
@@ -41,8 +47,8 @@ The reporter scripts are the shared ones from `resources/reporters/`.
 
 Notes:
 
-- **Interrupts have no hook.** Esc is seen only in the transcript, which
-  KeepDeck tails (`src/tail.ts`).
+- **Interrupts have no hook.** The Mod reports Esc; without it, KeepDeck
+  tails the transcript for it (`src/tail.ts`).
 - **Subagent hooks carry `agent_id`.** A subagent's `PostToolUse` still
   clears the pane's approval wait on purpose: the wait is not tagged with who
   raised it, because `Notification` carries no agent id. Subagent events
@@ -50,6 +56,55 @@ Notes:
 - **Mail continues the turn.** When a `Stop` reply hands over mail, Claude
   continues instead of stopping. The normalizer reads the delivered reply and
   reports the turn as still running.
+
+## Mod
+
+A Mod is a JS module claude loads per spawn from a `--plugin-dir` plugin
+(`hooks/hooks.json` lists `./register.js`). KeepDeck's Mod does only what
+the hooks cannot; everything the hooks report stays with them, mail
+included.
+
+- **Hello.** Once per process, a `companion.hello` envelope over the shared
+  wire (`resources/reporters/keepdeck-wire.js`), naming the process group
+  the way the hook reporters do (`ps -o pgid= -p $PPID` from a child). The
+  host counts it only for the process the pane is pinned to.
+- **Esc:** `turn.complete` with `reason: "aborted"` and no `agentId`, sent
+  as `KeepDeckInterrupt`. One per Esc, mid-stream or mid-tool; none for a
+  stopped subagent.
+- **Accepted prompt:** `session.append`, observed after claude wrote it,
+  `door: "prompt"`, origin `composer`, no `agentId`, a non-meta user row.
+  Sent as `KeepDeckPromptAccepted`: one per prompt taken in, idle or
+  queued; none for queue staging, plugin-origin prompts or `/compact` rows.
+- **One source per process.** A process whose Mod said hello gets no
+  transcript status tail; the tail reads usage records only. A process
+  without the Mod keeps the tail. The plugin declares this as
+  `companion: { covers: ["status-records"] }`.
+- **Wake** (`wake: "companion"`). With the Mod present the deck rings the
+  pane's doorbell (`mail.wake`) instead of typing. The Mod polls it every
+  100 ms (a Mod cannot watch a file), removes it, and submits the
+  terminal's own wake line with `$.prompt.submit`. The mail still rides
+  `UserPromptSubmit`'s hook and leaves the queue only then. Right after
+  Esc claude refuses a plugin prompt until the user types; nothing is
+  lost, the mail stays queued. A ring mid-turn queues one prompt for the
+  next turn.
+- **Mod limits** (2.1.303): event names and `$` calls are static literals;
+  no imports outside the plugin; no `process`, `require` or global `fetch`
+  (`$.env`, `$.http.fetch`, `$.fs`, `$.clock`, `$.process` instead). A Mod
+  stuck in a CPU loop for 5 s is unloaded for good; a throw or a hang of a
+  handler is only skipped.
+- **Where Mods do not reach.** `--bare`, `--safe-mode` and
+  `disableAllHooks` turn off Mods and hooks alike. On managed or
+  Team/Enterprise seats claude's own guard routes classic hook events and
+  prompt-context sites past user Mods; the native events the Mod uses are
+  not among them (read from the binary). A managed policy can forbid user
+  Mods outright; then no hello comes and the pane runs on the tail and the
+  terminal.
+- **Background workers.** `/bg` and `←` move a conversation into a daemon
+  worker under a new id, which inherits the Mod, the hooks and the bridge.
+  Its Mod says hello with the worker's own process group. Which worker a
+  pane shows is not reported by claude; see task-422.
+
+Verified live on 2.1.303 against the shipped files (task-405).
 
 ## Steering
 

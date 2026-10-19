@@ -117,6 +117,7 @@ describe("usage tails — a suspended pane's watcher", () => {
         }) as never,
       // The tails lane only arms watchers; events reach the store via the
       // reports lane, so a fresh, unobserved instance satisfies the context.
+      companionOf: () => undefined,
       usage: createUsageManager(),
       declarations: {
         current: () => usageByAgent,
@@ -231,6 +232,7 @@ describe("usage tails — a store search racing a binding", () => {
               answerLookup = (path) => resolve(path ? { path } : null);
             }),
         }) as never,
+      companionOf: () => undefined,
       usage: createUsageManager(),
       declarations: {
         current: () => usageByAgent,
@@ -269,6 +271,138 @@ describe("usage tails — a store search racing a binding", () => {
       for (let i = 0; i < 4; i++) await act(async () => {});
 
       expect(ipc.unwatchSessionFile).not.toHaveBeenCalled();
+    } finally {
+      lane.dispose();
+    }
+  });
+});
+
+describe("usage tails — a pane whose process has a companion", () => {
+  const USAGE_WATCH = { lane: "usage", match: [{ key: "type", equals: "assistant" }] };
+  const STATUS_WATCH = { lane: "status", match: [{ key: "type", equals: "user" }] };
+  const claudeUsage = new Map<string, AgentUsage>([
+    ["claude", { tail: { watches: [USAGE_WATCH] } } as unknown as AgentUsage],
+  ]);
+
+  function setup(covers: readonly string[] | null) {
+    const store = createDeckStore();
+    deck = createDeckActions(store);
+    const attribution = createPaneAttribution({
+      workspaces: () => store.getSnapshot().workspaces,
+      secretOf: () => "token-1",
+    });
+    let announce!: (bound: { paneId: string; transcriptPath: string; token: string }) => void;
+    const lane = createUsageTailsLane({
+      deck: store,
+      attribution,
+      bindings: {
+        subscribe: (listener: never) => {
+          announce = listener;
+          return () => {};
+        },
+      } as never,
+      tailOf: () => ({ watches: [STATUS_WATCH], follow: async () => null }) as never,
+      companionOf: () => (covers ? ({ covers } as never) : undefined),
+      usage: createUsageManager(),
+      declarations: { current: () => claudeUsage, subscribe: () => () => {} },
+    });
+    act(() => {
+      deck.createWorkspace({
+        id: "ws-1",
+        instance: createWorkspaceInstance(),
+        name: "ws",
+        cwd: "/repo",
+        worktreeBaseDir: null,
+        panes: [{ id: "pane-1", agentType: "claude" }],
+      });
+    });
+    const bind = async () => {
+      await act(async () =>
+        announce({ paneId: "pane-1", transcriptPath: "/p/s.jsonl", token: "token-1" }),
+      );
+      for (let i = 0; i < 4; i++) await act(async () => {});
+    };
+    const settle = async () => {
+      for (let i = 0; i < 4; i++) await act(async () => {});
+    };
+    return { attribution, lane, bind, settle };
+  }
+  /** The watches the last arm carried. */
+  const lastWatches = () => {
+    const calls = ipc.watchSessionFile.mock.calls as unknown[][];
+    return calls[calls.length - 1]?.[4];
+  };
+
+  beforeEach(() => {
+    ipc.watchSessionFile.mockClear();
+    ipc.unwatchSessionFile.mockClear();
+  });
+
+  it("reads the status records until the pinned process says hello, then only usage", async () => {
+    const { attribution, lane, bind, settle } = setup(["status-records"]);
+    try {
+      attribution.recordBinding("pane-1", "100");
+      await bind();
+      expect(lastWatches()).toEqual([USAGE_WATCH, STATUS_WATCH]);
+
+      attribution.recordCompanion("pane-1", "100");
+      await settle();
+      expect(ipc.unwatchSessionFile).toHaveBeenCalledWith("pane-1");
+      expect(lastWatches()).toEqual([USAGE_WATCH]);
+      expect(ipc.watchSessionFile).toHaveBeenCalledTimes(2);
+
+      // The same hello again changes nothing: no second re-arm.
+      attribution.recordCompanion("pane-1", "100");
+      await settle();
+      expect(ipc.watchSessionFile).toHaveBeenCalledTimes(2);
+    } finally {
+      lane.dispose();
+    }
+  });
+
+  it("a hello before the binding arms usage records only, from the start", async () => {
+    const { attribution, lane, bind } = setup(["status-records"]);
+    try {
+      attribution.recordBinding("pane-1", "100");
+      attribution.recordCompanion("pane-1", "100");
+      await bind();
+      expect(ipc.watchSessionFile).toHaveBeenCalledTimes(1);
+      expect(lastWatches()).toEqual([USAGE_WATCH]);
+    } finally {
+      lane.dispose();
+    }
+  });
+
+  it("a hello from another process, or for an agent that declares no cover, reads everything", async () => {
+    for (const [covers, helloFrom] of [
+      [["status-records"], "200"],
+      [null, "100"],
+    ] as const) {
+      ipc.watchSessionFile.mockClear();
+      const { attribution, lane, bind, settle } = setup(covers);
+      try {
+        attribution.recordBinding("pane-1", "100");
+        attribution.recordCompanion("pane-1", helloFrom);
+        await bind();
+        await settle();
+        expect(ipc.watchSessionFile).toHaveBeenCalledTimes(1);
+        expect(lastWatches()).toEqual([USAGE_WATCH, STATUS_WATCH]);
+      } finally {
+        lane.dispose();
+      }
+    }
+  });
+
+  it("a retired process gives the status records back to the store", async () => {
+    const { attribution, lane, bind, settle } = setup(["status-records"]);
+    try {
+      attribution.recordBinding("pane-1", "100");
+      attribution.recordCompanion("pane-1", "100");
+      await bind();
+      expect(lastWatches()).toEqual([USAGE_WATCH]);
+      attribution.retire("pane-1");
+      await settle();
+      expect(lastWatches()).toEqual([USAGE_WATCH, STATUS_WATCH]);
     } finally {
       lane.dispose();
     }

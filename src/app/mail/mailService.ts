@@ -106,6 +106,8 @@ export interface MailServiceDeps {
      * messages went nowhere and are still the deck's to put back. */
     reply(paneId: string, correlation: string, body: string): Promise<boolean>;
     nudge(paneId: string): void;
+    /** Whether the pane's process announced its agent's companion. */
+    hasCompanion(paneId: string): boolean;
   };
 }
 
@@ -267,6 +269,7 @@ export function createMailService(deps: MailServiceDeps): MailService {
       throughTerminal: (paneId) =>
         answering.has(paneId) ? false : deps.terminal.wake(paneId),
       throughBridge: deps.bridge.nudge,
+      hasCompanion: deps.bridge.hasCompanion,
     }),
     // A pane whose agent DECLARES a turn-end mail channel will come asking
     // at that boundary, so a running turn is worth waiting out for the

@@ -38,6 +38,10 @@ export interface AgentContribution {
    * failed) — see `context/status.ts`. Absent = the agent reports no
    * status and its pane shows none. */
   status?: AgentStatus;
+  /** What this agent's in-process companion takes over once it announces
+   * itself from the pane's own process (API 61) — absent when the agent has
+   * none. */
+  companion?: AgentCompanion;
   /** Read-only discovery over this agent's session store ([F8] browser).
    * Absent = the agent's sessions don't appear in the global search. */
   history?: AgentHistory;
@@ -382,6 +386,28 @@ export interface AgentHistory {  /** Enumerate the whole store — stat-level, n
     page: { offset: number; limit: number },
   ): Promise<{ entries: AgentTranscriptEntry[]; shortfall?: Shortfall[] }>;
 }
+
+/**
+ * A reporter that runs INSIDE the agent (a mod, a plugin of the CLI's own)
+ * and announces itself once, with a `companion.hello` envelope from the
+ * agent's own process. Hooks stay the lane for everything they report; a
+ * companion covers what they cannot.
+ *
+ * ONE source per process, by construction: what a companion covers is not
+ * read twice and then reconciled — the host stops the other source for that
+ * process when the hello lands. A process that never says hello keeps every
+ * fallback it has today.
+ */
+export interface AgentCompanion {
+  covers: readonly CompanionCover[];
+}
+
+/**
+ * - `status-records`: the status lane of the agent's store tail. The
+ *   companion states those facts itself, as they happen, so the host arms
+ *   the tail with the usage watches alone.
+ */
+export type CompanionCover = "status-records";
 
 export interface ForkPlanInput extends SpawnPlanInput {
   /** The source session being forked. */

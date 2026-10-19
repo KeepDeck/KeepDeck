@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { createMailWake } from "./wakeChannel";
 
-const harness = (channel: "terminal" | "bridge" | undefined) => {
+const harness = (
+  channel: "terminal" | "bridge" | "companion" | undefined,
+  companion = false,
+) => {
   const throughTerminal = vi.fn(() => true);
   const throughBridge = vi.fn();
   return {
@@ -11,6 +14,7 @@ const harness = (channel: "terminal" | "bridge" | undefined) => {
       channelOf: () => channel,
       throughTerminal,
       throughBridge,
+      hasCompanion: () => companion,
     }),
   };
 };
@@ -35,6 +39,7 @@ describe("createMailWake", () => {
       channelOf: () => "terminal",
       throughTerminal,
       throughBridge: vi.fn(),
+      hasCompanion: () => false,
     });
     expect(wake("pane-1")).toBe(false);
   });
@@ -48,6 +53,19 @@ describe("createMailWake", () => {
     expect(h.throughTerminal).not.toHaveBeenCalled();
   });
 
+  it("rings for a companion agent only while the pane's process has one, else types", () => {
+    const present = harness("companion", true);
+    expect(present.wake("pane-1")).toBe(true);
+    expect(present.throughBridge).toHaveBeenCalledWith("pane-1");
+    expect(present.throughTerminal).not.toHaveBeenCalled();
+    // No hello from this process — the Mod disabled, refused by policy, or
+    // the conversation moved: the terminal is still the floor.
+    const absent = harness("companion", false);
+    expect(absent.wake("pane-1")).toBe(true);
+    expect(absent.throughTerminal).toHaveBeenCalledWith("pane-1");
+    expect(absent.throughBridge).not.toHaveBeenCalled();
+  });
+
   it("follows a pane that changed agents between two wakes", () => {
     // Read per call, never cached: a restart can put another CLI in this
     // pane, and a remembered channel would keep typing at an agent that
@@ -59,6 +77,7 @@ describe("createMailWake", () => {
       channelOf: () => channel,
       throughTerminal,
       throughBridge,
+      hasCompanion: () => false,
     });
     wake("pane-1");
     channel = "terminal";

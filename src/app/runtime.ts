@@ -83,6 +83,7 @@ import { notify } from "./notificationCenter";
 import { createAgentStatusTracker } from "./agentStatusTracker";
 import { createSessionIndexManager } from "./sessionIndexManager";
 import { createPaneLifecycle } from "./paneLifecycle";
+import { listenPaneCompanions } from "./paneCompanions";
 import { subscribeRoleCatalogChanges } from "./roleCatalogManager";
 import { getSettings, initSettings, subscribeSettings } from "./settingsManager";
 import { createSpawnContextSource } from "./spawnContextSource";
@@ -383,7 +384,11 @@ export function createAppRuntime(
         onChanged: tasks.access.subscribe,
       },
       terminal: { wake: wakePaneForMail },
-      bridge: { reply: replyToBridgeHook, nudge: nudgeBridgePane },
+      bridge: {
+        reply: replyToBridgeHook,
+        nudge: nudgeBridgePane,
+        hasCompanion: (paneId) => attribution.hasCompanion(paneId),
+      },
     },
   );
   // Where an arming pass's refusals land for the skills surface to read.
@@ -458,6 +463,7 @@ export function createAppRuntime(
   const pluginDeckBridge = createPluginDeckBridge(deckStore, plugins);
   let usageChannel: ReturnType<typeof createUsageChannel> | null = null;
   let statusChannel: ReturnType<typeof createAgentStatusChannel> | null = null;
+  let companionHellos: ReturnType<typeof listenPaneCompanions> | null = null;
   let achievementNotifier: ReturnType<typeof createAchievementNotifier> | null =
     null;
   let exhaustionNotifier: ReturnType<
@@ -506,6 +512,9 @@ export function createAppRuntime(
         attribution,
         bindings,
       );
+      // Before the lanes that read it act on a hello: which source states a
+      // pane's facts is decided per process, and the ledger is attribution's.
+      companionHellos ??= listenPaneCompanions(deckStore, attribution);
       statusChannel ??= createAgentStatusChannel(
         deckStore,
         plugins.pluginRegistries.agents,
@@ -550,6 +559,7 @@ export function createAppRuntime(
       achievementNotifier?.dispose();
       usageChannel?.dispose();
       statusChannel?.dispose();
+      companionHellos?.dispose();
       pluginDeckBridge.dispose();
       worktreeSweeper.dispose();
       mail.dispose();

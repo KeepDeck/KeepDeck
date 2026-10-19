@@ -232,3 +232,40 @@ describe("createPaneAttribution", () => {
     expect(owner.admitsReport("pane-1", "tok", "claude", undefined)).toBe(true);
   });
 });
+
+describe("pane attribution — companions", () => {
+  it("counts a companion only for the process the pane is pinned to", () => {
+    const a = attribution();
+    a.recordCompanion("pane-1", "4021");
+    // Not bound yet: nothing to read it against.
+    expect(a.hasCompanion("pane-1")).toBe(false);
+    a.recordBinding("pane-1", "4021");
+    expect(a.hasCompanion("pane-1")).toBe(true);
+    // The conversation moved to another process (claude's daemon): the old
+    // hello says nothing about the new one.
+    a.recordBinding("pane-1", "5000");
+    expect(a.hasCompanion("pane-1")).toBe(false);
+  });
+
+  it("tells its readers when a hello or a retirement changes the answer, once", () => {
+    const a = attribution();
+    const told: string[] = [];
+    a.subscribeCompanions((paneId) => told.push(paneId));
+    a.recordBinding("pane-1", "4021");
+    a.recordCompanion("pane-1", "4021");
+    a.recordCompanion("pane-1", "4021");
+    expect(told).toEqual(["pane-1"]);
+    a.retire("pane-1");
+    expect(a.hasCompanion("pane-1")).toBe(false);
+    expect(told).toEqual(["pane-1", "pane-1"]);
+  });
+
+  it("forgets panes that left the deck", () => {
+    const a = attribution();
+    a.recordBinding("pane-1", "4021");
+    a.recordCompanion("pane-1", "4021");
+    a.forget(new Set());
+    a.recordBinding("pane-1", "4021");
+    expect(a.hasCompanion("pane-1")).toBe(false);
+  });
+});

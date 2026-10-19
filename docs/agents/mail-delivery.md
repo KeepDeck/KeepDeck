@@ -56,7 +56,10 @@ The policy lives in `src/domain/mail/policy.ts` (`decideDelivery`).
   the next one, whose turn-start hook collects the message.
 - **The pane is idle:** the deck wakes it. It types a short nudge that
   makes the agent take a turn, and that turn's own hook collects the mail.
-  The nudge carries no content.
+  The nudge carries no content. An agent with an in-process reporter is
+  woken through it instead: the deck rings a doorbell file and the reporter
+  starts the turn from inside — opencode always, claude while its Mod is
+  present (`wake: "companion"`).
 - **The pane waits on a permission prompt:** the deck holds.
 - **Standing context (the team brief):** never nudged. It waits for the
   next window that asks.
