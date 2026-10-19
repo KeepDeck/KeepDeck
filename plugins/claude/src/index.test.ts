@@ -380,6 +380,27 @@ describe("claude plugin identity", () => {
   });
 });
 
+describe("claude's Mod", () => {
+  it("loads it per spawn as a second local plugin, when the bundle has it", async () => {
+    const agent = activate({
+      ...SESSION_HOOK,
+      "keepdeck-mod/.claude-plugin/plugin.json": "/App/resources/keepdeck-mod/.claude-plugin/plugin.json",
+    });
+    const out = output();
+    await agent.hooks["spawn.plan"]!(input, out);
+    const at = out.args.indexOf("--plugin-dir");
+    expect(out.args[at + 1]).toBe("/App/resources/keepdeck-mod");
+    // Missing from the bundle: the pane runs without it, nothing else moves.
+    const bare = output();
+    await activate(SESSION_HOOK).hooks["spawn.plan"]!(input, bare);
+    expect(bare.args).not.toContain("--plugin-dir");
+  });
+
+  it("declares that its hello takes over the tail's status records", () => {
+    expect(activate(null).companion).toEqual({ covers: ["status-records"] });
+  });
+});
+
 describe("claude fork.plan", () => {
   const forkInput = {
     ...input,

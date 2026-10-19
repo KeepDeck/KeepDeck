@@ -180,6 +180,17 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
   return ["--settings", JSON.stringify(settings)];
 }
 
+/** KeepDeck's own Mod (resources/keepdeck-mod), loaded per spawn as a second
+ * local plugin — `--plugin-dir` writes nothing into `~/.claude`. It states an
+ * interrupt and an accepted prompt as they happen; see `companion` below for
+ * what that takes over. Missing from the bundle, the pane simply runs
+ * without it and the transcript tail keeps those facts, as before. */
+async function modArgs(resources: PluginResources): Promise<string[]> {
+  const manifest = await resources.path("keepdeck-mod/.claude-plugin/plugin.json");
+  if (!manifest) return [];
+  return ["--plugin-dir", manifest.slice(0, -"/.claude-plugin/plugin.json".length)];
+}
+
 /** claude's YOLO switch. First use shows claude's own one-time in-TUI
  * acceptance prompt — expected, it runs interactively in the pane. */
 const yoloArgs = (yolo: boolean | undefined): string[] =>
@@ -217,6 +228,7 @@ async function stageLaunch(
 ): Promise<void> {
   output.args.push(
     ...(await hookArgs(ctx.resources)),
+    ...(await modArgs(ctx.resources)),
     ...skillsArgs(input.skills),
     ...mcpArgs(input.mcp),
     ...yoloArgs(input.yolo),
@@ -240,6 +252,10 @@ const plugin: KeepDeckPlugin = {
           siblings: claudeSubagentDirectory,
         },
       },
+      // The Mod states the transcript tail's status facts itself, from
+      // inside the process: once it says hello, that process's tail carries
+      // usage records only — one source per process.
+      companion: { covers: ["status-records"] },
       status: {
         normalize: normalizeClaudeStatus,
         attribute: attributeClaudeEvent,
