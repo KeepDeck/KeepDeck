@@ -79,9 +79,22 @@ const WAKE_LINE =
  * patience for one. */
 const DOORBELL_POLL_MS = 100;
 
+/** Take the doorbell down, or answer false when there was none to take.
+ * A RENAME, not a delete: `rm -f` succeeds on a missing file, so two pollers
+ * (a reloaded module beside its predecessor) would both think they took one
+ * ring and start two turns. A rename succeeds for exactly one of them. */
+async function takeDoorbell($, path) {
+  const run = await $.process.run(
+    ["/bin/sh", "-c", 'mv -- "$1" "$1.taken.$$" && rm -f -- "$1.taken.$$"', "sh", path],
+    { timeoutMs: 2000 },
+  );
+  return run.exitCode === 0;
+}
+
 /** Answer the deck's doorbell (`<pane dir>/mail.wake`, see
  * src-tauri/src/bridge/nudge.rs): take it down, then start a turn. Taking it
- * down IS reading it — the file carries nothing. One ring at a time. */
+ * down IS reading it — the file carries nothing. One ring at a time, and one
+ * turn per ring however many pollers look. */
 function watchDoorbell($, dir) {
   const path = `${dir}/mail.wake`;
   let answering = false;
@@ -90,9 +103,8 @@ function watchDoorbell($, dir) {
     answering = true;
     try {
       if (!(await $.fs.exists(path))) return;
-      // The Mod's fs cannot delete; a ring left up would ring forever.
-      const taken = await $.process.run(["/bin/rm", "-f", path], { timeoutMs: 2000 });
-      if (taken.exitCode !== 0) return;
+      // The Mod's fs cannot delete or rename; a ring left up rings forever.
+      if (!(await takeDoorbell($, path))) return;
       await $.prompt.submit({ text: WAKE_LINE });
     } catch {
       // A wake that could not be started leaves the mail queued; the next
@@ -111,6 +123,8 @@ export function register(on) {
     wire?.publish(wire.makeEnvelope("agent.status", { event: { hook_event_name: name } }));
 
   on("session.start", async ($, e, next) => {
+    // Once per module: this module's hello and doorbell are already up.
+    if (wire) return next(e);
     const bridge = parseBridge(await $.env.get("KEEPDECK_BRIDGE"));
     if (bridge) {
       const reporter = await processGroup($);

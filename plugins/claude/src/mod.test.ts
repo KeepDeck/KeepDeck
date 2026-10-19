@@ -45,8 +45,10 @@ function loaded({ bridge = BRIDGE as string | null, pgid = "4021\n" } = {}) {
     },
     process: {
       run: async (argv: string[]) => {
-        if (argv[0] === "/bin/rm") {
-          expect(argv).toEqual(["/bin/rm", "-f", "/run/p-1/mail.wake"]);
+        if (argv[0] === "/bin/sh" && argv[2]?.startsWith("mv ")) {
+          expect(argv.slice(3)).toEqual(["sh", "/run/p-1/mail.wake"]);
+          // A rename: only the first taker finds the file.
+          if (!doorbell.up) return { exitCode: 1, stdout: "", stderr: "No such file" };
           doorbell.up = false;
           doorbell.removed += 1;
           return { exitCode: 0, stdout: "", stderr: "" };
@@ -80,6 +82,7 @@ function loaded({ bridge = BRIDGE as string | null, pgid = "4021\n" } = {}) {
     for (const timer of timers) await timer.tick();
   };
   return {
+    $,
     handlers,
     posted,
     fire,
@@ -90,6 +93,22 @@ function loaded({ bridge = BRIDGE as string | null, pgid = "4021\n" } = {}) {
     ring,
     answerSubmit: (answer: unknown) => (submitAnswer = answer),
   };
+}
+
+/** A second module polling the SAME doorbell — what a reload leaves beside
+ * its predecessor — with its own state, sharing the fake world. */
+async function loadedTwin(first: ReturnType<typeof loaded>) {
+  const twinHandlers = new Map<string, Handler>();
+  register((name: string, handler: Handler) => twinHandlers.set(name, handler));
+  const ticks: (() => Promise<void>)[] = [];
+  const $ = {
+    ...first.$,
+    // Both pollers looked before either took it: the race the rename settles.
+    fs: { exists: async () => true },
+    clock: { every: (_ms: number, tick: () => Promise<void>) => (ticks.push(tick), { cancel() {} }) },
+  };
+  await twinHandlers.get("session.start")!($, {}, async (e: unknown) => e);
+  for (const tick of ticks) await tick();
 }
 
 const userAppend = (over: Record<string, unknown> = {}) => ({
@@ -197,5 +216,19 @@ describe("KeepDeck's claude Mod", () => {
       await mod.fire("session.start", {});
       expect(mod.timers).toEqual([]);
     }
+  });
+
+  it("one ring is one turn even with two pollers, and a second session.start starts none", async () => {
+    const mod = loaded();
+    await mod.fire("session.start", {});
+    await mod.fire("session.start", {});
+    expect(mod.timers).toHaveLength(1);
+    expect(mod.posted.filter(({ envelope }) => envelope.type === "companion.hello")).toHaveLength(1);
+    // A reloaded module beside its predecessor: both see the same ring.
+    mod.doorbell.up = true;
+    await mod.timers[0]!.tick();
+    await loadedTwin(mod);
+    expect(mod.doorbell.removed).toBe(1);
+    expect(mod.submitted).toHaveLength(1);
   });
 });
