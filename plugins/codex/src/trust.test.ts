@@ -121,6 +121,30 @@ describe("codex trust fingerprint (TS port of the host's Rust module)", () => {
     }
   });
 
+  /** Two rules for one event — SessionStart's identity reporter and its mail
+   * ask. A second `hooks.SessionStart` would replace the first, so both are
+   * handlers of one group; codex keys and hashes each handler on its own
+   * (live-verified on 0.163.0: the hash is the handler's alone, and
+   * corrupting only the second drops only the second). */
+  it("arms two handlers of one event in one group, each trusted on its own", async () => {
+    const identity = sessionStart("/bin/sh '/x/kd-session-hook.sh' codex");
+    const ask = {
+      event: "SessionStart",
+      command: "/bin/sh '/x/kd-status-hook.sh' codex --ask",
+      additionalContextLimit: 0,
+    };
+    const args = await cliArgs([identity, ask]);
+    expect(args).toEqual([
+      "-c",
+      `hooks.SessionStart=[{hooks=[{type="command",command="/bin/sh '/x/kd-session-hook.sh' codex"},` +
+        `{type="command",command="/bin/sh '/x/kd-status-hook.sh' codex --ask",additionalContextLimit=0}]}]`,
+      "-c",
+      `hooks.state={"/<session-flags>/config.toml:session_start:0:0" = {trusted_hash = "${await trustedHash(identity)}"}, ` +
+        `"/<session-flags>/config.toml:session_start:0:1" = {trusted_hash = "${await trustedHash(ask)}"}}`,
+    ]);
+    expect(sessionFlagsStateKey("SessionStart", 1)).toBe("/<session-flags>/config.toml:session_start:0:1");
+  });
+
   it("quoting survives awkward paths", async () => {
     const args = await cliArgs([sessionStart(`/bin/sh '/tmp/a "b"/hook'`)]);
     expect(args[1]).toContain(`command="/bin/sh '/tmp/a \\"b\\"/hook'"`);

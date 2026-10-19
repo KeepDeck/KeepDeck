@@ -32,32 +32,47 @@ export interface HookRule {
 /** The trust-state key for a hook defined via `-c` (the SessionFlags
  * layer): `<layer path>:<event>:<matcher-group index>:<handler index>`,
  * with the event in snake_case — a codex quirk (the config key is
- * CamelCase, the state key is not). */
-export function sessionFlagsStateKey(event: string): string {
-  return `/<session-flags>/config.toml:${snakeCase(event)}:0:0`;
+ * CamelCase, the state key is not). Every rule of an event rides ONE
+ * matcher group, so the group is always 0 and the handler is the rule's
+ * place among its event's rules. */
+export function sessionFlagsStateKey(event: string, handler = 0): string {
+  return `/<session-flags>/config.toml:${snakeCase(event)}:0:${handler}`;
 }
 
 /** The `-c` override args that define and trust the given hooks: one
- * `hooks.<Event>` per rule, then ONE combined `hooks.state` table trusting
- * them all. Prepend to the spawn args (global flags precede subcommands). */
+ * `hooks.<Event>` per event, then ONE combined `hooks.state` table trusting
+ * every handler. Prepend to the spawn args (global flags precede
+ * subcommands).
+ *
+ * Two rules for one event become two handlers in that event's one group —
+ * a second `hooks.<Event>` would REPLACE the first. codex trusts each
+ * handler on its own: its key names the handler, and its hash is taken over
+ * the event as if that handler were alone in it (verified live on 0.163.0:
+ * corrupting only the second hash drops only the second handler). */
 export async function cliArgs(rules: readonly HookRule[]): Promise<string[]> {
+  const byEvent = new Map<string, HookRule[]>();
+  for (const rule of rules) byEvent.set(rule.event, [...(byEvent.get(rule.event) ?? []), rule]);
   const args: string[] = [];
-  for (const rule of rules) {
-    const declared = contextLimitOf(rule);
-    const limit = declared === undefined ? "" : `,additionalContextLimit=${declared}`;
-    args.push(
-      "-c",
-      `hooks.${rule.event}=[{hooks=[{type="command",command=${tomlBasicString(rule.command)}${limit}}]}]`,
-    );
+  const entries: Promise<string>[] = [];
+  for (const [event, handlers] of byEvent) {
+    args.push("-c", `hooks.${event}=[{hooks=[${handlers.map(handlerTable).join(",")}]}]`);
+    handlers.forEach((rule, index) => {
+      entries.push(
+        trustedHash(rule).then(
+          (hash) => `"${sessionFlagsStateKey(event, index)}" = {trusted_hash = "${hash}"}`,
+        ),
+      );
+    });
   }
-  const entries = await Promise.all(
-    rules.map(
-      async (rule) =>
-        `"${sessionFlagsStateKey(rule.event)}" = {trusted_hash = "${await trustedHash(rule)}"}`,
-    ),
-  );
-  args.push("-c", `hooks.state={${entries.join(", ")}}`);
+  args.push("-c", `hooks.state={${(await Promise.all(entries)).join(", ")}}`);
   return args;
+}
+
+/** One handler as the inline table `hooks.<Event>` lists. */
+function handlerTable(rule: HookRule): string {
+  const declared = contextLimitOf(rule);
+  const limit = declared === undefined ? "" : `,additionalContextLimit=${declared}`;
+  return `{type="command",command=${tomlBasicString(rule.command)}${limit}}`;
 }
 
 /**
