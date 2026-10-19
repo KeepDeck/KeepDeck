@@ -32,6 +32,7 @@ const ans = (
         agent: key.agent,
         sessionId: key.sessionId,
         status: "hit",
+        transcriptPath: null,
         reference: over.reference ?? `/store/${key.sessionId}`,
         title: over.title ?? null,
         mtime: over.mtime ?? 9,

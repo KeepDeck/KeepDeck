@@ -204,11 +204,14 @@ pub struct SessionIndex {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LookupKind {
     /// The exact row: its read handle (the plugin's opaque ref), title,
-    /// and the store's last-activity stamp.
+    /// the store's last-activity stamp, and the transcript file the
+    /// plugin declared — what a fork copies when the journal never
+    /// learned it.
     Hit {
         reference: String,
         title: Option<String>,
         mtime: i64,
+        transcript_path: Option<String>,
     },
     /// The id exists under DIFFERENT agent(s) than asked — the signature
     /// of a journal record whose agent attribution is wrong.
@@ -764,7 +767,7 @@ impl SessionIndex {
             .collect::<Vec<_>>()
             .join(", ");
         let sql = format!(
-            "SELECT agent, session_id, ref, title, mtime FROM sessions
+            "SELECT agent, session_id, ref, title, mtime, transcript_path FROM sessions
              WHERE session_id IN ({placeholders})"
         );
         let mut stmt = self.conn.prepare(&sql).map_err(|e| e.to_string())?;
@@ -776,6 +779,7 @@ impl SessionIndex {
                     r.get::<_, String>(2)?,
                     r.get::<_, Option<String>>(3)?,
                     r.get::<_, i64>(4)?,
+                    r.get::<_, Option<String>>(5)?,
                 ))
             })
             .map_err(|e| e.to_string())?
@@ -784,12 +788,13 @@ impl SessionIndex {
         // Both views of the answer: the exact (agent, id) row, and which
         // agents hold an id at all.
         use std::collections::HashMap;
-        let mut exact: HashMap<(&str, &str), (&str, Option<&str>, i64)> = HashMap::new();
+        let mut exact: HashMap<(&str, &str), (&str, Option<&str>, i64, Option<&str>)> =
+            HashMap::new();
         let mut holders: HashMap<&str, Vec<&str>> = HashMap::new();
-        for (agent, session_id, reference, title, mtime) in &rows {
+        for (agent, session_id, reference, title, mtime, transcript_path) in &rows {
             exact.insert(
                 (agent.as_str(), session_id.as_str()),
-                (reference.as_str(), title.as_deref(), *mtime),
+                (reference.as_str(), title.as_deref(), *mtime, transcript_path.as_deref()),
             );
             holders.entry(session_id.as_str()).or_default().push(agent.as_str());
         }
@@ -797,10 +802,11 @@ impl SessionIndex {
             .iter()
             .map(|(agent, session_id)| {
                 let kind = match exact.get(&(agent.as_str(), session_id.as_str())) {
-                    Some((reference, title, mtime)) => LookupKind::Hit {
+                    Some((reference, title, mtime, transcript_path)) => LookupKind::Hit {
                         reference: reference.to_string(),
                         title: title.map(str::to_string),
                         mtime: *mtime,
+                        transcript_path: transcript_path.map(str::to_string),
                     },
                     None => match holders.get(session_id.as_str()) {
                         // The requester's own agent, if present, was matched by
@@ -1113,6 +1119,7 @@ mod tests {
                         reference: "/store/a".into(),
                         title: Some("title a".into()),
                         mtime: 1,
+                        transcript_path: Some("/store/a".into()),
                     },
                 ),
                 keyed(
@@ -1136,6 +1143,7 @@ mod tests {
                     reference: "/store/kimi-9".into(),
                     title: Some("title kimi-9".into()),
                     mtime: 2,
+                    transcript_path: Some("/store/kimi-9".into()),
                 },
             )],
         );
@@ -1162,6 +1170,7 @@ mod tests {
                     reference: "/store/kimi-9".into(),
                     title: Some("title kimi-9".into()),
                     mtime: 2,
+                    transcript_path: Some("/store/kimi-9".into()),
                 },
             )],
         );
@@ -1194,6 +1203,7 @@ mod tests {
                     reference: "/store/a".into(),
                     title: Some("title a".into()),
                     mtime: 1,
+                    transcript_path: Some("/store/a".into()),
                 },
             },
         );
@@ -1286,6 +1296,40 @@ mod tests {
         assert_eq!(
             index.search_total("token", Some("claude"), Some(&scope)).unwrap(),
             1,
+        );
+    }
+
+    #[test]
+    fn lookup_hit_carries_the_declared_transcript_path_not_the_ref() {
+        // The ref is the plugin's opaque read handle; the transcript path
+        // is a separate declaration — a fork copies the file it names, so
+        // the answer must not pass one off as the other, nor invent one.
+        let dir = tempfile::tempdir().unwrap();
+        let mut index = SessionIndex::open(&dir.path().join("i.sqlite")).unwrap();
+        let mut declared = row("kimi", "k", 1, "x");
+        declared.reference = "kimi-handle:k".into();
+        declared.transcript_path = Some("/store/k/wire.jsonl".into());
+        let mut undeclared = row("opencode", "o", 2, "y");
+        undeclared.transcript_path = None;
+        index.upsert(&[declared, undeclared]).unwrap();
+        let answers = index
+            .lookup(&[("kimi".into(), "k".into()), ("opencode".into(), "o".into())])
+            .unwrap();
+        let paths: Vec<_> = answers
+            .iter()
+            .map(|a| match &a.kind {
+                LookupKind::Hit { reference, transcript_path, .. } => {
+                    (reference.as_str(), transcript_path.as_deref())
+                }
+                other => panic!("expected a hit, got {other:?}"),
+            })
+            .collect();
+        assert_eq!(
+            paths,
+            vec![
+                ("kimi-handle:k", Some("/store/k/wire.jsonl")),
+                ("/store/o", None),
+            ],
         );
     }
 
