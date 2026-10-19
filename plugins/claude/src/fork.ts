@@ -80,7 +80,8 @@ export async function forkClaudeSession(
     );
   }
   // The store's own root, read off the transcript — never a guess at the
-  // home: a moved CLAUDE_CONFIG_DIR is followed, a changed layout refused.
+  // home. A changed layout is refused here; a store moved out of the
+  // manifest's write prefixes (CLAUDE_CONFIG_DIR) is refused by the host.
   const marker = "/projects/";
   const at = source.lastIndexOf(marker);
   if (at < 0) {

@@ -91,7 +91,10 @@ Fork (`src/fork.ts`), into any directory including the source's own:
   lists the conversation twice. Removing it at the fork's `SessionStart`
   is safe for later turns, resume, the `/resume` picker and rewind.
   Verified live. If the fork never starts, T, F's folder and F's task list
-  are removed.
+  are removed, and with them a project folder that held nothing else.
+- The store must sit under `~/.claude`: the manifest's write prefixes are
+  `~/.claude/projects` and `~/.claude/tasks`, so a fork of a store moved
+  elsewhere with `CLAUDE_CONFIG_DIR` is refused by the host.
 - Not carried: remote agents, async MCP tasks, remote-sync, auto-mode and
   recording files. They belong to jobs the source still owns. The plan
   file is keyed by its name, not the session, so the fork shares it, as

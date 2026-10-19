@@ -193,7 +193,8 @@ export interface PluginFsWrite {
    * declared prefixes. An existing `dst` is overwritten (surgery may retry).
    * `options` arrived in API 60. */
   copyFile(src: string, dst: string, options?: FsCopyOptions): Promise<void>;
-  /** Remove a file, or a directory with everything under it (API 60). A
+  /** Remove a file, or a directory with everything under it (API 60), then
+   * every parent folder that left EMPTY, up to the declared prefix. A
    * symlink goes as a link, never followed; a path already gone is not an
    * error; a declared prefix itself is never removed. */
   remove(path: string): Promise<void>;

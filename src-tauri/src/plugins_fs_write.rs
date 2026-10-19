@@ -83,9 +83,11 @@ pub fn plugins_fs_write_copy(
 }
 
 /// Remove a file, or a directory with everything under it — what a plugin's
-/// own surgery left that nothing needs any more. A symlink is removed as a
-/// link, never followed; what is already gone is not an error (a cleanup
-/// may run twice); a declared root itself is never removed.
+/// own surgery left that nothing needs any more — then every parent left
+/// EMPTY by it, up to the declared root: a folder that existed only to hold
+/// what is gone is part of what is gone. A symlink is removed as a link,
+/// never followed; what is already gone is not an error (a cleanup may run
+/// twice); a declared root itself is never removed.
 #[tauri::command(async)]
 pub fn plugins_fs_write_remove(path: String, roots: Vec<String>) -> Result<(), String> {
     let literal = PathBuf::from(expand_home(&path)?);
@@ -99,17 +101,23 @@ pub fn plugins_fs_write_remove(path: String, roots: Vec<String>) -> Result<(), S
     if target == dir.root || !target.starts_with(&dir.root) {
         return Err(format!("fsWrite.remove: {path} is a declared root, not inside one"));
     }
-    let kind = match fs::symlink_metadata(&target) {
-        Ok(meta) => meta.file_type(),
-        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(()),
+    match fs::symlink_metadata(&target) {
+        Ok(meta) if meta.file_type().is_dir() => fs::remove_dir_all(&target),
+        Ok(_) => fs::remove_file(&target),
+        Err(e) if e.kind() == ErrorKind::NotFound => Ok(()),
         Err(e) => return Err(e.to_string()),
-    };
-    if kind.is_dir() {
-        fs::remove_dir_all(&target)
-    } else {
-        fs::remove_file(&target)
     }
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?;
+    // `remove_dir` refuses a folder with anything in it, so a parent that
+    // something else still uses — another session's files — stays.
+    let mut parent = target.parent();
+    while let Some(level) = parent {
+        if level == dir.root || !level.starts_with(&dir.root) || fs::remove_dir(level).is_err() {
+            break;
+        }
+        parent = level.parent();
+    }
+    Ok(())
 }
 
 #[tauri::command(async)]
@@ -636,7 +644,32 @@ mod tests {
             // Already gone is not an error: a cleanup may run twice.
             plugins_fs_write_remove(p, roots.clone()).unwrap();
         }
-        assert!(dir.path().join("p").is_dir());
+        // Emptied by the last removal, `p` went with it; the root stays.
+        assert!(!dir.path().join("p").exists());
+        assert!(dir.path().is_dir());
+    }
+
+    #[test]
+    fn remove_prunes_only_parents_it_left_empty() {
+        let (dir, roots) = root();
+        let kept = dir.path().join("projects/-shared/other-session.jsonl");
+        let gone = dir.path().join("projects/-shared/F/subagents/a.jsonl");
+        let lone = dir.path().join("projects/-new/T.jsonl");
+        for file in [&kept, &gone, &lone] {
+            fs::create_dir_all(file.parent().unwrap()).unwrap();
+            fs::write(file, "x").unwrap();
+        }
+        plugins_fs_write_remove(
+            dir.path().join("projects/-shared/F").to_string_lossy().into_owned(),
+            roots.clone(),
+        )
+        .unwrap();
+        plugins_fs_write_remove(lone.to_string_lossy().into_owned(), roots).unwrap();
+        // A folder something else still uses stays; one that held only what
+        // went goes too — but never past the declared root.
+        assert!(kept.exists());
+        assert!(!dir.path().join("projects/-new").exists());
+        assert!(dir.path().join("projects").is_dir());
     }
 
     #[test]
