@@ -15,6 +15,9 @@ target.
     default to 1 s and are clamped to 1–3 s. A hash computed with the wrong
     timeout makes Codex skip the hook silently. Verified live.
   - The trust key is per handler: `<layer>:<event>:<group>:<handler>`.
+    Two hooks on one event must be two handlers of one group, because a
+    second `-c hooks.<Event>=` replaces the first. Each handler is hashed
+    as if it were alone in the event. Verified live.
   - A repeated `-c hooks.state=` replaces the earlier one, so all trust goes
     in one table.
   - Hooks are **additive across config layers**. The user's own
@@ -36,7 +39,7 @@ subcommand.
 
 | Event | Used for | Asks for mail |
 |---|---|---|
-| `SessionStart` | session identity | no |
+| `SessionStart` | session identity (handler 0); the brief again after a compaction (handler 1) | handler 1 |
 | `UserPromptSubmit` | turn start | yes |
 | `PostToolUse` | mid-turn mail, and the backstop for a resolved approval | yes |
 | `Stop` | turn end | yes |
@@ -60,6 +63,14 @@ Notes:
 - **SessionStart `source`** can be `startup`, `resume`, `clear`, `compact` or
   `fork`, and the deck's binding understands all of them. SessionStart runs
   at the first turn, not at process start.
+- **After a compaction** Codex runs SessionStart with `source: compact`
+  before the next model request. For an automatic compaction that is inside
+  the running turn, and the hook's `additionalContext` reaches the request
+  that continues it. KeepDeck reads that report as the context rebuilt,
+  which queues the team brief again, and answers the same hook's ask with
+  it. A manual `/compact` defers SessionStart to the next turn. A
+  subagent's compaction fires `PreCompact` and `PostCompact` with its
+  `agent_id`, but no SessionStart. Verified live.
 - **Long `additionalContext`** is cut to a head-and-tail preview with the
   full text in a file. KeepDeck arms its mail hooks with
   `additionalContextLimit=0`, which keeps the context whole on

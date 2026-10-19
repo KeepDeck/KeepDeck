@@ -23,7 +23,7 @@ An agent can collect mail at these moments:
 
 | Window | When | Claude | Codex | Kimi | OpenCode |
 |---|---|---|---|---|---|
-| Session start | the session begins | `SessionStart` | none | none | `session.created` |
+| Session start | the session begins, or its context was compacted | `SessionStart` | `SessionStart` | none | `session.created` |
 | Turn start | a prompt opens a turn | `UserPromptSubmit` | `UserPromptSubmit` | `UserPromptSubmit` | `chat.message` |
 | Tool boundary | between tool calls, inside a turn | `PostToolBatch` | `PostToolUse` | none | none |
 | Turn end | the agent is about to stop | `Stop` | `Stop` | none | `session.idle` |
@@ -58,8 +58,15 @@ The policy lives in `src/domain/mail/policy.ts` (`decideDelivery`).
   makes the agent take a turn, and that turn's own hook collects the mail.
   The nudge carries no content.
 - **The pane waits on a permission prompt:** the deck holds.
-- **Standing context (the team brief):** never nudged. It waits for a
-  session-start or turn-start window.
+- **Standing context (the team brief):** never nudged. It waits for the
+  next window that asks.
+
+The brief is queued again whenever the agent may have lost it: a new
+session, or a compaction. Claude and Codex report a compaction from the
+same `SessionStart` (source `compact`) that asks for mail, and the deck
+queues the brief while reading that report, before answering it. So the
+brief is back in front of the model on the request right after the
+compaction.
 
 The deck once also nudged panes that were already working. That was
 removed. The keystrokes land in the CLI's input box, behind whatever the
