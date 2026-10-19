@@ -30,6 +30,15 @@ Shared cores in `packages/plugin-api` so far:
   partly readable store means to the strict `list` and the partial
   `listing`, and how transcript pages are read. A plugin supplies only a
   `SessionStore`: how to enumerate, describe and read its own sessions.
+- `keepdeck-wire.js` (`resources/reporters/`): the bridge wire for
+  reporters that run inside an agent (opencode's plugins, claude's Mod) —
+  envelope, ask, ordered publishing — with the environment and the POST
+  supplied by each adapter. Copied beside each adapter by
+  `scripts/sync-reporters.mjs`; a test fails while a copy is stale.
+- Companions: a reporter inside the agent announces itself once
+  (`companion.hello`); `AgentContribution.companion` declares what that
+  takes over for the announcing process, and `wake: "companion"` rings it
+  instead of typing. One source per process, never two.
 - `launchPlans`: the spawn, resume and fork hooks. A plugin supplies a
   `LaunchAdapter`: what every launch carries (`stage`, which may settle the
   launch whole, as a remote attach does), and how resume and fork name the
