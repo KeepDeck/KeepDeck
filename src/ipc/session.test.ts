@@ -38,6 +38,7 @@ describe("the session_spawn wire contract", () => {
         cwd: "/repo",
         cols: 80,
         rows: 24,
+        pane: "pane-3",
       },
       () => {},
     );
@@ -51,6 +52,7 @@ describe("the session_spawn wire contract", () => {
         cwd: "/repo",
         cols: 80,
         rows: 24,
+        pane: "pane-3",
       },
       onEvent: expect.anything(),
     });
@@ -70,6 +72,7 @@ describe("the session_spawn wire contract", () => {
       cwd: null,
       cols: 1,
       rows: 1,
+      pane: null,
     });
   });
 });

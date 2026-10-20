@@ -223,6 +223,7 @@ export function acquirePane(paneId: string, spec: PaneSpawnSpec): void {
       cwd: spec.cwd,
       cols: spec.cols,
       rows: spec.rows,
+      pane: paneId,
     },
     (event) => {
       if (entry.closed) return;

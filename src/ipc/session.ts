@@ -18,6 +18,11 @@ export interface SpawnOptions {
   cwd?: string | null;
   cols: number;
   rows: number;
+  /** The pane this terminal is. The bridge takes a pane's reports only from
+   * processes running in its terminal — a daemon that inherited the pane's
+   * environment and detached is not one. Omit for a terminal that is no
+   * pane's. */
+  pane?: string | null;
 }
 
 /** A live PTY session backed by the Rust core. */
@@ -50,6 +55,7 @@ export async function spawnSession(
       cwd: opts.cwd ?? null,
       cols: opts.cols,
       rows: opts.rows,
+      pane: opts.pane ?? null,
     },
     onEvent: channel,
   });
