@@ -52,6 +52,13 @@ and adds `--session <new id>`. The launch carries:
 
 Kimi has no flag for injecting KeepDeck's MCP servers.
 
+Kimi starts every child detached on macOS and Linux (`detached ??
+!isWindows` in its host process service), MCP servers included, so its
+keepdeck shim runs in a session of its own with kimi as its parent. That is
+why a pane's MCP client counts when its PARENT runs in the pane's terminal
+(see [README](README.md), report origin). Verified live on 2.2.0
+(2026-10-20, task-424).
+
 ## Hook output: what Kimi reads, what it drops
 
 This is a design choice of Kimi's, not a bug, and the reason several things

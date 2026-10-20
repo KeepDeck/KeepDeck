@@ -35,14 +35,20 @@ Shared cores in `packages/plugin-api` so far:
   envelope, ask, ordered publishing — with the environment and the POST
   supplied by each adapter. Copied beside each adapter by
   `scripts/sync-reporters.mjs`; a test fails while a copy is stale.
-- Report origin: every process under a pane inherits `KEEPDECK_BRIDGE`,
-  secret included, and keeps it after it detaches. So the bridge takes an
-  envelope that names its reporter only when that process runs in the
-  pane's terminal now (`getsid`, asked of the pane's PTY), and answers 403
-  otherwise — also when the pane has no live terminal
-  (`src-tauri/src/bridge/origin.rs`). This keeps a daemon an agent started
-  from one pane from reporting as that pane forever (claude's background
-  workers did).
+- Report origin: every process under a pane inherits its secret — in
+  `KEEPDECK_BRIDGE`, and in the MCP config a spawn injects — and keeps it
+  after it detaches. So a sender counts for a pane only when its process
+  belongs to the pane's terminal now: it runs in the terminal's session, or
+  its direct parent does (`PtySession::hosts`, asked through
+  `SessionRegistry::pane_of`). The parent clause admits agents that start
+  their own helpers detached (kimi's MCP servers); a daemon's workers have
+  no parent in any pane. The bridge answers 403 to an envelope whose named
+  reporter fails this (`src-tauri/src/bridge/origin.rs`); the MCP socket
+  takes the client's pid from the socket, and the webview counts its secret
+  only from that pane (`src/app/mcp/paneIdentity.ts`), else the connection
+  is anonymous. This keeps a daemon an agent started from one pane from
+  acting as a pane forever (claude's background workers did, task-422 and
+  task-424).
 - Companions: a reporter inside the agent announces itself once
   (`companion.hello`); `AgentContribution.companion` declares what that
   takes over for the announcing process, and `wake: "companion"` rings it

@@ -122,8 +122,10 @@ included.
   - Prewarmed workers report `source=startup` before anyone uses them.
 
   So a worker never speaks for a pane: the bridge refuses every report from
-  outside the pane's terminal (see [README](README.md), report origin), and
-  a refused Mod watches no doorbell. After `/bg` the pane shows its claude
+  outside the pane's terminal (see [README](README.md), report origin), a
+  refused Mod watches no doorbell, and the worker's keepdeck MCP calls are
+  anonymous, though its injected `--mcp-config` carries the pane's secret
+  (it would otherwise read the pane's mail and act in its role). After `/bg` the pane shows its claude
   as exited, and Restart resumes the conversation as it stood at `/bg`;
   the worker goes on in the background and `claude attach <id>` reaches it.
 
