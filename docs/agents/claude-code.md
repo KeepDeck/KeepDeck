@@ -1,7 +1,7 @@
 # Claude Code
 
 Checked 2026-10-19 against Claude Code 2.1.302; the fork and Mod sections
-against 2.1.303. There is no source, so CLI
+against 2.1.303, background workers on 2026-10-20. There is no source, so CLI
 facts come from probes and from the strings of the installed binary, and say
 which.
 
@@ -86,7 +86,8 @@ included.
   without the Mod keeps the tail. The plugin declares this as
   `companion: { covers: ["status-records"] }`.
 - **Wake** (`wake: "companion"`). With the Mod present the deck rings the
-  pane's doorbell (`mail.wake`) instead of typing. The Mod polls it every
+  pane's doorbell (`mail.wake`) instead of typing. The Mod starts watching
+  only once the deck accepted its hello, and polls it every
   100 ms (a Mod cannot watch a file), removes it, and submits the
   terminal's own wake line with `$.prompt.submit`. The mail still rides
   `UserPromptSubmit`'s hook and leaves the queue only then. Right after
@@ -106,9 +107,25 @@ included.
   Mods outright; then no hello comes and the pane runs on the tail and the
   terminal.
 - **Background workers.** `/bg` and `←` move a conversation into a daemon
-  worker under a new id, which inherits the Mod, the hooks and the bridge.
-  Its Mod says hello with the worker's own process group. Which worker a
-  pane shows is not reported by claude; see task-422.
+  worker under a new id (hook `SessionStart` source `fork`, naming only the
+  new id). Verified live on 2.1.303 (task-422):
+  - The daemon is started from whichever pane first needs it and detaches
+    (`setsid`); every worker is its own session leader under it. Each
+    inherits the Mod, the hooks and the bridge of THAT pane, whichever pane
+    sent the conversation to the background.
+  - `/bg` ends the pane's claude (exit 0). `←` keeps it as a raw client of
+    the daemon, which can switch between workers; claude reports none of
+    that switching.
+  - Nothing a hook or the Mod sees names the conversation a worker
+    continues. Only the daemon's private `roster.json` and the copied
+    transcript rows do; KeepDeck reads neither.
+  - Prewarmed workers report `source=startup` before anyone uses them.
+
+  So a worker never speaks for a pane: the bridge refuses every report from
+  outside the pane's terminal (see [README](README.md), report origin), and
+  a refused Mod watches no doorbell. After `/bg` the pane shows its claude
+  as exited, and Restart resumes the conversation as it stood at `/bg`;
+  the worker goes on in the background and `claude attach <id>` reaches it.
 
 Verified live on 2.1.303 against the shipped files (task-405).
 
