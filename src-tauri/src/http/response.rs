@@ -25,6 +25,8 @@ pub(crate) enum Status {
     /// Accepted, with nothing to say back.
     NoContent,
     BadRequest,
+    /// Well-formed, but not this sender's to say.
+    Forbidden,
     NotFound,
     MethodNotAllowed,
     /// Somebody is already asking this exact question and has not been
@@ -44,6 +46,7 @@ impl Status {
             Self::Ok => 200,
             Self::NoContent => 204,
             Self::BadRequest => 400,
+            Self::Forbidden => 403,
             Self::NotFound => 404,
             Self::MethodNotAllowed => 405,
             Self::Conflict => 409,
@@ -60,6 +63,7 @@ impl Status {
             Self::Ok => "OK",
             Self::NoContent => "No Content",
             Self::BadRequest => "Bad Request",
+            Self::Forbidden => "Forbidden",
             Self::NotFound => "Not Found",
             Self::MethodNotAllowed => "Method Not Allowed",
             Self::Conflict => "Conflict",

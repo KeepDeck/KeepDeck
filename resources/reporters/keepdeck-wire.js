@@ -77,7 +77,10 @@ export function createWire({ bridge, agent, reporter, post }) {
 
   /**
    * Hand one envelope to the deck and wait for what it answers: `answer` is
-   * the deck's reply when it had one, and `null` otherwise.
+   * the deck's reply when it had one, and `null` otherwise; `accepted` says
+   * whether the deck took the envelope at all. A refusal (403) means the
+   * sender is not this pane's — a process that detached from the pane's
+   * terminal and kept its environment — and nothing it says will count.
    *
    * ONLY 200 CARRIES A BODY. What the other codes mean is decided by
    * src-tauri/src/bridge/http.rs and written down there, once; nothing here
@@ -91,7 +94,11 @@ export function createWire({ bridge, agent, reporter, post }) {
     } catch {
       posted = null;
     }
-    return { answer: posted?.status === 200 ? posted.body : null };
+    const status = posted?.status ?? 0;
+    return {
+      answer: status === 200 ? posted.body : null,
+      accepted: status >= 200 && status < 300,
+    };
   };
 
   /**
@@ -103,10 +110,15 @@ export function createWire({ bridge, agent, reporter, post }) {
    * (measured: 3 inversions in 50 aborts on a pair 0-3ms apart). So the posts
    * queue — the WIRE waits, not the caller, which hands its envelope over and
    * returns. Nothing is retried; a failure must not stall the ones behind it.
+   *
+   * Resolves to what `send` answered for this envelope, for the caller that
+   * wants to know — still in its turn, so asking does not reorder anything.
    */
   let outbound = Promise.resolve();
   const publish = (envelope) => {
-    outbound = outbound.then(() => send(envelope)).catch(() => {});
+    const sent = outbound.then(() => send(envelope));
+    outbound = sent.catch(() => {});
+    return sent;
   };
 
   /** Settles once every envelope handed to `publish` so far has been sent or

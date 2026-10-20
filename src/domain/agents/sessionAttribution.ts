@@ -23,15 +23,22 @@
  *
  * A CONTINUATION is deliberately exempt from the process rule, because the
  * pane's own agent can change process without ending its conversation:
- * claude answers a full context window by re-hosting the session in its own
- * daemon (`--fork-session --resume` of the transcript it was already on),
- * under a new process group, and every later report comes from there. Holding
- * the pin against that refuses the pane's own agent for the rest of its life —
- * measured in the field, and the cost is total, since both bridge lanes share
- * this rule. Nothing in the tree can tell that re-host from a nested
- * `--resume`: both are descendants of the pane's first process. So the word
- * decides, and what it buys is bounded by who can say it — a nested run needs
- * the spawn's injected settings to report at all.
+ * claude 2.1.226 answered a full context window by re-hosting the session in
+ * its own daemon (`--fork-session --resume` of the transcript it was already
+ * on), under a new process group, and every later report came from there.
+ * Holding the pin against that refused the pane's own agent for the rest of
+ * its life — measured in the field, and the cost is total, since both bridge
+ * lanes share this rule. So the word decides, and what it buys is bounded by
+ * who can say it — a nested run needs the spawn's injected settings to report
+ * at all.
+ *
+ * Bounded further since: the bridge now takes a report only from a process
+ * running in the pane's terminal (src-tauri/src/bridge/origin.rs), and a
+ * daemon is not one. Claude 2.1.303 compacts in-process and moves a
+ * conversation into its daemon only when the user sends it to the background
+ * (verified live, task-422) — whose worker then speaks for no pane. What this
+ * exemption still admits is a continuation from another process INSIDE the
+ * terminal.
  *
  * All three are decided here, on plain values, so the rule can be read and
  * tested without a deck, a bridge or a process.

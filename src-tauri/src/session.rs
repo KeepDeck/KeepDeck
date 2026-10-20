@@ -37,6 +37,12 @@ pub struct SpawnSpec {
     pub cwd: Option<String>,
     pub cols: u16,
     pub rows: u16,
+    /// The pane this terminal is, when it is one. What its processes report
+    /// over the bridge is checked against this terminal (see
+    /// [`SessionRegistry::pane_runs`]); a terminal that is no pane's has
+    /// nothing to report for.
+    #[serde(default)]
+    pub pane: Option<String>,
 }
 
 /// Event DTO streamed to the webview over the per-session channel.
@@ -70,25 +76,44 @@ pub struct SessionRegistry {
 #[derive(Default)]
 struct Registry {
     sessions: HashMap<String, Arc<PtySession>>,
+    /// pane → the session that is its terminal now. A restart re-points it
+    /// before the old session's exit is reaped, so removal only clears an
+    /// entry that still names the session going away.
+    panes: HashMap<String, String>,
     next: u64,
 }
 
 impl SessionRegistry {
     /// Store a session under a fresh monotonic id and return the id.
-    fn insert(&self, session: PtySession) -> String {
+    fn insert(&self, session: PtySession, pane: Option<String>) -> String {
         let mut reg = self.inner.lock().expect("session registry poisoned");
         reg.next += 1;
         let id = format!("s{}", reg.next);
         reg.sessions.insert(id.clone(), Arc::new(session));
+        if let Some(pane) = pane {
+            reg.panes.insert(pane, id.clone());
+        }
         id
     }
 
     fn remove(&self, id: &str) {
-        self.inner
-            .lock()
-            .expect("session registry poisoned")
-            .sessions
-            .remove(id);
+        let mut reg = self.inner.lock().expect("session registry poisoned");
+        reg.sessions.remove(id);
+        reg.panes.retain(|_, session| session != id);
+    }
+
+    /// Whether process `pid` runs in `pane`'s terminal — None when the pane
+    /// has no live terminal at all, which is its own answer: nothing there
+    /// is alive to report.
+    pub fn pane_runs(&self, pane: &str, pid: u32) -> Option<bool> {
+        let session = {
+            let reg = self.inner.lock().expect("session registry poisoned");
+            let id = reg.panes.get(pane)?;
+            reg.sessions.get(id).cloned()?
+        };
+        // Outside the lock: getsid is a syscall, and the registry lock is
+        // never held across one.
+        Some(session.runs_inside(pid))
     }
 
     /// Look up a session handle. The registry lock is held only for the lookup,
@@ -205,6 +230,7 @@ pub fn session_spawn(
         spec.env.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>(),
         spec.cwd,
     );
+    let spec_pane = spec.pane;
     let pty_spec = PtySpec {
         command,
         args: spec.args,
@@ -218,7 +244,7 @@ pub fn session_spawn(
     };
 
     let (session, events) = PtySession::spawn(pty_spec).map_err(|e| e.to_string())?;
-    let id = registry.insert(session);
+    let id = registry.insert(session, spec_pane);
 
     let app = app.clone();
     let session_id = id.clone();
@@ -330,8 +356,8 @@ mod tests {
         let registry = SessionRegistry::default();
         let (polite, polite_events) = session("sleep 30");
         let (stubborn, stubborn_events) = session("trap '' TERM; sleep 30");
-        let polite_id = registry.insert(polite);
-        let stubborn_id = registry.insert(stubborn);
+        let polite_id = registry.insert(polite, None);
+        let stubborn_id = registry.insert(stubborn, None);
 
         registry.shutdown(Duration::from_millis(500));
 
@@ -352,8 +378,8 @@ mod tests {
         let registry = SessionRegistry::default();
         let (first, first_events) = session("sleep 30");
         let (second, second_events) = session("sleep 30");
-        registry.insert(first);
-        registry.insert(second);
+        registry.insert(first, None);
+        registry.insert(second, None);
 
         // A grace far longer than anything a `sleep` takes to die, so the
         // claim rests on the GAP rather than on absolute timing: a wait that
@@ -413,8 +439,49 @@ mod tests {
             cwd: None,
             cols: 1,
             rows: 1,
+            pane: None,
         });
         assert!(wrong.env_defaults.is_empty());
+    }
+
+    /// The pane travels as a plain key, and a spawn that names none — a
+    /// plugin's own terminal — still deserializes.
+    #[test]
+    fn spawn_spec_carries_the_pane_it_is() {
+        let spec: SpawnSpec = serde_json::from_str(
+            r#"{"command": null, "args": [], "env": [], "cwd": null,
+                "cols": 1, "rows": 1, "pane": "pane-3"}"#,
+        )
+        .unwrap();
+        assert_eq!(spec.pane.as_deref(), Some("pane-3"));
+        let plain: SpawnSpec = serde_json::from_str(
+            r#"{"command": null, "args": [], "env": [], "cwd": null, "cols": 1, "rows": 1}"#,
+        )
+        .unwrap();
+        assert_eq!(plain.pane, None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_pane_answers_for_its_current_terminal_only() {
+        let registry = SessionRegistry::default();
+        assert_eq!(registry.pane_runs("pane-1", std::process::id()), None);
+
+        let (old, _old_events) = session("sleep 30");
+        let old_id = registry.insert(old, Some("pane-1".into()));
+        // This test process runs in no pane's terminal.
+        assert_eq!(registry.pane_runs("pane-1", std::process::id()), Some(false));
+
+        // A restart re-points the pane before the old terminal is reaped; the
+        // old one's late removal must not take the new one's entry with it.
+        let (new, _new_events) = session("sleep 30");
+        let new_id = registry.insert(new, Some("pane-1".into()));
+        registry.remove(&old_id);
+        assert_eq!(registry.pane_runs("pane-1", std::process::id()), Some(false));
+
+        registry.remove(&new_id);
+        assert_eq!(registry.pane_runs("pane-1", std::process::id()), None);
+        registry.shutdown(Duration::from_millis(200));
     }
 
     #[test]

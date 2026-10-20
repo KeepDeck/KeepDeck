@@ -16,7 +16,11 @@ type Handler = ($: unknown, e: unknown, next: (e: unknown) => unknown) => unknow
 
 /** The Mod registered against a fake claude: its handlers by event, and a
  * `$` whose env, process and HTTP the test controls. */
-function loaded({ bridge = BRIDGE as string | null, pgid = "4021\n" } = {}) {
+function loaded({
+  bridge = BRIDGE as string | null,
+  pgid = "4021\n",
+  status = 204,
+} = {}) {
   const handlers = new Map<string, Handler>();
   register((name: string, handler: Handler) => handlers.set(name, handler));
   const posted: { url: string; envelope: { type: string; payload: Record<string, unknown> } }[] = [];
@@ -61,7 +65,7 @@ function loaded({ bridge = BRIDGE as string | null, pgid = "4021\n" } = {}) {
     http: {
       fetch: async (url: string, init: { body: string }) => {
         posted.push({ url, envelope: JSON.parse(init.body) });
-        return { status: 204, ok: true, headers: {}, text: "" };
+        return { status, ok: status < 300, headers: {}, text: "" };
       },
     },
   };
@@ -216,6 +220,26 @@ describe("KeepDeck's claude Mod", () => {
       await mod.fire("session.start", {});
       expect(mod.timers).toEqual([]);
     }
+  });
+
+  it("a claude the deck refuses watches no doorbell and states nothing more", async () => {
+    // A background worker of claude's daemon: it inherited a pane's bridge
+    // but no longer runs in that pane's terminal, and the deck says so.
+    const mod = loaded({ status: 403 });
+    await mod.fire("session.start", {});
+    expect(mod.posted.map(({ envelope }) => envelope.type)).toEqual(["companion.hello"]);
+    expect(mod.timers).toEqual([]);
+    await mod.fire("turn.complete", { reason: "aborted", isAborted: true });
+    await mod.fire("session.start", {});
+    expect(mod.posted).toHaveLength(1);
+  });
+
+  it("watches no doorbell when the deck could not be reached either", async () => {
+    // Nothing answered: the deck may not know this Mod, and a doorbell it
+    // never acknowledged is not one to answer.
+    const mod = loaded({ status: 0 });
+    await mod.fire("session.start", {});
+    expect(mod.timers).toEqual([]);
   });
 
   it("one ring is one turn even with two pollers, and a second session.start starts none", async () => {

@@ -72,6 +72,13 @@ beforeEach(() => {
 });
 
 describe("acquirePane", () => {
+  it("tells the terminal which pane it is", () => {
+    // The bridge takes this pane's reports only from processes in this
+    // terminal, so the spawn must name the pane its bridge env speaks for.
+    acquirePane("pane-7", SPEC);
+    expect(harness.spawns[0].opts).toMatchObject({ pane: "pane-7" });
+  });
+
   it("spawns once for a double acquire with the same identity", () => {
     acquirePane("pane-1", SPEC);
     acquirePane("pane-1", SPEC);

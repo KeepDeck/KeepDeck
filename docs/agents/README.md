@@ -35,6 +35,14 @@ Shared cores in `packages/plugin-api` so far:
   envelope, ask, ordered publishing — with the environment and the POST
   supplied by each adapter. Copied beside each adapter by
   `scripts/sync-reporters.mjs`; a test fails while a copy is stale.
+- Report origin: every process under a pane inherits `KEEPDECK_BRIDGE`,
+  secret included, and keeps it after it detaches. So the bridge takes an
+  envelope that names its reporter only when that process runs in the
+  pane's terminal now (`getsid`, asked of the pane's PTY), and answers 403
+  otherwise — also when the pane has no live terminal
+  (`src-tauri/src/bridge/origin.rs`). This keeps a daemon an agent started
+  from one pane from reporting as that pane forever (claude's background
+  workers did).
 - Companions: a reporter inside the agent announces itself once
   (`companion.hello`); `AgentContribution.companion` declares what that
   takes over for the announcing process, and `wake: "companion"` rings it

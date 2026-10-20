@@ -172,9 +172,11 @@ export function createPaneAttribution(
       }
       // After that the pin MOVES only between two named processes. An accepted
       // binding has passed the whole rule, so the only one that can come from
-      // another process is a continuation — the pane's own agent re-hosting
-      // its conversation (claude's daemon fork). Following it is the point:
-      // every later report comes from there, and both lanes read this pin.
+      // another process is a continuation — the pane's own agent carrying its
+      // conversation on in another process of the same terminal (the bridge
+      // refuses anything from outside it, a daemon included). Following it is
+      // the point: every later report comes from there, and both lanes read
+      // this pin.
       //
       // The two silences stay exactly as they were. A binding that cannot name
       // its process must not erase a pin: that erasure was enough to walk the

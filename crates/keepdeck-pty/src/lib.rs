@@ -235,6 +235,33 @@ impl PtySession {
         self.exited.load(Ordering::Relaxed)
     }
 
+    /// Whether process `pid` runs in this terminal.
+    ///
+    /// The spawn made the child a session leader, and everything it starts
+    /// stays in that session unless it leaves on purpose — a tool call, a
+    /// nested CLI, a hook all answer yes. A process that detached (`setsid`)
+    /// answers no, and that is the point: a daemon some agent started from
+    /// here inherited this terminal's environment, secrets included, but no
+    /// longer runs in it. False too once the child has been reaped, because
+    /// its id may already belong to a stranger.
+    ///
+    /// Non-Unix has no sessions to ask about, and answers yes.
+    pub fn runs_inside(&self, pid: u32) -> bool {
+        #[cfg(unix)]
+        {
+            let Some(leader) = self.pid else { return false };
+            if self.has_exited() {
+                return false;
+            }
+            session_of(pid) == Some(leader)
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = pid;
+            true
+        }
+    }
+
     /// Ask the child's whole tree to stop, and return without waiting.
     ///
     /// SIGTERM rather than the bare `ChildKiller::kill`, which only sends a
@@ -397,6 +424,15 @@ fn signal_tree(pid: i32, sig: libc::c_int) {
             libc::kill(pid, sig);
         }
     }
+}
+
+/// The session `pid` belongs to, or None when there is no such process.
+#[cfg(unix)]
+fn session_of(pid: u32) -> Option<u32> {
+    let pid = libc::pid_t::try_from(pid).ok().filter(|pid| *pid > 0)?;
+    // SAFETY: getsid(2) only reads; an unknown pid is ESRCH, answered as None.
+    let sid = unsafe { libc::getsid(pid) };
+    u32::try_from(sid).ok()
 }
 
 /// Build a `PtySize` of `cols` x `rows` cells (pixel dimensions unused).
