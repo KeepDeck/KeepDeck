@@ -65,10 +65,10 @@ pub(super) fn serve(app: AppHandle, waiters: Arc<Waiters>) -> Result<Surface, St
                 &mut stream,
                 request,
                 &waiters,
-                &move |pane, pid| {
+                &move |pid| {
                     sessions
                         .state::<crate::session::SessionRegistry>()
-                        .pane_runs(pane, pid)
+                        .pane_of(pid)
                 },
                 &move |inbound| super::emit_inbound(&app, inbound),
             );
@@ -84,14 +84,13 @@ pub(super) fn serve(app: AppHandle, waiters: Arc<Waiters>) -> Result<Surface, St
 /// Tauri handle cannot be built in a unit test, and a route nobody can
 /// exercise is a route nobody has checked.
 ///
-/// `runs_in_pane(pane, pid)` is the terminal's answer [`origin::judge`]
-/// needs: whether that process runs in the pane's terminal, None when the
-/// pane has none.
+/// `pane_of(pid)` is the answer [`origin::judge`] needs: the pane whose
+/// terminal that process belongs to, if any.
 fn handle(
     stream: &mut TcpStream,
     request: Request,
     waiters: &Waiters,
-    runs_in_pane: &dyn Fn(&str, u32) -> Option<bool>,
+    pane_of: &dyn Fn(u32) -> Option<String>,
     emit: &dyn Fn(Inbound),
 ) {
     // Matched as a pair: an unknown path and a wrong method answer the same
@@ -115,7 +114,7 @@ fn handle(
             // not this pane's — the one sender that acts on the answer.
             let reporter = inbound.reporter();
             if let Err(refusal) =
-                origin::judge(reporter.as_deref(), |pid| runs_in_pane(inbound.pane(), pid))
+                origin::judge(reporter.as_deref(), inbound.pane(), pane_of)
             {
                 log::warn!(
                     "bridge: refused envelope for pane={} from {}: {}",
@@ -222,7 +221,7 @@ mod tests {
         post_with(method, path, body, &Waiters::default())
     }
 
-    /// Every process runs in every pane — the terminal check is not what
+    /// Every process belongs to pane-1 — the terminal check is not what
     /// these tests are about, except the ones that say otherwise.
     fn post_with(
         method: &str,
@@ -230,18 +229,18 @@ mod tests {
         body: &[u8],
         waiters: &Waiters,
     ) -> (String, usize) {
-        post_judged(method, path, body, waiters, &|_, _| Some(true))
+        post_judged(method, path, body, waiters, &|_| Some("pane-1".into()))
     }
 
     /// The same round trip, against a chosen set of waiters — so a test can
     /// have somebody already parked, or nobody at all — and a chosen answer
-    /// to which processes run in which pane.
+    /// to which pane's terminal a process belongs to.
     fn post_judged(
         method: &str,
         path: &str,
         body: &[u8],
         waiters: &Waiters,
-        runs_in_pane: &dyn Fn(&str, u32) -> Option<bool>,
+        pane_of: &dyn Fn(u32) -> Option<String>,
     ) -> (String, usize) {
         let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
         let port = listener.local_addr().unwrap().port();
@@ -268,7 +267,7 @@ mod tests {
         )
         .expect("the head must parse");
         let seen = Mutex::new(0usize);
-        handle(&mut accepted, request, waiters, runs_in_pane, &|_| {
+        handle(&mut accepted, request, waiters, pane_of, &|_| {
             *seen.lock().unwrap() += 1;
         });
         drop(accepted);
@@ -310,24 +309,24 @@ mod tests {
             ENVELOPE_PATH,
             reported_envelope("pane-5", "4021").as_bytes(),
             &Waiters::default(),
-            &|pane, pid| {
-                asked.lock().unwrap().push((pane.to_string(), pid));
-                Some(false)
+            &|pid| {
+                asked.lock().unwrap().push(pid);
+                None
             },
         );
         assert!(status.starts_with("HTTP/1.1 403"), "{status}");
         assert_eq!(emitted, 0);
-        assert_eq!(*asked.lock().unwrap(), vec![("pane-5".to_string(), 4021)]);
+        assert_eq!(*asked.lock().unwrap(), vec![4021]);
     }
 
     #[test]
-    fn a_report_for_a_pane_with_no_terminal_is_refused() {
+    fn a_report_from_another_panes_terminal_is_refused() {
         let (status, emitted) = post_judged(
             "POST",
             ENVELOPE_PATH,
             reported_envelope("pane-5", "4021").as_bytes(),
             &Waiters::default(),
-            &|_, _| None,
+            &|_| Some("pane-6".into()),
         );
         assert!(status.starts_with("HTTP/1.1 403"), "{status}");
         assert_eq!(emitted, 0);
@@ -340,7 +339,7 @@ mod tests {
             ENVELOPE_PATH,
             reported_envelope("pane-5", "4021").as_bytes(),
             &Waiters::default(),
-            &|_, _| Some(true),
+            &|_| Some("pane-5".into()),
         );
         assert!(inside.0.starts_with("HTTP/1.1 204"), "{}", inside.0);
         assert_eq!(inside.1, 1);
@@ -349,7 +348,7 @@ mod tests {
             ENVELOPE_PATH,
             status_envelope("pane-5").as_bytes(),
             &Waiters::default(),
-            &|_, _| panic!("an unnamed reporter has nothing to ask about"),
+            &|_| panic!("an unnamed reporter has nothing to ask about"),
         );
         assert!(unnamed.0.starts_with("HTTP/1.1 204"), "{}", unnamed.0);
     }
@@ -364,7 +363,7 @@ mod tests {
         })
         .to_string();
         let (status, emitted) =
-            post_judged("POST", ENVELOPE_PATH, body.as_bytes(), &waiters, &|_, _| Some(false));
+            post_judged("POST", ENVELOPE_PATH, body.as_bytes(), &waiters, &|_| None);
         assert!(status.starts_with("HTTP/1.1 403"), "{status}");
         assert_eq!(emitted, 0);
         assert!(!waiters.resolve("pane-5", "corr-1", "mail".into()), "nobody may be parked");
@@ -450,7 +449,7 @@ mod tests {
             },
         )
         .unwrap();
-        handle(&mut accepted, request, &waiters, &|_, _| Some(true), &|_| {});
+        handle(&mut accepted, request, &waiters, &|_| Some("pane-1".into()), &|_| {});
         drop(accepted);
         let answer = peer.join().unwrap();
         assert!(answer.starts_with("HTTP/1.1 200"), "{answer}");
