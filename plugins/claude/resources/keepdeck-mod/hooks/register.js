@@ -115,6 +115,10 @@ function watchDoorbell($, dir) {
   });
 }
 
+/** What a Mod the deck refused holds instead of a wire: still "started", so
+ * a second session.start does not try again, and nothing to say. */
+const REFUSED = { publish() {}, makeEnvelope() {} };
+
 export function register(on) {
   /** Set once the pane's bridge is known; null outside KeepDeck. */
   let wire = null;
@@ -132,8 +136,16 @@ export function register(on) {
       // a silent Mod leaves the deck reading the transcript, as before.
       if (reporter !== null) {
         wire = createWire({ bridge, agent: "claude", reporter, post: poster($) });
-        wire.publish(wire.makeEnvelope("companion.hello", {}));
-        watchDoorbell($, bridge.dir);
+        // The doorbell only once the deck took the hello. A claude that
+        // detached from the pane's terminal — a background worker of the
+        // daemon some pane started — still carries that pane's bridge, and
+        // would otherwise take the pane's rings and start turns in a
+        // conversation that is not the pane's. Refused, it goes quiet.
+        const said = wire;
+        void said.publish(said.makeEnvelope("companion.hello", {})).then(({ accepted }) => {
+          if (accepted) watchDoorbell($, bridge.dir);
+          else if (wire === said) wire = REFUSED;
+        });
       }
     }
     return next(e);

@@ -35,11 +35,12 @@ describe("createWire", () => {
     });
   });
 
-  it("answers only what a 200 carried; anything else, or a failed post, is no answer", async () => {
+  it("answers only what a 200 carried, and whether the deck took it at all", async () => {
     const sent = [];
     const answers = [
       { status: 200, body: "mail" },
       { status: 204, body: "" },
+      { status: 403, body: "" },
       { status: 504, body: "late" },
       { status: 0, body: "" },
     ];
@@ -48,18 +49,31 @@ describe("createWire", () => {
       return answers.shift();
     });
     const envelope = wire.makeEnvelope("agent.status", {});
-    expect(await wire.send(envelope)).toEqual({ answer: "mail" });
-    for (let i = 0; i < 3; i++) expect(await wire.send(envelope)).toEqual({ answer: null });
+    expect(await wire.send(envelope)).toEqual({ answer: "mail", accepted: true });
+    expect(await wire.send(envelope)).toEqual({ answer: null, accepted: true });
+    // Refused — a sender outside the pane's terminal — late, or unreached.
+    for (let i = 0; i < 3; i++) {
+      expect(await wire.send(envelope)).toEqual({ answer: null, accepted: false });
+    }
     expect(sent[0]).toEqual([BRIDGE.url, envelope]);
 
     const throwing = wireWith(() => {
       throw new Error("no network");
     });
-    expect(await throwing.send(envelope)).toEqual({ answer: null });
+    expect(await throwing.send(envelope)).toEqual({ answer: null, accepted: false });
     const rejecting = wireWith(async () => {
       throw new Error("refused");
     });
-    expect(await rejecting.send(envelope)).toEqual({ answer: null });
+    expect(await rejecting.send(envelope)).toEqual({ answer: null, accepted: false });
+  });
+
+  it("tells a publisher what its own envelope got, in its turn", async () => {
+    const answers = [{ status: 403, body: "" }, { status: 204, body: "" }];
+    const wire = wireWith(async () => answers.shift());
+    const first = wire.publish(wire.makeEnvelope("companion.hello", {}));
+    const second = wire.publish(wire.makeEnvelope("agent.status", {}));
+    expect(await first).toEqual({ answer: null, accepted: false });
+    expect(await second).toEqual({ answer: null, accepted: true });
   });
 
   it("publishes facts one after another, in the order they were stated, past a failure", async () => {
