@@ -141,6 +141,26 @@ pub(super) enum Inbound {
     },
 }
 
+impl Inbound {
+    /// The pane this envelope speaks for.
+    pub(super) fn pane(&self) -> &str {
+        match self {
+            Self::SessionBound(bound) => &bound.pane_id,
+            Self::Opaque { report, .. } => &report.pane_id,
+        }
+    }
+
+    /// Which process says it sent this, when it said — read here, where the
+    /// field's place in each shape is known, for the one check that runs
+    /// before anything is emitted ([`super::origin`]).
+    pub(super) fn reporter(&self) -> Option<String> {
+        match self {
+            Self::SessionBound(bound) => bound.reporter.clone(),
+            Self::Opaque { report, .. } => reported(&report.payload, "reporter"),
+        }
+    }
+}
+
 /// One optional string a reporter MAY have included. Absent, null, the wrong
 /// type and empty all collapse to `None` — every consumer of these fields
 /// already treats "not reported" as one case, and a shell reporter that omits

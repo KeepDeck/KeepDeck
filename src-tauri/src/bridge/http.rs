@@ -14,8 +14,9 @@
 use std::net::TcpStream;
 use std::sync::Arc;
 
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
+use crate::bridge::origin;
 use crate::bridge::waiters::{Waiters, HOOK_WAIT};
 use crate::bridge::wire::{interpret, printable, Inbound};
 use crate::http::request::{Limits, Method, Request};
@@ -59,10 +60,16 @@ pub(super) fn serve(app: AppHandle, waiters: Arc<Waiters>) -> Result<Surface, St
         },
         move |mut stream, request| {
             let app = app.clone();
+            let sessions = app.clone();
             handle(
                 &mut stream,
                 request,
                 &waiters,
+                &move |pane, pid| {
+                    sessions
+                        .state::<crate::session::SessionRegistry>()
+                        .pane_runs(pane, pid)
+                },
                 &move |inbound| super::emit_inbound(&app, inbound),
             );
         },
@@ -76,10 +83,15 @@ pub(super) fn serve(app: AppHandle, waiters: Arc<Waiters>) -> Result<Surface, St
 /// Route one request. The EFFECT is injected rather than reached for: a
 /// Tauri handle cannot be built in a unit test, and a route nobody can
 /// exercise is a route nobody has checked.
+///
+/// `runs_in_pane(pane, pid)` is the terminal's answer [`origin::judge`]
+/// needs: whether that process runs in the pane's terminal, None when the
+/// pane has none.
 fn handle(
     stream: &mut TcpStream,
     request: Request,
     waiters: &Waiters,
+    runs_in_pane: &dyn Fn(&str, u32) -> Option<bool>,
     emit: &dyn Fn(Inbound),
 ) {
     // Matched as a pair: an unknown path and a wrong method answer the same
@@ -97,6 +109,23 @@ fn handle(
     };
     match interpret(content) {
         Ok(inbound) => {
+            // Before anything is parked or emitted: a report from outside the
+            // pane is nobody's, and an ask from there must not be answered
+            // with the pane's mail. 403 tells an in-process reporter it is
+            // not this pane's — the one sender that acts on the answer.
+            let reporter = inbound.reporter();
+            if let Err(refusal) =
+                origin::judge(reporter.as_deref(), |pid| runs_in_pane(inbound.pane(), pid))
+            {
+                log::warn!(
+                    "bridge: refused envelope for pane={} from {}: {}",
+                    printable(inbound.pane()),
+                    printable(reporter.as_deref().unwrap_or_default()),
+                    refusal.reason(),
+                );
+                let _ = respond_empty(stream, Status::Forbidden);
+                return;
+            }
             // A report that asks holds the connection until the deck answers
             // it. The correlation is read where envelope shape is known, not
             // here — a route reaching into the payload would be a second
@@ -193,13 +222,26 @@ mod tests {
         post_with(method, path, body, &Waiters::default())
     }
 
-    /// The same round trip, against a chosen set of waiters — so a test can
-    /// have somebody already parked, or nobody at all.
+    /// Every process runs in every pane — the terminal check is not what
+    /// these tests are about, except the ones that say otherwise.
     fn post_with(
         method: &str,
         path: &str,
         body: &[u8],
         waiters: &Waiters,
+    ) -> (String, usize) {
+        post_judged(method, path, body, waiters, &|_, _| Some(true))
+    }
+
+    /// The same round trip, against a chosen set of waiters — so a test can
+    /// have somebody already parked, or nobody at all — and a chosen answer
+    /// to which processes run in which pane.
+    fn post_judged(
+        method: &str,
+        path: &str,
+        body: &[u8],
+        waiters: &Waiters,
+        runs_in_pane: &dyn Fn(&str, u32) -> Option<bool>,
     ) -> (String, usize) {
         let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
         let port = listener.local_addr().unwrap().port();
@@ -226,7 +268,7 @@ mod tests {
         )
         .expect("the head must parse");
         let seen = Mutex::new(0usize);
-        handle(&mut accepted, request, waiters, &|_| {
+        handle(&mut accepted, request, waiters, runs_in_pane, &|_| {
             *seen.lock().unwrap() += 1;
         });
         drop(accepted);
@@ -245,6 +287,87 @@ mod tests {
             "payload": { "agent": "claude", "event": { "type": "Stop" } }
         })
         .to_string()
+    }
+
+    fn reported_envelope(pane: &str, reporter: &str) -> String {
+        serde_json::json!({
+            "v": 2,
+            "type": "companion.hello",
+            "paneId": pane,
+            "token": "tok",
+            "payload": { "agent": "claude", "reporter": reporter }
+        })
+        .to_string()
+    }
+
+    #[test]
+    fn a_report_from_outside_the_panes_terminal_is_refused_and_never_emitted() {
+        // A daemon worker carrying the pane's inherited secret: well-formed,
+        // and not this pane's. 403 is what an in-process reporter acts on.
+        let asked = Mutex::new(Vec::new());
+        let (status, emitted) = post_judged(
+            "POST",
+            ENVELOPE_PATH,
+            reported_envelope("pane-5", "4021").as_bytes(),
+            &Waiters::default(),
+            &|pane, pid| {
+                asked.lock().unwrap().push((pane.to_string(), pid));
+                Some(false)
+            },
+        );
+        assert!(status.starts_with("HTTP/1.1 403"), "{status}");
+        assert_eq!(emitted, 0);
+        assert_eq!(*asked.lock().unwrap(), vec![("pane-5".to_string(), 4021)]);
+    }
+
+    #[test]
+    fn a_report_for_a_pane_with_no_terminal_is_refused() {
+        let (status, emitted) = post_judged(
+            "POST",
+            ENVELOPE_PATH,
+            reported_envelope("pane-5", "4021").as_bytes(),
+            &Waiters::default(),
+            &|_, _| None,
+        );
+        assert!(status.starts_with("HTTP/1.1 403"), "{status}");
+        assert_eq!(emitted, 0);
+    }
+
+    #[test]
+    fn a_report_from_inside_or_unnamed_goes_through() {
+        let inside = post_judged(
+            "POST",
+            ENVELOPE_PATH,
+            reported_envelope("pane-5", "4021").as_bytes(),
+            &Waiters::default(),
+            &|_, _| Some(true),
+        );
+        assert!(inside.0.starts_with("HTTP/1.1 204"), "{}", inside.0);
+        assert_eq!(inside.1, 1);
+        let unnamed = post_judged(
+            "POST",
+            ENVELOPE_PATH,
+            status_envelope("pane-5").as_bytes(),
+            &Waiters::default(),
+            &|_, _| panic!("an unnamed reporter has nothing to ask about"),
+        );
+        assert!(unnamed.0.starts_with("HTTP/1.1 204"), "{}", unnamed.0);
+    }
+
+    #[test]
+    fn an_ask_from_outside_is_refused_before_it_parks() {
+        // Parked, it would be handed the pane's mail.
+        let waiters = Waiters::default();
+        let body = serde_json::json!({
+            "v": 2, "type": "agent.status", "paneId": "pane-5", "token": "tok",
+            "payload": { "agent": "claude", "reporter": "4021", "reply": "corr-1" }
+        })
+        .to_string();
+        let (status, emitted) =
+            post_judged("POST", ENVELOPE_PATH, body.as_bytes(), &waiters, &|_, _| Some(false));
+        assert!(status.starts_with("HTTP/1.1 403"), "{status}");
+        assert_eq!(emitted, 0);
+        assert!(!waiters.resolve("pane-5", "corr-1", "mail".into()), "nobody may be parked");
     }
 
     #[test]
@@ -327,7 +450,7 @@ mod tests {
             },
         )
         .unwrap();
-        handle(&mut accepted, request, &waiters, &|_| {});
+        handle(&mut accepted, request, &waiters, &|_, _| Some(true), &|_| {});
         drop(accepted);
         let answer = peer.join().unwrap();
         assert!(answer.starts_with("HTTP/1.1 200"), "{answer}");
