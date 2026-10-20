@@ -162,7 +162,7 @@ fn spawn_connection(
             };
             // This connection's own handler: what the client says about
             // itself must not leak into anyone else's requests.
-            let mut answer = handler();
+            let mut answer = handler(peer_pid(&stream));
             for line in BufReader::new(stream).lines() {
                 let Ok(line) = line else { break };
                 if line.trim().is_empty() {
@@ -179,6 +179,48 @@ fn spawn_connection(
         .map(|_| ())
 }
 
+/// The process on the other end of `stream`, as the kernel recorded it at
+/// connect — the MCP client's stdio shim. None when it cannot be told.
+pub(super) fn peer_pid(stream: &UnixStream) -> Option<u32> {
+    #[cfg(target_os = "macos")]
+    {
+        let mut pid: libc::pid_t = 0;
+        let mut len = std::mem::size_of::<libc::pid_t>() as libc::socklen_t;
+        // SAFETY: LOCAL_PEERPID writes one pid_t into a buffer of that size.
+        let read = unsafe {
+            libc::getsockopt(
+                stream.as_raw_fd(),
+                libc::SOL_LOCAL,
+                libc::LOCAL_PEERPID,
+                (&mut pid as *mut libc::pid_t).cast(),
+                &mut len,
+            )
+        };
+        (read == 0 && pid > 0).then_some(pid as u32)
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let mut cred: libc::ucred = unsafe { std::mem::zeroed() };
+        let mut len = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
+        // SAFETY: SO_PEERCRED writes one ucred into a buffer of that size.
+        let read = unsafe {
+            libc::getsockopt(
+                stream.as_raw_fd(),
+                libc::SOL_SOCKET,
+                libc::SO_PEERCRED,
+                (&mut cred as *mut libc::ucred).cast(),
+                &mut len,
+            )
+        };
+        (read == 0 && cred.pid > 0).then_some(cred.pid as u32)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        let _ = stream;
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -188,7 +230,7 @@ mod tests {
         // Notification-style lines (here: a '!' prefix) produce no reply;
         // the NEXT request's reply must be the first thing the client reads.
         let handler: LineHandler =
-            Arc::new(|| Box::new(|line: &str| (!line.starts_with('!')).then(|| line.to_uppercase())));
+            Arc::new(|_| Box::new(|line: &str| (!line.starts_with('!')).then(|| line.to_uppercase())));
         let (client, served) = UnixStream::pair().expect("socketpair");
         let conns = Conns::default();
         spawn_connection(1, served, handler, conns.clone()).expect("spawn");
@@ -202,12 +244,33 @@ mod tests {
         assert_eq!(reply.trim_end(), "REQUEST");
     }
 
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn a_connection_is_handed_the_process_on_its_far_end() {
+        // The pane check rests on this pid being the CLIENT's: a socketpair
+        // within this test process is the one case where it is known.
+        let seen = Arc::new(std::sync::Mutex::new(None));
+        let record = seen.clone();
+        let handler: LineHandler = Arc::new(move |peer| {
+            *record.lock().unwrap() = Some(peer);
+            Box::new(|line: &str| Some(line.to_string()))
+        });
+        let (client, served) = UnixStream::pair().expect("socketpair");
+        spawn_connection(1, served, handler, Conns::default()).expect("spawn");
+        let mut writer = client.try_clone().expect("clone");
+        let mut reader = BufReader::new(client);
+        writeln!(writer, "ping").expect("write");
+        let mut reply = String::new();
+        reader.read_line(&mut reply).expect("read");
+        assert_eq!(*seen.lock().unwrap(), Some(Some(std::process::id())));
+    }
+
     #[test]
     fn each_connection_gets_its_own_handler() {
         // What a client says about ITSELF (the `deck/client` preamble) is
         // remembered by its handler, so two connections sharing one would
         // answer for each other.
-        let handler: LineHandler = Arc::new(|| {
+        let handler: LineHandler = Arc::new(|_| {
             let mut seen = 0u32;
             Box::new(move |_line: &str| {
                 seen += 1;
@@ -235,7 +298,7 @@ mod tests {
         // The handle map is what Off shuts down; a finished connection that
         // left its entry behind would have Off shutting down a dead stream
         // forever after.
-        let handler: LineHandler = Arc::new(|| Box::new(|line: &str| Some(line.to_uppercase())));
+        let handler: LineHandler = Arc::new(|_| Box::new(|line: &str| Some(line.to_uppercase())));
         let (client, served) = UnixStream::pair().expect("socketpair");
         let conns = Conns::default();
         conns

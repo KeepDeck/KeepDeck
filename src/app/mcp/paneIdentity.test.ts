@@ -17,6 +17,9 @@ const agents = () => [
   { id: "codex", label: "Codex" },
 ];
 
+/** A connection presenting a secret from inside `host`'s terminal. */
+const from = (host: string) => ({ client: "secret", host });
+
 const identity = (
   workspaces: Workspace[],
   paneOf: (client: string) => string | null,
@@ -33,7 +36,7 @@ describe("naming the pane behind a connection", () => {
       ]),
     ];
 
-    expect(identity(deck, () => "p2")("secret")).toEqual({
+    expect(identity(deck, () => "p2")(from("p2"))).toEqual({
       id: "p2",
       workspaceId: "ws-1",
       label: "Codex 2",
@@ -42,12 +45,12 @@ describe("naming the pane behind a connection", () => {
 
   it("prefers the pane's own name over the positional label", () => {
     const deck = [ws([{ id: "p1", agentType: "claude", name: "reviewer" }])];
-    expect(identity(deck, () => "p1")("secret")?.label).toBe("reviewer");
+    expect(identity(deck, () => "p1")(from("p1"))?.label).toBe("reviewer");
   });
 
   it("falls back to the raw agent id while the catalog is empty", () => {
     const deck = [ws([{ id: "p1", agentType: "kimi" }])];
-    expect(identity(deck, () => "p1")("secret")?.label).toBe("kimi 1");
+    expect(identity(deck, () => "p1")(from("p1"))?.label).toBe("kimi 1");
   });
 
   it("answers ANONYMOUS for a secret that no longer resolves", () => {
@@ -56,9 +59,26 @@ describe("naming the pane behind a connection", () => {
     // is the right floor: naming the wrong pane is worse than naming none.
     const deck = [ws([{ id: "p1", agentType: "claude" }])];
 
-    expect(identity(deck, () => null)("stranger")).toBeNull();
+    expect(identity(deck, () => null)({ client: "stranger", host: "p1" })).toBeNull();
     // The token resolves, but its pane has since been closed.
-    expect(identity(deck, () => "p9")("secret")).toBeNull();
-    expect(identity([], () => "p1")("secret")).toBeNull();
+    expect(identity(deck, () => "p9")(from("p9"))).toBeNull();
+    expect(identity([], () => "p1")(from("p1"))).toBeNull();
+  });
+
+  it("answers ANONYMOUS for a secret presented from outside its pane's terminal", () => {
+    // A daemon worker that inherited the pane's MCP config: the secret is
+    // the pane's, the process is not (task-424). And a process of ANOTHER
+    // pane holding this one's secret speaks for neither.
+    const deck = [ws([{ id: "p1", agentType: "claude" }, { id: "p2", agentType: "codex" }])];
+    expect(identity(deck, () => "p1")({ client: "secret", host: null })).toBeNull();
+    expect(identity(deck, () => "p1")({ client: "secret", host: "p2" })).toBeNull();
+  });
+
+  it("answers ANONYMOUS for a connection that presented no secret, wherever it runs", () => {
+    const deck = [ws([{ id: "p1", agentType: "claude" }])];
+    const paneOf = () => {
+      throw new Error("nothing to resolve");
+    };
+    expect(identity(deck, paneOf)({ client: null, host: "p1" })).toBeNull();
   });
 });

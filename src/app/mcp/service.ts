@@ -1,6 +1,7 @@
 import type { CommandRegistry, CommandSource } from "../../domain/commands";
 import {
   handleMcpLine,
+  type McpCaller,
   type McpCommandPort,
   type McpServerIdentity,
 } from "../../domain/mcp";
@@ -164,10 +165,10 @@ export interface McpServiceDeps {
   /** How a client reaches the socket — the deck's own bundled server and the
    * settings page's connect row both ask it. */
   connection?: KeepdeckServerDeps["connection"];
-  /** Resolve a connection's secret to the pane that announced it. Injected:
-   * which pane holds which secret is the spawn layer's knowledge, and the
-   * deck's — neither belongs to the transport. See [`createPaneIdentity`]. */
-  identify?: (client: string) => McpPaneIdentity | null;
+  /** Resolve a connection to the pane that announced it. Injected: which
+   * pane holds which secret is the spawn layer's knowledge, and the deck's —
+   * neither belongs to the transport. See [`createPaneIdentity`]. */
+  identify?: (caller: McpCaller) => McpPaneIdentity | null;
 }
 
 /**
@@ -223,8 +224,8 @@ export function createMcpService(deps: McpServiceDeps): McpService {
    * hand-wired server, or a lingering child of a pane that is gone — reads as
    * an anonymous client, which is the behaviour that existed before panes
    * could be named at all. */
-  function sourceFor(client: string | null): CommandSource {
-    const pane = client ? (deps.identify?.(client) ?? null) : null;
+  function sourceFor(caller: McpCaller): CommandSource {
+    const pane = deps.identify?.(caller) ?? null;
     return pane
       ? { kind: "external", client: MCP_TRANSPORT, pane }
       : { kind: "external", client: MCP_TRANSPORT };
@@ -232,7 +233,7 @@ export function createMcpService(deps: McpServiceDeps): McpService {
 
   const port: McpCommandPort = {
     list: () => registry.list(),
-    execute: (id, args, client) => registry.execute(id, args, sourceFor(client)),
+    execute: (id, args, caller) => registry.execute(id, args, sourceFor(caller)),
   };
   // The bundled tier: the deck's own server, reading the CONFIRMED status
   // through a closure rather than a snapshot — `current` moves with every
@@ -289,7 +290,7 @@ export function createMcpService(deps: McpServiceDeps): McpService {
     },
   });
   const pump = createMcpRequestPump(
-    (line, client) => handleMcpLine(port, () => identity, line, client),
+    (line, caller) => handleMcpLine(port, () => identity, line, caller),
     deps.pumpPorts,
   );
   let policy: McpServerPolicy | null = null;

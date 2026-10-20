@@ -1,4 +1,4 @@
-import { INTERNAL_ERROR, errorReply } from "../../domain/mcp";
+import { INTERNAL_ERROR, errorReply, type McpCaller } from "../../domain/mcp";
 import { log } from "../../ipc/log";
 import { onMcpRequest, respondMcp, type McpRequest } from "../../ipc/mcpBridge";
 import { errorMessage } from "@keepdeck/plugin-api";
@@ -8,7 +8,7 @@ import { errorMessage } from "@keepdeck/plugin-api";
  * the Rust side parked nothing for them. */
 export type McpLineHandler = (
   line: string,
-  client: string | null,
+  caller: McpCaller,
 ) => Promise<string | null> | string | null;
 
 /** The transport legs the pump sits between — injectable for tests. */
@@ -43,12 +43,12 @@ export function createMcpRequestPump(
   let unlisten: (() => void) | null = null;
 
   const ready = ports
-    .subscribe(({ id, line, client }) => {
+    .subscribe(({ id, line, client, host }) => {
       if (disposed) return;
       void (async () => {
         let reply: string | null;
         try {
-          reply = await handleLine(line, client ?? null);
+          reply = await handleLine(line, { client: client ?? null, host: host ?? null });
         } catch (e) {
           reply = errorReply(line, INTERNAL_ERROR, errorMessage(e));
         }

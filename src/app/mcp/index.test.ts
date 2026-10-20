@@ -50,8 +50,12 @@ function harness() {
     enable,
     disable,
     respond,
-    request: (id: number, line: string, client: string | null = null) =>
-      deliver?.({ id, line, client }),
+    request: (
+      id: number,
+      line: string,
+      client: string | null = null,
+      host: string | null = null,
+    ) => deliver?.({ id, line, client, host }),
   };
 }
 
@@ -375,10 +379,15 @@ describe("createMcpService", () => {
 
   it("names the calling pane when its connection proved which one it is", async () => {
     const h = harness();
-    h.deps.identify = (client) =>
-      client === "pane-3-secret"
+    // Both halves of the caller reach the resolver as the transport heard
+    // them; what they mean is the resolver's to say.
+    const heard: unknown[] = [];
+    h.deps.identify = (caller) => {
+      heard.push(caller);
+      return caller.client === "pane-3-secret"
         ? { id: "pane-3", workspaceId: "ws-1", label: "Codex 3" }
         : null;
+    };
     createMcpService(h.deps);
     await flush();
     const sources: CommandSource[] = [];
@@ -398,7 +407,7 @@ describe("createMcpService", () => {
         id: 1,
         method: "tools/call",
         params: { name: "deck_ping", arguments: {} },
-      }), client);
+      }), client, client ? "pane-3" : null);
 
     call("pane-3-secret");
     call("a-secret-nobody-holds");
@@ -416,6 +425,11 @@ describe("createMcpService", () => {
       },
       { kind: "external", client: "mcp" },
       { kind: "external", client: "mcp" },
+    ]);
+    expect(heard).toEqual([
+      { client: "pane-3-secret", host: "pane-3" },
+      { client: "a-secret-nobody-holds", host: "pane-3" },
+      { client: null, host: null },
     ]);
   });
 

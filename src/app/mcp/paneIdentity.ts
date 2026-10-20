@@ -11,7 +11,17 @@
  * server, or a lingering child of a pane that is gone. That is the behaviour
  * that existed before panes could be named at all, and it is the right floor —
  * naming the wrong pane is worse than naming none.
+ *
+ * So does a secret presented from outside its pane's terminal. Everything a
+ * pane starts inherits its secret, and keeps it after leaving: claude
+ * 2.1.303 hands a conversation sent to the background to a daemon worker
+ * that carries the pane's MCP config, and that worker would otherwise read
+ * the pane's mail and act in its role from the background (task-424,
+ * verified live). The transport says which pane's terminal the connecting
+ * process belongs to (`host`, the same answer the bridge asks of a
+ * reporter); a secret counts only from there.
  */
+import type { McpCaller } from "../../domain/mcp";
 import { findWorkspaceOfPane, paneDisplayTitle, type Workspace } from "../../domain/deck";
 
 /** How a pane reads in the journal at the moment it acted. */
@@ -35,10 +45,10 @@ export interface PaneIdentityDeps {
 
 export function createPaneIdentity(
   deps: PaneIdentityDeps,
-): (client: string) => McpPaneIdentity | null {
-  return (client) => {
-    const paneId = deps.paneOf(client);
-    if (!paneId) return null;
+): (caller: McpCaller) => McpPaneIdentity | null {
+  return ({ client, host }) => {
+    const paneId = client === null ? null : deps.paneOf(client);
+    if (!paneId || paneId !== host) return null;
     const workspaces = deps.workspaces();
     const workspace = findWorkspaceOfPane(workspaces, paneId);
     const index = workspace?.panes.findIndex((pane) => pane.id === paneId) ?? -1;
