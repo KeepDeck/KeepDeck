@@ -33,21 +33,13 @@
  * environment, a deck that quit, a full disk — none of it may break the
  * user's session, so every failure here ends in silence.
  */
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { existsSync, rmSync, watch } from "node:fs";
 import { join } from "node:path";
+import { parentLookupV1 } from "./opencode-v1.js";
 import { paneSession } from "./pane-session.js";
-import {
-  makeEnvelope,
-  readBridge,
-  sendEnvelope,
-} from "./keepdeck-bridge.js";
-
-/** The answer shape this courier understands. The deck stamps it; a shape
- * change bumps it, and an answer from a version this cannot read is dropped
- * rather than half-applied — a pane spawned before an update is still running
- * this exact file. */
-const REPLY_VERSION = 1;
+import { readBridge } from "./keepdeck-bridge.js";
+import { answerText, askMail } from "./mail-ask.js";
 
 export async function startCourier(input = {}) {
   const bridge = readBridge();
@@ -72,56 +64,10 @@ export async function startCourier(input = {}) {
    * opencode mints the root lazily: a pane nobody has spoken to yet has none,
    * which is why `viaTui` below exists at all.
    */
-  const pane = paneSession(client);
+  const pane = paneSession(parentLookupV1(client));
 
-  /**
-   * Ask the deck what is waiting, and wait for the answer.
-   *
-   * The envelope is an `agent.status` one because that is the lane the deck
-   * answers questions on — one round trip, one handler, so a pane can never
-   * be told two things about itself in an order nobody chose. The event it
-   * carries is ours (`mail.ask`) and the status normalizer ignores it: this
-   * envelope reports nothing, it only asks.
-   *
-   * The answer comes back on the same call. It used to come as a file this
-   * polled for and removed, where the removal was the deck's only evidence
-   * that anyone had collected it; the deck now learns that from the send
-   * itself, and puts the messages back when nobody was there.
-   */
-  const ask = async (target, type = "mail.ask") => {
-    const correlation = randomUUID();
-    const envelope = makeEnvelope(bridge, "agent.status", {
-      reply: correlation,
-      // Where the answer will land, as this courier knows it: the deck hands
-      // mail only to the pane's MAIN agent, and only this side can say
-      // whether the session it is about to write into is the root. An ask
-      // naming no target is refused before anything leaves the queue.
-      //
-      // `type` is the channel (plugins/opencode/src/mail.ts): `mail.ask` at a
-      // turn's edges, `mail.ask.tool` after a tool call mid-turn.
-      event: { type, target },
-    });
-    // Answered on the same call, so there is no file to poll for and no
-    // window in which an answer exists that nobody has come for.
-    const sent = await sendEnvelope(bridge, envelope);
-    // Null covers every ending but an answer with content: nothing was
-    // waiting, the deck went quiet, nothing was listening. They differ in
-    // diagnosis and not in what this turn does — there is nothing to inject
-    // either way, and the queue keeps whatever it kept.
-    return sent.answer === null ? null : readAnswer(sent.answer);
-  };
-
-  /** One reading of the deck's answer. An EMPTY one is a real answer and the
-   * common one: nothing was waiting. */
-  const readAnswer = (body) => {
-    if (body === "") return null;
-    try {
-      const answer = JSON.parse(body);
-      return answer?.v === REPLY_VERSION ? answer : null;
-    } catch {
-      return null;
-    }
-  };
+  /** Ask the deck what is waiting (mail-ask.js). */
+  const ask = askMail(bridge);
 
   const textPart = (text, synthetic) => ({
     type: "text",
@@ -144,11 +90,6 @@ export async function startCourier(input = {}) {
     ...textPart(text, synthetic),
   });
 
-  /** The two halves of an answer as one block of text, brief first. */
-  const answerText = (answer) =>
-    [answer.context, answer.prompt]
-      .filter((half) => typeof half === "string" && half)
-      .join("\n\n");
 
   /**
    * Whether a client call actually worked.

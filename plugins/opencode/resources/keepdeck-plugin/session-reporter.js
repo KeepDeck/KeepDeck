@@ -29,6 +29,7 @@ import {
   publish as publishEnvelope,
   readBridge,
 } from "./keepdeck-bridge.js";
+import { parentLookupV1 } from "./opencode-v1.js";
 import { paneSession } from "./pane-session.js";
 
 export async function startReporter(input = {}) {
@@ -67,7 +68,7 @@ export async function startReporter(input = {}) {
   // subagents' — ONE object, shared with the mail courier beside this file.
   // Two answers to that question means the deck watching one session's turns
   // while mail lands in another.
-  const pane = paneSession(client);
+  const pane = paneSession(parentLookupV1(client));
   // The latest ROOT assistant turn — defines occupancy/identity, not spend.
   let root;
   let sequence = 0;

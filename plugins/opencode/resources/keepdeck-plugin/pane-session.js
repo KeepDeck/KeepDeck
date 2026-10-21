@@ -38,22 +38,27 @@
  * screen. Every request below hangs off an event instead.
  */
 
-/** The one instance, and the client it speaks through. */
+/** The one instance, and how it asks the server about a session. */
 let shared;
-let sharedClient;
+let sharedLookup;
 
 /**
  * This process's pane session.
  *
- * The client is ADOPTED rather than captured: whichever plugin initialises
+ * `lookup(sessionID)` asks the server about one session and answers
+ * `{ parentID }` (no parentID for a root), or null when it could not tell —
+ * the one thing that differs between opencode generations, so each host
+ * adapter supplies its own (opencode-v1.js, opencode-v2.js).
+ *
+ * The lookup is ADOPTED rather than captured: whichever component starts
  * first may have none — the reporter does not treat a missing client as a
- * reason to stay quiet — and a later, fuller one has to be able to take over.
- * Every request below reads it through the holder for that reason; a closure
- * over the first one would leave this permanently unable to ask anything,
- * with an index answering "unknown" forever and nothing to say why.
+ * reason to stay quiet — and a later, fuller one has to be able to take
+ * over. Every request below reads it through the holder for that reason; a
+ * closure over the first one would leave this permanently unable to ask
+ * anything, with an index answering "unknown" forever and nothing to say why.
  */
-export function paneSession(client) {
-  if (client && !sharedClient) sharedClient = client;
+export function paneSession(lookup) {
+  if (lookup && !sharedLookup) sharedLookup = lookup;
   if (!shared) shared = create();
   return shared;
 }
@@ -106,11 +111,8 @@ function create() {
    * Ask the server about one session and record what it says, walking up
    * until the chain reaches something already known.
    *
-   * The generated client a plugin is handed RESOLVES with `{error}` rather
-   * than throwing — measured on 1.18.15, and spelled out in both components —
-   * so a `catch` alone sees nothing. An unanswerable id is recorded NOWHERE,
-   * which is what makes the next call ask again instead of inheriting a
-   * guess.
+   * An unanswerable id is recorded NOWHERE, which is what makes the next
+   * call ask again instead of inheriting a guess.
    *
    * In flight per id, so two events racing on the same session make one
    * request and get the same answer.
@@ -120,15 +122,15 @@ function create() {
     const already = pending.get(sessionID);
     if (already) return already;
     const work = (async () => {
-      if (!sharedClient?.session?.get) return "unknown";
+      if (!sharedLookup) return "unknown";
       let found;
       try {
-        found = await sharedClient.session.get({ path: { id: sessionID } });
+        found = await sharedLookup(sessionID);
       } catch {
         return "unknown";
       }
-      if (!found || found.error || !found.data?.id) return "unknown";
-      const parentID = found.data.parentID;
+      if (!found) return "unknown";
+      const parentID = found.parentID;
       if (!parentID) {
         roots.add(sessionID);
         return "root";

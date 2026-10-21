@@ -268,6 +268,8 @@ describe("build pipeline (e2e against the real host and plugins)", () => {
     );
     for (const file of [
       "index.js",
+      "opencode-v1.js",
+      "mail-ask.js",
       "keepdeck-wire.js",
       "keepdeck-bridge.js",
       "pane-session.js",
