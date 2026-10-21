@@ -94,8 +94,10 @@ Read from the 2.0.32 and 2.1.2 source, and verified live on 2.1.2
   never imported (live), so history must read both.
 - **Server.** One shared background server unless `--standalone` is given,
   so per-pane env and plugins need `--standalone`. KeepDeck now adds it
-  when the CLI's `--version` names 2.x (plugin API 62 hands the version to
-  launch plans). 1.19.3 exits on the flag, so an unknown version gets none.
+  when the CLI's `--version` names 2.x. Plugin API 62 hands the version to
+  launch plans, asked anew for every launch, so a CLI swapped while the
+  app runs is launched as what it now is. 1.19.3 exits on the flag, so an
+  unknown version gets none.
   Verified live 2026-10-22:
   - 15 concurrent `--standalone` starts on an initialized db, no failure
     (upstream #53879 is a NEW db only);

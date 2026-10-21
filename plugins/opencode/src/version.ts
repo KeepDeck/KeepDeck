@@ -2,10 +2,9 @@
  * Which opencode a pane is about to run, read from what its binary answers
  * to `--version` (SpawnPlanInput.cliVersion).
  *
- * The two generations print it differently — `1.19.3` and `opencode v2.1.2`,
- * measured (task-376) — so this reads the first dotted version wherever it
- * stands. Null when there is none: the host could not ask, or the answer was
- * not a version.
+ * The host hands over the first dotted number of the answer (`1.19.3`,
+ * `2.1.2` for `opencode v2.1.2`, measured, task-376); this reads its major
+ * wherever it stands. Null when there is none: the host could not ask.
  */
 export function opencodeGeneration(cliVersion: string | undefined): 1 | 2 | null {
   const major = /(\d+)\.\d+\.\d+/.exec(cliVersion ?? "")?.[1];

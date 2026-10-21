@@ -712,12 +712,17 @@ export function createPluginManager(appDownloads: DownloadManager) {
    * process being started.
    */
   async function ensureAgentVersion(agentId: string): Promise<void> {
-    const bin = probeableBinOfAgent(
+    const bin = probeableBin(agentId);
+    if (bin) await agentBins.ensureVersion(bin);
+  }
+
+  /** The bin of this agent the host may run to ask its version, or null. */
+  function probeableBin(agentId: string): string | null {
+    return probeableBinOfAgent(
       pluginRegistries.agents.list(),
       pluginHost.getInstalled(),
       agentId,
     );
-    if (bin) await agentBins.ensureVersion(bin);
   }
 
   /**
@@ -1061,16 +1066,18 @@ export function createPluginManager(appDownloads: DownloadManager) {
     agentBinVersion,
     ensureAgentVersion,
     /**
-     * What this agent's CLI answers to `--version`, asking first if nobody
-     * has — for a launch plan, which may pick its flags by release. Null when
-     * the binary may not be run or did not answer legibly.
+     * What this agent's CLI answers to `--version` RIGHT NOW — asked anew for
+     * every launch plan, which may pick its flags by release, so a CLI
+     * swapped while the app runs is launched as what it now is. Null when the
+     * binary may not be run or did not answer legibly.
      *
      * Awaited, unlike the mail path's `learnVersion`: a plan's argv cannot be
-     * corrected after the process starts. The ask is single-flight per binary
-     * and remembered, so only the first pane of an agent in a run waits on it.
+     * corrected after the process starts. Panes starting together share one
+     * ask, and its answer is what mail rendering reads afterwards too.
      */
     agentCliVersion: async (agentId: string): Promise<string | null> => {
-      await ensureAgentVersion(agentId).catch(() => {});
+      const bin = probeableBin(agentId);
+      if (bin) await agentBins.refreshVersion(bin).catch(() => {});
       return agentBinVersion(agentId);
     },
   };
