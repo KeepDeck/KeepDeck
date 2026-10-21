@@ -11,11 +11,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // The courier is untyped resource JS — it is shipped to, and loaded by, the
 // user's opencode process, never bundled into the plugin.
 // @ts-expect-error untyped resource module
-import courierPlugin from "../resources/mail-courier.js";
+import { startCourier as courierPlugin } from "../resources/keepdeck-plugin/mail-courier.js";
 // The pane's session is ONE object per process — which is the point of it,
 // and which makes a suite of many panes in one process need a fresh start.
 // @ts-expect-error untyped resource module
-import { resetPaneSession } from "../resources/pane-session.js";
+import { resetPaneSession } from "../resources/keepdeck-plugin/pane-session.js";
 import { startDeck } from "../../../scripts/reporterHarness";
 
 /**

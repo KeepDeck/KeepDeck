@@ -1,15 +1,25 @@
 # OpenCode
 
-The integration was built for OpenCode 1.x. **OpenCode 2.0 breaks it**, as
-read from the source in October 2026, and porting it is open work. This
-document describes the 1.x integration and then lists what 2.0 changes.
+The integration was built for OpenCode 1.x. **OpenCode 2.x breaks it**, and
+porting it is open work. Since 2026-10-21 the plugin LOADS on both: verified
+live on 1.19.3 and 2.1.2. This document describes the 1.x integration and
+then lists what 2.x changes.
 
 ## Per-spawn injection (1.x)
 
-OpenCode has no command hooks. KeepDeck injects **JS plugins** instead,
-through `OPENCODE_CONFIG_CONTENT`. Its `plugin` array is additive, so
+OpenCode has no command hooks. KeepDeck injects **one JS plugin** instead,
+through `OPENCODE_CONFIG_CONTENT`: the directory `resources/keepdeck-plugin`,
+by absolute path, under the `plugin` key. That array is additive, so
 nothing is installed on the user's side.
 
+- `index.js` is the entry. Its default export is `{ id, server, setup }`.
+  OpenCode 1.x calls `server`, which starts both components below and
+  merges their hooks. OpenCode 2.x calls `setup`, which does nothing yet.
+  A component that fails to start, or a handler that throws, takes nothing
+  else down.
+- The two components are one entry, not two plugins, because they share
+  `pane-session.js` and one wire (`keepdeck-bridge.js`). OpenCode 2.x gives
+  each plugin entry its own copy of a sibling module.
 - `session-reporter.js` reports identity, usage and turn lifecycle to the
   deck.
 - `mail-courier.js` asks the deck for mail and puts it into the session
@@ -54,18 +64,25 @@ directory. `import` records the directory from its cwd, not from the JSON.
 If that fails, KeepDeck falls back to native `-s <id> --fork`, which stays
 in the source directory.
 
-## What OpenCode 2.0 changes
+## What OpenCode 2.x changes
 
-Read from the 2.0 source. Each item is a task in the OpenCode 2.0 epic.
+Read from the 2.0.32 and 2.1.2 source, and verified live on 2.1.2
+(2026-10-21) where marked. Each item is a task in the OpenCode 2.x epic.
 
-- **Plugins.** A plugin must export `{id, setup}` or `{id, effect}`; the
-  1.x shape is rejected.
+- **Plugins.** A plugin must export `{id, setup}` or `{id, effect}`.
+  A plugin given as a FILE path is dropped; a directory is required
+  (live). The legacy `plugin` key still works. KeepDeck's plugin now has
+  this shape, so it loads on 2.x, but `setup` does nothing yet.
+- **Config dir.** `OPENCODE_CONFIG_DIR` REPLACES the user's global config
+  on 2.x instead of adding to it (live), so it must not be set there.
+- **Database.** 2.x adds `session_v2` tables to the same `opencode.db`
+  and imports 1.x sessions ONCE. A session made on 1.x afterwards is
+  never imported (live), so history must read both.
 - **Server.** One shared background server unless `--standalone` is given,
   so per-pane env and plugins need `--standalone`.
 - **Remote.** `attach` is gone; it is now `--server <url>` with
   `OPENCODE_PASSWORD`.
 - **Fork.** `--fork` is gone; forking needs the API's fork plus a move.
-- **Storage.** Sessions live in `session_v2` tables, so history must move.
 - **Status.** Events are new (`session.execution.*`, `permission.*`,
   `form.*`).
 - **Skills.** There is a `skills` config key, which can replace

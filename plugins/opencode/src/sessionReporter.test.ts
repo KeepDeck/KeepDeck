@@ -8,15 +8,15 @@ import { normalizeOpencodeStatus } from "./status";
 // The reporter is untyped resource JS — it is shipped to, and loaded by, the
 // user's opencode process, never bundled into the plugin.
 // @ts-expect-error untyped resource module
-import reporter from "../resources/session-reporter.js";
+import { startReporter as reporter } from "../resources/keepdeck-plugin/session-reporter.js";
 // The pane's session is ONE object per process — which is the point of it,
 // and which makes a suite of many panes in one process need a fresh start.
 // @ts-expect-error untyped resource module
-import { paneSession, resetPaneSession } from "../resources/pane-session.js";
+import { paneSession, resetPaneSession } from "../resources/keepdeck-plugin/pane-session.js";
 // The wire's own word for "everything handed over has landed" — see
 // `envelopes` below for why silence is not it.
 // @ts-expect-error untyped resource module
-import { drained } from "../resources/keepdeck-bridge.js";
+import { drained } from "../resources/keepdeck-plugin/keepdeck-bridge.js";
 
 /** An opencode `session.created` event; `parentID` marks a CHILD session. */
 const created = (id: string, parentID?: string) => ({

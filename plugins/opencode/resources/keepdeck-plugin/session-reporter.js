@@ -1,5 +1,6 @@
 /**
- * KeepDeck session reporter — an opencode plugin.
+ * KeepDeck session reporter — one of the two components of KeepDeck's
+ * opencode plugin (index.js beside this file loads both).
  *
  * Injected PER SPAWN via the `OPENCODE_CONFIG_CONTENT` env var (which MERGES
  * into the user's config; nothing is installed or modified on their side) and
@@ -30,7 +31,7 @@ import {
 } from "./keepdeck-bridge.js";
 import { paneSession } from "./pane-session.js";
 
-export default async (input = {}) => {
+export async function startReporter(input = {}) {
   const bridge = readBridge();
   if (!bridge) return {}; // not spawned by KeepDeck — stay inert
   const { dir } = bridge;
@@ -229,7 +230,7 @@ export default async (input = {}) => {
   /**
    * Everything this reporter owes a conversation it has not served yet.
    *
-   * KEYED ON WHICH CONVERSATION, NOT ON WHO MOVED IT THERE. Both plugins watch
+   * KEYED ON WHICH CONVERSATION, NOT ON WHO MOVED IT THERE. Both components watch
    * the same `session.created` on their own queues, and the courier's is free
    * to run while this one waits on hydration or on the provider catalog — so
    * the courier can be the one that sets the new root. Gating this on having
@@ -538,4 +539,4 @@ export default async (input = {}) => {
       return eventQueue;
     },
   };
-};
+}

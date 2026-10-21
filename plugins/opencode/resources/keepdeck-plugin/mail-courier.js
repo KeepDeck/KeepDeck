@@ -1,12 +1,11 @@
 /**
- * KeepDeck mail courier — an opencode plugin.
+ * KeepDeck mail courier — one of the two components of KeepDeck's opencode
+ * plugin (index.js beside this file loads both).
  *
- * Injected PER SPAWN beside the session reporter, through the same
- * `OPENCODE_CONFIG_CONTENT.plugin` array (which is additive; nothing is
- * installed on the user's side). It is a SEPARATE plugin on purpose: the
- * reporter's job is to tell KeepDeck about this pane — identity, usage, turn
- * lifecycle — and it asks for nothing. This one's job is the opposite
- * direction, and only this one ever asks.
+ * It is a SEPARATE component on purpose: the reporter's job is to tell
+ * KeepDeck about this pane — identity, usage, turn lifecycle — and it asks
+ * for nothing. This one's job is the opposite direction, and only this one
+ * ever asks.
  *
  * What it exists for: on every other CLI, a teammate's message reaches an
  * agent by being TYPED into its terminal, where it arrives indistinguishable
@@ -47,7 +46,7 @@ import {
  * this exact file. */
 const REPLY_VERSION = 1;
 
-export default async (input = {}) => {
+export async function startCourier(input = {}) {
   const bridge = readBridge();
   if (!bridge) return {}; // not spawned by KeepDeck — stay inert
   const { dir } = bridge;
@@ -246,7 +245,7 @@ export default async (input = {}) => {
    * The parent check is what keeps it honest — the task tool creates child
    * sessions in this same process, and a child's events can be the first this
    * courier sees; adopting one would bind the pane to a leaf that ends. That
-   * check lives in the shared pane session, so the two plugins cannot answer
+   * check lives in the shared pane session, so the two components cannot answer
    * it differently — and now cannot hold different answers either.
    */
   const adoptRoot = async (sessionID) => {
@@ -397,4 +396,4 @@ export default async (input = {}) => {
       }
     },
   };
-};
+}

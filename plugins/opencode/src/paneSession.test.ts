@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 // Untyped resource JS — it is shipped to, and loaded by, the user's opencode
 // process, never bundled into the plugin.
 // @ts-expect-error untyped resource module
-import { paneSession, resetPaneSession } from "../resources/pane-session.js";
+import { paneSession, resetPaneSession } from "../resources/keepdeck-plugin/pane-session.js";
 
 /** A client that answers `session.get` from a parent table. */
 const clientWith = (parents: Record<string, string | undefined>) => ({

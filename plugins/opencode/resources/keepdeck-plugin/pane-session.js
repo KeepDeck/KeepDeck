@@ -1,9 +1,9 @@
 /**
- * What both of KeepDeck's opencode plugins have to agree about: which session
+ * What both components of KeepDeck's opencode plugin have to agree about: which session
  * in this process is the pane's conversation.
  *
  * ONE OBJECT, NOT ONE RULE. The rule was shared already — a factory both
- * plugins called — and that was the defect, because a factory hands out a
+ * components called — and that was the defect, because a factory hands out a
  * fresh answer to each caller. The reporter kept its own root and its own
  * index, the courier kept another pair, and the two derived the same fact
  * from the same event stream by different paths: one preserved the ancestry
@@ -18,15 +18,15 @@
  * against the active root and a stale one is quietly filtered; the drift is
  * guaranteed by the construction rather than by anything observed.
  *
- * ONE INSTANCE PER PROCESS. Both plugins import this module, and a module
- * runs once — measured, not assumed: a birth mark placed here is identical in
- * both, and what one writes the other reads at its own startup. That is the
- * whole mechanism; there is no registry in the plugin input to share through,
- * and had the module been isolated the only ways left would have been the
- * server itself or a file in the pane's directory.
+ * ONE INSTANCE PER PROCESS. Both components import this module, and within
+ * one plugin a module runs once. That is the whole mechanism; there is no
+ * registry in the plugin input to share through. It is also why the two are
+ * ONE plugin entry: opencode 1.x happened to share a sibling module between
+ * two entries, but 2.x gives each entry its own copy — measured, task-425 —
+ * and two copies of this object are two answers (see index.js).
  *
- * EVERY WRITE IS IDEMPOTENT, on purpose. opencode delivers each event to BOTH
- * plugins, so anything either of them tells this object, it may be told
+ * EVERY WRITE IS IDEMPOTENT, on purpose. Each event reaches BOTH
+ * components, so anything either of them tells this object, it may be told
  * twice. Assigning rather than counting, and refusing a generation that is
  * already current, is what makes the second telling harmless — and it is
  * cheaper than teaching this object to recognise an event it has already
@@ -113,7 +113,7 @@ function create() {
    * until the chain reaches something already known.
    *
    * The generated client a plugin is handed RESOLVES with `{error}` rather
-   * than throwing — measured on 1.18.15, and spelled out in both plugins —
+   * than throwing — measured on 1.18.15, and spelled out in both components —
    * so a `catch` alone sees nothing. An unanswerable id is recorded NOWHERE,
    * which is what makes the next call ask again instead of inheriting a
    * guess.
@@ -183,7 +183,7 @@ function create() {
      * pane accepts the first non-child session it sees — a status edge that
      * beats `session.created` should bind the pane rather than strand it. A
      * caller cannot tell an unbound pane from an unfed one by looking at the
-     * root alone, and one object serving two plugins has to be able to say
+     * root alone, and one object serving two components has to be able to say
      * which it is.
      */
     get bound() {
@@ -214,7 +214,7 @@ function create() {
      *
      * Its own generation: nothing from the old one rolls up to it, and the
      * old one's child ids answer about a session that has ended. Refused when
-     * it is already the current root, because both plugins see the event that
+     * it is already the current root, because both components see the event that
      * causes it and either may say so.
      */
     newGeneration(sessionID) {

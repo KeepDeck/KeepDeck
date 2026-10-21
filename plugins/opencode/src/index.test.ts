@@ -9,9 +9,10 @@ import plugin from "./index";
 /** Activate against a minimal fake ctx; returns the registered agent. An
  * optional `services` stub is threaded through for the fork hook.
  *
- * `reporterPath` stands for the resources DIRECTORY: the plugin injects two
- * files from it now, and a stub answering one path for every name would hide
- * a mix-up between them. Null means nothing resolves, as on a broken install. */
+ * `reporterPath` is where the plugin directory resolves; any other resource
+ * name resolves beside it, so a stub answering one path for every name cannot
+ * hide asking for the wrong one. Null means nothing resolves, as on a broken
+ * install. */
 function activate(
   reporterPath: string | null,
   services?: unknown,
@@ -83,29 +84,25 @@ const input = {
 };
 
 describe("opencode plugin hooks", () => {
-  it("injects BOTH of KeepDeck's plugins via a MERGING per-invocation config", async () => {
-    // Two files, two jobs: the reporter talks about this pane and asks
-    // nothing, the courier carries mail into the session and is the only one
-    // that asks. They ride one additive array — the user's own plugins are
-    // not replaced.
-    const agent = activate("/App/resources/session-reporter.js");
+  it("injects KeepDeck's plugin DIRECTORY via a MERGING per-invocation config", async () => {
+    // One directory, under the legacy `plugin` key: the one shape both
+    // opencode generations load. It rides an additive array — the user's own
+    // plugins are not replaced.
+    const agent = activate("/App/resources/keepdeck-plugin");
     const out = output();
     await agent.hooks["spawn.plan"]!(input, out);
 
     expect(out.args).toEqual([]);
     const env = Object.fromEntries(out.env);
     expect(JSON.parse(env.OPENCODE_CONFIG_CONTENT)).toEqual({
-      plugin: [
-        "/App/resources/session-reporter.js",
-        "/App/resources/mail-courier.js",
-      ],
+      plugin: ["/App/resources/keepdeck-plugin"],
     });
   });
 
   it("injected MCP servers share the reporter's config var, not a second one", async () => {
     // opencode reads OPENCODE_CONFIG_CONTENT once: a second assignment would
     // silently drop whichever came first.
-    const agent = activate("/App/resources/session-reporter.js");
+    const agent = activate("/App/resources/keepdeck-plugin");
     const mcp = {
       servers: [
         {
@@ -124,10 +121,7 @@ describe("opencode plugin hooks", () => {
     );
     expect(assignments).toHaveLength(1);
     expect(JSON.parse(assignments[0]![1])).toEqual({
-      plugin: [
-        "/App/resources/session-reporter.js",
-        "/App/resources/mail-courier.js",
-      ],
+      plugin: ["/App/resources/keepdeck-plugin"],
       mcp: {
         keepdeck: {
           type: "local",
@@ -142,7 +136,7 @@ describe("opencode plugin hooks", () => {
     // All three hooks call the same helper, but only spawn was covered —
     // reverting either of the other two to the reporter-only call would have
     // passed every existing test.
-    const agent = activate("/App/resources/session-reporter.js");
+    const agent = activate("/App/resources/keepdeck-plugin");
     const mcp = {
       servers: [
         {
@@ -190,7 +184,7 @@ describe("opencode plugin hooks", () => {
    * added tomorrow is covered without touching this test.
    */
   it("stages every launch alike — a fresh spawn, a resume and a fork", async () => {
-    const agent = activate("/App/resources/session-reporter.js");
+    const agent = activate("/App/resources/keepdeck-plugin");
     const shared = {
       ...input,
       mcp: {
@@ -238,7 +232,7 @@ describe("opencode plugin hooks", () => {
    * approvals it really waits on.
    */
   it("tells the reporter when this pane's approvals are answered for it", async () => {
-    const agent = activate("/App/resources/session-reporter.js");
+    const agent = activate("/App/resources/keepdeck-plugin");
     const skipped = output();
     await agent.hooks["spawn.plan"]!({ ...input, yolo: true }, skipped);
     expect(skipped.env).toContainEqual([
@@ -280,7 +274,7 @@ describe("opencode plugin hooks", () => {
   });
 
   it("staged skills ride OPENCODE_CONFIG_DIR as an env DEFAULT, never an override", async () => {
-    const agent = activate("/App/resources/session-reporter.js");
+    const agent = activate("/App/resources/keepdeck-plugin");
     const skills = {
       claudePluginDir: "/kd/staging/ws-1/claude-plugin",
       opencodeConfigDir: "/kd/staging/ws-1/opencode",
@@ -316,7 +310,7 @@ describe("opencode plugin hooks", () => {
   });
 
   it("resumes with -s and still arms the reporter (catches /new)", async () => {
-    const agent = activate("/App/resources/session-reporter.js");
+    const agent = activate("/App/resources/keepdeck-plugin");
     const out = output();
     await agent.hooks["resume.plan"]!({ ...input, sessionId: "ses_x" }, out);
 
@@ -325,7 +319,7 @@ describe("opencode plugin hooks", () => {
   });
 
   it("relocating fork: an EXISTING target imports a clone, resumes its NEW id (no --fork)", async () => {
-    const agent = activate("/App/resources/session-reporter.js", forkServices());
+    const agent = activate("/App/resources/keepdeck-plugin", forkServices());
     const out = output();
     await agent.hooks["fork.plan"]!(
       { ...input, cwd: "/new/target", sessionId: "ses_x", sourceCwd: "/src" },
@@ -341,7 +335,7 @@ describe("opencode plugin hooks", () => {
   });
 
   it("relocating fork honors YOLO: skip-permissions flag precedes the resumed clone id", async () => {
-    const agent = activate("/App/resources/session-reporter.js", forkServices());
+    const agent = activate("/App/resources/keepdeck-plugin", forkServices());
     const out = output();
     await agent.hooks["fork.plan"]!(
       { ...input, yolo: true, cwd: "/new/target", sessionId: "ses_x", sourceCwd: "/src" },
@@ -354,7 +348,7 @@ describe("opencode plugin hooks", () => {
   });
 
   it("falls back to native -s --fork when the target isn't provisioned yet", async () => {
-    const agent = activate("/App/resources/session-reporter.js", forkServices({ targetMissing: true }));
+    const agent = activate("/App/resources/keepdeck-plugin", forkServices({ targetMissing: true }));
     const out = output();
     await agent.hooks["fork.plan"]!(
       { ...input, cwd: "/future/worktree", sessionId: "ses_x", sourceCwd: "/x" },
@@ -373,7 +367,7 @@ describe("opencode plugin hooks", () => {
   });
 
   it("falls back to native -s --fork when the relocating recipe FAILS (no hard-fail)", async () => {
-    const agent = activate("/App/resources/session-reporter.js", forkServices({ importFails: true }));
+    const agent = activate("/App/resources/keepdeck-plugin", forkServices({ importFails: true }));
     const out = output();
     await agent.hooks["fork.plan"]!(
       { ...input, cwd: "/new/target", sessionId: "ses_x", sourceCwd: "/src" },
@@ -396,13 +390,13 @@ describe("opencode plugin hooks", () => {
     // the labelled channel at all; `wake: "bridge"` is what stops the deck
     // typing a nudge into the pane when nothing else would start a turn —
     // the courier is already inside the process and can start one properly.
-    const agent = activate("/App/resources/session-reporter.js");
+    const agent = activate("/App/resources/keepdeck-plugin");
     expect(agent.status?.mail?.channels).toEqual([{ event: "mail.ask", atTurnEnd: true }]);
     expect(agent.status?.wake).toBe("bridge");
   });
 
   it("YOLO adds the skip-permissions flag on spawn and resume alike", async () => {
-    const agent = activate("/App/resources/session-reporter.js");
+    const agent = activate("/App/resources/keepdeck-plugin");
 
     const spawn = output();
     await agent.hooks["spawn.plan"]!({ ...input, yolo: true }, spawn);
@@ -423,7 +417,7 @@ describe("opencode plugin hooks", () => {
   });
 
   it("on a nativeServer target, spawn/resume/fork become `attach <ep>` (drop -s/--fork)", async () => {
-    const agent = activate("/App/resources/session-reporter.js");
+    const agent = activate("/App/resources/keepdeck-plugin");
     const target = { kind: "nativeServer" as const, endpoint: "http://vps:4096" };
 
     const spawn = output();
@@ -465,7 +459,7 @@ describe("opencode plugin hooks", () => {
   });
 
   it("honors YOLO on remote attach (global flag, last)", async () => {
-    const agent = activate("/App/resources/session-reporter.js");
+    const agent = activate("/App/resources/keepdeck-plugin");
     const target = { kind: "nativeServer" as const, endpoint: "http://vps:4096" };
     const spawn = output();
     await agent.hooks["spawn.plan"]!({ ...input, target, yolo: true }, spawn);
@@ -520,7 +514,7 @@ describe("opencode plugin — warming the config dir", () => {
 
   it("bootstraps a local pane's config dir before it spawns", async () => {
     const { runOnce, services } = warmServices();
-    const agent = activate("/App/resources/session-reporter.js", services);
+    const agent = activate("/App/resources/keepdeck-plugin", services);
 
     await agent.hooks["spawn.plan"]!(withSkills as never, output());
 
@@ -533,7 +527,7 @@ describe("opencode plugin — warming the config dir", () => {
     // the pane lives in the CLI's global home — there is no per-workspace
     // dir to bootstrap, and asking for one would name a path nobody uses.
     const { runOnce, services } = warmServices();
-    const agent = activate("/App/resources/session-reporter.js", services);
+    const agent = activate("/App/resources/keepdeck-plugin", services);
 
     await agent.hooks["spawn.plan"]!(input as never, output());
 
@@ -545,7 +539,7 @@ describe("opencode plugin — warming the config dir", () => {
     // client: the local dir is one nothing here will read, so warming it
     // would spend a minute on a directory this pane never opens.
     const { runOnce, services } = warmServices();
-    const agent = activate("/App/resources/session-reporter.js", services);
+    const agent = activate("/App/resources/keepdeck-plugin", services);
     const target = { kind: "nativeServer" as const, endpoint: "http://vps:4096" };
 
     await agent.hooks["spawn.plan"]!({ ...withSkills, target } as never, output());

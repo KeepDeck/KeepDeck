@@ -112,7 +112,7 @@ describe("reporter shell scripts", () => {
     // knows the answer is one it can read; a courier that rejects it drops
     // messages the deck has already booked as delivered.
     const courier = readFileSync(
-      "plugins/opencode/resources/mail-courier.js",
+      "plugins/opencode/resources/keepdeck-plugin/mail-courier.js",
       "utf8",
     );
     const renderer = readFileSync("plugins/opencode/src/mail.ts", "utf8");
@@ -291,7 +291,7 @@ describe("reporter shell scripts", () => {
     );
     expect(shared).not.toMatch(/mktemp/);
     const plugin = readFileSync(
-      "plugins/opencode/resources/keepdeck-bridge.js",
+      "plugins/opencode/resources/keepdeck-plugin/keepdeck-bridge.js",
       "utf8",
     );
     expect(plugin, "the plugin still knows how to write an inbox")

@@ -1,6 +1,6 @@
 /**
  * The OpenCode CLI plugin: identity, detection, and the spawn/resume hooks.
- * opencode creates its session id lazily — the session-reporter plugin
+ * opencode creates its session id lazily — KeepDeck's own plugin
  * (injected per spawn via `OPENCODE_CONFIG_CONTENT`, which MERGES into the
  * user's config; nothing is installed on their side) reports it back
  * through the bridge, catching `/new` typed inside the TUI too.
@@ -23,33 +23,26 @@ import { attributeOpencodeEvent, normalizeOpencodeStatus } from "./status";
 import { normalizeOpencodeUsage } from "./usage";
 
 /**
- * The per-invocation config injecting KeepDeck's own opencode plugins.
+ * The per-invocation config injecting KeepDeck's own opencode plugin.
  *
- * TWO of them, and they stay two. The reporter talks about this pane —
- * identity, usage, turn lifecycle — and asks for nothing; the courier
- * carries mail INTO the session and is the only one that asks. One file
- * doing both would tie a change in how a message is delivered to the code
- * that reports whether the pane is busy, and those change for different
- * reasons. Either can be missing (a broken install) without taking the
- * other, or the spawn, down with it.
+ * ONE plugin DIRECTORY, by absolute path under the legacy `plugin` key — the
+ * one shape both opencode generations load (task-425): 1.x finds its
+ * `index.js`, 2.x migrates the key and refuses a FILE path. Its reporter and
+ * courier stay separate components inside it (resources/keepdeck-plugin/
+ * index.js says why they are one entry).
  */
 async function sessionConfigEnv(
   resources: PluginResources,
   mcp: SpawnPlanInput["mcp"],
 ): Promise<[string, string][]> {
-  const ours = (
-    await Promise.all([
-      resources.path("session-reporter.js"),
-      resources.path("mail-courier.js"),
-    ])
-  ).filter((path): path is string => Boolean(path));
+  const ours = await resources.path("keepdeck-plugin");
   const servers = mcpConfigFragment(mcp);
   // ONE variable carries both: opencode reads `OPENCODE_CONFIG_CONTENT`
   // once, so a second assignment would silently drop the first.
   const config = {
     // The array form is additive (plugin origins concatenate) — nothing in
     // the user's own config is replaced.
-    ...(ours.length > 0 ? { plugin: ours } : {}),
+    ...(ours ? { plugin: [ours] } : {}),
     ...(servers ?? {}),
   };
   return Object.keys(config).length > 0
@@ -117,7 +110,7 @@ const remoteAttachArgs = (
     : null;
 
 /** Everything a launch of this CLI carries before its arguments are chosen —
- *  the injected plugins and MCP servers, the shared skills directory — and
+ *  the injected plugin and MCP servers, the shared skills directory — and
  *  whether the remote path has already settled those arguments.
  *
  *  One place, because it was three. The same lines stood in `spawn.plan`,
