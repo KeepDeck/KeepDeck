@@ -401,7 +401,10 @@ describe("opencode plugin hooks", () => {
     // typing a nudge into the pane when nothing else would start a turn —
     // the courier is already inside the process and can start one properly.
     const agent = activate("/App/resources");
-    expect(agent.status?.mail?.channels).toEqual([{ event: "mail.ask", atTurnEnd: true }]);
+    expect(agent.status?.mail?.channels).toEqual([
+      { event: "mail.ask", atTurnEnd: true },
+      { event: "mail.ask.tool", atTurnEnd: false },
+    ]);
     expect(agent.status?.wake).toBe("bridge");
   });
 

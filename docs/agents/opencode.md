@@ -39,10 +39,24 @@ shared `launchPlans`.
 
 ## Mail (1.x)
 
-The courier asks at four moments: `session.created` (the brief),
-`chat.message` (the user is sending anyway), `session.idle` (turn end), and
-a wake from the deck. There is no tool-boundary moment, so mail for a
-working OpenCode pane waits for the turn to end.
+The courier asks at five moments: `session.created` (the brief),
+`chat.message` (the user is sending anyway), `tool.execute.after` (a tool
+call returned mid-turn), `session.idle` (turn end), and a wake from the
+deck. Verified from the 1.19.3 source, 2026-10-22.
+
+- Two channels: `mail.ask` runs at a turn's edges and counts as turn end;
+  `mail.ask.tool` runs after each tool call. The deck holds mail for a
+  working pane rather than wake it, and `mail.ask.tool` is the boundary it
+  waits for. The mail is appended to the tool's result, so the model reads
+  it in the same turn. This is opencode's counterpart of claude's
+  `PostToolBatch` and codex's `PostToolUse`.
+- Until 2026-10-22 there was no tool-boundary channel, so mail for a
+  working pane waited for the turn to end.
+- Mail riding along with `chat.message` is added as complete parts, with
+  `id`, `sessionID` and `messageID`. Since 1.16.0, a bare part fails the
+  user's whole prompt.
+- `src/app/mail/midTurnMail.test.ts` pins, per agent, how a working pane
+  is reached.
 
 When ancestry cannot be determined, a session is classified "unknown", and
 the courier adopts it as the root, so the pane is never unreachable. Each
