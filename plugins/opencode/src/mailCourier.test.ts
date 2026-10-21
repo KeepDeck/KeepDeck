@@ -8,14 +8,12 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-// The courier is untyped resource JS — it is shipped to, and loaded by, the
-// user's opencode process, never bundled into the plugin.
-// @ts-expect-error untyped resource module
-import { startCourier as courierPlugin } from "../resources/keepdeck-plugin/mail-courier.js";
-// The pane's session is ONE object per process — which is the point of it,
-// and which makes a suite of many panes in one process need a fresh start.
-// @ts-expect-error untyped resource module
-import { resetPaneSession } from "../resources/keepdeck-plugin/pane-session.js";
+// The courier is untyped resource JS — shipped to, and loaded by, the user's
+// opencode process, never bundled into the plugin. The pane's session it
+// shares is ONE object per module instance — which is the point of it — so
+// each test loads the courier fresh, as a new pane's process would (see
+// `beforeEach`).
+let courierPlugin: (input?: any) => Promise<any>;
 import { startDeck } from "../../../scripts/reporterHarness";
 
 /**
@@ -121,7 +119,9 @@ describe("opencode mail courier", () => {
   };
 
   beforeEach(async () => {
-    resetPaneSession();
+    vi.resetModules();
+    // @ts-expect-error untyped resource module
+    ({ startCourier: courierPlugin } = await import("../resources/keepdeck-plugin/mail-courier.js"));
     dir = mkdtempSync(join(tmpdir(), "kd-courier-"));
     deck = await startDeck(answerAsk);
     process.env.KEEPDECK_BRIDGE = JSON.stringify({

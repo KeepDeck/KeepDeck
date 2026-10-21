@@ -58,12 +58,6 @@ export function paneSession(client) {
   return shared;
 }
 
-/** Test seam: a fresh process, without one. */
-export function resetPaneSession() {
-  shared = undefined;
-  sharedClient = undefined;
-}
-
 function create() {
   /** child session id → its IMMEDIATE parent. One hop each, exactly as the
    * server reports it; `rootOf` walks the links rather than pre-compressing
