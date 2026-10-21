@@ -80,6 +80,10 @@ struct Registry {
     /// before the old session's exit is reaped, so removal only clears an
     /// entry that still names the session going away.
     panes: HashMap<String, String>,
+    /// pane → the process its reports are pinned to (the webview's binding
+    /// ledger, src/app/paneAttribution.ts). Its children count as the pane's
+    /// too — see [`PtySession::hosts`].
+    vouched: HashMap<String, u32>,
     next: u64,
 }
 
@@ -109,18 +113,30 @@ impl SessionRegistry {
     /// process sits in one session, and so does the parent of one that
     /// detached.
     pub fn pane_of(&self, pid: u32) -> Option<String> {
-        let panes: Vec<(String, Arc<PtySession>)> = {
+        let panes: Vec<(String, Arc<PtySession>, Option<u32>)> = {
             let reg = self.inner.lock().expect("session registry poisoned");
             reg.panes
                 .iter()
-                .filter_map(|(pane, id)| Some((pane.clone(), reg.sessions.get(id)?.clone())))
+                .filter_map(|(pane, id)| {
+                    let session = reg.sessions.get(id)?.clone();
+                    Some((pane.clone(), session, reg.vouched.get(pane).copied()))
+                })
                 .collect()
         };
         // Outside the lock: the kernel is asked per terminal, and the
         // registry lock is never held across a syscall.
         panes
             .into_iter()
-            .find_map(|(pane, session)| session.hosts(pid).then_some(pane))
+            .find_map(|(pane, session, vouched)| session.hosts(pid, vouched).then_some(pane))
+    }
+
+    /// Record the process `pane`'s reports are pinned to, or forget it.
+    pub fn vouch(&self, pane: String, pid: Option<u32>) {
+        let mut reg = self.inner.lock().expect("session registry poisoned");
+        match pid {
+            Some(pid) => reg.vouched.insert(pane, pid),
+            None => reg.vouched.remove(&pane),
+        };
     }
 
     /// Look up a session handle. The registry lock is held only for the lookup,
@@ -314,6 +330,13 @@ pub fn session_resize(
 }
 
 /// Terminate a session.
+/// The webview's binding ledger says which process `pane`'s reports are
+/// pinned to (null: none any more). See [`SessionRegistry::vouch`].
+#[tauri::command]
+pub fn session_vouch(registry: State<SessionRegistry>, pane: String, pid: Option<u32>) {
+    registry.vouch(pane, pid);
+}
+
 #[tauri::command]
 pub fn session_close(registry: State<SessionRegistry>, id: String) -> Result<(), String> {
     registry.kill(&id).map_err(|e| e.to_string())
@@ -496,23 +519,60 @@ mod tests {
         registry.shutdown(Duration::from_millis(200));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn a_pane_counts_the_children_of_the_process_its_reports_are_pinned_to() {
+        // opencode 2.x: the agent (`serve`) leaves the terminal's session, and
+        // the MCP server it starts is its child — the pane's only through the
+        // pin the webview hands down.
+        let registry = SessionRegistry::default();
+        let (pane, events) = session(
+            "perl -e 'use POSIX; setsid(); print \"AGENT=$$\\n\"; \
+               if (my $k = fork()) { sleep 30 } else { print \"PID=$$\\n\"; sleep 30 }' & wait",
+        );
+        let mut seen = String::new();
+        let agent = named_pid(&events, &mut seen, "AGENT");
+        let server = named_pid(&events, &mut seen, "PID");
+        registry.insert(pane, Some("pane-1".into()));
+
+        assert_eq!(registry.pane_of(server), None, "not before the pane vouches");
+        registry.vouch("pane-1".into(), Some(agent));
+        assert_eq!(registry.pane_of(server).as_deref(), Some("pane-1"));
+        registry.vouch("pane-1".into(), None);
+        assert_eq!(registry.pane_of(server), None, "nor after the pin is dropped");
+
+        for pid in [server, agent] {
+            // SAFETY: processes this test started; they left the terminal's
+            // group, so its shutdown would not reach them.
+            unsafe { libc::kill(pid as i32, libc::SIGKILL) };
+        }
+        registry.shutdown(Duration::from_millis(200));
+    }
+
     /// The `PID=<n>` a test script printed first.
     #[cfg(unix)]
     fn first_pid(events: &Consumer) -> u32 {
+        named_pid(events, &mut String::new(), "PID")
+    }
+
+    /// The `<name>=<n>` a test script printed, waiting for it. `seen` is the
+    /// output read so far from this terminal, kept for the next ask.
+    #[cfg(unix)]
+    fn named_pid(events: &Consumer, seen: &mut String, name: &str) -> u32 {
         let started = Instant::now();
-        let mut seen = String::new();
+        let marker = format!("{name}=");
         while started.elapsed() < Duration::from_secs(5) {
-            if let Some(PtyEvent::Output(bytes)) = events.recv_timeout(Duration::from_millis(50)) {
-                seen.push_str(&String::from_utf8_lossy(&bytes));
-            }
-            if let Some(rest) = seen.split("PID=").nth(1) {
+            if let Some(rest) = seen.split(marker.as_str()).nth(1) {
                 let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
                 if rest[digits.len()..].starts_with(['\r', '\n']) {
                     return digits.parse().expect("a pid");
                 }
             }
+            if let Some(PtyEvent::Output(bytes)) = events.recv_timeout(Duration::from_millis(50)) {
+                seen.push_str(&String::from_utf8_lossy(&bytes));
+            }
         }
-        panic!("no pid printed: {seen}");
+        panic!("no {name} printed: {seen}");
     }
 
     #[test]

@@ -59,6 +59,10 @@ export interface PaneAttribution {
    * a retirement. A pin that moves is announced by its binding, which every
    * reader of this already follows. */
   subscribeCompanions(listener: (paneId: string) => void): () => void;
+  /** Told whenever the process a pane's reports are pinned to changes — and
+   * with `undefined` when the pane has none any more. The native side counts
+   * that process's children as the pane's own (src-tauri session.rs). */
+  subscribePins(listener: (paneId: string, reporter: string | undefined) => void): () => void;
   /** The pane's process is retiring — the next fresh session it reports is
    * legitimately its own again. */
   retire(paneId: string): void;
@@ -122,6 +126,19 @@ export function createPaneAttribution(
   const companionChanged = (paneId: string) => {
     for (const listener of [...companionListeners]) listener(paneId);
   };
+  const pinListeners = new Set<(paneId: string, reporter: string | undefined) => void>();
+  /** The one way the pin changes, so every change is announced. */
+  const pin = (paneId: string, reporter: string | undefined) => {
+    const before = bound.get(paneId);
+    bound.set(paneId, reporter);
+    if (before !== reporter) for (const listener of [...pinListeners]) listener(paneId, reporter);
+  };
+  const unpin = (paneId: string) => {
+    if (!bound.has(paneId)) return;
+    const before = bound.get(paneId);
+    bound.delete(paneId);
+    if (before !== undefined) for (const listener of [...pinListeners]) listener(paneId, undefined);
+  };
 
   // Through the catalog's accessor, never the raw field: a pane with no
   // recorded type RUNS the default agent and arms its reporter under that
@@ -167,7 +184,7 @@ export function createPaneAttribution(
       // The first binding of a generation establishes the entry — its presence
       // is what "this generation has bound" means, named process or not.
       if (!bound.has(paneId)) {
-        bound.set(paneId, reporter);
+        pin(paneId, reporter);
         return;
       }
       // After that the pin MOVES only between two named processes. An accepted
@@ -199,7 +216,7 @@ export function createPaneAttribution(
             `${paneId}: reporting process moved ${pinned} → ${reporter}`,
           );
         }
-        bound.set(paneId, reporter);
+        pin(paneId, reporter);
       }
     },
     recordCompanion(paneId, reporter) {
@@ -215,13 +232,17 @@ export function createPaneAttribution(
       companionListeners.add(listener);
       return () => companionListeners.delete(listener);
     },
+    subscribePins(listener) {
+      pinListeners.add(listener);
+      return () => pinListeners.delete(listener);
+    },
     retire(paneId) {
-      bound.delete(paneId);
+      unpin(paneId);
       if (companions.delete(paneId)) companionChanged(paneId);
     },
     forget(live) {
       for (const paneId of [...bound.keys()]) {
-        if (!live.has(paneId)) bound.delete(paneId);
+        if (!live.has(paneId)) unpin(paneId);
       }
       for (const paneId of [...companions.keys()]) {
         if (!live.has(paneId)) companions.delete(paneId);

@@ -1,6 +1,7 @@
 import { paneAgentType, panesRunningIn } from "../domain/deck";
 import { openPath } from "../ipc/app";
 import { log } from "../ipc/log";
+import { vouchPaneProcess } from "../ipc/session";
 import { probeWorktree } from "../ipc/worktree";
 import {
   loadNotifiedAchievements,
@@ -315,6 +316,12 @@ export function createAppRuntime(
     workspaces: () => deckStore.getSnapshot().workspaces,
     secretOf: (paneId) => peekPaneSpawnSpec(paneId)?.token,
   });
+  // The native side counts the children of a pane's pinned process as the
+  // pane's own (opencode 2.x's MCP servers are its `serve`'s), so it is told
+  // every pin. A lost call leaves that pane's helpers anonymous, nothing more.
+  const unsubscribePins = attribution.subscribePins((paneId, reporter) => {
+    void vouchPaneProcess(paneId, reporter).catch(() => {});
+  });
   // Mail exists only while its Experimental toggle is on, so the lifecycle
   // owner looks it up instead of holding it — hence the forward reference.
   const lifecycle = createPaneLifecycle(
@@ -554,6 +561,7 @@ export function createAppRuntime(
     dispose() {
       if (disposed) return;
       disposed = true;
+      unsubscribePins();
       application.dispose();
       sessionIndex.dispose();
       paneInputFocus.dispose();

@@ -66,18 +66,18 @@ fn the_terminal_hosts_its_own_and_their_detached_children_but_not_a_daemons_work
     let pids = read_pids(&events, &["SELF", "CHILD", "DETACHED", "WORKER"]);
     let (own, child, detached, worker) = (pids[0], pids[1], pids[2], pids[3]);
 
-    assert!(session.hosts(own), "the terminal's own leader");
-    assert!(session.hosts(child), "a child that stayed");
-    assert!(session.hosts(detached), "a detached child of a process in the terminal");
-    assert!(!session.hosts(worker), "a child of a detached process");
-    assert!(!session.hosts(u32::MAX), "no such process");
-    assert!(!session.hosts(0), "pid 0 names no process");
+    assert!(session.hosts(own, None), "the terminal's own leader");
+    assert!(session.hosts(child, None), "a child that stayed");
+    assert!(session.hosts(detached, None), "a detached child of a process in the terminal");
+    assert!(!session.hosts(worker, None), "a child of a detached process");
+    assert!(!session.hosts(u32::MAX, None), "no such process");
+    assert!(!session.hosts(0, None), "pid 0 names no process");
 
     // Another terminal's processes are not this one's.
     let (other, other_events) = spawn_sh("echo SELF=$$; sleep 30");
     let stranger = read_pids(&other_events, &["SELF"])[0];
-    assert!(!session.hosts(stranger));
-    assert!(other.hosts(stranger));
+    assert!(!session.hosts(stranger, None));
+    assert!(other.hosts(stranger, None));
 
     // The detached pair is in no pane's tree; take it down by hand.
     kill(worker);
@@ -97,10 +97,10 @@ fn a_detached_process_whose_starter_is_gone_belongs_to_nobody() {
     let detached = read_pids(&events, &["DETACHED", "READY"])[0];
     // The intermediate sh has exited; wait until the daemon is reparented.
     let started = Instant::now();
-    while session.hosts(detached) && started.elapsed() < Duration::from_secs(5) {
+    while session.hosts(detached, None) && started.elapsed() < Duration::from_secs(5) {
         std::thread::sleep(Duration::from_millis(50));
     }
-    assert!(!session.hosts(detached));
+    assert!(!session.hosts(detached, None));
     kill(detached);
     session.force_stop();
 }
@@ -116,5 +116,41 @@ fn nothing_belongs_to_a_terminal_whose_child_is_gone() {
         let _ = events.recv_timeout(Duration::from_millis(100));
     }
     assert!(session.has_exited());
-    assert!(!session.hosts(own));
+    assert!(!session.hosts(own, None));
+}
+
+#[test]
+fn the_process_a_pane_vouches_for_brings_in_its_children_and_no_further() {
+    // opencode 2.x: the agent runs in a `serve` it starts detached, and serve
+    // starts the MCP servers. Here: a detached process (the vouched agent),
+    // its child (an MCP server) and that child's child.
+    let (session, events) = spawn_sh(
+        "echo SELF=$$; \
+         perl -e 'use POSIX; setsid(); print \"AGENT=$$\\n\"; \
+           if (my $k = fork()) { sleep 30 } else { print \"SERVER=$$\\n\"; \
+             if (my $g = fork()) { sleep 30 } else { print \"GRANDCHILD=$$\\n\"; sleep 30 } }' & wait",
+    );
+    let pids = read_pids(&events, &["SELF", "AGENT", "SERVER", "GRANDCHILD"]);
+    let (own, agent, server, grandchild) = (pids[0], pids[1], pids[2], pids[3]);
+
+    // Unvouched, the agent's child is outside: its parent left the terminal.
+    assert!(!session.hosts(server, None));
+    // Vouched, the agent's own children are the pane's...
+    assert!(session.hosts(server, Some(agent)), "a child of the vouched agent");
+    assert!(session.hosts(agent, Some(agent)), "the vouched agent itself");
+    // ...and nothing further: being admitted through a parent is not a
+    // licence for one's own children, or a daemon's workers would follow.
+    assert!(!session.hosts(grandchild, Some(agent)), "a grandchild of the vouched agent");
+
+    // A pin naming a process that is not this terminal's counts for nothing.
+    let (other, other_events) = spawn_sh("echo SELF=$$; sleep 30");
+    let stranger = read_pids(&other_events, &["SELF"])[0];
+    assert!(!session.hosts(stranger, Some(stranger)));
+    assert!(session.hosts(own, Some(stranger)), "the terminal's own still are");
+
+    kill(grandchild);
+    kill(server);
+    kill(agent);
+    session.force_stop();
+    other.force_stop();
 }

@@ -68,3 +68,14 @@ export async function spawnSession(
     close: () => invoke("session_close", { id }),
   };
 }
+
+/**
+ * Tell the native side which process `pane`'s reports are pinned to — its
+ * children then count as the pane's — or that there is none (`undefined`).
+ * A reporter that named itself with something other than a process id pins
+ * nothing native.
+ */
+export function vouchPaneProcess(pane: string, reporter: string | undefined): Promise<void> {
+  const pid = reporter !== undefined && /^\d+$/.test(reporter) ? Number(reporter) : null;
+  return invoke("session_vouch", { pane, pid });
+}
