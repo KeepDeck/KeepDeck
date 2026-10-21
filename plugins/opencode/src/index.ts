@@ -21,6 +21,7 @@ import { OPENCODE_MAIL_CHANNELS, renderOpencodeMail } from "./mail";
 import { warmConfigDir } from "./warm";
 import { attributeOpencodeEvent, normalizeOpencodeStatus } from "./status";
 import { normalizeOpencodeUsage } from "./usage";
+import { standaloneArgs } from "./version";
 
 /**
  * The per-invocation config injecting KeepDeck's own opencode plugin.
@@ -124,7 +125,7 @@ const remoteAttachArgs = (
  *  skills, and go on looking like the ones that have them. */
 async function stageLaunch(
   ctx: PluginContext,
-  input: Pick<SpawnPlanInput, "mcp" | "skills" | "target" | "yolo">,
+  input: Pick<SpawnPlanInput, "mcp" | "skills" | "target" | "yolo" | "cliVersion">,
   output: { env: [string, string][]; envDefaults?: [string, string][]; args: string[] },
 ): Promise<boolean> {
   output.env.push(...(await sessionConfigEnv(ctx.resources, input.mcp)));
@@ -142,7 +143,7 @@ async function stageLaunch(
   // Only now, with the pane known to be local: bootstrap the dir it is about
   // to boot against, so the install does not happen inside its own boot.
   if (input.skills) await warmConfigDir(ctx, input.skills.opencodeConfigDir);
-  output.args.push(...yoloArgs(input.yolo));
+  output.args.push(...standaloneArgs(input.cliVersion), ...yoloArgs(input.yolo));
   return false;
 }
 

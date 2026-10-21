@@ -93,7 +93,14 @@ Read from the 2.0.32 and 2.1.2 source, and verified live on 2.1.2
   and imports 1.x sessions ONCE. A session made on 1.x afterwards is
   never imported (live), so history must read both.
 - **Server.** One shared background server unless `--standalone` is given,
-  so per-pane env and plugins need `--standalone`.
+  so per-pane env and plugins need `--standalone`. KeepDeck now adds it
+  when the CLI's `--version` names 2.x (plugin API 62 hands the version to
+  launch plans). 1.19.3 exits on the flag, so an unknown version gets none.
+  Verified live 2026-10-22:
+  - 15 concurrent `--standalone` starts on an initialized db, no failure
+    (upstream #53879 is a NEW db only);
+  - the MCP server's parent is the `serve` process, in its own session, so
+    the pane-identity rule of task-424 does not admit it yet (open).
 - **Remote.** `attach` is gone; it is now `--server <url>` with
   `OPENCODE_PASSWORD`.
 - **Fork.** `--fork` is gone; forking needs the API's fork plus a move.

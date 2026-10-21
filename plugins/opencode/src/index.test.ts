@@ -408,6 +408,25 @@ describe("opencode plugin hooks", () => {
     expect(agent.status?.wake).toBe("bridge");
   });
 
+  it("gives a 2.x pane a server of its own on spawn, resume and fork, and a 1.x pane none", async () => {
+    // Without it every 2.x pane joins one background service that loaded the
+    // plugin with the first pane's environment; 1.x exits on the flag.
+    const agent = activate("/App/resources", forkServices({ targetMissing: true }));
+    const v2 = { ...input, cliVersion: "opencode v2.1.2" };
+
+    const spawn = output();
+    await agent.hooks["spawn.plan"]!(v2, spawn);
+    const resume = output();
+    await agent.hooks["resume.plan"]!({ ...v2, sessionId: "ses_x" }, resume);
+    const fork = output();
+    await agent.hooks["fork.plan"]!({ ...v2, sessionId: "ses_x", sourceCwd: "/repo" }, fork);
+    for (const plan of [spawn, resume, fork]) expect(plan.args).toContain("--standalone");
+
+    const v1 = output();
+    await agent.hooks["spawn.plan"]!({ ...input, cliVersion: "1.19.3" }, v1);
+    expect(v1.args).not.toContain("--standalone");
+  });
+
   it("YOLO adds the skip-permissions flag on spawn and resume alike", async () => {
     const agent = activate("/App/resources");
 
