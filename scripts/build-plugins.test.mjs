@@ -254,32 +254,37 @@ describe("build pipeline (e2e against the real host and plugins)", () => {
       readFileSync(join(kimiTeams, "skills", "keepdeck-team", "SKILL.md"), "utf8"),
     ).toContain("mail.inbox");
 
-    // opencode's two plugins are loaded by absolute path and import TWO
-    // siblings between them — the wire, and the pane's session. Shipping
-    // either plugin without one gives an agent that loads and then throws on
-    // import, so all four have to arrive and the imports have to still
-    // resolve where they land.
-    const opencodeResources = join(
+    // opencode's plugin is a DIRECTORY loaded by absolute path: its index
+    // imports both components, and they import TWO siblings between them —
+    // the wire, and the pane's session. Shipping any of them without the rest
+    // gives an agent that loads and then throws on import, so all of them have
+    // to arrive and the imports have to still resolve where they land.
+    const opencodePlugin = join(
       distRoot,
       "plugins",
       "keepdeck.opencode",
       "resources",
+      "keepdeck-plugin",
     );
     for (const file of [
+      "index.js",
       "keepdeck-wire.js",
       "keepdeck-bridge.js",
       "pane-session.js",
       "mail-courier.js",
       "session-reporter.js",
     ]) {
-      expect(existsSync(join(opencodeResources, file))).toBe(true);
+      expect(existsSync(join(opencodePlugin, file)), file).toBe(true);
     }
+    const entry = readFileSync(join(opencodePlugin, "index.js"), "utf8");
+    expect(entry).toContain('from "./mail-courier.js"');
+    expect(entry).toContain('from "./session-reporter.js"');
     for (const file of ["mail-courier.js", "session-reporter.js"]) {
-      const body = readFileSync(join(opencodeResources, file), "utf8");
+      const body = readFileSync(join(opencodePlugin, file), "utf8");
       expect(body).toContain('from "./keepdeck-bridge.js"');
       expect(body).toContain('from "./pane-session.js"');
     }
-    expect(readFileSync(join(opencodeResources, "keepdeck-bridge.js"), "utf8"))
+    expect(readFileSync(join(opencodePlugin, "keepdeck-bridge.js"), "utf8"))
       .toContain('from "./keepdeck-wire.js"');
 
     // claude's Mod is a plugin directory claude loads with `--plugin-dir`:

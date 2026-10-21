@@ -1,22 +1,20 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { startDeck } from "../../../scripts/reporterHarness";
 import { normalizeOpencodeStatus } from "./status";
-// The reporter is untyped resource JS — it is shipped to, and loaded by, the
-// user's opencode process, never bundled into the plugin.
-// @ts-expect-error untyped resource module
-import reporter from "../resources/session-reporter.js";
-// The pane's session is ONE object per process — which is the point of it,
-// and which makes a suite of many panes in one process need a fresh start.
-// @ts-expect-error untyped resource module
-import { paneSession, resetPaneSession } from "../resources/pane-session.js";
-// The wire's own word for "everything handed over has landed" — see
-// `envelopes` below for why silence is not it.
-// @ts-expect-error untyped resource module
-import { drained } from "../resources/keepdeck-bridge.js";
+// The reporter, the pane's session and the wire are untyped resource JS —
+// shipped to, and loaded by, the user's opencode process, never bundled into
+// the plugin. The pane's session and the wire are ONE object per module
+// instance — which is the point of them — so each test loads them fresh, as a
+// new pane's process would (see `beforeEach`).
+let reporter: (input?: any) => Promise<any>;
+let paneSession: (client?: unknown) => any;
+/** The wire's own word for "everything handed over has landed" — see
+ * `envelopes` below for why silence is not it. */
+let drained: () => Promise<void>;
 
 /** An opencode `session.created` event; `parentID` marks a CHILD session. */
 const created = (id: string, parentID?: string) => ({
@@ -66,7 +64,13 @@ describe("opencode session reporter", () => {
   let ambientSkipsApprovals: string | undefined;
 
   beforeEach(async () => {
-    resetPaneSession();
+    vi.resetModules();
+    // @ts-expect-error untyped resource module
+    ({ startReporter: reporter } = await import("../resources/keepdeck-plugin/session-reporter.js"));
+    // @ts-expect-error untyped resource module
+    ({ paneSession } = await import("../resources/keepdeck-plugin/pane-session.js"));
+    // @ts-expect-error untyped resource module
+    ({ drained } = await import("../resources/keepdeck-plugin/keepdeck-bridge.js"));
     dir = mkdtempSync(join(tmpdir(), "kd-reporter-"));
     deck = await startDeck();
     process.env.KEEPDECK_BRIDGE = JSON.stringify({

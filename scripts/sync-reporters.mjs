@@ -51,7 +51,7 @@ export const REPORTERS = [
   {
     name: "keepdeck-wire.js",
     destinations: [
-      "plugins/opencode/resources",
+      "plugins/opencode/resources/keepdeck-plugin",
       "plugins/claude/resources/keepdeck-mod/hooks",
     ],
   },

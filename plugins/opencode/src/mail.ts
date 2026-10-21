@@ -28,10 +28,22 @@ import {
   type MailReplyRenderer,
 } from "@keepdeck/plugin-api";
 
-/** The one event that can carry an answer. The courier sends it and nothing
- * else does — the session reporter beside it reports facts and asks nothing,
- * which is exactly why the two are separate plugins. */
+/** The courier's ask at a turn's edges — a session's start, the user
+ * sending, the turn's end, the deck's wake. The courier sends it and nothing
+ * else does: the session reporter beside it reports facts and asks nothing,
+ * which is exactly why the two are separate components. */
 export const MAIL_ASK_EVENT = "mail.ask";
+
+/** The courier's ask after a tool call, while the turn runs — opencode's
+ * counterpart of claude's `PostToolBatch` and codex's `PostToolUse`. Without
+ * it a working opencode pane received nothing until its turn ended: the deck
+ * holds a working pane rather than wake it, on the strength of a boundary
+ * that, for this agent, was the turn's end alone. */
+export const MAIL_TOOL_ASK_EVENT = "mail.ask.tool";
+
+/** Whether `event` is one of the courier's asks. */
+export const isMailAsk = (event: string): boolean =>
+  event === MAIL_ASK_EVENT || event === MAIL_TOOL_ASK_EVENT;
 
 /** The payload version the courier reads. It is bumped when the SHAPE
  * changes, so a courier from an older KeepDeck (a pane spawned before an
@@ -39,18 +51,20 @@ export const MAIL_ASK_EVENT = "mail.ask";
  * happens to be empty. */
 export const MAIL_REPLY_VERSION = 1;
 
-/** opencode's one mail channel: the courier's own ask, made at a session's
- * start, as the user sends, at idle (the turn's end) and on the deck's wake —
- * several triggers, one delivery protocol. */
+/** opencode's mail channels, both the courier's own ask and one delivery
+ * protocol: at a turn's edges (idle is the turn's end, so the deck may hold
+ * mail for a working pane), and after each tool call mid-turn (which is what
+ * holding it is waiting for). */
 export const OPENCODE_MAIL_CHANNELS: readonly MailChannel[] = [
   { event: MAIL_ASK_EVENT, atTurnEnd: true },
+  { event: MAIL_TOOL_ASK_EVENT, atTurnEnd: false },
 ];
 
 export const renderOpencodeMail: MailReplyRenderer = ({ event, messages, waiting }) => {
   // Not our question. Nothing else asks today; refusing by name is what
   // keeps that true — a future reporter armed to ask would otherwise be
   // handed courier instructions it has no idea what to do with.
-  if (event.type !== MAIL_ASK_EVENT) return null;
+  if (typeof event.type !== "string" || !isMailAsk(event.type)) return null;
   const standing = messages.filter((mail: DeliverableMail) => mail.standing);
   const traffic = messages.filter((mail: DeliverableMail) => !mail.standing);
   return JSON.stringify({

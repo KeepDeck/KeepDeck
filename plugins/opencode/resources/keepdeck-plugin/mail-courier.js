@@ -1,12 +1,11 @@
 /**
- * KeepDeck mail courier — an opencode plugin.
+ * KeepDeck mail courier — one of the two components of KeepDeck's opencode
+ * plugin (index.js beside this file loads both).
  *
- * Injected PER SPAWN beside the session reporter, through the same
- * `OPENCODE_CONFIG_CONTENT.plugin` array (which is additive; nothing is
- * installed on the user's side). It is a SEPARATE plugin on purpose: the
- * reporter's job is to tell KeepDeck about this pane — identity, usage, turn
- * lifecycle — and it asks for nothing. This one's job is the opposite
- * direction, and only this one ever asks.
+ * It is a SEPARATE component on purpose: the reporter's job is to tell
+ * KeepDeck about this pane — identity, usage, turn lifecycle — and it asks
+ * for nothing. This one's job is the opposite direction, and only this one
+ * ever asks.
  *
  * What it exists for: on every other CLI, a teammate's message reaches an
  * agent by being TYPED into its terminal, where it arrives indistinguishable
@@ -16,22 +15,25 @@
  * somebody said something, without one when it is only context the pane must
  * hold from now on.
  *
- * The four moments it asks, and why:
+ * The five moments it asks, and why:
  *
- *   session.created  a conversation just started, so the standing brief can
- *                    land before the first word is spoken
- *   chat.message     the user is sending something anyway — anything waiting
- *                    rides along, and nobody pays for a turn
- *   session.idle     a turn just ended, which is the boundary the deck holds
- *                    messages for
- *   <pane>.wake      the deck rang: mail is waiting and nothing else was
- *                    going to happen (see bridge/nudge.rs)
+ *   session.created     a conversation just started, so the standing brief
+ *                       can land before the first word is spoken
+ *   chat.message        the user is sending something anyway — anything
+ *                       waiting rides along, and nobody pays for a turn
+ *   tool.execute.after  a tool call just returned mid-turn: anything waiting
+ *                       rides back to the model with its result, which is how
+ *                       a working pane is reached at all — the deck holds
+ *                       mail for a working pane rather than wake it
+ *   session.idle        a turn just ended
+ *   <pane>.wake         the deck rang: mail is waiting for an idle pane and
+ *                       nothing else was going to happen (see bridge/nudge.rs)
  *
  * Best-effort throughout, like the reporter beside it: a KeepDeck-less
  * environment, a deck that quit, a full disk — none of it may break the
  * user's session, so every failure here ends in silence.
  */
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { existsSync, rmSync, watch } from "node:fs";
 import { join } from "node:path";
 import { paneSession } from "./pane-session.js";
@@ -47,7 +49,7 @@ import {
  * this exact file. */
 const REPLY_VERSION = 1;
 
-export default async (input = {}) => {
+export async function startCourier(input = {}) {
   const bridge = readBridge();
   if (!bridge) return {}; // not spawned by KeepDeck — stay inert
   const { dir } = bridge;
@@ -86,14 +88,18 @@ export default async (input = {}) => {
    * that anyone had collected it; the deck now learns that from the send
    * itself, and puts the messages back when nobody was there.
    */
-  const ask = async (target) => {
+  const ask = async (target, type = "mail.ask") => {
     const correlation = randomUUID();
     const envelope = makeEnvelope(bridge, "agent.status", {
       reply: correlation,
       // Where the answer will land, as this courier knows it: the deck hands
       // mail only to the pane's MAIN agent, and only this side can say
-      // whether the session it is about to write into is the root.
-      event: { type: "mail.ask", target },
+      // whether the session it is about to write into is the root. An ask
+      // naming no target is refused before anything leaves the queue.
+      //
+      // `type` is the channel (plugins/opencode/src/mail.ts): `mail.ask` at a
+      // turn's edges, `mail.ask.tool` after a tool call mid-turn.
+      event: { type, target },
     });
     // Answered on the same call, so there is no file to poll for and no
     // window in which an answer exists that nobody has come for.
@@ -122,6 +128,27 @@ export default async (input = {}) => {
     text,
     ...(synthetic ? { synthetic: true } : {}),
   });
+
+  /**
+   * A part for a message opencode is already building, as opencode builds
+   * its own: `chat.message` runs after the server has given every part its
+   * `id`, `sessionID` and `messageID`, and saving one without them fails the
+   * whole prompt (1.16.0 on — a durable event needs the session). Its id
+   * sorts after every part already in `parts`, because opencode reads a
+   * message's parts back ordered by id.
+   */
+  const messagePart = (text, synthetic, message, parts) => ({
+    id: partIDAfter(parts),
+    sessionID: message.sessionID,
+    messageID: message.id,
+    ...textPart(text, synthetic),
+  });
+
+  /** The two halves of an answer as one block of text, brief first. */
+  const answerText = (answer) =>
+    [answer.context, answer.prompt]
+      .filter((half) => typeof half === "string" && half)
+      .join("\n\n");
 
   /**
    * Whether a client call actually worked.
@@ -188,9 +215,7 @@ export default async (input = {}) => {
    */
   const viaTui = async (answer) => {
     if (!client?.tui?.appendPrompt || !client?.tui?.submitPrompt) return false;
-    const text = [answer.context, answer.prompt]
-      .filter((half) => typeof half === "string" && half)
-      .join("\n\n");
+    const text = answerText(answer);
     if (!text) return false;
     if (!ok(await client.tui.appendPrompt({ body: { text } }))) return false;
     return ok(await client.tui.submitPrompt());
@@ -246,7 +271,7 @@ export default async (input = {}) => {
    * The parent check is what keeps it honest — the task tool creates child
    * sessions in this same process, and a child's events can be the first this
    * courier sees; adopting one would bind the pane to a leaf that ends. That
-   * check lives in the shared pane session, so the two plugins cannot answer
+   * check lives in the shared pane session, so the two components cannot answer
    * it differently — and now cannot hold different answers either.
    */
   const adoptRoot = async (sessionID) => {
@@ -325,17 +350,14 @@ export default async (input = {}) => {
    * about the mail is in the answer to the ask — so taking it down IS
    * reading it.
    *
-   * Answered WHILE A TURN RUNS, which is the whole of this pane's mid-turn
-   * channel. It used to be ignored there, on the argument that `session.idle`
-   * collects moments later anyway — true, and it is exactly the wait that
-   * makes correcting a working agent impossible. Everywhere else the deck
-   * reaches a running turn through a hook; opencode has no hooks, so the
-   * doorbell is the hook, and refusing it mid-turn left this the one agent a
-   * person could only steer by typing over their own unsent message.
+   * The deck rings an IDLE pane. A working one it holds for a boundary, and
+   * mid-turn that boundary is `tool.execute.after` below. This used to be
+   * written as the pane's mid-turn channel, but the deck stopped ringing a
+   * working pane (7e927dfe) and nothing took its place until that hook. A
+   * ring is still answered whenever it comes: answering one is never wrong.
    *
-   * The words still travel the way they always did — through the courier's
-   * own ask, framed and attributed. Nothing is typed into the terminal here,
-   * mid-turn or not.
+   * The words travel through the courier's own ask, framed and attributed.
+   * Nothing is typed into the terminal here.
    */
   const takeDoorbell = () => {
     // `dir` is this pane's OWN inbox, so the doorbell needs no name of its
@@ -387,14 +409,68 @@ export default async (input = {}) => {
       // assumed it. Waiting costs at most what an ask costs, which is what
       // this hook was going to spend anyway.
       await work;
-      const answer = await ask();
-      if (!answer || !Array.isArray(output?.parts)) return;
+      const message = output?.message;
+      if (!message?.id || !message?.sessionID || !Array.isArray(output?.parts)) return;
+      // Only once the parts can be placed is anything taken: the deck books a
+      // message as delivered the moment it hands it over. The target is the
+      // root's classification, as `collect` gives it — a root the client
+      // could not classify names nobody, and the deck holds.
+      const answer = await ask(await pane.classify(sessionID));
+      if (!answer) return;
       if (typeof answer.context === "string" && answer.context) {
-        output.parts.push(textPart(answer.context, true));
+        output.parts.push(messagePart(answer.context, true, message, output.parts));
       }
       if (typeof answer.prompt === "string" && answer.prompt) {
-        output.parts.push(textPart(answer.prompt, false));
+        output.parts.push(messagePart(answer.prompt, false, message, output.parts));
       }
     },
+    /**
+     * A tool call just returned while the turn runs, so anything waiting
+     * rides back to the model with its result — the same moment claude's
+     * `PostToolBatch` and codex's `PostToolUse` give the deck. opencode
+     * hands the result to the model after this hook, in this same turn
+     * (packages/opencode/src/session/tools.ts), and every tool passes
+     * through it, MCP tools included.
+     *
+     * The pane's main agent only: a subagent's tool calls run in its own
+     * session, and mail landing there would be read by nobody the sender
+     * meant.
+     */
+    "tool.execute.after": async (info, output) => {
+      if (!info?.sessionID || info.sessionID !== pane.root) return;
+      if (typeof output?.output !== "string") return;
+      // Behind whatever is already collecting, as `chat.message` is.
+      await work;
+      const answer = await ask(await pane.classify(info.sessionID), "mail.ask.tool");
+      const text = answer ? answerText(answer) : "";
+      if (text) output.output = `${output.output}\n\n${text}`;
+    },
   };
-};
+}
+
+/**
+ * An opencode part id that sorts after every id in `parts`: `prt_`, 12 hex
+ * digits of time-and-counter, then 14 random base62 characters — the shape
+ * of opencode's own ascending ids (packages/opencode/src/id/id.ts).
+ *
+ * Above the highest one already there, not merely "now": opencode mints the
+ * message's own parts in the same millisecond this runs, with a counter this
+ * process cannot see, so a fresh time-and-counter of our own could land
+ * below theirs — and opencode reads parts back ordered by id. The hex head
+ * alone then decides the order, whatever the random tail.
+ */
+const BASE62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+const PART_HEAD = /^prt_([0-9a-f]{12})/;
+const PART_HEAD_BITS = 0xffffffffffffn;
+function partIDAfter(parts, now = Date.now()) {
+  const floor = parts.reduce((highest, part) => {
+    const head = PART_HEAD.exec(typeof part?.id === "string" ? part.id : "");
+    const value = head ? BigInt(`0x${head[1]}`) : 0n;
+    return value > highest ? value : highest;
+  }, 0n);
+  // opencode keeps the low 48 bits of time × 4096 + counter; compare there.
+  const fresh = (BigInt(now) * 0x1000n) & PART_HEAD_BITS;
+  const head = (((floor >= fresh ? floor : fresh) + 1n) & PART_HEAD_BITS).toString(16).padStart(12, "0");
+  const random = Array.from(randomBytes(14), (byte) => BASE62[byte % 62]).join("");
+  return `prt_${head}${random}`;
+}

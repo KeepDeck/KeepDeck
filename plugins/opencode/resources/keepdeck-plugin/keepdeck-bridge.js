@@ -1,25 +1,26 @@
 /**
- * opencode's adapter onto the wire both of KeepDeck's opencode plugins speak
- * to the deck (keepdeck-wire.js, shared with every in-process reporter).
+ * opencode's adapter onto the wire both components of KeepDeck's opencode
+ * plugin speak to the deck (keepdeck-wire.js, shared with every in-process reporter).
  *
- * They stay two plugins — the reporter states facts about the pane and asks
- * nothing, the courier carries mail in and is the only one that asks — but
- * they run in the same process and speak the same protocol, and that protocol
- * was written out twice. Every decision here is silent-failure shaped: change
- * the reporter identity rule or the envelope shape in one file and the deck
- * ignores that plugin's postbacks with nothing logged on either side.
+ * They stay two components — the reporter states facts about the pane and
+ * asks nothing, the courier carries mail in and is the only one that asks —
+ * but they run in the same process and speak the same protocol, and that
+ * protocol was written out twice. Every decision here is silent-failure
+ * shaped: change the reporter identity rule or the envelope shape in one file
+ * and the deck ignores that component's postbacks with nothing logged on
+ * either side.
  *
- * WHAT the plugins are talking ABOUT lives next door, in `pane-session.js`.
+ * WHAT the components are talking ABOUT lives next door, in `pane-session.js`.
  * It was here, and having the session tree inside the transport meant anyone
  * reaching for `sendEnvelope` also pulled in opencode's idea of a
  * conversation — and, worse, that the thing shared was a factory rather than
- * an object, so each plugin built its own answer to a question they had to
+ * an object, so each component built its own answer to a question they had to
  * agree on.
  *
  * Shipped beside them and imported as a sibling: `build-plugins.mjs` copies
- * `resources/` whole, and opencode loads each plugin by absolute path, so a
- * relative import between them resolves the same way in the repo and in the
- * bundle.
+ * `resources/` whole, and opencode loads the plugin directory by absolute
+ * path, so a relative import between them resolves the same way in the repo
+ * and in the bundle.
  */
 // Built in, like everything else this file leans on: a reporter that needed
 // a dependency installed would be a reporter that stops working the moment
@@ -36,8 +37,8 @@ import { createWire, parseBridge, SEND_TIMEOUT_MS } from "./keepdeck-wire.js";
  * The deck pins a pane's identity to ONE reporting process and refuses the
  * others — the bridge secret is inherited by the pane's whole process tree,
  * so it cannot tell them apart on its own. These run INSIDE the agent, so
- * the agent's own pid is that name, and being two plugins in the SAME
- * process they answer identically. A nested opencode gets its own and is
+ * the agent's own pid is that name, and being two components in the
+ * SAME process they answer identically. A nested opencode gets its own and is
  * refused. The shell reporters answer the same question with the process
  * group of the hook's parent, since a hook is not the agent.
  */
@@ -49,9 +50,10 @@ export function readBridge() {
 }
 
 /**
- * The pane's ONE wire. Both plugins run in this process and reach it through
- * this module, so they share its publish queue — the order facts are stated
- * in is the process's, not each plugin's.
+ * The pane's ONE wire. Both components reach it through this module, so they
+ * share its publish queue — the order facts are stated in is the process's,
+ * not each component's. That holds only while they are ONE plugin: opencode
+ * 2.x gives each plugin entry its own copy of a sibling module (see index.js).
  */
 let wire = null;
 function wireFor(bridge) {

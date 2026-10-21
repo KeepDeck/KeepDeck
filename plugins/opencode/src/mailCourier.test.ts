@@ -7,15 +7,16 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { admitMail } from "@keepdeck/plugin-api";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-// The courier is untyped resource JS — it is shipped to, and loaded by, the
-// user's opencode process, never bundled into the plugin.
-// @ts-expect-error untyped resource module
-import courierPlugin from "../resources/mail-courier.js";
-// The pane's session is ONE object per process — which is the point of it,
-// and which makes a suite of many panes in one process need a fresh start.
-// @ts-expect-error untyped resource module
-import { resetPaneSession } from "../resources/pane-session.js";
+import { OPENCODE_MAIL_CHANNELS, renderOpencodeMail } from "./mail";
+import { attributeOpencodeEvent } from "./status";
+// The courier is untyped resource JS — shipped to, and loaded by, the user's
+// opencode process, never bundled into the plugin. The pane's session it
+// shares is ONE object per module instance — which is the point of it — so
+// each test loads the courier fresh, as a new pane's process would (see
+// `beforeEach`).
+let courierPlugin: (input?: any) => Promise<any>;
 import { startDeck } from "../../../scripts/reporterHarness";
 
 /**
@@ -104,10 +105,29 @@ describe("opencode mail courier", () => {
    * what the deck does, because an asker left unanswered waits out its whole
    * timeout, and a test that answered selectively would stall the courier on
    * every turn that had no mail.
+   *
+   * And hand mail out only where the deck would — through the deck's own
+   * admission (src/app/mail/hookReply.ts) on opencode's own attribution and
+   * channels. A stand-in that answered every `mail.ask` hid a courier that
+   * asked naming no target, which the deck refuses before anything leaves
+   * the queue: the ride-along never once delivered.
    */
+  const admits = (payload: unknown) =>
+    !(
+      "refused" in
+      admitMail(
+        {
+          attribute: attributeOpencodeEvent,
+          mail: { channels: OPENCODE_MAIL_CHANNELS, render: renderOpencodeMail },
+        },
+        payload,
+      )
+    );
   const answerAsk = (envelope: any) => {
-    if (envelope?.payload?.event?.type !== "mail.ask") return { status: 204 };
+    const type = envelope?.payload?.event?.type;
+    if (type !== "mail.ask" && type !== "mail.ask.tool") return { status: 204 };
     asked.push(envelope);
+    if (!admits(envelope.payload)) return { status: 204 };
     const answer = pending.shift();
     const body =
       answer === undefined
@@ -121,7 +141,9 @@ describe("opencode mail courier", () => {
   };
 
   beforeEach(async () => {
-    resetPaneSession();
+    vi.resetModules();
+    // @ts-expect-error untyped resource module
+    ({ startCourier: courierPlugin } = await import("../resources/keepdeck-plugin/mail-courier.js"));
     dir = mkdtempSync(join(tmpdir(), "kd-courier-"));
     deck = await startDeck(answerAsk);
     process.env.KEEPDECK_BRIDGE = JSON.stringify({
@@ -237,17 +259,92 @@ describe("opencode mail courier", () => {
     // awaited and the injection is not a prompt of its own.
     const courier = await start();
     await courier.event(created("ses_root"));
-    const output = { message: {}, parts: [{ type: "text", text: "hi" }] };
+    const message = { id: "msg_1", sessionID: "ses_root" };
+    // Minted by opencode with its own counter, which this process cannot
+    // see — so its id can run ahead of any fresh time-and-counter the courier
+    // takes. A minute ahead keeps that case certain rather than a race with
+    // the clock. (opencode keeps the low 48 bits of time × 4096 + counter.)
+    const head = (BigInt(Date.now() + 60_000) * 0x1000n) & 0xffffffffffffn;
+    const own = {
+      id: `prt_${head.toString(16).padStart(12, "0")}zzzzzzzzzzzzzz`,
+      sessionID: "ses_root",
+      messageID: "msg_1",
+      type: "text",
+      text: "hi",
+    };
+    const output = { message, parts: [own] };
     pending.push({ v: 1, context: "you are impl-1", prompt: "ship it" });
     await courier["chat.message"]({ sessionID: "ses_root" }, output);
 
+    // Whole parts, as opencode's own are by the time this hook runs: 1.16.0
+    // on, saving one without its session fails the user's whole prompt
+    // ("Missing id/sessionID/messageID", measured on 1.19.3).
+    const partId = expect.stringMatching(/^prt_[0-9a-f]{12}[0-9A-Za-z]{14}$/);
     expect(output.parts).toEqual([
-      { type: "text", text: "hi" },
-      { type: "text", text: "you are impl-1", synthetic: true },
-      { type: "text", text: "ship it" },
+      own,
+      { id: partId, sessionID: "ses_root", messageID: "msg_1", type: "text", text: "you are impl-1", synthetic: true },
+      { id: partId, sessionID: "ses_root", messageID: "msg_1", type: "text", text: "ship it" },
     ]);
+    // opencode reads a message's parts back ordered by id: the user's own
+    // words first, then the brief, then the message it frames.
+    const ids = output.parts.map((part) => part.id);
+    expect([...ids].sort()).toEqual(ids);
     // Nothing was prompted separately — that is the point of riding along.
     expect(prompts).toEqual([]);
+  });
+
+  it("takes nothing to ride along when the message cannot carry it", async () => {
+    // The deck books mail as delivered the moment it hands it over, so a
+    // message with nowhere to put the parts must not ask at all.
+    const courier = await start();
+    await courier.event(created("ses_root"));
+    asked.length = 0;
+    pending.push({ v: 1, prompt: "ship it" });
+    await courier["chat.message"]({ sessionID: "ses_root" }, { parts: [] });
+
+    expect(asked).toEqual([]);
+    expect(pending).toHaveLength(1);
+  });
+
+  it("reaches a working pane after each tool call, inside the turn", async () => {
+    // The mid-turn channel: the deck holds mail for a working pane, and this
+    // is the boundary it holds for. The words ride back to the model with
+    // the tool's result — no prompt, no turn of their own.
+    const courier = await start();
+    await courier.event(created("ses_root"));
+    asked.length = 0;
+    pending.push({ v: 1, prompt: "stop and rebase first" });
+    const output = { title: "bash", output: "3 files changed", metadata: {} };
+    await courier["tool.execute.after"]({ tool: "bash", sessionID: "ses_root", callID: "c1" }, output);
+
+    expect(output.output).toBe("3 files changed\n\nstop and rebase first");
+    expect(asked.map((ask) => ask.payload.event))
+      .toEqual([{ type: "mail.ask.tool", target: "root" }]);
+    expect(prompts).toEqual([]);
+  });
+
+  it("leaves a tool's result alone when nothing is waiting", async () => {
+    const courier = await start();
+    await courier.event(created("ses_root"));
+    const output = { title: "bash", output: "ok", metadata: {} };
+    await courier["tool.execute.after"]({ tool: "bash", sessionID: "ses_root", callID: "c1" }, output);
+
+    expect(output.output).toBe("ok");
+  });
+
+  it("does not ask after a subagent's tool call", async () => {
+    // A subagent's tools run in its own session; mail there would be read by
+    // nobody the sender meant.
+    const courier = await start();
+    await courier.event(created("ses_root"));
+    await courier.event(created("ses_child", "ses_root"));
+    asked.length = 0;
+    pending.push({ v: 1, prompt: "ship it" });
+    const output = { title: "bash", output: "ok", metadata: {} };
+    await courier["tool.execute.after"]({ tool: "bash", sessionID: "ses_child", callID: "c1" }, output);
+
+    expect(asked).toEqual([]);
+    expect(output.output).toBe("ok");
   });
 
   it("answers the deck's doorbell, and takes it down", async () => {

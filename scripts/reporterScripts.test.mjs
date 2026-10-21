@@ -112,14 +112,19 @@ describe("reporter shell scripts", () => {
     // knows the answer is one it can read; a courier that rejects it drops
     // messages the deck has already booked as delivered.
     const courier = readFileSync(
-      "plugins/opencode/resources/mail-courier.js",
+      "plugins/opencode/resources/keepdeck-plugin/mail-courier.js",
       "utf8",
     );
     const renderer = readFileSync("plugins/opencode/src/mail.ts", "utf8");
 
-    const asked = courier.match(/event:\s*\{\s*type:\s*"([^"]+)"/);
-    expect(asked, "no asked event type in the courier").not.toBeNull();
-    expect(renderer).toContain(`MAIL_ASK_EVENT = "${asked[1]}"`);
+    // Two asks, one per channel: the default at a turn's edges, and the one
+    // after a tool call mid-turn. Each must be a name the renderer declares.
+    const edge = courier.match(/const ask = async \(target, type = "([^"]+)"\)/);
+    expect(edge, "no default ask type in the courier").not.toBeNull();
+    expect(renderer).toContain(`MAIL_ASK_EVENT = "${edge[1]}"`);
+    const tool = courier.match(/"tool\.execute\.after"[\s\S]*?await ask\([^,]+, "([^"]+)"\)/);
+    expect(tool, "no ask after a tool call in the courier").not.toBeNull();
+    expect(renderer).toContain(`MAIL_TOOL_ASK_EVENT = "${tool[1]}"`);
 
     const courierVersion = courier.match(/REPLY_VERSION\s*=\s*(\d+)/);
     expect(courierVersion, "no REPLY_VERSION in the courier").not.toBeNull();
@@ -291,7 +296,7 @@ describe("reporter shell scripts", () => {
     );
     expect(shared).not.toMatch(/mktemp/);
     const plugin = readFileSync(
-      "plugins/opencode/resources/keepdeck-bridge.js",
+      "plugins/opencode/resources/keepdeck-plugin/keepdeck-bridge.js",
       "utf8",
     );
     expect(plugin, "the plugin still knows how to write an inbox")
