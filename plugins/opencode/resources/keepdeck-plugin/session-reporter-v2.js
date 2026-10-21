@@ -84,8 +84,9 @@ export async function startReporterV2({ context, bridge, pane }) {
     const key = `${ref.providerID}\0${ref.id}`;
     if (windows.has(key)) return windows.get(key);
     try {
+      // `{ location, data: [...] }` on 2.1.2 (measured, task-375).
       const listed = await context.model.list();
-      const found = (Array.isArray(listed) ? listed : []).find(
+      const found = (Array.isArray(listed?.data) ? listed.data : []).find(
         (entry) => entry?.id === ref.id && entry?.providerID === ref.providerID,
       );
       const window = found?.limit?.context;

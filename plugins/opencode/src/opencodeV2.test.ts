@@ -63,7 +63,11 @@ function createContext(parents: Record<string, string | undefined> = {}) {
       },
     },
     model: {
-      list: async () => [{ id: "probe", providerID: "fixture", limit: { context: 200_000 } }],
+      // The shape 2.1.2 answers with (measured, task-375).
+      list: async () => ({
+        location: { directory: "/repo" },
+        data: [{ id: "probe", providerID: "fixture", limit: { context: 200_000 } }],
+      }),
     },
   };
   return { context, bus, hooks, prompts, synthetics };
