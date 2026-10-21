@@ -133,12 +133,12 @@ export async function startCourier(input = {}) {
    * A part for a message opencode is already building, as opencode builds
    * its own: `chat.message` runs after the server has given every part its
    * `id`, `sessionID` and `messageID`, and saving one without them fails the
-   * whole prompt (1.16.0 on — a durable event needs the session). The id is
-   * opencode's ascending part id (packages/opencode/src/id/id.ts), minted
-   * after the message's own parts and so ordered after them.
+   * whole prompt (1.16.0 on — a durable event needs the session). Its id
+   * sorts after every part already in `parts`, because opencode reads a
+   * message's parts back ordered by id.
    */
-  const messagePart = (text, synthetic, message) => ({
-    id: partID(),
+  const messagePart = (text, synthetic, message, parts) => ({
+    id: partIDAfter(parts),
     sessionID: message.sessionID,
     messageID: message.id,
     ...textPart(text, synthetic),
@@ -418,10 +418,10 @@ export async function startCourier(input = {}) {
       const answer = await ask(await pane.classify(sessionID));
       if (!answer) return;
       if (typeof answer.context === "string" && answer.context) {
-        output.parts.push(messagePart(answer.context, true, message));
+        output.parts.push(messagePart(answer.context, true, message, output.parts));
       }
       if (typeof answer.prompt === "string" && answer.prompt) {
-        output.parts.push(messagePart(answer.prompt, false, message));
+        output.parts.push(messagePart(answer.prompt, false, message, output.parts));
       }
     },
     /**
@@ -449,20 +449,28 @@ export async function startCourier(input = {}) {
 }
 
 /**
- * An opencode part id: `prt_`, the time and a counter as 12 hex digits, then
- * 14 random base62 characters — the shape opencode's own ascending ids take,
- * so a part minted here sorts after the parts opencode minted before it.
+ * An opencode part id that sorts after every id in `parts`: `prt_`, 12 hex
+ * digits of time-and-counter, then 14 random base62 characters — the shape
+ * of opencode's own ascending ids (packages/opencode/src/id/id.ts).
+ *
+ * Above the highest one already there, not merely "now": opencode mints the
+ * message's own parts in the same millisecond this runs, with a counter this
+ * process cannot see, so a fresh time-and-counter of our own could land
+ * below theirs — and opencode reads parts back ordered by id. The hex head
+ * alone then decides the order, whatever the random tail.
  */
 const BASE62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-let lastMillis = 0;
-let counter = 0;
-function partID(now = Date.now()) {
-  if (now !== lastMillis) {
-    lastMillis = now;
-    counter = 0;
-  }
-  counter += 1;
-  const time = (BigInt(now) * 0x1000n + BigInt(counter)).toString(16).padStart(12, "0").slice(-12);
+const PART_HEAD = /^prt_([0-9a-f]{12})/;
+const PART_HEAD_BITS = 0xffffffffffffn;
+function partIDAfter(parts, now = Date.now()) {
+  const floor = parts.reduce((highest, part) => {
+    const head = PART_HEAD.exec(typeof part?.id === "string" ? part.id : "");
+    const value = head ? BigInt(`0x${head[1]}`) : 0n;
+    return value > highest ? value : highest;
+  }, 0n);
+  // opencode keeps the low 48 bits of time × 4096 + counter; compare there.
+  const fresh = (BigInt(now) * 0x1000n) & PART_HEAD_BITS;
+  const head = (((floor >= fresh ? floor : fresh) + 1n) & PART_HEAD_BITS).toString(16).padStart(12, "0");
   const random = Array.from(randomBytes(14), (byte) => BASE62[byte % 62]).join("");
-  return `prt_${time}${random}`;
+  return `prt_${head}${random}`;
 }

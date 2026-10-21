@@ -260,7 +260,18 @@ describe("opencode mail courier", () => {
     const courier = await start();
     await courier.event(created("ses_root"));
     const message = { id: "msg_1", sessionID: "ses_root" };
-    const own = { id: "prt_0", sessionID: "ses_root", messageID: "msg_1", type: "text", text: "hi" };
+    // Minted by opencode with its own counter, which this process cannot
+    // see — so its id can run ahead of any fresh time-and-counter the courier
+    // takes. A minute ahead keeps that case certain rather than a race with
+    // the clock. (opencode keeps the low 48 bits of time × 4096 + counter.)
+    const head = (BigInt(Date.now() + 60_000) * 0x1000n) & 0xffffffffffffn;
+    const own = {
+      id: `prt_${head.toString(16).padStart(12, "0")}zzzzzzzzzzzzzz`,
+      sessionID: "ses_root",
+      messageID: "msg_1",
+      type: "text",
+      text: "hi",
+    };
     const output = { message, parts: [own] };
     pending.push({ v: 1, context: "you are impl-1", prompt: "ship it" });
     await courier["chat.message"]({ sessionID: "ses_root" }, output);
@@ -274,8 +285,10 @@ describe("opencode mail courier", () => {
       { id: partId, sessionID: "ses_root", messageID: "msg_1", type: "text", text: "you are impl-1", synthetic: true },
       { id: partId, sessionID: "ses_root", messageID: "msg_1", type: "text", text: "ship it" },
     ]);
-    // Minted in order, so the brief stays ahead of the message it frames.
-    expect(output.parts[1]!.id < output.parts[2]!.id).toBe(true);
+    // opencode reads a message's parts back ordered by id: the user's own
+    // words first, then the brief, then the message it frames.
+    const ids = output.parts.map((part) => part.id);
+    expect([...ids].sort()).toEqual(ids);
     // Nothing was prompted separately — that is the point of riding along.
     expect(prompts).toEqual([]);
   });
