@@ -720,6 +720,20 @@ export function createPluginManager(appDownloads: DownloadManager) {
     if (bin) await agentBins.ensureVersion(bin);
   }
 
+  /**
+   * What THIS AGENT's binary answers to `--version`, or null when nothing
+   * legible came back. Read by mail rendering, where the CLI's hook-output
+   * schema differs by release, and by launch plans (`agentCliVersion`).
+   *
+   * Keyed by agent id, not by bin: the walk from an agent to its declared
+   * bin is a fact about the registry, and a caller doing it itself would be
+   * a second place that knows where `detect.bin` lives.
+   */
+  function agentBinVersion(agentId: string): string | null {
+    const bin = binOfAgent(pluginRegistries.agents.list(), agentId);
+    return bin ? agentBins.version(bin) : null;
+  }
+
   /** Built-in plugins' categories, recorded at install — `isEnabled(id)` is a
    * narrow port and needs the category to resolve the default policy. */
   const builtinCategories = new Map<string, PluginCategory>();
@@ -1044,20 +1058,21 @@ export function createPluginManager(appDownloads: DownloadManager) {
     bootstrapPlugins,
     rescanPlugins,
     restartPlugin,
-    /**
-     * What THIS AGENT's binary answers to `--version`, or null when nothing
-     * legible came back. The one caller today is mail rendering, where the
-     * CLI's hook-output schema differs by release.
-     *
-     * Keyed by agent id, not by bin: the walk from an agent to its declared
-     * bin is a fact about the registry, and a caller doing it itself would be
-     * a second place that knows where `detect.bin` lives.
-     */
-    agentBinVersion: (agentId: string): string | null => {
-      const bin = binOfAgent(pluginRegistries.agents.list(), agentId);
-      return bin ? agentBins.version(bin) : null;
-    },
+    agentBinVersion,
     ensureAgentVersion,
+    /**
+     * What this agent's CLI answers to `--version`, asking first if nobody
+     * has — for a launch plan, which may pick its flags by release. Null when
+     * the binary may not be run or did not answer legibly.
+     *
+     * Awaited, unlike the mail path's `learnVersion`: a plan's argv cannot be
+     * corrected after the process starts. The ask is single-flight per binary
+     * and remembered, so only the first pane of an agent in a run waits on it.
+     */
+    agentCliVersion: async (agentId: string): Promise<string | null> => {
+      await ensureAgentVersion(agentId).catch(() => {});
+      return agentBinVersion(agentId);
+    },
   };
 }
 

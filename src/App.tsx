@@ -45,14 +45,14 @@ const registryReads = artifactsRegistryReads();
 
 function App() {
   const controller = useAppController();
-  const { plugins, tasks } = useAppRuntime();
+  const { spawnPlugins, tasks } = useAppRuntime();
   // The resume picker's advisory live-registry ask — handed to the dialog
   // READY-MADE (the same seam the session search uses; a view never
   // touches a plugin). Stable identity: the dialog re-asks per agent, not
   // per render.
   const liveOutside = useCallback(
-    (agent: string) => liveOutsideSessions(plugins, agent),
-    [plugins],
+    (agent: string) => liveOutsideSessions(spawnPlugins, agent),
+    [spawnPlugins],
   );
   if (!controller.ready) return <div className="deck" />;
   const {

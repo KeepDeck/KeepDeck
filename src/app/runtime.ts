@@ -31,7 +31,7 @@ import { createMailService, wakePaneForMail } from "./mail";
 import { createMcp } from "./mcp";
 import { ipcMcpStorage } from "../ipc/mcpLibraryStorage";
 import { createPaneIdentity } from "./mcp/paneIdentity";
-import { paneIdBySpawnSecret, peekPaneSpawnSpec } from "./spawnSpecs";
+import { paneIdBySpawnSecret, peekPaneSpawnSpec, spawnPluginAccess } from "./spawnSpecs";
 import { createArtifactsPolicy } from "./artifacts/policy";
 import { registerArtifactCommands } from "./artifacts/artifactCommands";
 import { artifactChanges } from "./artifacts/changes";
@@ -410,6 +410,9 @@ export function createAppRuntime(
     storage: ipcSkillsStorage,
     staging: worktrees,
   });
+  /** The plugin side of launching a pane, through its own narrow port —
+   * built once, shared by everything that launches or asks about panes. */
+  const spawnPlugins = spawnPluginAccess(plugins);
   const orchestrator = createAgentOrchestrator({
     deck: deckStore,
     spawnContext,
@@ -429,7 +432,7 @@ export function createAppRuntime(
       acquire: acquirePane,
       close: closePane,
     },
-    plugins,
+    plugins: spawnPlugins,
     probe: probeWorktree,
     worktrees,
     mcpAccess: (target) => mcp.service.access(target),
@@ -474,6 +477,7 @@ export function createAppRuntime(
   return {
     downloads,
     plugins,
+    spawnPlugins,
     deckStore,
     deckPersistence,
     spawnContext,

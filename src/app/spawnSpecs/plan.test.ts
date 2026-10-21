@@ -9,7 +9,7 @@ import {
   stagedSkills,
   mcpAccess,
   plugins,
-  runtime,
+  installedPlugin,
   ctx,
   W1,
   adopting,
@@ -102,6 +102,43 @@ describe("building one plan through the agent hook", () => {
     // Armed pane spawns with it, plain pane WITHOUT it (absent, not false —
     // the wire shapes stay sparse), and a resume carries it the same way.
     expect(inputs.sort()).toEqual([true, true, undefined]);
+  });
+
+  it("hands the hook what the agent's CLI says its version is, on spawn AND resume", async () => {
+    // A hook picks flags by release (opencode 2.x needs one 1.x refuses), and
+    // argv cannot be corrected once the process runs.
+    const inputs: Array<string | undefined> = [];
+    h.register({
+      ...adopting,
+      hooks: {
+        "spawn.plan": (input) => {
+          inputs.push(input.cliVersion);
+        },
+        "resume.plan": (input) => {
+          inputs.push(input.cliVersion);
+        },
+      },
+    });
+    hostState.versions.set("claude", "2.1.303 (Claude Code)");
+    await h.mount(ws([{ id: "pane-1", agentType: "claude" }]));
+    await settle();
+    await buildResumeSpec(
+      plugins,
+      "claude",
+      { paneId: "pane-9", workspace: W1, cwd: "/repo" },
+      ctx,
+      "old-id",
+      "restore",
+    );
+    expect(inputs).toEqual(["2.1.303 (Claude Code)", "2.1.303 (Claude Code)"]);
+  });
+
+  it("leaves the version out when the CLI could not say", async () => {
+    let input: object | undefined;
+    h.register({ ...adopting, hooks: { "spawn.plan": (given) => void (input = given) } });
+    await h.mount(ws([{ id: "pane-1", agentType: "claude" }]));
+    await settle();
+    expect(input).not.toHaveProperty("cliVersion");
   });
 
   it("threads a pane's remoteEndpoint to the hook as a nativeServer target", async () => {
@@ -296,7 +333,7 @@ describe("building one plan through the agent hook", () => {
       { id: "pane-1", agentType: "claude", location: { kind: "remote", endpoint: "ws://vps:4500" } },
     ]);
     const changed = await buildLivePaneSpec(
-      runtime.plugins,
+      plugins,
       workspaces[0],
       workspaces[0].panes[0],
       ctx,
@@ -314,14 +351,7 @@ describe("building one plan through the agent hook", () => {
     // The hook picked a program its manifest never declared — a sandboxed
     // plugin must not choose the spawn target. Built-ins only warn.
     hostState.installed = [
-      {
-        manifest: {
-          id: "test-plugin",
-          capabilities: [{ kind: "exec", commands: ["claude"] }],
-        },
-        source: "external",
-        status: { kind: "active" },
-      },
+      installedPlugin({ source: "external", capabilities: [{ kind: "exec", commands: ["claude"] }] }),
     ];
     h.register({
       ...adopting,

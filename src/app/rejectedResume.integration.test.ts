@@ -9,6 +9,11 @@ import { decideRejectedResume } from "../domain/agents";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import { closeMessageFor } from "./useCloseFlow";
 import type { SpawnPluginAccess } from "./spawnSpecs";
+import {
+  agentContribution,
+  createSpawnPluginsFake,
+  spawnPluginsWith,
+} from "./spawnSpecs/planTestSupport";
 
 /**
  * The return path's spine, end to end with REAL pieces: the claude plugin's
@@ -47,21 +52,10 @@ function claudeWithAgentsJson(
       },
     },
   } as unknown as PluginContext;
-  const plugins = {
-    pluginRegistries: {
-      agents: {
-        list: () => [
-          {
-            entry: {
-              id: "claude",
-              liveSessions: claudeLiveSessions(ctx),
-            },
-            pluginId: "keepdeck.claude",
-          },
-        ],
-      },
-    },
-  } as unknown as SpawnPluginAccess;
+  const { plugins } = spawnPluginsWith(
+    [agentContribution({ id: "claude", liveSessions: claudeLiveSessions(ctx) })],
+    "keepdeck.claude",
+  );
   return { plugins, spawns };
 }
 
@@ -102,9 +96,7 @@ describe("the refused-resume return path (real plugin, real seam, real rule)", (
   });
 
   it("an agent without the capability never runs the query — the legacy path", async () => {
-    const plugins = {
-      pluginRegistries: { agents: { list: () => [] } },
-    } as unknown as SpawnPluginAccess;
+    const { plugins } = createSpawnPluginsFake();
     const answer = await askLiveRegistry(plugins, "codex", "s-1");
     expect(answer).toBe(null);
     expect(decideRejectedResume(answer, false)).toEqual({

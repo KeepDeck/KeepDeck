@@ -9,7 +9,7 @@ import type {
 import { EMPTY_SPAWN_CONTEXT } from "./plans";
 import type { Workspace } from "../../domain/deck";
 import { createWorkspaceInstance } from "../../domain/workspaceInstance";
-import { createContributionRegistries } from "../../plugins/registries/contributions";
+import { createSpawnPluginsFake } from "./planTestSupport";
 import {
   buildForkSpec,
   buildResumeSpec,
@@ -18,7 +18,6 @@ import {
   markPaneResumeOrigin,
   peekPanePlanError,
   peekPaneSpawnSpec,
-  type SpawnPluginAccess,
   buildLivePaneSpec,
   paneIdBySpawnSecret,
   subscribeSpawnSpecs,
@@ -31,7 +30,6 @@ import { resetPaneSpawnSpecs } from "./cache";
   globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
-const hostState = vi.hoisted(() => ({ installed: [] as unknown[] }));
 
 // Staged skills are a host fact the plan build ASKS for — the worktree manager
 // resolves them (and owns which directories get armed), so here it is a thunk
@@ -40,11 +38,10 @@ const skillsState = vi.hoisted(() => ({
   views: null as SpawnSkillsInput | null,
 }));
 const stagedSkills = () => Promise.resolve(skillsState.views);
-const pluginRegistries = createContributionRegistries();
-const plugins = {
-  pluginRegistries,
-  pluginHost: { getInstalled: () => hostState.installed },
-} as unknown as SpawnPluginAccess;
+const fake = createSpawnPluginsFake();
+const plugins = fake.plugins;
+const pluginRegistries = fake.registries;
+const hostState = fake.state;
 
 const ctx = {
   ...EMPTY_SPAWN_CONTEXT,

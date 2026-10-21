@@ -251,9 +251,7 @@ export async function buildPlan(
   // The hook's owner, looked up BEFORE the hook runs: its manifest bounds
   // what the hook may be handed (the servers it can render) as well as what
   // it may answer (the command clamp below).
-  const owner = plugins.pluginHost
-    .getInstalled()
-    .find((installed) => installed.manifest.id === pluginId);
+  const owner = plugins.installed(pluginId);
   // The floor filter is about the PLUGIN's renderer, so it applies only to
   // what the plugin renders: a file the host wrote carries every server, and
   // withholding a token from a server that is in the file would break it.
@@ -268,6 +266,11 @@ export async function buildPlan(
   /** Owed by every exit that produces a plan, and by none that throws: a
    * rejected resume or fork must plant nothing. */
   const deliver = () => access?.deliver() ?? Promise.resolve();
+  // Asked before the hook runs, because what it decides — argv — cannot be
+  // corrected once the process has started (opencode 2.x needs a flag 1.x
+  // does not have). Remembered per binary, so only an agent's first pane in
+  // a run waits for it.
+  const cliVersion = await plugins.cliVersion(entry.id);
   const base: SpawnPlanInput = {
     paneId,
     workspace: facts.workspace,
@@ -277,6 +280,7 @@ export async function buildPlan(
     ...(skills ? { skills } : {}),
     ...(mcpServers.length > 0 ? { mcp: { servers: mcpServers } } : {}),
     ...(facts.target ? { target: facts.target } : {}),
+    ...(cliVersion ? { cliVersion } : {}),
   };
   if (
     variant.kind === "spawn" &&
@@ -434,7 +438,5 @@ export function findAgent(
   plugins: SpawnPluginAccess,
   agentType: string,
 ): { entry: AgentContribution; pluginId: string } | undefined {
-  return plugins.pluginRegistries.agents
-    .list()
-    .find((c) => c.entry.id === agentType);
+  return plugins.agents().find((c) => c.entry.id === agentType);
 }
