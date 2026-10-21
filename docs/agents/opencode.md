@@ -85,8 +85,20 @@ Read from the 2.0.32 and 2.1.2 source, and verified live on 2.1.2
 
 - **Plugins.** A plugin must export `{id, setup}` or `{id, effect}`.
   A plugin given as a FILE path is dropped; a directory is required
-  (live). The legacy `plugin` key still works. KeepDeck's plugin now has
-  this shape, so it loads on 2.x, but `setup` does nothing yet.
+  (live). The legacy `plugin` key still works. KeepDeck's `setup` is
+  `opencode-v2.js`, the 2.x twin of the 1.x components, sharing the pane
+  session, the wire, the mail ask and the doorbell with them. Read from
+  the v2.1.2 source, 2026-10-22:
+  - binding from `session.created`, or from a resumed pane's first session
+    event;
+  - turn events forwarded whole; the deck reads `session.execution.*` and
+    `form.*`;
+  - `usage.report` from `session.usage.updated` (running totals, subagents
+    included), `session.step.ended` (context in use) and `model.list`
+    (window);
+  - mail through `session.synthetic` (the brief, no turn), `session.prompt`,
+    `session.hook("prompt")` (riding along) and `tool.hook("execute.after")`
+    (mid-turn). A pane with no conversation yet waits for its first turn.
 - **Config dir.** `OPENCODE_CONFIG_DIR` REPLACES the user's global config
   on 2.x instead of adding to it (live), so it must not be set there.
 - **Database.** 2.x adds `session_v2` tables to the same `opencode.db`
