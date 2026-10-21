@@ -16,6 +16,9 @@ export interface McpRequest {
   /** What the connection introduced itself as, unresolved — null for one
    * that said nothing (a server the user wired up by hand). */
   client?: string | null;
+  /** The pane whose terminal the connecting process belongs to, as the
+   * kernel answered at connect — null for none. */
+  host?: string | null;
 }
 
 /** Subscribe to socket requests; resolves to the unlisten function. */

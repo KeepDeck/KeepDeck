@@ -42,8 +42,10 @@ pub(crate) type ConnectionHandler = Box<dyn FnMut(&str) -> Option<String> + Send
 /// Makes one handler per CONNECTION. Per connection, not per socket, because
 /// a client may introduce ITSELF on the wire (see the `deck/client` preamble
 /// in [`crate::mcp::bridge`]) and what it said belongs to that connection
-/// alone. The factory itself is shared across accept threads.
-pub(crate) type LineHandler = Arc<dyn Fn() -> ConnectionHandler + Send + Sync>;
+/// alone. It is handed the connecting process, as the kernel names it
+/// ([`accept::peer_pid`]); None when it could not be told. The factory
+/// itself is shared across accept threads.
+pub(crate) type LineHandler = Arc<dyn Fn(Option<u32>) -> ConnectionHandler + Send + Sync>;
 
 /// Teardown handles: one clone per live connection, so Off can actively
 /// disconnect clients instead of leaving them on a dead pipe. A connection
@@ -249,7 +251,7 @@ mod tests {
     use std::time::Duration;
 
     fn upper() -> LineHandler {
-        Arc::new(|| Box::new(|line: &str| Some(line.to_uppercase())))
+        Arc::new(|_| Box::new(|line: &str| Some(line.to_uppercase())))
     }
 
     /// Connect, send one line, read one reply line.

@@ -323,7 +323,7 @@ mod tests {
         // connection close ends the pump — the whole life of a session.
         let path = temp_sock();
         let handler: crate::mcp::server::LineHandler =
-            std::sync::Arc::new(|| Box::new(|line: &str| Some(line.to_uppercase())));
+            std::sync::Arc::new(|_| Box::new(|line: &str| Some(line.to_uppercase())));
         let server = crate::mcp::server::McpServer::default();
         server.enable(&path, handler).expect("server");
 
@@ -339,7 +339,7 @@ mod tests {
     fn disabling_the_server_releases_a_connected_shim() {
         let path = temp_sock();
         let handler: crate::mcp::server::LineHandler =
-            std::sync::Arc::new(|| Box::new(|line: &str| Some(line.to_uppercase())));
+            std::sync::Arc::new(|_| Box::new(|line: &str| Some(line.to_uppercase())));
         let server = crate::mcp::server::McpServer::default();
         server.enable(&path, handler).expect("enable");
 

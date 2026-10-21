@@ -37,10 +37,10 @@ pub struct SpawnSpec {
     pub cwd: Option<String>,
     pub cols: u16,
     pub rows: u16,
-    /// The pane this terminal is, when it is one. What its processes report
-    /// over the bridge is checked against this terminal (see
-    /// [`SessionRegistry::pane_runs`]); a terminal that is no pane's has
-    /// nothing to report for.
+    /// The pane this terminal is, when it is one. Whoever speaks for a pane —
+    /// a reporter over the bridge, an MCP client over the socket — is checked
+    /// against this terminal (see [`SessionRegistry::pane_of`]); a terminal
+    /// that is no pane's speaks for nobody.
     #[serde(default)]
     pub pane: Option<String>,
 }
@@ -102,18 +102,25 @@ impl SessionRegistry {
         reg.panes.retain(|_, session| session != id);
     }
 
-    /// Whether process `pid` runs in `pane`'s terminal — None when the pane
-    /// has no live terminal at all, which is its own answer: nothing there
-    /// is alive to report.
-    pub fn pane_runs(&self, pane: &str, pid: u32) -> Option<bool> {
-        let session = {
+    /// The pane whose terminal process `pid` belongs to
+    /// ([`PtySession::hosts`]), or None when it belongs to none — a process
+    /// of no pane, a daemon some pane's agent started and left behind, or one
+    /// asking after its pane's terminal is gone. At most one can answer: a
+    /// process sits in one session, and so does the parent of one that
+    /// detached.
+    pub fn pane_of(&self, pid: u32) -> Option<String> {
+        let panes: Vec<(String, Arc<PtySession>)> = {
             let reg = self.inner.lock().expect("session registry poisoned");
-            let id = reg.panes.get(pane)?;
-            reg.sessions.get(id).cloned()?
+            reg.panes
+                .iter()
+                .filter_map(|(pane, id)| Some((pane.clone(), reg.sessions.get(id)?.clone())))
+                .collect()
         };
-        // Outside the lock: getsid is a syscall, and the registry lock is
-        // never held across one.
-        Some(session.runs_inside(pid))
+        // Outside the lock: the kernel is asked per terminal, and the
+        // registry lock is never held across a syscall.
+        panes
+            .into_iter()
+            .find_map(|(pane, session)| session.hosts(pid).then_some(pane))
     }
 
     /// Look up a session handle. The registry lock is held only for the lookup,
@@ -463,25 +470,49 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn a_pane_answers_for_its_current_terminal_only() {
+    fn a_process_belongs_to_the_pane_whose_current_terminal_hosts_it() {
         let registry = SessionRegistry::default();
-        assert_eq!(registry.pane_runs("pane-1", std::process::id()), None);
-
-        let (old, _old_events) = session("sleep 30");
+        let (old, old_events) = session("echo PID=$$; sleep 30");
+        let old_pid = first_pid(&old_events);
         let old_id = registry.insert(old, Some("pane-1".into()));
+        assert_eq!(registry.pane_of(old_pid).as_deref(), Some("pane-1"));
         // This test process runs in no pane's terminal.
-        assert_eq!(registry.pane_runs("pane-1", std::process::id()), Some(false));
+        assert_eq!(registry.pane_of(std::process::id()), None);
 
         // A restart re-points the pane before the old terminal is reaped; the
         // old one's late removal must not take the new one's entry with it.
-        let (new, _new_events) = session("sleep 30");
-        let new_id = registry.insert(new, Some("pane-1".into()));
+        let (new, new_events) = session("echo PID=$$; sleep 30");
+        let new_pid = first_pid(&new_events);
+        registry.insert(new, Some("pane-1".into()));
         registry.remove(&old_id);
-        assert_eq!(registry.pane_runs("pane-1", std::process::id()), Some(false));
+        assert_eq!(registry.pane_of(new_pid).as_deref(), Some("pane-1"));
+        assert_eq!(registry.pane_of(old_pid), None, "the retired terminal is no pane's");
 
-        registry.remove(&new_id);
-        assert_eq!(registry.pane_runs("pane-1", std::process::id()), None);
+        // A terminal that is no pane's makes its processes nobody's.
+        let (plain, plain_events) = session("echo PID=$$; sleep 30");
+        let plain_pid = first_pid(&plain_events);
+        registry.insert(plain, None);
+        assert_eq!(registry.pane_of(plain_pid), None);
         registry.shutdown(Duration::from_millis(200));
+    }
+
+    /// The `PID=<n>` a test script printed first.
+    #[cfg(unix)]
+    fn first_pid(events: &Consumer) -> u32 {
+        let started = Instant::now();
+        let mut seen = String::new();
+        while started.elapsed() < Duration::from_secs(5) {
+            if let Some(PtyEvent::Output(bytes)) = events.recv_timeout(Duration::from_millis(50)) {
+                seen.push_str(&String::from_utf8_lossy(&bytes));
+            }
+            if let Some(rest) = seen.split("PID=").nth(1) {
+                let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+                if rest[digits.len()..].starts_with(['\r', '\n']) {
+                    return digits.parse().expect("a pid");
+                }
+            }
+        }
+        panic!("no pid printed: {seen}");
     }
 
     #[test]

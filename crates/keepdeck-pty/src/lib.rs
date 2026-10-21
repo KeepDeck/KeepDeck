@@ -235,25 +235,31 @@ impl PtySession {
         self.exited.load(Ordering::Relaxed)
     }
 
-    /// Whether process `pid` runs in this terminal.
+    /// Whether process `pid` belongs to this terminal: it runs in it, or was
+    /// started directly by a process that does.
     ///
     /// The spawn made the child a session leader, and everything it starts
     /// stays in that session unless it leaves on purpose — a tool call, a
-    /// nested CLI, a hook all answer yes. A process that detached (`setsid`)
-    /// answers no, and that is the point: a daemon some agent started from
-    /// here inherited this terminal's environment, secrets included, but no
-    /// longer runs in it. False too once the child has been reaped, because
-    /// its id may already belong to a stranger.
+    /// nested CLI, a hook all run in it. Some agents start their own helpers
+    /// detached all the same (kimi spawns every MCP server with `setsid`),
+    /// and those are still the agent's: their PARENT runs here. What does not
+    /// belong is a daemon's worker. The daemon some agent started from here
+    /// inherited this terminal's environment, secrets included, then left the
+    /// session; its workers are its children, so neither they nor anything
+    /// they start has a parent in this terminal (claude 2.1.303, verified
+    /// live). False too once the child has been reaped, because its id may
+    /// already belong to a stranger.
     ///
     /// Non-Unix has no sessions to ask about, and answers yes.
-    pub fn runs_inside(&self, pid: u32) -> bool {
+    pub fn hosts(&self, pid: u32) -> bool {
         #[cfg(unix)]
         {
             let Some(leader) = self.pid else { return false };
             if self.has_exited() {
                 return false;
             }
-            session_of(pid) == Some(leader)
+            let inside = |pid| session_of(pid) == Some(leader);
+            inside(pid) || parent_of(pid).is_some_and(inside)
         }
         #[cfg(not(unix))]
         {
@@ -433,6 +439,36 @@ fn session_of(pid: u32) -> Option<u32> {
     // SAFETY: getsid(2) only reads; an unknown pid is ESRCH, answered as None.
     let sid = unsafe { libc::getsid(pid) };
     u32::try_from(sid).ok()
+}
+
+/// The process that started `pid`, or None when it cannot be told.
+#[cfg(target_os = "macos")]
+fn parent_of(pid: u32) -> Option<u32> {
+    let pid = libc::c_int::try_from(pid).ok().filter(|pid| *pid > 0)?;
+    // SAFETY: zeroed is a valid proc_bsdinfo, and proc_pidinfo writes at most
+    // the size it is given; a short or failed read is answered as None.
+    let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
+    let size = std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
+    let read = unsafe {
+        libc::proc_pidinfo(
+            pid,
+            libc::PROC_PIDTBSDINFO,
+            0,
+            (&mut info as *mut libc::proc_bsdinfo).cast(),
+            size,
+        )
+    };
+    (read == size && info.pbi_ppid > 0).then_some(info.pbi_ppid)
+}
+
+/// The process that started `pid`, or None when it cannot be told. The
+/// fourth field of `/proc/<pid>/stat`, read after the command name's closing
+/// parenthesis — the name itself may hold spaces and parentheses.
+#[cfg(all(unix, not(target_os = "macos")))]
+fn parent_of(pid: u32) -> Option<u32> {
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    let after_name = &stat[stat.rfind(')')? + 1..];
+    after_name.split_whitespace().nth(1)?.parse().ok().filter(|ppid| *ppid > 0)
 }
 
 /// Build a `PtySize` of `cols` x `rows` cells (pixel dimensions unused).

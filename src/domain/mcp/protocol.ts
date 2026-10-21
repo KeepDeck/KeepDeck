@@ -29,16 +29,30 @@ export interface McpServerIdentity {
   version: string;
 }
 
+/** Who is asking, as the transport heard it — unresolved, both halves.
+ * `client` is what the connection introduced itself as (a pane's secret);
+ * `host` is the pane whose terminal the connecting process belongs to, as
+ * the kernel answered when it connected. Null for what was not said or does
+ * not hold. Resolving them is the caller's business, never this
+ * projection's. */
+export interface McpCaller {
+  client: string | null;
+  host: string | null;
+}
+
+/** A connection that said nothing and runs in no pane's terminal. */
+export const ANONYMOUS_CALLER: McpCaller = { client: null, host: null };
+
 /** What the projection needs from the registry — list and execute; the
  * caller binds the external source identity. */
 export interface McpCommandPort {
   list(): CommandInfo[];
-  /** `client` is what THIS connection introduced itself as, unresolved — the
-   * caller binds it to a source identity (or to none). */
+  /** `caller` is who THIS connection is, unresolved — the port binds it to
+   * a source identity (or to none). */
   execute(
     id: string,
     args: CommandArgs,
-    client: string | null,
+    caller: McpCaller,
   ): Promise<CommandResult>;
 }
 
@@ -101,7 +115,7 @@ export async function handleMcpLine(
   line: string,
   /** Who is asking, as the transport heard it — passed through to `execute`
    * verbatim, because resolving a name is not this projection's business. */
-  client: string | null = null,
+  caller: McpCaller = ANONYMOUS_CALLER,
 ): Promise<string | null> {
   let message: unknown;
   try {
@@ -164,7 +178,7 @@ export async function handleMcpLine(
       const args = (rawArgs ?? {}) as CommandArgs;
       let outcome: CommandResult;
       try {
-        outcome = await port.execute(command.id, args, client);
+        outcome = await port.execute(command.id, args, caller);
       } catch (e) {
         // The registry contract never throws; a port that does anyway is an
         // internal fault, not a tool failure.

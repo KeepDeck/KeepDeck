@@ -33,12 +33,12 @@
  * at all.
  *
  * Bounded further since: the bridge now takes a report only from a process
- * running in the pane's terminal (src-tauri/src/bridge/origin.rs), and a
- * daemon is not one. Claude 2.1.303 compacts in-process and moves a
+ * belonging to the pane's terminal (src-tauri/src/bridge/origin.rs), and a
+ * daemon's worker does not. Claude 2.1.303 compacts in-process and moves a
  * conversation into its daemon only when the user sends it to the background
  * (verified live, task-422) — whose worker then speaks for no pane. What this
- * exemption still admits is a continuation from another process INSIDE the
- * terminal.
+ * exemption still admits is a continuation from another process of the
+ * pane's terminal.
  *
  * All three are decided here, on plain values, so the rule can be read and
  * tested without a deck, a bridge or a process.

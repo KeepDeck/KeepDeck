@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { CommandInfo, CommandResult } from "../commands";
 import {
+  ANONYMOUS_CALLER,
   MCP_PROTOCOL_VERSION,
   handleMcpLine,
   toolNameOf,
@@ -117,7 +118,7 @@ describe("handleMcpLine — tools", () => {
         arguments: { workspace: "api" },
       })),
     );
-    expect(p.execute).toHaveBeenCalledWith("agent.spawn", { workspace: "api" }, null);
+    expect(p.execute).toHaveBeenCalledWith("agent.spawn", { workspace: "api" }, ANONYMOUS_CALLER);
     expect(reply.result.isError).toBe(false);
     expect(JSON.parse(reply.result.content[0].text)).toEqual({ paneId: "p1" });
   });

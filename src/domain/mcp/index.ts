@@ -10,9 +10,11 @@ export {
   type JsonRpcId,
 } from "./jsonrpc";
 export {
+  ANONYMOUS_CALLER,
   MCP_PROTOCOL_VERSION,
   handleMcpLine,
   toolNameOf,
+  type McpCaller,
   type McpCommandPort,
   type McpServerIdentity,
 } from "./protocol";
