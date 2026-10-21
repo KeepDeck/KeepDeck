@@ -35,7 +35,11 @@ async function sessionConfigEnv(
   resources: PluginResources,
   mcp: SpawnPlanInput["mcp"],
 ): Promise<[string, string][]> {
-  const ours = await resources.path("keepdeck-plugin");
+  // `resources.path` answers about files, so the directory is found through
+  // its entry — which also keeps a bundle missing the entry from injecting a
+  // directory opencode cannot load.
+  const entry = await resources.path("keepdeck-plugin/index.js");
+  const ours = entry?.slice(0, -"/index.js".length);
   const servers = mcpConfigFragment(mcp);
   // ONE variable carries both: opencode reads `OPENCODE_CONFIG_CONTENT`
   // once, so a second assignment would silently drop the first.
