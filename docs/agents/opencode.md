@@ -24,7 +24,12 @@ nothing is installed on the user's side.
   deck.
 - `mail-courier.js` asks the deck for mail and puts it into the session
   through the plugin's own server client (`promptAsync`). Standing context
-  goes in with `noReply`, so it does not open a turn.
+  goes in with `noReply`, so it does not open a turn. Both calls repeat the
+  agent, model and variant of the newest message the user sent in that
+  session (`prompt-selection.js`). Without them opencode switches to the
+  default agent and drops the variant, and a `noReply` call does too. A
+  message counts as the user's when it has a text part that is neither
+  synthetic nor KeepDeck's mail frame.
 - `pane-session.js` is shared by both. It owns which session is the pane's
   root, and the ancestry used to tell a subagent's session from the main
   one.

@@ -39,6 +39,7 @@ import { paneSession } from "./pane-session.js";
 import { readBridge } from "./keepdeck-bridge.js";
 import { watchDoorbell } from "./doorbell.js";
 import { answerText, askMail } from "./mail-ask.js";
+import { promptSelection } from "./prompt-selection.js";
 
 export async function startCourier(input = {}) {
   const bridge = readBridge();
@@ -117,13 +118,16 @@ export async function startCourier(input = {}) {
    *   this pane should see what arrived and why their agent just moved.
    */
   const viaSession = async (answer, sessionID) => {
+    // Both calls run as the user's own last prompt did — read before the
+    // context lands, or the newest message would be ours (prompt-selection.js).
+    const selection = await promptSelection(client, sessionID);
     let delivered = true;
     if (typeof answer.context === "string" && answer.context) {
       delivered =
         ok(
           await client.session.promptAsync({
             path: { id: sessionID },
-            body: { noReply: true, parts: [textPart(answer.context, true)] },
+            body: { ...selection, noReply: true, parts: [textPart(answer.context, true)] },
           }),
         ) && delivered;
     }
@@ -132,7 +136,7 @@ export async function startCourier(input = {}) {
         ok(
           await client.session.promptAsync({
             path: { id: sessionID },
-            body: { parts: [textPart(answer.prompt, false)] },
+            body: { ...selection, parts: [textPart(answer.prompt, false)] },
           }),
         ) && delivered;
     }

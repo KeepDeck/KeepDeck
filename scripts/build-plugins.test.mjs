@@ -273,6 +273,7 @@ describe("build pipeline (e2e against the real host and plugins)", () => {
       "session-reporter-v2.js",
       "mail-courier-v2.js",
       "mail-ask.js",
+      "prompt-selection.js",
       "doorbell.js",
       "pane-report.js",
       "components.js",
