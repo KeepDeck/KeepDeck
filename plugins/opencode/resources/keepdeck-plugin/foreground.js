@@ -71,6 +71,13 @@ const keyOf = (state) => `${state.kind}\0${state.sessionID ?? ""}`;
  * Call `onChange(state)` whenever what the TUI shows changes — not on every
  * heartbeat. Best-effort: with no watcher the pane simply never follows the
  * TUI, which is how it behaved before.
+ *
+ * ANY event in the directory triggers a read, not only one naming the file:
+ * Bun on macOS reports the observer's atomic write as a rename of its TMP
+ * name alone (measured live, task-443) — filtering on the final name left
+ * the follower deaf. Reading is cheap and deduplicated by the key. And it
+ * is read once a heartbeat regardless: a TUI that stops writing produces no
+ * event at all, yet it turns the route stale, then unknown.
  */
 export function watchForeground(dir, onChange) {
   let last;
@@ -81,12 +88,11 @@ export function watchForeground(dir, onChange) {
     last = key;
     onChange(state);
   };
+  look();
+  setInterval(look, HEARTBEAT_MS).unref?.();
   try {
-    look();
-    watch(dir, (_event, name) => {
-      if (name === null || name === FOREGROUND_FILE) look();
-    }).unref?.();
+    watch(dir, look).unref?.();
   } catch {
-    // No watcher, no following — see above.
+    // No watcher: the heartbeat read still follows, a second later.
   }
 }

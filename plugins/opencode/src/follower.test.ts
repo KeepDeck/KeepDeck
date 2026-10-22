@@ -118,6 +118,9 @@ describe("the pane follows the session on screen", () => {
     expect(order.indexOf("mail.ask")).toBeGreaterThan(order.indexOf("usage.report"));
     const usage = deck.envelopes.find((e: any) => e.type === "usage.report");
     expect(usage.payload).toMatchObject({ sessionId: "ses_b", costUsd: 0.25 });
+    // One move, one collection: the follower tells the courier once.
+    await sleep(100);
+    expect(types().filter((type) => type === "mail.ask")).toHaveLength(1);
   });
 
   it("stays on the conversation when the user only looks at one of its subagents", async () => {
