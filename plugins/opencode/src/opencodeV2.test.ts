@@ -126,6 +126,7 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
 
   afterEach(async () => {
     delete process.env.KEEPDECK_BRIDGE;
+    delete process.env.KEEPDECK_OPENCODE_SESSION;
     if (ambientSkipsApprovals === undefined) delete process.env.KEEPDECK_OPENCODE_SKIPS_APPROVALS;
     else process.env.KEEPDECK_OPENCODE_SKIPS_APPROVALS = ambientSkipsApprovals;
     await deck.close();
@@ -168,6 +169,32 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
       expect(ofType(all, "session.bound").map(binding)).toEqual([
         { sessionId: "ses_resumed", source: "startup" },
       ]);
+    });
+
+    it("binds a pane resumed into a known session at once, before that session says anything", async () => {
+      // The launch names the session in the environment too (src/launch.ts):
+      // the plugin's process never sees `-s`. Without it the pane waits for
+      // the session's first event, and mail with it.
+      process.env.KEEPDECK_OPENCODE_SESSION = "ses_r";
+      const { context } = createContext();
+      await setup(context);
+
+      expect(ofType(await reported(), "session.bound").map(binding)).toEqual([
+        { sessionId: "ses_r", source: "startup" },
+      ]);
+    });
+
+    it("delivers a ring that was waiting before the resumed pane's plugin started", async () => {
+      // The deck rang while opencode was still loading; the ring is on disk,
+      // and the pane must already know where it goes when it is taken.
+      process.env.KEEPDECK_OPENCODE_SESSION = "ses_r";
+      pending.push({ v: 1, prompt: "while you were away" });
+      writeFileSync(join(dir, "mail.wake"), "");
+      const { context, prompts } = createContext();
+      await setup(context);
+      for (let round = 0; round < 60 && prompts.length === 0; round++) await tick();
+
+      expect(prompts).toEqual([{ sessionID: "ses_r", text: "while you were away" }]);
     });
 
     it("binds to the conversation, not the subagent, when a subagent speaks first", async () => {

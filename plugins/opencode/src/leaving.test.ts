@@ -155,7 +155,7 @@ describe("leaving a conversation, and mail on the home screen", () => {
   /** The user pressed /new; opencode answers the abort with its ending. */
   const newSession = async ({ answerAbort = true } = {}) => {
     writeForeground(dir, { route: "home" });
-    await until(() => calls.abort.length > 0);
+    await until(() => calls.abort.length > 0, 8_000);
     if (answerAbort) {
       await both(aborted("ses_a"));
       await both(idle("ses_a"));
@@ -184,7 +184,8 @@ describe("leaving a conversation, and mail on the home screen", () => {
     await inA();
     await both(idle("ses_a"));
     writeForeground(dir, { route: "home" });
-    await until(() => calls.abort.length > 0);
+    await until(() => calls.abort.length > 0, 8_000);
+    expect(calls.abort).toEqual(["ses_a"]);
     const asked = Date.now();
     await both(idle("ses_a"));
     await until(() => kinds().includes("session.unbound"), 2_000);
@@ -243,7 +244,7 @@ describe("leaving a conversation, and mail on the home screen", () => {
     // THEIR conversation.
     await inA();
     writeForeground(dir, { route: "home" });
-    await until(() => calls.abort.length > 0);
+    await until(() => calls.abort.length > 0, 8_000);
     await both(created("ses_u"));
     await sleep(3_300);
     expect(paneSession().root).toBe("ses_u");
@@ -348,7 +349,7 @@ describe("leaving a conversation, and mail on the home screen", () => {
   it("does not ride mail into the left conversation's still-running turn", async () => {
     await inA();
     writeForeground(dir, { route: "home" });
-    await until(() => calls.abort.length > 0);
+    await until(() => calls.abort.length > 0, 8_000);
     // Before its ending arrives, a tool call of the left turn returns.
     deck.envelopes.length = 0;
     pending.push({ v: 1, prompt: "<teammate-message>\n> do it\n</teammate-message>" });

@@ -43,11 +43,24 @@ export const parentLookupV2 = (context) => async (sessionID) => {
  * handler throws, takes nothing else down — the same isolation index.js gives
  * the 1.x components.
  */
+/** The session KeepDeck resumed this pane in, when it did. The launch names
+ * it twice — `-s` for the TUI, this for us: under `--standalone` this plugin
+ * runs in the child `opencode serve`, whose arguments carry no `-s`, while
+ * the environment passes through (task-382, measured). Mirrors
+ * OPENCODE_SESSION_ENV in plugins/opencode/src/launch.ts. */
+export const resumedSession = () => process.env.KEEPDECK_OPENCODE_SESSION || undefined;
+
 export async function setupV2(context) {
   if (!isV2Context(context)) return;
   const bridge = readBridge();
   if (!bridge) return;
   const pane = paneSession(parentLookupV2(context));
+  // Bound before anything starts: a resumed session says nothing until it
+  // works, and a ring already waiting on disk would otherwise find the pane
+  // with no conversation to deliver into. KeepDeck resumes a pane's ROOT, so
+  // no lookup is needed — and none is made while opencode is still loading.
+  const resumed = resumedSession();
+  if (resumed) pane.bindFromChain(resumed);
   const components = (
     await startComponents([startReporterV2, startCourierV2], { context, bridge, pane })
   ).filter((component) => typeof component.onEvent === "function");

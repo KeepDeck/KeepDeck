@@ -500,6 +500,28 @@ describe("opencode plugin hooks", () => {
     expect(resume.args).toEqual(["--standalone", "--dangerously-skip-permissions", "-s", "ses_x"]);
   });
 
+  it("names a 2.x pane's resumed session in its environment too, and only there", async () => {
+    // Under --standalone the plugin runs in a child that never sees `-s`
+    // (task-382); the environment reaches it. 1.x reads its own arguments,
+    // and a fresh spawn has no session to name.
+    const agent = activate("/App/resources");
+    const v2 = { ...input, cliVersion: "opencode v2.1.2" };
+
+    const resume = output();
+    await agent.hooks["resume.plan"]!({ ...v2, sessionId: "ses_r" }, resume);
+    expect(resume.args).toEqual(["--standalone", "-s", "ses_r"]);
+    expect(Object.fromEntries(resume.env).KEEPDECK_OPENCODE_SESSION).toBe("ses_r");
+
+    const v1 = output();
+    await agent.hooks["resume.plan"]!({ ...input, cliVersion: "1.19.3", sessionId: "ses_r" }, v1);
+    expect(v1.args).toEqual(["-s", "ses_r"]);
+    expect(Object.fromEntries(v1.env).KEEPDECK_OPENCODE_SESSION).toBeUndefined();
+
+    const spawn = output();
+    await agent.hooks["spawn.plan"]!(v2, spawn);
+    expect(Object.fromEntries(spawn.env).KEEPDECK_OPENCODE_SESSION).toBeUndefined();
+  });
+
   it("gives a remote pane nothing local: no config dir, no skills, on either generation", async () => {
     // `attach` loads none of it, so a config dir handed to a thin client was a
     // directory nobody opens. The plugin and servers still travel (see below).
