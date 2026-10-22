@@ -7,6 +7,7 @@ import type {
   SpawnPlanOutput,
 } from "@keepdeck/plugin-api";
 import plugin from "./index";
+import { OPENCODE_SESSION_ENV } from "./launch";
 
 /** This plugin's real resources, which the fake below answers from. */
 const RESOURCES = join(__dirname, "..", "resources");
@@ -510,7 +511,9 @@ describe("opencode plugin hooks", () => {
     const resume = output();
     await agent.hooks["resume.plan"]!({ ...v2, sessionId: "ses_r" }, resume);
     expect(resume.args).toEqual(["--standalone", "-s", "ses_r"]);
-    expect(Object.fromEntries(resume.env).KEEPDECK_OPENCODE_SESSION).toBe("ses_r");
+    expect(Object.fromEntries(resume.env)[OPENCODE_SESSION_ENV]).toBe("ses_r");
+    // The name the plugin reads (resources/keepdeck-plugin/opencode-v2.js).
+    expect(OPENCODE_SESSION_ENV).toBe("KEEPDECK_OPENCODE_SESSION");
 
     const v1 = output();
     await agent.hooks["resume.plan"]!({ ...input, cliVersion: "1.19.3", sessionId: "ses_r" }, v1);

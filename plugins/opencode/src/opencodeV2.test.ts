@@ -197,6 +197,25 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
       expect(prompts).toEqual([{ sessionID: "ses_r", text: "while you were away" }]);
     });
 
+    it("holds the mail, not loses it, when the resumed session is gone", async () => {
+      // Deleted between being recorded and being resumed: opencode cannot
+      // find it, and writing into it fails. The deck would count the mail as
+      // delivered — so it is not asked for until the session exists.
+      process.env.KEEPDECK_OPENCODE_SESSION = "ses_gone";
+      pending.push({ v: 1, prompt: "do not drop me" });
+      writeFileSync(join(dir, "mail.wake"), "");
+      const { context, prompts } = createContext();
+      (context as any).session.get = async () => {
+        throw new Error("Session not found: ses_gone");
+      };
+      await setup(context);
+      for (let round = 0; round < 60; round++) await tick();
+
+      expect(asked).toEqual([]);
+      expect(pending).toHaveLength(1);
+      expect(prompts).toEqual([]);
+    });
+
     it("binds to the conversation, not the subagent, when a subagent speaks first", async () => {
       const { context, bus } = createContext({ ses_child: "ses_root" });
       await setup(context);

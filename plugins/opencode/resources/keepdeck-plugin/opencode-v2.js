@@ -36,13 +36,6 @@ export const parentLookupV2 = (context) => async (sessionID) => {
   return { parentID: found.parentID };
 };
 
-/**
- * Start both components on a 2.x host, and feed them the bus.
- *
- * Inert outside a KeepDeck pane. A component that fails to start, or whose
- * handler throws, takes nothing else down — the same isolation index.js gives
- * the 1.x components.
- */
 /** The session KeepDeck resumed this pane in, when it did. The launch names
  * it twice — `-s` for the TUI, this for us: under `--standalone` this plugin
  * runs in the child `opencode serve`, whose arguments carry no `-s`, while
@@ -50,6 +43,13 @@ export const parentLookupV2 = (context) => async (sessionID) => {
  * OPENCODE_SESSION_ENV in plugins/opencode/src/launch.ts. */
 export const resumedSession = () => process.env.KEEPDECK_OPENCODE_SESSION || undefined;
 
+/**
+ * Start both components on a 2.x host, and feed them the bus.
+ *
+ * Inert outside a KeepDeck pane. A component that fails to start, or whose
+ * handler throws, takes nothing else down — the same isolation index.js gives
+ * the 1.x components.
+ */
 export async function setupV2(context) {
   if (!isV2Context(context)) return;
   const bridge = readBridge();
@@ -62,7 +62,7 @@ export async function setupV2(context) {
   const resumed = resumedSession();
   if (resumed) pane.bindFromChain(resumed);
   const components = (
-    await startComponents([startReporterV2, startCourierV2], { context, bridge, pane })
+    await startComponents([startReporterV2, startCourierV2], { context, bridge, pane, resumed })
   ).filter((component) => typeof component.onEvent === "function");
   // Not awaited: the bus runs for the life of the process, and `setup` must
   // return for opencode to finish loading.
