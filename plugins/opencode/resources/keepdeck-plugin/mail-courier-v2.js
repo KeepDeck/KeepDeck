@@ -19,6 +19,9 @@
 import { watchDoorbell } from "./doorbell.js";
 import { answerText, askMail } from "./mail-ask.js";
 
+/** What marks a prompt this courier sent, for the prompt hook to pass by. */
+const MAIL_METADATA = { keepdeck: "mail" };
+
 const TURN_ENDS = new Set([
   "session.execution.succeeded",
   "session.execution.failed",
@@ -28,36 +31,45 @@ const TURN_ENDS = new Set([
 export async function startCourierV2({ context, bridge, pane }) {
   const ask = askMail(bridge);
 
-  /** Put an answer into the pane's conversation. */
+  /** Put an answer into the pane's conversation. Our own prompt is marked,
+   * so the prompt hook below — which opencode runs for it too — passes it by. */
   const deliver = async (answer, sessionID) => {
     if (typeof answer.context === "string" && answer.context) {
       await context.session.synthetic({ sessionID, text: answer.context, resume: false });
     }
     if (typeof answer.prompt === "string" && answer.prompt) {
-      await context.session.prompt({ sessionID, text: answer.prompt });
+      await context.session.prompt({ sessionID, text: answer.prompt, metadata: MAIL_METADATA });
     }
   };
+
+  /**
+   * The asks, one at a time and in order: a brief must be taken before the
+   * message that assumes it. ONLY the asks — delivery runs outside this
+   * chain, because `session.prompt` runs this courier's own prompt hook,
+   * which waits on the chain: a delivery inside it waited on itself, and
+   * every later prompt on the pane hung behind it (2.1.2, task-375).
+   */
+  let asks = Promise.resolve();
+  const inTurn = (job) => {
+    const turn = asks.then(job);
+    asks = turn.catch(() => {});
+    return turn;
+  };
+
+  /** Deliveries, in the order their asks were answered — a chain of its own
+   * that no hook waits on. */
+  let deliveries = Promise.resolve();
 
   /** Ask, then deliver — only into a conversation the pane has. */
   const collect = async () => {
     const root = pane.bound ? pane.root : null;
     if (!root) return;
     // Fixed BEFORE the ask: what the deck was told is where it lands.
-    const answer = await ask(await pane.classify(root));
+    const answer = await inTurn(async () => ask(await pane.classify(root))).catch(() => null);
     if (!answer) return;
-    try {
-      await deliver(answer, root);
-    } catch {
-      // Best-effort: the user's session must survive anything this gets wrong.
-    }
-  };
-
-  /** One collection at a time, in order: a brief must not land after the
-   * message that assumed it. */
-  let work = Promise.resolve();
-  const enqueue = (job) => {
-    work = work.then(job).catch(() => {});
-    return work;
+    // Best-effort: the user's session must survive anything this gets wrong.
+    deliveries = deliveries.then(() => deliver(answer, root)).catch(() => {});
+    await deliveries;
   };
 
   const onEvent = (event) => {
@@ -65,15 +77,15 @@ export async function startCourierV2({ context, bridge, pane }) {
     const data = event?.data ?? {};
     if (type === "session.created" && !data.parentID) {
       pane.newGeneration(data.sessionID);
-      enqueue(collect);
+      void collect();
       return;
     }
     if (TURN_ENDS.has(type) && data.sessionID && data.sessionID === pane.root) {
-      enqueue(collect);
+      void collect();
     }
   };
 
-  watchDoorbell(bridge.dir, () => enqueue(collect));
+  watchDoorbell(bridge.dir, () => void collect());
 
   // The user is sending something: anything waiting rides in the same
   // message, and nobody pays for a turn. The prompt is opencode's to send
@@ -81,8 +93,10 @@ export async function startCourierV2({ context, bridge, pane }) {
   await context.session.hook("prompt", async (event) => {
     if (!event?.sessionID || event.sessionID !== pane.root) return;
     if (typeof event.prompt?.text !== "string") return;
-    await work;
-    const answer = await ask(await pane.classify(event.sessionID));
+    if (event.metadata?.keepdeck === MAIL_METADATA.keepdeck) return;
+    const answer = await inTurn(async () => ask(await pane.classify(event.sessionID))).catch(
+      () => null,
+    );
     const text = answer ? answerText(answer) : "";
     if (text) event.prompt.text = `${event.prompt.text}\n\n${text}`;
   });
@@ -94,8 +108,9 @@ export async function startCourierV2({ context, bridge, pane }) {
   await context.tool.hook("execute.after", async (event) => {
     if (!event?.sessionID || event.sessionID !== pane.root) return;
     if (event.status !== "completed" || !event.result) return;
-    await work;
-    const answer = await ask(await pane.classify(event.sessionID), "mail.ask.tool");
+    const answer = await inTurn(async () =>
+      ask(await pane.classify(event.sessionID), "mail.ask.tool"),
+    ).catch(() => null);
     const text = answer ? answerText(answer) : "";
     if (!text) return;
     event.result = {

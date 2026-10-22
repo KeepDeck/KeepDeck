@@ -43,8 +43,12 @@ function createContext(parents: Record<string, string | undefined> = {}) {
     event: { subscribe: () => bus.subscribe() },
     session: {
       get: async ({ sessionID }: { sessionID: string }) => ({ id: sessionID, parentID: parents[sessionID] }),
-      prompt: async (input: { sessionID: string; text: string }) => {
-        prompts.push(input);
+      // As opencode does: a prompt runs every plugin's prompt hook before it
+      // is taken in — this courier's own included.
+      prompt: async (input: { sessionID: string; text: string; metadata?: unknown }) => {
+        const event = { sessionID: input.sessionID, prompt: { text: input.text }, metadata: input.metadata };
+        await hooks["session.prompt"]?.(event);
+        prompts.push({ sessionID: input.sessionID, text: event.prompt.text });
         return {};
       },
       synthetic: async (input: { sessionID: string; text: string; resume?: boolean }) => {
@@ -350,6 +354,26 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
         { type: "text", text: '{"files":3}' },
         { type: "text", text: "note" },
       ]);
+    });
+
+    it("delivers by the doorbell without waiting on itself, and leaves the pane usable", async () => {
+      // opencode runs this courier's prompt hook for the courier's own
+      // prompt; the hook once waited on the very collection delivering it, and
+      // every prompt after it hung (2.1.2, task-375).
+      const { context, bus, hooks, prompts } = createContext();
+      await setup(context);
+      bus.push("session.created", { sessionID: "ses_a" });
+      await reported();
+      pending.push({ v: 1, prompt: "rung" }, { v: 1, prompt: "should not ride" });
+      writeFileSync(join(dir, "mail.wake"), "");
+      for (let round = 0; round < 40 && prompts.length === 0; round++) await tick();
+      // The user can still send; what is waiting rides along with it.
+      const mine = { sessionID: "ses_a", prompt: { text: "hi" } };
+      await hooks["session.prompt"]!(mine);
+
+      // The courier's own prompt carried only its own words.
+      expect(prompts).toEqual([{ sessionID: "ses_a", text: "rung" }]);
+      expect(mine.prompt.text).toBe("hi\n\nshould not ride");
     });
 
     it("asks nothing for a pane with no conversation yet", async () => {
