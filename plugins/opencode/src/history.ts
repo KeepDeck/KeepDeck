@@ -284,7 +284,7 @@ export function opencodeHistory(ctx: HistoryPorts): AgentHistory {
    * store this plugin can read — a refusal, never an empty store. */
   const shapeNow = async (): Promise<StoreShape> => {
     const shape = storeShape((await query(TABLES)).rows.map(([name]) => name ?? ""));
-    if (!shape.v1 && !shape.v2) throw new Error("opencode: no session tables in the store");
+    if (!shape.v1 && !shape.v2) throw new Error("opencode: neither the 1.x nor the 2.x session tables are all in the store");
     return shape;
   };
 
