@@ -297,7 +297,7 @@ describe("opencode plugin hooks", () => {
     // home, and a user-set value must win over skills delivery.
     expect(Object.fromEntries(out.envDefaults ?? [])).toEqual({
       OPENCODE_CONFIG_DIR: "/kd/staging/ws-1/opencode",
-      OPENCODE_TUI_CONFIG: "/App/resources/keepdeck-plugin/tui.json",
+      OPENCODE_TUI_CONFIG: "/App/resources/keepdeck-plugin/tui-v1.json",
     });
     const env = Object.fromEntries(out.env);
     expect(env.OPENCODE_CONFIG_DIR).toBeUndefined();
@@ -329,7 +329,7 @@ describe("opencode plugin hooks", () => {
       const out = output();
       await agent.hooks[hook]!({ ...input, cliVersion: "1.19.3", sessionId: "s" }, out);
       expect(out.envDefaults).toEqual([
-        ["OPENCODE_TUI_CONFIG", "/App/resources/keepdeck-plugin/tui.json"],
+        ["OPENCODE_TUI_CONFIG", "/App/resources/keepdeck-plugin/tui-v1.json"],
       ]);
       expect(Object.fromEntries(out.env).OPENCODE_TUI_CONFIG).toBeUndefined();
     }

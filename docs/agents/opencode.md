@@ -61,7 +61,7 @@ launch carries.
 KeepDeck's server plugin, hears nothing. Mail used to go into the session
 the user had left, and the agent worked there unseen (task-435).
 
-- `route-observer.js` is a TUI plugin, loaded through `tui.json` beside it.
+- `route-observer.js` is a TUI plugin, loaded through `tui-v1.json` beside it.
   A local 1.x launch points `OPENCODE_TUI_CONFIG` at that file, as an env
   DEFAULT, apart from the skills' config dir. It polls `api.route.current`
   every 250 ms and writes `foreground.json` into the pane's bridge

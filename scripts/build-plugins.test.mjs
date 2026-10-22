@@ -277,7 +277,7 @@ describe("build pipeline (e2e against the real host and plugins)", () => {
       "foreground.js",
       "follower.js",
       "route-observer.js",
-      "tui.json",
+      "tui-v1.json",
       "doorbell.js",
       "pane-report.js",
       "components.js",

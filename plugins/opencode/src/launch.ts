@@ -142,7 +142,11 @@ const stagedConfigDir = (ctx: PluginContext): OpencodeLaunch => ({
  * and `/sessions` move only the TUI, and mail followed a session nobody could
  * see (task-435).
  *
- * Through a file that ships beside it, `tui.json` = `{"plugin":
+ * NOT named `tui.*`: opencode 2.x resolves a plugin directory's TUI entry by
+ * the bare name `tui`, found a `tui.json` there, and refused it — "1 plugin
+ * failed" on every 2.x pane (task-448, measured).
+ *
+ * Through a file that ships beside it, `tui-v1.json` = `{"plugin":
  * ["./route-observer.js"]}`: a relative spec resolves against the file
  * (config/plugin.ts:42-54 at v1.19.3; verified live), so nothing is written at
  * launch. opencode reads `OPENCODE_TUI_CONFIG` ON TOP of the user's own TUI
@@ -157,7 +161,7 @@ const stagedConfigDir = (ctx: PluginContext): OpencodeLaunch => ({
  */
 const tuiObserver = (ctx: PluginContext): OpencodeLaunch => ({
   async prepare(_input, draft) {
-    const config = await ctx.resources.path("keepdeck-plugin/tui.json");
+    const config = await ctx.resources.path("keepdeck-plugin/tui-v1.json");
     if (config) draft.envDefaults.push(["OPENCODE_TUI_CONFIG", config]);
   },
 });

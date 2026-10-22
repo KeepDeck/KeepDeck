@@ -23,8 +23,12 @@ let writeForeground: (dir: string, route: Record<string, unknown>) => void;
 let paneSession: () => { root: string | undefined; left: string | undefined };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+/** Wait for `done`, up to `ms` of wall-clock time — counted by the clock,
+ * not by sleeps: under a loaded run each sleep overshoots, and a count of
+ * them waits far longer than it says. */
 const until = async (done: () => boolean, ms = 2_000) => {
-  for (let waited = 0; waited < ms && !done(); waited += 5) await sleep(5);
+  const deadline = Date.now() + ms;
+  while (!done() && Date.now() < deadline) await sleep(5);
 };
 
 const created = (id: string, parentID?: string) => ({
