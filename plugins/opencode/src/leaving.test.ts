@@ -14,7 +14,11 @@ import { startDeck } from "../../../scripts/reporterHarness";
  * The real reporter, courier and follower, against a stand-in deck, with
  * the screen written the way the TUI half writes it.
  */
-vi.setConfig({ testTimeout: 15_000 });
+// Generous: a case waits on real timers (the follower, a 3 s fallback, the
+// stand-in deck), and under the whole suite's load those waits stretch well
+// past their nominal sum — a 15 s ceiling failed there while every case
+// passed alone.
+vi.setConfig({ testTimeout: 40_000 });
 
 let startReporter: (input?: any) => Promise<any>;
 let startCourier: (input?: any) => Promise<any>;
