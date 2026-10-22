@@ -120,7 +120,9 @@ describe("what opencode 2.x finds in the directory", () => {
     // a `tui.json` meant for 1.x was refused as a module — "1 plugin failed"
     // on every 2.x pane (task-448). Until 2.x has a TUI half of its own
     // (task-436), no file here may answer to that name.
-    const named = readdirSync(PLUGIN_DIR).filter((file) => /^tui\./.test(file));
+    // A file or a directory (Bun resolves `tui/index.js` too), in any case —
+    // a case-insensitive volume answers `TUI.json` to `tui`.
+    const named = readdirSync(PLUGIN_DIR).filter((file) => /^tui([./]|$)/i.test(file));
     expect(named).toEqual([]);
   });
 });

@@ -205,7 +205,7 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
       pending.push({ v: 1, prompt: "do not drop me" });
       writeFileSync(join(dir, "mail.wake"), "");
       const { context, prompts } = createContext();
-      (context as any).session.get = async () => {
+      context.session.get = async () => {
         throw new Error("Session not found: ses_gone");
       };
       await setup(context);
