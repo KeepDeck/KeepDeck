@@ -103,7 +103,16 @@ impl SessionRegistry {
     fn remove(&self, id: &str) {
         let mut reg = self.inner.lock().expect("session registry poisoned");
         reg.sessions.remove(id);
-        reg.panes.retain(|_, session| session != id);
+        let Registry { panes, vouched, .. } = &mut *reg;
+        panes.retain(|pane, session| {
+            let stays = session != id;
+            // The pin goes with the terminal it was a process of; the
+            // webview's own sweep may never arrive.
+            if !stays {
+                vouched.remove(pane);
+            }
+            stays
+        });
     }
 
     /// The pane whose terminal process `pid` belongs to
@@ -540,6 +549,12 @@ mod tests {
         assert_eq!(registry.pane_of(server).as_deref(), Some("pane-1"));
         registry.vouch("pane-1".into(), None);
         assert_eq!(registry.pane_of(server), None, "nor after the pin is dropped");
+
+        // The pin goes with its terminal, even when the webview never says so.
+        registry.vouch("pane-1".into(), Some(agent));
+        let id = registry.inner.lock().unwrap().panes["pane-1"].clone();
+        registry.remove(&id);
+        assert!(registry.inner.lock().unwrap().vouched.is_empty());
 
         for pid in [server, agent] {
             // SAFETY: processes this test started; they left the terminal's
