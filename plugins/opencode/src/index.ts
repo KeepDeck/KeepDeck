@@ -21,7 +21,7 @@ import { OPENCODE_MAIL_CHANNELS, renderOpencodeMail } from "./mail";
 import { warmConfigDir } from "./warm";
 import { attributeOpencodeEvent, normalizeOpencodeStatus } from "./status";
 import { normalizeOpencodeUsage } from "./usage";
-import { standaloneArgs } from "./version";
+import { opencodeGeneration, standaloneArgs } from "./version";
 
 /**
  * The per-invocation config injecting KeepDeck's own opencode plugin.
@@ -35,6 +35,7 @@ import { standaloneArgs } from "./version";
 async function sessionConfigEnv(
   resources: PluginResources,
   mcp: SpawnPlanInput["mcp"],
+  skills: readonly string[],
 ): Promise<[string, string][]> {
   // `resources.path` answers about files, so the directory is found through
   // its entry — which also keeps a bundle missing the entry from injecting a
@@ -49,6 +50,8 @@ async function sessionConfigEnv(
     // the user's own config is replaced.
     ...(ours ? { plugin: [ours] } : {}),
     ...(servers ?? {}),
+    // Extra places to find skills — added to the user's own (2.x).
+    ...(skills.length > 0 ? { skills } : {}),
   };
   return Object.keys(config).length > 0
     ? [["OPENCODE_CONFIG_CONTENT", JSON.stringify(config)]]
@@ -100,6 +103,22 @@ const permissionModeEnv = (yolo: boolean | undefined): [string, string][] =>
 const skillsEnvDefaults = (skills: SpawnSkillsInput | undefined): [string, string][] =>
   skills ? [["OPENCODE_CONFIG_DIR", skills.opencodeConfigDir]] : [];
 
+/**
+ * How the staged skills reach THIS release.
+ *
+ * 1.x: the extra config directory above. 2.x must never get it: there
+ * `OPENCODE_CONFIG_DIR` REPLACES the user's global config instead of adding
+ * to it (util/src/global.ts at v2.1.2; verified live, task-425), so a pane
+ * would lose the user's providers, plugins and instructions. 2.x takes extra
+ * skill paths in its config instead — the bare `<skill>/SKILL.md` layout it
+ * scans (config/plugin/skill-scan.ts) — and lists skills under its own
+ * `/skills`, so the per-skill palette commands 1.x needed are not wanted.
+ */
+const skillsDelivery = (skills: SpawnSkillsInput | undefined, cliVersion: string | undefined) =>
+  opencodeGeneration(cliVersion) === 2
+    ? { configSkills: skills ? [skills.skillsDir] : [], envDefaults: [], configDir: undefined }
+    : { configSkills: [], envDefaults: skillsEnvDefaults(skills), configDir: skills?.opencodeConfigDir };
+
 /** When the pane targets a remote opencode server, THIS process is the local
  *  `opencode attach` thin client (the agent brain runs in `opencode serve` on
  *  the box). Unlike codex's `--remote`, `attach` is a subcommand that REPLACES
@@ -128,9 +147,10 @@ async function stageLaunch(
   input: Pick<SpawnPlanInput, "mcp" | "skills" | "target" | "yolo" | "cliVersion">,
   output: { env: [string, string][]; envDefaults?: [string, string][]; args: string[] },
 ): Promise<boolean> {
-  output.env.push(...(await sessionConfigEnv(ctx.resources, input.mcp)));
+  const skills = skillsDelivery(input.skills, input.cliVersion);
+  output.env.push(...(await sessionConfigEnv(ctx.resources, input.mcp, skills.configSkills)));
   output.env.push(...permissionModeEnv(input.yolo));
-  (output.envDefaults ??= []).push(...skillsEnvDefaults(input.skills));
+  (output.envDefaults ??= []).push(...skills.envDefaults);
   const remote = remoteAttachArgs(input.target, input.yolo);
   if (remote) {
     // Remote settles the arguments AND ends the local story: the agent runs
@@ -142,7 +162,7 @@ async function stageLaunch(
   }
   // Only now, with the pane known to be local: bootstrap the dir it is about
   // to boot against, so the install does not happen inside its own boot.
-  if (input.skills) await warmConfigDir(ctx, input.skills.opencodeConfigDir);
+  if (skills.configDir) await warmConfigDir(ctx, skills.configDir);
   output.args.push(...standaloneArgs(input.cliVersion), ...yoloArgs(input.yolo));
   return false;
 }

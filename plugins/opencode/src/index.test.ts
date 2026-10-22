@@ -319,6 +319,28 @@ describe("opencode plugin hooks", () => {
     expect(Object.fromEntries(bareResume.env).OPENCODE_CONFIG_DIR).toBeUndefined();
   });
 
+  it("hands 2.x its skills in the config, and never OPENCODE_CONFIG_DIR — there it replaces the user's", async () => {
+    const agent = activate("/App/resources");
+    const skills = {
+      claudePluginDir: "/kd/staging/ws-1/claude-plugin",
+      opencodeConfigDir: "/kd/staging/ws-1/opencode",
+      skillsDir: "/kd/staging/ws-1/skills",
+    };
+    for (const hook of ["spawn.plan", "resume.plan"] as const) {
+      const out = output();
+      await agent.hooks[hook]!({ ...input, skills, sessionId: "s", cliVersion: "2.1.2" }, out);
+      expect(out.envDefaults ?? [], hook).toEqual([]);
+      const env = Object.fromEntries(out.env);
+      expect(env.OPENCODE_CONFIG_DIR, hook).toBeUndefined();
+      expect(JSON.parse(env.OPENCODE_CONFIG_CONTENT).skills, hook).toEqual(["/kd/staging/ws-1/skills"]);
+    }
+
+    // No skills — no key at all.
+    const bare = output();
+    await agent.hooks["spawn.plan"]!({ ...input, cliVersion: "2.1.2" }, bare);
+    expect(JSON.parse(Object.fromEntries(bare.env).OPENCODE_CONFIG_CONTENT)).not.toHaveProperty("skills");
+  });
+
   it("resumes with -s and still arms the reporter (catches /new)", async () => {
     const agent = activate("/App/resources");
     const out = output();
@@ -552,6 +574,15 @@ describe("opencode plugin — warming the config dir", () => {
 
     expect(runOnce).toHaveBeenCalledTimes(1);
     expect(runOnce.mock.calls[0][0]).toMatchObject({ key: CFG, command: "opencode" });
+  });
+
+  it("warms nothing for 2.x, which is given no config dir", async () => {
+    const { runOnce, services } = warmServices();
+    const agent = activate("/App/resources", services);
+
+    await agent.hooks["spawn.plan"]!({ ...withSkills, cliVersion: "2.1.2" } as never, output());
+
+    expect(runOnce).not.toHaveBeenCalled();
   });
 
   it("warms nothing when the pane gets no staged skills", async () => {

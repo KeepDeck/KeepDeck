@@ -29,8 +29,10 @@ nothing is installed on the user's side.
   root, and the ancestry used to tell a subagent's session from the main
   one.
 - MCP servers travel in the same `OPENCODE_CONFIG_CONTENT`.
-- Skills come through `OPENCODE_CONFIG_DIR` as an env default.
+- Skills come through `OPENCODE_CONFIG_DIR` as an env default on 1.x;
   `src/warm.ts` makes sure that directory's dependencies are installed.
+  On 2.x they come as `skills: [<staged skills dir>]` in
+  `OPENCODE_CONFIG_CONTENT` instead, with no config dir and no warming.
 - `KEEPDECK_OPENCODE_SKIPS_APPROVALS` is set for permission-skipping panes.
 - Remote panes use `opencode attach <endpoint>`.
 
@@ -100,7 +102,9 @@ Read from the 2.0.32 and 2.1.2 source, and verified live on 2.1.2
     `session.hook("prompt")` (riding along) and `tool.hook("execute.after")`
     (mid-turn). A pane with no conversation yet waits for its first turn.
 - **Config dir.** `OPENCODE_CONFIG_DIR` REPLACES the user's global config
-  on 2.x instead of adding to it (live), so it must not be set there.
+  on 2.x instead of adding to it (live), so KeepDeck does not set it there.
+  Skills go through the `skills` config key, and 2.x lists them under its
+  own `/skills`, so the per-skill palette commands 1.x needs are not made.
 - **Database.** 2.x adds `session_v2` tables to the same `opencode.db`
   and imports 1.x sessions ONCE. A session made on 1.x afterwards is
   never imported (live), so history must read both.
