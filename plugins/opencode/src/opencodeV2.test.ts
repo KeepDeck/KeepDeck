@@ -193,6 +193,29 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
       ]);
     });
 
+    it("states the old conversation's ending even when a new one begins right behind it", async () => {
+      // The server answers slowly, so the reporter is still busy with the
+      // first turn when the bus has already moved on. Nothing but the
+      // reporter may move the pane meanwhile, or the old turn's ending is
+      // read against the new conversation and dropped — the pane stays
+      // "working" on a conversation that ended.
+      const { context, bus } = createContext();
+      const answer = context.session.get;
+      context.session.get = async (input: { sessionID: string }) => {
+        for (let round = 0; round < 3; round++) await tick();
+        return answer(input);
+      };
+      await setup(context);
+      bus.push("session.execution.started", { sessionID: "ses_a" });
+      bus.push("session.execution.succeeded", { sessionID: "ses_a" });
+      bus.push("session.created", { sessionID: "ses_b" });
+
+      expect(ofType(await reported(), "agent.status").map((e) => e.payload.event.type)).toEqual([
+        "session.execution.started",
+        "session.execution.succeeded",
+      ]);
+    });
+
     it("keeps a subagent's turns off the pane", async () => {
       const { context, bus } = createContext();
       await setup(context);

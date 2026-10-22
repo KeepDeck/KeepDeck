@@ -60,24 +60,33 @@ export async function startCourierV2({ context, bridge, pane }) {
    * that no hook waits on. */
   let deliveries = Promise.resolve();
 
-  /** Ask, then deliver — only into a conversation the pane has. */
-  const collect = async () => {
-    const root = pane.bound ? pane.root : null;
+  /** Ask, then deliver — only into a conversation the pane has, or the one
+   * that has just begun (`into`). */
+  const collect = async (into) => {
+    const root = into ?? (pane.bound ? pane.root : null);
     if (!root) return;
-    // Fixed BEFORE the ask: what the deck was told is where it lands.
-    const answer = await inTurn(async () => ask(await pane.classify(root))).catch(() => null);
+    // Fixed BEFORE the ask: what the deck was told is where it lands. A
+    // conversation that has just begun has no parent by its own creation.
+    const answer = await inTurn(async () => ask(into ? "root" : await pane.classify(root))).catch(
+      () => null,
+    );
     if (!answer) return;
     // Best-effort: the user's session must survive anything this gets wrong.
     deliveries = deliveries.then(() => deliver(answer, root)).catch(() => {});
     await deliveries;
   };
 
+  // The courier READS the pane's conversation and never moves it: the
+  // reporter does, in the order of its own events. Moving it here, ahead of
+  // the reporter's queue, made the reporter read its previous events against
+  // the new conversation and drop the old one's ending, leaving the pane
+  // "working" (review of task-375). A conversation that has just begun gets
+  // its brief by its own id.
   const onEvent = (event) => {
     const type = event?.type;
     const data = event?.data ?? {};
-    if (type === "session.created" && !data.parentID) {
-      pane.newGeneration(data.sessionID);
-      void collect();
+    if (type === "session.created" && data.sessionID && !data.parentID) {
+      void collect(data.sessionID);
       return;
     }
     if (TURN_ENDS.has(type) && data.sessionID && data.sessionID === pane.root) {
