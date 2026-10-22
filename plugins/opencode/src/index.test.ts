@@ -449,6 +449,42 @@ describe("opencode plugin hooks", () => {
     expect(v1.args).not.toContain("--standalone");
   });
 
+  it("puts 2.x's own server ahead of the YOLO flag, and the session after both", async () => {
+    // The order every 2.x launch has had since task-376: a reshuffle here is
+    // no visible failure, so it is pinned exactly rather than by `toContain`.
+    const agent = activate("/App/resources");
+    const v2 = { ...input, cliVersion: "opencode v2.1.2", yolo: true };
+
+    const spawn = output();
+    await agent.hooks["spawn.plan"]!(v2, spawn);
+    expect(spawn.args).toEqual(["--standalone", "--dangerously-skip-permissions"]);
+
+    const resume = output();
+    await agent.hooks["resume.plan"]!({ ...v2, sessionId: "ses_x" }, resume);
+    expect(resume.args).toEqual(["--standalone", "--dangerously-skip-permissions", "-s", "ses_x"]);
+  });
+
+  it("gives a remote pane nothing local: no config dir, no skills, on either generation", async () => {
+    // `attach` loads none of it, so a config dir handed to a thin client was a
+    // directory nobody opens. The plugin and servers still travel (see below).
+    const agent = activate("/App/resources");
+    const target = { kind: "nativeServer" as const, endpoint: "http://vps:4096" };
+    const skills = {
+      claudePluginDir: "/kd/staging/ws-1/claude-plugin",
+      opencodeConfigDir: "/kd/staging/ws-1/opencode",
+      skillsDir: "/kd/staging/ws-1/skills",
+    };
+
+    for (const cliVersion of ["1.19.3", "opencode v2.1.2", undefined]) {
+      const spawn = output();
+      await agent.hooks["spawn.plan"]!({ ...input, target, skills, cliVersion }, spawn);
+      expect(spawn.envDefaults ?? []).toEqual([]);
+      const config = JSON.parse(Object.fromEntries(spawn.env).OPENCODE_CONFIG_CONTENT);
+      expect(config).not.toHaveProperty("skills");
+      expect(config.plugin).toEqual(["/App/resources/keepdeck-plugin"]);
+    }
+  });
+
   it("YOLO adds the skip-permissions flag on spawn and resume alike", async () => {
     const agent = activate("/App/resources");
 

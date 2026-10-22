@@ -36,8 +36,17 @@ nothing is installed on the user's side.
 - `KEEPDECK_OPENCODE_SKIPS_APPROVALS` is set for permission-skipping panes.
 - Remote panes use `opencode attach <endpoint>`.
 
-`stageLaunch` in `src/index.ts` is what every launch carries, through the
-shared `launchPlans`.
+`stageLaunch` in `src/launch.ts` is what every launch carries, through the
+shared `launchPlans`. A launch is one interface, `OpencodeLaunch`, with a
+whole launch per case composed from parts:
+- shared parts: KeepDeck's plugin, MCP servers, the permission mode;
+- 1.x: the staged config dir (skills, warm-up) and its flags;
+- 2.x: the `skills` config key and `--standalone`;
+- remote: `attach <endpoint>` and nothing local.
+
+`launchFor` is the only place that reads the version and the target. An
+unknown version runs as 1.x. The draft a launch fills holds only what every
+launch carries.
 
 ## Mail (1.x)
 
