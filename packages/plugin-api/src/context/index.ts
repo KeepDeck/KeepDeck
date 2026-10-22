@@ -108,6 +108,8 @@ export { isJsonRecord } from "../json.ts";
 export {
   firstMeaningfulUserTurn,
   textFromParts,
+  titleText,
+  transcriptRole,
   trimmedText,
 } from "./historyText.ts";
 export type { PluginContext } from "./context.ts";

@@ -3,6 +3,21 @@
  * how a conversation gets a human title is not — and two private copies of
  * the title heuristic had already drifted apart. */
 
+import type { AgentTranscriptEntry } from "./agents.ts";
+
+/** How much of a title the index keeps. */
+const TITLE_LENGTH = 120;
+
+/** A conversation's title as the index holds it — the store's own or one
+ * derived from the first turn alike. */
+export const titleText = (title: string): string => title.slice(0, TITLE_LENGTH);
+
+/** A transcript role from a store's role word: a user or an assistant, and
+ * anything else — a tool, a system notice, a word a newer CLI adds — other. */
+export function transcriptRole(role: unknown): AgentTranscriptEntry["role"] {
+  return role === "user" || role === "assistant" ? role : "other";
+}
+
 /** A string field's text with surrounding whitespace removed, or undefined
  * when it is not a string or holds nothing but whitespace — the read for a
  * cwd or a summary a store may write blank. */
@@ -48,5 +63,5 @@ export function firstMeaningfulUserTurn(
       !SLASH_COMMAND.test(t.text.trim()) &&
       t.text.length > 1,
   );
-  return real ? real.text.slice(0, 120) : undefined;
+  return real ? titleText(real.text) : undefined;
 }

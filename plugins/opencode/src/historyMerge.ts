@@ -173,7 +173,3 @@ export function transcriptOf(turns: readonly Turn[]): {
     unreadable: turns.reduce((sum, turn) => sum + turn.unreadable, 0),
   };
 }
-
-/** A transcript role from a message's role or 2.x type. */
-export const roleOf = (kind: string | null): Role =>
-  kind === "user" || kind === "assistant" ? kind : "other";

@@ -1,6 +1,8 @@
 import {
   CONTENT_CAP,
   sessionHistory,
+  titleText,
+  transcriptRole,
   type AgentHistory,
   type PluginLogger,
   type PluginSqlite,
@@ -10,7 +12,6 @@ import {
   mergeSessions,
   mergeTurns,
   migrationOf,
-  roleOf,
   storeShape,
   transcriptOf,
   type Migration,
@@ -251,7 +252,7 @@ function v1Turns(messages: Rows, parts: Rows): Turn[] {
       ? [
           {
             id,
-            role: roleOf(role),
+            role: transcriptRole(role),
             text: (texts.get(id) ?? []).join("\n"),
             unreadable: torn.get(id) ?? 0,
             ...(summarizes ? { summarizes } : {}),
@@ -264,7 +265,7 @@ function v1Turns(messages: Rows, parts: Rows): Turn[] {
 const v2Turns = (rows: Rows): Turn[] =>
   rows.flatMap(([id, type, text, intact]) =>
     id
-      ? [{ id, role: roleOf(type), text: text?.trim() ?? "", unreadable: intact === "0" ? 1 : 0 }]
+      ? [{ id, role: transcriptRole(type), text: text?.trim() ?? "", unreadable: intact === "0" ? 1 : 0 }]
       : [],
   );
 
@@ -369,7 +370,7 @@ export function opencodeHistory(ctx: HistoryPorts): AgentHistory {
         const [directory, title] = row;
         return {
           cwd: directory ?? "",
-          ...(title ? { title: title.slice(0, 120) } : {}),
+          ...(title ? { title: titleText(title) } : {}),
         };
       }
       throw new Error(`opencode: no session row (${ref})`);
