@@ -38,6 +38,7 @@ import { parentLookupV1 } from "./opencode-v1.js";
 import { paneSession } from "./pane-session.js";
 import { readBridge } from "./keepdeck-bridge.js";
 import { watchDoorbell } from "./doorbell.js";
+import { follower } from "./follower.js";
 import { answerText, askMail } from "./mail-ask.js";
 import { promptSelection } from "./prompt-selection.js";
 
@@ -303,6 +304,10 @@ export async function startCourier(input = {}) {
   // Through the queue: `collect` is not re-entrant, and a ring landing while
   // one is in flight has to follow it rather than race it.
   watchDoorbell(dir, () => enqueue(collect));
+
+  // The pane moved to the session the user opened, and the deck knows
+  // (follower.js): whatever waits belongs there now.
+  follower().onSettled(() => enqueue(collect));
 
   return {
     // opencode does not await plugin event promises, so the queue is what

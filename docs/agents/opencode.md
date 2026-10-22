@@ -55,6 +55,27 @@ whole launch per case composed from parts:
 unknown version runs as 1.x. The draft a launch fills holds only what every
 launch carries.
 
+## Which session is on screen (1.x)
+
+`/new` and `/sessions` move only the TUI's own route; the server, and so
+KeepDeck's server plugin, hears nothing. Mail used to go into the session
+the user had left, and the agent worked there unseen (task-435).
+
+- `route-observer.js` is a TUI plugin, loaded through `tui.json` beside it.
+  A local 1.x launch points `OPENCODE_TUI_CONFIG` at that file, as an env
+  DEFAULT, apart from the skills' config dir. It polls `api.route.current`
+  every 250 ms and writes `foreground.json` into the pane's bridge
+  directory: a route that held for two polls, plus a heartbeat every second.
+- `foreground.js` reads it: `unknown` (no observer for this process, or
+  silent for 30 s, so behave as before), `stale` (silent for 3 s), `home`,
+  `other`, or `session`.
+- `follower.js`: when another session is on screen, the pane moves to it
+  (to its root for a subagent's view; not at all if it cannot be
+  classified). The move is one job in the reporter's queue: `session.bound`
+  with source `resume`, then the session's spend. After the wire has drained,
+  the courier collects for it.
+- Not done yet: the home screen after `/new` (task-444).
+
 ## Mail (1.x)
 
 The courier asks at five moments: `session.created` (the brief),

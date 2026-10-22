@@ -18,6 +18,10 @@ describe("what a pane's report says, on either opencode", () => {
   it("binds a first conversation as a start and a later one as continuing", () => {
     expect(boundReport("ses_a", false)).toEqual({ sessionId: "ses_a", source: "startup" });
     expect(boundReport("ses_b", true)).toEqual({ sessionId: "ses_b", source: "new" });
+    // A session the user opened in the TUI (follower.js).
+    expect(boundReport("ses_c", true, true)).toEqual({ sessionId: "ses_c", source: "resume" });
+    // The pane's first conversation is a startup however it was reached.
+    expect(boundReport("ses_d", false, true)).toEqual({ sessionId: "ses_d", source: "startup" });
   });
 
   it("counts the context in use from the last turn, and leaves out what is unknown", () => {

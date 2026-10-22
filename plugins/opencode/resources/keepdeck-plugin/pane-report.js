@@ -21,10 +21,11 @@ export const tokenCounts = (tokens) => ({
 });
 
 /** The pane's conversation, as `session.bound` states it. A later one is the
- * pane's conversation continuing under a new id (`/new`). */
-export const boundReport = (sessionId, continuing) => ({
+ * pane's conversation continuing under a new id: `/new`, or — `switched` — a
+ * session the user opened in the TUI (follower.js). */
+export const boundReport = (sessionId, continuing, switched = false) => ({
   sessionId,
-  source: continuing ? "new" : "startup",
+  source: !continuing ? "startup" : switched ? "resume" : "new",
 });
 
 /**

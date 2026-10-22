@@ -37,6 +37,7 @@ import {
   tokenCounts,
   usageReport,
 } from "./pane-report.js";
+import { follower } from "./follower.js";
 import { paneSession } from "./pane-session.js";
 
 export async function startReporter(input = {}) {
@@ -195,8 +196,8 @@ export async function startReporter(input = {}) {
   // rather than a flag of its own: a second copy of "has this pane bound yet"
   // is a second place for that answer to be wrong, and this one would keep
   // saying "continuing" after a publish that silently failed.
-  const bind = (sessionID, continuing) =>
-    publish("session.bound", boundReport(sessionID, continuing));
+  const bind = (sessionID, continuing, switched) =>
+    publish("session.bound", boundReport(sessionID, continuing, switched));
 
   /**
    * Take a session as the pane's conversation, then set up for it.
@@ -236,14 +237,14 @@ export async function startReporter(input = {}) {
    * already, and then a first conversation would report itself as a second.
    */
   let servedRoot;
-  const setUpForConversation = async (publishBinding) => {
+  const setUpForConversation = async (publishBinding, switched = false) => {
     if (pane.root === undefined || pane.root === servedRoot) return;
     const continuing = servedRoot !== undefined;
     servedRoot = pane.root;
     messages.clear();
     root = undefined;
     sequence = 0;
-    if (publishBinding) bind(servedRoot, continuing);
+    if (publishBinding) bind(servedRoot, continuing, switched);
     hydration = hydrateSession(servedRoot, servedRoot, new Set());
     await hydration;
   };
@@ -461,8 +462,13 @@ export async function startReporter(input = {}) {
     // sums into the cumulative. But a subagent's context is ITS own, not the
     // pane's conversation, so only a ROOT turn sets occupancy + identity.
     remember(info, pane.root);
-    if (!root) return; // no root turn seen yet — accumulate, publish later
+    await reportUsage();
+  };
 
+  /** The conversation's spend and context, as a `usage.report` — nothing
+   * until a root turn has been seen (the spend accumulates meanwhile). */
+  const reportUsage = async () => {
+    if (!root) return;
     // Immutable report basis before the async catalog lookup. The queue below
     // serializes callbacks too, but capturing keeps this function locally sane.
     const currentRoot = root;
@@ -495,10 +501,28 @@ export async function startReporter(input = {}) {
   // event through our own queue so hydration/catalog IO cannot interleave two
   // mutations or let an older snapshot publish after a newer one.
   let eventQueue = Promise.resolve();
+  const enqueue = (job) => {
+    eventQueue = eventQueue.then(job).catch(() => {});
+    return eventQueue;
+  };
+
+  /**
+   * The user opened another session in the TUI (follower.js), and the pane
+   * moves there — as ONE job in this queue, so the deck hears the binding
+   * before any event of the session it names, and the session's spend right
+   * after it rather than at its next finished turn. What this side last said
+   * about a turn belonged to the session left behind.
+   */
+  follower().onMove((sessionID) =>
+    enqueue(async () => {
+      pane.newGeneration(sessionID);
+      lastTurnState = undefined;
+      await setUpForConversation(true, true);
+      await reportUsage();
+    }),
+  );
+
   return {
-    event: ({ event }) => {
-      eventQueue = eventQueue.then(() => handle(event)).catch(() => {});
-      return eventQueue;
-    },
+    event: ({ event }) => enqueue(() => handle(event)),
   };
 }

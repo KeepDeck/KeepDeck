@@ -25,6 +25,7 @@
  */
 import { startCourier } from "./mail-courier.js";
 import { startComponents } from "./components.js";
+import { follower } from "./follower.js";
 import { setupV2 } from "./opencode-v2.js";
 import { startReporter } from "./session-reporter.js";
 
@@ -58,7 +59,12 @@ export function composeHooks(maps) {
 export default {
   id: "keepdeck",
   /** opencode 1.x. */
-  server: async (input) => composeHooks(await startComponents([startReporter, startCourier], input)),
+  server: async (input) => {
+    const hooks = composeHooks(await startComponents([startReporter, startCourier], input));
+    // Both components have joined the follower by now (follower.js).
+    follower().start();
+    return hooks;
+  },
   /** opencode 2.x (opencode-v2.js). */
   setup: (context) => setupV2(context),
 };
