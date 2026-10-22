@@ -377,11 +377,13 @@ export async function startReporter(input = {}) {
       const stating = turnStateOf(event);
       // Already said, and nothing has said otherwise since — see
       // `lastTurnState` for what each repeat costs the deck.
-      if (stating && stating === lastTurnState) return;
-      forward(event);
-      if (stating) lastTurnState = stating;
+      if (!stating || stating !== lastTurnState) {
+        forward(event);
+        if (stating) lastTurnState = stating;
+      }
       // The ending of a conversation the user left: told to the deck as the
-      // pane's, and only now does the pane let it go.
+      // pane's (or already told — an idle session's abort only repeats it),
+      // and only now does the pane let it go.
       if (event.type === "session.idle" && leaving?.sessionID === event.properties?.sessionID) {
         letGo(leaving.sessionID);
       }

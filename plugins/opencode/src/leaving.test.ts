@@ -177,6 +177,21 @@ describe("leaving a conversation, and mail on the home screen", () => {
     expect(paneSession().left).toBe("ses_a");
   });
 
+  it("lets go at once on /new from an idle conversation — its abort's idle only repeats one", async () => {
+    // The deck was already told the turn ended; the abort's idle is a repeat
+    // the reporter does not forward, and it must still be what lets go —
+    // not the 3 s fallback (measured live, task-444).
+    await inA();
+    await both(idle("ses_a"));
+    writeForeground(dir, { route: "home" });
+    await until(() => calls.abort.length > 0);
+    const asked = Date.now();
+    await both(idle("ses_a"));
+    await until(() => kinds().includes("session.unbound"), 2_000);
+    expect(kinds()).toContain("session.unbound");
+    expect(Date.now() - asked).toBeLessThan(1_000);
+  });
+
   it("lets go even when the abort brings no ending", async () => {
     await inA();
     await newSession({ answerAbort: false });
@@ -257,9 +272,12 @@ describe("leaving a conversation, and mail on the home screen", () => {
     await inA();
     await newSession();
     deck.envelopes.length = 0;
-    onSelect = (id) => {
-      writeForeground(dir, { route: "session", sessionID: id });
-      void both(created(id));
+    // As opencode does it: the new session is announced BEFORE `create`
+    // returns (measured live, task-444). Told to the courier without waiting:
+    // its handler queues behind the very job making this call.
+    duringCreate = async () => {
+      await reporter.event(created("ses_c"));
+      void courier.event(created("ses_c"));
     };
     pending.push({ v: 1, context: "you are analyst-2", prompt: "<teammate-message>\n> do it\n</teammate-message>" });
     ring();
@@ -284,6 +302,10 @@ describe("leaving a conversation, and mail on the home screen", () => {
     await newSession();
     deck.envelopes.length = 0;
     onSelect = null;
+    duringCreate = async () => {
+      await reporter.event(created("ses_c"));
+      void courier.event(created("ses_c"));
+    };
     pending.push({ v: 1, prompt: "<teammate-message>\n> do it\n</teammate-message>" });
     ring();
     await until(() => calls.create === 1);

@@ -250,15 +250,28 @@ export async function startCourier(input = {}) {
   let homeFailed = false;
   let theirs = false;
   const ours = new Set();
+  /** Root sessions that appeared while `session.create` was in flight —
+   * opencode announces the new session BEFORE the call returns (measured
+   * live, task-444), so which of them is ours is known only after. */
+  let creating = null;
   const SHOW_WAIT_MS = 3_000;
   const viaHome = async () => {
     if (homeFailed) return;
     const chosen = await promptSelection(client, pane.left);
     theirs = false;
-    const made = await client.session.create({ body: {} });
+    creating = [];
+    let made;
+    try {
+      made = await client.session.create({ body: {} });
+    } finally {
+      const appeared = creating;
+      creating = null;
+      const id = made?.data?.id;
+      if (id) ours.add(id);
+      if (appeared.some((other) => other !== id)) theirs = true;
+    }
     const id = made?.data?.id;
     if (!ok(made) || !id) return;
-    ours.add(id);
     if (theirs || readForeground(dir).kind !== "home") return;
     await client.tui.publish({
       body: { type: "tui.session.select", properties: { sessionID: id } },
@@ -353,10 +366,13 @@ export async function startCourier(input = {}) {
         // Refused when it is already the current one: the reporter beside this
         // file sees the same event and says the same thing.
         pane.newGeneration(created.id);
+        // One `viaHome` made is its own to deliver into, once it is shown —
+        // and it may never be.
+        if (ours.has(created.id)) return;
         // A conversation just began — the standing brief belongs in it before
         // the first word, not after whatever the user says next. Delivered
         // to it whatever the screen file says yet: it lags the TUI by a poll,
-        // and a root session appearing is the TUI's own (or ours) — on screen.
+        // and a root session appearing is the TUI's own — on screen.
         await deliver();
         return;
       }
@@ -410,7 +426,10 @@ export async function startCourier(input = {}) {
       // Told at once, not in turn: a conversation the user started while
       // `viaHome` is under way must stop it before it shows its own.
       const info = event?.type === "session.created" ? event.properties?.info : undefined;
-      if (info?.id && !info.parentID && !ours.has(info.id)) theirs = true;
+      if (info?.id && !info.parentID && !ours.has(info.id)) {
+        if (creating) creating.push(info.id);
+        else theirs = true;
+      }
       return enqueue(() => onEvent(event));
     },
     /**
