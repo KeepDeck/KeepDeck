@@ -74,6 +74,11 @@ function create() {
   const roots = new Set();
   /** The pane's conversation, once one is known. */
   let root;
+  /** The conversation the user LEFT for none at all (`/new`, task-435): no
+   * longer the pane's, and nothing it or its subagents still say may make it
+   * the pane's again — with no root, the first-evidence rules below would
+   * otherwise bind the pane straight back to it. */
+  let left;
 
   /** Record one hop the caller already knows — a `session.created` carrying
    * `parentID` is the server's own word, and needs no round trip. */
@@ -185,6 +190,10 @@ function create() {
     get bound() {
       return root !== undefined;
     },
+    /** The conversation the user left for none at all, until the next one. */
+    get left() {
+      return left;
+    },
     /**
      * Take a session as the pane's conversation, KEEPING what is known about
      * its ancestry.
@@ -200,7 +209,7 @@ function create() {
      * somebody else's conversation for the life of the process. That happened.
      */
     bindFromChain(sessionID, keep = []) {
-      if (root !== undefined || !sessionID) return false;
+      if (root !== undefined || !sessionID || sessionID === left) return false;
       root = sessionID;
       for (const [child, parent] of keep) note(child, parent);
       return true;
@@ -221,6 +230,19 @@ function create() {
       // classification would otherwise go back to the client for.
       roots.add(sessionID);
       root = sessionID;
+      left = undefined;
+      return true;
+    },
+    /**
+     * The user left the pane's conversation for none at all: the pane has no
+     * conversation until the next root one begins (`newGeneration`). The
+     * ancestry is KEPT — it is what recognises the left session's subagents
+     * as its own, and so as not the pane's.
+     */
+    detach() {
+      if (root === undefined) return false;
+      left = root;
+      root = undefined;
       return true;
     },
     /**
@@ -231,6 +253,7 @@ function create() {
      */
     concernsPane(sessionID) {
       if (!sessionID || rootOf(sessionID) !== sessionID) return false;
+      if (sessionID === left) return false;
       return root === undefined || sessionID === root;
     },
   };

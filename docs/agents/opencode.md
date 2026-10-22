@@ -74,7 +74,27 @@ the user had left, and the agent worked there unseen (task-435).
   classified). The move is one job in the reporter's queue: `session.bound`
   with source `resume`, then the session's spend. After the wire has drained,
   the courier collects for it.
-- Not done yet: the home screen after `/new` (task-444).
+- Leaving a conversation stops it (user decision): another root on screen,
+  or the home screen after a session this process showed. The reporter
+  aborts the left session's turn, outside its own queue. A move to another
+  session needs nothing more. For the home screen, the abort's error and
+  idle reach the deck as the pane's. Then `pane-session.js` `detach()` keeps
+  the left session (`left`) so neither it nor its subagents can rebind the
+  pane, and `session.unbound` makes the deck forget the session. A restore
+  starts fresh (`src/app/paneUnbinding.ts`). With no ending within 3 s it
+  lets go anyway, unless the pane already moved on. opencode STARTING on
+  home (before `-s` opens, or the native `--fork`) is not a leaving.
+- Mail goes only where the user is looking. Every channel asks the same
+  rule: `unknown` behaves as before; the pane's root or its subagent's view
+  is delivered to; anything else is held, the end-of-turn ask and
+  `mail.ask.tool` alike. The courier never moves the pane.
+- On the home screen after a leaving, only a doorbell ring (mail waiting)
+  makes a session: create, check it is still home, `tui.session.select`,
+  wait until the screen shows it and the pane is bound (≤3 s), drain, and
+  only then ask. Brief and mail arrive together, with the selection of the
+  conversation left. No ack means no ask and no retry until the screen
+  changes. A root session the courier did not make is the user's own, and
+  the path stops.
 
 ## Mail (1.x)
 

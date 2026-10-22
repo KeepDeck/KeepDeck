@@ -1,0 +1,338 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { startDeck } from "../../../scripts/reporterHarness";
+
+/**
+ * Leaving a conversation, and mail on the home screen (opencode 1.x,
+ * task-435 §5.1 and §6). The user's rules: a conversation left — for
+ * another, or for `/new` — stops and stops counting; mail goes only where
+ * the user is looking; on the home screen a session is made for it, shown
+ * first, and the mail asked for only once it is.
+ *
+ * The real reporter, courier and follower, against a stand-in deck, with
+ * the screen written the way the TUI half writes it.
+ */
+vi.setConfig({ testTimeout: 15_000 });
+
+let startReporter: (input?: any) => Promise<any>;
+let startCourier: (input?: any) => Promise<any>;
+let follower: () => { start(dir?: string): void };
+let writeForeground: (dir: string, route: Record<string, unknown>) => void;
+let paneSession: () => { root: string | undefined; left: string | undefined };
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const until = async (done: () => boolean, ms = 2_000) => {
+  for (let waited = 0; waited < ms && !done(); waited += 5) await sleep(5);
+};
+
+const created = (id: string, parentID?: string) => ({
+  event: { type: "session.created", properties: { info: { id, parentID } } },
+});
+const idle = (sessionID: string) => ({ event: { type: "session.idle", properties: { sessionID } } });
+const aborted = (sessionID: string) => ({
+  event: {
+    type: "session.error",
+    properties: { sessionID, error: { name: "MessageAbortedError", data: {} } },
+  },
+});
+
+describe("leaving a conversation, and mail on the home screen", () => {
+  let dir: string;
+  let deck: Awaited<ReturnType<typeof startDeck>>;
+  /** What the stand-in deck hands out to the next mail asks. */
+  let pending: unknown[];
+  let parents: Record<string, string | undefined>;
+  let calls: { abort: string[]; create: number; select: string[]; prompts: { id: string; body: any }[] };
+  /** What the TUI does when told to show a session; null = it does not. */
+  let onSelect: ((id: string) => void) | null;
+  /** Fired between `session.create` being called and returning — the user
+   * sending their own first prompt at that moment. */
+  let duringCreate: (() => Promise<void>) | null;
+  let reporter: any;
+  let courier: any;
+
+  const both = async (event: unknown) => {
+    await reporter.event(event);
+    await courier.event(event);
+  };
+
+  const client = () => ({
+    session: {
+      get: async ({ path }: { path: { id: string } }) => ({ data: { id: path.id, parentID: parents[path.id] } }),
+      messages: async ({ path }: { path: { id: string } }) => ({
+        data:
+          path.id === "ses_a"
+            ? [
+                {
+                  info: {
+                    role: "user",
+                    agent: "custom",
+                    model: { providerID: "probe", modelID: "alt", variant: "max" },
+                  },
+                  parts: [{ type: "text", text: "my own words" }],
+                },
+              ]
+            : [],
+      }),
+      children: async () => ({ data: [] }),
+      abort: async ({ path }: { path: { id: string } }) => {
+        calls.abort.push(path.id);
+        return { data: true };
+      },
+      create: async () => {
+        calls.create += 1;
+        if (duringCreate) await duringCreate();
+        return { data: { id: "ses_c" } };
+      },
+      promptAsync: async ({ path, body }: { path: { id: string }; body: any }) => {
+        calls.prompts.push({ id: path.id, body });
+        return { data: {} };
+      },
+    },
+    tui: {
+      publish: async ({ body }: { body: { properties: { sessionID: string } } }) => {
+        calls.select.push(body.properties.sessionID);
+        onSelect?.(body.properties.sessionID);
+        return { data: true };
+      },
+    },
+    config: { providers: async () => ({ data: { providers: [] } }) },
+  });
+
+  beforeEach(async () => {
+    vi.resetModules();
+    // @ts-expect-error untyped resource module
+    ({ startReporter } = await import("../resources/keepdeck-plugin/session-reporter.js"));
+    // @ts-expect-error untyped resource module
+    ({ startCourier } = await import("../resources/keepdeck-plugin/mail-courier.js"));
+    // @ts-expect-error untyped resource module
+    ({ follower } = await import("../resources/keepdeck-plugin/follower.js"));
+    // @ts-expect-error untyped resource module
+    ({ writeForeground } = await import("../resources/keepdeck-plugin/foreground.js"));
+    // @ts-expect-error untyped resource module
+    ({ paneSession } = await import("../resources/keepdeck-plugin/pane-session.js"));
+    dir = mkdtempSync(join(tmpdir(), "kd-leave-"));
+    pending = [];
+    deck = await startDeck((envelope) => {
+      const type = envelope?.payload?.event?.type;
+      if (type !== "mail.ask" && type !== "mail.ask.tool") return { status: 204 };
+      const answer = pending.shift();
+      return answer ? { status: 200, body: JSON.stringify(answer) } : { status: 204 };
+    });
+    process.env.KEEPDECK_BRIDGE = JSON.stringify({ v: 2, dir, pane: "pane-3", token: "tok", url: deck.url });
+    parents = {};
+    calls = { abort: [], create: 0, select: [], prompts: [] };
+    onSelect = (id) => {
+      // The TUI shows it, and opencode publishes the session it made.
+      writeForeground(dir, { route: "session", sessionID: id });
+    };
+    duringCreate = null;
+    const c = client();
+    reporter = await startReporter({ client: c });
+    courier = await startCourier({ client: c });
+    follower().start(dir);
+  });
+
+  afterEach(async () => {
+    delete process.env.KEEPDECK_BRIDGE;
+    await deck.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const kinds = () =>
+    deck.envelopes.map((e: any) => (e.type === "agent.status" ? e.payload?.event?.type : e.type));
+
+  /** The pane working in `ses_a`, shown on screen. */
+  const inA = async () => {
+    await both(created("ses_a"));
+    writeForeground(dir, { route: "session", sessionID: "ses_a" });
+    await until(() => kinds().includes("session.bound"));
+    await sleep(50);
+  };
+
+  /** The user pressed /new; opencode answers the abort with its ending. */
+  const newSession = async ({ answerAbort = true } = {}) => {
+    writeForeground(dir, { route: "home" });
+    await until(() => calls.abort.length > 0);
+    if (answerAbort) {
+      await both(aborted("ses_a"));
+      await both(idle("ses_a"));
+    }
+    await until(() => kinds().includes("session.unbound"), 8_000);
+  };
+
+  const ring = () => writeFileSync(join(dir, "mail.wake"), "");
+
+  it("/new aborts the turn left, tells the deck it ended, and only then lets the session go", async () => {
+    await inA();
+    await newSession();
+    expect(calls.abort).toEqual(["ses_a"]);
+    const order = kinds();
+    // The ending reaches the deck as the pane's, so it does not stay "working".
+    expect(order.indexOf("session.idle")).toBeGreaterThanOrEqual(0);
+    expect(order.indexOf("session.unbound")).toBeGreaterThan(order.indexOf("session.idle"));
+    expect(paneSession().root).toBeUndefined();
+    expect(paneSession().left).toBe("ses_a");
+  });
+
+  it("lets go even when the abort brings no ending", async () => {
+    await inA();
+    await newSession({ answerAbort: false });
+    expect(kinds()).toContain("session.unbound");
+    expect(paneSession().root).toBeUndefined();
+  });
+
+  it("never lets the session left — or its subagents — speak for the pane again", async () => {
+    await inA();
+    await newSession();
+    deck.envelopes.length = 0;
+    parents.ses_sub = "ses_a";
+    await both(created("ses_sub", "ses_a"));
+    await both({ event: { type: "session.status", properties: { sessionID: "ses_a", status: { type: "busy" } } } });
+    await both(idle("ses_a"));
+    await sleep(100);
+    expect(paneSession().root).toBeUndefined();
+    expect(kinds()).not.toContain("session.bound");
+    expect(kinds()).not.toContain("session.idle");
+  });
+
+  it("aborts nothing when opencode merely STARTS on the home screen", async () => {
+    // A fresh process shows home before `-s` opens; the native fork stays
+    // there until its session exists. Neither is the user leaving.
+    writeForeground(dir, { route: "home" });
+    await sleep(150);
+    await both(created("ses_a"));
+    writeForeground(dir, { route: "session", sessionID: "ses_a" });
+    await sleep(150);
+    expect(calls.abort).toEqual([]);
+    expect(kinds()).not.toContain("session.unbound");
+  });
+
+  it("aborts nothing when the first screen this process shows is home, even with the pane bound", async () => {
+    // The observer loads seconds after opencode starts; the pane can be bound
+    // from its events before the first screen is written. Home FIRST is not
+    // a move from anywhere.
+    await both(created("ses_a"));
+    await until(() => kinds().includes("session.bound"));
+    writeForeground(dir, { route: "home" });
+    await sleep(200);
+    expect(calls.abort).toEqual([]);
+    expect(paneSession().root).toBe("ses_a");
+  });
+
+  it("does not forget the conversation the user started before the late let-go", async () => {
+    // No ending came for the abort; before the fallback, the user's first
+    // prompt from home made their own session. Letting go now would unbind
+    // THEIR conversation.
+    await inA();
+    writeForeground(dir, { route: "home" });
+    await until(() => calls.abort.length > 0);
+    await both(created("ses_u"));
+    await sleep(3_300);
+    expect(paneSession().root).toBe("ses_u");
+    expect(kinds()).not.toContain("session.unbound");
+  });
+
+  it("aborts the conversation the user switches away from, and moves to the new one", async () => {
+    await inA();
+    writeForeground(dir, { route: "session", sessionID: "ses_b" });
+    await until(() => paneSession().root === "ses_b");
+    expect(calls.abort).toEqual(["ses_a"]);
+    expect(kinds()).not.toContain("session.unbound");
+  });
+
+  it("aborts nothing for a look at one of the conversation's own subagents", async () => {
+    await inA();
+    parents.ses_sub = "ses_a";
+    await both(created("ses_sub", "ses_a"));
+    writeForeground(dir, { route: "session", sessionID: "ses_sub" });
+    await sleep(150);
+    expect(calls.abort).toEqual([]);
+    expect(paneSession().root).toBe("ses_a");
+  });
+
+  it("on the home screen, mail gets a session of its own — shown first, asked for after", async () => {
+    await inA();
+    await newSession();
+    deck.envelopes.length = 0;
+    onSelect = (id) => {
+      writeForeground(dir, { route: "session", sessionID: id });
+      void both(created(id));
+    };
+    pending.push({ v: 1, context: "you are analyst-2", prompt: "<teammate-message>\n> do it\n</teammate-message>" });
+    ring();
+    await until(() => calls.prompts.length === 2);
+
+    expect(calls.create).toBe(1);
+    expect(calls.select).toEqual(["ses_c"]);
+    // The mail was asked for only after the session was shown and bound.
+    const order = kinds();
+    expect(order.indexOf("session.bound")).toBeGreaterThanOrEqual(0);
+    expect(order.indexOf("mail.ask")).toBeGreaterThan(order.indexOf("session.bound"));
+    // Into the new session, the brief with the mail, as the user's last
+    // prompt in the conversation they left ran.
+    const chosen = { agent: "custom", model: { providerID: "probe", modelID: "alt" }, variant: "max" };
+    expect(calls.prompts.map((p) => p.id)).toEqual(["ses_c", "ses_c"]);
+    expect(calls.prompts[0].body).toMatchObject({ ...chosen, noReply: true });
+    expect(calls.prompts[1].body).toMatchObject(chosen);
+  });
+
+  it("takes no mail, and makes no more sessions, when the TUI never shows the one made", async () => {
+    await inA();
+    await newSession();
+    deck.envelopes.length = 0;
+    onSelect = null;
+    pending.push({ v: 1, prompt: "<teammate-message>\n> do it\n</teammate-message>" });
+    ring();
+    await until(() => calls.create === 1);
+    await sleep(3_300);
+    expect(kinds()).not.toContain("mail.ask");
+    expect(pending).toHaveLength(1);
+    // The deck rings again; nothing is tried until the screen changes.
+    ring();
+    await sleep(200);
+    expect(calls.create).toBe(1);
+  });
+
+  it("makes no session on the home screen when nothing rang — the user may have no mail at all", async () => {
+    await inA();
+    await newSession();
+    await sleep(200);
+    expect(calls.create).toBe(0);
+  });
+
+  it("stops when the user starts a conversation of their own meanwhile — theirs is on screen", async () => {
+    await inA();
+    await newSession();
+    duringCreate = async () => {
+      // The user's first prompt from home mints their own session. Told to
+      // the courier without waiting: its handler queues behind the very job
+      // that is making this call.
+      await reporter.event(created("ses_u"));
+      void courier.event(created("ses_u"));
+    };
+    pending.push({ v: 1, prompt: "<teammate-message>\n> do it\n</teammate-message>" });
+    ring();
+    await until(() => calls.prompts.length > 0);
+    expect(calls.create).toBe(1);
+    expect(calls.select).toEqual([]);
+    // Their session is the pane's, and the mail went there.
+    expect(paneSession().root).toBe("ses_u");
+    expect(calls.prompts.every((p) => p.id === "ses_u")).toBe(true);
+  });
+
+  it("does not ride mail into the left conversation's still-running turn", async () => {
+    await inA();
+    writeForeground(dir, { route: "home" });
+    await until(() => calls.abort.length > 0);
+    // Before its ending arrives, a tool call of the left turn returns.
+    deck.envelopes.length = 0;
+    pending.push({ v: 1, prompt: "<teammate-message>\n> do it\n</teammate-message>" });
+    const output = { title: "bash", output: "ok", metadata: {} };
+    await courier["tool.execute.after"]({ tool: "bash", sessionID: "ses_a", callID: "c1" }, output);
+    expect(output.output).toBe("ok");
+    expect(kinds()).not.toContain("mail.ask.tool");
+  });
+});

@@ -36,7 +36,8 @@
 import { randomBytes } from "node:crypto";
 import { parentLookupV1 } from "./opencode-v1.js";
 import { paneSession } from "./pane-session.js";
-import { readBridge } from "./keepdeck-bridge.js";
+import { drained, readBridge } from "./keepdeck-bridge.js";
+import { readForeground } from "./foreground.js";
 import { watchDoorbell } from "./doorbell.js";
 import { follower } from "./follower.js";
 import { answerText, askMail } from "./mail-ask.js";
@@ -118,10 +119,12 @@ export async function startCourier(input = {}) {
    *   in any sense that matters. It is NOT synthetic — the person watching
    *   this pane should see what arrived and why their agent just moved.
    */
-  const viaSession = async (answer, sessionID) => {
+  const viaSession = async (answer, sessionID, chosen) => {
     // Both calls run as the user's own last prompt did — read before the
     // context lands, or the newest message would be ours (prompt-selection.js).
-    const selection = await promptSelection(client, sessionID);
+    // A session the courier just made has no prompt of the user's yet: its
+    // selection comes from the one they left, `chosen`.
+    const selection = chosen ?? (await promptSelection(client, sessionID));
     let delivered = true;
     if (typeof answer.context === "string" && answer.context) {
       delivered =
@@ -167,14 +170,14 @@ export async function startCourier(input = {}) {
   };
 
   /**
-   * Ask, then deliver whatever came back.
+   * Ask, then deliver whatever came back — into the session the pane is.
    *
    * A session delivery that did not work falls through to the TUI rather than
    * ending here. The deck books a message the moment it hands it over, so
    * anything dropped at this point is dropped for good — a visible delivery
    * the user can see is worth more than a tidy failure nobody hears about.
    */
-  const collect = async () => {
+  const deliver = async () => {
     // The target is fixed BEFORE the ask: the pane may rebind while the
     // answer is in flight, and what the deck was told is where it lands. An
     // unbound pane is reached through the TUI's own prompt, which is the main
@@ -191,6 +194,95 @@ export async function startCourier(input = {}) {
     } catch {
       // Best-effort to the end: the user's session must survive anything
       // this file gets wrong.
+    }
+  };
+
+  /**
+   * Whether the pane's conversation is what the TUI shows (foreground.js,
+   * task-435) — mail goes nowhere else. Unknown — no observer for this
+   * process — means as before there was one. A subagent's view is its
+   * conversation's; one not yet known to be is held, not guessed.
+   */
+  const visible = (screen) =>
+    screen.kind === "unknown" ||
+    (screen.kind === "session" &&
+      pane.bound &&
+      pane.rootOf(screen.sessionID) === pane.root);
+
+  /**
+   * Collect, if the session on screen is the pane's.
+   *
+   * Another session on screen: the follower moves the pane there and calls
+   * again (follower.js) — the courier never moves the pane itself. Nothing
+   * fresh on screen (a stalled TUI, a plugin's screen): held. The home screen
+   * after the user LEFT a conversation: a session is made for the mail
+   * (`viaHome`) — but only when the deck RANG (`rung`), which it does only
+   * for mail that waits: nothing tells otherwise whether any does, and every
+   * `/new` would leave an empty session behind. Before any leaving the home
+   * screen is opencode's own start, or the native fork's, and the pane is
+   * reached as it always was.
+   */
+  const collect = async ({ rung = false } = {}) => {
+    const screen = readForeground(dir);
+    if (screen.kind !== "home") homeFailed = false;
+    if (visible(screen)) return deliver();
+    if (screen.kind !== "home") return;
+    if (pane.left === undefined) return pane.bound ? undefined : deliver();
+    if (rung) return viaHome();
+  };
+
+  /**
+   * Mail for a pane the user left for the home screen (`/new`): what the user
+   * would do — a session, shown, then the words — and the user sees it.
+   *
+   * The ORDER is what makes it safe (design §6.1). The session is made and
+   * shown first; only once the TUI shows it, and its binding has reached the
+   * deck, is the mail asked for — so a session the TUI never showed costs
+   * nothing but an empty session, and the deck hands the brief over WITH the
+   * mail rather than after it.
+   *
+   * The user may start a conversation of their own meanwhile — a root
+   * session the courier did not make. Theirs is the one on screen; this one
+   * stops (`theirs`). And after a session the TUI did not show, nothing is
+   * tried again until the screen changes: the deck re-rings every 45 s, and
+   * each ring would make another empty session.
+   */
+  let homeFailed = false;
+  let theirs = false;
+  const ours = new Set();
+  const SHOW_WAIT_MS = 3_000;
+  const viaHome = async () => {
+    if (homeFailed) return;
+    const chosen = await promptSelection(client, pane.left);
+    theirs = false;
+    const made = await client.session.create({ body: {} });
+    const id = made?.data?.id;
+    if (!ok(made) || !id) return;
+    ours.add(id);
+    if (theirs || readForeground(dir).kind !== "home") return;
+    await client.tui.publish({
+      body: { type: "tui.session.select", properties: { sessionID: id } },
+    });
+    // Shown, and bound: the reporter takes the new session from its own
+    // `session.created`.
+    const shown = () => {
+      const screen = readForeground(dir);
+      return screen.kind === "session" && screen.sessionID === id && pane.root === id;
+    };
+    for (let waited = 0; !shown() && waited < SHOW_WAIT_MS; waited += 50) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    if (!shown() || theirs) {
+      homeFailed = true;
+      return;
+    }
+    await drained();
+    const answer = await ask(await pane.classify(id));
+    if (!answer) return;
+    try {
+      await viaSession(answer, id, chosen);
+    } catch {
+      // Best-effort, as everywhere here.
     }
   };
 
@@ -262,8 +354,10 @@ export async function startCourier(input = {}) {
         // file sees the same event and says the same thing.
         pane.newGeneration(created.id);
         // A conversation just began — the standing brief belongs in it before
-        // the first word, not after whatever the user says next.
-        await collect();
+        // the first word, not after whatever the user says next. Delivered
+        // to it whatever the screen file says yet: it lags the TUI by a poll,
+        // and a root session appearing is the TUI's own (or ours) — on screen.
+        await deliver();
         return;
       }
       case "session.status": {
@@ -303,16 +397,22 @@ export async function startCourier(input = {}) {
    */
   // Through the queue: `collect` is not re-entrant, and a ring landing while
   // one is in flight has to follow it rather than race it.
-  watchDoorbell(dir, () => enqueue(collect));
+  watchDoorbell(dir, () => enqueue(() => collect({ rung: true })));
 
   // The pane moved to the session the user opened, and the deck knows
   // (follower.js): whatever waits belongs there now.
-  follower().onSettled(() => enqueue(collect));
+  follower().onSettled(() => enqueue(() => collect()));
 
   return {
     // opencode does not await plugin event promises, so the queue is what
     // keeps two collections from overlapping.
-    event: ({ event }) => enqueue(() => onEvent(event)),
+    event: ({ event }) => {
+      // Told at once, not in turn: a conversation the user started while
+      // `viaHome` is under way must stop it before it shows its own.
+      const info = event?.type === "session.created" ? event.properties?.info : undefined;
+      if (info?.id && !info.parentID && !ours.has(info.id)) theirs = true;
+      return enqueue(() => onEvent(event));
+    },
     /**
      * The user is sending something, so anything waiting rides along inside
      * the same request. This is the only delivery that costs nothing at all —
@@ -361,6 +461,8 @@ export async function startCourier(input = {}) {
      */
     "tool.execute.after": async (info, output) => {
       if (!info?.sessionID || info.sessionID !== pane.root) return;
+      // A turn running where the user is not looking is not reached.
+      if (!visible(readForeground(dir))) return;
       if (typeof output?.output !== "string") return;
       // Behind whatever is already collecting, as `chat.message` is.
       await work;
