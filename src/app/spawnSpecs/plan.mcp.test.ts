@@ -13,7 +13,7 @@ import {
   specsOf,
   mcpAccess,
   plugins,
-  runtime,
+  installedPlugin,
   ctx,
   W1,
   adopting,
@@ -81,15 +81,12 @@ describe("MCP servers through the plan", () => {
         },
       },
     });
-    const external = (minApiVersion: number) => ({
-      manifest: {
-        id: "test-plugin",
+    const external = (minApiVersion: number) =>
+      installedPlugin({
+        source: "external",
         minApiVersion,
         capabilities: [{ kind: "exec", commands: ["claude"] }],
-      },
-      source: "external",
-      status: { kind: "active" },
-    });
+      });
 
     hostState.installed = [external(MCP_HTTP_API - 1)];
     await h.mount(ws([{ id: "pane-1", agentType: "claude" }]));
@@ -256,7 +253,7 @@ describe("MCP servers through the plan", () => {
     const workspaces = ws([{ id: "pane-1", agentType: "claude" }]);
 
     const building = buildLivePaneSpec(
-      runtime.plugins,
+      plugins,
       workspaces[0],
       workspaces[0].panes[0],
       ctx,

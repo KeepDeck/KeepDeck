@@ -29,6 +29,15 @@ import {
   publish as publishEnvelope,
   readBridge,
 } from "./keepdeck-bridge.js";
+import { parentLookupV1 } from "./opencode-v1.js";
+import {
+  boundReport,
+  createWindowCache,
+  skipsApprovals,
+  tokenCounts,
+  usageReport,
+} from "./pane-report.js";
+import { follower } from "./follower.js";
 import { paneSession } from "./pane-session.js";
 
 export async function startReporter(input = {}) {
@@ -36,16 +45,8 @@ export async function startReporter(input = {}) {
   if (!bridge) return {}; // not spawned by KeepDeck — stay inert
   const { dir } = bridge;
 
-  /**
-   * Whether this pane was launched with approval prompts skipped — the deck's
-   * own choice at spawn, stated here because it cannot be discovered from
-   * inside the process.
-   *
-   * Read at startup, not per event: the mode is an argument the CLI was
-   * started with and cannot change under a running one.
-   */
-  const SKIPS_APPROVALS =
-    process.env.KEEPDECK_OPENCODE_SKIPS_APPROVALS === "1";
+  /** Whether this pane skips approval prompts (pane-report.js). */
+  const SKIPS_APPROVALS = skipsApprovals();
 
   const client = input?.client;
 
@@ -67,7 +68,7 @@ export async function startReporter(input = {}) {
   // subagents' — ONE object, shared with the mail courier beside this file.
   // Two answers to that question means the deck watching one session's turns
   // while mail lands in another.
-  const pane = paneSession(client);
+  const pane = paneSession(parentLookupV1(client));
   // The latest ROOT assistant turn — defines occupancy/identity, not spend.
   let root;
   let sequence = 0;
@@ -78,18 +79,7 @@ export async function startReporter(input = {}) {
     return total;
   };
 
-  const turnOf = (info) => {
-    const t = info?.tokens ?? {};
-    const cache = t.cache ?? {};
-    return {
-      input: t.input ?? 0,
-      output: t.output ?? 0,
-      reasoning: t.reasoning ?? 0,
-      cacheRead: cache.read ?? 0,
-      cacheWrite: cache.write ?? 0,
-      cost: info?.cost ?? 0,
-    };
-  };
+  const turnOf = (info) => ({ ...tokenCounts(info?.tokens), cost: info?.cost ?? 0 });
 
   const completedAssistant = (value) => {
     const info = value?.info ?? value;
@@ -206,11 +196,8 @@ export async function startReporter(input = {}) {
   // rather than a flag of its own: a second copy of "has this pane bound yet"
   // is a second place for that answer to be wrong, and this one would keep
   // saying "continuing" after a publish that silently failed.
-  const bind = (sessionID, continuing) =>
-    publish("session.bound", {
-      sessionId: sessionID,
-      source: continuing ? "new" : "startup",
-    });
+  const bind = (sessionID, continuing, switched) =>
+    publish("session.bound", boundReport(sessionID, continuing, switched));
 
   /**
    * Take a session as the pane's conversation, then set up for it.
@@ -250,14 +237,14 @@ export async function startReporter(input = {}) {
    * already, and then a first conversation would report itself as a second.
    */
   let servedRoot;
-  const setUpForConversation = async (publishBinding) => {
+  const setUpForConversation = async (publishBinding, switched = false) => {
     if (pane.root === undefined || pane.root === servedRoot) return;
     const continuing = servedRoot !== undefined;
     servedRoot = pane.root;
     messages.clear();
     root = undefined;
     sequence = 0;
-    if (publishBinding) bind(servedRoot, continuing);
+    if (publishBinding) bind(servedRoot, continuing, switched);
     hydration = hydrateSession(servedRoot, servedRoot, new Set());
     await hydration;
   };
@@ -266,38 +253,20 @@ export async function startReporter(input = {}) {
   // provider catalog and cached ONCE ON SUCCESS. OpenCode model ids are not
   // globally unique; flattening by modelID alone selects another provider's
   // context limit. An in-flight promise makes the fetch single-flight.
-  let windowByModel;
-  let windowLoad;
-  const modelKey = (providerID, modelID) => `${providerID}\0${modelID}`;
-  const contextWindow = async (providerID, modelID) => {
-    if (!providerID || !modelID || !client?.config?.providers) return undefined;
-    if (!windowByModel) {
-      if (!windowLoad) {
-        windowLoad = (async () => {
-          const res = await client.config.providers();
-          const providers = res?.data?.providers ?? res?.providers ?? [];
-          const resolved = new Map();
-          for (const provider of providers) {
-            if (!provider?.id) continue;
-            for (const [id, model] of Object.entries(provider.models ?? {})) {
-              const ctx = model?.limit?.context;
-              if (typeof ctx === "number") {
-                resolved.set(modelKey(provider.id, id), ctx);
-              }
-            }
-          }
-          windowByModel = resolved;
-        })();
-      }
-      try {
-        await windowLoad;
-      } catch {
-        windowLoad = undefined;
-        return undefined; // leave unresolved → retry on the next message
-      }
-    }
-    return windowByModel.get(modelKey(providerID, modelID));
-  };
+  const contextWindow = createWindowCache(async () => {
+    if (!client?.config?.providers) throw new Error("no client to ask");
+    const res = await client.config.providers();
+    const providers = res?.data?.providers ?? res?.providers ?? [];
+    return providers.flatMap((provider) =>
+      provider?.id
+        ? Object.entries(provider.models ?? {}).map(([modelID, model]) => ({
+            providerID: provider.id,
+            modelID,
+            window: model?.limit?.context,
+          }))
+        : [],
+    );
+  });
 
   /**
    * One bus event, VERBATIM, on the `agent.status` protocol.
@@ -408,9 +377,16 @@ export async function startReporter(input = {}) {
       const stating = turnStateOf(event);
       // Already said, and nothing has said otherwise since — see
       // `lastTurnState` for what each repeat costs the deck.
-      if (stating && stating === lastTurnState) return;
-      forward(event);
-      if (stating) lastTurnState = stating;
+      if (!stating || stating !== lastTurnState) {
+        forward(event);
+        if (stating) lastTurnState = stating;
+      }
+      // The ending of a conversation the user left: told to the deck as the
+      // pane's (or already told — an idle session's abort only repeats it),
+      // and only now does the pane let it go.
+      if (event.type === "session.idle" && leaving?.sessionID === event.properties?.sessionID) {
+        letGo(leaving.sessionID);
+      }
       return;
     }
 
@@ -493,50 +469,118 @@ export async function startReporter(input = {}) {
     // sums into the cumulative. But a subagent's context is ITS own, not the
     // pane's conversation, so only a ROOT turn sets occupancy + identity.
     remember(info, pane.root);
-    if (!root) return; // no root turn seen yet — accumulate, publish later
+    await reportUsage();
+  };
 
+  /** The conversation's spend and context, as a `usage.report` — nothing
+   * until a root turn has been seen (the spend accumulates meanwhile). */
+  const reportUsage = async () => {
+    if (!root) return;
     // Immutable report basis before the async catalog lookup. The queue below
     // serializes callbacks too, but capturing keeps this function locally sane.
     const currentRoot = root;
     const occ = currentRoot.turn;
-    const contextTokens =
-      occ.input + occ.output + occ.reasoning + occ.cacheRead + occ.cacheWrite;
     const windowTokens = await contextWindow(
       currentRoot.providerID,
       currentRoot.modelID,
     );
-    publish("usage.report", {
-      sessionId: currentRoot.sessionID,
-      model: currentRoot.modelID,
-      sequence: ++sequence,
-      ...(windowTokens !== undefined ? { windowTokens } : {}),
-      contextTokens,
-      totals: {
-        input: sum("input"),
-        output: sum("output"),
-        reasoning: sum("reasoning"),
-        cacheRead: sum("cacheRead"),
-        cacheWrite: sum("cacheWrite"),
-      },
-      lastTurn: {
-        input: occ.input,
-        output: occ.output,
-        reasoning: occ.reasoning,
-        cacheRead: occ.cacheRead,
-        cacheWrite: occ.cacheWrite,
-      },
-      costUsd: sum("cost"),
-    });
+    publish(
+      "usage.report",
+      usageReport({
+        sessionId: currentRoot.sessionID,
+        model: currentRoot.modelID,
+        sequence: ++sequence,
+        windowTokens,
+        lastTurn: occ,
+        totals: {
+          input: sum("input"),
+          output: sum("output"),
+          reasoning: sum("reasoning"),
+          cacheRead: sum("cacheRead"),
+          cacheWrite: sum("cacheWrite"),
+        },
+        costUsd: sum("cost"),
+      }),
+    );
   };
 
   // OpenCode deliberately does not await plugin event promises. Reduce every
   // event through our own queue so hydration/catalog IO cannot interleave two
   // mutations or let an older snapshot publish after a newer one.
   let eventQueue = Promise.resolve();
+  const enqueue = (job) => {
+    eventQueue = eventQueue.then(job).catch(() => {});
+    return eventQueue;
+  };
+
+  /**
+   * The user left the pane's conversation (follower.js). Its running turn is
+   * aborted — subagents and all; leaving is the user's word that it is not
+   * wanted (task-435). Aborted OUTSIDE this queue: the abort's own events
+   * queue here, and waiting on them from inside would wait forever.
+   *
+   * For another conversation, that is all — the move rebinds the pane. For
+   * none at all (`/new`), the pane lets go of it: once its ending — the
+   * abort's error and idle, which opencode publishes even for an idle
+   * session — has gone to the deck as the pane's, so the deck shows the turn
+   * ended rather than the pane frozen mid-work. Then `session.unbound`: the
+   * pane has no conversation until the next one binds, and a restore starts
+   * fresh (src/app/paneUnbinding.ts). If no ending comes, it lets go anyway.
+   */
+  let leaving;
+  const letGo = (sessionID) => {
+    if (leaving?.sessionID !== sessionID) return;
+    const { done, timer } = leaving;
+    leaving = undefined;
+    clearTimeout(timer);
+    // Not if the pane moved on meanwhile: the next conversation is not the
+    // one left, and unbinding would forget it.
+    if (pane.root === sessionID && pane.detach()) {
+      lastTurnState = undefined;
+      publish("session.unbound", {});
+    }
+    done();
+  };
+  /** How long to wait for an abort's ending before letting go without it. */
+  const LET_GO_MS = 3_000;
+  const abort = async (sessionID) => {
+    try {
+      await client?.session?.abort?.({ path: { id: sessionID } });
+    } catch {
+      // Best-effort: the pane leaves it either way.
+    }
+  };
+  follower().onLeave(async (sessionID, { replaced = false } = {}) => {
+    if (replaced) return abort(sessionID);
+    // Armed BEFORE the abort: its ending may be handled before the abort call
+    // even returns.
+    const gone = new Promise((done) => {
+      if (leaving) letGo(leaving.sessionID);
+      const timer = setTimeout(() => enqueue(async () => letGo(sessionID)), LET_GO_MS);
+      timer.unref?.();
+      leaving = { sessionID, done, timer };
+    });
+    await abort(sessionID);
+    await gone;
+  });
+
+  /**
+   * The user opened another session in the TUI (follower.js), and the pane
+   * moves there — as ONE job in this queue, so the deck hears the binding
+   * before any event of the session it names, and the session's spend right
+   * after it rather than at its next finished turn. What this side last said
+   * about a turn belonged to the session left behind.
+   */
+  follower().onMove((sessionID) =>
+    enqueue(async () => {
+      pane.newGeneration(sessionID);
+      lastTurnState = undefined;
+      await setUpForConversation(true, true);
+      await reportUsage();
+    }),
+  );
+
   return {
-    event: ({ event }) => {
-      eventQueue = eventQueue.then(() => handle(event)).catch(() => {});
-      return eventQueue;
-    },
+    event: ({ event }) => enqueue(() => handle(event)),
   };
 }

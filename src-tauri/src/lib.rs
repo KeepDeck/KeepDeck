@@ -240,6 +240,7 @@ pub fn run() {
             session::session_write,
             session::session_resize,
             session::session_close,
+            session::session_vouch,
             state::deck_state_load,
             state::deck_state_save,
             state::deck_state_quarantine,

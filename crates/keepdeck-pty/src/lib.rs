@@ -235,8 +235,17 @@ impl PtySession {
         self.exited.load(Ordering::Relaxed)
     }
 
-    /// Whether process `pid` belongs to this terminal: it runs in it, or was
-    /// started directly by a process that does.
+    /// Whether process `pid` belongs to this terminal: it is one of the
+    /// terminal's OWN processes, or was started directly by one.
+    ///
+    /// Its own processes are those running in it — and `vouched`, the process
+    /// the pane's reports were pinned to, when it still belongs here itself.
+    /// opencode 2.x runs its agent in a `serve` it starts detached, and that
+    /// `serve` starts the MCP servers: their parent is the pane's own agent,
+    /// one step outside the terminal. Ownership does not chain further: a
+    /// process admitted only through its parent is not itself one whose
+    /// children count, or a daemon started from here would bring in every
+    /// worker under it (task-376, verified live).
     ///
     /// The spawn made the child a session leader, and everything it starts
     /// stays in that session unless it leaves on purpose — a tool call, a
@@ -251,7 +260,7 @@ impl PtySession {
     /// already belong to a stranger.
     ///
     /// Non-Unix has no sessions to ask about, and answers yes.
-    pub fn hosts(&self, pid: u32) -> bool {
+    pub fn hosts(&self, pid: u32, vouched: Option<u32>) -> bool {
         #[cfg(unix)]
         {
             let Some(leader) = self.pid else { return false };
@@ -259,11 +268,16 @@ impl PtySession {
                 return false;
             }
             let inside = |pid| session_of(pid) == Some(leader);
-            inside(pid) || parent_of(pid).is_some_and(inside)
+            // A pin outlives nothing: once the process is gone its id may be a
+            // stranger's, so it counts only while it still belongs here.
+            let vouched =
+                vouched.filter(|&own| inside(own) || parent_of(own).is_some_and(inside));
+            let own = |pid| inside(pid) || Some(pid) == vouched;
+            own(pid) || parent_of(pid).is_some_and(own)
         }
         #[cfg(not(unix))]
         {
-            let _ = pid;
+            let _ = (pid, vouched);
             true
         }
     }

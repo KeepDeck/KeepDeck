@@ -148,7 +148,7 @@ export function useAppController() {
     // distinct agent), the same seam every live-session question goes
     // through, so the view layer never touches a plugin.
     backgroundCarriers: (entries) =>
-      askBackgroundCarriers({ pluginHost, pluginRegistries }, entries),
+      askBackgroundCarriers(runtime.spawnPlugins, entries),
   });
   const transactions = [
     agentFlow.dialog,

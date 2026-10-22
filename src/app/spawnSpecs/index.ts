@@ -21,6 +21,9 @@ import {
   contributionSupportsFork,
   contributionSupportsResume,
 } from "../../plugins/agents/implementation";
+import type { AgentContribution } from "@keepdeck/plugin-api";
+import type { InstalledPlugin } from "../../plugins/model/installed";
+import type { Contribution } from "../../plugins/registries/contributions";
 import type { PluginManager } from "../pluginManager";
 import {
   buildAndCache,
@@ -57,10 +60,35 @@ export type {
   StagedSkillsViews,
 } from "./plan";
 
-export type SpawnPluginAccess = Pick<
-  PluginManager,
-  "pluginHost" | "pluginRegistries"
->;
+/**
+ * What launching a pane needs from the plugin side, and nothing more.
+ *
+ * Its own narrow port rather than a slice of the plugin manager: a slice
+ * carried the whole host and every registry, which no test could build, so
+ * every test built half of one and cast it — and a member the code began to
+ * use was missing from the doubles without a word from the compiler.
+ */
+export interface SpawnPluginAccess {
+  /** Every registered agent, with the plugin that registered it. */
+  agents(): readonly Contribution<AgentContribution>[];
+  /** The installed plugin with this id, if there is one. */
+  installed(pluginId: string): InstalledPlugin | undefined;
+  /** What this agent's CLI answers to `--version`, asked first if nobody
+   * has; null when it cannot be asked or answered. */
+  cliVersion(agentId: string): Promise<string | null>;
+}
+
+/** The plugin manager, seen through that port. */
+export function spawnPluginAccess(
+  plugins: Pick<PluginManager, "pluginHost" | "pluginRegistries" | "agentCliVersion">,
+): SpawnPluginAccess {
+  return {
+    agents: () => plugins.pluginRegistries.agents.list(),
+    installed: (pluginId) =>
+      plugins.pluginHost.getInstalled().find((plugin) => plugin.manifest.id === pluginId),
+    cliVersion: (agentId) => plugins.agentCliVersion(agentId),
+  };
+}
 
 
 /** Build and cache an exclusive RESUME plan for an idle pane about to wake

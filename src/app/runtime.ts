@@ -1,6 +1,7 @@
 import { paneAgentType, panesRunningIn } from "../domain/deck";
 import { openPath } from "../ipc/app";
 import { log } from "../ipc/log";
+import { vouchPaneProcess } from "../ipc/session";
 import { probeWorktree } from "../ipc/worktree";
 import {
   loadNotifiedAchievements,
@@ -31,7 +32,7 @@ import { createMailService, wakePaneForMail } from "./mail";
 import { createMcp } from "./mcp";
 import { ipcMcpStorage } from "../ipc/mcpLibraryStorage";
 import { createPaneIdentity } from "./mcp/paneIdentity";
-import { paneIdBySpawnSecret, peekPaneSpawnSpec } from "./spawnSpecs";
+import { paneIdBySpawnSecret, peekPaneSpawnSpec, spawnPluginAccess } from "./spawnSpecs";
 import { createArtifactsPolicy } from "./artifacts/policy";
 import { registerArtifactCommands } from "./artifacts/artifactCommands";
 import { artifactChanges } from "./artifacts/changes";
@@ -84,6 +85,7 @@ import { createAgentStatusTracker } from "./agentStatusTracker";
 import { createSessionIndexManager } from "./sessionIndexManager";
 import { createPaneLifecycle } from "./paneLifecycle";
 import { listenPaneCompanions } from "./paneCompanions";
+import { listenPaneUnbinds } from "./paneUnbinding";
 import { subscribeRoleCatalogChanges } from "./roleCatalogManager";
 import { getSettings, initSettings, subscribeSettings } from "./settingsManager";
 import { createSpawnContextSource } from "./spawnContextSource";
@@ -315,6 +317,12 @@ export function createAppRuntime(
     workspaces: () => deckStore.getSnapshot().workspaces,
     secretOf: (paneId) => peekPaneSpawnSpec(paneId)?.token,
   });
+  // The native side counts the children of a pane's pinned process as the
+  // pane's own (opencode 2.x's MCP servers are its `serve`'s), so it is told
+  // every pin. A lost call leaves that pane's helpers anonymous, nothing more.
+  const unsubscribePins = attribution.subscribePins((paneId, reporter) => {
+    void vouchPaneProcess(paneId, reporter).catch(() => {});
+  });
   // Mail exists only while its Experimental toggle is on, so the lifecycle
   // owner looks it up instead of holding it — hence the forward reference.
   const lifecycle = createPaneLifecycle(
@@ -410,6 +418,9 @@ export function createAppRuntime(
     storage: ipcSkillsStorage,
     staging: worktrees,
   });
+  /** The plugin side of launching a pane, through its own narrow port —
+   * built once, shared by everything that launches or asks about panes. */
+  const spawnPlugins = spawnPluginAccess(plugins);
   const orchestrator = createAgentOrchestrator({
     deck: deckStore,
     spawnContext,
@@ -429,7 +440,7 @@ export function createAppRuntime(
       acquire: acquirePane,
       close: closePane,
     },
-    plugins,
+    plugins: spawnPlugins,
     probe: probeWorktree,
     worktrees,
     mcpAccess: (target) => mcp.service.access(target),
@@ -464,6 +475,7 @@ export function createAppRuntime(
   let usageChannel: ReturnType<typeof createUsageChannel> | null = null;
   let statusChannel: ReturnType<typeof createAgentStatusChannel> | null = null;
   let companionHellos: ReturnType<typeof listenPaneCompanions> | null = null;
+  let paneUnbinds: ReturnType<typeof listenPaneUnbinds> | null = null;
   let achievementNotifier: ReturnType<typeof createAchievementNotifier> | null =
     null;
   let exhaustionNotifier: ReturnType<
@@ -474,6 +486,7 @@ export function createAppRuntime(
   return {
     downloads,
     plugins,
+    spawnPlugins,
     deckStore,
     deckPersistence,
     spawnContext,
@@ -515,6 +528,7 @@ export function createAppRuntime(
       // Before the lanes that read it act on a hello: which source states a
       // pane's facts is decided per process, and the ledger is attribution's.
       companionHellos ??= listenPaneCompanions(deckStore, attribution);
+      paneUnbinds ??= listenPaneUnbinds(deckStore, attribution, lifecycle);
       statusChannel ??= createAgentStatusChannel(
         deckStore,
         plugins.pluginRegistries.agents,
@@ -550,6 +564,7 @@ export function createAppRuntime(
     dispose() {
       if (disposed) return;
       disposed = true;
+      unsubscribePins();
       application.dispose();
       sessionIndex.dispose();
       paneInputFocus.dispose();
@@ -560,6 +575,7 @@ export function createAppRuntime(
       usageChannel?.dispose();
       statusChannel?.dispose();
       companionHellos?.dispose();
+      paneUnbinds?.dispose();
       pluginDeckBridge.dispose();
       worktreeSweeper.dispose();
       mail.dispose();

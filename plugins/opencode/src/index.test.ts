@@ -297,6 +297,7 @@ describe("opencode plugin hooks", () => {
     // home, and a user-set value must win over skills delivery.
     expect(Object.fromEntries(out.envDefaults ?? [])).toEqual({
       OPENCODE_CONFIG_DIR: "/kd/staging/ws-1/opencode",
+      OPENCODE_TUI_CONFIG: "/App/resources/keepdeck-plugin/tui.json",
     });
     const env = Object.fromEntries(out.env);
     expect(env.OPENCODE_CONFIG_DIR).toBeUndefined();
@@ -309,14 +310,71 @@ describe("opencode plugin hooks", () => {
       "/kd/staging/ws-1/opencode",
     );
 
-    // No skills — no default, on spawn AND resume alike.
+    // No skills — no config dir, on spawn AND resume alike.
     const bareSpawn = output();
     await agent.hooks["spawn.plan"]!(input, bareSpawn);
-    expect(bareSpawn.envDefaults ?? []).toEqual([]);
+    expect(Object.fromEntries(bareSpawn.envDefaults ?? []).OPENCODE_CONFIG_DIR).toBeUndefined();
     const bareResume = output();
     await agent.hooks["resume.plan"]!({ ...input, sessionId: "s" }, bareResume);
-    expect(bareResume.envDefaults ?? []).toEqual([]);
+    expect(Object.fromEntries(bareResume.envDefaults ?? []).OPENCODE_CONFIG_DIR).toBeUndefined();
     expect(Object.fromEntries(bareResume.env).OPENCODE_CONFIG_DIR).toBeUndefined();
+  });
+
+  it("gives a local 1.x pane KeepDeck's TUI plugin as an env DEFAULT, apart from the skills", async () => {
+    // The TUI half tells the server half which session is on screen
+    // (task-435). Its own variable, so a user who owns it loses only this —
+    // and a default, so their value wins.
+    const agent = activate("/App/resources");
+    for (const hook of ["spawn.plan", "resume.plan"] as const) {
+      const out = output();
+      await agent.hooks[hook]!({ ...input, cliVersion: "1.19.3", sessionId: "s" }, out);
+      expect(out.envDefaults).toEqual([
+        ["OPENCODE_TUI_CONFIG", "/App/resources/keepdeck-plugin/tui.json"],
+      ]);
+      expect(Object.fromEntries(out.env).OPENCODE_TUI_CONFIG).toBeUndefined();
+    }
+    // An unknown version runs as 1.x, observer included.
+    const unknown = output();
+    await agent.hooks["spawn.plan"]!(input, unknown);
+    expect(Object.fromEntries(unknown.envDefaults ?? []).OPENCODE_TUI_CONFIG).toBeDefined();
+  });
+
+  it("gives the TUI plugin to nobody else: not 2.x, not a remote pane, not a broken install", async () => {
+    const agent = activate("/App/resources");
+    const v2 = output();
+    await agent.hooks["spawn.plan"]!({ ...input, cliVersion: "opencode v2.1.2" }, v2);
+    const remote = output();
+    await agent.hooks["spawn.plan"]!(
+      { ...input, target: { kind: "nativeServer", endpoint: "http://vps:4096" } },
+      remote,
+    );
+    const broken = output();
+    await activate(null).hooks["spawn.plan"]!(input, broken);
+    for (const out of [v2, remote, broken]) {
+      expect(Object.fromEntries(out.envDefaults ?? []).OPENCODE_TUI_CONFIG).toBeUndefined();
+    }
+  });
+
+  it("hands 2.x its skills in the config, and never OPENCODE_CONFIG_DIR — there it replaces the user's", async () => {
+    const agent = activate("/App/resources");
+    const skills = {
+      claudePluginDir: "/kd/staging/ws-1/claude-plugin",
+      opencodeConfigDir: "/kd/staging/ws-1/opencode",
+      skillsDir: "/kd/staging/ws-1/skills",
+    };
+    for (const hook of ["spawn.plan", "resume.plan"] as const) {
+      const out = output();
+      await agent.hooks[hook]!({ ...input, skills, sessionId: "s", cliVersion: "2.1.2" }, out);
+      expect(out.envDefaults ?? [], hook).toEqual([]);
+      const env = Object.fromEntries(out.env);
+      expect(env.OPENCODE_CONFIG_DIR, hook).toBeUndefined();
+      expect(JSON.parse(env.OPENCODE_CONFIG_CONTENT).skills, hook).toEqual(["/kd/staging/ws-1/skills"]);
+    }
+
+    // No skills — no key at all.
+    const bare = output();
+    await agent.hooks["spawn.plan"]!({ ...input, cliVersion: "2.1.2" }, bare);
+    expect(JSON.parse(Object.fromEntries(bare.env).OPENCODE_CONFIG_CONTENT)).not.toHaveProperty("skills");
   });
 
   it("resumes with -s and still arms the reporter (catches /new)", async () => {
@@ -406,6 +464,61 @@ describe("opencode plugin hooks", () => {
       { event: "mail.ask.tool", atTurnEnd: false },
     ]);
     expect(agent.status?.wake).toBe("bridge");
+  });
+
+  it("gives a 2.x pane a server of its own on spawn, resume and fork, and a 1.x pane none", async () => {
+    // Without it every 2.x pane joins one background service that loaded the
+    // plugin with the first pane's environment; 1.x exits on the flag.
+    const agent = activate("/App/resources", forkServices({ targetMissing: true }));
+    const v2 = { ...input, cliVersion: "opencode v2.1.2" };
+
+    const spawn = output();
+    await agent.hooks["spawn.plan"]!(v2, spawn);
+    const resume = output();
+    await agent.hooks["resume.plan"]!({ ...v2, sessionId: "ses_x" }, resume);
+    const fork = output();
+    await agent.hooks["fork.plan"]!({ ...v2, sessionId: "ses_x", sourceCwd: "/repo" }, fork);
+    for (const plan of [spawn, resume, fork]) expect(plan.args).toContain("--standalone");
+
+    const v1 = output();
+    await agent.hooks["spawn.plan"]!({ ...input, cliVersion: "1.19.3" }, v1);
+    expect(v1.args).not.toContain("--standalone");
+  });
+
+  it("puts 2.x's own server ahead of the YOLO flag, and the session after both", async () => {
+    // The order every 2.x launch has had since task-376: a reshuffle here is
+    // no visible failure, so it is pinned exactly rather than by `toContain`.
+    const agent = activate("/App/resources");
+    const v2 = { ...input, cliVersion: "opencode v2.1.2", yolo: true };
+
+    const spawn = output();
+    await agent.hooks["spawn.plan"]!(v2, spawn);
+    expect(spawn.args).toEqual(["--standalone", "--dangerously-skip-permissions"]);
+
+    const resume = output();
+    await agent.hooks["resume.plan"]!({ ...v2, sessionId: "ses_x" }, resume);
+    expect(resume.args).toEqual(["--standalone", "--dangerously-skip-permissions", "-s", "ses_x"]);
+  });
+
+  it("gives a remote pane nothing local: no config dir, no skills, on either generation", async () => {
+    // `attach` loads none of it, so a config dir handed to a thin client was a
+    // directory nobody opens. The plugin and servers still travel (see below).
+    const agent = activate("/App/resources");
+    const target = { kind: "nativeServer" as const, endpoint: "http://vps:4096" };
+    const skills = {
+      claudePluginDir: "/kd/staging/ws-1/claude-plugin",
+      opencodeConfigDir: "/kd/staging/ws-1/opencode",
+      skillsDir: "/kd/staging/ws-1/skills",
+    };
+
+    for (const cliVersion of ["1.19.3", "opencode v2.1.2", undefined]) {
+      const spawn = output();
+      await agent.hooks["spawn.plan"]!({ ...input, target, skills, cliVersion }, spawn);
+      expect(spawn.envDefaults ?? []).toEqual([]);
+      const config = JSON.parse(Object.fromEntries(spawn.env).OPENCODE_CONFIG_CONTENT);
+      expect(config).not.toHaveProperty("skills");
+      expect(config.plugin).toEqual(["/App/resources/keepdeck-plugin"]);
+    }
   });
 
   it("YOLO adds the skip-permissions flag on spawn and resume alike", async () => {
@@ -533,6 +646,15 @@ describe("opencode plugin — warming the config dir", () => {
 
     expect(runOnce).toHaveBeenCalledTimes(1);
     expect(runOnce.mock.calls[0][0]).toMatchObject({ key: CFG, command: "opencode" });
+  });
+
+  it("warms nothing for 2.x, which is given no config dir", async () => {
+    const { runOnce, services } = warmServices();
+    const agent = activate("/App/resources", services);
+
+    await agent.hooks["spawn.plan"]!({ ...withSkills, cliVersion: "2.1.2" } as never, output());
+
+    expect(runOnce).not.toHaveBeenCalled();
   });
 
   it("warms nothing when the pane gets no staged skills", async () => {

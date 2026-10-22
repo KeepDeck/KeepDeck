@@ -40,6 +40,7 @@ import {
 } from ".";
 import { useAgentRunView } from "../useAgentRunView";
 import type { SpawnPluginAccess } from "../spawnSpecs";
+import { createSpawnPluginsFake } from "../spawnSpecs/planTestSupport";
 import type { ProvisionRequest } from "../worktrees";
 
 // React 19 requires this flag for act() outside a test-framework integration.
@@ -427,13 +428,9 @@ export function Probe() {
           acquire: pty.acquire,
           close: pty.close,
         },
-        plugins: {
-          // The registry seam recovery now asks (live sessions): an empty
-          // agent registry answers "no capability" — the legacy behavior —
-          // without the seam itself throwing on an empty double.
-          pluginHost: { getInstalled: () => [] },
-          pluginRegistries: { agents: { list: () => [] } },
-        } as unknown as SpawnPluginAccess,
+        // The registry seam recovery asks (live sessions): an empty agent
+        // registry answers "no capability" — the legacy behavior.
+        plugins: createSpawnPluginsFake().plugins,
         probe: ipc.probeWorktree,
         mcpAccess: async () => ({ entries: [], throughArgv: true, deliver: async () => {} }),
         lifecycle,

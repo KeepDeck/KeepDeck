@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   AgentContribution,
+  Capability,
   Disposable,
   SpawnSkillsInput,
   WorkspaceRef,
@@ -11,8 +12,7 @@ import type {
 import { EMPTY_SPAWN_CONTEXT, type SpawnPlan } from "./plans";
 import type { Workspace } from "../../domain/deck";
 import { createWorkspaceInstance } from "../../domain/workspaceInstance";
-import { createContributionRegistries } from "../../plugins/registries/contributions";
-import type { AppRuntime } from "../runtime";
+import { createSpawnPluginsFake, installedPlugin } from "./planTestSupport";
 import {
   bindPaneSpawnSpecSession,
   buildForkSpec,
@@ -23,7 +23,6 @@ import {
   resumeDiedSilently,
   spawnPlanInheritsSession,
   spawnPlanNeedsUsageBaseline,
-  type SpawnPluginAccess,
   buildLivePaneSpec,
 } from ".";
 // Straight from the module: the barrel deliberately does not carry it.
@@ -34,7 +33,6 @@ import { resetPaneSpawnSpecs } from "./cache";
   globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
-const hostState = vi.hoisted(() => ({ installed: [] as unknown[] }));
 
 // A fork's discard is the host removing paths inside the plugin's write
 // prefixes — recorded here instead of touching a disk.
@@ -52,12 +50,10 @@ const skillsState = vi.hoisted(() => ({
   views: null as SpawnSkillsInput | null,
 }));
 const stagedSkills = () => Promise.resolve(skillsState.views);
-const pluginRegistries = createContributionRegistries();
-const plugins = {
-  pluginRegistries,
-  pluginHost: { getInstalled: () => hostState.installed },
-} as unknown as SpawnPluginAccess;
-const runtime = { plugins } as unknown as AppRuntime;
+const fake = createSpawnPluginsFake();
+const plugins = fake.plugins;
+const pluginRegistries = fake.registries;
+const hostState = fake.state;
 
 const ctx = {
   ...EMPTY_SPAWN_CONTEXT,
@@ -129,7 +125,7 @@ describe("the plan builders — live pane, resume, fork", () => {
     for (const workspace of workspaces) {
       for (const pane of workspace.panes) {
         await buildLivePaneSpec(
-          runtime.plugins,
+          plugins,
           workspace,
           pane,
           ctx,
@@ -215,7 +211,7 @@ describe("the plan builders — live pane, resume, fork", () => {
   });
 
   describe("a fork's discard", () => {
-    const WRITES = { kind: "fsWrite", paths: ["~/.claude/projects"] };
+    const WRITES: Capability = { kind: "fsWrite", paths: ["~/.claude/projects"] };
     const forking = (discard: unknown) =>
       register({
         ...adopting,
@@ -227,10 +223,8 @@ describe("the plan builders — live pane, resume, fork", () => {
           },
         },
       });
-    const installed = (capabilities: unknown[]) => {
-      hostState.installed = [
-        { manifest: { id: "test-plugin", capabilities }, source: "builtin" },
-      ];
+    const installed = (capabilities: Capability[]) => {
+      hostState.installed = [installedPlugin({ capabilities })];
     };
     const fork = (paneId: string) =>
       buildForkSpec(

@@ -24,18 +24,77 @@ nothing is installed on the user's side.
   deck.
 - `mail-courier.js` asks the deck for mail and puts it into the session
   through the plugin's own server client (`promptAsync`). Standing context
-  goes in with `noReply`, so it does not open a turn.
+  goes in with `noReply`, so it does not open a turn. Both calls repeat the
+  agent, model and variant of the newest message the user sent in that
+  session (`prompt-selection.js`). Without them opencode switches to the
+  default agent and drops the variant, and a `noReply` call does too. A
+  message counts as the user's when it has a text part that is neither
+  synthetic nor KeepDeck's mail frame. Limits: it is the last prompt the
+  user SENT (a model picked in the composer and not yet used is invisible),
+  and a files-only message is passed over.
 - `pane-session.js` is shared by both. It owns which session is the pane's
   root, and the ancestry used to tell a subagent's session from the main
   one.
 - MCP servers travel in the same `OPENCODE_CONFIG_CONTENT`.
-- Skills come through `OPENCODE_CONFIG_DIR` as an env default.
+- Skills come through `OPENCODE_CONFIG_DIR` as an env default on 1.x;
   `src/warm.ts` makes sure that directory's dependencies are installed.
+  On 2.x they come as `skills: [<staged skills dir>]` in
+  `OPENCODE_CONFIG_CONTENT` instead, with no config dir and no warming.
 - `KEEPDECK_OPENCODE_SKIPS_APPROVALS` is set for permission-skipping panes.
 - Remote panes use `opencode attach <endpoint>`.
 
-`stageLaunch` in `src/index.ts` is what every launch carries, through the
-shared `launchPlans`.
+`stageLaunch` in `src/launch.ts` is what every launch carries, through the
+shared `launchPlans`. A launch is one interface, `OpencodeLaunch`, with a
+whole launch per case composed from parts:
+- shared parts: KeepDeck's plugin, MCP servers, the permission mode;
+- 1.x: the staged config dir (skills, warm-up) and its flags;
+- 2.x: the `skills` config key and `--standalone`;
+- remote: `attach <endpoint>` and nothing local.
+
+`launchFor` is the only place that reads the version and the target. An
+unknown version runs as 1.x. The draft a launch fills holds only what every
+launch carries.
+
+## Which session is on screen (1.x)
+
+`/new` and `/sessions` move only the TUI's own route; the server, and so
+KeepDeck's server plugin, hears nothing. Mail used to go into the session
+the user had left, and the agent worked there unseen (task-435).
+
+- `route-observer.js` is a TUI plugin, loaded through `tui.json` beside it.
+  A local 1.x launch points `OPENCODE_TUI_CONFIG` at that file, as an env
+  DEFAULT, apart from the skills' config dir. It polls `api.route.current`
+  every 250 ms and writes `foreground.json` into the pane's bridge
+  directory: a route that held for two polls, plus a heartbeat every second.
+- `foreground.js` reads it: `unknown` (no observer for this process, or
+  silent for 30 s, so behave as before), `stale` (silent for 3 s), `home`,
+  `other`, or `session`.
+- `follower.js`: when another session is on screen, the pane moves to it
+  (to its root for a subagent's view; not at all if it cannot be
+  classified). The move is one job in the reporter's queue: `session.bound`
+  with source `resume`, then the session's spend. After the wire has drained,
+  the courier collects for it.
+- Leaving a conversation stops it (user decision): another root on screen,
+  or the home screen after a session this process showed. The reporter
+  aborts the left session's turn, outside its own queue. A move to another
+  session needs nothing more. For the home screen, the abort's error and
+  idle reach the deck as the pane's. Then `pane-session.js` `detach()` keeps
+  the left session (`left`) so neither it nor its subagents can rebind the
+  pane, and `session.unbound` makes the deck forget the session. A restore
+  starts fresh (`src/app/paneUnbinding.ts`). With no ending within 3 s it
+  lets go anyway, unless the pane already moved on. opencode STARTING on
+  home (before `-s` opens, or the native `--fork`) is not a leaving.
+- Mail goes only where the user is looking. Every channel asks the same
+  rule: `unknown` behaves as before; the pane's root or its subagent's view
+  is delivered to; anything else is held, the end-of-turn ask and
+  `mail.ask.tool` alike. The courier never moves the pane.
+- On the home screen after a leaving, only a doorbell ring (mail waiting)
+  makes a session: create, check it is still home, `tui.session.select`,
+  wait until the screen shows it and the pane is bound (≤3 s), drain, and
+  only then ask. Brief and mail arrive together, with the selection of the
+  conversation left. No ack means no ask and no retry until the screen
+  changes. A root session the courier did not make is the user's own, and
+  the path stops.
 
 ## Mail (1.x)
 
@@ -85,15 +144,55 @@ Read from the 2.0.32 and 2.1.2 source, and verified live on 2.1.2
 
 - **Plugins.** A plugin must export `{id, setup}` or `{id, effect}`.
   A plugin given as a FILE path is dropped; a directory is required
-  (live). The legacy `plugin` key still works. KeepDeck's plugin now has
-  this shape, so it loads on 2.x, but `setup` does nothing yet.
+  (live). The legacy `plugin` key still works. KeepDeck's `setup` is
+  `opencode-v2.js`, the 2.x twin of the 1.x components, sharing the pane
+  session, the wire, the mail ask and the doorbell with them. Read from
+  the v2.1.2 source, 2026-10-22:
+  - binding from `session.created`, or from a resumed pane's first session
+    event;
+  - turn events forwarded whole; the deck reads `session.execution.*` and
+    `form.*`;
+  - `usage.report` from `session.usage.updated` (running totals, subagents
+    included), `session.step.ended` (context in use) and `model.list`
+    (window);
+  - mail through `session.synthetic` (the brief, no turn), `session.prompt`,
+    `session.hook("prompt")` (riding along) and `tool.hook("execute.after")`
+    (mid-turn). A pane with no conversation yet waits for its first turn.
 - **Config dir.** `OPENCODE_CONFIG_DIR` REPLACES the user's global config
-  on 2.x instead of adding to it (live), so it must not be set there.
+  on 2.x instead of adding to it (live), so KeepDeck does not set it there.
+  Skills go through the `skills` config key, and 2.x lists them under its
+  own `/skills`, so the per-skill palette commands 1.x needs are not made.
 - **Database.** 2.x adds `session_v2` tables to the same `opencode.db`
   and imports 1.x sessions ONCE. A session made on 1.x afterwards is
-  never imported (live), so history must read both.
+  never imported (live), so history reads both (`src/history.ts`, rules
+  in `src/historyMerge.ts`):
+  - the shape (1.x, 2.x, both) is read from `sqlite_master` on every
+    reading. `session_message` alone is not 2.x, 1.19.3 makes it empty;
+  - an id 2.x has is read from 2.x, title, directory and archive
+    included. A 1.x-only id is listed only if it was created after the
+    import's `kv` marker `migration.v1-v2`: 2.x deletes leave the 1.x rows
+    behind. While the import runs, every 1.x session stays and the listing
+    is partial, so nothing is pruned;
+  - the fingerprint is the newer clock of the two, plus the 1.x newest part
+    time and the 2.x `event_sequence.seq`. The part time is read only for
+    sessions 1.x touched after the import: reading it for all costs seven
+    seconds on a real 10 GB store, the 2.x side about a millisecond;
+  - a transcript is the 2.x messages, then the 1.x messages 2.x lacks. A
+    1.x compaction summary is dropped when 2.x holds its compaction: the
+    import folds it into that row;
+  - limit: a 1.x rename or archive of an imported session does not show.
+    1.x does not timestamp either.
 - **Server.** One shared background server unless `--standalone` is given,
-  so per-pane env and plugins need `--standalone`.
+  so per-pane env and plugins need `--standalone`. KeepDeck now adds it
+  when the CLI's `--version` names 2.x. Plugin API 62 hands the version to
+  launch plans, asked anew for every launch, so a CLI swapped while the
+  app runs is launched as what it now is. 1.19.3 exits on the flag, so an
+  unknown version gets none.
+  Verified live 2026-10-22:
+  - 15 concurrent `--standalone` starts on an initialized db, no failure
+    (upstream #53879 is a NEW db only);
+  - the MCP server's parent is the `serve` process, in its own session, so
+    the pane-identity rule of task-424 does not admit it yet (open).
 - **Remote.** `attach` is gone; it is now `--server <url>` with
   `OPENCODE_PASSWORD`.
 - **Fork.** `--fork` is gone; forking needs the API's fork plus a move.

@@ -7,19 +7,12 @@ import {
   liveOutsideSessions,
 } from "./liveSessions";
 import type { SpawnPluginAccess } from "./spawnSpecs";
+import { agentContribution, spawnPluginsWith } from "./spawnSpecs/planTestSupport";
 
 const pluginsWith = (
   live?: AgentContribution["liveSessions"],
 ): SpawnPluginAccess =>
-  ({
-    pluginRegistries: {
-      agents: {
-        list: () => [
-          { entry: { id: "claude", liveSessions: live }, pluginId: "p" },
-        ],
-      },
-    },
-  }) as unknown as SpawnPluginAccess;
+  spawnPluginsWith([agentContribution({ id: "claude", liveSessions: live })]).plugins;
 
 describe("askLiveRegistry", () => {
   it("no capability to ask is its own answer — null, never 'absent'", async () => {
@@ -148,34 +141,22 @@ describe("askBackgroundCarriers (the batch a workspace close asks with)", () => 
   });
 
   it("a refusing agent answers unknown for ITS entries only — the others keep their truth", async () => {
-    const plugins = {
-      pluginRegistries: {
-        agents: {
-          list: () => [
-            {
-              entry: {
-                id: "claude",
-                liveSessions: {
-                  list: async () => {
-                    throw new Error("daemon down");
-                  },
-                },
-              },
-              pluginId: "p",
-            },
-            {
-              entry: {
-                id: "codex",
-                liveSessions: {
-                  list: async () => [{ sessionId: "c-1", kind: "background" }],
-                },
-              },
-              pluginId: "p",
-            },
-          ],
+    const { plugins } = spawnPluginsWith([
+      agentContribution({
+        id: "claude",
+        liveSessions: {
+          list: async () => {
+            throw new Error("daemon down");
+          },
         },
-      },
-    } as unknown as SpawnPluginAccess;
+      }),
+      agentContribution({
+        id: "codex",
+        liveSessions: {
+          list: async () => [{ sessionId: "c-1", kind: "background" }],
+        },
+      }),
+    ]);
     const answers = await askBackgroundCarriers(plugins, [
       { agentType: "claude", sessionId: "s-1" },
       { agentType: "codex", sessionId: "c-1" },

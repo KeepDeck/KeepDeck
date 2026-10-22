@@ -38,22 +38,27 @@
  * screen. Every request below hangs off an event instead.
  */
 
-/** The one instance, and the client it speaks through. */
+/** The one instance, and how it asks the server about a session. */
 let shared;
-let sharedClient;
+let sharedLookup;
 
 /**
  * This process's pane session.
  *
- * The client is ADOPTED rather than captured: whichever plugin initialises
+ * `lookup(sessionID)` asks the server about one session and answers
+ * `{ parentID }` (no parentID for a root), or null when it could not tell —
+ * the one thing that differs between opencode generations, so each host
+ * adapter supplies its own (opencode-v1.js, opencode-v2.js).
+ *
+ * The lookup is ADOPTED rather than captured: whichever component starts
  * first may have none — the reporter does not treat a missing client as a
- * reason to stay quiet — and a later, fuller one has to be able to take over.
- * Every request below reads it through the holder for that reason; a closure
- * over the first one would leave this permanently unable to ask anything,
- * with an index answering "unknown" forever and nothing to say why.
+ * reason to stay quiet — and a later, fuller one has to be able to take
+ * over. Every request below reads it through the holder for that reason; a
+ * closure over the first one would leave this permanently unable to ask
+ * anything, with an index answering "unknown" forever and nothing to say why.
  */
-export function paneSession(client) {
-  if (client && !sharedClient) sharedClient = client;
+export function paneSession(lookup) {
+  if (lookup && !sharedLookup) sharedLookup = lookup;
   if (!shared) shared = create();
   return shared;
 }
@@ -69,6 +74,11 @@ function create() {
   const roots = new Set();
   /** The pane's conversation, once one is known. */
   let root;
+  /** The conversation the user LEFT for none at all (`/new`, task-435): no
+   * longer the pane's, and nothing it or its subagents still say may make it
+   * the pane's again — with no root, the first-evidence rules below would
+   * otherwise bind the pane straight back to it. */
+  let left;
 
   /** Record one hop the caller already knows — a `session.created` carrying
    * `parentID` is the server's own word, and needs no round trip. */
@@ -106,11 +116,8 @@ function create() {
    * Ask the server about one session and record what it says, walking up
    * until the chain reaches something already known.
    *
-   * The generated client a plugin is handed RESOLVES with `{error}` rather
-   * than throwing — measured on 1.18.15, and spelled out in both components —
-   * so a `catch` alone sees nothing. An unanswerable id is recorded NOWHERE,
-   * which is what makes the next call ask again instead of inheriting a
-   * guess.
+   * An unanswerable id is recorded NOWHERE, which is what makes the next
+   * call ask again instead of inheriting a guess.
    *
    * In flight per id, so two events racing on the same session make one
    * request and get the same answer.
@@ -120,15 +127,15 @@ function create() {
     const already = pending.get(sessionID);
     if (already) return already;
     const work = (async () => {
-      if (!sharedClient?.session?.get) return "unknown";
+      if (!sharedLookup) return "unknown";
       let found;
       try {
-        found = await sharedClient.session.get({ path: { id: sessionID } });
+        found = await sharedLookup(sessionID);
       } catch {
         return "unknown";
       }
-      if (!found || found.error || !found.data?.id) return "unknown";
-      const parentID = found.data.parentID;
+      if (!found) return "unknown";
+      const parentID = found.parentID;
       if (!parentID) {
         roots.add(sessionID);
         return "root";
@@ -183,6 +190,10 @@ function create() {
     get bound() {
       return root !== undefined;
     },
+    /** The conversation the user left for none at all, until the next one. */
+    get left() {
+      return left;
+    },
     /**
      * Take a session as the pane's conversation, KEEPING what is known about
      * its ancestry.
@@ -198,7 +209,7 @@ function create() {
      * somebody else's conversation for the life of the process. That happened.
      */
     bindFromChain(sessionID, keep = []) {
-      if (root !== undefined || !sessionID) return false;
+      if (root !== undefined || !sessionID || sessionID === left) return false;
       root = sessionID;
       for (const [child, parent] of keep) note(child, parent);
       return true;
@@ -219,6 +230,19 @@ function create() {
       // classification would otherwise go back to the client for.
       roots.add(sessionID);
       root = sessionID;
+      left = undefined;
+      return true;
+    },
+    /**
+     * The user left the pane's conversation for none at all: the pane has no
+     * conversation until the next root one begins (`newGeneration`). The
+     * ancestry is KEPT — it is what recognises the left session's subagents
+     * as its own, and so as not the pane's.
+     */
+    detach() {
+      if (root === undefined) return false;
+      left = root;
+      root = undefined;
       return true;
     },
     /**
@@ -229,6 +253,7 @@ function create() {
      */
     concernsPane(sessionID) {
       if (!sessionID || rootOf(sessionID) !== sessionID) return false;
+      if (sessionID === left) return false;
       return root === undefined || sessionID === root;
     },
   };

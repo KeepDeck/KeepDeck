@@ -116,17 +116,23 @@ describe("reporter shell scripts", () => {
       "utf8",
     );
     const renderer = readFileSync("plugins/opencode/src/mail.ts", "utf8");
+    // The ask itself — its default channel and the reply version it reads —
+    // is the part both opencode generations share.
+    const asker = readFileSync(
+      "plugins/opencode/resources/keepdeck-plugin/mail-ask.js",
+      "utf8",
+    );
 
     // Two asks, one per channel: the default at a turn's edges, and the one
     // after a tool call mid-turn. Each must be a name the renderer declares.
-    const edge = courier.match(/const ask = async \(target, type = "([^"]+)"\)/);
+    const edge = asker.match(/async \(target, type = "([^"]+)"\)/);
     expect(edge, "no default ask type in the courier").not.toBeNull();
     expect(renderer).toContain(`MAIL_ASK_EVENT = "${edge[1]}"`);
     const tool = courier.match(/"tool\.execute\.after"[\s\S]*?await ask\([^,]+, "([^"]+)"\)/);
     expect(tool, "no ask after a tool call in the courier").not.toBeNull();
     expect(renderer).toContain(`MAIL_TOOL_ASK_EVENT = "${tool[1]}"`);
 
-    const courierVersion = courier.match(/REPLY_VERSION\s*=\s*(\d+)/);
+    const courierVersion = asker.match(/REPLY_VERSION\s*=\s*(\d+)/);
     expect(courierVersion, "no REPLY_VERSION in the courier").not.toBeNull();
     // Both numbers read out, then compared — a `toContain` on the rendered
     // text would pass with the courier at 1 and the renderer at 10.

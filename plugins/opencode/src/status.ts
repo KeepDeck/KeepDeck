@@ -80,6 +80,21 @@ export const normalizeOpencodeStatus: StatusNormalizer = (
       // change, the runner stays busy for as long as the dialog is up. Before
       // this edge the pane read "Working" while the terminal waited.
       return { kind: "waiting", at, reason: "question" };
+    // opencode 2.x. The runner states a turn's start and its one ending
+    // itself, so nothing has to be pieced together from a status and an idle.
+    case "session.execution.started":
+      return { kind: "turn-start", at };
+    case "session.execution.succeeded":
+      return { kind: "turn-end", at };
+    case "session.execution.failed":
+      return executionFailedEdge(properties.error, at);
+    case "session.execution.interrupted":
+      return executionInterruptedEdge(properties.reason, at);
+    case "form.created":
+      // 2.x's name for a question put to the user: the turn stands on it.
+      return { kind: "waiting", at, reason: "question" };
+    case "form.replied":
+    case "form.cancelled":
     case "permission.replied":
     case "question.replied":
     case "question.rejected":
@@ -186,4 +201,24 @@ function finishedMessageEdge(
   const error = isJsonRecord(info.error) ? info.error : undefined;
   if (error?.name === "MessageAbortedError") return { kind: "interrupted", at };
   return null;
+}
+
+/**
+ * A 2.x turn that failed. The error is structured — `type` and `message` — and
+ * an interrupt is not one of them: 2.x states it as its own event.
+ */
+function executionFailedEdge(error: unknown, at: number): AgentStatusEvent {
+  const type = isJsonRecord(error) ? asNonEmptyString(error.type) : undefined;
+  const message = isJsonRecord(error) ? asNonEmptyString(error.message) : undefined;
+  return turnFailedEvent(at, type, message);
+}
+
+/**
+ * A 2.x turn cut short, and why. `superseded` is no ending of the pane's
+ * work: a newer prompt took the turn's place and opens its own, so saying
+ * "interrupted" would flash a stop between two runs. The user's hand, a
+ * shutdown and a watchdog's give-up all leave the pane stopped.
+ */
+function executionInterruptedEdge(reason: unknown, at: number): AgentStatusEvent | null {
+  return reason === "superseded" ? null : { kind: "interrupted", at };
 }

@@ -133,6 +133,14 @@ export interface SpawnPlanInput {
    * than API 27); a supporting agent's `spawn.plan` reads `kind`/`endpoint`
    * to emit its remote-client argv. A non-remote agent ignores it. */
   target?: SpawnTarget;
+  /** The version this agent's CLI prints for `--version` — the first dotted
+   * number in its answer (`2.1.2` for `opencode v2.1.2`) — so a hook can
+   * pick the flags its RELEASE accepts (opencode 2.x needs `--standalone`).
+   * Asked anew for every launch, so a CLI swapped while the app runs is
+   * launched as what it now is. Absent when it could not be asked or
+   * answered, and on hosts older than API 62: a hook reads absence as "the
+   * release this plugin was written against". */
+  cliVersion?: string;
 }
 
 /** One skills library rendered in each CLI's injection dialect — staged

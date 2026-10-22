@@ -77,6 +77,30 @@ describe("createPaneAttribution", () => {
     );
   });
 
+  it("announces every change of a pane's pin, its dropping included", () => {
+    // The native side counts the pinned process's children as the pane's
+    // (opencode 2.x's MCP servers under its `serve`), so it must hear each
+    // change — and only changes.
+    const owner = attribution();
+    const heard: Array<[string, string | undefined]> = [];
+    owner.subscribePins((paneId, reporter) => heard.push([paneId, reporter]));
+
+    owner.recordBinding("pane-1", "4021");
+    owner.recordBinding("pane-1", "4021");
+    owner.recordBinding("pane-1", "5150");
+    owner.retire("pane-1");
+    owner.recordBinding("pane-2", "77");
+    owner.forget(new Set());
+
+    expect(heard).toEqual([
+      ["pane-1", "4021"],
+      ["pane-1", "5150"],
+      ["pane-1", undefined],
+      ["pane-2", "77"],
+      ["pane-2", undefined],
+    ]);
+  });
+
   it("pins the generation to the process that bound it", () => {
     const owner = attribution();
     expect(owner.judge(report())).toEqual({ accepted: true });

@@ -27,6 +27,11 @@ export interface PaneLifecycle {
    * same-session report that merely overtook its binding, and the activity
    * half starts blank either way. */
   beginSession(paneId: string, sessionId: string): void;
+  /** The pane's agent left its conversation for NONE yet (opencode's `/new`
+   * before the first prompt): the old generation's telemetry is no fact
+   * about the pane, and whatever the deck had told the agent is gone with
+   * it — the next conversation starts from nothing. */
+  endSession(paneId: string): void;
 }
 
 export function createPaneLifecycle(
@@ -55,6 +60,13 @@ export function createPaneLifecycle(
     beginSession(paneId, sessionId) {
       usage.beginPaneSession(paneId, sessionId);
       tracker.clear(paneId);
+      onSessionBegan(paneId);
+    },
+    endSession(paneId) {
+      usage.clearPane(paneId);
+      tracker.clear(paneId);
+      // Told now, not at the next binding: a binding after none has no
+      // previous session to differ from, and would say nothing.
       onSessionBegan(paneId);
     },
   };

@@ -61,6 +61,39 @@ describe("createAgentBins", () => {
     expect(bins.version("codex")).toBe("0.147.0");
   });
 
+  it("asks again for a launch, whatever it remembers", async () => {
+    // A launch's argv depends on the release installed NOW: opencode
+    // swapped from 2.x back to 1.x while the app runs must not be handed
+    // a 2.x-only flag it exits on.
+    let answer = "2.1.2";
+    const bins = createAgentBins(async () => [], async () => answer);
+
+    await bins.ensureVersion("opencode");
+    answer = "1.19.3";
+    await bins.ensureVersion("opencode");
+    expect(bins.version("opencode")).toBe("2.1.2");
+    await bins.refreshVersion("opencode");
+    expect(bins.version("opencode")).toBe("1.19.3");
+  });
+
+  it("makes one request when two launches start at once", async () => {
+    let asks = 0;
+    let release: (answer: string) => void = () => {};
+    const bins = createAgentBins(async () => [], () => {
+      asks += 1;
+      return new Promise<string>((resolve) => {
+        release = resolve;
+      });
+    });
+
+    const first = bins.refreshVersion("opencode");
+    const second = bins.refreshVersion("opencode");
+    expect(asks).toBe(1);
+    release("2.1.2");
+    await Promise.all([first, second]);
+    expect(bins.version("opencode")).toBe("2.1.2");
+  });
+
   it("forgets a version when the bin is detected again", async () => {
     // Re-detection is the app asking what is on this machine NOW — a Rescan,
     // or an enable gesture — which is exactly when a CLI may have been

@@ -8,7 +8,8 @@
  *   1.x  reads `default.server` — the `(input, options) => hooks` function —
  *        and ignores every other key
  *   2.x  reads `default.setup(context)` and strips `server`; it refuses a
- *        plugin given as a FILE path, which is why this is a directory
+ *        plugin given as a FILE path, which is why this is a directory.
+ *        Its adapter is opencode-v2.js
  *
  * ONE ENTRY, TWO COMPONENTS. The reporter and the courier stay separate
  * modules for the reasons in their headers, but they must not be two plugin
@@ -23,20 +24,10 @@
  * user's session.
  */
 import { startCourier } from "./mail-courier.js";
+import { startComponents } from "./components.js";
+import { follower } from "./follower.js";
+import { setupV2 } from "./opencode-v2.js";
 import { startReporter } from "./session-reporter.js";
-
-/** Start every component on its own; one that throws contributes nothing. */
-export async function startComponents(starts, input) {
-  return Promise.all(
-    starts.map(async (start) => {
-      try {
-        return (await start(input)) ?? {};
-      } catch {
-        return {};
-      }
-    }),
-  );
-}
 
 /**
  * One hook map out of several. Every handler of a name is called with the
@@ -68,8 +59,12 @@ export function composeHooks(maps) {
 export default {
   id: "keepdeck",
   /** opencode 1.x. */
-  server: async (input) => composeHooks(await startComponents([startReporter, startCourier], input)),
-  /** opencode 2.x: loads, and does nothing yet — the 2.x behaviour is its own
-   * work (task-371). */
-  setup: async () => {},
+  server: async (input) => {
+    const hooks = composeHooks(await startComponents([startReporter, startCourier], input));
+    // Both components have joined the follower by now (follower.js).
+    follower().start();
+    return hooks;
+  },
+  /** opencode 2.x (opencode-v2.js). */
+  setup: (context) => setupV2(context),
 };

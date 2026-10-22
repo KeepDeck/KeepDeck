@@ -253,6 +253,52 @@ describe("opencode mail courier", () => {
     expect(last(prompts)?.body).not.toHaveProperty("noReply");
   });
 
+  it("delivers as the user's own last prompt ran: agent, model and variant, read before anything lands", async () => {
+    // Without them opencode switches the session to the default agent and
+    // drops the variant (1.19.3, measured) — the context call included, since
+    // a noReply message sets the session's agent and model too.
+    const reads: number[] = [];
+    (client.session as Record<string, unknown>).messages = async () => {
+      reads.push(prompts.length);
+      return {
+        data: [
+          {
+            info: {
+              role: "user",
+              agent: "custom",
+              model: { providerID: "probe", modelID: "alt", variant: "max" },
+            },
+            parts: [{ type: "text", text: "my own words" }],
+          },
+        ],
+      };
+    };
+    const courier = await start();
+    await courier.event(created("ses_root"));
+    pending.push({ v: 1, context: "you are impl-1", prompt: "ship it" });
+    await courier.event(idle("ses_root"));
+
+    const selection = {
+      agent: "custom",
+      model: { providerID: "probe", modelID: "alt" },
+      variant: "max",
+    };
+    expect(prompts.slice(-2)).toEqual([
+      {
+        sessionID: "ses_root",
+        body: {
+          ...selection,
+          noReply: true,
+          parts: [{ type: "text", text: "you are impl-1", synthetic: true }],
+        },
+      },
+      { sessionID: "ses_root", body: { ...selection, parts: [{ type: "text", text: "ship it" }] } },
+    ]);
+    // Read once per delivery, before its first call — after, the newest
+    // message would be the one we just wrote.
+    expect(reads[reads.length - 1]).toBe(prompts.length - 2);
+  });
+
   it("rides the user's own message when there is one, spending nothing", async () => {
     // The cheapest delivery there is: no extra turn, no wake. The parts have
     // to be in place before the request is built, which is why this hook is

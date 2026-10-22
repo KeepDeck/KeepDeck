@@ -223,3 +223,44 @@ describe("attributeOpencodeEvent", () => {
     });
   });
 });
+
+describe("normalizeOpencodeStatus on opencode 2.x", () => {
+  // The reporter forwards a 2.x event's `data` as `properties`, like 1.x's.
+  it("reads the runner's own start and success", () => {
+    expect(normalizeOpencodeStatus(wrap("session.execution.started"), 1))
+      .toEqual({ kind: "turn-start", at: 1 });
+    expect(normalizeOpencodeStatus(wrap("session.execution.succeeded"), 2))
+      .toEqual({ kind: "turn-end", at: 2 });
+  });
+
+  it("reads a failure from its structured error", () => {
+    expect(
+      normalizeOpencodeStatus(
+        wrap("session.execution.failed", {
+          error: { type: "provider_error", message: "rate limited" },
+        }),
+        3,
+      ),
+    ).toMatchObject({ kind: "turn-failed", at: 3 });
+  });
+
+  it("reads an interrupt as one, unless a newer prompt superseded the turn", () => {
+    for (const reason of ["user", "shutdown", "inactivity"]) {
+      expect(
+        normalizeOpencodeStatus(wrap("session.execution.interrupted", { reason }), 4),
+        reason,
+      ).toEqual({ kind: "interrupted", at: 4 });
+    }
+    // The next prompt opens its own turn; nothing stopped.
+    expect(
+      normalizeOpencodeStatus(wrap("session.execution.interrupted", { reason: "superseded" }), 4),
+    ).toBeNull();
+  });
+
+  it("waits on a form, and resumes when it is answered or withdrawn", () => {
+    expect(normalizeOpencodeStatus(wrap("form.created"), 5))
+      .toEqual({ kind: "waiting", at: 5, reason: "question" });
+    expect(normalizeOpencodeStatus(wrap("form.replied"), 6)).toEqual({ kind: "resumed", at: 6 });
+    expect(normalizeOpencodeStatus(wrap("form.cancelled"), 7)).toEqual({ kind: "resumed", at: 7 });
+  });
+});

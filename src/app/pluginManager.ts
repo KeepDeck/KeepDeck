@@ -712,12 +712,31 @@ export function createPluginManager(appDownloads: DownloadManager) {
    * process being started.
    */
   async function ensureAgentVersion(agentId: string): Promise<void> {
-    const bin = probeableBinOfAgent(
+    const bin = probeableBin(agentId);
+    if (bin) await agentBins.ensureVersion(bin);
+  }
+
+  /** The bin of this agent the host may run to ask its version, or null. */
+  function probeableBin(agentId: string): string | null {
+    return probeableBinOfAgent(
       pluginRegistries.agents.list(),
       pluginHost.getInstalled(),
       agentId,
     );
-    if (bin) await agentBins.ensureVersion(bin);
+  }
+
+  /**
+   * What THIS AGENT's binary answers to `--version`, or null when nothing
+   * legible came back. Read by mail rendering, where the CLI's hook-output
+   * schema differs by release, and by launch plans (`agentCliVersion`).
+   *
+   * Keyed by agent id, not by bin: the walk from an agent to its declared
+   * bin is a fact about the registry, and a caller doing it itself would be
+   * a second place that knows where `detect.bin` lives.
+   */
+  function agentBinVersion(agentId: string): string | null {
+    const bin = binOfAgent(pluginRegistries.agents.list(), agentId);
+    return bin ? agentBins.version(bin) : null;
   }
 
   /** Built-in plugins' categories, recorded at install — `isEnabled(id)` is a
@@ -1044,20 +1063,23 @@ export function createPluginManager(appDownloads: DownloadManager) {
     bootstrapPlugins,
     rescanPlugins,
     restartPlugin,
-    /**
-     * What THIS AGENT's binary answers to `--version`, or null when nothing
-     * legible came back. The one caller today is mail rendering, where the
-     * CLI's hook-output schema differs by release.
-     *
-     * Keyed by agent id, not by bin: the walk from an agent to its declared
-     * bin is a fact about the registry, and a caller doing it itself would be
-     * a second place that knows where `detect.bin` lives.
-     */
-    agentBinVersion: (agentId: string): string | null => {
-      const bin = binOfAgent(pluginRegistries.agents.list(), agentId);
-      return bin ? agentBins.version(bin) : null;
-    },
+    agentBinVersion,
     ensureAgentVersion,
+    /**
+     * What this agent's CLI answers to `--version` RIGHT NOW — asked anew for
+     * every launch plan, which may pick its flags by release, so a CLI
+     * swapped while the app runs is launched as what it now is. Null when the
+     * binary may not be run or did not answer legibly.
+     *
+     * Awaited, unlike the mail path's `learnVersion`: a plan's argv cannot be
+     * corrected after the process starts. Panes starting together share one
+     * ask, and its answer is what mail rendering reads afterwards too.
+     */
+    agentCliVersion: async (agentId: string): Promise<string | null> => {
+      const bin = probeableBin(agentId);
+      if (bin) await agentBins.refreshVersion(bin).catch(() => {});
+      return agentBinVersion(agentId);
+    },
   };
 }
 

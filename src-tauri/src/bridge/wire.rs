@@ -32,6 +32,12 @@ pub const USAGE_REPORT_EVENT: &str = "deck://usage/report";
 /// (`src/ipc/status.ts`).
 pub const AGENT_STATUS_EVENT: &str = "deck://agent/status";
 
+/// Event delivering one session unbinding to the webview
+/// (`src/ipc/sessions.ts`): the pane's agent left its conversation for none
+/// at all — opencode's `/new` before the first prompt — so the pane has no
+/// session to resume until the next binding.
+pub const SESSION_UNBOUND_EVENT: &str = "deck://session/unbound";
+
 /// Event delivering one companion hello to the webview
 /// (`src/ipc/companions.ts`): an in-process reporter announcing itself once,
 /// from inside the agent's own process.
@@ -129,6 +135,7 @@ const OPAQUE_CHANNELS: &[(&str, &str)] = &[
     ("usage.report", USAGE_REPORT_EVENT),
     ("agent.status", AGENT_STATUS_EVENT),
     ("companion.hello", COMPANION_HELLO_EVENT),
+    ("session.unbound", SESSION_UNBOUND_EVENT),
 ];
 
 /// One interpreted envelope — the dispatch result `deliver` emits from.
@@ -392,6 +399,32 @@ pub(super) mod tests {
             panic!("expected a companion hello, got {result:?}");
         };
         assert_eq!(report.payload["reporter"], "4242");
+        let mut anonymous = envelope.clone();
+        anonymous["payload"]["agent"] = "".into();
+        assert!(interpret(&anonymous.to_string()).is_err());
+    }
+
+    // The pane's agent left its conversation for none at all (opencode's
+    // `/new`): passed through like any report, verified and applied by the
+    // webview — and signed like one, so an unsigned unbinding is refused.
+    #[test]
+    fn interprets_a_session_unbinding_like_any_opaque_report() {
+        let envelope = serde_json::json!({
+            "v": BRIDGE_PROTOCOL_VERSION,
+            "type": "session.unbound",
+            "paneId": "pane-7",
+            "token": "tok",
+            "payload": {"agent": "opencode", "reporter": "4242"},
+        });
+        let result = interpret(&envelope.to_string());
+        let Ok(Inbound::Opaque {
+            event: SESSION_UNBOUND_EVENT,
+            report,
+        }) = result
+        else {
+            panic!("expected a session unbinding, got {result:?}");
+        };
+        assert_eq!(report.pane_id, "pane-7");
         let mut anonymous = envelope.clone();
         anonymous["payload"]["agent"] = "".into();
         assert!(interpret(&anonymous.to_string()).is_err());

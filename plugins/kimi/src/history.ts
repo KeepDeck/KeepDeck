@@ -5,6 +5,8 @@ import {
   readStoreDir,
   sessionHistory,
   textFromParts,
+  titleText,
+  transcriptRole,
   walkSession,
   type AgentHistory,
   type AgentSessionStub,
@@ -106,7 +108,7 @@ const dialect: SessionDialect<KimiState, KimiRecord> = {
     return [
       ...held,
       {
-        role: role === "user" ? "user" : role === "assistant" ? "assistant" : "other",
+        role: transcriptRole(role),
         text,
       },
     ];
@@ -234,7 +236,7 @@ export function kimiHistory(ctx: PluginContext): AgentHistory {
         return {
           cwd: typeof dir === "string" ? dir : "",
           ...(typeof parsed.title === "string" &&
-            parsed.title !== "" && { title: parsed.title.slice(0, 120) }),
+            parsed.title !== "" && { title: titleText(parsed.title) }),
           transcriptPath: ref,
         };
       } catch {

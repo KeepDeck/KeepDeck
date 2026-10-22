@@ -3,7 +3,7 @@ import { createSessionStore, type PluginContext } from "@keepdeck/plugin-api";
 import { fsStore } from "@keepdeck/plugin-api/testing";
 import { scanAgentHistories, type ScanIndexOps } from "./historyScan";
 import { claudeHistory } from "../../plugins/claude/src/history";
-import { opencodeHistory } from "../../plugins/opencode/src/history";
+import { opencodeHistory, type HistoryPorts } from "../../plugins/opencode/src/history";
 
 // The scan's own ipc surface never runs here — ops are injected below; the
 // mock only keeps the module import from reaching tauri's invoke.
@@ -64,18 +64,21 @@ function fsCtx(
   } as unknown as PluginContext;
 }
 
-/** A sqlite double for the opencode plugin — one query, one answer. An
- * answer the host's byte budget cut short is spelled `{ cut: rows }`. */
+/** A sqlite double for the opencode plugin: a 1.x store's tables for the
+ * shape question, then one answer per query. An answer the host's byte
+ * budget cut short is spelled `{ cut: rows }`. */
 function sqliteCtx(
   results: ((string | null)[][] | { cut: (string | null)[][] } | Error)[],
-): { ctx: PluginContext; query: ReturnType<typeof vi.fn> } {
-  const query = vi.fn(async (..._args: unknown[]) => {
-    const next = results.shift();
+): { ctx: HistoryPorts; asked: () => string[] } {
+  const query = vi.fn(async (_db: string, sql: string, _params?: string[]) => {
+    const next = sql.includes("sqlite_master")
+      ? [["session"], ["message"], ["part"]]
+      : results.shift();
     if (next instanceof Error) throw next;
     const budget = next !== undefined && !Array.isArray(next);
     return {
       rows: budget ? next.cut : (next ?? []),
-      stopped: budget ? "budget" : "exhausted",
+      stopped: budget ? ("budget" as const) : ("exhausted" as const),
       payloadBytes: 0,
     };
   });
@@ -83,8 +86,9 @@ function sqliteCtx(
     ctx: {
       services: { sqlite: { query } },
       log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-    } as unknown as PluginContext,
-    query,
+    },
+    asked: () =>
+      query.mock.calls.map(([, sql]) => sql).filter((sql) => !sql.includes("sqlite_master")),
   };
 }
 
@@ -240,13 +244,17 @@ describe("scanAgentHistories × real plugins", () => {
   });
 
   it("opencode: a whole listing indexes and prunes, exactly as the legacy branch did", async () => {
-    const text = (t: string) => JSON.stringify({ type: "text", text: t });
-    const { ctx, query } = sqliteCtx([
-      [["ses_1", "1769121238325", "1"], ["ses_2", "1769121299999", "2"]],
+    const { ctx, asked } = sqliteCtx([
+      [
+        ["ses_1", "1", "1769121238325", "0", "1"],
+        ["ses_2", "1", "1769121299999", "0", "2"],
+      ],
       [["/repo", "rail cleanup"]], // describe ses_1
-      [[text("hello")]], // content ses_1
+      [["m1", "user"]], // content ses_1: its messages…
+      [["m1", "hello", "1"]], // …and their text parts
       [["/other", "other"]], // describe ses_2
-      [[text("world")]], // content ses_2
+      [["m2", "user"]],
+      [["m2", "world", "1"]],
     ]);
     const { mock, upserts, prunes } = ops([
       { reference: "ses_stale", mtime: 1, size: 0 },
@@ -260,8 +268,8 @@ describe("scanAgentHistories × real plugins", () => {
       "ses_2",
     ]);
     expect(prunes).toEqual([["ses_1", "ses_2"]]);
-    expect(query.mock.calls[0][1]).toContain("time_archived IS NULL");
-    expect(query).toHaveBeenCalledTimes(5);
+    expect(asked()[0]).toContain("FROM session s");
+    expect(asked()).toHaveLength(7);
   });
 
   it("opencode: a listing the host cut indexes what it saw and prunes NOTHING", async () => {
@@ -269,11 +277,11 @@ describe("scanAgentHistories × real plugins", () => {
     // cut enumeration returned successfully, which meant "complete enough
     // to prune" — and every session past the cut would have been deleted
     // from the index for not appearing in it.
-    const text = (t: string) => JSON.stringify({ type: "text", text: t });
     const { ctx } = sqliteCtx([
-      { cut: [["ses_1", "1769121238325", "1"]] },
+      { cut: [["ses_1", "1", "1769121238325", "0", "1"]] },
       [["/repo", "rail cleanup"]],
-      [[text("hello")]],
+      [["m1", "user"]],
+      [["m1", "hello", "1"]],
     ]);
     const { mock, upserts, prunes } = ops([
       { reference: "ses_past_the_cut", mtime: 1, size: 0 },

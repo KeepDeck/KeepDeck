@@ -44,6 +44,11 @@ export interface AgentBins {
    * The CALLER establishes that this bin may be run. Nothing here knows
    * about capabilities. */
   ensureVersion(bin: string): Promise<void>;
+  /** Ask this bin its version NOW, whatever is remembered, and remember the
+   * new answer. For a launch, whose argv depends on the release that is
+   * installed at this moment — a CLI may have been swapped since it was last
+   * asked. Joins an ask already in flight rather than starting a second. */
+  refreshVersion(bin: string): Promise<void>;
 }
 
 export function createAgentBins(
@@ -72,6 +77,27 @@ export function createAgentBins(
    */
   let epoch = 0;
 
+  /** One ask of `bin`, joined by anyone who asks while it is in flight. */
+  function ask(bin: string): Promise<void> {
+    const already = asking.get(bin);
+    if (already) return already;
+    const startedAt = epoch;
+    // Recorded even when it comes back null: "asked and could not tell" is
+    // an answer, and `ensureVersion` must not spend half a second re-learning
+    // the same nothing on every mail render.
+    const work = askVersion(bin)
+      .then((answer) => {
+        if (epoch === startedAt) version.set(bin, answer);
+      })
+      .finally(() => {
+        // Only if this flight is still the one on record — `detect` may
+        // have dropped it and a fresh one may already have taken its place.
+        if (asking.get(bin) === work) asking.delete(bin);
+      });
+    asking.set(bin, work);
+    return work;
+  }
+
   return {
     installed: (bin) => installed.get(bin) !== false,
     version: (bin) => version.get(bin) ?? null,
@@ -97,23 +123,10 @@ export function createAgentBins(
     },
     ensureVersion(bin) {
       if (version.has(bin)) return Promise.resolve();
-      const already = asking.get(bin);
-      if (already) return already;
-      const startedAt = epoch;
-      // Recorded even when it comes back null: "asked and could not tell" is
-      // an answer, and re-asking on every pane start would spend half a
-      // second each time to learn the same nothing.
-      const work = askVersion(bin)
-        .then((answer) => {
-          if (epoch === startedAt) version.set(bin, answer);
-        })
-        .finally(() => {
-          // Only if this flight is still the one on record — `detect` may
-          // have dropped it and a fresh one may already have taken its place.
-          if (asking.get(bin) === work) asking.delete(bin);
-        });
-      asking.set(bin, work);
-      return work;
+      return ask(bin);
+    },
+    refreshVersion(bin) {
+      return ask(bin);
     },
   };
 }
