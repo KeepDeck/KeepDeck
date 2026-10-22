@@ -16,6 +16,7 @@
  */
 import type {
   PluginContext,
+  ResumeLaunch,
   SpawnPlanInput,
   SpawnPlanOutput,
 } from "@keepdeck/plugin-api";
@@ -141,7 +142,11 @@ const stagedConfigDir = (ctx: PluginContext): OpencodeLaunch => ({
  * and `/sessions` move only the TUI, and mail followed a session nobody could
  * see (task-435).
  *
- * Through a file that ships beside it, `tui.json` = `{"plugin":
+ * NOT named `tui.*`: opencode 2.x resolves a plugin directory's TUI entry by
+ * the bare name `tui`, found a `tui.json` there, and refused it — "1 plugin
+ * failed" on every 2.x pane (task-448, measured).
+ *
+ * Through a file that ships beside it, `tui-v1.json` = `{"plugin":
  * ["./route-observer.js"]}`: a relative spec resolves against the file
  * (config/plugin.ts:42-54 at v1.19.3; verified live), so nothing is written at
  * launch. opencode reads `OPENCODE_TUI_CONFIG` ON TOP of the user's own TUI
@@ -156,7 +161,7 @@ const stagedConfigDir = (ctx: PluginContext): OpencodeLaunch => ({
  */
 const tuiObserver = (ctx: PluginContext): OpencodeLaunch => ({
   async prepare(_input, draft) {
-    const config = await ctx.resources.path("keepdeck-plugin/tui.json");
+    const config = await ctx.resources.path("keepdeck-plugin/tui-v1.json");
     if (config) draft.envDefaults.push(["OPENCODE_TUI_CONFIG", config]);
   },
 });
@@ -205,23 +210,51 @@ const remoteAttach = (endpoint: string) =>
     draft.args.push("attach", endpoint, ...yoloArgs(input.yolo));
   });
 
-/** Which launch this pane gets, and whether it settles the invocation whole
- * — THE place the version and the target are read. An unknown version runs
- * as 1.x: 1.x exits on 2.x's flags, while 2.x merely lacks 1.x's extras. */
+/** How a recorded session opens: `-s`, on every generation. */
+const resumeV1 = (sessionId: string): ResumeLaunch => ["-s", sessionId];
+
+/**
+ * 2.x: `-s`, and the same id in the environment.
+ *
+ * Under `--standalone` KeepDeck's plugin runs in the child `opencode serve`
+ * the TUI starts, whose arguments carry no `-s` — but the environment passes
+ * through (measured, task-382). Without it the pane stays unbound until the
+ * resumed session says something, and the deck's ring delivers nothing in
+ * the meantime: mail waits for the user's own turn.
+ */
+export const OPENCODE_SESSION_ENV = "KEEPDECK_OPENCODE_SESSION";
+const resumeV2 = (sessionId: string): ResumeLaunch => ({
+  args: ["-s", sessionId],
+  env: [[OPENCODE_SESSION_ENV, sessionId]],
+});
+
+/** Which launch this pane gets, whether it settles the invocation whole, and
+ * how it opens a recorded session — THE place the version and the target are
+ * read. An unknown version runs as 1.x: 1.x exits on 2.x's flags, while 2.x
+ * merely lacks 1.x's extras. */
 export function launchFor(
   ctx: PluginContext,
   input: LaunchInput,
-): { launch: OpencodeLaunch; settles: boolean } {
+): { launch: OpencodeLaunch; settles: boolean; resume: (sessionId: string) => ResumeLaunch } {
   const shared = [keepdeckServerPlugin(ctx), mcpServers, permissionMode];
   if (input.target?.kind === "nativeServer") {
-    return { launch: composed(...shared, remoteAttach(input.target.endpoint)), settles: true };
+    return {
+      launch: composed(...shared, remoteAttach(input.target.endpoint)),
+      settles: true,
+      resume: resumeV1,
+    };
   }
   if (opencodeGeneration(input.cliVersion) === 2) {
-    return { launch: composed(...shared, skillsInConfig, invocationV2), settles: false };
+    return {
+      launch: composed(...shared, skillsInConfig, invocationV2),
+      settles: false,
+      resume: resumeV2,
+    };
   }
   return {
     launch: composed(...shared, stagedConfigDir(ctx), tuiObserver(ctx), invocationV1),
     settles: false,
+    resume: resumeV1,
   };
 }
 

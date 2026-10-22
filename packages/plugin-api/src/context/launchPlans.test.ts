@@ -64,6 +64,16 @@ describe("launchPlans", () => {
     });
   });
 
+  it("opens a recorded session with the environment its own reporter reads", async () => {
+    // opencode 2.x runs its plugins in a child process that never sees `-s`;
+    // only the environment reaches it, so the session is named there too.
+    const named = { ...adapter(), resume: (i: ResumePlanInput) => ({ args: ["-s", i.sessionId], env: [["WHICH", i.sessionId]] as const }) };
+    const resume = output();
+    await launchPlans(named)["resume.plan"]({ ...input, sessionId: "s1" } as ResumePlanInput, resume);
+    expect(resume.args).toEqual(["--common", "-s", "s1"]);
+    expect(resume.env).toEqual([["WHICH", "s1"]]);
+  });
+
   it("lets a failed fork surgery reject the plan", async () => {
     const failing = { ...adapter(), fork: vi.fn(async () => { throw new Error("disk full"); }) };
     await expect(

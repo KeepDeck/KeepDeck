@@ -28,7 +28,7 @@ const TURN_ENDS = new Set([
   "session.execution.interrupted",
 ]);
 
-export async function startCourierV2({ context, bridge, pane }) {
+export async function startCourierV2({ context, bridge, pane, resumed }) {
   const ask = askMail(bridge);
 
   /** Put an answer into the pane's conversation. Our own prompt is marked,
@@ -67,9 +67,16 @@ export async function startCourierV2({ context, bridge, pane }) {
     if (!root) return;
     // Fixed BEFORE the ask: what the deck was told is where it lands. A
     // conversation that has just begun has no parent by its own creation.
-    const answer = await inTurn(async () => ask(into ? "root" : await pane.classify(root))).catch(
-      () => null,
-    );
+    const answer = await inTurn(async () => {
+      const target = into ? "root" : await pane.classify(root);
+      // The session the pane was resumed into is bound before opencode was
+      // ever asked about it (opencode-v2.js). If opencode cannot find it —
+      // deleted since it was recorded — the mail would be taken and written
+      // nowhere. Held instead: `-s` names it, and the user's first prompt
+      // creates it.
+      if (target === "unknown" && root === resumed) return null;
+      return ask(target);
+    }).catch(() => null);
     if (!answer) return;
     // Best-effort: the user's session must survive anything this gets wrong.
     deliveries = deliveries.then(() => deliver(answer, root)).catch(() => {});

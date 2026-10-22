@@ -2,7 +2,7 @@
  * KeepDeck's opencode 1.x TUI plugin: it tells the server half which session
  * the user is looking at (foreground.js says why the server cannot tell).
  *
- * Loaded through `tui.json` beside it, which the launch hands opencode as
+ * Loaded through `tui-v1.json` beside it, which the launch hands opencode as
  * `OPENCODE_TUI_CONFIG` (src/launch.ts) — on top of the user's own TUI
  * config, never instead of it. A module of its own: opencode 1.19.3 refuses
  * a module whose default carries both `server` and `tui`

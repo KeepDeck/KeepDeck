@@ -157,6 +157,10 @@ export async function startReporterV2({ context, bridge, pane }) {
     }
   };
 
+  // A pane resumed into a known session is bound from the start
+  // (opencode-v2.js): the deck hears of it now, not at its first event.
+  serve();
+
   // opencode does not wait on a subscriber: one queue keeps two events'
   // async work from interleaving, and an older report from landing last.
   let queue = Promise.resolve();

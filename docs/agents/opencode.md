@@ -61,7 +61,7 @@ launch carries.
 KeepDeck's server plugin, hears nothing. Mail used to go into the session
 the user had left, and the agent worked there unseen (task-435).
 
-- `route-observer.js` is a TUI plugin, loaded through `tui.json` beside it.
+- `route-observer.js` is a TUI plugin, loaded through `tui-v1.json` beside it.
   A local 1.x launch points `OPENCODE_TUI_CONFIG` at that file, as an env
   DEFAULT, apart from the skills' config dir. It polls `api.route.current`
   every 250 ms and writes `foreground.json` into the pane's bridge
@@ -200,7 +200,14 @@ Read from the 2.0.32 and 2.1.2 source, and verified live on 2.1.2
   `form.*`).
 - **Skills.** There is a `skills` config key, which can replace
   `OPENCODE_CONFIG_DIR`.
-- **Session id.** `-s <id>` creates the session if it is missing, so
-  KeepDeck can choose the id at spawn.
+- **Session id.** `-s <id>` creates the session if it is missing, but
+  only at the first prompt: the only check is the `ses` prefix (task-382,
+  measured). A resumed 2.x pane gets its id twice. `-s` is for the TUI.
+  `KEEPDECK_OPENCODE_SESSION` is for the plugin, which runs in the child
+  `opencode serve` and never sees `-s`. The plugin binds the pane to it
+  before anything starts (`opencode-v2.js`), so mail reaches a resumed pane
+  at once instead of waiting for its first event. A fresh pane is not given
+  an id yet: an early brief needs the plugin to create the session, and
+  mail into a session not on screen waits for task-436.
 - **Mail.** A session inbox over HTTP with `steer` and `queue` modes would
   let mail land mid-turn without touching the input box.

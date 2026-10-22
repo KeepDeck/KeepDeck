@@ -7,6 +7,7 @@ import type {
   SpawnPlanOutput,
 } from "@keepdeck/plugin-api";
 import plugin from "./index";
+import { OPENCODE_SESSION_ENV } from "./launch";
 
 /** This plugin's real resources, which the fake below answers from. */
 const RESOURCES = join(__dirname, "..", "resources");
@@ -297,7 +298,7 @@ describe("opencode plugin hooks", () => {
     // home, and a user-set value must win over skills delivery.
     expect(Object.fromEntries(out.envDefaults ?? [])).toEqual({
       OPENCODE_CONFIG_DIR: "/kd/staging/ws-1/opencode",
-      OPENCODE_TUI_CONFIG: "/App/resources/keepdeck-plugin/tui.json",
+      OPENCODE_TUI_CONFIG: "/App/resources/keepdeck-plugin/tui-v1.json",
     });
     const env = Object.fromEntries(out.env);
     expect(env.OPENCODE_CONFIG_DIR).toBeUndefined();
@@ -329,7 +330,7 @@ describe("opencode plugin hooks", () => {
       const out = output();
       await agent.hooks[hook]!({ ...input, cliVersion: "1.19.3", sessionId: "s" }, out);
       expect(out.envDefaults).toEqual([
-        ["OPENCODE_TUI_CONFIG", "/App/resources/keepdeck-plugin/tui.json"],
+        ["OPENCODE_TUI_CONFIG", "/App/resources/keepdeck-plugin/tui-v1.json"],
       ]);
       expect(Object.fromEntries(out.env).OPENCODE_TUI_CONFIG).toBeUndefined();
     }
@@ -498,6 +499,30 @@ describe("opencode plugin hooks", () => {
     const resume = output();
     await agent.hooks["resume.plan"]!({ ...v2, sessionId: "ses_x" }, resume);
     expect(resume.args).toEqual(["--standalone", "--dangerously-skip-permissions", "-s", "ses_x"]);
+  });
+
+  it("names a 2.x pane's resumed session in its environment too, and only there", async () => {
+    // Under --standalone the plugin runs in a child that never sees `-s`
+    // (task-382); the environment reaches it. 1.x reads its own arguments,
+    // and a fresh spawn has no session to name.
+    const agent = activate("/App/resources");
+    const v2 = { ...input, cliVersion: "opencode v2.1.2" };
+
+    const resume = output();
+    await agent.hooks["resume.plan"]!({ ...v2, sessionId: "ses_r" }, resume);
+    expect(resume.args).toEqual(["--standalone", "-s", "ses_r"]);
+    expect(Object.fromEntries(resume.env)[OPENCODE_SESSION_ENV]).toBe("ses_r");
+    // The name the plugin reads (resources/keepdeck-plugin/opencode-v2.js).
+    expect(OPENCODE_SESSION_ENV).toBe("KEEPDECK_OPENCODE_SESSION");
+
+    const v1 = output();
+    await agent.hooks["resume.plan"]!({ ...input, cliVersion: "1.19.3", sessionId: "ses_r" }, v1);
+    expect(v1.args).toEqual(["-s", "ses_r"]);
+    expect(Object.fromEntries(v1.env).KEEPDECK_OPENCODE_SESSION).toBeUndefined();
+
+    const spawn = output();
+    await agent.hooks["spawn.plan"]!(v2, spawn);
+    expect(Object.fromEntries(spawn.env).KEEPDECK_OPENCODE_SESSION).toBeUndefined();
   });
 
   it("gives a remote pane nothing local: no config dir, no skills, on either generation", async () => {

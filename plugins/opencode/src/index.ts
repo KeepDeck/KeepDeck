@@ -9,7 +9,7 @@ import { launchPlans, type KeepDeckPlugin } from "@keepdeck/plugin-api";
 import { icon } from "./icon";
 import { opencodeHistory } from "./history";
 import { relocatingForkId } from "./fork";
-import { stageLaunch } from "./launch";
+import { launchFor, stageLaunch } from "./launch";
 import { OPENCODE_MAIL_CHANNELS, renderOpencodeMail } from "./mail";
 import { attributeOpencodeEvent, normalizeOpencodeStatus } from "./status";
 import { normalizeOpencodeUsage } from "./usage";
@@ -58,7 +58,7 @@ const plugin: KeepDeckPlugin = {
       },
       hooks: launchPlans({
         stage: (input, output) => stageLaunch(ctx, input, output),
-        resume: (input) => ["-s", input.sessionId],
+        resume: (input) => launchFor(ctx, input).resume(input.sessionId),
         // Native `-s <id> --fork` re-homes the fork to the SOURCE session's
         // directory, ignoring the target (probe-verified, 1.18.4). So a
         // RELOCATING fork goes through export→rekey→import (see `fork.ts`),

@@ -30,13 +30,21 @@ export interface LaunchAdapter {
     input: SpawnPlanInput,
     output: SpawnPlanOutput,
   ): boolean | void | Promise<boolean | void>;
-  /** The arguments that open a recorded session. */
-  resume(input: ResumePlanInput): readonly string[];
+  /** What opens a recorded session: its arguments, or its arguments and
+   * the environment that tells the agent's own reporter which session it is
+   * — for a CLI whose reporter cannot read the arguments it was started with. */
+  resume(input: ResumePlanInput): ResumeLaunch;
   /** The store surgery a fork needs, then the arguments that open the fork —
    * with what of that surgery only the start needs, when there is any.
    * Throwing must leave the store untouched. */
   fork(input: ForkPlanInput): ForkLaunch | Promise<ForkLaunch>;
 }
+
+/** How a recorded session opens: its arguments, or its arguments and the
+ * environment that goes with them. */
+export type ResumeLaunch =
+  | readonly string[]
+  | { args: readonly string[]; env?: readonly (readonly [string, string])[] };
 
 /** How a fork opens: its arguments, or its arguments and the scaffolding
  * the host removes around its start ([`ForkDiscard`]). */
@@ -44,7 +52,7 @@ export type ForkLaunch =
   | readonly string[]
   | { args: readonly string[]; discard?: ForkDiscard };
 
-function isArgs(launch: ForkLaunch): launch is readonly string[] {
+function isArgs(launch: ForkLaunch | ResumeLaunch): launch is readonly string[] {
   return Array.isArray(launch);
 }
 
@@ -58,7 +66,13 @@ export function launchPlans(
     },
     "resume.plan": async (input, output) => {
       if (await adapter.stage(input, output)) return;
-      output.args.push(...adapter.resume(input));
+      const launch = adapter.resume(input);
+      if (isArgs(launch)) {
+        output.args.push(...launch);
+        return;
+      }
+      output.args.push(...launch.args);
+      for (const [key, value] of launch.env ?? []) output.env.push([key, value]);
     },
     "fork.plan": async (input, output) => {
       if (await adapter.stage(input, output)) return;

@@ -14,7 +14,11 @@ import { startDeck } from "../../../scripts/reporterHarness";
  * The real reporter, courier and follower, against a stand-in deck, with
  * the screen written the way the TUI half writes it.
  */
-vi.setConfig({ testTimeout: 15_000 });
+// Generous: a case waits on real timers (the follower, a 3 s fallback, the
+// stand-in deck), and under the whole suite's load those waits stretch well
+// past their nominal sum — a 15 s ceiling failed there while every case
+// passed alone.
+vi.setConfig({ testTimeout: 40_000 });
 
 let startReporter: (input?: any) => Promise<any>;
 let startCourier: (input?: any) => Promise<any>;
@@ -23,8 +27,12 @@ let writeForeground: (dir: string, route: Record<string, unknown>) => void;
 let paneSession: () => { root: string | undefined; left: string | undefined };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+/** Wait for `done`, up to `ms` of wall-clock time — counted by the clock,
+ * not by sleeps: under a loaded run each sleep overshoots, and a count of
+ * them waits far longer than it says. */
 const until = async (done: () => boolean, ms = 2_000) => {
-  for (let waited = 0; waited < ms && !done(); waited += 5) await sleep(5);
+  const deadline = Date.now() + ms;
+  while (!done() && Date.now() < deadline) await sleep(5);
 };
 
 const created = (id: string, parentID?: string) => ({
@@ -155,7 +163,7 @@ describe("leaving a conversation, and mail on the home screen", () => {
   /** The user pressed /new; opencode answers the abort with its ending. */
   const newSession = async ({ answerAbort = true } = {}) => {
     writeForeground(dir, { route: "home" });
-    await until(() => calls.abort.length > 0);
+    await until(() => calls.abort.length > 0, 8_000);
     if (answerAbort) {
       await both(aborted("ses_a"));
       await both(idle("ses_a"));
@@ -184,7 +192,8 @@ describe("leaving a conversation, and mail on the home screen", () => {
     await inA();
     await both(idle("ses_a"));
     writeForeground(dir, { route: "home" });
-    await until(() => calls.abort.length > 0);
+    await until(() => calls.abort.length > 0, 8_000);
+    expect(calls.abort).toEqual(["ses_a"]);
     const asked = Date.now();
     await both(idle("ses_a"));
     await until(() => kinds().includes("session.unbound"), 2_000);
@@ -243,7 +252,7 @@ describe("leaving a conversation, and mail on the home screen", () => {
     // THEIR conversation.
     await inA();
     writeForeground(dir, { route: "home" });
-    await until(() => calls.abort.length > 0);
+    await until(() => calls.abort.length > 0, 8_000);
     await both(created("ses_u"));
     await sleep(3_300);
     expect(paneSession().root).toBe("ses_u");
@@ -348,7 +357,7 @@ describe("leaving a conversation, and mail on the home screen", () => {
   it("does not ride mail into the left conversation's still-running turn", async () => {
     await inA();
     writeForeground(dir, { route: "home" });
-    await until(() => calls.abort.length > 0);
+    await until(() => calls.abort.length > 0, 8_000);
     // Before its ending arrives, a tool call of the left turn returns.
     deck.envelopes.length = 0;
     pending.push({ v: 1, prompt: "<teammate-message>\n> do it\n</teammate-message>" });

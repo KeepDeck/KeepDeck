@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -108,8 +108,21 @@ describe("the TUI plugin's own config file", () => {
     // user's theme and keys stay theirs; a FILE path, since a directory would
     // resolve to the server-only index.js; relative, since opencode resolves
     // it against this file (verified live on 1.19.3).
-    const config = JSON.parse(readFileSync(join(PLUGIN_DIR, "tui.json"), "utf8"));
+    const config = JSON.parse(readFileSync(join(PLUGIN_DIR, "tui-v1.json"), "utf8"));
     expect(config).toEqual({ plugin: ["./route-observer.js"] });
     expect(existsSync(join(PLUGIN_DIR, "route-observer.js"))).toBe(true);
+  });
+});
+
+describe("what opencode 2.x finds in the directory", () => {
+  it("holds nothing 2.x would take for its TUI entry", () => {
+    // 2.x resolves a plugin directory's TUI entry by the bare name `tui`, and
+    // a `tui.json` meant for 1.x was refused as a module — "1 plugin failed"
+    // on every 2.x pane (task-448). Until 2.x has a TUI half of its own
+    // (task-436), no file here may answer to that name.
+    // A file or a directory (Bun resolves `tui/index.js` too), in any case —
+    // a case-insensitive volume answers `TUI.json` to `tui`.
+    const named = readdirSync(PLUGIN_DIR).filter((file) => /^tui([./]|$)/i.test(file));
+    expect(named).toEqual([]);
   });
 });
