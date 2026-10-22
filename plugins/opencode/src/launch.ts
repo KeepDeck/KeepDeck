@@ -136,6 +136,32 @@ const stagedConfigDir = (ctx: PluginContext): OpencodeLaunch => ({
 });
 
 /**
+ * 1.x: KeepDeck's TUI plugin (resources/keepdeck-plugin/route-observer.js),
+ * which tells the server half which session the user is looking at — `/new`
+ * and `/sessions` move only the TUI, and mail followed a session nobody could
+ * see (task-435).
+ *
+ * Through a file that ships beside it, `tui.json` = `{"plugin":
+ * ["./route-observer.js"]}`: a relative spec resolves against the file
+ * (config/plugin.ts:42-54 at v1.19.3; verified live), so nothing is written at
+ * launch. opencode reads `OPENCODE_TUI_CONFIG` ON TOP of the user's own TUI
+ * config, and the file holds nothing but `plugin`, so their theme and keys
+ * stay theirs (verified live).
+ *
+ * Kept apart from the skills' config dir on purpose (user decision): each
+ * rides its own variable, so a user who owns one of them loses only that one.
+ * An env DEFAULT, for the same reason as the config dir: a user-set value
+ * wins, and the pane then simply has no observer — mail behaves as it did
+ * before there was one.
+ */
+const tuiObserver = (ctx: PluginContext): OpencodeLaunch => ({
+  async prepare(_input, draft) {
+    const config = await ctx.resources.path("keepdeck-plugin/tui.json");
+    if (config) draft.envDefaults.push(["OPENCODE_TUI_CONFIG", config]);
+  },
+});
+
+/**
  * 2.x: extra skill paths in the config — the bare `<skill>/SKILL.md` layout it
  * scans (config/plugin/skill-scan.ts), listed under its own `/skills`.
  *
@@ -193,7 +219,10 @@ export function launchFor(
   if (opencodeGeneration(input.cliVersion) === 2) {
     return { launch: composed(...shared, skillsInConfig, invocationV2), settles: false };
   }
-  return { launch: composed(...shared, stagedConfigDir(ctx), invocationV1), settles: false };
+  return {
+    launch: composed(...shared, stagedConfigDir(ctx), tuiObserver(ctx), invocationV1),
+    settles: false,
+  };
 }
 
 /** The draft onto the hook's output: the config as ONE variable, ahead of the

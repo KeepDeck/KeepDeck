@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -99,5 +99,17 @@ describe("the directory each opencode generation loads", () => {
     vi.stubEnv("KEEPDECK_BRIDGE", "");
 
     expect(await keepdeckPlugin.server({})).toEqual({});
+  });
+});
+
+describe("the TUI plugin's own config file", () => {
+  it("names only the route observer, by a path relative to the file itself", () => {
+    // OPENCODE_TUI_CONFIG points here (src/launch.ts). Only `plugin`, so the
+    // user's theme and keys stay theirs; a FILE path, since a directory would
+    // resolve to the server-only index.js; relative, since opencode resolves
+    // it against this file (verified live on 1.19.3).
+    const config = JSON.parse(readFileSync(join(PLUGIN_DIR, "tui.json"), "utf8"));
+    expect(config).toEqual({ plugin: ["./route-observer.js"] });
+    expect(existsSync(join(PLUGIN_DIR, "route-observer.js"))).toBe(true);
   });
 });

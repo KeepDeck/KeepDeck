@@ -297,6 +297,7 @@ describe("opencode plugin hooks", () => {
     // home, and a user-set value must win over skills delivery.
     expect(Object.fromEntries(out.envDefaults ?? [])).toEqual({
       OPENCODE_CONFIG_DIR: "/kd/staging/ws-1/opencode",
+      OPENCODE_TUI_CONFIG: "/App/resources/keepdeck-plugin/tui.json",
     });
     const env = Object.fromEntries(out.env);
     expect(env.OPENCODE_CONFIG_DIR).toBeUndefined();
@@ -309,14 +310,49 @@ describe("opencode plugin hooks", () => {
       "/kd/staging/ws-1/opencode",
     );
 
-    // No skills — no default, on spawn AND resume alike.
+    // No skills — no config dir, on spawn AND resume alike.
     const bareSpawn = output();
     await agent.hooks["spawn.plan"]!(input, bareSpawn);
-    expect(bareSpawn.envDefaults ?? []).toEqual([]);
+    expect(Object.fromEntries(bareSpawn.envDefaults ?? []).OPENCODE_CONFIG_DIR).toBeUndefined();
     const bareResume = output();
     await agent.hooks["resume.plan"]!({ ...input, sessionId: "s" }, bareResume);
-    expect(bareResume.envDefaults ?? []).toEqual([]);
+    expect(Object.fromEntries(bareResume.envDefaults ?? []).OPENCODE_CONFIG_DIR).toBeUndefined();
     expect(Object.fromEntries(bareResume.env).OPENCODE_CONFIG_DIR).toBeUndefined();
+  });
+
+  it("gives a local 1.x pane KeepDeck's TUI plugin as an env DEFAULT, apart from the skills", async () => {
+    // The TUI half tells the server half which session is on screen
+    // (task-435). Its own variable, so a user who owns it loses only this —
+    // and a default, so their value wins.
+    const agent = activate("/App/resources");
+    for (const hook of ["spawn.plan", "resume.plan"] as const) {
+      const out = output();
+      await agent.hooks[hook]!({ ...input, cliVersion: "1.19.3", sessionId: "s" }, out);
+      expect(out.envDefaults).toEqual([
+        ["OPENCODE_TUI_CONFIG", "/App/resources/keepdeck-plugin/tui.json"],
+      ]);
+      expect(Object.fromEntries(out.env).OPENCODE_TUI_CONFIG).toBeUndefined();
+    }
+    // An unknown version runs as 1.x, observer included.
+    const unknown = output();
+    await agent.hooks["spawn.plan"]!(input, unknown);
+    expect(Object.fromEntries(unknown.envDefaults ?? []).OPENCODE_TUI_CONFIG).toBeDefined();
+  });
+
+  it("gives the TUI plugin to nobody else: not 2.x, not a remote pane, not a broken install", async () => {
+    const agent = activate("/App/resources");
+    const v2 = output();
+    await agent.hooks["spawn.plan"]!({ ...input, cliVersion: "opencode v2.1.2" }, v2);
+    const remote = output();
+    await agent.hooks["spawn.plan"]!(
+      { ...input, target: { kind: "nativeServer", endpoint: "http://vps:4096" } },
+      remote,
+    );
+    const broken = output();
+    await activate(null).hooks["spawn.plan"]!(input, broken);
+    for (const out of [v2, remote, broken]) {
+      expect(Object.fromEntries(out.envDefaults ?? []).OPENCODE_TUI_CONFIG).toBeUndefined();
+    }
   });
 
   it("hands 2.x its skills in the config, and never OPENCODE_CONFIG_DIR — there it replaces the user's", async () => {
