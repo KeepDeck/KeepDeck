@@ -96,7 +96,7 @@ describe("usage tails — a suspended pane's watcher", () => {
     });
     bindings = createSessionBinding(
       store,
-      { retire: () => {}, beginSession: () => {} },
+      { retire: () => {}, beginSession: () => {}, endSession: () => {} },
       attribution,
     );
     lane = createUsageTailsLane({

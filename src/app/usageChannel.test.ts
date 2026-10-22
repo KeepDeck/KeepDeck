@@ -138,7 +138,7 @@ describe("createUsageChannel", () => {
       });
       bindings = createSessionBinding(
         deckStore,
-        { retire: () => {}, beginSession: () => {} },
+        { retire: () => {}, beginSession: () => {}, endSession: () => {} },
         attribution,
       );
       channel = createUsageChannel(

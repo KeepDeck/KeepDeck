@@ -36,6 +36,25 @@ export interface SessionBound {
   reporter?: string;
 }
 
+/**
+ * Session unbindings: the pane's agent left its conversation for none at all
+ * — opencode's `/new` waits on the home screen until the first prompt mints
+ * the next one. Passed through like any pane report (correlation, agent and
+ * reporter process in the payload). Mirrors `SESSION_UNBOUND_EVENT` in
+ * src-tauri/src/bridge/wire.rs.
+ */
+export const SESSION_UNBOUND_EVENT = "deck://session/unbound";
+
+/** Subscribe to session unbindings; resolves to the unlisten function. */
+export function onSessionUnbound(
+  handler: (report: { paneId: string; token: string; payload: unknown }) => void,
+): Promise<() => void> {
+  return listen<{ paneId: string; token: string; payload: unknown }>(
+    SESSION_UNBOUND_EVENT,
+    (event) => handler(event.payload),
+  );
+}
+
 /** Subscribe to session bindings; resolves to the unlisten function. */
 export function onSessionBound(
   handler: (bound: SessionBound) => void,

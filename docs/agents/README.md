@@ -59,6 +59,12 @@ Shared cores in `packages/plugin-api` so far:
   (`companion.hello`); `AgentContribution.companion` declares what that
   takes over for the announcing process, and `wake: "companion"` rings it
   instead of typing. One source per process, never two.
+- Unbinding: a reporter whose agent left its conversation for none at all
+  (opencode's `/new` before the first prompt) sends `session.unbound`.
+  It is verified like any pane report (`src/app/paneUnbinding.ts`). The
+  deck then forgets the pane's session, so a restore starts fresh, and
+  ends its telemetry (`PaneLifecycle.endSession`). Claude's `/clear`
+  mints its next id at once and never needs it.
 - `launchPlans`: the spawn, resume and fork hooks. A plugin supplies a
   `LaunchAdapter`: what every launch carries (`stage`, which may settle the
   launch whole, as a remote attach does), and how resume and fork name the

@@ -18,7 +18,7 @@ vi.mock("./postbacks", () => ({ bumpPostback: bridge.bumpPostback }));
 
 /** A fake of the runtime's telemetry owner — the binding only begins
  * sessions; retiring belongs to the orchestrator's paths. */
-const telemetry = { retire: vi.fn(), beginSession: bridge.beginSession };
+const telemetry = { retire: vi.fn(), beginSession: bridge.beginSession, endSession: vi.fn() };
 
 import { createPaneAttribution } from "./paneAttribution";
 import { createSessionBinding } from "./sessionBinding";

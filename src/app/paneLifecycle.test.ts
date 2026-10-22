@@ -42,4 +42,17 @@ describe("paneLifecycle", () => {
     );
     expect(attribution.retire).not.toHaveBeenCalled();
   });
+
+  it("ending a session clears both telemetry stores, re-briefs, and keeps the process pinned", () => {
+    // opencode's /new before the first prompt: no next session yet, so the
+    // deck is told the agent remembers nothing NOW — the next binding has no
+    // previous session to differ from and would say nothing. The process is
+    // still the pane's own, and its next session must not read as foreign.
+    const began = vi.fn();
+    createPaneLifecycle(usage, tracker, attribution, () => null, began).endSession("pane-1");
+    expect(usage.clearPane).toHaveBeenCalledWith("pane-1");
+    expect(tracker.clear).toHaveBeenCalledWith("pane-1");
+    expect(began).toHaveBeenCalledWith("pane-1");
+    expect(attribution.retire).not.toHaveBeenCalled();
+  });
 });
