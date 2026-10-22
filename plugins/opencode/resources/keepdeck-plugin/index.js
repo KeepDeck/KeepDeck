@@ -24,21 +24,9 @@
  * user's session.
  */
 import { startCourier } from "./mail-courier.js";
+import { startComponents } from "./components.js";
 import { setupV2 } from "./opencode-v2.js";
 import { startReporter } from "./session-reporter.js";
-
-/** Start every component on its own; one that throws contributes nothing. */
-export async function startComponents(starts, input) {
-  return Promise.all(
-    starts.map(async (start) => {
-      try {
-        return (await start(input)) ?? {};
-      } catch {
-        return {};
-      }
-    }),
-  );
-}
 
 /**
  * One hook map out of several. Every handler of a name is called with the

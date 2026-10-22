@@ -5,7 +5,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 // Untyped resource JS — shipped to, and loaded by, the user's opencode
 // process, never bundled into the plugin.
 // @ts-expect-error untyped resource module
-import keepdeckPlugin, { composeHooks, startComponents } from "../resources/keepdeck-plugin/index.js";
+import { startComponents } from "../resources/keepdeck-plugin/components.js";
+// @ts-expect-error untyped resource module
+import keepdeckPlugin, { composeHooks } from "../resources/keepdeck-plugin/index.js";
 
 /** The directory the spawn plan injects (src/index.ts sessionConfigEnv). */
 const PLUGIN_DIR = join(__dirname, "..", "resources", "keepdeck-plugin");

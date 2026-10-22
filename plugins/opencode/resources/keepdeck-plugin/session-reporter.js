@@ -30,6 +30,13 @@ import {
   readBridge,
 } from "./keepdeck-bridge.js";
 import { parentLookupV1 } from "./opencode-v1.js";
+import {
+  boundReport,
+  createWindowCache,
+  skipsApprovals,
+  tokenCounts,
+  usageReport,
+} from "./pane-report.js";
 import { paneSession } from "./pane-session.js";
 
 export async function startReporter(input = {}) {
@@ -37,16 +44,8 @@ export async function startReporter(input = {}) {
   if (!bridge) return {}; // not spawned by KeepDeck — stay inert
   const { dir } = bridge;
 
-  /**
-   * Whether this pane was launched with approval prompts skipped — the deck's
-   * own choice at spawn, stated here because it cannot be discovered from
-   * inside the process.
-   *
-   * Read at startup, not per event: the mode is an argument the CLI was
-   * started with and cannot change under a running one.
-   */
-  const SKIPS_APPROVALS =
-    process.env.KEEPDECK_OPENCODE_SKIPS_APPROVALS === "1";
+  /** Whether this pane skips approval prompts (pane-report.js). */
+  const SKIPS_APPROVALS = skipsApprovals();
 
   const client = input?.client;
 
@@ -79,18 +78,7 @@ export async function startReporter(input = {}) {
     return total;
   };
 
-  const turnOf = (info) => {
-    const t = info?.tokens ?? {};
-    const cache = t.cache ?? {};
-    return {
-      input: t.input ?? 0,
-      output: t.output ?? 0,
-      reasoning: t.reasoning ?? 0,
-      cacheRead: cache.read ?? 0,
-      cacheWrite: cache.write ?? 0,
-      cost: info?.cost ?? 0,
-    };
-  };
+  const turnOf = (info) => ({ ...tokenCounts(info?.tokens), cost: info?.cost ?? 0 });
 
   const completedAssistant = (value) => {
     const info = value?.info ?? value;
@@ -208,10 +196,7 @@ export async function startReporter(input = {}) {
   // is a second place for that answer to be wrong, and this one would keep
   // saying "continuing" after a publish that silently failed.
   const bind = (sessionID, continuing) =>
-    publish("session.bound", {
-      sessionId: sessionID,
-      source: continuing ? "new" : "startup",
-    });
+    publish("session.bound", boundReport(sessionID, continuing));
 
   /**
    * Take a session as the pane's conversation, then set up for it.
@@ -267,38 +252,20 @@ export async function startReporter(input = {}) {
   // provider catalog and cached ONCE ON SUCCESS. OpenCode model ids are not
   // globally unique; flattening by modelID alone selects another provider's
   // context limit. An in-flight promise makes the fetch single-flight.
-  let windowByModel;
-  let windowLoad;
-  const modelKey = (providerID, modelID) => `${providerID}\0${modelID}`;
-  const contextWindow = async (providerID, modelID) => {
-    if (!providerID || !modelID || !client?.config?.providers) return undefined;
-    if (!windowByModel) {
-      if (!windowLoad) {
-        windowLoad = (async () => {
-          const res = await client.config.providers();
-          const providers = res?.data?.providers ?? res?.providers ?? [];
-          const resolved = new Map();
-          for (const provider of providers) {
-            if (!provider?.id) continue;
-            for (const [id, model] of Object.entries(provider.models ?? {})) {
-              const ctx = model?.limit?.context;
-              if (typeof ctx === "number") {
-                resolved.set(modelKey(provider.id, id), ctx);
-              }
-            }
-          }
-          windowByModel = resolved;
-        })();
-      }
-      try {
-        await windowLoad;
-      } catch {
-        windowLoad = undefined;
-        return undefined; // leave unresolved → retry on the next message
-      }
-    }
-    return windowByModel.get(modelKey(providerID, modelID));
-  };
+  const contextWindow = createWindowCache(async () => {
+    if (!client?.config?.providers) throw new Error("no client to ask");
+    const res = await client.config.providers();
+    const providers = res?.data?.providers ?? res?.providers ?? [];
+    return providers.flatMap((provider) =>
+      provider?.id
+        ? Object.entries(provider.models ?? {}).map(([modelID, model]) => ({
+            providerID: provider.id,
+            modelID,
+            window: model?.limit?.context,
+          }))
+        : [],
+    );
+  });
 
   /**
    * One bus event, VERBATIM, on the `agent.status` protocol.
@@ -500,34 +467,28 @@ export async function startReporter(input = {}) {
     // serializes callbacks too, but capturing keeps this function locally sane.
     const currentRoot = root;
     const occ = currentRoot.turn;
-    const contextTokens =
-      occ.input + occ.output + occ.reasoning + occ.cacheRead + occ.cacheWrite;
     const windowTokens = await contextWindow(
       currentRoot.providerID,
       currentRoot.modelID,
     );
-    publish("usage.report", {
-      sessionId: currentRoot.sessionID,
-      model: currentRoot.modelID,
-      sequence: ++sequence,
-      ...(windowTokens !== undefined ? { windowTokens } : {}),
-      contextTokens,
-      totals: {
-        input: sum("input"),
-        output: sum("output"),
-        reasoning: sum("reasoning"),
-        cacheRead: sum("cacheRead"),
-        cacheWrite: sum("cacheWrite"),
-      },
-      lastTurn: {
-        input: occ.input,
-        output: occ.output,
-        reasoning: occ.reasoning,
-        cacheRead: occ.cacheRead,
-        cacheWrite: occ.cacheWrite,
-      },
-      costUsd: sum("cost"),
-    });
+    publish(
+      "usage.report",
+      usageReport({
+        sessionId: currentRoot.sessionID,
+        model: currentRoot.modelID,
+        sequence: ++sequence,
+        windowTokens,
+        lastTurn: occ,
+        totals: {
+          input: sum("input"),
+          output: sum("output"),
+          reasoning: sum("reasoning"),
+          cacheRead: sum("cacheRead"),
+          cacheWrite: sum("cacheWrite"),
+        },
+        costUsd: sum("cost"),
+      }),
+    );
   };
 
   // OpenCode deliberately does not await plugin event promises. Reduce every

@@ -19,12 +19,17 @@
  * Best-effort throughout: nothing here may break the user's session.
  */
 import { makeEnvelope, publish as publishEnvelope } from "./keepdeck-bridge.js";
+import {
+  boundReport,
+  createWindowCache,
+  skipsApprovals,
+  tokenCounts,
+  usageReport,
+} from "./pane-report.js";
 
 export async function startReporterV2({ context, bridge, pane }) {
-  /** Whether this pane skips approval prompts — the deck's choice at spawn,
-   * stated here because it cannot be discovered from inside (see the 1.x
-   * reporter for what an auto-answered prompt looked like on the deck). */
-  const SKIPS_APPROVALS = process.env.KEEPDECK_OPENCODE_SKIPS_APPROVALS === "1";
+  /** Whether this pane skips approval prompts (pane-report.js). */
+  const SKIPS_APPROVALS = skipsApprovals();
 
   const publish = (type, payload) => {
     publishEnvelope(bridge, makeEnvelope(bridge, type, payload));
@@ -51,10 +56,7 @@ export async function startReporterV2({ context, bridge, pane }) {
     lastStep = undefined;
     model = undefined;
     sequence = 0;
-    publish("session.bound", {
-      sessionId: servedRoot,
-      source: continuing ? "new" : "startup",
-    });
+    publish("session.bound", boundReport(servedRoot, continuing));
   };
 
   /** Bind through the evidence of any session this pane's process names —
@@ -77,57 +79,39 @@ export async function startReporterV2({ context, bridge, pane }) {
     return type === "form.created" || type === "form.replied" || type === "form.cancelled";
   };
 
-  // (providerID, modelID) → window, from the catalog, cached once found.
-  const windows = new Map();
-  const contextWindow = async (ref) => {
-    if (!ref) return undefined;
-    const key = `${ref.providerID}\0${ref.id}`;
-    if (windows.has(key)) return windows.get(key);
-    try {
-      // `{ location, data: [...] }` on 2.1.2 (measured, task-375).
-      const listed = await context.model.list();
-      const found = (Array.isArray(listed?.data) ? listed.data : []).find(
-        (entry) => entry?.id === ref.id && entry?.providerID === ref.providerID,
-      );
-      const window = found?.limit?.context;
-      if (typeof window === "number") windows.set(key, window);
-      return typeof window === "number" ? window : undefined;
-    } catch {
-      return undefined;
-    }
-  };
-
-  const tokensOf = (value) => ({
-    input: value?.input ?? 0,
-    output: value?.output ?? 0,
-    reasoning: value?.reasoning ?? 0,
-    cacheRead: value?.cache?.read ?? 0,
-    cacheWrite: value?.cache?.write ?? 0,
+  // The model catalog answers `{ location, data: [...] }` on 2.1.2
+  // (measured, task-375).
+  const contextWindow = createWindowCache(async () => {
+    const listed = await context.model.list();
+    return (Array.isArray(listed?.data) ? listed.data : []).map((entry) => ({
+      providerID: entry?.providerID,
+      modelID: entry?.id,
+      window: entry?.limit?.context,
+    }));
   });
 
   const report = async () => {
     // Nothing to say about a context until the root has finished a step.
     if (!lastStep || !servedRoot) return;
-    const sum = { input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0 };
+    const totalsOf = { input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0 };
     let cost = 0;
     for (const { tokens, cost: spent } of totals.values()) {
-      const counted = tokensOf(tokens);
-      for (const key of Object.keys(sum)) sum[key] += counted[key];
+      const counted = tokenCounts(tokens);
+      for (const key of Object.keys(totalsOf)) totalsOf[key] += counted[key];
       cost += typeof spent === "number" ? spent : 0;
     }
-    const turn = tokensOf(lastStep);
-    const windowTokens = await contextWindow(model);
-    publish("usage.report", {
-      sessionId: servedRoot,
-      ...(model ? { model: model.id } : {}),
-      sequence: ++sequence,
-      ...(windowTokens !== undefined ? { windowTokens } : {}),
-      contextTokens:
-        turn.input + turn.output + turn.reasoning + turn.cacheRead + turn.cacheWrite,
-      totals: sum,
-      lastTurn: turn,
-      costUsd: cost,
-    });
+    publish(
+      "usage.report",
+      usageReport({
+        sessionId: servedRoot,
+        model: model?.id,
+        sequence: ++sequence,
+        windowTokens: await contextWindow(model?.providerID, model?.id),
+        lastTurn: tokenCounts(lastStep),
+        totals: totalsOf,
+        costUsd: cost,
+      }),
+    );
   };
 
   const handle = async (event) => {

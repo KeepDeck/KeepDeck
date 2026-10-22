@@ -11,6 +11,7 @@
  *
  * Every 2.x pane runs with `--standalone`, so this process serves one pane.
  */
+import { startComponents } from "./components.js";
 import { readBridge } from "./keepdeck-bridge.js";
 import { startCourierV2 } from "./mail-courier-v2.js";
 import { paneSession } from "./pane-session.js";
@@ -48,16 +49,8 @@ export async function setupV2(context) {
   if (!bridge) return;
   const pane = paneSession(parentLookupV2(context));
   const components = (
-    await Promise.all(
-      [startReporterV2, startCourierV2].map(async (start) => {
-        try {
-          return await start({ context, bridge, pane });
-        } catch {
-          return null;
-        }
-      }),
-    )
-  ).filter(Boolean);
+    await startComponents([startReporterV2, startCourierV2], { context, bridge, pane })
+  ).filter((component) => typeof component.onEvent === "function");
   // Not awaited: the bus runs for the life of the process, and `setup` must
   // return for opencode to finish loading.
   void feed(context, components);
