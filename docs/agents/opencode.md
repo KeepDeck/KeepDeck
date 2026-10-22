@@ -107,7 +107,24 @@ Read from the 2.0.32 and 2.1.2 source, and verified live on 2.1.2
   own `/skills`, so the per-skill palette commands 1.x needs are not made.
 - **Database.** 2.x adds `session_v2` tables to the same `opencode.db`
   and imports 1.x sessions ONCE. A session made on 1.x afterwards is
-  never imported (live), so history must read both.
+  never imported (live), so history reads both (`src/history.ts`, rules
+  in `src/historyMerge.ts`):
+  - the shape (1.x, 2.x, both) is read from `sqlite_master` on every
+    reading. `session_message` alone is not 2.x, 1.19.3 makes it empty;
+  - an id 2.x has is read from 2.x, title, directory and archive
+    included. A 1.x-only id is listed only if it was created after the
+    import's `kv` marker `migration.v1-v2`: 2.x deletes leave the 1.x rows
+    behind. While the import runs, every 1.x session stays and the listing
+    is partial, so nothing is pruned;
+  - the fingerprint is the newer clock of the two, plus the 1.x newest part
+    time and the 2.x `event_sequence.seq`. The part time is read only for
+    sessions 1.x touched after the import: reading it for all costs seven
+    seconds on a real 10 GB store, the 2.x side about a millisecond;
+  - a transcript is the 2.x messages, then the 1.x messages 2.x lacks. A
+    1.x compaction summary is dropped when 2.x holds its compaction: the
+    import folds it into that row;
+  - limit: a 1.x rename or archive of an imported session does not show.
+    1.x does not timestamp either.
 - **Server.** One shared background server unless `--standalone` is given,
   so per-pane env and plugins need `--standalone`. KeepDeck now adds it
   when the CLI's `--version` names 2.x. Plugin API 62 hands the version to
