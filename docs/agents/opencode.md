@@ -29,7 +29,9 @@ nothing is installed on the user's side.
   session (`prompt-selection.js`). Without them opencode switches to the
   default agent and drops the variant, and a `noReply` call does too. A
   message counts as the user's when it has a text part that is neither
-  synthetic nor KeepDeck's mail frame.
+  synthetic nor KeepDeck's mail frame. Limits: it is the last prompt the
+  user SENT (a model picked in the composer and not yet used is invisible),
+  and a files-only message is passed over.
 - `pane-session.js` is shared by both. It owns which session is the pane's
   root, and the ancestry used to tell a subagent's session from the main
   one.

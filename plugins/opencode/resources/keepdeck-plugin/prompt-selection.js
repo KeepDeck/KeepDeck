@@ -18,9 +18,10 @@
  * text parts is neither synthetic nor KeepDeck's mail. That also leaves out
  * `!shell` (its only text part is synthetic).
  *
- * The limit: this is the selection of the last prompt the user SENT. Picking
+ * The limits: this is the selection of the last prompt the user SENT. Picking
  * another model in the composer without sending anything is invisible here —
- * opencode keeps the composer's choice to itself.
+ * opencode keeps the composer's choice to itself. And a message the user sent
+ * with files only, no text, is passed over for the one before it.
  */
 
 /** How every message KeepDeck writes into a session begins — the opening line
