@@ -13,6 +13,7 @@ import {
   type PluginResources,
   type SpawnPlanInput,
 } from "@keepdeck/plugin-api";
+import { codexBinding } from "./binding";
 import { codexHistory } from "./history";
 import { icon } from "./icon";
 import { mcpArgs } from "./mcp";
@@ -193,6 +194,9 @@ const plugin: KeepDeckPlugin = {
         // `normalize` applies the `read` to what arrives.
         tail: codexTail(ctx) as never,
       },
+      // codex reports its `/new` as `startup`; this says when that is the
+      // user's new conversation rather than a second session (./binding.ts).
+      binding: codexBinding,
       history: codexHistory(ctx),
       hooks: launchPlans({
         // Every `-c` flag and the yolo switch are GLOBAL: they precede the

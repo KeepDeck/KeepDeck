@@ -118,12 +118,36 @@ case $transcript in
   *\"*|*\\*) transcript="" ;;
 esac
 
+# What codex recorded about who made the session, for its own binding rule
+# (plugins/codex: AgentContribution.binding). codex reports its `/new` as a
+# fresh `startup` — the same word a teammate's session would carry — and the
+# rollout's opening `session_meta` line is where it says otherwise: the pane's
+# own TUI thread is `originator: codex-tui`, `source: cli`,
+# `thread_source: user`; a nested `codex exec` is not. Read here only because
+# the hook is the one that holds the path; what the words MEAN is the codex
+# plugin's. Missing file, missing key or an unsafe value: that fact is left
+# out, and an agent with nothing to read refuses as before.
+facts=""
+if [ "$agent" = "codex" ] && [ -n "$transcript" ] && [ -f "$transcript" ]; then
+  meta=$(head -n 1 "$transcript" 2>/dev/null)
+  for key in originator source thread_source; do
+    value=$(printf '%s' "$meta" \
+      | grep -o "\"$key\"[[:space:]]*:[[:space:]]*\"[A-Za-z0-9_.-]*\"" 2>/dev/null \
+      | head -n 1 \
+      | sed -n 's/.*"\([^"]*\)"$/\1/p')
+    [ -n "$value" ] || continue
+    [ -n "$facts" ] && facts="$facts,"
+    facts=$(printf '%s"%s":"%s"' "$facts" "$key" "$value")
+  done
+fi
+
 # Assembled field by field rather than one printf per shape: two optional
 # fields are already four shapes, and the next one would be eight.
 body=$(printf '{"agent":"%s","sessionId":"%s"' "$agent" "$sid")
 [ -n "$transcript" ] && body=$(printf '%s,"transcriptPath":"%s"' "$body" "$transcript")
 [ -n "$why" ] && body=$(printf '%s,"source":"%s"' "$body" "$why")
 [ -n "$reporter" ] && body=$(printf '%s,"reporter":"%s"' "$body" "$reporter")
+[ -n "$facts" ] && body=$(printf '%s,"facts":{%s}' "$body" "$facts")
 body="$body}"
 
 send_envelope "$(printf '{"v":2,"type":"session.bound","paneId":"%s","token":"%s","payload":%s}' \
