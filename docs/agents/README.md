@@ -59,6 +59,13 @@ Shared cores in `packages/plugin-api` so far:
   (`companion.hello`); `AgentContribution.companion` declares what that
   takes over for the announcing process, and `wake: "companion"` rings it
   instead of typing. One source per process, never two.
+- Binding words: the CLI's `source` for a session is read through one
+  shared list (`src/app/paneAttribution.ts`). A second fresh session from
+  the pane's own, already bound process is refused as a teammate
+  (`second-startup`), unless the agent's `AgentContribution.binding` says it
+  is the user's new conversation. codex and kimi report `/new` as `startup`
+  and have no in-process teammates. The reporter may add `facts` for that
+  judgement. The process rules are never the agent's to waive.
 - Unbinding: a reporter whose agent left its conversation for none at all
   (opencode's `/new` before the first prompt) sends `session.unbound`.
   It is verified like any pane report (`src/app/paneUnbinding.ts`). The

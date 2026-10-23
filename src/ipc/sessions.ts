@@ -34,6 +34,9 @@ export interface SessionBound {
    * a nested run of the same agent cannot forge. Absent when the reporter
    * cannot name its own process. */
   reporter?: string;
+  /** What the reporter added about the session, string values only, for the
+   * agent's own binding contribution (API 63). Absent when it added none. */
+  facts?: Record<string, string>;
 }
 
 /**

@@ -16,6 +16,7 @@ const own: BindingClaim = {
   boundThisGeneration: false,
   boundReporter: undefined,
   reportedReporter: "4021",
+  restartsConversation: false,
 };
 
 /** The same pane one binding later: its generation is pinned to process 4021. */
@@ -55,6 +56,27 @@ describe("bindingVerdict", () => {
       accepted: false,
       refusal: "second-startup",
     });
+  });
+
+  it("accepts the user's new conversation when the agent says that is what a fresh start from its own process is", () => {
+    // codex and kimi report their `/new` as `startup`, and have no
+    // in-process teammates for the refusal above to guard against.
+    expect(bindingVerdict({ ...bound, restartsConversation: true })).toEqual({ accepted: true });
+  });
+
+  it("never takes the agent's word over the process rules", () => {
+    // From another process it is still a nested run...
+    expect(
+      bindingVerdict({ ...bound, restartsConversation: true, reportedReporter: "9137" }),
+    ).toEqual({ accepted: false, refusal: "foreign-process" });
+    // ...and with either side unable to name its process, nothing places it:
+    // the word alone would let a nested run through.
+    expect(
+      bindingVerdict({ ...bound, restartsConversation: true, reportedReporter: undefined }),
+    ).toEqual({ accepted: false, refusal: "second-startup" });
+    expect(
+      bindingVerdict({ ...bound, restartsConversation: true, boundReporter: undefined }),
+    ).toEqual({ accepted: false, refusal: "second-startup" });
   });
 
   it("refuses a fresh session from another PROCESS", () => {

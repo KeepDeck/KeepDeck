@@ -11,6 +11,8 @@ export type {
   AgentSessionFacts,
   AgentSessionStub,
   AgentTranscriptEntry,
+  AgentBinding,
+  AgentBindingReport,
   AgentCompanion,
   CompanionCover,
   ForkDiscard,
