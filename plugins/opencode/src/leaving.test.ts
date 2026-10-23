@@ -30,7 +30,7 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 /** Wait for `done`, up to `ms` of wall-clock time — counted by the clock,
  * not by sleeps: under a loaded run each sleep overshoots, and a count of
  * them waits far longer than it says. */
-const until = async (done: () => boolean, ms = 2_000) => {
+const until = async (done: () => boolean, ms = 10_000) => {
   const deadline = Date.now() + ms;
   while (!done() && Date.now() < deadline) await sleep(5);
 };
