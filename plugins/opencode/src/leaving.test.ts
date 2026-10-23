@@ -30,7 +30,7 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 /** Wait for `done`, up to `ms` of wall-clock time — counted by the clock,
  * not by sleeps: under a loaded run each sleep overshoots, and a count of
  * them waits far longer than it says. */
-const until = async (done: () => boolean, ms = 2_000) => {
+const until = async (done: () => boolean, ms = 10_000) => {
   const deadline = Date.now() + ms;
   while (!done() && Date.now() < deadline) await sleep(5);
 };
@@ -169,9 +169,23 @@ describe("leaving a conversation, and mail on the home screen", () => {
       await both(idle("ses_a"));
     }
     await until(() => kinds().includes("session.unbound"), 8_000);
+    expect(kinds()).toContain("session.unbound");
   };
 
   const ring = () => writeFileSync(join(dir, "mail.wake"), "");
+
+  /**
+   * Ring until `done`, re-ringing while nothing happens — as the deck does: a
+   * ring is a file event, and under load the watcher can fold or drop one.
+   * The deck re-rings a pane whose mail still waits, so a test that rang
+   * once would assert something the product does not promise.
+   */
+  const ringUntil = async (done: () => boolean) => {
+    for (let rings = 0; rings < 20 && !done(); rings++) {
+      ring();
+      await until(done, 500);
+    }
+  };
 
   it("/new aborts the turn left, tells the deck it ended, and only then lets the session go", async () => {
     await inA();
@@ -289,7 +303,7 @@ describe("leaving a conversation, and mail on the home screen", () => {
       void courier.event(created("ses_c"));
     };
     pending.push({ v: 1, context: "you are analyst-2", prompt: "<teammate-message>\n> do it\n</teammate-message>" });
-    ring();
+    await ringUntil(() => calls.create > 0);
     await until(() => calls.prompts.length === 2);
 
     expect(calls.create).toBe(1);
@@ -316,8 +330,7 @@ describe("leaving a conversation, and mail on the home screen", () => {
       void courier.event(created("ses_c"));
     };
     pending.push({ v: 1, prompt: "<teammate-message>\n> do it\n</teammate-message>" });
-    ring();
-    await until(() => calls.create === 1);
+    await ringUntil(() => calls.create > 0);
     await sleep(3_300);
     expect(kinds()).not.toContain("mail.ask");
     expect(pending).toHaveLength(1);
@@ -345,7 +358,7 @@ describe("leaving a conversation, and mail on the home screen", () => {
       void courier.event(created("ses_u"));
     };
     pending.push({ v: 1, prompt: "<teammate-message>\n> do it\n</teammate-message>" });
-    ring();
+    await ringUntil(() => calls.create > 0);
     await until(() => calls.prompts.length > 0);
     expect(calls.create).toBe(1);
     expect(calls.select).toEqual([]);

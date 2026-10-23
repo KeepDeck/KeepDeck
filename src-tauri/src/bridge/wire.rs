@@ -97,6 +97,12 @@ pub struct SessionBound {
     /// that cannot name its own process says nothing.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reporter: Option<String>,
+    /// What the reporter added about the session — string values only, as
+    /// the agent's own binding contribution reads them (API 63): who the CLI
+    /// recorded as creating it, for one. Carried, never read here; anything
+    /// that is not a string is dropped rather than refusing the binding.
+    #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub facts: std::collections::BTreeMap<String, String>,
 }
 
 /// An OPAQUE pane-correlated report — ONE wire shape for every channel that
@@ -180,6 +186,21 @@ fn reported(payload: &serde_json::Value, key: &str) -> Option<String> {
         .map(str::to_string)
 }
 
+/// The binding's `facts`: its string-valued entries, the rest dropped — a
+/// reporter's diagnostic must not cost the pane its binding.
+fn facts(payload: &serde_json::Value) -> std::collections::BTreeMap<String, String> {
+    payload
+        .get("facts")
+        .and_then(|value| value.as_object())
+        .map(|object| {
+            object
+                .iter()
+                .filter_map(|(key, value)| Some((key.clone(), value.as_str()?.to_string())))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// Parse and dispatch one envelope. The bridge is fed by shell hooks, so
 /// anything malformed degrades to a logged reason, never an error path.
 /// A NEW value in the open `type` namespace is not a protocol change — v1
@@ -213,6 +234,7 @@ pub(super) fn interpret(content: &str) -> Result<Inbound, String> {
                 transcript_path: reported(&envelope.payload, "transcriptPath"),
                 source: reported(&envelope.payload, "source"),
                 reporter: reported(&envelope.payload, "reporter"),
+                facts: facts(&envelope.payload),
                 pane_id: envelope.pane_id,
                 session_id: session_id.to_string(),
                 token: envelope.token,
@@ -304,6 +326,7 @@ pub(super) mod tests {
                 agent: "claude".into(),
                 source: None,
                 reporter: None,
+                facts: Default::default(),
             }))
         );
         // With a transcript path — what the codex usage tailer follows.
@@ -318,6 +341,7 @@ pub(super) mod tests {
                 agent: "claude".into(),
                 source: None,
                 reporter: None,
+                facts: Default::default(),
             }))
         );
         // An empty path is as good as none.
@@ -404,6 +428,37 @@ pub(super) mod tests {
         assert!(interpret(&anonymous.to_string()).is_err());
     }
 
+    // What a reporter adds about a session rides to the agent's own binding
+    // contribution (API 63): strings kept, anything else dropped — never the
+    // binding itself — and nothing serialized when nothing was added.
+    #[test]
+    fn carries_a_bindings_string_facts_and_drops_the_rest() {
+        let with_facts = serde_json::json!({
+            "v": BRIDGE_PROTOCOL_VERSION,
+            "type": "session.bound",
+            "paneId": "pane-7",
+            "token": "tok",
+            "payload": {
+                "sessionId": "s1", "agent": "codex",
+                "facts": {"originator": "codex-tui", "count": 3, "nested": {"x": "y"}},
+            },
+        });
+        let Ok(Inbound::SessionBound(bound)) = interpret(&with_facts.to_string()) else {
+            panic!("expected a binding");
+        };
+        assert_eq!(bound.facts.len(), 1);
+        assert_eq!(bound.facts["originator"], "codex-tui");
+        let json = serde_json::to_value(&bound).unwrap();
+        assert_eq!(json["facts"]["originator"], "codex-tui");
+
+        let Ok(Inbound::SessionBound(bare)) = interpret(&envelope(2, "session.bound", "p", "t", "s"))
+        else {
+            panic!("expected a binding");
+        };
+        assert!(bare.facts.is_empty());
+        assert!(serde_json::to_value(&bare).unwrap().get("facts").is_none());
+    }
+
     // The pane's agent left its conversation for none at all (opencode's
     // `/new`): passed through like any report, verified and applied by the
     // webview — and signed like one, so an unsigned unbinding is refused.
@@ -471,6 +526,7 @@ pub(super) mod tests {
             transcript_path: None,
             source: None,
             reporter: None,
+            facts: Default::default(),
         })
         .unwrap();
         assert_eq!(
@@ -490,6 +546,7 @@ pub(super) mod tests {
             transcript_path: Some("/x/y.jsonl".into()),
             source: Some("startup".into()),
             reporter: Some("4021".into()),
+            facts: Default::default(),
         })
         .unwrap();
         assert_eq!(json["transcriptPath"], "/x/y.jsonl");

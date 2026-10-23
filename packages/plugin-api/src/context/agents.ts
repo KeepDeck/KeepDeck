@@ -38,6 +38,9 @@ export interface AgentContribution {
    * failed) — see `context/status.ts`. Absent = the agent reports no
    * status and its pane shows none. */
   status?: AgentStatus;
+  /** How to read this agent's session bindings, where its words differ from
+   * the shared ones (API 63). Absent = the shared reading. */
+  binding?: AgentBinding;
   /** What this agent's in-process companion takes over once it announces
    * itself from the pane's own process (API 61) — absent when the agent has
    * none. */
@@ -55,6 +58,32 @@ export interface AgentContribution {
    * history method. Absent = the agent cannot say, and a refused resume
    * keeps its old meaning. */
   liveSessions?: AgentLiveSessions;
+}
+
+/** One session binding as the agent's reporter stated it. */
+export interface AgentBindingReport {
+  /** The CLI's own word for why the session started, verbatim. */
+  source?: string;
+  /** What the reporter added about the session, string values only — what
+   * the CLI recorded about who created it, for instance. Empty when it added
+   * nothing. */
+  facts: Readonly<Record<string, string>>;
+}
+
+/**
+ * The one judgement about a binding only the agent can make.
+ *
+ * A second FRESH session from the pane's own, already bound process is
+ * refused by default: for claude that is an in-process teammate, a full
+ * session of its own the user is not having. Some CLIs report their `/new`
+ * the same way — a fresh start, from the same process — and have no such
+ * teammates. Only the agent knows which one it is looking at.
+ */
+export interface AgentBinding {
+  /** Whether this fresh session, from the pane's own process, is the user
+   * starting a new conversation. Asked only for that case; the process rules
+   * are never the agent's to waive. */
+  restartsConversation(report: AgentBindingReport): boolean;
 }
 
 /** Where a pane's agent should run. Absent = the pane's own machine (local),

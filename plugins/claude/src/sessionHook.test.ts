@@ -1,4 +1,6 @@
 import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -71,6 +73,56 @@ describe("kd-session-hook.sh", () => {
     });
     // The reporting process, as a bare process-group number.
     expect(published.reporter).toMatch(/^\d+$/);
+  });
+
+  it("adds what codex's rollout says made the session — for codex only", async () => {
+    // codex reports its `/new` as `startup`; the rollout's opening
+    // session_meta is where it says the pane's own TUI made it (task-451).
+    // The script only carries the words; the codex plugin reads them.
+    const dir = mkdtempSync(join(tmpdir(), "kd-rollout-"));
+    try {
+      const rollout = join(dir, "rollout.jsonl");
+      writeFileSync(
+        rollout,
+        `${JSON.stringify({
+          type: "session_meta",
+          payload: { id: "sid-2", originator: "codex-tui", source: "cli", thread_source: "user", cwd: "/r" },
+        })}\n{"type":"event_msg"}\n`,
+      );
+      const stdin = JSON.stringify({ session_id: "sid-2", transcript_path: rollout, source: "startup" });
+
+      await run(stdin, ["codex"]);
+      expect(envelope().envelope.payload).toMatchObject({
+        source: "startup",
+        facts: { originator: "codex-tui", source: "cli", thread_source: "user" },
+      });
+
+      deck.envelopes.length = 0;
+      await run(stdin, ["claude"]);
+      expect(envelope().envelope.payload).not.toHaveProperty("facts");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("leaves out a rollout fact that would break the envelope, and a rollout that is not there", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "kd-rollout-"));
+    try {
+      const rollout = join(dir, "rollout.jsonl");
+      writeFileSync(rollout, `{"type":"session_meta","payload":{"originator":"a b","source":"cli"}}\n`);
+      await run(JSON.stringify({ session_id: "sid-3", transcript_path: rollout, source: "startup" }), ["codex"]);
+      expect(envelope().envelope.payload).toMatchObject({ facts: { source: "cli" } });
+      expect((envelope().envelope.payload as { facts: object }).facts).not.toHaveProperty("originator");
+
+      deck.envelopes.length = 0;
+      await run(
+        JSON.stringify({ session_id: "sid-4", transcript_path: join(dir, "absent.jsonl"), source: "startup" }),
+        ["codex"],
+      );
+      expect(envelope().envelope.payload).not.toHaveProperty("facts");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("names its parent's process GROUP, the one thing two invocations share", async () => {

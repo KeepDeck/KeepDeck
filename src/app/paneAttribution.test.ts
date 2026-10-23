@@ -122,6 +122,52 @@ describe("createPaneAttribution", () => {
     });
   });
 
+  it("asks the pane's agent whether a second fresh start from its own process is the user's /new", () => {
+    // codex and kimi report `/new` as `startup` (task-449): only the agent
+    // can tell its user's new conversation from a teammate's session.
+    const asked: unknown[] = [];
+    const owner = createPaneAttribution({
+      workspaces: () => workspaces,
+      secretOf: () => "tok",
+      restartsConversation: (agent, given) => {
+        asked.push([agent, given]);
+        return given.facts.originator === "tui";
+      },
+    });
+    owner.recordBinding("pane-1", "4021");
+
+    expect(owner.judge(report({ sessionId: "s-2", facts: { originator: "tui" } }))).toEqual({
+      accepted: true,
+    });
+    expect(asked).toEqual([["claude", { source: "startup", facts: { originator: "tui" } }]]);
+    // The agent's "no" keeps the teammate refusal...
+    expect(owner.judge(report({ sessionId: "s-3", facts: { originator: "exec" } }))).toEqual({
+      accepted: false,
+      refusal: "second-startup",
+    });
+    // ...and its "yes" never waives the process rule.
+    expect(
+      owner.judge(report({ sessionId: "s-4", reporter: "9137", facts: { originator: "tui" } })),
+    ).toEqual({ accepted: false, refusal: "foreign-process" });
+  });
+
+  it("reads an agent whose word throws as having said no", () => {
+    // Its contribution is a plugin's code; a throw there costs the binding
+    // nothing but the agent's word.
+    const owner = createPaneAttribution({
+      workspaces: () => workspaces,
+      secretOf: () => "tok",
+      restartsConversation: () => {
+        throw new Error("plugin bug");
+      },
+    });
+    owner.recordBinding("pane-1", "4021");
+    expect(owner.judge(report({ sessionId: "s-2" }))).toEqual({
+      accepted: false,
+      refusal: "second-startup",
+    });
+  });
+
   it("keeps the pin a report that cannot name its process would erase", () => {
     // The four-step theft this guards: pin 4021 · the pane's own agent
     // rebinds after a `ps` failure (no reporter, so the process rule cannot

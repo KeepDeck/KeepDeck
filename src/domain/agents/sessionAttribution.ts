@@ -138,6 +138,11 @@ export interface BindingClaim {
    * origin rule below carries the weight alone. */
   readonly boundReporter: string | undefined;
   readonly reportedReporter: string | undefined;
+  /** Whether the agent says a fresh session from the pane's own, already
+   * bound process is the user starting a NEW conversation — its `/new` —
+   * rather than a second session beside the first. Only the agent can tell
+   * (`AgentContribution.binding`); claude cannot, and says nothing. */
+  readonly restartsConversation: boolean;
 }
 
 /**
@@ -172,8 +177,16 @@ export function bindingVerdict(claim: BindingClaim): BindingVerdict {
     return refuse("foreign-process");
   }
   // ...and the same process starting a second one is an in-process teammate
-  // or subsession, where no process boundary is left to see it by.
-  if (claim.boundThisGeneration) {
+  // or subsession, where no process boundary is left to see it by — unless
+  // the agent itself says this one is its user's new conversation. codex and
+  // kimi report their `/new` as a fresh start and have no in-process
+  // teammates; claude has, and keeps the refusal. Only from a process KNOWN
+  // to be the one this generation bound: where either side is silent the
+  // process question was never asked, and the agent's word alone would let a
+  // nested run through as the user's new conversation.
+  const knownSameProcess =
+    claim.boundReporter !== undefined && claim.boundReporter === claim.reportedReporter;
+  if (claim.boundThisGeneration && !(claim.restartsConversation && knownSameProcess)) {
     return refuse("second-startup");
   }
   return { accepted: true };

@@ -63,6 +63,16 @@ Notes:
 - **SessionStart `source`** can be `startup`, `resume`, `clear`, `compact` or
   `fork`, and the deck's binding understands all of them. SessionStart runs
   at the first turn, not at process start.
+- **`/new`** (0.163) makes a new thread with no hook. Its first prompt fires
+  SessionStart with `source: startup` from the pane's own process, which
+  the deck used to refuse as a second session (`second-startup`). The pane
+  then stayed on the old one. The session reporter now passes the rollout's
+  opening `session_meta` as facts. `src/binding.ts` reads a thread from the
+  pane's own TUI (`originator: codex-tui`, `source: cli`,
+  `thread_source: user`) as the user's new conversation. A nested
+  `codex exec` stays refused. The limit: between `/new` and that first
+  prompt codex says nothing, so the pane stays on the old session, and a
+  restore in that window reopens it (task-451).
 - **After a compaction** Codex runs SessionStart with `source: compact`
   before the next model request. For an automatic compaction that is inside
   the running turn, and the hook's `additionalContext` reaches the request

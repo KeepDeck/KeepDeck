@@ -11,6 +11,7 @@ import {
   paneAgentType,
   type Workspace,
 } from "../domain/deck";
+import type { AgentBindingReport } from "@keepdeck/plugin-api";
 import { log } from "../ipc/log";
 import type { SessionBound } from "../ipc/sessions";
 
@@ -112,6 +113,10 @@ export interface PaneAttributionDeps {
   /** The bridge secret this pane's own spawn plan carries, or undefined when
    * the pane armed no reporter. */
   secretOf(paneId: string): string | undefined;
+  /** The agent's own word on a fresh session from the pane's bound process
+   * (`AgentContribution.binding`): its user's new conversation, or not.
+   * Absent, or an agent with nothing to say, means not — the strict side. */
+  restartsConversation?(agent: string, report: AgentBindingReport): boolean;
 }
 
 export function createPaneAttribution(
@@ -150,17 +155,35 @@ export function createPaneAttribution(
     return pane ? paneAgentType(pane) : undefined;
   };
 
+  /** The pane's agent on this report, asked safely: its contribution is a
+   * plugin's code, and a throw there must cost the binding nothing but the
+   * agent's word. Asked of the PANE's agent on every report; the verdict
+   * heeds the answer only in its second-startup branch. */
+  const restarts = (paneAgent: string | undefined, report: SessionBound): boolean => {
+    if (!paneAgent || !deps.restartsConversation) return false;
+    try {
+      return deps.restartsConversation(paneAgent, {
+        ...(report.source !== undefined ? { source: report.source } : {}),
+        facts: report.facts ?? {},
+      });
+    } catch {
+      return false;
+    }
+  };
+
   return {
     judge(report) {
+      const paneAgent = agentOf(report.paneId);
       return bindingVerdict({
         paneSecret: deps.secretOf(report.paneId),
         reportedSecret: report.token,
-        paneAgent: agentOf(report.paneId),
+        paneAgent,
         reportedAgent: report.agent,
         origin: bindingOrigin(report.source),
         boundThisGeneration: bound.has(report.paneId),
         boundReporter: bound.get(report.paneId),
         reportedReporter: report.reporter,
+        restartsConversation: restarts(paneAgent, report),
       });
     },
     admitsReport(paneId, reportedSecret, reportedAgent, reportedReporter) {
