@@ -1,4 +1,5 @@
 import "./styles.css";
+import { kimiBinding } from "./binding";
 import { kimiForkPlan } from "./fork";
 import { kimiHistory } from "./history";
 import {
@@ -113,6 +114,9 @@ const plugin: KeepDeckPlugin = {
         mail: { channels: KIMI_MAIL_CHANNELS, render: renderKimiMail },
         tail: kimiTail(history) as never,
       },
+      // kimi reports its `/new` as `startup`; this says it is the user's new
+      // conversation rather than a second session (./binding.ts).
+      binding: kimiBinding,
       history,
       hooks: launchPlans({
         stage: stageLaunch,
