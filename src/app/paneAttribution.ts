@@ -157,8 +157,8 @@ export function createPaneAttribution(
 
   /** The pane's agent on this report, asked safely: its contribution is a
    * plugin's code, and a throw there must cost the binding nothing but the
-   * agent's word. Asked of the PANE's agent — a report signed by another is
-   * refused before this is read. */
+   * agent's word. Asked of the PANE's agent on every report; the verdict
+   * heeds the answer only in its second-startup branch. */
   const restarts = (paneAgent: string | undefined, report: SessionBound): boolean => {
     if (!paneAgent || !deps.restartsConversation) return false;
     try {
