@@ -68,9 +68,12 @@ session (`second-startup`), and the pane stayed on the old one.
 pane's process only the user's own new sessions report `startup` (`/new`,
 `/clear`, the model switch's "new", the session picker's fallback).
 Subagents report `SubagentStart`, and `/fork` reports its root as `resume`.
-A nested `kimi` from a tool call is another process and stays refused. The
-residual risk: a future same-process root creator would be accepted too
-(task-450).
+A nested `kimi -p` or `kimi acp` from the agent's Bash tool or the user's
+`!` stays refused: kimi spawns that shell detached (`buildSpawnOptions`,
+`detached` on everything but Windows), so it is another process group, and
+the MCP servers are detached as well (measured on 2.3.0). The residual risk:
+a root session made by a child kimi starts in its own group, or a future
+same-process root creator, would be accepted too (task-450).
 
 `/fork` on 2.3.0 creates a root session and fires SessionStart with
 `source: resume` from the pane's own process while the TUI stays on the

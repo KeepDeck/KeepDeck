@@ -12,10 +12,13 @@ import type { AgentBinding } from "@keepdeck/plugin-api";
  * own new sessions — `/new`, `/clear`, the model switch's "new" and the
  * session picker's fallback (2.3.0, measured and read). Subagents report
  * `SubagentStart`; `/fork` reports its root as `resume`, so it never reaches
- * this question; a nested `kimi` run from a tool call is another process the
- * deck refuses on its own. So a fresh `startup` from the pane's own, already
- * bound process is the user's new conversation. The residual risk is kimi's,
- * not ours to read: a future same-process root creator would be accepted too.
+ * this question. A nested `kimi -p` or `kimi acp` run from the agent's Bash
+ * tool or the user's `!` is another process group — kimi spawns that shell
+ * detached — and its MCP servers are detached too, so the deck refuses those
+ * as foreign-process on its own (measured). So a fresh `startup` from the
+ * pane's own, already bound process is the user's new conversation. The
+ * residual: a root session made by a child kimi starts in its OWN group, or a
+ * future same-process root creator, would be accepted too.
  *
  * Asked only about a fresh session from the pane's own, already bound
  * process; the process rules stay the deck's.
