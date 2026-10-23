@@ -59,6 +59,17 @@ why a pane's MCP client counts when its PARENT runs in the pane's terminal
 (see [README](README.md), report origin). Verified live on 2.2.0
 (2026-10-20, task-424).
 
+## `/new` binds the pane to the new session
+
+`/new` and `/clear` fire SessionStart at once with `source: startup` from
+the pane's own process (2.3.0). The deck used to refuse that as a second
+session (`second-startup`), and the pane stayed on the old one.
+`src/binding.ts` says such a startup is the user's new conversation: in the
+pane's process `/new` is the only root creator (subagents report
+`SubagentStart`, `/fork` skips SessionStart). A nested `kimi` from a tool
+call is another process and stays refused. The residual risk: a future
+same-process root creator would be accepted too (task-450).
+
 ## Hook output: what Kimi reads, what it drops
 
 This is a design choice of Kimi's, not a bug, and the reason several things
