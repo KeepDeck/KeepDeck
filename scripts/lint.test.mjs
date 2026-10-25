@@ -34,6 +34,23 @@ describe("the linter", () => {
     ]);
   });
 
+  it("catches an unchecked assertion in src and in a plugin", async () => {
+    const eslint = new ESLint({ cwd: REPO });
+    const source = 'const raw: unknown = "x";\nexport const text = raw as string;\n';
+    const [src] = await eslint.lintText(source, {
+      filePath: join(REPO, "src/lint-probe.ts"),
+    });
+    const [plugin] = await eslint.lintText(source, {
+      filePath: join(REPO, "plugins/opencode/src/lint-probe.ts"),
+    });
+    expect(src.messages.map((message) => message.ruleId)).toEqual([
+      "@typescript-eslint/no-unsafe-type-assertion",
+    ]);
+    expect(plugin.messages.map((message) => message.ruleId)).toEqual([
+      "@typescript-eslint/no-unsafe-type-assertion",
+    ]);
+  });
+
   it("keeps a component to app's hooks, runtime context and types, and its test to app/testing besides", async () => {
     const eslint = new ESLint({ cwd: REPO });
     const source = [

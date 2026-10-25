@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import tsParser from "@typescript-eslint/parser";
 import tsPlugin from "@typescript-eslint/eslint-plugin";
 import reactHooks from "eslint-plugin-react-hooks";
@@ -8,6 +9,8 @@ import reactHooks from "eslint-plugin-react-hooks";
  * has to remember to run them. Each rule here is a decision made once; the
  * code that broke it was fixed, not excused (task-468).
  */
+
+const ROOT = fileURLToPath(new URL(".", import.meta.url));
 
 const TYPESCRIPT = [
   "src/**/*.{ts,tsx}",
@@ -131,7 +134,26 @@ export default [
 
   {
     files: TYPESCRIPT,
-    languageOptions: { parser: tsParser },
+    languageOptions: {
+      parser: tsParser,
+      parserOptions: {
+        projectService: {
+          // Virtual probe files lintText hands the linter in scripts/lint.test.mjs.
+          // They have no on-disk project entry; naming them keeps the typed
+          // rules — including no-unsafe-type-assertion — running on the probe.
+          allowDefaultProject: [
+            "src/lint-probe.ts",
+            "plugins/opencode/src/lint-probe.ts",
+            "src/components/probe/LintProbe.tsx",
+            "src/components/probe/LintProbe.test.tsx",
+            "src/presentation/lint-probe.ts",
+            "src/components/dock/lint-probe.ts",
+            "src/components/dock/lint-probe.test.ts",
+          ],
+        },
+        tsconfigRootDir: ROOT,
+      },
+    },
     plugins: { "react-hooks": reactHooks },
     linterOptions: {
       // A comment that disables a rule is not a way to pass the lint
@@ -140,6 +162,10 @@ export default [
       reportUnusedDisableDirectives: "off",
     },
     rules: {
+      // A wire or fixture value becomes its contract type only through a
+      // guard/parser; the type-aware rule reads the real types, so an
+      // unchecked `as X` fails the build (task-472/489).
+      "@typescript-eslint/no-unsafe-type-assertion": "error",
       /**
        * No cast that switches the type checker off. `x as unknown as T`
        * makes anything a `T`; `x as never` makes anything fit anywhere. They
