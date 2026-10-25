@@ -6,17 +6,17 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import { artifactChanges } from "../../app/artifacts/changes";
+import { artifactChanges } from "./changes";
 import {
   artifactsEnableStatus,
   refusalOf,
-} from "../../app/artifacts/enableStatus";
-import { openArtifactByRef } from "../../app/artifacts/entryPoints";
-import { deleteArtifact } from "../../app/artifacts/remove";
+} from "./enableStatus";
+import { openArtifactByRef } from "./entryPoints";
+import { deleteArtifact } from "./remove";
 import type {
   ArtifactMetaRow,
   ArtifactsRegistryReadPort,
-} from "../../app/artifacts/registryRead";
+} from "./registryRead";
 
 import { fateOf, type RowRef } from "../../domain/artifacts/rowRef";
 import type { OpenHistory } from "../../presentation/artifacts/rowView";

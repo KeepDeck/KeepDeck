@@ -17,7 +17,7 @@
 import { useMemo } from "react";
 import { useRuntimePart } from "../../app/runtimeContext";
 import { readyBoard } from "../../app/tasks/tasksService";
-import { useTasksBoardState } from "../tasks/useBoardState";
+import { useTasksBoardState } from "../../app/tasks/useBoardState";
 import type { GitPosition, Workspace } from "../../domain/deck";
 import type { PaneActivity } from "../../domain/status";
 import {

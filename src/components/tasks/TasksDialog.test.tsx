@@ -9,7 +9,7 @@ import { USER_ACTOR, agentActor, blockerIdsOf, encodeBoard } from "../../domain/
 import { board as boardOf, task as taskOf } from "../../domain/tasks/testSupport";
 import { installResizeObserver, pinListViewport } from "@keepdeck/ui-kit/virtualGeometry.test-support";
 import { TasksDialog } from "./TasksDialog";
-import type { TasksAccess } from "./useTasksBoard";
+import type { TasksAccess } from "../../app/tasks/useTasksBoard";
 import type { Workspace } from "../../domain/deck";
 import { DEFAULT_SETTINGS, type Settings } from "../../domain/settings";
 import type { ArtifactsRegistryReadPort } from "../../app/artifacts/registryRead";

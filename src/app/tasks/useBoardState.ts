@@ -1,5 +1,5 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
-import type { BoardState, TasksService } from "../../app/tasks";
+import type { BoardState, TasksService } from ".";
 import type { TasksAccess } from "./useTasksBoard";
 
 const noop = () => () => {};

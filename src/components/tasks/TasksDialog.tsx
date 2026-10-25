@@ -12,7 +12,7 @@ import { useWallClock } from "../../ui/useWallClock";
 import { NewTaskForm } from "./NewTaskForm";
 import { TaskDetail } from "./TaskDetail";
 import { RowLead, TaskList, TaskRowLine } from "./TaskList";
-import { useTasksBoard, type EpicFolds, type TasksAccess } from "./useTasksBoard";
+import { useTasksBoard, type EpicFolds, type TasksAccess } from "../../app/tasks/useTasksBoard";
 
 interface TasksDialogProps {
   /** The board's owner as the runtime hands it out. */

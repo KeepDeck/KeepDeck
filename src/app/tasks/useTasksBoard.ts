@@ -1,17 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import type { TasksAccess } from "../../app/tasks/tasksFeature";
+import type { TasksAccess } from "./tasksFeature";
 import { useTasksBoardFeed } from "./useBoardState";
-import { artifactChanges } from "../../app/artifacts/changes";
-import { openArtifactByRef } from "../../app/artifacts/entryPoints";
-import type { ArtifactsRegistryReadPort } from "../../app/artifacts/registryRead";
+import { artifactChanges } from "../artifacts/changes";
+import { openArtifactByRef } from "../artifacts/entryPoints";
+import type { ArtifactsRegistryReadPort } from "../artifacts/registryRead";
 
 import { isTypingTarget } from "../../ui/typingTarget";
-import { refusalOf, tasksEnableStatus } from "../../app/tasks/enableStatus";
-import { readyBoard, type TaskProblem } from "../../app/tasks/tasksService";
-import { getSettings, updateSettings } from "../../app/settingsManager";
-import { useSettings } from "../../app/useSettings";
+import { refusalOf, tasksEnableStatus } from "./enableStatus";
+import { readyBoard, type TaskProblem } from "./tasksService";
+import { getSettings, updateSettings } from "../settingsManager";
+import { useSettings } from "../useSettings";
 import { DEFAULT_SETTINGS, type TasksBoardSettings } from "../../domain/settings";
-import { refusalText } from "../../app/tasks/refusalText";
+import { refusalText } from "./refusalText";
 import { teamsOf, type Workspace } from "../../domain/deck";
 import {
   USER_ACTOR,
@@ -69,7 +69,7 @@ import {
 } from "../../presentation/tasks";
 import { errorMessage } from "@keepdeck/plugin-api";
 
-export type { TasksAccess } from "../../app/tasks/tasksFeature";
+export type { TasksAccess } from "./tasksFeature";
 
 export type { RowGrip } from "../../presentation/tasks";
 

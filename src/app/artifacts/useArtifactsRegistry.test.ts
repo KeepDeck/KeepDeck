@@ -2,13 +2,13 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { artifactChanges } from "../../app/artifacts/changes";
-import { artifactsEnableStatus } from "../../app/artifacts/enableStatus";
+import { artifactChanges } from "./changes";
+import { artifactsEnableStatus } from "./enableStatus";
 import type {
   ArtifactMetaRow,
   ArtifactVersionRow,
   ArtifactsRegistryReadPort,
-} from "../../app/artifacts/registryRead";
+} from "./registryRead";
 import { useArtifactsRegistry, type ArtifactsRegistry } from "./useArtifactsRegistry";
 
 // The reads are a PORT the hook is handed, so they are doubled as one; the

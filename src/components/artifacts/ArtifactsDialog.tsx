@@ -7,7 +7,7 @@ import { useEscape } from "../../ui/useEscape";
 import { useWallClock } from "../../ui/useWallClock";
 import { artifactRowView } from "../../presentation/artifacts/rowView";
 import { deleteQuestion } from "../../presentation/artifacts/words";
-import { useArtifactsRegistry } from "./useArtifactsRegistry";
+import { useArtifactsRegistry } from "../../app/artifacts/useArtifactsRegistry";
 import {
   ARTIFACT_ROW_ESTIMATE_PX,
   artifactRowKey,
