@@ -333,7 +333,8 @@ export function createHostDispatch(
         if (
           name !== "spawn.plan" &&
           name !== "resume.plan" &&
-          name !== "fork.plan"
+          name !== "fork.plan" &&
+          name !== "bare.plan"
         )
           continue;
         hooks[name] = (input, output) => callHook(id, name, input, output);

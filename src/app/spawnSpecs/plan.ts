@@ -191,6 +191,32 @@ function paneEnv(
   return [...mcpEnv, ...pluginEnv, ...bridge];
 }
 
+/**
+ * The arguments a bare launch still carries: what the agent's plugin
+ * declared as its floor (`bare.plan`), and nothing when it declared none.
+ * Which flags those are is the plugin's knowledge; the host only applies
+ * them. A floor that throws is logged and costs the launch its floor, not
+ * its pane — the bare launch exists so that the pane lives.
+ */
+async function bareFloor(
+  entry: AgentContribution,
+  input: SpawnPlanInput,
+): Promise<string[]> {
+  const floor = entry.hooks["bare.plan"];
+  if (typeof floor !== "function") return [];
+  const output: SpawnPlanOutput = { command: entry.detect.bin, args: [], env: [] };
+  try {
+    await floor(input, output);
+  } catch (e) {
+    log.warn(
+      "web:agents",
+      `${entry.id} bare.plan failed — bare spawn with no arguments: ${errorMessage(e)}`,
+    );
+    return [];
+  }
+  return output.args;
+}
+
 /** What a plan is FOR — fresh spawn, resume, or fork. Resume/fork carry
  * their session facts; the hook that runs is the variant's. */
 type PlanVariant =
@@ -204,7 +230,8 @@ type PlanVariant =
   | { kind: "fork"; sessionId: string; sourceCwd: string; transcriptPath?: string };
 
 /** Build one plan through the agent's hook. A throwing SPAWN hook degrades
- * to a bare spawn (no identity) rather than a dead pane; a throwing resume
+ * to a bare spawn (no identity, only the plugin's declared floor) rather
+ * than a dead pane; a throwing resume
  * or fork hook REJECTS — degrading a requested continuation (or a fork whose
  * surgery failed) into a fresh conversation would be silent data loss. */
 export async function buildPlan(
@@ -326,7 +353,12 @@ export async function buildPlan(
     // secret rides along for the same reason — the planted config names it,
     // and dropping it would resolve that pane's every call to nobody.
     return {
-      plan: { command: entry.detect.bin, args: [], env: mcpEnv, mcpToken },
+      plan: {
+        command: entry.detect.bin,
+        args: await bareFloor(entry, base),
+        env: mcpEnv,
+        mcpToken,
+      },
       deliver,
     };
   }

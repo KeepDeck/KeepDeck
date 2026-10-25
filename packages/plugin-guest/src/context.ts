@@ -441,6 +441,12 @@ export function buildGuestContext(
           await fn(decodeForkPlanInput(input, "fork plan input"), output);
           break;
         }
+        case "bare.plan": {
+          const fn = hooks?.["bare.plan"];
+          if (!fn) throw missing();
+          await fn(decodeSpawnPlanInput(input, "bare plan input"), output);
+          break;
+        }
         default:
           throw missing();
       }

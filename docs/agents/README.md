@@ -96,7 +96,7 @@ core" epic.
 
 | Concern | What the adapter supplies |
 |---|---|
-| Launch | `spawn.plan`, `resume.plan`, `fork.plan`: args, env, env defaults |
+| Launch | `spawn.plan`, `resume.plan`, `fork.plan`: args, env, env defaults; `bare.plan`: the args a launch keeps when its plan failed |
 | Status | a normaliser from the CLI's hook events and store records to pane status edges |
 | Mail | a renderer that turns waiting messages into the CLI's hook output, and the hook events that collect mail |
 | History | listing and reading the CLI's own session store |

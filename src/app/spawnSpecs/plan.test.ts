@@ -285,6 +285,82 @@ describe("building one plan through the agent hook", () => {
     });
   });
 
+  it("a bare spawn carries the floor its plugin declared, asked with the failed plan's input", async () => {
+    // The host knows no flag here: what a bare launch must still carry is the
+    // plugin's word (codex declares the flag that keeps it off the user's
+    // daemon), and the floor may depend on the release, so it is asked with
+    // the same input the plan had.
+    const asked: Array<string | undefined> = [];
+    h.register({
+      ...adopting,
+      hooks: {
+        "spawn.plan": () => {
+          throw new Error("boom");
+        },
+        "bare.plan": (input, output) => {
+          asked.push(input.cliVersion);
+          output.args.push("--floor", input.cwd);
+          // Only the arguments are a floor: the rest of a plan stays the
+          // host's bare launch.
+          output.command = "/bin/elsewhere";
+          output.env.push(["FLOOR_ENV", "1"]);
+        },
+      },
+    });
+    hostState.versions.set("claude", "9.9.9");
+    await h.mount(ws([{ id: "pane-1", agentType: "claude" }]));
+    await settle();
+
+    expect(asked).toEqual(["9.9.9"]);
+    expect(h.seen["pane-1"]).toEqual({
+      command: "claude",
+      args: ["--floor", "/repo"],
+      env: [],
+      mcpToken: expect.any(String),
+    });
+  });
+
+  it("a floor that throws costs the bare spawn its floor, not its pane", async () => {
+    h.register({
+      ...adopting,
+      hooks: {
+        "spawn.plan": () => {
+          throw new Error("boom");
+        },
+        "bare.plan": (_input, output) => {
+          output.args.push("--half-written");
+          throw new Error("floor boom");
+        },
+      },
+    });
+    await h.mount(ws([{ id: "pane-1", agentType: "claude" }]));
+    await settle();
+
+    expect(h.seen["pane-1"]?.args).toEqual([]);
+    expect(h.seen["pane-1"]?.command).toBe("claude");
+  });
+
+  it("a plan that succeeds is not asked for a floor", async () => {
+    // The floor is the bare launch's; a staged launch carries what its own
+    // plan said, so a rule the plan already owns is not applied twice.
+    let asked = 0;
+    h.register({
+      ...adopting,
+      hooks: {
+        ...adopting.hooks,
+        "bare.plan": (_input, output) => {
+          asked += 1;
+          output.args.push("--floor");
+        },
+      },
+    });
+    await h.mount(ws([{ id: "pane-1", agentType: "claude" }]));
+    await settle();
+
+    expect(asked).toBe(0);
+    expect(h.seen["pane-1"]?.args).toEqual(["--settings", "{hook}"]);
+  });
+
   it("a throwing REMOTE spawn.plan does NOT degrade to a bare local spawn", async () => {
     // A bare spawn for a remote pane would run the agent LOCALLY, silently
     // dropping the endpoint — a wrong-target execution. The error must surface

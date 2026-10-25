@@ -96,6 +96,15 @@ describe("agent hooks over the RPC seam", () => {
     expect(Object.keys(h.agent().hooks)).toEqual(["fork.plan"]);
   });
 
+  it("carries bare.plan, so an external agent can declare its bare floor too", async () => {
+    const h = harness();
+    await h.dispatch.call("agents.register", [
+      1,
+      { ...entry, hookNames: ["bare.plan"] },
+    ]);
+    expect(Object.keys(h.agent().hooks)).toEqual(["bare.plan"]);
+  });
+
   it("an icon crosses in the contract's exact shape, extras stripped", async () => {
     const h = harness();
     await h.dispatch.call("agents.register", [
