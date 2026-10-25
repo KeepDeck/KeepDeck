@@ -107,12 +107,12 @@ export function pinListViewport(
     Element.prototype.getBoundingClientRect = original;
     for (const [name, descriptor] of Object.entries(offsets)) {
       if (descriptor) Object.defineProperty(HTMLElement.prototype, name, descriptor);
-      else delete (HTMLElement.prototype as unknown as Record<string, unknown>)[name];
+      else Reflect.deleteProperty(HTMLElement.prototype, name);
     }
     for (const [name, descriptor] of Object.entries(scrolls)) {
       const proto = name === "clientHeight" ? HTMLElement.prototype : Element.prototype;
       if (descriptor) Object.defineProperty(proto, name, descriptor);
-      else delete (proto as unknown as Record<string, unknown>)[name];
+      else Reflect.deleteProperty(proto, name);
     }
   };
 }
@@ -121,36 +121,23 @@ export function pinListViewport(
  * element's current rect once, then stays silent (tests drive changes
  * by re-render, not by resize). */
 export function installResizeObserver(): void {
-  const RO = class {
+  globalThis.ResizeObserver = class implements ResizeObserver {
     private cb: ResizeObserverCallback;
     constructor(cb: ResizeObserverCallback) {
       this.cb = cb;
     }
     observe(target: Element): void {
       const r = target.getBoundingClientRect();
-      this.cb(
-        [
-          {
-            target,
-            contentRect: r,
-            borderBoxSize: [
-              { inlineSize: r.width, blockSize: r.height },
-            ] as unknown as ResizeObserverEntry["borderBoxSize"],
-            contentBoxSize: [] as unknown as ResizeObserverEntry["contentBoxSize"],
-            devicePixelContentBoxSize: [] as unknown,
-            intersectionRect: r,
-            toJSON: () => ({}),
-          } as ResizeObserverEntry,
-        ],
-        this as unknown as ResizeObserver,
-      );
+      const entry: ResizeObserverEntry = {
+        target,
+        contentRect: r,
+        borderBoxSize: [{ inlineSize: r.width, blockSize: r.height }],
+        contentBoxSize: [],
+        devicePixelContentBoxSize: [],
+      };
+      this.cb([entry], this);
     }
     unobserve(): void {}
     disconnect(): void {}
-    takeRecords(): ResizeObserverEntry[] {
-      return [];
-    }
   };
-  (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver =
-    RO;
 }

@@ -8,6 +8,26 @@ import { installResizeObserver, pinListViewport } from "./virtualGeometry.test-s
 const ROW = 20;
 const items = Array.from({ length: 500 }, (_, i) => `row ${i}`);
 
+/** The browser's answer to a media query, which happy-dom never varies: a
+ * real EventTarget, so a preference that changes reaches the fold's listener
+ * as a browser's `change` would. */
+class FakeMediaQueryList extends EventTarget implements MediaQueryList {
+  onchange: MediaQueryList["onchange"] = null;
+  constructor(
+    readonly media: string,
+    public matches: boolean,
+  ) {
+    super();
+  }
+  addListener(): void {}
+  removeListener(): void {}
+  /** The person changed the preference: answer anew and say so. */
+  change(matches: boolean): void {
+    this.matches = matches;
+    this.dispatchEvent(new MediaQueryListEvent("change", { matches, media: this.media }));
+  }
+}
+
 describe("VirtualList", () => {
   let root: Root;
   let host: HTMLElement;
@@ -917,15 +937,13 @@ describe("VirtualList as a grouped list", () => {
     });
 
     it("lands a fold in flight the moment reduced motion is asked for", async () => {
-      const listeners: ((event: { matches: boolean }) => void)[] = [];
+      const answers: FakeMediaQueryList[] = [];
       const original = window.matchMedia;
-      window.matchMedia = ((query: string) =>
-        ({
-          matches: false,
-          media: query,
-          addEventListener: (_: string, fn: (event: { matches: boolean }) => void) => listeners.push(fn),
-          removeEventListener: () => {},
-        }) as unknown as MediaQueryList) as typeof window.matchMedia;
+      window.matchMedia = (query) => {
+        const answer = new FakeMediaQueryList(query, false);
+        answers.push(answer);
+        return answer;
+      };
       try {
         render(grouped(30, shut), shut);
         await scrollTo(95 * H);
@@ -933,7 +951,7 @@ describe("VirtualList as a grouped list", () => {
         await frames(16);
         expect(box()).not.toBeNull();
         await act(async () => {
-          for (const fn of listeners) fn({ matches: true });
+          for (const answer of answers) answer.change(true);
         });
         expect(box()).toBeNull();
       } finally {
@@ -950,7 +968,7 @@ describe("VirtualList as a grouped list", () => {
 
     it("lands at once under reduced motion", async () => {
       const original = window.matchMedia;
-      window.matchMedia = ((query: string) => ({ matches: query.includes("reduce") }) as MediaQueryList) as typeof window.matchMedia;
+      window.matchMedia = (query) => new FakeMediaQueryList(query, query.includes("reduce"));
       try {
         render(grouped(30, shut), shut);
         await scrollTo(95 * H);
