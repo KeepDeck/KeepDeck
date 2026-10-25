@@ -14,7 +14,7 @@ import { createHostDispatch } from "./hostDispatch";
 import { dispatchHarness as harness } from "./hostDispatch.testSupport";
 import { fakePluginContext } from "../../pluginContext.testSupport";
 import type { WireAgentHistoryCall, WireHookCall } from "./protocol";
-import { speechCapture, speechTranscript } from "@keepdeck/plugin-api/testing";
+import { present, speechCapture, speechTranscript } from "@keepdeck/plugin-api/testing";
 
 /**
  * The agent-hook proxy across the RPC seam: `agents.register` turns the
@@ -158,7 +158,7 @@ describe("agent hooks over the RPC seam", () => {
     await h.dispatch.call("agents.register", [1, entry]);
 
     const out = output();
-    const running = h.agent().hooks["spawn.plan"]!(
+    const running = present(h.agent().hooks["spawn.plan"], "the spawn.plan hook")(
       {
         paneId: "pane-1",
         workspace: { id: "ws-1", instance: "workspace-instance-1" },
@@ -193,7 +193,7 @@ describe("agent hooks over the RPC seam", () => {
     };
     const answer = async (discard: unknown) => {
       const out = output();
-      const running = h.agent().hooks["fork.plan"]!(forkInput, out);
+      const running = present(h.agent().hooks["fork.plan"], "the fork.plan hook")(forkInput, out);
       const id = Number(h.pushes[h.pushes.length - 1].channel.slice("hook:".length));
       await h.dispatch.call("agents.hookResult", [
         id,
@@ -211,7 +211,7 @@ describe("agent hooks over the RPC seam", () => {
   it("a malformed realm output rejects instead of reaching the spawn", async () => {
     const h = harness();
     await h.dispatch.call("agents.register", [1, entry]);
-    const running = h.agent().hooks["spawn.plan"]!(
+    const running = present(h.agent().hooks["spawn.plan"], "the spawn.plan hook")(
       {
         paneId: "pane-1",
         workspace: { id: "ws-1", instance: "workspace-instance-1" },
@@ -231,7 +231,7 @@ describe("agent hooks over the RPC seam", () => {
   it("dispose fails hooks still in flight", async () => {
     const h = harness();
     await h.dispatch.call("agents.register", [1, entry]);
-    const running = h.agent().hooks["spawn.plan"]!(
+    const running = present(h.agent().hooks["spawn.plan"], "the spawn.plan hook")(
       {
         paneId: "pane-1",
         workspace: { id: "ws-1", instance: "workspace-instance-1" },
@@ -248,7 +248,7 @@ describe("agent history over the RPC seam", () => {
   it("round-trips every history method and sanitizes returned data", async () => {
     const h = harness();
     await h.dispatch.call("agents.register", [1, { ...entry, hasHistory: true }]);
-    const history = h.agent().history!;
+    const history = present(h.agent().history, "the agent's history");
 
     const list = history.list();
     expect(h.pushes[0].payload).toEqual({
@@ -324,7 +324,7 @@ describe("agent history over the RPC seam", () => {
       1,
       { ...entry, hasHistory: true },
     ]);
-    const listing = malformed.agent().history!.list();
+    const listing = present(malformed.agent().history, "the agent's history").list();
     await malformed.dispatch.call("agents.historyResult", [
       Number(malformed.pushes[0].channel.slice("history:".length)),
       { ok: true, value: [{ sessionId: "session-1" }] },
@@ -338,7 +338,7 @@ describe("agent history over the RPC seam", () => {
       1,
       { ...entry, hasHistory: true },
     ]);
-    const describing = junkField.agent().history!.describe("/store/s");
+    const describing = present(junkField.agent().history, "the agent's history").describe("/store/s");
     await junkField.dispatch.call("agents.historyResult", [
       Number(junkField.pushes[0].channel.slice("history:".length)),
       { ok: true, value: { cwd: "/repo", forkedAt: "yes" } },
@@ -350,7 +350,7 @@ describe("agent history over the RPC seam", () => {
       1,
       { ...entry, hasHistory: true },
     ]);
-    const content = disposed.agent().history!.content("/store/session-1");
+    const content = present(disposed.agent().history, "the agent's history").content("/store/session-1");
     disposed.dispatch.dispose();
     await expect(content).rejects.toThrow("disposed");
   });
@@ -364,14 +364,15 @@ describe("agent history over the RPC seam", () => {
       1,
       { ...entry, hasHistory: true },
     ]);
-    expect(silent.agent().history!.listing).toBeUndefined();
+    expect(present(silent.agent().history, "the agent's history").listing).toBeUndefined();
 
     const declared = harness();
     await declared.dispatch.call("agents.register", [
       1,
       { ...entry, hasHistory: true, hasListing: true },
     ]);
-    const asking = declared.agent().history!.listing!();
+    const history = present(declared.agent().history, "the agent's history");
+    const asking = present(history.listing, "the listing method")();
     expect(declared.pushes[0].payload).toEqual({
       agentId: "gemini",
       method: "listing",
@@ -405,7 +406,8 @@ describe("agent history over the RPC seam", () => {
       1,
       { ...entry, hasHistory: true, hasListing: true },
     ]);
-    const asking = h.agent().history!.listing!();
+    const history = present(h.agent().history, "the agent's history");
+    const asking = present(history.listing, "the listing method")();
     await h.dispatch.call("agents.historyResult", [
       Number(h.pushes[0].channel.slice("history:".length)),
       { ok: true, value: { stubs: [], complete: "yes" } },
@@ -426,7 +428,7 @@ describe("agent history over the RPC seam", () => {
       1,
       { ...entry, hasLiveSessions: true },
     ]);
-    const asking = declared.agent().liveSessions!.list();
+    const asking = present(declared.agent().liveSessions, "the live-sessions capability").list();
     expect(declared.pushes[0].channel).toMatch(/^livesessions:\d+$/);
     expect(declared.pushes[0].payload).toEqual({ agentId: "gemini" });
     await declared.dispatch.call("agents.liveResult", [
@@ -455,7 +457,7 @@ describe("agent history over the RPC seam", () => {
       1,
       { ...entry, hasLiveSessions: true },
     ]);
-    const asking = h.agent().liveSessions!.list();
+    const asking = present(h.agent().liveSessions, "the live-sessions capability").list();
     await h.dispatch.call("agents.liveResult", [
       Number(h.pushes[0].channel.slice("livesessions:".length)),
       { ok: true, value: [{ sessionId: 7, kind: "background" }] },
@@ -543,7 +545,7 @@ describe("file-open handlers over the RPC seam", () => {
   it("a malformed hookResult settles as a failure too — same stranding shape", async () => {
     const h = harness();
     await h.dispatch.call("agents.register", [1, entry]);
-    const running = h.agent().hooks["spawn.plan"]!(
+    const running = present(h.agent().hooks["spawn.plan"], "the spawn.plan hook")(
       {
         paneId: "pane-1",
         workspace: { id: "ws-1", instance: "workspace-instance-1" },

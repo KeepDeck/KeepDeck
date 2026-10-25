@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { readStyles, ruleBody, STYLES_DIR, stripComments } from "./testSupport";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /** Every host and built-in plugin stylesheet, comments stripped. */
 function sheets(): [string, string][] {
@@ -59,7 +60,10 @@ describe("the float shell", () => {
     // The drift this shell ended was RESTATED parts: tooltips on tile, edges
     // on seam-strong. A rule for a shell selector anywhere else that sets
     // any part of the shell is that drift coming back.
-    const head = /([^{}]+)\{[^{}]*box-shadow:\s*var\(--kd-shadow-float\)/.exec(readStyles("float.css"))!;
+    const head = present(
+      /([^{}]+)\{[^{}]*box-shadow:\s*var\(--kd-shadow-float\)/.exec(readStyles("float.css")),
+      "the float shell rule",
+    );
     const wearers = head[1].split(",").map((selector) => selector.trim());
     const parts = /(?:^|;)\s*(border|border-color|border-width|border-style|background|background-color|box-shadow)\s*:/;
     const restated = sheets()

@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from "vitest";
 import { appCss, px, readStyles, ruleBody } from "./testSupport";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const notifications = readStyles("notifications.css");
 
@@ -41,7 +42,7 @@ describe("notification panel sections", () => {
       "</div>";
 
     const shrink = (selector: string) =>
-      getComputedStyle(document.querySelector(selector)!).flexShrink;
+      getComputedStyle(present(document.querySelector(selector), `the ${selector} section`)).flexShrink;
     expect(shrink(".bell__section--needs")).toBe("0");
     expect(shrink(".bell__section--feed")).toBe("1");
 

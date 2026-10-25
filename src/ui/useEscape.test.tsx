@@ -3,6 +3,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useEscape } from "./useEscape";
+import { present } from "@keepdeck/plugin-api/testing";
 
 let root: Root | null = null;
 
@@ -17,7 +18,7 @@ function mount(handler: () => void, enabled?: boolean) {
     useEscape(handler, enabled);
     return null;
   }
-  act(() => root!.render(createElement(Probe)));
+  act(() => present(root, "the mounted root").render(createElement(Probe)));
 }
 
 /** Dispatch one keydown on `window` and hand back the event, so a test can
@@ -74,7 +75,7 @@ describe("useEscape", () => {
   it("claims nothing once the surface is gone", () => {
     const handler = vi.fn();
     mount(handler);
-    act(() => root!.unmount());
+    act(() => present(root, "the mounted root").unmount());
     root = null;
 
     const event = press();

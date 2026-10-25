@@ -8,6 +8,7 @@ import { AppRuntimeProvider } from "../app/runtimeContext";
 import { createAgentStatusTracker } from "../app/agentStatusTracker";
 import { appCss, px, readStyles, ruleBody } from "./testSupport";
 import { paneHeaderView } from "../presentation/paneHeaderView";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /**
  * The pane's own wrappers, hand-written: mounting the real `AgentPane` costs
@@ -47,7 +48,7 @@ beforeEach(() => {
   sheet.textContent = appCss;
   document.head.append(sheet);
   document.body.innerHTML = "<div id='host'></div>";
-  host = document.getElementById("host")!;
+  host = present(document.getElementById("host"), "the host element");
   root = createRoot(host);
 });
 

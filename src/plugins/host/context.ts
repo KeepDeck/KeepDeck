@@ -243,10 +243,12 @@ export function buildPluginContext(
     })(),
     agents: {
       register: (agent) => {
-        declared("agents", agent.id);
-        const declaredAgent = manifest.contributes.agents!.find(
+        const declaredAgent = manifest.contributes.agents?.find(
           (entry) => entry.id === agent.id,
-        )!;
+        );
+        if (!declaredAgent) {
+          throw new Error(`contribution not declared in the manifest: agents "${agent.id}"`);
+        }
         validateAgentFeatureImplementations(declaredAgent, agent, {
           external: source === "external",
         });

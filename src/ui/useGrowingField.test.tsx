@@ -3,6 +3,7 @@ import { act, createElement, useRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { useGrowingField } from "./useGrowingField";
+import { present } from "@keepdeck/plugin-api/testing";
 
 function Field({ value }: { value: string }) {
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -48,7 +49,7 @@ describe("useGrowingField", () => {
       disconnect() {}
     };
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the host element"));
   });
   afterEach(() => {
     act(() => root.unmount());
@@ -59,7 +60,7 @@ describe("useGrowingField", () => {
 
   it("grows a line for each line typed, plus its edges", () => {
     act(() => root.render(createElement(Field, { value: "one" })));
-    const field = document.querySelector("textarea")!;
+    const field = present(document.querySelector("textarea"), "the textarea");
     expect(field.style.height).toBe("36px");
     act(() => root.render(createElement(Field, { value: "one\ntwo\nthree" })));
     expect(field.style.height).toBe("72px");
@@ -67,7 +68,7 @@ describe("useGrowingField", () => {
 
   it("shrinks back when the text does — a sent draft returns it to one line", () => {
     act(() => root.render(createElement(Field, { value: "one\ntwo\nthree" })));
-    const field = document.querySelector("textarea")!;
+    const field = present(document.querySelector("textarea"), "the textarea");
     expect(field.style.height).toBe("72px");
     act(() => root.render(createElement(Field, { value: "" })));
     expect(field.style.height).toBe("36px");
@@ -77,7 +78,7 @@ describe("useGrowingField", () => {
     width = 10;
     const long = "x".repeat(40);
     act(() => root.render(createElement(Field, { value: long })));
-    const field = document.querySelector("textarea")!;
+    const field = present(document.querySelector("textarea"), "the textarea");
     expect(field.style.height).toBe(`${18 + 18 * 4}px`);
     // Expand: the same text now fits one line.
     width = 40;

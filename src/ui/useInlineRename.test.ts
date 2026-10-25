@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useInlineRename, type InlineRename } from "./useInlineRename";
 import { inertBackground } from "./inertBackground";
+import { present } from "@keepdeck/plugin-api/testing";
 
 let api: InlineRename;
 let commit: ReturnType<typeof vi.fn>;
@@ -16,7 +17,7 @@ function Probe() {
 /** A stand-in for the rename input, inside the app tree rather than beside
  * it — which is what decides whether a modal layer covers it. */
 function field(): HTMLElement {
-  return document.getElementById("host")!;
+  return present(document.getElementById("host"), "the host element");
 }
 
 describe("useInlineRename", () => {
@@ -25,7 +26,7 @@ describe("useInlineRename", () => {
   beforeEach(() => {
     commit = vi.fn();
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the host element"));
     act(() => root.render(createElement(Probe)));
   });
   afterEach(() => {

@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { installResizeObserver, pinListViewport } from "@keepdeck/ui-kit/virtualGeometry.test-support";
 import { CommandPalette, type PaletteSection } from "./CommandPalette";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const SECTIONS: PaletteSection[] = [
   {
@@ -27,7 +28,7 @@ describe("CommandPalette", () => {
     // The list is windowed: the browser's geometry, pinned.
     restore = pinListViewport("palette__list", 400, 640, 34);
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the host element"));
     onPick = vi.fn();
     onClose = vi.fn();
     act(() =>
@@ -49,14 +50,14 @@ describe("CommandPalette", () => {
     act(() => root.render(createElement(CommandPalette, { label: "Blocked by", placeholder: "Find…", sections: many, empty: "none", onPick, onClose })));
     expect(document.querySelectorAll(".palette__item").length).toBeLessThan(40);
     key("ArrowUp");
-    const list = document.querySelector<HTMLElement>(".palette__list")!;
+    const list = present(document.querySelector<HTMLElement>(".palette__list"), "the palette list");
     expect(list.scrollTop).toBeGreaterThan(0);
     // The browser tells the list it scrolled; the row is mounted then.
     act(() => list.dispatchEvent(new Event("scroll")));
     // Wrapped to the last row: revealed, so mounted.
     expect(document.querySelector(".palette__item--active .palette__label")?.textContent).toBe("task-499  Work");
     // Named to the field, with its place in the whole list.
-    const active = document.querySelector<HTMLElement>(".palette__item--active")!;
+    const active = present(document.querySelector<HTMLElement>(".palette__item--active"), "the active palette item");
     expect(field().getAttribute("aria-activedescendant")).toBe(active.id);
     expect([active.getAttribute("aria-posinset"), active.getAttribute("aria-setsize")]).toEqual(["500", "500"]);
     // Scrolled away by hand: the row leaves the page, and the field names nothing.
@@ -68,12 +69,16 @@ describe("CommandPalette", () => {
     expect(field().hasAttribute("aria-activedescendant")).toBe(false);
   });
 
-  const field = () => document.querySelector<HTMLInputElement>(".palette__field")!;
-  const rows = () => [...document.querySelectorAll<HTMLElement>(".palette__item")].map((row) => row.querySelector(".palette__label")!.textContent);
+  const field = () => present(document.querySelector<HTMLInputElement>(".palette__field"), "the palette search field");
+  const rows = () => [...document.querySelectorAll<HTMLElement>(".palette__item")].map((row) => present(row.querySelector(".palette__label"), "the palette row label").textContent);
   const sections = () => [...document.querySelectorAll(".palette__section")].map((s) => s.textContent);
   const type = (text: string) =>
     act(() => {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(field(), text);
+      const { set } = present(
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value"),
+        "the native value descriptor",
+      );
+      present(set, "the native value setter").call(field(), text);
       field().dispatchEvent(new Event("input", { bubbles: true }));
     });
   const key = (k: string) => act(() => field().dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true })));
@@ -112,9 +117,9 @@ describe("CommandPalette", () => {
   });
 
   it("closes on Escape, and on a press on the backdrop — not on one inside the panel", () => {
-    act(() => document.querySelector(".palette")!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })));
+    act(() => present(document.querySelector(".palette"), "the palette").dispatchEvent(new MouseEvent("mousedown", { bubbles: true })));
     expect(onClose).not.toHaveBeenCalled();
-    act(() => document.querySelector(".palette__backdrop")!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })));
+    act(() => present(document.querySelector(".palette__backdrop"), "the palette backdrop").dispatchEvent(new MouseEvent("mousedown", { bubbles: true })));
     expect(onClose).toHaveBeenCalledTimes(1);
     act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
     expect(onClose).toHaveBeenCalledTimes(2);
@@ -132,7 +137,7 @@ describe("CommandPalette", () => {
     const opener = document.createElement("button");
     document.body.append(opener);
     opener.focus();
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the host element"));
     act(() => root.render(createElement(CommandPalette, { label: "x", placeholder: "x", sections: SECTIONS, empty: "x", onPick, onClose })));
     expect(document.activeElement).toBe(field());
     act(() => root.render(createElement("span")));

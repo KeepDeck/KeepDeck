@@ -3,6 +3,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 import { Tooltip } from "./Tooltip";
+import { present } from "@keepdeck/plugin-api/testing";
 
 let root: Root;
 afterEach(() => act(() => root.unmount()));
@@ -31,11 +32,11 @@ const over = (target: Element, type: string) =>
 describe("Tooltip", () => {
   it("shows the tip while hovered, hides it after", () => {
     const host = render();
-    const anchor = host.querySelector(".kd-tip__anchor")!;
+    const anchor = present(host.querySelector(".kd-tip__anchor"), "the tooltip anchor");
     expect(document.querySelector('[role="tooltip"]')).toBeNull();
     over(anchor, "mouseover");
     // Portaled to the BODY — a scrolling ancestor must never clip it.
-    const tip = document.querySelector('[role="tooltip"]')!;
+    const tip = present(document.querySelector('[role="tooltip"]'), "the tooltip");
     expect(tip.parentElement).toBe(document.body);
     expect(tip.textContent).toBe("the detail card");
     over(anchor, "mouseout");
@@ -48,7 +49,7 @@ describe("Tooltip", () => {
     // to dismiss the card, and it covered the thing the press had just asked
     // for.
     const host = render();
-    const anchor = host.querySelector(".kd-tip__anchor")!;
+    const anchor = present(host.querySelector(".kd-tip__anchor"), "the tooltip anchor");
     over(anchor, "mouseover");
     expect(document.querySelector('[role="tooltip"]')).not.toBeNull();
     act(() => {

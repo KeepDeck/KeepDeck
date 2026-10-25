@@ -4,6 +4,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ModalOverlay } from "./ModalOverlay";
+import { present } from "@keepdeck/plugin-api/testing";
 
 describe("ModalOverlay", () => {
   let stage: HTMLElement;
@@ -37,7 +38,7 @@ describe("ModalOverlay", () => {
         ),
       ),
     );
-    const at = (id: string) => document.getElementById(id)!;
+    const at = (id: string) => present(document.getElementById(id), `the #${id} element`);
     const tab = (shiftKey: boolean) => {
       const event = new KeyboardEvent("keydown", { key: "Tab", shiftKey, bubbles: true, cancelable: true });
       act(() => (document.activeElement as HTMLElement).dispatchEvent(event));
@@ -61,13 +62,12 @@ describe("ModalOverlay", () => {
       ),
     );
 
-    const overlay = document.querySelector(".modal-overlay");
-    expect(overlay).not.toBeNull();
+    const overlay = present(document.querySelector(".modal-overlay"), "the modal overlay");
     // The whole point: it escaped the partial-window stage and now lives at the
     // top of <body>, so it can cover (and block) the entire app.
     expect(stage.contains(overlay)).toBe(false);
-    expect(overlay!.parentElement).toBe(document.body);
-    expect(overlay!.textContent).toBe("hi");
+    expect(overlay.parentElement).toBe(document.body);
+    expect(overlay.textContent).toBe("hi");
   });
 
   it("declares itself a drop blocker — eating clicks does not stop a file drop", () => {
@@ -104,7 +104,7 @@ describe("ModalOverlay", () => {
     // focus and every key over the dialog still reached the agent.
     expect(stage.hasAttribute("inert")).toBe(true);
     expect(
-      document.querySelector(".modal-overlay")!.hasAttribute("inert"),
+      present(document.querySelector(".modal-overlay"), "the modal overlay").hasAttribute("inert"),
     ).toBe(false);
 
     act(() => root.unmount());
@@ -161,7 +161,7 @@ describe("ModalOverlay", () => {
     }
 
     act(() => root.render(createElement(Stack, { confirm: false })));
-    const dialog = document.querySelector(".modal-overlay")!;
+    const dialog = present(document.querySelector(".modal-overlay"), "the modal overlay");
 
     act(() => root.render(createElement(Stack, { confirm: true })));
     const layers = document.querySelectorAll(".modal-overlay");

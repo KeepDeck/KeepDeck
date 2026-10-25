@@ -11,6 +11,7 @@ const plugin = vi.hoisted(() => ({
 vi.mock("@tauri-apps/plugin-log", () => plugin);
 
 import { initLogging, log } from "./log";
+import { present } from "@keepdeck/plugin-api/testing";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -70,7 +71,7 @@ describe("initLogging", () => {
     window.dispatchEvent(
       new ErrorEvent("error", { message: "boom", error: thrown }),
     );
-    const shipped = plugin.error.mock.lastCall![0];
+    const shipped = present(plugin.error.mock.lastCall, "the last logged plugin error")[0];
     const lines = shipped.split("\n");
     // Message line + at most 8 frames, none longer than its cap.
     expect(lines.length).toBe(9);
