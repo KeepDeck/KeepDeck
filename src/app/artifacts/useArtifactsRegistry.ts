@@ -11,7 +11,7 @@ import {
   artifactsEnableStatus,
   refusalOf,
 } from "./enableStatus";
-import { openArtifactByRef } from "./entryPoints";
+import { useArtifactOpener } from "./useArtifactOpener";
 import { deleteArtifact } from "./remove";
 import type {
   ArtifactMetaRow,
@@ -158,16 +158,17 @@ export function useArtifactsRegistry(
     };
   }, [workspaceId, revision, reads]);
 
+  const openArtifact = useArtifactOpener();
   const open = useCallback(
     (id: string) => {
       if (workspaceId === null) return;
       setBusyId(id);
-      void openArtifactByRef(workspaceId, id)
+      void openArtifact(workspaceId, id)
         .then(() => setError(null))
         .catch((e: unknown) => setError(errorMessage(e)))
         .finally(() => setBusyId((current) => (current === id ? null : current)));
     },
-    [workspaceId],
+    [workspaceId, openArtifact],
   );
 
   const toggleVersions = useCallback(

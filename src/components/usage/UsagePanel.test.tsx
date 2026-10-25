@@ -12,12 +12,9 @@ vi.mock("../../app/useUsageHistorySnapshot", () => ({
   }),
 }));
 
-vi.mock("../../app/settingsManager", () => ({
-  updateSettings: vi.fn(),
-  getSettings: () => null,
-  subscribeSettings: () => () => {},
-  initSettings: async () => {},
-}));
+vi.mock("../../app/useSettings", async () =>
+  (await import("../../app/testing")).settingsHooksOver({ current: null }, vi.fn()),
+);
 
 import type { AgentInfo } from "../../domain/agents";
 import type { AccountUsage } from "../../domain/usage";

@@ -20,8 +20,8 @@ import type { ArtifactsRegistryReadPort } from "../../app/artifacts/registryRead
 
 // The registry's reads are a port the dialog is handed; the open-by-identity
 // ladder is doubled at its IPC edge so a click on an attachment is observed.
-vi.mock("../../app/artifacts/entryPoints", () => ({ openArtifactByRef: vi.fn(async () => "http://x") }));
-import { openArtifactByRef } from "../../app/artifacts/entryPoints";
+const openArtifact = vi.hoisted(() => vi.fn(async (_workspaceId: string, _ref: string | null) => "http://x"));
+vi.mock("../../app/artifacts/useArtifactOpener", () => ({ useArtifactOpener: () => openArtifact }));
 import { present } from "@keepdeck/plugin-api/testing";
 
 const registry: { rows: { id: string; title: string }[] } = { rows: [] };
@@ -32,21 +32,8 @@ const artifactReads: ArtifactsRegistryReadPort = {
 
 // The settings owner as a live in-memory store: the dialog reads the
 // list's folds from it and writes them back on a toggle.
-const settingsStore = vi.hoisted(() => ({
-  current: null as Settings | null,
-  listeners: new Set<() => void>(),
-}));
-vi.mock("../../app/settingsManager", () => ({
-  getSettings: () => settingsStore.current,
-  subscribeSettings: (listener: () => void) => {
-    settingsStore.listeners.add(listener);
-    return () => settingsStore.listeners.delete(listener);
-  },
-  updateSettings: (patch: Partial<Settings>) => {
-    settingsStore.current = { ...present(settingsStore.current, "current settings"), ...patch };
-    for (const listener of settingsStore.listeners) listener();
-  },
-}));
+const settingsStore = vi.hoisted(() => ({ current: null as Settings | null }));
+vi.mock("../../app/useSettings", async () => (await import("../../app/testing")).settingsHooksOver(settingsStore));
 
 /** The workspace's folded epics as the deck keeps them — its view's —
  * here a plain value the dialog's writes replace. */
@@ -960,7 +947,7 @@ describe("TasksDialog", () => {
     const row = present(buttons().find((b) => b.textContent === "KeepDeck Tasks"), "button \"KeepDeck Tasks\"");
     expect(row.title).toContain("kd-tasks");
     act(() => row.click());
-    expect(openArtifactByRef).toHaveBeenCalledWith("ws-1", "kd-tasks");
+    expect(openArtifact).toHaveBeenCalledWith("ws-1", "kd-tasks");
     act(() => present(document.querySelector<HTMLButtonElement>('button[aria-label="Detach kd-tasks"]'), "element 'button[aria-label=\"Detach kd-tasks\"]'").click());
     await flush();
     state = service.peek("ws-1");

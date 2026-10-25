@@ -35,10 +35,12 @@ const sessions = vi.hoisted(() => {
     },
   };
 });
-vi.mock("../../app/ptyManager", () => ({
-  paneSessionState: () => sessions.read(),
-  subscribeSessions: sessions.subscribe,
-}));
+vi.mock("../../app/usePaneSessionState", async () => {
+  const { useSyncExternalStore } = await import("react");
+  return {
+    usePaneSessionState: () => useSyncExternalStore(sessions.subscribe, sessions.read, sessions.read),
+  };
+});
 
 import type { AgentStatusEvent, NormalizedUsage } from "@keepdeck/plugin-api";
 import type { PaneIdle } from "../../domain/deck";

@@ -15,6 +15,7 @@ import {
   type SessionIndexSnapshot,
 } from "../../app/testing";
 import type { AgentHistory } from "@keepdeck/plugin-api";
+import type { HistorySource, ScanReport } from "../../app/historyScan";
 import type {
   AgentDialogResult,
   DirectoryState,
@@ -1515,12 +1516,12 @@ describe("AgentDialog picker ↔ sessionIndexManager (integration)", () => {
   let host: HTMLElement;
   let root: Root;
 
-  // The scan seam: batchy — one landed batch fires immediately, the pass
-  // settles only when `finish()` says so (the long first catch-up shape).
-  const scans = vi.hoisted(() => ({
-    scanAgentHistories: vi.fn((..._args: unknown[]) => Promise.resolve()),
-  }));
-  vi.mock("../../app/historyScan", () => scans);
+  // The scan seam, handed to the real manager: batchy — one landed batch
+  // fires immediately, the pass settles only when `finish()` says so (the
+  // long first catch-up shape).
+  const scan = vi.fn(
+    (_sources: HistorySource[], _onBatch: () => void): Promise<ScanReport> => Promise.resolve({ dropped: [] }),
+  );
 
   // The scan seam is mocked, so no store is ever read; the registry only
   // needs a history to exist per agent.
@@ -1563,17 +1564,17 @@ describe("AgentDialog picker ↔ sessionIndexManager (integration)", () => {
     root = createRoot(host);
     catalog.supportsResume = true;
     catalog.supportsFork = true;
-    scans.scanAgentHistories.mockReset();
+    scan.mockReset();
     // A pass that neither batches nor settles until the test drives it —
     // the long first catch-up shape, observed from outside.
-    scans.scanAgentHistories.mockImplementation(
-      (...args: unknown[]) =>
-        new Promise<void>((resolve) => {
-          landBatch = () => (args[2] as (() => void) | undefined)?.();
-          finishScan = resolve;
+    scan.mockImplementation(
+      (_sources, onBatch) =>
+        new Promise<ScanReport>((resolve) => {
+          landBatch = onBatch;
+          finishScan = () => resolve({ dropped: [] });
         }),
     );
-    sessionIndexRef.current = createSessionIndexManager(makeRegistry());
+    sessionIndexRef.current = createSessionIndexManager(makeRegistry(), { scan });
     catalog.extraAgents = [
       {
         id: "codex",
@@ -1647,10 +1648,8 @@ describe("AgentDialog picker ↔ sessionIndexManager (integration)", () => {
     act(() => modeBtn("Fork").click());
 
     // The declaration ran the scan for the SELECTED agent's store only.
-    expect(scans.scanAgentHistories).toHaveBeenCalledTimes(1);
-    const sources = scans.scanAgentHistories.mock.calls[0][0] as Array<{
-      agentId: string;
-    }>;
+    expect(scan).toHaveBeenCalledTimes(1);
+    const [sources] = present(scan.mock.calls[0], "the first scan");
     expect(sources.map((s) => s.agentId)).toEqual(["claude"]);
 
     // The mount query lists once…
@@ -1687,14 +1686,12 @@ describe("AgentDialog picker ↔ sessionIndexManager (integration)", () => {
     await act(async () => {});
     // The claude pass is still running and does not cover codex — the need
     // chains, it must not fire a concurrent second scan.
-    expect(scans.scanAgentHistories).toHaveBeenCalledTimes(1);
+    expect(scan).toHaveBeenCalledTimes(1);
 
     await act(async () => finishScan());
     await act(async () => {});
-    expect(scans.scanAgentHistories).toHaveBeenCalledTimes(2);
-    const sources = scans.scanAgentHistories.mock.calls[1][0] as Array<{
-      agentId: string;
-    }>;
+    expect(scan).toHaveBeenCalledTimes(2);
+    const [sources] = present(scan.mock.calls[1], "the second scan");
     expect(sources.map((s) => s.agentId)).toEqual(["codex"]);
   });
 });

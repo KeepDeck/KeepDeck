@@ -61,10 +61,15 @@ const sessions = vi.hoisted(() => {
     },
   };
 });
-vi.mock("../app/ptyManager", () => ({
-  paneSessionState: (paneId: string) => sessions.read(paneId),
-  subscribeSessions: sessions.subscribe,
-}));
+vi.mock("../app/usePaneSessionState", async () => {
+  const { useCallback, useSyncExternalStore } = await import("react");
+  return {
+    usePaneSessionState: (paneId: string) => {
+      const read = useCallback(() => sessions.read(paneId), [paneId]);
+      return useSyncExternalStore(sessions.subscribe, read, read);
+    },
+  };
+});
 
 /** The empty team's list, as the stage hands it over: its own suite
  * covers what it does with it. */

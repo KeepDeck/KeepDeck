@@ -28,9 +28,8 @@ vi.mock("./terminal/TerminalPane", () => ({
   TerminalPane: vi.fn(() => null),
 }));
 const sessions = vi.hoisted(() => ({ none: { kind: "none" } }));
-vi.mock("../app/ptyManager", () => ({
-  paneSessionState: () => sessions.none,
-  subscribeSessions: () => () => undefined,
+vi.mock("../app/usePaneSessionState", () => ({
+  usePaneSessionState: () => sessions.none,
 }));
 
 import { TerminalPane } from "./terminal/TerminalPane";

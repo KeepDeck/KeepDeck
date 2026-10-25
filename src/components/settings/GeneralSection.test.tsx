@@ -8,12 +8,10 @@ import { GeneralSection } from "./GeneralSection";
 import { present } from "@keepdeck/plugin-api/testing";
 
 const settings = vi.hoisted(() => ({ current: null as Settings | null }));
-const settingsManager = vi.hoisted(() => ({ updateSettings: vi.fn() }));
-vi.mock("../../app/settingsManager", () => ({
-  getSettings: () => settings.current,
-  subscribeSettings: () => () => {},
-  updateSettings: settingsManager.updateSettings,
-}));
+const settingsWrite = vi.hoisted(() => ({ updateSettings: vi.fn() }));
+vi.mock("../../app/useSettings", async () =>
+  (await import("../../app/testing")).settingsHooksOver(settings, settingsWrite.updateSettings),
+);
 
 // The agent catalog is a whole subsystem and none of it decides anything
 // below; an empty one just renders no agent buttons.
@@ -47,7 +45,7 @@ describe("GeneralSection — dock mode", () => {
   let root: Root;
 
   beforeEach(() => {
-    settingsManager.updateSettings.mockReset();
+    settingsWrite.updateSettings.mockReset();
     settings.current = { ...DEFAULT_SETTINGS };
     document.body.innerHTML = "";
     host = document.body.appendChild(document.createElement("div"));
@@ -97,8 +95,8 @@ describe("GeneralSection — dock mode", () => {
     mount();
     act(() => present(dockButtons().get("Floating"), "entry \"Floating\" in dockButtons()").click());
     // Only the one key: the picker must not carry its neighbours along.
-    expect(settingsManager.updateSettings).toHaveBeenCalledTimes(1);
-    expect(settingsManager.updateSettings).toHaveBeenCalledWith({
+    expect(settingsWrite.updateSettings).toHaveBeenCalledTimes(1);
+    expect(settingsWrite.updateSettings).toHaveBeenCalledWith({
       dockMode: "floating",
     });
   });
@@ -131,8 +129,8 @@ describe("GeneralSection — dock mode", () => {
     );
 
     act(() => present(suspendedButtons().get("Tray"), "entry \"Tray\" in suspendedButtons()").click());
-    expect(settingsManager.updateSettings).toHaveBeenCalledTimes(1);
-    expect(settingsManager.updateSettings).toHaveBeenCalledWith({
+    expect(settingsWrite.updateSettings).toHaveBeenCalledTimes(1);
+    expect(settingsWrite.updateSettings).toHaveBeenCalledWith({
       suspendedAgentPlacement: "tray",
     });
   });

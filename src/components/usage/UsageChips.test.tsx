@@ -12,12 +12,10 @@ import {
 import { UsageChips } from "./UsageChips";
 import { present } from "@keepdeck/plugin-api/testing";
 
-const settingsMock = vi.hoisted(() => ({
-  updateSettings: vi.fn(),
-  getSettings: () => null,
-  subscribeSettings: () => () => {},
-}));
-vi.mock("../../app/settingsManager", () => settingsMock);
+const settingsMock = vi.hoisted(() => ({ updateSettings: vi.fn() }));
+vi.mock("../../app/useSettings", async () =>
+  (await import("../../app/testing")).settingsHooksOver({ current: null }, settingsMock.updateSettings),
+);
 
 const CLAUDE: AgentInfo = {
   id: "claude",

@@ -8,19 +8,17 @@ import { ExperimentalSection } from "./ExperimentalSection";
 import { present } from "@keepdeck/plugin-api/testing";
 
 const settings = vi.hoisted(() => ({ current: null as Settings | null }));
-const settingsManager = vi.hoisted(() => ({ updateSettings: vi.fn() }));
-vi.mock("../../app/settingsManager", () => ({
-  getSettings: () => settings.current,
-  subscribeSettings: () => () => {},
-  updateSettings: settingsManager.updateSettings,
-}));
+const settingsWrite = vi.hoisted(() => ({ updateSettings: vi.fn() }));
+vi.mock("../../app/useSettings", async () =>
+  (await import("../../app/testing")).settingsHooksOver(settings, settingsWrite.updateSettings),
+);
 
 describe("ExperimentalSection", () => {
   let host: HTMLElement;
   let root: Root;
 
   beforeEach(() => {
-    settingsManager.updateSettings.mockReset();
+    settingsWrite.updateSettings.mockReset();
     settings.current = { ...DEFAULT_SETTINGS };
     document.body.innerHTML = "";
     host = document.body.appendChild(document.createElement("div"));
@@ -41,7 +39,7 @@ describe("ExperimentalSection", () => {
     mount();
     expect(present(buttons().get("Off"), "entry \"Off\" in buttons()").className).toContain("form__type--active");
     act(() => present(buttons().get("On"), "entry \"On\" in buttons()").click());
-    expect(settingsManager.updateSettings).toHaveBeenCalledWith({
+    expect(settingsWrite.updateSettings).toHaveBeenCalledWith({
       remoteAgents: true,
     });
 

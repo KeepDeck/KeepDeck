@@ -8,12 +8,10 @@ import { ArtifactsRows } from "./ArtifactsRows";
 import { present } from "@keepdeck/plugin-api/testing";
 
 const settings = vi.hoisted(() => ({ current: null as Settings | null }));
-const settingsManager = vi.hoisted(() => ({ updateSettings: vi.fn() }));
-vi.mock("../../app/settingsManager", () => ({
-  getSettings: () => settings.current,
-  subscribeSettings: () => () => {},
-  updateSettings: settingsManager.updateSettings,
-}));
+const settingsWrite = vi.hoisted(() => ({ updateSettings: vi.fn() }));
+vi.mock("../../app/useSettings", async () =>
+  (await import("../../app/testing")).settingsHooksOver(settings, settingsWrite.updateSettings),
+);
 // Only the confirmed socket matters here; the rest of the status belongs
 // to the MCP row beneath these.
 const mcpStatus = vi.hoisted(() => ({ socket: null as string | null }));
@@ -32,7 +30,7 @@ describe("ArtifactsRows", () => {
   let root: Root;
 
   beforeEach(() => {
-    settingsManager.updateSettings.mockReset();
+    settingsWrite.updateSettings.mockReset();
     settings.current = { ...DEFAULT_SETTINGS };
     mcpStatus.socket = null;
     document.body.innerHTML = "";
@@ -64,11 +62,11 @@ describe("ArtifactsRows", () => {
     settings.current = { ...DEFAULT_SETTINGS, artifacts: true };
     mount();
     act(() => present(rowButtons("Fleet artifacts").get("Off"), "entry \"Off\" in rowButtons(\"Fleet artifacts\")").click());
-    expect(settingsManager.updateSettings).toHaveBeenCalledWith({
+    expect(settingsWrite.updateSettings).toHaveBeenCalledWith({
       artifacts: false,
     });
     act(() => present(rowButtons("Auto-open artifacts").get("Off"), "entry \"Off\" in rowButtons(\"Auto-open artifacts\")").click());
-    expect(settingsManager.updateSettings).toHaveBeenCalledWith({
+    expect(settingsWrite.updateSettings).toHaveBeenCalledWith({
       artifactAutoOpen: false,
     });
   });

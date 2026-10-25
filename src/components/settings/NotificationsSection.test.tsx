@@ -14,18 +14,10 @@ const notifyIpc = vi.hoisted(() => ({
 vi.mock("../../app/runtimeContext", async () =>
   (await import("../../app/runtimeContext.test-support")).runtimePartsModule({ notificationPermission: notifyIpc }));
 
-const settings = vi.hoisted(() => ({
-  current: null as Settings | null,
-  listeners: new Set<() => void>(),
-}));
-vi.mock("../../app/settingsManager", () => ({
-  getSettings: () => settings.current,
-  subscribeSettings: (cb: () => void) => {
-    settings.listeners.add(cb);
-    return () => settings.listeners.delete(cb);
-  },
-  updateSettings: vi.fn(),
-}));
+const settings = vi.hoisted(() => ({ current: null as Settings | null }));
+vi.mock("../../app/useSettings", async () =>
+  (await import("../../app/testing")).settingsHooksOver(settings, vi.fn()),
+);
 
 const flush = () => act(() => new Promise<void>((r) => setTimeout(r, 0)));
 

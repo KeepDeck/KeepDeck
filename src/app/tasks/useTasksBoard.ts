@@ -2,14 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import type { TasksAccess } from "./tasksFeature";
 import { useTasksBoardFeed } from "./useBoardState";
 import { artifactChanges } from "../artifacts/changes";
-import { openArtifactByRef } from "../artifacts/entryPoints";
+import { useArtifactOpener } from "../artifacts/useArtifactOpener";
 import type { ArtifactsRegistryReadPort } from "../artifacts/registryRead";
 
 import { isTypingTarget } from "../../ui/typingTarget";
 import { refusalOf, tasksEnableStatus } from "./enableStatus";
 import { readyBoard, type TaskProblem } from "./tasksService";
-import { getSettings, updateSettings } from "../settingsManager";
-import { useSettings } from "../useSettings";
+import { useSettings, useSettingsNow, useSettingsWrite } from "../useSettings";
 import { DEFAULT_SETTINGS, type TasksBoardSettings } from "../../domain/settings";
 import { refusalText } from "./refusalText";
 import { teamsOf, type Workspace } from "../../domain/deck";
@@ -182,6 +181,9 @@ export function useTasksBoard(
   // openings and launches (user); every change reads the latest stored
   // posture, so a change that lands later never writes back a stale one.
   const posture = (useSettings() ?? DEFAULT_SETTINGS).tasksBoard;
+  const settingsNow = useSettingsNow();
+  const updateSettings = useSettingsWrite();
+  const openArtifactAt = useArtifactOpener();
   const folded = useMemo(() => boardFolded(posture), [posture]);
   // The folded epics are the workspace's view — they come and go with its
   // board, which app-wide settings cannot follow.
@@ -190,7 +192,7 @@ export function useTasksBoard(
   // eases a change of it, and only that (VirtualList easeKey).
   const folds = useMemo(() => ({ groups: folded, epics: foldedEpics }), [folded, foldedEpics]);
   const keepPosture = (change: (stored: TasksBoardSettings) => TasksBoardSettings | null) => {
-    const next = change((getSettings() ?? DEFAULT_SETTINGS).tasksBoard);
+    const next = change((settingsNow() ?? DEFAULT_SETTINGS).tasksBoard);
     if (next !== null) updateSettings({ tasksBoard: next });
   };
 
@@ -458,7 +460,7 @@ export function useTasksBoard(
      * ladder resolves the live address at the click. */
     openArtifact: (slug: string) => {
       if (workspaceId === null) return;
-      void openArtifactByRef(workspaceId, slug)
+      void openArtifactAt(workspaceId, slug)
         .then(() => setError(null))
         .catch((e: unknown) => setError(errorMessage(e)));
     },

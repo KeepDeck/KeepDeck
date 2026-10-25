@@ -16,9 +16,6 @@ vi.mock("../../ipc/notify", () => ({
   sendSystemNotification: vi.fn(),
   ensureNotificationPermission: vi.fn(() => Promise.resolve(true)),
 }));
-vi.mock("../../app/settingsManager", () => ({
-  getSettings: () => null, // defaults: enabled, system-and-app
-}));
 
 const paneSource = {
   type: "pane",

@@ -9,12 +9,10 @@ import { TasksRows } from "./TasksRows";
 import { present } from "@keepdeck/plugin-api/testing";
 
 const settings = vi.hoisted(() => ({ current: null as Settings | null }));
-const settingsManager = vi.hoisted(() => ({ updateSettings: vi.fn() }));
-vi.mock("../../app/settingsManager", () => ({
-  getSettings: () => settings.current,
-  subscribeSettings: () => () => {},
-  updateSettings: settingsManager.updateSettings,
-}));
+const settingsWrite = vi.hoisted(() => ({ updateSettings: vi.fn() }));
+vi.mock("../../app/useSettings", async () =>
+  (await import("../../app/testing")).settingsHooksOver(settings, settingsWrite.updateSettings),
+);
 const mcpStatus = vi.hoisted(() => ({ socket: null as string | null }));
 vi.mock("../../app/mcp/useMcpStatus", () => ({
   useMcpStatus: () => ({
@@ -31,7 +29,7 @@ describe("TasksRows", () => {
   let root: Root;
 
   beforeEach(() => {
-    settingsManager.updateSettings.mockReset();
+    settingsWrite.updateSettings.mockReset();
     settings.current = { ...DEFAULT_SETTINGS };
     mcpStatus.socket = null;
     document.body.innerHTML = "";
@@ -53,7 +51,7 @@ describe("TasksRows", () => {
     mount();
     expect(present(buttons().get("Off"), "entry \"Off\" in buttons()").className).toContain("form__type--active");
     act(() => present(buttons().get("On"), "entry \"On\" in buttons()").click());
-    expect(settingsManager.updateSettings).toHaveBeenCalledWith({ tasks: true });
+    expect(settingsWrite.updateSettings).toHaveBeenCalledWith({ tasks: true });
     settings.current = { ...DEFAULT_SETTINGS, tasks: true };
     mount();
     expect(present(buttons().get("On"), "entry \"On\" in buttons()").className).toContain("form__type--active");

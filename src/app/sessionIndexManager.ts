@@ -86,6 +86,9 @@ export interface SessionIndexOptions {
   now?: () => number;
   /** The index's keyed lookup; the IPC command unless a test hands one in. */
   lookup?: (keys: IndexLookupKey[]) => Promise<IndexLookupAnswer[]>;
+  /** One scan pass over `sources`, calling `onBatch` after every landed
+   * batch; the real walk over the stores unless a test hands one in. */
+  scan?: (sources: HistorySource[], onBatch: () => void) => Promise<ScanReport>;
 }
 
 /** Merge two needs into the one pass that satisfies both: identical scopes
@@ -118,6 +121,7 @@ export function createSessionIndexManager(
 ): SessionIndexManager {
   const now = options.now ?? (() => Date.now());
   const lookup = options.lookup ?? indexLookup;
+  const scan = options.scan ?? ((sources, onBatch) => scanAgentHistories(sources, undefined, onBatch));
   let snapshot: SessionIndexSnapshot = {
     scanning: false,
     revision: 0,
@@ -219,7 +223,7 @@ export function createSessionIndexManager(
     // the SINGLE settle publish in `.finally` — two publishes would
     // double-bump the revision.
     let invalidNow: Set<string> | null = null;
-    void scanAgentHistories(sources, undefined, () => {
+    void scan(sources, () => {
       // A batch landed: bump the revision so subscribed listings refresh
       // while the scan is still filling the index.
       publish({ scanning: true, revision: snapshot.revision + 1 });

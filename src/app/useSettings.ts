@@ -24,3 +24,14 @@ const write: SettingsWrite = (patch) => updateSettings(patch);
 export function useSettingsWrite(): SettingsWrite {
   return write;
 }
+
+const now = (): Settings | null => getSettings();
+
+/**
+ * The settings as they stand at the moment of asking — for a write computed
+ * from the current value, which the last render's snapshot may already be
+ * behind (two changes landing before a re-render).
+ */
+export function useSettingsNow(): () => Settings | null {
+  return now;
+}
