@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { Pane } from "../domain/deck";
 import type { DeckStore } from "./deckStore";
+import { deckStateOf } from "./deckStore.testSupport";
 import type { SessionBound } from "../ipc/sessions";
 
 const bridge = vi.hoisted(() => ({
@@ -52,41 +54,30 @@ describe("createSessionBinding", () => {
 
   const mount = (
     sessionId?: string,
-    pane: Record<string, unknown> = { agentType: "claude" },
+    pane: Omit<Pane, "id"> = { agentType: "claude" },
   ) => {
     const state = {
-      workspaces: [
+      ...deckStateOf([
         {
-          id: "ws-1",
-          instance: "instance-1",
-          name: "workspace",
-          cwd: "/repo",
-          worktreeBaseDir: null,
-          panes: [
-            {
-              id: "pane-1",
-              ...pane,
-              ...(sessionId
-                ? { session: { id: sessionId, boundAt: "2026-07-22T00:00:00Z" } }
-                : {}),
-            },
-          ],
+          id: "pane-1",
+          ...pane,
+          ...(sessionId
+            ? { session: { id: sessionId, boundAt: "2026-07-22T00:00:00Z" } }
+            : {}),
         },
-      ],
+      ]),
       activeId: "ws-1",
-      viewByWs: {},
-      journal: { records: {}, tail: [] },
     };
-    const dispatch = vi.fn(() => state);
-    const store = {
+    const dispatch = vi.fn<DeckStore["dispatch"]>(() => state);
+    const store: DeckStore = {
       getSnapshot: () => state,
       subscribe: () => () => {},
       dispatch,
-    } as unknown as DeckStore;
+    };
     // The REAL rule, over stub deps: a fake here would only assert that the
     // binding calls something, not that the rule it calls is the one shipping.
     const attribution = createPaneAttribution({
-      workspaces: () => state.workspaces as never,
+      workspaces: () => state.workspaces,
       secretOf: () => "tok",
     });
     return {

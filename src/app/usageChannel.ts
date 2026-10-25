@@ -2,7 +2,6 @@ import type {
   AgentContribution,
   AgentUsage,
 } from "@keepdeck/plugin-api";
-import type { ContributionRegistry } from "../plugins/registries/contributions";
 import type { DeckStore } from "./deckStore";
 import type { UsageManager } from "./usageManager";
 import { createUsageLimitsLane } from "./usageChannelLimits";
@@ -20,10 +19,21 @@ export interface UsageChannel {
   dispose(): void;
 }
 
+/** The agents registry as the channel reads it: each agent's usage
+ * declaration, the tail and companion it names, and when the set changes.
+ * The contribution registry is one; a test's list of declarations is
+ * another, with nothing else to fake. */
+export interface UsageDeclarationsPort {
+  list(): readonly {
+    readonly entry: Pick<AgentContribution, "id" | "usage" | "status" | "companion">;
+  }[];
+  subscribe(listener: () => void): () => void;
+}
+
 /** App-lifetime composition of all declared usage ingestion lanes. */
 export function createUsageChannel(
   deck: DeckStore,
-  agents: ContributionRegistry<AgentContribution>,
+  agents: UsageDeclarationsPort,
   usage: UsageManager,
   attribution: PaneAttribution,
   bindings: SessionBinding,

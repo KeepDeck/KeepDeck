@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { AgentContribution, AgentStatus } from "@keepdeck/plugin-api";
+import type { AgentStatus } from "@keepdeck/plugin-api";
 import {
   attributeClaudeEvent,
   CLAUDE_MAIL_CHANNELS,
@@ -13,13 +13,15 @@ import {
   renderCodexMail,
 } from "../../../plugins/codex/src/status";
 import { createAgentStatusTracker } from "../agentStatusTracker";
-import { createAgentStatusChannel } from "../agentStatusChannel";
+import {
+  createAgentStatusChannel,
+  type StatusDeclarationsPort,
+} from "../agentStatusChannel";
 import { createPaneAttribution } from "../paneAttribution";
-import type { DeckStore } from "../deckStore";
+import { deckStoreOf } from "../deckStore.testSupport";
 import type { PaneReportEvent } from "../verifiedPaneReports";
-import type { ContributionRegistry } from "../../plugins/registries/contributions";
 import { createMailManager } from "./mailManager";
-import { createHookReplies } from "./hookReply";
+import { createHookReplies, type HookReplyDeps } from "./hookReply";
 
 const ipc = vi.hoisted(() => ({ handler: undefined as ((report: PaneReportEvent) => void) | undefined }));
 vi.mock("../../ipc/status", () => ({ onAgentStatus: async (fn: typeof ipc.handler) => {
@@ -63,15 +65,15 @@ async function setup(dialect = dialects[0]) {
   let resolve!: (delivered: boolean) => void;
   let reject!: (error: Error) => void;
   const delivery = new Promise<boolean>((yes, no) => { resolve = yes; reject = no; });
-  const reply = vi.fn(() => delivery);
+  const reply = vi.fn<HookReplyDeps["reply"]>(() => delivery);
   const replies = createHookReplies({ mail: () => manager,
     statusFor: () => dialect.status, versionOf: () => dialect.version, reply,
     teamOf: () => null });
-  const deck = { getSnapshot: () => ({ workspaces: [{ id: "ws", panes: [
-    { id: "pane", agentType: dialect.agent },
-  ] }] }), subscribe: () => () => {} } as unknown as DeckStore;
-  const agents = { list: () => [{ entry: { id: dialect.agent, status: dialect.status } }],
-    subscribe: () => () => {} } as unknown as ContributionRegistry<AgentContribution>;
+  const deck = deckStoreOf([{ id: "pane", agentType: dialect.agent }]);
+  const agents: StatusDeclarationsPort = {
+    list: () => [{ entry: { id: dialect.agent, status: dialect.status } }],
+    subscribe: () => () => {},
+  };
   const released = vi.fn();
   let live = true;
   const channel = createAgentStatusChannel(deck, agents, tracker,
@@ -130,7 +132,7 @@ describe("verified status → mail handover → delivered hook reply", () => {
     expect(h.activity()).toMatchObject({ state: "waiting", since: 150 });
     // Each ask is answered — with nothing, so its hook does not wait out a
     // timeout — and the message stays queued.
-    const bodies = () => (h.reply.mock.calls as unknown as string[][]).map((call) => call[2]);
+    const bodies = () => h.reply.mock.calls.map((call) => call[2]);
     expect(bodies()).toEqual(["", ""]);
     expect(h.manager.waiting("pane")).toBe(1);
     // The main agent's own boundary still collects it.

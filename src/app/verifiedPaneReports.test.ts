@@ -1,6 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { DeckStore } from "./deckStore";
-import type { PaneReportEvent } from "./verifiedPaneReports";
+import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
+import type { DeckWatch } from "./deckStore";
+import { deckStoreOf } from "./deckStore.testSupport";
+import type {
+  PaneReportEvent,
+  VerifiedPaneReportsOptions,
+} from "./verifiedPaneReports";
 import { createVerifiedPaneReports } from "./verifiedPaneReports";
 import { createPaneAttribution } from "./paneAttribution";
 
@@ -20,17 +24,7 @@ vi.mock("../ipc/log", () => ({
 /** A deck store holding exactly one workspace with the given panes, each
  * running claude — the agent a report has to claim to be believed. */
 const deckWith = (...paneIds: string[]) =>
-  ({
-    getSnapshot: () => ({
-      workspaces: [
-        {
-          id: "ws-1",
-          panes: paneIds.map((id) => ({ id, agentType: "claude" })),
-        },
-      ],
-    }),
-    subscribe: () => () => {},
-  }) as unknown as DeckStore;
+  deckStoreOf(paneIds.map((id) => ({ id, agentType: "claude" })));
 
 /** The shape every lane carries: correlation plus the reporter's name. */
 const fromClaude = (paneId: string, token = "tok"): PaneReportEvent => ({
@@ -41,16 +35,16 @@ const fromClaude = (paneId: string, token = "tok"): PaneReportEvent => ({
 
 describe("createVerifiedPaneReports", () => {
   let handler: ((report: PaneReportEvent) => void) | null;
-  let unlisten: ReturnType<typeof vi.fn>;
-  let apply: ReturnType<typeof vi.fn>;
+  let unlisten: Mock<() => void>;
+  let apply: Mock<VerifiedPaneReportsOptions["apply"]>;
 
-  const subscribe = vi.fn(async (h: (report: PaneReportEvent) => void) => {
+  const subscribe = vi.fn<VerifiedPaneReportsOptions["subscribe"]>(async (h) => {
     handler = h;
-    return unlisten as unknown as () => void;
+    return unlisten;
   });
 
   const start = (
-    deck: DeckStore,
+    deck: DeckWatch,
     over: Partial<
       Parameters<typeof createVerifiedPaneReports>[2]
     > = {},
@@ -183,7 +177,7 @@ describe("createVerifiedPaneReports", () => {
     const lateUnlisten = vi.fn();
     const early = start(deckWith("pane-1"));
     early.dispose();
-    resolve(lateUnlisten as unknown as () => void);
+    resolve(lateUnlisten);
     await Promise.resolve();
     expect(lateUnlisten).toHaveBeenCalledTimes(1);
   });

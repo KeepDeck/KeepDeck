@@ -2,30 +2,34 @@
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
-  AgentContribution,
+  AgentStatus,
   AgentUsage,
   NormalizedUsage,
+  TailWatch,
 } from "@keepdeck/plugin-api";
 import { normalizeCodexRollout } from "../../plugins/codex/src/usage";
 import type { UsageReportEvent } from "../ipc/usage";
 import type { SessionBound } from "../ipc/sessions";
-import type { PaneIdle } from "../domain/deck";
-import type { ContributionRegistry } from "../plugins/registries/contributions";
+import type { DeckState, Pane } from "../domain/deck";
 import { createUsageManager, type UsageManager } from "./usageManager";
 import { createPaneAttribution } from "./paneAttribution";
 import {
   createSessionBinding,
   type SessionBinding,
 } from "./sessionBinding";
-import { createUsageChannel, type UsageChannel } from "./usageChannel";
+import {
+  createUsageChannel,
+  type UsageChannel,
+  type UsageDeclarationsPort,
+} from "./usageChannel";
 import type { DeckStore } from "./deckStore";
-import type { Deck } from "./useDeck";
+import { deckStateOf } from "./deckStore.testSupport";
 
 /** What the codex fixture's dialect asks to have carried. Shared between the
  * declaration and the assertions so the two cannot drift: what the lane must
  * pass through is exactly what the plugin declared, never a shape this file
  * invented on the way. */
-const CODEX_WATCHES = [
+const CODEX_WATCHES: TailWatch[] = [
   {
     match: [{ key: "type", equals: "event_msg" }],
     keep: ["timestamp"],
@@ -48,7 +52,7 @@ const ipc = vi.hoisted(() => ({
   // The agents contribution list the channel reads its declarations from.
   contributions: [] as {
     pluginId: string;
-    entry: { id: string; usage?: AgentUsage; status?: unknown };
+    entry: { id: string; usage?: AgentUsage; status?: AgentStatus };
   }[],
 }));
 vi.mock("../ipc/usage", () => ({
@@ -76,29 +80,11 @@ const reported = (at: number): NormalizedUsage => ({
   pane: { agent: "any", reportedAt: at },
 });
 
-/** The channel only reads `deck.workspaces` — a shaped literal is enough. */
 /** A pane runs an agent, and a report is only believed from the agent its
  * pane runs — so an unnamed pane here is a claude pane, not an agentless
  * one, which no deck ever holds. */
-const deckWith = (
-  panes: {
-    id: string;
-    agentType?: string;
-    idle?: PaneIdle;
-    session?: { id: string };
-  }[],
-): Deck =>
-  ({
-    workspaces: [
-      {
-        id: "ws-1",
-        name: "ws",
-        cwd: "/repo",
-        worktreeBaseDir: null,
-        panes: panes.map((pane) => ({ agentType: "claude", ...pane })),
-      },
-    ],
-  }) as unknown as Deck;
+const deckWith = (panes: Pane[]): DeckState =>
+  deckStateOf(panes.map((pane) => ({ agentType: "claude", ...pane })));
 
 /** The wire type itself, not a hand-copy: a local one drifted the moment
  * `agent` became required and `reporter` was added, and a fixture that
@@ -109,21 +95,21 @@ describe("createUsageChannel", () => {
   let channel: UsageChannel | null;
   let bindings: SessionBinding | null;
   let usage: UsageManager;
-  let currentDeck: Deck;
+  let currentDeck: DeckState;
   let deckListeners: Set<() => void>;
   let deckStore: DeckStore;
   let emit: (report: UsageReportEvent) => void;
   let emitBound: (bound: Bound) => void;
 
-  const mount = async (deck: Deck) => {
+  const mount = async (deck: DeckState) => {
     currentDeck = deck;
     if (channel) {
       for (const listener of [...deckListeners]) listener();
     } else {
-      const agents = {
+      const agents: UsageDeclarationsPort = {
         list: () => ipc.contributions,
         subscribe: () => () => {},
-      } as unknown as ContributionRegistry<AgentContribution>;
+      };
       // The REAL binding lane over the SAME attribution, exactly as the
       // runtime composes them: the tails lane follows what this one accepted.
       // Building the channel over a private attribution instead would hide
@@ -155,7 +141,7 @@ describe("createUsageChannel", () => {
     currentDeck = deckWith([]);
     deckListeners = new Set();
     deckStore = {
-      getSnapshot: () => currentDeck as ReturnType<DeckStore["getSnapshot"]>,
+      getSnapshot: () => currentDeck,
       subscribe(listener) {
         deckListeners.add(listener);
         return () => deckListeners.delete(listener);
@@ -164,9 +150,7 @@ describe("createUsageChannel", () => {
       // sessions on the deck; the fixture deck is a fixed snapshot, so the
       // transition is accepted and dropped. What these tests read is the
       // usage store, never the deck.
-      dispatch: vi.fn(
-        () => currentDeck as ReturnType<DeckStore["getSnapshot"]>,
-      ),
+      dispatch: vi.fn(() => currentDeck),
     };
     ipc.contributions = [
       {
@@ -202,13 +186,19 @@ describe("createUsageChannel", () => {
           // survive — a pane can close while it is still walking.
           status: {
             normalize: () => null,
+            attribute: () => null,
+            // The one cast left: the status slot types every dialect as
+            // SessionTailDialect<never, never>, plugin-api's stand-in for
+            // "some request, some record", which no dialect whose `follow`
+            // finds a real request satisfies — codex's own plugin fills the
+            // slot with a cast too. The fix is that type's, not this fake's.
             tail: {
               watches: CODEX_WATCHES,
               follow: async ({ sessionId }: { sessionId: string | null }) => {
                 const path = sessionId ? await ipc.findCodexRollout(sessionId) : null;
                 return path ? { path } : null;
               },
-            },
+            } as unknown as AgentStatus["tail"],
           },
         },
       },
@@ -399,7 +389,7 @@ describe("createUsageChannel", () => {
     ipc.findCodexRollout.mockResolvedValue("/x/sessions/rollout-019f.jsonl");
     await mount(
       deckWith([
-        { id: "pane-1", agentType: "codex", session: { id: "019f-recorded" } },
+        { id: "pane-1", agentType: "codex", session: { id: "019f-recorded", boundAt: "t" } },
       ]),
     );
     await act(async () => {});
@@ -418,7 +408,7 @@ describe("createUsageChannel", () => {
     ipc.findCodexRollout.mockResolvedValue(null);
     await mount(
       deckWith([
-        { id: "pane-1", agentType: "codex", session: { id: "019f-recorded" } },
+        { id: "pane-1", agentType: "codex", session: { id: "019f-recorded", boundAt: "t" } },
       ]),
     );
     await act(async () => {});
@@ -426,7 +416,7 @@ describe("createUsageChannel", () => {
     ipc.findCodexRollout.mockResolvedValue("/x/rollout.jsonl");
     await mount(
       deckWith([
-        { id: "pane-1", agentType: "codex", session: { id: "019f-recorded" } },
+        { id: "pane-1", agentType: "codex", session: { id: "019f-recorded", boundAt: "t" } },
         { id: "pane-x" },
       ]),
     );
@@ -451,7 +441,7 @@ describe("createUsageChannel", () => {
       ipc.findCodexRollout.mockResolvedValue(null);
       await mount(
         deckWith([
-          { id: "pane-1", agentType: "codex", session: { id: "019f-recorded" } },
+          { id: "pane-1", agentType: "codex", session: { id: "019f-recorded", boundAt: "t" } },
         ]),
       );
       await act(async () => {});
@@ -486,7 +476,7 @@ describe("createUsageChannel", () => {
     ipc.findCodexRollout.mockResolvedValue("/x/rollout.jsonl");
     await mount(
       deckWith([
-        { id: "pane-1", agentType: "codex", session: { id: "019f-recorded" } },
+        { id: "pane-1", agentType: "codex", session: { id: "019f-recorded", boundAt: "t" } },
       ]),
     );
     await act(async () => {});
@@ -509,7 +499,7 @@ describe("createUsageChannel", () => {
     );
     await mount(
       deckWith([
-        { id: "pane-1", agentType: "codex", session: { id: "019f-recorded" } },
+        { id: "pane-1", agentType: "codex", session: { id: "019f-recorded", boundAt: "t" } },
       ]),
     );
     await act(async () => {});

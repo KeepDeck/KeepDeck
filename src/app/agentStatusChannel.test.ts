@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { AgentContribution, AgentStatusEvent, StatusNormalizer } from "@keepdeck/plugin-api";
-import type { ContributionRegistry } from "../plugins/registries/contributions";
+import type { AgentStatus, AgentStatusEvent, StatusNormalizer } from "@keepdeck/plugin-api";
 import {
   createAgentStatusTracker,
   type AgentStatusTracker,
@@ -9,16 +8,21 @@ import {
   createAgentStatusChannel,
   type PaneKeyPort,
   type SessionLivenessPort,
+  type StatusDeclarationsPort,
 } from "./agentStatusChannel";
-import type { DeckStore } from "./deckStore";
+import type { DeckWatch } from "./deckStore";
+import { deckStateOf } from "./deckStore.testSupport";
 import { createPaneAttribution } from "./paneAttribution";
+import type { PaneReportEvent } from "./verifiedPaneReports";
 
 /** Every report is the main agent's and may move the pane: the channel
  * under test is the wiring, not the admission rule, which has its own tests. */
 const mainAgent = () => ({ event: null, actor: "main" as const, status: true });
 
 const ipc = vi.hoisted(() => ({
-  onAgentStatus: vi.fn(() => Promise.resolve(() => {})),
+  onAgentStatus: vi.fn<
+    (handler: (report: PaneReportEvent) => void) => Promise<() => void>
+  >(() => Promise.resolve(() => {})),
   peekPaneSpawnSpec: vi.fn(() => ({ token: "tok" })),
 }));
 vi.mock("../ipc/status", () => ({ onAgentStatus: ipc.onAgentStatus }));
@@ -43,24 +47,20 @@ const attribution = createPaneAttribution({
 
 const deckWith = (...paneIds: string[]) => {
   const listeners = new Set<() => void>();
-  let ids = paneIds;
+  const stateOf = (ids: string[]) =>
+    deckStateOf(ids.map((id) => ({ id, agentType: "claude" })));
+  let state = stateOf(paneIds);
+  const store: DeckWatch = {
+    getSnapshot: () => state,
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
   return {
-    store: {
-      getSnapshot: () => ({
-        workspaces: [
-          {
-            id: "ws-1",
-            panes: ids.map((id) => ({ id, agentType: "claude" })),
-          },
-        ],
-      }),
-      subscribe: (listener: () => void) => {
-        listeners.add(listener);
-        return () => listeners.delete(listener);
-      },
-    } as unknown as DeckStore,
+    store,
     setPanes(...next: string[]) {
-      ids = next;
+      state = stateOf(next);
       for (const listener of [...listeners]) listener();
     },
   };
@@ -69,17 +69,18 @@ const deckWith = (...paneIds: string[]) => {
 /** A contribution registry whose agent list can change under the channel. */
 const agentsWith = () => {
   const listeners = new Set<() => void>();
-  let entries: { entry: { id: string; status: { normalize: StatusNormalizer; attribute: typeof mainAgent } } }[] = [
+  let entries: { entry: { id: string; status: AgentStatus } }[] = [
     { entry: { id: "claude", status: { normalize: edgeNormalizer, attribute: mainAgent } } },
   ];
+  const registry: StatusDeclarationsPort = {
+    list: () => entries,
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
   return {
-    registry: {
-      list: () => entries,
-      subscribe: (listener: () => void) => {
-        listeners.add(listener);
-        return () => listeners.delete(listener);
-      },
-    } as unknown as ContributionRegistry<AgentContribution>,
+    registry,
     replace(next: typeof entries) {
       entries = next;
       for (const listener of [...listeners]) listener();
@@ -230,7 +231,7 @@ describe("createAgentStatusChannel", () => {
           status: { normalize: () => ({ kind: "turn-end", at: 200 }), attribute: mainAgent },
         },
       },
-    ] as never);
+    ]);
     tracker.report("pane-1", { agent: "claude", edge: null });
     expect(tracker.getSnapshot().panes.get("pane-1")).toMatchObject({
       state: "done",
@@ -257,7 +258,7 @@ describe("createAgentStatusChannel", () => {
     // The plugin is DISABLED: claude leaves the contribution list whole.
     // Its process may live on, so no sweep would ever fire — the channel
     // must clear what the agent can no longer resolve.
-    agents.replace([] as never);
+    agents.replace([]);
     expect(tracker.getSnapshot().panes.has("pane-1")).toBe(false);
   });
 
@@ -289,10 +290,10 @@ describe("createAgentStatusChannel", () => {
     let handler:
       | ((report: { paneId: string; token: string; payload: unknown }) => void)
       | null = null;
-    ipc.onAgentStatus.mockImplementationOnce(((h: never) => {
+    ipc.onAgentStatus.mockImplementationOnce((h) => {
       handler = h;
       return Promise.resolve(() => {});
-    }) as never);
+    });
     // The one case that reaches the lane, so it gets the real rule over its
     // own deck rather than the refuse-everything default above.
     const deck = deckWith("pane-1");
@@ -334,10 +335,10 @@ describe("createAgentStatusChannel", () => {
     let handler:
       | ((report: { paneId: string; token: string; payload: unknown }) => void)
       | null = null;
-    ipc.onAgentStatus.mockImplementationOnce(((h: never) => {
+    ipc.onAgentStatus.mockImplementationOnce((h) => {
       handler = h;
       return Promise.resolve(() => {});
-    }) as never);
+    });
     const deck = deckWith("pane-1");
     const order: string[] = [];
     tracker.onContextRebuilt(() => order.push("rebuilt"));

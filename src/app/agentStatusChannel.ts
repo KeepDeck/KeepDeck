@@ -1,8 +1,7 @@
 import { admittedNormalizer, type AgentContribution, type AgentStatus, type StatusNormalizer } from "@keepdeck/plugin-api";
 import { onAgentStatus } from "../ipc/status";
-import type { ContributionRegistry } from "../plugins/registries/contributions";
 import type { AgentStatusTracker } from "./agentStatusTracker";
-import type { DeckStore } from "./deckStore";
+import type { DeckWatch } from "./deckStore";
 import type { PaneAttribution } from "./paneAttribution";
 import { paneAgentType } from "../domain/deck";
 import { isNavigationKey } from "../domain/terminal";
@@ -12,6 +11,14 @@ import type { HookReplies } from "./mail/hookReply";
 
 export interface AgentStatusChannel {
   dispose(): void;
+}
+
+/** The agents registry as the channel reads it: each agent's status
+ * declaration, and when the set changes. The contribution registry is one;
+ * a test's list of declarations is another, with nothing else to fake. */
+export interface StatusDeclarationsPort {
+  list(): readonly { readonly entry: Pick<AgentContribution, "id" | "status"> }[];
+  subscribe(listener: () => void): () => void;
 }
 
 /** The slice of the session registry the channel needs: when processes
@@ -51,8 +58,8 @@ export interface PaneKeyPort {
  *   exit whose TerminalPane happens to be unmounted.
  */
 export function createAgentStatusChannel(
-  deck: DeckStore,
-  agents: ContributionRegistry<AgentContribution>,
+  deck: DeckWatch,
+  agents: StatusDeclarationsPort,
   tracker: AgentStatusTracker,
   sessions: SessionLivenessPort,
   attribution: PaneAttribution,

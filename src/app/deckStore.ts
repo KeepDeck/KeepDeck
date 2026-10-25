@@ -12,6 +12,13 @@ export interface DeckStore {
   dispatch(action: DeckAction): DeckState;
 }
 
+/** The store as wiring that only watches the deck sees it: what is there
+ * now, and when that changes. The report lanes and the status channel read
+ * the deck and never move it, so they take this rather than the store — a
+ * dispatch cannot creep into them unseen, and their tests need no stand-in
+ * for one. */
+export type DeckWatch = Pick<DeckStore, "getSnapshot" | "subscribe">;
+
 /**
  * One synchronous owner for deck state. Commands need the result of a create
  * immediately (for provisioning and same-batch ID allocation), while React
