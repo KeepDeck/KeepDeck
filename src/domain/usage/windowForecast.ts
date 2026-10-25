@@ -358,9 +358,10 @@ export function burnEdgeLabel(
   forecast: WindowForecast,
   now: number,
 ): BurnEdge {
-  if (resetCapsProjection(window, forecast, now)) {
+  const { resetsAt } = window;
+  if (resetsAt !== null && resetCapsProjection(window, forecast, now)) {
     return {
-      text: `reset ${formatMoment(window.resetsAt!, now)}`,
+      text: `reset ${formatMoment(resetsAt, now)}`,
       level: null,
       atReset: true,
     };

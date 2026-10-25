@@ -3,6 +3,7 @@ import { TASK_CAPS, TASK_STATUSES, USER_ACTOR, blockerResolved, inLadderOrder, i
 import { addBlocker, addLabel, attachArtifact, blockerCandidates, blockerLink, createTask, epicCandidates, epicMoveProblem, parentProblem, removeBlocker, keptTitle, detachArtifact, duplicateTask, transferTask, removeLabel, reachableStatuses, transition, type TaskChange, type TaskRefusal } from "./transition";
 import { blockerIdsOf, copiedFromOf, copiesOf, epicOf, tasksOfEpic } from "./relations";
 import { ROSTER, board, impl1, lead, mintSequence, noTeam, peer1, relation, stranger, task } from "./testSupport";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const ctx = (tasks = [task({ id: "task-1" })]) => ({ board: board(tasks), roster: ROSTER, at: 5_000, mintUid: mintSequence() });
 
@@ -906,7 +907,7 @@ describe("transferTask — the same task, handed to another team", () => {
     const other = task({ id: "task-4", status: "done" });
     const moved = go(task({ id: "task-1" }), lead, [closed, other]);
     if (!moved.ok) throw new Error("refused");
-    const after = moved.board.tasks.find((x) => x.id === "task-3")!;
+    const after = present(moved.board.tasks.find((x) => x.id === "task-3"), "the task-3 row");
     expect(blockerIdsOf(after, moved.board)).toEqual(["task-4"]);
     expect(after.updated).toBe(5);
   });
@@ -986,7 +987,7 @@ describe("epics — the family", () => {
       [relation("child-of", "task-2", "task-1"), relation("child-of", "task-3", "task-1")],
     );
   const on = (b: ReturnType<typeof family>) => ({ board: b, roster: ROSTER, at: 5_000, mintUid: mintSequence() });
-  const at = (b: ReturnType<typeof family>, id: string) => b.tasks.find((t) => t.id === id)!;
+  const at = (b: ReturnType<typeof family>, id: string) => present(b.tasks.find((t) => t.id === id), `the ${id} row`);
 
   it("puts work under an epic of its team; refuses work, another team's, none, an epic, and a closed one for open work", () => {
     const b = family();
@@ -1122,7 +1123,7 @@ describe("epics — a transfer moves the family whole, a copy keeps its place in
       [relation("child-of", "task-2", "task-1"), relation("child-of", "task-3", "task-1")],
     );
   const on = (b: ReturnType<typeof family>) => ({ board: b, roster: ROSTER, at: 9_000, mintUid: mintSequence() });
-  const at = (b: ReturnType<typeof family>, id: string) => b.tasks.find((t) => t.id === id)!;
+  const at = (b: ReturnType<typeof family>, id: string) => present(b.tasks.find((t) => t.id === id), `the ${id} row`);
 
   it("moves an epic with every task under it — open work back to the start, closed work closed, the links among them kept", () => {
     const b = family();

@@ -142,8 +142,9 @@ export function instanceChanged(
   next: Pick<WindowReport, "usedPct" | "resetsAt" | "reportedAt">,
   dropPct: number,
 ): boolean {
-  const knownReset = prev.resetsAt !== null && next.resetsAt !== null;
-  if (knownReset) {
+  const { resetsAt: prevReset } = prev;
+  const { resetsAt: nextReset } = next;
+  if (prevReset !== null && nextReset !== null) {
     // Both sides know when they end, so the reset instant answers it outright
     // and a fall is noise. Forward movement only: a reset that appears to move
     // BACKWARD is a correction, not a turnover. And only once the old instance
@@ -153,8 +154,8 @@ export function instanceChanged(
     // Each step read as a new instance, cutting a dormant window into
     // minute-long pieces (5 cuts in one real week, none of them a reset).
     return (
-      prev.resetsAt! <= next.reportedAt &&
-      next.resetsAt! > prev.resetsAt! + INSTANCE_JUMP_MS
+      prevReset <= next.reportedAt &&
+      nextReset > prevReset + INSTANCE_JUMP_MS
     );
   }
   // No reset instant on one side — the fall is the only evidence there is.

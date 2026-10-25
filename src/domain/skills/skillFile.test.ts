@@ -7,6 +7,7 @@ import {
   skillDraftOf,
 } from "./skillFile";
 import { REFUSED } from "./skills.testSupport";
+import { present } from "@keepdeck/plugin-api/testing";
 
 describe("compose/parse round-trip", () => {
   it("round-trips a plain skill", () => {
@@ -238,7 +239,7 @@ describe("a block scalar survives being read and written back", () => {
         ...parseSkillFile(stored),
         name: "a",
       });
-      const comment = /#[^\n]*/.exec(stored)![0];
+      const comment = present(/#[^\n]*/.exec(stored), "the stored comment")[0];
       expect(saved, stored).toContain(comment.trim());
     }
   });

@@ -16,6 +16,7 @@ const flatRows = (
 const NO_JOURNAL = new Map<string, readonly WindowReport[]>();
 
 import { TEST_NOW, usageEvent as event } from "./history/event.testSupport";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const NOW = TEST_NOW;
 const HOUR = 3_600_000;
@@ -161,7 +162,7 @@ describe("providerWindowRows", () => {
       windowMinutes: 300,
     };
     const accounts = new Map([["codex", reported([window])]]);
-    const key = accountWindowKeys("codex", [window]).get(window)!.key;
+    const key = present(accountWindowKeys("codex", [window]).get(window), "the window's key").key;
     const series: WindowReport[] = [
       { agent: "codex", windowMinutes: 300, usedPct: 58, reportedAt: NOW - 30 * 60_000, resetsAt: NOW + 2 * HOUR },
       { agent: "codex", windowMinutes: 300, usedPct: 88, reportedAt: NOW, resetsAt: NOW + 2 * HOUR },

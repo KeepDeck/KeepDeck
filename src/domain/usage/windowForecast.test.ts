@@ -23,6 +23,7 @@ import { NO_REPORTS } from "./reportJournal";
 import type { AccountUsage, UsageWindow } from "./usage";
 
 import { TEST_NOW, windowReport as report } from "./reportJournal.testSupport";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const NOW = TEST_NOW;
 const MIN = 60_000;
@@ -204,9 +205,11 @@ describe("reportJournal", () => {
     const a = { usedPct: 30, resetsAt: NOW + 100 * MIN, windowMinutes: null };
     const b = { usedPct: 88, resetsAt: NOW + 900 * MIN, windowMinutes: null };
     const keys = accountWindowKeys("codex", [a, b]);
-    expect(keys.get(a)!.key).not.toBe(keys.get(b)!.key);
-    expect(keys.get(a)!.ordinal).toBe(0);
-    expect(keys.get(b)!.ordinal).toBe(1);
+    const keyA = present(keys.get(a), "the first window's key");
+    const keyB = present(keys.get(b), "the second window's key");
+    expect(keyA.key).not.toBe(keyB.key);
+    expect(keyA.ordinal).toBe(0);
+    expect(keyB.ordinal).toBe(1);
     // Ordinals are ALWAYS minted, so a tuple's duplicate count changing
     // between reports cannot re-key (and reset) the surviving window.
     const lone = { usedPct: 10, resetsAt: NOW + 100 * MIN, windowMinutes: 300 };
@@ -216,15 +219,15 @@ describe("reportJournal", () => {
     });
     // A stored record regroups under the SAME key after a reload.
     const stored = report({ agent: "codex", windowMinutes: null, ordinal: 1 });
-    expect(storedReportKey(stored)).toBe(keys.get(b)!.key);
+    expect(storedReportKey(stored)).toBe(keyB.key);
     expect(decodeWindowReport(encodeWindowReport(stored))).toEqual(stored);
   });
 
   it("clamps stored usedPct into 0..100 like the cache codec", () => {
     const wild = report({ usedPct: 1e9 });
-    expect(decodeWindowReport(encodeWindowReport(wild))!.usedPct).toBe(100);
+    expect(present(decodeWindowReport(encodeWindowReport(wild)), "the decoded wild report").usedPct).toBe(100);
     const negative = report({ usedPct: -5 });
-    expect(decodeWindowReport(encodeWindowReport(negative))!.usedPct).toBe(0);
+    expect(present(decodeWindowReport(encodeWindowReport(negative)), "the decoded negative report").usedPct).toBe(0);
   });
 
   it("round-trips the codec and rejects junk", () => {
@@ -624,7 +627,7 @@ describe("captions", () => {
 
     // A surviving pace ends at the reset, and says so.
     const resetEdge = burnEdgeLabel(FIVE_H, ok, NOW);
-    expect(resetEdge.text).toBe(`reset ${formatMoment(FIVE_H.resetsAt!, NOW)}`);
+    expect(resetEdge.text).toBe(`reset ${formatMoment(present(FIVE_H.resetsAt, "the five-hour window's reset time"), NOW)}`);
     expect(resetEdge.atReset).toBe(true);
 
     // No projection at all: the axis ends at now. Saying so is what turns
@@ -682,7 +685,7 @@ describe("accountWindowForecasts", () => {
       { usedPct: 12, resetsAt: NOW + 300 * MIN, windowMinutes: null },
     ];
     const keys = accountWindowKeys("codex", windows);
-    const hotKey = keys.get(windows[0])!.key;
+    const hotKey = present(keys.get(windows[0]), "the first window's key").key;
     const series = ramp(1, 5, 10, 88).map((entry) => ({
       ...entry,
       agent: "codex",
@@ -695,12 +698,12 @@ describe("accountWindowForecasts", () => {
       NOW,
     );
     expect(rows.size).toBe(2);
-    const hot = rows.get(windows[0])!;
+    const hot = present(rows.get(windows[0]), "the first window's row");
     expect(hot.key).toBe(hotKey);
     expect(hot.reports).toBe(series);
     expect(hot.forecast.kind).toBe("out");
-    const quiet = rows.get(windows[1])!;
-    expect(quiet.key).toBe(keys.get(windows[1])!.key);
+    const quiet = present(rows.get(windows[1]), "the second window's row");
+    expect(quiet.key).toBe(present(keys.get(windows[1]), "the second window's key").key);
     expect(quiet.key).not.toBe(hotKey);
     expect(quiet.reports).toBe(NO_REPORTS); // the shared frozen fallback
     expect(quiet.forecast).toEqual({ kind: "unknown" });

@@ -36,6 +36,7 @@ import {
   canHaveEpic,
   epicOf,
   findTask,
+  knownTask,
   linked,
   taskByUid,
   openBlockersOf,
@@ -570,7 +571,7 @@ export function blockerLink(task: Task, other: Task, side: BlockerSide): { taskI
 
 /** The uids of the tasks named by `ids` — every one known (validated). */
 function uidsOf(board: TaskBoard, ids: readonly string[]): string[] {
-  return ids.map((id) => findTask(board, id)!.uid);
+  return ids.map((id) => knownTask(board, id).uid);
 }
 
 function logged(
@@ -718,7 +719,7 @@ function changeTask(
         const bad = parentProblem(task, id, ctx.board);
         if (bad) return refuse(bad);
       }
-      const epic = id === null ? null : findTask(ctx.board, id)!.uid;
+      const epic = id === null ? null : knownTask(ctx.board, id).uid;
       const changed = logged(task, [{ at, from: by, field: "parent", was, now: id }], at, {});
       return { ok: true, task: changed, board: replaceTask(setEpic(ctx.board, task, epic, at, by), changed) };
     }
@@ -963,7 +964,7 @@ export function createTask(
   return {
     ok: true,
     task,
-    board: parent === null ? blocked : setEpic(blocked, task, findTask(ctx.board, parent)!.uid, ctx.at, actorName(actor)),
+    board: parent === null ? blocked : setEpic(blocked, task, knownTask(ctx.board, parent).uid, ctx.at, actorName(actor)),
   };
 }
 

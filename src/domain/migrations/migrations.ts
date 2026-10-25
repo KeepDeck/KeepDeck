@@ -307,8 +307,8 @@ function migrateWorkspaceTeamsToV11(
     // directory meant one team; folding them lost a name and a roster the
     // product now supports.) A member with no intact name joins whatever
     // team the directory already has.
-    const nameKey =
-      entry.named && !dissolved.has(entry.named.key) ? entry.named.key : undefined;
+    const intact = entry.named && !dissolved.has(entry.named.key) ? entry.named : undefined;
+    const nameKey = intact?.key;
     let group =
       nameKey === undefined
         ? groups.find((candidate) => candidate.dirKey === entry.dirKey)
@@ -324,7 +324,7 @@ function migrateWorkspaceTeamsToV11(
         dirKey: entry.dirKey,
         placement: entry.placement,
         members: [],
-        ...(nameKey !== undefined && { name: entry.named!.name, nameKey }),
+        ...(intact !== undefined && { name: intact.name, nameKey: intact.key }),
       };
       groups.push(group);
     }
@@ -565,9 +565,8 @@ export const SETTINGS_MIN_READER = 1;
 /** The file's effective compatibility floor: what it declares, else its own
  * revision (files from before the floor existed can only promise "a reader
  * exactly as new as me"). */
-function floorOf(raw: RawDoc): number | null {
-  if (typeof raw.version !== "number") return null;
-  return typeof raw.minVersion === "number" ? raw.minVersion : raw.version;
+function floorOf(raw: RawDoc, version: number): number {
+  return typeof raw.minVersion === "number" ? raw.minVersion : version;
 }
 
 /**
@@ -578,7 +577,7 @@ function floorOf(raw: RawDoc): number | null {
 export function migrateDeck(raw: RawDoc): MigrationOutcome {
   const version = raw.version;
   if (typeof version !== "number") return { kind: "unusable" };
-  const minVersion = floorOf(raw)!;
+  const minVersion = floorOf(raw, version);
   if (minVersion > DECK_STATE_VERSION) {
     return { kind: "incompatible", version, minVersion };
   }

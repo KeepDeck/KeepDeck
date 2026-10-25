@@ -8,6 +8,7 @@ import {
   nextAchievements,
   usageAchievementLadders,
 } from "./ladders";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const DAY = 24 * 60 * 60 * 1_000;
 const NOW = TEST_NOW;
@@ -16,7 +17,7 @@ const ladder = (
   ladders: UsageAchievementLadder[],
   metric: string,
 ): UsageAchievementLadder =>
-  ladders.find((candidate) => candidate.metric === metric)!;
+  present(ladders.find((candidate) => candidate.metric === metric), `the ${metric} ladder`);
 
 describe("usageAchievementLadders", () => {
   it("dates token crossings at the ledger instant that crossed them, sorting first", () => {
@@ -186,7 +187,9 @@ describe("earned and next views", () => {
     const earned = earnedAchievements(ladders);
     expect(earned.length).toBeGreaterThan(1);
     for (let i = 1; i < earned.length; i += 1) {
-      expect(earned[i - 1].achievedAt! >= earned[i].achievedAt!).toBe(true);
+      const newer = present(earned[i - 1].achievedAt, "an earned tier's date");
+      const older = present(earned[i].achievedAt, "an earned tier's date");
+      expect(newer >= older).toBe(true);
     }
   });
 
@@ -196,7 +199,7 @@ describe("earned and next views", () => {
     ]);
     const next = nextAchievements(ladders);
     expect(next.every((tier) => tier.achievedAt === null)).toBe(true);
-    const tokensNext = next.find((tier) => tier.metric === "tokens")!;
+    const tokensNext = present(next.find((tier) => tier.metric === "tokens"), "the tokens goal");
     expect(tokensNext.title).toBe("Picking Up Steam"); // only 1M is earned
     expect(next.filter((tier) => tier.metric === "tokens")).toHaveLength(1);
   });

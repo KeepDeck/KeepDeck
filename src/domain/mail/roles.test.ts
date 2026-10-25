@@ -9,6 +9,7 @@ import {
   roleById,
   teamRoles,
 } from "./roles";
+import { present } from "@keepdeck/plugin-api/testing";
 
 describe("the role catalog", () => {
   it("tells every working role that a teammate is reachable directly", () => {
@@ -77,7 +78,7 @@ describe("the role catalog", () => {
 });
 
 describe("addresses", () => {
-  const impl = roleById("impl")!;
+  const impl = present(roleById("impl"), "the impl role");
 
   it("numbers a repeatable role and leaves a singleton alone", () => {
     expect(roleAddress(leadRole(), 1)).toBe("lead");
@@ -112,7 +113,7 @@ describe("addresses", () => {
 });
 
 describe("mintRoleAddress", () => {
-  const impl = roleById("impl")!;
+  const impl = present(roleById("impl"), "the impl role");
 
   it("takes the first free number, not the next one after the highest", () => {
     // impl-1 left; the team is impl-2 alone. Reusing the gap keeps the
