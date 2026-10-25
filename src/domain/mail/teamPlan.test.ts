@@ -26,7 +26,7 @@ const workspace = (panes: Pane[]): Workspace =>
     cwd: "/repo",
     worktreeBaseDir: null,
     panes,
-  } as Workspace);
+  });
 
 // Teams as the deck holds them: an id, a name, a directory — and panes that
 // hold the id. A plan names a team by id and never finds one by name.

@@ -30,20 +30,18 @@ const ws = (panes: Workspace["panes"]): Workspace => ({
   panes,
 });
 
-const pane = (over: Partial<Workspace["panes"][number]> = {}) =>
-  ({
-    id: "pane-1",
-    title: "support 1",
-    ...over,
-  }) as Workspace["panes"][number];
+const pane = (over: Partial<Workspace["panes"][number]> = {}) => ({
+  id: "pane-1",
+  title: "support 1",
+  ...over,
+});
 
 /** The external-with-pane source the MCP pump resolves. */
-const paneSource = (id = "pane-1"): CommandSource =>
-  ({
-    kind: "external",
-    client: "mcp",
-    pane: { id, workspaceId: "ws-1", label: "support 1" },
-  }) as CommandSource;
+const paneSource = (id = "pane-1"): CommandSource => ({
+  kind: "external",
+  client: "mcp",
+  pane: { id, workspaceId: "ws-1", label: "support 1" },
+});
 
 const anonymous: CommandSource = { kind: "external", client: "mcp" };
 

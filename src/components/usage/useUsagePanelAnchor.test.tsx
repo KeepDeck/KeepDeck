@@ -14,7 +14,7 @@ function stubGeometry() {
       const el = instanceOf(this, HTMLElement, "this");
       const left = Number(el.dataset.x ?? 0);
       const width = Number(el.dataset.w ?? 0);
-      return { left, width, right: left + width, top: 0, bottom: 0, height: 0, x: left, y: 0, toJSON: () => ({}) } as DOMRect;
+      return { left, width, right: left + width, top: 0, bottom: 0, height: 0, x: left, y: 0, toJSON: () => ({}) };
     },
   );
   Object.defineProperty(document.documentElement, "clientWidth", {

@@ -14,7 +14,7 @@ function rect(top: number): DOMRect {
     x: 0,
     y: top,
     toJSON: () => ({}),
-  } as DOMRect;
+  };
 }
 
 describe("collectMarkRects (real DOM)", () => {

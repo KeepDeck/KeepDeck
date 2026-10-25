@@ -32,16 +32,15 @@ const pane = (id: string, team?: { teamId: string; role: string }): Pane => ({
   ...(team && { team }),
 });
 
-const workspace = (id: string, name: string, panes: Pane[], teams?: Team[]): Workspace =>
-  ({
-    id,
-    instance: createWorkspaceInstance(),
-    name,
-    cwd: "/repo",
-    worktreeBaseDir: null,
-    panes,
-    ...(teams && { teams }),
-  }) as Workspace;
+const workspace = (id: string, name: string, panes: Pane[], teams?: Team[]): Workspace => ({
+  id,
+  instance: createWorkspaceInstance(),
+  name,
+  cwd: "/repo",
+  worktreeBaseDir: null,
+  panes,
+  ...(teams && { teams }),
+});
 
 /** ws-1's teams, when a case asks for them: api (team-1) with pane-1 as
  * lead and pane-2 as impl-1, and web (team-2) with nobody on it yet. */

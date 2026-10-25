@@ -22,7 +22,7 @@ function setup(statusOf: (agentId: string) => AgentStatus | undefined = () => un
   let panes: Pane[] = [
     { id: "pane-1", team: { teamId: "team-1", role: "lead" } },
     { id: "pane-2" },
-  ] as Pane[];
+  ];
   const agentTypes: Record<string, string> = {
     "pane-1": "claude",
     "pane-2": "codex",
@@ -51,7 +51,7 @@ function setup(statusOf: (agentId: string) => AgentStatus | undefined = () => un
       worktreeBaseDir: null,
       panes,
       teams: [{ id: "team-1", name: "api" }],
-    } as Workspace,
+    },
   ];
 
   const service = createMailService(
@@ -179,7 +179,7 @@ describe("createMailService", () => {
 
     // pane-2 closes. `pane-N` is a REUSABLE slot, so the next pane can be
     // handed the same id — and must not inherit a conversation.
-    h.closePanes([{ id: "pane-1" }] as Pane[]);
+    h.closePanes([{ id: "pane-1" }]);
     const after = await h.registry.execute("mail.inbox", {}, {
       kind: "external",
       client: "mcp",
@@ -246,12 +246,12 @@ describe("createMailService", () => {
     const h = setup();
     h.learned.length = 0;
 
-    h.closePanes([{ id: "pane-1" }, { id: "pane-2" }] as Pane[]);
+    h.closePanes([{ id: "pane-1" }, { id: "pane-2" }]);
     expect(h.learned).toEqual(["claude", "codex"]);
 
     // And a pane running something new is asked about along with the rest.
     h.learned.length = 0;
-    h.closePanes([{ id: "pane-1" }, { id: "pane-9" }] as Pane[]);
+    h.closePanes([{ id: "pane-1" }, { id: "pane-9" }]);
     expect(h.learned).toEqual(["claude", "kimi"]);
   });
 
@@ -391,10 +391,8 @@ describe("mail service — whether a working pane is held or woken", () => {
 });
 
 describe("mail service — a briefing follows membership", () => {
-  const lead = (): Pane =>
-    ({ id: "pane-1", team: { teamId: "team-1", role: "lead" } }) as Pane;
-  const impl = (): Pane =>
-    ({ id: "pane-2", team: { teamId: "team-1", role: "impl-1" } }) as Pane;
+  const lead = (): Pane => ({ id: "pane-1", team: { teamId: "team-1", role: "lead" } });
+  const impl = (): Pane => ({ id: "pane-2", team: { teamId: "team-1", role: "impl-1" } });
 
   it("briefs a pane the moment the deck shows it on a team — before any session event", () => {
     // Synchronous with the membership write, on purpose: the briefing has
@@ -442,7 +440,7 @@ describe("mail service — a briefing follows membership", () => {
     h.waitingFor("pane-1");
     h.waitingFor("pane-2");
 
-    h.rosterBecomes([lead(), { ...impl(), team: { teamId: "team-1", role: "reviewer-1" } } as Pane]);
+    h.rosterBecomes([lead(), { ...impl(), team: { teamId: "team-1", role: "reviewer-1" } }]);
     expect(h.bodiesFor("pane-2")[0]).toContain('as "reviewer-1"');
     const leadBriefs = h.bodiesFor("pane-1");
     expect(leadBriefs).toHaveLength(1);

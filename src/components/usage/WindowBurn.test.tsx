@@ -83,7 +83,7 @@ describe("WindowBurn", () => {
         x: plotLeft,
         y: plotTop,
         toJSON: () => ({}),
-      }) as DOMRect;
+      });
     return plot;
   };
 

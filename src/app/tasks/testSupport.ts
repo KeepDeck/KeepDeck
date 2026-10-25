@@ -138,7 +138,7 @@ export const workspace = (id: string, name: string, panes: Pane[], teams?: Team[
     worktreeBaseDir: null,
     panes,
     ...(teams && { teams }),
-  }) as Workspace;
+  });
 
 export const TEAMS: Team[] = [
   { id: "team-1", name: "api", location: { kind: "attached", cwd: "/repo/.wt/api" } },

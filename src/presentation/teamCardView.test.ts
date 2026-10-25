@@ -185,7 +185,7 @@ describe("teamCardsView and teamHead", () => {
     ]);
     const deck = ws([attached], {});
     expect(teamHead(deck, attached, heads)?.branch).toBe("kd/api");
-    const bare = { id: "t", name: "t" } as Team;
+    const bare: Team = { id: "t", name: "t" };
     expect(teamHead(deck, bare, heads)?.branch).toBe("main");
   });
 });

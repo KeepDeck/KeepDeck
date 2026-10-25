@@ -20,7 +20,7 @@ const workspace = (panes: Pane[]): Workspace =>
     cwd: "/repo",
     worktreeBaseDir: null,
     panes,
-  } as Workspace);
+  });
 
 /** The pane as the workspace holds it — the fixture's object is resolved
  * into a new one, so a test reads it back by id. */
@@ -153,7 +153,7 @@ describe("resolveMailRecipient", () => {
   /** Another project: its teams keep ids of their own (`far-…`), since a
    * fixture's `team-N` restarts per workspace and the deck's never do. */
   const other = (panes: Pane[]): Workspace => {
-    const ws = resolveNamedPanes({ id: "ws-2", instance: createWorkspaceInstance(), name: "mocha", cwd: "/m", worktreeBaseDir: null, panes } as Workspace);
+    const ws = resolveNamedPanes({ id: "ws-2", instance: createWorkspaceInstance(), name: "mocha", cwd: "/m", worktreeBaseDir: null, panes });
     const far = (id: string) => `far-${id}`;
     return {
       ...ws,

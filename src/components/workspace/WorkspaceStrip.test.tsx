@@ -182,7 +182,7 @@ describe("WorkspaceStrip drag reorder", () => {
     originalRect = HTMLElement.prototype.getBoundingClientRect;
     HTMLElement.prototype.getBoundingClientRect = function () {
       const top = Math.max(0, slot(instanceOf(this, HTMLElement, "this"))) * MARK_HEIGHT;
-      return { top, bottom: top + MARK_HEIGHT, left: 0, right: 52, width: 52, height: MARK_HEIGHT, x: 0, y: top, toJSON: () => ({}) } as DOMRect;
+      return { top, bottom: top + MARK_HEIGHT, left: 0, right: 52, width: 52, height: MARK_HEIGHT, x: 0, y: top, toJSON: () => ({}) };
     };
     const geometry: Record<string, (el: HTMLElement) => number> = {
       offsetTop: (el) => Math.max(0, slot(el)) * MARK_HEIGHT,
@@ -921,7 +921,7 @@ describe("WorkspaceStrip dragging from the open strip", () => {
     HTMLElement.prototype.getBoundingClientRect = function () {
       const group = groupOf(instanceOf(this, HTMLElement, "this"));
       const top = group ? topOf(group) : 0;
-      return { top, bottom: top + MARK, left: 0, right: 52, width: 52, height: MARK, x: 0, y: top, toJSON: () => ({}) } as DOMRect;
+      return { top, bottom: top + MARK, left: 0, right: 52, width: 52, height: MARK, x: 0, y: top, toJSON: () => ({}) };
     };
     const geometry: Record<string, (el: HTMLElement) => number> = {
       offsetTop: (el) => (el.dataset.wsId ? topOf(el) : 0),
