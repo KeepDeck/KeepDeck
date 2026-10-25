@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ForkPlanInput } from "@keepdeck/plugin-api";
 import { kimiForkPlan, wdKey, type ForkPorts } from "./fork";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const HOME = "/Users/u/.kimi-code";
 const SRC_DIR = `${HOME}/sessions/wd_a_3c3646ae2a28/session_orig-1`;
@@ -171,7 +172,7 @@ describe("kimiForkPlan", () => {
     expect(newId).toMatch(/^session_[0-9a-f-]{36}$/);
     const dstDir = `${HOME}/sessions/${await wdKey("/new/target")}/${newId}`;
 
-    const state = JSON.parse(fx.writes.get(`${dstDir}/state.json`)!);
+    const state = JSON.parse(present(fx.writes.get(`${dstDir}/state.json`), "the entry for `${dstDir}/state.json`"));
     expect(state.workDir).toBe("/new/target"); // the resume gate
     expect(state.agents.main.homedir).toBe(`${dstDir}/agents/main`);
     expect(state.title).toBe("auth investigation"); // everything else survives
@@ -198,7 +199,7 @@ describe("kimiForkPlan", () => {
 
     const newId = await kimiForkPlan(fx.ctx, forkInput("/new/target"));
     const dstDir = `${HOME}/sessions/${await wdKey("/new/target")}/${newId}`;
-    const state = JSON.parse(fx.writes.get(`${dstDir}/state.json`)!);
+    const state = JSON.parse(present(fx.writes.get(`${dstDir}/state.json`), "the entry for `${dstDir}/state.json`"));
 
     // Patched under the key this session actually uses...
     expect(state.cwd).toBe("/new/target");
@@ -281,7 +282,7 @@ describe("kimiForkPlan", () => {
     const ws = await wdKey("/new/target");
     const dstDir = `${HOME}/sessions/${ws}/${newId}`;
     const records = (agent: string) =>
-      fx.writes.get(`${dstDir}/agents/${agent}/wire.jsonl`)!.trimEnd().split("\n").map((l) => JSON.parse(l));
+      present(fx.writes.get(`${dstDir}/agents/${agent}/wire.jsonl`), "the entry for `${dstDir}/agents/${agent}/wire.jsonl`").trimEnd().split("\n").map((l) => JSON.parse(l));
 
     // Read window by window (7 bytes here), written back whole and in order.
     const main = records("main");

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { rebaseState, rebaseWire } from "./forkRebase";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const OLD_DIR = "/Users/u/.kimi-code/sessions/wd_a_111111111111/session_old";
 const TARGET = {
@@ -22,7 +23,7 @@ describe("rebaseState", () => {
   };
 
   it("moves the directory, the id and EVERY agent home to the clone", () => {
-    const rebased = rebaseState(v2, TARGET)!;
+    const rebased = present(rebaseState(v2, TARGET), "the rebased state");
     expect(rebased.workDirKey).toBe("cwd");
     expect(rebased.state.cwd).toBe("/new/target");
     // Version-2 metadata names itself, and kimi trusts that over the
@@ -37,7 +38,7 @@ describe("rebaseState", () => {
 
   it("keeps the older era's key and invents neither a cwd nor an id", () => {
     const { id: _id, cwd: _cwd, version: _v, ...rest } = v2;
-    const rebased = rebaseState({ ...rest, workDir: "/old/place" }, TARGET)!;
+    const rebased = present(rebaseState({ ...rest, workDir: "/old/place" }, TARGET), "the rebased state");
     expect(rebased.workDirKey).toBe("workDir");
     expect(rebased.state.workDir).toBe("/new/target");
     expect("cwd" in rebased.state).toBe(false);
@@ -46,7 +47,7 @@ describe("rebaseState", () => {
 
   it("leaves an agent entry without a home as it was", () => {
     const state = { ...v2, agents: { ...v2.agents, odd: { type: "sub" } } };
-    expect((rebaseState(state, TARGET)!.state.agents as Record<string, unknown>).odd)
+    expect((present(rebaseState(state, TARGET), "the rebased state").state.agents as Record<string, unknown>).odd)
       .toEqual({ type: "sub" });
   });
 

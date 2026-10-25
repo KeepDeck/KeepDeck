@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { watchMatches, watchProject } from "@keepdeck/plugin-api";
 import { kimiRecords, kimiTail } from "./tail";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const project = (record: Record<string, unknown>) => {
   const watch = kimiRecords.watches.find((candidate) => watchMatches(candidate, record));
@@ -25,7 +26,7 @@ describe("Kimi's main wire lifecycle", () => {
   ])("uses the actual %s ending", (reason, expected) => {
     const record = project({ type: "turn.ended", agentId: "main", time: 200, reason,
       error: { name: "rate_limit", message: "limited" } });
-    expect(kimiRecords.read(record!)).toEqual(expected);
+    expect(kimiRecords.read(present(record, "the record"))).toEqual(expected);
   });
 
   it("refuses malformed, undated, foreign and unknown endings", () => {

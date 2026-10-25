@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { renderKimiMail } from "./status";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /**
  * kimi arms its hooks from a SHIPPED manifest rather than from code, so
@@ -135,14 +136,14 @@ describe("kimi teams manifest", () => {
     expect(teams.sessionStart?.skill).toBe("keepdeck-team");
     const skill = readFileSync(
       new URL(
-        `../resources/keepdeck-teams/skills/${teams.sessionStart!.skill}/SKILL.md`,
+        `../resources/keepdeck-teams/skills/${present(teams.sessionStart, "the sessionStart of teams").skill}/SKILL.md`,
         import.meta.url,
       ),
       "utf8",
     );
     // Kimi resolves a skill by its DIRECTORY name; the front matter has to
     // agree or the registry lookup the injector does comes back empty.
-    expect(skill).toContain(`name: ${teams.sessionStart!.skill}`);
+    expect(skill).toContain(`name: ${present(teams.sessionStart, "the sessionStart of teams").skill}`);
     // The one thing the text must actually make happen: a pane cannot be
     // told its role statically, so it has to go and ask.
     expect(skill).toContain("mail.inbox");

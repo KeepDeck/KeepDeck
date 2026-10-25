@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createSessionStore, type FsEntry } from "@keepdeck/plugin-api";
-import { fsStore } from "@keepdeck/plugin-api/testing";
+import { present, fsStore } from "@keepdeck/plugin-api/testing";
 import { kimiHistory, type HistoryPorts } from "./history";
 
 // Shapes mirror a REAL kimi 0.27 wire: the user opens turns in
@@ -142,7 +142,7 @@ describe("kimi history", () => {
         warn,
       ),
     );
-    expect(await history.listing!()).toEqual({
+    expect(await present(history.listing, "the session listing")()).toEqual({
       stubs: [
         { sessionId: "session_s1", ref: "/k/wd_a_1/session_s1/agents/main/wire.jsonl", mtime: 9, size: 4 },
       ],
@@ -167,7 +167,7 @@ describe("kimi history", () => {
         "/k/wd_a_1/session_s1/agents": [],
       }),
     );
-    expect(await spawnedNothing.listing!()).toEqual({ stubs: [], complete: true });
+    expect(await present(spawnedNothing.listing, "the session listing")()).toEqual({ stubs: [], complete: true });
 
     const noAgentsAtAll = kimiHistory(
       ctx({}, {
@@ -182,7 +182,7 @@ describe("kimi history", () => {
         ],
       }),
     );
-    expect(await noAgentsAtAll.listing!()).toEqual({ stubs: [], complete: true });
+    expect(await present(noAgentsAtAll.listing, "the session listing")()).toEqual({ stubs: [], complete: true });
   });
 
   it("a session whose agents/main exists but will not read keeps its stub, is named, and the listing is incomplete", async () => {
@@ -203,7 +203,7 @@ describe("kimi history", () => {
         ],
       }, warn),
     );
-    expect(await history.listing!()).toEqual({
+    expect(await present(history.listing, "the session listing")()).toEqual({
       stubs: [
         { sessionId: "session_s1", ref: "/k/wd_a_1/session_s1/agents/main/wire.jsonl", mtime: 9, size: 4 },
         // A stub of EXISTENCE. Its fingerprint cannot equal a real wire's:
@@ -224,7 +224,7 @@ describe("kimi history", () => {
         // Neither agents/main, nor agents, nor the session dir will read.
       }, warn),
     );
-    const out = await history.listing!();
+    const out = await present(history.listing, "the session listing")();
     expect(out.stubs).toEqual([
       { sessionId: "session_s1", ref: "/k/wd_a_1/session_s1/agents/main/wire.jsonl", mtime: 0, size: 0 },
     ]);
@@ -250,7 +250,7 @@ describe("kimi history", () => {
   it("listing() on an unreadable root answers nothing-read and incomplete — never an empty store", async () => {
     const warn = vi.fn();
     const history = kimiHistory(ctx({}, {}, warn));
-    expect(await history.listing!()).toEqual({ stubs: [], complete: false });
+    expect(await present(history.listing, "the session listing")()).toEqual({ stubs: [], complete: false });
     expect(warn).toHaveBeenCalledTimes(1);
   });
 
@@ -337,11 +337,11 @@ describe("kimi history", () => {
     const wire = "/k/wd_a_1/session_s1/agents/main/wire.jsonl";
     const history = kimiHistory(ctx({ [wire]: big }, {}));
 
-    const page = await history.transcriptPage!(wire, { offset: 4400, limit: 10 });
+    const page = await present(history.transcriptPage, "the transcript page")(wire, { offset: 4400, limit: 10 });
 
     expect(page.entries.length).toBeLessThan(10);
     expect(page.shortfall).toHaveLength(1);
-    const [mark] = page.shortfall!;
+    const [mark] = present(page.shortfall, "the shortfall of page");
     expect(mark).toMatchObject({ kind: "bytes", size });
     expect((mark as { readBytes: number }).readBytes).toBeLessThan(size);
   });
@@ -349,7 +349,7 @@ describe("kimi history", () => {
   it("a page that read everything carries no shortfall at all", async () => {
     const wire = "/k/wd_a_1/session_s1/agents/main/wire.jsonl";
     const history = kimiHistory(ctx({ [wire]: WIRE }, {}));
-    const page = await history.transcriptPage!(wire, { offset: 0, limit: 10 });
+    const page = await present(history.transcriptPage, "the transcript page")(wire, { offset: 0, limit: 10 });
     expect(page.shortfall).toBeUndefined();
   });
 

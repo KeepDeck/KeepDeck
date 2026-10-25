@@ -7,6 +7,7 @@ import type {
 } from "@keepdeck/plugin-api";
 import plugin, { registerKimi, setupNotification, type KimiPorts } from "./index";
 import { KIMI_MAIL_CHANNELS, renderKimiMail } from "./status";
+import { present } from "@keepdeck/plugin-api/testing";
 
 // The fork's store surgery has its own suite (fork.test.ts); here only the
 // launch the fork plan hands back matters.
@@ -106,7 +107,7 @@ describe("Kimi CLI plugin", () => {
   it("registers the Kimi identity and an inert fresh PTY plan", async () => {
     const { agent } = await activate();
     const out = output();
-    await agent.hooks["spawn.plan"]!(input, out);
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")(input, out);
 
     expect(agent).toMatchObject({
       id: "kimi",
@@ -122,11 +123,11 @@ describe("Kimi CLI plugin", () => {
     // a user who set the variable themselves keeps their answer.
     const { agent } = await activate();
     const spawn = output();
-    await agent.hooks["spawn.plan"]!(input, spawn);
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")(input, spawn);
     const resume = output();
-    await agent.hooks["resume.plan"]!({ ...input, sessionId: "session_123" }, resume);
+    await present(agent.hooks["resume.plan"], "the resume.plan hook")({ ...input, sessionId: "session_123" }, resume);
     const fork = output();
-    await agent.hooks["fork.plan"]!(
+    await present(agent.hooks["fork.plan"], "the fork.plan hook")(
       { ...input, sessionId: "session_123", sourceCwd: "/old" },
       fork,
     );
@@ -140,7 +141,7 @@ describe("Kimi CLI plugin", () => {
   it("uses Kimi's documented exact-session restore flag", async () => {
     const { agent } = await activate();
     const out = output();
-    await agent.hooks["resume.plan"]!({ ...input, sessionId: "session_123" }, out);
+    await present(agent.hooks["resume.plan"], "the resume.plan hook")({ ...input, sessionId: "session_123" }, out);
     expect(out.args).toEqual(["--session", "session_123"]);
   });
 
@@ -153,11 +154,11 @@ describe("Kimi CLI plugin", () => {
     };
 
     const spawn = output();
-    await agent.hooks["spawn.plan"]!({ ...input, skills }, spawn);
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")({ ...input, skills }, spawn);
     expect(spawn.args).toEqual(["--skills-dir", "/kd/staging/ws-1/skills"]);
 
     const resume = output();
-    await agent.hooks["resume.plan"]!(
+    await present(agent.hooks["resume.plan"], "the resume.plan hook")(
       { ...input, skills, sessionId: "session_123" },
       resume,
     );
@@ -172,11 +173,11 @@ describe("Kimi CLI plugin", () => {
     // at all — kimi's --skills-dir REPLACES its auto-discovery, so an empty
     // one would hide the user's own skills.
     const bareSpawn = output();
-    await agent.hooks["spawn.plan"]!(input, bareSpawn);
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")(input, bareSpawn);
     expect(bareSpawn.args).not.toContain("--skills-dir");
 
     const bareResume = output();
-    await agent.hooks["resume.plan"]!({ ...input, sessionId: "session_123" }, bareResume);
+    await present(agent.hooks["resume.plan"], "the resume.plan hook")({ ...input, sessionId: "session_123" }, bareResume);
     expect(bareResume.args).toEqual(["--session", "session_123"]);
   });
 
@@ -184,11 +185,11 @@ describe("Kimi CLI plugin", () => {
     const { agent } = await activate();
 
     const spawn = output();
-    await agent.hooks["spawn.plan"]!({ ...input, yolo: true }, spawn);
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")({ ...input, yolo: true }, spawn);
     expect(spawn.args).toEqual(["--yolo"]);
 
     const resume = output();
-    await agent.hooks["resume.plan"]!(
+    await present(agent.hooks["resume.plan"], "the resume.plan hook")(
       { ...input, yolo: true, sessionId: "session_123" },
       resume,
     );
