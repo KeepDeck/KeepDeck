@@ -117,6 +117,12 @@ describe("the linter", () => {
       [2, "no-restricted-syntax"],
       [4, "no-restricted-syntax"],
     ]);
+    // A production component has no app/testing door, at run time either.
+    const [view] = await eslint.lintText(
+      'export const load = async () => [await import("../../app/settingsManager"), await import("../../app/testing"), await import("../../app/useSettings")];\n',
+      { filePath: join(REPO, "src/components/probe/LintProbe.tsx") },
+    );
+    expect(view.messages.filter((message) => message.ruleId === "no-restricted-syntax").length).toBe(2);
   });
 
   it("finds nothing in the source", async () => {

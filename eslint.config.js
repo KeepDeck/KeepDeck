@@ -85,6 +85,14 @@ const CAST_BANS = [
  * rule reads only static imports; vi.mock factories load through import(). */
 const APP_OUTSIDE_TEST_SURFACE =
   "/(^|\\/)app\\/(?!(.*\\/)?(use[A-Z][^\\/]*|runtimeContext|runtimeContext\\.test-support)$|testing$)/";
+/** The same for a production component, whose surface has no app/testing. */
+const APP_OUTSIDE_VIEW_SURFACE = "/(^|\\/)app\\/(?!(.*\\/)?(use[A-Z][^\\/]*|runtimeContext)$)/";
+const COMPONENT_RUNTIME_SURFACE = [
+  {
+    selector: `ImportExpression > Literal.source[value=${APP_OUTSIDE_VIEW_SURFACE}]`,
+    message: "A component loads app through its hooks or runtimeContext — at run time too.",
+  },
+];
 const COMPONENT_TEST_RUNTIME_SURFACE = [
   {
     selector: `ImportExpression > Literal.source[value=${APP_OUTSIDE_TEST_SURFACE}]`,
@@ -243,6 +251,7 @@ export default [
     ignores: TEST_FILES,
     rules: {
       "@typescript-eslint/no-restricted-imports": ["error", { patterns: [COMPONENTS_APP_SURFACE] }],
+      "no-restricted-syntax": ["error", ...CAST_BANS, ...COMPONENT_RUNTIME_SURFACE],
     },
   },
   {
