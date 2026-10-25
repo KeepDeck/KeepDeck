@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { pasteToPane } from "../../app/paneInput";
+import { pasteToPane, registerPaneInput } from "../../app/paneInput";
 import {
   registerTerminalPaneInput,
   terminalPaneInput,
@@ -39,7 +39,7 @@ describe("registerTerminalPaneInput (the TerminalPane call-site glue)", () => {
   it("wires the PASTE channel end-to-end through the registry: pasteToPane drives term.paste, not the raw writer", () => {
     const paste = vi.fn();
     const writeRaw = vi.fn();
-    const off = registerTerminalPaneInput("pane-glue", { paste }, writeRaw);
+    const off = registerTerminalPaneInput({ registerInput: registerPaneInput }, "pane-glue", { paste }, writeRaw);
 
     // Drive it through the REAL registry, the way pane.write / deliverTask do.
     expect(pasteToPane("pane-glue", "fix the header")).toBe(true);

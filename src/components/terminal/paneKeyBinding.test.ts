@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 import { registerTerminalPaneKeys } from "./paneKeyBinding";
-import { subscribePaneKeys } from "../../app/paneKeys";
+import { reportPaneKey, subscribePaneKeys } from "../../app/paneKeys";
 
 /** A terminal that records WHICH of its two streams was subscribed, so a
  * rewire to the data stream is caught even if it somehow type-checked. */
@@ -57,7 +57,7 @@ afterEach(() => {
 });
 
 const bind = (paneId: string, term: ReturnType<typeof fakeTerm>["term"]) => {
-  const unregister = registerTerminalPaneKeys(paneId, term);
+  const unregister = registerTerminalPaneKeys({ reportKey: reportPaneKey }, paneId, term);
   registered.push(unregister);
   return unregister;
 };

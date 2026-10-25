@@ -18,7 +18,7 @@
  * invisible here. Neither answers a prompt, so neither is missed; a future
  * override that IS an answer would need to report itself.
  */
-import { reportPaneKey } from "../../app/paneKeys";
+import type { PaneTerminalPort } from "../../app/usePaneTerminal";
 
 /** The slice of an xterm Terminal the key report needs — deliberately just
  * the one event, so nothing else can be wired here by accident. */
@@ -29,9 +29,10 @@ export interface KeySource {
 /** Report this pane's keystrokes for as long as the returned disposer is
  * not called. */
 export function registerTerminalPaneKeys(
+  terminal: Pick<PaneTerminalPort, "reportKey">,
   paneId: string,
   term: KeySource,
 ): () => void {
-  const subscription = term.onKey(({ key }) => reportPaneKey(paneId, key));
+  const subscription = term.onKey(({ key }) => terminal.reportKey(paneId, key));
   return () => subscription.dispose();
 }

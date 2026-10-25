@@ -8,7 +8,7 @@
  * TASK DELIVERY on `term.paste`, so a regression that swaps `paste` back onto
  * `writePane` must turn a test red.
  */
-import { registerPaneInput, type PaneInput } from "../../app/paneInput";
+import type { PaneInput, PaneTerminalPort } from "../../app/usePaneTerminal";
 
 /** The slice of an xterm Terminal the PASTE channel needs. */
 export interface PasteTarget {
@@ -34,13 +34,14 @@ export function terminalPaneInput(
  * call-site glue so the channel wiring is testable through the real registry
  * (no component mount): a `pasteToPane(paneId, ...)` after this must drive
  * `term.paste`, never the raw writer. Call sites should use this rather than
- * composing `registerPaneInput` + `terminalPaneInput` by hand, so the
+ * composing `registerInput` + `terminalPaneInput` by hand, so the
  * paste-routing choice stays in one tested place.
  */
 export function registerTerminalPaneInput(
+  terminal: Pick<PaneTerminalPort, "registerInput">,
   paneId: string,
   term: PasteTarget,
   writeRaw: RawWriter,
 ): () => void {
-  return registerPaneInput(paneId, terminalPaneInput(term, writeRaw));
+  return terminal.registerInput(paneId, terminalPaneInput(term, writeRaw));
 }
