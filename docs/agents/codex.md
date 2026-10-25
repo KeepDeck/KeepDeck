@@ -28,11 +28,21 @@ target.
 - **`--dangerously-bypass-approvals-and-sandbox`** for permission-skipping
   panes.
 - **`--remote <endpoint>`** for panes targeting a native server.
+- **`--no-daemon`** on every local spawn, resume and fork when the binary
+  reports 0.156 or later (`src/process.ts`). From 0.157 a plain `codex`
+  attaches to the user's shared background daemon, which runs the pane's
+  hooks and MCP children outside the pane's session, where the host cannot
+  vouch for them. Any `-c` outside a short allowlist (boolean `features.*`
+  toggles and two other keys) also keeps a launch off the daemon. That side
+  effect is what held panes off it before; the flag states it. It is never sent with `--remote`, which Codex refuses, nor to
+  an older or unknown release, where an unknown flag aborts the launch.
+  The same rule is the plugin's `bare.plan` floor, so a pane whose plan
+  failed still launches with it.
 - **Skills:** Codex has no flag or env for them. It reads `.agents/skills`
   from its starting directory, and the host symlinks the staged skills there
   before the spawn.
 
-`-c` flags are global and must come before the `resume` or `fork`
+`-c`, `--no-daemon` and the other flags are global and must come before the `resume` or `fork`
 subcommand.
 
 ## Hooks

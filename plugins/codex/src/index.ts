@@ -12,12 +12,12 @@ import {
   type KeepDeckPlugin,
   type PluginAgents,
   type PluginResources,
-  type SpawnPlanInput,
 } from "@keepdeck/plugin-api";
 import { codexBinding } from "./binding";
 import { codexHistory, type HistoryPorts } from "./history";
 import { icon } from "./icon";
 import { mcpArgs } from "./mcp";
+import { processArgs } from "./process";
 import { cliArgs } from "./trust";
 import {
   attributeCodexEvent,
@@ -143,14 +143,6 @@ const yoloArgs = (yolo: boolean | undefined): string[] =>
  * the `resume`/`fork` subcommand. */
 const disablePasteBurstArgs: string[] = ["-c", "disable_paste_burst=true"];
 
-/** The remote-client flag: when the pane targets a native-server endpoint,
- * codex runs HERE as a local thin client attached to a server provisioned on
- * the box by the host (the agent brain, files and tool calls execute there).
- * `--remote` is a global flag like `-c`/yolo, so it precedes the resume/fork
- * subcommand; it is supported on `codex`, `codex resume`, and `codex fork`. */
-const remoteArgs = (target: SpawnPlanInput["target"]): string[] =>
-  target?.kind === "nativeServer" ? ["--remote", target.endpoint] : [];
-
 // Shared skills need NO code here: codex has no flag/env/config door
 // (openai/codex#15149, #22869), but it reads `.agents/skills` from its
 // starting cwd at session start — and the host's staging arms every pane
@@ -204,25 +196,33 @@ export function registerCodex(ctx: CodexPorts): void {
     // user's new conversation rather than a second session (./binding.ts).
     binding: codexBinding,
     history: codexHistory(ctx),
-    hooks: launchPlans({
-      // Every `-c` flag and the yolo switch are GLOBAL: they precede the
-      // `resume`/`fork` subcommand the tail adds.
-      stage: async (input, output) => {
-        output.args.push(
-          ...remoteArgs(input.target),
-          ...(await hookArgs(ctx.resources)),
-          ...mcpArgs(input.mcp, ctx.log),
-          ...disablePasteBurstArgs,
-          ...yoloArgs(input.yolo),
-        );
+    hooks: {
+      ...launchPlans({
+        // Every `-c` flag, the process flag and the yolo switch are GLOBAL:
+        // they precede the `resume`/`fork` subcommand the tail adds.
+        stage: async (input, output) => {
+          output.args.push(
+            ...processArgs(input),
+            ...(await hookArgs(ctx.resources)),
+            ...mcpArgs(input.mcp, ctx.log),
+            ...disablePasteBurstArgs,
+            ...yoloArgs(input.yolo),
+          );
+        },
+        resume: (input) => ["resume", input.sessionId],
+        // codex forks natively: `codex fork <id>` resolves the session by
+        // its GLOBAL id (no cwd filter), mints a NEW session id, copies the
+        // history, and binds the fork to the invocation dir — no store
+        // surgery at all (probe-verified, RESUME_ANY_HISTORY.md §2).
+        fork: (input) => ["fork", input.sessionId],
+      }),
+      // A spawn whose plan failed still runs codex, and without this it
+      // would run on the user's daemon: the `-c` that kept it off went with
+      // the plan. The same rule as every staged launch, nothing else.
+      "bare.plan": (input, output) => {
+        output.args.push(...processArgs(input));
       },
-      resume: (input) => ["resume", input.sessionId],
-      // codex forks natively: `codex fork <id>` resolves the session by
-      // its GLOBAL id (no cwd filter), mints a NEW session id, copies the
-      // history, and binds the fork to the invocation dir — no store
-      // surgery at all (probe-verified, RESUME_ANY_HISTORY.md §2).
-      fork: (input) => ["fork", input.sessionId],
-    }),
+    },
   });
 }
 
