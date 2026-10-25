@@ -7,7 +7,8 @@ import { describe, expect, it } from "vitest";
  * The linter, as part of the test run.
  *
  * eslint.config.js refuses casts that switch the type checker off, explicit
- * `any`, and TypeScript suppression comments. The build runs it too; running
+ * `any`, TypeScript suppression comments, and a component reaching past
+ * app's hooks. The build runs it too; running
  * it here means a plain `vitest run` fails on a new one.
  */
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -30,6 +31,27 @@ describe("the linter", () => {
       "@typescript-eslint/no-explicit-any",
       "@typescript-eslint/ban-ts-comment",
     ]);
+  });
+
+  it("keeps a component to app's hooks, runtime context and types", async () => {
+    const eslint = new ESLint({ cwd: REPO });
+    const source = [
+      'import { updateSettings } from "../../app/settingsManager";',
+      'import type { PluginCrash } from "../../app/pluginHealth";',
+      'import { useSettings } from "../../app/useSettings";',
+      'import { useReadyTasksBoard } from "../../app/tasks/useBoardState";',
+      'import { useRuntimePart } from "../../app/runtimeContext";',
+      "export const parts = [updateSettings, useSettings, useReadyTasksBoard, useRuntimePart];",
+      "export type Crash = PluginCrash;",
+      "",
+    ].join("\n");
+    const [view] = await eslint.lintText(source, { filePath: join(REPO, "src/components/probe/LintProbe.tsx") });
+    const [test] = await eslint.lintText(source, { filePath: join(REPO, "src/components/probe/LintProbe.test.tsx") });
+    expect(view.messages.map((message) => [message.line, message.ruleId])).toEqual([
+      [1, "@typescript-eslint/no-restricted-imports"],
+    ]);
+    // A view test is the composition root of the view it renders.
+    expect(test.messages).toEqual([]);
   });
 
   it("finds nothing in the source", async () => {

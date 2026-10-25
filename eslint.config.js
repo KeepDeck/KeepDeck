@@ -30,6 +30,20 @@ const NO_INTEGRATION = {
 const RESOURCE_JS = ["plugins/*/resources/**/*.js"];
 const BAN_TS_COMMENT = ["error", { "ts-expect-error": true, "ts-ignore": true, "ts-nocheck": true, "ts-check": false }];
 
+/**
+ * What a production component may take from src/app: a hook (a module named
+ * `use*`, at any depth) and the runtime context — the app's public surface
+ * for views — plus any type. Everything else in app is wiring a view reaches
+ * through one of those.
+ */
+const COMPONENTS_APP_SURFACE = {
+  regex: "(^|/)app/(?!(.*/)?(use[A-Z][^/]*|runtimeContext)$)",
+  caseSensitive: true,
+  allowTypeImports: true,
+  message: "A component reaches app only through a hook (app/**/use*) or runtimeContext; types are free.",
+};
+const TEST_FILES = ["**/*.test.{ts,tsx}", "**/*.test-support.{ts,tsx}", "**/*[tT]estSupport.{ts,tsx}"];
+
 export default [
   // Only the TypeScript this repo authors: built bundles, generated plugin
   // copies and plain JS outside plugin resources are not what these rules are about.
@@ -150,6 +164,23 @@ export default [
           ],
         },
       ],
+    },
+  },
+
+  /**
+   * Components are views: they read and act through hooks and the runtime's
+   * parts, never through the app's managers and services directly (task-472).
+   * The typed rule, so a type-only import passes — and a rule id of its own,
+   * so it adds to the core `no-restricted-imports` blocks above rather than
+   * replacing them for these files. Tests are left out: a view test is the
+   * composition root of the view it renders, and builds or doubles the app
+   * parts it hands in.
+   */
+  {
+    files: ["src/components/**/*.{ts,tsx}"],
+    ignores: TEST_FILES,
+    rules: {
+      "@typescript-eslint/no-restricted-imports": ["error", { patterns: [COMPONENTS_APP_SURFACE] }],
     },
   },
 ];
