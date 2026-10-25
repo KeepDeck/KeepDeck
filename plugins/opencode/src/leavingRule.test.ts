@@ -163,4 +163,22 @@ describe("leaving a conversation", () => {
     await second;
     expect(on.published).toEqual(["session.unbound", "session.unbound"]);
   });
+
+  it("lets go on the fallback as one of the reporter's jobs too — never ahead of one already queued", async () => {
+    vi.useFakeTimers();
+    const on = setup(async () => true);
+    let release!: () => void;
+    void on.enqueue(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
+    const left = on.leaving.leave("ses_a");
+    await vi.advanceTimersByTimeAsync(LET_GO + 100);
+    expect(on.published).toEqual([]);
+    release();
+    await left;
+    expect(on.published).toEqual(["session.unbound"]);
+  });
 });

@@ -126,7 +126,12 @@ describe("mail on the home screen after /new", () => {
     expect(on.policy.ours("ses_made")).toBe(true);
   });
 
-  it("takes no mail when the TUI never shows the session made — and makes no more until the screen changes", async () => {
+  it.each([
+    { through: "another session", kind: "session", sessionID: "ses_x" },
+    { through: "a plugin's page", kind: "other" },
+    { through: "a stalled TUI", kind: "stale" },
+    { through: "no observer", kind: "unknown" },
+  ])("takes no mail when the TUI never shows the session made — and tries again only once the screen left home ($through)", async (away) => {
     vi.useFakeTimers();
     try {
       const on = setup(paneOf(undefined, "ses_a"), { kind: "home" });
@@ -138,8 +143,9 @@ describe("mail on the home screen after /new", () => {
       expect(on.adapter.createSession).toHaveBeenCalledOnce();
 
       // The screen changed, and came back: worth one more try.
-      on.show({ kind: "other" });
-      await on.policy.collect({ rung: true });
+      const { through: _through, ...screen } = away;
+      on.show(screen);
+      await on.policy.collect();
       on.show({ kind: "home" });
       const again = on.policy.collect({ rung: true });
       await vi.advanceTimersByTimeAsync(3_100);
@@ -149,6 +155,7 @@ describe("mail on the home screen after /new", () => {
       vi.useRealTimers();
     }
   });
+
 
   it("stops when the user starts a conversation of their own meanwhile — even one announced before the create returns", async () => {
     const on = setup(paneOf(undefined, "ses_a"), { kind: "home" });

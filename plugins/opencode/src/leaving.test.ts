@@ -131,7 +131,7 @@ describe("leaving a conversation, and mail on the home screen", () => {
       const type = envelope?.payload?.event?.type;
       arrived[envelope?.type === "agent.status" ? type : envelope?.type] ??= Date.now();
       if (envelope?.type === "session.bound" && envelope?.payload?.sessionId === holdBound) {
-        return { status: 204, holdMs: 300 };
+        return { status: 204, holdMs: BOUND_HOLD_MS };
       }
       if (type !== "mail.ask" && type !== "mail.ask.tool") return { status: 204 };
       const answer = pending.shift();
@@ -157,6 +157,8 @@ describe("leaving a conversation, and mail on the home screen", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  /** How long the deck holds that binding's post open. */
+  const BOUND_HOLD_MS = 300;
   /** A binding whose post the deck holds open — the wire is busy with it. */
   let holdBound: string | undefined;
   /** When each kind of envelope first arrived. */
@@ -332,8 +334,9 @@ describe("leaving a conversation, and mail on the home screen", () => {
     await ringUntil(() => calls.create > 0);
     await until(() => calls.prompts.length === 1);
     // The ask is not on the wire's queue: without waiting for it to drain,
-    // it would reach the deck while the binding is still in flight.
-    expect(arrived["mail.ask"] - arrived["session.bound"]).toBeGreaterThanOrEqual(250);
+    // it would reach the deck while the binding is still in flight. Not a
+    // moment later — only once the binding's response was given.
+    expect(arrived["mail.ask"] - arrived["session.bound"]).toBeGreaterThanOrEqual(BOUND_HOLD_MS);
   });
 
   it("on the home screen, mail gets a session of its own — shown first, asked for after", async () => {
