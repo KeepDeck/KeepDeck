@@ -1,7 +1,7 @@
 import type { ArgSpec, CommandArgs, CommandSource } from "../../domain/commands";
 import { requiredStr } from "./args";
 import { findWorkspace } from "../../domain/deck";
-import type { Deck } from "../useDeck";
+import type { CommandDeck } from ".";
 
 /**
  * How a library command reads WHICH library it is asked about.
@@ -36,7 +36,7 @@ export const SCOPE: ArgSpec = {
 export function libraryScopeOf(
   args: CommandArgs,
   source: CommandSource,
-  deck: () => Deck,
+  deck: () => CommandDeck,
 ): LibraryScope {
   // Read ONCE, through the shared reader — and report the value that was
   // judged, not the raw wire value with its whitespace.

@@ -14,6 +14,14 @@ import { registerSurfaceCommands } from "./surfaces";
 import { registerTeamLifecycleCommands } from "./teamLifecycle";
 import { registerWorkspaceCommands } from "./workspaces";
 
+/** The deck as the commands use it: what is open and selected, and the few
+ * moves a command makes on it directly — everything that lands or closes an
+ * agent goes through its own dep below. */
+export type CommandDeck = Pick<
+  Deck,
+  "workspaces" | "activeId" | "viewOf" | "selectWorkspace" | "selectPane" | "renameTeam"
+>;
+
 /**
  * The deck's core command set — what any invoker (voice, MCP, hotkeys, a
  * future palette) can do to the deck through the command registry. The plain
@@ -24,7 +32,7 @@ import { registerWorkspaceCommands } from "./workspaces";
  * or tear down the core set.
  */
 export interface CoreCommandDeps {
-  deck(): Deck;
+  deck(): CommandDeck;
   agents(): AgentInfo[];
   /** What a pane's agent is doing, when anything reports for it.
    *

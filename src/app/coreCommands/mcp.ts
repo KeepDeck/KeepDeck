@@ -1,7 +1,7 @@
 import type { ArgSpec, CommandArgs, CommandRegistry, CommandSource } from "../../domain/commands";
 import { MCP_SPEC_SHAPE, mcpServerSummary, parseMcpServerFile } from "../../domain/mcp";
 import type { McpLibrary } from "../mcpLibrary";
-import type { Deck } from "../useDeck";
+import type { CommandDeck } from ".";
 import { requiredStr, text } from "./args";
 import { SCOPE, libraryScopeOf } from "./scope";
 
@@ -24,7 +24,7 @@ import { SCOPE, libraryScopeOf } from "./scope";
  */
 
 export interface McpCommandDeps {
-  deck(): Deck;
+  deck(): CommandDeck;
   library: McpLibrary;
 }
 

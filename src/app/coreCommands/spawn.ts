@@ -8,7 +8,7 @@ import { firstFreeTeamWorktreeFor, nextAgentIndex, nextAgentType } from "../newA
 import { mintAgentSeq } from "../ids";
 import { getSettings } from "../settingsManager";
 import { createRefusalMessage, type CreatePaneRequest } from "../agentOrchestrator";
-import type { Deck } from "../useDeck";
+import type { CommandDeck } from ".";
 import { requiredStr, str } from "./args";
 import { deliverTask } from "./deliverTask";
 import type { CoreCommandDeps } from ".";
@@ -45,7 +45,7 @@ export function registerSpawnCommands(
   async function recruit(
     args: CommandArgs,
     where: (
-      current: { deck: Deck; workspace: Workspace },
+      current: { deck: CommandDeck; workspace: Workspace },
       index: number,
     ) => Promise<Pick<CreatePaneRequest, "placement" | "team" | "role" | "teamName">>,
   ) {
@@ -55,7 +55,7 @@ export function registerSpawnCommands(
     // instead of quietly meaning "the active workspace".
     const ws = targetWorkspace(deck, requiredStr(args, "workspace"));
     const workspace = { id: ws.id, instance: ws.instance };
-    const currentTarget = (): { deck: Deck; workspace: Workspace } => {
+    const currentTarget = (): { deck: CommandDeck; workspace: Workspace } => {
       const currentDeck = deps.deck();
       const currentWorkspace = findWorkspaceByRef(currentDeck.workspaces, workspace);
       if (!currentWorkspace) throw new Error(WORKSPACE_GONE_MESSAGE);
@@ -128,7 +128,7 @@ export function registerSpawnCommands(
    * a team holds, nor one blocked on disk) — a team of its own; anything
    * else the workspace root. Mirrors the agent dialog's defaults. */
   async function freshWorktree(
-    current: { deck: Deck; workspace: Workspace },
+    current: { deck: CommandDeck; workspace: Workspace },
     index: number,
   ): Promise<TeamLocation | undefined> {
     const info = await inspectRepo(current.workspace.cwd).catch(() => null);

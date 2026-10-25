@@ -14,10 +14,10 @@ import {
   type Workspace,
   paneProvisioning,
 } from "../../domain/deck";
-import type { Deck } from "../useDeck";
+import type { CommandDeck } from ".";
 
 /** The workspace a command acts on: the named one, else the active one. */
-export function targetWorkspace(deck: Deck, ref: string | undefined): Workspace {
+export function targetWorkspace(deck: CommandDeck, ref: string | undefined): Workspace {
   if (ref) {
     const resolved = resolveWorkspaceRef(deck.workspaces, ref);
     if (!resolved.ok) throw new Error(resolved.message);
@@ -42,7 +42,7 @@ export function targetTeam(ws: Workspace, ref: string): Team {
 /** The pane a command acts on: the named one, else the selected one, else
  * the only one. */
 export function targetPane(
-  deck: Deck,
+  deck: CommandDeck,
   agents: AgentInfo[],
   ws: Workspace,
   ref: string | undefined,
