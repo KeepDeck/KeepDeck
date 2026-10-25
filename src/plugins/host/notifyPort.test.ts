@@ -16,7 +16,7 @@ function manifest(withCapability = true): PluginManifest {
     category: "deck",
     capabilities: withCapability ? [{ kind: "notifications" }] : [],
     contributes: {},
-  } as unknown as PluginManifest;
+  };
 }
 
 describe("createPluginNotifyPort", () => {
@@ -109,9 +109,9 @@ describe("createPluginNotifyPort", () => {
 
   it("junk survives: invalid inputs drop (and still spend the attempt's token)", () => {
     const notify = port();
-    notify(null as never);
+    notify(null);
     notify({ title: "   " });
-    notify({ title: 42 } as never);
+    notify({ title: 42 });
     expect(deliver).not.toHaveBeenCalled();
     // Three invalid attempts drained the burst — the next VALID call is
     // rate-limited: garbage costs the plugin its own budget.
@@ -129,7 +129,7 @@ describe("createPluginNotifyPort", () => {
       severity: "loud",
       workspace: { id: "", instance: 42 },
       tag: "g".repeat(200),
-    } as never);
+    });
     const d = deliver.mock.calls[0][0];
     expect(d.title).toHaveLength(120);
     expect(d.body).toBeUndefined();
@@ -173,15 +173,15 @@ describe("cross-plugin isolation", () => {
     const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
     const portFor = (id: string) =>
       createPluginNotifyPort(
-        { ...manifest(), id } as never,
+        { ...manifest(), id },
         { mode: "enforce", log, deliver },
       );
     // Both plugins send the SAME input, including a forged pluginId field
     // (not part of the contract — must be ignored, the manifest is the only
     // identity source) and the same tag.
     const forged = { title: "t", tag: "x", pluginId: "keepdeck.other" };
-    portFor("keepdeck.a")(forged as never);
-    portFor("keepdeck.b")(forged as never);
+    portFor("keepdeck.a")(forged);
+    portFor("keepdeck.b")(forged);
     expect(deliver.mock.calls[0][0]).toMatchObject({
       pluginId: "keepdeck.a",
       tag: "plugin:keepdeck.a:x",
