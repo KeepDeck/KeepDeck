@@ -3,6 +3,7 @@ import { buildGuestContext } from "./context";
 import { fakeManifest } from "./fakeHost";
 import { GuestRpc, type GuestCaller } from "./rpc";
 import type { DownloadRequest } from "@keepdeck/plugin-api";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /**
  * Direct tests of the guest context builder — the parts worth pinning without
@@ -93,7 +94,7 @@ describe("registration outcomes fail loud", () => {
 
     const warned = () => call.mock.calls.find(([path]) => path === "log.warn");
     await vi.waitFor(() => expect(warned()).toBeDefined());
-    const [message] = warned()![1] as string[];
+    const [message] = present(warned(), "the warned")[1] as string[];
     expect(message).toContain("settings not declared");
     // Retained, that refusal would resurface here — and, unhandled, would
     // reach the realm as an unhandled rejection.
@@ -122,7 +123,7 @@ describe("agent registration payload", () => {
       ([path]) => path === "agents.register",
     );
     expect(register).toBeDefined();
-    const [, payload] = register![1] as [number, Record<string, unknown>];
+    const [, payload] = present(register, "the registered handler")[1] as [number, Record<string, unknown>];
     expect(payload.icon).toEqual(icon);
     expect(payload.hookNames).toEqual(["spawn.plan"]);
     expect(payload).not.toHaveProperty("hooks");
@@ -142,10 +143,10 @@ describe("agent registration payload", () => {
     await bundle.registrationsSettled();
     const warn = call.mock.calls.find(([path]) => path === "log.warn");
     expect(warn).toBeDefined();
-    expect(String((warn![1] as string[])[0])).toContain("usage contributions");
+    expect(String((present(warn, "the warning handler")[1] as string[])[0])).toContain("usage contributions");
     // And the declaration still never rides the wire (functions can't).
     const register = call.mock.calls.find(([path]) => path === "agents.register");
-    const [, payload] = register![1] as [number, Record<string, unknown>];
+    const [, payload] = present(register, "the registered handler")[1] as [number, Record<string, unknown>];
     expect(payload).not.toHaveProperty("usage");
   });
 
@@ -163,10 +164,10 @@ describe("agent registration payload", () => {
     await bundle.registrationsSettled();
     const warn = call.mock.calls.find(([path]) => path === "log.warn");
     expect(warn).toBeDefined();
-    expect(String((warn![1] as string[])[0])).toContain("status contributions");
+    expect(String((present(warn, "the warning handler")[1] as string[])[0])).toContain("status contributions");
     // And the declaration still never rides the wire (functions can't).
     const register = call.mock.calls.find(([path]) => path === "agents.register");
-    const [, payload] = register![1] as [number, Record<string, unknown>];
+    const [, payload] = present(register, "the registered handler")[1] as [number, Record<string, unknown>];
     expect(payload).not.toHaveProperty("status");
   });
 
@@ -193,7 +194,7 @@ describe("agent registration payload", () => {
     await bundle.registrationsSettled();
 
     const register = call.mock.calls.find(([path]) => path === "agents.register");
-    const [, payload] = register![1] as [number, Record<string, unknown>];
+    const [, payload] = present(register, "the registered handler")[1] as [number, Record<string, unknown>];
     expect(payload.hasHistory).toBe(true);
     expect(payload).not.toHaveProperty("history");
 
@@ -216,7 +217,7 @@ describe("agent registration payload", () => {
       ([path, args]) =>
         path === "agents.historyResult" && (args as unknown[])[0] === 17,
     );
-    expect((result![1] as unknown[])[1]).toEqual({
+    expect((present(result, "the result")[1] as unknown[])[1]).toEqual({
       ok: true,
       value: { cwd: "/repo", title: "session-ref" },
     });
@@ -281,7 +282,7 @@ describe("agent registration payload", () => {
       ([path, args]) =>
         path === "agents.historyResult" && (args as unknown[])[0] === 17,
     );
-    expect((answered![1] as unknown[])[1]).toEqual({
+    expect((present(answered, "the answer")[1] as unknown[])[1]).toEqual({
       ok: true,
       value: { stubs: [], complete: false },
     });
@@ -305,7 +306,7 @@ describe("agent registration payload", () => {
       ([path, args]) =>
         path === "agents.historyResult" && (args as unknown[])[0] === 18,
     );
-    expect(((refused![1] as unknown[])[1] as { ok: boolean }).ok).toBe(false);
+    expect(((present(refused, "the refusal")[1] as unknown[])[1] as { ok: boolean }).ok).toBe(false);
   });
 
   it("declares hasLiveSessions iff the agent contributes one, and serves the query on its own channel", async () => {
@@ -350,7 +351,7 @@ describe("agent registration payload", () => {
       ([path, args]) =>
         path === "agents.liveResult" && (args as unknown[])[0] === 23,
     );
-    expect((answered![1] as unknown[])[1]).toEqual({
+    expect((present(answered, "the answer")[1] as unknown[])[1]).toEqual({
       ok: true,
       value: [
         { sessionId: "s-1", kind: "background", name: "Fix the build", state: "working" },
@@ -372,7 +373,7 @@ describe("agent registration payload", () => {
       ([path, args]) =>
         path === "agents.liveResult" && (args as unknown[])[0] === 24,
     );
-    expect(((refused![1] as unknown[])[1] as { ok: boolean }).ok).toBe(false);
+    expect(((present(refused, "the refusal")[1] as unknown[])[1] as { ok: boolean }).ok).toBe(false);
   });
 });
 

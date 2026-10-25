@@ -9,7 +9,7 @@ import type {
   WorkspaceRef,
 } from "@keepdeck/plugin-api";
 import { speechErrorKind } from "@keepdeck/plugin-api";
-import { speechCapture } from "@keepdeck/plugin-api/testing";
+import { present, speechCapture } from "@keepdeck/plugin-api/testing";
 // The host bridge lives in the app (`src/`), the guest in this package; a
 // round-trip test is the one place both ends meet, so it reaches across the
 // boundary by relative path rather than adding a workspace dependency edge.
@@ -379,7 +379,7 @@ describe("external plugin bridge", () => {
     await flush();
     expect(typeof fireHostChange).toBe("function");
 
-    fireHostChange!();
+    present(fireHostChange, "the host-change handler")();
     await flush();
     expect(changes).toBe(1);
 
@@ -388,7 +388,7 @@ describe("external plugin bridge", () => {
     expect(unwatched).toEqual(["/repo"]);
 
     // A host change after dispose is not delivered to the plugin.
-    fireHostChange!();
+    present(fireHostChange, "the host-change handler")();
     await flush();
     expect(changes).toBe(1);
   });
