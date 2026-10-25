@@ -1,7 +1,7 @@
 /**
- * The pane follows the TUI (opencode 1.x, task-435): when the user opens
- * another session — `/sessions`, or opencode's own navigation — that session
- * becomes the pane's conversation.
+ * The pane follows the TUI, on either opencode generation (task-435, task-436):
+ * when the user opens another session — `/sessions`, a tab, or opencode's own
+ * navigation — that session becomes the pane's conversation.
  *
  * ONE FOLLOWER PER PROCESS, like the pane session it moves: both components
  * join it, and it alone decides that the pane moves. The courier never moves

@@ -41,6 +41,8 @@ function createContext(parents: Record<string, string | undefined> = {}) {
   const hooks: Record<string, Hook> = {};
   const prompts: { sessionID: string; text: string }[] = [];
   const synthetics: { sessionID: string; text: string; resume?: boolean }[] = [];
+  /** Both kinds of write into a session, in the order they were made. */
+  const writes: string[] = [];
   const created: Record<string, unknown>[] = [];
   const interrupted: string[] = [];
   /** What a session the plugin creates does once it exists — as opencode
@@ -71,10 +73,12 @@ function createContext(parents: Record<string, string | undefined> = {}) {
         const event = { sessionID: input.sessionID, prompt: { text: input.text }, metadata: input.metadata };
         await hooks["session.prompt"]?.(event);
         prompts.push({ sessionID: input.sessionID, text: event.prompt.text });
+        writes.push(`prompt ${input.sessionID}`);
         return {};
       },
       synthetic: async (input: { sessionID: string; text: string; resume?: boolean }) => {
         synthetics.push(input);
+        writes.push(`synthetic ${input.sessionID}`);
         return {};
       },
       hook: async (name: string, callback: Hook) => {
@@ -96,7 +100,7 @@ function createContext(parents: Record<string, string | undefined> = {}) {
       }),
     },
   };
-  return { context, bus, hooks, prompts, synthetics, created, interrupted, onCreate };
+  return { context, bus, hooks, prompts, synthetics, writes, created, interrupted, onCreate };
 }
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
@@ -365,7 +369,7 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
 
   describe("mail", () => {
     it("puts the brief in a new conversation without a turn, and somebody's words with one", async () => {
-      const { context, bus, prompts, synthetics } = createContext();
+      const { context, bus, prompts, synthetics, writes } = createContext();
       await setup(context);
       pending.push({ v: 1, context: "you are impl-1", prompt: "ship it" });
       bus.push("session.created", { sessionID: "ses_a" });
@@ -373,6 +377,8 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
 
       expect(synthetics).toEqual([{ sessionID: "ses_a", text: "you are impl-1", resume: false }]);
       expect(prompts).toEqual([{ sessionID: "ses_a", text: "ship it" }]);
+      // The brief lands before the words that assume it.
+      expect(writes).toEqual(["synthetic ses_a", "prompt ses_a"]);
     });
 
     it("collects at a turn's end", async () => {

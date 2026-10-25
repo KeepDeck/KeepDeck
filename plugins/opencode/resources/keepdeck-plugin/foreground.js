@@ -1,6 +1,7 @@
 /**
- * What the pane's TUI is showing, shared between the two halves of
- * KeepDeck's opencode 1.x integration (task-435).
+ * What the pane's TUI is showing, shared between the TUI half and the server
+ * half of KeepDeck's opencode plugin, on either generation (task-435,
+ * task-436).
  *
  * The server plugin cannot see the TUI: `/new` and `/sessions` only move the
  * TUI's own route, and the server hears nothing (packages/tui/src/app.tsx at
