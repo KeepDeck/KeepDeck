@@ -153,7 +153,7 @@ export function UsageChips({
     // otherwise dismiss this panel and the dialog above it.
     const onPress = (e: PointerEvent) => {
       if (isBehindModalLayer(rootRef.current)) return;
-      if (!rootRef.current?.contains(e.target as Node)) setOpenProvider(null);
+      if (!rootRef.current?.contains(e.target instanceof Node ? e.target : null)) setOpenProvider(null);
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || isBehindModalLayer(rootRef.current)) return;

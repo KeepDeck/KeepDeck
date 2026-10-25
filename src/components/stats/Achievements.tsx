@@ -1,4 +1,4 @@
-import { useMemo, type CSSProperties } from "react";
+import { useMemo } from "react";
 import {
   achievementDisplayTitle,
   achievementExact,
@@ -202,12 +202,10 @@ function AchievementCard({
           lit edge shows. */}
       <span
         className="stats__achievement-rim stats__achievement-layer"
-        style={
-          {
-            "--rim-drift": rimDrift(item.id),
-            "--rim-phase": rimPhase(item.id),
-          } as CSSProperties
-        }
+        style={{
+          "--rim-drift": rimDrift(item.id),
+          "--rim-phase": rimPhase(item.id),
+        }}
         aria-hidden
       />
       <span className="stats__achievement-dress stats__achievement-layer" aria-hidden />

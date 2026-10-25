@@ -39,13 +39,13 @@ import {
   teamOf,
   teamRoles,
   type Mail,
-  type MailKind,
   type MailSender,
   type SendRefusal,
 } from "../../domain/mail";
 import { log } from "../../ipc/log";
 import type { MailManager } from "./mailManager";
 import { applyTeamPlan, type TeamSetupDeps } from "./teamSetup";
+import { isOneOf } from "../../domain/json";
 
 export interface MailCommandDeps {
   mail: MailManager;
@@ -207,7 +207,7 @@ export function registerMailCommands(
       run: (args, source) => {
         const from = requireSender(source);
         const kind = str(args, "kind");
-        if (!kind || !SENDABLE_KINDS.includes(kind as MailKind)) {
+        if (!isOneOf(SENDABLE_KINDS, kind)) {
           throw new Error(
             `unknown mail kind ${JSON.stringify(String(args.kind))} — expected one of ${SENDABLE_KINDS.join(", ")}`,
           );
@@ -237,11 +237,14 @@ export function registerMailCommands(
           str(args, "to") ?? "",
         );
         if (!resolved.ok) throw new Error(resolved.message);
+        // The registry has refused a missing or wrong-typed body already.
+        const body = args.body;
+        if (typeof body !== "string") throw new Error("body must be a string");
         const result = deps.mail.send({
           from: speaking,
           toPaneId: resolved.value.id,
-          kind: kind as MailKind,
-          body: args.body as string,
+          kind,
+          body,
         });
         if (!result.ok) throw new Error(refusalText(result.refusal));
         // ACCEPTED either way, and the answer has to say so in a word rather

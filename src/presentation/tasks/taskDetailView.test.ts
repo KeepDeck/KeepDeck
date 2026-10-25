@@ -34,6 +34,8 @@ describe("task panel and form words and classes", () => {
   it("a pick asks for nothing when it changes nothing", () => {
     expect(pickedStatus("todo", "todo")).toBeNull();
     expect(pickedStatus("todo", "in-progress")).toBe("in-progress");
+    // A pick that names no status asks for no move.
+    expect(pickedStatus("todo", "someday")).toBeNull();
     expect(pickedPriority("normal", "normal")).toBeNull();
     expect(pickedPriority("normal", "high")).toBe("high");
     // No priority at all asks for nothing either.

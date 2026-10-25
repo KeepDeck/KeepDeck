@@ -155,7 +155,8 @@ export function createNotificationCenter(): NotificationCenter {
         lastBannerAt.delete(cooldownKey); // re-set → back of the order
         lastBannerAt.set(cooldownKey, now);
         if (lastBannerAt.size > BANNER_COOLDOWN_KEYS_MAX) {
-          lastBannerAt.delete(lastBannerAt.keys().next().value as string);
+          const oldest = lastBannerAt.keys().next();
+          if (!oldest.done) lastBannerAt.delete(oldest.value);
         }
         // The OS banner has no icon slot of ours — the emoji rides the title.
         sendSystemNotification(

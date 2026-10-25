@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 
 export type ProgressRingTone = "warn" | "critical";
 
@@ -33,7 +33,7 @@ export function ProgressRing({ value, tone, children, className, shape = "ring" 
       className={["progress-ring", shape === "pie" && "progress-ring--pie", tone && `progress-ring--${tone}`, className]
         .filter(Boolean)
         .join(" ")}
-      style={{ "--progress-ring-fill": value } as CSSProperties}
+      style={{ "--progress-ring-fill": value }}
       aria-hidden
     >
       {children !== undefined && <span className="progress-ring__mark">{children}</span>}

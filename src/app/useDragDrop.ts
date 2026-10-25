@@ -23,8 +23,8 @@ export function useDragDrop(onDropped: (paneId: string) => void) {
     // it DOES fire a beforeinput with inputType 'insertFromDrop' on the focused
     // xterm textarea — that second copy landed in the focused pane. Cancel it
     // (capture) so only our routed insertion remains.
-    const blockDropInsert = (e: Event) => {
-      if ((e as InputEvent).inputType === "insertFromDrop") {
+    const blockDropInsert = (e: InputEvent) => {
+      if (e.inputType === "insertFromDrop") {
         e.preventDefault();
         e.stopImmediatePropagation();
       }

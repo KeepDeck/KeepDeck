@@ -156,21 +156,21 @@ export function useStripReveal(column: RefObject<HTMLElement | null>, suspended:
       if (document.visibilityState === "hidden") gone();
     };
     const opts = { capture: true, passive: true } as const;
-    const pointer: [string, (e: PointerEvent) => void][] = [
+    const pointer = [
       ["pointerover", onOver],
       ["pointermove", onMove],
       ["pointerout", onOut],
       ["pointerdown", onDown],
       ["pointerup", onUp],
       ["pointercancel", onCancel],
-    ];
-    for (const [type, fn] of pointer) document.addEventListener(type, fn as EventListener, opts);
+    ] as const;
+    for (const [type, fn] of pointer) document.addEventListener(type, fn, opts);
     document.documentElement.addEventListener("mouseleave", gone);
     window.addEventListener("blur", gone);
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onHidden);
     return () => {
-      for (const [type, fn] of pointer) document.removeEventListener(type, fn as EventListener, opts);
+      for (const [type, fn] of pointer) document.removeEventListener(type, fn, opts);
       document.documentElement.removeEventListener("mouseleave", gone);
       window.removeEventListener("blur", gone);
       window.removeEventListener("focus", onFocus);

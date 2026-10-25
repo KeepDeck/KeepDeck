@@ -76,7 +76,7 @@ export function NotificationBell({
     if (!open) return;
     const onPress = (e: PointerEvent) => {
       if (isBehindModalLayer(rootRef.current)) return;
-      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+      if (!rootRef.current?.contains(e.target instanceof Node ? e.target : null)) setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || isBehindModalLayer(rootRef.current)) return;

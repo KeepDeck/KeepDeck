@@ -10,6 +10,7 @@ import { createAchievementEngine } from "../domain/usage/achievements/engine";
 import type { UsageEventV2 } from "../domain/usage/history/event";
 import type { NotifyInput } from "./notificationCenter";
 import type { UsageHistorySnapshot } from "./usageHistoryManager";
+import { isJsonRecord } from "@keepdeck/plugin-api";
 
 /**
  * Congratulates on newly earned achievements. Earned state is derived from
@@ -245,8 +246,8 @@ export interface NotifiedFile {
 function decode(json: string | null): NotifiedFile {
   if (json === null) return { notified: new Set(), version: 0 };
   try {
-    const value = JSON.parse(json) as { notified?: unknown; version?: unknown };
-    if (Array.isArray(value.notified)) {
+    const value: unknown = JSON.parse(json);
+    if (isJsonRecord(value) && Array.isArray(value.notified)) {
       const ids = value.notified.filter(
         (id): id is string => typeof id === "string",
       );

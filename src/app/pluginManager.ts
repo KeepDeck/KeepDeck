@@ -23,6 +23,7 @@ import {
   type PluginManifest,
   type WorkspaceRef as PluginWorkspaceRef,
   errorMessage,
+  isJsonRecord,
 } from "@keepdeck/plugin-api";
 import {
   createContributionRegistries,
@@ -1045,11 +1046,17 @@ export function createPluginManager(appDownloads: DownloadManager) {
   }
 
   function defaultExport(module: unknown): KeepDeckPlugin {
-    const plugin = (module as { default?: KeepDeckPlugin }).default;
-    if (!plugin || typeof plugin.activate !== "function") {
+    const plugin = isJsonRecord(module) ? module.default : undefined;
+    if (!isKeepDeckPlugin(plugin)) {
       throw new Error("plugin bundle has no default export with activate()");
     }
     return plugin;
+  }
+
+  /** A plugin as a bundle's default export must be: an object that can be
+   * activated. The rest of its shape is the plugin's own to keep. */
+  function isKeepDeckPlugin(value: unknown): value is KeepDeckPlugin {
+    return isJsonRecord(value) && typeof value.activate === "function";
   }
 
   return {

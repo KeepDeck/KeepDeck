@@ -395,7 +395,7 @@ export function versionsFromLog(log: readonly TaskLogEntry[]): BriefsRead {
 
 /** A brief edit from the first builds, which kept neither text nor
  * version: one that happened, whose earlier brief was never stored. */
-export function isUnkeptBriefEdit(entry: Pick<TaskLogEntry, "field" | "was" | "now">): boolean {
+export function isUnkeptBriefEdit(entry: { field: unknown; was: unknown; now: unknown }): boolean {
   return entry.field === "body" && entry.was === null && entry.now === null;
 }
 

@@ -54,7 +54,7 @@ export function ModalOverlay({ children }: { children: ReactNode }) {
         const layer = layerRef.current;
         if (event.key !== "Tab" || !layer) return;
         const stops = tabStops(layer);
-        const to = trappedTab(stops.length, stops.indexOf(document.activeElement as HTMLElement), event.shiftKey);
+        const to = trappedTab(stops.length, document.activeElement instanceof HTMLElement ? stops.indexOf(document.activeElement) : -1, event.shiftKey);
         if (to === null) return;
         event.preventDefault();
         if (to >= 0) stops[to].focus();

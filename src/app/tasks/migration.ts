@@ -14,14 +14,14 @@
  * is counted through; and the imported boards are read back from the
  * database through the same validator and compared whole.
  */
-import { decodeBoard, encodeBoard, isUnkeptBriefEdit, type DroppedBlockers, type TaskBoard, type TaskLogEntry } from "../../domain/tasks";
+import { decodeBoard, encodeBoard, isUnkeptBriefEdit, type DroppedBlockers, type TaskBoard } from "../../domain/tasks";
 import type { LegacyBoard } from "../../ipc/generated/tasks/LegacyBoard";
 import type { MigrationSource } from "../../ipc/generated/tasks/MigrationSource";
 import type { StoreStatus } from "../../ipc/generated/tasks/StoreStatus";
 import type { StoredBoard } from "../../ipc/generated/tasks/StoredBoard";
 import { decodeFaultText } from "./refusalText";
 import { boardFromStored, storedFromBoard } from "./storeWire";
-import { errorMessage } from "@keepdeck/plugin-api";
+import { errorMessage, isJsonRecord } from "@keepdeck/plugin-api";
 
 /** What the move needs from the store. */
 export interface MigrationPort {
@@ -150,20 +150,23 @@ async function retire(port: MigrationPort): Promise<string | null> {
  * this catches what it would read and drop.
  */
 export function countsLost(json: string, board: TaskBoard, dropped: readonly DroppedBlockers[]): string | null {
-  const raw = JSON.parse(json) as {
-    tasks?: { comments?: unknown[]; log?: { field?: unknown }[]; briefs?: unknown[]; blockedBy?: unknown[] }[];
-  };
-  const tasks = raw.tasks ?? [];
+  // The file the codec has just read: its shape holds, so a part that is
+  // missing here is one the file did not have.
+  const raw: unknown = JSON.parse(json);
+  const tasks = isJsonRecord(raw) && Array.isArray(raw.tasks) ? raw.tasks : [];
   if (tasks.length !== board.tasks.length) return `tasks (${tasks.length} in the file, ${board.tasks.length} read)`;
-  for (const [i, task] of tasks.entries()) {
+  for (const [i, entry] of tasks.entries()) {
     const kept = board.tasks[i];
-    if ((task.comments?.length ?? 0) !== kept.comments.length) return `comments of ${kept.id}`;
-    if ((task.log?.length ?? 0) !== kept.log.length) return `log entries of ${kept.id}`;
+    const task = isJsonRecord(entry) ? entry : {};
+    const log = Array.isArray(task.log) ? task.log : [];
+    if ((Array.isArray(task.comments) ? task.comments.length : 0) !== kept.comments.length) return `comments of ${kept.id}`;
+    if (log.length !== kept.log.length) return `log entries of ${kept.id}`;
     // An edit of the first builds stored no text: it holds no version.
-    const versions =
-      task.briefs?.length ?? (task.log ?? []).filter((entry) => entry.field === "body" && !isUnkeptBriefEdit(entry as TaskLogEntry)).length;
+    const versions = Array.isArray(task.briefs)
+      ? task.briefs.length
+      : log.filter((logged) => isJsonRecord(logged) && logged.field === "body" && !isUnkeptBriefEdit({ field: logged.field, was: logged.was, now: logged.now })).length;
     if (versions !== kept.briefs.length) return `brief versions of ${kept.id}`;
-    if (task.blockedBy !== undefined) {
+    if (Array.isArray(task.blockedBy)) {
       const named = new Set(task.blockedBy).size;
       const linked = board.relations.filter((r) => r.kind === "blocks" && r.to === kept.uid).length;
       const letGo = dropped.find((d) => d.id === kept.id)?.blockers.length ?? 0;

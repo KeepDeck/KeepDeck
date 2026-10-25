@@ -38,9 +38,8 @@ export function usePaneDrag(onDropped: (paneId: string) => void) {
 
     const onPointerDown = (event: PointerEvent) => {
       if (event.button !== 0) return;
-      const source = (event.target as Element | null)?.closest(
-        `[${DRAG_PATH_ATTR}]`,
-      );
+      const source =
+        event.target instanceof Element ? event.target.closest(`[${DRAG_PATH_ATTR}]`) : null;
       const pressed = source?.getAttribute(DRAG_PATH_ATTR);
       if (!pressed) return;
       path = pressed;

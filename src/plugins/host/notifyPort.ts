@@ -6,6 +6,7 @@ import type {
 import { stripUnsafeText } from "@keepdeck/plugin-api/unsafe-text";
 import { makeAdmit, type GateMode } from "../capabilities/tier";
 import { createTokenBucket } from "./tokenBucket";
+import { isOneOf } from "../../domain/json";
 
 /** String caps — a notification is a glance, not a document. Anything longer
  * is cut, not refused: the message still reaches the user. The manifest caps
@@ -181,11 +182,7 @@ export function createPluginNotifyPort(
     const cleanBody =
       typeof raw.body === "string" ? stripUnsafeText(raw.body) : "";
     const body = cleanBody !== "" ? cleanBody.slice(0, BODY_MAX) : undefined;
-    const severity = SEVERITIES.includes(
-      raw.severity as (typeof SEVERITIES)[number],
-    )
-      ? (raw.severity as (typeof SEVERITIES)[number])
-      : "info";
+    const severity = isOneOf(SEVERITIES, raw.severity) ? raw.severity : "info";
     const workspace = readWorkspaceRef(raw.workspace);
     const dockTab =
       typeof raw.dockTab === "string" && raw.dockTab !== ""
