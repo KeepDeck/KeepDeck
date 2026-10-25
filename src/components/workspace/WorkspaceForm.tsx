@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { SpawnConfig } from "../../domain/deck";
 import { useEscape } from "../../ui/useEscape";
 import { noAutoCorrect } from "../../ui/inputProps";
@@ -53,6 +53,10 @@ export function WorkspaceForm({
     null,
   );
 
+  // The probe is triggered by the chosen directory; the injected probe is
+  // read through a ref so a fresh function from the caller does not re-run it.
+  const inspectRef = useRef(inspectDir);
+  inspectRef.current = inspectDir;
   // Probe the chosen working directory, for the "git detected" hint.
   useEffect(() => {
     if (!cwd) {
@@ -60,7 +64,7 @@ export function WorkspaceForm({
       return;
     }
     let cancelled = false;
-    inspectDir(cwd)
+    inspectRef.current(cwd)
       .then((info) => {
         if (!cancelled) setGit({ isRepo: info.isRepo, branch: info.branch });
       })
@@ -70,7 +74,6 @@ export function WorkspaceForm({
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cwd]);
 
   // Esc closes the form when there's a workspace to return to, and goes

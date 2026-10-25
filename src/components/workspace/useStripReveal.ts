@@ -176,9 +176,9 @@ export function useStripReveal(column: RefObject<HTMLElement | null>, suspended:
       endFocusRun();
       document.removeEventListener("visibilitychange", onHidden);
     };
-    // The column is the strip's own element, mounted with it.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    // The column REF is stable for the strip's life; naming it subscribes
+    // once, while the current element is read through it on every event.
+  }, [column]);
 
   return { open: state.open };
 }

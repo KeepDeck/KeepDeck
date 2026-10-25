@@ -1,4 +1,4 @@
-import { useLayoutEffect, type RefObject } from "react";
+import { useLayoutEffect, useRef, type RefObject } from "react";
 import { markGroups } from "../../app/stripDnd";
 import { scrollToShow } from "../../presentation/stripExpand";
 
@@ -14,7 +14,13 @@ export function useKeepActiveInView(
   activeId: string | null,
   idle: boolean,
 ) {
+  // The active id is the trigger; the list and the idle gate are read from
+  // the current render through a ref so opening the strip later does not
+  // re-scroll a column the person is reading.
+  const gate = useRef({ listRef, idle });
+  gate.current = { listRef, idle };
   useLayoutEffect(() => {
+    const { listRef, idle } = gate.current;
     const list = listRef.current;
     if (!list || !idle || activeId === null || list.clientHeight === 0) return;
     const mark = markGroups(list).find((el) => el.dataset.wsId === activeId);
@@ -27,6 +33,5 @@ export function useKeepActiveInView(
     });
     if (target !== null) list.scrollTop = target;
     // The active workspace changing is the only trigger; `idle` gates it.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeId]);
 }

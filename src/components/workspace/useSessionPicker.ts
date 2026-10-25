@@ -82,8 +82,7 @@ export function useSessionPicker(deps: {
   useEffect(() => {
     if (startMode === "new") return;
     searchSessionsPage(sessionQuery);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startMode, agentType, sessionQuery]);
+  }, [startMode, agentType, sessionQuery, searchSessionsPage]);
 
   // The picker reads the INDEX, which nothing refreshed unless the history
   // browser was visited. DECLARE the need for the selected agent's store —
@@ -93,7 +92,6 @@ export function useSessionPicker(deps: {
   const sessionIndex = useRuntimePart("sessionIndex");
   useEffect(() => {
     sessionIndex.ensureFresh(agentType);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionIndex, agentType]);
 
   // The declared scan lands in BATCHES — the picker's listing re-reads its
@@ -104,12 +102,16 @@ export function useSessionPicker(deps: {
   const index = useSyncExternalStore(sessionIndex.subscribe, sessionIndex.snapshot);
   const lastRevision = useRef<number | null>(null);
   const { refresh: refreshSessions } = pagedSessions;
+  // The revision is the trigger; the mode and the refresh callback are read
+  // from the current render so a mode switch does not re-fetch on its own.
+  const refreshRef = useRef({ startMode, refreshSessions });
+  refreshRef.current = { startMode, refreshSessions };
   useEffect(() => {
+    const { startMode, refreshSessions } = refreshRef.current;
     const first = lastRevision.current === null;
     lastRevision.current = index.revision;
     if (first || startMode === "new") return;
     refreshSessions();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [index.revision]);
 
   // A pick belongs to ONE agent's store — switching agents voids it (and the
@@ -117,13 +119,15 @@ export function useSessionPicker(deps: {
   // auto-filled (untouched) name came from that pick's title, so drop it too.
   // A SWITCH, not the first agent: a preset pick is the opening agent's.
   const pickedFor = useRef(agentType);
+  // The prefill sink is the dialog's own function; read the current one.
+  const prefillRef = useRef(onPrefill);
+  prefillRef.current = onPrefill;
   useEffect(() => {
     if (pickedFor.current === agentType) return;
     pickedFor.current = agentType;
     setPicked(null);
     setSessionQuery("");
-    onPrefill("");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    prefillRef.current("");
   }, [agentType]);
 
   // Resume needs the session's directory alive — same gate as the browser.
@@ -138,18 +142,21 @@ export function useSessionPicker(deps: {
   // `unknown` marks rows the registry could not speak to — blocked like a
   // busy row (resuming would just be refused), forkable like any other.
   const [liveOutsideIds, setLiveOutsideIds] = useState<ReadonlySet<string> | "unknown">("unknown");
+  // The registry ask is injected; read the current one. Its trigger is the
+  // resume mode and the agent, not the function's identity.
+  const outsideRef = useRef(liveOutside);
+  outsideRef.current = liveOutside;
   useEffect(() => {
     if (startMode !== "resume") return;
     let cancelled = false;
     setLiveOutsideIds("unknown");
-    liveOutside(agentType).then((answer) => {
+    outsideRef.current(agentType).then((answer) => {
       if (cancelled) return;
       setLiveOutsideIds(answer.ok ? answer.ids : "unknown");
     });
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startMode, agentType]);
 
   // The rule is the domain's; this hook only gathers the facts it reads.

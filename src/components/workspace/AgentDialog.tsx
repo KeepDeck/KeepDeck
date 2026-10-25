@@ -271,12 +271,16 @@ export function AgentDialog({
   } = picker;
 
   // Snap the pre-selected type onto the installed set once detection resolves
-  // (the default may have been a not-installed fallback) ([F1]).
+  // (the default may have been a not-installed fallback) ([F1]). The trigger
+  // is the detected AGENTS; the current options/type are read through a ref so
+  // a type change this effect causes does not re-run it.
+  const snapRef = useRef({ agentOptions, agentType });
+  snapRef.current = { agentOptions, agentType };
   useEffect(() => {
+    const { agentOptions, agentType } = snapRef.current;
     if (agentOptions.length && !agentOptions.some((a) => a.id === agentType)) {
       setAgentType(pickDefaultAgentType(agents));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agents]);
 
   const supportsYolo = agentSupportsYolo(agents, agentType);
