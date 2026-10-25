@@ -129,6 +129,9 @@ const keyOf = (state) => `${state.kind}\0${state.sessionID ?? ""}`;
  * the follower deaf. Reading is cheap and deduplicated by the key. And it
  * is read once a heartbeat regardless: a TUI that stops writing produces no
  * event at all, yet it turns the route stale, then unknown.
+ *
+ * Returns the stop: opencode 2.x reloads a plugin in place, and a watch left
+ * running would follow the screen twice.
  */
 export function watchForeground(dir, onChange, owner = process.pid) {
   let last;
@@ -140,10 +143,17 @@ export function watchForeground(dir, onChange, owner = process.pid) {
     onChange(state);
   };
   look();
-  setInterval(look, HEARTBEAT_MS).unref?.();
+  const timer = setInterval(look, HEARTBEAT_MS);
+  timer.unref?.();
+  let watcher;
   try {
-    watch(dir, look).unref?.();
+    watcher = watch(dir, look);
+    watcher.unref?.();
   } catch {
     // No watcher: the heartbeat read still follows, a second later.
   }
+  return () => {
+    clearInterval(timer);
+    watcher?.close();
+  };
 }

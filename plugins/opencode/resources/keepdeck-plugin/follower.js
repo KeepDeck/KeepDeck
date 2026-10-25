@@ -108,13 +108,13 @@ function create() {
     },
     /** Watch the route of the TUI `tui` (its pid) — once, after both
      * components joined. Changes are followed one at a time, in the order
-     * they happened. */
+     * they happened. Returns the stop. */
     start(dir = readBridge()?.dir, tui = process.pid) {
-      if (started || !dir) return;
+      if (started || !dir) return () => {};
       started = true;
       watched = dir;
       owner = tui;
-      watchForeground(
+      return watchForeground(
         dir,
         (state) => {
           chain = chain.then(() => follow(state)).catch(() => {});
