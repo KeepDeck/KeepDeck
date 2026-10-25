@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { frameTeammateMail } from "@keepdeck/plugin-api";
-// Untyped resource JS — shipped to, and loaded by, the user's opencode.
-// @ts-expect-error untyped resource module
+// Resource JS — shipped to, and loaded by, the user's opencode.
 import { MAIL_FRAME, promptSelection } from "../resources/keepdeck-plugin/prompt-selection.js";
 
 type Part = { type: string; text?: string; synthetic?: boolean };

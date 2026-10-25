@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { startDeck } from "../../../scripts/reporterHarness";
 import { normalizeOpencodeStatus } from "./status";
-// The reporter, the pane's session and the wire are untyped resource JS —
+// The reporter, the pane's session and the wire are resource JS —
 // shipped to, and loaded by, the user's opencode process, never bundled into
 // the plugin. The pane's session and the wire are ONE object per module
 // instance — which is the point of them — so each test loads them fresh, as a
@@ -65,11 +65,8 @@ describe("opencode session reporter", () => {
 
   beforeEach(async () => {
     vi.resetModules();
-    // @ts-expect-error untyped resource module
     ({ startReporter: reporter } = await import("../resources/keepdeck-plugin/session-reporter.js"));
-    // @ts-expect-error untyped resource module
     ({ paneSession } = await import("../resources/keepdeck-plugin/pane-session.js"));
-    // @ts-expect-error untyped resource module
     ({ drained } = await import("../resources/keepdeck-plugin/keepdeck-bridge.js"));
     dir = mkdtempSync(join(tmpdir(), "kd-reporter-"));
     deck = await startDeck();

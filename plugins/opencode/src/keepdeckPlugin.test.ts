@@ -2,13 +2,10 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-// Untyped resource JS — shipped to, and loaded by, the user's opencode
+// Resource JS — shipped to, and loaded by, the user's opencode
 // process, never bundled into the plugin.
-// @ts-expect-error untyped resource module
 import { startComponents } from "../resources/keepdeck-plugin/components.js";
-// @ts-expect-error untyped resource module
 import keepdeckPlugin, { composeHooks } from "../resources/keepdeck-plugin/index.js";
-// @ts-expect-error untyped resource module
 import tuiPlugin from "../resources/keepdeck-plugin/tui.js";
 
 /** The directory the spawn plan injects (src/index.ts sessionConfigEnv). */

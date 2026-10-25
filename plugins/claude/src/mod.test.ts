@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 // The Mod exactly as claude loads it — plain JS beside its copy of the wire.
-// @ts-expect-error untyped resource module
 import { register } from "../resources/keepdeck-mod/hooks/register.js";
 import { MOD_INTERRUPT_EVENT, MOD_PROMPT_ACCEPTED_EVENT } from "./status";
 

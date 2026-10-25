@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-// Untyped resource JS — shipped to, and loaded by, the user's opencode.
-// @ts-expect-error untyped resource module
+// Resource JS — shipped to, and loaded by, the user's opencode.
 import { createLeaving } from "../resources/keepdeck-plugin/leaving.js";
 
 /**

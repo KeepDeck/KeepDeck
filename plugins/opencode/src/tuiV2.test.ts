@@ -2,12 +2,9 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-// Untyped resource JS — shipped to, and loaded by, the user's opencode.
-// @ts-expect-error untyped resource module
+// Resource JS — shipped to, and loaded by, the user's opencode.
 import { readForeground } from "../resources/keepdeck-plugin/foreground.js";
-// @ts-expect-error untyped resource module
 import { SHOW_FILE, SHOW_FRESH_MS, requestShow, takeShowRequest } from "../resources/keepdeck-plugin/show-request.js";
-// @ts-expect-error untyped resource module
 import tuiPlugin, { routeOfV2 } from "../resources/keepdeck-plugin/tui.js";
 
 /**
@@ -47,6 +44,12 @@ const routerAt = (first: unknown) => {
   };
 };
 
+const startTui = (context: Parameters<typeof tuiPlugin.setup>[0]) => {
+  const cleanup = tuiPlugin.setup(context);
+  if (!cleanup) throw new Error("TUI plugin did not start in the test pane");
+  return cleanup;
+};
+
 describe("the 2.x route, as the server half reads it", () => {
   it("names a session, the home screen, and anything else as no session", () => {
     expect(routeOfV2({ type: "session", sessionID: "ses_a" })).toEqual({ route: "session", sessionID: "ses_a" });
@@ -63,7 +66,7 @@ describe("the 2.x TUI half in a pane", () => {
     vi.useFakeTimers();
     inPane();
     const tui = routerAt({ type: "session", sessionID: "ses_a" });
-    const cleanup = tuiPlugin.setup({ ui: { router: tui.router } });
+    const cleanup = startTui({ ui: { router: tui.router } });
     vi.advanceTimersByTime(500);
     expect(readForeground(dir)).toEqual({ kind: "session", sessionID: "ses_a" });
 
@@ -77,7 +80,7 @@ describe("the 2.x TUI half in a pane", () => {
     vi.useFakeTimers();
     inPane();
     const tui = routerAt({ type: "home" });
-    const cleanup = tuiPlugin.setup({ ui: { router: tui.router } });
+    const cleanup = startTui({ ui: { router: tui.router } });
     requestShow(dir, "ses_mail");
     vi.advanceTimersByTime(300);
     expect(tui.navigated).toEqual([{ type: "session", sessionID: "ses_mail" }]);
@@ -89,7 +92,7 @@ describe("the 2.x TUI half in a pane", () => {
     vi.useFakeTimers();
     inPane();
     const tui = routerAt({ type: "session", sessionID: "ses_theirs" });
-    const cleanup = tuiPlugin.setup({ ui: { router: tui.router } });
+    const cleanup = startTui({ ui: { router: tui.router } });
     requestShow(dir, "ses_mail");
     vi.advanceTimersByTime(300);
     expect(tui.navigated).toEqual([]);
@@ -103,7 +106,7 @@ describe("the 2.x TUI half in a pane", () => {
   it("survives a router that throws", () => {
     vi.useFakeTimers();
     inPane();
-    const cleanup = tuiPlugin.setup({
+    const cleanup = startTui({
       ui: {
         router: {
           current: () => {

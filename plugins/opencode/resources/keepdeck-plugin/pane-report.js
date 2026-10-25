@@ -12,6 +12,8 @@ export const skipsApprovals = () => process.env.KEEPDECK_OPENCODE_SKIPS_APPROVAL
 
 /** opencode's token usage (`{input, output, reasoning, cache: {read, write}}`,
  * the same in both generations) as the five counts a report carries. */
+/** @typedef {{ input?: number, output?: number, reasoning?: number, cache?: { read?: number, write?: number } }} OpenCodeTokens */
+/** @param {OpenCodeTokens | undefined} tokens */
 export const tokenCounts = (tokens) => ({
   input: tokens?.input ?? 0,
   output: tokens?.output ?? 0,
@@ -31,6 +33,8 @@ export const boundReport = (sessionId, continuing, switched = false) => ({
 /**
  * One `usage.report`. `lastTurn` is what the context holds now — its total is
  * the context in use; `totals` and `costUsd` are the conversation's spend.
+ * @typedef {{ input: number, output: number, reasoning: number, cacheRead: number, cacheWrite: number }} TokenCounts
+ * @param {{ sessionId: string, model?: string, sequence: number, windowTokens?: number, lastTurn: TokenCounts, totals: TokenCounts, costUsd: number }} report
  */
 export const usageReport = ({ sessionId, model, sequence, windowTokens, lastTurn, totals, costUsd }) => {
   const turn = tokenCountsOnly(lastTurn);
@@ -47,6 +51,7 @@ export const usageReport = ({ sessionId, model, sequence, windowTokens, lastTurn
 };
 
 /** The five counts and nothing else a caller kept beside them. */
+/** @param {TokenCounts} counts */
 const tokenCountsOnly = (counts) => ({
   input: counts.input,
   output: counts.output,
@@ -61,6 +66,7 @@ const tokenCountsOnly = (counts) => ({
  * supplies its own. Keyed by provider AND model: model ids are not unique
  * across providers, and flattening them picks another provider's limit.
  * Single-flight; a failed load is forgotten so the next report retries.
+ * @param {() => Promise<Array<{ providerID: string, modelID: string, window: number | undefined }>>} load
  */
 export function createWindowCache(load) {
   let windows;

@@ -62,15 +62,10 @@ describe("the pane follows the session on screen", () => {
 
   beforeEach(async () => {
     vi.resetModules();
-    // @ts-expect-error untyped resource module
     ({ startReporter } = await import("../resources/keepdeck-plugin/session-reporter.js"));
-    // @ts-expect-error untyped resource module
     ({ startCourier } = await import("../resources/keepdeck-plugin/mail-courier.js"));
-    // @ts-expect-error untyped resource module
     ({ follower } = await import("../resources/keepdeck-plugin/follower.js"));
-    // @ts-expect-error untyped resource module
     ({ writeForeground } = await import("../resources/keepdeck-plugin/foreground.js"));
-    // @ts-expect-error untyped resource module
     ({ paneSession } = await import("../resources/keepdeck-plugin/pane-session.js"));
     dir = mkdtempSync(join(tmpdir(), "kd-follow-"));
     deck = await startDeck();

@@ -11,7 +11,7 @@ import { admitMail } from "@keepdeck/plugin-api";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OPENCODE_MAIL_CHANNELS, renderOpencodeMail } from "./mail";
 import { attributeOpencodeEvent } from "./status";
-// The courier is untyped resource JS — shipped to, and loaded by, the user's
+// The courier is resource JS — shipped to, and loaded by, the user's
 // opencode process, never bundled into the plugin. The pane's session it
 // shares is ONE object per module instance — which is the point of it — so
 // each test loads the courier fresh, as a new pane's process would (see
@@ -145,7 +145,6 @@ describe("opencode mail courier", () => {
 
   beforeEach(async () => {
     vi.resetModules();
-    // @ts-expect-error untyped resource module
     ({ startCourier: courierPlugin } = await import("../resources/keepdeck-plugin/mail-courier.js"));
     dir = mkdtempSync(join(tmpdir(), "kd-courier-"));
     deck = await startDeck(answerAsk);

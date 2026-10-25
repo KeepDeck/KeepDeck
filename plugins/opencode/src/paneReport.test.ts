@@ -1,6 +1,4 @@
 import { describe, expect, it } from "vitest";
-// Untyped resource JS — shared by both opencode generations' reporters.
-// @ts-expect-error untyped resource module
 import { boundReport, createWindowCache, tokenCounts, usageReport } from "../resources/keepdeck-plugin/pane-report.js";
 
 describe("what a pane's report says, on either opencode", () => {

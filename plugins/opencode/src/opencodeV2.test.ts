@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { admitMail } from "@keepdeck/plugin-api";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startDeck } from "../../../scripts/reporterHarness";
-// @ts-expect-error untyped resource module
 import { HEARTBEAT_MS, writeForeground } from "../resources/keepdeck-plugin/foreground.js";
 import { OPENCODE_MAIL_CHANNELS, renderOpencodeMail } from "./mail";
 import { attributeOpencodeEvent } from "./status";
@@ -137,9 +136,8 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
 
   beforeEach(async () => {
     vi.resetModules();
-    // Untyped resource JS — shipped to, and loaded by, the user's opencode
+    // Resource JS — shipped to, and loaded by, the user's opencode
     // process; loaded fresh, as a new pane's process would.
-    // @ts-expect-error untyped resource module
     const { setupV2 } = await import("../resources/keepdeck-plugin/opencode-v2.js");
     cleanups = [];
     setup = async (context: unknown) => {
@@ -147,7 +145,6 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
       if (typeof cleanup === "function") cleanups.push(cleanup);
       return cleanup;
     };
-    // @ts-expect-error untyped resource module
     ({ drained } = await import("../resources/keepdeck-plugin/keepdeck-bridge.js"));
     dir = mkdtempSync(join(tmpdir(), "kd-v2-"));
     pending = [];

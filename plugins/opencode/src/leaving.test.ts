@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startDeck } from "../../../scripts/reporterHarness";
-// @ts-expect-error untyped resource module
 import { HEARTBEAT_MS } from "../resources/keepdeck-plugin/foreground.js";
 
 /**
@@ -113,15 +112,10 @@ describe("leaving a conversation, and mail on the home screen", () => {
 
   beforeEach(async () => {
     vi.resetModules();
-    // @ts-expect-error untyped resource module
     ({ startReporter } = await import("../resources/keepdeck-plugin/session-reporter.js"));
-    // @ts-expect-error untyped resource module
     ({ startCourier } = await import("../resources/keepdeck-plugin/mail-courier.js"));
-    // @ts-expect-error untyped resource module
     ({ follower } = await import("../resources/keepdeck-plugin/follower.js"));
-    // @ts-expect-error untyped resource module
     ({ writeForeground } = await import("../resources/keepdeck-plugin/foreground.js"));
-    // @ts-expect-error untyped resource module
     ({ paneSession } = await import("../resources/keepdeck-plugin/pane-session.js"));
     dir = mkdtempSync(join(tmpdir(), "kd-leave-"));
     pending = [];
