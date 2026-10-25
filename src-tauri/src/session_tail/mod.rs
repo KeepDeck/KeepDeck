@@ -295,7 +295,7 @@ pub fn usage_watch_session_file(
     let watcher = spawn_tailer(state.clone(), POLL_INTERVAL, move |payload| {
         deliver_routed(&emitter, payload);
     })?;
-    let caught_up = {
+    let (caught_up, position) = {
         let mut s = state.lock().expect("tail state poisoned");
         // The drain folds the WHOLE file in order as it reads it, so the
         // last record each watch carried already holds the session total of
@@ -310,13 +310,19 @@ pub fn usage_watch_session_file(
             // Opted-in decoder metadata is marked context-only instead.
             deliver_routed(&app, report);
         }
-        count
+        // Where the follower now stands, against how long the file is: a
+        // tail that later "stops" can be told apart from one that never
+        // got past its start.
+        let size = std::fs::metadata(&s.path).map(|m| m.len()).ok();
+        (count, (s.root.offset, size))
     };
     // One line per arm — the difference between "tail broken" and "tail
     // never armed" cost a blind debugging session once.
     log::info!(
-        "usage tail: pane={pane_id} agent={agent} file={:?} catch-up={caught_up}",
+        "usage tail: pane={pane_id} agent={agent} file={:?} at={}/{} catch-up={caught_up}",
         PathBuf::from(&path).file_name().unwrap_or_default(),
+        position.0,
+        position.1.map_or_else(|| "?".to_string(), |size| size.to_string()),
     );
     tails.0.insert(pane_id, watcher);
     Ok(())

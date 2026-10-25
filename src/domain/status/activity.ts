@@ -470,3 +470,51 @@ function reduceActivity(
       return { state: "done", at: event.at, interrupted: true };
   }
 }
+
+/**
+ * What one turn-ending edge did to a pane — the question a log line has to
+ * answer when a pane keeps saying "working" after its agent finished. Asked
+ * of the fold's own result rather than re-deriving its rules: the fold
+ * decides, this only names what it decided.
+ *
+ * - `ended` — the turn is over (or a failure was recorded).
+ * - `held` — the main turn closed, but agent turns are still open behind it;
+ *   the ending lands when the last one closes.
+ * - `refused` — the fold absorbed it, and why: the pane had already ended,
+ *   or the edge is older than the running phase (or than an ending already
+ *   held), so it belongs to a turn before this one.
+ */
+export type EndingVerdict =
+  | { kind: "ended" }
+  | { kind: "held"; open: number }
+  | { kind: "refused"; reason: "already-ended" | "older-than-phase" | "older-than-held-end" };
+
+/** `null` for an edge that does not claim the turn is over. */
+export function endingVerdict(
+  before: PaneStatus | null,
+  event: AgentStatusEvent,
+  after: PaneStatus | null,
+): EndingVerdict | null {
+  if (!isEnding(event)) return null;
+  if (before !== null && after === before) {
+    const activity = before.activity;
+    if (activity.state === "done" || activity.state === "failed") {
+      return { kind: "refused", reason: "already-ended" };
+    }
+    if (before.heldEnd !== null && event.at < before.heldEnd.at) {
+      return { kind: "refused", reason: "older-than-held-end" };
+    }
+    return { kind: "refused", reason: "older-than-phase" };
+  }
+  if (after !== null && after.heldEnd !== null && after.activity === before?.activity) {
+    return { kind: "held", open: after.openAgentTurns.size };
+  }
+  return { kind: "ended" };
+}
+
+/** A pane's activity as one word for a log line. */
+export function activityWord(activity: PaneActivity | undefined): string {
+  if (activity === undefined) return "none";
+  if (activity.state === "done") return activity.interrupted ? "done (interrupted)" : "done";
+  return activity.state;
+}
