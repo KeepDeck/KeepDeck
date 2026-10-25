@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { watchMatches, watchProject, type TailWatch } from "./sessionTail";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /**
  * This side of the conformance corpus.
@@ -38,7 +39,7 @@ function carry(
 ): { watch: number; record: unknown } | null {
   const index = watches.findIndex((watch) => watchMatches(watch, record));
   if (index === -1) return null;
-  return { watch: index, record: watchProject(watches[index]!, record) };
+  return { watch: index, record: watchProject(present(watches[index], "the watches at the index"), record) };
 }
 
 describe("watch descriptor conformance", () => {

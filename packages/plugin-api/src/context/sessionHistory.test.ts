@@ -6,6 +6,7 @@ import {
   type SessionStore,
 } from "./sessionHistory";
 import type { PluginFs } from "./services";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const stub = (id: string) => ({ sessionId: id, ref: `/s/${id}`, mtime: 1, size: 2 });
 const log = () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() });
@@ -52,7 +53,7 @@ describe("sessionHistory — list, the strict contract", () => {
 
 describe("sessionHistory — listing, the partial-tolerant contract", () => {
   it("is complete when every part read", async () => {
-    expect(await sessionHistory("x", log(), store({ stubs: [stub("a")] })).listing!()).toEqual({
+    expect(await present(sessionHistory("x", log(), store({ stubs: [stub("a")] })).listing, "the session listing")()).toEqual({
       stubs: [stub("a")],
       complete: true,
     });
@@ -60,7 +61,7 @@ describe("sessionHistory — listing, the partial-tolerant contract", () => {
 
   it("keeps what read, names what did not, and says it is incomplete", async () => {
     const l = log();
-    const answer = await sessionHistory("x", l, store({ stubs: [stub("a")], unreadable: ["/s/2026"] })).listing!();
+    const answer = await present(sessionHistory("x", l, store({ stubs: [stub("a")], unreadable: ["/s/2026"] })).listing, "the session listing")();
     expect(answer).toEqual({ stubs: [stub("a")], complete: false });
     expect(l.warn).toHaveBeenCalledWith("x: partial listing — /s/2026 unreadable (EACCES)");
   });
@@ -69,7 +70,7 @@ describe("sessionHistory — listing, the partial-tolerant contract", () => {
     // [] with complete:true would read as "every session deleted", and the
     // host's prune would wipe the agent's whole index.
     const l = log();
-    const answer = await sessionHistory("x", l, store({ root: new Error("EACCES") })).listing!();
+    const answer = await present(sessionHistory("x", l, store({ root: new Error("EACCES") })).listing, "the session listing")();
     expect(answer).toEqual({ stubs: [], complete: false });
     expect(l.warn).toHaveBeenCalledWith("x: store root unreadable (EACCES) — nothing enumerated");
   });
@@ -79,7 +80,7 @@ describe("sessionHistory — reading", () => {
   it("derives the legacy transcript from the one page reading", async () => {
     const history = sessionHistory("x", log(), store());
     const page = { offset: 3, limit: 10 };
-    expect(await history.transcriptPage!("r", page)).toEqual({
+    expect(await present(history.transcriptPage, "the transcript page")("r", page)).toEqual({
       entries: [{ role: "user", text: "page 3" }],
       shortfall: [{ kind: "rows", returned: 1 }],
     });
