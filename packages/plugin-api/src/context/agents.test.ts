@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import { API_VERSION } from "../manifest/version.ts";
 import {
   MCP_HTTP_API,
@@ -59,8 +59,7 @@ describe("mapMcpServers", () => {
     // The whole reason the fan-out exists: a dialect that forgets an arm is
     // stopped here, at build time, rather than emitting a config with the
     // server missing.
-    // @ts-expect-error — the http arm is required
-    mapMcpServers([], { stdio: () => 0 });
+    expectTypeOf<{ stdio: () => number }>().not.toExtend<Parameters<typeof mapMcpServers>[1]>();
   });
 });
 

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import { createWorkspaceInstance } from "../../workspaceInstance";
 import { MAX_PANES } from "../layout";
 import type { Pane } from "../panes/model";
@@ -147,11 +147,8 @@ describe("TeamLocation", () => {
     // be attached to, and a remote endpoint is the pane's own affair.
     const ok: TeamLocation[] = [attached("/wt/1"), creating("/wt/2")];
     expect(ok).toHaveLength(2);
-    // @ts-expect-error — a team is never "main": the root is an attached directory
-    const main: TeamLocation = { kind: "main" };
-    // @ts-expect-error — a team has no remote endpoint of its own
-    const remote: TeamLocation = { kind: "remote", endpoint: "x" };
-    expect([main, remote]).toHaveLength(2);
+    expectTypeOf<"main">().not.toExtend<TeamLocation["kind"]>();
+    expectTypeOf<"remote">().not.toExtend<TeamLocation["kind"]>();
   });
 });
 
