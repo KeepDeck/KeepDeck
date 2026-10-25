@@ -103,6 +103,22 @@ describe("the linter", () => {
     expect(missing).toEqual([]);
   });
 
+  it("holds a component test's run-time loads to its surface too", async () => {
+    const eslint = new ESLint({ cwd: REPO });
+    const source = [
+      'import { vi } from "vitest";',
+      'vi.mock("../../app/settingsManager", () => ({}));',
+      'vi.mock("../../app/useSettings", () => ({}));',
+      'export const load = async () => [await import("../../app/settingsManager"), await import("../../app/testing")];',
+      "",
+    ].join("\n");
+    const [test] = await eslint.lintText(source, { filePath: join(REPO, "src/components/probe/LintProbe.test.tsx") });
+    expect(test.messages.map((message) => [message.line, message.ruleId])).toEqual([
+      [2, "no-restricted-syntax"],
+      [4, "no-restricted-syntax"],
+    ]);
+  });
+
   it("finds nothing in the source", async () => {
     const eslint = new ESLint({ cwd: REPO });
     const results = await eslint.lintFiles(["."]);

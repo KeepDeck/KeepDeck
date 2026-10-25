@@ -66,6 +66,36 @@ const COMPONENT_TESTS_APP_SURFACE = {
 };
 const TEST_FILES = ["**/*.test.{ts,tsx}", "**/*.test-support.{ts,tsx}", "**/*[tT]estSupport.{ts,tsx}"];
 
+/** The casts that switch the type checker off — shared because a later
+ * block's `no-restricted-syntax` replaces an earlier one's for its files. */
+const CAST_BANS = [
+  {
+    selector: "TSAsExpression > TSNeverKeyword, TSTypeAssertion > TSNeverKeyword",
+    message: "`as never` switches the type checker off: fix the type, not the cast.",
+  },
+  {
+    selector:
+      "TSAsExpression > TSAsExpression.expression > TSUnknownKeyword.typeAnnotation, TSTypeAssertion > TSAsExpression.expression > TSUnknownKeyword.typeAnnotation",
+    message: "`as unknown as` switches the type checker off: fix the type, not the cast.",
+  },
+];
+
+/** What a component test may load at run time — a dynamic import, a module
+ * it mocks — held to the same surface as its static imports. The import
+ * rule reads only static imports; vi.mock factories load through import(). */
+const APP_OUTSIDE_TEST_SURFACE =
+  "/(^|\\/)app\\/(?!(.*\\/)?(use[A-Z][^\\/]*|runtimeContext|runtimeContext\\.test-support)$|testing$)/";
+const COMPONENT_TEST_RUNTIME_SURFACE = [
+  {
+    selector: `ImportExpression > Literal.source[value=${APP_OUTSIDE_TEST_SURFACE}]`,
+    message: "A component test loads app through its hooks, runtimeContext or app/testing — at run time too.",
+  },
+  {
+    selector: `CallExpression[callee.object.name="vi"][callee.property.name=/^(mock|doMock)$/] > Literal.arguments:first-child[value=${APP_OUTSIDE_TEST_SURFACE}]`,
+    message: "A component test mocks app's hooks or runtimeContext, never a module behind them.",
+  },
+];
+
 export default [
   // Only the TypeScript this repo authors: built bundles, generated plugin
   // copies and plain JS outside plugin resources are not what these rules are about.
@@ -110,18 +140,7 @@ export default [
        * then started to use went missing from the double without a word
        * from the compiler. The fix is a narrower port or a whole typed fake.
        */
-      "no-restricted-syntax": [
-        "error",
-        {
-          selector: "TSAsExpression > TSNeverKeyword, TSTypeAssertion > TSNeverKeyword",
-          message: "`as never` switches the type checker off: fix the type, not the cast.",
-        },
-        {
-          selector:
-            "TSAsExpression > TSAsExpression.expression > TSUnknownKeyword.typeAnnotation, TSTypeAssertion > TSAsExpression.expression > TSUnknownKeyword.typeAnnotation",
-          message: "`as unknown as` switches the type checker off: fix the type, not the cast.",
-        },
-      ],
+      "no-restricted-syntax": ["error", ...CAST_BANS],
       // A hook called conditionally or outside a component breaks React's
       // own bookkeeping; nothing here does it, and nothing will.
       "react-hooks/rules-of-hooks": "error",
@@ -230,6 +249,7 @@ export default [
     files: TEST_FILES.map((pattern) => `src/components/${pattern}`),
     rules: {
       "@typescript-eslint/no-restricted-imports": ["error", { patterns: [COMPONENT_TESTS_APP_SURFACE] }],
+      "no-restricted-syntax": ["error", ...CAST_BANS, ...COMPONENT_TEST_RUNTIME_SURFACE],
     },
   },
 ];
