@@ -22,6 +22,7 @@ vi.mock("../../ipc/log", () => ({
 
 import { fetchAppInfo, openUrl } from "../../ipc/app";
 import { checkForUpdate, installUpdate } from "../../ipc/updater";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const mockInfo = vi.mocked(fetchAppInfo);
 const mockCheck = vi.mocked(checkForUpdate);
@@ -95,7 +96,7 @@ describe("UpdatesSection", () => {
     await initUpdates(downloads);
     await render();
 
-    expect(host.querySelector(".settings__value")!.textContent).toBe(
+    expect(present(host.querySelector(".settings__value"), "element \".settings__value\"").textContent).toBe(
       "KeepDeck 9.9.9",
     );
     expect(button("Check for updates").disabled).toBe(true);
@@ -173,7 +174,7 @@ describe("UpdatesSection", () => {
     // Markdown renders: bold becomes <strong>, a bullet list becomes <ul><li>.
     expect(host.querySelector(".settings__changelog-entry strong")).not.toBeNull();
     expect(host.querySelectorAll(".settings__changelog-entry li")).toHaveLength(2);
-    expect(host.querySelector(".settings__changelog .form__label")!.textContent).toBe(
+    expect(present(host.querySelector(".settings__changelog .form__label"), "element \".settings__changelog .form__label\"").textContent).toBe(
       "What's new",
     );
   });

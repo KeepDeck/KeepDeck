@@ -150,6 +150,7 @@ import {
   updateSettings,
 } from "../../app/settingsManager";
 import type { Settings } from "../../domain/settings";
+import { present } from "@keepdeck/plugin-api/testing";
 
 export { getSettings, resetSettingsManager, updateSettings } from "../../app/settingsManager";
 export { DEFAULT_SETTINGS, SCROLLBACK_MIN } from "../../domain/settings";
@@ -175,9 +176,9 @@ export async function pluginRegistries() {
 }
 
 export const button = (text: string) =>
-  Array.from(document.querySelectorAll("button")).find(
+  present(Array.from(document.querySelectorAll("button")).find(
     (b) => b.textContent === text,
-  )!;
+  ), "button matching text");
 
 export const scrollbackInput = () =>
   document.querySelector<HTMLInputElement>(
@@ -186,15 +187,15 @@ export const scrollbackInput = () =>
 
 /** The section panel an element lives in — visibility is per panel (`hidden`),
  * inactive sections stay mounted. */
-export const panelOf = (el: Element) => el.closest(".settings__section")!;
+export const panelOf = (el: Element) => present(el.closest(".settings__section"), "element \".settings__section\"");
 
 /** Type into a controlled React input: set via the native setter (bypassing
  * React's value tracker) and fire a bubbling `input` event. */
 export function type(el: HTMLInputElement, text: string) {
-  const set = Object.getOwnPropertyDescriptor(
+  const set = present(present(Object.getOwnPropertyDescriptor(
     HTMLInputElement.prototype,
     "value",
-  )!.set!;
+  ), "input value property descriptor").set, "input value setter");
   act(() => {
     set.call(el, text);
     el.dispatchEvent(new Event("input", { bubbles: true }));
@@ -215,7 +216,7 @@ export function dialogHost(): Root {
   resetSettingsManager();
   plugins.set([AGENTS_PLUGIN]);
   document.body.innerHTML = "<div id='host'></div>";
-  return createRoot(document.getElementById("host")!);
+  return createRoot(present(document.getElementById("host"), "element \"host\""));
 }
 
 /** Render the dialog with `overrides` already stored — the seeding writes are

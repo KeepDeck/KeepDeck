@@ -18,6 +18,7 @@ import {
 import type { LibrarySkill } from "../../app/skillsLibrary";
 import type { Settings } from "../../domain/settings";
 import type { SkillsEditorState } from "../../app/useSkills";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /** A row as the library would hold it after the write landed. */
 const landed = (scope: SkillScope, draft: SkillDraft): LibrarySkill => ({
@@ -115,7 +116,7 @@ export function skillsDialogHost(Dialog: FunctionComponent<{
       lib.rename.mockClear();
       lib.remove.mockClear();
       document.body.innerHTML = "<div id='host'></div>";
-      root = createRoot(document.getElementById("host")!);
+      root = createRoot(present(document.getElementById("host"), "element \"host\""));
       closed = 0;
     },
     teardown() {

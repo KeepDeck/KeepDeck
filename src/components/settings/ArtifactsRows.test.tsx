@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Settings } from "../../domain/settings";
 import { DEFAULT_SETTINGS } from "../../domain/settings";
 import { ArtifactsRows } from "./ArtifactsRows";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const settings = vi.hoisted(() => ({ current: null as Settings | null }));
 const settingsManager = vi.hoisted(() => ({ updateSettings: vi.fn() }));
@@ -62,11 +63,11 @@ describe("ArtifactsRows", () => {
   it("each toggle writes its own settings key", () => {
     settings.current = { ...DEFAULT_SETTINGS, artifacts: true };
     mount();
-    act(() => rowButtons("Fleet artifacts").get("Off")!.click());
+    act(() => present(rowButtons("Fleet artifacts").get("Off"), "entry \"Off\" in rowButtons(\"Fleet artifacts\")").click());
     expect(settingsManager.updateSettings).toHaveBeenCalledWith({
       artifacts: false,
     });
-    act(() => rowButtons("Auto-open artifacts").get("Off")!.click());
+    act(() => present(rowButtons("Auto-open artifacts").get("Off"), "entry \"Off\" in rowButtons(\"Auto-open artifacts\")").click());
     expect(settingsManager.updateSettings).toHaveBeenCalledWith({
       artifactAutoOpen: false,
     });
@@ -75,13 +76,13 @@ describe("ArtifactsRows", () => {
   it("marks the stored value active per row, not shared across rows", () => {
     settings.current = { ...DEFAULT_SETTINGS, artifacts: true, artifactAutoOpen: false };
     mount();
-    expect(rowButtons("Fleet artifacts").get("On")!.className).toContain(
+    expect(present(rowButtons("Fleet artifacts").get("On"), "entry \"On\" in rowButtons(\"Fleet artifacts\")").className).toContain(
       "form__type--active",
     );
-    expect(rowButtons("Auto-open artifacts").get("Off")!.className).toContain(
+    expect(present(rowButtons("Auto-open artifacts").get("Off"), "entry \"Off\" in rowButtons(\"Auto-open artifacts\")").className).toContain(
       "form__type--active",
     );
-    expect(rowButtons("Auto-open artifacts").get("On")!.className).not.toContain(
+    expect(present(rowButtons("Auto-open artifacts").get("On"), "entry \"On\" in rowButtons(\"Auto-open artifacts\")").className).not.toContain(
       "form__type--active",
     );
   });

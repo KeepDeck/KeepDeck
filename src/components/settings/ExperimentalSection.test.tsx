@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Settings } from "../../domain/settings";
 import { DEFAULT_SETTINGS } from "../../domain/settings";
 import { ExperimentalSection } from "./ExperimentalSection";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const settings = vi.hoisted(() => ({ current: null as Settings | null }));
 const settingsManager = vi.hoisted(() => ({ updateSettings: vi.fn() }));
@@ -38,16 +39,16 @@ describe("ExperimentalSection", () => {
 
   it("writes the remote-agents key, and marks the stored value active", () => {
     mount();
-    expect(buttons().get("Off")!.className).toContain("form__type--active");
-    act(() => buttons().get("On")!.click());
+    expect(present(buttons().get("Off"), "entry \"Off\" in buttons()").className).toContain("form__type--active");
+    act(() => present(buttons().get("On"), "entry \"On\" in buttons()").click());
     expect(settingsManager.updateSettings).toHaveBeenCalledWith({
       remoteAgents: true,
     });
 
     settings.current = { ...DEFAULT_SETTINGS, remoteAgents: true };
     mount();
-    expect(buttons().get("On")!.className).toContain("form__type--active");
-    expect(buttons().get("Off")!.className).not.toContain("form__type--active");
+    expect(present(buttons().get("On"), "entry \"On\" in buttons()").className).toContain("form__type--active");
+    expect(present(buttons().get("Off"), "entry \"Off\" in buttons()").className).not.toContain("form__type--active");
   });
 
   it("lists only what is still an experiment", () => {

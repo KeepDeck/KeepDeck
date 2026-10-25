@@ -21,6 +21,7 @@ import type {
   PathProbe,
   SessionPickRow,
 } from "../../domain/agents";
+import { present } from "@keepdeck/plugin-api/testing";
 
 // The session picker is a windowed list: happy-dom lays nothing out, so
 // its box is pinned at the stylesheet's height (180px) with a row's height.
@@ -140,11 +141,11 @@ const MISSING: PathProbe = { exists: false, isWorktree: false, empty: false, bra
 const BLOCKED: PathProbe = { exists: true, isWorktree: false, empty: false, branch: null };
 
 const pathInput = () =>
-  document.querySelector<HTMLInputElement>('input[aria-label="Worktree path"]')!;
+  present(document.querySelector<HTMLInputElement>('input[aria-label="Worktree path"]'), "element 'input[aria-label=\"Worktree path\"]'");
 const branchInput = () =>
   document.querySelector<HTMLInputElement>('input[aria-label="Branch name"]');
 const createBtn = () =>
-  document.querySelector<HTMLButtonElement>(".form__create")!;
+  present(document.querySelector<HTMLButtonElement>(".form__create"), "element \".form__create\"");
 /** The inline occupied-path actions are icon-only — find them by their label. */
 const choiceBtn = (label: string) =>
   document.querySelector<HTMLButtonElement>(
@@ -155,7 +156,7 @@ const errorText = () => document.querySelector(".form__error")?.textContent;
 /** Pick the member's role — nothing is picked for it, so a member dialog
  * that is to create anything has to. */
 function pickRole(label: string) {
-  act(() => document.querySelector<HTMLButtonElement>(".form__role-pick .dropdown__button")!.click());
+  act(() => present(document.querySelector<HTMLButtonElement>(".form__role-pick .dropdown__button"), "element \".form__role-pick .dropdown__button\"").click());
   const option = [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')].find(
     (button) => button.textContent === label,
   );
@@ -166,10 +167,10 @@ function pickRole(label: string) {
 /** Type into a controlled React input: set via the native setter (bypassing
  * React's value tracker) and fire a bubbling `input` event. */
 function type(el: HTMLInputElement, text: string) {
-  const set = Object.getOwnPropertyDescriptor(
+  const set = present(present(Object.getOwnPropertyDescriptor(
     HTMLInputElement.prototype,
     "value",
-  )!.set!;
+  ), "input value property descriptor").set, "input value setter");
   act(() => {
     set.call(el, text);
     el.dispatchEvent(new Event("input", { bubbles: true }));
@@ -178,8 +179,8 @@ function type(el: HTMLInputElement, text: string) {
 
 const submit = () =>
   act(() => {
-    document
-      .querySelector("form")!
+    present(document
+      .querySelector("form"), "element \"form\"")
       .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
   });
 
@@ -315,7 +316,7 @@ describe("AgentDialog worktree location flow", () => {
     // Offered where the path is genuinely unusable — here a worktree create
     // is still heading for it.
     await mount({ probeOf: {}, occupancyOf: { "/base/kd-ws-2": "being-created" } });
-    await act(async () => choiceBtn("Use next available")!.click());
+    await act(async () => present(choiceBtn("Use next available"), "Use next available button").click());
     expect(pathInput().value).toBe("/base/kd-ws-3");
     await settleProbe(); // free path probes as new → branch field appears
     expect(branchInput()?.value).toBe("kd/ws/3");
@@ -371,7 +372,7 @@ describe("AgentDialog worktree location flow", () => {
     expect(choiceBtn("Use next available")).toBeTruthy();
     expect(choiceBtn("Attach anyway")).toBeNull(); // nothing to attach to
     expect(createBtn().disabled).toBe(true);
-    await act(async () => choiceBtn("Use next available")!.click());
+    await act(async () => present(choiceBtn("Use next available"), "Use next available button").click());
     expect(pathInput().value).toBe("/base/kd-ws-3");
     await settleProbe(); // free path probes as new → branch field appears
     expect(branchInput()?.value).toBe("kd/ws/3");
@@ -394,14 +395,14 @@ describe("AgentDialog worktree location flow", () => {
   it("an edited branch stays the user's; reset re-attaches it to the path", async () => {
     await mount({ probeOf: {}, occupancyOf: {} });
     await settleProbe();
-    type(branchInput()!, "my/branch");
+    type(present(branchInput(), "branch input"), "my/branch");
     type(pathInput(), "/base/kd-ws-5");
     await settleProbe();
     expect(branchInput()?.value).toBe("my/branch"); // the edit wins
     // ↺ resets to the branch the CURRENT path implies, not the open-time one…
-    const reset = document.querySelector<HTMLButtonElement>(
+    const reset = present(document.querySelector<HTMLButtonElement>(
       '[aria-label="Reset to the suggested branch"]',
-    )!;
+    ), "element '[aria-label=\"Reset to the suggested branch\"]'");
     await act(async () => reset.click());
     expect(branchInput()?.value).toBe("kd/ws/5");
     // …and the branch follows the path again from here on.
@@ -428,10 +429,10 @@ describe("AgentDialog worktree location flow", () => {
     await mount({ probeOf: {}, occupancyOf: {} });
     await settleProbe();
     expect(createBtn().disabled).toBe(false);
-    type(baseInput()!, "dev");
+    type(present(baseInput(), "base branch input"), "dev");
     expect(errorText()).toBe("No such local branch");
     expect(createBtn().disabled).toBe(true);
-    type(baseInput()!, "develop");
+    type(present(baseInput(), "base branch input"), "develop");
     expect(errorText()).toBeUndefined();
     expect(createBtn().disabled).toBe(false);
   });
@@ -440,11 +441,11 @@ describe("AgentDialog worktree location flow", () => {
     await mount({ probeOf: {}, occupancyOf: {} });
     await settleProbe();
     // The field names its default outright — no placeholder to decode.
-    expect(baseInput()!.value).toBe("main");
+    expect(present(baseInput(), "base branch input").value).toBe("main");
     submit();
-    type(baseInput()!, "develop");
+    type(present(baseInput(), "base branch input"), "develop");
     submit();
-    type(baseInput()!, ""); // cleared = fork from the repo HEAD
+    type(present(baseInput(), "base branch input"), ""); // cleared = fork from the repo HEAD
     submit();
     expect(confirmed.map((r) => r.location)).toEqual([
       { kind: "new", path: "/base/kd-ws-2", branch: "kd/ws/2", baseBranch: "main" },
@@ -456,7 +457,7 @@ describe("AgentDialog worktree location flow", () => {
   it("an unavailable branch list degrades to free text — never blocks the dialog", async () => {
     await mount({ probeOf: {}, occupancyOf: {}, branches: null });
     await settleProbe();
-    type(baseInput()!, "anything-goes");
+    type(present(baseInput(), "base branch input"), "anything-goes");
     expect(errorText()).toBeUndefined();
     expect(createBtn().disabled).toBe(false);
   });
@@ -538,9 +539,9 @@ describe("AgentDialog agent picker", () => {
         }),
       ),
     );
-    const button = document.querySelector(".form__agent-pick .dropdown__button")!;
+    const button = present(document.querySelector(".form__agent-pick .dropdown__button"), "element \".form__agent-pick .dropdown__button\"");
     expect(button.textContent).toContain("Claude Code");
-    const path = button.querySelector("svg path")!;
+    const path = present(button.querySelector("svg path"), "element \"svg path\"");
     expect(path.getAttribute("fill")).toBe("#D97757");
     expect(path.getAttribute("d")).toBe("M0 0h24v24H0z");
   });
@@ -605,7 +606,7 @@ describe("AgentDialog YOLO toggle", () => {
 
   it("unticking overrides the global default per spawn", async () => {
     await mount(true);
-    act(() => checkbox()!.click());
+    act(() => present(checkbox(), "agent checkbox").click());
     submit();
     expect(confirmed).toMatchObject([{ yolo: false }]);
   });
@@ -713,9 +714,9 @@ describe("AgentDialog start-from session picker", () => {
 
 
   const modeBtn = (label: string) =>
-    [...document.querySelectorAll<HTMLButtonElement>(".form__type")].find(
+    present([...document.querySelectorAll<HTMLButtonElement>(".form__type")].find(
       (b) => b.textContent === label,
-    )!;
+    ), "agent type button matching label");
   const rows = () => [...document.querySelectorAll<HTMLButtonElement>(".form__session")];
   /** Let the shared engine's search debounce (150ms) fire, its page land, and
    * the presence probes settle. */
@@ -731,7 +732,7 @@ describe("AgentDialog start-from session picker", () => {
     act(() => modeBtn("Resume").click());
     await settleSessions();
 
-    expect(rows().map((r) => r.querySelector(".form__session-name")!.textContent)).toEqual(
+    expect(rows().map((r) => present(r.querySelector(".form__session-name"), "element \".form__session-name\"").textContent)).toEqual(
       ["auth bug", "old work", "busy"],
     );
     // Location is the recorded cwd — the whole worktree block is gone.
@@ -742,7 +743,7 @@ describe("AgentDialog start-from session picker", () => {
     act(() => rows()[0].click());
     // The pane name follows the session title while untouched.
     expect(
-      document.querySelector<HTMLInputElement>('input[aria-label="Agent name"]')!.value,
+      present(document.querySelector<HTMLInputElement>('input[aria-label="Agent name"]'), "element 'input[aria-label=\"Agent name\"]'").value,
     ).toBe("auth bug");
     expect(document.body.textContent).toContain("Resumes in /repo/wt");
     expect(createBtn().disabled).toBe(false);
@@ -894,7 +895,7 @@ describe("AgentDialog start-from session picker", () => {
     act(() => modeBtn("Resume").click());
     await settleSessions();
     const names = rows().map(
-      (r) => r.querySelector(".form__session-name")!.textContent ?? "",
+      (r) => present(r.querySelector(".form__session-name"), "element \".form__session-name\"").textContent ?? "",
     );
     expect(names[0]).toBe("auth bug");
     expect(names[1]).toBe("auth bug");
@@ -954,10 +955,10 @@ describe("AgentDialog start-from session picker", () => {
     act(() => modeBtn("Fork").click()); // any section change…
     expect(sessionIndex.ensureFresh).toHaveBeenCalledTimes(1); // …rescans nothing
 
-    act(() => document.querySelector<HTMLButtonElement>(".form__agent-pick .dropdown__button")!.click());
-    const codex = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
+    act(() => present(document.querySelector<HTMLButtonElement>(".form__agent-pick .dropdown__button"), "element \".form__agent-pick .dropdown__button\"").click());
+    const codex = present([...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
       (o) => o.textContent === "Codex",
-    )!;
+    ), "option \"Codex\"");
     act(() => codex.click());
     expect(sessionIndex.ensureFresh).toHaveBeenCalledTimes(2);
     expect(sessionIndex.ensureFresh).toHaveBeenLastCalledWith("codex");
@@ -991,15 +992,15 @@ describe("AgentDialog start-from paging", () => {
     }));
 
   const modeBtn = (label: string) =>
-    [...document.querySelectorAll<HTMLButtonElement>(".form__type")].find(
+    present([...document.querySelectorAll<HTMLButtonElement>(".form__type")].find(
       (b) => b.textContent === label,
-    )!;
+    ), "agent type button matching label");
   const sessionRows = () =>
     [...document.querySelectorAll<HTMLButtonElement>(".form__session")];
   // A scroll to the list's foot, as the hand does it: the window moves,
   // and its end is what asks for the next page.
   const scrollPickerToEnd = async () => {
-    const list = document.querySelector<HTMLElement>(".form__sessions")!;
+    const list = present(document.querySelector<HTMLElement>(".form__sessions"), "element \".form__sessions\"");
     await act(async () => {
       list.scrollTop = list.scrollHeight - list.clientHeight;
       list.dispatchEvent(new Event("scroll"));
@@ -1065,7 +1066,7 @@ describe("AgentDialog start-from paging", () => {
       { limit: 20, offset: 50 },
     ]);
     await scrollPickerToEnd();
-    const names = sessionRows().map((r) => r.querySelector(".form__session-name")!.textContent);
+    const names = sessionRows().map((r) => present(r.querySelector(".form__session-name"), "element \".form__session-name\"").textContent);
     expect(names).toContain("session 69");
     // Everything loaded → the bare total; a partial load reads "N of 70".
     expect(document.querySelector(".form__sessions-count")?.textContent).toBe(
@@ -1275,15 +1276,15 @@ describe("AgentDialog cross-agent pick guard", () => {
   });
 
   const typeBtn = (text: string) =>
-    [...document.querySelectorAll<HTMLButtonElement>(".form__type")].find(
+    present([...document.querySelectorAll<HTMLButtonElement>(".form__type")].find(
       (b) => b.textContent === text || b.textContent?.includes(text),
-    )!;
+    ), "agent type button containing text");
   /** Pick an agent from the Agent list. */
   const pickAgent = (text: string) => {
-    act(() => document.querySelector<HTMLButtonElement>(".form__agent-pick .dropdown__button")!.click());
+    act(() => present(document.querySelector<HTMLButtonElement>(".form__agent-pick .dropdown__button"), "element \".form__agent-pick .dropdown__button\"").click());
     act(() =>
-      [...document.querySelectorAll<HTMLElement>('[role="option"]')]
-        .find((o) => o.textContent?.includes(text))!
+      present([...document.querySelectorAll<HTMLElement>('[role="option"]')]
+        .find((o) => o.textContent?.includes(text)), "option containing text")
         .click(),
     );
   };
@@ -1326,11 +1327,11 @@ describe("AgentDialog cross-agent pick guard", () => {
   };
 
   const nameField = () =>
-    document.querySelector<HTMLInputElement>('input[aria-label="Agent name"]')!;
+    present(document.querySelector<HTMLInputElement>('input[aria-label="Agent name"]'), "element 'input[aria-label=\"Agent name\"]'");
 
   const pickFirstRow = () =>
     act(() =>
-      document.querySelector<HTMLButtonElement>(".form__session")!.click(),
+      present(document.querySelector<HTMLButtonElement>(".form__session"), "element \".form__session\"").click(),
     );
 
   it("won't resume/fork a session whose agent differs from the selected agent", async () => {
@@ -1341,7 +1342,7 @@ describe("AgentDialog cross-agent pick guard", () => {
     act(() => typeBtn("Fork").click());
     await settle();
 
-    const row = document.querySelector<HTMLButtonElement>(".form__session")!;
+    const row = present(document.querySelector<HTMLButtonElement>(".form__session"), "element \".form__session\"");
     expect(row.textContent).toContain("claude work");
     act(() => row.click());
 
@@ -1397,7 +1398,7 @@ describe("remote gating (Experimental setting)", () => {
 
   beforeEach(() => {
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "element \"host\""));
   });
 
   afterEach(() => {
@@ -1487,19 +1488,19 @@ describe("remote gating (Experimental setting)", () => {
     pickRole("Lead");
     // Remote is opt-in within the Where row (default Local) — click it to
     // reveal the endpoint field.
-    const remoteBtn = Array.from(document.querySelectorAll("button")).find(
+    const remoteBtn = present(Array.from(document.querySelectorAll("button")).find(
       (b) => b.textContent === "Remote",
-    )!;
+    ), "button \"Remote\"");
     await act(async () => {
       remoteBtn.click();
     });
-    const input = document.querySelector<HTMLInputElement>(
+    const input = present(document.querySelector<HTMLInputElement>(
       'input[aria-label="Remote agent server endpoint"]',
-    )!;
+    ), "element 'input[aria-label=\"Remote agent server endpoint\"]'");
     await act(async () => {
       type(input, "ws://vps:4500");
     });
-    const create = document.querySelector<HTMLButtonElement>(".form__create")!;
+    const create = present(document.querySelector<HTMLButtonElement>(".form__create"), "element \".form__create\"");
     expect(create.disabled).toBe(false);
     await act(async () => {
       create.click();
@@ -1625,9 +1626,9 @@ describe("AgentDialog picker ↔ sessionIndexManager (integration)", () => {
     );
 
   const modeBtn = (label: string) =>
-    [...document.querySelectorAll<HTMLButtonElement>(".form__type")].find(
+    present([...document.querySelectorAll<HTMLButtonElement>(".form__type")].find(
       (b) => b.textContent === label,
-    )!;
+    ), "agent type button matching label");
 
   const settle = async () => {
     await act(async () => {
@@ -1677,11 +1678,11 @@ describe("AgentDialog picker ↔ sessionIndexManager (integration)", () => {
     act(() => modeBtn("Fork").click());
     await settle();
 
-    act(() => document.querySelector<HTMLButtonElement>(".form__agent-pick .dropdown__button")!.click());
+    act(() => present(document.querySelector<HTMLButtonElement>(".form__agent-pick .dropdown__button"), "element \".form__agent-pick .dropdown__button\"").click());
     const codex = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
       (o) => o.textContent === "Codex",
     );
-    act(() => codex!.click());
+    act(() => present(codex, "codex").click());
     await act(async () => {});
     // The claude pass is still running and does not cover codex — the need
     // chains, it must not fire a concurrent second scan.

@@ -11,6 +11,7 @@ import type { SessionsBrowserApi } from "../../app/useSessionsBrowser";
 import { hitRecord, SessionsBrowser } from "./SessionsBrowser";
 import { SessionRowView } from "./SessionRowView";
 import { installResizeObserver, pinListViewport } from "@keepdeck/ui-kit/virtualGeometry.test-support";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const worktreeIpc = vi.hoisted(() => ({
   probeWorktree: vi.fn((_path: string) =>
@@ -186,7 +187,7 @@ describe("SessionsBrowser", () => {
     installResizeObserver();
     restoreViewport = pinListViewport("browser__list", 600);
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "element \"host\""));
   });
   afterEach(() => {
     act(() => root.unmount());
@@ -233,23 +234,23 @@ describe("SessionsBrowser", () => {
     );
     expect(a.ensureFresh).toHaveBeenCalledTimes(1);
 
-    const input = document.querySelector<HTMLInputElement>(".browser__search")!;
+    const input = present(document.querySelector<HTMLInputElement>(".browser__search"), "element \".browser__search\"");
     act(() => {
-      const setter = Object.getOwnPropertyDescriptor(
+      const setter = present(present(Object.getOwnPropertyDescriptor(
         Object.getPrototypeOf(input),
         "value",
-      )!.set!;
+      ), "input value property descriptor").set, "input value setter");
       setter.call(input, "auth");
       input.dispatchEvent(new Event("input", { bubbles: true }));
     });
     expect(a.search).toHaveBeenCalledWith("auth");
 
-    const row = document.querySelector(".history__row")!;
-    act(() => row.querySelector<HTMLButtonElement>(".history__resume")!.click());
+    const row = present(document.querySelector(".history__row"), "element \".history__row\"");
+    act(() => present(row.querySelector<HTMLButtonElement>(".history__resume"), "element \".history__resume\"").click());
     expect(onResume).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({ sessionId: "u-1", cwd: "/repo/wt" }),
     );
-    act(() => row.querySelector<HTMLButtonElement>(".history__fork")!.click());
+    act(() => present(row.querySelector<HTMLButtonElement>(".history__fork"), "element \".history__fork\"").click());
     expect(onFork).toHaveBeenCalledTimes(1);
   });
 
@@ -288,7 +289,7 @@ describe("SessionsBrowser", () => {
     await act(async () => {});
     const rows = document.querySelectorAll(".history__row");
     const resumeOf = (row: Element) =>
-      row.querySelector<HTMLButtonElement>(".history__resume")!;
+      present(row.querySelector<HTMLButtonElement>(".history__resume"), "element \".history__resume\"");
     expect(resumeOf(rows[0]).disabled).toBe(true); // cwd ""
     expect(resumeOf(rows[1]).disabled).toBe(true); // deleted dir
     expect(resumeOf(rows[2]).disabled).toBe(false);
@@ -326,7 +327,7 @@ describe("SessionsBrowser", () => {
     const a = api([hit()]);
     await mount(a);
     await act(async () =>
-      document.querySelector<HTMLButtonElement>(".browser__open")!.click(),
+      present(document.querySelector<HTMLButtonElement>(".browser__open"), "element \".browser__open\"").click(),
     );
     // First transcript page is a viewport fill (50); later pages come in 20s.
     expect(a.transcript).toHaveBeenCalledWith("claude", "/store/u-1.jsonl", 0, 50);
@@ -352,14 +353,14 @@ describe("SessionsBrowser", () => {
     );
     // Resume must NOT bubble into opening the viewer.
     await act(async () =>
-      document.querySelector<HTMLButtonElement>(".history__resume")!.click(),
+      present(document.querySelector<HTMLButtonElement>(".history__resume"), "element \".history__resume\"").click(),
     );
     expect(onResume).toHaveBeenCalledTimes(1);
     expect(a.transcript).not.toHaveBeenCalled();
 
     // A click on the row itself (not the text button) opens it.
     await act(async () =>
-      document.querySelector<HTMLLIElement>(".history__row")!.click(),
+      present(document.querySelector<HTMLLIElement>(".history__row"), "element \".history__row\"").click(),
     );
     expect(a.transcript).toHaveBeenCalledTimes(1);
   });
@@ -368,9 +369,9 @@ describe("SessionsBrowser", () => {
     const a = api([hit()]);
     await mount(a);
     await act(async () =>
-      document.querySelector<HTMLButtonElement>(".browser__open")!.click(),
+      present(document.querySelector<HTMLButtonElement>(".browser__open"), "element \".browser__open\"").click(),
     );
-    const back = document.querySelector<HTMLButtonElement>(".browser__back")!;
+    const back = present(document.querySelector<HTMLButtonElement>(".browser__back"), "element \".browser__back\"");
     expect(back.textContent).toContain("auth bug");
     await act(async () => back.click());
     expect(document.querySelector(".browser__viewer")).toBeNull();
@@ -385,29 +386,29 @@ describe("SessionsBrowser", () => {
     const a = api([hit()]);
     await mount(a, [], { onResume });
     await act(async () =>
-      document.querySelector<HTMLButtonElement>(".browser__open")!.click(),
+      present(document.querySelector<HTMLButtonElement>(".browser__open"), "element \".browser__open\"").click(),
     );
-    const bar = document.querySelector(".browser__viewerbar")!;
-    const back = bar.querySelector<HTMLButtonElement>(".browser__back")!;
+    const bar = present(document.querySelector(".browser__viewerbar"), "element \".browser__viewerbar\"");
+    const back = present(bar.querySelector<HTMLButtonElement>(".browser__back"), "element \".browser__back\"");
     expect(back).not.toBeNull();
     // No nesting: the back button holds no buttons inside.
     expect(back.querySelector("button")).toBeNull();
     // Both actions present in the bar, inside their GROUP — the group
     // is the bar's ONE push-right child (margin rides the group, never
     // per button), and both sit OUTSIDE the back button.
-    const group = bar.querySelector(".history__actions")!;
+    const group = present(bar.querySelector(".history__actions"), "element \".history__actions\"");
     expect(group).not.toBeNull();
     expect(bar.querySelectorAll(":scope > .history__actions")).toHaveLength(1);
     const resume = group.querySelector<HTMLButtonElement>(".history__resume");
     const fork = group.querySelector<HTMLButtonElement>(".history__fork");
     expect(resume).not.toBeNull();
     expect(fork).not.toBeNull();
-    expect(back.contains(resume!)).toBe(false);
-    expect(back.contains(fork!)).toBe(false);
+    expect(back.contains(present(resume, "resume"))).toBe(false);
+    expect(back.contains(present(fork, "fork"))).toBe(false);
     // And they obey the row's rules — the hit row resumes (no liveness
     // fact), and clicking dispatches like the row's own.
-    expect(resume!.disabled).toBe(false);
-    await act(async () => resume!.click());
+    expect(present(resume, "resume").disabled).toBe(false);
+    await act(async () => present(resume, "resume").click());
     expect(onResume).toHaveBeenCalledTimes(1);
   });
 
@@ -435,7 +436,7 @@ describe("SessionsBrowser", () => {
 
     expect(document.querySelector(".history__resume")).toBeNull();
     expect(document.querySelector(".history__fork")).toBeNull();
-    const open = document.querySelector<HTMLButtonElement>(".browser__open")!;
+    const open = present(document.querySelector<HTMLButtonElement>(".browser__open"), "element \".browser__open\"");
     expect(open.disabled).toBe(true);
     // The OTHER lane's row (the queue's tail) stays inert.
     const hitRow = otherRows(1)[0];
@@ -458,7 +459,7 @@ describe("SessionsBrowser", () => {
 
     await act(async () => root.unmount());
     document.body.innerHTML = "<div id='host2'></div>";
-    root = createRoot(document.getElementById("host2")!);
+    root = createRoot(present(document.getElementById("host2"), "element \"host2\""));
     await mount(
       api([hit()], { other: laneOf([hit()], { total: 1 }) }),
       [closed({ title: "pinned" })],
@@ -603,9 +604,9 @@ describe("SessionsBrowser", () => {
     expect(all[2].querySelector(".browser__name")?.getAttribute("title")).toBe("g-1");
     // Nothing between the halves — every list child between the first
     // and the last row is itself a row.
-    const between = [...all[0].parentNode!.children].slice(
-      [...all[0].parentNode!.children].indexOf(all[0]),
-      [...all[0].parentNode!.children].indexOf(all[2]) + 1,
+    const between = [...present(all[0].parentNode, "parent of first history row").children].slice(
+      [...present(all[0].parentNode, "parent of first history row").children].indexOf(all[0]),
+      [...present(all[0].parentNode, "parent of first history row").children].indexOf(all[2]) + 1,
     );
     expect(between.every((el) => el.classList.contains("history__row"))).toBe(true);
     // And no section node exists anywhere in the document.
@@ -623,26 +624,26 @@ describe("SessionsBrowser", () => {
     await mount(both);
     const spinners = document.querySelectorAll(".browser__more");
     expect(spinners).toHaveLength(1);
-    const listChildren = [...document.querySelector(".browser__list")!.children];
+    const listChildren = [...present(document.querySelector(".browser__list"), "element \".browser__list\"").children];
     expect(listChildren[listChildren.length - 1]).toBe(spinners[0]);
 
     await act(async () => root.unmount());
     document.body.innerHTML = "<div id='host2'></div>";
-    root = createRoot(document.getElementById("host2")!);
+    root = createRoot(present(document.getElementById("host2"), "element \"host2\""));
     const workspaceOnly = api([], {
       workspace: laneOf([hit({ sessionId: "w-1" })], { loadingMore: true }),
       other: laneOf([hit({ sessionId: "g-1" })]),
     });
     await mount(workspaceOnly);
     expect(document.querySelectorAll(".browser__more")).toHaveLength(1);
-    const lastChild = [...document.querySelector(".browser__list")!.children];
+    const lastChild = [...present(document.querySelector(".browser__list"), "element \".browser__list\"").children];
     const last = lastChild[lastChild.length - 1];
     expect(last?.classList.contains("browser__more")).toBe(true);
 
     // Both lanes refused: ONE error line (one sentence, no lane name).
     await act(async () => root.unmount());
     document.body.innerHTML = "<div id='host3'></div>";
-    root = createRoot(document.getElementById("host3")!);
+    root = createRoot(present(document.getElementById("host3"), "element \"host3\""));
     const failed = api([], {
       workspace: laneOf([], { error: "bridge one" }),
       other: laneOf([], { error: "bridge two" }),
@@ -666,7 +667,7 @@ describe("SessionsBrowser", () => {
     a.transcript = vi.fn(() => Promise.resolve({ entries: [] }));
     await mount(a);
     await act(async () =>
-      document.querySelector<HTMLButtonElement>(".browser__open")!.click(),
+      present(document.querySelector<HTMLButtonElement>(".browser__open"), "element \".browser__open\"").click(),
     );
     expect(document.body.textContent).toContain("No transcript content");
     expect(document.querySelector(".browser__spinner")).toBeNull();
@@ -685,7 +686,7 @@ describe("SessionsBrowser", () => {
     ).not.toBeNull();
 
     await act(async () =>
-      document.querySelector<HTMLButtonElement>(".browser__open")!.click(),
+      present(document.querySelector<HTMLButtonElement>(".browser__open"), "element \".browser__open\"").click(),
     );
     expect(
       document.querySelector(".browser__viewer-body .browser__spinner"),
@@ -704,7 +705,7 @@ describe("SessionsBrowser journal section", () => {
     installResizeObserver();
     restoreViewport = pinListViewport("browser__list", 600);
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "element \"host\""));
   });
   afterEach(() => {
     act(() => root.unmount());
@@ -821,9 +822,9 @@ describe("SessionsBrowser journal section", () => {
     // Rows by CONTENT, not position: the composite axis owns the order
     // now, and equal time marks may re-seat.
     const byText = (frag: string) =>
-      [...document.querySelectorAll(".history__row")].find((r) =>
+      present([...document.querySelectorAll(".history__row")].find((r) =>
         r.textContent?.includes(frag),
-      )!;
+      ), "history row containing frag");
     const resumeOf = (row: Element) =>
       row.querySelector<HTMLButtonElement>(".history__resume");
     expect(resumeOf(byText("auth bug"))?.disabled).toBe(false);
@@ -833,7 +834,7 @@ describe("SessionsBrowser journal section", () => {
     expect(byText("s-3").querySelector(".history__meta-mark")?.textContent).toBe("dir gone");
     expect(resumeOf(byText("s-3"))?.disabled).toBe(true);
     expect(byText("s-3").querySelector(".history__fork")).not.toBeNull();
-    act(() => resumeOf(byText("auth bug"))!.click());
+    act(() => present(resumeOf(byText("auth bug")), "resumeOf byText(\"auth bug\")").click());
     expect(onResume).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({ sessionId: "s-1", state: "closed" }),
     );
@@ -859,8 +860,8 @@ describe("SessionsBrowser journal section", () => {
     );
     await act(async () => {});
     const byText = (frag: string) =>
-      [...document.querySelectorAll(".history__row")].find((r) => r.textContent?.includes(frag))!;
-    const resumeOf = (row: Element) => row.querySelector<HTMLButtonElement>(".history__resume")!;
+      present([...document.querySelectorAll(".history__row")].find((r) => r.textContent?.includes(frag)), "history row containing frag");
+    const resumeOf = (row: Element) => present(row.querySelector<HTMLButtonElement>(".history__resume"), "element \".history__resume\"");
     expect(resumeOf(byText("here")).disabled).toBe(false);
     expect(resumeOf(byText("there")).disabled).toBe(true);
     expect(resumeOf(byText("there")).title).toBe("recorded in another directory — fork a copy into this team");
@@ -876,7 +877,7 @@ describe("SessionsBrowser journal section", () => {
       closed({ sessionId: "s-2" }),
     ]);
     const openButtons = workspaceRows(0).map(
-      (row) => row.querySelector<HTMLButtonElement>(".browser__open")!,
+      (row) => present(row.querySelector<HTMLButtonElement>(".browser__open"), "element \".browser__open\""),
     );
     expect(openButtons).toHaveLength(2);
 
@@ -895,7 +896,7 @@ describe("SessionsBrowser journal section", () => {
     });
     await mount(a, [closed({ title: "own", transcriptPath: "/journal/s-1.jsonl" })]);
     await act(async () =>
-      document.querySelector<HTMLButtonElement>(".browser__open")!.click(),
+      present(document.querySelector<HTMLButtonElement>(".browser__open"), "element \".browser__open\"").click(),
     );
     expect(a.transcript).toHaveBeenCalledExactlyOnceWith(
       "claude",
@@ -914,7 +915,7 @@ describe("SessionsBrowser journal section", () => {
 
     await act(async () => root.unmount());
     document.body.innerHTML = "<div id='host2'></div>";
-    root = createRoot(document.getElementById("host2")!);
+    root = createRoot(present(document.getElementById("host2"), "element \"host2\""));
     await mount(api([hit()]), []);
     expect(document.querySelectorAll(".browser__open")).toHaveLength(1);
     expect(document.querySelector(".browser__section")).toBeNull();
@@ -955,7 +956,7 @@ describe("SessionsBrowser journal join", () => {
     installResizeObserver();
     restoreViewport = pinListViewport("browser__list", 600);
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "element \"host\""));
   });
   afterEach(() => {
     act(() => root.unmount());
@@ -1073,7 +1074,7 @@ describe("SessionsBrowser journal join", () => {
     // Not openable: the name cell renders disabled, and the row carries
     // no open affordance.
     expect(
-      row.querySelector<HTMLButtonElement>(".browser__open")!.disabled,
+      present(row.querySelector<HTMLButtonElement>(".browser__open"), "element \".browser__open\"").disabled,
     ).toBe(true);
     await act(async () => (row as HTMLLIElement).click());
   });
@@ -1131,7 +1132,7 @@ describe("SessionsBrowser journal join", () => {
     expect(row.textContent).toContain("probe");
     expect(chipOf(row)?.textContent).toBe("wrong agent");
     expect(
-      row.querySelector<HTMLButtonElement>(".browser__open")!.disabled,
+      present(row.querySelector<HTMLButtonElement>(".browser__open"), "element \".browser__open\"").disabled,
     ).toBe(true);
     expect(row.querySelector(".history__resume")).toBeNull();
     expect(row.querySelector(".history__fork")).toBeNull();
@@ -1159,7 +1160,7 @@ describe("SessionsBrowser journal join", () => {
     expect(chipOf(rows[1])).toBeNull();
     await act(async () =>
       (
-        rows[1].querySelector<HTMLButtonElement>(".browser__open")!
+        present(rows[1].querySelector<HTMLButtonElement>(".browser__open"), "element \".browser__open\"")
       ).click(),
     );
     expect(a.transcript).toHaveBeenCalledExactlyOnceWith(
@@ -1427,7 +1428,7 @@ describe("SessionsBrowser journal join", () => {
     a.transcript = vi.fn(() => Promise.reject(new Error("no such file")));
     await mount(a, [closed({ sessionId: "s-1" })]);
     await act(async () =>
-      document.querySelector<HTMLButtonElement>(".browser__open")!.click(),
+      present(document.querySelector<HTMLButtonElement>(".browser__open"), "element \".browser__open\"").click(),
     );
     const row = topRow();
     expect(row.textContent).toContain("gone file"); // still there, still titled
@@ -1458,7 +1459,7 @@ describe("SessionsBrowser journal join", () => {
       closed({ sessionId: "s-1", transcriptPath: "/journal/dead.jsonl" }),
     ]);
     await act(async () =>
-      document.querySelector<HTMLButtonElement>(".browser__open")!.click(),
+      present(document.querySelector<HTMLButtonElement>(".browser__open"), "element \".browser__open\"").click(),
     );
     // Tried in union order: journal first, the index link second.
     expect(calls).toEqual(["/journal/dead.jsonl", "/store/s-1"]);
@@ -1482,7 +1483,7 @@ describe("SessionsBrowser journal join", () => {
       closed({ sessionId: "s-1", transcriptPath: "/journal/refuses.jsonl" }),
     ]);
     await act(async () =>
-      document.querySelector<HTMLButtonElement>(".browser__open")!.click(),
+      present(document.querySelector<HTMLButtonElement>(".browser__open"), "element \".browser__open\"").click(),
     );
     expect(calls).toEqual(["/journal/refuses.jsonl", "/store/refuses"]);
     const row = topRow();
@@ -1517,7 +1518,7 @@ describe("SessionsBrowser journal join", () => {
     );
     await mount(a, [closed({ sessionId: "s-1", transcriptPath: "/journal/dead.jsonl" })]);
     await act(async () =>
-      document.querySelector<HTMLButtonElement>(".browser__open")!.click(),
+      present(document.querySelector<HTMLButtonElement>(".browser__open"), "element \".browser__open\"").click(),
     );
     expect(
       chipOf(topRow())?.textContent ?? "",
@@ -1525,7 +1526,7 @@ describe("SessionsBrowser journal join", () => {
 
     dead = false;
     await act(async () =>
-      document.querySelector<HTMLButtonElement>(".browser__open")!.click(),
+      present(document.querySelector<HTMLButtonElement>(".browser__open"), "element \".browser__open\"").click(),
     );
     expect(chipOf(topRow())).toBeNull();
     expect(document.querySelector(".browser__turn--user")?.textContent).toBe(
@@ -1553,7 +1554,7 @@ describe("row render stability — the effect, not the memo", () => {
     // the thing this suite exists to count.
     restoreViewport = pinListViewport("browser__list", 600, 800, 72);
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "element \"host\""));
   });
   afterEach(() => {
     act(() => root.unmount());
@@ -1622,9 +1623,9 @@ describe("row render stability — the effect, not the memo", () => {
     // (the viewer's own state) — every row input unchanged. ZERO row
     // renders must follow.
     rowRenders.mockClear();
-    const openBtn = [...document.querySelectorAll<HTMLButtonElement>(".browser__open")].find(
+    const openBtn = present([...document.querySelectorAll<HTMLButtonElement>(".browser__open")].find(
       (b) => b.querySelector(".browser__name")?.getAttribute("title") === "s-1",
-    )!;
+    ), "session button \"s-1\"");
     await act(async () => openBtn.click());
     expect(document.querySelector(".browser__viewer")).not.toBeNull();
     expect(rowRenders).toHaveBeenCalledTimes(0);
@@ -1672,7 +1673,7 @@ describe("virtualized list — the window, not the pile", () => {
     installResizeObserver();
     restoreViewport = pinListViewport("browser__list", 600);
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "element \"host\""));
   });
   afterEach(() => {
     act(() => root.unmount());
@@ -1840,11 +1841,11 @@ describe("virtualized list — the window, not the pile", () => {
     });
     await mountBrowser(a);
     for (let i = 0; i < 3; i++) await act(async () => {});
-    const list = document.querySelector<HTMLUListElement>(".browser__list")!;
-    const firstRow = document.querySelector<HTMLLIElement>(".history__row")!;
+    const list = present(document.querySelector<HTMLUListElement>(".browser__list"), "element \".browser__list\"");
+    const firstRow = present(document.querySelector<HTMLLIElement>(".history__row"), "element \".history__row\"");
     const openBtn = firstRow.querySelector<HTMLButtonElement>(".browser__open");
     expect(openBtn).not.toBeNull();
-    openBtn!.focus();
+    present(openBtn, "openBtn").focus();
     expect(document.activeElement).toBe(openBtn);
 
     // The fling: the range jumps far past the focused row (its key
@@ -1879,7 +1880,7 @@ describe("virtualized list — the window, not the pile", () => {
     });
     await mountBrowser(a);
     for (let i = 0; i < 3; i++) await act(async () => {});
-    const list = document.querySelector<HTMLUListElement>(".browser__list")!;
+    const list = present(document.querySelector<HTMLUListElement>(".browser__list"), "element \".browser__list\"");
 
     // Nothing was ever focused in a row; focus is wherever it was —
     // body. The page "lands": the lane's hits array grows, rows are
@@ -1912,7 +1913,7 @@ describe("virtualized list — the window, not the pile", () => {
     });
     await mountBrowser(a);
     for (let i = 0; i < 3; i++) await act(async () => {});
-    const list = document.querySelector<HTMLUListElement>(".browser__list")!;
+    const list = present(document.querySelector<HTMLUListElement>(".browser__list"), "element \".browser__list\"");
     const openBtns = () =>
       [...document.querySelectorAll<HTMLButtonElement>(".browser__open")];
     // Focus the LAST row's button — its key leaves on the shrink.
@@ -1960,7 +1961,7 @@ describe("virtualized list — the window, not the pile", () => {
     });
     await mountBrowser(a);
     for (let i = 0; i < 3; i++) await act(async () => {});
-    const list = document.querySelector<HTMLUListElement>(".browser__list")!;
+    const list = present(document.querySelector<HTMLUListElement>(".browser__list"), "element \".browser__list\"");
     expect(list.scrollTop).toBe(0);
     // The browser side of the adapter: the container's scroll
     // geometry must exist for the scroll to GO somewhere (happy-dom
@@ -2012,7 +2013,7 @@ describe("virtualized list — the window, not the pile", () => {
     restoreViewport = pinListViewport("browser__list", 600, 800, 72);
     await mountBrowser(a);
     for (let i = 0; i < 3; i++) await act(async () => {});
-    const list = document.querySelector<HTMLUListElement>(".browser__list")!;
+    const list = present(document.querySelector<HTMLUListElement>(".browser__list"), "element \".browser__list\"");
     Object.defineProperty(list, "scrollHeight", { value: 80 * 72, configurable: true });
     Object.defineProperty(list, "clientHeight", { value: 600, configurable: true });
 
@@ -2059,7 +2060,7 @@ describe("virtualized list — the window, not the pile", () => {
     restoreViewport = pinListViewport("browser__list", 600, 800, 72);
     await mountBrowser(a);
     for (let i = 0; i < 3; i++) await act(async () => {});
-    const list = document.querySelector<HTMLUListElement>(".browser__list")!;
+    const list = present(document.querySelector<HTMLUListElement>(".browser__list"), "element \".browser__list\"");
     Object.defineProperty(list, "scrollHeight", { value: 80 * 72, configurable: true });
     Object.defineProperty(list, "clientHeight", { value: 600, configurable: true });
 
@@ -2090,9 +2091,9 @@ describe("virtualized list — the window, not the pile", () => {
       [...document.querySelectorAll(".browser__list .history__row .browser__name")]
         .map((n) => n.getAttribute("title"))
         .filter((t): t is string => t !== null);
-    const watchedKey = visibleKeys().find(
+    const watchedKey = present(visibleKeys().find(
       (k) => rowTopOf(k) !== null && (rowTopOf(k) as number) >= 0,
-    )!;
+    ), "visible key with a rendered row");
     expect(watchedKey).toBeDefined();
     const watchedBefore = rowTopOf(watchedKey);
     expect(watchedBefore).not.toBeNull();
@@ -2126,7 +2127,7 @@ describe("virtualized list — the window, not the pile", () => {
     try {
       await mountBrowser(a);
       for (let i = 0; i < 3; i++) await act(async () => {});
-      const list = document.querySelector<HTMLUListElement>(".browser__list")!;
+      const list = present(document.querySelector<HTMLUListElement>(".browser__list"), "element \".browser__list\"");
       // The adapter reports 64px rows while the virtualizer's estimate is
       // 72px: the list height proves measureElement supplied live geometry.
       expect(list.style.height).toBe(`${10 * 64}px`);
@@ -2171,7 +2172,7 @@ describe("virtualized list — the window, not the pile", () => {
       installResizeObserver();
       const restore = pinListViewport("browser__list", 600);
       document.body.innerHTML = "<div id='host'></div>";
-      root = createRoot(document.getElementById("host")!);
+      root = createRoot(present(document.getElementById("host"), "element \"host\""));
       await act(async () =>
         root.render(
           createElement(SessionsBrowser, {
@@ -2243,7 +2244,7 @@ describe("unified row guard — both blocks, one markup", () => {
     installResizeObserver();
     restoreViewport = pinListViewport("browser__list", 600);
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "element \"host\""));
   });
   afterEach(() => {
     act(() => root.unmount());
@@ -2288,7 +2289,7 @@ describe("unified row guard — both blocks, one markup", () => {
     );
 
   const rowOf = (hostIndex: number) =>
-    document.querySelectorAll(".browser__list > .history__row")[hostIndex]!;
+    present(document.querySelectorAll(".browser__list > .history__row")[hostIndex], "entry document.querySelectorAll(\".browser__list > .history__row\")[hostIndex]");
 
   const mount = (a: SessionsBrowserApi, rows: SessionRecord[]) =>
     act(async () =>
@@ -2435,8 +2436,8 @@ describe("unified row guard — both blocks, one markup", () => {
     for (const row of [fromJournal, fromIndex]) {
       const group = row.querySelector(".history__actions");
       expect(group).not.toBeNull();
-      expect(group!.querySelector(".history__resume")).not.toBeNull();
-      expect(group!.querySelector(".history__fork")).not.toBeNull();
+      expect(present(group, "group").querySelector(".history__resume")).not.toBeNull();
+      expect(present(group, "group").querySelector(".history__fork")).not.toBeNull();
       expect(
         [...row.children].some(
           (c) => (c as HTMLElement).classList.contains("history__resume"),
@@ -2476,7 +2477,7 @@ describe("unified row guard — both blocks, one markup", () => {
     const row = listRows()[0];
     const group = row.querySelector(".history__actions");
     expect(group).not.toBeNull(); // the cell exists even with no buttons
-    expect(group!.querySelector("button")).toBeNull();
+    expect(present(group, "group").querySelector("button")).toBeNull();
     // And the meta stays in its place in the tree.
     expect(slotsTreeOf(row)).toEqual(["glyph", "name", "actions", "meta"]);
   });
@@ -2563,13 +2564,13 @@ describe("unified row guard — both blocks, one markup", () => {
     await mount(api([hit({ sessionId: "no-dir", cwd: "" })]), []);
     const row = listRows()[0];
     expect(row.querySelector(".history__missing")).toBeNull();
-    const resume = row.querySelector<HTMLButtonElement>(".history__resume")!;
+    const resume = present(row.querySelector<HTMLButtonElement>(".history__resume"), "element \".history__resume\"");
     expect(resume.disabled).toBe(true);
     expect(resume.title).toBe("no recorded directory — fork instead");
     // The chip appears only for a NONEMPTY path that is gone.
     await act(async () => root.unmount());
     document.body.innerHTML = "<div id='host2'></div>";
-    root = createRoot(document.getElementById("host2")!);
+    root = createRoot(present(document.getElementById("host2"), "element \"host2\""));
     worktreeIpc.probeWorktree.mockImplementation((path: string) =>
       Promise.resolve({ exists: path !== "/gone", isWorktree: false, branch: null }),
     );
@@ -2577,7 +2578,7 @@ describe("unified row guard — both blocks, one markup", () => {
     const goneRow = listRows()[0];
     expect(goneRow.querySelector(".history__meta-mark")?.textContent).toBe("dir gone");
     expect(
-      goneRow.querySelector<HTMLButtonElement>(".history__resume")!.disabled,
+      present(goneRow.querySelector<HTMLButtonElement>(".history__resume"), "element \".history__resume\"").disabled,
     ).toBe(true);
   });
 
@@ -2597,7 +2598,7 @@ describe("unified row guard — both blocks, one markup", () => {
     const row = listRows()[0];
     const resume = row.querySelector<HTMLButtonElement>(".history__resume");
     expect(resume).not.toBeNull();
-    expect(resume!.disabled).toBe(false);
-    expect(resume!.title).toBe("Resume in /repo");
+    expect(present(resume, "resume").disabled).toBe(false);
+    expect(present(resume, "resume").title).toBe("Resume in /repo");
   });
 });

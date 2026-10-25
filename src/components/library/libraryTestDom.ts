@@ -5,6 +5,7 @@
  * click or a keystroke means.
  */
 import { act } from "react";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /** The nav row whose name is `name`. */
 export const row = (name: string) =>
@@ -26,14 +27,14 @@ export const confirmButton = (text: string) =>
     (b) => b.textContent === text,
   );
 
-export const input = (id: string) => document.querySelector<HTMLInputElement>(`#${id}`)!;
-export const textarea = (id: string) => document.querySelector<HTMLTextAreaElement>(`#${id}`)!;
+export const input = (id: string) => present(document.querySelector<HTMLInputElement>(`#${id}`), "element `#${id}`");
+export const textarea = (id: string) => present(document.querySelector<HTMLTextAreaElement>(`#${id}`), "element `#${id}`");
 
 /** Type into a controlled React field: the native setter, then a bubbling
  * `input` — inside `act`, so the state it moves has settled on return. */
 export function type(el: HTMLInputElement | HTMLTextAreaElement, text: string): void {
   const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-  const set = Object.getOwnPropertyDescriptor(proto, "value")!.set!;
+  const set = present(present(Object.getOwnPropertyDescriptor(proto, "value"), "field value property descriptor").set, "field value setter");
   act(() => {
     set.call(el, text);
     el.dispatchEvent(new Event("input", { bubbles: true }));

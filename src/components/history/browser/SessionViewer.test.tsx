@@ -7,6 +7,7 @@ import type { AgentInfo } from "../../../domain/agents";
 import type { SessionsBrowserApi } from "../../../app/useSessionsBrowser";
 import type { UnifiedSessionRow } from "../../../domain/journal";
 import { SessionViewer, type ViewerTarget } from "./SessionViewer";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const AGENT: AgentInfo = {
   id: "claude",
@@ -117,7 +118,7 @@ describe("SessionViewer", () => {
 
   beforeEach(() => {
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "element \"host\""));
   });
 
   afterEach(() => {
@@ -175,13 +176,13 @@ describe("SessionViewer", () => {
     });
 
     await act(async () => {
-      resolvers.get("/first")!({ entries: [entry("stale first page")] });
+      present(resolvers.get("/first"), "entry \"/first\" in resolvers")({ entries: [entry("stale first page")] });
     });
     expect(document.body.textContent).toContain("second header");
     expect(document.body.textContent).not.toContain("stale first page");
 
     await act(async () => {
-      resolvers.get("/second")!({ entries: [entry("current second page")] });
+      present(resolvers.get("/second"), "entry \"/second\" in resolvers")({ entries: [entry("current second page")] });
     });
     expect(document.body.textContent).toContain("current second page");
   });
@@ -272,7 +273,7 @@ describe("SessionViewer", () => {
     const viewSeq = { current: 0 };
 
     await renderViewer({ root, target: target(), transcript, viewSeq, readFailed });
-    const body = document.querySelector(".browser__viewer-body")!;
+    const body = present(document.querySelector(".browser__viewer-body"), "element \".browser__viewer-body\"");
     setViewerGeometry(body, { scrollHeight: 1000, scrollTop: 700, clientHeight: 200 });
     await act(async () => {
       resolveFirst({
@@ -302,7 +303,7 @@ describe("SessionViewer", () => {
       onClose,
     });
     await settle();
-    const back = document.querySelector<HTMLButtonElement>(".browser__back")!;
+    const back = present(document.querySelector<HTMLButtonElement>(".browser__back"), "element \".browser__back\"");
     expect(back).not.toBeNull();
     await act(async () => back.click());
     expect(onClose).toHaveBeenCalledOnce();

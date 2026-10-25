@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { InstalledPlugin } from "../../plugins";
 import { PluginPage } from "./PluginPage";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const setEnabled = vi.hoisted(() => vi.fn(async () => {}));
 
@@ -36,7 +37,7 @@ describe("PluginPage — the failure reason a user has to copy", () => {
 
   beforeEach(() => {
     document.body.innerHTML = '<div id="host"></div>';
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "element \"host\""));
     setEnabled.mockClear();
     act(() =>
       root.render(
@@ -61,12 +62,12 @@ describe("PluginPage — the failure reason a user has to copy", () => {
   it("spells out why the plugin broke, and lets that text be selected", () => {
     const line = diagnostic();
     expect(line, "no line carries the failure reason").toBeDefined();
-    expect(line!.textContent).toContain("keepdeck.git");
-    expect(line!.textContent).toContain("1.4.0");
-    expect(line!.textContent).toContain("spawn keepdeck-git ENOENT");
+    expect(present(line, "line").textContent).toContain("keepdeck.git");
+    expect(present(line, "line").textContent).toContain("1.4.0");
+    expect(present(line, "line").textContent).toContain("spawn keepdeck-git ENOENT");
     // The document baseline makes chrome unselectable; diagnostic text has to
     // ask for the exception by name, or it cannot be copied into a bug report.
-    expect(line!.classList.contains("kd-selectable")).toBe(true);
+    expect(present(line, "line").classList.contains("kd-selectable")).toBe(true);
   });
 
   it("keeps that selectable text OUT of the enable toggle's label", () => {
@@ -75,7 +76,7 @@ describe("PluginPage — the failure reason a user has to copy", () => {
     // error would have disabled the plugin the user was trying to report.
     // Any future selectable text placed in this page owes the same distance.
     const line = diagnostic();
-    expect(line!.closest("label")).toBeNull();
+    expect(present(line, "line").closest("label")).toBeNull();
 
     for (const selectable of document.querySelectorAll(".kd-selectable")) {
       expect(
@@ -87,11 +88,11 @@ describe("PluginPage — the failure reason a user has to copy", () => {
 
   it("still toggles the plugin from the label that remains", () => {
     // The distance above must not have cost the toggle its own hit area.
-    const label = document.querySelector<HTMLElement>(".settings__toggle")!;
-    const name = label.querySelector<HTMLElement>(".settings__plugin-name")!;
+    const label = present(document.querySelector<HTMLElement>(".settings__toggle"), "element \".settings__toggle\"");
+    const name = present(label.querySelector<HTMLElement>(".settings__plugin-name"), "element \".settings__plugin-name\"");
     expect(name.closest("label")).toBe(label);
 
-    const box = label.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+    const box = present(label.querySelector<HTMLInputElement>('input[type="checkbox"]'), "element 'input[type=\"checkbox\"]'");
     act(() => box.click());
     expect(setEnabled).toHaveBeenCalledTimes(1);
   });

@@ -3,6 +3,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { McpServerRow } from "./McpServerRow";
+import { present } from "@keepdeck/plugin-api/testing";
 
 // The connect invocation arrives WITH the status: it is a fact about the
 // running transport, so this component neither fetches it nor holds it.
@@ -162,7 +163,7 @@ describe("McpServerRow", () => {
     mount();
     await settle();
 
-    act(() => copyButton()!.click());
+    act(() => present(copyButton(), "copy button").click());
     await settle();
 
     expect(clipboard.writeText).toHaveBeenCalledWith(
@@ -177,7 +178,7 @@ describe("McpServerRow", () => {
     mcpStatus.current = up();
     mount();
     await settle();
-    act(() => copyButton()!.click());
+    act(() => present(copyButton(), "copy button").click());
     await settle();
     expect(host.textContent).toContain("Copied");
 
@@ -197,7 +198,7 @@ describe("McpServerRow", () => {
     mcpStatus.current = up();
     mount();
     await settle();
-    act(() => copyButton()!.click());
+    act(() => present(copyButton(), "copy button").click());
     await settle();
 
     mcpStatus.current = up({

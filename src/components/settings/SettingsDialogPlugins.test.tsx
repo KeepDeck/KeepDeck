@@ -15,6 +15,7 @@ import {
   resetSettingsManager,
   type Settings,
 } from "./testSupport";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /** An installed, active Files plugin — enough manifest for a PluginPage. */
 const FILES_PLUGIN = {
@@ -149,23 +150,23 @@ describe("SettingsDialog — plugin sections", () => {
     try {
       await mount();
       act(() => button("Files").click());
-      const enable = document.querySelector<HTMLInputElement>(
+      const enable = present(document.querySelector<HTMLInputElement>(
         'input[aria-label="Enable plugin Files"]',
-      )!;
-      const feature = document.querySelector<HTMLInputElement>(
+      ), "element 'input[aria-label=\"Enable plugin Files\"]'");
+      const feature = present(document.querySelector<HTMLInputElement>(
         'input[aria-label="Open terminal file links in KeepDeck"]',
-      )!;
+      ), "element 'input[aria-label=\"Open terminal file links in KeepDeck\"]'");
       // Everything about the plugin lives on ITS page.
       expect(panelOf(enable).hasAttribute("hidden")).toBe(false);
       expect(panelOf(feature).hasAttribute("hidden")).toBe(false);
       expect(feature.checked).toBe(true); // the schema default, no stored value
       // The section owns scrolling inside the bounded settings body; the only
       // dismiss control lives in the fixed header, outside that scroll area.
-      const body = document.querySelector(".settings__body")!;
+      const body = present(document.querySelector(".settings__body"), "element \".settings__body\"");
       expect(body.contains(panelOf(feature))).toBe(true);
       expect(
         body.contains(
-          document.querySelector('[aria-label="Close settings"]')!,
+          present(document.querySelector('[aria-label="Close settings"]'), "element '[aria-label=\"Close settings\"]'"),
         ),
       ).toBe(false);
     } finally {
@@ -178,9 +179,9 @@ describe("SettingsDialog — plugin sections", () => {
     await mount();
     act(() => button("Example CLI").click());
 
-    const features = document.querySelector(
+    const features = present(document.querySelector(
       '[aria-label="Example CLI features"]',
-    )!;
+    ), "element '[aria-label=\"Example CLI features\"]'");
     expect(panelOf(features).hasAttribute("hidden")).toBe(false);
     expect(features.textContent).toContain("CLI features");
     expect(features.textContent).not.toContain("Example Agent");
@@ -236,9 +237,9 @@ describe("SettingsDialog — plugin sections", () => {
     await mount();
     act(() => button("Example CLI").click());
 
-    const features = document.querySelector(
+    const features = present(document.querySelector(
       '[aria-label="Example CLI features"]',
-    )!;
+    ), "element '[aria-label=\"Example CLI features\"]'");
     expect(features.textContent).toContain("Example Agent");
     expect(features.textContent).toContain("Second Agent");
   });
@@ -253,9 +254,9 @@ describe("SettingsDialog — plugin sections", () => {
     await mount();
     act(() => button("Example CLI").click());
 
-    const features = document.querySelector(
+    const features = present(document.querySelector(
       '[aria-label="Example CLI features"]',
-    )!;
+    ), "element '[aria-label=\"Example CLI features\"]'");
     expect(features.textContent).not.toContain(
       "the plugin is disabled",
     );
@@ -341,10 +342,10 @@ describe("SettingsDialog — plugin sections", () => {
     await mount();
     act(() => button("Files").click());
 
-    const about = document.querySelector(".settings__plugin-about")!;
-    const notifications = document.querySelector(
+    const about = present(document.querySelector(".settings__plugin-about"), "element \".settings__plugin-about\"");
+    const notifications = present(document.querySelector(
       ".settings__plugin-notifications",
-    )!;
+    ), "element \".settings__plugin-notifications\"");
     expect(about.nextElementSibling).toBe(notifications);
     expect(notifications.classList).toContain("settings__plugin-row");
   });

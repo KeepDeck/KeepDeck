@@ -4,15 +4,16 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WorkspaceForm } from "./WorkspaceForm";
 import type { SpawnConfig } from "../../domain/deck";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const worktreeInput = () =>
-  document.querySelector<HTMLInputElement>('input[aria-label="Worktree directory"]')!;
+  present(document.querySelector<HTMLInputElement>('input[aria-label="Worktree directory"]'), "element 'input[aria-label=\"Worktree directory\"]'");
 const clearBtn = () =>
   document.querySelector<HTMLButtonElement>(".form__field-btn");
 const chooseBtn = () =>
-  Array.from(document.querySelectorAll("button")).find(
+  present(Array.from(document.querySelectorAll("button")).find(
     (b) => b.textContent === "Choose…",
-  )!; // first Choose… = working directory
+  ), "button \"Choose…\""); // first Choose… = working directory
 const createBtn = () =>
   Array.from(document.querySelectorAll("button")).find(
     (b) => b.textContent === "Create workspace",
@@ -21,10 +22,10 @@ const createBtn = () =>
 /** Type into a controlled React input: set via the native setter (bypassing
  * React's value tracker) and fire a bubbling `input` event. */
 function type(el: HTMLInputElement, text: string) {
-  const set = Object.getOwnPropertyDescriptor(
+  const set = present(present(Object.getOwnPropertyDescriptor(
     HTMLInputElement.prototype,
     "value",
-  )!.set!;
+  ), "input value property descriptor").set, "input value setter");
   act(() => {
     set.call(el, text);
     el.dispatchEvent(new Event("input", { bubbles: true }));
@@ -33,8 +34,8 @@ function type(el: HTMLInputElement, text: string) {
 
 const submit = () =>
   act(() => {
-    document
-      .querySelector("form")!
+    present(document
+      .querySelector("form"), "element \"form\"")
       .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
   });
 
@@ -120,7 +121,7 @@ describe("WorkspaceForm", () => {
   });
 
   describe("as the welcome screen's confirm step", () => {
-    const nameInput = () => document.querySelector<HTMLInputElement>('input[aria-label="Workspace name"]')!;
+    const nameInput = () => present(document.querySelector<HTMLInputElement>('input[aria-label="Workspace name"]'), "element 'input[aria-label=\"Workspace name\"]'");
     const back = () => Array.from(document.querySelectorAll("button")).find((b) => b.textContent === "Back");
 
     it("starts with the folder chosen and named after it, and creates it as it stands", async () => {
@@ -142,7 +143,7 @@ describe("WorkspaceForm", () => {
     it("goes Back — by its button, and by Escape — instead of cancelling", async () => {
       const onBack = vi.fn();
       await render({ confirm: { dir: "/repo", onBack } });
-      act(() => back()!.click());
+      act(() => present(back(), "Back button").click());
       expect(escape().defaultPrevented).toBe(true);
       expect(onBack).toHaveBeenCalledTimes(2);
       expect(Array.from(document.querySelectorAll("button")).some((b) => b.textContent === "Cancel")).toBe(false);
@@ -175,7 +176,7 @@ describe("WorkspaceForm", () => {
     type(worktreeInput(), "/base/worktrees");
     expect(clearBtn()).not.toBeNull();
 
-    act(() => clearBtn()!.click());
+    act(() => present(clearBtn(), "Clear button").click());
     expect(worktreeInput().value).toBe("");
     submit();
     expect(created[0].worktreeBaseDir).toBeNull();

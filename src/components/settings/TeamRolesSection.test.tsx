@@ -29,6 +29,7 @@ import {
 } from "../../app/roleCatalogManager";
 import { roleById } from "../../domain/mail";
 import { TeamRolesSection } from "./TeamRolesSection";
+import { present } from "@keepdeck/plugin-api/testing";
 
 let root: Root;
 
@@ -49,24 +50,24 @@ async function mount(): Promise<void> {
   resetRoleCatalogManager();
   await initRoleCatalog();
   document.body.innerHTML = "<div id='host'></div>";
-  root = createRoot(document.getElementById("host")!);
+  root = createRoot(present(document.getElementById("host"), "element \"host\""));
   await act(async () => root.render(createElement(TeamRolesSection)));
 }
 
 const button = (text: string) =>
-  Array.from(document.querySelectorAll("button")).find(
+  present(Array.from(document.querySelectorAll("button")).find(
     (candidate) => candidate.textContent === text,
-  )!;
+  ), "button matching text");
 
 const row = (contains: string) =>
-  Array.from(document.querySelectorAll<HTMLButtonElement>(".roles__row")).find(
-    (candidate) => candidate.textContent!.includes(contains),
-  )!;
+  present(Array.from(document.querySelectorAll<HTMLButtonElement>(".roles__row")).find(
+    (candidate) => present(candidate.textContent, "role row text").includes(contains),
+  ), "role row containing contains");
 
 const field = (label: string) =>
-  document.querySelector<HTMLInputElement | HTMLTextAreaElement>(
+  present(document.querySelector<HTMLInputElement | HTMLTextAreaElement>(
     `[aria-label="${label}"]`,
-  )!;
+  ), "element `[aria-label=\"${label}\"]`");
 
 /** Type into a controlled React input/textarea: set via the native setter
  * (bypassing React's value tracker) and fire a bubbling `input` event. */
@@ -75,7 +76,7 @@ function type(el: HTMLInputElement | HTMLTextAreaElement, text: string) {
     el instanceof HTMLTextAreaElement
       ? HTMLTextAreaElement.prototype
       : HTMLInputElement.prototype;
-  const set = Object.getOwnPropertyDescriptor(proto, "value")!.set!;
+  const set = present(present(Object.getOwnPropertyDescriptor(proto, "value"), "field value property descriptor").set, "field value setter");
   act(() => {
     set.call(el, text);
     el.dispatchEvent(new Event("input", { bubbles: true }));
@@ -120,7 +121,7 @@ describe("TeamRolesSection", () => {
     type(field("Role summary") as HTMLInputElement, "pretends");
     type(field("Role charter"), "You pretend.");
     await click(button("Save"));
-    expect(document.querySelector('[role="alert"]')!.textContent).toContain(
+    expect(present(document.querySelector('[role="alert"]'), "element '[role=\"alert\"]'").textContent).toContain(
       "numbered",
     );
     expect(rolesIpc.saveRoleFile).not.toHaveBeenCalled();
@@ -167,7 +168,7 @@ describe("TeamRolesSection", () => {
       throw new Error("disk said no");
     });
     await click(button("Delete"));
-    expect(document.querySelector('[role="alert"]')!.textContent).toContain(
+    expect(present(document.querySelector('[role="alert"]'), "element '[role=\"alert\"]'").textContent).toContain(
       "disk said no",
     );
   });
@@ -194,7 +195,7 @@ describe("TeamRolesSection", () => {
     await click(row("Docs"));
     expect(button("A peer — flat teams only").disabled).toBe(true);
     expect(
-      document.querySelector<HTMLInputElement>(".roles__repeatable input")!
+      present(document.querySelector<HTMLInputElement>(".roles__repeatable input"), "element \".roles__repeatable input\"")
         .disabled,
     ).toBe(true);
   });
@@ -210,7 +211,7 @@ describe("TeamRolesSection", () => {
     // Not just rendered — the DOMAIN sees it, which is what the dialog's
     // picker and the briefings read.
     expect(roleById("docs")).toBeDefined();
-    expect(roleById("docs")!.charter).toHaveLength(2);
+    expect(present(roleById("docs"), "roleById \"docs\"").charter).toHaveLength(2);
     expect(row("Docs").textContent).toContain("yours");
   });
 });

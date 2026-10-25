@@ -18,6 +18,7 @@ import type { ArtifactsRegistryReadPort } from "../../app/artifacts/registryRead
 // ladder is doubled at its IPC edge so a click on an attachment is observed.
 vi.mock("../../app/artifacts/entryPoints", () => ({ openArtifactByRef: vi.fn(async () => "http://x") }));
 import { openArtifactByRef } from "../../app/artifacts/entryPoints";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const registry: { rows: { id: string; title: string }[] } = { rows: [] };
 const artifactReads: ArtifactsRegistryReadPort = {
@@ -38,7 +39,7 @@ vi.mock("../../app/settingsManager", () => ({
     return () => settingsStore.listeners.delete(listener);
   },
   updateSettings: (patch: Partial<Settings>) => {
-    settingsStore.current = { ...settingsStore.current!, ...patch };
+    settingsStore.current = { ...present(settingsStore.current, "current settings"), ...patch };
     for (const listener of settingsStore.listeners) listener();
   },
 }));
@@ -131,9 +132,9 @@ function mount(service: TasksService | null, initial: Workspace | null = teamedW
 
 /** A palette row by its words. */
 function paletteOption(label: string): HTMLButtonElement {
-  return Array.from(document.querySelectorAll<HTMLButtonElement>(".palette__item")).find(
+  return present(Array.from(document.querySelectorAll<HTMLButtonElement>(".palette__item")).find(
     (row) => row.querySelector(".palette__label")?.textContent === label,
-  )!;
+  ), "palette item matching label");
 }
 
 async function seeded() {
@@ -165,7 +166,7 @@ describe("TasksDialog", () => {
     // Asked first: nothing restored yet.
     expect(restored).toEqual([]);
     expect(document.querySelector(".confirm__title")?.textContent).toBe("Restore the task database?");
-    const yes = Array.from(document.querySelectorAll<HTMLButtonElement>(".confirm__actions button")).find((b) => b.textContent === "Restore")!;
+    const yes = present(Array.from(document.querySelectorAll<HTMLButtonElement>(".confirm__actions button")).find((b) => b.textContent === "Restore"), "button \"Restore\"");
     act(() => yes.click());
     await flush();
     expect(restored).toEqual([{ kind: "backup", at: takenAt }]);
@@ -187,13 +188,13 @@ describe("TasksDialog", () => {
     expect(text()).toContain("by lead");
 
     // The status picker offers the person every status, in board order.
-    const statusPicker = () => document.querySelector<HTMLButtonElement>('button[aria-label="Status"]')!;
+    const statusPicker = () => present(document.querySelector<HTMLButtonElement>('button[aria-label="Status"]'), "element 'button[aria-label=\"Status\"]'");
     const options = () => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="option"]'));
     const EVERY = ["Blocked", "Backlog", "To do", "In progress", "Review", "Done", "Cancelled"];
     act(() => statusPicker().click());
     await flush();
     expect(options().map((o) => o.textContent)).toEqual(EVERY);
-    act(() => options().find((o) => o.textContent === "In progress")!.click());
+    act(() => present(options().find((o) => o.textContent === "In progress"), "option \"In progress\"").click());
     await flush();
     render();
     await flush();
@@ -213,11 +214,11 @@ describe("TasksDialog", () => {
     const chip = () => document.querySelector<HTMLButtonElement>('button[aria-label="Show every label, not only copy"]');
     expect(buttons().some((b) => b.textContent?.trim() === "Blocked")).toBe(false);
     expect(chip()).toBeNull();
-    act(() => document.querySelector<HTMLButtonElement>(".tasks__row .kd-tag:not(.kd-tag--outline)")!.click());
+    act(() => present(document.querySelector<HTMLButtonElement>(".tasks__row .kd-tag:not(.kd-tag--outline)"), "element \".tasks__row .kd-tag:not(.kd-tag--outline)\"").click());
     await flush();
     expect(rowTitles()).toEqual(["Pooled work"]);
     expect(chip()?.textContent).toBe("label: copy ✕");
-    act(() => chip()!.click());
+    act(() => present(chip(), "label filter chip").click());
     await flush();
     expect(rowTitles()).toEqual(["Draft the skill", "Pooled work"]);
     expect(chip()).toBeNull();
@@ -230,7 +231,7 @@ describe("TasksDialog", () => {
     render();
     await flush();
     const rows = () => Array.from(document.querySelectorAll<HTMLElement>(".tasks__row"));
-    const open = (row: HTMLElement) => row.querySelector<HTMLButtonElement>(".tasks__row-open")!;
+    const open = (row: HTMLElement) => present(row.querySelector<HTMLButtonElement>(".tasks__row-open"), "element \".tasks__row-open\"");
     const headings = () =>
       Array.from(document.querySelectorAll<HTMLButtonElement>(".tasks__list-item .tasks__group")).map((h) => h.textContent);
     // All seven groups stand; the parked and the closed work open folded
@@ -255,7 +256,7 @@ describe("TasksDialog", () => {
     render();
     await flush();
     expect(focus).toBe("task-2");
-    const composer = document.querySelector<HTMLTextAreaElement>("textarea")!;
+    const composer = present(document.querySelector<HTMLTextAreaElement>("textarea"), "element \"textarea\"");
     act(() => void composer.dispatchEvent(new KeyboardEvent("keydown", { key: "k", bubbles: true })));
     await flush();
     expect(focus).toBe("task-2");
@@ -270,15 +271,15 @@ describe("TasksDialog", () => {
     await flush();
     render();
     await flush();
-    const field = () => document.querySelector<HTMLInputElement>('input[aria-label="Add a label"]')!;
+    const field = () => present(document.querySelector<HTMLInputElement>('input[aria-label="Add a label"]'), "element 'input[aria-label=\"Add a label\"]'");
     const type = (value: string) =>
       act(() => {
-        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+        const setter = present(present(Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value"), "input value property descriptor").set, "input value setter");
         setter.call(field(), value);
         field().dispatchEvent(new Event("input", { bubbles: true }));
       });
     const submit = async () => {
-      await act(async () => void field().form!.requestSubmit());
+      await act(async () => void present(field().form, "form containing field").requestSubmit());
       await flush();
     };
     const labelsOnTask = () => {
@@ -297,7 +298,7 @@ describe("TasksDialog", () => {
     expect(field().value).toBe("a/b");
     expect(text()).toContain("is not a label");
 
-    act(() => document.querySelector<HTMLButtonElement>('button[aria-label="Remove copy-edit"]')!.click());
+    act(() => present(document.querySelector<HTMLButtonElement>('button[aria-label="Remove copy-edit"]'), "element 'button[aria-label=\"Remove copy-edit\"]'").click());
     await flush();
     expect(labelsOnTask()).toEqual([]);
   });
@@ -309,9 +310,9 @@ describe("TasksDialog", () => {
             mount(service)();
       await flush();
       const heading = (label: string) =>
-        Array.from(document.querySelectorAll<HTMLButtonElement>(".tasks__list-item .tasks__group")).find(
+        present(Array.from(document.querySelectorAll<HTMLButtonElement>(".tasks__list-item .tasks__group")).find(
           (h) => h.querySelector(".tasks__group-label")?.textContent === label,
-        )!;
+        ), "task group matching label");
       // To do opens unfolded, Done folded — then the person turns both.
       act(() => heading("To do").click());
       act(() => heading("Done").click());
@@ -336,17 +337,17 @@ describe("TasksDialog", () => {
     const before = service.peek("ws-1");
     const count = before?.kind === "ready" ? before.board.tasks.length : 0;
     // The task's menu stands with its id and state, not among the window's controls.
-    const menu = document.querySelector('aside[aria-label="Task task-1"] button[aria-label="More for task-1"]')!;
+    const menu = present(document.querySelector('aside[aria-label="Task task-1"] button[aria-label="More for task-1"]'), "element 'aside[aria-label=\"Task task-1\"] button[aria-label=\"More for task-1\"]'");
     expect(menu.closest(".tasks__detail-tools")).toBeNull();
     expect(menu.closest(".tasks__detail-line")).not.toBeNull();
     // Through the task's menu (⋯), opened again for the second press.
     const choose = () => {
-      act(() => document.querySelector<HTMLButtonElement>('aside[aria-label="Task task-1"] button[aria-label="More for task-1"]')!.click());
-      act(() => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find((b) => b.textContent?.includes("Duplicate"))!.click());
+      act(() => present(document.querySelector<HTMLButtonElement>('aside[aria-label="Task task-1"] button[aria-label="More for task-1"]'), "element 'aside[aria-label=\"Task task-1\"] button[aria-label=\"More for task-1\"]'").click());
+      act(() => present(Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find((b) => b.textContent?.includes("Duplicate")), "menu item containing \"Duplicate\"").click());
     };
     const confirmCopy = () => {
-      const dialog = document.querySelector('.confirm[role="dialog"]')!;
-      act(() => Array.from(dialog.querySelectorAll<HTMLButtonElement>("button")).find((b) => b.textContent === "Duplicate")!.click());
+      const dialog = present(document.querySelector('.confirm[role="dialog"]'), "element '.confirm[role=\"dialog\"]'");
+      act(() => present(Array.from(dialog.querySelectorAll<HTMLButtonElement>("button")).find((b) => b.textContent === "Duplicate"), "button \"Duplicate\"").click());
     };
     // The menu only asks: nothing is made until the dialog's Duplicate.
     choose();
@@ -355,7 +356,7 @@ describe("TasksDialog", () => {
     expect(asked?.kind === "ready" && asked.board.tasks.length).toBe(count);
     confirmCopy();
     // While that copy is on its way, the menu offers no second one.
-    act(() => document.querySelector<HTMLButtonElement>('aside[aria-label="Task task-1"] button[aria-label="More for task-1"]')!.click());
+    act(() => present(document.querySelector<HTMLButtonElement>('aside[aria-label="Task task-1"] button[aria-label="More for task-1"]'), "element 'aside[aria-label=\"Task task-1\"] button[aria-label=\"More for task-1\"]'").click());
     const again = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find((b) => b.textContent?.includes("Duplicate"));
     expect(again?.disabled || again?.getAttribute("aria-disabled") === "true").toBe(true);
     await flush();
@@ -375,14 +376,14 @@ describe("TasksDialog", () => {
     const render = mount(service);
     render();
     await flush();
-    act(() => document.querySelector<HTMLButtonElement>('aside[aria-label="Task task-1"] button[aria-label="More for task-1"]')!.click());
-    act(() => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find((b) => b.textContent?.includes("Transfer"))!.click());
+    act(() => present(document.querySelector<HTMLButtonElement>('aside[aria-label="Task task-1"] button[aria-label="More for task-1"]'), "element 'aside[aria-label=\"Task task-1\"] button[aria-label=\"More for task-1\"]'").click());
+    act(() => present(Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find((b) => b.textContent?.includes("Transfer")), "menu item containing \"Transfer\"").click());
     await flush();
     // A dialog of its own, over everything.
-    const confirm = document.querySelector('.confirm[role="dialog"]')!;
+    const confirm = present(document.querySelector('.confirm[role="dialog"]'), "element '.confirm[role=\"dialog\"]'");
     expect(confirm.querySelector(".confirm__title")?.textContent).toBe("Transfer task-1");
     expect(confirm.textContent).toContain("Move it to web?");
-    act(() => Array.from(confirm.querySelectorAll<HTMLButtonElement>("button")).find((b) => b.textContent === "Move")!.click());
+    act(() => present(Array.from(confirm.querySelectorAll<HTMLButtonElement>("button")).find((b) => b.textContent === "Move"), "button \"Move\"").click());
     await flush();
     const state = service.peek("ws-1");
     expect(state?.kind === "ready" && state.board.tasks.find((t) => t.id === "task-1")?.teamId).toBe("team-2");
@@ -395,12 +396,12 @@ describe("TasksDialog", () => {
     const render = mount(service);
     render();
     await flush();
-    const panel = () => document.querySelector('aside[aria-label="Task task-1"]')!;
+    const panel = () => present(document.querySelector('aside[aria-label="Task task-1"]'), "element 'aside[aria-label=\"Task task-1\"]'");
     const typeAndEnter = (text: string) => {
       // A wrapping field — the title may run to several lines.
-      const field = panel().querySelector<HTMLTextAreaElement>("textarea.tasks__detail-title-edit")!;
+      const field = present(panel().querySelector<HTMLTextAreaElement>("textarea.tasks__detail-title-edit"), "element \"textarea.tasks__detail-title-edit\"");
       act(() => {
-        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(field, text);
+        present(present(Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value"), "textarea value property descriptor").set, "textarea value setter").call(field, text);
         field.dispatchEvent(new Event("input", { bubbles: true }));
       });
       act(() => void field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
@@ -409,14 +410,14 @@ describe("TasksDialog", () => {
       const state = service.peek("ws-1");
       return state?.kind === "ready" ? state.board.tasks.find((t) => t.id === "task-1")?.title : null;
     };
-    act(() => void panel().querySelector(".tasks__detail-title")!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+    act(() => void present(panel().querySelector(".tasks__detail-title"), "element \".tasks__detail-title\"").dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
     typeAndEnter("Draft the skill, again");
     await flush();
     expect(titleOf()).toBe("Draft the skill, again");
     render();
     await flush();
-    act(() => panel().querySelector<HTMLButtonElement>('button[aria-label="More for task-1"]')!.click());
-    act(() => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find((b) => b.textContent?.includes("Rename"))!.click());
+    act(() => present(panel().querySelector<HTMLButtonElement>('button[aria-label="More for task-1"]'), "element 'button[aria-label=\"More for task-1\"]'").click());
+    act(() => present(Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find((b) => b.textContent?.includes("Rename")), "menu item containing \"Rename\"").click());
     typeAndEnter("Draft it");
     await flush();
     expect(titleOf()).toBe("Draft it");
@@ -430,8 +431,8 @@ describe("TasksDialog", () => {
     await flush();
     const escape = (target: EventTarget = document.body) =>
       act(() => void target.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
-    act(() => document.querySelector<HTMLButtonElement>('aside[aria-label="Task task-1"] button[aria-label="More for task-1"]')!.click());
-    act(() => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find((b) => b.textContent?.includes("Duplicate"))!.click());
+    act(() => present(document.querySelector<HTMLButtonElement>('aside[aria-label="Task task-1"] button[aria-label="More for task-1"]'), "element 'aside[aria-label=\"Task task-1\"] button[aria-label=\"More for task-1\"]'").click());
+    act(() => present(Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find((b) => b.textContent?.includes("Duplicate")), "menu item containing \"Duplicate\"").click());
     expect(document.querySelector('.confirm[role="dialog"]')).not.toBeNull();
     escape();
     await flush();
@@ -439,8 +440,8 @@ describe("TasksDialog", () => {
     expect(document.querySelector('.confirm[role="dialog"]')).toBeNull();
     expect(focus).toBe("task-1");
     // The title's field: its Escape ends the edit, and only that.
-    act(() => void document.querySelector('aside[aria-label="Task task-1"] .tasks__detail-title')!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
-    escape(document.querySelector("textarea.tasks__detail-title-edit")!);
+    act(() => void present(document.querySelector('aside[aria-label="Task task-1"] .tasks__detail-title'), "element 'aside[aria-label=\"Task task-1\"] .tasks__detail-title'").dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+    escape(present(document.querySelector("textarea.tasks__detail-title-edit"), "element \"textarea.tasks__detail-title-edit\""));
     await flush();
     expect(document.querySelector("textarea.tasks__detail-title-edit")).toBeNull();
     expect(focus).toBe("task-1");
@@ -453,11 +454,11 @@ describe("TasksDialog", () => {
     await flush();
     act(() => button("+ Task").click());
     await flush();
-    const title = document.querySelector<HTMLInputElement>('input[aria-label="Title"]')!;
+    const title = present(document.querySelector<HTMLInputElement>('input[aria-label="Title"]'), "element 'input[aria-label=\"Title\"]'");
     act(() => {
       // Through the prototype's setter: React's value tracker records a
       // direct `.value` write as already known and fires no change.
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(title, "Review the copy");
+      present(present(Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value"), "input value property descriptor").set, "input value setter").call(title, "Review the copy");
       title.dispatchEvent(new Event("input", { bubbles: true }));
     });
     // The title's count under it: what is taken of the cap.
@@ -481,28 +482,28 @@ describe("TasksDialog", () => {
     const render = mount(service);
     render();
     await flush();
-    const card = () => document.querySelector<HTMLElement>('aside[aria-label="Task task-3"]')!;
+    const card = () => present(document.querySelector<HTMLElement>('aside[aria-label="Task task-3"]'), "element 'aside[aria-label=\"Task task-3\"]'");
     expect(card().querySelector(".tasks__epic-chip")?.textContent).toBe("EPIC");
-    const section = () => card().querySelector<HTMLElement>('section[aria-label="Tasks of the epic"]')!;
+    const section = () => present(card().querySelector<HTMLElement>('section[aria-label="Tasks of the epic"]'), "element 'section[aria-label=\"Tasks of the epic\"]'");
     expect([...section().querySelectorAll(".tasks__epic-task .tasks__row-title")].map((t) => t.textContent)).toEqual(["Draft the skill"]);
     expect(section().querySelector(".tasks__epic-summary")?.textContent).toBe("0 of 1 done");
     // The status menu: Done shown, refused, and why.
-    act(() => document.querySelector<HTMLButtonElement>('button[aria-label="Status"]')!.click());
+    act(() => present(document.querySelector<HTMLButtonElement>('button[aria-label="Status"]'), "element 'button[aria-label=\"Status\"]'").click());
     await flush();
-    const done = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="option"]')).find((o) => o.textContent === "Done")!;
+    const done = present(Array.from(document.querySelectorAll<HTMLButtonElement>('[role="option"]')).find((o) => o.textContent === "Done"), "option \"Done\"");
     expect(done.getAttribute("aria-disabled")).toBe("true");
     expect(document.querySelector(".dropdown__note")?.textContent).toBe("Done and Cancelled wait for the epic's tasks: task-1 (to do)");
-    act(() => document.querySelector<HTMLButtonElement>('button[aria-label="Status"]')!.click());
+    act(() => present(document.querySelector<HTMLButtonElement>('button[aria-label="Status"]'), "element 'button[aria-label=\"Status\"]'").click());
     await flush();
     // A new task made in the epic goes under it.
-    const newInEpic = Array.from(section().querySelectorAll<HTMLButtonElement>("button")).find((b) => b.textContent?.includes("New task in the epic"))!;
+    const newInEpic = present(Array.from(section().querySelectorAll<HTMLButtonElement>("button")).find((b) => b.textContent?.includes("New task in the epic")), "button containing \"New task in the epic\"");
     act(() => newInEpic.click());
     await flush();
     const epicPick = document.querySelector<HTMLButtonElement>('aside[aria-label="New task"] button[aria-label="Epic"] .dropdown__label');
     expect(epicPick?.textContent).toBe("task-3 · The epic");
-    const title = document.querySelector<HTMLInputElement>('input[aria-label="Title"]')!;
+    const title = present(document.querySelector<HTMLInputElement>('input[aria-label="Title"]'), "element 'input[aria-label=\"Title\"]'");
     act(() => {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(title, "Second step");
+      present(present(Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value"), "input value property descriptor").set, "input value setter").call(title, "Second step");
       title.dispatchEvent(new Event("input", { bubbles: true }));
     });
     await flush();
@@ -510,7 +511,7 @@ describe("TasksDialog", () => {
     await flush();
     const state = service.peek("ws-1");
     if (state?.kind !== "ready") throw new Error("not ready");
-    const made = state.board.tasks.find((t) => t.title === "Second step")!;
+    const made = present(state.board.tasks.find((t) => t.title === "Second step"), "task \"Second step\"");
     expect(state.board.relations).toContainEqual(expect.objectContaining({ kind: "child-of", from: made.uid, to: state.board.tasks[2].uid }));
   });
 
@@ -521,8 +522,8 @@ describe("TasksDialog", () => {
     mount(service)();
     await flush();
     const pick = (label: string) => {
-      act(() => document.querySelector<HTMLButtonElement>('aside[aria-label="Task task-1"] button[aria-label="Epic"]')!.click());
-      const option = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="option"]')).find((o) => o.textContent === label)!;
+      act(() => present(document.querySelector<HTMLButtonElement>('aside[aria-label="Task task-1"] button[aria-label="Epic"]'), "element 'aside[aria-label=\"Task task-1\"] button[aria-label=\"Epic\"]'").click());
+      const option = present(Array.from(document.querySelectorAll<HTMLButtonElement>('[role="option"]')).find((o) => o.textContent === label), "option matching label");
       act(() => option.click());
     };
     pick("task-3 · The epic");
@@ -537,7 +538,7 @@ describe("TasksDialog", () => {
     expect(picker()).toBeNull();
     expect(document.querySelector('aside[aria-label="Task task-1"] .tasks__epic-fixed')?.textContent).toBe("task-3 · The epic");
     const detach = () => document.querySelector<HTMLButtonElement>('aside[aria-label="Task task-1"] button[aria-label="Take out of the epic task-3"]');
-    act(() => detach()!.click());
+    act(() => present(detach(), "detach from epic button").click());
     await flush();
     expect(parentOf()).toBe(0);
     expect(detach()).toBeNull();
@@ -648,9 +649,9 @@ describe("TasksDialog", () => {
   }
   /** A status group's heading in the list, by its words. */
   const groupHeading = (label: string) =>
-    Array.from(document.querySelectorAll<HTMLElement>(".tasks__list-item .tasks__group")).find(
+    present(Array.from(document.querySelectorAll<HTMLElement>(".tasks__list-item .tasks__group")).find(
       (h) => h.querySelector(".tasks__group-label")?.textContent === label,
-    )!;
+    ), "task group matching label");
   const pointerAt = (type: string, target: EventTarget, x: number, y: number) =>
     target.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0 }));
 
@@ -669,14 +670,14 @@ describe("TasksDialog", () => {
     const render = mount(service);
     render();
     await flush();
-    const first = rowOpens().find((c) => c.querySelector(".tasks__row-title")?.textContent === "Task 0")!;
+    const first = present(rowOpens().find((c) => c.querySelector(".tasks__row-title")?.textContent === "Task 0"), "task row \"Task 0\"");
     act(() => void pointerAt("pointerdown", first, 10, 10));
     await flush();
     act(() => void pointerAt("pointermove", window, 40, 40));
     await flush();
 
     // Scroll the list far down: the row being dragged leaves the window.
-    const list = document.querySelector<HTMLElement>(".tasks__list")!;
+    const list = present(document.querySelector<HTMLElement>(".tasks__list"), "element \".tasks__list\"");
     act(() => {
       list.scrollTop = 60 * 34;
       list.dispatchEvent(new Event("scroll"));
@@ -714,7 +715,7 @@ describe("TasksDialog", () => {
     // The field is not a row: it stands under the list, whatever is in view.
     const field = document.querySelector(".tasks__detail-composer textarea");
     expect(field).not.toBeNull();
-    expect(field!.closest(".tasks__detail-body")).toBeNull();
+    expect(present(field, "field").closest(".tasks__detail-body")).toBeNull();
   });
 
   it("the history rests compact and opens whole from its heading, its chevron turning", async () => {
@@ -722,7 +723,7 @@ describe("TasksDialog", () => {
     focus = "task-1";
     mount(service)();
     await flush();
-    const heading = () => document.querySelector<HTMLButtonElement>(".tasks__section--toggle")!;
+    const heading = () => present(document.querySelector<HTMLButtonElement>(".tasks__section--toggle"), "element \".tasks__section--toggle\"");
     expect(heading().getAttribute("aria-expanded")).toBe("false");
     // The toggle is a heading's: a reader reaches the activity by it.
     expect(heading().parentElement?.tagName).toBe("H4");
@@ -738,17 +739,17 @@ describe("TasksDialog", () => {
     focus = "task-1";
     mount(service)();
     await flush();
-    const card = document.querySelector(".tasks__detail")!;
+    const card = present(document.querySelector(".tasks__detail"), "element \".tasks__detail\"");
     expect(card.parentElement?.getAttribute("role")).toBe("dialog");
     expect(card.closest(".tasks__stage")).toBeNull();
     // The head under it is out of reach while it is up.
-    expect(document.querySelector(".tasks__head")!.hasAttribute("inert")).toBe(true);
+    expect(present(document.querySelector(".tasks__head"), "element \".tasks__head\"").hasAttribute("inert")).toBe(true);
     // Expand is named for what it is; its state is said, not its next press.
-    const expand = card.querySelector<HTMLButtonElement>('button[aria-label="Expand"]')!;
+    const expand = present(card.querySelector<HTMLButtonElement>('button[aria-label="Expand"]'), "element 'button[aria-label=\"Expand\"]'");
     expect(expand.getAttribute("aria-expanded")).toBe("false");
     act(() => expand.click());
     await flush();
-    expect(card.querySelector('button[aria-label="Expand"]')!.getAttribute("aria-expanded")).toBe("true");
+    expect(present(card.querySelector('button[aria-label="Expand"]'), "element 'button[aria-label=\"Expand\"]'").getAttribute("aria-expanded")).toBe("true");
   });
 
   it("a list row is dragged onto another group — its heading, even folded — and the task moves there", async () => {
@@ -758,10 +759,10 @@ describe("TasksDialog", () => {
     const pointer = (type: string, target: EventTarget, x: number, y: number) =>
       target.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0 }));
     const heading = (label: string) =>
-      Array.from(document.querySelectorAll<HTMLElement>(".tasks__list-item .tasks__group")).find((h) =>
+      present(Array.from(document.querySelectorAll<HTMLElement>(".tasks__list-item .tasks__group")).find((h) =>
         h.querySelector(".tasks__group-label")?.textContent === label,
-      )!;
-    const row = () => document.querySelector<HTMLElement>(".tasks__row-open")!;
+      ), "task group matching label");
+    const row = () => present(document.querySelector<HTMLElement>(".tasks__row-open"), "element \".tasks__row-open\"");
 
     act(() => void pointer("pointerdown", row(), 10, 10));
     await flush();
@@ -770,7 +771,7 @@ describe("TasksDialog", () => {
     // The ghost is the list's own row: the same line, the same parts.
     expect(document.querySelector(".tasks__ghost .tasks__row .tasks__row-title")?.textContent).toBe("Draft the skill");
     expect(document.querySelector(".tasks__ghost .tasks__row .tasks__row-who")?.textContent).toBe("impl-1");
-    expect(document.querySelector(".tasks__list .tasks__row")!.className).toContain("tasks__row--dragging");
+    expect(present(document.querySelector(".tasks__list .tasks__row"), "element \".tasks__list .tasks__row\"").className).toContain("tasks__row--dragging");
     act(() => void pointer("pointerover", heading("Done"), 40, 300));
     await flush();
     expect(heading("Done").className).toContain("tasks__drop--over");
@@ -806,7 +807,7 @@ describe("TasksDialog", () => {
     // To do holds the epic (its own status) and the task under it; the task is in no other group.
     expect(rowTitles()).toEqual(["Draft the skill", "The epic", "Pooled work"]);
     expect(groupHeading("To do").querySelector(".tasks__group-count")?.textContent).toBe("3");
-    const fold = () => document.querySelector<HTMLButtonElement>(".tasks__list .tasks__row-fold")!;
+    const fold = () => present(document.querySelector<HTMLButtonElement>(".tasks__list .tasks__row-fold"), "element \".tasks__list .tasks__row-fold\"");
     act(() => fold().click());
     await flush();
     expect(rowTitles()).toEqual(["Draft the skill", "The epic"]);
@@ -827,7 +828,7 @@ describe("TasksDialog", () => {
     act(() => fold().click());
     act(() => fold().click());
     await flush();
-    const pooled = () => rowOpens().find((c) => c.querySelector(".tasks__row-title")?.textContent === "Pooled work")!;
+    const pooled = () => present(rowOpens().find((c) => c.querySelector(".tasks__row-title")?.textContent === "Pooled work"), "task row \"Pooled work\"");
     act(() => void pointerAt("pointerdown", pooled(), 10, 10));
     await flush();
     act(() => void pointerAt("pointermove", window, 40, 40));
@@ -868,7 +869,7 @@ describe("TasksDialog", () => {
 
     // A press that does not travel is a click: the row opens.
     await new Promise((resolve) => setTimeout(resolve, 260));
-    const pooled = () => rowOpens().find((c) => c.querySelector(".tasks__row-title")?.textContent === "Pooled work")!;
+    const pooled = () => present(rowOpens().find((c) => c.querySelector(".tasks__row-title")?.textContent === "Pooled work"), "task row \"Pooled work\"");
     act(() => {
       pointerAt("pointerdown", pooled(), 10, 10);
       pointerAt("pointerup", pooled(), 10, 10);
@@ -940,7 +941,7 @@ describe("TasksDialog", () => {
     act(() => rowOpens()[0].click());
     await flush();
     await flush();
-    const picker = document.querySelector<HTMLButtonElement>('button[aria-label="Attach an artifact"]')!;
+    const picker = present(document.querySelector<HTMLButtonElement>('button[aria-label="Attach an artifact"]'), "element 'button[aria-label=\"Attach an artifact\"]'");
     act(() => picker.click());
     await flush();
     act(() => paletteOption("KeepDeck Tasks").click());
@@ -952,11 +953,11 @@ describe("TasksDialog", () => {
     // Attached: the picker has nothing left to offer; the row opens it.
     expect(document.querySelector('button[aria-label="Attach an artifact"]')).toBeNull();
     // The chip opens it; its slug is in its title, the durable half.
-    const row = buttons().find((b) => b.textContent === "KeepDeck Tasks")!;
+    const row = present(buttons().find((b) => b.textContent === "KeepDeck Tasks"), "button \"KeepDeck Tasks\"");
     expect(row.title).toContain("kd-tasks");
     act(() => row.click());
     expect(openArtifactByRef).toHaveBeenCalledWith("ws-1", "kd-tasks");
-    act(() => document.querySelector<HTMLButtonElement>('button[aria-label="Detach kd-tasks"]')!.click());
+    act(() => present(document.querySelector<HTMLButtonElement>('button[aria-label="Detach kd-tasks"]'), "element 'button[aria-label=\"Detach kd-tasks\"]'").click());
     await flush();
     state = service.peek("ws-1");
     expect(state?.kind === "ready" && state.board.tasks[0].artifacts).toEqual([]);
@@ -973,7 +974,7 @@ describe("TasksDialog", () => {
     act(() => rowOpens()[0].click());
     await flush();
     await flush();
-    const picker = document.querySelector<HTMLButtonElement>('button[aria-label="Add a blocker"]')!;
+    const picker = present(document.querySelector<HTMLButtonElement>('button[aria-label="Add a blocker"]'), "element 'button[aria-label=\"Add a blocker\"]'");
     act(() => picker.click());
     await flush();
     // A palette over the panel, naming what is picked.
@@ -990,7 +991,7 @@ describe("TasksDialog", () => {
     expect(blockers()).toEqual(["task-2"]);
     // Waiting on the only other task: nothing left to offer.
     expect(document.querySelector('button[aria-label="Add a blocker"]')).toBeNull();
-    act(() => document.querySelector<HTMLButtonElement>('button[aria-label="Stop waiting on task-2"]')!.click());
+    act(() => present(document.querySelector<HTMLButtonElement>('button[aria-label="Stop waiting on task-2"]'), "element 'button[aria-label=\"Stop waiting on task-2\"]'").click());
     await flush();
     expect(blockers()).toEqual([]);
   });
@@ -1005,14 +1006,14 @@ describe("TasksDialog", () => {
     act(() => rowOpens()[0].click());
     await flush();
     await flush();
-    const menu = () => document.querySelector<HTMLButtonElement>('button[aria-label="More for task-1"]')!;
+    const menu = () => present(document.querySelector<HTMLButtonElement>('button[aria-label="More for task-1"]'), "element 'button[aria-label=\"More for task-1\"]'");
     const item = (label: string) =>
-      Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find((b) => b.textContent?.includes(label))!;
+      present(Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find((b) => b.textContent?.includes(label)), "menu item containing label");
     // Escape closes the palette, not the open task under it.
     act(() => menu().click());
     act(() => item("Blocks…").click());
     await flush();
-    act(() => document.querySelector<HTMLInputElement>(".palette__field")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    act(() => present(document.querySelector<HTMLInputElement>(".palette__field"), "element \".palette__field\"").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
     await flush();
     expect(document.querySelector(".palette")).toBeNull();
     expect(document.querySelector('aside[aria-label="Task task-1"]')).not.toBeNull();
@@ -1126,9 +1127,9 @@ describe("TasksDialog", () => {
     await flush();
     act(() => button("+ Task").click());
     await flush();
-    const title = document.querySelector<HTMLInputElement>('input[aria-label="Title"]')!;
+    const title = present(document.querySelector<HTMLInputElement>('input[aria-label="Title"]'), "element 'input[aria-label=\"Title\"]'");
     act(() => {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(title, "Also web's");
+      present(present(Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value"), "input value property descriptor").set, "input value setter").call(title, "Also web's");
       title.dispatchEvent(new Event("input", { bubbles: true }));
     });
     await flush();
@@ -1145,10 +1146,10 @@ describe("TasksDialog", () => {
     await flush();
     act(() => rowOpens()[0].click());
     await flush();
-    const composer = () => document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Comment"]')!;
+    const composer = () => present(document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Comment"]'), "element 'textarea[aria-label=\"Comment\"]'");
     const type = (value: string) =>
       act(() => {
-        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(composer(), value);
+        present(present(Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value"), "textarea value property descriptor").set, "textarea value setter").call(composer(), value);
         composer().dispatchEvent(new Event("input", { bubbles: true }));
       });
     // Over the cap: the domain's own predicate keeps Comment off, and the
@@ -1192,10 +1193,10 @@ describe("TasksDialog", () => {
     await flush();
     act(() => rowOpens()[0].click());
     await flush();
-    const composer = () => document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Comment"]')!;
+    const composer = () => present(document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Comment"]'), "element 'textarea[aria-label=\"Comment\"]'");
     const type = (value: string) =>
       act(() => {
-        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(composer(), value);
+        present(present(Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value"), "textarea value property descriptor").set, "textarea value setter").call(composer(), value);
         composer().dispatchEvent(new Event("input", { bubbles: true }));
       });
     // The owner's answer is held: the send is out, the person keeps typing.
@@ -1243,7 +1244,7 @@ describe("TasksDialog", () => {
   it("names the one team as a word, kept to one line", async () => {
     const { service } = await seeded();
     const [ws] = teamedWorkspaces();
-    mount(service, { ...ws, teams: [ws.teams![0]] })();
+    mount(service, { ...ws, teams: [present(ws.teams, "workspace team list")[0]] })();
     await flush();
     expect(document.querySelector(".tasks__team-name")?.classList.contains("kd-one-line")).toBe(true);
   });

@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { lib, skill, skillsDialogHost } from "./skillsDialogTestSupport";
 import { row, button, buttonByTitle, input, textarea, type } from "../library/libraryTestDom";
 import { SkillsDialog } from "./SkillsDialog";
+import { present } from "@keepdeck/plugin-api/testing";
 
 describe("SkillsDialog", () => {
   const host = skillsDialogHost(SkillsDialog);
@@ -29,12 +30,12 @@ describe("SkillsDialog", () => {
     // applies to a name being AUTHORED, which the next case covers.
     lib.skills = [skill("My_Skill")];
     await host.mount();
-    act(() => row("My_Skill")!.click());
+    act(() => present(row("My_Skill"), "row \"My_Skill\"").click());
     type(textarea("skill-body"), "edited body");
 
     expect(document.body.textContent).not.toContain("Lowercase letters");
-    expect(button("Save")!.disabled).toBe(false);
-    await act(async () => button("Save")!.click());
+    expect(present(button("Save"), "button \"Save\"").disabled).toBe(false);
+    await act(async () => present(button("Save"), "button \"Save\"").click());
     expect(lib.save).toHaveBeenCalled();
     expect(lib.rename).not.toHaveBeenCalled();
   });
@@ -42,11 +43,11 @@ describe("SkillsDialog", () => {
   it("still refuses a name the user is authoring, and says the whole rule", async () => {
     lib.skills = [skill("My_Skill")];
     await host.mount();
-    act(() => row("My_Skill")!.click());
+    act(() => present(row("My_Skill"), "row \"My_Skill\"").click());
     // Touching the name makes it this editor's to judge again.
     type(input("skill-name"), "My_Skill_2");
 
-    expect(button("Save")!.disabled).toBe(true);
+    expect(present(button("Save"), "button \"Save\"").disabled).toBe(true);
     // The full rule, from the domain — three surfaces used to describe it from
     // memory and all three described a subset, so `my-skill-` was told it may
     // contain "lowercase letters, digits and hyphens only" and refused anyway.
@@ -59,10 +60,10 @@ describe("SkillsDialog", () => {
     // with nothing on screen.
     lib.skills = [skill("review")];
     await host.mount();
-    act(() => row("review")!.click());
+    act(() => present(row("review"), "row \"review\"").click());
     type(input("skill-name"), "");
 
-    expect(button("Save")!.disabled).toBe(true);
+    expect(present(button("Save"), "button \"Save\"").disabled).toBe(true);
     expect(document.body.textContent).toContain("A skill needs a name");
   });
 
@@ -73,19 +74,19 @@ describe("SkillsDialog", () => {
     lib.skills = [skill("mine", "workspace", "ws-1"), skill("shared")];
     await host.mount({ id: "ws-1", name: "My project" });
 
-    act(() => row("mine")!.click());
-    expect(document.querySelector(".library__scope")!.textContent).toBe("My project");
+    act(() => present(row("mine"), "row \"mine\"").click());
+    expect(present(document.querySelector(".library__scope"), "element \".library__scope\"").textContent).toBe("My project");
 
-    act(() => row("shared")!.click());
-    expect(document.querySelector(".library__scope")!.textContent).toBe("Global");
+    act(() => present(row("shared"), "row \"shared\"").click());
+    expect(present(document.querySelector(".library__scope"), "element \".library__scope\"").textContent).toBe("Global");
   });
 
   it("focuses the name field when the create form appears, not only on mount", async () => {
     lib.skills = [skill("review")];
     await host.mount();
-    act(() => row("review")!.click());
+    act(() => present(row("review"), "row \"review\"").click());
 
-    act(() => buttonByTitle("New global skill")!.click());
+    act(() => present(buttonByTitle("New global skill"), "buttonByTitle \"New global skill\"").click());
 
     expect(document.activeElement).toBe(input("skill-name"));
   });
@@ -95,12 +96,12 @@ describe("SkillsDialog", () => {
     // filling the description first is the natural order, and holding the message for
     // the field itself left Create disabled with nothing at all on screen.
     await host.mount();
-    act(() => buttonByTitle("New global skill")!.click());
+    act(() => present(buttonByTitle("New global skill"), "buttonByTitle \"New global skill\"").click());
     expect(document.querySelectorAll(".form__error")).toHaveLength(0);
 
     type(input("skill-description"), "Ships it");
 
-    expect(button("Create")!.disabled).toBe(true);
+    expect(present(button("Create"), "button \"Create\"").disabled).toBe(true);
     expect(document.body.textContent).toContain("A skill needs a name");
   });
 
@@ -129,10 +130,10 @@ describe("SkillsDialog", () => {
   it("selecting a skill fills the editor, name included", async () => {
     lib.skills = [skill("review")];
     await host.mount();
-    act(() => row("review")!.click());
+    act(() => present(row("review"), "row \"review\"").click());
 
     expect(
-      document.querySelector(".library__editor-title")!.textContent,
+      present(document.querySelector(".library__editor-title"), "element \".library__editor-title\"").textContent,
     ).toContain("review");
     expect(input("skill-name").value).toBe("review");
     expect(input("skill-name").disabled).toBe(false);
@@ -144,13 +145,13 @@ describe("SkillsDialog", () => {
     lib.skills = [skill("review")];
     await host.mount();
     expect(
-      document.querySelector(".library__item-desc")!.textContent,
+      present(document.querySelector(".library__item-desc"), "element \".library__item-desc\"").textContent,
     ).toBe("About review");
   });
 
   it("⌘S saves when the draft is valid", async () => {
     await host.mount();
-    act(() => buttonByTitle("New global skill")!.click());
+    act(() => present(buttonByTitle("New global skill"), "buttonByTitle \"New global skill\"").click());
     type(input("skill-name"), "deploy");
     type(input("skill-description"), "Ships it");
     type(textarea("skill-body"), "Steps");
@@ -165,11 +166,11 @@ describe("SkillsDialog", () => {
 
   it("creates a skill in the scope whose + New was clicked", async () => {
     await host.mount();
-    act(() => buttonByTitle("New workspace skill")!.click());
+    act(() => present(buttonByTitle("New workspace skill"), "buttonByTitle \"New workspace skill\"").click());
     type(input("skill-name"), "deploy");
     type(input("skill-description"), "Ships it");
     type(textarea("skill-body"), "Steps");
-    await act(async () => button("Create")!.click());
+    await act(async () => present(button("Create"), "button \"Create\"").click());
 
     expect(lib.save).toHaveBeenCalledWith(
       { kind: "workspace", wsId: "ws-1" },
@@ -197,13 +198,13 @@ describe("SkillsDialog", () => {
 
     expect(document.body.textContent).toContain("Could not read");
 
-    act(() => buttonByTitle("New global skill")!.click());
+    act(() => present(buttonByTitle("New global skill"), "buttonByTitle \"New global skill\"").click());
     type(input("skill-name"), "review");
     type(input("skill-description"), "Reviews diffs");
     type(textarea("skill-body"), "Steps");
 
-    expect(button("Create")!.disabled).toBe(false);
-    await act(async () => button("Create")!.click());
+    expect(present(button("Create"), "button \"Create\"").disabled).toBe(false);
+    await act(async () => present(button("Create"), "button \"Create\"").click());
     expect(lib.save).toHaveBeenCalledWith(
       { kind: "global" },
       expect.objectContaining({ name: "review" }),
@@ -215,31 +216,31 @@ describe("SkillsDialog", () => {
 
   it("refuses to save without a description — some CLIs silently drop such skills", async () => {
     await host.mount();
-    act(() => buttonByTitle("New global skill")!.click());
+    act(() => present(buttonByTitle("New global skill"), "buttonByTitle \"New global skill\"").click());
     type(input("skill-name"), "deploy");
     type(textarea("skill-body"), "Steps");
 
-    expect(button("Create")!.disabled).toBe(true);
+    expect(present(button("Create"), "button \"Create\"").disabled).toBe(true);
     expect(document.body.textContent).toContain("Required");
 
     type(input("skill-description"), "Ships it");
-    expect(button("Create")!.disabled).toBe(false);
+    expect(present(button("Create"), "button \"Create\"").disabled).toBe(false);
   });
 
   it("blocks creating with an invalid or colliding name", async () => {
     lib.skills = [skill("review")];
     await host.mount();
-    act(() => buttonByTitle("New global skill")!.click());
+    act(() => present(buttonByTitle("New global skill"), "buttonByTitle \"New global skill\"").click());
     type(input("skill-description"), "A valid description");
 
     type(input("skill-name"), "Bad Name");
-    expect(button("Create")!.disabled).toBe(true);
+    expect(present(button("Create"), "button \"Create\"").disabled).toBe(true);
 
     type(input("skill-name"), "review");
-    expect(button("Create")!.disabled).toBe(true);
+    expect(present(button("Create"), "button \"Create\"").disabled).toBe(true);
     expect(document.body.textContent).toContain("already exists");
 
     type(input("skill-name"), "fresh-name");
-    expect(button("Create")!.disabled).toBe(false);
+    expect(present(button("Create"), "button \"Create\"").disabled).toBe(false);
   });
 });

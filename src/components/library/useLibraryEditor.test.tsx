@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { LibraryState } from "../../app/useLibraryState";
 import { libraryVerdicts, type NameProblem } from "./libraryVerdicts";
 import { useLibraryEditor, type EditorWorld } from "./useLibraryEditor";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /**
  * The machine driven bare — no dialog, no fields — over the smallest library
@@ -104,7 +105,7 @@ beforeEach(() => {
   lib = fakeLibrary([review, deploy, shipped]);
   onClose.mockClear();
   document.body.innerHTML = "<div id='host'></div>";
-  root = createRoot(document.getElementById("host")!);
+  root = createRoot(present(document.getElementById("host"), "element \"host\""));
 });
 
 afterEach(() => {

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Settings } from "../../domain/settings";
 import { DEFAULT_SETTINGS } from "../../domain/settings";
 import { GeneralSection } from "./GeneralSection";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const settings = vi.hoisted(() => ({ current: null as Settings | null }));
 const settingsManager = vi.hoisted(() => ({ updateSettings: vi.fn() }));
@@ -85,7 +86,7 @@ describe("GeneralSection — dock mode", () => {
 
   it("writes the picked mode through to settings", () => {
     mount();
-    act(() => dockButtons().get("Floating")!.click());
+    act(() => present(dockButtons().get("Floating"), "entry \"Floating\" in dockButtons()").click());
     // Only the one key: the picker must not carry its neighbours along.
     expect(settingsManager.updateSettings).toHaveBeenCalledTimes(1);
     expect(settingsManager.updateSettings).toHaveBeenCalledWith({
@@ -120,7 +121,7 @@ describe("GeneralSection — dock mode", () => {
       "form__type--active",
     );
 
-    act(() => suspendedButtons().get("Tray")!.click());
+    act(() => present(suspendedButtons().get("Tray"), "entry \"Tray\" in suspendedButtons()").click());
     expect(settingsManager.updateSettings).toHaveBeenCalledTimes(1);
     expect(settingsManager.updateSettings).toHaveBeenCalledWith({
       suspendedAgentPlacement: "tray",

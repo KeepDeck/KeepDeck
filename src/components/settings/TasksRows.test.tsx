@@ -6,6 +6,7 @@ import type { Settings } from "../../domain/settings";
 import { DEFAULT_SETTINGS } from "../../domain/settings";
 import { tasksEnableStatus } from "../../app/tasks/enableStatus";
 import { TasksRows } from "./TasksRows";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const settings = vi.hoisted(() => ({ current: null as Settings | null }));
 const settingsManager = vi.hoisted(() => ({ updateSettings: vi.fn() }));
@@ -50,12 +51,12 @@ describe("TasksRows", () => {
 
   it("writes the tasks key and marks the stored value active", () => {
     mount();
-    expect(buttons().get("Off")!.className).toContain("form__type--active");
-    act(() => buttons().get("On")!.click());
+    expect(present(buttons().get("Off"), "entry \"Off\" in buttons()").className).toContain("form__type--active");
+    act(() => present(buttons().get("On"), "entry \"On\" in buttons()").click());
     expect(settingsManager.updateSettings).toHaveBeenCalledWith({ tasks: true });
     settings.current = { ...DEFAULT_SETTINGS, tasks: true };
     mount();
-    expect(buttons().get("On")!.className).toContain("form__type--active");
+    expect(present(buttons().get("On"), "entry \"On\" in buttons()").className).toContain("form__type--active");
   });
 
   it("promises no delivery: the hint says agents learn of a task from mail", () => {

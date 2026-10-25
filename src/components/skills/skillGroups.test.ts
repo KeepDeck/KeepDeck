@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { LibrarySkill } from "../../app/skillsLibrary";
 import { buildSkillGroups, labelForScope } from "./skillGroups";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const skill = (
   name: string,
@@ -59,8 +60,8 @@ describe("buildSkillGroups", () => {
       [skill("artifacts"), skill("artifacts", { kind: "bundled" })],
       null,
     );
-    expect(groups.find((g) => g.label === "Global")!.items).toHaveLength(1);
-    expect(groups.find((g) => g.label === "Bundled")!.items).toHaveLength(1);
+    expect(present(groups.find((g) => g.label === "Global"), "group \"Global\"").items).toHaveLength(1);
+    expect(present(groups.find((g) => g.label === "Bundled"), "group \"Bundled\"").items).toHaveLength(1);
   });
 
   it("omits the Bundled group entirely when the tier ships nothing", () => {
