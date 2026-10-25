@@ -25,6 +25,7 @@
  * below. This lets the plugin read the record instead of the host's
  * paraphrase of it.
  */
+import { isJsonRecord } from "../json.ts";
 import type { AgentStatusEvent } from "./status.ts";
 import type { SessionFormat } from "./sessionRead.ts";
 
@@ -141,10 +142,8 @@ function at(record: unknown, path: string): unknown {
     // on this side only, since the host walks objects alone. A plugin would
     // then test a watch that works in its own suite and carries nothing in
     // production. Caught by the shared corpus on its first run.
-    if (typeof held !== "object" || held === null || Array.isArray(held)) {
-      return undefined;
-    }
-    held = (held as Record<string, unknown>)[segment];
+    if (!isJsonRecord(held)) return undefined;
+    held = held[segment];
   }
   return held;
 }

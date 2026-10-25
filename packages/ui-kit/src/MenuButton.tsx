@@ -105,7 +105,7 @@ export function MenuButton({
         }
         if (!menuOpen) return;
         const items = itemsOf(menuRef.current);
-        const to = menuStep(event.key, items.indexOf(document.activeElement as HTMLButtonElement), items.length);
+        const to = menuStep(event.key, document.activeElement instanceof HTMLButtonElement ? items.indexOf(document.activeElement) : -1, items.length);
         if (to === null) return;
         event.preventDefault();
         items[to]?.focus();

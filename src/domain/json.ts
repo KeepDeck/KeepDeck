@@ -25,16 +25,9 @@ export function collectExtras(
   return extras;
 }
 
-/**
- * The keys of a table this codebase writes as a literal — a `satisfies
- * Record<K, …>` constant, say — typed as its keys. `Object.keys` answers
- * `string[]` because an object in general may carry more than its type
- * names; a table literal carries exactly what it declares, so its own keys
- * are its `keyof`. Not for anything read from outside.
- */
-export function keysOf<T extends object>(table: T): Extract<keyof T, string>[] {
-  return Object.keys(table).filter((key): key is Extract<keyof T, string> => Object.prototype.hasOwnProperty.call(table, key));
-}
+/** The keys of a table literal, typed as its keys — the contract's own
+ * helper, the one every layer uses. */
+export { keysOf } from "@keepdeck/plugin-api";
 
 /** Whether `value` is a JSON object whose every value is a string. */
 export function isStringRecord(value: unknown): value is Record<string, string> {

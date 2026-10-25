@@ -8,7 +8,7 @@
  * Everything here is plain data in and plain data out, so a normalizer runs
  * identically in-process or across the external tier's RPC boundary.
  */
-import { isJsonRecord } from "../json.ts";
+import { isJsonRecord, keysOf } from "../json.ts";
 import { CARRIED_RECORD, type TailWatch } from "./sessionTail.ts";
 
 /** One provider rate-limit window, normalized across CLIs. Labels derive
@@ -374,9 +374,9 @@ export function collectTokenCounts(
   fields: Record<keyof TokenCounts, unknown>,
 ): TokenCounts | undefined {
   const counts: TokenCounts = {};
-  for (const [key, raw] of Object.entries(fields)) {
-    const value = asFiniteNumber(raw);
-    if (value !== undefined) counts[key as keyof TokenCounts] = value;
+  for (const key of keysOf(fields)) {
+    const value = asFiniteNumber(fields[key]);
+    if (value !== undefined) counts[key] = value;
   }
   return Object.keys(counts).length > 0 ? counts : undefined;
 }

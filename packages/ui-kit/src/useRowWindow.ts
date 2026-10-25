@@ -138,7 +138,7 @@ export function useRowWindow<Row>({
       for (let index = 0; index < rows.length; index++) {
         const item = cache[index];
         // Keys are the consumer's strings (`keyOf`).
-        if (item) laid.push({ key: item.key as string, start: item.start, end: item.end });
+        if (item) laid.push({ key: String(item.key), start: item.start, end: item.end });
       }
       return { rows: laid, total: virtualizer.getTotalSize() };
     },

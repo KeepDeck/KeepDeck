@@ -603,7 +603,8 @@ function readAgentSummaries(
       return;
     }
     ids.add(summary.id);
-    const record = entry as Record<string, unknown>;
+    if (!isJsonRecord(entry)) return;
+    const record = entry;
     const bin = record.bin;
     if (
       bin !== undefined &&

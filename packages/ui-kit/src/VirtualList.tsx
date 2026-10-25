@@ -1,4 +1,4 @@
-import { memo, useEffect, useLayoutEffect, useRef, type ReactNode, type RefObject } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, type ReactNode, type RefObject } from "react";
 import { marksOf, type ChangeMarks } from "./listMotion";
 import { foldSpacer } from "./foldMotion";
 import { atListFoot, followsChange, footAfter, holdWhileOff, pinAfterCommit, pinAfterScroll } from "./followEnd";
@@ -134,6 +134,7 @@ export function VirtualList<T>({
   item,
   followEnd = false,
 }: VirtualListProps<T>) {
+  const RowContent = useMemo(() => rowContentOf<T>(), []);
   const scrollRef = useRef<HTMLDivElement>(null);
   const marks = useChangeMarks(items, itemKey, easeKey);
   // The fold's hand-offs reach it through a ref: the anchoring is set up
@@ -351,15 +352,21 @@ function placed(top: number) {
  * consumer's render changes. A fold draws the list once a frame — only
  * the boxes around the rows move, and the rows themselves (a task row's
  * controls, its labels) are not built again ten times over.
+ *
+ * Made once per list, for that list's item type: `memo` of a generic
+ * component keeps no type parameter, so one shared component could only
+ * have been asserted back into shape.
  */
-const RowContent = memo(function RowContent<T>({
-  item,
-  index,
-  render,
-}: {
-  item: T;
-  index: number;
-  render: (item: T, index: number) => ReactNode;
-}) {
-  return <>{render(item, index)}</>;
-}) as <T>(props: { item: T; index: number; render: (item: T, index: number) => ReactNode }) => ReactNode;
+function rowContentOf<T>() {
+  return memo(function RowContent({
+    item,
+    index,
+    render,
+  }: {
+    item: T;
+    index: number;
+    render: (item: T, index: number) => ReactNode;
+  }) {
+    return <>{render(item, index)}</>;
+  });
+}

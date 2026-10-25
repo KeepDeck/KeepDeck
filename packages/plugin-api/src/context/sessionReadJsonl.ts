@@ -41,14 +41,25 @@ interface JsonlResume {
 const CURSOR_PREFIX = "j1";
 
 function encodeCursor(resume: JsonlResume): SessionCursor {
-  return `${CURSOR_PREFIX}:${resume.byte}:${resume.size}` as SessionCursor;
+  const cursor = `${CURSOR_PREFIX}:${resume.byte}:${resume.size}`;
+  if (!isJsonlCursor(cursor)) throw new Error(`jsonl: ${cursor} is not a cursor this reader can resume`);
+  return cursor;
+}
+
+/** Whether `text` is a jsonl cursor this reader can resume from. */
+function isJsonlCursor(text: string): text is SessionCursor {
+  return resumeOf(text) !== null;
 }
 
 /** `null` for anything this version cannot read — a cursor from a future
  * shape, or a forged one. The caller turns that into `changed`, which is
  * already the right instruction: start over. */
 function decodeCursor(cursor: SessionCursor): JsonlResume | null {
-  const parts = String(cursor).split(":");
+  return resumeOf(cursor);
+}
+
+function resumeOf(text: string): JsonlResume | null {
+  const parts = text.split(":");
   if (parts.length !== 3 || parts[0] !== CURSOR_PREFIX) return null;
   const byte = Number(parts[1]);
   const size = Number(parts[2]);

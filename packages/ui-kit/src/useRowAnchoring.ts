@@ -117,7 +117,7 @@ export function useRowAnchoring<Row>({
     return rowVirtualizer.measurementsCache[index]?.start ?? null;
   };
   const windowRowsOf = () =>
-    virtualItems.map((v) => ({ key: v.key as string, start: v.start }));
+    virtualItems.map((v) => ({ key: String(v.key), start: v.start }));
   // The full re-pick: the first fully visible row of this render's window.
   const armFirstVisible = (list: HTMLElement) => {
     const first = pickAnchor(windowRowsOf(), list.scrollTop);

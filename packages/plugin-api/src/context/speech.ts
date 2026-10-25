@@ -80,11 +80,13 @@ export type SpeechErrorKind = (typeof SPEECH_ERROR_KINDS)[number];
 /** The kind of a rejected speech call, or `null` for an error that carries
  * none (a host older than the kinds, or a failure outside the speech tier). */
 export function speechErrorKind(error: unknown): SpeechErrorKind | null {
-  if (typeof error !== "object" || error === null) return null;
-  const code = (error as { code?: unknown }).code;
-  return (SPEECH_ERROR_KINDS as readonly unknown[]).includes(code)
-    ? (code as SpeechErrorKind)
-    : null;
+  if (typeof error !== "object" || error === null || !("code" in error)) return null;
+  const { code } = error;
+  return isSpeechErrorKind(code) ? code : null;
+}
+
+function isSpeechErrorKind(value: unknown): value is SpeechErrorKind {
+  return SPEECH_ERROR_KINDS.some((kind) => kind === value);
 }
 
 /** One microphone the OS offers. */
